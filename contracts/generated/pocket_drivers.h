@@ -10,10 +10,12 @@
 /* Status zero means success; negative values mean errors. Callback absence is unsupported. Driver context and vtables remain valid until runtime destruction, after all outstanding work has been drained. Runtime calls occur on its single owning thread. */
 /* PIPELINED_ACQUIRE requires CPU-visible double staging buffers and device frame storage. After flush, acquire may return the other buffer while the first transfer is pending; at most two transfers are pending. Never return storage still read by a transfer. Missing this flag requires display wait before reacquisition. */
 /* Lifecycle: acquire, render, renderer wait, flush, display wait, retire. Each display has its own submission. A shared resource remains live until its last referencing submission retires. */
-/* CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts. Acquired regions are exclusive until flush; nobody writes them until display wait returns. */
+/* An IMMEDIATE renderer's frame completes before present returns. A DEFERRED renderer's frame stays in flight through the next guest turn; the runtime completes it at the next present, pocket_runtime_complete_presentation, a display refresh, or runtime destruction, before acquiring that display again. */
+/* QUEUED_FLUSH requires a device-owned target. The device starts a flushed transfer only after the rendering already submitted to the target completes and guards its scanout buffers itself. With a DEFERRED renderer the runtime calls flush after render and before renderer wait; completion then runs renderer wait, display wait, retire. Without the flag a DEFERRED frame is flushed at completion, after renderer wait. */
+/* CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts, except on a QUEUED_FLUSH display. Acquired regions are exclusive until flush; nobody writes them until display wait returns. */
 /* render and flush errors are terminal: drain or cancel all submitted work before returning an error. Both wait callbacks return only after completion or cancellation on success AND error; there is no in-progress or recoverable timeout result. Reset hung hardware before returning failure. */
 /* Ordinary render borrows end on return. Deferred work must use driver-owned copies. render_zero_copy is a separate unsafe contract: the caller keeps every frame resource alive and unchanged through renderer wait, including error returns. At most one zero-copy frame is in flight before the next script mutation. */
-/* Retire runs after rendering and display transfer stop accessing memory. Destroy and application replacement drain all submissions and tokens before freeing resources. A failed frame invalidates the buffer's damage history. */
+/* Retire runs after rendering and display transfer stop accessing memory. Destroy and application replacement drain all submissions and tokens before freeing resources. A failed frame invalidates the buffer's damage history. A failed DEFERRED completion is reported by the call that completes it and invalidates only that display's history. */
 /* Software fallback requires a CPU-visible target, drained accelerator work, cache visibility, and writes restricted to the acquired region. Only the baseline eight operations have software fallback; textRun and surfaceQuad need profile-declared native support. */
 /* DrawList has a closed operation set without per-operation lengths. Headers and the runtime archive must share the DrawList version. No unknown-operation skipping or renderer fallback chain is defined. */
 
@@ -97,6 +99,7 @@ extern "C" {
 #define POCKET_DISPLAY_DEVICE_ROTATION 8U
 #define POCKET_DISPLAY_DEVICE_SCALING 16U
 #define POCKET_DISPLAY_PIPELINED_ACQUIRE 64U
+#define POCKET_DISPLAY_QUEUED_FLUSH 128U
 #define POCKET_STATUS_OK (0)
 #define POCKET_STATUS_UNSUPPORTED (-1)
 #define POCKET_STATUS_INVALID (-2)
@@ -337,7 +340,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_target, pixel_format) == POCKET_LAY
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_target, surface) == POCKET_LAYOUT_POCKET_TARGET_4_OFFSET, "pocket_target.surface");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_target, device_handle) == POCKET_LAYOUT_POCKET_TARGET_5_OFFSET, "pocket_target.device_handle");
 
-/* Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation and scaling. */
+/* Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation, scaling and queued flush ordering. */
 struct pocket_display_descriptor {
   size_t struct_size;
   uint32_t role;

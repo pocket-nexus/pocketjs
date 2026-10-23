@@ -64,6 +64,8 @@ impl<D: Device> pocket_drivers::DisplayOutput for GxmDisplay<D> {
             pocket_drivers::TargetOwnership::DeviceOwned,
         );
         d.vsync = pocket_drivers::VsyncSource::Display;
+        // vita2d queues the swap behind the scene's GXM sync object.
+        d.queued_flush = true;
         d
     }
     fn acquire(
@@ -89,20 +91,21 @@ impl<D: Device> pocket_drivers::DisplayOutput for GxmDisplay<D> {
             .ok_or(pocket_drivers::DisplayError::Failed)?;
         self.shared
             .borrow_mut()
-            .flush_display()
+            .queue_display()
             .map_err(|_| pocket_drivers::DisplayError::Failed)?;
         self.pending = Some(token);
         Ok(token)
     }
+    /// The swap stays queued. GXM sync objects keep the display buffers from
+    /// being rendered while scanned out, and retirement releases only vertex
+    /// and texture storage covered by the renderer wait, so no display-queue
+    /// drain runs per frame.
     fn wait(&mut self, token: u64) -> Result<(), pocket_drivers::DisplayError> {
         if self.pending != Some(token) {
             return Err(pocket_drivers::DisplayError::InvalidTarget);
         }
         self.pending = None;
-        self.shared
-            .borrow_mut()
-            .wait_display()
-            .map_err(|_| pocket_drivers::DisplayError::Failed)
+        Ok(())
     }
     fn vsync(&mut self) -> pocket_drivers::VsyncSource {
         pocket_drivers::VsyncSource::Display

@@ -86,25 +86,49 @@ candidate from a source checkout. See `docs/SDK.md` for release and Cargo export
 consumes the core's DrawList and borrowed resource views. The Rust render
 method takes `&mut FrameInput` because a CPU surface grants exclusive write
 access to its pixels. A renderer with a CPU-visible target uses the
-`Immediate` synchronization model; device-owned targets may complete after
-the render call.
+`Immediate` synchronization model; a device-owned target may use either
+model.
 
 **The required order is acquire, render, renderer wait, display flush,
-display wait, retire.** Both wait methods end device access on success and
-failure. A driver must stop or reset a hung device before returning an error.
-A render or flush error also means that the work started by that call has
-stopped. Retirement releases a submission's resources after display transfer
-ends. Shared textures remain alive until the last submission using that
-version retires. Destruction waits for outstanding work before releasing
-memory. A failed frame invalidates the buffer's damage history.
+display wait, retire.** An `Immediate` renderer's frame runs the whole
+sequence inside one `present` call. **A `Deferred` renderer's frame completes
+at the start of the next `present`**, or at `complete_presentation`, a display
+refresh or runtime destruction, so the device draws frame N while the guest
+runs turn N+1. The completion runs renderer wait, display flush, display wait
+and retire before the display is acquired again. A display that declares
+`POCKET_DISPLAY_QUEUED_FLUSH` (`DisplayDescriptor::queued_flush`) receives its
+flush after render and before renderer wait: the device starts that
+transfer when the rendering completes, as a queued buffer swap does. Its
+completion runs renderer wait, display wait and retire.
+
+Both wait methods end device access on success and failure. A driver must stop
+or reset a hung device before returning an error. A render or flush error also
+means that the work started by that call has stopped. Retirement releases a
+submission's resources after display transfer ends. Shared textures remain
+alive until the last submission using that version retires. Destruction
+completes deferred frames and waits for outstanding work before releasing
+memory. A failed frame invalidates the buffer's damage history. **A failed
+deferred completion is returned by the call that runs it and invalidates only
+that display's history**; that call submits no new frame.
 
 The safe render method cannot retain a borrow from the frame after return.
 Deferred hardware work uses driver-owned vertex, texture, and glyph storage.
-`render_zero_copy` is an unsafe exception: the caller keeps all referenced
-resources alive and unchanged until renderer wait returns, including before
-the next application tick. Software fallback requires a CPU-visible target,
-completion of earlier hardware writes, and cache visibility before the CPU
-writes that region.
+`render_zero_copy` is an unsafe exception. An `Immediate` renderer may read
+every referenced resource until renderer wait returns. **A `Deferred`
+zero-copy submission may retain only the pixel and palette storage that
+`RenderResources::texture` returned, until the submission retires.** DrawList
+words, damage rectangles, the resource object and font atlases are borrowed
+for the render call and must be copied. The coordinator selects
+`render_zero_copy` for a `Deferred` renderer only after the unsafe
+`enable_deferred_zero_copy`, the caller's promise to keep that storage;
+otherwise it calls the copying `render`. It records the texture handles those
+renderers look up (`Coordinator::borrowed_textures`). `pocket-runtime` makes
+the promise and pins the handles in the core: `freeTexture`,
+`update_texture_t8` and glyph-page replacement of a pinned texture move its
+old storage to a retention list, and `release_textures` drops it when
+`retired_frame` reaches the submission's frame. Software fallback requires a
+CPU-visible target, completion of earlier hardware writes, and cache
+visibility before the CPU writes that region.
 
 The migration keeps four compatibility rules separate:
 

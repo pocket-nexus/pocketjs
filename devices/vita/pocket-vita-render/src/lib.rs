@@ -96,11 +96,13 @@ pub unsafe trait Device {
     fn begin_external(&mut self, _clear: u32) -> Result<(), RenderError> {
         Err(RenderError::Unsupported)
     }
-    /// Queue display transfer after renderer completion.
+    /// Close an open scene and queue its display transfer without waiting.
+    /// The device starts the transfer after the scene's rendering completes.
     fn flush(&mut self) -> Result<(), RenderError> {
         Err(RenderError::Unsupported)
     }
-    /// Terminal display-transfer wait before resource retirement.
+    /// Drain the display queue. Shutdown, guest reset and the compatibility
+    /// `present` use it; Deferred frames do not wait for it.
     fn wait_display(&mut self) -> Result<(), RenderError> {
         Ok(())
     }
@@ -233,18 +235,17 @@ impl<D: Device> GxmRenderer<D> {
         Ok(())
     }
     /// The compatibility scene can contain native 3D and several UI passes.
-    /// Finish GPU work, flush the display, wait for its transfer, then retire.
+    /// Finish GPU work, queue the display swap, then retire. Retirement frees
+    /// only vertex and texture storage the GPU wait covers; the display queue
+    /// is not drained.
     pub fn present(&mut self) -> Result<(), RenderError> {
         let gpu = self.finish();
         self.external = false;
-        let flushed = if gpu.is_ok() && !self.failed {
+        let result = if gpu.is_ok() && !self.failed {
             self.device.flush()
         } else {
             Err(RenderError::Failed)
         };
-        // A failed flush may already have queued a transfer.
-        let displayed = self.device.wait_display();
-        let result = flushed.and(displayed);
         while let Some(pending) = self.pending.last() {
             self.retire(Submission {
                 owner: self.owner,
@@ -253,9 +254,24 @@ impl<D: Device> GxmRenderer<D> {
         }
         result
     }
-    /// DeviceOwned DisplayOutput half of a synchronous coordinator frame.
-    /// The renderer wait must precede this call; this defensive wait also
-    /// makes direct embedding calls terminal before the display transfer.
+    /// DeviceOwned DisplayOutput half of a Deferred coordinator frame: close
+    /// the UI scene and queue its swap behind the GPU work. The renderer wait
+    /// follows at the next present. A flush error waits for the scene before
+    /// returning, so no queued work survives it.
+    pub fn queue_display(&mut self) -> Result<(), RenderError> {
+        self.external = false;
+        if self.failed {
+            let _ = self.finish();
+            return Err(RenderError::Failed);
+        }
+        let result = self.device.flush();
+        if result.is_err() {
+            let _ = self.finish();
+        }
+        result
+    }
+    /// Wait for the GPU, then queue the display swap. Direct embedding calls
+    /// use this order; the registered display uses `queue_display`.
     pub fn flush_display(&mut self) -> Result<(), RenderError> {
         let result = self.finish();
         self.external = false;

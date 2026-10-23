@@ -56,12 +56,13 @@ struct Session {
     target_seq: u32,
     presented_seq: u32,
     presented_frame: i32,
-    /// A validated frame sits in `staging` awaiting the GE-idle window
-    /// (present() runs between sceGuSync and the next list — the GE samples
-    /// the plane texture ASYNCHRONOUSLY through the whole JS frame, so an
-    /// in-place update from tick() races the raster: with per-frame
+    /// A validated frame sits in `staging` awaiting present() (the GE
+    /// samples the plane texture ASYNCHRONOUSLY through the whole JS frame,
+    /// so an in-place update from tick() races the raster: with per-frame
     /// median-cut palettes any torn read renders as full-color noise,
     /// observed on hardware as constant flicker below the raster position).
+    /// present() commits through the core, which keeps the sampled storage
+    /// unchanged until the list in flight retires.
     staged_seq: u32,
     staged_frame: i32,
     pending: bool,
@@ -276,8 +277,7 @@ pub unsafe fn tick(ui: &mut Ui) -> i32 {
                     let sh = parsed.expect("checked by fresh");
                     // Do NOT touch the texture here: the GE is still
                     // executing the previous list and samples the plane
-                    // asynchronously. present() commits from staging inside
-                    // the GE-idle window.
+                    // asynchronously. present() commits from staging.
                     s.staged_seq = s.target_seq;
                     s.staged_frame = sh.frame_index as i32;
                     s.pending = true;
@@ -296,9 +296,10 @@ pub unsafe fn tick(ui: &mut Ui) -> i32 {
     s.presented_frame
 }
 
-/// Commit the staged frame to the plane texture. MUST be called with the GE
-/// idle (main.rs invokes it between sceGuSync and the next sceGuStart) — the
-/// texture is sampled in place, so this is the only race-free window.
+/// Commit the staged frame to the plane texture before the next list is
+/// encoded (Runtime::present). The GE may still be sampling the plane for the
+/// list in flight: Ui::update_texture_t8 then writes new storage and keeps
+/// the sampled storage unchanged until that list retires, so no read tears.
 pub unsafe fn present(ui: &mut Ui) {
     let Some(s) = SESSION.as_mut() else { return };
     if !s.pending {

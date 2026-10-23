@@ -295,6 +295,9 @@ fn two_displays_share_one_upload_and_finish_in_reverse_order() {
     coordinator
         .present(&support::scene(), None, &Resources::new(1, 42))
         .unwrap();
+    // The Deferred frame stays in flight until it is completed.
+    assert!(!shared.borrow().stopped());
+    coordinator.complete().unwrap();
     let state = shared.borrow();
     assert_eq!(state.uploads, 1);
     assert_eq!(state.max_live, 2);
@@ -364,6 +367,10 @@ fn terminal_failures_invalidate_history_and_allow_full_retry() {
     for fault in [Fault::RenderWait, Fault::Flush, Fault::DisplayWait] {
         let (mut coordinator, shared) = pair();
         shared.borrow_mut().fault = Some(fault);
+        coordinator
+            .present(&support::scene(), None, &Resources::new(1, 42))
+            .unwrap();
+        // The next present completes the frame first and reports its fault.
         assert!(coordinator
             .present(&support::scene(), None, &Resources::new(1, 42))
             .is_err());
@@ -391,16 +398,20 @@ fn terminal_failures_invalidate_history_and_allow_full_retry() {
             );
         }
         drop(state);
-        for id in 0..2 {
-            assert_eq!(
-                coordinator.history_valid(DisplayId::from_raw(id)),
-                Some(false)
-            );
-        }
+        // Only the failed display loses its damage history.
+        assert_eq!(
+            coordinator.history_valid(DisplayId::from_raw(0)),
+            Some(true)
+        );
+        assert_eq!(
+            coordinator.history_valid(DisplayId::from_raw(1)),
+            Some(false)
+        );
         shared.borrow_mut().fault = None;
         coordinator
             .present(&support::scene(), None, &Resources::new(2, 99))
             .unwrap();
+        coordinator.complete().unwrap();
         assert!(shared.borrow().stopped());
         assert_eq!(shared.borrow().freed, [1]);
         drop(coordinator);
@@ -422,7 +433,11 @@ fn runtime_destroy_after_failed_render_or_display_wait_releases_everything() {
                 .add_display(support::Display::new(shared.clone(), id), renderer)
                 .unwrap();
         }
-        assert!(matches!(runtime.boot(), Err(RuntimeError::Presentation(_))));
+        runtime.boot().unwrap();
+        assert!(matches!(
+            runtime.complete_presentation(),
+            Err(RuntimeError::Presentation(_))
+        ));
         assert!(shared.borrow().stopped());
         assert_eq!(shared.borrow().max_live, 2);
         drop(runtime);

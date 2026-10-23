@@ -52,6 +52,7 @@ impl CDisplay {
             DisplayDescriptor::new(role, raw.width, raw.height, format, raw.stride_bytes, own);
         descriptor.double_buffered = raw.flags & POCKET_DISPLAY_DOUBLE_BUFFERED != 0;
         descriptor.pipelined_acquire = raw.flags & POCKET_DISPLAY_PIPELINED_ACQUIRE != 0;
+        descriptor.queued_flush = raw.flags & POCKET_DISPLAY_QUEUED_FLUSH != 0;
         descriptor.partial_refresh = raw.flags & POCKET_DISPLAY_PARTIAL_REFRESH != 0;
         descriptor.device_frame_storage = raw.flags & POCKET_DISPLAY_FRAME_STORAGE != 0;
         descriptor.device_rotation = raw.flags & POCKET_DISPLAY_DEVICE_ROTATION != 0;
@@ -60,6 +61,7 @@ impl CDisplay {
             && (!descriptor.double_buffered
                 || !descriptor.device_frame_storage
                 || own != TargetOwnership::CpuVisible)
+            || descriptor.queued_flush && own != TargetOwnership::DeviceOwned
         {
             return Err(AdapterError::Invalid);
         }

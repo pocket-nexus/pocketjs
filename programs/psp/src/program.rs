@@ -7,11 +7,17 @@ use pocket_psp_render::{native::NativeDevice, Config, GeDisplay, GeRenderer, Sha
 use pocket_runtime::{CoreState, OpContext, RuntimeConfig};
 use pocket_runtime_cabi::{abi::*, embedding as embed};
 
+/// One `present` call: the previous list's residual GE wait and its paced
+/// swap, then this frame's encode and kick.
 #[derive(Clone, Copy, Default)]
 pub struct FrameTiming {
+    /// The DrawList is built: the previous list's wait, or this encode, starts.
     pub after_draw: u64,
+    /// This frame's list is kicked.
     pub after_render: u64,
+    /// Residual wait for the previous list.
     pub gpu_us: u64,
+    /// VBlank pacing and buffer swap of the previous list.
     pub present_us: u64,
 }
 struct PacedDevice {
@@ -22,12 +28,14 @@ struct PacedDevice {
 }
 // Delegates the driver's pointer lifetime contract to NativeDevice. Pacing
 // happens after its terminal wait and before swapping the display buffers.
+// Within one present the previous list's wait and swap precede this begin.
 unsafe impl pocket_psp_render::Device for PacedDevice {
     fn begin(&mut self) -> Result<(), pocket_drivers::RenderError> {
-        self.timing.set(FrameTiming {
-            after_draw: crate::host::now_us(),
-            ..FrameTiming::default()
-        });
+        let mut t = self.timing.get();
+        if t.after_draw == 0 {
+            t.after_draw = crate::host::now_us();
+        }
+        self.timing.set(t);
         self.device.begin()
     }
     fn begin_pass(&mut self, clear: bool) {
@@ -59,6 +67,9 @@ unsafe impl pocket_psp_render::Device for PacedDevice {
         let start = crate::host::now_us();
         let result = self.device.wait();
         let mut t = self.timing.get();
+        if t.after_draw == 0 {
+            t.after_draw = start;
+        }
         t.gpu_us = t.gpu_us.saturating_add(crate::host::now_us() - start);
         self.timing.set(t);
         result
@@ -98,7 +109,10 @@ impl core::ops::DerefMut for UiGuard<'_> {
         &mut self.0.ui
     }
 }
-/// A PSP graphics-thread runtime. No resource borrow survives present().
+/// A PSP graphics-thread runtime. present() kicks a GE list and returns; the
+/// GE draws it while the next guest turn runs. The next present() syncs that
+/// list, paces and swaps it, then kicks its own. Zero-copy texture storage
+/// the list reads stays unchanged until then; no other borrow survives.
 pub struct Runtime {
     handle: *mut PocketRuntime,
     guest: Box<instance::Guest>,
@@ -251,14 +265,26 @@ impl Runtime {
         self.check(embed::advance_with_core_ticks(self.handle, ticks))
     }
     /// # Safety
-    /// Owning graphics thread, no active native submission or core guard.
+    /// Owning graphics thread, no core guard. The GE may still draw the
+    /// previous list; this call completes it before kicking the next one.
     pub unsafe fn present(&mut self) -> Result<(), String> {
         let _fpu = crate::host::FpuGuard::masked();
+        self.timing.set(FrameTiming::default());
         {
+            // A video frame commit while the GE reads the plane writes new
+            // texture storage; the core keeps the old storage until retire.
             let mut state = self.ops.core_mut().map_err(|e| format!("{e:?}"))?;
             crate::vid::present(&mut state.ui);
         }
         self.check(embed::present(self.handle))
+    }
+    /// Sync, pace and swap the list kicked by the last present(), so the
+    /// display shows it and the GE is idle.
+    /// # Safety
+    /// Owning graphics thread, no core guard.
+    pub unsafe fn complete(&mut self) -> Result<(), String> {
+        let _fpu = crate::host::FpuGuard::masked();
+        self.check(embed::complete_presentation(self.handle))
     }
     /// # Safety
     /// Owning guest thread, no core guard or JS call is active.
@@ -270,6 +296,8 @@ impl Drop for Runtime {
     fn drop(&mut self) {
         unsafe {
             let _fpu = crate::host::FpuGuard::masked();
+            // Show the frame in flight before the renderer stops the GE.
+            embed::complete_presentation(self.handle);
             self.renderer.reset();
             if let Ok(mut state) = self.ops.core_mut() {
                 crate::vid::close(&mut state.ui);

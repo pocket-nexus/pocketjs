@@ -71,6 +71,14 @@ pub unsafe fn advance_with_core_ticks(pointer: *mut PocketRuntime, ticks: u32) -
 pub unsafe fn present(pointer: *mut PocketRuntime) -> i32 {
     unsafe { runtime::modify(pointer, pocket_runtime::Runtime::present) }
 }
+/// Complete in-flight Deferred frames before reading a presented buffer or
+/// handing the device to other work.
+///
+/// # Safety
+/// `pointer` is live on its owning thread; calls on it do not overlap.
+pub unsafe fn complete_presentation(pointer: *mut PocketRuntime) -> i32 {
+    unsafe { runtime::modify(pointer, pocket_runtime::Runtime::complete_presentation) }
+}
 /// # Safety
 /// `pointer` is live on its owning thread; calls on it do not overlap.
 pub unsafe fn collect(pointer: *mut PocketRuntime) -> i32 {

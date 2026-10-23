@@ -73,6 +73,7 @@ struct FakeRenderer {
     state: Shared,
     zero_copy: bool,
     version: u32,
+    sync: Synchronization,
 }
 struct Submission(u64);
 
@@ -82,7 +83,7 @@ impl Renderer for FakeRenderer {
         RendererDescriptor::new(
             &[PixelFormat::Rgb565],
             TargetOwnership::DeviceOwned,
-            Synchronization::Deferred,
+            self.sync,
             self.version,
             self.zero_copy,
         )
@@ -97,6 +98,12 @@ impl Renderer for FakeRenderer {
         if target.handle == 2 && state.failure == Some(Failure::Render) {
             return Err(RenderError::Failed);
         }
+        drop(state);
+        // Model a renderer that resolves its texture operands.
+        for handle in [7, 9] {
+            let _ = frame.resources.texture(handle);
+        }
+        let mut state = self.state.borrow_mut();
         state.next_submission += 1;
         let id = state.next_submission;
         state.live.insert(
@@ -166,6 +173,25 @@ struct FakeDisplay {
     descriptor: DisplayDescriptor,
     wrong_region: bool,
 }
+
+fn deferred_pair(zero_copy: bool, queued: bool) -> (Coordinator, Shared) {
+    let state = Shared::default();
+    let mut coordinator = Coordinator::new(1, 0).unwrap();
+    let renderer = coordinator
+        .add_renderer(FakeRenderer {
+            state: state.clone(),
+            zero_copy,
+            version: pocket_spec::DRAW_LIST_VERSION,
+            sync: Synchronization::Deferred,
+        })
+        .unwrap();
+    for handle in [1, 2] {
+        let mut display = fake_display(&state, handle);
+        display.descriptor.queued_flush = queued;
+        coordinator.add_display(display, renderer).unwrap();
+    }
+    (coordinator, state)
+}
 struct Transfer(u64);
 
 impl DisplayOutput for FakeDisplay {
@@ -195,11 +221,13 @@ impl DisplayOutput for FakeDisplay {
     fn flush(&mut self, regions: &[Rect]) -> Result<Transfer, DisplayError> {
         assert_eq!(regions.len(), 1);
         let mut state = self.state.borrow_mut();
+        // A queued flush is ordered after the rendering on the device.
+        let queued = self.descriptor.queued_flush;
         assert!(
             state
                 .live
                 .values()
-                .any(|job| job.target == self.handle && job.stopped),
+                .any(|job| job.target == self.handle && (job.stopped || queued)),
             "display reads only after GPU terminal wait"
         );
         state.events.push(format!("flush:{}", self.handle));
@@ -265,6 +293,7 @@ fn pair(zero_copy: bool) -> (Coordinator, Shared) {
             state: state.clone(),
             zero_copy,
             version: pocket_spec::DRAW_LIST_VERSION,
+            sync: Synchronization::Immediate,
         })
         .unwrap();
     coordinator
@@ -525,7 +554,8 @@ fn descriptor_and_budget_failures_are_rejected_during_registration() {
         coordinator.add_renderer(FakeRenderer {
             state: state.clone(),
             zero_copy: false,
-            version: 999
+            version: 999,
+            sync: Synchronization::Immediate,
         }),
         Err(PresentError::InvalidRendererDescriptor)
     );
@@ -613,6 +643,7 @@ fn mismatched_acquired_target_and_malformed_frame_do_not_reach_renderer() {
             state: state.clone(),
             zero_copy: false,
             version: pocket_spec::DRAW_LIST_VERSION,
+            sync: Synchronization::Immediate,
         })
         .unwrap();
     let mut display = fake_display(&state, 1);
@@ -696,6 +727,7 @@ fn scale_change_reconfigures_software_and_preserves_registered_custom_renderer()
             state: state.clone(),
             zero_copy: false,
             version: pocket_spec::DRAW_LIST_VERSION,
+            sync: Synchronization::Immediate,
         })
         .unwrap();
     coordinator
@@ -801,10 +833,12 @@ fn check_borrowed_unwind(panic_on_wait: bool) {
     impl Renderer for PanicRenderer {
         type Submission = BorrowedSubmission;
         fn descriptor(&self) -> RendererDescriptor {
+            // An Immediate zero-copy renderer may retain every frame borrow
+            // until its wait inside the same present call.
             RendererDescriptor::new(
                 &[PixelFormat::Rgb565],
                 TargetOwnership::DeviceOwned,
-                Synchronization::Deferred,
+                Synchronization::Immediate,
                 pocket_spec::DRAW_LIST_VERSION,
                 true,
             )
@@ -860,6 +894,7 @@ fn check_borrowed_unwind(panic_on_wait: bool) {
             state: other.clone(),
             zero_copy: false,
             version: pocket_spec::DRAW_LIST_VERSION,
+            sync: Synchronization::Immediate,
         })
         .unwrap();
     let poisoned = coordinator
@@ -979,6 +1014,7 @@ fn native_target_scaling_keeps_the_logical_resource_viewport() {
             state: state.clone(),
             zero_copy: false,
             version: pocket_spec::DRAW_LIST_VERSION,
+            sync: Synchronization::Immediate,
         }))
         .unwrap();
     let mut display = fake_display(&state, 1);
@@ -990,4 +1026,278 @@ fn native_target_scaling_keeps_the_logical_resource_viewport() {
         .present(&scene(8, 6), None, &Resources(8, 6))
         .unwrap();
     assert!(state.borrow().live.is_empty());
+}
+
+fn events_since(state: &Shared, start: usize) -> Vec<String> {
+    state.borrow().events[start..].to_vec()
+}
+
+#[test]
+fn deferred_frame_completes_at_the_next_present_before_any_acquire() {
+    let (mut coordinator, state) = deferred_pair(false, false);
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    // Both submissions stay in flight after present returns.
+    assert_eq!(
+        events_since(&state, 0),
+        ["acquire:1", "render:1", "acquire:2", "render:2"]
+    );
+    assert_eq!(state.borrow().live.len(), 2);
+    assert!(state.borrow().live.values().all(|job| !job.stopped));
+    assert_eq!((coordinator.frame(), coordinator.retired_frame()), (1, 0));
+    let mark = state.borrow().events.len();
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    assert_eq!(
+        events_since(&state, mark),
+        [
+            "render-stop:2",
+            "flush:2",
+            "display-stop:2",
+            "retire:2:refs:1",
+            "render-stop:1",
+            "flush:1",
+            "display-stop:1",
+            "retire:1:refs:0",
+            "acquire:1",
+            "render:1",
+            "acquire:2",
+            "render:2",
+        ]
+    );
+    assert_eq!((coordinator.frame(), coordinator.retired_frame()), (2, 1));
+    let mark = state.borrow().events.len();
+    coordinator.complete().unwrap();
+    assert_eq!(
+        events_since(&state, mark),
+        [
+            "render-stop:2",
+            "flush:2",
+            "display-stop:2",
+            "retire:2:refs:1",
+            "render-stop:1",
+            "flush:1",
+            "display-stop:1",
+            "retire:1:refs:0",
+        ]
+    );
+    assert!(state.borrow().live.is_empty() && state.borrow().dma.is_empty());
+    assert_eq!(coordinator.retired_frame(), 2);
+    let mark = state.borrow().events.len();
+    coordinator.complete().unwrap();
+    assert_eq!(state.borrow().events.len(), mark);
+    for index in 0..2 {
+        assert_eq!(
+            coordinator.history_valid(pocket_present::DisplayId::from_raw(index)),
+            Some(true)
+        );
+    }
+}
+
+#[test]
+fn queued_flush_follows_submission_and_completion_only_waits() {
+    let (mut coordinator, state) = deferred_pair(false, true);
+    coordinator
+        .present_with_overlay(&scene(8, 6), None, &Resources(8, 6), |id| {
+            let mut state = state.borrow_mut();
+            assert!(state.dma.is_empty(), "overlay precedes every flush");
+            state.events.push(format!("overlay:{}", id.as_raw() + 1));
+        })
+        .unwrap();
+    assert_eq!(
+        events_since(&state, 0),
+        [
+            "acquire:1",
+            "render:1",
+            "overlay:1",
+            "acquire:2",
+            "render:2",
+            "overlay:2",
+            "flush:2",
+            "flush:1",
+        ]
+    );
+    assert!(state.borrow().live.values().all(|job| !job.stopped));
+    assert_eq!(state.borrow().dma.len(), 2);
+    let mark = state.borrow().events.len();
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    assert_eq!(
+        events_since(&state, mark),
+        [
+            "render-stop:2",
+            "display-stop:2",
+            "retire:2:refs:1",
+            "render-stop:1",
+            "display-stop:1",
+            "retire:1:refs:0",
+            "acquire:1",
+            "render:1",
+            "acquire:2",
+            "render:2",
+            "flush:2",
+            "flush:1",
+        ]
+    );
+    drop(coordinator);
+    let state = state.borrow();
+    assert!(state.live.is_empty() && state.dma.is_empty());
+    assert_eq!(state.retired, [2, 1, 4, 3]);
+}
+
+#[test]
+fn failed_deferred_completion_reports_next_and_invalidates_only_its_display() {
+    for (queued, fault) in [
+        (false, Failure::RenderWait),
+        (false, Failure::Flush),
+        (false, Failure::DisplayWait),
+        (true, Failure::RenderWait),
+        (true, Failure::DisplayWait),
+    ] {
+        let (mut coordinator, state) = deferred_pair(false, queued);
+        let display = pocket_present::DisplayId::from_raw;
+        coordinator
+            .present(&scene(8, 6), None, &Resources(8, 6))
+            .unwrap();
+        state.borrow_mut().failure = Some(fault);
+        let mark = state.borrow().events.len();
+        let expected = match fault {
+            Failure::RenderWait => PresentError::RenderWait(display(1), RenderError::Failed),
+            Failure::Flush => PresentError::Flush(display(1), DisplayError::Failed),
+            _ => PresentError::DisplayWait(display(1), DisplayError::Failed),
+        };
+        assert_eq!(
+            coordinator.present(&scene(8, 6), None, &Resources(8, 6)),
+            Err(expected),
+            "{queued} {fault:?}"
+        );
+        {
+            let state = state.borrow();
+            let events = &state.events[mark..];
+            assert!(state.live.is_empty() && state.dma.is_empty());
+            assert!(!events.iter().any(|event| event.starts_with("acquire")));
+            assert!(events.iter().any(|event| event == "display-stop:1"));
+        }
+        assert_eq!(coordinator.history_valid(display(0)), Some(true));
+        assert_eq!(coordinator.history_valid(display(1)), Some(false));
+        assert_eq!(coordinator.retired_frame(), coordinator.frame());
+        state.borrow_mut().failure = None;
+        coordinator
+            .present(&scene(8, 6), None, &Resources(8, 6))
+            .unwrap();
+        assert_eq!(coordinator.history_valid(display(1)), Some(true));
+        assert_eq!(state.borrow().live.len(), 2);
+    }
+}
+
+#[test]
+fn failure_after_a_deferred_submission_leaves_no_work_in_flight() {
+    let (mut coordinator, state) = deferred_pair(false, false);
+    state.borrow_mut().failure = Some(Failure::Render);
+    assert_eq!(
+        coordinator.present(&scene(8, 6), None, &Resources(8, 6)),
+        Err(PresentError::Render(
+            pocket_present::DisplayId::from_raw(1),
+            RenderError::Failed
+        ))
+    );
+    assert!(state.borrow().live.is_empty());
+    assert_eq!(state.borrow().retired, [1]);
+    assert_eq!(coordinator.retired_frame(), coordinator.frame());
+    // A queued flush error also completes its own submission at once.
+    let (mut coordinator, state) = deferred_pair(false, true);
+    state.borrow_mut().failure = Some(Failure::Flush);
+    assert!(coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .is_err());
+    assert!(state.borrow().live.is_empty() && state.borrow().dma.is_empty());
+}
+
+#[test]
+fn refresh_scale_and_destruction_complete_the_pending_frame() {
+    let (mut coordinator, state) = deferred_pair(false, false);
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    coordinator.refresh_displays(1, [8, 6]).unwrap();
+    assert!(state.borrow().live.is_empty());
+    assert!(state.borrow().events.iter().any(|event| event == "flush:1"));
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    coordinator.set_scale(1).unwrap();
+    assert!(state.borrow().live.is_empty());
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    assert_eq!(state.borrow().live.len(), 2);
+    // FakeRenderer::drop asserts that destruction drained every submission.
+    drop(coordinator);
+    let state = state.borrow();
+    assert!(state.live.is_empty() && state.dma.is_empty());
+    assert_eq!(state.events.last().unwrap(), "retire:1:refs:0");
+}
+
+#[test]
+fn zero_copy_deferred_frames_report_borrowed_textures_until_retired() {
+    struct Textures(Vec<u8>);
+    impl RenderResources for Textures {
+        fn viewport(&self) -> (f32, f32) {
+            (8., 6.)
+        }
+        fn raster_revision(&self) -> u64 {
+            1
+        }
+        fn texture(&self, handle: i32) -> Option<TexView<'_>> {
+            (handle == 7).then_some(TexView {
+                pixels: &self.0,
+                w: 1,
+                h: 1,
+                psm: pocket_spec::psm::PSM_8888,
+                palette: None,
+                linear: false,
+            })
+        }
+        fn font_atlas(&self, _: u8) -> Option<FontView<'_>> {
+            None
+        }
+    }
+    let resources = Textures(vec![0; 4]);
+    // Without the caller's retention promise a Deferred zero-copy renderer
+    // receives the copying render call.
+    let (mut copying, state) = deferred_pair(true, false);
+    copying.present(&scene(8, 6), None, &resources).unwrap();
+    assert_eq!(state.borrow().zero_copy_calls, 0);
+    assert_eq!(copying.borrowed_textures(), None);
+    let (mut coordinator, state) = deferred_pair(true, false);
+    unsafe { coordinator.enable_deferred_zero_copy() };
+    coordinator.present(&scene(8, 6), None, &resources).unwrap();
+    assert_eq!(state.borrow().zero_copy_calls, 2);
+    assert_eq!(coordinator.borrowed_textures(), Some((1, &[7][..])));
+    coordinator.present(&scene(8, 6), None, &resources).unwrap();
+    assert_eq!(coordinator.retired_frame(), 1);
+    assert_eq!(coordinator.borrowed_textures(), Some((2, &[7][..])));
+    coordinator.complete().unwrap();
+    assert_eq!(coordinator.borrowed_textures(), None);
+    // Copying renderers and Immediate zero-copy renderers borrow nothing.
+    let (mut copying, _) = deferred_pair(false, false);
+    copying.present(&scene(8, 6), None, &resources).unwrap();
+    assert_eq!(copying.borrowed_textures(), None);
+    let (mut immediate, _) = pair(true);
+    immediate.present(&scene(8, 6), None, &resources).unwrap();
+    assert_eq!(immediate.borrowed_textures(), None);
+}
+
+#[test]
+fn queued_flush_requires_a_device_owned_target() {
+    let mut display = cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary);
+    display.descriptor.queued_flush = true;
+    let mut coordinator = Coordinator::new(1, 96).unwrap();
+    assert_eq!(
+        coordinator.add_display(display, RendererId::SOFTWARE),
+        Err(PresentError::InvalidDisplayDescriptor)
+    );
 }

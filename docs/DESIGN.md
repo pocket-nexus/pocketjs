@@ -304,11 +304,16 @@ masks (omitted while centered — old tape files stay byte-identical).
 **Frame order (PSP).** The host samples the controller, calls Runtime
 `advance_with_core_ticks`, and calls Runtime `present`. The generated guest
 runs one JavaScript frame and drains pending jobs; Runtime advances the core
-at 60 Hz, builds the DrawList, and submits it through `pocket-psp-render`.
-The GE driver owns `sceGuStart`/`sceGuFinish` and performs **terminal
-`sceGuSync` before resource retirement**. The display adapter waits for the
-selected 20 or 60 Hz pacing interval and swaps buffers. No GPU resource
-borrow survives `present`; the next JavaScript turn begins after it returns.
+at 60 Hz and builds the DrawList. `present` then completes the previous
+frame: **terminal `sceGuSync` on the list kicked one frame earlier**, the
+display adapter's wait for the selected 20 or 60 Hz pacing interval, the
+buffer swap, and resource retirement. It encodes the new DrawList through
+`pocket-psp-render`, kicks the list with `sceGuFinish` and returns. **The GE
+draws frame N while JavaScript, tick and layout run for frame N+1**, so frame
+time is the larger of CPU and GE time rather than their sum. The list reads
+zero-copy texture storage, which the core keeps unchanged until the list
+retires; the video plane commit writes new storage while the plane is read.
+Capture builds complete each dumped frame before reading the display buffer.
 The old `ge::render_over` embedding API remains a thin encoder adapter for
 native scenes with an open display list.
 

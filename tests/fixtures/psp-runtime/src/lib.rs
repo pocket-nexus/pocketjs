@@ -361,10 +361,40 @@ fn canonical_turns_preserve_input_and_wait_before_retiring() {
         );
         p.assert_js("if(seen!==1)throw Error('duplicate guest turn')");
         assert_eq!(embed::advance(p.runtime), POCKET_STATUS_INVALID);
+        // The GE driver is Deferred: present returns after the kick, and the
+        // list stays in flight through the next guest turn.
+        assert_eq!(embed::present(p.runtime), 0);
+        assert_eq!(&*p.events.borrow(), &["render"]);
+        assert_eq!(embed::advance(p.runtime), 0, "{}", p.guest.error());
+        // The next present syncs, swaps and retires that list before it kicks
+        // its own; complete_presentation finishes the frame still in flight.
         assert_eq!(embed::present(p.runtime), 0);
         assert_eq!(
             &*p.events.borrow(),
-            &["render", "wait", "flush", "display-wait", "retire"]
+            &[
+                "render",
+                "wait",
+                "flush",
+                "display-wait",
+                "retire",
+                "render"
+            ]
+        );
+        assert_eq!(embed::complete_presentation(p.runtime), 0);
+        assert_eq!(
+            &*p.events.borrow(),
+            &[
+                "render",
+                "wait",
+                "flush",
+                "display-wait",
+                "retire",
+                "render",
+                "wait",
+                "flush",
+                "display-wait",
+                "retire"
+            ]
         );
     }
 }

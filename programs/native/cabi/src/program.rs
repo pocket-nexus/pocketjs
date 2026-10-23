@@ -971,7 +971,12 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
         if let Some(trace) = p.gl.borrow().trace {
             trace(0, 0, 0);
         }
-        let status = unsafe { embed::present(p.runtime) };
+        let mut status = unsafe { embed::present(p.runtime) };
+        // The host's GL context is current only inside this call, so the
+        // Deferred GLES frame completes here: glFinish, then retirement.
+        if status == 0 {
+            status = unsafe { embed::complete_presentation(p.runtime) };
+        }
         p.record(status, width, height);
         status
     }

@@ -226,6 +226,8 @@ int main(void){
   assert(pocket_runtime_boot(instance)==POCKET_STATUS_FAILED); /* terminal display failure */
   assert(initialized==1 && evaluated==1 && frames==0 && flushes==1 && waits==1);
   assert(pocket_runtime_tick(instance)==0);assert(frames==1 && flushes==2 && waits==2);
+  assert(pocket_runtime_complete_presentation(instance)==0); /* Immediate frames are complete. */
+  assert(flushes==2 && waits==2);
   pocket_op_provider_v1 provider={sizeof(provider),provider_dispatch};const uint16_t op=31;
   assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,&op,1)==POCKET_STATUS_INVALID);
   assert(provider_calls==12);

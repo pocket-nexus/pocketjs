@@ -19,8 +19,10 @@ Native resolver callbacks must pin their allocation until the release callback.
 Geometry has a per-submission limit of 32,768 vertices and 2,048 commands; overflow
 fails the submission. Geometry allocations are separate for simultaneous screens.
 
-A renderer wait closes the frame and calls blocking `C3D_FrameBegin`, which drains
-the preceding GPU queue. It parks the texture and buffer bindings before closing
+The renderer declares `POCKET_SYNC_IMMEDIATE`: render records into an open
+citro3d frame that the renderer wait ends, so each frame completes inside the
+present call. A renderer wait closes the frame and calls blocking
+`C3D_FrameBegin`, which drains the preceding GPU queue. It parks the texture and buffer bindings before closing
 an empty frame. This depends on citro3d's [render queue implementation](https://github.com/devkitPro/citro3d/blob/master/source/renderqueue.c):
 `C3D_FrameSync` waits for VBlank, while blocking `C3D_FrameBegin` waits for and clears
 the queue. Display flush uses `C3D_SyncDisplayTransfer` outside a frame, waits for

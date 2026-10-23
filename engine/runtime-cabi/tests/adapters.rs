@@ -412,3 +412,39 @@ fn display_pipeline_rejects_in_flight_storage_and_consumes_tokens_out_of_order()
     drop(display);
     assert_eq!(panel.waits, [1, 0, 1]);
 }
+
+#[test]
+fn queued_flush_flag_requires_a_device_owned_target() {
+    unsafe extern "C" fn queued(context: *mut c_void, out: *mut PocketDisplayDescriptor) -> i32 {
+        let target_kind = unsafe { *context.cast::<u32>() };
+        unsafe {
+            out.write(PocketDisplayDescriptor {
+                role: POCKET_DISPLAY_ROLE_PRIMARY,
+                width: 2,
+                height: 2,
+                pixel_format: POCKET_PIXEL_FORMAT_RGBA8888,
+                stride_bytes: 8,
+                target_kind,
+                flags: POCKET_DISPLAY_QUEUED_FLUSH,
+                refresh_width: 1,
+                refresh_height: 1,
+                window_x_alignment: 1,
+                window_y_alignment: 1,
+                ..PocketDisplayDescriptor::empty()
+            });
+        }
+        POCKET_STATUS_OK
+    }
+    let table = PocketDisplayOutputV1 {
+        descriptor: Some(queued),
+        acquire: Some(panel_acquire),
+        flush: Some(panel_flush),
+        wait: Some(panel_wait),
+        ..PocketDisplayOutputV1::empty()
+    };
+    let mut kind = POCKET_TARGET_DEVICE_OWNED;
+    let display = unsafe { CDisplay::new(&table, (&mut kind as *mut u32).cast()) }.unwrap();
+    assert!(display.descriptor().queued_flush);
+    kind = POCKET_TARGET_CPU_VISIBLE;
+    assert!(unsafe { CDisplay::new(&table, (&mut kind as *mut u32).cast()) }.is_err());
+}

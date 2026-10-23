@@ -874,3 +874,169 @@ fn current_package_does_not_admit_under_a_legacy_expected_generation() {
         ));
     }
 }
+
+#[test]
+fn deferred_frames_release_the_core_and_keep_borrowed_textures_until_retired() {
+    use std::cell::Cell;
+    type Read = (*const u8, Vec<u8>);
+    #[derive(Default)]
+    struct Device {
+        events: Vec<String>,
+        reads: Vec<Read>,
+        texture: Option<i32>,
+        next: u64,
+        ops: Option<OpContext>,
+    }
+    struct Borrowing(Rc<RefCell<Device>>);
+    impl Renderer for Borrowing {
+        type Submission = u64;
+        fn descriptor(&self) -> RendererDescriptor {
+            RendererDescriptor::new(
+                &[PixelFormat::Rgba8888],
+                TargetOwnership::DeviceOwned,
+                Synchronization::Deferred,
+                pocket_spec::DRAW_LIST_VERSION,
+                true,
+            )
+            .unwrap()
+        }
+        fn render(&mut self, _: &mut FrameInput<'_>) -> Result<u64, RenderError> {
+            unreachable!("zero-copy capability selected")
+        }
+        unsafe fn render_zero_copy(
+            &mut self,
+            frame: &mut FrameInput<'_>,
+        ) -> Result<u64, RenderError> {
+            let mut device = self.0.borrow_mut();
+            // Presentation holds the core while it draws and submits.
+            let ops = device.ops.clone().unwrap();
+            assert_eq!(ops.core().err(), Some(RuntimeError::Busy));
+            if let Some(view) = device
+                .texture
+                .and_then(|handle| frame.resources.texture(handle))
+            {
+                // The device keeps reading this pointer after render returns.
+                device
+                    .reads
+                    .push((view.pixels.as_ptr(), view.pixels.to_vec()));
+            }
+            device.next += 1;
+            let id = device.next;
+            device.events.push(format!("render:{id}"));
+            Ok(id)
+        }
+        fn wait(&mut self, submission: &u64) -> Result<(), RenderError> {
+            let mut device = self.0.borrow_mut();
+            for (pointer, bytes) in device.reads.drain(..) {
+                let current = unsafe { std::slice::from_raw_parts(pointer, bytes.len()) };
+                assert_eq!(current, &bytes[..], "borrowed texture changed in flight");
+            }
+            device.events.push(format!("wait:{submission}"));
+            Ok(())
+        }
+        fn retire(&mut self, submission: u64) {
+            self.0
+                .borrow_mut()
+                .events
+                .push(format!("retire:{submission}"));
+        }
+    }
+    struct Output(Rc<RefCell<Device>>, Rc<Cell<bool>>);
+    impl DisplayOutput for Output {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                4,
+                4,
+                PixelFormat::Rgba8888,
+                16,
+                TargetOwnership::DeviceOwned,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            assert!(!self.1.get(), "acquire after the previous frame completed");
+            self.1.set(true);
+            Ok(Target::DeviceOwned(DeviceTarget::new(
+                1,
+                region,
+                PixelFormat::Rgba8888,
+            )))
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            self.0.borrow_mut().events.push("flush".into());
+            Ok(())
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            self.1.set(false);
+            Ok(())
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    let device = Rc::new(RefCell::new(Device::default()));
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = Runtime::new(config()).unwrap();
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    rt.set_guest(Box::new(TestGuest {
+        facts: facts.clone(),
+        ops: None,
+        fail: false,
+    }))
+    .unwrap();
+    let renderer = rt.add_renderer(Borrowing(device.clone())).unwrap();
+    rt.add_display(Output(device.clone(), Rc::default()), renderer)
+        .unwrap();
+    let ops = rt.op_context();
+    device.borrow_mut().ops = Some(ops.clone());
+    rt.boot().unwrap();
+    assert_eq!(device.borrow().events, ["render:1"]);
+    // The in-flight frame holds no core borrow: the next turn dispatches.
+    let texture =
+        ops.core_mut()
+            .unwrap()
+            .ui
+            .upload_texture(&[5; 64], 4, 4, pocket_spec::psm::PSM_8888);
+    device.borrow_mut().texture = Some(texture);
+    rt.tick().unwrap();
+    assert_eq!(facts.borrow().frames, 1);
+    assert_eq!(
+        device.borrow().events,
+        ["render:1", "wait:1", "flush", "retire:1", "render:2"]
+    );
+    // The guest frees the borrowed texture and uploads others during the
+    // next turn. Its storage stays unchanged until frame 2 retires.
+    ops.dispatch(24, &[OpArg::Integer(texture as i64)]).unwrap();
+    {
+        let mut core = ops.core_mut().unwrap();
+        assert!(core.ui.texture(texture).is_none());
+        for _ in 0..4 {
+            core.ui
+                .upload_texture(&[9; 64], 4, 4, pocket_spec::psm::PSM_8888);
+        }
+        assert_eq!(core.ui.retained_texture_bytes(), 64);
+    }
+    device.borrow_mut().texture = None;
+    rt.tick().unwrap();
+    assert_eq!(ops.core().unwrap().ui.retained_texture_bytes(), 0);
+    assert_eq!(
+        &device.borrow().events[5..],
+        ["wait:2", "flush", "retire:2", "render:3"]
+    );
+    // Explicit completion and shutdown finish the frame in flight.
+    rt.complete_presentation().unwrap();
+    assert_eq!(
+        &device.borrow().events[9..],
+        ["wait:3", "flush", "retire:3"]
+    );
+    rt.complete_presentation().unwrap();
+    rt.present().unwrap();
+    rt.shutdown().unwrap();
+    assert_eq!(
+        &device.borrow().events[12..],
+        ["render:4", "wait:4", "flush", "retire:4"]
+    );
+    assert_eq!(facts.borrow().shutdowns, 1);
+}

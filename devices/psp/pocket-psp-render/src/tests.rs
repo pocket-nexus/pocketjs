@@ -637,3 +637,47 @@ fn invalid_texture_and_coordinate_errors_stop_partial_native_work_before_return(
     assert_eq!(r.render(&mut frame), Err(RenderError::InvalidFrame));
     assert_eq!(state.borrow().stop, 2);
 }
+#[test]
+fn deferred_completion_swaps_before_the_next_kick_and_copies_survive_the_guest_turn() {
+    let (r, state) = create();
+    let mut shared = SharedRenderer::new(r);
+    let mut display = GeDisplay::new(shared.clone());
+    let mut res = Resources::default();
+    let mut words = texture();
+    words.extend([pocket_spec::draw_op::GLYPH_RUN, 1 << 16, u32::MAX, 0, 0]);
+    let words = list(words);
+    let region = Rect::new(0, 0, 480, 272);
+    let damage = [region];
+    let target = display.acquire(region).unwrap();
+    let first = shared
+        .render(&mut FrameInput::new(&words, &res, &damage, target))
+        .unwrap();
+    // Present returns with the list kicked: no wait or swap yet, and the
+    // display accepts no new frame until this one completes.
+    assert_eq!((state.borrow().waits, state.borrow().presents), (0, 0));
+    assert!(display.acquire(region).is_err());
+    // The next guest turn rewrites the copied texture and the font atlas.
+    // Mock::wait compares every vertex, texture and glyph-page binding with
+    // the bytes it read at encode time.
+    res.pixels.fill(9);
+    res.font.fill(0);
+    res.revision += 1;
+    // Next present: sync, then swap, display wait and retirement, then the
+    // next kick.
+    shared.wait(&first).unwrap();
+    assert_eq!((state.borrow().waits, state.borrow().presents), (1, 0));
+    let token = display.flush(&damage).unwrap();
+    assert_eq!((state.borrow().waits, state.borrow().presents), (1, 1));
+    display.wait(token).unwrap();
+    shared.retire(first);
+    let target = display.acquire(region).unwrap();
+    let second = shared
+        .render(&mut FrameInput::new(&words, &res, &damage, target))
+        .unwrap();
+    assert_eq!(state.borrow().begins, 2);
+    shared.wait(&second).unwrap();
+    let token = display.flush(&damage).unwrap();
+    display.wait(token).unwrap();
+    shared.retire(second);
+    assert_eq!((state.borrow().waits, state.borrow().presents), (2, 2));
+}

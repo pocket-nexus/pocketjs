@@ -368,7 +368,13 @@ fn real_coordinator_uses_extracted_delayed_device_and_drains_each_fault() {
         coordinator
             .add_display(Display::new(shared.clone(), 2), renderer)
             .unwrap();
-        let result = coordinator.present(&device::scene(), None, &Resources::new(1, 200));
+        // The Deferred frame stays in flight after present; its completion
+        // reports the fault and leaves no device work.
+        coordinator
+            .present(&device::scene(), None, &Resources::new(1, 200))
+            .unwrap();
+        assert!(!shared.borrow().stopped());
+        let result = coordinator.complete();
         assert_eq!(result.is_err(), fault.is_some());
         assert!(shared.borrow().stopped());
         drop(coordinator);

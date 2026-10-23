@@ -143,6 +143,46 @@ impl Texture {
 pub struct TexSlot {
     gen: u16,
     tex: Option<Texture>,
+    /// Frame of an in-flight zero-copy submission that reads `tex` storage;
+    /// zero when none does (`Ui::retain_textures`).
+    fence: u64,
+    /// Freed or overwritten storage that such a submission may still read,
+    /// tagged with its frame. `Ui::release_textures` drops it.
+    retained: Vec<(u64, Texture)>,
+}
+
+impl TexSlot {
+    /// Remove the live texture. Storage read by an in-flight submission moves
+    /// to `retained` instead of being dropped.
+    pub(crate) fn vacate(&mut self) {
+        if let Some(texture) = self.tex.take() {
+            if self.fence != 0 {
+                self.retained.push((self.fence, texture));
+            }
+        }
+        self.fence = 0;
+    }
+}
+
+impl Drop for Ui {
+    /// A device may still read pinned storage when the Ui is dropped or
+    /// replaced before `release_textures`. Leak that storage instead of
+    /// freeing memory under a pending submission.
+    fn drop(&mut self) {
+        if self.texture_fence == 0 {
+            return;
+        }
+        for slot in &mut self.textures {
+            for (_, texture) in slot.retained.drain(..) {
+                core::mem::forget(texture);
+            }
+            if slot.fence != 0 {
+                if let Some(texture) = slot.tex.take() {
+                    core::mem::forget(texture);
+                }
+            }
+        }
+    }
 }
 
 /// Texture-handle generations live in bits TEX_SLOT_BITS..31 — bit 31 must
@@ -184,7 +224,12 @@ pub(crate) fn tex_alloc(slots: &mut Vec<TexSlot>, free: &mut Vec<u32>, tex: Text
             if slots.len() as u32 > spec::TEX_SLOT_MASK {
                 return -1;
             }
-            slots.push(TexSlot { gen: 0, tex: None });
+            slots.push(TexSlot {
+                gen: 0,
+                tex: None,
+                fence: 0,
+                retained: Vec::new(),
+            });
             (slots.len() - 1) as u32
         }
     };
@@ -272,6 +317,8 @@ pub struct Ui {
     textures: Vec<TexSlot>,
     /// LIFO free list of texture slots (freed most recently, reused first).
     tex_free: Vec<u32>,
+    /// Latest frame passed to `retain_textures` and not yet released.
+    texture_fence: u64,
     /// Core-owned corner masks and scaled-glyph pages (see draw::PaintCache).
     paint_cache: draw::PaintCache,
     /// Raster pixels baked for each logical UI pixel. Layout and DrawList
@@ -361,6 +408,7 @@ impl Ui {
             auxiliary: None,
             textures: Vec::new(),
             tex_free: Vec::new(),
+            texture_fence: 0,
             paint_cache: draw::PaintCache::new(),
             raster_density,
             raster_revision: 1,
@@ -1089,19 +1137,41 @@ impl Ui {
     /// this never resizes or re-formats a slot. Returns false (and changes
     /// nothing) on stale handles, non-T8 textures, or size mismatches.
     /// Callers on the PSP must writeback the texture after (the GE samples
-    /// RAM, not the dcache).
+    /// RAM, not the dcache). While an in-flight submission reads the texture
+    /// (`retain_textures`), the update writes new storage and the old storage
+    /// stays unchanged until `release_textures`.
     pub fn update_texture_t8(&mut self, handle: i32, palette: &[u8], pixels: &[u8]) -> bool {
         let Some(slot) = tex_resolve(&self.textures, handle) else {
             return false;
         };
-        let Some(tex) = self.textures[slot as usize].tex.as_mut() else {
+        let TexSlot {
+            tex,
+            fence,
+            retained,
+            ..
+        } = &mut self.textures[slot as usize];
+        let Some(tex) = tex.as_mut() else {
             return false;
         };
         if tex.psm != spec::psm::PSM_T8 || palette.len() != TEX_PALETTE_BYTES {
             return false;
         }
-        if pixels.len() != tex.byte_len {
+        if pixels.len() != tex.byte_len || tex.palette.is_none() {
             return false;
+        }
+        if *fence != 0 {
+            let replacement = Texture {
+                data: alloc::vec![0u128; tex.data.len()],
+                palette: Some(alloc::vec![0u128; TEX_PALETTE_BYTES / 16]),
+                byte_len: tex.byte_len,
+                w: tex.w,
+                h: tex.h,
+                psm: tex.psm,
+                linear: tex.linear,
+                revision: tex.revision,
+            };
+            retained.push((*fence, core::mem::replace(tex, replacement)));
+            *fence = 0;
         }
         let Some(pal) = tex.palette.as_mut() else {
             return false;
@@ -1134,10 +1204,60 @@ impl Ui {
             return;
         };
         let s = &mut self.textures[slot as usize];
-        s.tex = None;
+        s.vacate();
         s.gen = ((s.gen as u32 + 1) & TEX_GEN_MASK) as u16;
         self.tex_free.push(slot);
         self.bump_raster_revision();
+    }
+
+    /// Mark texture storage that a deferred zero-copy submission of `frame`
+    /// reads. Until `release_textures` reaches `frame`, freeing or
+    /// overwriting one of these textures (`free_texture`, `update_texture_t8`,
+    /// glyph-page replacement) moves its old storage aside, unchanged, rather
+    /// than dropping or rewriting it. Stale handles are ignored.
+    pub fn retain_textures(&mut self, frame: u64, handles: &[i32]) {
+        if frame == 0 {
+            return;
+        }
+        for &handle in handles {
+            if let Some(slot) = tex_resolve(&self.textures, handle) {
+                let slot = &mut self.textures[slot as usize];
+                slot.fence = slot.fence.max(frame);
+                self.texture_fence = self.texture_fence.max(frame);
+            }
+        }
+    }
+
+    /// Every submission of `frame` and earlier frames has retired: drop the
+    /// storage retained for them and unpin the live textures they read.
+    ///
+    /// # Safety
+    /// No device still reads storage pinned for `frame` or an earlier frame.
+    pub unsafe fn release_textures(&mut self, frame: u64) {
+        if self.texture_fence == 0 {
+            return;
+        }
+        for slot in &mut self.textures {
+            if slot.fence <= frame {
+                slot.fence = 0;
+            }
+            slot.retained.retain(|(fence, _)| *fence > frame);
+        }
+        if self.texture_fence <= frame {
+            self.texture_fence = 0;
+        }
+    }
+
+    /// Bytes of freed or overwritten texture storage kept for in-flight
+    /// submissions, excluding live pinned textures.
+    pub fn retained_texture_bytes(&self) -> usize {
+        self.textures
+            .iter()
+            .flat_map(|slot| &slot.retained)
+            .map(|(_, texture)| {
+                texture.byte_len + texture.palette.as_ref().map_or(0, |_| TEX_PALETTE_BYTES)
+            })
+            .sum()
     }
 
     /// Bind an uploaded texture to an image node. Handles are 0-based, so

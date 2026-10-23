@@ -258,7 +258,7 @@ fn failed_partial_update_cannot_return_old_revision() {
     r.retire(b);
 }
 #[test]
-fn shared_scene_waits_before_display_and_retirement_even_when_flush_fails() {
+fn shared_scene_waits_before_swap_and_retirement_even_when_flush_fails() {
     let (mut r, d) = fresh();
     let res = Resources::new();
     r.begin_frame(0).unwrap();
@@ -278,7 +278,6 @@ fn shared_scene_waits_before_display_and_retirement_even_when_flush_fails() {
             "submit-over",
             "wait",
             "flush",
-            "display-wait",
             "retire",
             "retire"
         ]
@@ -512,4 +511,62 @@ fn coordinator_error_before_submission_closes_external_scene_without_swap() {
     renderer.begin_frame(0).unwrap();
     renderer.discard_frame().unwrap();
     renderer.reset_guest().unwrap();
+}
+
+#[test]
+fn registered_display_queues_the_swap_and_completion_never_drains_the_display_queue() {
+    use pocket_drivers::{DisplayOutput, DisplayRole};
+    let (renderer, device) = fresh();
+    let shared = Rc::new(RefCell::new(renderer));
+    let mut registered = registered::SharedRenderer(shared.clone());
+    let mut display = registered::GxmDisplay::new(shared.clone(), DisplayRole::Primary);
+    assert!(display.descriptor().queued_flush);
+    let res = Resources::new();
+    let words = image();
+    let region = Rect::new(0, 0, 200, 100);
+    let mut previous = None;
+    for _ in 0..2 {
+        // The program opens the scene; this waits for the previous scene's
+        // GPU work before vita2d reuses its vertex pool.
+        shared.borrow_mut().begin_frame(0).unwrap();
+        // Coordinator completion of the previous frame, before acquire.
+        if let Some((submission, token)) = previous.take() {
+            registered.wait(&submission).unwrap();
+            display.wait(token).unwrap();
+            registered.retire(submission);
+        }
+        let target = display.acquire(region).unwrap();
+        let submission = registered
+            .render(&mut FrameInput::new(&words, &res, &[region], target))
+            .unwrap();
+        device.0.borrow_mut().events.push("overlay");
+        // Queued flush right after submission: the scene closes and the swap
+        // is queued without a GPU wait.
+        let token = display.flush(&[region]).unwrap();
+        assert!(display.acquire(region).is_err());
+        previous = Some((submission, token));
+    }
+    let (submission, token) = previous.take().unwrap();
+    registered.wait(&submission).unwrap();
+    display.wait(token).unwrap();
+    registered.retire(submission);
+    assert_eq!(
+        device.0.borrow().events,
+        [
+            "wait",
+            "begin",
+            "upload",
+            "submit-over",
+            "overlay",
+            "flush",
+            "wait",
+            "begin",
+            "retire",
+            "submit-over",
+            "overlay",
+            "flush",
+            "wait",
+            "retire",
+        ]
+    );
 }

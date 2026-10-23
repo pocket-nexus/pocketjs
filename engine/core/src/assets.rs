@@ -104,7 +104,8 @@ impl Ui {
 
         // No fallible operation or allocation is allowed below this point.
         if styles {
-            self.styles = staged.styles;
+            // An empty StyleTable allocates nothing.
+            self.styles = core::mem::take(&mut staged.styles);
         }
         for slot in 0..spec::MAX_FONT_SLOTS {
             if staged.fonts.atlas(slot as u8).is_some() {

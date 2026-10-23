@@ -104,6 +104,11 @@ pub struct DisplayDescriptor {
     /// Two CPU staging buffers permit acquiring the next strip while the
     /// previous transfer is pending. Only valid with device frame storage.
     pub pipelined_acquire: bool,
+    /// The device starts a flushed transfer only after the rendering already
+    /// submitted to its target completes, as a queued buffer swap does. With
+    /// a Deferred renderer, presentation flushes after render and before
+    /// renderer wait. Only valid for device-owned targets.
+    pub queued_flush: bool,
     pub partial_refresh: bool,
     pub refresh_granularity: [u32; 2],
     pub window_alignment: [u32; 2],
@@ -131,6 +136,7 @@ impl DisplayDescriptor {
             target_ownership,
             double_buffered: false,
             pipelined_acquire: false,
+            queued_flush: false,
             partial_refresh: false,
             refresh_granularity: [1, 1],
             window_alignment: [1, 1],
@@ -282,12 +288,17 @@ pub trait DisplayOutput {
         Ok(None)
     }
     fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError>;
-    /// Called after the renderer's wait. An error means all work started by
-    /// this call was drained or cancelled; the device no longer reads it.
+    /// Called after the renderer's wait, or after render and before that wait
+    /// when the descriptor declares `queued_flush` and the renderer is
+    /// Deferred. An error means all work started by this call was drained or
+    /// cancelled; the device no longer reads it.
     fn flush(&mut self, regions: &[Rect]) -> Result<Self::Token, DisplayError>;
     /// Consumes the transfer token. Both success and failure are terminal:
     /// the device has stopped reading the target. There is no pending/timeout
     /// result; a hung device must be reset before an error can be returned.
+    /// A `queued_flush` device that guards its scanout buffers with its own
+    /// synchronization may return once the queued transfer no longer reads
+    /// memory released by renderer retirement.
     fn wait(&mut self, token: Self::Token) -> Result<(), DisplayError>;
     fn vsync(&mut self) -> VsyncSource;
 }

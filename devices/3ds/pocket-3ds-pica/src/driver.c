@@ -722,11 +722,14 @@ static int32_t renderer_descriptor(void *context,
   if (!context)
     return POCKET_STATUS_INVALID;
   static const uint32_t formats[] = {POCKET_PIXEL_FORMAT_RGBA8888};
+  /* IMMEDIATE: render records into an open citro3d frame that only the
+   * renderer wait ends and drains. A frame left open across the guest turn
+   * would block host overlays and native frames. */
   pocket_renderer_descriptor value = {sizeof value,
                                       formats,
                                       1,
                                       POCKET_TARGET_DEVICE_OWNED,
-                                      POCKET_SYNC_DEFERRED,
+                                      POCKET_SYNC_IMMEDIATE,
                                       POCKET_DRAW_LIST_VERSION,
                                       0};
   return WRITE_RECORD(out, value, pocket_renderer_descriptor, zero_copy)

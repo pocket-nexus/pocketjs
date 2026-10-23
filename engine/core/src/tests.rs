@@ -3256,6 +3256,57 @@ fn update_texture_t8_overwrites_in_place() {
     assert!(!ui.update_texture_t8(plane, &pal, &px), "stale handle");
 }
 
+#[test]
+fn retained_textures_survive_free_and_overwrite_until_their_frame_retires() {
+    let mut ui = Ui::new();
+    let mut data = alloc::vec![0u8; 1024 + 16];
+    data[1024..].fill(3);
+    let plane = ui.upload_texture(&data, 4, 4, spec::psm::PSM_T8);
+    let icon = ui.upload_texture(&[9u8; 4 * 4 * 4], 4, 4, spec::psm::PSM_8888);
+    let read = |pointer: *const u8, length: usize| unsafe {
+        core::slice::from_raw_parts(pointer, length).to_vec()
+    };
+    let plane_pixels = ui.texture(plane).unwrap().pixels.as_ptr();
+    let plane_palette = ui.texture(plane).unwrap().palette.unwrap().as_ptr();
+    let icon_pixels = ui.texture(icon).unwrap().pixels.as_ptr();
+
+    // Unpinned updates stay in place.
+    let pal = alloc::vec![7u8; 1024];
+    assert!(ui.update_texture_t8(plane, &pal, &[4; 16]));
+    assert_eq!(ui.texture(plane).unwrap().pixels.as_ptr(), plane_pixels);
+
+    // A deferred submission of frame 5 reads both textures.
+    ui.retain_textures(5, &[plane, icon, -1, 4096]);
+    assert!(ui.update_texture_t8(plane, &[1; 1024], &[2; 16]));
+    let view = ui.texture(plane).unwrap();
+    assert_ne!(view.pixels.as_ptr(), plane_pixels);
+    assert_eq!(view.pixels, &[2; 16]);
+    assert_eq!(ui.texture_revision(plane), Some(2));
+    assert_eq!(read(plane_pixels, 16), [4; 16]);
+    assert_eq!(read(plane_palette, 1024), pal);
+    // The replacement is not read by frame 5: a second update stays in place.
+    let replacement = view.pixels.as_ptr();
+    assert!(ui.update_texture_t8(plane, &[1; 1024], &[6; 16]));
+    assert_eq!(ui.texture(plane).unwrap().pixels.as_ptr(), replacement);
+
+    ui.free_texture(icon);
+    assert!(ui.texture(icon).is_none());
+    let reused = ui.upload_texture(&[1u8; 4 * 4 * 4], 4, 4, spec::psm::PSM_8888);
+    assert_ne!(reused, icon);
+    assert_eq!(read(icon_pixels, 64), [9; 64]);
+    assert_eq!(ui.retained_texture_bytes(), 16 + 1024 + 64);
+
+    unsafe { ui.release_textures(4) };
+    assert_eq!(ui.retained_texture_bytes(), 16 + 1024 + 64);
+    unsafe { ui.release_textures(5) };
+    assert_eq!(ui.retained_texture_bytes(), 0);
+    // Released textures are unpinned: frees and updates act directly.
+    assert!(ui.update_texture_t8(plane, &[1; 1024], &[8; 16]));
+    assert_eq!(ui.texture(plane).unwrap().pixels.as_ptr(), replacement);
+    ui.free_texture(reused);
+    assert_eq!(ui.retained_texture_bytes(), 0);
+}
+
 // ---------------------------------------------------------------------------
 // touch hit facts (spec op hitTestBounds + Ui::touch_hits; docs/TOUCH.md)
 // ---------------------------------------------------------------------------

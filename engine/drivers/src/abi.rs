@@ -11,10 +11,12 @@ use record::abi_record;
 // Status zero means success; negative values mean errors. Callback absence is unsupported. Driver context and vtables remain valid until runtime destruction, after all outstanding work has been drained. Runtime calls occur on its single owning thread.
 // PIPELINED_ACQUIRE requires CPU-visible double staging buffers and device frame storage. After flush, acquire may return the other buffer while the first transfer is pending; at most two transfers are pending. Never return storage still read by a transfer. Missing this flag requires display wait before reacquisition.
 // Lifecycle: acquire, render, renderer wait, flush, display wait, retire. Each display has its own submission. A shared resource remains live until its last referencing submission retires.
-// CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts. Acquired regions are exclusive until flush; nobody writes them until display wait returns.
+// An IMMEDIATE renderer's frame completes before present returns. A DEFERRED renderer's frame stays in flight through the next guest turn; the runtime completes it at the next present, pocket_runtime_complete_presentation, a display refresh, or runtime destruction, before acquiring that display again.
+// QUEUED_FLUSH requires a device-owned target. The device starts a flushed transfer only after the rendering already submitted to the target completes and guards its scanout buffers itself. With a DEFERRED renderer the runtime calls flush after render and before renderer wait; completion then runs renderer wait, display wait, retire. Without the flag a DEFERRED frame is flushed at completion, after renderer wait.
+// CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts, except on a QUEUED_FLUSH display. Acquired regions are exclusive until flush; nobody writes them until display wait returns.
 // render and flush errors are terminal: drain or cancel all submitted work before returning an error. Both wait callbacks return only after completion or cancellation on success AND error; there is no in-progress or recoverable timeout result. Reset hung hardware before returning failure.
 // Ordinary render borrows end on return. Deferred work must use driver-owned copies. render_zero_copy is a separate unsafe contract: the caller keeps every frame resource alive and unchanged through renderer wait, including error returns. At most one zero-copy frame is in flight before the next script mutation.
-// Retire runs after rendering and display transfer stop accessing memory. Destroy and application replacement drain all submissions and tokens before freeing resources. A failed frame invalidates the buffer's damage history.
+// Retire runs after rendering and display transfer stop accessing memory. Destroy and application replacement drain all submissions and tokens before freeing resources. A failed frame invalidates the buffer's damage history. A failed DEFERRED completion is reported by the call that completes it and invalidates only that display's history.
 // Software fallback requires a CPU-visible target, drained accelerator work, cache visibility, and writes restricted to the acquired region. Only the baseline eight operations have software fallback; textRun and surfaceQuad need profile-declared native support.
 // DrawList has a closed operation set without per-operation lengths. Headers and the runtime archive must share the DrawList version. No unknown-operation skipping or renderer fallback chain is defined.
 // Runtime and driver records share the struct_size prefix compatibility rules in pocket_drivers.h.
@@ -23,9 +25,9 @@ use record::abi_record;
 // Create copies the configuration and the profile facts it points to; no JSON is read at runtime. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.
 // Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.
 // Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.
-// Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks.
+// Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. A DEFERRED renderer's frame completes at the start of the next present, so its device work overlaps the next guest turn. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks.
 // The guest receives eight frame arguments through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format.
-// Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources.
+// Destroy completes in-flight DEFERRED frames and drains rendering and display transfers before shutting down the guest and releasing package or frame resources.
 // An application links exactly one PocketJS Rust archive. The six pocket_host_* functions are supplied by the program and are the archive's complete host-hook contract.
 
 pub type PocketRendererId = u32;
@@ -112,6 +114,7 @@ pub const POCKET_DISPLAY_FRAME_STORAGE: u32 = 4;
 pub const POCKET_DISPLAY_DEVICE_ROTATION: u32 = 8;
 pub const POCKET_DISPLAY_DEVICE_SCALING: u32 = 16;
 pub const POCKET_DISPLAY_PIPELINED_ACQUIRE: u32 = 64;
+pub const POCKET_DISPLAY_QUEUED_FLUSH: u32 = 128;
 pub const POCKET_STATUS_OK: i32 = 0;
 pub const POCKET_STATUS_UNSUPPORTED: i32 = -1;
 pub const POCKET_STATUS_INVALID: i32 = -2;
@@ -241,7 +244,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation and scaling.
+    /// Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation, scaling and queued flush ordering.
     pub struct PocketDisplayDescriptor {
         pub struct_size: usize,
         pub role: u32,
@@ -786,6 +789,8 @@ pub fn pocket_tick_schedule_poll(schedule: *mut PocketTickSchedule, now: u64, ou
 pub fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32;
     /// Present the retained tree without running the guest: after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected.
 pub fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32;
+    /// Complete in-flight DEFERRED frames: renderer wait, flush or display wait, retire. Returns zero when none is pending. A failed completion returns its error once and invalidates that display's damage history. Call before reading a presented buffer or releasing state a pending submission reads.
+pub fn pocket_runtime_complete_presentation(runtime: *mut PocketRuntime) -> i32;
     pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
     /// Returns 0 or 1 without executing the operation. Does not invalidate borrowed results.
 pub fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32;

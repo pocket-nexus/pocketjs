@@ -496,13 +496,16 @@ unsafe fn run_guest(
         }
         #[cfg(feature = "bench")]
         let bench_after_tick = bench_now_us();
-        // The frame borrow stays live through GE completion and display swap.
-        // The display paces against the process clock after GPU terminal wait.
+        // Present syncs the previous list, paces and swaps it against the
+        // process clock, then kicks this frame's list. The GE draws it while
+        // the next guest turn runs; no core borrow survives the call.
         if let Err(error) = runtime.present() {
             trace_pair(b"[PocketJS present] ", &error);
         }
         #[cfg(feature = "bench")]
         {
+            // gpu_us is the residual wait for the previous list; it and the
+            // paced swap are excluded from render and work time.
             let timing = runtime.frame_timing();
             bench_record_gpu(guest_frame, timing.gpu_us);
             bench_record_frame(
@@ -513,7 +516,7 @@ unsafe fn run_guest(
                 bench_after_tick,
                 timing.after_draw,
                 timing.after_render,
-                0,
+                timing.gpu_us.saturating_add(timing.present_us),
             );
             if guest_frame == 0 {
                 bench_record_frame0_complete();
@@ -521,10 +524,23 @@ unsafe fn run_guest(
             bench_maybe_flush(guest_frame, runtime.source_lengths());
         }
         // The last capture exits the process, so record and flush benchmark
-        // results before allowing it to terminate the run.
+        // results before allowing it to terminate the run. A dumped frame is
+        // completed first, so the display buffer holds frame GLOBAL_FRAME;
+        // other frames keep the GE overlapped with the next guest turn.
         #[cfg(feature = "capture")]
-        cap_dump_frame(GLOBAL_FRAME);
+        {
+            if capture_dumps(GLOBAL_FRAME) {
+                if let Err(error) = runtime.complete() {
+                    trace_pair(b"[PocketJS present] ", &error);
+                }
+            }
+            cap_dump_frame(GLOBAL_FRAME);
+        }
         if let Some((next, summon)) = switch::take_pending() {
+            // The summon shot reads the display buffer: show this frame.
+            if let Err(error) = runtime.complete() {
+                trace_pair(b"[PocketJS present] ", &error);
+            }
             if summon {
                 switch::capture_shot();
             }
@@ -546,7 +562,8 @@ unsafe fn run_guest(
             );
         }
         if guest_frame == 0 {
-            trace("frame 0: terminal presentation complete");
+            // The list is kicked; the next present completes it.
+            trace("frame 0: complete");
         }
         guest_frame = guest_frame.wrapping_add(1);
         GLOBAL_FRAME = GLOBAL_FRAME.wrapping_add(1);
@@ -654,6 +671,18 @@ fn capture_input_mask(frame_count: u32, fallback: i32) -> i32 {
         }
     }
     best_mask as i32
+}
+
+/// Whether `cap_dump_frame` writes this frame's display buffer.
+#[cfg(feature = "capture")]
+fn capture_dumps(frame_count: u32) -> bool {
+    let cap_start = capture_env_u32(POCKETJS_CAP_START, 16);
+    let cap_n = capture_env_u32(POCKETJS_CAP_N, 32);
+    #[cfg(feature = "bench")]
+    let dumping = POCKETJS_BENCH_DUMP_FRAMES == "1";
+    #[cfg(not(feature = "bench"))]
+    let dumping = true;
+    dumping && frame_count >= cap_start && frame_count < cap_start + cap_n
 }
 
 /// Dump the just-presented display framebuffer to `ms0:/dc_cap/fNNNN.raw`

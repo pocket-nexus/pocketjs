@@ -2,11 +2,17 @@
 
 use crate::{abi, DrawList, PixelFormat, Rect, RenderResources, Target, TargetOwnership};
 
+/// When presentation completes a frame: renderer wait, display flush and
+/// wait, retirement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 #[repr(u32)]
 pub enum Synchronization {
+    /// The frame completes before the present call returns.
     Immediate = abi::POCKET_SYNC_IMMEDIATE,
+    /// The frame stays in flight while the next guest turn runs. It completes
+    /// at the start of the next present, at an explicit completion, display
+    /// refresh, or coordinator destruction. Device-owned targets only.
     Deferred = abi::POCKET_SYNC_DEFERRED,
 }
 
@@ -79,8 +85,10 @@ impl RendererDescriptor {
     }
 }
 
-/// All resource borrows last only for the render call. CPU target access is
-/// exclusive, so render takes `&mut FrameInput` rather than a shared reference.
+/// All resource borrows last only for the render call, except texture storage
+/// a zero-copy render retains as `Renderer::render_zero_copy` describes. CPU
+/// target access is exclusive, so render takes `&mut FrameInput` rather than a
+/// shared reference.
 ///
 /// `damage` lists physical rectangles inside the target region whose pixels
 /// changed since the display's retained contents; `flush` receives the same
@@ -137,10 +145,17 @@ pub trait Renderer {
     /// The explicit exception to the normal resource-copy rule.
     ///
     /// # Safety
-    /// The caller must keep every resource referenced by `frame` alive and
-    /// unchanged until `wait` returns. The descriptor must declare zero_copy.
-    /// Presentation must wait before the next tick can mutate UI resources.
-    /// CPU-visible writes still finish before this method returns.
+    /// The descriptor must declare zero_copy. CPU-visible writes still finish
+    /// before this method returns. An Immediate renderer may read every
+    /// resource referenced by `frame` until `wait` returns; the caller keeps
+    /// them alive and unchanged until then. A Deferred renderer's submission
+    /// outlives the present call, so it may retain only the pixel and palette
+    /// storage returned by `RenderResources::texture`. The caller keeps that
+    /// storage alive and unchanged until the submission retires; the DrawList
+    /// words, damage, resource object and font atlases are borrowed for this
+    /// call only and must be copied before it returns. Presentation calls
+    /// this on a Deferred renderer only when its caller made that promise
+    /// (`pocket_present::Coordinator::enable_deferred_zero_copy`).
     unsafe fn render_zero_copy(
         &mut self,
         frame: &mut FrameInput<'_>,
@@ -149,8 +164,10 @@ pub trait Renderer {
     }
 
     /// Both Ok and Err mean hardware has completed or stopped; neither means
-    /// pending. Presentation waits here before display flush. On failure it
-    /// invalidates damage history and waits for display work before retirement.
+    /// pending. Presentation waits here before display flush, except for a
+    /// `queued_flush` display bound to a Deferred renderer. On failure it
+    /// invalidates the display's damage history and waits for display work
+    /// before retirement. A Deferred renderer is waited at the next present.
     fn wait(&mut self, submission: &Self::Submission) -> Result<(), RenderError>;
     /// Presentation calls this after render and display waits. The driver
     /// must guard invalid or premature retirement as described above. A

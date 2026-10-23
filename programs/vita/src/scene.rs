@@ -45,7 +45,8 @@ pub fn init_with_pool(pool_bytes: u32) -> Result<(), &'static str> {
 }
 /// # Safety
 /// Call on the Vita render thread with no scene open. Native 3D may record
-/// commands after this call and before present.
+/// commands after this call and before present. This waits for the previous
+/// scene's GPU work before vita2d reuses its vertex pool.
 pub unsafe fn begin_frame(clear: u32) {
     CANONICAL_PRESENTED = false;
     if let Some(mut renderer) = renderer() {
@@ -57,7 +58,7 @@ pub unsafe fn begin_frame(clear: u32) {
 }
 /// # Safety
 /// Call on the Vita render thread after the shared scene's last draw. GPU
-/// completion precedes the display swap; display completion precedes retire.
+/// completion precedes the queued display swap and retirement.
 pub unsafe fn present() {
     if CANONICAL_PRESENTED {
         CANONICAL_PRESENTED = false;
@@ -240,7 +241,7 @@ pub fn capture_golden(ui: &Ui, words: &[u32], path: &str) -> io::Result<()> {
     fs::write(path, pixels)
 }
 
-/// Canonical presentation has completed the registered display wait.
+/// Canonical presentation queued this frame's swap.
 pub(crate) unsafe fn mark_presented() {
     CANONICAL_PRESENTED = true;
 }

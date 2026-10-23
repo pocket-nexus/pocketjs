@@ -454,7 +454,7 @@ pub(crate) fn glyph_page(
         if entry.slot != atlas.slot || entry.revision == revision { return true; }
         if let Some(index) = crate::tex_resolve(textures, entry.handle) {
             let slot = &mut textures[index as usize];
-            slot.tex = None;
+            slot.vacate();
             slot.gen = ((slot.gen as u32 + 1) & crate::TEX_GEN_MASK) as u16;
             free.push(index);
         }

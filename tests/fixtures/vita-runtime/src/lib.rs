@@ -330,6 +330,10 @@ fn sampled_input_and_native_overlay_run_before_terminal_wait() {
             embed::present_with_overlay(p.runtime, |_| p.events.borrow_mut().push("overlay")),
             0
         );
+        // The GXM driver is Deferred: the scene stays in flight after present
+        // returns, and completion runs the terminal wait before the display.
+        assert_eq!(&*p.events.borrow(), &["render", "overlay"]);
+        assert_eq!(embed::complete_presentation(p.runtime), 0);
         assert_eq!(
             &*p.events.borrow(),
             &[

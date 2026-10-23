@@ -81,7 +81,12 @@ APIs to these renderers. C guest composition lives in
 `programs/native/quickjs`; generated guest bindings live in `engine/guest-quickjs`.
 
 The presentation coordinator keeps borrowed resources alive until renderer
-and display work reaches a terminal state. **Each acquired CPU region
+and display work reaches a terminal state. **A display bound to a `Deferred`
+renderer completes frame N at the start of present N+1**, so the PSP GE and
+the Vita GPU draw while the next guest turn, tick and layout run; `Immediate`
+renderers complete inside the present call. A zero-copy deferred submission
+borrows texture storage and nothing else; the core keeps freed or overwritten
+storage of those textures until the submission retires. **Each acquired CPU region
 receives the frame's damage rectangles that intersect it, and the software
 renderer clears and replays only those rectangles.** Persistent
 display-buffer identities are required before this path can reuse a previous

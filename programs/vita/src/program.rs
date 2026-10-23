@@ -213,11 +213,14 @@ impl Runtime {
         self.check(embed::collect(self.handle))
     }
     /// # Safety
-    /// Call with no open scene. This call presents the completed frame.
+    /// Call with no open scene. This call queues the frame's swap.
     pub unsafe fn render(&mut self) {
         self.render_with_overlay(|| {});
     }
-    /// Record a native overlay after UI draw and before the terminal GPU wait.
+    /// Record a native overlay after UI draw and before the queued swap.
+    /// begin_frame waits for the previous scene's GPU work; the presentation
+    /// then retires that frame, submits this one and queues its swap without
+    /// waiting, so the GPU draws it while the next guest turn runs.
     /// # Safety
     /// No scene is open. The closure may draw native geometry but must not
     /// mutate the UI or reenter this runtime while frame resources are borrowed.
@@ -227,7 +230,7 @@ impl Runtime {
     }
     /// # Safety
     /// A shared native scene is open. Commands after the UI pass belong in
-    /// render_over_with's closure; this call returns after presentation.
+    /// render_over_with's closure; this call returns after the swap is queued.
     pub unsafe fn render_over(&mut self) {
         self.render_over_with(|| {});
     }
@@ -268,6 +271,9 @@ impl Runtime {
     /// # Safety
     /// Call after presentation with no outstanding core guard.
     pub unsafe fn capture_golden(&mut self, path: &str) -> std::io::Result<()> {
+        // Capture reads the completed frame: GPU work, swap and retirement.
+        self.check(embed::complete_presentation(self.handle))
+            .map_err(std::io::Error::other)?;
         let mut state = self
             .ops
             .core_mut()

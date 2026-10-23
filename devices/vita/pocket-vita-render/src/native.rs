@@ -470,10 +470,12 @@ unsafe impl Device for VitaDevice {
         Ok(())
     }
     fn flush(&mut self) -> Result<(), RenderError> {
-        if self.scene_open || self.gpu_pending {
-            return Err(RenderError::Failed);
-        }
+        // vita2d_end_drawing ends the GXM scene; vita2d_swap_buffers adds a
+        // display queue entry that waits on the scene's sync object. Neither
+        // call waits for the GPU. The next begin waits before vita2d reuses
+        // its vertex pool.
         unsafe {
+            self.end();
             vita2d_swap_buffers();
         }
         Ok(())

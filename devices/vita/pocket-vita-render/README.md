@@ -31,9 +31,14 @@ hardware performance acceptance.
 The Vita host registers a typed Renderer and DeviceOwned DisplayOutput in
 its canonical Runtime. A shared scene begins with `graphics::begin_frame` and
 native 3D; `Runtime::render_over_with` records UI and an optional native overlay
-inside the coordinator's synchronous frame. **Presentation waits for GPU
-completion, queues the display swap, waits for the display queue, and retires
-submissions.** A failed frame closes its scene without displaying partial work.
+inside the coordinator's frame. **The renderer is `Deferred` and the display
+declares a queued flush: presentation ends the scene and queues
+`vita2d_swap_buffers` after submission, without a GPU wait.**
+`begin_frame` for the next frame calls `vita2d_wait_rendering_done` before
+vita2d reuses its vertex pool; the next presentation then retires the previous
+submission. No frame drains the display queue; `sceGxmDisplayQueueFinish` runs
+at shutdown and display teardown. A failed frame closes its scene without
+displaying partial work.
 `Config::external_compositor` permits `SURFACE_QUAD` records to be supplied by
 that native compositor; without it, such records return `Unsupported`.
 `TEXT_RUN` remains unsupported. The host adapter in `programs/vita/src/scene.rs`

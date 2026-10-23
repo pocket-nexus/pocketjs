@@ -76,8 +76,9 @@ pub trait OpProvider {
     ) -> Result<OpResult, RuntimeError>;
 }
 
-/// State shared with guest callbacks. A frame keeps an immutable borrow until
-/// every render/display wait completes; dispatch then returns Busy.
+/// State shared with guest callbacks. `Runtime::present` borrows it while it
+/// draws and submits a frame, and dispatch returns Busy during that call. The
+/// borrow ends when present returns, also while a Deferred frame is in flight.
 pub struct CoreState {
     pub ui: Ui,
     pub epoch: u64,
@@ -303,7 +304,13 @@ impl Runtime {
         }
         // Output ownership is known after registration. CPU scale is selected
         // from admitted logical and registered physical sizes at boot.
-        let presenter = Coordinator::new(1, config.frame_buffer_budget)?;
+        let mut presenter = Coordinator::new(1, config.frame_buffer_budget)?;
+        // SAFETY: every present passes this instance's Ui while holding its
+        // borrow, and `track_textures` pins each reported handle before that
+        // borrow ends. The Ui moves pinned storage aside instead of freeing or
+        // writing it, releases it only for frames `retired_frame` reports,
+        // and leaks it if the Ui is dropped or replaced while pinned.
+        unsafe { presenter.enable_deferred_zero_copy() };
         Ok(Self {
             config,
             profile,
@@ -378,7 +385,9 @@ impl Runtime {
             return Err(RuntimeError::InvalidArgument);
         }
         let mut core = self.ops.core_mut()?;
-        self.presenter.refresh_displays(scale, physical)?;
+        let refreshed = self.presenter.refresh_displays(scale, physical);
+        track_textures(&self.presenter, &mut core.ui);
+        refreshed?;
         core.ui.set_viewport(logical[0] as f32, logical[1] as f32);
         core.mutated();
         self.profile.viewport = physical;
@@ -396,8 +405,13 @@ impl Runtime {
     /// first and restores them on failure. CPU raster targets use `resize_embedded`.
     pub fn resize_embedded_presentation(&mut self, physical: [u32; 2]) -> Result<(), RuntimeError> {
         self.validate_embedded_gpu_resize(physical)?;
-        self.presenter
-            .refresh_displays(self.presenter.scale(), physical)?;
+        let refreshed = self
+            .presenter
+            .refresh_displays(self.presenter.scale(), physical);
+        if let Ok(mut core) = self.ops.state.try_borrow_mut() {
+            track_textures(&self.presenter, &mut core.ui);
+        }
+        refreshed?;
         self.profile.viewport = physical;
         Ok(())
     }
@@ -418,8 +432,11 @@ impl Runtime {
             return Err(RuntimeError::InvalidArgument);
         }
         let mut core = self.ops.core_mut()?;
-        self.presenter
-            .refresh_displays(self.presenter.scale(), physical)?;
+        let refreshed = self
+            .presenter
+            .refresh_displays(self.presenter.scale(), physical);
+        track_textures(&self.presenter, &mut core.ui);
+        refreshed?;
         core.ui.set_viewport(logical[0], logical[1]);
         core.mutated();
         self.profile.viewport = physical;
@@ -721,12 +738,22 @@ impl Runtime {
         self.pending_frame = true;
         Ok(())
     }
-    /// Present the current tree and wait for all render and display work.
-    /// No driver retains frame references after this call. Both terminal
-    /// outcomes permit another advance; a failed output can also be retried
-    /// with `present` without running the guest again. A guest that failed
-    /// keeps its last tree presentable, for a host that draws its own
-    /// transition over it; advancing that guest stays rejected.
+    /// Present the current tree. The previous frame of a Deferred renderer
+    /// completes first, after this frame's draw. Immediate renderers finish
+    /// all render and display work before this returns. A Deferred renderer's
+    /// frame stays in flight through the next guest turn and completes at the
+    /// next present, `complete_presentation`, a resize, or shutdown. Its
+    /// zero-copy submission reads only texture storage; until it retires,
+    /// freeing or overwriting those textures keeps the old storage unchanged.
+    /// No other frame reference survives this call, and the core borrow ends
+    /// when it returns, so guest dispatch in the next turn is not Busy.
+    ///
+    /// Both terminal outcomes permit another advance; a failed output can
+    /// also be retried with `present` without running the guest again. A
+    /// failed completion of the previous frame is reported here, before this
+    /// frame is submitted. A guest that failed keeps its last tree
+    /// presentable, for a host that draws its own transition over it;
+    /// advancing that guest stays rejected.
     pub fn present(&mut self) -> Result<(), RuntimeError> {
         if !matches!(self.state, State::Running | State::Failed) {
             return Err(RuntimeError::InvalidState);
@@ -735,20 +762,37 @@ impl Runtime {
         self.pending_frame = false;
         state.ui.draw();
         state.ui.draw_auxiliary();
-        self.presenter.present(
+        let presented = self.presenter.present(
             state.ui.current_draw_list(),
             state.ui.current_auxiliary_draw_list(),
             &state.ui,
-        )?;
+        );
+        track_textures(&self.presenter, &mut state.ui);
+        presented?;
         Ok(())
+    }
+    /// Complete in-flight Deferred frames: renderer wait, display flush or
+    /// wait, retirement. Call before reading a presented buffer, or before
+    /// host work that needs the device idle. Returns Ok with nothing in
+    /// flight. A failed completion returns its error once and invalidates
+    /// the failed display's damage history.
+    pub fn complete_presentation(&mut self) -> Result<(), RuntimeError> {
+        let completed = self.presenter.complete();
+        // A caller-held core guard defers the release to the next present.
+        if let Ok(mut state) = self.ops.state.try_borrow_mut() {
+            // SAFETY: every submission up to `retired_frame` has retired.
+            unsafe { state.ui.release_textures(self.presenter.retired_frame()) };
+        }
+        Ok(completed?)
     }
     pub fn tick(&mut self) -> Result<(), RuntimeError> {
         self.advance()?;
         self.present()
     }
     /// Present a device-owned UI and submit host overlays before terminal
-    /// rendering completion. The callback runs with the core borrowed; UI
-    /// mutation through retained operation contexts is rejected during it.
+    /// rendering completion or a queued flush. The callback runs with the
+    /// core borrowed; UI mutation through retained operation contexts is
+    /// rejected during it. Deferred frames follow the `present` rules.
     pub fn present_with_overlay(
         &mut self,
         overlay: impl FnMut(DisplayId),
@@ -760,16 +804,19 @@ impl Runtime {
         self.pending_frame = false;
         state.ui.draw();
         state.ui.draw_auxiliary();
-        self.presenter.present_with_overlay(
+        let presented = self.presenter.present_with_overlay(
             state.ui.current_draw_list(),
             state.ui.current_auxiliary_draw_list(),
             &state.ui,
             overlay,
-        )?;
+        );
+        track_textures(&self.presenter, &mut state.ui);
+        presented?;
         Ok(())
     }
     /// Sample input and advance the guest and core once. No rendering work is
-    /// submitted. A subsequent advance is rejected until `present` completes,
+    /// submitted; a Deferred frame from the last present may still be in
+    /// flight. A subsequent advance is rejected until `present` runs,
     /// allowing the program to insert native scene commands between the two.
     pub fn advance(&mut self) -> Result<(), RuntimeError> {
         self.advance_with_core_ticks(1)
@@ -841,13 +888,16 @@ impl Runtime {
             .ok_or(RuntimeError::MissingGuest)?
             .collect()
     }
+    /// Complete in-flight Deferred frames, then shut the guest down. All
+    /// device work is terminal before package and UI storage can be released.
+    /// A failed completion is returned after the shutdown finishes.
     pub fn shutdown(&mut self) -> Result<(), RuntimeError> {
+        let completed = self.complete_presentation();
         // Invalidation does not borrow the core: a caller may retain a read
         // guard while dropping Runtime. Package bytes remain in self.package
         // until guest shutdown, then all context-held package roots are gone.
         self.ops.active.set(false);
         self.ops.package.borrow_mut().take();
-        // Coordinator::present returns only after all device work is terminal.
         if self.guest_initialized {
             if let Some(guest) = &mut self.guest {
                 guest.shutdown();
@@ -857,7 +907,17 @@ impl Runtime {
         self.package = None;
         self.state = State::Stopped;
         self.pending_frame = false;
-        Ok(())
+        completed
+    }
+}
+
+/// Drop texture storage kept for frames whose submissions retired, then pin
+/// the textures an in-flight zero-copy submission reads.
+fn track_textures(presenter: &Coordinator, ui: &mut Ui) {
+    // SAFETY: every submission up to `retired_frame` has retired.
+    unsafe { ui.release_textures(presenter.retired_frame()) };
+    if let Some((frame, handles)) = presenter.borrowed_textures() {
+        ui.retain_textures(frame, handles);
     }
 }
 impl Drop for Runtime {

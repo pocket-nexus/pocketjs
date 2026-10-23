@@ -2,11 +2,13 @@
 //!
 //! Drivers can identify retained output buffers for incremental damage. GRAM
 //! displays can overlap two CPU staging buffers when they declare that acquire
-//! does not reuse storage read by a pending transfer.
+//! does not reuse storage read by a pending transfer. A Deferred renderer's
+//! frame stays in flight until the next present, so its device work overlaps
+//! the caller's next guest turn.
 
 use crate::damage::{DamagePolicy, DamageTarget, DamageTracker};
 use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
-use core::any::Any;
+use core::{any::Any, cell::RefCell};
 
 use pocket_drivers::{
     BufferIdentity, DamageRect, DisplayDescriptor, DisplayError, DisplayOutput, DisplayRole,
@@ -82,9 +84,12 @@ where
         zero_copy: bool,
     ) -> Result<ErasedValue, RenderError> {
         let submission = if zero_copy {
-            // SAFETY: this adapter is private to Coordinator. Its frame guard
-            // waits before the caller's DrawLists/resources or the per-display
-            // resource wrappers/damage arrays can be changed or released.
+            // SAFETY: this adapter is private to Coordinator. For Immediate
+            // renderers its frame guard waits before the caller's
+            // DrawLists/resources or the per-display resource wrappers/damage
+            // arrays can be changed or released. Deferred renderers take this
+            // path only after `enable_deferred_zero_copy`, whose caller keeps
+            // the storage `borrowed_textures` reports until retirement.
             unsafe { self.0.render_zero_copy(frame) }
         } else {
             self.0.render(frame)
@@ -149,6 +154,17 @@ struct Pending {
     display_in_call: bool,
     damage: Box<[Rect]>,
     token: Option<ErasedValue>,
+    /// Completion waits for the next present: the renderer is Deferred.
+    defer: bool,
+    /// Rendered through `render_zero_copy`; texture storage stays borrowed.
+    zero_copy: bool,
+}
+
+/// A Deferred renderer's submission for one display, completed by the next
+/// present. `pending.token` is set when a queued flush already ran.
+struct Deferred {
+    frame: u64,
+    pending: Pending,
 }
 
 struct RegisteredDisplay {
@@ -160,6 +176,7 @@ struct RegisteredDisplay {
     next_y: u32,
     damage: Vec<Rect>,
     pending: Option<Pending>,
+    deferred: Option<Deferred>,
     acquired_damage: Option<Box<[Rect]>>,
     transfers: VecDeque<Pending>,
     histories: Vec<(BufferIdentity, DamageTracker)>,
@@ -167,8 +184,22 @@ struct RegisteredDisplay {
     history_valid: bool,
 }
 
-/// A synchronous frame boundary over drivers which may submit asynchronous
-/// work. It owns the registered drivers and erases their token types.
+impl RegisteredDisplay {
+    fn invalidate(&mut self) {
+        self.history_valid = false;
+        for (_, tracker) in &mut self.histories {
+            tracker.invalidate();
+        }
+    }
+}
+
+/// A frame boundary over drivers which may submit asynchronous work. It owns
+/// the registered drivers and erases their token types.
+///
+/// Immediate renderers complete each frame inside `present`. A display bound
+/// to a Deferred renderer keeps its submission in flight after `present`
+/// returns; the next `present`, `complete`, display refresh or destruction
+/// completes it before the display is acquired again.
 ///
 /// The budget accounts for host CPU framebuffer storage across all displays;
 /// device-owned targets consume no host framebuffer reservation. Double-buffer
@@ -180,6 +211,13 @@ pub struct Coordinator {
     frame_buffer_budget: usize,
     renderers: Vec<RegisteredRenderer>,
     displays: Vec<RegisteredDisplay>,
+    /// Sequence number of the latest `present` call.
+    frame: u64,
+    /// Texture handles read by in-flight zero-copy Deferred submissions.
+    borrowed: Vec<i32>,
+    /// The caller keeps borrowed texture storage until retirement
+    /// (`enable_deferred_zero_copy`).
+    deferred_zero_copy: bool,
 }
 
 impl Coordinator {
@@ -191,6 +229,9 @@ impl Coordinator {
             frame_buffer_budget,
             renderers: Vec::new(),
             displays: Vec::new(),
+            frame: 0,
+            borrowed: Vec::new(),
+            deferred_zero_copy: false,
         };
         result.add_renderer(software)?;
         Ok(result)
@@ -200,6 +241,7 @@ impl Coordinator {
     /// replaces only the built-in software renderer; custom renderers retain
     /// their own configuration. Call before the next presentation begins.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), PresentError> {
+        self.complete()?;
         if self
             .displays
             .iter()
@@ -222,9 +264,12 @@ impl Coordinator {
     }
 
     /// Re-read program-owned output descriptors at a terminal frame boundary.
-    /// Validation and budget planning finish before registration changes. A
-    /// primary display must have the requested physical viewport.
+    /// In-flight Deferred frames complete first; a failed completion returns
+    /// its error before registration changes. Validation and budget planning
+    /// finish before registration changes. A primary display must have the
+    /// requested physical viewport.
     pub fn refresh_displays(&mut self, scale: u32, primary: [u32; 2]) -> Result<(), PresentError> {
+        self.complete()?;
         let software =
             RasterRenderer::new(scale).map_err(|_| PresentError::InvalidRendererDescriptor)?;
         if self
@@ -351,6 +396,7 @@ impl Coordinator {
             next_y: 0,
             damage: Vec::new(),
             pending: None,
+            deferred: None,
             acquired_damage: None,
             transfers: VecDeque::new(),
             histories: Vec::new(),
@@ -395,15 +441,92 @@ impl Coordinator {
 
     pub fn invalidate(&mut self) {
         for display in &mut self.displays {
-            display.history_valid = false;
-            for (_, tracker) in &mut display.histories {
-                tracker.invalidate();
-            }
+            display.invalidate();
         }
     }
 
-    /// Present both roles, then finish every render/display wait and retirement
-    /// before returning, including on failure. Several displays may hold live
+    /// Let zero-copy Deferred renderers read texture storage after `present`
+    /// returns. Without this call they render through the copying `render`;
+    /// Immediate zero-copy renderers are unaffected.
+    ///
+    /// # Safety
+    /// After every present the caller keeps the pixel and palette storage of
+    /// each handle in `borrowed_textures()` alive and unchanged until
+    /// `retired_frame()` reaches the reported frame, including when the
+    /// resources object passed to present is mutated or dropped.
+    pub unsafe fn enable_deferred_zero_copy(&mut self) {
+        self.deferred_zero_copy = true;
+    }
+
+    /// Sequence number of the latest `present` call; zero before the first.
+    pub fn frame(&self) -> u64 {
+        self.frame
+    }
+
+    /// Every submission of this frame and all earlier frames has retired.
+    /// Equals `frame()` when no Deferred frame is in flight.
+    pub fn retired_frame(&self) -> u64 {
+        self.displays
+            .iter()
+            .filter_map(|display| display.deferred.as_ref())
+            .map(|deferred| deferred.frame - 1)
+            .min()
+            .unwrap_or(self.frame)
+    }
+
+    /// Texture handles whose pixel or palette storage an in-flight zero-copy
+    /// Deferred submission reads, and the frame that submitted them. The
+    /// caller keeps that storage alive and unchanged until `retired_frame()`
+    /// reaches the frame. Handles are sorted and unique.
+    pub fn borrowed_textures(&self) -> Option<(u64, &[i32])> {
+        let frame = self
+            .displays
+            .iter()
+            .filter_map(|display| display.deferred.as_ref())
+            .filter(|deferred| deferred.pending.zero_copy)
+            .map(|deferred| deferred.frame)
+            .max()?;
+        Some((frame, &self.borrowed))
+    }
+
+    /// Complete every in-flight Deferred frame: renderer wait, then display
+    /// flush, or display wait alone when a queued flush already ran, then
+    /// retirement. Displays complete in reverse order. All work is terminal on
+    /// return. A failure invalidates only the failed display's damage history;
+    /// the first error is returned. With nothing in flight this returns Ok.
+    pub fn complete(&mut self) -> Result<(), PresentError> {
+        let mut any = false;
+        for display in &mut self.displays {
+            if let Some(deferred) = display.deferred.take() {
+                debug_assert!(display.pending.is_none());
+                display.pending = Some(deferred.pending);
+                any = true;
+            }
+        }
+        if !any {
+            return Ok(());
+        }
+        self.borrowed.clear();
+        let mut frame = FrameGuard {
+            coordinator: self,
+            rendering: None,
+            committed: false,
+        };
+        let failure = frame.finish_round(false);
+        let failure = frame.drain_transfers().or(failure);
+        // Failures invalidated their own display. Only an unwinding driver
+        // call leaves this guard uncommitted and invalidates every display.
+        frame.committed = true;
+        failure.map_or(Ok(()), Err)
+    }
+
+    /// Complete in-flight Deferred frames, then present both roles. Immediate
+    /// renderers finish every render/display wait and retirement before this
+    /// returns; Deferred renderers return after submission, with a queued
+    /// flush when the display declares `queued_flush`. Any failure, including
+    /// one that follows a Deferred submission, leaves no work in flight.
+    /// A failed completion of the previous frame returns its error before the
+    /// new frame is acquired. Several displays may hold live
     /// submissions from the same renderer; completion drains in reverse display
     /// order. A strip is reacquired only after its previous transfer terminates.
     /// If render unwinds before returning a submission, its renderer is
@@ -420,6 +543,7 @@ impl Coordinator {
         auxiliary: Option<&DrawList>,
         resources: &dyn RenderResources,
     ) -> Result<(), PresentError> {
+        self.complete()?;
         let result = self.present_inner(primary, auxiliary, resources, None);
         if result.is_err() {
             self.invalidate();
@@ -428,10 +552,11 @@ impl Coordinator {
     }
 
     /// Draw host overlays after each device-owned UI submission and before its
-    /// terminal render wait. The callback must use the same device/context and
-    /// finish submitting commands before returning. All outputs must be
-    /// device-owned. Each callback runs once per display; damage is full because
-    /// host overlay changes are not represented by the UI DrawList.
+    /// terminal render wait or queued flush. The callback must use the same
+    /// device/context and finish submitting commands before returning. All
+    /// outputs must be device-owned. Each callback runs once per display;
+    /// damage is full because host overlay changes are not represented by the
+    /// UI DrawList. In-flight Deferred frames complete first, as in `present`.
     pub fn present_with_overlay(
         &mut self,
         primary: &DrawList,
@@ -446,6 +571,7 @@ impl Coordinator {
         {
             return Err(PresentError::IncompatibleRenderer);
         }
+        self.complete()?;
         let result = self.present_inner(primary, auxiliary, resources, Some(&mut overlay));
         // External commands are absent from the tracked DrawList, so a later
         // ordinary presentation must not reuse the overlay's retained pixels.
@@ -484,9 +610,22 @@ impl Coordinator {
         let primary_height = (viewport.1 as u32)
             .checked_mul(self.scale)
             .ok_or(PresentError::InvalidFrame)?;
+        self.frame = self
+            .frame
+            .checked_add(1)
+            .ok_or(PresentError::InvalidFrame)?;
+        self.borrowed.clear();
+        // Texture lookups by zero-copy Deferred renderers. Declared before the
+        // views so it outlives every resource wrapper.
+        let borrowed = RefCell::new(Vec::new());
         let mut views = Vec::with_capacity(self.displays.len());
         for (index, display) in self.displays.iter_mut().enumerate() {
             let descriptor = display.descriptor;
+            let renderer = &self.renderers[display.renderer.0 as usize].descriptor;
+            let log = (renderer.zero_copy()
+                && renderer.synchronization() == Synchronization::Deferred)
+                .then_some(&borrowed)
+                .filter(|_| self.deferred_zero_copy);
             let list = match descriptor.role {
                 DisplayRole::Primary => {
                     if descriptor.target_ownership == TargetOwnership::CpuVisible
@@ -519,6 +658,7 @@ impl Coordinator {
             views.push(FrameResources {
                 source: resources,
                 viewport,
+                log,
             });
             display.next_y = 0;
             let identity = display
@@ -641,13 +781,27 @@ impl Coordinator {
             display.history_valid = true;
         }
         frame.committed = true;
+        drop(frame);
+        drop(views);
+        let mut borrowed = borrowed.into_inner();
+        borrowed.sort_unstable();
+        borrowed.dedup();
+        self.borrowed = borrowed;
         Ok(())
+    }
+}
+
+impl Drop for Coordinator {
+    /// Destruction completes in-flight Deferred frames before driver Drop.
+    fn drop(&mut self) {
+        let _ = self.complete();
     }
 }
 
 struct FrameResources<'a> {
     source: &'a dyn RenderResources,
     viewport: (f32, f32),
+    log: Option<&'a RefCell<Vec<i32>>>,
 }
 
 impl RenderResources for FrameResources<'_> {
@@ -658,7 +812,13 @@ impl RenderResources for FrameResources<'_> {
         self.source.raster_revision()
     }
     fn texture(&self, handle: i32) -> Option<TexView<'_>> {
-        self.source.texture(handle)
+        let view = self.source.texture(handle);
+        if let (Some(_), Some(log)) = (view.as_ref(), self.log) {
+            if let Ok(mut log) = log.try_borrow_mut() {
+                log.push(handle);
+            }
+        }
+        view
     }
     fn font_atlas(&self, slot: u8) -> Option<FontView<'_>> {
         self.source.font_atlas(slot)
@@ -738,12 +898,17 @@ impl FrameGuard<'_> {
             display.acquired_damage.as_ref().unwrap(),
             target,
         );
+        let deferred = renderer.descriptor.synchronization() == Synchronization::Deferred;
+        // A Deferred submission outlives this call: it borrows texture storage
+        // only when the caller keeps that storage until retirement.
+        let zero_copy =
+            renderer.descriptor.zero_copy() && (!deferred || self.coordinator.deferred_zero_copy);
         self.rendering = Some(display.renderer);
         let result = renderer
             .driver
             .as_mut()
             .ok_or(PresentError::InvalidRenderer)?
-            .render(&mut input, renderer.descriptor.zero_copy());
+            .render(&mut input, zero_copy);
         self.rendering = None;
         let submission = result.map_err(|error| PresentError::Render(id, error))?;
         display.pending = Some(Pending {
@@ -752,12 +917,15 @@ impl FrameGuard<'_> {
             display_in_call: false,
             damage: display.acquired_damage.take().unwrap(),
             token: None,
+            defer: deferred,
+            zero_copy,
         });
         Ok(())
     }
 
     fn finish_round(&mut self, unwinding: bool) -> Option<PresentError> {
         let mut failure = None;
+        let frame = self.coordinator.frame;
         for index in (0..self.coordinator.displays.len()).rev() {
             let display = &mut self.coordinator.displays[index];
             let Some(pending) = display.pending.as_mut() else {
@@ -765,6 +933,35 @@ impl FrameGuard<'_> {
             };
             let renderer = &mut self.coordinator.renderers[display.renderer.0 as usize];
             let id = DisplayId(index);
+            if pending.defer && !unwinding {
+                // The next present completes this frame. A queued flush is
+                // ordered after the rendering on the device, so it may start
+                // before the renderer wait.
+                let mut flush_failed = false;
+                if display.descriptor.queued_flush {
+                    pending.display_in_call = true;
+                    let driver = display.driver.as_mut().expect("registered display");
+                    match driver.flush(&pending.damage) {
+                        Ok(token) => pending.token = Some(token),
+                        Err(error) => {
+                            failure.get_or_insert(PresentError::Flush(id, error));
+                            flush_failed = true;
+                        }
+                    }
+                    pending.display_in_call = false;
+                }
+                if !flush_failed {
+                    let mut pending = display.pending.take().expect("pending submission");
+                    pending.defer = false;
+                    display.deferred = Some(Deferred { frame, pending });
+                    continue;
+                }
+                // The failed flush stopped its transfer. Complete the
+                // submission here: renderer wait, then retirement.
+                pending.defer = false;
+                display.invalidate();
+            }
+            let pending = display.pending.as_mut().expect("pending submission");
             let rendered = if pending.render_waited {
                 false // A prior unwinding wait/flush never permits another flush.
             } else {
@@ -780,29 +977,34 @@ impl FrameGuard<'_> {
                     Ok(()) => true,
                     Err(error) => {
                         failure.get_or_insert(PresentError::RenderWait(id, error));
+                        display.invalidate();
                         false
                     }
                 }
             };
+            let pending = display.pending.as_mut().expect("pending submission");
             if pending.display_in_call {
                 // A display callback panicked before returning a terminal
                 // result. Its token may have been consumed. Driver destruction
                 // must stop device access; do that before renderer retirement.
                 // The disabled display rejects subsequent acquisitions.
                 drop(display.driver.take());
-            } else if rendered && !unwinding {
+            } else if rendered && !unwinding && pending.token.is_none() {
                 pending.display_in_call = true;
                 let driver = display.driver.as_mut().expect("registered display");
-                match driver.flush(&pending.damage) {
+                let result = driver.flush(&pending.damage);
+                pending.display_in_call = false;
+                match result {
                     Ok(token) => {
                         pending.token = Some(token);
                     }
                     Err(error) => {
                         failure.get_or_insert(PresentError::Flush(id, error));
+                        display.invalidate();
                     }
                 }
-                pending.display_in_call = false;
             }
+            let pending = display.pending.as_mut().expect("pending submission");
             if pending.token.is_some() {
                 display
                     .transfers
@@ -846,6 +1048,12 @@ impl Drop for FrameGuard<'_> {
     fn drop(&mut self) {
         if !self.committed {
             self.coordinator.invalidate();
+            // A failed or unwinding presentation leaves no Deferred work.
+            for display in &mut self.coordinator.displays {
+                if let Some(deferred) = display.deferred.take() {
+                    display.pending = Some(deferred.pending);
+                }
+            }
         }
         if let Some(id) = self.rendering.take() {
             self.drain_transfers();
@@ -883,10 +1091,12 @@ fn finish_transfer(
     } else if let Some(driver) = display.driver.as_mut() {
         pending.display_in_call = true;
         let token = pending.token.take().expect("display token");
-        if let Err(error) = driver.wait(token) {
-            failure = Some(PresentError::DisplayWait(id, error));
-        }
+        let result = driver.wait(token);
         pending.display_in_call = false;
+        if let Err(error) = result {
+            failure = Some(PresentError::DisplayWait(id, error));
+            display.invalidate();
+        }
     }
     let pending = display.transfers.pop_front().unwrap();
     renderer
@@ -956,6 +1166,7 @@ fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), Prese
             && (!display.double_buffered
                 || !display.device_frame_storage
                 || display.target_ownership != TargetOwnership::CpuVisible)
+        || display.queued_flush && display.target_ownership != TargetOwnership::DeviceOwned
     {
         return Err(PresentError::InvalidDisplayDescriptor);
     }

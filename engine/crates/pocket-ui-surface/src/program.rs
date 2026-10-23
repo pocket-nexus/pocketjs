@@ -188,8 +188,12 @@ impl UiProgram {
         self.runtime.advance().host()?;
         Ok(())
     }
+    /// Present and complete the frame. The host composites the published
+    /// output after this returns, so a Deferred renderer's frame completes
+    /// here rather than at the next present.
     pub fn present(&mut self) -> Result<()> {
         self.runtime.present().host()?;
+        self.runtime.complete_presentation().host()?;
         Ok(())
     }
     pub fn resize(&mut self, logical: [u32; 2], physical: [u32; 2]) -> Result<()> {
