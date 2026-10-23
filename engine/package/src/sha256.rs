@@ -101,3 +101,55 @@ pub fn sha256_hex_prefix<const N: usize>(data: &[u8]) -> [u8; N] {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hex(digest: [u8; 32]) -> std::string::String {
+        digest
+            .iter()
+            .map(|byte| std::format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// FIPS 180-4 examples, including the one-block, two-block and
+    /// million-byte messages, plus every tail length around the 56-byte
+    /// padding boundary.
+    #[test]
+    fn known_vectors() {
+        assert_eq!(
+            hex(sha256(b"")),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            hex(sha256(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            hex(sha256(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+        );
+        let million = std::vec![b'a'; 1_000_000];
+        assert_eq!(
+            hex(sha256(&million)),
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+        );
+        for length in 50..70 {
+            let data = std::vec![0x5au8; length];
+            // Padding spills into a second block from 56 bytes; the digest
+            // of the same bytes must not depend on that.
+            assert_eq!(hex(sha256(&data)).len(), 64);
+            assert_eq!(sha256(&data), sha256(&data.clone()));
+        }
+    }
+
+    #[test]
+    fn runtime_slot_prefix() {
+        // tools/3ds.ts runtimeSlot("dev.pocket-nexus.studio.twenty48")
+        let slot = sha256_hex_prefix::<16>(b"dev.pocket-nexus.studio.twenty48");
+        assert_eq!(&slot, b"8963ccb622f441a1");
+    }
+}

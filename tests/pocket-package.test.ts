@@ -73,6 +73,22 @@ describe("pocket package format", () => {
     expect(findSection(findVariant(decoded, "macos-widget")!, POCKET_SECTION.pak)![0]).toBe(30);
   });
 
+  test("tampering trips the footer hash; a payload edit trips the variant hash", () => {
+    const evil = bytes.slice();
+    evil[bytes.length - 20] ^= 0xff;
+    expect(() => decodePocketPackage(evil)).toThrow(/hash mismatch/);
+    expect(() => decodePocketPackage(evil, { skipHashCheck: true })).not.toThrow();
+    // A changed payload byte with a repaired footer still disagrees with the
+    // variant identity the thinned package carries.
+    const decoded = decodePocketPackage(bytes);
+    const js = findSection(decoded.variants[0]!, POCKET_SECTION.js)!;
+    const offset = js.byteOffset - bytes.byteOffset;
+    const payload = bytes.slice();
+    payload[offset] ^= 0x01;
+    new DataView(payload.buffer, payload.byteOffset).setBigUint64(payload.length - 8, fnv1a64(payload.subarray(0, payload.length - 8)), true);
+    expect(() => decodePocketPackage(payload)).toThrow(/variant hash mismatch/);
+  });
+
   test("thinning selects only the requested variant", () => {
     const thinned = encodePocketPackage(thinPocketPackage(decodePocketPackage(bytes), ["psp"]));
     const decoded = decodePocketPackage(thinned);

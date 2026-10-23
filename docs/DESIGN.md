@@ -99,8 +99,8 @@ PocketJS/
     gen-rust.ts        codegen → engine/spec/src/lib.rs (committed)
   engine/core/                Rust lib `pocketjs-core` — #![no_std] + alloc
     framework/src/lib.rs         pub struct Ui: apply-ops, tick(1/60), draw() → &DrawList
-    framework/src/spec.rs        GENERATED — tests/contract.ts re-runs gen-rust.ts and
-                       byte-compares this file (airtight drift guard) [R]
+    framework/src/spec.rs        GENERATED — tests/generated-contracts.test.ts re-runs
+                       gen-rust.ts and byte-compares this file [R]
     framework/src/tree.rs        node arena: Vec<Node> + free list + GENERATION COUNTER
                        (ids are (gen<<20)|slot; stale ids are no-ops) [R]
     framework/src/style.rs       style table parse/resolve; base/focus/active variants

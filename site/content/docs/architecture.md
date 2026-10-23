@@ -358,9 +358,9 @@ name covers the manifest, the runtime namespace, and the asset key.
 `physics`, `platforms`, `spec`, plus the manifest, package, system and runtime-wire files.
 They are plain TypeScript data: `gen-rust.ts` generates
 `engine/spec/src/lib.rs`, `gen-c.ts` generates
-`contracts/generated/pocket_spec.h`, and `tests/contract.ts` regenerates both
-in memory and byte-compares them against the committed files, so the three
-languages cannot drift.
+`contracts/generated/pocket_spec.h`, and `tests/generated-contracts.test.ts`
+regenerates every committed generated file in memory and byte-compares it,
+so the three languages cannot drift.
 
 The guest has one clock, the tick. A module whose domain cannot wait for a
 frame — real-time audio output is the shipped case — declares a native-side

@@ -428,6 +428,35 @@ mod tests {
     static FIXTURE: &[u8] = include_bytes!("../tests/fixtures/synthetic.pocket");
 
     #[test]
+    fn tamper_trips_the_footer_hash() {
+        let mut evil = FIXTURE.to_vec();
+        let n = evil.len();
+        evil[n - 20] ^= 0xff;
+        assert_eq!(
+            Package::parse(&evil, false).unwrap_err(),
+            PackageError::HashMismatch
+        );
+        assert!(Package::parse(&evil, true).is_ok());
+    }
+
+    #[test]
+    fn a_changed_payload_byte_trips_the_variant_hash() {
+        let package = Package::parse(FIXTURE, false).unwrap();
+        let js = package.variant(0).unwrap().section(section::JS).unwrap().unwrap();
+        let offset = js.as_ptr() as usize - FIXTURE.as_ptr() as usize;
+        let mut evil = FIXTURE.to_vec();
+        evil[offset] ^= 0x01;
+        // Repair the footer so only the variant identity disagrees.
+        let end = evil.len() - 8;
+        let footer = fnv1a64(&[&evil[..end]]).to_le_bytes();
+        evil[end..].copy_from_slice(&footer);
+        assert_eq!(
+            Package::parse(&evil, false).unwrap_err(),
+            PackageError::HashMismatch
+        );
+    }
+
+    #[test]
     fn refuses_wrong_magic_and_truncation() {
         assert_eq!(
             Package::parse(&[0u8; 8], false).unwrap_err(),
