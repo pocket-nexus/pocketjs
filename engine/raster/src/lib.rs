@@ -51,7 +51,9 @@ use pocket_drivers::TexView;
 use pocket_spec::{self as spec, draw_op};
 
 mod surface;
-pub use surface::{render_operation, render_surface, OperationResources, RasterRenderer};
+pub use surface::{
+    render_operation, render_surface, render_surface_regions, OperationResources, RasterRenderer,
+};
 
 pub const MAX_RENDER_SCALE: u32 = 4;
 /// Integer clip rect: x0/y0 inclusive, x1/y1 exclusive.

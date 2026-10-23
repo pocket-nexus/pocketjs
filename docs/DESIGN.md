@@ -63,9 +63,11 @@ artifacts: `$JOB_TMP/map-*.json`).
 - **Damage is backend-independent**: `engine/present/src/damage.rs` compares
   retained DrawLists and returns logical damage regions for one persistent
   framebuffer. RGBA8, PPA-memory ARGB8 and RGB565 software paths clear each
-  region and replay the complete DrawList under a root clip; framebuffer
-  format/scale signatures and `Ui::raster_revision()` prevent stale reuse.
-  Region limits and full-redraw thresholds remain backend policy.
+  region and replay the complete DrawList under a root clip; the presentation
+  coordinator hands each acquired CPU region the physical damage rectangles
+  that intersect it and `pocket-raster` applies the same rule there.
+  Framebuffer format/scale signatures and `Ui::raster_revision()` prevent
+  stale reuse. Region limits and full-redraw thresholds remain backend policy.
 - **ESP32-P4 stays 16-bit**: `platforms/esp-idf/render-ppa/` consumes the same
   DrawList into an opaque RGB565 target. It maps flat fills, A8 coverage
   blending, and compatible PSM 5650 texture transforms to the PPA, then

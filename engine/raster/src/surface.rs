@@ -2,7 +2,7 @@
 
 use pocket_draw_ops::{word_len, DrawOps, Operation};
 use pocket_drivers::{
-    DamageRect, FontView, FrameInput, PixelFormat, RenderError, RenderResources, Renderer,
+    DamageRect, FontView, FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer,
     RendererDescriptor, Surface, Synchronization, Target, TargetOwnership, TexView,
 };
 use pocket_spec::{draw_op, psm};
@@ -19,8 +19,10 @@ const FORMATS: &[PixelFormat] = &[
 ];
 
 /// Synchronous software renderer with an explicit physical-pixels-per-logical
-/// pixel scale. It redraws the acquired region and may ignore frame damage.
-/// No temporary framebuffer or per-frame allocation is needed.
+/// pixel scale. It clears and replays the DrawList inside each frame damage
+/// rectangle that intersects the acquired region; an empty damage list
+/// redraws the whole region. No temporary framebuffer or per-frame
+/// allocation is needed.
 pub struct RasterRenderer {
     scale: u32,
 }
@@ -54,9 +56,16 @@ impl Renderer for RasterRenderer {
 
     fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<(), RenderError> {
         match &mut frame.target {
-            Target::CpuVisible(surface) => {
+            Target::CpuVisible(surface) if frame.damage.is_empty() => {
                 render_surface(frame.resources, &frame.list.words, surface, self.scale)
             }
+            Target::CpuVisible(surface) => render_surface_regions(
+                frame.resources,
+                &frame.list.words,
+                surface,
+                self.scale,
+                frame.damage,
+            ),
             _ => Err(RenderError::Unsupported),
         }
     }
@@ -82,12 +91,68 @@ pub fn render_surface(
 ) -> Result<(), RenderError> {
     let geometry = Geometry::new(resources, surface, scale)?;
     let mut target = SurfaceTarget::new(surface, geometry);
-    clear_black_rect(&mut target, geometry.width, geometry.region);
-    for operation in DrawOps::new(words, geometry.viewport) {
-        let operation = operation.map_err(|_| RenderError::InvalidFrame)?;
-        render_one(resources, &operation, &mut target, geometry, scale)?;
+    render_clipped(
+        resources,
+        words,
+        &mut target,
+        geometry,
+        geometry.region,
+        scale,
+    )
+}
+
+/// Clear and replay the DrawList inside each physical rectangle of `regions`
+/// intersected with the acquired region, in list order. Every rectangle
+/// replays the complete DrawList under that root clip, so painter order holds
+/// for translucent operations. Pixels outside the rectangles keep their
+/// previous values; an empty list writes nothing. The [`render_surface`]
+/// rules for coordinates, padding, skipped records, and decode errors apply.
+pub fn render_surface_regions(
+    resources: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    surface: &mut Surface<'_>,
+    scale: u32,
+    regions: &[Rect],
+) -> Result<(), RenderError> {
+    let geometry = Geometry::new(resources, surface, scale)?;
+    let mut target = SurfaceTarget::new(surface, geometry);
+    for &region in regions {
+        let root = physical(region).intersect(geometry.region);
+        if root.x0 >= root.x1 || root.y0 >= root.y1 {
+            continue;
+        }
+        render_clipped(resources, words, &mut target, geometry, root, scale)?;
     }
     Ok(())
+}
+
+/// Clear `root` to opaque black, then replay the DrawList under that clip.
+fn render_clipped(
+    resources: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    target: &mut SurfaceTarget<'_>,
+    geometry: Geometry,
+    root: Clip,
+    scale: u32,
+) -> Result<(), RenderError> {
+    clear_black_rect(target, geometry.width, root);
+    for operation in DrawOps::new(words, geometry.viewport) {
+        let operation = operation.map_err(|_| RenderError::InvalidFrame)?;
+        render_one(resources, &operation, target, geometry, root, scale)?;
+    }
+    Ok(())
+}
+
+/// Physical rectangle as a clip. Coordinates saturate at `i32::MAX`, beyond
+/// any acquired region.
+fn physical(rect: Rect) -> Clip {
+    let bound = |value: u64| value.min(i32::MAX as u64) as i32;
+    Clip {
+        x0: bound(u64::from(rect.x)),
+        y0: bound(u64::from(rect.y)),
+        x1: bound(u64::from(rect.x) + u64::from(rect.width)),
+        y1: bound(u64::from(rect.y) + u64::from(rect.height)),
+    }
 }
 
 /// Draw one decoded operation over existing target pixels without clearing.
@@ -112,7 +177,14 @@ pub fn render_operation(
     }
     let geometry = Geometry::new(resources, surface, scale)?;
     let mut target = SurfaceTarget::new(surface, geometry);
-    render_one(resources, operation, &mut target, geometry, scale)
+    render_one(
+        resources,
+        operation,
+        &mut target,
+        geometry,
+        geometry.region,
+        scale,
+    )
 }
 
 fn render_one(
@@ -120,6 +192,7 @@ fn render_one(
     operation: &Operation<'_>,
     target: &mut SurfaceTarget<'_>,
     geometry: Geometry,
+    root: Clip,
     scale: u32,
 ) -> Result<(), RenderError> {
     if matches!(
@@ -139,7 +212,7 @@ fn render_one(
         x1: logical.x1 * scale,
         y1: logical.y1 * scale,
     }
-    .intersect(geometry.region);
+    .intersect(root);
     if clip.x0 >= clip.x1 || clip.y0 >= clip.y1 {
         return Ok(());
     }

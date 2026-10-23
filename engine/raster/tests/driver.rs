@@ -3,7 +3,7 @@ use pocket_drivers::{
     DamageRect, DeviceTarget, DrawList, FontView, FrameInput, PixelFormat, Rect, RenderError,
     RenderResources, Renderer, Surface, Synchronization, Target, TargetOwnership, TexView,
 };
-use pocket_raster::{render_operation, render_surface, RasterRenderer};
+use pocket_raster::{render_operation, render_surface, render_surface_regions, RasterRenderer};
 use pocket_spec::{draw_op, psm};
 
 struct Resources {
@@ -226,6 +226,74 @@ fn strided_unaligned_acquired_regions_match_full_render_in_every_format() {
 }
 
 #[test]
+fn damage_rectangles_redraw_only_their_pixels_in_every_format() {
+    let resources = Resources::fixture();
+    let mut list = DrawList::new();
+    list.words = words();
+    for format in [
+        PixelFormat::Rgba8888,
+        PixelFormat::Argb8888,
+        PixelFormat::Rgb565,
+    ] {
+        for scale in [1, 2, 3] {
+            let width = 8 * scale;
+            let height = 6 * scale;
+            let region = Rect::new(1, 1, width - 2, height - 2);
+            let bpp = format.bits_per_pixel() / 8;
+            // An odd stride: RGB565 rows cannot assume u16 alignment.
+            let stride = region.width as usize * bpp + 3;
+            let needed = (region.height as usize - 1) * stride + region.width as usize * bpp;
+            let expected = full_render(&resources, &list.words, format, scale);
+            let render = |damage: &[Rect]| {
+                let mut storage = vec![0x79; needed + 2];
+                let surface =
+                    Surface::new(&mut storage[1..needed + 1], region, stride, format).unwrap();
+                let mut frame =
+                    FrameInput::new(&list, &resources, damage, Target::CpuVisible(surface));
+                let mut renderer = RasterRenderer::new(scale).unwrap();
+                renderer.render(&mut frame).unwrap();
+                renderer.wait(&()).unwrap();
+                renderer.retire(());
+                storage
+            };
+            // Sentinel bytes everywhere except region pixels under `damage`.
+            let wanted = |damage: &[Rect]| {
+                let mut storage = vec![0x79; needed + 2];
+                for y in region.y..region.y + region.height {
+                    for x in region.x..region.x + region.width {
+                        if !damage.iter().any(|r| {
+                            (r.x..r.x + r.width).contains(&x) && (r.y..r.y + r.height).contains(&y)
+                        }) {
+                            continue;
+                        }
+                        let at =
+                            1 + (y - region.y) as usize * stride + (x - region.x) as usize * bpp;
+                        let source = (y * width + x) as usize * bpp;
+                        storage[at..at + bpp].copy_from_slice(&expected[source..source + bpp]);
+                    }
+                }
+                storage
+            };
+            let whole = [region];
+            // Sub-logical-pixel origins, one rectangle crossing the region's
+            // edge, and one outside the viewport.
+            let damage = [
+                Rect::new(3, 4, 5, 3),
+                Rect::new(0, 0, 3, 3),
+                Rect::new(width, 0, 1, 1),
+            ];
+            assert_eq!(render(&[]), wanted(&whole), "{format:?} x{scale} empty");
+            assert_eq!(render(&whole), wanted(&whole), "{format:?} x{scale} whole");
+            assert_eq!(
+                render(&damage),
+                wanted(&damage),
+                "{format:?} x{scale} damage"
+            );
+        }
+    }
+}
+
+#[test]
 fn single_pixel_strips_reassemble_full_frame_without_a_staging_buffer() {
     let resources = Resources::fixture();
     let words = words();
@@ -314,12 +382,20 @@ fn unsupported_and_invalid_targets_are_rejected_before_writes() {
         render_surface(&resources, &[], &mut surface, 1),
         Err(RenderError::Unsupported)
     );
+    assert_eq!(
+        render_surface_regions(&resources, &[], &mut surface, 1, &[Rect::new(0, 0, 8, 6)]),
+        Err(RenderError::Unsupported)
+    );
     assert!(pixels.iter().all(|&byte| byte == 0x37));
 
     let mut surface =
         Surface::new(&mut pixels, Rect::new(7, 5, 2, 1), 4, PixelFormat::Rgb565).unwrap();
     assert_eq!(
         render_surface(&resources, &[], &mut surface, 1),
+        Err(RenderError::InvalidFrame)
+    );
+    assert_eq!(
+        render_surface_regions(&resources, &[], &mut surface, 1, &[Rect::new(7, 5, 1, 1)]),
         Err(RenderError::InvalidFrame)
     );
     assert!(pixels.iter().all(|&byte| byte == 0x37));

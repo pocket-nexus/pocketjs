@@ -81,10 +81,12 @@ APIs to these renderers. C guest composition lives in
 `programs/native/quickjs`; generated guest bindings live in `engine/guest-quickjs`.
 
 The presentation coordinator keeps borrowed resources alive until renderer
-and display work reaches a terminal state. **It redraws each acquired CPU
-region in full.** Persistent display-buffer identities are required before
-this path can reuse a previous buffer's damage history. Existing host damage
-APIs retain their compatibility paths.
+and display work reaches a terminal state. **Each acquired CPU region
+receives the frame's damage rectangles that intersect it, and the software
+renderer clears and replays only those rectangles.** Persistent
+display-buffer identities are required before this path can reuse a previous
+buffer's damage history; without one the damage is the whole region.
+Existing host damage APIs retain their compatibility paths.
 
 ## Core extraction
 
@@ -121,7 +123,9 @@ or each other.** Drivers select the utilities they need.
 `pocket-raster::RasterRenderer` implements the driver trait for RGBA8888,
 ARGB8888, and RGB565 CPU targets. **It writes only the acquired region and
 honors its byte stride**, including RGB565 slices without word alignment.
-Its scale is a constructor parameter. `render_operation` draws one operation
+**Inside that region it clears and replays the DrawList within each frame
+damage rectangle; an empty damage list redraws the whole region.** Its scale
+is a constructor parameter. `render_operation` draws one operation
 over the existing pixels, after the caller has completed earlier accelerator
 work and made the target cache visible. Native text and surface composition
 remain separate host responsibilities.

@@ -81,6 +81,11 @@ impl RendererDescriptor {
 
 /// All resource borrows last only for the render call. CPU target access is
 /// exclusive, so render takes `&mut FrameInput` rather than a shared reference.
+///
+/// `damage` lists physical rectangles inside the target region whose pixels
+/// changed since the display's retained contents; `flush` receives the same
+/// rectangles. A renderer must repaint every pixel inside them and may repaint
+/// any other pixel of the region. Presentation supplies at least one rectangle.
 #[non_exhaustive]
 pub struct FrameInput<'a> {
     pub list: &'a DrawList,
