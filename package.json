@@ -27,6 +27,7 @@
     "contracts/generated",
     "profiles",
     "programs/**/pocket.runtime-config.ts",
+    "programs/*/profile.ts",
     "programs/web/**/*.js",
     "programs/web/**/*.html",
     "programs/sim/*.ts",

@@ -359,14 +359,17 @@ scaffolding options and target toolchains:
 ```sh
 bun add -g @pocketjs/cli       # or: npm install -g @pocketjs/cli
 pocket target add psp          # install the PSP toolchain the framework pins
-pocket create my-app
-pocket check --target psp --manifest apps/my-app/pocket.json
-pocket compile --target psp --manifest apps/my-app/pocket.json
-pocket psp my-app --release
+pocket create my-app           # a standalone project; `bun run check` and `bun run build` wrap the CLI
+cd my-app && bun install
+bun run build                  # pocket compile: the application's .pocket package
 ```
 
-Vita packaging additionally requires VitaSDK and the pinned Rust toolchain
-documented in [`programs/vita/README.md`](./programs/vita/README.md). Guest builds can
+**The native device program builds from a checkout:** `pocket build --target
+psp --pocket <application.pocket> --out dist/psp` embeds a compiled package
+in the PSP program; `pocket psp <app> --release` does the same for a demo
+under `apps/`. Vita packaging additionally requires VitaSDK and the pinned
+Rust toolchain documented in
+[`programs/vita/README.md`](./programs/vita/README.md). Guest builds can
 be packaged as inspectable, target-thinnable
 [`.pocket` files](./docs/PLATFORM.md) instead of per-port directories. The
 [Getting started](https://pocketjs.pocket.nexus/docs/getting-started/) guide

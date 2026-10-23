@@ -13,6 +13,7 @@ import {
   findSection,
   findVariant,
 } from "../../contracts/spec/pocket-package.ts";
+import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
 // Re-exported for the local/CI browser verifier (site/verify.ts): the
 // app-switch protocol is testable headlessly through PocketHost alone,
@@ -565,7 +566,7 @@ export async function mountPocketStage(root, options = {}) {
       // already owns the live-compiled app.
       const bundleCache = new Map();
       const runtimeRegistry = fetch(STAGE_ROOT + "apps/apps.json").then(failResponse).then(r => r.json()).then(value => {
-        if (value.target !== "psp" || value.hostAbi !== 1 || !/^sha256:[0-9a-f]{64}$/.test(value.profileHash ?? "")) {
+        if (value.target !== "psp" || value.hostAbi !== POCKET_BINDING_GENERATION || !/^sha256:[0-9a-f]{64}$/.test(value.profileHash ?? "")) {
           throw new Error("Pocket Stage has no valid software profile identity");
         }
         return value;

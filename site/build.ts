@@ -15,6 +15,7 @@
 
 import { stageWebAssets } from "../tools/build/web-assets.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -615,7 +616,7 @@ async function main() {
   write(
     "stage/apps/apps.json",
     JSON.stringify({
-      target: "psp", hostAbi: 1, profileHash: stageProfileHash,
+      target: "psp", hostAbi: POCKET_BINDING_GENERATION, profileHash: stageProfileHash,
       apps: launcherRegistry.apps.map(({ output, id, title }) => ({ output, id, title })),
     }),
   );
