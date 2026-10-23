@@ -60,12 +60,12 @@ test("native input admission preserves compiled bytes and rejects stale binding 
 test.skipIf(!Bun.which("cmake") || !Bun.which("cc") || !Bun.which("make"))("CMake and make recipes build native executables with the exported program identity", async () => {
   const dir = scratch();
   writeFileSync(join(dir, "main.c"), `#include "pocket_profile.h"\nint main(void) { return pocket_profile.host_abi == ${POCKET_BINDING_GENERATION} && POCKET_PROFILE_WIDTH == 480 ? 0 : 9; }\n`);
-  writeFileSync(join(dir, "CMakeLists.txt"), 'cmake_minimum_required(VERSION 3.16)\nproject(executor_fixture C)\nadd_executable(program main.c)\ntarget_include_directories(program PRIVATE "${PROFILE_DIR}")\n');
-  writeFileSync(join(dir, "Makefile"), 'program:\n\t$(CC) -I"$(PROFILE_DIR)" main.c -o "$(OUTPUT)"\n');
+  writeFileSync(join(dir, "CMakeLists.txt"), 'cmake_minimum_required(VERSION 3.16)\nproject(executor_fixture C)\nadd_executable(program main.c)\ntarget_include_directories(program PRIVATE "${PROFILE_DIR}" "${CONTRACTS_DIR}")\n');
+  writeFileSync(join(dir, "Makefile"), 'program:\n\t$(CC) -I"$(PROFILE_DIR)" -I"$(CONTRACTS_DIR)" main.c -o "$(OUTPUT)"\n');
   for (const kind of ["cmake", "make"] as const) {
     const out = join(dir, kind);
     const selected = await program(dir, {
-      steps: kind === "cmake" ? cmake({ buildDirectory: "{outdir}/native", definitions: { PROFILE_DIR: "{outdir}" } }) : make({ variables: { CC: Bun.which("cc")!, PROFILE_DIR: "{outdir}", OUTPUT: "{outdir}/program" } }),
+      steps: kind === "cmake" ? cmake({ buildDirectory: "{outdir}/native", definitions: { PROFILE_DIR: "{outdir}", CONTRACTS_DIR: "{contracts}" } }) : make({ variables: { CC: Bun.which("cc")!, PROFILE_DIR: "{outdir}", CONTRACTS_DIR: "{contracts}", OUTPUT: "{outdir}/program" } }),
       artifact: kind === "cmake" ? "{outdir}/native/program" : "{outdir}/program",
       async run(ctx) { await ctx.run([join(ctx.outdir, kind === "cmake" ? "native/program" : "program")]); },
     });

@@ -50,6 +50,8 @@ export interface ExtractHostBuildInputsOptions {
 export interface HostBuildEnvironmentOptions {
   readonly outputDirectory: string;
   readonly embedApp: boolean;
+  /** Where `exportProfile` wrote pocket_profile.h and pocket_profile.rs for this build. */
+  readonly profileExportDirectory?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -195,5 +197,6 @@ export function hostBuildEnvironment(
     POCKETJS_AUX_PRESENTATION: inputs.surfaces ? inputs.surfaces.auxiliary.presentation : "",
     POCKETJS_AUX_RASTER_DENSITY: inputs.surfaces ? String(inputs.surfaces.auxiliary.rasterDensity) : "",
     ...(inputs.hostExtension ? { POCKETJS_HOST_EXTENSION: canonicalJson(inputs.hostExtension) } : {}),
+    ...(options.profileExportDirectory ? { POCKETJS_PROFILE_EXPORT_DIR: options.profileExportDirectory, POCKETJS_PROFILE_RS: `${options.profileExportDirectory}/pocket_profile.rs` } : {}),
   };
 }

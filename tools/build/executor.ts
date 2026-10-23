@@ -26,12 +26,15 @@ export interface RuntimeBuildResult {
 }
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
+/** The generated C contract headers pocket_profile.h includes. */
+export const CONTRACTS_INCLUDE = resolve(import.meta.dir, "../../contracts/generated");
+
 export function expandBuildValue(value: string, context: Pick<RuntimeBuildContext, "outdir" | "output" | "configDirectory" | "application" | "aot">): string {
   const values: Record<string, string | undefined> = {
     outdir: context.outdir, output: context.output, config: context.configDirectory,
-    application: context.application?.directory, aot: context.aot?.directory,
+    application: context.application?.directory, aot: context.aot?.directory, contracts: CONTRACTS_INCLUDE,
   };
-  return value.replace(/\{(outdir|output|config|application|aot)\}/g, (_, key: string) => {
+  return value.replace(/\{(outdir|output|config|application|aot|contracts)\}/g, (_, key: string) => {
     if (values[key] === undefined) throw new Error(`runtime build placeholder {${key}} requires an input`);
     return values[key]!;
   });
@@ -190,7 +193,8 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
       POCKETJS_TARGET: selected.profile.id, POCKETJS_HOST_ABI: String(selected.hostAbi),
       POCKETJS_TICK_HZ: String(selected.profile.tickHz),
       POCKETJS_PROFILE_JSON: canonicalProfileJson(selected.profile), POCKETJS_PROFILE_HASH: selected.profileHash,
-      POCKETJS_PROFILE_EXPORT_DIR: outdir,
+      POCKETJS_PROFILE_EXPORT_DIR: outdir, POCKETJS_PROFILE_RS: join(outdir, "pocket_profile.rs"),
+      POCKETJS_CONTRACTS_INCLUDE: CONTRACTS_INCLUDE,
       ...(application ? { POCKETJS_PACKAGE: application.packagePath, POCKETJS_PLAN: application.planPath,
         POCKETJS_APP_DIR: application.directory, POCKETJS_APP: output } : {}),
       ...(aot ? { POCKETJS_AOT_DIR: aot.directory, POCKETJS_AOT_INCLUDE: aot.includeFile } : {}),

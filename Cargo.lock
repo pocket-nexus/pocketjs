@@ -5131,6 +5131,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-profile-build"
+version = "0.1.0"
+
+[[package]]
 name = "pocket-psp-alloc"
 version = "0.1.0"
 dependencies = [
@@ -5239,7 +5243,6 @@ dependencies = [
  "pocket-present",
  "pocket-spec",
  "pocketjs-core",
- "serde_json",
 ]
 
 [[package]]

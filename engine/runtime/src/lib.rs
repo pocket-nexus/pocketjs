@@ -11,15 +11,16 @@ pub mod generated_ops;
 mod guest;
 pub mod input;
 pub mod timing;
-pub use config::RuntimeConfig;
+pub use alloc::borrow::Cow;
+pub use config::{Profile, RuntimeConfig};
 pub use guest::*;
+pub use pocket_drivers::InputClasses;
 pub use pocket_present::{DisplayId, RendererId};
 
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::{Cell, Ref, RefCell, RefMut};
 use pocket_drivers::{
-    DisplayOutput, DisplayRole, InputClasses, InputFrameBuilder, InputSource, PackageSource,
-    Renderer,
+    DisplayOutput, DisplayRole, InputFrameBuilder, InputSource, PackageSource, Renderer,
 };
 use pocket_package::source::LoadedPackage;
 use pocket_present::Coordinator;
@@ -272,7 +273,7 @@ enum State {
 }
 pub struct Runtime {
     config: RuntimeConfig,
-    profile: config::Profile,
+    profile: Profile,
     ops: OpContext,
     source: Option<Box<dyn PackageSource>>,
     package: Option<Rc<LoadedPackage>>,
@@ -289,11 +290,12 @@ pub struct Runtime {
 }
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Result<Self, RuntimeError> {
-        let profile = config.profile()?;
+        config.validate()?;
+        let profile = config.profile.clone();
         let logical = profile.logical_viewports[0];
         let mut ui = Ui::new_with_raster_density(profile.density);
         ui.set_viewport(logical[0] as f32, logical[1] as f32);
-        if !ui.set_tick_rate(config.tick_hz) {
+        if !ui.set_tick_rate(profile.tick_hz) {
             return Err(RuntimeError::InvalidConfiguration);
         }
         if let Some(aux) = profile.auxiliary_logical.first() {
@@ -380,7 +382,7 @@ impl Runtime {
         core.ui.set_viewport(logical[0] as f32, logical[1] as f32);
         core.mutated();
         self.profile.viewport = physical;
-        self.profile.logical_viewports[0] = logical;
+        self.profile.logical_viewports.to_mut()[0] = logical;
         Ok(())
     }
     pub fn add_input_source(&mut self, input: Box<dyn InputSource>) -> Result<(), RuntimeError> {
@@ -616,7 +618,7 @@ impl Runtime {
         let environment = GuestEnvironment {
             host: &self.profile.id,
             host_abi: self.config.host_abi,
-            tick_hz: self.config.tick_hz,
+            tick_hz: self.profile.tick_hz,
             viewport,
             auxiliary_viewport,
             auxiliary_root,
@@ -695,7 +697,7 @@ impl Runtime {
         let env = GuestEnvironment {
             host: &self.profile.id,
             host_abi: self.config.host_abi,
-            tick_hz: self.config.tick_hz,
+            tick_hz: self.profile.tick_hz,
             viewport,
             auxiliary_viewport,
             auxiliary_root,

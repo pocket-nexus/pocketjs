@@ -20,6 +20,7 @@ pocketjs/
 │  ├─ render/               operation decoding, glyph pages, batches and caches
 │  ├─ raster/               software rendering
 │  ├─ present/              damage history and presentation transactions
+│  ├─ profile-build/        build-script support that embeds the exported profile
 │  ├─ package/              package, asset and font archive readers and hashing
 │  ├─ runtime/              instance lifecycle, admission, input and scheduling
 │  ├─ runtime-cabi/         instance C ABI and retained compatibility adapters

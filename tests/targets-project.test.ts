@@ -141,6 +141,8 @@ describe("runtime configuration", () => {
     expect(sidecar).toMatchObject({ format: "pocket-profile/1", canonicalProfileJson: canonicalProfileJson(selected.profile), hostAbi: POCKET_BINDING_GENERATION });
     expect(readFileSync(dependencyFile, "utf8")).toContain(file);
     expect(readFileSync(dependencyFile, "utf8")).toContain(join(directory, "profile.ts"));
+    const idBytes = [...new TextEncoder().encode(selected.profile.id)];
+    const idLiteral = `"${idBytes.map(byte => `\\x${byte.toString(16).padStart(2, "0")}`).join("")}"`;
     writeFileSync(join(out, "consumer.c"), `#include "pocket_profile.h"
 #include <assert.h>
 #include <stdio.h>
@@ -150,29 +152,39 @@ _Static_assert(POCKET_PROFILE_TICK_HZ == 60, "tick rate");
 int main(void) {
     assert(pocket_profile.struct_size == sizeof(pocket_profile));
     assert(pocket_profile.tick_hz == 60 && pocket_profile.host_abi == ${POCKET_BINDING_GENERATION});
-    assert(strcmp(pocket_profile.platform, "test") == 0 && strcmp(pocket_profile.form, "window") == 0);
-    const pocket_profile_display *display = &pocket_profile.display;
+    assert(strcmp(pocket_profile.id, ${idLiteral}) == 0 && strcmp(pocket_profile.platform, "test") == 0 && strcmp(pocket_profile.form, "window") == 0);
+    assert(pocket_profile.presentations == (POCKET_PROFILE_PRESENTATION_NATIVE | POCKET_PROFILE_PRESENTATION_FIT));
+    const pocket_profile_facts *facts = pocket_profile.facts;
+    assert(facts->struct_size == sizeof(*facts));
+    assert(facts->id_length == ${idBytes.length} && memcmp(facts->id, ${idLiteral}, ${idBytes.length}) == 0);
+    assert(facts->tick_hz == 60 && facts->input_classes == POCKET_INPUT_CLASS_BUTTONS);
+    const pocket_profile_display *display = facts->display;
     assert(display->struct_size == sizeof(*display));
-    assert(display->physical_viewport.width == 8 && display->physical_viewport.height == 4);
-    assert(display->logical_viewport_count == 2 && display->logical_viewports[0].width == 4 && display->logical_viewports[1].height == 1);
+    assert(display->physical[0] == 8 && display->physical[1] == 4);
+    assert(display->logical_count == 2 && display->logical[0] == 4 && display->logical[1] == 2 && display->logical[3] == 1);
     assert(display->raster_density == 2);
-    assert(display->presentations == (POCKET_PROFILE_PRESENTATION_NATIVE | POCKET_PROFILE_PRESENTATION_FIT));
-    assert(pocket_profile.auxiliary_display->struct_size == sizeof(*display));
-    assert(pocket_profile.auxiliary_display->physical_viewport.width == 4 && pocket_profile.auxiliary_display->logical_viewports[0].height == 1);
-    assert(pocket_profile.dynamic_viewport->struct_size == sizeof(*pocket_profile.dynamic_viewport));
-    assert(pocket_profile.dynamic_viewport->min.width == 1 && pocket_profile.dynamic_viewport->max.height == 8 && pocket_profile.dynamic_viewport->accepts_fixed == 1);
+    assert(facts->auxiliary->struct_size == sizeof(*display));
+    assert(facts->auxiliary->physical[0] == 4 && facts->auxiliary->logical_count == 1 && facts->auxiliary->logical[1] == 1);
+    assert(facts->dynamic_viewport->struct_size == sizeof(*facts->dynamic_viewport));
+    assert(facts->dynamic_viewport->min[0] == 1 && facts->dynamic_viewport->max[1] == 8);
     assert(pocket_profile.capabilities == (POCKET_PROFILE_CAP_INPUT_BUTTONS | POCKET_PROFILE_CAP_TEXT_GLYPHS_BAKED | POCKET_PROFILE_CAP_DISPLAY_VIEWPORT_LIVE | POCKET_PROFILE_CAP_DISPLAY_AUXILIARY));
     assert(pocket_profile.system_ui_capabilities == POCKET_PROFILE_CAP_UI_COMPOSITOR_SURFACES);
-    fwrite(pocket_profile.profile_json, 1, pocket_profile.profile_json_length, stdout);
+    fwrite(facts->id, 1, facts->id_length, stdout);
     putchar(10);
     return 0;
 }
 `);
-    const compile = Bun.spawnSync({ cmd: ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", join(out, "consumer.c"), "-o", join(out, "consumer")], stderr: "pipe" });
+    const compile = Bun.spawnSync({ cmd: ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", join(root, "contracts/generated"), join(out, "consumer.c"), "-o", join(out, "consumer")], stderr: "pipe" });
     expect(compile.success, compile.stderr.toString()).toBe(true);
     const run = Bun.spawnSync({ cmd: [join(out, "consumer")], stdout: "pipe" });
     expect(run.success).toBe(true);
-    expect(run.stdout.toString()).toBe(canonicalProfileJson(selected.profile) + "\n");
+    expect(run.stdout.toString()).toBe(selected.profile.id + "\n");
+    const module = readFileSync(join(out, "pocket_profile.rs"), "utf8");
+    expect(module).toContain("pub const ID: &str = \"");
+    expect(module).toContain("pub const EXPORTED: bool = true;");
+    expect(module).toContain("dynamic_viewport: Some([[1, 1], [16, 8]])");
+    expect(module).toContain("auxiliary: Some([4, 2])");
+    expect(module).toContain(`PROFILE_HASH: [u8; 32] = [${selected.profileHash.slice(7).match(/../g)!.map(byte => Number.parseInt(byte, 16)).join(", ")}]`);
   });
 
   test("no-build programs export profiles without an app or node_modules", () => {

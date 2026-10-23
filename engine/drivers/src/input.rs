@@ -21,6 +21,11 @@ impl InputClasses {
     pub const fn bits(self) -> u32 {
         self.0
     }
+    /// Classes from their generated bits; unknown bits are kept, so a newer
+    /// exporter's classes still reach `contains` comparisons unchanged.
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
     }

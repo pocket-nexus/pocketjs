@@ -3,15 +3,15 @@ use crate::{
     guest::CGuest,
     provider::COpProvider,
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     ffi::c_void,
     mem, ptr,
 };
-use pocket_drivers::abi::*;
+use pocket_drivers::{abi::*, InputClasses};
 use pocket_runtime::{
-    OpArg, OpContext, OpResult, RendererId, Runtime, RuntimeConfig, RuntimeError,
+    OpArg, OpContext, OpResult, Profile, RendererId, Runtime, RuntimeConfig, RuntimeError,
 };
 
 pub(crate) struct Handle {
@@ -65,26 +65,88 @@ pub(crate) unsafe fn modify(
         .unwrap_or_else(status)
 }
 
+/// Copy `count` width/height pairs out of an exported viewport list.
 /// # Safety
-/// config and its borrowed profile data provide their announced readable bytes.
+/// A nonnull pointer provides 2 * count readable, 4-byte aligned u32 values.
+unsafe fn pairs(pointer: *const u32, count: usize) -> Option<Cow<'static, [[u32; 2]]>> {
+    if count == 0 {
+        return Some(Cow::Borrowed(&[]));
+    }
+    // Exported lists hold a handful of sizes; a larger count is a corrupt record.
+    if pointer.is_null() || count > 64 || !(pointer as usize).is_multiple_of(mem::align_of::<u32>()) {
+        return None;
+    }
+    let words = unsafe { core::slice::from_raw_parts(pointer, count * 2) };
+    Some(Cow::Owned(words.as_chunks::<2>().0.to_vec()))
+}
+/// One exported panel: physical size, logical viewports and raster density.
+type Panel = ([u32; 2], Cow<'static, [[u32; 2]]>, u32);
+/// # Safety
+/// display is null or points at a readable record whose viewport list is live.
+unsafe fn display(display: *const PocketProfileDisplay) -> Option<Option<Panel>> {
+    if display.is_null() {
+        return Some(None);
+    }
+    let display = unsafe { PocketProfileDisplay::read_prefix(display) }?;
+    let logical = unsafe { pairs(display.logical, display.logical_count) }?;
+    Some(Some((display.physical, logical, display.raster_density)))
+}
+/// Copy the exported profile facts into runtime-owned storage. The config's
+/// tick_hz must repeat the facts' rate: a program that passes a literal rate
+/// for a profile with another one is refused here, before any package loads.
+/// # Safety
+/// config and the facts it points to provide their announced readable bytes.
+unsafe fn configuration(config: *const PocketRuntimeConfig) -> Option<RuntimeConfig> {
+    let config = unsafe { PocketRuntimeConfig::read_prefix(config) }?;
+    let facts = unsafe { PocketProfileFacts::read_prefix(config.profile) }?;
+    let id = unsafe { borrowed(facts.id, facts.id_length) }.ok()?;
+    let id = String::from(core::str::from_utf8(id).ok()?);
+    let (viewport, logical_viewports, density) = unsafe { display(facts.display) }??;
+    let auxiliary = unsafe { display(facts.auxiliary) }?;
+    let dynamic_viewport = if facts.dynamic_viewport.is_null() {
+        None
+    } else {
+        let range = unsafe { PocketProfileRange::read_prefix(facts.dynamic_viewport) }?;
+        Some([range.min, range.max])
+    };
+    if config.tick_hz != facts.tick_hz {
+        return None;
+    }
+    let (auxiliary, auxiliary_logical) = match auxiliary {
+        Some((physical, logical, aux_density)) => {
+            if aux_density != density {
+                return None;
+            }
+            (Some(physical), logical)
+        }
+        None => (None, Cow::Borrowed(&[][..])),
+    };
+    Some(RuntimeConfig {
+        profile_hash: config.profile_hash,
+        host_abi: config.host_abi,
+        heap_limit: config.heap_limit,
+        frame_buffer_budget: config.frame_buffer_budget,
+        profile: Profile {
+            id: Cow::Owned(id),
+            tick_hz: facts.tick_hz,
+            viewport,
+            logical_viewports,
+            dynamic_viewport,
+            auxiliary,
+            auxiliary_logical,
+            density,
+            required_inputs: InputClasses::from_bits(facts.input_classes),
+        },
+    })
+}
+/// # Safety
+/// config and its borrowed profile facts provide their announced readable bytes.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_create(
     config: *const PocketRuntimeConfig,
 ) -> *mut PocketRuntime {
-    let Some(config) = (unsafe { PocketRuntimeConfig::read_prefix(config) }) else {
+    let Some(config) = (unsafe { configuration(config) }) else {
         return ptr::null_mut();
-    };
-    let Ok(profile_json) = (unsafe { borrowed(config.profile_json, config.profile_json_length) })
-    else {
-        return ptr::null_mut();
-    };
-    let config = RuntimeConfig {
-        profile_hash: config.profile_hash,
-        host_abi: config.host_abi,
-        tick_hz: config.tick_hz,
-        heap_limit: config.heap_limit,
-        frame_buffer_budget: config.frame_buffer_budget,
-        profile_json: profile_json.to_vec(),
     };
     let Ok(runtime) = Runtime::new(config) else {
         return ptr::null_mut();

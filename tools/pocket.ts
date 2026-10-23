@@ -112,7 +112,7 @@ async function main() {
     const inputs = new BuildInputs();
     await inputs.compiler([resolve(frameworkRoot, "tools/profile-export.ts"), resolve(frameworkRoot, "tools/profile-resolver.ts")], frameworkRoot);
     const result = exportProfile({ ...selected, dependencies: [...selected.dependencies, ...inputs.paths()] }, resolve(out), dependencies && resolve(dependencies));
-    console.log(`✓ ${result.header}\n✓ ${result.sidecar}`);
+    console.log(`✓ ${result.header}\n✓ ${result.module}\n✓ ${result.sidecar}`);
     return;
   }
   if (command === "pack") {

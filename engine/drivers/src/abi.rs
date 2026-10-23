@@ -20,7 +20,7 @@ use record::abi_record;
 // Runtime and driver records share the struct_size prefix compatibility rules in pocket_drivers.h.
 // Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.
 // Runtime configurations and guest environments require POCKET_BINDING_GENERATION. hostAbi is not a per-target identifier; unsupported generations are rejected before guest initialization.
-// Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.
+// Create copies the configuration and the profile facts it points to; no JSON is read at runtime. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.
 // Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.
 // Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.
 // Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks.
@@ -612,7 +612,41 @@ abi_record! {
 }
 
 abi_record! {
-    /// profile_json is the canonical profile projection defined by profile.ts; profile_hash is its SHA-256. Limits are bytes; tick_hz must equal the projection's tickHz. No target or toolchain selection occurs here.
+    /// One panel: its physical size and the logical viewports an application may declare for it, as logical_count width/height pairs.
+    pub struct PocketProfileDisplay {
+        pub struct_size: usize,
+        pub physical: [u32; 2],
+        pub logical: *const u32,
+        pub logical_count: usize,
+        pub raster_density: u32,
+    }
+}
+
+abi_record! {
+    /// Logical viewport bounds of a window or widget form.
+    pub struct PocketProfileRange {
+        pub struct_size: usize,
+        pub min: [u32; 2],
+        pub max: [u32; 2],
+    }
+}
+
+abi_record! {
+    /// The software facts the runtime admits packages against, exported by pocket profile export from the profile the application was compiled for. id is the package variant name; input_classes are the POCKET_INPUT_CLASS_* bits the profile's capabilities require. Null auxiliary and dynamic_viewport mean absent.
+    pub struct PocketProfileFacts {
+        pub struct_size: usize,
+        pub id: *const u8,
+        pub id_length: usize,
+        pub tick_hz: u32,
+        pub input_classes: u32,
+        pub display: *const PocketProfileDisplay,
+        pub auxiliary: *const PocketProfileDisplay,
+        pub dynamic_viewport: *const PocketProfileRange,
+    }
+}
+
+abi_record! {
+    /// profile points at the exported facts; profile_hash is the SHA-256 identity of the same profile, computed by the exporter. Limits are bytes; tick_hz must equal the facts' tick_hz. No target or toolchain selection occurs here.
     pub struct PocketRuntimeConfig {
         pub struct_size: usize,
         pub profile_hash: [u8; 32],
@@ -620,8 +654,7 @@ abi_record! {
         pub tick_hz: u32,
         pub heap_limit: usize,
         pub frame_buffer_budget: usize,
-        pub profile_json: *const u8,
-        pub profile_json_length: usize,
+        pub profile: *const PocketProfileFacts,
     }
 }
 

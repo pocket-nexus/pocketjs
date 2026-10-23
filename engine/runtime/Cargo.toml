@@ -1,7 +1,7 @@
 [package]
 name = "pocket-runtime"
 edition = "2021"
-description = "PocketJS application instances, input encoding, package admission, and frame scheduling"
+description = "PocketJS application instances, profile facts, input encoding, package admission, and frame scheduling"
 
 version.workspace = true
 repository.workspace = true
@@ -14,4 +14,3 @@ pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
 pocket-present = { workspace = true, default-features = true }
-serde_json = { version = "1", default-features = false, features = ["alloc"] }

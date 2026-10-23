@@ -16,7 +16,6 @@ pub mod package;
 pub mod package_format;
 pub mod pak;
 pub mod plan_facts;
-pub mod profile;
 pub mod sha256;
 pub mod source;
 

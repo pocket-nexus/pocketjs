@@ -2,6 +2,7 @@
 export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   "pocket-spec": {}, "pocket-drivers": {}, "pocket-package": {},
   "pocket-runtime": {}, "pocket-present": {}, "pocket-raster": {}, "pocket-driver-kit": {},
+  "pocket-profile-build": {},
   "pocket-draw-ops": {}, "pocket-tri-batch": {}, "pocket-glyph-pages": {}, "pocket-tex-cache": {},
   "pocket-media": {},
   "pocketjs-core": { default: [], counters: [] },

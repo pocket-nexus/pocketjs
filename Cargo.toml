@@ -59,6 +59,7 @@ members = [
     "engine/pocket3d/examples/note-widget",
     "engine/pocket3d/examples/uihost",
     "engine/present",
+    "engine/profile-build",
     "engine/raster",
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
@@ -123,6 +124,7 @@ default-members = [
     "engine/pocket3d/examples/note-widget",
     "engine/pocket3d/examples/uihost",
     "engine/present",
+    "engine/profile-build",
     "engine/raster",
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
@@ -193,6 +195,7 @@ pocket-mod = { path = "engine/crates/pocket-mod", version = "0.1.0", default-fea
 pocket-net = { path = "engine/crates/pocket-net", version = "0.1.0", default-features = false }
 pocket-package = { path = "engine/package", version = "0.1.0", default-features = false }
 pocket-present = { path = "engine/present", version = "0.1.0", default-features = false }
+pocket-profile-build = { path = "engine/profile-build", version = "0.1.0", default-features = false }
 pocket-psp-ge = { path = "devices/psp/pocket-psp-ge", version = "0.1.0", default-features = false }
 pocket-psp-render = { path = "devices/psp/pocket-psp-render", version = "0.1.0", default-features = false }
 pocket-raster = { path = "engine/raster", version = "0.1.0", default-features = false }

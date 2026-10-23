@@ -4,14 +4,22 @@ use pocket_runtime::*;
 use std::{cell::RefCell, rc::Rc};
 
 fn config() -> RuntimeConfig {
-    let profile_json=br#"{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"fixture","platform":"test","tickHz":60}"#.to_vec();
     RuntimeConfig {
-        profile_hash: pocket_package::sha256::sha256(&profile_json),
+        profile_hash: [0x5a; 32],
         host_abi: pocket_spec::BINDING_GENERATION,
-        tick_hz: 60,
         heap_limit: 64 * 1024,
         frame_buffer_budget: 64,
-        profile_json,
+        profile: Profile {
+            id: Cow::Borrowed("fixture"),
+            tick_hz: 60,
+            viewport: [4, 4],
+            logical_viewports: Cow::Borrowed(&[[4, 4]]),
+            dynamic_viewport: None,
+            auxiliary: None,
+            auxiliary_logical: Cow::Borrowed(&[]),
+            density: 1,
+            required_inputs: InputClasses::NONE,
+        },
     }
 }
 fn package() -> Vec<u8> {
@@ -277,12 +285,9 @@ fn dropping_with_an_outstanding_read_guard_disables_all_cloned_contexts() {
 }
 
 #[test]
-fn auxiliary_density_must_match_the_shared_resource_density() {
+fn auxiliary_panel_needs_its_logical_viewports() {
     let mut c = config();
-    let mut json: serde_json::Value = serde_json::from_slice(&c.profile_json).unwrap();
-    json["display"]["auxiliary"] = serde_json::json!({"physicalViewport":[4,4],"logicalViewports":[[4,4]],"rasterDensity":2,"presentations":["native"]});
-    c.profile_json = serde_json::to_vec(&json).unwrap();
-    c.profile_hash = pocket_package::sha256::sha256(&c.profile_json);
+    c.profile.auxiliary = Some([4, 4]);
     assert!(matches!(
         Runtime::new(c),
         Err(RuntimeError::InvalidConfiguration)
@@ -458,10 +463,8 @@ fn profile_auxiliary_surface_has_guest_metadata_without_a_package_declaration() 
         fn shutdown(&mut self) {}
     }
     let mut cfg = config();
-    let mut profile: serde_json::Value = serde_json::from_slice(&cfg.profile_json).unwrap();
-    profile["display"]["auxiliary"] = serde_json::json!({"physicalViewport": [4,4], "logicalViewports": [[4,4]], "rasterDensity": 1});
-    cfg.profile_json = serde_json::to_vec(&profile).unwrap();
-    cfg.profile_hash = pocket_package::sha256::sha256(&cfg.profile_json);
+    cfg.profile.auxiliary = Some([4, 4]);
+    cfg.profile.auxiliary_logical = Cow::Borrowed(&[[4, 4]]);
     cfg.frame_buffer_budget = 128;
     let package = package_for(cfg.profile_hash);
     let mut rt = Runtime::new(cfg).unwrap();
@@ -633,15 +636,10 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
     // Its scale takes priority over the primary GPU's optional integer mapping.
     for (aux_extent, admitted) in [(8, true), (4, true), (5, false)] {
         let mut cfg = config();
-        let mut profile: serde_json::Value = serde_json::from_slice(&cfg.profile_json).unwrap();
-        profile["display"]["physicalViewport"] = serde_json::json!([8, 8]);
-        profile["display"]["rasterDensity"] = serde_json::json!(2);
-        profile["display"]["auxiliary"] = serde_json::json!({
-            "physicalViewport":[aux_extent,aux_extent], "logicalViewports":[[4,4]],
-            "rasterDensity":2, "presentations":["integer-fit"]
-        });
-        cfg.profile_json = serde_json::to_vec(&profile).unwrap();
-        cfg.profile_hash = pocket_package::sha256::sha256(&cfg.profile_json);
+        cfg.profile.viewport = [8, 8];
+        cfg.profile.density = 2;
+        cfg.profile.auxiliary = Some([aux_extent, aux_extent]);
+        cfg.profile.auxiliary_logical = Cow::Borrowed(&[[4, 4]]);
         cfg.frame_buffer_budget = 0;
         let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
         let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
@@ -761,22 +759,19 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
     ];
     for (dynamic, embedding, logical, physical, admitted) in cases {
         let mut cfg = config();
-        let mut profile: serde_json::Value = serde_json::from_slice(&cfg.profile_json).unwrap();
-        profile["display"]["physicalViewport"] = serde_json::json!([4, 8]);
-        profile["display"]["logicalViewports"] = serde_json::json!([[2, 4], [4, 2]]);
-        profile["display"]["rasterDensity"] = serde_json::json!(2);
+        cfg.profile.viewport = [4, 8];
+        cfg.profile.logical_viewports = Cow::Borrowed(&[[2, 4], [4, 2]]);
+        cfg.profile.density = 2;
         if dynamic {
-            profile["form"] = serde_json::json!("window");
-            profile["display"]["dynamicViewport"] = serde_json::json!({"min":[2,2],"max":[4,4]});
+            cfg.profile.dynamic_viewport = Some([[2, 2], [4, 4]]);
         }
-        cfg.profile_json = serde_json::to_vec(&profile).unwrap();
-        cfg.profile_hash = pocket_package::sha256::sha256(&cfg.profile_json);
         cfg.frame_buffer_budget = 1024;
         let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
-        let plan = serde_json::to_vec(
-            &serde_json::json!({"viewport":{"logical":logical,"rasterDensity":2},"features":{}}),
+        let plan = format!(
+            r#"{{"viewport":{{"logical":[{},{}],"rasterDensity":2}},"features":{{}}}}"#,
+            logical[0], logical[1]
         )
-        .unwrap();
+        .into_bytes();
         let package = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
             target: "fixture",
             host_abi: pocket_spec::BINDING_GENERATION,

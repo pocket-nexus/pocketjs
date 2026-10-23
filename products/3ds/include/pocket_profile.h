@@ -2,7 +2,15 @@
 #ifndef POCKET_3DS_PROFILE_H
 #define POCKET_3DS_PROFILE_H
 #include <stdint.h>
-static const uint8_t pocket_3ds_profile[] = "{\"capabilities\":[\"io.offload\",\"media.playback\",\"input.analog.left\",\"input.analog.right\",\"input.buttons\",\"input.cursor\",\"input.touch.auxiliary\",\"display.auxiliary\",\"text.glyphs.baked\",\"ui.physics\",\"net.http\",\"link.companion\",\"system.wifi\",\"camera.qr\",\"camera.photo\",\"system.agent\",\"data.fs\"],\"display\":{\"auxiliary\":{\"logicalViewports\":[[320,240]],\"physicalViewport\":[320,240],\"presentations\":[\"native\"],\"rasterDensity\":1},\"logicalViewports\":[[400,240]],\"physicalViewport\":[400,240],\"presentations\":[\"native\"],\"rasterDensity\":1},\"form\":\"takeover\",\"id\":\"3ds-dev\",\"platform\":\"3ds\",\"tickHz\":60}";
+#include "pocket_runtime.h"
+static const uint32_t pocket_3ds_profile_display_logical[] = {400u, 240u};
+/* struct_size, physical, logical, logical_count, raster_density */
+static const pocket_profile_display pocket_3ds_profile_display = {sizeof(pocket_profile_display), {400u, 240u}, pocket_3ds_profile_display_logical, 1u, 1u};
+static const uint32_t pocket_3ds_profile_auxiliary_logical[] = {320u, 240u};
+/* struct_size, physical, logical, logical_count, raster_density */
+static const pocket_profile_display pocket_3ds_profile_auxiliary = {sizeof(pocket_profile_display), {320u, 240u}, pocket_3ds_profile_auxiliary_logical, 1u, 1u};
+/* struct_size, id, id_length, tick_hz, input_classes, display, auxiliary, dynamic_viewport */
+static const pocket_profile_facts pocket_3ds_profile = {sizeof(pocket_profile_facts), (const uint8_t *)"\x33\x64\x73\x2d\x64\x65\x76", 7u, 60u, 19u, &pocket_3ds_profile_display, &pocket_3ds_profile_auxiliary, NULL};
 static const uint8_t pocket_3ds_profile_hash[32] = {6,99,16,245,119,189,81,167,16,67,12,183,41,131,49,110,45,62,2,21,67,115,236,21,41,219,197,50,200,210,17,114};
 #define POCKET_3DS_OP_createNode 1u
 #define POCKET_3DS_OP_destroyNode 2u

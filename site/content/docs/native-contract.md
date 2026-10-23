@@ -128,7 +128,12 @@ identity. The format 2 variant table carries this hash as 32 bytes.
 ### Package and driver compatibility
 
 **The program supplies its expected profile hash and binding generation before
-reading an application.** `Runtime::new` rejects a configuration whose
+reading an application.** The profile reaches the runtime as exported facts,
+`pocket_profile_facts`: the variant id, tick rate, panel sizes, logical
+viewports, raster density and the input classes its capabilities require.
+`pocket profile export` writes them as `pocket_profile.h` for C programs and
+`pocket_profile.rs` for Rust programs, beside the hash; the runtime reads no
+JSON. `Runtime::new` rejects a configuration whose
 `host_abi` differs from the generated constant. Guest adapters reject an
 unsupported generation before mounting `ui` or evaluating application code.
 

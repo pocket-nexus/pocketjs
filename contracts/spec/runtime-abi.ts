@@ -7,7 +7,7 @@ export const RUNTIME_ABI_RULES = [
   "Runtime and driver records share the struct_size prefix compatibility rules in pocket_drivers.h.",
   "Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.",
   "Runtime configurations and guest environments require POCKET_BINDING_GENERATION. hostAbi is not a per-target identifier; unsupported generations are rejected before guest initialization.",
-  "Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.",
+  "Create copies the configuration and the profile facts it points to; no JSON is read at runtime. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.",
   "Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.",
   "Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.",
   "Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks.",
@@ -26,11 +26,19 @@ export const RUNTIME_ABI_CONSTANTS: Readonly<Record<string, number>> = {
 export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
   record("PocketGlyphPage", "pocket_glyph_page", [f("page", "u32"), f("first", "u32"), f("count", "u32"), f("width", "u32"), f("height", "u32"), f("uv", "[f32; 4]")], "Guarded A8 page layout and requested glyph UVs; rows include the transparent one-texel guard. The caller owns output storage."),
   record("PocketTickTiming", "pocket_tick_timing", [f("index", "u64"), f("deadline", "u64"), f("skipped", "u64")], "Monotonic microsecond deadline and wall-clock slot index. Skipped slots do not advance guest simulation."),
+  record("PocketProfileDisplay", "pocket_profile_display", [
+    f("physical", "[u32; 2]"), f("logical", "*const u32"), f("logical_count", "usize"), f("raster_density", "u32"),
+  ], "One panel: its physical size and the logical viewports an application may declare for it, as logical_count width/height pairs."),
+  record("PocketProfileRange", "pocket_profile_range", [f("min", "[u32; 2]"), f("max", "[u32; 2]")], "Logical viewport bounds of a window or widget form."),
+  record("PocketProfileFacts", "pocket_profile_facts", [
+    f("id", "*const u8"), f("id_length", "usize"), f("tick_hz", "u32"), f("input_classes", "u32"),
+    f("display", "*const PocketProfileDisplay"), f("auxiliary", "*const PocketProfileDisplay"), f("dynamic_viewport", "*const PocketProfileRange"),
+  ], "The software facts the runtime admits packages against, exported by pocket profile export from the profile the application was compiled for. id is the package variant name; input_classes are the POCKET_INPUT_CLASS_* bits the profile's capabilities require. Null auxiliary and dynamic_viewport mean absent."),
   record("PocketRuntimeConfig", "pocket_runtime_config", [
     f("profile_hash", `[u8; ${PROFILE_HASH_BYTES}]`), f("host_abi", "u32"), f("tick_hz", "u32"),
     f("heap_limit", "usize"), f("frame_buffer_budget", "usize"),
-    f("profile_json", "*const u8"), f("profile_json_length", "usize"),
-  ], "profile_json is the canonical profile projection defined by profile.ts; profile_hash is its SHA-256. Limits are bytes; tick_hz must equal the projection's tickHz. No target or toolchain selection occurs here."),
+    f("profile", "*const PocketProfileFacts"),
+  ], "profile points at the exported facts; profile_hash is the SHA-256 identity of the same profile, computed by the exporter. Limits are bytes; tick_hz must equal the facts' tick_hz. No target or toolchain selection occurs here."),
   record("PocketOpArg", "pocket_op_arg", [f("tag", "u32"), f("integer", "i64"), f("real", "f64"), f("bytes", "*const u8"), f("byte_length", "usize")], "One borrowed operation argument; tag selects integer, real, or bytes. runtime_op length is the total byte length of these extensible records, including per-record padding."),
   record("PocketNamedTexture", "pocket_named_texture", [f("name", "*const u8"), f("name_length", "usize"), f("handle", "i32")]),
   record("PocketNamedSprite", "pocket_named_sprite", [f("name", "*const u8"), f("name_length", "usize"), f("handle", "i32"), f("frames", "u32"), f("columns", "u32"), f("step", "u32")]),
