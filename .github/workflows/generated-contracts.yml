@@ -1,0 +1,48 @@
+name: Generated contracts
+# Every committed generated file equals its generator's output, and the C and
+# Rust ABI records agree on layout. Regenerate with `bun run gen`.
+on:
+  pull_request:
+    paths: &paths
+      - ".bun-version"
+      - ".github/workflows/generated-contracts.yml"
+      - "contracts/**"
+      - "profiles/**"
+      - "tools/driver-contracts.ts"
+      - "tools/ui-bindings.ts"
+      - "tools/guest-web-bindings.ts"
+      - "tools/3ds-contracts.ts"
+      - "tools/profile-export.ts"
+      - "tools/gen-exports.ts"
+      - "tools/packaging/esp-idf/contracts.ts"
+      - "framework/src/profile.ts"
+      - "framework/compiler/subpaths.ts"
+      - "engine/spec/**"
+      - "engine/drivers/src/abi.rs"
+      - "engine/runtime/src/generated_ops.rs"
+      - "engine/guest-quickjs/src/generated_ops.h"
+      - "engine/guest-web/src/*.js"
+      - "engine/package/src/package_format.rs"
+      - "platforms/esp-idf/pocket_runtime/tools/package_format.py"
+      - "products/3ds/include/pocket_profile.h"
+      - "package.json"
+      - "tests/generated-contracts.test.ts"
+      - "tests/driver-contracts.test.ts"
+  push:
+    branches: [main]
+    paths: *paths
+permissions:
+  contents: read
+jobs:
+  fresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install pinned stable Rust
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+      - run: bun install --frozen-lockfile
+      - run: bun test tests/generated-contracts.test.ts tests/driver-contracts.test.ts
