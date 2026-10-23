@@ -45,6 +45,8 @@ const char *launcher_table_json(void);
 bool launcher_launch(const char *output);
 /* The SELECT press-edge in a guest other than the launcher. */
 void launcher_summon(void);
+/* A switch is requested and not yet taken. */
+bool launcher_pending(void);
 bool launcher_take_request(LauncherTarget *out);
 
 /* The guest that just booted: home when `slot` is the launcher's. */

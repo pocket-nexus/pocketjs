@@ -315,6 +315,10 @@ void launcher_summon(void) {
   request_summon = true;
 }
 
+bool launcher_pending(void) {
+  return request_pending;
+}
+
 bool launcher_take_request(LauncherTarget *out) {
   if (!request_pending) return false;
   request_pending = false;

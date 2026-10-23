@@ -16,6 +16,9 @@
  */
 bool gfx_init(uint32_t logical_width, uint32_t logical_height);
 void gfx_begin_frame(void);
+/* A frame that draws host overlays alone: the guest's textures are left as
+ * they are, for a guest that may be half torn down or half booted. */
+void gfx_begin_overlay_frame(void);
 bool gfx_prepare_surface(
   uint32_t surface,
   const uint32_t *words,

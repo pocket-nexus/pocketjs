@@ -77,6 +77,15 @@ CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections
   -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(BUILD) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include -I$(DEVKITPRO)/portlibs/3ds/include
 
+# bytecode.c keys its per-slot bytecode cache by the QuickJS build: the first
+# 16 hex digits of the stamp tools/3ds-toolchain.ts caches libquickjs.a
+# under. Without a stamp the cache is off. Being a CFLAGS entry, a new stamp
+# rebuilds every object through FLAGS_STAMP below.
+POCKETJS_QUICKJS_STAMP := $(shell head -c 16 $(POCKETJS_QUICKJS_DIR)/.stamp 2>/dev/null)
+ifneq ($(POCKETJS_QUICKJS_STAMP),)
+CFLAGS += -DPOCKETJS_QUICKJS_STAMP=0x$(POCKETJS_QUICKJS_STAMP)ULL
+endif
+
 ifeq ($(POCKETJS_OFFLOAD),1)
 CFLAGS += -DPOCKETJS_OFFLOAD -DPOCKETJS_OFFLOAD_KEY='"sdmc:/pocketjs/offload/$(POCKETJS_OFFLOAD_SLOT).key"'
 endif
@@ -103,7 +112,7 @@ QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/i
 OBJECTS := $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o \
   $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
-  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/fs.o
+  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o
 ELF := $(BUILD)/pocketjs-3ds.elf
 SMDH := $(BUILD)/pocketjs-3ds.smdh
 
@@ -176,6 +185,10 @@ $(BUILD)/runtime.o: $(SOURCE)/runtime.h
 $(BUILD)/qjs.o: $(SOURCE)/offload.h $(SOURCE)/offload_coverage.h
 $(BUILD)/media.o: $(SOURCE)/media.h $(SOURCE)/media_wire.h $(SOURCE)/media_adpcm.h
 $(BUILD)/main.o $(BUILD)/qjs.o $(BUILD)/gfx.o: $(SOURCE)/media.h
+$(BUILD)/main.o $(BUILD)/transition.o: $(SOURCE)/transition.h
+$(BUILD)/main.o $(BUILD)/bytecode.o: $(SOURCE)/bytecode.h
+$(BUILD)/main.o $(BUILD)/qjs.o: $(SOURCE)/qjs.h
+$(BUILD)/main.o $(BUILD)/gfx.o: $(SOURCE)/gfx.h
 
 $(ELF): $(OBJECTS) $(POCKETJS_CORE_LIB) $(POCKETJS_QUICKJS_DIR)/libquickjs.a
 	$(CC) $(LDFLAGS) $(OBJECTS) $(POCKETJS_CORE_LIB) $(POCKETJS_QUICKJS_DIR)/libquickjs.a \

@@ -86,6 +86,7 @@ const SUITE: readonly Stage[] = [
       "tests/actions.test.ts",
       "tests/3ds-native-install.test.ts",
       "tests/3ds-runtime-state.test.ts",
+      "tests/3ds-transition.test.ts",
       "tests/3ds-runtime-wire.test.ts",
       "tests/repack-3ds.test.ts",
       "tests/repack-ipod.test.ts",

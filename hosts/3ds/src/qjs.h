@@ -14,10 +14,22 @@
  * `globalThis.__pak`). qjs_frame calls `frame(buttons, analog)` once and
  * drains QuickJS's pending job queue. Both return false and leave a message
  * in qjs_last_error on failure.
+ *
+ * With `bytecode`, qjs_boot also hands back the compiled bundle (malloc'd,
+ * NULL when it could not be written) for bytecode.c to keep; the next boot
+ * passes it to qjs_boot_bytecode in place of the source.
  */
 bool qjs_boot(
   const char *source,
   size_t source_length,
+  const uint8_t *pack,
+  size_t pack_length,
+  uint8_t **bytecode,
+  size_t *bytecode_length
+);
+bool qjs_boot_bytecode(
+  const uint8_t *bytecode,
+  size_t bytecode_length,
   const uint8_t *pack,
   size_t pack_length
 );
@@ -31,5 +43,13 @@ bool qjs_frame(
 );
 const char *qjs_last_error(void);
 void qjs_shutdown(void);
+
+/* Called from QuickJS's interrupt handler while the guest's code runs (a
+ * boot or a frame), every few thousand bytecode steps. Returning true ends
+ * that code with an uncatchable error: the boot or the frame returns false
+ * and qjs_interrupted is true until the next one starts. */
+typedef bool (*QjsInterrupt)(void);
+void qjs_set_interrupt(QjsInterrupt hook);
+bool qjs_interrupted(void);
 
 #endif

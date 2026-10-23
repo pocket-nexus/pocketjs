@@ -38,6 +38,8 @@ src/gfx.c             the DrawList -> citro3d walker
 src/qjs.c             QuickJS embedding: globalThis.ui -> ui_* calls, and the
                       link / net / wifi / camera namespaces
 src/launcher.c        the app table: installed slots, switch requests, lastError
+src/transition.c      the app-switch overlay: scrim and activity indicator lists
+src/bytecode.c        a slot's bundle bytecode on the SD card
 src/link.c            Pocket Link client: discovery, handshake, net, catalog, install
 src/link_proto.c      Pocket Link wire facts without sockets (URI, beacon, proofs)
 src/sha256.c          SHA-256 / HMAC-SHA256 (handshake proofs, app-id slots)
@@ -427,6 +429,42 @@ sees the bit, and a SELECT press edge returns to the launcher with
 so a SELECT still held from the switch cannot bounce straight back. The
 launcher sees SELECT unchanged. `ui.appShot()` returns -1: this host keeps no
 frozen frame.
+
+**A switch runs under a host-drawn transition** (`src/transition.c`) on
+both screens:
+
+| phase | on screen | length |
+|-------|-----------|--------|
+| leaving | the old guest's last frame, no longer running, under a black scrim that rises; an activity indicator (eight dots at the touch screen's centre) fades in | 150 ms |
+| loading | both screens black, the indicator turning | teardown, bytecode, mount and first frame of the new guest |
+| arriving | the new guest's frames, with the scrim and the indicator falling away | 250 ms of presented frames, at most 33 ms counted per frame |
+
+The loading frames come from a thread of their own, one priority step above
+the main thread, about a millisecond each. **The main thread issues no GPU
+work between the teardown and the new guest's first frame**, and
+`begin_frame_wait` and `fail()` stop the thread before they touch the GPU.
+QuickJS's interrupt handler runs every 10,000 calls and back-jumps, a few
+times a second during a mount, so the loading frames do not come from it.
+
+**SELECT does not wait for the end of a long frame.** Once a frame of an
+installed app has run 50 ms, QuickJS's interrupt hook scans the buttons; a
+SELECT press edge there summons the launcher and ends the frame with an
+uncatchable error, and the app is torn down without another frame. The scan
+moves the press edges `hidKeysDown` reports (the dev menu chords) from the
+next frame's scan to this one.
+
+**A bundle boots from bytecode after its first boot** (`src/bytecode.c`).
+`qjs_boot` compiles the source (`JS_EVAL_FLAG_COMPILE_ONLY`) and hands back
+the bytecode (`JS_WriteObject`), which main.c writes to
+`<slot>/bundle.qbc`; the next boot of the same package runs it with
+`JS_ReadObject`. The file's header carries the package hash, the first 16
+hex digits of the QuickJS build stamp (`POCKETJS_QUICKJS_STAMP`, from
+`dist/3ds/quickjs/.stamp`) and an FNV-1a checksum; a mismatch compiles again.
+On an Old 3DS, compiling Pocket Home's 477 KB bundle takes 2.3 s and reading
+its 368 KB of bytecode takes 80 ms. The guest's runtime strips function
+source text (`JS_STRIP_SOURCE`): line tables stay, so a stack names its
+lines, and `Function.prototype.toString` returns no source. Capture builds
+compile from source on every boot.
 
 **A dev-wire push of another app installs into that app's own slot**, commits
 it as the slot's active package and launches it, so

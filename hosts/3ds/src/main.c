@@ -20,6 +20,13 @@
  * active package. An installed app's failure is reported to the launcher
  * (appTable().lastError) and never walks the launcher's recovery chain.
  *
+ * A requested switch runs under a host-drawn transition (transition.c): the
+ * old guest stops and a scrim covers its last frame; a thread of its own
+ * draws loading frames with a turning indicator through the teardown, the
+ * new guest's bytecode (bytecode.c: cached per slot, else compiled) and its
+ * mount; the scrim falls away over the new guest's first frames. QuickJS's interrupt hook reads SELECT inside an installed app's
+ * long frame, so the launcher answers without waiting for the frame.
+ *
  * Building with -DPOCKETJS_CAPTURE turns this into the deterministic e2e
  * binary: input comes from a baked tape instead of the hardware, the listed
  * frames are read back off the render target into sdmc:/fNNNN.raw, and the
@@ -29,6 +36,7 @@
 
 #include <3ds.h>
 #include <citro3d.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +63,8 @@
 #include "launcher.h"
 #include "link.h"
 #include "wifi.h"
+#include "transition.h"
+#include "bytecode.h"
 
 /* The guest surfaces come from the plan of the package in the .3dsx's RomFS
  * (pocket_package_open reads them), never from a literal or a compile flag:
@@ -154,6 +164,18 @@ static C3D_RenderTarget *auxiliary_target;
 /* The top screen's right eye: only the agent stage draws in stereo. */
 static C3D_RenderTarget *right_target;
 static bool stage_ready;
+/* The running guest's last prepared lists, drawn again under the leaving
+ * scrim while the guest no longer runs. */
+static const uint32_t *last_top_list;
+static size_t last_top_words;
+static const uint32_t *last_auxiliary_list;
+static size_t last_auxiliary_words;
+/* Set around qjs_frame, for the interrupt hook (guest_interrupt). */
+static bool guest_frame_running;
+static u64 guest_frame_started;
+#ifndef POCKETJS_CAPTURE
+static void loading_end(void);
+#endif
 
 static const u32 DISPLAY_TRANSFER_FLAGS =
   GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
@@ -445,6 +467,7 @@ static void fail(const char *message) {
   /* On hardware the message has to be readable without pulling the card, and
    * HOME has to keep working: parking in a bare loop costs the user a forced
    * power-off, which is also the one way to lose the file just written. */
+  loading_end();
   consoleInit(GFX_BOTTOM, NULL);
   printf("PocketJS %s\nFAILED: %s\nPress HOME to exit.\n", POCKETJS_TARGET_ID, text);
   gfxFlushBuffers();
@@ -474,6 +497,35 @@ typedef struct {
   uint64_t next_last_good_hash;
   uint32_t submitted_frames;
 } GuestChoice;
+
+/* The bundle into the guest's runtime. Outside a capture build, from the
+ * slot's bytecode when bytecode.c has it for this package, else from the
+ * source, keeping the bytecode for the next boot. False leaves `error`. */
+static bool run_bundle(PocketRuntimePackage *package, char *error, size_t error_length) {
+  const char *source = (const char *)package->guest.javascript;
+  size_t source_length = package->guest.javascript_length - 1;
+  const uint8_t *pak = package->guest.pak;
+  size_t pak_length = package->guest.pak_length;
+#ifdef POCKETJS_CAPTURE
+  bool booted = qjs_boot(source, source_length, pak, pak_length, NULL, NULL);
+#else
+  char path[128];
+  bool named = runtime_slot_path(package->guest.slot, "bundle.qbc", path, sizeof path);
+  uint64_t hash = package->guest.package_hash;
+  size_t length = 0;
+  uint8_t *bytecode = named ? bytecode_load(path, hash, &length) : NULL;
+  bool booted;
+  if (bytecode != NULL) {
+    booted = qjs_boot_bytecode(bytecode, length, pak, pak_length);
+  } else {
+    booted = qjs_boot(source, source_length, pak, pak_length, &bytecode, &length);
+    if (booted && named) bytecode_store(path, hash, bytecode, length);
+  }
+  free(bytecode);
+#endif
+  if (!booted) snprintf(error, error_length, "%s", qjs_last_error());
+  return booted;
+}
 
 static bool boot_guest(
   PocketRuntimePackage *package,
@@ -523,13 +575,7 @@ static bool boot_guest(
   if (package->guest.pak_length > 0) {
     ui_feed_pak(package->guest.pak, package->guest.pak_length);
   }
-  if (!qjs_boot(
-        (const char *)package->guest.javascript,
-        package->guest.javascript_length - 1,
-        package->guest.pak,
-        package->guest.pak_length
-      )) {
-    snprintf(error, error_length, "%s", qjs_last_error());
+  if (!run_bundle(package, error, error_length)) {
     qjs_shutdown();
     gfx_reset_resources();
     ui_shutdown();
@@ -552,6 +598,8 @@ static void teardown_guest(void) {
   ui_shutdown();
   /* The svc reset contract: the next guest never sees this guest's lines. */
   svcwire_reset();
+  last_top_words = 0;
+  last_auxiliary_words = 0;
 }
 
 static void release_choice(GuestChoice *choice, PocketRuntimePackage *embedded) {
@@ -717,6 +765,7 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
   return 0;
 #else
+  loading_end();
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
   gspWaitForVBlank();
   uint32_t waited = 0;
@@ -739,6 +788,106 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   return waited;
 #endif
 }
+
+/* The transition's lists for this moment into surfaces 2 (top) and 3
+ * (touch screen), in TRANSITION_SUBPIXELS units. */
+static void prepare_transition(u64 now) {
+  const uint32_t *words = NULL;
+  size_t length = transition_list(false, now, VIEW_W, VIEW_H, &words);
+  if (length > 0) {
+    gfx_prepare_surface(2, words, length, VIEW_W * TRANSITION_SUBPIXELS, VIEW_H * TRANSITION_SUBPIXELS);
+  }
+  length = transition_list(true, now, AUX_VIEW_W, AUX_VIEW_H, &words);
+  if (length > 0) {
+    gfx_prepare_surface(3, words, length, AUX_VIEW_W * TRANSITION_SUBPIXELS, AUX_VIEW_H * TRANSITION_SUBPIXELS);
+  }
+}
+
+/* The prepared surfaces into both targets: the guest's (0 and 1, or the
+ * agent stage on top), then with `overlay` the transition's (2 and 3) over
+ * them. Without `guest`, the transition alone on cleared targets. */
+static void draw_targets(bool guest, bool overlay) {
+  C3D_RenderTargetClear(primary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
+  bool stereo = false;
+  if (guest && agent_enabled()) {
+    /* The top screen is the agent stage's; the guest's primary surface is
+     * laid out but not shown. In single display mode it stays black. */
+    if (agent_stage_shown()) {
+      if (osGet3DSliderState() > 0.0f) C3D_RenderTargetClear(right_target, C3D_CLEAR_ALL, 0x000000ff, 0);
+      stereo = stage_render(primary_target, right_target);
+    }
+  } else if (guest) {
+    C3D_FrameDrawOn(primary_target);
+    /* C3D_FrameDrawOn resets the viewport, so this comes after it. */
+    C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
+    gfx_draw_surface(0);
+  }
+  if (overlay) {
+    C3D_FrameDrawOn(primary_target);
+    C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
+    gfx_draw_surface(2);
+    if (stereo) {
+      C3D_FrameDrawOn(right_target);
+      C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
+      gfx_draw_surface(2);
+    }
+  }
+
+  C3D_RenderTargetClear(auxiliary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
+  C3D_FrameDrawOn(auxiliary_target);
+  C3D_SetViewport(0, 0, AUX_VIEW_H, AUX_VIEW_W);
+  if (guest) gfx_draw_surface(1);
+  if (overlay) gfx_draw_surface(3);
+}
+
+/* The loading frames come from a thread of their own, from the switch's
+ * teardown to the new guest's first frame: the main thread spends that time
+ * in teardown, bytecode and the guest's mount, and QuickJS's interrupt
+ * handler runs a few times a second at most, too seldom to animate from.
+ * The main thread issues no GPU work in that window, and begin_frame_wait
+ * and fail() stop the thread before they touch the GPU. One step above the
+ * main thread in priority, so a frame is never late behind the guest's code;
+ * each costs about a millisecond. */
+#ifndef POCKETJS_CAPTURE
+#define LOADING_STACK (32 * 1024)
+#define LOADING_FRAME_NS 16666667LL
+static Thread loading_thread;
+static atomic_bool loading_stop;
+
+static void loading_run(void *unused) {
+  (void)unused;
+  while (!atomic_load(&loading_stop)) {
+    /* A GPU still busy with the previous frame skips this one. */
+    if (C3D_FrameBegin(C3D_FRAME_NONBLOCK)) {
+      u64 now = osGetTime();
+      gfx_begin_overlay_frame();
+      prepare_transition(now);
+      gfx_finish_frame();
+      draw_targets(false, true);
+      C3D_FrameEnd(0);
+    }
+    svcSleepThread(LOADING_FRAME_NS);
+  }
+}
+
+#ifdef POCKETJS_LINK
+static void loading_start(void) {
+  if (loading_thread != NULL) return;
+  atomic_store(&loading_stop, false);
+  s32 priority = 0x30;
+  svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+  loading_thread = threadCreate(loading_run, NULL, LOADING_STACK, priority > 0x18 ? priority - 1 : priority, -2, false);
+}
+#endif
+
+static void loading_end(void) {
+  if (loading_thread == NULL) return;
+  atomic_store(&loading_stop, true);
+  threadJoin(loading_thread, U64_MAX);
+  threadFree(loading_thread);
+  loading_thread = NULL;
+}
+#endif
 
 static void recover_running_guest(
   GuestChoice *choice,
@@ -841,6 +990,46 @@ static void install_candidate(
  * released before it can summon the launcher again. */
 static bool select_latched = true;
 
+/* An installed app's frame that has run this long reads SELECT itself. */
+#define LONG_FRAME_TICKS (SYSCLOCK_ARM11 / 20)
+#define SELECT_SCAN_TICKS (SYSCLOCK_ARM11 / 60)
+
+/* QuickJS's interrupt hook (qjs_set_interrupt). Inside an installed app's
+ * frame that has run past LONG_FRAME_TICKS it scans the buttons, so a SELECT
+ * press summons the launcher without waiting for the frame to end: the frame
+ * is abandoned along with the app. A scan here moves the press edges
+ * hidKeysDown reports (the dev menu chords) to this scan. */
+static bool guest_interrupt(void) {
+  static u64 last_scan;
+  if (!guest_frame_running || launcher_home_running() || launcher_pending() || devmenu_visible()) return false;
+  u64 now = svcGetSystemTick();
+  if (now - guest_frame_started < LONG_FRAME_TICKS || now - last_scan < SELECT_SCAN_TICKS) return false;
+  last_scan = now;
+  hidScanInput();
+  bool select_now = (input_buttons() & BTN_SELECT) != 0;
+  bool summon = select_now && !select_latched;
+  select_latched = select_now;
+  if (!summon) return false;
+  launcher_summon();
+  return true;
+}
+
+/* One frame of the leaving scrim. The old guest no longer runs; its last
+ * lists are drawn under the scrim. */
+static void present_leaving(uint32_t *run_frame) {
+  begin_frame_wait(*run_frame);
+  gfx_begin_frame();
+  if (last_top_words > 0) gfx_prepare_surface(0, last_top_list, last_top_words, VIEW_W, VIEW_H);
+  if (last_auxiliary_words > 0) {
+    gfx_prepare_surface(1, last_auxiliary_list, last_auxiliary_words, AUX_VIEW_W, AUX_VIEW_H);
+  }
+  prepare_transition(osGetTime());
+  gfx_finish_frame();
+  draw_targets(true, true);
+  C3D_FrameEnd(0);
+  *run_frame += 1;
+}
+
 /* The launcher's guest when it comes back: its active package, then its own
  * recovery chain, then the embedded package. No embedded-install check: that
  * belongs to a cold boot (startup_choice). */
@@ -916,8 +1105,9 @@ static bool boot_app(
   return true;
 }
 
-/* The whole-guest swap, inside one GPU-idle C3D frame. `report_hash` names a
- * dev-wire package whose verdict this switch decides (0: none). */
+/* The whole-guest swap: teardown inside a GPU-idle C3D frame, then the boot
+ * with the transition's loading frames drawn around it. `report_hash` names
+ * a dev-wire package whose verdict this switch decides (0: none). */
 static void switch_guest(
   GuestChoice *choice,
   PocketRuntimeState *state,
@@ -930,6 +1120,12 @@ static void switch_guest(
 ) {
   begin_frame_wait(*run_frame);
   accept_guest(choice, state, failures, *run_frame);
+  /* The old guest's last frame has retired. From here to the new guest's
+   * first frame the loading thread draws the transition, and the teardown
+   * releases nothing its frames use. */
+  C3D_FrameEnd(0);
+  transition_load(osGetTime());
+  loading_start();
   teardown_guest();
   release_choice(choice, embedded);
   runtime_failure_lineage_reset(failures);
@@ -957,7 +1153,6 @@ static void switch_guest(
   }
   select_latched = true;
   devserver_set_runtime(state, choice->package, choice->commit_on_accept ? "candidate" : "booted", *run_frame);
-  C3D_FrameEnd(0);
   *run_frame += 1;
 }
 
@@ -1109,6 +1304,7 @@ int main(void) {
   }
   launcher_init(embedded);
   link_init(&runtime_state);
+  qjs_set_interrupt(guest_interrupt);
 #endif
   PocketRuntimeFailureLineage failures = {0};
   input_init();
@@ -1203,6 +1399,19 @@ int main(void) {
         devserver_report_native("launch-error", launch_name, runtime_error);
       }
     }
+    if (launcher_pending()) {
+      /* A switch starts once the leaving scrim covers the old guest. */
+      u64 now = osGetTime();
+      transition_leave(now);
+      if (!transition_covered(now)) {
+        present_leaving(&run_frame);
+        continue;
+      }
+      LauncherTarget target;
+      launcher_take_request(&target);
+      switch_guest(&guest, &runtime_state, embedded, &failures, &target, NULL, 0, &run_frame);
+      continue;
+    }
     if (input_devmenu_toggle_requested()) devmenu_toggle();
     if (devmenu_visible() && input_devmenu_close_requested()) devmenu_hide();
     if (devmenu_visible() && input_devmenu_screenshot_requested()) {
@@ -1270,13 +1479,6 @@ int main(void) {
         continue;
       }
     }
-    {
-      LauncherTarget target;
-      if (launcher_take_request(&target)) {
-        switch_guest(&guest, &runtime_state, embedded, &failures, &target, NULL, 0, &run_frame);
-        continue;
-      }
-    }
     int32_t buttons = devmenu_blocks_guest ? 0 : input_buttons();
     if (!launcher_home_running()) {
       /* SELECT belongs to the system while an installed app runs: its press
@@ -1308,10 +1510,17 @@ int main(void) {
     );
     if (hit_count != touch_count) fail("auxiliary touch hit resolution failed");
     u64 phase_js __attribute__((unused)) = svcGetSystemTick();
-    if (!qjs_frame(buttons, analog, &touch, &touch_hit, touch_count, right_analog)) {
+    guest_frame_started = svcGetSystemTick();
+    guest_frame_running = true;
+    bool frame_ran = qjs_frame(buttons, analog, &touch, &touch_hit, touch_count, right_analog);
+    guest_frame_running = false;
+    if (!frame_ran) {
 #if defined(POCKETJS_CAPTURE) || defined(POCKETJS_OFFLOAD)
       fail(qjs_last_error());
 #else
+      /* SELECT ended a long frame (guest_interrupt): the switch starts at the
+       * top of the next one. */
+      if (qjs_interrupted() && launcher_pending()) continue;
       snprintf(runtime_error, sizeof runtime_error, "%s", qjs_last_error());
       if (!launcher_home_running()) {
         fail_to_home(&guest, &runtime_state, embedded, &failures, &run_frame, "guest-frame", runtime_error);
@@ -1415,28 +1624,21 @@ int main(void) {
       continue;
 #endif
     }
+    last_top_list = ui_draw_list_ptr();
+    last_top_words = words;
+    last_auxiliary_list = auxiliary_list;
+    last_auxiliary_words = auxiliary_words;
+    /* The new guest's first frame still draws under the loading overlay;
+     * the ones after it under the arriving fade. */
+    u64 transition_now = osGetTime();
+    TransitionPhase transition = transition_phase();
+    if (transition == TRANSITION_ARRIVING) transition_advance(transition_now);
+    bool overlay = transition_phase() != TRANSITION_IDLE;
+    if (overlay) prepare_transition(transition_now);
     gfx_finish_frame();
-
-    C3D_RenderTargetClear(primary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-    if (agent_enabled()) {
-      /* The top screen is the agent stage's; the guest's primary surface is
-       * laid out but not shown. In single display mode it stays black. */
-      if (agent_stage_shown()) {
-        if (osGet3DSliderState() > 0.0f) C3D_RenderTargetClear(right_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-        stage_render(primary_target, right_target);
-      }
-    } else {
-      C3D_FrameDrawOn(primary_target);
-      /* C3D_FrameDrawOn resets the viewport, so this comes after it. */
-      C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
-      gfx_draw_surface(0);
-    }
-
-    C3D_RenderTargetClear(auxiliary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-    C3D_FrameDrawOn(auxiliary_target);
-    C3D_SetViewport(0, 0, AUX_VIEW_H, AUX_VIEW_W);
-    gfx_draw_surface(1);
+    draw_targets(true, overlay);
     C3D_FrameEnd(0);
+    if (transition == TRANSITION_LOADING) transition_arrive(transition_now);
     offload_measure((unsigned)((offload_ui_ticks + svcGetSystemTick() - offload_cpu_start) * 1000000 / SYSCLOCK_ARM11));
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
     {

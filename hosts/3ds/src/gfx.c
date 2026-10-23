@@ -75,7 +75,8 @@
 #define MAX_VERTICES 32768u
 #define MAX_COMMANDS 2048u
 #define MAX_CLIP_DEPTH 64u
-#define MAX_SURFACES 2u
+/* The guest's two outputs, then the host overlay over each (main.c). */
+#define MAX_SURFACES 4u
 
 typedef struct {
   float x, y;
@@ -896,14 +897,26 @@ static void keep(const uint32_t *words, size_t length, const SurfaceBatch *batch
   kept.valid = true;
 }
 
-void gfx_begin_frame(void) {
-  if (!initialized) return;
-  sync_resources();
+static void reset_arena(void) {
   vertex_count = 0;
   command_count = 0;
   dropped_vertices = 0;
   dropped_commands = 0;
   memset(surfaces, 0, sizeof surfaces);
+}
+
+void gfx_begin_frame(void) {
+  if (!initialized) return;
+  sync_resources();
+  reset_arena();
+}
+
+void gfx_begin_overlay_frame(void) {
+  if (!initialized) return;
+  /* This frame's vertices overwrite the arena the kept top surface points
+   * into. */
+  kept.valid = false;
+  reset_arena();
 }
 
 bool gfx_prepare_surface(

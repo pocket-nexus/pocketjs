@@ -180,6 +180,8 @@ static char debug_poll_buffer[32 * 1024];
 static char svc_poll_buffer[8192 + 1];
 static uint8_t coverage_pixels[16384 * 4];
 static bool coverage_used;
+static QjsInterrupt interrupt_hook;
+static bool interrupted;
 
 static void set_error(const char *message) {
   size_t length = message == NULL ? 0 : strlen(message);
@@ -1172,13 +1174,29 @@ static bool drain_jobs(void) {
 // lifecycle
 // ---------------------------------------------------------------------------
 
-bool qjs_boot(
-  const char *source,
-  size_t source_length,
-  const uint8_t *pack,
-  size_t pack_length
-) {
+/* QuickJS calls this every few thousand bytecode steps; a true from the hook
+ * ends the running code with an uncatchable InternalError. */
+static int on_interrupt(JSRuntime *rt, void *opaque) {
+  (void)rt;
+  (void)opaque;
+  if (interrupt_hook == NULL || !interrupt_hook()) return 0;
+  interrupted = true;
+  return 1;
+}
+
+void qjs_set_interrupt(QjsInterrupt hook) {
+  interrupt_hook = hook;
+}
+
+bool qjs_interrupted(void) {
+  return interrupted;
+}
+
+/* The runtime, the host namespaces and the globals the bundle reads while it
+ * mounts; false leaves the error. */
+static bool boot_runtime(const uint8_t *pack, size_t pack_length) {
   last_error[0] = '\0';
+  interrupted = false;
   installed_pack = pack;
   installed_pack_length = pack_length;
   frame_function = JS_UNDEFINED;
@@ -1190,6 +1208,11 @@ bool qjs_boot(
     return false;
   }
   JS_SetMaxStackSize(runtime, POCKETJS_JS_STACK_SIZE);
+  JS_SetInterruptHandler(runtime, on_interrupt, NULL);
+  /* Functions keep their line tables, so a stack still names its lines, and
+   * drop their source text, which Function.prototype.toString alone reads:
+   * the heap and the bundle's bytecode lose a copy of the bundle. */
+  JS_SetStripInfo(runtime, JS_STRIP_SOURCE);
   context = JS_NewContext(runtime);
   if (context == NULL) {
     set_error("JS_NewContext returned null");
@@ -1213,8 +1236,11 @@ bool qjs_boot(
   /* The bundle mounts synchronously during JS_Eval and resetClock() latches
    * this at mount, so install it beforehand. */
   JS_SetPropertyStr(context, global, "__simHz", JS_NewInt32(context, POCKETJS_SIMULATION_HZ));
+  return true;
+}
 
-  JSValue result = JS_Eval(context, source, source_length, "app.js", JS_EVAL_TYPE_GLOBAL);
+/* The bundle has run (`result`): find `frame` and drain what it queued. */
+static bool finish_boot(JSValue result) {
   if (JS_IsException(result)) {
     take_exception();
     return false;
@@ -1229,6 +1255,50 @@ bool qjs_boot(
   return drain_jobs();
 }
 
+bool qjs_boot(
+  const char *source,
+  size_t source_length,
+  const uint8_t *pack,
+  size_t pack_length,
+  uint8_t **bytecode,
+  size_t *bytecode_length
+) {
+  if (!boot_runtime(pack, pack_length)) return false;
+  JSValue function = JS_Eval(
+    context,
+    source,
+    source_length,
+    "app.js",
+    JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY
+  );
+  if (bytecode != NULL && !JS_IsException(function)) {
+    size_t size = 0;
+    uint8_t *written = JS_WriteObject(context, &size, function, JS_WRITE_OBJ_BYTECODE);
+    if (written != NULL) {
+      *bytecode = malloc(size);
+      if (*bytecode != NULL) {
+        memcpy(*bytecode, written, size);
+        *bytecode_length = size;
+      }
+      js_free(context, written);
+    }
+  }
+  /* JS_EvalFunction takes ownership of the function. */
+  return finish_boot(JS_IsException(function) ? function : JS_EvalFunction(context, function));
+}
+
+bool qjs_boot_bytecode(
+  const uint8_t *bytecode,
+  size_t bytecode_length,
+  const uint8_t *pack,
+  size_t pack_length
+) {
+  if (!boot_runtime(pack, pack_length)) return false;
+  JSValue function = JS_ReadObject(context, bytecode, bytecode_length, JS_READ_OBJ_BYTECODE);
+  /* JS_EvalFunction takes ownership of the function. */
+  return finish_boot(JS_IsException(function) ? function : JS_EvalFunction(context, function));
+}
+
 bool qjs_frame(
   int32_t buttons,
   int32_t analog,
@@ -1238,6 +1308,7 @@ bool qjs_frame(
   int32_t right_analog
 ) {
   if (context == NULL) return false;
+  interrupted = false;
   offload_frame();
   coverage_used = false;
   JSValue arguments[6] = {
