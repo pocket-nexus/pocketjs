@@ -199,8 +199,7 @@ static void fetch_texel(const pocket_texture_view *source, uint32_t x,
  * of the image. A short envelope therefore leaves its padding at the top.
  */
 static bool upload_tiled(C3D_Tex *texture, const pocket_texture_view *source,
-                         const uint8_t *coverage, uint32_t width,
-                         uint32_t height, uint32_t texture_width,
+                         uint32_t width, uint32_t height, uint32_t texture_width,
                          uint32_t texture_height, bool linear) {
   size_t bytes = (size_t)texture_width * texture_height * 4;
   if (!pocket_pica_texture_init(texture, texture_width, texture_height, 1,
@@ -225,13 +224,7 @@ static bool upload_tiled(C3D_Tex *texture, const pocket_texture_view *source,
           if (column >= width)
             continue;
           uint8_t rgba[4];
-          if (source != NULL) {
-            fetch_texel(source, column, row, rgba);
-          } else {
-            /* Font coverage: white ink, alpha from the glyph grid. */
-            rgba[0] = rgba[1] = rgba[2] = 255;
-            rgba[3] = coverage[(size_t)row * width + column];
-          }
+          fetch_texel(source, column, row, rgba);
           uint8_t *destination =
               tiled + ((size_t)tile * 64 + morton_offset(x, y)) * 4;
           destination[0] = rgba[3];
@@ -251,6 +244,64 @@ static bool upload_tiled(C3D_Tex *texture, const pocket_texture_view *source,
                    linear ? GPU_LINEAR : GPU_NEAREST);
   C3D_TexSetWrap(texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
   free(tiled);
+  return true;
+}
+
+/*
+ * A coverage grid of `width` x `height` as an LA8 texture in a
+ * `texture_width` x `texture_height` envelope, written straight into the
+ * texture's linear memory. Every texel is white ink (L = 255) with the
+ * coverage as alpha, so sampling gives what the RGBA8 path gives at half the
+ * bytes. A 512x1024 glyph atlas took about 60 ms through upload_tiled's
+ * per-texel fetch on an Old 3DS; this takes about 12 ms. The flip is
+ * upload_tiled's: grid row 0 is the last tiled row.
+ */
+static bool upload_coverage(C3D_Tex *texture, const uint8_t *grid,
+                            uint32_t width, uint32_t height,
+                            uint32_t texture_width, uint32_t texture_height,
+                            bool linear) {
+  static uint8_t morton[64];
+  static bool morton_ready;
+  if (!morton_ready) {
+    for (uint32_t y = 0; y < 8; y += 1)
+      for (uint32_t x = 0; x < 8; x += 1)
+        morton[y * 8 + x] = (uint8_t)morton_offset(x, y);
+    morton_ready = true;
+  }
+  size_t bytes = (size_t)texture_width * texture_height * 2;
+  if (!pocket_pica_texture_init(texture, texture_width, texture_height, 1,
+                                GPU_LA8, bytes))
+    return false;
+  uint8_t *tiled = texture->data;
+  if (width < texture_width || height < texture_height)
+    memset(tiled, 0, bytes);
+  uint32_t tiles_across = texture_width / 8;
+  for (uint32_t ty = 0; ty < texture_height; ty += 8) {
+    uint8_t *band = tiled + (size_t)(ty / 8) * tiles_across * 128;
+    for (uint32_t y = 0; y < 8; y += 1) {
+      uint32_t row = texture_height - 1 - (ty + y);
+      if (row >= height)
+        continue;
+      const uint8_t *source = grid + (size_t)row * width;
+      const uint8_t *offsets = morton + y * 8;
+      for (uint32_t tx = 0; tx < width; tx += 8) {
+        uint8_t *tile = band + (size_t)(tx / 8) * 128;
+        uint32_t span = width - tx < 8 ? width - tx : 8;
+        for (uint32_t x = 0; x < span; x += 1) {
+          uint8_t *texel = tile + offsets[x] * 2u;
+          texel[0] = source[tx + x];
+          texel[1] = 0xff;
+        }
+      }
+    }
+  }
+  if (!pocket_pica_texture_publish(texture, bytes)) {
+    pocket_pica_texture_destroy(texture);
+    return false;
+  }
+  C3D_TexSetFilter(texture, linear ? GPU_LINEAR : GPU_NEAREST,
+                   linear ? GPU_LINEAR : GPU_NEAREST);
+  C3D_TexSetWrap(texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
   return true;
 }
 
@@ -371,7 +422,7 @@ static int32_t image_texture(Build *b, int32_t handle, C3D_Tex **out, float *us,
   Cache *entry = calloc(1, sizeof *entry);
   if (!entry)
     return POCKET_STATUS_FAILED;
-  if (!upload_tiled(&entry->texture, &source, NULL, source.width, source.height,
+  if (!upload_tiled(&entry->texture, &source, source.width, source.height,
                     w, h, source.linear != 0)) {
     free(entry);
     return POCKET_STATUS_FAILED;
@@ -410,7 +461,7 @@ static int32_t font_texture(Build *b, uint8_t slot, uint32_t gid,
   size_t bytes = (size_t)page.width * page.height;
   uint32_t tw = next_power_of_two(page.width),
            th = next_power_of_two(page.height);
-  if (!reserve_cache(b->renderer, (size_t)tw * th * 4))
+  if (!reserve_cache(b->renderer, (size_t)tw * th * 2))
     return POCKET_STATUS_FAILED;
   uint8_t *coverage = malloc(bytes);
   if (!coverage)
@@ -418,8 +469,8 @@ static int32_t font_texture(Build *b, uint8_t slot, uint32_t gid,
   status = pocket_glyph_page_a8(font, gid, 1024, coverage, bytes, &page);
   entry = calloc(1, sizeof *entry);
   if (status || !entry ||
-      !upload_tiled(&entry->texture, NULL, coverage, page.width, page.height,
-                    tw, th, true)) {
+      !upload_coverage(&entry->texture, coverage, page.width, page.height,
+                       tw, th, true)) {
     free(coverage);
     free(entry);
     return status ? status : POCKET_STATUS_FAILED;
@@ -429,7 +480,7 @@ static int32_t font_texture(Build *b, uint8_t slot, uint32_t gid,
   entry->handle = slot;
   entry->page = page.page;
   entry->revision = revision;
-  entry->bytes = (size_t)tw * th * 4;
+  entry->bytes = (size_t)tw * th * 2;
   entry->us = (float)page.width / tw;
   entry->vs = (float)page.height / th;
   if (!publish_cache(b, entry))
@@ -1006,7 +1057,7 @@ pocket_pica_renderer_create(const pocket_pica_config *config) {
   AttrInfo_AddLoader(&r->attributes, 2, GPU_FLOAT, 4);
   uint8_t coverage[64];
   memset(coverage, 255, sizeof coverage);
-  if (!upload_tiled(&r->white, NULL, coverage, 8, 8, 8, 8, false)) {
+  if (!upload_coverage(&r->white, coverage, 8, 8, 8, 8, false)) {
     pocket_pica_renderer_destroy(r);
     return NULL;
   }

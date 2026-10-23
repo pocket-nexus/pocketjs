@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
-typedef enum { GPU_RGBA8 } GPU_TEXCOLOR;
+typedef enum { GPU_RGBA8 = 0x0, GPU_LA8 = 0x5 } GPU_TEXCOLOR;
 enum {
   GPU_RB_RGBA8 = 0,
   GPU_TEX_2D,
@@ -84,7 +84,7 @@ static inline bool C3D_TexInitWithParams(C3D_Tex *t, void *cube,
   (void)cube;
   if (fail_tex)
     return false;
-  t->size = p.width * p.height * 4;
+  t->size = p.width * p.height * (p.format == GPU_LA8 ? 2 : 4);
   t->maxLevel = p.maxLevel;
   t->data = malloc(C3D_TexCalcTotalSize(t->size, t->maxLevel));
   if (t->data)

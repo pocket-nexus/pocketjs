@@ -696,7 +696,10 @@ the host updates them before the tick and teardown runs after terminal completio
 - **Tiled row 0 is sampled at v = 1**, so the source is flipped vertically
   while it is tiled and DrawList UVs then pass through unchanged.
 - **RGBA8 texels are stored bytes A, B, G, R** — the reverse of the core's
-  order.
+  order. Font atlases are **LA8, stored bytes A, L**: luminance 255 and the
+  glyph coverage as alpha sample as the same white ink at half the bytes, and
+  they are written into the texture's memory in one pass (a 512x1024 runtime
+  glyph atlas took about 60 ms through the RGBA8 path on an Old 3DS).
 - **Vertex buffers must live in `linearAlloc` memory** (`BufInfo_Add` rejects
   any pointer below physical `0x18000000`), and the arena is flushed out of the
   data cache before the draws that read it.
