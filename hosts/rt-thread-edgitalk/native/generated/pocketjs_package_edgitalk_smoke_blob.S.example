@@ -1,0 +1,12 @@
+@ Example only — do not assemble as-is with a machine-specific path.
+@ Copy to pocketjs_package_edgitalk_smoke_blob.S and set .incbin to the built
+@ .pocket (preferably a path computed by SCons / env POCKETJS_SMOKE_PACKAGE).
+.section .rodata.pocketjs_package_edgitalk_smoke,"a",%progbits
+.balign 16
+.global pocketjs_package_edgitalk_smoke_start
+.type pocketjs_package_edgitalk_smoke_start, %object
+pocketjs_package_edgitalk_smoke_start:
+.incbin "REPLACE_WITH_PATH_TO/edgitalk-m55-smoke.pocket"
+.global pocketjs_package_edgitalk_smoke_end
+pocketjs_package_edgitalk_smoke_end:
+.size pocketjs_package_edgitalk_smoke_start, pocketjs_package_edgitalk_smoke_end - pocketjs_package_edgitalk_smoke_start
