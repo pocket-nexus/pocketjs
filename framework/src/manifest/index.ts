@@ -32,6 +32,11 @@ export {
   type HostBuildInputs,
 } from "./host-build-inputs.ts";
 export {
+  expandThemeReference,
+  readPocketManifest,
+  type LoadedManifest,
+} from "./load.ts";
+export {
   validatePocketManifest,
   type ContractDiagnostic,
   type ValidationResult,

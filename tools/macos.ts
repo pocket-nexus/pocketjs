@@ -17,6 +17,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { $ } from "bun";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import {
   validateAndResolveSystemPlan,
   validatePocketSystem,
@@ -67,7 +68,7 @@ if (existsSync(systemPath)) {
       .filter((entry) => installed.has(entry.package))
       .map(async (entry) => ({
         source: entry.manifest,
-        manifest: await Bun.file(`${root}${entry.manifest}`).json(),
+        manifest: readPocketManifest(`${root}${entry.manifest}`).manifest,
       })),
   );
   const resolution = validateAndResolveSystemPlan(rawSystem, {
@@ -85,7 +86,7 @@ if (existsSync(systemPath)) {
   systemPlan = resolution.plan;
   plan = systemPlan.systemUI.plan;
 } else {
-  const manifest = await Bun.file(manifestPath).json();
+  const manifest = readPocketManifest(manifestPath).manifest;
   const resolution = validateAndResolveBuildPlan(manifest, {
     target: "macos-app",
   });

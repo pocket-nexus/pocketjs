@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import {
   extractHostBuildInputs,
   type HostBuildInputs,
@@ -122,9 +123,7 @@ function check(label: string, ok: boolean, detail: string): boolean {
 }
 
 function currentPlan(): ResolvedBuildPlan {
-  return resolveMeizuM8BuildPlan(
-    JSON.parse(readFileSync(manifestPath, "utf8")),
-  );
+  return resolveMeizuM8BuildPlan(readPocketManifest(manifestPath).manifest);
 }
 
 function guestArtifacts(plan: ResolvedBuildPlan): GuestArtifacts {

@@ -11,6 +11,7 @@ import { decodePng } from "../framework/compiler/pak.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/index.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { profileRegistry } from "./profile-resolver.ts";
@@ -167,7 +168,8 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
 /** In-tree firmware scripts use the same application generator as pocket compile. */
 export async function compileBuiltinAot(target: "gba" | "ipodnano", outdir: string): Promise<AotCompileResult> {
   const manifestPath = resolve(ROOT, `apps/${target}-hero/pocket.json`);
-  const resolved = validateAndResolveBuildPlan(JSON.parse(readFileSync(manifestPath, "utf8")), { target, executionClass: "aot" }, profileRegistry(POCKET_PROFILES[target]));
+  const loaded = readPocketManifest(manifestPath);
+  const resolved = validateAndResolveBuildPlan(loaded.manifest, { target, executionClass: "aot" }, profileRegistry(POCKET_PROFILES[target]));
   if (!resolved.ok) throw new Error(resolved.diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
-  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `profiles/${target}.ts`)] });
+  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `profiles/${target}.ts`), ...loaded.inputs] });
 }

@@ -16,6 +16,7 @@ import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import {
   IPHONE2G_TOOLCHAIN,
   inspectIPhone2GToolchain,
@@ -343,9 +344,7 @@ function iphone2gGuestOutputDirectory(): string {
 }
 
 function currentIPhone2GBuildPlan() {
-  return resolveIPhone2GBuildPlan(
-    JSON.parse(readFileSync(iphone2gManifestPath(), "utf8")),
-  );
+  return resolveIPhone2GBuildPlan(readPocketManifest(iphone2gManifestPath()).manifest);
 }
 
 

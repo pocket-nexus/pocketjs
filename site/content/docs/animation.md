@@ -206,6 +206,18 @@ keyframe and animation shape:
 }
 ```
 
+`app.theme` may instead name a module, relative to `pocket.json`:
+
+```json
+{ "app": { "theme": "./theme.ts" } }
+```
+
+The module's default export is the same object, so easing constants, loop
+periods and helpers that derive keyframes stay in TypeScript. **`pocket
+compile` loads the module before it resolves the build plan**, embeds the
+loaded object in the package's manifest, and lists the module and its
+relative imports in the depfile. A `.json` path is read the same way.
+
 The theme belongs to the application manifest. The selected profile supplies
 `tickHz`; `pocket.runtime-config.ts` selects that profile and can declare the
 program's native build. Both guest compilation and `pocket compile --aot` bake

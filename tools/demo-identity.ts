@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 
 export interface DemoIdentity {
   readonly id: string;
@@ -30,9 +31,9 @@ export function demoManifestFor(
 ): Record<string, unknown> {
   const own = `${root}apps/${demo}/pocket.json`;
   if (existsSync(own)) {
-    return JSON.parse(readFileSync(own, "utf8")) as Record<string, unknown>;
+    return readPocketManifest(own).manifest as Record<string, unknown>;
   }
-  const manifest = JSON.parse(readFileSync(`${root}pocket.json`, "utf8")) as Record<string, any>;
+  const manifest = readPocketManifest(`${root}pocket.json`).manifest as Record<string, any>;
   const identity = demoIdentity(demo);
   manifest.id = identity.id;
   manifest.name = identity.name;

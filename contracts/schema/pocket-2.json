@@ -169,46 +169,18 @@
           ]
         },
         "theme": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "keyframes": {
+          "anyOf": [
+            {
               "type": "object",
-              "additionalProperties": {
-                "type": "object",
-                "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "keyframes": {
                   "type": "object",
                   "additionalProperties": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
-                    ]
-                  }
-                }
-              }
-            },
-            "animation": {
-              "type": "object",
-              "additionalProperties": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
                     "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "string"
-                      },
-                      "loop": {
+                    "additionalProperties": {
+                      "type": "object",
+                      "additionalProperties": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -220,10 +192,46 @@
                       }
                     }
                   }
-                ]
+                },
+                "animation": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "value"
+                        ],
+                        "properties": {
+                          "value": {
+                            "type": "string"
+                          },
+                          "loop": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
               }
+            },
+            {
+              "type": "string",
+              "minLength": 1
             }
-          }
+          ]
         },
         "aot": {
           "type": "boolean"

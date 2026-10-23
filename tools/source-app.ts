@@ -1,6 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { PocketManifestV2 } from "../contracts/spec/pocket-manifest.ts";
+import type { AnimationTheme, PocketManifestV2 } from "../contracts/spec/pocket-manifest.ts";
+import { expandThemeReference } from "../framework/src/manifest/load.ts";
+
+/** Application content with theme content in place of a module reference. */
+export type SourceAppContent = Omit<PocketManifestV2["app"], "theme"> & { theme?: AnimationTheme };
 
 /** Source lookup shared by the low-level compiler and native program wrappers. */
 export function resolveSourceEntry(arg: string, frameworkRoot: string, cwd = process.cwd()): string {
@@ -42,7 +46,7 @@ export function sourceAppContent(entry: string, options: {
   frameworkRoot: string;
   projectRoot: string;
   onRead?: (path: string) => void;
-}): Partial<PocketManifestV2["app"]> {
+}): Partial<SourceAppContent> {
   let directory = dirname(resolve(entry));
   while (!existsSync(join(directory, "pocket.json"))) {
     if (dirname(directory) === directory) return {};
@@ -51,7 +55,9 @@ export function sourceAppContent(entry: string, options: {
   const candidates = readdirSync(directory).filter(name => /^pocket(?:\.[^.]+)?\.json$/.test(name)).map(name => {
     const path = join(directory, name);
     options.onRead?.(path);
-    return { path, app: JSON.parse(readFileSync(path, "utf8")).app as PocketManifestV2["app"] };
+    const expanded = expandThemeReference(JSON.parse(readFileSync(path, "utf8")), path);
+    expanded.inputs.forEach(input => options.onRead?.(input));
+    return { path, app: (expanded.manifest as { app: SourceAppContent }).app };
   });
   const matches = candidates.filter(({ app }) => app?.entry && [options.projectRoot, directory, options.frameworkRoot]
     .some(base => resolve(base, app.entry) === entry));

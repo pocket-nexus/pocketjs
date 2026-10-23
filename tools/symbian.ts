@@ -43,6 +43,7 @@ import {
 } from "./build/toolchains/symbian.ts";
 import { pocketNexusCacheRoot } from "../tools/targets/cache.ts";
 import { withArtifactLock } from "../tools/targets/lock.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import {
   assertSymbianMassStorageDataStageSeparation,
   resolveSymbianMassStorageDataRoot,
@@ -425,7 +426,7 @@ export async function buildApp(
   }
 
   const absoluteManifest = resolve(manifestPath);
-  const manifest = JSON.parse(readFileSync(absoluteManifest, "utf8")) as unknown;
+  const manifest: unknown = readPocketManifest(absoluteManifest).manifest;
   const plan = compiled.plan;
   const packageIdentity = symbianPackageIdentity(plan, options.uid);
   const navigation = options.navigation === undefined ? undefined : encodeSymbianNavigation(

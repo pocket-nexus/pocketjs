@@ -17,6 +17,7 @@ import { mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { $ } from "bun";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { exportProfile } from "./profile-export.ts";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -27,7 +28,7 @@ const pass = args.filter((f) => f !== "--proof");
 // The note builds through its manifest against the macos-widget
 // target profile — density, viewport and capability features all come from
 // the platform contract, not flags.
-const manifest = await Bun.file(`${root}apps/note/pocket.json`).json();
+const manifest = readPocketManifest(`${root}apps/note/pocket.json`).manifest;
 const resolution = validateAndResolveBuildPlan(manifest, { target: "macos-widget" });
 if (!resolution.ok) {
   throw new Error(

@@ -84,7 +84,12 @@ export interface PocketManifestV2 {
     readonly entry: string;
     readonly output?: string;
     readonly framework: PocketFramework;
-    readonly theme?: AnimationTheme;
+    /**
+     * Animation content, or the path of a module relative to this file whose
+     * default export is that content. `readPocketManifest` replaces the path
+     * with the export; a build plan and a package carry the content.
+     */
+    readonly theme?: AnimationTheme | string;
     /** Admit the complete Solid component graph to the AOT view subset. */
     readonly aot?: boolean;
     readonly model?: "rust" | "compiled";
@@ -368,7 +373,7 @@ export const pocketManifestV2Schema = {
         entry: entrySchema,
         output: outputSchema,
         framework: { enum: ["solid", "vue-vapor", "octane"] },
-        theme: animationThemeSchema,
+        theme: { anyOf: [animationThemeSchema, { type: "string", minLength: 1 }] },
         aot: { type: "boolean" },
         model: { enum: ["rust", "compiled"] },
         recursionLimit: { type: "integer", minimum: 1, default: 256 },

@@ -11,7 +11,8 @@
 // Layout (all integers little-endian; directories and payloads 16-aligned):
 //   header (32 B): magic, version=2, manifestLen, variantCount,
 //                 stringTableOffset, stringTableSize, reserved[2]
-//   manifest: verbatim pocket.json, padded to 16
+//   manifest: pocket.json as read (a theme module reference replaced by its
+//             export), padded to 16
 //   variants (64 B each): targetOffset, targetSize, hostAbi, sectionCount,
 //                 sectionsOffset, reserved, u64 variantHash, profileHash[32]
 //   strings: target ids as UTF-8, contiguous in variant order, no terminators

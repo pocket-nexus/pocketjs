@@ -24,6 +24,7 @@ import {
 import { LINK_SERVICES_HOST } from "../contracts/spec/link.ts";
 import type { PocketManifestV2 } from "../contracts/spec/pocket-manifest.ts";
 import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 
 export interface AppletSourceInput {
   /** The directory manifest entries are relative to. */
@@ -177,7 +178,7 @@ export function checkAppletBundle(sizes: { jsBytes: number; pakBytes?: number })
 /** Every rule for a manifest file: schema, manifest rules, sources and,
  *  when given, the built bundle. A manifest without `applet` passes. */
 export function checkApplet(options: { manifestPath: string; projectRoot?: string; js?: string; pak?: string }): ContractDiagnostic[] {
-  const raw = JSON.parse(readFileSync(options.manifestPath, "utf8")) as unknown;
+  const raw: unknown = readPocketManifest(options.manifestPath).manifest;
   const validated = validatePocketManifest(raw);
   if (!validated.ok) return [...validated.diagnostics];
   const manifest: PocketManifestV2 = validated.value;

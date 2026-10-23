@@ -22,6 +22,8 @@ validatePlatformContractRegistry,
 } from "../framework/src/manifest/resolve.ts";
 import { validatePocketSystem } from "../framework/src/manifest/system.ts";
 import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { fileURLToPath } from "node:url";
 
 const fixtureUrl = (name: string) => new URL(`./fixtures/manifests/${name}.json`, import.meta.url);
 const portableInput: unknown = await Bun.file(fixtureUrl("portable-psp")).json();
@@ -551,7 +553,8 @@ describe("semantic resolution", () => {
     for (const demo of readdirSync(new URL("../apps/", import.meta.url)).sort()) {
       const url = new URL(`../apps/${demo}/pocket.json`, import.meta.url);
       if (!existsSync(url)) continue;
-      const manifest = await Bun.file(url).json();
+      // A theme module reference is loaded the way pocket compile loads it.
+      const manifest = readPocketManifest(fileURLToPath(url)).manifest;
       expect(expected[demo]).toBeDefined();
       targets.forEach((target, i) => {
         const result = validateAndResolveBuildPlan(manifest, { target });

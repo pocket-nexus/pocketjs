@@ -7,6 +7,7 @@ import {
   type HostBuildInputs,
 } from "../framework/src/manifest/host-build-inputs.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 
 /**
  * Build steps shared by native host tools that embed a PocketJS guest next to
@@ -64,7 +65,7 @@ function locateGuestBundle(
 }
 
 export function currentGuestPlan(request: GuestBundleRequest): ResolvedBuildPlan {
-  return request.resolvePlan(JSON.parse(readFileSync(request.manifestPath, "utf8")));
+  return request.resolvePlan(readPocketManifest(request.manifestPath).manifest);
 }
 
 /** Resolves the manifest for the target and compiles app.js + app.pak. */

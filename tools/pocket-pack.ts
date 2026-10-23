@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import {
   canonicalJson,
   verifyPlanHash,
@@ -145,8 +146,8 @@ async function buildCommand(argv: string[]): Promise<void> {
   }
   if (!manifestPath) usage("--manifest is required");
   if (!allTargets && targets.length === 0) usage("give --target (repeatable) or --all-targets");
-  const manifestBytes = readFileSync(manifestPath);
-  const manifest: unknown = JSON.parse(manifestBytes.toString("utf8"));
+  const loaded = readPocketManifest(manifestPath);
+  const manifest: unknown = loaded.manifest;
 
   const requested = allTargets ? Object.keys(POCKET_TARGETS) : targets;
   const variants: PocketPackageVariant[] = [];
@@ -184,7 +185,7 @@ async function buildCommand(argv: string[]): Promise<void> {
   const id = (manifest as { name?: string }).name ?? "app";
   const file = output || join(ROOT, "dist/packages", `${id}.pocket`);
   mkdirSync(dirname(file), { recursive: true });
-  const bytes = encodePocketPackage({ manifest: new Uint8Array(manifestBytes), variants });
+  const bytes = encodePocketPackage({ manifest: loaded.embedded, variants });
   writeFileSync(file, bytes);
   console.log(`pocket-pack: ${relative(ROOT, file)} (${bytes.length}B, ${variants.length} variant(s))`);
 }

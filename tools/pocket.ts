@@ -6,6 +6,7 @@ import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
 import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { POCKET_PROFILES } from "../profiles/index.ts";
@@ -165,7 +166,8 @@ async function main() {
   if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");
   if (!existsSync(manifestPath)) usage(`manifest not found: ${manifestPath}`);
   const selected = await resolveProfile({ from: dirname(manifestPath), target, runtimeConfig, env: process.env });
-  const manifestInput: unknown = await Bun.file(manifestPath).json();
+  const loaded = readPocketManifest(manifestPath);
+  const manifestInput: unknown = loaded.manifest;
   const resolution = validateAndResolveBuildPlan(manifestInput, { target: selected.profile.id, executionClass: aot ? "aot" : "guest" }, profileRegistry(selected.profile));
   if (!resolution.ok) throw new Error(resolution.diagnostics.map(item => `${item.code} ${item.path || "/"}: ${item.message}`).join("\n"));
   const plan = resolution.plan;
@@ -188,7 +190,7 @@ async function main() {
   mkdirSync(planDirectory, { recursive: true });
   mkdirSync(outdir, { recursive: true });
   await Bun.write(planPath, JSON.stringify(plan, null, 2) + "\n");
-  const extraDependencies = [manifestPath, ...selected.dependencies, ...typeResult.checkedFiles.filter(file => !file.endsWith("/styles.generated.ts")), ...(compilerReceipt ? [resolve(compilerReceipt)] : [])];
+  const extraDependencies = [...loaded.inputs, ...selected.dependencies, ...typeResult.checkedFiles.filter(file => !file.endsWith("/styles.generated.ts")), ...(compilerReceipt ? [resolve(compilerReceipt)] : [])];
   if (dependencies) {
     const tools = new BuildInputs();
     await tools.compiler([resolve(frameworkRoot, "tools/pocket.ts")], frameworkRoot);
@@ -217,7 +219,7 @@ async function main() {
     const inputs = await Bun.file(inputsFile).json() as string[];
     await Bun.write(resolve(projectRoot, dependencies), depfile(output, [...inputs, ...extraDependencies]));
   }
-  await Bun.write(output, encodePocketPackage({ manifest: new Uint8Array(readFileSync(manifestPath)), variants: [variant] }));
+  await Bun.write(output, encodePocketPackage({ manifest: loaded.embedded, variants: [variant] }));
   console.log(`✓ Package: ${output}`);
 }
 try { await main(); }

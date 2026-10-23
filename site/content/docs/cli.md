@@ -104,7 +104,8 @@ export default defineRuntimeConfig({ profile });
 
 Use `profiles: [first, second]` when one program implements several profiles.
 `profile` and `profiles` are alternatives. The application manifest owns
-`app.entry`, `app.framework`, `app.viewport`, `app.theme` and requirements;
+`app.entry`, `app.framework`, `app.viewport`, `app.theme` (content or a module
+path) and requirements;
 the profile supplies display geometry, capabilities and `tickHz`.
 
 `pocket show --json` reports the selected framework, runtime configuration,

@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pocketManifestV2Schema } from "../contracts/spec/pocket-manifest.ts";
 import { decodeStyleTable } from "../contracts/spec/spec.ts";
 import { KEY_STYLES, unpack } from "../framework/compiler/pak.ts";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 
@@ -52,4 +54,60 @@ test("the compiler bakes the frozen plan theme after the source manifest changes
   expect(decoded.anims).toHaveLength(1);
   expect(decoded.anims[0].periodFrames).toBe(120);
   expect(decoded.styles.some(record => record.animation?.loopFrames === 180)).toBe(true);
+});
+
+test("the committed JSON schema is the manifest schema", () => {
+  expect(JSON.parse(readFileSync(resolve("contracts/schema/pocket-2.json"), "utf8"))).toEqual(pocketManifestV2Schema);
+});
+
+test("app.theme names a module whose export resolves like inline content", () => {
+  const directory = resolve(".pocket-build/validation/manifest-theme", `module-${process.pid}`);
+  mkdirSync(resolve(directory, "motion"), { recursive: true });
+  writeFileSync(resolve(directory, "motion/ease.ts"), 'export const LINEAR = "linear";\nexport const LOOP = "3s";\n');
+  writeFileSync(resolve(directory, "theme.ts"), [
+    'import { LINEAR, LOOP } from "./motion/ease.ts";',
+    "const stops = (property: string, values: number[]) => Object.fromEntries(values.map((value, index) => [index === 0 ? \"from\" : \"to\", { [property]: value }]));",
+    "export default { keyframes: { glide: stops(\"translateX\", [0, 12]) }, animation: { glide: { value: `glide 2s ${LINEAR} both`, loop: LOOP } } };",
+  ].join("\n"));
+  const reference = { ...application, app: { ...application.app, theme: "./theme.ts" } };
+  writeFileSync(resolve(directory, "pocket.json"), JSON.stringify(reference, null, 2) + "\n");
+  // The document is valid with the reference; the resolver takes content only.
+  expect(validatePocketManifest(reference).ok).toBe(true);
+  const unresolved = validateAndResolveBuildPlan(reference, { target: "psp" });
+  expect(unresolved.ok).toBe(false);
+  if (!unresolved.ok) expect(unresolved.diagnostics.map(item => item.code)).toContain("app.themeUnresolved");
+
+  const loaded = readPocketManifest(resolve(directory, "pocket.json"));
+  expect((loaded.manifest as typeof application).app.theme).toEqual(theme);
+  expect(loaded.inputs).toEqual([resolve(directory, "pocket.json"), resolve(directory, "theme.ts"), resolve(directory, "motion/ease.ts")]);
+  const inline = validateAndResolveBuildPlan(application, { target: "psp" });
+  const fromModule = validateAndResolveBuildPlan(loaded.manifest, { target: "psp" });
+  if (!inline.ok || !fromModule.ok) throw new Error("plans did not resolve");
+  expect(fromModule.plan.planHash).toBe(inline.plan.planHash);
+  // A package embeds the loaded manifest, so admission re-resolves the same plan without the module.
+  const embedded = JSON.parse(new TextDecoder().decode(loaded.embedded));
+  expect(embedded.app.theme).toEqual(theme);
+  const fromPackage = validateAndResolveBuildPlan(embedded, { target: "psp" });
+  if (!fromPackage.ok) throw new Error("embedded manifest did not resolve");
+  expect(fromPackage.plan.planHash).toBe(inline.plan.planHash);
+  // Content stays byte-for-byte as written.
+  const inlineLoad = readPocketManifest(resolve("tests/fixtures/manifests/portable-psp.json"));
+  expect(inlineLoad.embedded).toEqual(new Uint8Array(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"))));
+  expect(inlineLoad.inputs).toEqual([resolve("tests/fixtures/manifests/portable-psp.json")]);
+});
+
+test("a theme module that is missing or exports the wrong shape is refused by path", () => {
+  const directory = resolve(".pocket-build/validation/manifest-theme", `invalid-${process.pid}`);
+  mkdirSync(directory, { recursive: true });
+  const write = (theme: string) => {
+    writeFileSync(resolve(directory, "pocket.json"), JSON.stringify({ ...application, app: { ...application.app, theme } }));
+    return resolve(directory, "pocket.json");
+  };
+  expect(() => readPocketManifest(write("./absent.ts"))).toThrow(/absent\.ts, which is not a file/);
+  writeFileSync(resolve(directory, "wrong.ts"), "export default { animation: { glide: { loop: 2 } } };\n");
+  expect(() => readPocketManifest(write("./wrong.ts"))).toThrow(/wrong\.ts: \/app\/theme/);
+  writeFileSync(resolve(directory, "named.ts"), "export const theme = {};\n");
+  expect(() => readPocketManifest(write("./named.ts"))).toThrow(/named\.ts has no default export/);
+  writeFileSync(resolve(directory, "theme.json"), JSON.stringify(theme));
+  expect((readPocketManifest(write("./theme.json")).manifest as typeof application).app.theme).toEqual(theme);
 });

@@ -27,6 +27,7 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { encodePNG } from "../tests/png.ts";
 import { SHOT_W, SHOT_H, downscaleShot } from "../programs/sim/shot.ts";
@@ -419,7 +420,7 @@ function scanRegistryForTarget(
     if (dir === "launcher" || dir === "devkit") continue;
     const manifestPath = join(APPS_DIR, dir, "pocket.json");
     if (!existsSync(manifestPath)) continue;
-    const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const manifest: unknown = readPocketManifest(manifestPath).manifest;
     const resolution = resolveForTarget(manifest, target);
     if (!resolution.ok) {
       const codes = resolution.diagnostics.map((d) => d.code).join(", ");
@@ -472,7 +473,7 @@ export function includeExternalManifests(
   const seen = new Map(apps.map((app) => [app.output, app.manifest]));
   const seenIds = new Map(apps.map((app) => [app.id, app.manifest]));
   const launcherManifest = launcher
-    ? JSON.parse(readFileSync(manifestPath(launcher), "utf8"))
+    ? readPocketManifest(manifestPath(launcher)).manifest
     : launcherManifestForTarget(target);
   const launcherResolution = resolveForTarget(launcherManifest, target);
   if (!launcherResolution.ok) {
@@ -491,7 +492,7 @@ export function includeExternalManifests(
     if (!existsSync(absoluteManifest)) {
       throw new Error(`launcher: external manifest is missing: ${absoluteManifest}`);
     }
-    const manifest: unknown = JSON.parse(readFileSync(absoluteManifest, "utf8"));
+    const manifest: unknown = readPocketManifest(absoluteManifest).manifest;
     const resolution = resolveForTarget(manifest, target);
     if (!resolution.ok) {
       const codes = resolution.diagnostics.map((diagnostic) => diagnostic.code).join(", ");
@@ -857,7 +858,7 @@ export async function renderCovers(
     const coverPath = join(COVERS_DIR, `cover-${app.output}.png`);
     const reflPath = join(COVERS_DIR, `refl-${app.output}.png`);
     if (!force && existsSync(coverPath) && existsSync(reflPath)) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath(app), "utf8"));
+    const manifest = readPocketManifest(manifestPath(app)).manifest;
     const coverTarget: LauncherTarget = (["psp", "vita", SYMBIAN_E7_DEV_TARGET_ID] as const).find(target => resolveForTarget(manifest, target).ok)!;
     if (!coverTarget) throw new Error(`cover app no longer admits a launcher target: ${app.output}`);
     if (force || !existsSync(join(ROOT, "dist", `${app.output}.js`))) {
@@ -1304,7 +1305,7 @@ async function main(): Promise<void> {
       await renderXmbArt();
       copyIsolatedPspMetadata(paths.isolatedSource);
     }
-    const launcherResolution = resolveForTarget(JSON.parse(readFileSync(manifestPath(launcher), "utf8")), target);
+    const launcherResolution = resolveForTarget(readPocketManifest(manifestPath(launcher)).manifest, target);
     if (!launcherResolution.ok) throw new Error("launcher: package no longer resolves for the native program");
     const launcherPocket = join(paths.packages, `${launcherResolution.plan.app.output}.pocket`);
     console.log(`launcher: building the multi-app ${

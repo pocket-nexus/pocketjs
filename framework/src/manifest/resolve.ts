@@ -438,6 +438,14 @@ export function resolveBuildPlan(
     diagnostics.push({ code: "hostExtension.invalid", path: "/hostExtension",
       message: "host extension must carry a versioned, content-verified JSON payload" });
   }
+  if (typeof manifest.app.theme === "string") {
+    diagnostics.push({
+      code: "app.themeUnresolved",
+      path: "/app/theme",
+      message: `app.theme names the module ${JSON.stringify(manifest.app.theme)}; readPocketManifest loads it before resolution`,
+    });
+    return { ok: false, diagnostics };
+  }
   const profile = registry.targets[request.target];
   if (!profile) {
     diagnostics.push({
