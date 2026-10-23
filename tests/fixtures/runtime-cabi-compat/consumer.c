@@ -2,8 +2,8 @@
 #define _DARWIN_C_SOURCE
 #define _POSIX_C_SOURCE 200112L
 #include "pocket_runtime.h"
-#ifdef POCKET_OLD_CANDIDATE_PERSONALITY
-#include "fixture-legacy.h"
+#ifdef POCKET_OLD_ARCHIVE
+#include "fixture-old.h"
 #else
 #include "fixture-current.h"
 #endif
@@ -36,11 +36,6 @@ void *pocket_host_realloc(void *pointer,size_t old_size,size_t alignment,size_t 
 void pocket_host_panic(const char *message,size_t length){fwrite(message,1,length,stderr);abort();}
 void pocket_host_log(int32_t level,const char *message,size_t length){(void)level;(void)message;(void)length;}
 void pocket_host_boot_stage(int32_t stage){(void)stage;}
-/* The stage-4 candidate omitted this no_std archive support symbol. Only
- * links against that immutable historical archive may enable this shim. */
-#ifdef POCKET_OLD_CANDIDATE_PERSONALITY
-void rust_eh_personality(void){abort();}
-#endif
 
 static pocket_runtime *instance;
 static int initialized,evaluated,frames,shutdowns,flushes,waits,failed_wait;
@@ -131,11 +126,12 @@ static void raster_test(void){
 int main(int argc,char **argv){
   /* A real signal termination guards the runner against Bun exitCode=0. */
   if(argc==2 && strcmp(argv[1],"--abort")==0)abort();
-#ifdef POCKET_REQUIRE_VISITOR
-  /* New-header/new-archive control. Old archives must fail at link time. */
-  assert(pocket_draw_list_visit(NULL,NULL,1,NULL,NULL)==POCKET_STATUS_INVALID);
-#endif
-  pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=fixture_binding_generation;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
+  /* Fields are set by name, so the same source fills the record each header
+   * revision declares; struct_size reports that revision's prefix. */
+  static const uint32_t logical[]={FIXTURE_WIDTH,FIXTURE_HEIGHT};
+  pocket_profile_display panel={0};panel.struct_size=sizeof(panel);panel.physical[0]=FIXTURE_WIDTH;panel.physical[1]=FIXTURE_HEIGHT;panel.logical=logical;panel.logical_count=1;panel.raster_density=FIXTURE_RASTER_DENSITY;
+  pocket_profile_facts facts={0};facts.struct_size=sizeof(facts);facts.id=(const uint8_t *)FIXTURE_ID;facts.id_length=sizeof(FIXTURE_ID)-1;facts.tick_hz=FIXTURE_TICK_HZ;facts.input_classes=FIXTURE_INPUT_CLASSES;facts.display=&panel;
+  pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=fixture_binding_generation;config.tick_hz=facts.tick_hz;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile=&facts;
   instance=pocket_runtime_create(&config);assert(instance);
   prefix_and_operation_tests();raster_test();
   pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};

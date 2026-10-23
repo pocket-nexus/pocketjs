@@ -58,7 +58,6 @@ const SUITE: readonly Stage[] = [
       "tests/guest-web-bindings.test.ts",
       "tests/embedded-package.test.ts",
       "tests/runtime-cabi.test.ts",
-      "tests/runtime-cabi-compat.test.ts",
       "tests/sdk.test.ts",
       "tests/release-artifacts.test.ts",
       "tests/release-inputs.test.ts",

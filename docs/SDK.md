@@ -34,7 +34,7 @@ The export contains:
 | Path | Content |
 | --- | --- |
 | `include/pocket/{runtime,drivers,spec}.h` | Byte copies of the canonical generated headers |
-| `include/pocket/pocket_{runtime,drivers,spec}.h` | Include shims for generated nested includes and existing C guest source |
+| `include/pocket/pocket_{runtime,drivers,spec}.h` | Include shims for generated nested includes, exported `pocket_profile.h` and existing C guest source |
 | `include/pocket/pocket_guest_quickjs.h` | C guest lifecycle API |
 | `lib/<triple>/libpocket_runtime.a` | One Rust archive; MSVC exports use `pocket_runtime.lib` |
 | `src/guest-quickjs/{guest.c,generated_ops.h}` | C glue and generated operation descriptors |
@@ -64,6 +64,10 @@ imports the archive and its system link dependencies. `Pocket::guest_quickjs`
 adds the exported C source to the consumer target and links the runtime and
 the named QuickJS target. A program that implements its own guest links
 `Pocket::runtime`. `#include <pocket/runtime.h>` exposes the runtime contract.
+**`pocket_runtime_config.profile` points at `pocket_profile.facts`**, the
+`pocket_profile_facts` record in the `pocket_profile.h` that `pocket profile
+export` writes. That header includes `pocket_runtime.h`, which resolves through
+the `include/pocket` directory `Pocket::runtime` publishes.
 
 `--toolchain` selects the Rust toolchain through `RUSTUP_TOOLCHAIN` and defaults
 to `STABLE_RUST_TOOLCHAIN` from `tools/build/toolchains/rust.ts`. `--cargo` and `--rustc` select executable paths; `--toolchain none`

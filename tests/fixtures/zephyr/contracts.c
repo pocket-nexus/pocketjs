@@ -132,7 +132,7 @@ int main(void) {
   test_input();test_display();
 #ifdef CONFIG_POCKETJS_GUEST_QUICKJS
   pocket_guest_quickjs *guest=pocket_guest_quickjs_create(POCKET_QJS_CANONICAL);assert(guest);
-  pocket_runtime_config config={.struct_size=sizeof(config),.host_abi=POCKET_BINDING_GENERATION,.tick_hz=30,.heap_limit=262144,.frame_buffer_budget=128,.profile_json=pocket_profile.profile_json,.profile_json_length=pocket_profile.profile_json_length};
+  pocket_runtime_config config={.struct_size=sizeof(config),.host_abi=POCKET_BINDING_GENERATION,.tick_hz=pocket_profile.tick_hz,.heap_limit=262144,.frame_buffer_budget=128,.profile=pocket_profile.facts};
   memcpy(config.profile_hash,pocket_profile.profile_hash,32);
   pocket_runtime *runtime=pocket_runtime_create(&config);assert(runtime);
   const pocket_guest_v1 *v=pocket_guest_quickjs_vtable();

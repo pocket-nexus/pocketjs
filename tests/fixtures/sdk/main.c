@@ -64,11 +64,10 @@ int main(void) {
     config.struct_size = sizeof(config);
     memcpy(config.profile_hash, profile_hash, sizeof(profile_hash));
     config.host_abi = POCKET_BINDING_GENERATION;
-    config.tick_hz = 60;
+    config.tick_hz = profile_facts.tick_hz;
     config.heap_limit = 1024 * 1024;
     config.frame_buffer_budget = 1024;
-    config.profile_json = (const uint8_t *)profile_json;
-    config.profile_json_length = sizeof(profile_json) - 1;
+    config.profile = &profile_facts;
     pocket_runtime *runtime = pocket_runtime_create(&config);
     assert(runtime);
     pocket_guest_quickjs *guest = pocket_guest_quickjs_create(POCKET_QJS_CANONICAL);

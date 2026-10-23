@@ -165,8 +165,9 @@ A record's `struct_size` describes readable bytes; output capacities bound
 writes. Prefix compatibility cannot make a missing function symbol link, or
 make an old renderer understand a new DrawList operation. The runtime lifecycle
 tests cover old-package rejection before guest initialization and replacement
-with a current package. `tests/runtime-cabi-compat.test.ts` compiles and links
-old/new C prefixes in both directions.
+with a current package. Before a release, `bun tools/test-runtime-cabi-compat.ts`
+compiles and links old/new C prefixes in both directions against the archive of
+the first revision with `pocket_profile_facts`; CI does not run it.
 
 ## The op table
 

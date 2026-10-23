@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { NODE_TYPE, PROP, ROOT_ID } from "../contracts/spec/spec.ts";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { canonicalProfileJson, type PocketProfile } from "../contracts/spec/profile.ts";
+import { profileFactsC } from "./profile-export.ts";
 
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
@@ -31,9 +33,10 @@ if (sdk) cpSync(sdk, join(external, "sdk-idf"), { recursive: true });
 cpSync(quickjs, join(external, "quickjs"), { recursive: true,
   filter: path => !path.split(/[\\/]/).some(name => name === ".git" || name === "build" || name === "node_modules") });
 const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
-const profile = JSON.stringify({ capabilities: ["input.buttons"], display: {
-  logicalViewports: [[32, 24]], physicalViewport: [32, 24], presentations: ["native"], rasterDensity: 1,
-}, form: "takeover", id: "external-idf", platform: "esp-idf", tickHz: 60 });
+const fixtureProfile: PocketProfile = { id: "external-idf", platform: "esp-idf", form: "takeover", tickHz: 60, display: {
+  physicalViewport: [32, 24], logicalViewports: [[32, 24]], presentations: ["native"], rasterDensity: 1,
+}, capabilities: ["input.buttons"] };
+const profile = canonicalProfileJson(fixtureProfile);
 const script = `
 const root=ui.createNode(${NODE_TYPE.view});ui.insertBefore(${ROOT_ID},root,0);
 ui.setProp(root,${PROP.width},32);ui.setProp(root,${PROP.height},24);
@@ -54,8 +57,8 @@ function packageBytes(): Uint8Array {
   ] }] });
 }
 const cArray = (name: string, bytes: Uint8Array) => `static const uint8_t ${name}[]={${[...bytes].join(",")}};\n`;
-writeFileSync(join(consumer, "fixture_data.h"), "#include <stdint.h>\n" +
-  `static const uint8_t fixture_profile[]=${JSON.stringify(profile)};\n` +
+writeFileSync(join(consumer, "fixture_data.h"), "#include <pocket/runtime.h>\n" +
+  profileFactsC(fixtureProfile, "fixture_profile") +
   cArray("fixture_profile_hash", createHash("sha256").update(profile).digest()) +
   cArray("fixture_package", packageBytes()));
 const commands: Array<{ args: string[]; log: string; exitCode: number; signalCode: string | null }> = [];

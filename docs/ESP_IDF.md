@@ -63,8 +63,8 @@ The preparation rules participate in receipt identity.
 The product owns `pocket.runtime-config.ts` and imports a `defineProfile()`
 module. **One profile hash identifies both the program and its application
 package.** `pocket profile export --config <file> --out <directory>` writes
-`pocket_profile.h` and `pocket-profile.json`. These are build outputs, not
-checked-in platform definitions.
+`pocket_profile.h`, `pocket_profile.rs` and `pocket-profile.json`. These are
+build outputs, not checked-in platform definitions.
 
 `pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.json>)`
 compiles the application and exports its program profile.
@@ -86,7 +86,12 @@ The Python helper verifies the sidecar format, exact canonical JSON bytes,
 independent binding generation and profile hash before admitting the package.
 It does not serialize another copy of the profile identity. The generated
 `pocketjs_package_<name>.h` supplies package storage and admitted application
-geometry; the program includes `pocket_profile.h` for runtime configuration.
+geometry; the program includes `pocket_profile.h` and points
+`pocket_runtime_config.profile` at `pocket_profile.facts`. **The runtime admits
+the package against that `pocket_profile_facts` record and reads no JSON**; the
+sidecar JSON is a build input to the Python helper. The CMake helpers add the
+`pocket_runtime` include directory, which holds the `pocket_runtime.h` that
+`pocket_profile.h` includes.
 
 The runtime admits `.pocket` bytes through the shared Rust package loader,
 selects target/ABI, installs assets and initializes the guest. Generated guest

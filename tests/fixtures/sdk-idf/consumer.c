@@ -103,9 +103,8 @@ static run_result run(bool accelerated, bool gram, bool fail_render, bool fail_d
   assert(output.allocation); memset(output.allocation, 0xa5, capacity + 128);
   pocket_runtime_config config = {0}; config.struct_size = sizeof(config);
   memcpy(config.profile_hash, fixture_profile_hash, sizeof(config.profile_hash));
-  config.host_abi = POCKET_BINDING_GENERATION; config.tick_hz = 60; config.heap_limit = 512 * 1024;
-  config.frame_buffer_budget = capacity; config.profile_json = fixture_profile;
-  config.profile_json_length = sizeof(fixture_profile) - 1;
+  config.host_abi = POCKET_BINDING_GENERATION; config.tick_hz = fixture_profile.tick_hz; config.heap_limit = 512 * 1024;
+  config.frame_buffer_budget = capacity; config.profile = &fixture_profile;
   pocket_runtime *runtime = pocket_runtime_create(&config); assert(runtime);
   fixture_renderer renderer; uint32_t renderer_id = POCKET_RENDERER_SOFTWARE;
   if (accelerated) {

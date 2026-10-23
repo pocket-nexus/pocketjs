@@ -89,7 +89,7 @@ static void exercise(const char *path, int valid, int fixture) {
   pocket_runtime_config config = {.struct_size=sizeof config,
     .host_abi=pocket_profile.host_abi, .tick_hz=pocket_profile.tick_hz,
     .heap_limit=64u*1024u*1024u, .frame_buffer_budget=400u*240u*4u+320u*240u*4u,
-    .profile_json=pocket_profile.profile_json, .profile_json_length=pocket_profile.profile_json_length};
+    .profile=pocket_profile.facts};
   memcpy(config.profile_hash, pocket_profile.profile_hash, sizeof config.profile_hash);
   pocket_runtime *runtime = pocket_runtime_create(&config); assert(runtime);
   JSRuntime *engine = JS_NewRuntime(); assert(engine);

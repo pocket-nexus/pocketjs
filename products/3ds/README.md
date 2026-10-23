@@ -16,7 +16,7 @@ suite; the architecture migration has compiler, linker and host-test coverage.
 ```
 core/                 one runtime staticlib plus package recovery inspection ABI
 include/pocket_core.h package inspection and native resource convenience calls
-include/pocket_profile.h generated profile bytes, hash and operation identifiers
+include/pocket_profile.h generated profile facts, hash and operation identifiers
 src/instance.c        runtime, package/input/provider registration
 src/main.c            process boot, reusable guest lifecycle, frame boundary
 src/runtime.c         immutable package storage, active/rollback state

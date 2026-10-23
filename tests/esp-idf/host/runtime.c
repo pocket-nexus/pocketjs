@@ -67,8 +67,7 @@ static void scenario(const char *extra, bool invalid, int32_t first,
       .tick_hz = pocket_profile.tick_hz,
       .heap_limit = 8 * 1024 * 1024,
       .frame_buffer_budget = display.capacity * display.count,
-      .profile_json = pocket_profile.profile_json,
-      .profile_json_length = pocket_profile.profile_json_length};
+      .profile = pocket_profile.facts};
   memcpy(config.profile_hash, pocket_profile.profile_hash, 32);
   pocket_runtime *runtime = pocket_runtime_create(&config);
   assert(runtime);

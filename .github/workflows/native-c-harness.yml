@@ -17,9 +17,6 @@ on:
       - "engine/ios/**"
       - "tools/guest-web-bindings.ts"
       - "tests/runtime-cabi.test.ts"
-      - "tests/runtime-cabi-compat.test.ts"
-      - "tests/fixtures/runtime-cabi-compat/**"
-      - "tools/test-runtime-cabi-compat.ts"
       - "tests/sdk.test.ts"
       - "tests/sdk-idf.test.ts"
       - "tests/fixtures/sdk-idf/**"
@@ -29,6 +26,7 @@ on:
       - "tools/test-out-of-tree-rust.ts"
       - "tests/fixtures/sdk/**"
       - "tools/sdk.ts"
+      - "tools/release/**"
       - "tools/packaging/cmake/**"
       - "tools/pocket.ts"
       - "tools/cli/**"
@@ -81,6 +79,7 @@ on:
       - "platforms/esp-idf/**"
       - "engine/guest-quickjs/**"
       - "engine/guest-rquickjs/**"
+      - "engine/driver-kit/**"
       - "engine/core/**"
       - "engine/crates/microts/**"
       - "programs/gba/**"
@@ -157,7 +156,7 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

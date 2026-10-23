@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { canonicalProfileJson, type PocketProfile } from "../contracts/spec/profile.ts";
+import { profileFactsC } from "../tools/profile-export.ts";
 import { compilerRtMembers, exportSdk, parseSdkExport, verifySdk } from "../tools/sdk.ts";
 
 const root = resolve(import.meta.dir, "..");
@@ -65,14 +67,15 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     renameSync(options.out, `${options.out}-hidden`);
     cpSync(join(root, "tests/fixtures/sdk"), join(external, "program"), { recursive: true });
     cpSync(quickjs, join(external, "program/quickjs"), { recursive: true });
-    const profile = '{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"fixture","platform":"test","tickHz":60}';
+    const fixtureProfile: PocketProfile = { id: "fixture", platform: "test", form: "takeover", tickHz: 60, display: { physicalViewport: [4, 4], logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1 }, capabilities: [] };
+    const profile = canonicalProfileJson(fixtureProfile);
     const bytes = (source: string) => new TextEncoder().encode(source);
     const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
       { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: bytes("globalThis.frameCount=0;globalThis.frame=()=>{globalThis.frameCount++;ui.createNode(1)};\0") },
     ] }] });
-    writeFileSync(join(external, "program/profile.h"), `static const char profile_json[] = ${JSON.stringify(profile)};\nstatic const unsigned char profile_hash[32] = {${[...createHash("sha256").update(profile).digest()].join(",")}};\nstatic const unsigned char package_bytes[] = {${[...pkg].join(",")}};\n`);
+    writeFileSync(join(external, "program/profile.h"), profileFactsC(fixtureProfile, "profile_facts") + `static const unsigned char profile_hash[32] = {${[...createHash("sha256").update(profile).digest()].join(",")}};\nstatic const unsigned char package_bytes[] = {${[...pkg].join(",")}};\n`);
     run(["cmake", "-S", "program", "-B", "build", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", `-DCMAKE_PREFIX_PATH=${sdk}`], external);
     run(["cmake", "--build", "build", "--parallel", "4"], external);
     expect(readFileSync(join(external, "build/compile_commands.json"), "utf8")).not.toContain(root);

@@ -96,6 +96,14 @@ All three helpers accept `RUNTIME_CONFIG`, defaulting to the project root's
 
 ## Register a runtime
 
+**`pocket_runtime_config.profile` points at `pocket_profile.facts`**, the
+`pocket_profile_facts` record in the exported `pocket_profile.h`: variant id,
+tick rate, panel sizes, logical viewports, raster density and the input classes
+the profile requires. The runtime copies the record at creation and reads no
+JSON. `pocket_runtime_create` returns `NULL` when `tick_hz` differs from the
+facts' tick rate. The CMake helpers add the `pocket_runtime` include directory,
+which holds the `pocket_runtime.h` that `pocket_profile.h` includes.
+
 The following setup uses an initialized display adapter. Error handling must
 release every object created before a failed registration.
 
@@ -115,8 +123,7 @@ pocket_runtime_config config = {
     .tick_hz = pocket_profile.tick_hz,
     .heap_limit = 4 * 1024 * 1024,
     .frame_buffer_budget = pocket_display_esp_lcd_buffer_bytes(display),
-    .profile_json = pocket_profile.profile_json,
-    .profile_json_length = pocket_profile.profile_json_length,
+    .profile = pocket_profile.facts,
 };
 memcpy(config.profile_hash, pocket_profile.profile_hash, 32);
 pocket_runtime *runtime = pocket_runtime_create(&config);

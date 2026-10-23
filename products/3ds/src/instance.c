@@ -123,11 +123,10 @@ pocket_runtime *instance_create(PocketRuntimePackage *package) {
   pocket_runtime_config config = {
       .struct_size = sizeof config,
       .host_abi = POCKETJS_HOST_ABI,
-      .tick_hz = 60,
+      .tick_hz = pocket_3ds_profile.tick_hz,
       .heap_limit = 64u * 1024u * 1024u,
       .frame_buffer_budget = 400u * 240u * 4u + 320u * 240u * 4u,
-      .profile_json = pocket_3ds_profile,
-      .profile_json_length = sizeof pocket_3ds_profile - 1};
+      .profile = &pocket_3ds_profile};
   memcpy(config.profile_hash, pocket_3ds_profile_hash, 32);
   source = package;
   active = pocket_runtime_create(&config);

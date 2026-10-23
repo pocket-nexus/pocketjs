@@ -1,4 +1,15 @@
 #!/usr/bin/env bun
+// Cross-version C ABI check, run by hand before a release; CI does not run it.
+//
+// It builds the runtime archive of OLD_RUNTIME_CANDIDATE from a Git archive
+// outside the checkout, exports the current SDK, and compiles
+// tests/fixtures/runtime-cabi-compat/consumer.c against old headers with the
+// current archive and against current headers with the old archive.
+//
+// The revision must be present in the local clone. After its branch is
+// deleted, fetch it with `git fetch origin refs/pull/603/head`.
+//
+//   bun tools/test-runtime-cabi-compat.ts [--output directory]
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -6,13 +17,20 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { basename, join, resolve } from "node:path";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { canonicalProfileJson, type PocketProfile } from "../contracts/spec/profile.ts";
+import { inputClassesForCapabilities } from "../contracts/spec/input.ts";
+import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 import { exportSdk, parseSdkExport, type SdkManifest } from "./sdk.ts";
 
-export const OLD_RUNTIME_CANDIDATE = "9cf1347295b9f9bfeffa4496f67a65c5b2b449db";
+/** The first revision whose pocket_runtime_config points at pocket_profile_facts.
+ * Its headers and archive are the oldest a current configuration links against. */
+export const OLD_RUNTIME_CANDIDATE = "4c82eee5ec9afc46eb7fce57191e0ace1ab6b855";
+const OLD_RUNTIME_REF = "refs/pull/603/head";
 const ROOT = resolve(import.meta.dir, "..");
 const HEADER_NAMES = ["runtime", "drivers", "spec"] as const;
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
-const profile = '{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"fixture","platform":"test","tickHz":60}';
+const fixtureProfile: PocketProfile = { id: "fixture", platform: "test", form: "takeover", tickHz: 60, display: { physicalViewport: [4, 4], logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1 }, capabilities: [] };
+const profile = canonicalProfileJson(fixtureProfile);
 const PASS = "cross-version C ABI: common entry points and lifecycle passed";
 
 interface ProcessResult {
@@ -39,17 +57,31 @@ export interface RuntimeCompatibilityReceipt {
   oldArchiveSha256: string;
   currentArchiveSha256: string;
   headers: { old: Record<string, string>; current: Record<string, string> };
-  oldArchiveCompatibilityShim: "rust_eh_personality";
   cases: string[];
   signalProbe: { asynchronous: string; synchronous: string };
   result: "passed";
   artifactDirectory: string;
 }
 
+/** The fixture header: the profile's facts as macros the consumer copies into
+ * a pocket_profile_facts record by member name, its hash, and the package. */
+function fixtureHeader(generation: number, packageBytes: Uint8Array): string {
+  const array = (name: string, bytes: Uint8Array) => `static const uint8_t ${name}[] = {${[...bytes].join(",")}};\n`;
+  const { display } = fixtureProfile;
+  return `static const uint32_t fixture_binding_generation = ${generation};\n`
+    + `#define FIXTURE_ID ${JSON.stringify(fixtureProfile.id)}\n#define FIXTURE_TICK_HZ ${fixtureProfile.tickHz}u\n`
+    + `#define FIXTURE_INPUT_CLASSES ${inputClassesForCapabilities(fixtureProfile.capabilities)}u\n`
+    + `#define FIXTURE_WIDTH ${display.physicalViewport[0]}u\n#define FIXTURE_HEIGHT ${display.physicalViewport[1]}u\n`
+    + `#define FIXTURE_RASTER_DENSITY ${display.rasterDensity}u\n`
+    + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", packageBytes);
+}
+
 /** Compare real archives from two revisions; never replace the old implementation. */
 export async function runRuntimeCompatibility(options: { output?: string } = {}): Promise<RuntimeCompatibilityReceipt> {
   const cc = Bun.which("cc");
   if (!cc) throw new Error("cross-version C ABI checks require a C compiler");
+  const present = Bun.spawnSync(["git", "-C", ROOT, "cat-file", "-e", `${OLD_RUNTIME_CANDIDATE}^{commit}`], { stdout: "ignore", stderr: "ignore" });
+  if (!present.success) throw new Error(`revision ${OLD_RUNTIME_CANDIDATE} is not in this clone; run: git fetch origin ${OLD_RUNTIME_REF}`);
   const output = resolve(options.output ?? join(ROOT, ".pocket-build/validation/runtime-cabi-compat", `${Date.now()}-${process.pid}`));
   mkdirSync(output, { recursive: true });
   const temporary = mkdtempSync(join(tmpdir(), "pocket-cabi-compat-"));
@@ -75,16 +107,16 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     return result;
   }
   try {
-    const compiler = (await command(["rustc", "+stable", "-Vv"])).stdout.trim();
+    const compiler = (await command(["rustc", `+${STABLE_RUST_TOOLCHAIN}`, "-Vv"])).stdout.trim();
     const target = /^host: (.+)$/m.exec(compiler)?.[1];
     if (!target) throw new Error("rustc did not report a host target");
     const cCompiler = (await command([cc, "--version"])).stdout.trim();
     const snapshot = join(temporary, "old-source");
     mkdirSync(snapshot);
     const tar = join(output, "old-source.tar");
-    // All workspace manifests and dependencies reside under engine. Keeping
-    // only these source roots avoids copying unrelated applications/assets.
-    await command(["git", "-C", ROOT, "archive", "--format=tar", "--output", tar, OLD_RUNTIME_CANDIDATE, "engine", "contracts/generated"]);
+    // The root Cargo workspace lists members across the repository, so the
+    // snapshot holds the complete tree at that revision.
+    await command(["git", "-C", ROOT, "archive", "--format=tar", "--output", tar, OLD_RUNTIME_CANDIDATE]);
     await command(["tar", "-xf", tar, "-C", snapshot]);
     const oldOutput = join(output, "old-candidate");
     const oldHeaders = join(oldOutput, "include");
@@ -92,9 +124,9 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     for (const name of HEADER_NAMES) copyFileSync(join(snapshot, `contracts/generated/pocket_${name}.h`), join(oldHeaders, `pocket_${name}.h`));
     const oldTarget = join(output, "old-cargo-target");
     const oldBuild = await command([
-      "cargo", "+stable", "rustc", "--locked", "--manifest-path", join(snapshot, "engine/Cargo.toml"),
-      "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target", target,
-      "--target-dir", oldTarget, "--", "--print=native-static-libs",
+      "cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked",
+      "--manifest-path", join(snapshot, "Cargo.toml"), "-p", "pocket-runtime-cabi", "--no-default-features",
+      "--release", "--target", target, "--target-dir", oldTarget, "--", "--print=native-static-libs",
     ], snapshot);
     const oldLibraries = [...(oldBuild.stdout + oldBuild.stderr).matchAll(/native-static-libs:[ \t]*([^\r\n]*)/g)]
       .flatMap(match => match[1]!.trim().split(/\s+/).filter(Boolean));
@@ -107,31 +139,28 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     const currentArchive = join(currentSdk, manifest.build.archive);
     copyFileSync(join(ROOT, "tests/fixtures/runtime-cabi-compat/consumer.c"), join(temporary, "consumer.c"));
     const utf8 = (text: string) => new TextEncoder().encode(text);
-    const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + hash(profile), sections: [
+    const sections = [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
       { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
-    ] }] });
-    const array = (name: string, bytes: Uint8Array) => `static const uint8_t ${name}[] = {${[...bytes].join(",")}};\n`;
-    const fixture = `static const uint32_t fixture_binding_generation = ${POCKET_BINDING_GENERATION};\nstatic const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
-      + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", packageBytes);
+    ];
+    const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: fixtureProfile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + hash(profile), sections }] });
+    const fixture = fixtureHeader(POCKET_BINDING_GENERATION, packageBytes);
     writeFileSync(join(temporary, "fixture-current.h"), fixture);
     writeFileSync(join(output, "fixture-current.h"), fixture);
-    // The C ABI matrix is independent of the package format version. The
-    // historical archive receives v1 bytes produced by its own frozen encoder.
-    const oldSpec = await command(["git", "-C", ROOT, "show", OLD_RUNTIME_CANDIDATE + ":contracts/spec/pocket-package.ts"]);
-    const oldSpecFile = join(temporary, "package-v1.ts");
-    writeFileSync(oldSpecFile, oldSpec.stdout);
+    // The C ABI matrix is independent of the package format version and the
+    // binding generation. The old archive receives bytes from the old
+    // revision's own encoder, tagged with that revision's generation.
+    const oldSpecFile = join(temporary, "package-old.ts");
+    writeFileSync(oldSpecFile, (await command(["git", "-C", ROOT, "show", `${OLD_RUNTIME_CANDIDATE}:contracts/spec/pocket-package.ts`])).stdout);
     const oldEncoder = await import(pathToFileURL(oldSpecFile).href);
-    const oldPackageBytes: Uint8Array = oldEncoder.encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: "fixture", hostAbi: 1, sections: [
-      { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
-      { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
-      { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
-    ] }] });
-    const oldFixture = `static const uint32_t fixture_binding_generation = 1;\nstatic const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
-      + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", oldPackageBytes);
-    writeFileSync(join(temporary, "fixture-legacy.h"), oldFixture);
-    writeFileSync(join(output, "fixture-legacy.h"), oldFixture);
+    const oldGenerationSource = (await command(["git", "-C", ROOT, "show", `${OLD_RUNTIME_CANDIDATE}:contracts/spec/binding-generation.ts`])).stdout;
+    const oldGeneration = Number(/POCKET_BINDING_GENERATION = (\d+)/.exec(oldGenerationSource)?.[1]);
+    if (!Number.isInteger(oldGeneration)) throw new Error("old revision does not declare POCKET_BINDING_GENERATION");
+    const oldPackageBytes: Uint8Array = oldEncoder.encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: fixtureProfile.id, hostAbi: oldGeneration, profileHash: "sha256:" + hash(profile), sections }] });
+    const oldFixture = fixtureHeader(oldGeneration, oldPackageBytes);
+    writeFileSync(join(temporary, "fixture-old.h"), oldFixture);
+    writeFileSync(join(output, "fixture-old.h"), oldFixture);
     const link = (name: string, headers: string, archive: string, libraries: string[], macros: string[] = []) => [
       cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", headers, "-I", temporary,
       ...macros.map(name => "-D" + name), join(temporary, "consumer.c"), archive,
@@ -143,12 +172,7 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
       if (!result.stdout.includes(PASS)) throw new Error(`consumer did not finish: ${result.log}`);
     }
     await positive("old-header-new-archive", oldHeaders, currentArchive, manifest.build.nativeStaticLibs);
-    await positive("new-header-old-archive", currentHeaders, oldArchive, oldLibraries, ["POCKET_OLD_CANDIDATE_PERSONALITY"]);
-    await positive("new-api-current-control", currentHeaders, currentArchive, manifest.build.nativeStaticLibs, ["POCKET_REQUIRE_VISITOR"]);
-    const missing = await execute(link("new-api-old-archive", currentHeaders, oldArchive, oldLibraries, ["POCKET_OLD_CANDIDATE_PERSONALITY", "POCKET_REQUIRE_VISITOR"]));
-    if (missing.status === 0 || missing.signal !== null || !(missing.stdout + missing.stderr).includes("pocket_draw_list_visit")) {
-      throw new Error(`old archive must reject the added entry point at link time: ${missing.log}`);
-    }
+    await positive("new-header-old-archive", currentHeaders, oldArchive, oldLibraries, ["POCKET_OLD_ARCHIVE"]);
     // Exercise the very success check used above against a real aborted C
     // process, then check the synchronous API used by other contract tests.
     const abortArgs = [join(output, "old-header-new-archive"), "--abort"];
@@ -171,8 +195,7 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
       schemaVersion: 1, status: "candidate", abiFrozen: false, oldRevision: OLD_RUNTIME_CANDIDATE,
       currentSource: manifest.source, compiler, cCompiler, target,
       oldArchiveSha256: hash(readFileSync(oldArchive)), currentArchiveSha256: hash(readFileSync(currentArchive)), headers,
-      oldArchiveCompatibilityShim: "rust_eh_personality",
-      cases: ["old-header-new-archive", "new-header-old-archive", "new-api-current-control", "new-api-old-archive-link-rejected"],
+      cases: ["old-header-new-archive", "new-header-old-archive"],
       signalProbe: { asynchronous, synchronous: sync.signalCode }, result: "passed", artifactDirectory: output,
     };
     writeFileSync(join(output, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n");

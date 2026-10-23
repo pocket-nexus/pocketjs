@@ -2,6 +2,14 @@ include_guard(GLOBAL)
 
 set(POCKETJS_PACKAGE_COMPONENT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(POCKETJS_PACKAGE_EMBED_TOOL "${POCKETJS_PACKAGE_COMPONENT_DIR}/tools/embed_package.py")
+# pocket_profile.h includes pocket_runtime.h. A staged component carries it in
+# include/; a checkout reads contracts/generated.
+if(EXISTS "${POCKETJS_PACKAGE_COMPONENT_DIR}/include/pocket_runtime.h")
+    set(POCKETJS_RUNTIME_HEADERS "${POCKETJS_PACKAGE_COMPONENT_DIR}/include")
+else()
+    get_filename_component(POCKETJS_RUNTIME_HEADERS
+        "${POCKETJS_PACKAGE_COMPONENT_DIR}/../../../contracts/generated" ABSOLUTE)
+endif()
 
 function(_pocketjs_package_python out)
     if(DEFINED PYTHON AND EXISTS "${PYTHON}")
@@ -70,7 +78,7 @@ function(pocketjs_profile_header)
         set_property(GLOBAL PROPERTY "POCKETJS_PROFILE_${export_id}" "${config}")
     endif()
     add_dependencies("${APP_TARGET}" "pocketjs_profile_${export_id}")
-    target_include_directories("${APP_TARGET}" PUBLIC "${directory}")
+    target_include_directories("${APP_TARGET}" PUBLIC "${directory}" "${POCKETJS_RUNTIME_HEADERS}")
 endfunction()
 
 function(_pocketjs_package_attach target name package profile_directory)
@@ -92,7 +100,7 @@ function(_pocketjs_package_attach target name package profile_directory)
         DEPENDS "${generated}/${stem}.h" "${generated}/${stem}.c" "${generated}/${stem}.S")
     add_dependencies("${target}" "pocketjs_${generated_suffix}_package")
     target_sources("${target}" PRIVATE "${generated}/${stem}.c" "${generated}/${stem}.S")
-    target_include_directories("${target}" PUBLIC "${generated}" "${profile_directory}")
+    target_include_directories("${target}" PUBLIC "${generated}" "${profile_directory}" "${POCKETJS_RUNTIME_HEADERS}")
 endfunction()
 
 function(pocketjs_embed_package)
