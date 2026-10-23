@@ -408,7 +408,7 @@ pub fn absolute_origin(tree: &Tree, slot: u32) -> (f32, f32) {
     let mut origin = (0.0, 0.0);
     let mut current = Some(slot);
     while let Some(s) = current {
-        let node = &tree.slots[s as usize];
+        let node = tree.slot(s as usize);
         origin.0 += node.layout.x;
         origin.1 += node.layout.y;
         current = tree.resolve(node.parent);
@@ -570,19 +570,19 @@ fn build(
     in_transform: bool,
     counters: &mut crate::counters::LayoutCounters,
 ) -> Option<taffy::NodeId> {
-    let resolved = style::resolve(&tree.slots[slot as usize], styles, true);
+    let resolved = style::resolve(tree.slot(slot as usize), styles, true);
     let in_transform = in_transform || resolved.declares_transform();
-    let node_type = tree.slots[slot as usize].node_type;
+    let node_type = tree.slot(slot as usize).node_type;
     if node_type == spec::NodeType::Text as u8 {
         let mut run = String::new();
         tree.collect_run(slot, &mut run);
         if run.is_empty() {
-            tree.slots[slot as usize].taffy = None;
-            tree.slots[slot as usize].text_native = false;
+            tree.slot_mut(slot as usize).taffy = None;
+            tree.slot_mut(slot as usize).text_native = false;
             return None; // empty text nodes never consume gap/flex space [R]
         }
         let native = fonts.native_active() && resolved.tracking == 0.0 && !in_transform;
-        tree.slots[slot as usize].text_native = native;
+        tree.slot_mut(slot as usize).text_native = native;
         let ctx = MeasureCtx::shaped(
             fonts,
             run,
@@ -595,10 +595,10 @@ fn build(
         let nid = taffy.new_leaf_with_context(to_taffy(&resolved), ctx).ok()?;
         counters.taffy_nodes_created = counters.taffy_nodes_created.saturating_add(1);
         counters.taffy_nodes += 1;
-        tree.slots[slot as usize].taffy = Some(nid);
+        tree.slot_mut(slot as usize).taffy = Some(nid);
         return Some(nid);
     }
-    let children = tree.slots[slot as usize].children.clone();
+    let children = tree.slot(slot as usize).children.clone();
     let mut kids: Vec<taffy::NodeId> = Vec::with_capacity(children.len());
     for c in children {
         if let Some(cs) = tree.resolve(c) {
@@ -610,7 +610,7 @@ fn build(
     let nid = taffy.new_with_children(to_taffy(&resolved), &kids).ok()?;
     counters.taffy_nodes_created = counters.taffy_nodes_created.saturating_add(1);
     counters.taffy_nodes += 1;
-    tree.slots[slot as usize].taffy = Some(nid);
+    tree.slot_mut(slot as usize).taffy = Some(nid);
     Some(nid)
 }
 
@@ -636,7 +636,7 @@ fn styles_match(a: &taffy::Style, b: &taffy::Style) -> bool {
 }
 
 fn entry(eng: &LayoutEngine, tree: &Tree, slot: u32) -> Option<LayoutEntry> {
-    let node = tree.slots.get(slot as usize)?;
+    let node = tree.get_slot(slot as usize)?;
     eng.entries
         .get(slot as usize)
         .copied()
@@ -755,13 +755,13 @@ fn sync_node(
     replay_all_misses: bool,
     style_dirty: &[u32],
 ) -> Option<taffy::NodeId> {
-    if tree.slots[slot as usize].layout_mode != LAYOUT_LIVE {
+    if tree.slot(slot as usize).layout_mode != LAYOUT_LIVE {
         return None; // externally placed: the subtree has no solver nodes
     }
-    let resolved = style::resolve(&tree.slots[slot as usize], styles, true);
+    let resolved = style::resolve(tree.slot(slot as usize), styles, true);
     let declares_transform = resolved.declares_transform();
     let in_transform = in_transform || declares_transform;
-    let is_text = tree.slots[slot as usize].node_type == spec::NodeType::Text as u8;
+    let is_text = tree.slot(slot as usize).node_type == spec::NodeType::Text as u8;
     let mut run = String::new();
     if is_text {
         tree.collect_run(slot, &mut run);
@@ -814,14 +814,14 @@ fn sync_node(
         handle
     };
     eng.entries[slot as usize] = Some(LayoutEntry {
-        id: tree.slots[slot as usize].id(slot),
+        id: tree.slot(slot as usize).id(slot),
         handle,
         active: true,
         declares_transform,
     });
     if is_text {
-        tree.slots[slot as usize].text_native = native;
-    } else if tree.slots[slot as usize].region_root {
+        tree.slot_mut(slot as usize).text_native = native;
+    } else if tree.slot(slot as usize).region_root {
         // A leaf in this projection: the region's own root holds the children
         // (`sync_region`).
         if eng.taffy.children(handle).is_ok_and(|old| !old.is_empty()) {
@@ -829,7 +829,7 @@ fn sync_node(
             invalidate_ancestors(&mut eng.taffy, handle);
         }
     } else {
-        let children = tree.slots[slot as usize].children.clone();
+        let children = tree.slot(slot as usize).children.clone();
         let mut projected = Vec::with_capacity(children.len());
         for child in children {
             if let Some(child_slot) = tree.resolve(child) {
@@ -873,7 +873,7 @@ fn invalidate_ancestors(taffy: &mut TaffyTree<MeasureCtx>, node: taffy::NodeId) 
 fn in_transform(tree: &Tree, styles: &StyleTable, slot: u32, root_id: i32) -> bool {
     let mut current = Some(slot);
     while let Some(slot) = current {
-        let node = &tree.slots[slot as usize];
+        let node = tree.slot(slot as usize);
         if style::resolve(node, styles, true).declares_transform() {
             return true;
         }
@@ -907,7 +907,7 @@ fn assign_rect(
         }
         None => (LayoutRect::default(), cum, (0.0, 0.0)),
     };
-    let node = &mut tree.slots[slot as usize];
+    let node = tree.slot_mut(slot as usize);
     node.taffy = handle;
     node.layout = rect;
     if node.node_type == spec::NodeType::Text as u8 {
@@ -934,16 +934,16 @@ fn readback_scope(
     } else {
         cum
     };
-    let children = tree.slots[slot as usize].children.clone();
+    let children = tree.slot(slot as usize).children.clone();
     for child in children {
         let Some(child_slot) = tree.resolve(child) else {
             continue;
         };
-        if tree.slots[child_slot as usize].layout_mode != LAYOUT_LIVE {
+        if tree.slot(child_slot as usize).layout_mode != LAYOUT_LIVE {
             continue;
         }
         let (child_cum, size) = assign_rect(tree, eng, child_slot, cum);
-        if tree.slots[child_slot as usize].region_root {
+        if tree.slot(child_slot as usize).region_root {
             if let Some(index) = eng.region_index(child) {
                 eng.regions[index].origin = child_cum;
                 eng.regions[index].unrounded_box = size;
@@ -1030,7 +1030,7 @@ pub fn relayout_root(
     }
     let mut dirty = core::mem::take(&mut eng.style_dirty);
     let replay_all_misses = eng.dirty || !eng.built;
-    eng.entries.resize(tree.slots.len(), None);
+    eng.entries.resize(tree.slot_count(), None);
     // Regions whose root node is gone release their solver root.
     let mut index = 0;
     while index < eng.regions.len() {
@@ -1048,7 +1048,7 @@ pub fn relayout_root(
             entry(eng, tree, slot).is_some_and(|old| {
                 old.active
                     && old.declares_transform
-                        != style::resolve(&tree.slots[slot as usize], styles, true)
+                        != style::resolve(tree.slot(slot as usize), styles, true)
                             .declares_transform()
             })
         })
@@ -1175,18 +1175,18 @@ fn restyle(
         let Some(old) = entry(eng, tree, slot).filter(|entry| entry.active) else {
             continue;
         };
-        let resolved = style::resolve(&tree.slots[slot as usize], styles, true);
+        let resolved = style::resolve(tree.slot(slot as usize), styles, true);
         update_style(eng, old.handle, &resolved);
-        if tree.slots[slot as usize].node_type == spec::NodeType::Text as u8 {
+        if tree.slot(slot as usize).node_type == spec::NodeType::Text as u8 {
             let mut run = String::new();
             tree.collect_run(slot, &mut run);
             let native = fonts.native_active()
                 && resolved.tracking == 0.0
                 && !in_transform(tree, styles, slot, root_id);
             update_measure(eng, fonts, old.handle, run, &resolved, native, true);
-        } else if tree.slots[slot as usize].region_root {
+        } else if tree.slot(slot as usize).region_root {
             // The region's own root carries the structural half of this style.
-            let id = tree.slots[slot as usize].id(slot);
+            let id = tree.slot(slot as usize).id(slot);
             if let Some(region_root) = eng.region_index(id).and_then(|index| eng.regions[index].root) {
                 let next = region_root_style(&resolved, eng.taffy.style(region_root).map_or((0.0, 0.0), style_size));
                 if !eng.taffy.style(region_root).is_ok_and(|old| styles_match(old, &next)) {
@@ -1238,7 +1238,7 @@ fn sync_region(
     let Some(slot) = tree.resolve(id) else {
         return;
     };
-    let resolved = style::resolve(&tree.slots[slot as usize], styles, true);
+    let resolved = style::resolve(tree.slot(slot as usize), styles, true);
     let next = region_root_style(&resolved, eng.regions[index].unrounded_box);
     let region_root = match eng.regions[index].root {
         Some(root) => {
@@ -1256,7 +1256,7 @@ fn sync_region(
         }
     };
     let in_transform = in_transform(tree, styles, slot, root_id);
-    let children = tree.slots[slot as usize].children.clone();
+    let children = tree.slot(slot as usize).children.clone();
     let mut projected = Vec::with_capacity(children.len());
     for child in children {
         if let Some(child_slot) = tree.resolve(child) {
@@ -1298,9 +1298,9 @@ fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine) {
         let Some(region_root) = eng.regions[index].root else {
             continue;
         };
-        if tree.slots[slot as usize].layout_mode != LAYOUT_LIVE {
+        if tree.slot(slot as usize).layout_mode != LAYOUT_LIVE {
             // A static root: box and origin come from the assigned rect chain.
-            let rect = tree.slots[slot as usize].layout;
+            let rect = tree.slot(slot as usize).layout;
             eng.regions[index].unrounded_box = (rect.w, rect.h);
             eng.regions[index].origin = absolute_origin(tree, slot);
         }
@@ -1359,11 +1359,11 @@ fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine) {
 /// descendants, stopping at static subtrees and below nested region roots
 /// (the nested root's leaf entry is included, its children are not).
 fn collect_owned(tree: &Tree, slot: u32, out: &mut Vec<u32>) {
-    for &child in &tree.slots[slot as usize].children {
+    for &child in &tree.slot(slot as usize).children {
         let Some(child_slot) = tree.resolve(child) else {
             continue;
         };
-        let node = &tree.slots[child_slot as usize];
+        let node = tree.slot(child_slot as usize);
         if node.layout_mode != LAYOUT_LIVE {
             continue;
         }
@@ -1380,7 +1380,7 @@ fn depth(tree: &Tree, id: i32) -> usize {
     let mut current = tree.get(id).map(|node| node.parent).unwrap_or(0);
     while let Some(slot) = tree.resolve(current) {
         depth += 1;
-        current = tree.slots[slot as usize].parent;
+        current = tree.slot(slot as usize).parent;
     }
     depth
 }
@@ -1406,8 +1406,7 @@ pub fn reference_mismatches(
     root_id: i32,
 ) -> Vec<(i32, LayoutRect, LayoutRect)> {
     let saved: Vec<(Option<taffy::NodeId>, bool)> = tree
-        .slots
-        .iter()
+        .nodes()
         .map(|node| (node.taffy, node.text_native))
         .collect();
     let mut counters = crate::counters::LayoutCounters::default();
@@ -1426,9 +1425,10 @@ pub fn reference_mismatches(
             compare_reference(tree, &taffy, root_slot, (0.0, 0.0), &mut out);
         }
     }
-    for (slot, node) in tree.slots.iter_mut().enumerate() {
-        node.taffy = saved[slot].0;
-        node.text_native = saved[slot].1;
+    for (slot, &(taffy, text_native)) in saved.iter().enumerate() {
+        let node = tree.slot_mut(slot);
+        node.taffy = taffy;
+        node.text_native = text_native;
     }
     out
 }
@@ -1441,7 +1441,7 @@ fn compare_reference(
     cum: (f32, f32),
     out: &mut Vec<(i32, LayoutRect, LayoutRect)>,
 ) {
-    let node = &tree.slots[slot as usize];
+    let node = tree.slot(slot as usize);
     let (expected, cum) = match node.taffy {
         Some(handle) => {
             let layout = taffy.unrounded_layout(handle);
@@ -1476,7 +1476,7 @@ fn reference_rebuild(
     let mut slots = Vec::new();
     tree.collect_subtree(root_id, &mut slots);
     for &slot in &slots {
-        tree.slots[slot as usize].taffy = None;
+        tree.slot_mut(slot as usize).taffy = None;
     }
     eng.root = tree.resolve(root_id).and_then(|slot| {
         build(
@@ -1489,9 +1489,9 @@ fn reference_rebuild(
             &mut eng.counters,
         )
     });
-    eng.entries.resize(tree.slots.len(), None);
+    eng.entries.resize(tree.slot_count(), None);
     for slot in slots {
-        let node = &tree.slots[slot as usize];
+        let node = tree.slot(slot as usize);
         if let Some(handle) = node.taffy {
             eng.entries[slot as usize] = Some(LayoutEntry {
                 id: node.id(slot),

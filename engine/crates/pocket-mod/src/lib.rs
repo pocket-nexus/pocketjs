@@ -205,6 +205,24 @@ impl Guest {
         }
     }
 
+    /// Run QuickJS's cycle collector now. Reference counting frees acyclic
+    /// values as they drop; the collector walks every object to find cycles,
+    /// so hosts run it in idle frames rather than letting it start mid-turn.
+    pub fn collect_garbage(&self) {
+        self.rt.run_gc();
+    }
+
+    /// Bytes allocated since the last collection that start one inside a
+    /// guest turn.
+    pub fn set_gc_threshold(&self, bytes: usize) {
+        self.rt.set_gc_threshold(bytes);
+    }
+
+    /// The realm's allocator statistics (bytes, objects, strings, …).
+    pub fn memory_usage(&self) -> qjs::qjs::JSMemoryUsage {
+        self.rt.memory_usage()
+    }
+
     /// Whether the evaluated bundle installed `globalThis.frame`.
     pub fn has_frame(&self) -> bool {
         self.ctx

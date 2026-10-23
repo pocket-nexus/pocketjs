@@ -26,6 +26,7 @@ pocketjs/
 │  ├─ vita/       Vita host
 │  ├─ esp32p4/    reusable ESP-IDF PPA adapter + component smoke build
 │  ├─ pocketbook/ PocketBook e-reader host (inkview, standalone lone-bin crate)
+│  ├─ keyos/      Passport Prime host: KeyOS app, QuickJS runtime, libc shim (standalone crates)
 │  ├─ nokia-e7/   Nokia E7 Qt/QuickJS host + visible toolchain probe
 │  ├─ ios-legacy/ UIKit host shared by the iPhone 2G and iPhone 4S ports
 │  ├─ ios-nativescript/ NativeScript iOS shell over engine/ios + @nativescript/pocketjs
@@ -81,7 +82,7 @@ New things go where the axis says — never invent a top-level directory:
   change; the `exports`/`files` maps in package.json absorb internal moves.
 - **Cargo stays non-workspace where toolchains demand it**: `engine/core`,
   `engine/wasm`, `engine/ui-cabi`, `engine/backends/rgb565`, `hosts/psp`,
-  `hosts/vita`, `hosts/pocketbook`, and the gu/vita 3D crates each stand alone
+  `hosts/vita`, `hosts/pocketbook`, `hosts/keyos`, and the gu/vita 3D crates each stand alone
   with their own lockfiles. `engine/Cargo.toml` is the one desktop workspace.
 - **Moves are `git mv`** — history stays traceable.
 

@@ -1,0 +1,2 @@
+[env]
+POCKET_KEYOS_GEN = { value = "gen", relative = true }

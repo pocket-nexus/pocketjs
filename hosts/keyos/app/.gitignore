@@ -1,0 +1,6 @@
+target/
+.foundation-sdk/
+manifest.toml
+ui/
+gen/
+app-config.toml

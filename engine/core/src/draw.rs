@@ -420,6 +420,42 @@ pub struct PaintCache {
     glyphs: Vec<GlyphPage>,
     borders: Vec<([u32; 4], i32)>,
     layouts: BTreeMap<u32, CachedTextLayout>,
+    /// Per slot: the inputs under which the subtree rooted there last drew
+    /// nothing (see `Walker::paint`).
+    silent: Vec<Silent>,
+    /// `Ui::raster_revision` for the walk in progress: fonts, textures and
+    /// styles a subtree's output depends on besides its own nodes.
+    resources: u64,
+    /// Whether walks consult and record `silent`.
+    memo: bool,
+}
+
+/// Inputs of one subtree paint, as exact bit patterns.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+struct PaintInputs {
+    world: [u32; 6],
+    opacity: u32,
+    clip: [u32; 4],
+    in_transform: bool,
+}
+
+impl PaintInputs {
+    fn new(world: &Affine, opacity: f32, clip: &Clip, in_transform: bool) -> PaintInputs {
+        PaintInputs {
+            world: [world.a, world.b, world.c, world.d, world.tx, world.ty].map(f32::to_bits),
+            opacity: opacity.to_bits(),
+            clip: [clip.x0, clip.y0, clip.x1, clip.y1].map(f32::to_bits),
+            in_transform,
+        }
+    }
+}
+
+/// A subtree that drew nothing at paint clock `clock` (0 = no record).
+#[derive(Clone, Copy, Default)]
+struct Silent {
+    clock: u64,
+    resources: u64,
+    inputs: PaintInputs,
 }
 
 // Node-indexed placement cache. Transforms and tint do not affect placement;
@@ -443,8 +479,27 @@ struct GlyphPage {
 }
 
 impl PaintCache {
+    /// The resource revision the next walk paints with (`Ui::raster_revision`).
+    pub(crate) fn set_resources(&mut self, revision: u64) {
+        self.resources = revision;
+    }
+
+    /// Turn the silent-subtree memo on or off for the next walks.
+    #[cfg(any(test, feature = "verify-paint-memo"))]
+    pub(crate) fn set_memo(&mut self, on: bool) {
+        self.memo = on;
+    }
+
     pub const fn new() -> PaintCache {
-        PaintCache { entries: Vec::new(), glyphs: Vec::new(), borders: Vec::new(), layouts: BTreeMap::new() }
+        PaintCache {
+            entries: Vec::new(),
+            glyphs: Vec::new(),
+            borders: Vec::new(),
+            layouts: BTreeMap::new(),
+            silent: Vec::new(),
+            resources: 0,
+            memo: true,
+        }
     }
 
     #[cfg(test)]
@@ -793,11 +848,11 @@ fn for_children_in_paint_order(
     slot: u32,
     mut f: impl FnMut(u32),
 ) {
-    let node = &tree.slots[slot as usize];
+    let node = tree.slot(slot as usize);
     let mut needs_sort = false;
     for &cid in &node.children {
         if let Some(cs) = tree.resolve(cid) {
-            if style::resolve_z(&tree.slots[cs as usize], styles) != 0 {
+            if style::resolve_z(tree.slot(cs as usize), styles) != 0 {
                 needs_sort = true;
                 break;
             }
@@ -805,7 +860,7 @@ fn for_children_in_paint_order(
     }
     if !needs_sort {
         for i in 0..node.children.len() {
-            let cid = tree.slots[slot as usize].children[i];
+            let cid = tree.slot(slot as usize).children[i];
             if let Some(cs) = tree.resolve(cid) {
                 f(cs);
             }
@@ -814,7 +869,7 @@ fn for_children_in_paint_order(
         let mut order: Vec<(i32, u32)> = Vec::with_capacity(node.children.len());
         for &cid in &node.children {
             if let Some(cs) = tree.resolve(cid) {
-                order.push((style::resolve_z(&tree.slots[cs as usize], styles), cs));
+                order.push((style::resolve_z(tree.slot(cs as usize), styles), cs));
             }
         }
         // Stable by construction: sort_by_key on Vec preserves insertion
@@ -964,7 +1019,7 @@ fn hit_walk(
     if !clip.contains(px, py) {
         return;
     }
-    let node = &tree.slots[slot as usize];
+    let node = tree.slot(slot as usize);
     let r = style::resolve(node, styles, true);
     if r.display == spec::Display::None as u8 {
         return;
@@ -1044,6 +1099,8 @@ struct Walker<'a> {
     /// The capture's subtree root, and whether the walk is inside it.
     capture_slot: u32,
     capturing: bool,
+    /// Paint clock of this walk (`Tree::last_paint`).
+    clock: u64,
 }
 
 /// Build the full DrawList for the current (laid-out) tree. `frame` is the
@@ -1135,6 +1192,7 @@ pub fn build_root(
         capturing: false,
         in_3d: false,
         provider_stale: false,
+        clock: tree.last_paint(),
     };
     let Some(root_slot) = tree.resolve(root_id) else {
         return (None, None, false);
@@ -1213,7 +1271,38 @@ impl<'a> Walker<'a> {
             self.capturing = false;
             return;
         }
+        // A subtree that drew nothing under the same inputs, with no write
+        // to any of its nodes and no resource change since, draws nothing
+        // again: skip it without visiting its nodes. Scenes keep large
+        // subtrees parked outside the viewport, and every visited node costs
+        // a resolve. Inspection and text capture read the walk itself, so
+        // they take the full path.
+        if !self.paint_cache.memo || self.inspect_slot != u32::MAX || self.texts.is_some() || self.clock == 0 {
+            self.paint_node(slot, parent_world, opacity, clip, in_transform, dl);
+            return;
+        }
+        let inputs = PaintInputs::new(&parent_world, opacity, &clip, in_transform);
+        let index = slot as usize;
+        if let Some(silent) = self.paint_cache.silent.get(index) {
+            if silent.clock != 0
+                && silent.resources == self.paint_cache.resources
+                && silent.inputs == inputs
+                && self.tree.slot(index).paint_rev <= silent.clock
+            {
+                return;
+            }
+        }
+        let (words, stale) = (dl.words.len(), self.provider_stale);
         self.paint_node(slot, parent_world, opacity, clip, in_transform, dl);
+        let drew_nothing = dl.words.len() == words && self.provider_stale == stale;
+        if self.paint_cache.silent.len() <= index {
+            self.paint_cache.silent.resize(index + 1, Silent::default());
+        }
+        self.paint_cache.silent[index] = if drew_nothing {
+            Silent { clock: self.clock, resources: self.paint_cache.resources, inputs }
+        } else {
+            Silent::default()
+        };
     }
 
     fn paint_node(
@@ -1225,7 +1314,7 @@ impl<'a> Walker<'a> {
         in_transform: bool,
         dl: &mut DrawList,
     ) {
-        let node = &self.tree.slots[slot as usize];
+        let node = self.tree.slot(slot as usize);
         // A subtree at effective opacity 0 paints nothing; cull it before
         // resolving the full style and composing its transform. The
         // inspected node still needs its world box, so it takes the full path.
@@ -1474,7 +1563,7 @@ impl<'a> Walker<'a> {
         let (cx, cy) = (w * 0.5, h * 0.5);
         let mut items: Vec<(f32, Item3)> = Vec::new();
         let mut tex_cells: Vec<TexCell> = Vec::new();
-        let root = &self.tree.slots[root_slot as usize];
+        let root = self.tree.slot(root_slot as usize);
         let children: Vec<i32> = root.children.clone();
         for cid in children {
             if let Some(cs) = self.tree.resolve(cid) {
@@ -1505,7 +1594,7 @@ impl<'a> Walker<'a> {
                 Item3::Run { slot, origin, opacity } => {
                     // (borrows through the walker's &'a Tree field, so the
                     // node ref is not tied to &mut self)
-                    let node = &self.tree.slots[slot as usize];
+                    let node = self.tree.slot(slot as usize);
                     let r = style::resolve(node, self.styles, true);
                     let anchor = Affine::translate(origin.0, origin.1);
                     self.emit_text(dl, slot, node, &r, &anchor, opacity, clip, node.layout.w, true);
@@ -1532,7 +1621,7 @@ impl<'a> Walker<'a> {
         items: &mut Vec<(f32, Item3)>,
         tex_cells: &mut Vec<TexCell>,
     ) {
-        let node = &self.tree.slots[slot as usize];
+        let node = self.tree.slot(slot as usize);
         let r = style::resolve(node, self.styles, true);
         if r.display == spec::Display::None as u8 {
             return;
@@ -3021,7 +3110,7 @@ fn collect_run_of(tree: &Tree, node: &crate::tree::Node, out: &mut alloc::string
     out.push_str(&node.text);
     for &cid in &node.children {
         if let Some(cs) = tree.resolve(cid) {
-            let child = &tree.slots[cs as usize];
+            let child = tree.slot(cs as usize);
             if child.node_type == spec::NodeType::Text as u8 {
                 collect_run_of(tree, child, out);
             }

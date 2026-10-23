@@ -8,6 +8,7 @@ import { HOST_IDS, currentHost } from "../tools/targets/types.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
 import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
 import { resolveRedmi1sBuildPlan } from "../tools/redmi-1s-profile.ts";
+import { resolvePassportPrimeBuildPlan } from "../tools/passport-prime-profile.ts";
 import { BLACKBERRY_QNX_DEV_TARGET_ID, resolveBlackBerryClassicBuildPlan } from "../tools/blackberry-classic-profile.ts";
 import { resolveMeizuM8BuildPlan } from "../tools/meizu-m8-profile.ts";
 import { resolveSymbianE7BuildPlan } from "../tools/symbian-profile.ts";
@@ -80,6 +81,7 @@ describe("target catalog", () => {
       ["3ds", "apps/3ds-demo/pocket.json", resolve3dsBuildPlan],
       ["moto-g-play", "apps/clear/pocket.android.json", resolveMotoGPlayBuildPlan],
       ["redmi-1s", "apps/clear/pocket.redmi-1s.json", resolveRedmi1sBuildPlan],
+      ["passport-prime", "apps/clear/pocket.passport-prime.json", resolvePassportPrimeBuildPlan],
       ["blackberry-classic", "apps/blackberry-classic-demo/pocket.json", (m) => resolveBlackBerryClassicBuildPlan(m, BLACKBERRY_QNX_DEV_TARGET_ID)],
       ["meizu-m8", "apps/meizu-m8-demo/pocket.json", resolveMeizuM8BuildPlan],
       ["nokia-e7", "apps/clear/pocket.symbian.json", resolveSymbianE7BuildPlan],

@@ -48,6 +48,8 @@ export interface GuestBundleRequest {
   /** Where the resolved plan is written for `tools/build.ts --plan`. */
   readonly planPath: string;
   readonly outputDirectory: string;
+  /** Virtual-time ticks per second the bundle bakes (`tools/build.ts --hz`); 60 when absent. */
+  readonly tickHz?: number;
 }
 
 function locateGuestBundle(
@@ -82,6 +84,7 @@ export function buildGuestBundle(request: GuestBundleRequest): GuestBundle {
       `--plan=${request.planPath}`,
       `--project-root=${request.repository}`,
       `--outdir=${request.outputDirectory}`,
+      ...(request.tickHz === undefined ? [] : [`--hz=${request.tickHz}`]),
     ],
     request.repository,
   );

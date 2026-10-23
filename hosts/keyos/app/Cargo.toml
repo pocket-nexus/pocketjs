@@ -1,0 +1,39 @@
+# hosts/keyos/app — the KeyOS app that presents one PocketJS app on Passport
+# Prime. tools/keyos.ts writes app-config.toml and gen/ (the guest bundle and
+# its surface constants) for the selected app, links .foundation-sdk/current
+# to the installed Foundation SDK, then runs the foundation CLI here.
+
+[package]
+name = "pocketjs-keyos"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace]
+exclude = [".foundation-sdk"]
+
+# KeyOS builds set `--cfg keyos`; hosted simulator builds do not.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(keyos)'] }
+
+[dependencies]
+log = "0.4"
+log-server = { package = "xous-api-log", path = ".foundation-sdk/current/lib/keyos/xous/api/log" }
+server = { path = ".foundation-sdk/current/lib/keyos/server" }
+xous = { path = ".foundation-sdk/current/lib/keyos/xous/xous-rs" }
+gui-server-api = { path = ".foundation-sdk/current/lib/keyos/api/gui-server" }
+pocketjs-keyos-runtime = { path = "../runtime" }
+
+# `foundation sim` builds the dev profile. QuickJS compiled at -O0 needs
+# several times the C stack per JS call and overflows during app boot, so
+# every dependency builds optimized.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+
+[patch.crates-io]
+getrandom = { path = ".foundation-sdk/current/lib/keyos/imports/getrandom" }

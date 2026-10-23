@@ -26,3 +26,6 @@ default = []
 # Layout work counters and the fresh-solver validation hook used by the
 # differential tests. Ordinary builds compile neither.
 counters = []
+# Repeat every Ui::draw walk without the silent-subtree memo and assert the
+# same DrawList (always on in the crate's unit tests).
+verify-paint-memo = []

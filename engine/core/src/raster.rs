@@ -144,6 +144,17 @@ trait RenderTarget {
     fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32);
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32);
 
+    /// Blend one color through a run of coverage bytes onto the consecutive
+    /// pixels from `start`: pixel k gets alpha `a × coverage[k] / 255`.
+    #[inline]
+    fn blend_coverage(&mut self, start: usize, coverage: &[u8], r: u32, g: u32, b: u32, a: u32) {
+        for (k, &cov) in coverage.iter().enumerate() {
+            if cov != 0 {
+                self.blend(start + k, r, g, b, (a * cov as u32 + 127) / 255);
+            }
+        }
+    }
+
     #[inline]
     fn clear_black(&mut self) {
         let len = self.pixel_len();
@@ -169,29 +180,101 @@ impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
     #[inline]
     fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32) {
         let o = offset * 4;
-        let (ri, gi, bi, ai) = if ARGB { (2, 1, 0, 3) } else { (0, 1, 2, 3) };
-        if a >= 255 {
-            self.bytes[o + ri] = r as u8;
-            self.bytes[o + gi] = g as u8;
-            self.bytes[o + bi] = b as u8;
-            self.bytes[o + ai] = 255;
-            return;
-        }
-        if a == 0 {
-            return;
-        }
-        let ia = 255 - a;
-        let mix = |s: u32, d: u8| ((s * a + d as u32 * ia + 127) / 255) as u8;
-        self.bytes[o + ri] = mix(r, self.bytes[o + ri]);
-        self.bytes[o + gi] = mix(g, self.bytes[o + gi]);
-        self.bytes[o + bi] = mix(b, self.bytes[o + bi]);
-        self.bytes[o + ai] = 255;
+        let px: &mut [u8; 4] = (&mut self.bytes[o..o + 4]).try_into().expect("a pixel is four bytes");
+        blend_pixel_bytes::<ARGB>(px, r, g, b, a);
     }
 
     #[inline]
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
         let byte_start = start * 4;
         fill_opaque_span::<ARGB>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
+    }
+
+    #[inline]
+    fn blend_coverage(&mut self, start: usize, coverage: &[u8], r: u32, g: u32, b: u32, a: u32) {
+        let o = start * 4;
+        blend_coverage_bytes::<ARGB>(&mut self.bytes[o..o + coverage.len() * 4], coverage, r, g, b, a);
+    }
+}
+
+/// [`RenderTarget::blend_coverage`] over packed four-byte pixels: the
+/// coverage and destination slices advance together, and a fully covered
+/// pixel of an opaque color is stored without reading the destination.
+#[inline]
+fn blend_coverage_bytes<const ARGB: bool>(dst: &mut [u8], coverage: &[u8], r: u32, g: u32, b: u32, a: u32) {
+    for (px, &cov) in dst.as_chunks_mut::<4>().0.iter_mut().zip(coverage) {
+        if cov != 0 {
+            blend_pixel_bytes::<ARGB>(px, r, g, b, (a * cov as u32 + 127) / 255);
+        }
+    }
+}
+
+/// Integer src-over of one straight-alpha source pixel onto four opaque
+/// destination bytes in R,G,B,A (or, with `ARGB`, B,G,R,A) order. An aligned
+/// pixel is read and written as one word: display memory may pass every
+/// store through to the bus, where four byte stores cost four writes.
+#[inline]
+fn blend_pixel_bytes<const ARGB: bool>(px: &mut [u8; 4], r: u32, g: u32, b: u32, a: u32) {
+    if a == 0 {
+        return;
+    }
+    let (ri, gi, bi) = if ARGB { (2, 1, 0) } else { (0, 1, 2) };
+    let out = if a >= 255 {
+        pixel_bytes::<ARGB>(r, g, b)
+    } else {
+        let d = if (px.as_ptr() as usize) & 3 == 0 {
+            // SAFETY: the four bytes are in bounds and word-aligned.
+            unsafe { px.as_ptr().cast::<u32>().read() }.to_ne_bytes()
+        } else {
+            *px
+        };
+        let ia = 255 - a;
+        let mix = |s: u32, d: u8| ((s * a + d as u32 * ia + 127) / 255) as u8;
+        let mut out = [0u8, 0, 0, 255];
+        out[ri] = mix(r, d[ri]);
+        out[gi] = mix(g, d[gi]);
+        out[bi] = mix(b, d[bi]);
+        out
+    };
+    if (px.as_ptr() as usize) & 3 == 0 {
+        // SAFETY: the four bytes are in bounds and word-aligned.
+        unsafe { px.as_mut_ptr().cast::<u32>().write(u32::from_ne_bytes(out)) };
+    } else {
+        *px = out;
+    }
+}
+
+/// Consecutive full-width rows of a scaled surface. Offsets stay those of the
+/// full surface, so sampling keeps its global phase; `base` is the offset of
+/// the first row held.
+struct RgbaRowsTarget<'a, const ARGB: bool> {
+    bytes: &'a mut [u8],
+    base: usize,
+}
+
+impl<const ARGB: bool> RenderTarget for RgbaRowsTarget<'_, ARGB> {
+    #[inline]
+    fn pixel_len(&self) -> usize {
+        self.base + self.bytes.len() / 4
+    }
+
+    #[inline]
+    fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32) {
+        let o = (offset - self.base) * 4;
+        let px: &mut [u8; 4] = (&mut self.bytes[o..o + 4]).try_into().expect("a pixel is four bytes");
+        blend_pixel_bytes::<ARGB>(px, r, g, b, a);
+    }
+
+    #[inline]
+    fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
+        let byte_start = (start - self.base) * 4;
+        fill_opaque_span::<ARGB>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
+    }
+
+    #[inline]
+    fn blend_coverage(&mut self, start: usize, coverage: &[u8], r: u32, g: u32, b: u32, a: u32) {
+        let o = (start - self.base) * 4;
+        blend_coverage_bytes::<ARGB>(&mut self.bytes[o..o + coverage.len() * 4], coverage, r, g, b, a);
     }
 }
 
@@ -525,6 +608,71 @@ pub fn render_scaled_rgb565_window_over(
     render_scaled_clipped(ui, words, &mut target, full_width, scale_i, physical);
 }
 
+/// Repaint the logical `window` of a DrawList into `rows`: the full-width
+/// rows `window.y0 * scale .. window.y1 * scale` of the scaled surface, four
+/// bytes per pixel in R,G,B,A order. The window is cleared to black and
+/// painted; columns outside it keep their bytes. Sampling stays anchored to
+/// the full surface, so a band is byte-identical to the same rows of
+/// [`render_scaled`]. Hosts render a frame band by band into a buffer that
+/// stays in cache and write each band to the display buffer once.
+pub fn render_scaled_rows(
+    ui: &impl RenderResources,
+    words: &[u32],
+    rows: &mut [u8],
+    scale: u32,
+    window: DamageRect,
+) {
+    render_rows_impl::<false>(ui, words, rows, scale, window);
+}
+
+/// B,G,R,A-memory equivalent of [`render_scaled_rows`].
+pub fn render_scaled_argb_rows(
+    ui: &impl RenderResources,
+    words: &[u32],
+    rows: &mut [u8],
+    scale: u32,
+    window: DamageRect,
+) {
+    render_rows_impl::<true>(ui, words, rows, scale, window);
+}
+
+fn render_rows_impl<const ARGB: bool>(
+    ui: &impl RenderResources,
+    words: &[u32],
+    rows: &mut [u8],
+    scale: u32,
+    window: DamageRect,
+) {
+    assert!(
+        (1..=MAX_RENDER_SCALE).contains(&scale),
+        "render scale must be 1 through 4"
+    );
+    let scale_i = scale as i32;
+    let (viewport_w, viewport_h) = ui.viewport();
+    let logical_screen = DamageRect::new(0, 0, viewport_w as i32, viewport_h as i32);
+    assert!(
+        !window.is_empty() && window.intersect(logical_screen) == window,
+        "row window must be non-empty and inside the viewport"
+    );
+    let width = logical_screen.x1 * scale_i;
+    let physical = Clip {
+        x0: window.x0 * scale_i,
+        y0: window.y0 * scale_i,
+        x1: window.x1 * scale_i,
+        y1: window.y1 * scale_i,
+    };
+    assert_eq!(
+        rows.len(),
+        width as usize * (physical.y1 - physical.y0) as usize * 4,
+        "row buffer must hold exactly the window's full-width rows"
+    );
+    let mut target = RgbaRowsTarget::<ARGB> {
+        bytes: rows,
+        base: physical.y0 as usize * width as usize,
+    };
+    paint_region(ui, words, &mut target, width, scale_i, physical);
+}
+
 /// Clear and repaint only the supplied logical damage rectangles into an
 /// existing RGBA8 framebuffer.
 ///
@@ -636,10 +784,15 @@ fn render_scaled_impl<T: RenderTarget>(
     clear: bool,
 ) {
     let (width, _height, screen) = target_geometry(ui, target, scale);
-    if clear {
+    if !clear {
+        render_scaled_clipped(ui, words, target, width, scale as i32, screen);
+        return;
+    }
+    let start = paint_start(words, scale as i32, screen);
+    if !start.covers {
         target.clear_black();
     }
-    render_scaled_clipped(ui, words, target, width, scale as i32, screen);
+    render_from(ui, words, target, width, scale as i32, screen, start);
 }
 
 fn render_scaled_regions_impl<T: RenderTarget>(
@@ -749,9 +902,26 @@ fn render_damage_regions<T: RenderTarget>(
         if physical.x0 >= physical.x1 || physical.y0 >= physical.y1 {
             continue;
         }
-        clear_black_rect(target, width, physical);
-        render_scaled_clipped(ui, words, target, width, scale, physical);
+        paint_region(ui, words, target, width, scale, physical);
     }
+}
+
+/// Clear `region` to black and paint the DrawList clipped to it. Ops before
+/// the last one that paints the whole region opaquely are skipped, and so is
+/// the clear: that op overwrites every pixel they would have written.
+fn paint_region<T: RenderTarget>(
+    ui: &impl RenderResources,
+    words: &[u32],
+    target: &mut T,
+    width: i32,
+    scale: i32,
+    region: Clip,
+) {
+    let start = paint_start(words, scale, region);
+    if !start.covers {
+        clear_black_rect(target, width, region);
+    }
+    render_from(ui, words, target, width, scale, region, start);
 }
 
 fn clear_black_rect<T: RenderTarget>(target: &mut T, stride: i32, rect: Clip) {
@@ -762,6 +932,207 @@ fn clear_black_rect<T: RenderTarget>(target: &mut T, stride: i32, rect: Clip) {
     }
 }
 
+/// Interpreter state at one op: the op replay starts from and the scissor
+/// state it sees there.
+#[derive(Clone, Copy)]
+struct PaintStart {
+    index: usize,
+    clip: Clip,
+    stack: [Clip; 32],
+    depth: usize,
+    /// The op at `index` paints every pixel of the screen clip opaquely.
+    covers: bool,
+}
+
+impl PaintStart {
+    fn origin(screen: Clip) -> PaintStart {
+        PaintStart {
+            index: 0,
+            clip: screen,
+            stack: [screen; 32],
+            depth: 0,
+            covers: false,
+        }
+    }
+}
+
+/// Opaque ops spanning a region's full width that [`paint_start`] keeps,
+/// most recent last.
+const COVER_RECORDS: usize = 64;
+
+/// Find where replay can start for `screen`: the latest op from which on
+/// opaque ops (RECTs and GRAD_RECTs whose colors have alpha 255) cover every
+/// pixel of it. Each pixel's first such op overwrites whatever ops before
+/// the start would have left, so replaying from there without a clear
+/// produces the same pixels as clearing and replaying the whole list. A
+/// region up to 64 rows tall may be covered by several ops, each spanning its
+/// width (stacked rows); a taller one needs a single op covering all of it.
+/// A list the interpreter would stop in returns the origin.
+fn paint_start(words: &[u32], scale: i32, screen: Clip) -> PaintStart {
+    let origin = PaintStart::origin(screen);
+    let rows = screen.y1 - screen.y0;
+    if rows <= 0 || screen.x1 <= screen.x0 {
+        return origin;
+    }
+    let banded = rows <= 64;
+    let all = if rows == 64 { u64::MAX } else { (1u64 << rows.min(63)) - 1 };
+    // Rows of `screen` an opaque op covers across its whole width.
+    let coverage = |clip: Clip, x: i32, y: i32, w: i32, h: i32| -> u64 {
+        let c = clip.intersect(Clip {
+            x0: x,
+            y0: y,
+            x1: x + w,
+            y1: y + h,
+        });
+        if c.x0 > screen.x0 || c.x1 < screen.x1 || c.y0 >= c.y1 {
+            return 0;
+        }
+        if !banded {
+            return if c.y0 <= screen.y0 && c.y1 >= screen.y1 { all } else { 0 };
+        }
+        let (r0, r1) = ((c.y0 - screen.y0).max(0), (c.y1 - screen.y0).min(rows));
+        if r0 >= r1 {
+            return 0;
+        }
+        let span = if r1 - r0 == 64 { u64::MAX } else { ((1u64 << (r1 - r0)) - 1) << r0 };
+        span & all
+    };
+
+    let mut records = [(0usize, 0u64); COVER_RECORDS];
+    let mut kept = 0usize;
+    let mut state = origin;
+    let mut i = 0usize;
+    while i < words.len() {
+        let mut cover = 0u64;
+        let len = match words[i] {
+            draw_op::RECT => {
+                if i + 4 > words.len() {
+                    return origin;
+                }
+                if words[i + 3] >> 24 == 255 {
+                    let (x, y) = xy(words[i + 1], scale);
+                    let (w, h) = wh(words[i + 2], scale);
+                    cover = coverage(state.clip, x, y, w, h);
+                }
+                4
+            }
+            draw_op::GRAD_RECT => {
+                if i + 6 > words.len() {
+                    return origin;
+                }
+                if words[i + 3] >> 24 == 255 && words[i + 4] >> 24 == 255 {
+                    let (x, y) = xy(words[i + 1], scale);
+                    let (w, h) = wh(words[i + 2], scale);
+                    cover = coverage(state.clip, x, y, w, h);
+                }
+                6
+            }
+            draw_op::GLYPH_RUN => {
+                if i + 3 > words.len() {
+                    return origin;
+                }
+                3 + 2 * (words[i + 1] >> 16) as usize
+            }
+            draw_op::TEX_QUAD | draw_op::SURFACE_QUAD => 9,
+            draw_op::SCISSOR => {
+                if i + 3 > words.len() || state.depth >= state.stack.len() {
+                    return origin;
+                }
+                state.stack[state.depth] = state.clip;
+                state.depth += 1;
+                let (x, y) = xy(words[i + 1], scale);
+                let (w, h) = wh(words[i + 2], scale);
+                state.clip = screen.intersect(Clip {
+                    x0: x,
+                    y0: y,
+                    x1: x + w,
+                    y1: y + h,
+                });
+                3
+            }
+            draw_op::SCISSOR_POP => {
+                if state.depth > 0 {
+                    state.depth -= 1;
+                    state.clip = state.stack[state.depth];
+                } else {
+                    state.clip = screen;
+                }
+                1
+            }
+            draw_op::TRI => 7,
+            draw_op::TEX_TRI => 12,
+            draw_op::TEXT_RUN => {
+                if i + 8 > words.len() {
+                    return origin;
+                }
+                8 + (words[i + 7] as usize).div_ceil(4)
+            }
+            _ => return origin,
+        };
+        if cover != 0 {
+            if kept == COVER_RECORDS {
+                records.copy_within(1.., 0);
+                kept -= 1;
+            }
+            records[kept] = (i, cover);
+            kept += 1;
+        }
+        i += len;
+    }
+    if i > words.len() {
+        return origin;
+    }
+
+    let mut covered = 0u64;
+    let mut start = None;
+    for &(index, cover) in records[..kept].iter().rev() {
+        covered |= cover;
+        if covered == all {
+            start = Some(index);
+            break;
+        }
+    }
+    let Some(start) = start else { return origin };
+
+    // Replay the scissor ops up to the start for the state there.
+    let mut state = origin;
+    let mut i = 0usize;
+    while i < start {
+        i += match words[i] {
+            draw_op::RECT => 4,
+            draw_op::GRAD_RECT => 6,
+            draw_op::GLYPH_RUN => 3 + 2 * (words[i + 1] >> 16) as usize,
+            draw_op::TEX_QUAD | draw_op::SURFACE_QUAD => 9,
+            draw_op::SCISSOR => {
+                state.stack[state.depth] = state.clip;
+                state.depth += 1;
+                let (x, y) = xy(words[i + 1], scale);
+                let (w, h) = wh(words[i + 2], scale);
+                state.clip = screen.intersect(Clip {
+                    x0: x,
+                    y0: y,
+                    x1: x + w,
+                    y1: y + h,
+                });
+                3
+            }
+            draw_op::SCISSOR_POP => {
+                if state.depth > 0 {
+                    state.depth -= 1;
+                    state.clip = state.stack[state.depth];
+                } else {
+                    state.clip = screen;
+                }
+                1
+            }
+            draw_op::TRI => 7,
+            draw_op::TEX_TRI => 12,
+            _ => 8 + (words[i + 7] as usize).div_ceil(4),
+        };
+    }
+    PaintStart { index: start, covers: true, ..state }
+}
+
 fn render_scaled_clipped<T: RenderTarget>(
     ui: &impl RenderResources,
     words: &[u32],
@@ -770,11 +1141,23 @@ fn render_scaled_clipped<T: RenderTarget>(
     scale: i32,
     screen: Clip,
 ) {
-    let mut stack: [Clip; 32] = [screen; 32];
-    let mut depth: usize = 0;
-    let mut clip = screen;
+    render_from(ui, words, target, width, scale, screen, PaintStart::origin(screen));
+}
 
-    let mut i = 0usize;
+fn render_from<T: RenderTarget>(
+    ui: &impl RenderResources,
+    words: &[u32],
+    target: &mut T,
+    width: i32,
+    scale: i32,
+    screen: Clip,
+    start: PaintStart,
+) {
+    let mut stack = start.stack;
+    let mut depth = start.depth;
+    let mut clip = start.clip;
+
+    let mut i = start.index;
     while i < words.len() {
         match words[i] {
             draw_op::RECT => {
@@ -1068,6 +1451,9 @@ pub fn coverage_index(
     ((((2 * destination_px + 1) * atlas_density) / (2 * output_scale)).clamp(0, limit - 1)) as usize
 }
 
+/// Widest scaled glyph cell whose atlas columns `glyph_run` tables.
+const GLYPH_COLUMNS: usize = 512;
+
 #[allow(clippy::too_many_arguments)]
 fn glyph_run<T: RenderTarget>(
     ui: &impl RenderResources,
@@ -1092,6 +1478,14 @@ fn glyph_run<T: RenderTarget>(
     let coverage_w = atlas.coverage_width() as i32;
     let coverage_h = atlas.coverage_height() as i32;
     let bpr = atlas.bytes_per_row();
+    // coverage_index divides, and targets without a hardware divider pay a
+    // library call per division. When the atlas density equals the output
+    // scale it is the identity; otherwise the atlas column of every
+    // destination column of a cell is tabled once, at the run's first
+    // visible glyph.
+    let identity = atlas_density == output_scale;
+    let mut columns = [0u16; GLYPH_COLUMNS];
+    let mut tabled = false;
     for pair in glyphs.chunks_exact(2) {
         let (gx, gy) = xy(pair[0], output_scale);
         let gid = (pair[1] & 0xffff) as u16;
@@ -1106,12 +1500,34 @@ fn glyph_run<T: RenderTarget>(
         if x0 >= x1 || y0 >= y1 {
             continue;
         }
+        if !identity && !tabled && (cell_w as usize) <= GLYPH_COLUMNS {
+            for (dx, column) in columns[..cell_w as usize].iter_mut().enumerate() {
+                *column = coverage_index(dx as i32, output_scale, atlas_density, coverage_w) as u16;
+            }
+            tabled = true;
+        }
         let rows = atlas.glyph_rows(gid);
         for py in y0..y1 {
-            let sy = coverage_index(py - gy, output_scale, atlas_density, coverage_h);
+            let sy = if identity {
+                ((py - gy) as usize).min(coverage_h as usize - 1)
+            } else {
+                coverage_index(py - gy, output_scale, atlas_density, coverage_h)
+            };
             let row = &rows[sy * bpr..];
+            if identity && x1 - gx <= coverage_w {
+                // Destination columns map 1:1 onto atlas columns.
+                let span = &row[(x0 - gx) as usize..(x1 - gx) as usize];
+                target.blend_coverage((py * stride + x0) as usize, span, r, g, b, a);
+                continue;
+            }
             for px in x0..x1 {
-                let cx = coverage_index(px - gx, output_scale, atlas_density, coverage_w);
+                let cx = if identity {
+                    ((px - gx) as usize).min(coverage_w as usize - 1)
+                } else if tabled {
+                    columns[(px - gx) as usize] as usize
+                } else {
+                    coverage_index(px - gx, output_scale, atlas_density, coverage_w)
+                };
                 let cov = row[cx] as u32;
                 if cov != 0 {
                     target.blend((py * stride + px) as usize, r, g, b, (a * cov + 127) / 255);
@@ -1984,6 +2400,148 @@ mod tests {
         let mut full = vec![0u16; incremental.len()];
         render_scaled_rgb565(&ui, &current, &mut full, scale);
         assert_eq!(incremental, full);
+    }
+
+    #[test]
+    fn row_bands_match_a_full_render() {
+        let mut ui = Ui::new_with_raster_density(2);
+        ui.set_viewport(40.0, 24.0);
+        assert!(ui.load_font_atlas(&density_two_font()));
+        let texture_pixels = (0..16)
+            .flat_map(|value| [(value * 16) as u8, 32, 192, 255])
+            .collect::<Vec<_>>();
+        let texture = ui.upload_texture(&texture_pixels, 4, 4, spec::psm::PSM_8888);
+        let words = vec![
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(40, 24),
+            0xff18_1008,
+            draw_op::SCISSOR,
+            xy_word(1, 1),
+            wh_word(30, 20),
+            draw_op::GRAD_RECT,
+            xy_word(0, 8),
+            wh_word(40, 8),
+            0xff20_4080,
+            0xff80_4020,
+            spec::GradDir::ToBottom as u32,
+            draw_op::SCISSOR_POP,
+            draw_op::RECT,
+            xy_word(0, 9),
+            wh_word(40, 6),
+            0x80ff_ffff,
+            draw_op::TEX_QUAD,
+            texture as u32,
+            xy_word(15, 2),
+            wh_word(5, 5),
+            0.0f32.to_bits(),
+            0.0f32.to_bits(),
+            1.0f32.to_bits(),
+            1.0f32.to_bits(),
+            0xff00_ff00,
+            draw_op::GLYPH_RUN,
+            1 << 16,
+            0xffff_ffff,
+            xy_word(4, 10),
+            0,
+        ];
+        let scale = 2u32;
+        let width = 40 * scale as usize;
+        let mut full = vec![0u8; width * 24 * scale as usize * 4];
+        render_scaled_argb(&ui, &words, &mut full, scale);
+
+        for y0 in (0..24).step_by(5) {
+            let y1 = (y0 + 5).min(24);
+            let rows = &full[y0 * scale as usize * width * 4..y1 * scale as usize * width * 4];
+            let mut band = vec![0x5au8; rows.len()];
+            render_scaled_argb_rows(&ui, &words, &mut band, scale, DamageRect::new(0, y0 as i32, 40, y1 as i32));
+            assert_eq!(band, rows, "band {y0}..{y1}");
+
+            let mut narrow = vec![0x5au8; rows.len()];
+            render_scaled_argb_rows(&ui, &words, &mut narrow, scale, DamageRect::new(10, y0 as i32, 30, y1 as i32));
+            for (i, (got, want)) in narrow.chunks(4).zip(rows.chunks(4)).enumerate() {
+                let x = i % width;
+                if (20..60).contains(&x) {
+                    assert_eq!(got, want, "band {y0}..{y1} column {x}");
+                } else {
+                    assert_eq!(got, [0x5a; 4], "band {y0}..{y1} column {x} outside the window");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn paint_start_is_the_last_opaque_op_covering_the_region() {
+        let words = vec![
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(40, 24),
+            0xff18_1008,
+            draw_op::SCISSOR,
+            xy_word(0, 0),
+            wh_word(40, 12),
+            draw_op::GRAD_RECT,
+            xy_word(0, 0),
+            wh_word(40, 24),
+            0xff20_4080,
+            0xff80_4020,
+            spec::GradDir::ToBottom as u32,
+            draw_op::SCISSOR_POP,
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(40, 24),
+            0x80ff_ffff,
+        ];
+        let region = |y0, y1| Clip { x0: 0, y0, x1: 40, y1 };
+        // Inside the scissor the gradient covers; the translucent rect does not.
+        let top = paint_start(&words, 1, region(0, 12));
+        assert!(top.covers);
+        assert_eq!(top.index, 7);
+        assert_eq!(top.depth, 1);
+        // Below the scissor only the background covers.
+        let bottom = paint_start(&words, 1, region(12, 24));
+        assert!(bottom.covers);
+        assert_eq!(bottom.index, 0);
+        // A truncated list replays from the origin, as the interpreter stops.
+        assert!(!paint_start(&words[..words.len() - 1], 1, region(0, 12)).covers);
+    }
+
+    #[test]
+    fn stacked_rows_cover_a_band_together() {
+        let mut ui = Ui::new();
+        ui.set_viewport(20.0, 30.0);
+        // A background, then 7-row opaque rows stacked down the surface with a
+        // translucent tint on every other one: bands of 5 rows straddle rows.
+        let mut words = vec![draw_op::RECT, xy_word(0, 0), wh_word(20, 30), 0xff10_1010];
+        for row in 0..5i16 {
+            words.extend([
+                draw_op::GRAD_RECT,
+                xy_word(0, 1 + row * 7),
+                wh_word(20, 7),
+                0xff00_0040 + row as u32,
+                0xff40_0000,
+                spec::GradDir::ToBottom as u32,
+            ]);
+            if row % 2 == 0 {
+                words.extend([draw_op::RECT, xy_word(3, 2 + row * 7), wh_word(9, 3), 0x8080_ff80]);
+            }
+        }
+        let band = |y0, y1| Clip { x0: 0, y0, x1: 20, y1 };
+        // Rows 5..10 lie across the first two rows: replay starts at the first of them.
+        let start = paint_start(&words, 1, band(5, 10));
+        assert!(start.covers);
+        assert_eq!(start.index, 4);
+        // Row 0 is above every stacked row: only the background covers it.
+        assert_eq!(paint_start(&words, 1, band(0, 5)).index, 0);
+
+        let mut full = vec![0u8; 20 * 30 * 4];
+        render_scaled_argb(&ui, &words, &mut full, 1);
+        for y0 in (0..30).step_by(5) {
+            let rows = &full[y0 * 80..(y0 + 5) * 80];
+            let mut painted = vec![0x5au8; rows.len()];
+            render_scaled_argb_rows(&ui, &words, &mut painted, 1, DamageRect::new(0, y0 as i32, 20, y0 as i32 + 5));
+            assert_eq!(painted, rows, "band {y0}");
+        }
     }
 
     #[test]

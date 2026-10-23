@@ -208,7 +208,7 @@ pub(crate) struct View {
 /// frame. None while the node is dead, detached, or under no surface root.
 fn node_frame(tree: &Tree, id: i32, aux_root: i32) -> Option<(usize, V2, f32, f32)> {
     let slot = tree.resolve(id)?;
-    let node = &tree.slots[slot as usize];
+    let node = tree.slot(slot as usize);
     let (w, h) = (node.layout.w, node.layout.h);
     let (mut x, mut y) = (node.layout.x, node.layout.y);
     let mut parent = node.parent;
@@ -218,7 +218,7 @@ fn node_frame(tree: &Tree, id: i32, aux_root: i32) -> Option<(usize, V2, f32, f3
             return None;
         }
         let pslot = tree.resolve(parent)?;
-        let pnode = &tree.slots[pslot as usize];
+        let pnode = tree.slot(pslot as usize);
         x += pnode.layout.x;
         y += pnode.layout.y;
         if parent == spec::ROOT_ID {

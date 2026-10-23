@@ -1,0 +1,41 @@
+# pocketjs-keyos-runtime — the PocketJS guest, core and software raster that
+# hosts/keyos/app presents on Passport Prime.
+#
+# STANDALONE CRATE (same model as hosts/pocketbook): it lives outside any
+# workspace and path-depends on the engine crates. It has no KeyOS SDK
+# dependency, so `cargo run --example preview` renders an app on the
+# development machine. hosts/keyos/app owns gui-server, touch and the lent
+# framebuffer.
+#
+# On armv7a-unknown-xous-elf there is no C library: build.rs compiles
+# ../libc/libc.c, src/libc.rs exports the allocator and clocks, and
+# rquickjs generates its bindings against ../libc/include (see
+# hosts/keyos/README.md for the compiler flags tools/keyos.ts passes).
+
+[package]
+name = "pocketjs-keyos-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+pocketjs-core = { path = "../../../engine/core" }
+pocket-mod = { path = "../../../engine/crates/pocket-mod" }
+pocket-ui-surface = { path = "../../../engine/crates/pocket-ui-surface" }
+anyhow = "1"
+log = "0.4"
+
+# rquickjs ships pre-generated bindings for common targets only; KeyOS's
+# custom target generates them at build time (bindgen needs libclang).
+[target.'cfg(target_os = "xous")'.dependencies]
+rquickjs = { version = "0.12", features = ["bindgen"] }
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+png = "0.18"
+
+[features]
+# Check every DrawList against a walk without the core's paint memo.
+verify-paint-memo = ["pocketjs-core/verify-paint-memo"]

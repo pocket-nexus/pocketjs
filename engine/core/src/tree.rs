@@ -111,6 +111,9 @@ pub struct Node {
     /// provider per node per layout, never re-decided at paint time
     /// (docs/BACKENDS.md).
     pub text_native: bool,
+    /// Paint clock value of the last write to this node or any descendant
+    /// (see [`Tree::slot_mut`]).
+    pub paint_rev: u64,
 }
 
 impl Node {
@@ -141,6 +144,7 @@ impl Node {
             layout_mode: LAYOUT_LIVE,
             region_root: false,
             text_native: false,
+            paint_rev: 0,
         }
     }
 
@@ -174,9 +178,16 @@ impl Node {
 }
 
 /// The node arena.
+///
+/// Every write reaches a node through [`Tree::slot_mut`] (or the arena's own
+/// structural edits), which stamps the node and its ancestors with the
+/// current paint clock. A painter that recorded what a subtree drew at clock
+/// `c` knows nothing in it changed while its root's `paint_rev` is at most
+/// `c` (see [`Tree::begin_paint`]).
 pub struct Tree {
-    pub slots: Vec<Node>,
+    slots: Vec<Node>,
     free: Vec<u32>,
+    paint_clock: u64,
 }
 
 impl Tree {
@@ -184,7 +195,7 @@ impl Tree {
     /// full-screen flex column (via dynamic overrides so any user style still
     /// layers under them predictably).
     pub fn new() -> Tree {
-        let mut t = Tree { slots: Vec::new(), free: Vec::new() };
+        let mut t = Tree { slots: Vec::new(), free: Vec::new(), paint_clock: 1 };
         t.slots.push(Node::empty(0)); // slot 0: never allocated
         let mut root = Node::empty(0);
         root.node_type = spec::NodeType::View as u8;
@@ -194,6 +205,75 @@ impl Tree {
         root.overrides.push((spec::prop::FLEX_DIR, spec::FlexDir::Col as u32));
         t.slots.push(root); // slot 1 == spec::ROOT_ID (gen 0)
         t
+    }
+
+    /// The node in `slot`.
+    #[inline]
+    pub fn slot(&self, slot: usize) -> &Node {
+        &self.slots[slot]
+    }
+
+    /// The node in `slot`, if the arena has that many slots.
+    #[inline]
+    pub fn get_slot(&self, slot: usize) -> Option<&Node> {
+        self.slots.get(slot)
+    }
+
+    /// The node in `slot`, for writing: stamps it and its ancestors with the
+    /// current paint clock.
+    #[inline]
+    pub fn slot_mut(&mut self, slot: usize) -> &mut Node {
+        self.stamp(slot);
+        &mut self.slots[slot]
+    }
+
+    /// Number of slots, dead ones and slot 0 included.
+    #[inline]
+    pub fn slot_count(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Every slot in index order.
+    #[inline]
+    pub fn nodes(&self) -> core::slice::Iter<'_, Node> {
+        self.slots.iter()
+    }
+
+    /// Start a paint at the current clock and advance it: writes from here on
+    /// stamp later values. Returns the clock the paint observed.
+    pub fn begin_paint(&mut self) -> u64 {
+        let clock = self.paint_clock;
+        self.paint_clock += 1;
+        clock
+    }
+
+    /// The clock the latest [`begin_paint`](Self::begin_paint) returned (0
+    /// before the first one).
+    #[inline]
+    pub fn last_paint(&self) -> u64 {
+        self.paint_clock - 1
+    }
+
+    /// Stamp `slot` and its ancestors. A node already stamped with the
+    /// current clock had its ancestors stamped with it too, so the walk stops
+    /// there.
+    fn stamp(&mut self, slot: usize) {
+        let clock = self.paint_clock;
+        let mut slot = slot;
+        let mut hops = 0;
+        while hops <= spec::MAX_TREE_DEPTH + 1 {
+            let node = &mut self.slots[slot];
+            if node.paint_rev == clock {
+                return;
+            }
+            node.paint_rev = clock;
+            let parent = node.parent;
+            match self.resolve(parent) {
+                Some(parent) => slot = parent as usize,
+                None => return,
+            }
+            hops += 1;
+        }
     }
 
     /// Resolve an id to its arena slot; `None` for 0, stale or dead ids.
@@ -218,7 +298,7 @@ impl Tree {
     #[inline]
     pub fn get_mut(&mut self, id: i32) -> Option<&mut Node> {
         let s = self.resolve(id)?;
-        Some(&mut self.slots[s as usize])
+        Some(self.slot_mut(s as usize))
     }
 
     /// Allocate a detached node; returns its id, or 0 when the arena is full.
@@ -238,14 +318,17 @@ impl Tree {
         *node = Node::empty(generation);
         node.node_type = node_type;
         node.alive = true;
+        node.paint_rev = self.paint_clock;
         make_id(generation, slot)
     }
 
     /// Free one slot (bump generation so outstanding ids go stale).
     pub fn free_slot(&mut self, slot: u32) {
+        self.stamp(slot as usize);
         let node = &mut self.slots[slot as usize];
         let next_gen = (node.generation + 1) & GEN_MASK;
         *node = Node::empty(next_gen);
+        node.paint_rev = self.paint_clock;
         self.free.push(slot);
     }
 
@@ -255,9 +338,9 @@ impl Tree {
         let parent_id = self.slots[cslot as usize].parent;
         if parent_id != 0 {
             if let Some(pslot) = self.resolve(parent_id) {
-                self.slots[pslot as usize].children.retain(|&c| c != child_id);
+                self.slot_mut(pslot as usize).children.retain(|&c| c != child_id);
             }
-            self.slots[cslot as usize].parent = 0;
+            self.slot_mut(cslot as usize).parent = 0;
         }
     }
 
@@ -311,7 +394,7 @@ impl Tree {
             };
         }
         self.detach(child_id);
-        let children = &mut self.slots[pslot as usize].children;
+        let children = &mut self.slot_mut(pslot as usize).children;
         let idx = if anchor_id != 0 {
             children.iter().position(|&c| c == anchor_id)
         } else {
@@ -323,6 +406,7 @@ impl Tree {
         }
         if let Some(cslot) = self.resolve(child_id) {
             self.slots[cslot as usize].parent = parent_id;
+            self.stamp(cslot as usize);
         }
         true
     }

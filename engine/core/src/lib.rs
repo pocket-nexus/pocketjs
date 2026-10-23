@@ -454,7 +454,7 @@ impl Ui {
     /// ancestor is externally placed (its whole subtree has no solver nodes).
     fn box_owner(&self, slot: u32) -> Owner {
         let auxiliary = self.auxiliary_surface_root();
-        let mut current = self.tree.slots[slot as usize].parent;
+        let mut current = self.tree.slot(slot as usize).parent;
         loop {
             if current == spec::ROOT_ID {
                 return Owner::Primary;
@@ -465,7 +465,7 @@ impl Ui {
             let Some(parent_slot) = self.tree.resolve(current) else {
                 return Owner::Detached;
             };
-            let node = &self.tree.slots[parent_slot as usize];
+            let node = self.tree.slot(parent_slot as usize);
             if node.region_root {
                 return Owner::Region(current);
             }
@@ -478,14 +478,14 @@ impl Ui {
 
     /// The projection that holds `slot`'s children.
     fn children_owner(&self, slot: u32) -> Owner {
-        let id = self.tree.slots[slot as usize].id(slot);
+        let id = self.tree.slot(slot as usize).id(slot);
         if id == spec::ROOT_ID {
             return Owner::Primary;
         }
         if id == self.auxiliary_surface_root() {
             return Owner::Auxiliary;
         }
-        let node = &self.tree.slots[slot as usize];
+        let node = self.tree.slot(slot as usize);
         if node.region_root {
             return Owner::Region(id);
         }
@@ -531,7 +531,7 @@ impl Ui {
     }
 
     fn mark_layout_style(&mut self, slot: u32) {
-        match self.tree.slots[slot as usize].layout_mode {
+        match self.tree.slot(slot as usize).layout_mode {
             tree::LAYOUT_STATIC => return,
             tree::LAYOUT_FORMULA => {
                 self.formula_layout(slot);
@@ -555,9 +555,9 @@ impl Ui {
                 }
             }
         }
-        if self.tree.slots[slot as usize].region_root {
+        if self.tree.slot(slot as usize).region_root {
             // The region's solver root mirrors this node's layout style.
-            let id = self.tree.slots[slot as usize].id(slot);
+            let id = self.tree.slot(slot as usize).id(slot);
             self.region_engine(id).mark_region_style(id, slot);
         }
     }
@@ -565,14 +565,14 @@ impl Ui {
     /// Keep `Node::region_root` and the engine's region table in step with
     /// the resolved `contain` value (text nodes never contain).
     fn refresh_region(&mut self, slot: u32) {
-        let node = &self.tree.slots[slot as usize];
+        let node = self.tree.slot(slot as usize);
         let id = node.id(slot);
         let contained = node.node_type != spec::NodeType::Text as u8
             && style::resolve_contain(node, &self.styles) != spec::Contain::None as u8;
         if contained == node.region_root || id == spec::ROOT_ID || id == self.auxiliary_surface_root() {
             return;
         }
-        self.tree.slots[slot as usize].region_root = contained;
+        self.tree.slot_mut(slot as usize).region_root = contained;
         let auxiliary = self.auxiliary_surface_root();
         let in_auxiliary = auxiliary != 0 && self.tree.is_in_subtree(auxiliary, id);
         let engine = match self.auxiliary.as_mut() {
@@ -603,11 +603,11 @@ impl Ui {
         if id == spec::ROOT_ID || id == self.auxiliary_surface_root() || mode > tree::LAYOUT_FORMULA {
             return;
         }
-        let was_live = self.tree.slots[slot as usize].layout_mode == tree::LAYOUT_LIVE;
-        self.tree.slots[slot as usize].layout_mode = mode;
+        let was_live = self.tree.slot(slot as usize).layout_mode == tree::LAYOUT_LIVE;
+        self.tree.slot_mut(slot as usize).layout_mode = mode;
         match mode {
             tree::LAYOUT_STATIC => {
-                self.tree.slots[slot as usize].layout = tree::LayoutRect { x, y, w, h };
+                self.tree.slot_mut(slot as usize).layout = tree::LayoutRect { x, y, w, h };
             }
             tree::LAYOUT_FORMULA => self.formula_layout(slot),
             _ => {}
@@ -631,16 +631,16 @@ impl Ui {
     /// Recompute a formula node's rect from its resolved style and its
     /// parent's rect.
     fn formula_layout(&mut self, slot: u32) {
-        let parent = self.tree.slots[slot as usize].parent;
+        let parent = self.tree.slot(slot as usize).parent;
         let (parent_size, origin) = match self.tree.resolve(parent) {
             Some(parent_slot) => {
-                let rect = self.tree.slots[parent_slot as usize].layout;
+                let rect = self.tree.slot(parent_slot as usize).layout;
                 ((rect.w, rect.h), layout::absolute_origin(&self.tree, parent_slot))
             }
             None => ((0.0, 0.0), (0.0, 0.0)),
         };
-        let resolved = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
-        self.tree.slots[slot as usize].layout = layout::formula_rect(&resolved, parent_size, origin);
+        let resolved = style::resolve(self.tree.slot(slot as usize), &self.styles, true);
+        self.tree.slot_mut(slot as usize).layout = layout::formula_rect(&resolved, parent_size, origin);
     }
 
     /// Unrounded solver output of a live node relative to its parent:
@@ -741,9 +741,9 @@ impl Ui {
         let mut slots = Vec::new();
         self.tree.collect_subtree(id, &mut slots);
         for slot in slots {
-            let nid = self.tree.slots[slot as usize].id(slot);
+            let nid = self.tree.slot(slot as usize).id(slot);
             self.anims.kill_node(nid);
-            if self.tree.slots[slot as usize].region_root {
+            if self.tree.slot(slot as usize).region_root {
                 self.layout.unregister_region(nid);
                 if let Some(auxiliary) = self.auxiliary.as_mut() {
                     auxiliary.layout.unregister_region(nid);
@@ -796,7 +796,7 @@ impl Ui {
             let Some(slot) = self.tree.resolve(current) else {
                 continue;
             };
-            let node = &self.tree.slots[slot as usize];
+            let node = self.tree.slot(slot as usize);
             if node.region_root && from.is_region(current) {
                 from.unregister_region(current);
                 to.register_region(current);
@@ -854,10 +854,10 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
-        let was_initialized = self.tree.slots[slot as usize].style_initialized;
+        let old = style::resolve_animated(self.tree.slot(slot as usize), &self.styles, true);
+        let was_initialized = self.tree.slot(slot as usize).style_initialized;
         {
-            let node = &mut self.tree.slots[slot as usize];
+            let node = self.tree.slot_mut(slot as usize);
             node.style_id = if style_id < 0 {
                 spec::STYLE_ID_NONE
             } else {
@@ -884,9 +884,9 @@ impl Ui {
         };
         let bits = prop_bits(kind, value);
         // A direct set wins over any running animation on the same prop.
-        let nid = self.tree.slots[slot as usize].id(slot);
+        let nid = self.tree.slot(slot as usize).id(slot);
         self.anims.kill_for(nid, prop);
-        let node = &mut self.tree.slots[slot as usize];
+        let node = self.tree.slot_mut(slot as usize);
         tree::Node::remove_entry(&mut node.anim_values, prop);
         tree::Node::put_entry(&mut node.overrides, prop, bits);
         if spec::is_layout_dirtying(prop) {
@@ -905,8 +905,8 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        if self.tree.slots[slot as usize].node_type != spec::NodeType::Text as u8
-            || self.tree.slots[slot as usize].text == text
+        if self.tree.slot(slot as usize).node_type != spec::NodeType::Text as u8
+            || self.tree.slot(slot as usize).text == text
         {
             return;
         }
@@ -915,9 +915,9 @@ impl Ui {
         // non-empty flip is structural: empty runs are excluded from the
         // taffy tree entirely, so the leaf has to (dis)appear.
         let root_slot = self.text_layout_root(slot);
-        if self.tree.slots[root_slot as usize].layout_mode != tree::LAYOUT_LIVE {
+        if self.tree.slot(root_slot as usize).layout_mode != tree::LAYOUT_LIVE {
             // An externally placed cell: the run never sizes the box.
-            let node = &mut self.tree.slots[slot as usize];
+            let node = self.tree.slot_mut(slot as usize);
             node.text.clear();
             node.text.push_str(text);
             return;
@@ -926,14 +926,14 @@ impl Ui {
         self.tree.collect_run(root_slot, &mut run);
         let was_empty = run.is_empty();
         {
-            let node = &mut self.tree.slots[slot as usize];
+            let node = self.tree.slot_mut(slot as usize);
             node.text.clear();
             node.text.push_str(text);
         }
         run.clear();
         self.tree.collect_run(root_slot, &mut run);
         if was_empty != run.is_empty() {
-            let parent = self.tree.slots[root_slot as usize].parent;
+            let parent = self.tree.slot(root_slot as usize).parent;
             self.mark_layout_structure_under(parent);
         } else if !run.is_empty() {
             // A text swap inside a FIXED cell (definite px width AND height
@@ -941,7 +941,7 @@ impl Ui {
             // ignored on both axes. Skip the relayout entirely; paint reads
             // the tree text directly, and any later relayout re-collects the
             // run from the tree (never from the stale taffy context).
-            let r = style::resolve(&self.tree.slots[root_slot as usize], &self.styles, true);
+            let r = style::resolve(self.tree.slot(root_slot as usize), &self.styles, true);
             let fixed =
                 r.width.is_finite() && r.width >= 0.0 && r.height.is_finite() && r.height >= 0.0;
             if !fixed {
@@ -1165,7 +1165,7 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        let node = &mut self.tree.slots[slot as usize];
+        let node = self.tree.slot_mut(slot as usize);
         if node.node_type == spec::NodeType::Image as u8 {
             node.tex = if tex < 0 { -1 } else { tex };
             node.sprite_frames = 0; // set_image reverts a sprite to a static image
@@ -1179,7 +1179,7 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        let node = &mut self.tree.slots[slot as usize];
+        let node = self.tree.slot_mut(slot as usize);
         if node.node_type != spec::NodeType::Surface as u8 {
             return;
         }
@@ -1191,8 +1191,7 @@ impl Ui {
     /// AppSupervisor uses this lifecycle view to distinguish minimize from close.
     pub fn compositor_surface_bindings(&self) -> Vec<(u32, bool)> {
         self.tree
-            .slots
-            .iter()
+            .nodes()
             .filter(|node| {
                 node.alive
                     && node.node_type == spec::NodeType::Surface as u8
@@ -1276,7 +1275,7 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        let node = &mut self.tree.slots[slot as usize];
+        let node = self.tree.slot_mut(slot as usize);
         if node.node_type != spec::NodeType::Image as u8 {
             return;
         }
@@ -1342,9 +1341,9 @@ impl Ui {
         let kind = spec::PROP_VALUE_KIND[prop as usize];
         let is_color = kind == spec::value_kind::COLOR;
         let from =
-            style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true).get_bits(prop);
+            style::resolve_animated(self.tree.slot(slot as usize), &self.styles, true).get_bits(prop);
         let to_bits = prop_bits(kind, to);
-        let nid = self.tree.slots[slot as usize].id(slot);
+        let nid = self.tree.slot(slot as usize).id(slot);
         if !is_color {
             let (f, t) = (f32::from_bits(from), f32::from_bits(to_bits));
             // SIZE_FULL sentinel (any negative width/height) is NOT animatable
@@ -1357,7 +1356,7 @@ impl Ui {
             // dynamic override (browser-style "transition from auto" snap).
             if f.is_nan() || t.is_nan() {
                 self.anims.kill_for(nid, prop);
-                let node = &mut self.tree.slots[slot as usize];
+                let node = self.tree.slot_mut(slot as usize);
                 tree::Node::remove_entry(&mut node.anim_values, prop);
                 tree::Node::put_entry(&mut node.overrides, prop, to_bits);
                 if spec::is_layout_dirtying(prop) {
@@ -1379,7 +1378,7 @@ impl Ui {
             self.tick_hz,
         );
         if anim_id > 0 {
-            let node = &mut self.tree.slots[slot as usize];
+            let node = self.tree.slot_mut(slot as usize);
             tree::Node::put_entry(&mut node.anim_values, prop, from);
         }
         anim_id
@@ -1403,7 +1402,7 @@ impl Ui {
             (t.node, t.prop)
         };
         if let Some(slot) = self.tree.resolve(node_id) {
-            let node = &mut self.tree.slots[slot as usize];
+            let node = self.tree.slot_mut(slot as usize);
             if let Some(cur) = tree::Node::find_entry(&node.anim_values, prop) {
                 tree::Node::put_entry(&mut node.overrides, prop, cur);
                 tree::Node::remove_entry(&mut node.anim_values, prop);
@@ -1431,14 +1430,14 @@ impl Ui {
         let old_focused = self.focused;
         self.focused = target;
         if let Some(slot) = self.tree.resolve(old_focused) {
-            let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
-            self.tree.slots[slot as usize].focused = false;
+            let old = style::resolve_animated(self.tree.slot(slot as usize), &self.styles, true);
+            self.tree.slot_mut(slot as usize).focused = false;
             self.retarget(slot, &old, true);
             self.mark_layout_style(slot);
         }
         if let Some(slot) = self.tree.resolve(target) {
-            let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
-            self.tree.slots[slot as usize].focused = true;
+            let old = style::resolve_animated(self.tree.slot(slot as usize), &self.styles, true);
+            self.tree.slot_mut(slot as usize).focused = true;
             self.retarget(slot, &old, true);
             self.mark_layout_style(slot);
         }
@@ -1451,7 +1450,7 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        if self.tree.slots[slot as usize].active == active {
+        if self.tree.slot(slot as usize).active == active {
             return;
         }
         // A record without an `active:` variant cannot change the resolved
@@ -1459,14 +1458,14 @@ impl Ui {
         // restarts in-flight transitions (CSS :active semantics).
         let has_active = self
             .styles
-            .record(self.tree.slots[slot as usize].style_id)
+            .record(self.tree.slot(slot as usize).style_id)
             .is_some_and(|r| !r.active.is_empty());
         if !has_active {
-            self.tree.slots[slot as usize].active = active;
+            self.tree.slot_mut(slot as usize).active = active;
             return;
         }
-        let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
-        self.tree.slots[slot as usize].active = active;
+        let old = style::resolve_animated(self.tree.slot(slot as usize), &self.styles, true);
+        self.tree.slot_mut(slot as usize).active = active;
         self.retarget(slot, &old, true);
         self.mark_layout_style(slot);
     }
@@ -1624,7 +1623,7 @@ impl Ui {
                 self.anims.finish(tslot, anim::CompletionReason::Dropped);
                 continue;
             };
-            let node = &mut self.tree.slots[slot as usize];
+            let node = self.tree.slot_mut(slot as usize);
             if done {
                 match kind {
                     // Transition target == the new resolved value: drop the
@@ -1807,7 +1806,7 @@ impl Ui {
             }
             let mut layout_changed = false;
             {
-                let node = &mut self.tree.slots[slot as usize];
+                let node = self.tree.slot_mut(slot as usize);
                 for &(prop, value) in &writes {
                     let prev = tree::Node::find_entry(&node.anim_values, prop);
                     match value {
@@ -1837,13 +1836,13 @@ impl Ui {
     /// After a style application on `slot`: stop the node's playing timelines
     /// and start the new record's animation block (if any) from frame 0.
     fn restart_timelines(&mut self, slot: u32) {
-        let node_id = self.tree.slots[slot as usize].id(slot);
+        let node_id = self.tree.slot(slot as usize).id(slot);
         for inst in self.timelines.iter_mut() {
             if inst.alive && inst.node == node_id {
                 inst.alive = false;
             }
         }
-        let style_id = self.tree.slots[slot as usize].style_id;
+        let style_id = self.tree.slot(slot as usize).style_id;
         let Some(animation) = self
             .styles
             .record(style_id)
@@ -1918,6 +1917,8 @@ impl Ui {
         } else {
             None
         };
+        self.tree.begin_paint();
+        self.paint_cache.set_resources(self.raster_revision);
         let (target, drawn, provider_stale) = draw::build(
             &self.tree,
             &self.styles,
@@ -1945,6 +1946,7 @@ impl Ui {
             // matches the repaint's expectation by construction.
             self.mark_layout_dirty();
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
+            self.tree.begin_paint();
             let retry = draw::build(
                 &self.tree,
                 &self.styles,
@@ -1969,7 +1971,41 @@ impl Ui {
         if self.inspect_id != 0 {
             self.inspect_rect = target;
         }
+        #[cfg(any(test, feature = "verify-paint-memo"))]
+        self.verify_paint_memo(cursor);
         &self.draw_list
+    }
+
+    /// Repeat the walk with the silent-subtree memo off and require the same
+    /// DrawList.
+    #[cfg(any(test, feature = "verify-paint-memo"))]
+    fn verify_paint_memo(&mut self, cursor: Option<(u32, f32, f32, f32, f32)>) {
+        if self.inspect_id != 0 || self.draw_list.capture_texts != 0 {
+            return;
+        }
+        let memoized = self.draw_list.words.clone();
+        let misses = self.fonts.misses.get();
+        self.paint_cache.set_memo(false);
+        let mut full = DrawList::default();
+        draw::build(
+            &self.tree,
+            &self.styles,
+            &self.fonts,
+            &self.font_revisions,
+            self.frame,
+            self.layout.viewport,
+            &mut self.textures,
+            &mut self.tex_free,
+            &mut self.paint_cache,
+            self.raster_density,
+            &mut full,
+            0,
+            None,
+            cursor,
+        );
+        self.paint_cache.set_memo(true);
+        self.fonts.misses.set(misses);
+        assert!(memoized == full.words, "the paint memo changed the DrawList");
     }
 
     /// Return the DrawList most recently produced by [`draw`](Self::draw)
@@ -1992,6 +2028,8 @@ impl Ui {
                 auxiliary.root,
             );
         }
+        self.tree.begin_paint();
+        self.paint_cache.set_resources(self.raster_revision);
         let (target, drawn, provider_stale) = draw::build_root(
             &self.tree,
             &self.styles,
@@ -2019,6 +2057,7 @@ impl Ui {
                 &mut auxiliary.layout,
                 auxiliary.root,
             );
+            self.tree.begin_paint();
             let retry = draw::build_root(
                 &self.tree,
                 &self.styles,
@@ -2323,11 +2362,11 @@ impl Ui {
     /// laid out independently.
     fn text_layout_root(&self, mut slot: u32) -> u32 {
         loop {
-            let parent = self.tree.slots[slot as usize].parent;
+            let parent = self.tree.slot(slot as usize).parent;
             let Some(parent_slot) = self.tree.resolve(parent) else {
                 return slot;
             };
-            if self.tree.slots[parent_slot as usize].node_type != spec::NodeType::Text as u8 {
+            if self.tree.slot(parent_slot as usize).node_type != spec::NodeType::Text as u8 {
                 return slot;
             }
             slot = parent_slot;
@@ -2339,11 +2378,11 @@ impl Ui {
     /// to = the new resolved target sans animation values), and drop stale
     /// anim values so the new style shows through.
     fn retarget(&mut self, slot: u32, old: &style::Resolved, allow_transition: bool) {
-        let node_id = self.tree.slots[slot as usize].id(slot);
-        let target = style::resolve(&self.tree.slots[slot as usize], &self.styles, false);
+        let node_id = self.tree.slot(slot as usize).id(slot);
+        let target = style::resolve(self.tree.slot(slot as usize), &self.styles, false);
         let transition = self
             .styles
-            .record(self.tree.slots[slot as usize].style_id)
+            .record(self.tree.slot(slot as usize).style_id)
             .and_then(|r| r.transition);
         // Which props spawn tweens?
         let mut spawned: [bool; 256] = [false; 256];
@@ -2389,7 +2428,7 @@ impl Ui {
                     );
                     if aid > 0 {
                         spawned[prop as usize] = true;
-                        let node = &mut self.tree.slots[slot as usize];
+                        let node = self.tree.slot_mut(slot as usize);
                         tree::Node::put_entry(&mut node.anim_values, prop, from);
                     }
                 }
@@ -2399,7 +2438,7 @@ impl Ui {
         // previous style) so the new resolved style isn't masked. Props we
         // just spawned keep their entry; other live tracks keep theirs.
         let anims = &self.anims;
-        let node = &mut self.tree.slots[slot as usize];
+        let node = self.tree.slot_mut(slot as usize);
         node.anim_values
             .retain(|&(p, _)| spawned[p as usize] || anims.has_live(node_id, p));
     }

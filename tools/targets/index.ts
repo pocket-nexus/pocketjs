@@ -9,6 +9,7 @@ import { POCKET_PLATFORM_CONTRACTS, type PlatformContractRegistry } from "../../
 import { THREE_DS_DEV_CONTRACTS, THREE_DS_DEV_TARGET_ID } from "../3ds-profile.ts";
 import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "../moto-g-play-profile.ts";
 import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "../redmi-1s-profile.ts";
+import { PASSPORT_PRIME_CONTRACTS, PASSPORT_PRIME_TARGET } from "../passport-prime-profile.ts";
 import { BLACKBERRY_CLASSIC_DEV_CONTRACTS, BLACKBERRY_QNX_DEV_TARGET_ID } from "../blackberry-classic-profile.ts";
 import { MEIZU_M8_DEV_CONTRACTS, MEIZU_M8_DEV_TARGET_ID } from "../meizu-m8-profile.ts";
 import { SYMBIAN_E7_DEV_CONTRACTS, SYMBIAN_E7_DEV_TARGET_ID } from "../symbian-profile.ts";
@@ -68,6 +69,7 @@ export const CATALOG: readonly TargetDescriptor[] = [
   registered("macos-widget", "macOS widget", MACOS, compilerOnly("macos-widget")),
   profile("moto-g-play", "Moto G Play (Android)", MOTO_G_PLAY_TARGET, MOTO_G_PLAY_CONTRACTS, ANDROID_NDK),
   profile("redmi-1s", "Redmi 1S (Android)", REDMI_1S_TARGET, REDMI_1S_CONTRACTS, ANDROID_NDK),
+  profile("passport-prime", "Passport Prime (KeyOS)", PASSPORT_PRIME_TARGET, PASSPORT_PRIME_CONTRACTS, HOST_IDS),
   profile("blackberry-classic", "BlackBerry Classic (QNX)", BLACKBERRY_QNX_DEV_TARGET_ID, BLACKBERRY_CLASSIC_DEV_CONTRACTS, HOST_IDS),
   profile("meizu-m8", "Meizu M8 (Windows CE)", MEIZU_M8_DEV_TARGET_ID, MEIZU_M8_DEV_CONTRACTS, HOST_IDS),
   profile("nokia-e7", "Nokia E7 (Symbian)", SYMBIAN_E7_DEV_TARGET_ID, SYMBIAN_E7_DEV_CONTRACTS, HOST_IDS),

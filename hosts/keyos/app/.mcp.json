@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "passport-drive": {
+      "type": "stdio",
+      "command": "foundation-passport-drive",
+      "args": ["mcp"]
+    }
+  }
+}

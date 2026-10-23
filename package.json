@@ -367,6 +367,7 @@
     "android": "bun tools/android.ts",
     "moto-g-play": "bun tools/moto-g-play.ts",
     "redmi-1s": "bun tools/android.ts --profile=redmi-1s",
+    "keyos": "bun tools/keyos.ts",
     "ime:setup": "bun tools/ime/setup.ts",
     "clear:companion": "bun tools/ime/device.ts",
     "test:fuzz": "bun microts/compiler/model-fuzz.ts"
