@@ -4,7 +4,7 @@ PIDFILE=/var/run/pocketjs.pid
 case "$1" in
  start)
   [ -f /usr/share/pocketjs/app.pocket ] || exit 0
-  start-stop-daemon -S -b -m -p "$PIDFILE" -x "$DAEMON" -- --profile /usr/share/pocketjs/pocket-profile.json
+  start-stop-daemon -S -b -m -p "$PIDFILE" -x "$DAEMON"
   ;;
  stop) start-stop-daemon -K -p "$PIDFILE" -x "$DAEMON"; rm -f "$PIDFILE" ;;
  restart) "$0" stop; "$0" start ;;

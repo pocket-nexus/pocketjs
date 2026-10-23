@@ -38,6 +38,7 @@ on:
       - "engine/render/tri-batch/**"
       - "engine/runtime/**"
       - "engine/runtime-cabi/**"
+      - "engine/profile-build/**"
       - "engine/guest-quickjs/**"
       - "package.json"
       - "bun.lock"

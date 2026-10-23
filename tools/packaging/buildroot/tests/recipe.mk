@@ -29,5 +29,5 @@ $(SOURCE)/.recipe-smoke:
 	$(POCKETJS_INSTALL_TARGET_CMDS)
 	$(POCKETJS_APP_INSTALL_TARGET_CMDS)
 	$(POCKETJS_INSTALL_INIT_SYSV)
-	$(TARGET_DIR)/usr/bin/pocket-linux-kms --headless --frames 3 --profile $(TARGET_DIR)/usr/share/pocketjs/pocket-profile.json --package $(TARGET_DIR)/usr/share/pocketjs/app.pocket
+	$(TARGET_DIR)/usr/bin/pocket-linux-kms --headless --frames 3 --package $(TARGET_DIR)/usr/share/pocketjs/app.pocket
 	$(TARGET_DIR)/usr/bin/pocket-linux-kms --pcm-test null

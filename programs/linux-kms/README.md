@@ -21,4 +21,4 @@ DRM/KMS is attempted first; failure opens fbdev. Both drivers must match the pro
 
 `--features alsa` adds the optional PCM component. `--pcm-test null` writes and drains 512 stereo frames through libasound's null plugin. **The default profile does not promise `audio.pcm` and the program does not mount `globalThis.audio`.** A product that promises guest audio must compose its stream service with the ALSA component and export that capability.
 
-The Buildroot adapter installs `/usr/bin/pocket-linux-kms`, an independent `/usr/share/pocketjs/pocket-profile.json`, and the application package at `/usr/share/pocketjs/app.pocket`.
+The Buildroot adapter compiles the exported profile into `/usr/bin/pocket-linux-kms` and installs the application package at `/usr/share/pocketjs/app.pocket`.

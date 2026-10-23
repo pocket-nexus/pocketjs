@@ -14,10 +14,12 @@ config BR2_PACKAGE_POCKETJS
 
 if BR2_PACKAGE_POCKETJS
 config BR2_PACKAGE_POCKETJS_PROFILE
-	string "Exported pocket-profile.json path"
+	string "Exported profile directory"
 	help
-	  Independent trusted profile exported before application compilation.
-	  This file is installed beside app.pocket; it must describe this product.
+	  The directory `pocket profile export --out` wrote before application
+	  compilation. Its pocket-profile.json is checked against the binding
+	  generation and must describe this product; its pocket_profile.rs is
+	  compiled into the program, which admits packages against those facts.
 
 config BR2_PACKAGE_POCKETJS_ALSA
 	bool "ALSA PCM component"

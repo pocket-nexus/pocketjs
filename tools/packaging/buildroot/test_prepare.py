@@ -59,12 +59,26 @@ class PreparationTests(unittest.TestCase):
 
     def test_profile_is_independent_of_application_and_bound_to_generation(self):
         canonical = '{"platform":"linux"}'
-        value = {"format": "pocket-profile/1", "hostAbi": 12, "canonicalProfileJson": canonical, "profile": {"platform": "linux"}, "profileHash": "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()}
-        path = self.path / "profile.json"
+        digest = hashlib.sha256(canonical.encode()).digest()
+        value = {"format": "pocket-profile/1", "hostAbi": 12, "canonicalProfileJson": canonical, "profile": {"platform": "linux"}, "profileHash": "sha256:" + digest.hex()}
+        path = self.path / "pocket-profile.json"
         path.write_text(json.dumps(value))
+        module = self.path / "pocket_profile.rs"
+        def write_module(generation, hash_bytes):
+            module.write_text(f"pub const HOST_ABI: u32 = {generation};\npub const PROFILE_HASH: [u8; 32] = [{', '.join(map(str, hash_bytes))}];\n")
+        with self.assertRaisesRegex(ValueError, "missing pocket_profile.rs"):
+            profile.validate(path, 12)
+        write_module(12, digest)
         profile.validate(path, 12)
         with self.assertRaises(ValueError):
             profile.validate(path, 11)
+        # The compiled-in module must be the sidecar's export, not another one.
+        write_module(11, digest)
+        with self.assertRaisesRegex(ValueError, "binding generation"):
+            profile.validate(path, 12)
+        write_module(12, bytes(32))
+        with self.assertRaisesRegex(ValueError, "does not match pocket-profile.json"):
+            profile.validate(path, 12)
 
 if __name__ == "__main__":
     unittest.main()

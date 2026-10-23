@@ -3,21 +3,34 @@ use pocket_drivers::*;
 use pocket_package::source::{LoadedPackage, MemorySource};
 use pocket_present::{Coordinator, DisplayId, RendererId};
 use pocket_runtime::{
-    Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, Runtime, RuntimeConfig,
-    RuntimeError,
+    Cow, Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, Profile, Runtime,
+    RuntimeConfig, RuntimeError,
 };
 use std::{cell::RefCell, rc::Rc};
 use support::{Device, Event, Fault, Resources, Shared, HEIGHT, WIDTH};
 
+/// The canonical profile JSON `pocket profile export` hashes; the runtime
+/// receives the hash and the facts below, never this text.
 const PROFILE: &[u8] = br#"{"capabilities":["input.buttons","input.analog.left","input.touch"],"display":{"logicalViewports":[[8,6]],"physicalViewport":[8,6],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"consumer","platform":"external-test","tickHz":60}"#;
 fn config() -> RuntimeConfig {
     RuntimeConfig {
         profile_hash: pocket_package::sha256::sha256(PROFILE),
         host_abi: pocket_spec::BINDING_GENERATION,
-        tick_hz: 60,
         heap_limit: 65536,
         frame_buffer_budget: (WIDTH * HEIGHT * 4) as usize,
-        profile_json: PROFILE.to_vec(),
+        profile: Profile {
+            id: Cow::Borrowed("consumer"),
+            tick_hz: 60,
+            viewport: [WIDTH, HEIGHT],
+            logical_viewports: Cow::Borrowed(&[[WIDTH, HEIGHT]]),
+            dynamic_viewport: None,
+            auxiliary: None,
+            auxiliary_logical: Cow::Borrowed(&[]),
+            density: 1,
+            required_inputs: InputClasses::BUTTONS
+                | InputClasses::AXIS_ABSOLUTE
+                | InputClasses::CONTACT,
+        },
     }
 }
 fn package() -> Vec<u8> {

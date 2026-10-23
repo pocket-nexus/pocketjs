@@ -68,6 +68,7 @@ on:
       - "programs/native/cabi/**"
       - "engine/runtime/**"
       - "engine/runtime-cabi/**"
+      - "engine/profile-build/**"
       - "devices/gles/**"
       - "devices/psp/pocket-psp-render/**"
       - "devices/psp/pocket-psp-ge/**"
