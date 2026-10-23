@@ -1,13 +1,12 @@
-use crate::{graphics, input, instance, svc, switch, vid, vita_log};
+use crate::{graphics, input, instance, profile, svc, switch, vid, vita_log};
 use libquickjs_sys::*;
-use pocket_runtime::{CoreState, OpContext};
+use pocket_runtime::{CoreState, OpContext, RuntimeConfig};
 use pocket_runtime_cabi::{abi::*, embedding as embed};
 use pocketjs_core::Ui;
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
     string::String,
-    sync::Arc,
 };
 static mut INPUT_INITIALIZED: bool = false;
 static mut GUEST_NATIVE_ACTIVE: bool = false;
@@ -27,29 +26,20 @@ impl std::ops::DerefMut for UiGuard<'_> {
 }
 
 /// Vita composition around one canonical runtime C handle and generated C
-/// guest. Native namespaces can still use context()/global() before eval().
+/// guest. Native namespaces can still use context()/global() before
+/// eval_package().
 pub struct Runtime {
     handle: *mut PocketRuntime,
     guest: Box<instance::Guest>,
     ops: OpContext,
     input: Rc<RefCell<instance::Input>>,
-    pak: Arc<[u8]>,
     booted: bool,
-    trusted_profile: bool,
 }
 impl Runtime {
     /// # Safety
     /// One live guest on the Vita render thread. Shutdown at a closed scene
     /// boundary before replacing it. Native QuickJS extensions use this realm.
-    pub unsafe fn new(pak: &'static [u8]) -> Result<Self, String> {
-        Self::from_pak(Arc::from(pak))
-    }
-    /// # Safety
-    /// Same render-thread and guest-boundary requirements as new().
-    pub unsafe fn with_owned_pak(pak: Arc<[u8]>) -> Result<Self, String> {
-        Self::from_pak(pak)
-    }
-    unsafe fn from_pak(pak: Arc<[u8]>) -> Result<Self, String> {
+    pub unsafe fn new() -> Result<Self, String> {
         if GUEST_NATIVE_ACTIVE {
             return Err("previous PocketJS Vita guest was not shut down".into());
         }
@@ -58,20 +48,14 @@ impl Runtime {
             input::init();
             INPUT_INITIALIZED = true;
         }
-        let trusted_profile = instance::build_profile()?.is_some();
-        let profile = instance::profile()?;
-        let mut config = PocketRuntimeConfig::empty();
-        config.profile_hash = pocket_package::sha256::sha256(&profile);
-        config.host_abi = pocket_spec::BINDING_GENERATION;
-        config.tick_hz = 60;
-        config.heap_limit = 128 * 1024 * 1024;
-        config.frame_buffer_budget = 1;
-        config.profile_json = profile.as_ptr();
-        config.profile_json_length = profile.len();
-        let handle = pocket_runtime_cabi::pocket_runtime_create(&config);
-        if handle.is_null() {
-            return Err("Vita runtime profile rejected".into());
-        }
+        let handle = embed::create(RuntimeConfig {
+            profile_hash: profile::PROFILE_HASH,
+            host_abi: profile::HOST_ABI,
+            heap_limit: 128 * 1024 * 1024,
+            frame_buffer_budget: 1,
+            profile: profile::profile().expect("build.rs requires an exported profile"),
+        })
+        .map_err(|error| format!("Vita runtime profile rejected: {error:?}"))?;
         let ops = match embed::op_context(handle) {
             Ok(ops) => ops,
             Err(error) => {
@@ -95,9 +79,7 @@ impl Runtime {
             guest,
             ops,
             input,
-            pak,
             booted: false,
-            trusted_profile,
         };
         runtime
             .ops
@@ -144,47 +126,20 @@ impl Runtime {
     pub unsafe fn ui(&mut self) -> UiGuard<'_> {
         UiGuard(self.ops.core_mut().expect("inactive Vita runtime"))
     }
-    /// # Safety
-    /// Call once on the owning thread before any shared native scene opens.
-    /// Package construction retains the old JS/pak embedding entry point.
-    pub unsafe fn eval(&mut self, source: &str) -> Result<(), String> {
-        let pak = self.pak.clone();
-        self.eval_raw(source, &pak)
-    }
-    /// Boot a caller's raw JS/pak input through the embedding compatibility
-    /// encoder. A .pocket input must use eval_package to retain its plan.
-    /// # Safety
-    /// Same requirements as eval().
-    pub unsafe fn eval_raw(&mut self, source: &str, pak: &[u8]) -> Result<(), String> {
-        if self.booted {
-            return Err("Vita guest already booted".into());
-        }
-        if source.as_bytes().last() != Some(&0) {
-            return Err("PocketJS Vita bundle must be NUL-terminated".into());
-        }
-        let package = instance::package(source.as_bytes(), pak)?;
-        self.boot_bytes(package)
-    }
     /// Boot the original .pocket bytes, including its admission facts. Runtime
     /// owns the source and retains its selected package through guest shutdown.
     /// # Safety
-    /// Same requirements as eval().
+    /// Call once on the owning thread before any shared native scene opens.
     pub unsafe fn eval_package(&mut self, bytes: impl AsRef<[u8]> + 'static) -> Result<(), String> {
-        if !self.trusted_profile {
-            return Err("Vita packages require exported profile build inputs".into());
-        }
         self.boot_bytes(bytes)
     }
     /// Boot a device file source through the sole Runtime loader.
     /// # Safety
-    /// Same owning-thread and once-before-frame requirements as eval().
+    /// Same owning-thread and once-before-frame requirements as eval_package().
     pub unsafe fn eval_source(
         &mut self,
         source: impl pocket_drivers::PackageSource + 'static,
     ) -> Result<(), String> {
-        if !self.trusted_profile {
-            return Err("Vita packages require exported profile build inputs".into());
-        }
         if self.booted {
             return Err("Vita guest already booted".into());
         }

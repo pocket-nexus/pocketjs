@@ -118,7 +118,8 @@ PocketJS/
   programs/psp/              Rust bin `pocketjs-psp` — the EBOOT (standalone dir, lone bin)
     Cargo.toml         exact-revision pocket-nexus psp + libquickjs-sys deps;
                        pocketjs-core (local path)
-    build.rs           embeds $POCKETJS_APP_OUTPUT js + app.pak when the stock backend owns packaging;
+    build.rs           embeds the compiled $POCKETJS_EMBED_PACKAGE when the stock backend owns packaging,
+                       and $POCKETJS_PROFILE_RS as OUT_DIR/pocket_profile.rs;
                        [features] capture = [] for the E2E frame-dump
     targets/mipsel-sony-psp.json  copied from runtime/ (self-contained)
     framework/src/main.rs        boot (2MB USER|VFPU worker), vblank loop, job pump
@@ -243,11 +244,12 @@ The link adapter places SDK C libraries after the Rust archives that own
 memory and math exports. The SDK archives remain unchanged.
 
 `POCKETJS_APP_OUTPUT` and `POCKETJS_EMBED_APP` select the embedded guest;
-`POCKETJS_OUTPUT_DIR` carries its artifact directory. A `--plan` build also
-passes the original resolved plan to the package adapter, preserving its
-identity and feature declarations. Catalog packages and `app.pocket` enter
-Runtime as their original bytes. **Runtime performs package admission**
-before guest initialization.
+`POCKETJS_EMBED_PACKAGE` names the compiled `.pocket` the EBOOT embeds, and
+`POCKETJS_PROFILE_RS` the exported profile module its runtime configuration
+comes from. `tools/psp.ts <demo>` compiles the demo with `pocket compile`
+first. Embedded packages, catalog packages and `app.pocket` enter Runtime as
+their original bytes; **the EBOOT encodes no package at boot**. **Runtime
+performs package admission** before guest initialization.
 
 ## The native contract (`ui.*`)
 

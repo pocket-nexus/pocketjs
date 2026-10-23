@@ -30,16 +30,18 @@ commands that followed the old `render_over()` must move into the callback.
 The following `graphics::present()` call is accepted as a compatibility no-op.
 `Runtime::render_with_overlay` opens a new scene for the stock host.
 
-`eval` admits the JS/pak pair through the package reader and does not submit
-GPU work. `frame_with_input` samples input, calls the guest and ticks the core
+`eval_package` admits a compiled `.pocket` through the package reader and does
+not submit GPU work. The program embeds no raw JS/pak pair and encodes no
+package at startup; its profile is the `pocket_profile.rs` the build tool
+exports. `frame_with_input` samples input, calls the guest and ticks the core
 once. The retained `tick()` compatibility method has no effect. `ui()` returns
 a scoped guard; release it before calling the runtime or recording an overlay.
 
 `pocketjs-vita` is the native PS Vita host for PocketJS. It embeds QuickJS,
 feeds the normal PocketJS pak, renders the standard DrawList with vita2d/GXM,
 and reads the physical Vita controller. Applications do not need a
-Vita-specific entry point, but their JS/pak pair is recompiled from the
-resolved Vita plan so density and host-contract constants are target-correct.
+Vita-specific entry point, but their package is compiled from the resolved
+Vita plan so density and host-contract constants are target-correct.
 
 The PocketJS logical viewport remains 480x272, so PSP applications keep the
 same layout. The resolved Vita profile separately sets a 960x544 physical

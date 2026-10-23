@@ -1,15 +1,14 @@
-//! Embeds the built app bundle(s) + asset pack(s) into the EBOOT at build
-//! time. Pattern copied from the dreamcart runtime (runtime/build.rs, the
-//! PSPJS_GAME pattern), with app selection separated from embed ownership.
+//! Embeds the compiled application package(s) into the EBOOT at build time,
+//! and the program's exported profile (`POCKETJS_PROFILE_RS`, see
+//! engine/profile-build) as `$OUT_DIR/pocket_profile.rs`.
 //!
-//! The stock backend sets `POCKETJS_APP_OUTPUT` and `POCKETJS_EMBED_APP=1`.
-//! Custom native hosts consume the same output name but leave embedding to
-//! their own primary crate, so this runtime remains a reusable dependency.
-//! `POCKETJS_APP=<name>` remains a legacy shorthand that implies embedding.
-//!
-//! Both embeds have EMPTY fallbacks so include_str!/include_bytes! in main.rs
-//! always resolve — an EBOOT built with no app boots to the JS-error screen
-//! rather than failing the build.
+//! The stock backend sets `POCKETJS_APP_OUTPUT`, `POCKETJS_EMBED_APP=1` and
+//! `POCKETJS_EMBED_PACKAGE=<absolute .pocket path>`; the package bytes are
+//! embedded verbatim. Custom native hosts consume the same output name but
+//! leave embedding to their own primary crate, so this runtime remains a
+//! reusable dependency. `POCKETJS_APP=<name>` remains a legacy shorthand that
+//! implies embedding. Without embedding the table entry is empty and the EBOOT
+//! reports that it carries no application.
 //!
 //! Multi-app mode (docs/LAUNCHER.md): `POCKETJS_LAUNCHER_REGISTRY=<path to the
 //! launcher-registry.tsv tools/launcher.ts emits>` embeds app 0 = the
@@ -31,6 +30,7 @@ fn dimension(name: &str, fallback: u32) -> u32 {
 }
 
 fn main() {
+    pocket_profile_build::emit(pocket_profile_build::Export::Required);
     for name in [
         "POCKET_QJS_SOURCE",
         "POCKET_PSP_CC",
@@ -206,20 +206,6 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("../../dist"));
     let out_dir = env::var("OUT_DIR").unwrap();
-    println!("cargo:rerun-if-env-changed=POCKETJS_RESOLVED_PLAN");
-    let plan_path = env::var("POCKETJS_RESOLVED_PLAN").unwrap_or_default();
-    let embedded_plan = if plan_path.is_empty() {
-        Vec::new()
-    } else {
-        assert!(embed_app, "a resolved plan requires an embedded guest");
-        println!("cargo:rerun-if-changed={plan_path}");
-        fs::read(&plan_path).expect("read PSP resolved plan")
-    };
-    fs::write(
-        Path::new(&out_dir).join("embedded-plan.json"),
-        embedded_plan,
-    )
-    .unwrap();
 
     let package = env::var_os("POCKETJS_EMBED_PACKAGE")
         .filter(|value| !value.is_empty())
@@ -227,6 +213,12 @@ fn main() {
     let registry = env::var_os("POCKETJS_LAUNCHER_REGISTRY")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
+    // The runtime admits compiled packages only; a raw JS/pak bundle has no
+    // plan, identity or profile hash to admit.
+    assert!(
+        !embed_app || package.is_some() || registry.is_some(),
+        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_PACKAGE: embed a compiled .pocket"
+    );
     let packages = env::var_os("POCKETJS_LAUNCHER_PACKAGES")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);

@@ -5,8 +5,8 @@
 //! pspsh autopsy ("is audio underrunning?", "are frames being presented or
 //! torn?", "did the svc offset defense fire?") into a single devtools
 //! query. Also carries the build identity (app output name + FNV-1a64 of
-//! the embedded js+pak, computed by build.rs) so the PSPLINK bridge can
-//! detect a stale embed the moment the device says hello.
+//! the embedded package bytes, computed by build.rs) so the PSPLINK bridge
+//! can detect a stale embed the moment the device says hello.
 //!
 //! Counters are u32 and free-running; readers diff two snapshots over a
 //! known window rather than resetting (writers stay wait-free, and two

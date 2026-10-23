@@ -110,7 +110,7 @@ fn fail(message: &str) -> ! {
 /// Boot one embedded guest, drive it until an app switch is requested, then
 /// retire it at a closed-scene boundary and return the next table index.
 unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<Runtime, String> {
-    let mut runtime = Runtime::new(&[])?;
+    let mut runtime = Runtime::new()?;
     let started = if let Some(bundle) = active {
         runtime.eval_package(bundle.package.clone())
     } else {
@@ -118,7 +118,6 @@ unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<R
             Ok(switch::GuestBytes::Package(bytes)) => runtime.eval_package(bytes),
             #[cfg(feature="runtime")]
             Ok(switch::GuestBytes::File) => runtime.eval_source(pocketjs_vita::package_file::source()?),
-            Ok(switch::GuestBytes::Raw { js, pak }) => runtime.eval_raw(js, pak),
             Err(error) => Err(error),
         }
     };
@@ -135,7 +134,6 @@ fn embedded_hash(app_index: usize) -> String {
             // The development protocol identifies content by JS/pak. Reading
             // them here does not select the bytes used for runtime admission.
             let (js, pak) = match guest {
-                switch::GuestBytes::Raw { js, pak } => (js.as_bytes(), pak),
                 #[cfg(feature="runtime")]
                 switch::GuestBytes::File => return None,
                 switch::GuestBytes::Package(bytes) => {

@@ -1,10 +1,10 @@
 //! Program composition around the canonical runtime and the native GE driver.
-use crate::instance;
+use crate::{instance, profile};
 use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::cell::{Cell, RefCell, RefMut};
 use libquickjs_sys::{JSContext, JSValue};
 use pocket_psp_render::{native::NativeDevice, Config, GeDisplay, GeRenderer, SharedRenderer};
-use pocket_runtime::{CoreState, OpContext};
+use pocket_runtime::{CoreState, OpContext, RuntimeConfig};
 use pocket_runtime_cabi::{abi::*, embedding as embed};
 
 #[derive(Clone, Copy, Default)]
@@ -117,22 +117,14 @@ impl Runtime {
         clock: Rc<Cell<u32>>,
     ) -> Result<Self, String> {
         let _fpu = crate::host::FpuGuard::masked();
-        let profile = instance::build_profile()?
-            .ok_or("PSP runtime requires exported profile build inputs")?;
-        let config = PocketRuntimeConfig {
-            profile_hash: profile.hash,
-            host_abi: env!("POCKETJS_HOST_ABI").parse().unwrap(),
-            tick_hz: 60,
+        let handle = embed::create(RuntimeConfig {
+            profile_hash: profile::PROFILE_HASH,
+            host_abi: profile::HOST_ABI,
             heap_limit: 128 * 1024 * 1024,
             frame_buffer_budget: 1,
-            profile_json: profile.json.as_ptr(),
-            profile_json_length: profile.json.len(),
-            ..PocketRuntimeConfig::empty()
-        };
-        let handle = pocket_runtime_cabi::pocket_runtime_create(&config);
-        if handle.is_null() {
-            return Err("PSP runtime profile rejected".into());
-        }
+            profile: profile::profile().expect("build.rs requires an exported profile"),
+        })
+        .map_err(|error| format!("PSP runtime profile rejected: {error:?}"))?;
         let ops = match embed::op_context(handle) {
             Ok(v) => v,
             Err(e) => {

@@ -6,6 +6,10 @@
 mod service_bindings;
 #[path = "../../../../programs/vita/src/instance.rs"]
 mod instance;
+/// The profile tools/test-vita-runtime.ts exports, as the program embeds it.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 mod registered_renderer { pub use pocket_vita_render::registered::SharedRenderer as RegisteredRenderer; }
 mod renderer_drop;
 mod dbg {
@@ -143,7 +147,10 @@ impl Program {
     unsafe fn new(code: &[u8]) -> Self {
         let p = Self::unbooted();
         assert_eq!(
-            instance::boot_package(p.runtime, instance::package(code, &[]).unwrap()),
+            instance::boot_package(
+                p.runtime,
+                package("vita", pocket_spec::BINDING_GENERATION, PLAN, code)
+            ),
             0,
             "{}",
             p.guest.error()
@@ -153,17 +160,14 @@ impl Program {
         p
     }
     unsafe fn unbooted() -> Self {
-        let profile = instance::profile().unwrap();
-        let mut config = PocketRuntimeConfig::empty();
-        config.profile_hash = pocket_package::sha256::sha256(&profile);
-        config.host_abi = pocket_spec::BINDING_GENERATION;
-        config.tick_hz = 60;
-        config.heap_limit = 128 << 20;
-        config.frame_buffer_budget = 1;
-        config.profile_json = profile.as_ptr();
-        config.profile_json_length = profile.len();
-        let runtime = pocket_runtime_cabi::pocket_runtime_create(&config);
-        assert!(!runtime.is_null());
+        let runtime = embed::create(pocket_runtime::RuntimeConfig {
+            profile_hash: profile::PROFILE_HASH,
+            host_abi: profile::HOST_ABI,
+            heap_limit: 128 << 20,
+            frame_buffer_budget: 1,
+            profile: profile::profile().unwrap(),
+        })
+        .unwrap();
         let ops = embed::op_context(runtime).unwrap();
         ops.add_provider(Box::new(instance::Services)).unwrap();
         let guest = instance::Guest::new(ops).unwrap();
@@ -218,20 +222,25 @@ impl Program {
     }
 }
 
-fn original_package(target: &str, abi: u32, plan: &[u8]) -> Vec<u8> {
+/// A compiled package for the exported profile, as tools/vita.ts embeds one.
+fn package(target: &str, abi: u32, plan: &[u8], code: &[u8]) -> Vec<u8> {
     let identity =
         pocket_package::embedded::identity("fixture", "vita.original", "Original plan").unwrap();
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
         target,
         host_abi: abi,
-        profile_hash: pocket_package::sha256::sha256(&instance::profile().unwrap()),
+        profile_hash: profile::PROFILE_HASH,
         identity: &identity,
         plan,
-        code: br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#,
+        code,
         pak: &[],
     }).unwrap()
 }
+fn original_package(target: &str, abi: u32, plan: &[u8]) -> Vec<u8> {
+    package(target, abi, plan, br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#)
+}
 
+const PLAN: &[u8] = br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{}}"#;
 const ORIGINAL_PLAN: &[u8] =
     br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{"ui.physics":true}}"#;
 

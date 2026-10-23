@@ -28,11 +28,13 @@ pocket-runtime = { workspace = true, default-features = true }
 pocket-runtime-cabi = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
 pocket-vita-render = { workspace = true, default-features = true }
+# The USB developer mailbox protocol (src/dev.rs, src/dev_protocol.rs).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [build-dependencies]
 pocket-spec = { workspace = true, default-features = true }
+pocket-profile-build.workspace = true
 cc = "1"
 
 [features]

@@ -16,6 +16,11 @@ pub use pocket_vita_net as net;
 #[cfg(feature = "runtime")]
 pub mod package_file;
 pub use pocket_package::pak;
+/// The exported profile this program was built for; build.rs copies it into
+/// OUT_DIR from `POCKETJS_PROFILE_RS`.
+pub mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 pub mod stats;
 pub mod svc;
 pub mod switch;

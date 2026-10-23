@@ -16,16 +16,11 @@ use pocketjs_core::{spec, Ui};
 include!(concat!(env!("OUT_DIR"), "/apps.rs"));
 
 /// Keep packages intact so Runtime admits their original plan and footer.
-/// Raw inputs belong to the single-app JS/pak embedding compatibility path.
 #[derive(Clone, Copy)]
 pub enum GuestBytes {
     Package(&'static [u8]),
     #[cfg(feature="runtime")]
     File,
-    Raw {
-        js: &'static str,
-        pak: &'static [u8],
-    },
 }
 
 /// The guest at `index`, or the line that says why it cannot start.
@@ -34,7 +29,8 @@ pub fn guest(index: usize) -> Result<GuestBytes, String> {
     if index == 0 {
         return Ok(GuestBytes::File);
     }
-    guest_bytes(index).ok_or_else(|| String::from("embedded package unreadable"))
+    guest_bytes(index)
+        .ok_or_else(|| String::from("this program embeds no compiled application package"))
 }
 
 pub fn guest_bytes(index: usize) -> Option<GuestBytes> {
@@ -43,13 +39,7 @@ pub fn guest_bytes(index: usize) -> Option<GuestBytes> {
         return Some(GuestBytes::File);
     }
     let app = APPS.get(index)?;
-    if app.pocket.is_empty() {
-        return Some(GuestBytes::Raw {
-            js: app.js,
-            pak: app.pak,
-        });
-    }
-    Some(GuestBytes::Package(app.pocket))
+    (!app.pocket.is_empty()).then_some(GuestBytes::Package(app.pocket))
 }
 
 pub const SHOT_W: u32 = 256;

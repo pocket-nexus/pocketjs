@@ -27,7 +27,7 @@ export function psplinkPrxStale(root: string, name: string, prx: string): boolea
     join(root, "framework/src"),
     join(root, "framework/compiler"),
     join(root, "contracts/spec"),
-    ...["core", "spec", "drivers", "runtime", "runtime-cabi", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages"].flatMap(crate => [
+    ...["core", "spec", "drivers", "runtime", "runtime-cabi", "profile-build", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages"].flatMap(crate => [
       join(root, "engine", crate, "src"),
       join(root, "engine", crate, "Cargo.toml"),
     ]),
@@ -39,6 +39,7 @@ export function psplinkPrxStale(root: string, name: string, prx: string): boolea
     join(root, "devices/psp/pocket-psp-ge/src"),
     join(root, "devices/psp/pocket-psp-ge/Cargo.toml"),
     join(root, "tools/psp.ts"),
+    join(root, "tools/profile-export.ts"),
     join(root, "tools/build/embedded-apps.rs"),
     join(root, "tools/build/toolchains/psp"),
     join(root, "tools/build/toolchains/psp.ts"),

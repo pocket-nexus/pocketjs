@@ -7,6 +7,10 @@ extern crate alloc;
 mod service_bindings;
 #[path = "../../../../programs/psp/src/instance.rs"]
 mod instance;
+/// The profile tools/test-psp-runtime.ts exports, as the program embeds it.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 mod dbg {
     pub fn active() -> bool {
         false
@@ -138,6 +142,21 @@ impl Drop for Program {
         }
     }
 }
+/// A compiled package for the exported profile, as tools/psp.ts embeds one.
+fn package(code: &[u8], plan: &[u8]) -> Vec<u8> {
+    let identity = pocket_package::embedded::identity("fixture", "psp.fixture", "Fixture").unwrap();
+    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+        target: profile::ID,
+        host_abi: profile::HOST_ABI,
+        profile_hash: profile::PROFILE_HASH,
+        identity: &identity,
+        plan,
+        code,
+        pak: &[],
+    })
+    .unwrap()
+}
+const PLAN: &[u8] = br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{}}"#;
 impl Program {
     unsafe fn new(code: &[u8]) -> Self {
         let p = Self::unbooted();
@@ -146,9 +165,7 @@ impl Program {
                 assert_eq!(
                     embed::set_package_source(
                         p.runtime,
-                        Box::new(pocket_package::source::MemorySource(
-                            instance::package(code, &[], None).unwrap()
-                        ))
+                        Box::new(pocket_package::source::MemorySource(package(code, PLAN)))
                     ),
                     0
                 );
@@ -163,17 +180,14 @@ impl Program {
         p
     }
     unsafe fn unbooted() -> Self {
-        let profile = instance::profile().unwrap();
-        let mut config = PocketRuntimeConfig::empty();
-        config.profile_hash = pocket_package::sha256::sha256(&profile);
-        config.host_abi = pocket_spec::BINDING_GENERATION;
-        config.tick_hz = 60;
-        config.heap_limit = 128 << 20;
-        config.frame_buffer_budget = 1;
-        config.profile_json = profile.as_ptr();
-        config.profile_json_length = profile.len();
-        let runtime = pocket_runtime_cabi::pocket_runtime_create(&config);
-        assert!(!runtime.is_null());
+        let runtime = embed::create(pocket_runtime::RuntimeConfig {
+            profile_hash: profile::PROFILE_HASH,
+            host_abi: profile::HOST_ABI,
+            heap_limit: 128 << 20,
+            frame_buffer_budget: 1,
+            profile: profile::profile().unwrap(),
+        })
+        .unwrap();
         let ops = embed::op_context(runtime).unwrap();
         ops.add_provider(Box::new(instance::Services)).unwrap();
         let guest = instance::Guest::new(ops, 20).unwrap();
@@ -358,9 +372,10 @@ fn canonical_turns_preserve_input_and_wait_before_retiring() {
 fn original_package_facts_are_admitted_before_guest_initialization() {
     unsafe {
         let mut p = Program::unbooted();
-        let identity =
-            pocket_package::embedded::identity("original", "psp.fixture", "Fixture").unwrap();
-        let package=pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"psp",host_abi:pocket_spec::BINDING_GENERATION,profile_hash:pocket_package::sha256::sha256(&instance::profile().unwrap()),identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#,code:br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan lost');"#,pak:&[]}).unwrap();
+        let package = package(
+            br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan lost');"#,
+            br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#,
+        );
         assert_eq!(
             embed::set_package_source(
                 p.runtime,
@@ -380,12 +395,10 @@ fn original_package_facts_are_admitted_before_guest_initialization() {
 fn malformed_package_never_runs_guest_or_submits_gpu() {
     unsafe {
         let p = Program::unbooted();
-        let mut package = instance::package(
+        let mut package = package(
             b"globalThis.started=true;globalThis.frame=function(){}",
-            &[],
-            None,
-        )
-        .unwrap();
+            PLAN,
+        );
         *package.last_mut().unwrap() ^= 1;
         assert_eq!(
             embed::set_package_source(
@@ -401,11 +414,23 @@ fn malformed_package_never_runs_guest_or_submits_gpu() {
 }
 
 #[test]
-fn resolved_plan_embedding_retains_feature_and_identity_facts() {
+fn packages_for_another_profile_are_refused_before_the_guest_runs() {
     unsafe {
         let p = Program::unbooted();
-        let plan = br#"{"app":{"output":"planned","id":"dev.fixture","title":"Plan"},"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#;
-        let package = instance::package(br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan feature lost');"#, &[], Some(plan)).unwrap();
+        let identity =
+            pocket_package::embedded::identity("fixture", "psp.fixture", "Fixture").unwrap();
+        let mut other = profile::PROFILE_HASH;
+        other[0] ^= 1;
+        let package = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: profile::ID,
+            host_abi: profile::HOST_ABI,
+            profile_hash: other,
+            identity: &identity,
+            plan: PLAN,
+            code: b"globalThis.started=true;globalThis.frame=function(){}",
+            pak: &[],
+        })
+        .unwrap();
         assert_eq!(
             embed::set_package_source(
                 p.runtime,
@@ -413,6 +438,7 @@ fn resolved_plan_embedding_retains_feature_and_identity_facts() {
             ),
             0
         );
-        assert_eq!(embed::boot_deferred(p.runtime), 0, "{}", p.guest.error());
+        assert_ne!(embed::boot_deferred(p.runtime), 0);
+        p.assert_js("if(typeof started!=='undefined')throw Error('ran before admission')");
     }
 }

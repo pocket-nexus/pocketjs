@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
 import { dirname, join, resolve } from "node:path";
 import profile from "../profiles/vita.ts";
-import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
+import { exportProfile } from "./profile-export.ts";
 const root = resolve(import.meta.dir, "..");
+const validation = join(root, ".pocket-build/validation/vita-runtime");
+// The fixture embeds the profile module the Vita program embeds.
+const exported = exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(validation, "profile"));
 type Package = {name:string;manifest_path:string;source:string|null;dependencies:{name:string;source:string|null}[]};
 function metadata(manifest: string, noDeps = false): Package[] {
   const result = Bun.spawnSync(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "metadata", "--locked", "--format-version=1", "--manifest-path", join(root, manifest), ...(noDeps ? ["--no-deps"] : [])], { cwd: root, stdout: "pipe", stderr: "pipe" });
@@ -19,5 +24,5 @@ const fixture = "tests/fixtures/vita-runtime/Cargo.toml";
 const packages = metadata(fixture);
 const dependency = packages.find(p => p.name === "libquickjs-sys" && p.source?.startsWith(`${source}#`));
 if (!dependency) throw new Error("Vita's pinned QuickJS dependency is absent");
-const result = Bun.spawnSync(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "test", "--locked", "--offline", "--manifest-path", join(root, fixture), "--", "--test-threads=1"], { cwd: root, env: { ...process.env, POCKETJS_PROFILE_JSON: canonicalProfileJson(profile), POCKETJS_PROFILE_HASH: hashPocketProfile(profile), POCKET_QJS_SOURCE: join(dirname(dependency.manifest_path), "embed/quickjs"), CARGO_TARGET_DIR: join(root, ".pocket-build/validation/vita-runtime/target") }, stdout: "inherit", stderr: "inherit" });
+const result = Bun.spawnSync(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "test", "--locked", "--offline", "--manifest-path", join(root, fixture), "--", "--test-threads=1"], { cwd: root, env: { ...process.env, POCKETJS_PROFILE_RS: exported.module, POCKET_QJS_SOURCE: join(dirname(dependency.manifest_path), "embed/quickjs"), CARGO_TARGET_DIR: join(validation, "target") }, stdout: "inherit", stderr: "inherit" });
 process.exit(result.success ? 0 : result.exitCode || 1);

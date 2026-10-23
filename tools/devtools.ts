@@ -21,6 +21,7 @@ import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { startDevServer, demoManifest } from "../tools/dev/web/server.ts";
 import { startBridge, type Bridge } from "./devtools-bridge.ts";
+import { pspDemoPackage } from "./psp.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
@@ -248,7 +249,8 @@ if (dirFlag) {
   }
   if (!(await buildApp())) process.exit(1);
   managed = await startUsbhostfs();
-  bridge = startBridge({ dir: targetDir, port: server.port, packagePath, onEvent });
+  // tools/psp.ts embeds the demo's compiled package; verify exactly that one.
+  bridge = startBridge({ dir: targetDir, port: server.port, packagePath: packagePath ?? pspDemoPackage(app!), onEvent });
   pspLine = `waiting for the PSP on USB… launch PSPLINK on it (XMB → Game)`;
 } else {
   const dir = join(ROOT, "dist", "psplink");

@@ -1,4 +1,5 @@
 fn main() {
+    pocket_profile_build::emit(pocket_profile_build::Export::Required);
     let root = std::path::Path::new("../../..");
     println!("cargo:rerun-if-env-changed=POCKET_QJS_SOURCE");
     let headers =

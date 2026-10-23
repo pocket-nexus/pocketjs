@@ -20,8 +20,8 @@ use pocketjs_core::{spec, Ui};
 // $OUT_DIR/apps.rs — `EmbeddedApp` + `APPS` (build.rs generates both).
 include!(concat!(env!("OUT_DIR"), "/apps.rs"));
 
-/// Sources retain the original catalog package. Runtime performs all package
-/// admission; the classic JS/pak embedding API constructs the same container.
+/// Sources retain the original compiled package bytes. Runtime performs all
+/// package admission.
 pub fn guest_source(index: usize) -> Result<Box<dyn pocket_drivers::PackageSource>, String> {
     #[cfg(feature = "runtime")]
     if index == 0 {
@@ -31,16 +31,11 @@ pub fn guest_source(index: usize) -> Result<Box<dyn pocket_drivers::PackageSourc
         .get(index)
         .ok_or_else(|| String::from("unknown app index"))?;
     if app.pocket.is_empty() {
-        let plan = include_bytes!(concat!(env!("OUT_DIR"), "/embedded-plan.json"));
-        let package = crate::instance::package(
-            app.js.as_bytes(),
-            app.pak,
-            (!plan.is_empty()).then_some(plan.as_slice()),
-        )?;
-        Ok(Box::new(pocket_package::source::OwnedMemorySource::new(package)))
-    } else {
-        Ok(Box::new(pocket_package::source::StaticMemorySource(app.pocket)))
+        return Err("this EBOOT embeds no compiled application package".into());
     }
+    Ok(Box::new(pocket_package::source::StaticMemorySource(
+        app.pocket,
+    )))
 }
 
 /// Shot geometry (spec op 41; programs/sim/shot.ts is the sim twin). The FULL

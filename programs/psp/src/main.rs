@@ -31,7 +31,7 @@ use pocketjs_psp::{arena, dbg, host, switch, veil, Runtime};
 
 psp::module!("pocketjs", 1, 1);
 
-const CORE_TICKS_PER_SECOND: u32 = 60;
+const CORE_TICKS_PER_SECOND: u32 = pocketjs_psp::profile::TICK_HZ;
 // The full launcher originally consumed about 42 ms of CPU work on real PSP
 // hardware. Batching cuts that to about 12 ms, but the texture-heavy GE pass
 // still completes across the third vblank. A multi-app package therefore

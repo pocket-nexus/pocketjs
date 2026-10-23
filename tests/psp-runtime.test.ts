@@ -8,7 +8,7 @@ import { profileRegistry } from "../tools/profile-resolver.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
-import { pspLauncherPackages, pspPackageInput } from "../tools/psp.ts";
+import { pspDemoManifest, pspDemoPackage, pspLauncherPackages, pspPackageInput } from "../tools/psp.ts";
 import { launcherSourceInputs } from "../tools/build/psp/launcher.ts";
 test("PSP production guest uses canonical runtime, providers, input and shutdown", () => {
   const result = Bun.spawnSync([process.execPath, "tools/test-psp-runtime.ts"], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
@@ -74,8 +74,15 @@ test("PSP --pocket captures admitted original bytes without requiring or compili
   expect(() => pspPackageInput(source, directory)).toThrow();
 });
 
+test("PSP demo builds compile the demo manifest, with --framework replacing its framework", () => {
+  expect(pspDemoManifest("hero").app.framework).toBe("solid");
+  expect(pspDemoManifest("hero-main", "octane").app.framework).toBe("octane");
+  expect(pspDemoPackage("hero", "/tmp/psp-out/")).toBe("/tmp/psp-out/hero-main.pocket");
+  expect(() => pspDemoManifest("apps/hero/main.tsx")).toThrow("not a stock demo");
+});
+
 test("PSP CLI rejects missing or conflicting package inputs before invoking a toolchain", () => {
-  for (const args of [["--pocket"], ["--pocket=/missing/psp-application.pocket"], ["--pocket=/missing", "--runtime"], ["--pocket=/missing", "--plan=/other"]]) {
+  for (const args of [["--pocket"], ["--pocket=/missing/psp-application.pocket"], ["--pocket=/missing", "--runtime"], ["--pocket=/missing", "--plan=/other"], ["--plan=/other"], ["not-a-demo"]]) {
     const result = Bun.spawnSync([process.execPath, "tools/psp.ts", ...args], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
     expect(result.success).toBe(false);
     expect(result.stdout.toString()).not.toContain("cargo psp");

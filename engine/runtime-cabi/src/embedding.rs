@@ -174,6 +174,85 @@ pub unsafe fn resize_embedded_presentation(pointer: *mut PocketRuntime, physical
 /// # Safety
 /// `pointer` is live on its owning thread; calls on it do not overlap. The
 /// program prepared the display storage and restores it on failure.
-pub unsafe fn resize_embedded(pointer: *mut PocketRuntime, logical: [u32; 2], physical: [u32; 2]) -> i32 {
-    unsafe { runtime::modify(pointer, |runtime| runtime.resize_embedded(logical, physical)) }
+pub unsafe fn resize_embedded(
+    pointer: *mut PocketRuntime,
+    logical: [u32; 2],
+    physical: [u32; 2],
+) -> i32 {
+    unsafe {
+        runtime::modify(pointer, |runtime| {
+            runtime.resize_embedded(logical, physical)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::borrow::Cow;
+    use pocket_runtime::{InputClasses, Profile};
+
+    fn config() -> RuntimeConfig {
+        RuntimeConfig {
+            profile_hash: [7; 32],
+            host_abi: pocket_spec::BINDING_GENERATION,
+            heap_limit: 64 * 1024,
+            frame_buffer_budget: 64,
+            profile: Profile {
+                id: Cow::Borrowed("fixture"),
+                tick_hz: 30,
+                viewport: [960, 544],
+                logical_viewports: Cow::Borrowed(&[[480, 272], [320, 240]]),
+                dynamic_viewport: None,
+                auxiliary: Some([320, 240]),
+                auxiliary_logical: Cow::Borrowed(&[[160, 120]]),
+                density: 2,
+                required_inputs: InputClasses::BUTTONS,
+            },
+        }
+    }
+
+    #[test]
+    fn rust_configuration_reaches_the_runtime_handle() {
+        let handle = create(config()).unwrap();
+        unsafe {
+            let ops = op_context(handle).unwrap();
+            {
+                let state = ops.core().unwrap();
+                assert_eq!(state.ui.viewport(), (480.0, 272.0));
+                assert_eq!(state.ui.tick_rate(), 30);
+                assert_eq!(state.ui.raster_density(), 2);
+                assert_eq!(state.ui.auxiliary_viewport(), Some((160.0, 120.0)));
+            }
+            crate::pocket_runtime_destroy(handle);
+        }
+        let mut dynamic = config();
+        dynamic.profile.dynamic_viewport = Some([[320, 240], [640, 480]]);
+        let handle = create(dynamic).unwrap();
+        unsafe { crate::pocket_runtime_destroy(handle) };
+    }
+
+    #[test]
+    fn rejected_configurations_are_errors() {
+        let mut generation = config();
+        generation.host_abi += 1;
+        assert!(matches!(
+            create(generation),
+            Err(RuntimeError::BindingGenerationMismatch)
+        ));
+        let mut orphan = config();
+        orphan.profile.auxiliary = None;
+        let mut empty = config();
+        empty.profile.logical_viewports = Cow::Borrowed(&[]);
+        let mut range = config();
+        range.profile.dynamic_viewport = Some([[640, 480], [320, 240]]);
+        let mut id = config();
+        id.profile.id = Cow::Borrowed("");
+        for rejected in [orphan, empty, range, id] {
+            assert!(matches!(
+                create(rejected),
+                Err(RuntimeError::InvalidConfiguration)
+            ));
+        }
+    }
 }

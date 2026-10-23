@@ -7,3 +7,10 @@ test("Vita production composition uses canonical instances and the pinned Bellar
   expect(process.signalCode).toBeNull();
   expect(stdout).toContain("7 passed; 0 failed");
 }, 180_000);
+test("Vita CLI embeds compiled demo packages only and rejects other inputs before the SDK", () => {
+  for (const [args, message] of [[["--plan=/other"], "build executor"], [["not-a-demo"], "not a stock demo"]] as const) {
+    const result = Bun.spawnSync([process.execPath, "tools/vita.ts", ...args], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
+    expect(result.success).toBe(false);
+    expect(result.stderr.toString()).toContain(message);
+  }
+});

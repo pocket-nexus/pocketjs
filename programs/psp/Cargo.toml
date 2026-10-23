@@ -45,10 +45,10 @@ pocket-runtime = { workspace = true, default-features = true }
 pocket-runtime-cabi = { workspace = true, features = ["external-runtime"] }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
-serde_json = { version = "1", default-features = false, features = ["alloc"] }
 
 [build-dependencies]
 pocket-spec = { workspace = true, default-features = true }
+pocket-profile-build.workspace = true
 cc = "1"
 
 

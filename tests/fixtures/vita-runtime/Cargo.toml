@@ -16,6 +16,6 @@ pocket-runtime-cabi = { path = "../../../engine/runtime-cabi" }
 pocket-package = { path = "../../../engine/package" }
 pocketjs-core = { path = "../../../engine/core" }
 pocket-vita-render = { path = "../../../devices/vita/pocket-vita-render" }
-serde_json = "1"
 [build-dependencies]
+pocket-profile-build = { path = "../../../engine/profile-build" }
 cc = "1"

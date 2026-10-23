@@ -69,12 +69,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-profile-build"
+version = "0.1.0"
+
+[[package]]
 name = "pocket-raster"
 version = "0.1.0"
 dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
  "pocket-spec",
+]
+
+[[package]]
+name = "pocket-runtime"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-package",
+ "pocket-present",
+ "pocket-spec",
+ "pocketjs-core",
 ]
 
 [[package]]
@@ -85,7 +100,8 @@ version = "0.1.0"
 name = "pocket-vita-dev-contract-tests"
 version = "0.0.0"
 dependencies = [
- "pocket-package",
+ "pocket-profile-build",
+ "pocket-runtime",
  "pocketjs-core",
  "serde",
  "serde_json",

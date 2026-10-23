@@ -224,31 +224,6 @@ impl OpProvider for Services {
         }
     }
 }
-pub(crate) fn build_profile(
-) -> Result<Option<pocket_package::profile::BuildProfile<'static>>, String> {
-    pocket_package::profile::from_build_inputs(
-        option_env!("POCKETJS_PROFILE_JSON"),
-        option_env!("POCKETJS_PROFILE_HASH"),
-    )
-    .map_err(|error| format!("profile build inputs: {error:?}"))
-}
-pub(crate) fn profile() -> Result<Vec<u8>, String> {
-    if let Some(profile) = build_profile()? {
-        return Ok(profile.json.to_vec());
-    }
-    Ok(serde_json::to_vec(&serde_json::json!({"id":"vita","platform":"vita","form":"handheld","tickHz":60,"display":{"physicalViewport":[960,544],"logicalViewports":[[480,272]],"rasterDensity":2},"capabilities":["input.buttons","input.analog.left","input.touch","text.glyphs.baked"],"roleCapabilities":{}})).unwrap())
-}
-
-pub(crate) fn package(code: &[u8], pak: &[u8]) -> Result<Vec<u8>, String> {
-    let identity = pocket_package::embedded::identity(
-        "embedded",
-        "dev.pocketjs.vita.embedded",
-        "Vita embedded guest",
-    )
-    .map_err(|e| format!("{e:?}"))?;
-    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"vita",host_abi:pocket_spec::BINDING_GENERATION,profile_hash:pocket_package::sha256::sha256(&profile()?),identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{"input.buttons":true,"input.analog.left":true,"input.touch":true,"text.glyphs.baked":true}}"#,code,pak}).map_err(|e|format!("{e:?}"))
-}
-
 /// Preserve the supplied package as the source for canonical admission. This
 /// path is shared by catalog packages, runtime files and USB replacements.
 pub(crate) unsafe fn boot_package(

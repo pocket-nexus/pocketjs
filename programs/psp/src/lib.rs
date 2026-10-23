@@ -26,6 +26,11 @@ pub mod service_bindings;
 pub use scene as ge;
 pub mod host;
 mod instance;
+/// The exported profile this EBOOT was built for (`psp` or `psp-runtime`);
+/// build.rs copies it into OUT_DIR from `POCKETJS_PROFILE_RS`.
+pub mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 mod program;
 pub use program::Runtime;
 #[cfg(feature = "runtime")]

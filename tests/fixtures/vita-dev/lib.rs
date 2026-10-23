@@ -4,6 +4,11 @@ mod delivery;
 mod menu_input;
 #[path = "../../../programs/vita/src/dev_protocol.rs"]
 mod protocol;
+/// The profile tests/vita-dev.test.ts exports, as the program embeds it.
+#[allow(dead_code)]
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 
 #[cfg(test)]
 mod tests {
@@ -66,13 +71,7 @@ mod tests {
             &bundle.package,
             "vita",
             pocketjs_core::spec::BINDING_GENERATION,
-            &pocket_package::profile::from_build_inputs(
-                option_env!("POCKETJS_PROFILE_JSON"),
-                option_env!("POCKETJS_PROFILE_HASH"),
-            )
-            .unwrap()
-            .unwrap()
-            .hash,
+            &crate::profile::PROFILE_HASH,
             false,
         )
         .unwrap();

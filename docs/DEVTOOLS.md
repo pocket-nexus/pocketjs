@@ -170,9 +170,11 @@ Device → panel:
 `{t:"devStats", frame, data}` (data: `{app, bundle, audio:{starved, reserveGiveups,
 lastReserveErr, releaseTimeouts, pushedFrames}, vid:{presented, torn, lapped,
 epochs, hdrFails, bytes}, svc:{truncResets}}` from programs/psp/src/stats.rs, or
-null when the host lacks the op; `bundle` is the FNV-1a64 of the embedded
-js+pak — the PSPLINK bridge requests this on every hello and compares it
-against `dist/` via tools/bundle-hash.ts, flagging a stale embed loudly) ·
+null when the host lacks the op; on PSP `bundle` is the FNV-1a64 of the
+embedded `.pocket` bytes, in table order for a launcher — the PSPLINK bridge
+requests it on every hello and compares it against the package the EBOOT
+embeds (`bun run devtools <demo>` checks the demo's `dist/<output>.pocket`,
+`--pocket` names another), reporting a stale embed) ·
 `{t:"log", level, args}` · `{t:"error", frame, message, stack?}` ·
 `{t:"evalResult", id, ok, value}` ·
 `{t:"tape", tape:{v:1, app, frames, masks:[[mask,count],…]}}` (RLE).

@@ -16,6 +16,8 @@ fn positive_dimension(name: &str, fallback: u32) -> u32 {
 }
 
 fn main() {
+    // $OUT_DIR/pocket_profile.rs: the profile the build tool exported.
+    pocket_profile_build::emit(pocket_profile_build::Export::Required);
     println!("cargo:rerun-if-env-changed=POCKET_QJS_SOURCE");
     let quickjs = PathBuf::from(env::var_os("POCKET_QJS_SOURCE")
         .expect("POCKET_QJS_SOURCE must name the resolved libquickjs-sys embed/quickjs directory; tools/vita.ts resolves it from cargo metadata"));
@@ -171,13 +173,22 @@ fn main() {
         registry.is_none() || packages.is_some(),
         "POCKETJS_LAUNCHER_REGISTRY requires POCKETJS_LAUNCHER_PACKAGES"
     );
+    // The runtime admits compiled packages only. The development identity
+    // still hashes the package's JS and pak, read from POCKETJS_OUTPUT_DIR.
+    let package = env::var_os("POCKETJS_EMBED_PACKAGE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    assert!(
+        !embed_app || package.is_some() || registry.is_some(),
+        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_PACKAGE: embed a compiled .pocket"
+    );
     let generated = embed::generate(embed::Config {
         identity: embed::Identity::LegacyBundle,
         output: &app,
         enabled: embed_app,
         dist: &dist,
         out: Path::new(&out_dir),
-        package: None,
+        package: package.as_deref(),
         registry: registry.as_deref(),
         packages: packages.as_deref(),
     })
@@ -208,6 +219,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=POCKETJS_OUTPUT_DIR");
     println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_REGISTRY");
     println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_PACKAGES");
+    println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_PACKAGE");
     println!("cargo:rerun-if-env-changed=POCKETJS_TARGET");
     println!("cargo:rerun-if-env-changed=POCKETJS_HOST_ABI");
     println!("cargo:rerun-if-env-changed=POCKETJS_LOGICAL_WIDTH");

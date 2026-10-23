@@ -5635,6 +5635,7 @@ dependencies = [
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=a5cac5d8631bdc068b43af93355b9f82d666949e)",
  "pocket-drivers",
  "pocket-package",
+ "pocket-profile-build",
  "pocket-psp-alloc",
  "pocket-psp-audio",
  "pocket-psp-display",
@@ -5649,7 +5650,6 @@ dependencies = [
  "pocket-spec",
  "pocketjs-core",
  "psp",
- "serde_json",
 ]
 
 [[package]]
@@ -5675,6 +5675,7 @@ dependencies = [
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b)",
  "pocket-drivers",
  "pocket-package",
+ "pocket-profile-build",
  "pocket-runtime",
  "pocket-runtime-cabi",
  "pocket-spec",

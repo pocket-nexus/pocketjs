@@ -1,5 +1,5 @@
 //! Generated guest and service providers for the PSP runtime instance.
-use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, string::String};
 use core::{
     cell::{Cell, RefCell},
     ffi::{c_void, CStr},
@@ -269,46 +269,4 @@ impl OpProvider for Services {
             })
         }
     }
-}
-pub(crate) fn build_profile(
-) -> Result<Option<pocket_package::profile::BuildProfile<'static>>, String> {
-    pocket_package::profile::from_build_inputs(
-        option_env!("POCKETJS_PROFILE_JSON"),
-        option_env!("POCKETJS_PROFILE_HASH"),
-    )
-    .map_err(|error| alloc::format!("profile build inputs: {error:?}"))
-}
-pub(crate) fn profile() -> Result<Vec<u8>, String> {
-    if let Some(profile) = build_profile()? {
-        return Ok(profile.json.to_vec());
-    }
-    Ok(serde_json::to_vec(&serde_json::json!({"id":"psp","platform":"psp","form":"handheld","tickHz":60,"display":{"physicalViewport":[480,272],"logicalViewports":[[480,272]],"rasterDensity":1},"capabilities":["input.buttons","input.analog.left","text.glyphs.baked"],"roleCapabilities":{}})).unwrap())
-}
-
-pub(crate) fn package(
-    code: &[u8],
-    pak: &[u8],
-    resolved_plan: Option<&[u8]>,
-) -> Result<Vec<u8>, String> {
-    const LEGACY_PLAN: &[u8] = br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"input.buttons":true,"input.analog.left":true,"text.glyphs.baked":true}}"#;
-    let plan = resolved_plan.unwrap_or(LEGACY_PLAN);
-    let value: serde_json::Value =
-        serde_json::from_slice(plan).map_err(|e| alloc::format!("{e}"))?;
-    let app = &value["app"];
-    let identity = pocket_package::embedded::identity(
-        app["output"].as_str().unwrap_or("embedded"),
-        app["id"].as_str().unwrap_or("dev.pocketjs.psp.embedded"),
-        app["title"].as_str().unwrap_or("PSP embedded guest"),
-    )
-    .map_err(|e| alloc::format!("{e:?}"))?;
-    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-        target: "psp",
-        host_abi: env!("POCKETJS_HOST_ABI").parse().unwrap(),
-        profile_hash: pocket_package::sha256::sha256(&profile()?),
-        identity: &identity,
-        plan,
-        code,
-        pak,
-    })
-    .map_err(|e| alloc::format!("{e:?}"))
 }
