@@ -19,6 +19,13 @@
  * active package. An installed app's failure is reported to the launcher
  * (appTable().lastError) and never walks the launcher's recovery chain.
  *
+ * A requested switch runs under a host-drawn transition (transition.c): the
+ * old guest stops and a scrim covers its last frame; a thread of its own
+ * draws loading frames with a turning indicator through the teardown, the
+ * new guest's bytecode (bytecode.c: cached per slot, else compiled) and its
+ * mount; the scrim falls away over the new guest's first frames. QuickJS's interrupt hook reads SELECT inside an installed app's
+ * long frame, so the launcher answers without waiting for the frame.
+ *
  * Building with -DPOCKETJS_CAPTURE turns this into the deterministic e2e
  * binary: input comes from a baked tape instead of the hardware, the listed
  * frames are read back off the render target into sdmc:/fNNNN.raw, and the
@@ -28,6 +35,7 @@
 
 #include <3ds.h>
 #include <citro3d.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,9 +58,12 @@
 #include "soc.h"
 #include "svcwire.h"
 #include "camera.h"
+#include "fs.h"
 #include "launcher.h"
 #include "link.h"
 #include "wifi.h"
+#include "transition.h"
+#include "bytecode.h"
 
 /* The guest surfaces come from the plan of the package in the .3dsx's RomFS
  * (pocket_package_open reads them), never from a literal or a compile flag:
@@ -152,6 +163,12 @@ static C3D_RenderTarget *auxiliary_target;
 /* The top screen's right eye: only the agent stage draws in stereo. */
 static C3D_RenderTarget *right_target;
 static bool stage_ready;
+/* Set around qjs_frame, for the interrupt hook (guest_interrupt). */
+static bool guest_frame_running;
+static u64 guest_frame_started;
+#ifndef POCKETJS_CAPTURE
+static void loading_end(void);
+#endif
 
 /* Read one completed rotated PICA target as tightly packed RGB8. `width` and
  * `height` are the guest landscape dimensions; the returned bytes retain the
@@ -437,6 +454,7 @@ static void fail(const char *message) {
   /* On hardware the message has to be readable without pulling the card, and
    * HOME has to keep working: parking in a bare loop costs the user a forced
    * power-off, which is also the one way to lose the file just written. */
+  loading_end();
   consoleInit(GFX_BOTTOM, NULL);
   printf("PocketJS %s\nFAILED: %s\nPress HOME to exit.\n", POCKETJS_TARGET_ID, text);
   gfxFlushBuffers();
@@ -467,6 +485,31 @@ typedef struct {
   uint32_t submitted_frames;
 } GuestChoice;
 
+/* The bundle into the guest's runtime. Outside a capture build, from the
+ * slot's bytecode when bytecode.c has it for this package, else from the
+ * source, keeping the bytecode for the next boot. False leaves `error`. */
+static bool run_bundle(PocketRuntimePackage *package, char *error, size_t error_length) {
+#ifdef POCKETJS_CAPTURE
+  bool booted = qjs_boot(package, NULL, 0, NULL, NULL);
+#else
+  char path[128];
+  bool named = runtime_slot_path(package->guest.slot, "bundle.qbc", path, sizeof path);
+  uint64_t hash = package->guest.package_hash;
+  size_t length = 0;
+  uint8_t *bytecode = named ? bytecode_load(path, hash, &length) : NULL;
+  bool booted;
+  if (bytecode != NULL) {
+    booted = qjs_boot(package, bytecode, length, NULL, NULL);
+  } else {
+    booted = qjs_boot(package, NULL, 0, &bytecode, &length);
+    if (booted && named && bytecode != NULL) bytecode_store(path, hash, bytecode, length);
+  }
+  free(bytecode);
+#endif
+  if (!booted) snprintf(error, error_length, "%s", qjs_last_error());
+  return booted;
+}
+
 static bool boot_guest(
   PocketRuntimePackage *package,
   char *error,
@@ -477,15 +520,38 @@ static bool boot_guest(
     return false;
   }
   if (!surfaces_admit(package, error, error_length)) return false;
+  /* link.c names the running app in every NET request, and the guest's
+   * first code (a module's top level, the first effects) runs inside
+   * qjs_boot and may fetch: the launcher learns the app before it starts. */
+  launcher_set_current(runtime_slot(), package);
+  /* data.fs: the guest's tree is its own slot's data directory, bound before
+   * qjs_boot publishes `globalThis.fs`. A card that cannot hold it leaves
+   * the namespace out, as on a host without the capability; so does a
+   * capture build, whose goldens must not read an earlier run's files. */
+  fs_unbind();
+#ifndef POCKETJS_CAPTURE
+  if ((package->guest.features & POCKET_GUEST_FEATURE_FS) != 0) {
+    char root[128];
+    char temp[128];
+    if (runtime_slot_path(package->guest.slot, "data", root, sizeof root) &&
+        runtime_slot_path(package->guest.slot, "fs-tmp", temp, sizeof temp)) {
+      fs_bind(root, temp, fs_plan_quota((const char *)package->guest.plan, package->guest.plan_length));
+    }
+  }
+#endif
+  camera_admit(
+    (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_QR) != 0,
+    (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_PHOTO) != 0
+  );
   /* The guest's capability decides who owns the top screen; it must be set
    * before qjs_boot, which publishes `globalThis.agent` only for it. */
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
+  /* Also sets 3D and the top backlight from the console's display mode. */
   agent_set_enabled(agent);
-  gfxSet3D(agent);
-  if (!qjs_boot(package)) {
-    snprintf(error, error_length, "%s", qjs_last_error());
+  if (!run_bundle(package, error, error_length)) {
     qjs_shutdown();
     gfx_reset_resources();
+    fs_unbind();
     return false;
   }
   return true;
@@ -497,6 +563,7 @@ static void teardown_guest(void) {
    * install still streaming) and drop what belonged to this guest. */
   camera_teardown();
   link_reset_guest();
+  fs_unbind();
   agent_set_enabled(false);
   qjs_shutdown();
   gfx_reset_resources();
@@ -668,6 +735,7 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   C3D_FrameEnd(0);
   return 0;
 #else
+  loading_end();
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
   gspWaitForVBlank();
   uint32_t waited = 0;
@@ -691,6 +759,49 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   return waited;
 #endif
 }
+
+
+/* The loading frames come from a thread of their own, from the switch's
+ * teardown to the new guest's first frame: the main thread spends that time
+ * in teardown, bytecode and the guest's mount, and QuickJS's interrupt
+ * handler runs a few times a second at most, too seldom to animate from.
+ * The main thread issues no GPU work in that window, and begin_frame_wait
+ * and fail() stop the thread before they touch the GPU. One step above the
+ * main thread in priority, so a frame is never late behind the guest's code;
+ * each costs about a millisecond. */
+#ifndef POCKETJS_CAPTURE
+#define LOADING_STACK (32 * 1024)
+#define LOADING_FRAME_NS 16666667LL
+static Thread loading_thread;
+static atomic_bool loading_stop;
+
+static void loading_run(void *unused) {
+  (void)unused;
+  while (!atomic_load(&loading_stop)) {
+    /* A GPU still busy with the previous frame skips this one. */
+    gfx_present_overlays();
+    svcSleepThread(LOADING_FRAME_NS);
+  }
+}
+
+#ifdef POCKETJS_LINK
+static void loading_start(void) {
+  if (loading_thread != NULL) return;
+  atomic_store(&loading_stop, false);
+  s32 priority = 0x30;
+  svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+  loading_thread = threadCreate(loading_run, NULL, LOADING_STACK, priority > 0x18 ? priority - 1 : priority, -2, false);
+}
+#endif
+
+static void loading_end(void) {
+  if (loading_thread == NULL) return;
+  atomic_store(&loading_stop, true);
+  threadJoin(loading_thread, U64_MAX);
+  threadFree(loading_thread);
+  loading_thread = NULL;
+}
+#endif
 
 static void recover_running_guest(
   GuestChoice *choice,
@@ -791,6 +902,38 @@ static void install_candidate(
  * released before it can summon the launcher again. */
 static bool select_latched = true;
 
+/* An installed app's frame that has run this long reads SELECT itself. */
+#define LONG_FRAME_TICKS (SYSCLOCK_ARM11 / 20)
+#define SELECT_SCAN_TICKS (SYSCLOCK_ARM11 / 60)
+
+/* QuickJS's interrupt hook (qjs_set_interrupt). Inside an installed app's
+ * frame that has run past LONG_FRAME_TICKS it scans the buttons, so a SELECT
+ * press summons the launcher without waiting for the frame to end: the frame
+ * is abandoned along with the app. A scan here moves the press edges
+ * hidKeysDown reports (the dev menu chords) to this scan. */
+static bool guest_interrupt(void) {
+  static u64 last_scan;
+  if (!guest_frame_running || launcher_home_running() || launcher_pending() || devmenu_visible()) return false;
+  u64 now = svcGetSystemTick();
+  if (now - guest_frame_started < LONG_FRAME_TICKS || now - last_scan < SELECT_SCAN_TICKS) return false;
+  last_scan = now;
+  hidScanInput();
+  bool select_now = (input_buttons() & BTN_SELECT) != 0;
+  bool summon = select_now && !select_latched;
+  select_latched = select_now;
+  if (!summon) return false;
+  launcher_summon();
+  return true;
+}
+
+/* One frame of the leaving scrim. The old guest no longer runs; the runtime
+ * presents its retained tree again and the driver draws the scrim over it. */
+static void present_leaving(uint32_t *run_frame) {
+  begin_frame_wait(*run_frame);
+  (void)qjs_present();
+  *run_frame += 1;
+}
+
 /* The launcher's guest when it comes back: its active package, then its own
  * recovery chain, then the embedded package. No embedded-install check: that
  * belongs to a cold boot (startup_choice). */
@@ -830,7 +973,6 @@ static void boot_home(
   runtime_failure_lineage_reset(failures);
   *choice = home_choice(state, embedded, failures);
   if (!boot_with_recovery(choice, state, embedded, failures, error, sizeof error)) fail(error);
-  launcher_set_current(launcher_home_slot(), choice->package);
 }
 
 /* Boot an installed app from its own slot: `candidate` when one was just
@@ -864,12 +1006,12 @@ static bool boot_app(
     return false;
   }
   runtime_write_status(state, choice->package, choice->commit_on_accept ? "candidate" : "booted");
-  launcher_set_current(target->slot, choice->package);
   return true;
 }
 
-/* The whole-guest swap, inside one GPU-idle C3D frame. `report_hash` names a
- * dev-wire package whose verdict this switch decides (0: none). */
+/* The whole-guest swap: teardown inside a GPU-idle C3D frame, then the boot
+ * with the transition's loading frames drawn around it. `report_hash` names
+ * a dev-wire package whose verdict this switch decides (0: none). */
 static void switch_guest(
   GuestChoice *choice,
   PocketRuntimeState *state,
@@ -882,6 +1024,11 @@ static void switch_guest(
 ) {
   begin_frame_wait(*run_frame);
   accept_guest(choice, state, failures, *run_frame);
+  /* The old guest's last frame has retired. From here to the new guest's
+   * first frame the loading thread draws the transition, and the teardown
+   * releases nothing its frames use. */
+  transition_load(osGetTime());
+  loading_start();
   teardown_guest();
   release_choice(choice, embedded);
   runtime_failure_lineage_reset(failures);
@@ -1058,6 +1205,7 @@ int main(void) {
   }
   launcher_init(embedded);
   link_init(&runtime_state);
+  qjs_set_interrupt(guest_interrupt);
 #endif
   PocketRuntimeFailureLineage failures = {0};
   input_init();
@@ -1088,7 +1236,6 @@ int main(void) {
     guest.commit_on_accept ? "candidate" : "booted",
     0
   );
-  launcher_set_current(runtime_slot(), guest.package);
 #endif
 #endif /* ordinary recovery boot */
 
@@ -1152,6 +1299,19 @@ int main(void) {
         }
         devserver_report_native("launch-error", launch_name, runtime_error);
       }
+    }
+    if (launcher_pending()) {
+      /* A switch starts once the leaving scrim covers the old guest. */
+      u64 now = osGetTime();
+      transition_leave(now);
+      if (!transition_covered(now)) {
+        present_leaving(&run_frame);
+        continue;
+      }
+      LauncherTarget target;
+      launcher_take_request(&target);
+      switch_guest(&guest, &runtime_state, embedded, &failures, &target, NULL, 0, &run_frame);
+      continue;
     }
     if (input_devmenu_toggle_requested()) devmenu_toggle();
     if (devmenu_visible() && input_devmenu_close_requested()) devmenu_hide();
@@ -1220,13 +1380,6 @@ int main(void) {
         continue;
       }
     }
-    {
-      LauncherTarget target;
-      if (launcher_take_request(&target)) {
-        switch_guest(&guest, &runtime_state, embedded, &failures, &target, NULL, 0, &run_frame);
-        continue;
-      }
-    }
     int32_t buttons = devmenu_blocks_guest ? 0 : input_buttons();
     if (!launcher_home_running()) {
       /* SELECT belongs to the system while an installed app runs: its press
@@ -1272,12 +1425,25 @@ int main(void) {
       devmenu_set_link_line(link_line);
     }
 #endif
+    /* The new guest's first frame still draws under the loading overlay;
+     * the ones after it under the arriving fade. The canonical tick draws
+     * the overlay the driver asks gfx.c for, so the fade advances first. */
+    u64 transition_now = osGetTime();
+    TransitionPhase transition = transition_phase();
+    if (transition == TRANSITION_ARRIVING) transition_advance(transition_now);
     u64 offload_cpu_start = svcGetSystemTick();
     u64 phase_js __attribute__((unused)) = offload_cpu_start;
-    if (!qjs_frame(buttons, analog, &touch, touch_count, right_analog)) {
+    guest_frame_started = svcGetSystemTick();
+    guest_frame_running = true;
+    bool frame_ran = qjs_frame(buttons, analog, &touch, touch_count, right_analog);
+    guest_frame_running = false;
+    if (!frame_ran) {
 #if defined(POCKETJS_CAPTURE) || defined(POCKETJS_OFFLOAD)
       fail(qjs_last_error());
 #else
+      /* SELECT ended a long frame (guest_interrupt): the switch starts at the
+       * top of the next one. */
+      if (qjs_interrupted() && launcher_pending()) continue;
       snprintf(runtime_error, sizeof runtime_error, "%s", qjs_last_error());
       if (!launcher_home_running()) {
         fail_to_home(&guest, &runtime_state, embedded, &failures, &run_frame, "guest-frame", runtime_error);
@@ -1303,6 +1469,7 @@ int main(void) {
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
     accept_guest(&guest, &runtime_state, &failures, run_frame);
 #endif
+    if (transition == TRANSITION_LOADING) transition_arrive(transition_now);
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
     {
       /* A frame interval is measured only between consecutive presented

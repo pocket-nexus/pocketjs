@@ -17,8 +17,8 @@
 // other) is the system chord. The host holds back a shoulder's down edge for
 // that window, so a guest sees neither half of the chord; a lone L or R
 // reaches the guest AGENT_CHORD_FRAMES late. The chord's down and up edges
-// arrive as host events. Holding the chord is push-to-talk; a short press
-// opens the keyboard.
+// arrive as host events; the overlay opens its choice of Talk or Type on
+// the down edge, however long the chord is held.
 //
 // The agent runs on the companion (contracts/spec/link.ts): the companion
 // owns the model session, spends the tokens and asks the console to act. The
@@ -40,6 +40,18 @@
 //   shot() -> id | 0          capture the touch screen once and stream it on
 //                             a new stream (returns its id)
 //   status() -> string        JSON AgentStatus
+//   display() -> "dual" | "single"
+//                             the console's display mode (AGENT_DISPLAY)
+//   setDisplay(mode) -> bool  set and persist it; a "display" event follows
+//   homeHint(on)              the launcher shows a page other than its first
+//                             (Settings, the Mac): the stage shows the SELECT
+//                             Home hint as it does in an applet. Cleared at
+//                             every guest boot.
+//
+// Display mode (AGENT_DISPLAY): "dual", the default, gives the stage the top
+// screen; "single" darkens it, and the overlay summons the agent from a notch
+// on the touch screen (AGENT_NOTCH). The console keeps the mode across
+// reboots (docs/POCKET-AGENT.md, "Display mode").
 //
 // The microphone stream opens with
 //   {"t":"agent.audio","id":n,"rate":AGENT_MIC_RATE,"format":"s16le"}
@@ -85,6 +97,14 @@ export const AGENT_MODE = {
 } as const;
 export type AgentMode = (typeof AGENT_MODE)[keyof typeof AGENT_MODE];
 
+/** The console's display modes. */
+export const AGENT_DISPLAY = ["dual", "single"] as const;
+export type AgentDisplay = (typeof AGENT_DISPLAY)[number];
+
+/** The notch the overlay draws in single display mode, in touch-screen
+ *  pixels: centred, hanging from the top edge, bottom corners rounded. */
+export const AGENT_NOTCH = { x: 124, y: 0, w: 72, h: 14, radius: 7 } as const;
+
 /** What the mascot's monitor shows. */
 export const AGENT_SCREEN = {
   idle: 0,
@@ -105,6 +125,9 @@ export interface AgentStatus {
    *  microphone's gain: what a quiet recording is checked against. */
   peak?: number;
   gain?: number;
+  /** The top screen's backlight is on (off in single mode while an agent
+   *  guest runs); device checks read it. */
+  topBacklight?: boolean;
 }
 
 /** Host events from poll(). */
@@ -116,6 +139,8 @@ export type AgentEvent =
   /** A new atlas for AGENT_FONT_SLOT is loaded: measured widths are stale. */
   | { t: "glyphs" }
   | { t: "link"; available: boolean }
+  /** The display mode changed (setDisplay). */
+  | { t: "display"; mode: AgentDisplay }
   | AgentServerMessage;
 
 // ---------------------------------------------------------------------------

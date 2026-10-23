@@ -29,12 +29,17 @@ src/error_text.h      fixed-buffer error formatter
 src/gfx.c             PICA driver registration and product texture/scene adapters
 src/qjs.c             generated guest attachment and product namespaces
 src/launcher.c        installed slots, switch requests and lastError
+src/transition.c      app-switch overlay: scrim and activity indicator lists
+src/bytecode.c        a slot's bundle bytecode on the SD card
+src/fs.c              globalThis.fs: one guest's file tree on the SD card
 src/link.c            companion discovery, handshake, net, catalog and install
 src/link_proto.c      wire facts without sockets (URI, beacon, proofs)
 src/sha256.c          SHA-256 / HMAC-SHA256 for handshake proofs and app slots
 src/jscan.c           bounded JSON reader/writer for host records
 src/wifi.c            globalThis.wifi over AC and nwm::EXT
-src/camera.c          outer-camera texture and QR decode
+src/camera.c          camera texture, QR decode and stills
+src/photos.c          camera.photo: JPEG save, list, decode, thumbnails
+src/photos_image.c    DCF names, JPEG through libjpeg, thumbnail and full view
 src/quirc/            vendored quirc (ISC)
 src/input_policy.c    reserved product chords and development-menu input latch
 platforms/3ds/        shared hooks, unreserved HID facts and input source
@@ -400,6 +405,42 @@ so a SELECT still held from the switch cannot bounce straight back. The
 launcher sees SELECT unchanged. `ui.appShot()` returns -1: this host keeps no
 frozen frame.
 
+**A switch runs under a host-drawn transition** (`src/transition.c`) on
+both screens:
+
+| phase | on screen | length |
+|-------|-----------|--------|
+| leaving | the old guest's last frame, no longer running, under a black scrim that rises; an activity indicator (eight dots at the touch screen's centre) fades in | 150 ms |
+| loading | both screens black, the indicator turning | teardown, bytecode, mount and first frame of the new guest |
+| arriving | the new guest's frames, with the scrim and the indicator falling away | 250 ms of presented frames, at most 33 ms counted per frame |
+
+The loading frames come from a thread of their own, one priority step above
+the main thread, about a millisecond each. **The main thread issues no GPU
+work between the teardown and the new guest's first frame**, and
+`begin_frame_wait` and `fail()` stop the thread before they touch the GPU.
+QuickJS's interrupt handler runs every 10,000 calls and back-jumps, a few
+times a second during a mount, so the loading frames do not come from it.
+
+**SELECT does not wait for the end of a long frame.** Once a frame of an
+installed app has run 50 ms, QuickJS's interrupt hook scans the buttons; a
+SELECT press edge there summons the launcher and ends the frame with an
+uncatchable error, and the app is torn down without another frame. The scan
+moves the press edges `hidKeysDown` reports (the dev menu chords) from the
+next frame's scan to this one.
+
+**A bundle boots from bytecode after its first boot** (`src/bytecode.c`).
+`qjs_boot` compiles the source (`JS_EVAL_FLAG_COMPILE_ONLY`) and hands back
+the bytecode (`JS_WriteObject`), which main.c writes to
+`<slot>/bundle.qbc`; the next boot of the same package runs it with
+`JS_ReadObject`. The file's header carries the package hash, the first 16
+hex digits of the QuickJS build stamp (`POCKETJS_QUICKJS_STAMP`, from
+`dist/3ds/quickjs/.stamp`) and an FNV-1a checksum; a mismatch compiles again.
+On an Old 3DS, compiling Pocket Home's 477 KB bundle takes 2.3 s and reading
+its 368 KB of bytecode takes 80 ms. The guest's runtime strips function
+source text (`JS_STRIP_SOURCE`): line tables stay, so a stack names its
+lines, and `Function.prototype.toString` returns no source. Capture builds
+compile from source on every boot.
+
 **A dev-wire push of another app installs into that app's own slot**, commits
 it as the slot's active package and launches it, so
 `bun run 3ds:dev push --app nexus` works while the launcher runs. A push of the
@@ -469,8 +510,47 @@ service starts on `open()` and stops on `close()` or a guest switch. Measured
 on an Old 3DS: 30 frames and 4 decode passes a second with the guest still at
 60 fps.
 
+`open(flags)` selects the inner camera (`CAMERA_OPEN.inner`, previewed
+mirrored) and drops QR decoding (`noScan`); a reopen with other flags restarts
+capture behind the same texture handle. **camera.photo** adds stills on the
+SD card. `capture()` stops the stream, switches the camera to its second
+context (`CONTEXT_B`, 640x480, never mirrored), keeps the second frame, and
+returns to the preview. `src/photos.c` encodes the still on a worker with
+libjpeg (devkitPro's `3ds-libjpeg-turbo` portlib, linked by the Makefile) as
+a JPEG under `sdmc:/DCIM/100POCKT/PKT_nnnn.JPG` (DCF names,
+contracts/spec/camera.ts). `load(name, kind)` decodes on the same worker at
+the smallest JPEG scale that covers the result (**1/4** of 640x480 for the
+78 px centre thumbnail, cached under `sdmc:/pocketjs/photos/thumbs`; **1/2**
+for the photo fitted to 320x240), and `photos_present` uploads the pixels as a core texture
+and publishes a "loaded" event. Measured on an Old 3DS: the preview at 30 fps
+with the guest at 16.9 ms a frame; a photo saved 3.3 s after the press
+(0.7 s for the still, 2.6 s to encode and write it behind the 60 fps UI); a
+full 640x480 decode in 0.64 s. The pure parts (`src/photos_image.c`: names,
+pixel conversion, box filters) run natively in `tests/camera-photo.test.ts`.
+
 Capture and offload builds compile link, net, wifi and camera to inert stubs
 and leave the app switching ops out, so goldens stay deterministic.
+
+## Files
+
+A guest that declares `data.fs` gets `globalThis.fs`
+([contracts/spec/fs.ts](../../contracts/spec/fs.ts)) from `src/fs.c`: the nine
+synchronous ops over **its own slot's `data` directory**,
+`sdmc:/pocketjs/runtime/apps/<slot>/data`. `main.c` binds the tree before
+`qjs_boot` and unbinds it at a guest switch; no op names a path outside it,
+and an uninstall deletes it with the slot. The quota is the plan's
+`applet.store.maxBytes` (contracts/spec/applet.ts), else **4 MiB**; `usage()`
+walks the tree once per binding and keeps the sum current after that.
+
+FAT refuses a rename onto an existing name, so a truncating write over an
+existing file stages the bytes in the slot's `fs-tmp` directory, records the
+destination in `fs-tmp/write.dest`, removes the old file and renames the
+staged one into place. The next binding finishes a replacement a power loss
+cut between the two: the guest reads the old content or the new.
+`tests/fs-3ds.test.ts` compiles `src/fs.c` natively under ASan and UBSan and
+runs each scenario against it and the sim's fs host (`platforms/sim/fs.ts`), op by
+op, result and `lastError` both, plus the FAT path and that recovery. Capture
+builds leave the tree unbound.
 
 ## The agent stage
 

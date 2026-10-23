@@ -23,8 +23,10 @@
  * drifting about the screen and turning back at its edges).
  *
  * Over both eyes, at the screen's own pixels, a pill in the bottom-right
- * corner says that L+R asks Claude (stage_hint.h, baked by
- * tools/3ds-stage-art.ts). It shows while the mascot is idle.
+ * corner says that L+R asks Claude, and while an applet other than the
+ * launcher runs, a second pill above it says that SELECT goes Home
+ * (stage_hint.h, baked by tools/3ds-stage-art.ts). Both show while the
+ * mascot is idle.
  */
 
 #include "stage.h"
@@ -35,6 +37,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "launcher.h"
+#include "agent.h"
 #include "link.h"
 #include "stage_hint.h"
 #include "stage_saver.h"
@@ -104,14 +108,16 @@ static C3D_BufInfo buffers;
 
 static StageVertex *vertices;
 static uint32_t vertex_count;
-static Range lit, outlined, unlit, screen, shadows, hint;
+static Range lit, outlined, unlit, screen, shadows, hint, hint_select;
 
 static C3D_Tex mirror_tex;
 static C3D_Tex own_tex;
 static C3D_Tex saver_tex;
 static C3D_Tex hint_tex;
-/* The hint's opacity, 0 to 1, eased toward 1 while idle. */
+/* The hints' opacity, 0 to 1: the L+R pill eases toward 1 while idle, the
+ * SELECT pill while idle in an applet other than the launcher. */
 static float hint_alpha;
+static float select_alpha;
 static uint16_t *staging; /* 512x256 RGB565, linear memory */
 static bool mirror_ready;
 static bool own_ready;
@@ -731,19 +737,33 @@ static void build_screen(void) {
   build_xf = aff_identity();
 }
 
-/* The hint's quad in top-screen pixels (stage_render draws it orthographic),
- * the pill's bottom 8 px above the screen's and its right 8 px in. */
+/* The hints' quads in top-screen pixels (stage_render draws them
+ * orthographic): the L+R pill's bottom 8 px above the screen's and its right
+ * 8 px in, the SELECT pill 6 px above it, right-aligned with it. Each quad
+ * samples its own half of the texture. */
 #define HINT_X (400.0f - 8.0f - STAGE_HINT_W)
 #define HINT_Y (240.0f - 8.0f - STAGE_HINT_H)
+#define SELECT_X (400.0f - 8.0f - STAGE_SELECT_W)
+#define SELECT_Y (HINT_Y - 6.0f - STAGE_HINT_H)
+
+static void hint_quad(float x, float y, float v0, float v1) {
+  const float x0 = x, x1 = x + STAGE_HINT_TEX_W;
+  const float y0 = y, y1 = y + STAGE_HINT_TEX_H * (v1 - v0);
+  const float p[4][3] = {{x0, y0, 0}, {x1, y0, 0}, {x1, y1, 0}, {x0, y1, 0}};
+  const float uv[4][2] = {{0, v0}, {1, v0}, {1, v1}, {0, v1}};
+  quad_uv(p, (const float[3]){0, 0, 1}, RGB(0xffffff), uv);
+}
 
 static void build_hint(void) {
   build_xf = aff_identity();
   build_bone = BONE_ROOM;
-  const float x0 = HINT_X, x1 = HINT_X + STAGE_HINT_TEX_W;
-  const float y0 = HINT_Y, y1 = HINT_Y + STAGE_HINT_TEX_H;
-  const float p[4][3] = {{x0, y0, 0}, {x1, y0, 0}, {x1, y1, 0}, {x0, y1, 0}};
-  const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-  quad_uv(p, (const float[3]){0, 0, 1}, RGB(0xffffff), uv);
+  hint_quad(HINT_X, HINT_Y, 0.0f, (float)STAGE_SELECT_Y / STAGE_HINT_TEX_H);
+}
+
+static void build_hint_select(void) {
+  build_xf = aff_identity();
+  build_bone = BONE_ROOM;
+  hint_quad(SELECT_X, SELECT_Y, (float)STAGE_SELECT_Y / STAGE_HINT_TEX_H, 1.0f);
 }
 
 static void build_shadows(void) {
@@ -841,6 +861,9 @@ bool stage_init(void) {
   hint = begin_group();
   build_hint();
   end_group(&hint);
+  hint_select = begin_group();
+  build_hint_select();
+  end_group(&hint_select);
   GSPGPU_FlushDataCache(vertices, vertex_count * sizeof *vertices);
 
   BufInfo_Init(&buffers);
@@ -1165,6 +1188,9 @@ void stage_tick(void) {
   }
 
   hint_alpha = ease(hint_alpha, mode == MODE_IDLE ? 1.0f : 0.0f, mode == MODE_IDLE ? 0.08f : 0.3f);
+  /* In an applet, or in the launcher away from its first page. */
+  bool in_applet = mode == MODE_IDLE && (!launcher_home_running() || agent_home_hint());
+  select_alpha = ease(select_alpha, in_applet ? 1.0f : 0.0f, in_applet ? 0.08f : 0.3f);
 }
 
 static void set_bone(int index, const Aff *bone) {
@@ -1360,9 +1386,15 @@ static void draw_eye(float iod) {
   draw_range(shadows);
 }
 
-/* The hint, at the screen's pixels in either eye. */
+static void draw_hint_range(Range range, float alpha) {
+  if (alpha < 0.01f) return;
+  C3D_TexEnvColor(C3D_GetTexEnv(0), ((uint32_t)(alpha * 255.0f) << 24) | 0xffffffu);
+  draw_range(range);
+}
+
+/* The hints, at the screen's pixels in either eye. */
 static void draw_hint(void) {
-  if (hint_alpha < 0.01f) return;
+  if (hint_alpha < 0.01f && select_alpha < 0.01f) return;
   C3D_Mtx projection;
   Mtx_OrthoTilt(&projection, 0.0f, 400.0f, 240.0f, 0.0f, 1.0f, -1.0f, true);
   C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, u_proj, &projection);
@@ -1377,11 +1409,11 @@ static void draw_hint(void) {
   C3D_TexEnvFunc(env, C3D_RGB, GPU_MODULATE);
   C3D_TexEnvSrc(env, C3D_Alpha, GPU_TEXTURE0, GPU_CONSTANT, 0);
   C3D_TexEnvFunc(env, C3D_Alpha, GPU_MODULATE);
-  C3D_TexEnvColor(env, ((uint32_t)(hint_alpha * 255.0f) << 24) | 0xffffffu);
   C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
   C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_CullFace(GPU_CULL_NONE);
-  draw_range(hint);
+  draw_hint_range(hint, hint_alpha);
+  draw_hint_range(hint_select, select_alpha);
 }
 
 bool stage_render(C3D_RenderTarget *left, C3D_RenderTarget *right) {

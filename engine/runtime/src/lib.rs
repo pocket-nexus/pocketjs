@@ -722,9 +722,11 @@ impl Runtime {
     /// Present the current tree and wait for all render and display work.
     /// No driver retains frame references after this call. Both terminal
     /// outcomes permit another advance; a failed output can also be retried
-    /// with `present` without running the guest again.
+    /// with `present` without running the guest again. A guest that failed
+    /// keeps its last tree presentable, for a host that draws its own
+    /// transition over it; advancing that guest stays rejected.
     pub fn present(&mut self) -> Result<(), RuntimeError> {
-        if self.state != State::Running {
+        if !matches!(self.state, State::Running | State::Failed) {
             return Err(RuntimeError::InvalidState);
         }
         let mut state = self.ops.core_mut()?;

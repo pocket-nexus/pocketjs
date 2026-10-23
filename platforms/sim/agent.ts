@@ -1,14 +1,15 @@
 // platforms/sim/agent.ts — a fake `globalThis.agent` (contracts/spec/agent.ts)
 // for the 3DS console sim: the companion's messages are what a test pushes,
 // the guest's are recorded, the stage keeps its last mode and screen, and the
-// microphone and the shot are counters.
+// microphone and the shot are counters. The display mode starts as the option
+// says (dual by default) and setDisplay changes it as the host does.
 //
 //   const agent = createSimAgentHost();
 //   agent.chord(400);                      // hold L+R 400 ms
 //   agent.push({ t: "agent.delta", id, text: "Hi" });
 //   agent.sent                             // every message the guest sent
 
-import type { AgentClientMessage, AgentEvent, AgentStatus } from "../../contracts/spec/agent.ts";
+import { AGENT_DISPLAY, type AgentClientMessage, type AgentDisplay, type AgentEvent, type AgentStatus } from "../../contracts/spec/agent.ts";
 
 export interface SimAgentHost {
   ns: Record<string, (...args: never[]) => unknown>;
@@ -27,9 +28,13 @@ export interface SimAgentHost {
   listenEnds: { id: number; send: boolean }[];
   shots: number;
   level: number;
+  /** The console's display mode. */
+  display: AgentDisplay;
+  /** The launcher's request for the SELECT Home hint. */
+  homeHint: boolean;
 }
 
-export function createSimAgentHost(options: { available?: boolean } = {}): SimAgentHost {
+export function createSimAgentHost(options: { available?: boolean; display?: AgentDisplay } = {}): SimAgentHost {
   let available = options.available ?? true;
   let queue: AgentEvent[] = [];
   let nextStream = 100;
@@ -55,6 +60,8 @@ export function createSimAgentHost(options: { available?: boolean } = {}): SimAg
     listenEnds: [],
     shots: 0,
     level: 0,
+    display: options.display ?? "dual",
+    homeHint: false,
   };
   host.ns = {
     poll: () => {
@@ -92,6 +99,18 @@ export function createSimAgentHost(options: { available?: boolean } = {}): SimAg
       const status: AgentStatus = { available, listening: host.listening !== 0, recordedMs: 0, chord: false };
       return JSON.stringify(status);
     },
+    display: () => host.display,
+    homeHint: ((on: boolean) => {
+      host.homeHint = on === true;
+    }) as never,
+    setDisplay: ((mode: AgentDisplay) => {
+      if (!AGENT_DISPLAY.includes(mode)) return false;
+      if (mode !== host.display) {
+        host.display = mode;
+        queue.push({ t: "display", mode });
+      }
+      return true;
+    }) as never,
   };
   return host;
 }

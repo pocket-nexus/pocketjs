@@ -52,4 +52,19 @@ int32_t agent_level(void);
 int32_t agent_shot(void);
 const char *agent_status_json(void);
 
+/* Display mode (contracts/spec/agent.ts AGENT_DISPLAY): the console's,
+ * persisted in POCKET_RUNTIME_ROOT/display.txt, dual unless set. In single
+ * mode the stage is not drawn and the top backlight is off while an agent
+ * guest runs. */
+#define AGENT_DISPLAY_DUAL 0
+#define AGENT_DISPLAY_SINGLE 1
+int agent_display_mode(void);
+/* The launcher asks for the SELECT Home pill while it shows a page other
+ * than its first (Settings, the Mac); every guest boot clears the request. */
+void agent_set_home_hint(bool on);
+bool agent_home_hint(void);
+bool agent_set_display_mode(int mode);
+/* The stage owns the top screen this frame: an agent guest in dual mode. */
+bool agent_stage_shown(void);
+
 #endif

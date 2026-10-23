@@ -12,6 +12,9 @@
 #define PICA_TEX_MAX 1024u
 #define MAX_VERTICES 32768u
 #define MAX_COMMANDS 2048u
+/* Host overlays carry flat geometry only: a scrim and an indicator. */
+#define OVERLAY_VERTICES 4096u
+#define OVERLAY_COMMANDS 256u
 #define PSM_5650 0u
 #define PSM_4444 2u
 #define PSM_8888 3u
@@ -61,15 +64,19 @@ struct Submission {
   Submission *next;
   uint64_t id;
   Vertex *vertices;
-  uint32_t vertex_count;
+  uint32_t vertex_count, vertex_capacity;
   Command *commands;
-  uint32_t command_count;
+  uint32_t command_count, command_capacity;
   Cache **refs;
   size_t ref_count;
   pocket_pica_native_texture *native;
   size_t native_count;
   bool terminal;
   struct pocket_pica_display *display;
+  /* Commands from overlay_command draw the host overlay at its own logical
+   * size; boundary keeps its first command apart from the guest's last. */
+  uint32_t overlay_command, overlay_width, overlay_height;
+  bool boundary;
 };
 struct pocket_pica_renderer {
   pocket_pica_config config;
@@ -83,6 +90,7 @@ struct pocket_pica_renderer {
   size_t cache_bytes;
   uint64_t next_id, stamp;
   Submission *pending;
+  Submission *overlay; /* Storage for host-only frames; never pending. */
   struct pocket_pica_display *displays;
   uint32_t vertices, commands;
   size_t words[2];
@@ -451,19 +459,20 @@ static void quad(Submission *s, float x, float y, float w, float h,
 }
 static bool command(Submission *s, C3D_Tex *texture, Clip clip,
                     uint32_t count) {
-  if (count > MAX_VERTICES - s->vertex_count)
+  if (count > s->vertex_capacity - s->vertex_count)
     return false;
-  if (s->command_count) {
+  if (s->command_count && !s->boundary) {
     Command *last = &s->commands[s->command_count - 1];
     if (last->texture == texture && !memcmp(&last->clip, &clip, sizeof clip)) {
       last->count += count;
       return true;
     }
   }
-  if (s->command_count >= MAX_COMMANDS)
+  if (s->command_count >= s->command_capacity)
     return false;
   s->commands[s->command_count++] =
       (Command){texture, s->vertex_count, count, clip};
+  s->boundary = false;
   return true;
 }
 static int32_t visit(void *context, const pocket_draw_op *raw) {
@@ -584,11 +593,9 @@ static int32_t visit(void *context, const pocket_draw_op *raw) {
   return 0;
 }
 
-static bool drain(pocket_pica_renderer *r) {
-  if (!r->frame_open)
-    return true;
+/* End the open frame and wait for the GPU to finish it. */
+static void gpu_idle(pocket_pica_renderer *r) {
   C3D_FrameEnd(0);
-  r->frame_open = false;
   /* Blocking FrameBegin waits and clears the preceding GPU queue. FrameSync
    * only waits for VBlank and cannot establish this resource lifetime. */
   if (!C3D_FrameBegin(0))
@@ -598,6 +605,12 @@ static bool drain(pocket_pica_renderer *r) {
   BufInfo_Init(&empty);
   C3D_SetBufInfo(&empty);
   C3D_FrameEnd(0);
+}
+static bool drain(pocket_pica_renderer *r) {
+  if (!r->frame_open)
+    return true;
+  r->frame_open = false;
+  gpu_idle(r);
   for (Submission *p = r->pending; p; p = p->next)
     p->terminal = true;
   return true;
@@ -613,10 +626,14 @@ static void release_submission(pocket_pica_renderer *r, Submission *s) {
   free(s->native);
   free(s);
 }
-static void draw(pocket_pica_renderer *r, Submission *s, uint32_t logical_w,
-                 uint32_t logical_h) {
+static void draw_commands(pocket_pica_renderer *r, Submission *s,
+                          C3D_RenderTarget *target, uint32_t first,
+                          uint32_t end, uint32_t logical_w,
+                          uint32_t logical_h) {
   pocket_pica_display *display = s->display;
-  C3D_FrameDrawOn(display->target);
+  if (first >= end)
+    return;
+  C3D_FrameDrawOn(target);
   C3D_SetViewport(0, 0, display->height, display->width);
   C3D_Mtx projection;
   Mtx_OrthoTilt(&projection, 0, (float)logical_w, (float)logical_h, 0, 0, 1,
@@ -640,7 +657,7 @@ static void draw(pocket_pica_renderer *r, Submission *s, uint32_t logical_w,
   C3D_TexEnvFunc(env, C3D_Both, GPU_MODULATE);
   for (int i = 1; i < 6; i++)
     C3D_TexEnvInit(C3D_GetTexEnv(i));
-  for (uint32_t i = 0; i < s->command_count; i++) {
+  for (uint32_t i = first; i < end; i++) {
     Command *cmd = &s->commands[i];
     uint32_t x0 = (uint64_t)cmd->clip.x0 * display->width / logical_w;
     uint32_t y0 = (uint64_t)cmd->clip.y0 * display->height / logical_h;
@@ -655,6 +672,50 @@ static void draw(pocket_pica_renderer *r, Submission *s, uint32_t logical_w,
     C3D_DrawArrays(GPU_TRIANGLES, cmd->first, cmd->count);
   }
   C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+}
+/* The guest's commands on the display's target. */
+static void draw(pocket_pica_renderer *r, Submission *s, uint32_t logical_w,
+                 uint32_t logical_h) {
+  draw_commands(r, s, s->display->target, 0, s->overlay_command, logical_w,
+                logical_h);
+}
+/* The host overlay's commands over both eyes of a stereo display. */
+static void draw_overlay(pocket_pica_renderer *r, Submission *s) {
+  pocket_pica_display *display = s->display;
+  if (s->overlay_command >= s->command_count)
+    return;
+  draw_commands(r, s, display->target, s->overlay_command, s->command_count,
+                s->overlay_width, s->overlay_height);
+  if (display->right && gfxIs3D())
+    draw_commands(r, s, display->right, s->overlay_command, s->command_count,
+                  s->overlay_width, s->overlay_height);
+}
+/* Visit a host overlay list into s at its own logical size, after the guest's
+ * commands. No resource lookups: the overlay carries flat geometry only. */
+static int32_t build_overlay(pocket_pica_renderer *r, Submission *s,
+                             const pocket_pica_overlay *overlay) {
+  pocket_pica_display *display = s->display;
+  s->overlay_command = s->command_count;
+  s->overlay_width = s->overlay_height = 0;
+  if (!overlay->subpixels || !overlay->list.word_count)
+    return 0;
+  if (overlay->subpixels > 64)
+    return POCKET_STATUS_INVALID;
+  pocket_render_resources resources = {
+      .struct_size = sizeof resources,
+      .viewport_width = (float)(display->width * overlay->subpixels),
+      .viewport_height = (float)(display->height * overlay->subpixels)};
+  Build b = {r, s, resources, display->width * overlay->subpixels,
+             display->height * overlay->subpixels};
+  s->boundary = true;
+  int32_t status =
+      pocket_draw_list_visit(&overlay->list, &resources, 1, visit, &b);
+  s->boundary = false;
+  if (status)
+    return status;
+  s->overlay_width = b.width;
+  s->overlay_height = b.height;
+  return 0;
 }
 static int32_t renderer_descriptor(void *context,
                                    pocket_renderer_descriptor *out) {
@@ -711,6 +772,8 @@ static int32_t render(void *context, const pocket_frame_input *raw,
   Submission *s = calloc(1, sizeof *s);
   if (!s)
     return POCKET_STATUS_FAILED;
+  s->vertex_capacity = MAX_VERTICES;
+  s->command_capacity = MAX_COMMANDS;
   s->vertices = linearAlloc((size_t)MAX_VERTICES * sizeof(Vertex));
   s->commands = calloc(MAX_COMMANDS, sizeof(Command));
   s->refs = calloc(MAX_COMMANDS, sizeof(Cache *));
@@ -728,13 +791,19 @@ static int32_t render(void *context, const pocket_frame_input *raw,
   s->display = display;
   Build b = {r, s, resources, (uint32_t)resources.viewport_width,
              (uint32_t)resources.viewport_height};
-  pocket_draw_list overlay = {.struct_size = sizeof overlay,
-                              .version = POCKET_DRAW_LIST_VERSION};
-  const pocket_draw_list *list = frame.list;
-  if (r->config.overlay &&
-      r->config.overlay(r->config.context, display->role, &overlay))
-    list = &overlay;
+  pocket_pica_overlay overlay = {
+      .list = {.struct_size = sizeof overlay.list,
+               .version = POCKET_DRAW_LIST_VERSION},
+      .subpixels = 1};
+  bool host = r->config.overlay &&
+              r->config.overlay(r->config.context, display->role, &overlay);
+  const pocket_draw_list *list =
+      host && overlay.replace ? &overlay.list : frame.list;
   int32_t status = pocket_draw_list_visit(list, frame.resources, 1, visit, &b);
+  if (!status && host && !overlay.replace)
+    status = build_overlay(r, s, &overlay);
+  else
+    s->overlay_command = s->command_count;
   if (status) {
     release_submission(r, s);
     return status;
@@ -758,6 +827,7 @@ static int32_t render(void *context, const pocket_frame_input *raw,
                                          display->target, display->right);
   if (!replaced)
     draw(r, s, b.width, b.height);
+  draw_overlay(r, s);
   r->words[display->role] = list->word_count;
   r->vertices += s->vertex_count;
   r->commands += s->command_count;
@@ -1018,6 +1088,9 @@ void pocket_pica_renderer_destroy(pocket_pica_renderer *r) {
   if (!r)
     return;
   pocket_pica_renderer_reset(r);
+  if (r->overlay)
+    release_submission(r, r->overlay);
+  r->overlay = NULL;
   while (r->displays)
     pocket_pica_display_destroy(r->displays);
   if (r->white_live)
@@ -1037,4 +1110,62 @@ uint32_t pocket_pica_renderer_commands(const pocket_pica_renderer *r) {
 size_t pocket_pica_renderer_words(const pocket_pica_renderer *r,
                                   uint32_t role) {
   return r && role < 2 ? r->words[role] : 0;
+}
+
+static Submission *overlay_storage(pocket_pica_renderer *r) {
+  if (r->overlay)
+    return r->overlay;
+  Submission *s = calloc(1, sizeof *s);
+  if (!s)
+    return NULL;
+  s->vertex_capacity = OVERLAY_VERTICES;
+  s->command_capacity = OVERLAY_COMMANDS;
+  s->vertices = linearAlloc((size_t)OVERLAY_VERTICES * sizeof(Vertex));
+  s->commands = calloc(OVERLAY_COMMANDS, sizeof(Command));
+  s->refs = calloc(OVERLAY_COMMANDS, sizeof(Cache *));
+  s->native = calloc(OVERLAY_COMMANDS, sizeof(pocket_pica_native_texture));
+  if (!s->vertices || !s->commands || !s->refs || !s->native) {
+    release_submission(r, s);
+    return NULL;
+  }
+  r->overlay = s;
+  return s;
+}
+bool pocket_pica_renderer_present_overlays(pocket_pica_renderer *r) {
+  if (!r || !r->config.overlay || r->frame_open || r->pending)
+    return false;
+  Submission *s = overlay_storage(r);
+  if (!s || !C3D_FrameBegin(C3D_FRAME_NONBLOCK))
+    return false;
+  /* The main thread's reset reads frame_open while this runs; the host
+   * frame keeps its own lifetime and leaves that flag alone. */
+  for (pocket_pica_display *d = r->displays; d; d = d->next) {
+    bool stereo = d->right && gfxIs3D();
+    C3D_RenderTargetClear(d->target, C3D_CLEAR_ALL, 0x000000ff, 0);
+    if (stereo)
+      C3D_RenderTargetClear(d->right, C3D_CLEAR_ALL, 0x000000ff, 0);
+    pocket_pica_overlay overlay = {
+        .list = {.struct_size = sizeof overlay.list,
+                 .version = POCKET_DRAW_LIST_VERSION},
+        .subpixels = 1};
+    if (!r->config.overlay(r->config.context, d->role, &overlay))
+      continue;
+    s->vertex_count = s->command_count = 0;
+    s->display = d;
+    if (build_overlay(r, s, &overlay))
+      continue;
+    GSPGPU_FlushDataCache(s->vertices, s->vertex_count * sizeof(Vertex));
+    draw_overlay(r, s);
+  }
+  /* As display_flush: rendering is terminal before the display transfer. */
+  gpu_idle(r);
+  for (pocket_pica_display *d = r->displays; d; d = d->next) {
+    bool stereo = d->right && gfxIs3D();
+    transfer(d, d->target, GFX_LEFT);
+    if (stereo)
+      transfer(d, d->right, GFX_RIGHT);
+    gfxScreenSwapBuffers(
+        d->role == POCKET_DISPLAY_ROLE_PRIMARY ? GFX_TOP : GFX_BOTTOM, stereo);
+  }
+  return true;
 }

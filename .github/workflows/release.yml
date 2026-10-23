@@ -96,6 +96,10 @@ jobs:
       - name: Build wasm (core + software rasterizer)
         run: bun tools/wasm.ts
 
+      # tests/camera-photo.test.ts links the 3DS photo code against libjpeg.
+      - name: Install libjpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-turbo8-dev pkg-config
+
       - name: Test JavaScript and package contracts
         run: bun run test
 

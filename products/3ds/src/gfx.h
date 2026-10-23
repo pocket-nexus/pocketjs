@@ -10,6 +10,9 @@ bool gfx_bind_targets(C3D_RenderTarget *primary, C3D_RenderTarget *auxiliary,
 bool gfx_register(pocket_runtime *runtime);
 void gfx_reset_resources(void);
 void gfx_shutdown(void);
+/* The app-switch transition alone on both screens, while no guest runs
+ * (main.c's loading thread). False when the GPU still owns a frame. */
+bool gfx_present_overlays(void);
 uint32_t gfx_dropped_vertices(void);
 uint32_t gfx_frame_commands(void);
 uint32_t gfx_frame_vertices(void);

@@ -2,8 +2,8 @@
 #ifndef POCKET_3DS_PROFILE_H
 #define POCKET_3DS_PROFILE_H
 #include <stdint.h>
-static const uint8_t pocket_3ds_profile[] = "{\"capabilities\":[\"io.offload\",\"media.playback\",\"input.analog.left\",\"input.analog.right\",\"input.buttons\",\"input.cursor\",\"input.touch.auxiliary\",\"display.auxiliary\",\"text.glyphs.baked\",\"ui.physics\",\"net.http\",\"link.companion\",\"system.wifi\",\"camera.qr\",\"system.agent\"],\"display\":{\"auxiliary\":{\"logicalViewports\":[[320,240]],\"physicalViewport\":[320,240],\"presentations\":[\"native\"],\"rasterDensity\":1},\"logicalViewports\":[[400,240]],\"physicalViewport\":[400,240],\"presentations\":[\"native\"],\"rasterDensity\":1},\"form\":\"takeover\",\"id\":\"3ds-dev\",\"platform\":\"3ds\",\"tickHz\":60}";
-static const uint8_t pocket_3ds_profile_hash[32] = {165,169,204,110,206,188,150,241,95,229,186,127,147,154,68,31,51,136,207,152,34,57,30,136,240,232,117,253,8,90,165,12};
+static const uint8_t pocket_3ds_profile[] = "{\"capabilities\":[\"io.offload\",\"media.playback\",\"input.analog.left\",\"input.analog.right\",\"input.buttons\",\"input.cursor\",\"input.touch.auxiliary\",\"display.auxiliary\",\"text.glyphs.baked\",\"ui.physics\",\"net.http\",\"link.companion\",\"system.wifi\",\"camera.qr\",\"camera.photo\",\"system.agent\",\"data.fs\"],\"display\":{\"auxiliary\":{\"logicalViewports\":[[320,240]],\"physicalViewport\":[320,240],\"presentations\":[\"native\"],\"rasterDensity\":1},\"logicalViewports\":[[400,240]],\"physicalViewport\":[400,240],\"presentations\":[\"native\"],\"rasterDensity\":1},\"form\":\"takeover\",\"id\":\"3ds-dev\",\"platform\":\"3ds\",\"tickHz\":60}";
+static const uint8_t pocket_3ds_profile_hash[32] = {6,99,16,245,119,189,81,167,16,67,12,183,41,131,49,110,45,62,2,21,67,115,236,21,41,219,197,50,200,210,17,114};
 #define POCKET_3DS_OP_createNode 1u
 #define POCKET_3DS_OP_destroyNode 2u
 #define POCKET_3DS_OP_insertBefore 3u

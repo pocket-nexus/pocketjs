@@ -23,7 +23,15 @@ typedef void (*pocket_pica_release_fn)(void *, void *);
 typedef bool (*pocket_pica_scene_fn)(void *, uint32_t, C3D_RenderTarget *,
                                      C3D_RenderTarget *);
 
-typedef bool (*pocket_pica_overlay_fn)(void *, uint32_t, pocket_draw_list *);
+/* A host list drawn in the display's frame: the app-switch transition over
+ * the guest's list, or the development menu in its place. Words are in
+ * 1/subpixels of a logical pixel; 1 keeps the display's logical size. */
+typedef struct {
+  pocket_draw_list list;
+  uint32_t subpixels;
+  bool replace; /* Drawn instead of the guest's list, not over it. */
+} pocket_pica_overlay;
+typedef bool (*pocket_pica_overlay_fn)(void *, uint32_t, pocket_pica_overlay *);
 
 typedef struct {
   const void *shader;
@@ -34,7 +42,7 @@ typedef struct {
   pocket_pica_resolve_fn resolve;
   pocket_pica_release_fn release;
   pocket_pica_scene_fn scene;
-  pocket_pica_overlay_fn overlay; /* Optional host-owned replacement list. */
+  pocket_pica_overlay_fn overlay; /* Optional host overlay or replacement. */
 } pocket_pica_config;
 
 /* The application initializes citro3d and owns targets. It serializes all
@@ -55,6 +63,11 @@ const pocket_display_output_v1 *pocket_pica_display_vtable(void);
 void pocket_pica_display_destroy(pocket_pica_display *display);
 /* Waits before invalidating caches; does not change display registration. */
 void pocket_pica_renderer_reset(pocket_pica_renderer *renderer);
+/* The host overlays alone on cleared targets, outside any runtime frame: the
+ * app-switch transition while no guest runs. Requires no pending submission;
+ * the caller serializes it with every other citro3d use. False when the GPU
+ * still owns the previous frame. */
+bool pocket_pica_renderer_present_overlays(pocket_pica_renderer *renderer);
 size_t pocket_pica_renderer_words(const pocket_pica_renderer *, uint32_t role);
 uint32_t pocket_pica_renderer_vertices(const pocket_pica_renderer *renderer);
 uint32_t pocket_pica_renderer_commands(const pocket_pica_renderer *renderer);

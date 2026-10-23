@@ -146,6 +146,17 @@ static inline int BufInfo_Add(C3D_BufInfo *b, void *p, size_t n, int a, int c) {
   b->vertices = p;
   return fail_buffer ? -1 : 0;
 }
+#define C3D_FRAME_SYNCDRAW 1u
+#define C3D_FRAME_NONBLOCK 2u
+#define C3D_CLEAR_ALL 3u
+/* Host-only overlay frames clear their targets before drawing. */
+static inline void C3D_RenderTargetClear(C3D_RenderTarget *t, unsigned flags,
+                                         unsigned color, unsigned depth) {
+  (void)t;
+  (void)flags;
+  (void)color;
+  (void)depth;
+}
 static inline bool C3D_FrameBegin(unsigned flags) {
   (void)flags;
   if (native_open)

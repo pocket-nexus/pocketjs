@@ -256,4 +256,8 @@ Its error is written to its own slot's `last-error.txt`, the host switches to
 the launcher, and nothing is committed into the launcher's slot. SELECT
 follows the policy above: stripped from installed apps, a host-tracked press
 edge returns to the launcher with `resume` set, and the edge detector is
-latched at every boot. products/3ds/README.md has the slot and switch details.
+latched at every boot, and an installed app's frame that runs past 50 ms
+scans for the edge itself, so a long frame does not hold it back. A switch
+runs under a host-drawn transition: a scrim over the old guest's last frame,
+an activity indicator while the new guest loads, and the scrim falling away
+over its first frames. products/3ds/README.md has the slot and switch details.

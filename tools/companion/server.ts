@@ -22,6 +22,7 @@ import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { AgentService, AGENT_LINK_FEATURE, type AgentLink, type AgentServiceOptions, type AgentSession } from "./agent.ts";
 import { AppCatalog, PackageReader } from "./catalog.ts";
 import { NetFailure, normalizeNetRequest, performNet, type NetRequest } from "./fetch.ts";
+import { ServiceHost } from "./services.ts";
 import {
   LinkFrameDecoder,
   LinkProtocolError,
@@ -122,6 +123,7 @@ export class Companion {
   readonly name: string;
   readonly catalog: AppCatalog;
   readonly agent: AgentService | null;
+  readonly services: ServiceHost;
   private server: Server | undefined;
   private beaconSocket: UdpSocket | undefined;
   private beaconTimer: ReturnType<typeof setInterval> | undefined;
@@ -139,6 +141,7 @@ export class Companion {
     this.agent = options.agent
       ? new AgentService({ ...options.agent, storeDir: this.store.dir, catalog: this.catalog, log: (line) => this.log(line) })
       : null;
+    this.services = new ServiceHost({ storeDir: this.store.dir, log: (line) => this.log(line) });
   }
 
   /** The features a linked console is offered: the agent only when codex is usable. */
@@ -197,6 +200,7 @@ export class Companion {
     this.catalog.close();
     for (const connection of this.connections) connection.close("companion stopping");
     this.agent?.stop();
+    this.services.close();
     this.beaconSocket?.close();
     this.beaconSocket = undefined;
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
@@ -369,6 +373,8 @@ export class Companion {
 
 interface NetPending {
   meta: Omit<NetRequest, "body">;
+  /** The app the console says sent it (its runtime fills it in). */
+  app: string;
   expected: number;
   chunks: Uint8Array[];
   received: number;
@@ -378,6 +384,8 @@ interface NetPending {
 
 class LinkConnection {
   readonly address: string;
+  /** This Mac's end of the connection: the address the console reaches it at. */
+  readonly localAddress: string;
   readonly since = Date.now();
   device: { id: string; name: string; model: string; target: string } | undefined;
   ready = false;
@@ -399,6 +407,7 @@ class LinkConnection {
     private readonly socket: Socket,
   ) {
     this.address = shortAddress(socket.remoteAddress ?? "");
+    this.localAddress = shortAddress(socket.localAddress ?? "");
     socket.setNoDelay(true);
     this.decoder = new LinkFrameDecoder({
       preamble: true,
@@ -617,7 +626,8 @@ class LinkConnection {
       return error(f.code ?? NET_ERROR.invalidRequest, f.message);
     }
     const { bytes, ...rest } = meta;
-    const pending: NetPending = { meta: rest, expected: bytes, chunks: [], received: 0, abort: new AbortController(), started: false };
+    const app = typeof message.app === "string" ? message.app : "";
+    const pending: NetPending = { meta: rest, app, expected: bytes, chunks: [], received: 0, abort: new AbortController(), started: false };
     this.net.set(id, pending);
     if (bytes === 0) void this.netRun(id, pending);
   }
@@ -644,10 +654,19 @@ class LinkConnection {
     const started = Date.now();
     const label = `net ${pending.meta.method} ${pending.meta.url}`;
     try {
-      const response = await performNet(
-        { ...pending.meta, body },
-        { allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal, resolve: this.companion.options.resolve },
-      );
+      const device = this.device ?? { id: "", name: "", model: "", target: "" };
+      const services = this.companion.catalog.find(device.target, pending.app)?.services ?? [];
+      const response =
+        (await this.companion.services.handle(
+          { ...pending.meta, body },
+          { name: device.name, address: this.address, localAddress: this.localAddress },
+          { app: pending.app, services },
+          pending.abort.signal,
+        )) ??
+        (await performNet(
+          { ...pending.meta, body },
+          { allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal, resolve: this.companion.options.resolve },
+        ));
       if (this.net.get(id) !== pending) return;
       this.companion.log(`${label} ${response.status} ${response.body.length}B ${Date.now() - started}ms`);
       this.send({ t: "net.head", id, status: response.status, url: response.url, headers: response.headers, bytes: response.body.length });

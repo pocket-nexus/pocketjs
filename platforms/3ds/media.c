@@ -1,5 +1,18 @@
 /* The worker owns sockets, MVD and NDSP. The UI copies commands and snapshots;
- * PICA texture transfer happens after the previous frame has retired. */
+ * PICA texture transfer happens after the previous frame has retired.
+ *
+ * A stream's header names its video codec. H.264 goes to MVD, which only a
+ * New 3DS has; PAL8 frames (media_wire.h) are expanded here into the same
+ * frame ring, so an Old 3DS plays a smaller picture with the same audio,
+ * clock and texture. `h264` in the status says which the console takes.
+ *
+ * Without the DSP firmware (an SD card that never had it dumped) NDSP does
+ * not start. The stream then plays muted: audio packets are dropped and the
+ * clock is the system timer from the first decoded frame, paused with the
+ * stream. `audio` in the status is false. With no audio queue to fill,
+ * nothing else holds the reader back, so a packet more than SILENT_LEAD_MS
+ * ahead of that clock waits for it, and so does the companion: it sends on
+ * the credit each packet returns. */
 #include "media.h"
 #include "media_wire.h"
 #include "media_adpcm.h"
@@ -19,6 +32,8 @@
 enum { IDLE, OPENING, BUFFERING, PLAYING, ENDED, FAILED };
 enum { ERR_NONE, ERR_MEMORY, ERR_SOCKET, ERR_HEADER, ERR_PACKET, ERR_MVD_INIT, ERR_MVD_DECODE, ERR_MVD_RENDER, ERR_AUDIO, ERR_REMOTE };
 enum { VIDEO_SLOTS=16, AUDIO_SLOTS=24, COMMAND_SLOTS=4, AUDIO_CHANNEL=0 };
+/* Muted read-ahead: 9 PAL8 frames at 12 fps, inside the 16-frame ring. */
+enum { SILENT_LEAD_MS=750 };
 typedef struct { char host[16], token[65]; unsigned port, generation; } Command;
 typedef struct { uint8_t *pixels; uint32_t pts, generation; } VideoFrame;
 static Command commands[COMMAND_SLOTS];
@@ -29,6 +44,12 @@ static _Atomic unsigned frame_read, frame_write;
 static _Atomic unsigned phase, position, received, decoded, presented, dropped, decode_max, underruns, failure, result_code;
 static _Atomic unsigned volume_percent=100, buffered_until;
 static _Atomic bool running, paused, hardware;
+static bool h264_available;
+/* The muted clock (no NDSP): system milliseconds at the stream origin,
+ * moved forward by the time spent paused. */
+static bool silent, silent_running;
+static uint64_t silent_started, silent_paused_at;
+static _Atomic bool audio_out=true;
 static Thread worker;
 static C3D_Tex texture;
 static bool texture_live;
@@ -41,6 +62,8 @@ static bool startup_ready, draining;
 static uint32_t origin_position, buffer_origin;
 static unsigned last_volume=101;
 static uint8_t *nal_buffer;
+/* The PAL8 reference picture (media_wire.h), one byte a pixel. */
+static uint8_t *pal8_ref;
 static unsigned current_generation;
 _Static_assert(ATOMIC_INT_LOCK_FREE==2, "Media UI handoff must be lock-free");
 
@@ -49,8 +72,19 @@ static void fail(unsigned error, uint32_t result) {
   if (!current()) return;
   atomic_store(&failure,error); atomic_store(&result_code,result); atomic_store(&phase,FAILED);
 }
+static void silent_tick(void) {
+  if (!silent_running) {
+    if (!atomic_load(&decoded)) return;
+    silent_running=true; silent_started=osGetTime(); silent_paused_at=0;
+    atomic_store(&phase,PLAYING);
+    return;
+  }
+  if (atomic_load(&paused)) { if (!silent_paused_at) silent_paused_at=osGetTime(); return; }
+  if (silent_paused_at) { silent_started+=osGetTime()-silent_paused_at; silent_paused_at=0; }
+  atomic_store(&position,origin_position+(uint32_t)(osGetTime()-silent_started));
+}
 static void audio_tick(void) {
-  if (!audio_live) return;
+  if (!audio_live) { if (silent) silent_tick(); return; }
   if(!startup_ready && atomic_load(&decoded) && atomic_load(&buffered_until)>=buffer_origin+300) startup_ready=true;
   bool stop=atomic_load(&paused) || !startup_ready;
   if(stop!=last_paused) { ndspChnSetPaused(AUDIO_CHANNEL,stop); last_paused=stop; }
@@ -75,6 +109,10 @@ static void audio_tick(void) {
   }
   was_starved=starved;
 }
+static bool silent_wait(uint32_t pts) {
+  while (current() && pts>atomic_load(&position)+SILENT_LEAD_MS) { silent_tick(); svcSleepThread(2000000); }
+  return current();
+}
 static bool receive_exact(int fd, void *data, size_t count) {
   uint8_t *p=data; uint64_t deadline=osGetTime()+10000;
   while (count && current()) {
@@ -88,6 +126,7 @@ static bool receive_exact(int fd, void *data, size_t count) {
   return count==0 && current();
 }
 static bool put_audio(const uint8_t *data, unsigned size, uint32_t pts) {
+  if (silent) { atomic_store(&buffered_until,pts+(size>7 ? size-7 : 0)*1000/MEDIA_SAMPLE_RATE); return current(); }
   while (current()) {
     audio_tick();
     for (unsigned i=0;i<AUDIO_SLOTS;i++) if (waves[i].status==NDSP_WBUF_FREE || waves[i].status==NDSP_WBUF_DONE) {
@@ -119,6 +158,30 @@ static bool render_frame(MVDSTD_Config *config, uint32_t pts) {
   unsigned us=(unsigned)((svcGetSystemTick()-started)*1000000/SYSCLOCK_ARM11);
   if(us>atomic_load(&decode_max)) atomic_store(&decode_max,us);
   if (r!=MVD_STATUS_OK) { fail(ERR_MVD_RENDER,r); return false; }
+  slot->pts=pts; slot->generation=current_generation;
+  atomic_fetch_add(&decoded,1);
+  atomic_store_explicit(&frame_write,write+1,memory_order_release);
+  return true;
+}
+static bool decode_pal8(MediaPal8 *state,const uint8_t *data,size_t size,uint32_t pts) {
+  uint64_t started=svcGetSystemTick();
+  if (!media_pal8_apply(state,pal8_ref,data,size)) { fail(ERR_PACKET,0); return false; }
+  uint64_t applied=svcGetSystemTick()-started;
+  /* The reference picture already holds this frame, so a full ring drops
+   * its picture instead of waiting: a wait here could hold back the audio
+   * whose playback frees the ring, and the next frame shown is still exact. */
+  unsigned write=atomic_load_explicit(&frame_write,memory_order_relaxed);
+  if (write-atomic_load_explicit(&frame_read,memory_order_acquire)>=VIDEO_SLOTS) {
+    atomic_fetch_add(&dropped,1);
+    return current();
+  }
+  VideoFrame *slot=&frames[write%VIDEO_SLOTS];
+  started=svcGetSystemTick()-applied;
+  media_pal8_expand(state,pal8_ref,(uint16_t *)slot->pixels,MEDIA_WIDTH);
+  unsigned rows=state->height+1; if (rows>MEDIA_HEIGHT) rows=MEDIA_HEIGHT;
+  GSPGPU_FlushDataCache(slot->pixels,rows*MEDIA_WIDTH*2);
+  unsigned us=(unsigned)((svcGetSystemTick()-started)*1000000/SYSCLOCK_ARM11);
+  if(us>atomic_load(&decode_max)) atomic_store(&decode_max,us);
   slot->pts=pts; slot->generation=current_generation;
   atomic_fetch_add(&decoded,1);
   atomic_store_explicit(&frame_write,write+1,memory_order_release);
@@ -165,7 +228,7 @@ static void play(const Command *cmd) {
   atomic_store(&phase,OPENING); atomic_store(&failure,0); atomic_store(&result_code,0);
   atomic_store(&position,0); atomic_store(&received,0); atomic_store(&decoded,0);
   atomic_store(&presented,0); atomic_store(&dropped,0); atomic_store(&decode_max,0);
-  atomic_store(&underruns,0); atomic_store(&buffered_until,0);
+  atomic_store(&underruns,0); atomic_store(&buffered_until,0); atomic_store(&hardware,false);
   atomic_store_explicit(&status_generation,current_generation,memory_order_release);
   int fd=-1; bool mvd=false; uint8_t *packet=NULL;
   while (current() && !soc_ensure(NULL,0)) svcSleepThread(10000000);
@@ -189,26 +252,36 @@ static void play(const Command *cmd) {
   if (!receive_exact(fd,header,32)) { fail(ERR_SOCKET,errno); goto done; }
   if (!media_header_valid(header)) { fail(ERR_HEADER,0); goto done; }
   origin_position=media_u32(header+24);
+  unsigned codec=media_u16(header+14);
   buffer_origin=origin_position;
   atomic_store(&position,origin_position);
   packet=malloc(MEDIA_PACKET_BYTES);
   if (!packet) { fail(ERR_MEMORY,0); goto done; }
-  /* MVD's BGR565 (0x40002) is the packed order consumed by GX/GPU_RGB565.
-   * MVD_OUTPUT_RGB565 reverses red and blue; do not compensate in the encoder.
-   * Matches devkitPro/3ds-examples mvd/source/main.c. */
-  Result result=mvdstdInit(MVDMODE_VIDEOPROCESSING,MVD_INPUT_H264,MVD_OUTPUT_BGR565,MVD_DEFAULT_WORKBUF_SIZE,NULL);
-  if (R_FAILED(result)) { fail(ERR_MVD_INIT,result); goto done; }
-  mvd=true; atomic_store(&hardware,true);
+  Result result=0;
+  if (codec==MEDIA_CODEC_H264) {
+    /* MVD's BGR565 (0x40002) is the packed order consumed by GX/GPU_RGB565.
+     * MVD_OUTPUT_RGB565 reverses red and blue; do not compensate in the encoder.
+     * Matches devkitPro/3ds-examples mvd/source/main.c. */
+    result=mvdstdInit(MVDMODE_VIDEOPROCESSING,MVD_INPUT_H264,MVD_OUTPUT_BGR565,MVD_DEFAULT_WORKBUF_SIZE,NULL);
+    if (R_FAILED(result)) { fail(ERR_MVD_INIT,result); goto done; }
+    mvd=true; atomic_store(&hardware,true);
+  }
+  startup_ready=false; draining=false; silent=false; silent_running=false;
   result=ndspInit();
-  if (R_FAILED(result)) { fail(ERR_AUDIO,result); goto done; }
-  audio_live=true; audio_started=false; was_starved=false; last_volume=101; last_paused=false;
-  startup_ready=false; draining=false;
-  ndspSetOutputMode(NDSP_OUTPUT_STEREO);
-  ndspChnReset(AUDIO_CHANNEL); ndspChnSetInterp(AUDIO_CHANNEL,NDSP_INTERP_LINEAR);
-  ndspChnSetRate(AUDIO_CHANNEL,MEDIA_SAMPLE_RATE); ndspChnSetFormat(AUDIO_CHANNEL,NDSP_FORMAT_STEREO_PCM16);
-  for (unsigned i=0;i<AUDIO_SLOTS;i++) { waves[i].status=NDSP_WBUF_FREE; waves[i].nsamples=0; }
+  if (R_FAILED(result)) {
+    silent=true; atomic_store(&audio_out,false);
+  } else {
+    atomic_store(&audio_out,true);
+    audio_live=true; audio_started=false; was_starved=false; last_volume=101; last_paused=false;
+    ndspSetOutputMode(NDSP_OUTPUT_STEREO);
+    ndspChnReset(AUDIO_CHANNEL); ndspChnSetInterp(AUDIO_CHANNEL,NDSP_INTERP_LINEAR);
+    ndspChnSetRate(AUDIO_CHANNEL,MEDIA_SAMPLE_RATE); ndspChnSetFormat(AUDIO_CHANNEL,NDSP_FORMAT_STEREO_PCM16);
+    for (unsigned i=0;i<AUDIO_SLOTS;i++) { waves[i].status=NDSP_WBUF_FREE; waves[i].nsamples=0; }
+  }
+  MediaPal8 pal8={0};
+  if (!mvd) memset(pal8_ref,0,MEDIA_WIDTH*MEDIA_HEIGHT);
   MVDSTD_Config config;
-  mvdstdGenerateDefaultConfig(&config,MEDIA_WIDTH,MEDIA_HEIGHT,MEDIA_WIDTH,MEDIA_HEIGHT,NULL,(u32*)frames[0].pixels,(u32*)frames[0].pixels);
+  if (mvd) mvdstdGenerateDefaultConfig(&config,MEDIA_WIDTH,MEDIA_HEIGHT,MEDIA_WIDTH,MEDIA_HEIGHT,NULL,(u32*)frames[0].pixels,(u32*)frames[0].pixels);
   atomic_store(&phase,BUFFERING);
   uint32_t last_video=media_u32(header+24),last_audio=last_video;
   while (current()) {
@@ -220,7 +293,8 @@ static void play(const Command *cmd) {
     if(header[0]==1) last_video=pts;
     if(header[0]==2) last_audio=pts;
     if (size && !receive_exact(fd,packet,size)) { fail(ERR_SOCKET,errno); break; }
-    if (header[0]==1 && !decode_video(&config,packet,size,pts)) break;
+    if (silent && (header[0]==1 || header[0]==2) && !silent_wait(pts)) break;
+    if (header[0]==1 && (mvd ? !decode_video(&config,packet,size,pts) : !decode_pal8(&pal8,packet,size,pts))) break;
     if (header[0]==2 && !put_audio(packet,size,pts)) break;
     if (!atomic_load(&decoded) && (header[0]==1 || header[0]==2) && pts-origin_position>500) { fail(ERR_MVD_DECODE,0); break; }
     if (header[0]==4) { fail(ERR_REMOTE,0); break; }
@@ -235,6 +309,14 @@ static void play(const Command *cmd) {
     }
     if (header[0]==3) {
       if(!atomic_load(&decoded)) { fail(ERR_MVD_DECODE,0); break; }
+      if (silent) {
+        /* Muted: the stream ends when its last frame has been shown. */
+        while (current() && atomic_load_explicit(&frame_read,memory_order_acquire)!=atomic_load_explicit(&frame_write,memory_order_relaxed)) {
+          silent_tick(); svcSleepThread(1000000);
+        }
+        if (current()) atomic_store(&phase,ENDED);
+        break;
+      }
       startup_ready=true; draining=true;
       while (current()) {
         audio_tick(); bool queued=false; uint32_t end=atomic_load(&position);
@@ -269,7 +351,11 @@ static MediaUploadTexture upload_texture;
 bool media_start(MediaUploadTexture upload) {
   if (!upload) return false;
   upload_texture = upload;
+  bool is_new=false;
+  h264_available=R_SUCCEEDED(APT_CheckNew3DS(&is_new)) && is_new;
   nal_buffer=linearMemAlign(MEDIA_PACKET_BYTES,0x80);
+  pal8_ref=malloc(MEDIA_WIDTH*MEDIA_HEIGHT);
+  if (!pal8_ref) return false;
   for (unsigned i=0;i<VIDEO_SLOTS;i++) {
     frames[i].pixels=linearMemAlign(MEDIA_WIDTH*MEDIA_HEIGHT*2,0x80);
     if (!frames[i].pixels) return false;
@@ -293,6 +379,8 @@ void media_stop(void) {
   for (unsigned i=0;i<AUDIO_SLOTS;i++) { if(audio_buffers[i]) linearFree(audio_buffers[i]); audio_buffers[i]=NULL; waves[i].data_vaddr=NULL; }
   if(nal_buffer) linearFree(nal_buffer);
   nal_buffer=NULL;
+  free(pal8_ref);
+  pal8_ref=NULL;
   if(texture_live) C3D_TexDelete(&texture);
   texture_live=false;
 }
@@ -351,5 +439,5 @@ void media_snapshot(char *out,size_t capacity) {
     detail="DSP firmware missing; dump it in Rosalina";
   char message[120]; snprintf(message,sizeof message,"%s%s%08lx",detail,e ? " (0x" : "",(unsigned long)code);
   if(e) strncat(message,")",sizeof message-strlen(message)-1); else message[0]=0;
-  snprintf(out,capacity,"{\"phase\":\"%s\",\"positionMs\":%u,\"bufferedMs\":%u,\"decodedFrames\":%u,\"presentedFrames\":%u,\"droppedFrames\":%u,\"receivedBytes\":%u,\"decodeMaxUs\":%u,\"audioUnderruns\":%u,\"hardware\":%s,\"error\":\"%s\"}",name,now,until>now ? until-now : 0,atomic_load(&decoded),atomic_load(&presented),atomic_load(&dropped),atomic_load(&received),atomic_load(&decode_max),atomic_load(&underruns),atomic_load(&hardware) ? "true" : "false",message);
+  snprintf(out,capacity,"{\"phase\":\"%s\",\"positionMs\":%u,\"bufferedMs\":%u,\"decodedFrames\":%u,\"presentedFrames\":%u,\"droppedFrames\":%u,\"receivedBytes\":%u,\"decodeMaxUs\":%u,\"audioUnderruns\":%u,\"hardware\":%s,\"h264\":%s,\"audio\":%s,\"error\":\"%s\"}",name,now,until>now ? until-now : 0,atomic_load(&decoded),atomic_load(&presented),atomic_load(&dropped),atomic_load(&received),atomic_load(&decode_max),atomic_load(&underruns),atomic_load(&hardware) ? "true" : "false",h264_available ? "true" : "false",atomic_load(&audio_out) ? "true" : "false",message);
 }

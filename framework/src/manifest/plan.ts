@@ -1,5 +1,6 @@
 import type { HostExtension } from "./host-extension.ts";
 import { createHash } from "node:crypto";
+import type { AppletDeclaration } from "../../../contracts/spec/applet.ts";
 import type { Modality } from "../../../contracts/spec/modality.ts";
 import type { PocketManifestV2 } from "../../../contracts/spec/pocket-manifest.ts";
 import type { PresentationMode, Viewport } from "../../../contracts/spec/platforms.ts";
@@ -60,6 +61,9 @@ export interface ResolvedBuildPlanContent {
   readonly companions: readonly string[];
   /** Versioned, content-verified adapter payload. */
   readonly hostExtension?: HostExtension;
+  /** The manifest's applet section (contracts/spec/applet.ts): the build
+   *  checks the applet's sources and bundle against it. Absent for apps. */
+  readonly applet?: AppletDeclaration;
 }
 
 export interface ResolvedBuildPlan extends ResolvedBuildPlanContent {

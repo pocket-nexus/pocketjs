@@ -8,6 +8,7 @@
 // Contents/MacOS/pocket-companion  the daemon, `bun build --compile tools/companion.ts`
 // Contents/MacOS/pocket-transcribe the agent's speech helper (tools/companion/macos/Transcribe.swift)
 // Contents/MacOS/pocket-glyphs     the agent's glyph rasterizer (tools/companion/macos/Glyphs.swift)
+// Contents/MacOS/pocket-websignin  a service's sign-in window (tools/companion/macos/WebSignIn.swift)
 // Contents/Resources/AppIcon.icns  drawn here, no image assets
 //
 // The bundle is signed ad hoc (`codesign -s -`). Info.plist names this
@@ -124,35 +125,40 @@ ${entries.map(([k, v]) => `  <key>${k}</key>\n  ${v}`).join("\n")}
 mkdirSync(work, { recursive: true });
 const daemon = join(work, "pocket-companion");
 const swiftBinary = join(work, "PocketCompanion");
-const transcriber = join(work, "pocket-transcribe");
-const glyphs = join(work, "pocket-glyphs");
+/** The Swift helpers beside the app in Contents/MacOS; `main` marks a source
+ *  whose entry point is an @main type (swiftc -parse-as-library). */
+const helpers = [
+  { name: "pocket-transcribe", source: "Transcribe.swift", main: true },
+  { name: "pocket-glyphs", source: "Glyphs.swift", main: false },
+  { name: "pocket-websignin", source: "WebSignIn.swift", main: false },
+];
 const arch = process.arch === "arm64" ? "arm64" : "x86_64";
+const swiftc = (source: string, out: string, main: boolean) =>
+  $`swiftc -O ${main ? ["-parse-as-library"] : []} -swift-version 5 -target ${arch}-apple-macos15.0 ${join(root, "tools", "companion", "macos", source)} -o ${out}`;
 
 console.log("companion-app: compiling the daemon");
 await $`bun build --compile ${join(root, "tools", "companion.ts")} --outfile ${daemon}`.quiet();
 console.log("companion-app: compiling the Swift app");
-await $`swiftc -O -parse-as-library -swift-version 5 -target ${arch}-apple-macos15.0 ${join(root, "tools", "companion", "macos", "PocketCompanion.swift")} -o ${swiftBinary}`;
-console.log("companion-app: compiling the speech and glyph helpers");
-await $`swiftc -O -parse-as-library -swift-version 5 -target ${arch}-apple-macos15.0 ${join(root, "tools", "companion", "macos", "Transcribe.swift")} -o ${transcriber}`;
-await $`swiftc -O -swift-version 5 -target ${arch}-apple-macos15.0 ${join(root, "tools", "companion", "macos", "Glyphs.swift")} -o ${glyphs}`;
+await swiftc("PocketCompanion.swift", swiftBinary, true);
+console.log("companion-app: compiling the speech, glyph and sign-in helpers");
+for (const helper of helpers) await swiftc(helper.source, join(work, helper.name), helper.main);
 console.log("companion-app: drawing the icon");
 const icns = await buildIcon(work);
 
+const macos = join(app, "Contents", "MacOS");
+/** The executables signed one by one before the bundle. */
+const executables = ["pocket-companion", ...helpers.map((helper) => helper.name)];
 rmSync(app, { recursive: true, force: true });
-mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
+mkdirSync(macos, { recursive: true });
 mkdirSync(join(app, "Contents", "Resources"), { recursive: true });
-cpSync(swiftBinary, join(app, "Contents", "MacOS", "PocketCompanion"));
-cpSync(daemon, join(app, "Contents", "MacOS", "pocket-companion"));
-cpSync(transcriber, join(app, "Contents", "MacOS", "pocket-transcribe"));
-cpSync(glyphs, join(app, "Contents", "MacOS", "pocket-glyphs"));
+cpSync(swiftBinary, join(macos, "PocketCompanion"));
+for (const name of executables) cpSync(join(work, name), join(macos, name));
 cpSync(icns, join(app, "Contents", "Resources", "AppIcon.icns"));
 writeFileSync(join(app, "Contents", "Info.plist"), infoPlist());
 writeFileSync(join(app, "Contents", "PkgInfo"), "APPL????");
 
-await $`codesign --force -s - ${join(app, "Contents", "MacOS", "pocket-companion")}`.quiet();
-await $`codesign --force -s - ${join(app, "Contents", "MacOS", "pocket-transcribe")}`.quiet();
-await $`codesign --force -s - ${join(app, "Contents", "MacOS", "pocket-glyphs")}`.quiet();
+for (const name of executables) await $`codesign --force -s - ${join(macos, name)}`.quiet();
 await $`codesign --force -s - ${app}`.quiet();
 await $`codesign --verify --strict ${app}`.quiet();
-if (!existsSync(join(app, "Contents", "MacOS", "PocketCompanion"))) throw new Error("bundle incomplete");
+if (!existsSync(join(macos, "PocketCompanion"))) throw new Error("bundle incomplete");
 console.log(`companion-app: ${app}`);

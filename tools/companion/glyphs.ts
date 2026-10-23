@@ -6,7 +6,9 @@
 // (contracts/spec/spec.ts) for AGENT_FONT_SLOT before the first message that
 // needs a glyph the console lacks.
 //
-// GlyphRasterizer is shared by every console and caches cells by codepoint.
+// GlyphRasterizer is shared by every console and caches cells by codepoint;
+// it draws one face at one size (`atlasFont(px)` gives any size's cell). The
+// glyphs service (services/glyphs.ts) uses the same pieces for apps' text.
 // GlyphFeed is one console's account of the atlas it holds.
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -18,6 +20,18 @@ import { helperCommand } from "./swift-helper.ts";
 export const GLYPHS_SOURCE = join(import.meta.dir, "macos", "Glyphs.swift");
 
 export type AgentFont = { size: number; cellW: number; cellH: number; baseline: number; lineHeight: number };
+
+/** The cell for PingFang at `px` logical pixels: the agent's 13 px font
+ *  scaled (cellW px+2, cellH px*1.4, baseline px*1.08, line px*1.3). */
+export function atlasFont(px: number): AgentFont {
+  return {
+    size: px,
+    cellW: px + 2,
+    cellH: Math.ceil(px * 1.4),
+    baseline: Math.round(px * 1.08),
+    lineHeight: Math.round(px * 1.3),
+  };
+}
 
 export interface GlyphCell {
   advance: number;
@@ -65,9 +79,10 @@ export function tofuCell(font: AgentFont = AGENT_FONT): GlyphCell {
 export const TOFU_CODEPOINT = 0xfffd;
 
 /** A FONT ATLAS v3 blob: gid 0 the tofu box (mapped from U+FFFD), then
- *  `cells`; one cmap entry per glyph, sorted by codepoint. */
-export function packAgentAtlas(cells: ReadonlyMap<number, GlyphCell>, font: AgentFont = AGENT_FONT, slot = AGENT_FONT_SLOT): Uint8Array {
-  const codepoints = [...cells.keys()].filter((cp) => cp !== TOFU_CODEPOINT).sort((a, b) => a - b);
+ *  `cells`; one cmap entry per glyph, sorted by codepoint. A null cell (no
+ *  font draws it) is left to the tofu box. `bold` sets the bold flag. */
+export function packAtlas(cells: ReadonlyMap<number, GlyphCell | null>, font: AgentFont = AGENT_FONT, slot = AGENT_FONT_SLOT, bold = false): Uint8Array {
+  const codepoints = [...cells.keys()].filter((cp) => cp !== TOFU_CODEPOINT && cells.get(cp)).sort((a, b) => a - b);
   const count = codepoints.length + 1;
   if (count > 0xffff) throw new Error("atlas: too many glyphs");
   const cellBytes = font.cellW * font.cellH;
@@ -82,7 +97,7 @@ export function packAgentAtlas(cells: ReadonlyMap<number, GlyphCell>, font: Agen
   out[10] = font.baseline;
   out[11] = font.lineHeight;
   out[12] = slot;
-  out[13] = 0; // flags: regular
+  out[13] = bold ? 1 : 0; // flags: bold
   out[14] = 1; // density
   out[15] = 0;
   const tofu = tofuCell(font);
@@ -116,6 +131,7 @@ export class GlyphRasterizer {
     private readonly storeDir: string,
     private readonly font: AgentFont = AGENT_FONT,
     private readonly log?: (line: string) => void,
+    private readonly bold = false,
   ) {}
 
   private start(): Promise<ChildProcessWithoutNullStreams | null> {
@@ -128,7 +144,8 @@ export class GlyphRasterizer {
         return null;
       }
       const { size, cellW, cellH, baseline } = this.font;
-      const child = spawn(command[0], [...command.slice(1), String(size), String(cellW), String(cellH), String(baseline)], { stdio: ["pipe", "pipe", "pipe"] });
+      const args = [String(size), String(cellW), String(cellH), String(baseline), ...(this.bold ? ["bold"] : [])];
+      const child = spawn(command[0], [...command.slice(1), ...args], { stdio: ["pipe", "pipe", "pipe"] });
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
         this.buffer += chunk;
@@ -227,9 +244,7 @@ export class GlyphFeed {
     if (this.wanted.size > this.max) this.wanted = new Set([...AGENT_BASE_CODEPOINTS, ...this.turn]);
     const cells = await this.raster.cells(this.wanted);
     if (cells.size === 0) return null; // no helper on this Mac: send text as is
-    const drawn = new Map<number, GlyphCell>();
-    for (const [cp, cell] of cells) if (cell) drawn.set(cp, cell);
     this.delivered = new Set(this.wanted);
-    return packAgentAtlas(drawn, this.font);
+    return packAtlas(cells, this.font);
   }
 }

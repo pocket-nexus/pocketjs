@@ -9,6 +9,7 @@
 //   bun tools/companion.ts status [--json]
 //   bun tools/companion.ts forget <console id>
 //   bun tools/companion.ts apps-dir <path>
+//   bun tools/companion.ts service <name> [args...]
 //
 // `serve` runs the daemon: the link listener (TCP 8628), the beacon (UDP 8627),
 // the console agent (docs/POCKET-AGENT.md) and the local control API the
@@ -34,6 +35,7 @@ const USAGE = `usage: bun tools/companion.ts <command>
   status [--json]        the running daemon's state
   forget <console id>    delete a console's key and close its link
   apps-dir <path>        set the apps folder the daemon offers
+  service <name> [args]  an owner command of a companion service (sign in, token, status)
 
 common: --store <dir>    store directory (default ${defaultStoreDir()})`;
 
@@ -234,6 +236,13 @@ async function main() {
         process.exit(1);
       });
       console.log(result.removed ? `forgot ${id}` : `${id} was not paired`);
+      return;
+    }
+    case "service": {
+      const [name, ...rest] = args.positional;
+      if (!name) throw new Error("service needs a name: youtube, x or discord");
+      const result = await controlRequest<{ output: string }>(requireDaemon(storeDir(args)), "POST", "/service", { name, args: rest });
+      console.log(result.output);
       return;
     }
     case "apps-dir": {

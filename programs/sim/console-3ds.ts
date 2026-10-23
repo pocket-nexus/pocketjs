@@ -15,9 +15,10 @@
 import { bootBundle, type BundleWorld, type SimNode, type SimSurface } from "./sim.ts";
 import { createSimLinkHost, type SimInstalledApp, type SimLinkFixture, type SimLinkHost } from "../../platforms/sim/link.ts";
 import { createSimWifiHost, type SimWifiFixture, type SimWifiHost } from "../../platforms/sim/wifi.ts";
-import { createSimCameraHost, type SimCameraHost } from "../../platforms/sim/camera.ts";
+import { createSimCameraHost, type SimCameraHost, type SimCameraOptions } from "../../platforms/sim/camera.ts";
 import { createSimNetHost, type SimNetHost, type SimNetRoute } from "../../platforms/sim/net.ts";
 import { createSimAgentHost, type SimAgentHost } from "../../platforms/sim/agent.ts";
+import type { AgentDisplay } from "../../contracts/spec/agent.ts";
 
 export const TOP_SCREEN: [number, number] = [400, 240];
 export const BOTTOM_SCREEN: [number, number] = [320, 240];
@@ -37,12 +38,12 @@ export interface Console3dsOptions {
   lastError?: { output: string; message: string } | null;
   link?: SimLinkFixture | null;
   wifi?: SimWifiFixture | null;
-  /** Mount the camera module. Default true. */
-  camera?: boolean;
+  /** Mount the camera module (default true); an object seeds its photos. */
+  camera?: boolean | SimCameraOptions;
   /** NET routes; omitted = no NET module. */
   net?: Readonly<Record<string, SimNetRoute>>;
   /** Mount the agent namespace (contracts/spec/agent.ts); omitted = none. */
-  agent?: { available?: boolean };
+  agent?: { available?: boolean; display?: AgentDisplay };
   /** Virtual epoch at boot, ms. Default 2026-10-19T01:41:00Z. */
   epochMs?: number;
 }
@@ -135,7 +136,7 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
     },
   });
   const wifiHost = options.wifi === null ? null : createSimWifiHost(options.wifi ?? {});
-  const cameraHost = options.camera === false ? null : createSimCameraHost();
+  const cameraHost = options.camera === false ? null : createSimCameraHost(typeof options.camera === "object" ? options.camera : {});
   const netHost = options.net ? createSimNetHost(options.net) : null;
   const agentHost = options.agent ? createSimAgentHost(options.agent) : null;
 

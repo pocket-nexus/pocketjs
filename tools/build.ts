@@ -70,6 +70,7 @@ import {
   placeholderImage,
   type PakBlob,
 } from "../framework/compiler/pak.ts";
+import { checkAppletBundle, checkAppletSources, formatAppletDiagnostics } from "./applet-check.ts";
 
 const ROOT = resolvePath(fileURLToPath(new URL("..", import.meta.url))); // pocketjs/
 let DIST = join(ROOT, "dist/");
@@ -555,5 +556,25 @@ if (inputsFile) {
   await buildInputs.compiler([join(ROOT, "tools/build.ts"), join(ROOT, "tools/pocket.ts")], ROOT);
   await Bun.write(inputsFile, JSON.stringify(buildInputs.paths(), null, 2) + "\n");
 }
-console.log(`  pass 2: ${DIST}${outName}.js (${bundle ? (await bundle.arrayBuffer()).byteLength : 0} bytes)`);
+const bundleBytes = bundle ? (await bundle.arrayBuffer()).byteLength : 0;
+console.log(`  pass 2: ${DIST}${outName}.js (${bundleBytes} bytes)`);
+// A Pocket Applet's code and bundle meet the applet rules
+// (contracts/spec/applet.ts) or the build fails.
+if (buildPlan?.applet) {
+  const diagnostics = [
+    ...checkAppletSources({
+      projectRoot,
+      entry: buildPlan.app.entry,
+      applet: buildPlan.applet,
+      capabilities: Object.keys(buildPlan.features),
+    }),
+    ...checkAppletBundle({ jsBytes: bundleBytes, pakBytes: pak.length }),
+  ];
+  if (diagnostics.length > 0) {
+    console.error(formatAppletDiagnostics(outName, diagnostics));
+    console.error("PocketJS build: the applet breaks the applet rules (docs/APPLETS.md)");
+    process.exit(1);
+  }
+  console.log("  applet: rules pass");
+}
 console.log("PocketJS build: done");

@@ -11,6 +11,7 @@
 #include "runtime.h"
 #include "pocket_profile.h"
 #include "error_text.h"
+#include "fs.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -603,29 +604,6 @@ done:
   return package;
 }
 
-static bool remove_tree(const char *path, unsigned depth) {
-  struct stat info;
-  if (stat(path, &info) != 0) return errno == ENOENT;
-  if (!S_ISDIR(info.st_mode)) return remove(path) == 0;
-  if (depth > 8) return false;
-  DIR *directory = opendir(path);
-  if (directory == NULL) return false;
-  bool ok = true;
-  struct dirent *entry;
-  while ((entry = readdir(directory)) != NULL) {
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-    char child[256];
-    int written = snprintf(child, sizeof child, "%s/%s", path, entry->d_name);
-    if (written <= 0 || (size_t)written >= sizeof child) {
-      ok = false;
-      continue;
-    }
-    if (!remove_tree(child, depth + 1)) ok = false;
-  }
-  closedir(directory);
-  return rmdir(path) == 0 && ok;
-}
-
 bool runtime_slot_remove(const char *slot, char *error, size_t error_length) {
   char root[RUNTIME_PATH_BYTES];
   if (!runtime_slot_path(slot, NULL, root, sizeof root)) {
@@ -636,7 +614,8 @@ bool runtime_slot_remove(const char *slot, char *error, size_t error_length) {
     pocket_set_error(error, error_length, "the running app's slot cannot be removed");
     return false;
   }
-  if (!remove_tree(root, 0)) {
+  /* A slot holds data/, the guest's tree (fs.c), two levels above its files. */
+  if (!fs_remove_tree(root, FS_MAX_DEPTH + 2)) {
     pocket_set_error(error, error_length, "remove %s failed (%d)", root, errno);
     return false;
   }

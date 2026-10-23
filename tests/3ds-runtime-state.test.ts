@@ -29,6 +29,9 @@ describe("Nintendo 3DS Pocket Runtime storage", () => {
       `-I${join(ROOT, "products/3ds/src")}`,
       join(ROOT, "tests/fixtures/3ds-runtime-state.c"),
       join(ROOT, "products/3ds/src/runtime.c"),
+      // runtime_slot_remove deletes a slot with fs.c's tree removal.
+      join(ROOT, "products/3ds/src/fs.c"),
+      join(ROOT, "products/3ds/src/jscan.c"),
       "-o",
       binary,
     ]);

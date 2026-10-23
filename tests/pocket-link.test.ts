@@ -164,9 +164,16 @@ describe("protocol", () => {
 // Live link on loopback
 // ---------------------------------------------------------------------------
 
-function makePackage(options: { id: string; title: string; target?: string; version?: string; summary?: string; padBytes?: number }): Uint8Array {
+function makePackage(options: { id: string; title: string; target?: string; version?: string; summary?: string; services?: string[]; padBytes?: number }): Uint8Array {
   const manifest = new TextEncoder().encode(
-    JSON.stringify({ pocket: 2, id: options.id, title: options.title, version: options.version ?? "1.0.0", ...(options.summary ? { summary: options.summary } : {}) }),
+    JSON.stringify({
+      pocket: 2,
+      id: options.id,
+      title: options.title,
+      version: options.version ?? "1.0.0",
+      ...(options.summary ? { summary: options.summary } : {}),
+      ...(options.services ? { applet: { version: 1, services: options.services } } : {}),
+    }),
   );
   const output = options.id.split(".").at(-1)!;
   const pad = new Uint8Array(options.padBytes ?? 1000);
@@ -200,7 +207,7 @@ describe("link", () => {
 
   beforeAll(async () => {
     appsDir = freshDir("apps");
-    hnPackage = makePackage({ id: "dev.pocket-nexus.hn", title: "Hacker News", version: "0.2.0", summary: "Top stories", padBytes: 200_000 });
+    hnPackage = makePackage({ id: "dev.pocket-nexus.hn", title: "Hacker News", version: "0.2.0", summary: "Top stories", services: ["youtube"], padBytes: 200_000 });
     writeFileSync(join(appsDir, "hn.pocket"), hnPackage);
     writeFileSync(join(appsDir, "psp-only.pocket"), makePackage({ id: "dev.pocket-nexus.psp", title: "PSP", target: "psp" }));
     writeFileSync(join(appsDir, "broken.pocket"), new Uint8Array(100).fill(7));
@@ -325,6 +332,27 @@ describe("link", () => {
   });
 
   const linked = () => LinkConsoleClient.connect({ host: "127.0.0.1", port: companion.port, device: DEVICE, companion: companion.id, key, ping: false });
+
+  test("net: companion.pocket is answered by the companion's services, never fetched", async () => {
+    const client = await linked();
+    try {
+      const unknown = await client.net({ url: "https://companion.pocket/nothing/here" }).done;
+      expect(unknown.status).toBe(404);
+      expect(JSON.parse(new TextDecoder().decode(unknown.body)).error).toContain("nothing");
+      // Only an offered app whose manifest lists the service reaches it.
+      const undeclared = await client.net({ url: "https://companion.pocket/youtube/search?q=pocket" }).done;
+      expect(undeclared.status).toBe(403);
+      const unoffered = await client.net({ app: "dev.pocket-nexus.youtube", url: "https://companion.pocket/youtube/search?q=pocket" }).done;
+      expect(unoffered.status).toBe(403);
+      const otherService = await client.net({ app: "dev.pocket-nexus.hn", url: "https://companion.pocket/x/status" }).done;
+      expect(otherService.status).toBe(403);
+      const youtube = await client.net({ app: "dev.pocket-nexus.hn", url: "https://companion.pocket/youtube/search?q=pocket" }).done;
+      expect([200, 501, 502, 503]).toContain(youtube.status);
+      expect(youtube.headers["content-type"]).toContain("json");
+    } finally {
+      client.close();
+    }
+  });
 
   test("net: GET, POST with a body, headers lowercased", async () => {
     const client = await linked();

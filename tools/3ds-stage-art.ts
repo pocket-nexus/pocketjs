@@ -1,9 +1,11 @@
 // tools/3ds-stage-art.ts — bakes the agent stage's two pictures
 // (products/3ds/src/stage.c) into C headers:
 //
-//   stage_hint.h   the "L+R Ask Claude" pill, drawn at the top screen's own
-//                  pixels after both eyes while the mascot is idle. RGBA8 in
-//                  the byte order the GPU reads (A, B, G, R).
+//   stage_hint.h   two pills drawn at the top screen's own pixels after both
+//                  eyes while the mascot is idle: "L+R Ask Claude" (row 0)
+//                  and "SELECT Home" (row STAGE_SELECT_Y, shown while an
+//                  applet other than the launcher runs). RGBA8 in the byte
+//                  order the GPU reads (A, B, G, R).
 //   stage_saver.h  the monitor's screensaver: the PocketJS mark with a small
 //                  "PocketJS" in Fredoka under it, on the brand's plum, RGB565. The stage moves it about
 //                  the monitor with the texture matrix; its plum border is
@@ -26,7 +28,9 @@ const ROOT = join(import.meta.dir, "..");
 const HINT_OUT = join(ROOT, "products/3ds/src/stage_hint.h");
 const SAVER_OUT = join(ROOT, "products/3ds/src/stage_saver.h");
 const TEX_W = 128;
-const TEX_H = 32;
+const TEX_H = 64;
+/** The SELECT pill's row in the hint texture. */
+const SELECT_Y = 32;
 /** The lockup is laid out on a 256x128 grid, drawn at four times that and
  *  reduced to the texture: 128x64, about the size the monitor shows it, so
  *  the GPU's linear filter does not minify it. */
@@ -85,8 +89,8 @@ function advance(text: string, size: number): number {
   return (w * size) / bold.unitsPerEm;
 }
 
-/** The pill's geometry, shared with stage.c through the header. */
-export function hintSvg(): { svg: string; width: number; height: number } {
+/** The pills' geometry, shared with stage.c through the header. */
+export function hintSvg(): { svg: string; width: number; height: number; selectWidth: number } {
   const height = 22;
   const top = 0;
   const cap = { w: 17, h: 14, y: top + 4 };
@@ -98,15 +102,23 @@ export function hintSvg(): { svg: string; width: number; height: number } {
   const label = "Ask Claude";
   const width = Math.ceil(labelX + advance(label, labelSize) + 9);
   const keySize = 9.5;
-  const key = (letter: string, x: number) => {
-    const w = advance(letter, keySize);
-    return [
-      // The cap's lower lip, then its face.
-      `<path fill="#b9ad9b" d="${roundRect(x, cap.y + 1, cap.w, cap.h, 4)}"/>`,
-      `<path fill="${PAPER}" d="${roundRect(x, cap.y, cap.w, cap.h - 1, 4)}"/>`,
-      `<path fill="${INK}" d="${textPath(letter, x + (cap.w - w) / 2, cap.y + 10, keySize)}"/>`,
+  // A key cap: its lower lip, its face, then its name at `textX` (centred by
+  // default) on the baseline `y + baseline`.
+  const key = (
+    name: string,
+    x: number,
+    { y = cap.y, w = cap.w, size = keySize, baseline = 10, textX = x + (w - advance(name, size)) / 2 } = {},
+  ) =>
+    [
+      `<path fill="#b9ad9b" d="${roundRect(x, y + 1, w, cap.h, 4)}"/>`,
+      `<path fill="${PAPER}" d="${roundRect(x, y, w, cap.h - 1, 4)}"/>`,
+      `<path fill="${INK}" d="${textPath(name, textX, y + baseline, size)}"/>`,
     ].join("");
-  };
+  // The SELECT pill: one wide cap with the button's name, then "Home".
+  const selectSize = 7.5;
+  const selectCap = { x: 5, y: SELECT_Y + 4, w: Math.ceil(advance("SELECT", selectSize) + 8) };
+  const homeX = selectCap.x + selectCap.w + 6;
+  const selectWidth = Math.ceil(homeX + advance("Home", labelSize) + 9);
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${TEX_W}" height="${TEX_H}">`,
     `<path fill="${INK}" fill-opacity="0.82" d="${roundRect(0, top, width, height, height / 2)}"/>`,
@@ -114,9 +126,12 @@ export function hintSvg(): { svg: string; width: number; height: number } {
     `<path fill="${ORANGE}" d="${textPath("+", plusX, top + 15.5, 11)}"/>`,
     key("R", capR),
     `<path fill="${PAPER}" d="${textPath(label, labelX, top + 15, labelSize)}"/>`,
+    `<path fill="${INK}" fill-opacity="0.82" d="${roundRect(0, SELECT_Y, selectWidth, height, height / 2)}"/>`,
+    key("SELECT", selectCap.x, { y: selectCap.y, w: selectCap.w, size: selectSize, baseline: 9.5, textX: selectCap.x + 4 }),
+    `<path fill="${PAPER}" d="${textPath("Home", homeX, SELECT_Y + 15, labelSize)}"/>`,
     `</svg>`,
   ].join("");
-  return { svg, width, height };
+  return { svg, width, height, selectWidth };
 }
 
 function byteRows(bytes: string[], perRow: number): string[] {
@@ -126,8 +141,8 @@ function byteRows(bytes: string[], perRow: number): string[] {
 }
 
 function hintHeader(): { text: string; rgba: Uint8Array; width: number; height: number } {
-  const { svg, width, height } = hintSvg();
-  if (width > TEX_W) throw new Error(`stage hint: ${width} px does not fit the ${TEX_W} px texture`);
+  const { svg, width, height, selectWidth } = hintSvg();
+  if (width > TEX_W || selectWidth > TEX_W) throw new Error(`stage hint: ${Math.max(width, selectWidth)} px does not fit the ${TEX_W} px texture`);
   const image = bakeSvg(svg);
   const bytes: string[] = [];
   for (let i = 0; i < image.rgba.length; i += 4) {
@@ -143,9 +158,12 @@ function hintHeader(): { text: string; rgba: Uint8Array; width: number; height: 
     "",
     `#define STAGE_HINT_TEX_W ${TEX_W}`,
     `#define STAGE_HINT_TEX_H ${TEX_H}`,
-    "/* The pill inside the texture, from its top-left corner. */",
+    "/* The L+R pill inside the texture, from its top-left corner, and the",
+    " * SELECT pill from (0, STAGE_SELECT_Y); both are STAGE_HINT_H tall. */",
     `#define STAGE_HINT_W ${width}`,
     `#define STAGE_HINT_H ${height}`,
+    `#define STAGE_SELECT_W ${selectWidth}`,
+    `#define STAGE_SELECT_Y ${SELECT_Y}`,
     "",
     "/* RGBA8 as the GPU reads it (A, B, G, R), rows top to bottom. */",
     `static const uint8_t stage_hint_pixels[${TEX_W * TEX_H * 4}] __attribute__((aligned(4))) = {`,

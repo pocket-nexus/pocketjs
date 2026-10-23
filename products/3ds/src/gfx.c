@@ -5,10 +5,12 @@
 #include "devmenu.h"
 #include "media.h"
 #include "stage.h"
+#include "transition.h"
 #include "vshader_shbin.h"
 #include <pocket_pica_driver.h>
 static pocket_pica_renderer *renderer;
 static pocket_pica_display *primary, *auxiliary;
+static uint32_t logical[2][2];
 /* The main thread updates native textures before the canonical tick and only
  * destroys them after it returns. The runtime drains and retires every frame
  * before returning, so this lease borrows that serialized frame interval. */
@@ -34,19 +36,40 @@ static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
   (void)context;
   C3D_RenderTargetClear(target, C3D_CLEAR_ALL, 0x000000ff, 0);
   if (role == POCKET_DISPLAY_ROLE_PRIMARY && agent_enabled()) {
-    if (right)
-      C3D_RenderTargetClear(right, C3D_CLEAR_ALL, 0x000000ff, 0);
-    stage_render(target, right);
+    /* The top screen is the stage's; in single display mode it stays black
+     * and the guest's primary surface is laid out but not shown. */
+    if (agent_stage_shown()) {
+      if (right)
+        C3D_RenderTargetClear(right, C3D_CLEAR_ALL, 0x000000ff, 0);
+      stage_render(target, right);
+    }
     return true;
   }
   return false;
 }
-static bool overlay(void *context, uint32_t role, pocket_draw_list *out) {
+/* The development menu stands in for the touch screen's guest list; the
+ * app-switch transition draws over both screens, in quarter pixels. */
+static bool overlay(void *context, uint32_t role, pocket_pica_overlay *out) {
   (void)context;
 #ifndef POCKETJS_CAPTURE
   if (role == POCKET_DISPLAY_ROLE_AUXILIARY && devmenu_visible()) {
-    out->words = devmenu_draw_list(&out->word_count);
+    out->list.words = devmenu_draw_list(&out->list.word_count);
+    out->subpixels = 1;
+    out->replace = true;
     return true;
+  }
+  if (transition_phase() != TRANSITION_IDLE) {
+    bool touch = role == POCKET_DISPLAY_ROLE_AUXILIARY;
+    const uint32_t *words = NULL;
+    size_t count = transition_list(touch, osGetTime(), logical[touch][0],
+                                   logical[touch][1], &words);
+    if (count) {
+      out->list.words = words;
+      out->list.word_count = count;
+      out->subpixels = TRANSITION_SUBPIXELS;
+      out->replace = false;
+      return true;
+    }
   }
 #else
   (void)role;
@@ -73,7 +96,14 @@ bool gfx_bind_targets(C3D_RenderTarget *top, C3D_RenderTarget *bottom,
                                        top, right, width, height);
   auxiliary = pocket_pica_display_create(
       renderer, POCKET_DISPLAY_ROLE_AUXILIARY, bottom, NULL, aw, ah);
+  logical[0][0] = width;
+  logical[0][1] = height;
+  logical[1][0] = aw;
+  logical[1][1] = ah;
   return primary && auxiliary;
+}
+bool gfx_present_overlays(void) {
+  return pocket_pica_renderer_present_overlays(renderer);
 }
 bool gfx_register(pocket_runtime *runtime) {
   pocket_renderer_id id = pocket_runtime_add_renderer(

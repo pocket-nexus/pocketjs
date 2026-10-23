@@ -527,6 +527,12 @@ int32_t pocket_runtime_add_op_provider(pocket_runtime * runtime, const pocket_op
 
 int32_t pocket_runtime_boot(pocket_runtime * runtime);
 
+/* Admit and evaluate the package without presenting it. The program calls pocket_runtime_present before the first tick, after its native scene or host overlay is ready. */
+int32_t pocket_runtime_boot_deferred(pocket_runtime * runtime);
+
+/* Present the retained tree without running the guest: after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected. */
+int32_t pocket_runtime_present(pocket_runtime * runtime);
+
 int32_t pocket_runtime_tick(pocket_runtime * runtime);
 
 /* Returns 0 or 1 without executing the operation. Does not invalidate borrowed results. */

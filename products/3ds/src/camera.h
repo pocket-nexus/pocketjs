@@ -1,7 +1,8 @@
 /*
- * `globalThis.camera` (contracts/spec/camera.ts, capability camera.qr): the
- * outer camera at 320x240 RGB565 into one host texture, plus a quirc QR
- * decoder on a worker thread.
+ * `globalThis.camera` (contracts/spec/camera.ts, capabilities camera.qr and
+ * camera.photo): the outer or inner camera at 320x240 RGB565 into one host
+ * texture, a quirc QR decoder on a worker thread, and 640x480 stills taken
+ * on the camera's second context (CONTEXT_B) and saved by photos.c.
  *
  * Threads. A worker brings the camera service up (camInit and the CAMU
  * configuration block for a few hundred milliseconds, so open() returns at
@@ -25,7 +26,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
-int32_t camera_open(void);
+/* The guest's capabilities, set before qjs_boot: camera.qr admits the
+ * outer camera's viewfinder with QR decoding; camera.photo admits both
+ * cameras, capture and the photo store. qjs_boot publishes only the
+ * operations they admit, and open() and capture() check them again. */
+void camera_admit(bool qr, bool photo);
+bool camera_viewfinder_admitted(void);
+bool camera_photos_admitted(void);
+
+/* CAMERA_OPEN flags (contracts/spec/camera.ts): 1 the inner camera, 2 no QR
+ * decoding. Opening again with other flags restarts capture behind the same
+ * texture handle. */
+int32_t camera_open(int32_t flags);
+/* camera.photo: take a VGA still from the open camera for photos.c; the job
+ * id, or -1 while one is being taken. */
+int32_t camera_capture(void);
 /* Guest close: stop capture and the worker now; the GPU texture is released
  * at the next camera_present, after the frames that drew it retired. */
 void camera_close(void);

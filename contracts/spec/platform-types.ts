@@ -202,6 +202,10 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // Outer-camera preview texture plus an on-device QR decoder
   // (`globalThis.camera`, contracts/spec/camera.ts).
   "camera.qr",
+  // Stills from the outer or inner camera kept as JPEG under the storage's
+  // DCIM folder, listed, decoded for drawing and deleted (the same
+  // `globalThis.camera` namespace, contracts/spec/camera.ts).
+  "camera.photo",
   // The system mascot on the top screen and the agent channel to the
   // companion (`globalThis.agent`, contracts/spec/agent.ts): a guest that
   // declares it hands the top screen to the host's 3D stage and keeps its

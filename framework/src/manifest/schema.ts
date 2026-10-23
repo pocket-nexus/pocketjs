@@ -1,11 +1,7 @@
 import type { JsonSchema, JsonSchemaObject } from "../../../contracts/spec/pocket-manifest.ts";
+import type { ContractDiagnostic } from "../../../contracts/spec/applet.ts";
 
-export interface ContractDiagnostic {
-  readonly code: string;
-  /** RFC 6901 JSON Pointer; the manifest root is the empty string. */
-  readonly path: string;
-  readonly message: string;
-}
+export type { ContractDiagnostic };
 
 export type ValidationResult<T> =
   | { readonly ok: true; readonly value: T }

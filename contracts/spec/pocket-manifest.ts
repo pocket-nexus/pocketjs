@@ -5,6 +5,7 @@ import {
   type PresentationMode,
   type Viewport,
 } from "./platform-types.ts";
+import { appletSchema, type AppletDeclaration } from "./applet.ts";
 import { modalityRequirementSchema, type ModalityRequirement } from "./modality.ts";
 
 export const POCKET_MANIFEST_VERSION = 2 as const;
@@ -67,6 +68,12 @@ export interface PocketManifestV2 {
   readonly execution?: {
     readonly classes: readonly ExecutionClass[];
   };
+  /**
+   * Declares the package a Pocket Applet (contracts/spec/applet.ts): the
+   * program a launcher runs, held to the applet rules at resolution and
+   * build. Absent, the package is an ordinary app.
+   */
+  readonly applet?: AppletDeclaration;
   readonly engine: {
     readonly capabilities: {
       readonly requires: readonly string[];
@@ -327,6 +334,7 @@ export const pocketManifestV2Schema = {
         },
       },
     },
+    applet: appletSchema,
     engine: {
       type: "object",
       additionalProperties: false,

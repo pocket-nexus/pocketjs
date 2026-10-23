@@ -221,6 +221,18 @@ pub unsafe extern "C" fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32
 /// # Safety
 /// runtime is a live instance on its owning thread.
 #[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32 {
+    unsafe { modify(runtime, Runtime::boot_deferred) }
+}
+/// # Safety
+/// runtime is a live instance on its owning thread.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32 {
+    unsafe { modify(runtime, Runtime::present) }
+}
+/// # Safety
+/// runtime is a live instance on its owning thread.
+#[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32 {
     unsafe { modify(runtime, Runtime::tick) }
 }

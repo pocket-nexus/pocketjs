@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Code panel: arcade keys as tabs, inner screen with scanlines.
-// A new tab list (another game on the home page) returns to the first tab and the top.
+// A new tab list (another game or framework on the home page) returns to the first tab and the top.
+// The head slot sits above the file keys; the home page puts its framework keys there.
 import { ref, useTemplateRef, watch } from "vue";
 
 const props = defineProps<{
@@ -28,7 +29,8 @@ watch(
     :class="fill && 'flex flex-col'"
     style="box-shadow: 0 6px 0 var(--hue-d), 0 24px 40px -22px rgba(0, 0, 0, 0.85)"
   >
-    <div class="flex flex-wrap items-center gap-2 px-3 pt-3 pb-3" role="tablist">
+    <slot name="head" />
+    <div class="flex flex-wrap items-center gap-2 px-3 pt-3 pb-3" role="tablist" aria-label="Files">
       <button
         v-for="(t, i) in tabs"
         :key="t.title"

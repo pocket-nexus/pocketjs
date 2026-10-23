@@ -71,6 +71,8 @@ export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
   { name: "pocket_runtime_add_input_source", args: [runtime, f("source", "*const PocketInputSourceV1"), context], result: "i32" },
   { name: "pocket_runtime_add_op_provider", args: [runtime, f("provider", "*const PocketOpProviderV1"), context, f("operations", "*const u16"), f("operation_count", "usize")], result: "i32" },
   { name: "pocket_runtime_boot", args: [runtime], result: "i32" },
+  { name: "pocket_runtime_boot_deferred", args: [runtime], result: "i32", doc: "Admit and evaluate the package without presenting it. The program calls pocket_runtime_present before the first tick, after its native scene or host overlay is ready." },
+  { name: "pocket_runtime_present", args: [runtime], result: "i32", doc: "Present the retained tree without running the guest: after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected." },
   { name: "pocket_runtime_tick", args: [runtime], result: "i32" },
   { name: "pocket_runtime_supports_op", args: [f("runtime", "*const PocketRuntime"), f("op", "u16")], result: "u32", doc: "Returns 0 or 1 without executing the operation. Does not invalidate borrowed results." },
   { name: "pocket_runtime_op", args: [runtime, f("op", "u16"), f("args", "*const c_void"), f("length", "usize"), f("out", "*mut PocketResult")], result: "i32", doc: "Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime." },

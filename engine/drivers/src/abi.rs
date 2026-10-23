@@ -749,6 +749,10 @@ pub fn pocket_tick_schedule_poll(schedule: *mut PocketTickSchedule, now: u64, ou
     pub fn pocket_runtime_add_input_source(runtime: *mut PocketRuntime, source: *const PocketInputSourceV1, context: *mut c_void) -> i32;
     pub fn pocket_runtime_add_op_provider(runtime: *mut PocketRuntime, provider: *const PocketOpProviderV1, context: *mut c_void, operations: *const u16, operation_count: usize) -> i32;
     pub fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32;
+    /// Admit and evaluate the package without presenting it. The program calls pocket_runtime_present before the first tick, after its native scene or host overlay is ready.
+pub fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32;
+    /// Present the retained tree without running the guest: after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected.
+pub fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32;
     pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
     /// Returns 0 or 1 without executing the operation. Does not invalidate borrowed results.
 pub fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32;

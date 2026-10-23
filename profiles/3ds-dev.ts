@@ -51,7 +51,9 @@ export default defineBuiltinProfile({
     "link.companion",
     "system.wifi",
     "camera.qr",
-    "system.agent"
+    "camera.photo",
+    "system.agent",
+    "data.fs"
   ],
   "tickHz": 60
 });

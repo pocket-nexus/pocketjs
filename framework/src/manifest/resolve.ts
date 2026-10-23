@@ -22,6 +22,7 @@ import {
 } from "./plan.ts";
 import { validatePocketManifest, type ContractDiagnostic } from "./validate.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
+import { appletManifestDiagnostics } from "../../../contracts/spec/applet.ts";
 
 const AUXILIARY_DISPLAY = "display.auxiliary";
 const AUXILIARY_TOUCH = "input.touch.auxiliary";
@@ -652,6 +653,10 @@ export function resolveBuildPlan(
     });
   }
 
+  // A Pocket Applet (contracts/spec/applet.ts) is held to the applet rules
+  // on every target, before a plan exists.
+  diagnostics.push(...appletManifestDiagnostics(manifest));
+
   if (diagnostics.length > 0 || !resolvedViewport) return { ok: false, diagnostics };
 
   const logical: Viewport = [resolvedViewport.logical[0], resolvedViewport.logical[1]];
@@ -697,6 +702,7 @@ export function resolveBuildPlan(
     features,
     companions: manifest.app.companions ?? [],
     ...(request.hostExtension ? { hostExtension: request.hostExtension } : {}),
+    ...(manifest.applet ? { applet: manifest.applet } : {}),
   };
   return { ok: true, plan: finalizeBuildPlan(content) };
 }
