@@ -17,6 +17,7 @@ import { mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { $ } from "bun";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { exportProfile } from "./profile-export.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2).filter((a) => a !== "--");
@@ -40,7 +41,15 @@ mkdirSync(resolvePath(planPath, ".."), { recursive: true });
 await Bun.write(planPath, JSON.stringify(resolution.plan, null, 2) + "\n");
 
 await $`bun tools/build.ts --plan=${planPath} --project-root=${root}`.cwd(root);
-await $`cargo build --locked --release -p note-widget`.cwd(root);
+// The widget compiles in the profile the note was resolved against.
+const { plan } = resolution;
+const exported = exportProfile(
+  { profile: plan.profile, profileHash: plan.profileHash, hostAbi: plan.target.hostAbi, dependencies: [] },
+  `${root}.pocket/desktop-widget/profile`,
+);
+await $`cargo build --locked --release -p note-widget`
+  .cwd(root)
+  .env({ ...process.env, POCKETJS_PROFILE_RS: exported.module });
 
 const bin = `${root}target/release/note-widget`;
 const env = { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "info" };

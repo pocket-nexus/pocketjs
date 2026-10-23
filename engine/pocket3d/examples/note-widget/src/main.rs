@@ -7,9 +7,12 @@
 //! only when the DrawList hash moves. A settled note costs ticks
 //! (microseconds), zero frames.
 //!
-//!   bun tools/build.ts note-main --density=2
-//!   cargo run -p note-widget
-//!   cargo run -p note-widget -- --file ~/notes/todo.md --width 380 --height 520
+//!   bun run note
+//!   bun run note -- --file ~/notes/todo.md --width 380 --height 520
+//!
+//! `bun run note` exports the macos-widget profile and builds the binary
+//! against it; `pocket build --config programs/macos-widget/pocket.runtime-config.ts`
+//! does the same for a packaged widget.
 //!
 //! The host is the guest's companion process over the spec svc channel
 //! (ops 30..32): real keyboard/mouse/wheel/resize go in as JSON lines,
@@ -19,6 +22,10 @@
 //! drag the dotted corner (or any edge, macOS) to resize, ⌘Q/⌘W quits.
 
 mod cjk;
+#[allow(dead_code)] // The export defines every fact; the note reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 
 use std::{
     path::{Path, PathBuf},
@@ -27,7 +34,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use glam::Vec2;
-use pocket_drivers::InputFrameBuilder;
+use pocket_drivers::{InputClasses, InputFrameBuilder, InputSource};
 use pocket_mod::Guest;
 use pocket_ui_wgpu::{Blit, ProgramConfig, ProgramOutput, UiProgram, UiSurface};
 use pocket_widget::shell::{FlatWidget, WidgetConfig};
@@ -804,8 +811,30 @@ fn note_file(explicit: Option<PathBuf>) -> PathBuf {
     })
 }
 
+/// Pointer and text input reach the note as editor-protocol service lines
+/// (`mouse`, `key`, `ch` and IME composition), not as frame facts. This source
+/// declares those classes, which the macos-widget profile requires.
+struct EditorInput;
+impl InputSource for EditorInput {
+    fn classes(&self) -> InputClasses {
+        InputClasses::POINTER | InputClasses::TEXT
+    }
+    fn poll(&mut self, _: &mut InputFrameBuilder) {}
+}
+
 /// Stage raw inputs; init registers the display before runtime boot.
 fn boot(args: &Args) -> Result<(UiProgram, String, Vec<u8>)> {
+    let profile = profile::profile().ok_or_else(|| {
+        anyhow!("note-widget was built without an exported profile; build it through pocket build")
+    })?;
+    if args.density != profile.density {
+        return Err(anyhow!(
+            "--density {} disagrees with the {} profile's raster density {}",
+            args.density,
+            profile.id,
+            profile.density
+        ));
+    }
     let js_path = resolve_asset(args.js.clone(), &args.app, "js")?;
     let pak_path = resolve_asset(args.pak.clone(), &args.app, "pak")?;
     let bundle = std::fs::read_to_string(&js_path)
@@ -813,21 +842,18 @@ fn boot(args: &Args) -> Result<(UiProgram, String, Vec<u8>)> {
     let pak =
         std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
-    let program = UiProgram::new(ProgramConfig {
-        profile: pocket_ui_wgpu::program_profile::from_build_inputs(
-            option_env!("POCKETJS_PROFILE_JSON"),
-            option_env!("POCKETJS_PROFILE_HASH"),
-        )
-        .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
-        host: "macos-widget",
-        host_abi: pocket_spec::BINDING_GENERATION,
+    let mut program = UiProgram::new(ProgramConfig {
+        profile,
+        profile_hash: profile::PROFILE_HASH,
+        host_abi: profile::HOST_ABI,
         logical: [args.size.0, args.size.1],
-        density: args.density,
-        scale: 1,
-        tick_hz: 60,
         heap_limit: 64 * 1024 * 1024,
         frame_buffer_budget: 128 * 1024 * 1024,
     })?;
+    program
+        .runtime_mut()
+        .add_input_source(Box::new(EditorInput))
+        .map_err(|error| anyhow!("editor input: {error:?}"))?;
     program.surface().set_svc_allowlist(["note"]);
     Ok((program, bundle, pak))
 }

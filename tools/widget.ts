@@ -28,6 +28,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { exportProfile } from "./profile-export.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 
@@ -262,7 +263,14 @@ async function main(): Promise<void> {
   // target-flavored bundles in dist/ proper are never picked up by mistake.
   const stageDist = resolvePath(root, "dist", `stage-${stage}`);
   await $`bun tools/build.ts --plan=${planPath} --project-root=${root} --outdir=${stageDist}`.cwd(root);
-  await $`cargo build --locked --release -p pocket-stage`.cwd(root);
+  // The binary compiles in this stage's profile; switching stages rebuilds it.
+  const exported = exportProfile(
+    { profile: plan.profile, profileHash: plan.profileHash, hostAbi: STAGE_HOST_ABI, dependencies: [] },
+    resolvePath(root, ".pocket", STAGE_TARGET_ID, `${stage}-profile`),
+  );
+  await $`cargo build --locked --release -p pocket-stage`
+    .cwd(root)
+    .env({ ...process.env, POCKETJS_PROFILE_RS: exported.module });
 
   const bin = `${root}target/release/pocket-stage`;
   const env = {

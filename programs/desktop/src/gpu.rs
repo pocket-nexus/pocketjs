@@ -220,14 +220,13 @@ mod tests {
     fn canonical_program_presents_through_registered_wgpu_and_preserves_leased_frames() {
         let gpu = Arc::new(Gpu::new_headless().unwrap());
         let output = RuntimeOutput::new(&gpu, (4, 4), 1.).unwrap();
+        let (profile, profile_hash) =
+            pocket_ui_surface::embedded_profile("native-test", [4, 4], 1, 60);
         let mut program = UiProgram::new(ProgramConfig {
-            profile: None,
-            host: "native-test",
+            profile,
+            profile_hash,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical: [4, 4],
-            density: 1,
-            scale: 1,
-            tick_hz: 60,
             heap_limit: 4 * 1024 * 1024,
             frame_buffer_budget: 1024,
         })

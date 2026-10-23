@@ -19,6 +19,10 @@ use pocket_drivers::{InputClasses, InputFrameBuilder, InputSource};
 use pocket_runtime::{GuestEnvironment, GuestFrame, Runtime, RuntimeConfig, RuntimeError};
 mod presentation;
 mod scene;
+#[allow(dead_code)] // The export defines every fact; the ROM reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 include!(concat!(env!("GBA_GENERATED"), "/include.rs"));
 core::arch::global_asm!(include_str!("start.s"));
 use generated::AppViewModel;
@@ -160,15 +164,12 @@ pub unsafe extern "C" fn gba_main() -> ! {
     reg(0x04000104, 0);
     reg(0x04000106, 0x84);
     reg(0x04000102, 0x80);
-    let profile = br#"{"capabilities":[],"display":{"logicalViewports":[[240,160]],"physicalViewport":[240,160],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"gba","platform":"gba","tickHz":30}"#;
-    let hash = pocket_package::sha256::sha256(profile);
     let mut runtime = Runtime::new(RuntimeConfig {
-        profile_hash: hash,
-        profile_json: profile.to_vec(),
-        host_abi: pocket_spec::BINDING_GENERATION,
-        tick_hz: 30,
+        profile_hash: profile::PROFILE_HASH,
+        host_abi: profile::HOST_ABI,
         heap_limit: length,
         frame_buffer_budget: 0,
+        profile: profile::profile().unwrap(),
     })
     .unwrap();
     let (guest, app) = AotGuest::<Box<App>>::new();
@@ -184,7 +185,9 @@ pub unsafe extern "C" fn gba_main() -> ! {
     runtime
         .add_display(presentation::Lcd(frame.clone()), renderer)
         .unwrap();
-    runtime.boot_aot_deferred(hash, [240, 160], false).unwrap();
+    runtime
+        .boot_aot_deferred(profile::PROFILE_HASH, [240, 160], false)
+        .unwrap();
     runtime.skip_presentation().unwrap();
     let mut scene = Box::new(scene::Scene::new(
         app.borrow().as_ref().unwrap().ui(),

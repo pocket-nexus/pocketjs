@@ -1,7 +1,9 @@
 //! A PocketJS guest over a Pocket3D frame. Applications provide JSON state
 //! and consume JSON commands; the adapter owns viewport and pointer transport.
 
-use crate::{Blit, ProgramConfig, ProgramOutput, ProgramTarget, UiProgram, UiSurface};
+use crate::{
+    Blit, ProgramConfig, ProgramOutput, ProgramTarget, UiProgram, UiSurface, embedded_profile,
+};
 use anyhow::{Context, Result, anyhow};
 use pocket_mod::{Guest, qjs::Function};
 use pocket3d::{
@@ -40,14 +42,14 @@ impl UiOverlay {
             (size.0 as f32 / scale).ceil().max(1.) as u32,
             (size.1 as f32 / scale).ceil().max(1.) as u32,
         ];
+        // A HUD inside the host game: its package comes from the game's own
+        // bundle and pak, not from a `pocket build` export.
+        let (profile, profile_hash) = embedded_profile("desktop", logical, density, 60);
         let mut program = UiProgram::new(ProgramConfig {
-            profile: None,
-            host: "desktop",
+            profile,
+            profile_hash,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical,
-            density,
-            scale: 1,
-            tick_hz: 60,
             heap_limit: 64 * 1024 * 1024,
             frame_buffer_budget: 128 * 1024 * 1024,
         })?;

@@ -341,14 +341,12 @@ mod tests {
         assert_eq!(output.size(), (64, 48));
     }
     fn program() -> crate::UiProgram {
+        let (profile, profile_hash) = crate::embedded_profile("gpu-test", [4, 4], 1, 60);
         crate::UiProgram::new(crate::ProgramConfig {
-            profile: None,
-            host: "gpu-test",
+            profile,
+            profile_hash,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical: [4, 4],
-            density: 1,
-            scale: 1,
-            tick_hz: 60,
             heap_limit: 4 * 1024 * 1024,
             frame_buffer_budget: 1024,
         })

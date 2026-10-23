@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { compileAot } from "../tools/aot-compile.ts";
+import { exportAotProfile } from "../tools/build/aot-profile.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/index.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import gba from "../profiles/gba.ts";
@@ -59,6 +60,11 @@ describe("AOT application artifact", () => {
         expect(dependencies.inputs.some((input: { path: string }) => input.path.endsWith("Inter-Regular.ttf"))).toBe(true);
         expect(dependencies.outputs.some((output: { sources: string[] }) => output.sources.some(path => path.endsWith("assets/images/logo.png")))).toBe(true);
         expect(readFileSync(join(out, "dependencies.d"), "utf8")).toContain("dependencies.json:");
+        // The program build exports the profile the compiler recorded for these sources.
+        const exported = join(directory, `${target}-profile`);
+        const hashBytes = dependencies.profileHash.slice(7).match(/../g).map((byte: string) => Number.parseInt(byte, 16)).join(", ");
+        expect(readFileSync(exportAotProfile(dependencies, exported), "utf8")).toContain(`pub const PROFILE_HASH: [u8; 32] = [${hashBytes}];`);
+        expect(() => exportAotProfile({ ...dependencies, profileHash: `sha256:${"0".repeat(64)}` }, exported)).toThrow("compiled for profile");
         const layers = JSON.parse(readFileSync(join(out, "layers.json"), "utf8"));
         expect(layers.tickRate).toBe(30);
         expect(layers.layers.length > 0).toBe(target === "gba");

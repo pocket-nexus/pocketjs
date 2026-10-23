@@ -30,10 +30,39 @@ use winit::{
     window::{CursorIcon, Window, WindowId},
 };
 mod gpu;
+#[allow(dead_code)] // The export defines every fact; the host reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 use pocket_posix_svc_wire as net;
 include!("plan.rs");
 include!("supervisor.rs");
 include!("buttons.rs");
+
+/// The profile `pocket build` compiled into this program, and its hash.
+#[derive(Clone)]
+struct ExportedProfile {
+    profile: pocket_runtime::Profile,
+    hash: [u8; 32],
+}
+fn exported_profile() -> Result<ExportedProfile> {
+    let profile = profile::profile().ok_or_else(|| {
+        anyhow!(
+            "pocket-desktop-host was built without an exported profile; build it through pocket build"
+        )
+    })?;
+    if profile.id != HOST_ID || profile::HOST_ABI != HOST_ABI {
+        return Err(anyhow!(
+            "pocket-desktop-host was built for {} ABI {}, this host runs {HOST_ID} ABI {HOST_ABI}",
+            profile.id,
+            profile::HOST_ABI
+        ));
+    }
+    Ok(ExportedProfile {
+        profile,
+        hash: profile::PROFILE_HASH,
+    })
+}
 
 fn text_worker(pak: Vec<u8>) -> OffloadWorker {
     OffloadWorker::spawn(move || {
@@ -87,6 +116,7 @@ struct Runtime {
     supervisor: AppSupervisor,
     offload: OffloadWorker,
     viewport: (u32, u32),
+    tick_hz: u32,
     ticks: u64,
     buttons: u32,
     script: Vec<ScriptEvent>,
@@ -97,32 +127,34 @@ struct Runtime {
     wire: Option<net::SvcWire>,
 }
 impl Runtime {
-    fn boot(args: Args, gpu: Arc<pocket3d::gpu::Gpu>) -> Result<Self> {
+    fn boot(args: Args, profile: ExportedProfile, gpu: Arc<pocket3d::gpu::Gpu>) -> Result<Self> {
         if args.native_text {
             return Err(anyhow!(
                 "text.layout.native is unavailable; use the portable text offload capability"
             ));
         }
+        if args.density != profile.profile.density {
+            return Err(anyhow!(
+                "--density {} disagrees with the {} profile's raster density {}",
+                args.density,
+                profile.profile.id,
+                profile.profile.density
+            ));
+        }
         let pak = std::fs::read(resolve_asset(args.pak.clone(), &args.app, "pak")?)?;
         let source = std::fs::read_to_string(resolve_asset(args.js.clone(), &args.app, "js")?)?;
+        let tick_hz = profile.profile.tick_hz;
         let mut program = UiProgram::new(ProgramConfig {
-            profile: pocket_ui_surface::program_profile::from_build_inputs(
-                option_env!("POCKETJS_PROFILE_JSON"),
-                option_env!("POCKETJS_PROFILE_HASH"),
-            )
-            .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
-            host: HOST_ID,
+            profile: profile.profile.clone(),
+            profile_hash: profile.hash,
             host_abi: HOST_ABI,
             logical: [args.viewport.0, args.viewport.1],
-            density: args.density,
-            scale: args.density,
-            tick_hz: 60,
             heap_limit: 128 * 1024 * 1024,
             frame_buffer_budget: 128 * 1024 * 1024,
         })?;
         let surface = program.surface();
         surface.set_svc_allowlist(args.companions.clone());
-        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface, gpu.clone())?;
+        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface, gpu.clone(), profile)?;
         let guest = Rc::new(Guest::new()?);
         let offload = text_worker(pak.clone());
         offload.mount(&guest)?;
@@ -151,6 +183,7 @@ impl Runtime {
             .map(|addr| net::SvcWire::spawn(addr, args.app.clone()));
         Ok(Self {
             viewport: args.viewport,
+            tick_hz,
             script: args.script.clone(),
             args,
             surface,
@@ -238,7 +271,8 @@ impl Runtime {
             && self.ticks < start + dur
         {
             let i = self.ticks - start;
-            let n = ((i + 1) * cps as u64) / 60 - (i * cps as u64) / 60;
+            let hz = self.tick_hz as u64;
+            let n = ((i + 1) * cps as u64) / hz - (i * cps as u64) / hz;
             if n > 0 {
                 self.svc(json!({"t":"ch","s":"x".repeat(n.min(512) as usize)}));
             }
@@ -350,6 +384,7 @@ impl Runtime {
 }
 fn run_runtime(
     args: Args,
+    profile: ExportedProfile,
     inputs: Receiver<Input>,
     outputs: SyncSender<Output>,
     proxy: EventLoopProxy<Wake>,
@@ -357,11 +392,11 @@ fn run_runtime(
 ) -> Result<()> {
     let available = Arc::new(AtomicBool::new(true));
     let mut renderer = gpu::Renderer::new(gpu.clone());
-    let mut runtime = Runtime::boot(args, gpu)?;
+    let mut runtime = Runtime::boot(args, profile, gpu)?;
     let mut hash = None;
     let mut intents = Vec::new();
     let started = Instant::now();
-    let mut schedule = pocket_runtime::timing::TickSchedule::new(60, 0, 1)
+    let mut schedule = pocket_runtime::timing::TickSchedule::new(runtime.tick_hz, 0, 1)
         .map_err(|error| anyhow!("tick schedule: {error:?}"))?;
     loop {
         let deadline = schedule
@@ -438,6 +473,7 @@ fn run_runtime(
 }
 struct RuntimeStartup {
     args: Args,
+    profile: ExportedProfile,
     inputs: Receiver<Input>,
     outputs: SyncSender<Output>,
     proxy: EventLoopProxy<Wake>,
@@ -566,6 +602,7 @@ impl ApplicationHandler<Wake> for Host {
         self.surface = Some(presentation);
         let RuntimeStartup {
             args,
+            profile,
             inputs,
             outputs,
             proxy,
@@ -574,7 +611,7 @@ impl ApplicationHandler<Wake> for Host {
             .name("pocket-runtime".into())
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    run_runtime(args, inputs, outputs, proxy.clone(), gpu)
+                    run_runtime(args, profile, inputs, outputs, proxy.clone(), gpu)
                 }))
                 .unwrap_or_else(|_| Err(anyhow!("Runtime worker panicked")));
                 let _ = proxy.send_event(Wake::Exit(result.err().map(|e| format!("{e:#}"))));
@@ -760,6 +797,7 @@ impl ApplicationHandler<Wake> for Host {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = parse_args()?;
+    let profile = exported_profile()?;
     let event_loop = EventLoop::<Wake>::with_user_event().build()?;
     let (tx, inputs) = sync_channel(256);
     let (outputs, rx) = sync_channel(1);
@@ -786,6 +824,7 @@ fn main() -> Result<()> {
     };
     host.startup = Some(RuntimeStartup {
         args,
+        profile,
         inputs,
         outputs,
         proxy: event_loop.create_proxy(),

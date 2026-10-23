@@ -23,6 +23,7 @@ import {
   type ResolvedSystemPlan,
 } from "../framework/src/manifest/system.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { exportProfile } from "./profile-export.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 // The portable desktop host is a git-only crate (npm files map ships
@@ -119,7 +120,14 @@ if (systemPlan) {
   systemPlanPath = `${root}.pocket/macos-app/${systemPlan.system.name}.system.plan.json`;
   await Bun.write(systemPlanPath, JSON.stringify(systemPlan, null, 2) + "\n");
 }
-await $`cargo build --locked --release -p pocket-desktop-host`.cwd(root);
+// The host compiles in the profile its packages were resolved against.
+const exported = exportProfile(
+  { profile: plan.profile, profileHash: plan.profileHash, hostAbi: plan.target.hostAbi, dependencies: [] },
+  `${root}.pocket/macos-app/profile`,
+);
+await $`cargo build --locked --release -p pocket-desktop-host`
+  .cwd(root)
+  .env({ ...process.env, POCKETJS_PROFILE_RS: exported.module });
 
 if (buildOnly) {
   console.log(

@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { RUST_TOOLCHAINS, STABLE_RUST_TOOLCHAIN } from "../toolchains/rust.ts";
 import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import { exportAotProfile } from "../aot-profile.ts";
 import { packLayers } from "./assets.ts";
 
 const root = resolve(import.meta.dir, "../../..");
@@ -58,6 +59,7 @@ export async function buildGba(args: readonly string[], context?: RuntimeBuildCo
   if (!input) throw new Error("GBA native build requires --aot-dir from pocket compile --aot");
   const dependency = JSON.parse(readFileSync(resolve(input, "dependencies.json"), "utf8"));
   cpSync(resolve(input), gen, { recursive: true });
+  const profileModule = exportAotProfile(dependency, gen, context);
   const bakeDirectory = resolve(out, "baked");
   mkdirSync(bakeDirectory, { recursive: true });
   const bakeCommand = ["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "run", "--locked", "--release", "--manifest-path", resolve(root, "tools/build/gba/bake/Cargo.toml"), "--target-dir", resolve(out, "bake-target"), "--", bakeDirectory];
@@ -72,7 +74,7 @@ export async function buildGba(args: readonly string[], context?: RuntimeBuildCo
   console.log(`OAM ${assets.oamSlots}/128, OBJ VRAM ${assets.vramBytes}/32768 B, frame ROM ${assets.frameBytes} B`);
   const command = ["cargo", `+${GBA_TOOLCHAIN}`, "build", "--locked", "--release", "--target", "thumbv4t-none-eabi", "-Z", "build-std=core,alloc", "--manifest-path", resolve(root, "programs/gba/Cargo.toml"), "--target-dir", resolve(out, "target")];
   const rustflags = ["-C", `link-arg=-T${resolve(root, "programs/gba/gba.ld")}`, "-C", "link-arg=--gc-sections"];
-  await run(command, { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort", GBA_GENERATED: gen, CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f") });
+  await run(command, { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort", GBA_GENERATED: gen, POCKETJS_PROFILE_RS: profileModule, CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f") });
   const elf = readFileSync(resolve(out, "target/thumbv4t-none-eabi/release/gba-hero"));
   const rom = gbaRom(elf);
   if (rom.length <= assets.frameBytes) throw new Error("GBA ELF omitted the compiled scene assets; inspect a constant boot failure before accepting this build");

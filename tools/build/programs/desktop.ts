@@ -18,7 +18,7 @@ function stageApplication(context: RuntimeBuildContext, directory = resolve(cont
 function desktopBuild(platform: "macos" | "linux"): RuntimeBuild {
   const profile = platform === "macos" ? macosProfile : linuxProfile;
   return {
-    sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/desktop", "platforms/posix/svc-wire", "engine/crates/pocket-ui-surface", "engine/crates/pocket-ui-wgpu", "engine/crates/pocket-mod", "engine/guest-rquickjs", "devices/web/pocket-web-wgpu"),
+    sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "engine/profile-build", "programs/desktop", "platforms/posix/svc-wire", "engine/crates/pocket-ui-surface", "engine/crates/pocket-ui-wgpu", "engine/crates/pocket-mod", "engine/guest-rquickjs", "devices/web/pocket-web-wgpu"),
     input: "package",
     hosts: platform === "macos" ? ["darwin-arm64", "darwin-x64"] : ["linux-arm64", "linux-x64"],
     steps: cargo({ manifest: resolve(repository, "programs/desktop/Cargo.toml"), targetDirectory: "{outdir}/cargo-target" }),
@@ -42,7 +42,7 @@ function desktopBuild(platform: "macos" | "linux"): RuntimeBuild {
 export const macosBuild = desktopBuild("macos");
 export const linuxBuild = desktopBuild("linux");
 export const widgetBuild: RuntimeBuild = {
-  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "engine/pocket3d/examples/note-widget", "engine/crates/pocket-ui-surface", "engine/crates/pocket-ui-wgpu", "engine/crates/pocket-mod", "engine/guest-rquickjs", "devices/web/pocket-web-wgpu"),
+  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "engine/profile-build", "engine/pocket3d/examples/note-widget", "engine/crates/pocket-ui-surface", "engine/crates/pocket-ui-wgpu", "engine/crates/pocket-mod", "engine/guest-rquickjs", "devices/web/pocket-web-wgpu"),
   hosts: ["darwin-arm64", "darwin-x64"], input: "package",
   steps: cargo({ manifest: resolve(repository, "Cargo.toml"), package: "note-widget", targetDirectory: "{outdir}/cargo-target" }),
   artifact: "{outdir}/application",

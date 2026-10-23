@@ -50,3 +50,4 @@ rquickjs = { version = "0.12", features = ["bindgen"] }
 
 [build-dependencies]
 cc = "1"
+pocket-profile-build.workspace = true

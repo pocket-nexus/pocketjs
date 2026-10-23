@@ -5,9 +5,14 @@
 //! (`pocket-mod`), drives the same `pocketjs-core`, and renders through wgpu
 //! (`pocket-ui-wgpu`) — 2D and 3D on one foundation.
 //!
+//!   bun tools/pocket.ts profile export --target macos-embedded --out target/uihost-profile
+//!   export POCKETJS_PROFILE_RS=$PWD/target/uihost-profile/pocket_profile.rs
 //!   cargo run -p uihost -- --app hero                # window, 2x scale
 //!   cargo run -p uihost -- --app music --scale 3
 //!   cargo run -p uihost -- --app hero --screenshot out.png --frames 10
+//!
+//! The exported profile supplies the runtime's identity, tick rate and raster
+//! density; it must admit the 480×272 logical viewport.
 //!
 //! Bundles/paks come from the PocketJS build (`bun tools/build.ts <app>`
 //! at the repo root); uihost looks in `<repo>/dist` (override: POCKETJS_DIST
@@ -17,7 +22,7 @@
 //! A = SQUARE, S = TRIANGLE, Q/W = L/R triggers, Tab = SELECT,
 //! Space = START. Analog nub: I/K = Y axis, J/L = X axis (full tilt).
 
-use pocket_runtime::timing::TickSchedule;
+use pocket_runtime::{Profile, timing::TickSchedule};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -33,6 +38,11 @@ use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
+
+#[allow(dead_code)] // The export defines every fact; uihost reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 
 const UI_W: u32 = 480;
 const UI_H: u32 = 272;
@@ -128,8 +138,17 @@ fn resolve_asset(explicit: Option<PathBuf>, app: &str, ext: &str) -> Result<Path
     ))
 }
 
+/// The profile exported into this build; uihost has no `pocket build` recipe.
+fn exported_profile() -> Result<Profile> {
+    profile::profile().ok_or_else(|| {
+        anyhow!(
+            "uihost was built without an exported profile; run `bun tools/pocket.ts profile export --target macos-embedded --out DIR` and build with POCKETJS_PROFILE_RS=DIR/pocket_profile.rs"
+        )
+    })
+}
+
 /// Boot the guest: feed the pak, mount `ui`, eval the bundle.
-fn boot(args: &Args, gpu: &Gpu) -> Result<(UiProgram, ProgramOutput)> {
+fn boot(args: &Args, profile: Profile, gpu: &Gpu) -> Result<(UiProgram, ProgramOutput)> {
     let js_path = resolve_asset(args.js.clone(), &args.app, "js")?;
     let pak_path = resolve_asset(args.pak.clone(), &args.app, "pak")?;
     let bundle = std::fs::read_to_string(&js_path)
@@ -138,17 +157,10 @@ fn boot(args: &Args, gpu: &Gpu) -> Result<(UiProgram, ProgramOutput)> {
         std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
     let mut program = UiProgram::new(ProgramConfig {
-        profile: pocket_ui_wgpu::program_profile::from_build_inputs(
-            option_env!("POCKETJS_PROFILE_JSON"),
-            option_env!("POCKETJS_PROFILE_HASH"),
-        )
-        .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
-        host: "desktop",
-        host_abi: pocket_spec::BINDING_GENERATION,
+        profile,
+        profile_hash: profile::PROFILE_HASH,
+        host_abi: profile::HOST_ABI,
         logical: [UI_W, UI_H],
-        density: 1,
-        scale: 1,
-        tick_hz: 60,
         heap_limit: 64 * 1024 * 1024,
         frame_buffer_budget: 128 * 1024 * 1024,
     })?;
@@ -174,10 +186,11 @@ fn boot(args: &Args, gpu: &Gpu) -> Result<(UiProgram, ProgramOutput)> {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = parse_args()?;
+    let profile = exported_profile()?;
     if args.screenshot.is_some() {
-        headless(&args)
+        headless(&args, profile)
     } else {
-        windowed(args)
+        windowed(args, profile)
     }
 }
 
@@ -185,9 +198,9 @@ fn main() -> Result<()> {
 // headless: N guest frames, then one PNG
 // ---------------------------------------------------------------------------
 
-fn headless(args: &Args) -> Result<()> {
+fn headless(args: &Args, profile: Profile) -> Result<()> {
     let gpu = Gpu::new_headless()?;
-    let (mut program, output) = boot(args, &gpu)?;
+    let (mut program, output) = boot(args, profile, &gpu)?;
     for _ in 0..args.frames {
         program.advance()?;
     }
@@ -208,10 +221,11 @@ fn headless(args: &Args) -> Result<()> {
 // windowed: winit shell + nearest-neighbor integer upscale
 // ---------------------------------------------------------------------------
 
-fn windowed(args: Args) -> Result<()> {
+fn windowed(args: Args, profile: Profile) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let mut app = App {
         args,
+        profile,
         state: None,
         error: None,
         started: Instant::now(),
@@ -262,6 +276,7 @@ struct State {
 
 struct App {
     args: Args,
+    profile: Profile,
     state: Option<State>,
     error: Option<anyhow::Error>,
     started: Instant,
@@ -286,7 +301,7 @@ impl App {
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&gpu.device, &surface_config);
 
-        let (program, output) = boot(&self.args, &gpu)?;
+        let (program, output) = boot(&self.args, self.profile.clone(), &gpu)?;
         let target = output
             .first()
             .ok_or_else(|| anyhow!("missing output target"))?;
@@ -308,7 +323,7 @@ impl App {
             buttons: 0,
             nub: Nub::default(),
             clock: Instant::now(),
-            schedule: TickSchedule::new(60, 0, 1)
+            schedule: TickSchedule::new(self.profile.tick_hz, 0, 1)
                 .map_err(|error| anyhow!("uihost timing: {error:?}"))?,
         })
     }

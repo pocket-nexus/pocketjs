@@ -117,16 +117,14 @@ mod tests {
     fn runtime_screen_samples_facts_and_updates_its_fixed_texture() {
         use super::*;
         use pocket_drivers::{AxisSample, abi};
-        use pocket_ui_wgpu::ProgramConfig;
+        use pocket_ui_wgpu::{ProgramConfig, embedded_profile};
         let gpu = Gpu::new_headless().unwrap();
+        let (profile, profile_hash) = embedded_profile("macos-embedded", [8, 4], 2, 60);
         let program = UiProgram::new(ProgramConfig {
-            profile: None,
-            host: "macos-embedded",
+            profile,
+            profile_hash,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical: [8, 4],
-            density: 2,
-            scale: 2,
-            tick_hz: 60,
             heap_limit: 4 * 1024 * 1024,
             frame_buffer_budget: 4096,
         })

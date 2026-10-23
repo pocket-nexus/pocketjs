@@ -7,7 +7,7 @@ import { buildIpodNano } from "../ipodnano/build.ts";
 import { buildHosts, repository, nativeSources } from "./handheld-common.ts";
 import { requireProgramProfile } from "./application.ts";
 
-const runtimeSources = ["engine/core", "engine/spec", "engine/drivers", "engine/package", "engine/runtime", "engine/present", "engine/raster", "engine/modules/media", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/tri-batch", "engine/crates/microts"];
+const runtimeSources = ["engine/core", "engine/spec", "engine/drivers", "engine/package", "engine/runtime", "engine/present", "engine/raster", "engine/modules/media", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/tri-batch", "engine/crates/microts", "engine/profile-build"];
 
 export const gbaBuild: RuntimeBuild = {
   sourceInputs: [...nativeSources("programs/gba", "platforms/gba/video", "tools/build/gba/bake", ...runtimeSources), resolve(repository, "programs/gba/gba.ld")],

@@ -7,8 +7,11 @@
 //! uihost, on the Vita — and inside this widget, and cannot tell the
 //! difference.
 //!
-//!   cargo run -p pocket-stage -- --app hero
-//!   cargo run -p pocket-stage -- --app im --screenshot out.png --frames 30
+//!   bun run widget hero
+//!   bun run widget im --screenshot out.png --frames 30
+//!
+//! `bun run widget` exports the macos-embedded profile with the stage model's
+//! logical size and raster density, and builds the binary against it.
 //!
 //! Interactions: click device controls, circular-drag a declared rotary wheel,
 //! drag an analog nub, and two-finger scroll to orbit (or turn a hovered wheel).
@@ -23,6 +26,10 @@
 //! the widget looks in `<repo>/dist` (override: POCKETJS_DIST or --js/--pak).
 
 mod device;
+#[allow(dead_code)] // The export defines every fact; the stage reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -1088,6 +1095,20 @@ fn resolve_asset(explicit: Option<PathBuf>, app: &str, ext: &str) -> Result<Path
 
 /// Load inputs; admission/evaluation follows real display registration in init.
 fn boot(args: &Args, settings: &device::StageSettings) -> Result<(UiProgram, String, Vec<u8>)> {
+    // `bun run widget` exports the stage model's display as this profile.
+    let profile = profile::profile().ok_or_else(|| {
+        anyhow!(
+            "pocket-stage was built without an exported profile; build it through bun run widget"
+        )
+    })?;
+    if settings.raster_density != profile.density {
+        return Err(anyhow!(
+            "stage raster density {} disagrees with the {} profile's raster density {}",
+            settings.raster_density,
+            profile.id,
+            profile.density
+        ));
+    }
     let js_path = resolve_asset(args.js.clone(), &args.app, "js")?;
     let pak_path = resolve_asset(args.pak.clone(), &args.app, "pak")?;
     let bundle = std::fs::read_to_string(&js_path)
@@ -1096,17 +1117,10 @@ fn boot(args: &Args, settings: &device::StageSettings) -> Result<(UiProgram, Str
         std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
     let program = UiProgram::new(ProgramConfig {
-        profile: pocket_ui_wgpu::program_profile::from_build_inputs(
-            option_env!("POCKETJS_PROFILE_JSON"),
-            option_env!("POCKETJS_PROFILE_HASH"),
-        )
-        .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
-        host: "macos-embedded",
-        host_abi: pocket_spec::BINDING_GENERATION,
+        profile,
+        profile_hash: profile::PROFILE_HASH,
+        host_abi: profile::HOST_ABI,
         logical: [settings.logical_size.0, settings.logical_size.1],
-        density: settings.raster_density,
-        scale: settings.raster_density,
-        tick_hz: 60,
         heap_limit: 64 * 1024 * 1024,
         frame_buffer_budget: 128 * 1024 * 1024,
     })?;

@@ -9,24 +9,55 @@ use pocket_drivers::{
 use pocket_mod::{Guest, qjs::CatchResultExt};
 use pocket_package::source::MemorySource;
 use pocket_runtime::{
-    GuestEnvironment, GuestFrame, OpContext, Runtime, RuntimeConfig, RuntimeError,
+    Cow, GuestEnvironment, GuestFrame, OpContext, Profile, Runtime, RuntimeConfig, RuntimeError,
 };
 use serde_json::json;
 
 use crate::UiSurface;
 
-pub struct ProgramConfig<'a> {
-    /// Independent exported profile, supplied by the program. Raw JS/pak
-    /// adapters can use None to describe their explicit local configuration.
-    pub profile: Option<pocket_package::profile::BuildProfile<'a>>,
-    pub host: &'a str,
+pub struct ProgramConfig {
+    /// The profile the program was built for: `profile()` from the module
+    /// `pocket profile export` wrote, or [`embedded_profile`] for a library
+    /// embedding. Its id, tick rate and raster density describe the package
+    /// [`UiProgram::boot`] encodes.
+    pub profile: Profile,
+    /// `PROFILE_HASH` from the same export; the encoded package carries it.
+    pub profile_hash: [u8; 32],
     pub host_abi: u32,
+    /// The logical viewport this embedding presents. The profile must list it
+    /// or, for a window profile, contain it in its dynamic range.
     pub logical: [u32; 2],
-    pub density: u32,
-    pub scale: u32,
-    pub tick_hz: u32,
     pub heap_limit: usize,
     pub frame_buffer_budget: usize,
+}
+
+/// The profile of a library embedding that has no `pocket build` export, such
+/// as an overlay, a widget screen or a test: id `host`, one `logical` viewport
+/// at raster `density`, no auxiliary display and no required input class. The
+/// returned hash is all zero. Such an embedding has no exported identity: it
+/// runs only the package [`UiProgram::boot`] encodes from the host's own
+/// JavaScript and pak, and no compiled `.pocket` carries that hash.
+pub fn embedded_profile(
+    host: &str,
+    logical: [u32; 2],
+    density: u32,
+    tick_hz: u32,
+) -> (Profile, [u8; 32]) {
+    let profile = Profile {
+        id: Cow::Owned(host.to_owned()),
+        tick_hz,
+        viewport: [
+            logical[0].saturating_mul(density),
+            logical[1].saturating_mul(density),
+        ],
+        logical_viewports: Cow::Owned(vec![logical]),
+        dynamic_viewport: None,
+        auxiliary: None,
+        auxiliary_logical: Cow::Borrowed(&[]),
+        density,
+        required_inputs: InputClasses::NONE,
+    };
+    (profile, [0; 32])
 }
 
 /// One runtime, one generated UI namespace, and one input snapshot. Hosts
@@ -47,45 +78,35 @@ struct OwnedConfig {
     tick_hz: u32,
 }
 impl UiProgram {
-    pub fn new(config: ProgramConfig<'_>) -> Result<Self> {
+    pub fn new(config: ProgramConfig) -> Result<Self> {
+        let profile = config.profile;
         anyhow::ensure!(
-            (1..=4).contains(&config.scale),
-            "invalid presentation scale"
-        );
-        let physical = [
-            config.logical[0]
-                .checked_mul(config.scale)
-                .ok_or_else(|| anyhow!("viewport overflow"))?,
+            profile.admits_viewport(config.logical),
+            "profile {} does not admit the logical viewport {}x{}",
+            profile.id,
+            config.logical[0],
             config.logical[1]
-                .checked_mul(config.scale)
-                .ok_or_else(|| anyhow!("viewport overflow"))?,
-        ];
-        let fallback = serde_json::to_vec(&json!({
-            "id":config.host,"platform":config.host,"form":"native","tickHz":config.tick_hz,
-            "display":{"physicalViewport":physical,"logicalViewports":[config.logical],"rasterDensity":config.density},
-            "capabilities":["input.buttons","input.analog.left","input.touch","text.layout.baked","ui.physics"],
-            "roleCapabilities":{}
-        }))?;
-        let (profile, profile_hash) = match config.profile {
-            Some(profile) => (profile.json.to_vec(), profile.hash),
-            None => {
-                let hash = pocket_package::sha256::sha256(&fallback);
-                (fallback, hash)
-            }
+        );
+        let owned = OwnedConfig {
+            host: profile.id.clone().into_owned(),
+            host_abi: config.host_abi,
+            profile_hash: config.profile_hash,
+            logical: config.logical,
+            density: profile.density,
+            tick_hz: profile.tick_hz,
         };
         let mut runtime = Runtime::new(RuntimeConfig {
-            profile_hash,
-            profile_json: profile,
+            profile_hash: config.profile_hash,
             host_abi: config.host_abi,
-            tick_hz: config.tick_hz,
             heap_limit: config.heap_limit,
             frame_buffer_budget: config.frame_buffer_budget,
+            profile,
         })
         .host()?;
         runtime.allow_embedded_viewport_changes().host()?;
         runtime.op_context().set_compositor_enabled(true).host()?;
         let surface = UiSurface::from_context(runtime.op_context());
-        surface.set_identity(config.host, config.host_abi);
+        surface.set_identity(&owned.host, owned.host_abi);
         let input = Rc::new(RefCell::new(InputFrameBuilder::new()));
         runtime
             .add_input_source(Box::new(Input(input.clone())))
@@ -94,14 +115,7 @@ impl UiProgram {
             runtime,
             surface,
             input,
-            config: OwnedConfig {
-                host: config.host.to_owned(),
-                host_abi: config.host_abi,
-                profile_hash,
-                logical: config.logical,
-                density: config.density,
-                tick_hz: config.tick_hz,
-            },
+            config: owned,
         })
     }
     pub fn surface(&self) -> UiSurface {
@@ -305,20 +319,18 @@ mod tests {
         }
     }
     fn program() -> (UiProgram, Rc<RefCell<usize>>) {
-        program_with_profile("native-test", None)
+        let (profile, profile_hash) = embedded_profile("native-test", [16, 16], 1, 60);
+        program_with_profile(profile, profile_hash)
     }
     fn program_with_profile(
-        host: &str,
-        profile: Option<pocket_package::profile::BuildProfile<'_>>,
+        profile: Profile,
+        profile_hash: [u8; 32],
     ) -> (UiProgram, Rc<RefCell<usize>>) {
         let mut program = UiProgram::new(ProgramConfig {
             profile,
-            host,
+            profile_hash,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical: [16, 16],
-            density: 1,
-            scale: 1,
-            tick_hz: 60,
             heap_limit: 4 * 1024 * 1024,
             frame_buffer_budget: 1024,
         })
@@ -338,27 +350,20 @@ mod tests {
     }
     #[test]
     fn two_programs_accept_independent_profiles_in_one_binary() {
-        let profile = |id| {
-            serde_json::to_vec(&json!({
-                "id":id,"platform":"native-test","form":"native","tickHz":60,
-                "display":{"physicalViewport":[16,16],"logicalViewports":[[16,16]],"rasterDensity":1},
-                "capabilities":["input.buttons","input.analog.left","input.touch","text.layout.baked","ui.physics"],
-                "roleCapabilities":{}
-            })).unwrap()
+        // The shape `pocket profile export` writes into pocket_profile.rs.
+        let profile = |id: &'static str| Profile {
+            id: Cow::Borrowed(id),
+            tick_hz: 60,
+            viewport: [16, 16],
+            logical_viewports: Cow::Borrowed(&[[16, 16]]),
+            dynamic_viewport: None,
+            auxiliary: None,
+            auxiliary_logical: Cow::Borrowed(&[]),
+            density: 1,
+            required_inputs: InputClasses::BUTTONS | InputClasses::CONTACT,
         };
-        let first_json = profile("first-program");
-        let second_json = profile("second-program");
-        let first_profile = pocket_package::profile::BuildProfile {
-            json: &first_json,
-            hash: pocket_package::sha256::sha256(&first_json),
-        };
-        let second_profile = pocket_package::profile::BuildProfile {
-            json: &second_json,
-            hash: pocket_package::sha256::sha256(&second_json),
-        };
-        let (mut first, first_count) = program_with_profile("first-program", Some(first_profile));
-        let (mut second, second_count) =
-            program_with_profile("second-program", Some(second_profile));
+        let (mut first, first_count) = program_with_profile(profile("first-program"), [1; 32]);
+        let (mut second, second_count) = program_with_profile(profile("second-program"), [2; 32]);
         for (program, host) in [
             (&mut first, "first-program"),
             (&mut second, "second-program"),
@@ -374,6 +379,23 @@ mod tests {
         }
         assert_eq!(*first_count.borrow(), 1);
         assert_eq!(*second_count.borrow(), 1);
+    }
+    #[test]
+    fn logical_viewport_outside_the_profile_is_rejected() {
+        let config = |logical| {
+            let (profile, profile_hash) = embedded_profile("native-test", [16, 16], 1, 60);
+            ProgramConfig {
+                profile,
+                profile_hash,
+                host_abi: pocket_spec::BINDING_GENERATION,
+                logical,
+                heap_limit: 4 * 1024 * 1024,
+                frame_buffer_budget: 1024,
+            }
+        };
+        assert!(UiProgram::new(config([16, 16])).is_ok());
+        let error = UiProgram::new(config([32, 16])).err().unwrap();
+        assert!(error.to_string().contains("does not admit"), "{error}");
     }
     #[test]
     fn full_runtime_mounts_one_context_and_preserves_services_metadata_and_jobs() {

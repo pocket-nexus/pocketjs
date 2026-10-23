@@ -25,5 +25,7 @@ pocket-linux-drm = { workspace = true, default-features = true }
 pocket-linux-fbdev = { workspace = true, default-features = true }
 pocket-linux-evdev = { workspace = true, default-features = true }
 pocket-linux-alsa = { workspace = true, default-features = true, optional = true }
-serde_json = "1"
 libc = "0.2.191"
+
+[build-dependencies]
+pocket-profile-build.workspace = true

@@ -3,15 +3,23 @@
 use pocket_drivers::{Clock, DisplayOutput, InputClasses, InputFrameBuilder, InputSource};
 use pocket_guest_rquickjs::RquickjsGuest;
 use pocket_linux_hooks::{FileSource, MonotonicClock};
-use pocket_package::{profile::from_build_inputs, source::LoadedPackage};
-use pocket_runtime::{timing::TickSchedule, Runtime, RuntimeConfig};
+use pocket_package::source::LoadedPackage;
+use pocket_runtime::{timing::TickSchedule, Profile, Runtime, RuntimeConfig};
 use std::{
     error::Error,
     io,
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
 };
+#[allow(dead_code)] // The export defines every fact; the program reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 const PACKAGE_LIMIT: usize = 64 * 1024 * 1024;
+/// Input classes the evdev drivers deliver: buttons, pointer and touch.
+const INPUT_CLASSES: InputClasses = InputClasses::from_bits(
+    InputClasses::BUTTONS.bits() | InputClasses::POINTER.bits() | InputClasses::CONTACT.bits(),
+);
 static STOP: AtomicBool = AtomicBool::new(false);
 extern "C" fn stop(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
@@ -21,7 +29,6 @@ fn error(value: impl std::fmt::Debug) -> io::Error {
 }
 #[derive(Default)]
 struct Options {
-    profile: Option<PathBuf>,
     package: Option<PathBuf>,
     card: Option<PathBuf>,
     fb: Option<PathBuf>,
@@ -37,16 +44,14 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" => {
-                println!("pocket-linux-kms [--package app.pocket] [--profile pocket-profile.json] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nProfile export is an independent trusted deployment input. Default package: /usr/share/pocketjs/app.pocket. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.");
+                println!("pocket-linux-kms [--package app.pocket] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nProfile {} is compiled in from the build's profile export. Default package: /usr/share/pocketjs/app.pocket. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.", profile::ID);
                 return Ok(None);
             }
             "--headless" => output.headless = true,
             "--check" => output.check = true,
-            "--profile" | "--package" | "--card" | "--fb" | "--input" | "--frames"
-            | "--pcm-test" => {
+            "--package" | "--card" | "--fb" | "--input" | "--frames" | "--pcm-test" => {
                 let value = args.next().ok_or_else(|| error("missing option value"))?;
                 match arg.as_str() {
-                    "--profile" => output.profile = Some(value.into()),
                     "--package" => output.package = Some(value.into()),
                     "--card" => output.card = Some(value.into()),
                     "--fb" => output.fb = Some(value.into()),
@@ -60,113 +65,22 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     }
     Ok(Some(output))
 }
-struct Identity {
-    json: String,
-    hash: [u8; 32],
-    id: String,
-    size: [u32; 2],
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    logical: [u32; 2],
-    density: u32,
-    tick_hz: u32,
-}
-fn identity(path: Option<&std::path::Path>) -> Result<Identity, Box<dyn Error>> {
-    let (json, hash) = if let Some(path) = path {
-        use std::io::Read;
-        let mut bytes = Vec::new();
-        std::fs::File::open(path)?
-            .take(1024 * 1024 + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() > 1024 * 1024 {
-            return Err(error("profile export too large").into());
-        }
-        let sidecar: serde_json::Value = serde_json::from_slice(&bytes)?;
-        if sidecar["format"] != "pocket-profile/1"
-            || sidecar["hostAbi"] != pocket_spec::BINDING_GENERATION
-        {
-            return Err(error("unsupported profile export").into());
-        }
-        let json = sidecar["canonicalProfileJson"]
-            .as_str()
-            .ok_or_else(|| error("missing canonical profile"))?
-            .to_owned();
-        let hash = sidecar["profileHash"]
-            .as_str()
-            .ok_or_else(|| error("missing profile hash"))?
-            .to_owned();
-        (json, hash)
-    } else {
-        (
-            option_env!("POCKETJS_PROFILE_JSON")
-                .ok_or_else(|| error("supply --profile or build with exported profile inputs"))?
-                .to_owned(),
-            option_env!("POCKETJS_PROFILE_HASH")
-                .ok_or_else(|| error("missing build profile hash"))?
-                .to_owned(),
-        )
-    };
-    let hash = from_build_inputs(Some(&json), Some(&hash))
-        .map_err(error)?
-        .ok_or_else(|| error("missing profile"))?
-        .hash;
-    let value: serde_json::Value = serde_json::from_str(&json)?;
-    let dimension = |value: &serde_json::Value| -> Result<u32, io::Error> {
-        value
-            .as_u64()
-            .filter(|n| *n > 0 && *n <= 65535)
-            .map(|n| n as u32)
-            .ok_or_else(|| error("invalid profile dimension"))
-    };
-    let supported = [
-        "input.buttons",
-        "input.pointer",
-        "input.touch",
-        "text.glyphs.baked",
-    ];
-    let capabilities = value["capabilities"]
-        .as_array()
-        .ok_or_else(|| error("invalid capabilities"))?;
-    if capabilities
-        .iter()
-        .any(|cap| cap.as_str().is_none_or(|cap| !supported.contains(&cap)))
-        || value["roleCapabilities"].as_object().is_none_or(|roles| {
-            roles
-                .values()
-                .any(|caps| caps.as_array().is_none_or(|caps| !caps.is_empty()))
-        })
-        || value["display"].get("dynamicViewport").is_some()
-        || value["display"].get("auxiliary").is_some()
+/// Reject display and input facts these drivers cannot honor: one fixed
+/// display and the evdev input classes. The runtime config rejects promised
+/// services this program does not compose before the build.
+fn supported(profile: Profile) -> Result<Profile, Box<dyn Error>> {
+    if profile.dynamic_viewport.is_some()
+        || profile.auxiliary.is_some()
+        || !INPUT_CLASSES.contains(profile.required_inputs)
     {
         return Err(error("profile promises capabilities absent from this Linux program").into());
     }
-    let size = [
-        dimension(&value["display"]["physicalViewport"][0])?,
-        dimension(&value["display"]["physicalViewport"][1])?,
-    ];
-    let logical = [
-        dimension(&value["display"]["logicalViewports"][0][0])?,
-        dimension(&value["display"]["logicalViewports"][0][1])?,
-    ];
-    let density = dimension(&value["display"]["rasterDensity"])?;
-    let tick_hz = dimension(&value["tickHz"])?;
-    let id = value["id"]
-        .as_str()
-        .ok_or_else(|| error("missing profile id"))?
-        .to_owned();
-    Ok(Identity {
-        json,
-        hash,
-        id,
-        size,
-        logical,
-        density,
-        tick_hz,
-    })
+    Ok(profile)
 }
 struct DiagnosticInput;
 impl InputSource for DiagnosticInput {
     fn classes(&self) -> InputClasses {
-        InputClasses::BUTTONS | InputClasses::POINTER | InputClasses::CONTACT
+        INPUT_CLASSES
     }
     fn poll(&mut self, _: &mut InputFrameBuilder) {}
 }
@@ -206,19 +120,19 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         .into());
     }
 
-    let profile = identity(options.profile.as_deref())?;
-    let budget = (profile.size[0] as usize)
-        .checked_mul(profile.size[1] as usize)
+    let profile = supported(profile::profile().ok_or_else(|| error("missing exported profile"))?)?;
+    let size = profile.viewport;
+    let budget = (size[0] as usize)
+        .checked_mul(size[1] as usize)
         .and_then(|n| n.checked_mul(8))
         .filter(|n| *n <= 256 * 1024 * 1024)
         .ok_or_else(|| error("framebuffer budget exceeds 256 MiB"))?;
     let mut runtime = Runtime::new(RuntimeConfig {
-        profile_hash: profile.hash,
-        host_abi: pocket_spec::BINDING_GENERATION,
-        tick_hz: profile.tick_hz,
+        profile_hash: profile::PROFILE_HASH,
+        host_abi: profile::HOST_ABI,
         heap_limit: 32 * 1024 * 1024,
         frame_buffer_budget: budget,
-        profile_json: profile.json.as_bytes().to_vec(),
+        profile: profile.clone(),
     })
     .map_err(error)?;
     let path = options
@@ -228,9 +142,9 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     if options.check {
         let _package = LoadedPackage::load(
             &mut source,
-            &profile.id,
-            pocket_spec::BINDING_GENERATION,
-            &profile.hash,
+            profile::ID,
+            profile::HOST_ABI,
+            &profile::PROFILE_HASH,
             PACKAGE_LIMIT,
         )
         .map_err(error)?;
@@ -246,11 +160,11 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(error)?;
     if options.headless {
         let geometry = pocket_linux_fbdev::Geometry {
-            width: profile.size[0],
-            height: profile.size[1],
+            width: size[0],
+            height: size[1],
             x_offset: 0,
             y_offset: 0,
-            stride: profile.size[0] as usize * 4,
+            stride: size[0] as usize * 4,
             mapping_bytes: budget / 2,
             bits_per_pixel: 32,
             red: pocket_linux_fbdev::Channel {
@@ -267,7 +181,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         register(
             &mut runtime,
             pocket_linux_fbdev::Framebuffer::new(vec![0; budget / 2], geometry)?,
-            profile.size,
+            size,
             renderer,
         )?;
         runtime
@@ -278,17 +192,17 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         {
             match pocket_linux_drm::open(
                 options.card.unwrap_or_else(|| "/dev/dri/card0".into()),
-                profile.size,
+                size,
             ) {
                 Ok(display) => {
-                    register(&mut runtime, display, profile.size, renderer)?;
+                    register(&mut runtime, display, size, renderer)?;
                     eprintln!("display: DRM/KMS");
                 }
                 Err(drm) => {
                     eprintln!("DRM unavailable ({drm}); trying framebuffer");
                     let display =
                         pocket_linux_fbdev::open(options.fb.unwrap_or_else(|| "/dev/fb0".into()))?;
-                    register(&mut runtime, display, profile.size, renderer)?;
+                    register(&mut runtime, display, size, renderer)?;
                     eprintln!("display: fbdev (timer pacing)");
                 }
             }
@@ -310,8 +224,12 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 return Err(error("at most 16 evdev sources are supported").into());
             }
             for (index, path) in inputs.iter().enumerate() {
-                let device =
-                    pocket_linux_evdev::Evdev::open(path, profile.logical, index as u32 * 16, 16)?;
+                let device = pocket_linux_evdev::Evdev::open(
+                    path,
+                    profile.logical_viewports[0],
+                    index as u32 * 16,
+                    16,
+                )?;
                 runtime.add_input_source(Box::new(device)).map_err(error)?;
             }
         }
@@ -340,7 +258,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     runtime.shutdown().map_err(error)?;
     println!(
         "completed {frames} logical ticks; {}x{}; {}",
-        profile.size[0], profile.size[1], profile.id
+        size[0], size[1], profile.id
     );
     Ok(())
 }
@@ -360,9 +278,18 @@ fn main() {
 mod tests {
     use super::*;
     #[test]
-    fn missing_compiled_identity_is_not_inferred_from_package() {
-        if option_env!("POCKETJS_PROFILE_JSON").is_none() {
-            assert!(identity(None).is_err());
+    fn drivers_reject_display_and_input_facts_they_cannot_honor() {
+        let exported = profile::profile().unwrap();
+        assert!(supported(exported.clone()).is_ok());
+        let mut dynamic = exported.clone();
+        dynamic.dynamic_viewport = Some([[240, 180], [1920, 1080]]);
+        let mut auxiliary = exported.clone();
+        auxiliary.auxiliary = Some([320, 240]);
+        auxiliary.auxiliary_logical = std::borrow::Cow::Borrowed(&[[320, 240]]);
+        let mut text = exported;
+        text.required_inputs |= InputClasses::TEXT;
+        for profile in [dynamic, auxiliary, text] {
+            assert!(supported(profile).is_err());
         }
     }
 }

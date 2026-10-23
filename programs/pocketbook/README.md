@@ -53,11 +53,20 @@ cargo install cargo-zigbuild
 Cross-compile the host (from this directory):
 
 ```sh
-cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.23
+bun ../../tools/pocket.ts profile export --config pocket.runtime-config.ts --out ../../target/pocketbook-profile
+POCKETJS_PROFILE_RS=$PWD/../../target/pocketbook-profile/pocket_profile.rs \
+  cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.23
 # → <repository>/target/armv7-unknown-linux-gnueabi/release/pocketbook-host
 ```
 
 Notes:
+
+- The host compiles in the exported pocketbook profile: `build.rs` copies the
+  `pocket_profile.rs` that `POCKETJS_PROFILE_RS` names, and the logical
+  viewport, raster density, tick rate and profile hash come from it. A build
+  without the variable starts and exits with an error.
+  `bun tools/pocket.ts build --config programs/pocketbook/pocket.runtime-config.ts`
+  sets the variable.
 
 - `libinkview.so` is `dlopen`'d at runtime (`inkview::load`) — no SDK at build
   time.

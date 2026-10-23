@@ -7,6 +7,8 @@ import { buildPocketBook } from "./pocketbook-native.ts";
 export const build: RuntimeBuild = {
   hosts: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"],
   sourceInputs: nativeSources("pocketbook",
+    "engine/profile-build/Cargo.toml",
+    "engine/profile-build/src",
     "programs/pocketbook/Cargo.toml",
     "programs/pocketbook/build.rs",
     "programs/pocketbook/src",

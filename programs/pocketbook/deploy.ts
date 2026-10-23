@@ -8,8 +8,10 @@
 //   APP_NAME     launcher folder name (default: pocketjs-hero)
 //
 // Prereqs (run from the repo root):
-//   # 1. cross-compile the host
-//   (cd programs/pocketbook && cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.23)
+//   # 1. cross-compile the host against the exported pocketbook profile
+//   bun tools/pocket.ts profile export --config programs/pocketbook/pocket.runtime-config.ts --out target/pocketbook-profile
+//   (cd programs/pocketbook && POCKETJS_PROFILE_RS=$PWD/../../target/pocketbook-profile/pocket_profile.rs \
+//     cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.23)
 //   # 2. build the app bundle for the pocketbook target
 //   bun run pocket compile --runtime-config programs/pocketbook/pocket.runtime-config.ts --manifest apps/hero/pocket.json --project-root . --outdir dist
 //

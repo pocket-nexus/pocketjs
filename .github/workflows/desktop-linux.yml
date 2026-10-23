@@ -110,8 +110,12 @@ jobs:
           cargo test --locked --manifest-path Cargo.toml -p pocketjs-wasm
           bun tools/text-wasm.ts
 
+      # The host compiles in the exported linux-app profile; a build without
+      # one stops at startup.
       - name: Build linux-app release host
-        run: cargo build --release --locked --manifest-path Cargo.toml -p pocket-desktop-host
+        run: |
+          bun tools/pocket.ts profile export --target linux-app --out .pocket-build/linux-app-profile
+          POCKETJS_PROFILE_RS="$PWD/.pocket-build/linux-app-profile/pocket_profile.rs" cargo build --release --locked --manifest-path Cargo.toml -p pocket-desktop-host
 
       - name: Launch linux-app under X11
         env:

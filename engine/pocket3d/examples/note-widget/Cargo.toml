@@ -11,6 +11,7 @@ publish = false
 
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket3d = { workspace = true, default-features = true }
 pocket-mod = { workspace = true, default-features = true }
@@ -25,3 +26,6 @@ env_logger = { workspace = true }
 serde_json = { workspace = true }
 ab_glyph = { workspace = true }
 memmap2 = { workspace = true }
+
+[build-dependencies]
+pocket-profile-build.workspace = true

@@ -15,6 +15,10 @@ mod display;
 mod framebuffer;
 mod input;
 mod refresh;
+#[allow(dead_code)] // The export defines every fact; the host reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -22,32 +26,24 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use inkview::Event;
 use pocket_mod::Guest;
+use pocket_runtime::Profile;
 use pocket_ui_surface::{ProgramConfig, UiProgram};
 use std::{cell::RefCell, rc::Rc};
 
 use framebuffer::DirtyRect;
 
-/// Profile identity and script binding generation are checked independently.
-const HOST_ID: &str = "pocketbook";
-const HOST_ABI: u32 = pocket_spec::BINDING_GENERATION;
-
 /// Logical tick cadence. E-ink doesn't need 60 fps; ~30 fps keeps animations
 /// smooth while sparing CPU and battery.
 const PRESENT_HZ: u32 = 30;
 
-/// Logical viewport the pocketbook target profile bakes bundles for
-/// (contracts/spec/platforms.ts). Must match the bundle: the framework lays
-/// the app out for this size, so the host presents exactly it.
-const LOGICAL_W: u32 = 480;
-const LOGICAL_H: u32 = 272;
-/// Raster density the target profile bakes font atlases/images at; the host
-/// must render at the same density for crisp output. 480×272 also stays
-/// ≤511 px/axis, keeping touch coordinates inside the 9-bit wire format
-/// (framework/src/touch.ts).
-const DENSITY: u32 = 2;
-
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    let profile = profile::profile().ok_or_else(|| {
+        anyhow::anyhow!(
+            "pocketbook-host was built without an exported profile; build it through pocket build"
+        )
+    })?;
 
     // &'static Inkview so both the render thread (Screen::new) and the main
     // thread (iv_main) can reference it — same pattern as the slint demo.
@@ -55,7 +51,7 @@ fn main() -> Result<()> {
 
     let (tx, rx) = mpsc::channel::<Event>();
 
-    let render = std::thread::spawn(move || run(iv, rx));
+    let render = std::thread::spawn(move || run(iv, rx, profile));
 
     // Main thread: the inkview event loop. Forward every event to the render
     // thread; if it has gone away (send fails), ask inkview to close the app.
@@ -78,7 +74,11 @@ fn main() -> Result<()> {
 }
 
 /// The render thread: boot the guest, then tick/render until Exit.
-fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Result<()> {
+fn run(
+    iv: &'static inkview::bindings::Inkview,
+    rx: mpsc::Receiver<Event>,
+    profile: Profile,
+) -> Result<()> {
     // inkview delivers Init first; wait for it before touching the framebuffer.
     if rx.recv().context("event channel closed before Init")? != Event::Init {
         anyhow::bail!("expected EVT_INIT first");
@@ -88,7 +88,12 @@ fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Re
     let phys_w = screen.width();
     let phys_h = screen.height();
 
-    let geo = Geometry::for_panel(phys_w, phys_h);
+    let geo = Geometry::for_panel(
+        phys_w,
+        phys_h,
+        profile.logical_viewports[0],
+        profile.density,
+    );
     log::info!(
         "pocketbook: panel {phys_w}x{phys_h}, logical {}x{} @{}x, render {}x{} → disp {}x{} +({},{})",
         geo.logical_w,
@@ -108,17 +113,10 @@ fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Re
         std::fs::read_to_string(js_path()).with_context(|| format!("reading {}", js_path()))?;
 
     let mut program = UiProgram::new(ProgramConfig {
-        profile: pocket_ui_surface::program_profile::from_build_inputs(
-            option_env!("POCKETJS_PROFILE_JSON"),
-            option_env!("POCKETJS_PROFILE_HASH"),
-        )
-        .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
-        host: HOST_ID,
-        host_abi: HOST_ABI,
+        profile,
+        profile_hash: profile::PROFILE_HASH,
+        host_abi: profile::HOST_ABI,
         logical: [geo.logical_w as u32, geo.logical_h as u32],
-        density: geo.density,
-        scale: geo.density,
-        tick_hz: 60,
         heap_limit: 64 * 1024 * 1024,
         frame_buffer_budget: geo.render_w * geo.render_h * 4,
     })?;
@@ -257,18 +255,18 @@ struct Geometry {
 }
 
 impl Geometry {
-    /// Present the bundle's fixed 480×272 @2x surface (a 960×544 render) on
-    /// the actual panel. When the render fits, it is integer-centered. When it
-    /// doesn't (e.g. a 960-wide render on a 758-wide portrait panel like the
-    /// Verse), it is nearest-neighbor scaled down to fit and then centered.
-    /// The logical viewport and density are fixed to match the pocketbook
-    /// target profile (and stay ≤511/axis, so touch coordinates fit the 9-bit
-    /// wire format).
-    fn for_panel(phys_w: usize, phys_h: usize) -> Self {
-        let logical_w = LOGICAL_W as usize;
-        let logical_h = LOGICAL_H as usize;
-        let render_w = logical_w * DENSITY as usize;
-        let render_h = logical_h * DENSITY as usize;
+    /// Present the profile's fixed logical surface at its raster density (the
+    /// pocketbook profile's 480×272 @2x is a 960×544 render) on the actual
+    /// panel. When the render fits, it is integer-centered. When it doesn't
+    /// (e.g. a 960-wide render on a 758-wide portrait panel like the Verse), it
+    /// is nearest-neighbor scaled down to fit and then centered. The logical
+    /// viewport stays ≤511/axis, so touch coordinates fit the 9-bit wire
+    /// format (framework/src/touch.ts).
+    fn for_panel(phys_w: usize, phys_h: usize, logical: [u32; 2], density: u32) -> Self {
+        let logical_w = logical[0] as usize;
+        let logical_h = logical[1] as usize;
+        let render_w = logical_w * density as usize;
+        let render_h = logical_h * density as usize;
 
         let (disp_w, disp_h) = if render_w <= phys_w && render_h <= phys_h {
             (render_w, render_h)
@@ -292,7 +290,7 @@ impl Geometry {
         Self {
             logical_w,
             logical_h,
-            density: DENSITY,
+            density,
             render_w,
             render_h,
             disp_w,

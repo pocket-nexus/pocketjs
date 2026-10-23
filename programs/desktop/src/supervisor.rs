@@ -22,6 +22,8 @@ struct AppInstance {
 
 struct AppSupervisor {
     gpu: Arc<pocket3d::gpu::Gpu>,
+    /// Every AppInstance runs under the System host's profile.
+    profile: ExportedProfile,
     next_generation: u64,
     catalog: Vec<AppCatalogEntry>,
     instances: Vec<AppInstance>,
@@ -72,10 +74,12 @@ impl AppSupervisor {
         system: Option<&ResolvedSystemPlan>,
         shell: &UiSurface,
         gpu: Arc<pocket3d::gpu::Gpu>,
+        profile: ExportedProfile,
     ) -> Result<Self> {
         let Some(system) = system else {
             return Ok(Self {
                 gpu,
+                profile,
                 next_generation: 0,
                 catalog: Vec::new(),
                 instances: Vec::new(),
@@ -101,6 +105,7 @@ impl AppSupervisor {
         }
         Ok(Self {
             gpu,
+            profile,
             next_generation: 0,
             catalog,
             instances: Vec::new(),
@@ -131,18 +136,20 @@ impl AppSupervisor {
         let pak =
             std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
+        if plan.viewport.raster_density != self.profile.profile.density {
+            return Err(anyhow!(
+                "AppInstance {} resolved raster density {}, the {} profile has {}",
+                entry.package.package,
+                plan.viewport.raster_density,
+                self.profile.profile.id,
+                self.profile.profile.density
+            ));
+        }
         let mut program = UiProgram::new(ProgramConfig {
-            profile: pocket_ui_surface::program_profile::from_build_inputs(
-                option_env!("POCKETJS_PROFILE_JSON"),
-                option_env!("POCKETJS_PROFILE_HASH"),
-            )
-            .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
-            host: &plan.target.id,
+            profile: self.profile.profile.clone(),
+            profile_hash: self.profile.hash,
             host_abi: plan.target.host_abi,
             logical: plan.viewport.logical,
-            density: plan.viewport.raster_density,
-            scale: plan.viewport.raster_density,
-            tick_hz: TICK_HZ as u32,
             heap_limit: 128 * 1024 * 1024,
             frame_buffer_budget: 128 * 1024 * 1024,
         })?;

@@ -22,12 +22,16 @@ use pocket_runtime::{
     GuestEnvironment, GuestFrame, RendererId, Runtime, RuntimeConfig, RuntimeError,
 };
 
+#[allow(dead_code)] // The export defines every fact; the plugin reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 include!(concat!(env!("IPODNANO_GENERATED"), "/include.rs"));
 use generated::AppViewModel;
 
 pub const WIDTH: usize = 176;
 pub const HEIGHT: usize = 132;
-pub const TICK_HZ: u32 = 30;
+pub const TICK_HZ: u32 = profile::TICK_HZ;
 pub const MAX_REGIONS: usize = 8;
 
 pub use pocket_rockbox_input::{button, buttons};
@@ -155,14 +159,12 @@ pub struct Hero {
 }
 impl Hero {
     pub fn new() -> Self {
-        let profile = br#"{"capabilities":[],"display":{"logicalViewports":[[176,132]],"physicalViewport":[176,132],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"ipodnano","platform":"rockbox","tickHz":30}"#;
         let mut runtime = Runtime::new(RuntimeConfig {
-            profile_hash: pocket_package::sha256::sha256(profile),
-            profile_json: profile.to_vec(),
-            host_abi: pocket_spec::BINDING_GENERATION,
-            tick_hz: TICK_HZ,
+            profile_hash: profile::PROFILE_HASH,
+            host_abi: profile::HOST_ABI,
             heap_limit: 4 * 1024 * 1024,
             frame_buffer_budget: WIDTH * HEIGHT * 2,
+            profile: profile::profile().unwrap(),
         })
         .unwrap();
         let (guest, app) = AotGuest::<Box<App>>::new();
@@ -183,11 +185,7 @@ impl Hero {
             )
             .unwrap();
         runtime
-            .boot_aot_deferred(
-                pocket_package::sha256::sha256(profile),
-                [WIDTH as u32, HEIGHT as u32],
-                false,
-            )
+            .boot_aot_deferred(profile::PROFILE_HASH, [WIDTH as u32, HEIGHT as u32], false)
             .unwrap();
         runtime.skip_presentation().unwrap();
         Self {

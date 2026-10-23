@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { RUST_TOOLCHAINS, STABLE_RUST_TOOLCHAIN } from "../toolchains/rust.ts";
 import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import { exportAotProfile } from "../aot-profile.ts";
 
 const root = resolve(import.meta.dir, "../../..");
 export const IPODNANO_TOOLCHAIN = RUST_TOOLCHAINS.ipodNano;
@@ -51,7 +52,8 @@ export async function buildIpodNano(args: readonly string[], context?: RuntimeBu
   cpSync(resolve(input), gen, { recursive: true });
   const rockboxSource = option("rockbox", args);
   if (!rockboxSource) throw new Error("iPod nano program build requires --rockbox=<source> to link .rock/.ovl");
-  const env = { IPODNANO_GENERATED: gen };
+  // The preview and the plugin link the same crate and boot the same profile.
+  const env = { IPODNANO_GENERATED: gen, POCKETJS_PROFILE_RS: exportAotProfile(dependency, gen, context) };
 
   // The preview runs the same crate on the host with the layout oracle and
   // writes the frames a scripted session produces.
