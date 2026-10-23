@@ -99,7 +99,7 @@ describe("custom host build boundary", () => {
     });
   });
 
-  test("C build header preserves canonical UTF-8 bytes", () => {
+  test("C build header preserves profile id UTF-8 bytes", () => {
     const parent = join(import.meta.dir, "../.pocket-build/validation/profile-admission");
     mkdirSync(parent, { recursive: true });
     const directory = mkdtempSync(join(parent, "header-"));
@@ -107,12 +107,12 @@ describe("custom host build boundary", () => {
       const profile = { ...portablePlan().profile, id: "custom-??/设备" };
       writeHostProfileHeader(directory, profile);
       const source = join(directory, "consumer.c"), binary = join(directory, "consumer");
-      writeFileSync(source, '#include <stdio.h>\n#include "pocket_host_profile.h"\nint main(void){fwrite(POCKETJS_HOST_PROFILE_JSON,1,sizeof POCKETJS_HOST_PROFILE_JSON-1,stdout);return POCKETJS_HOST_PROFILE_TICK_HZ==60u?0:1;}\n');
-      const compile = Bun.spawnSync([process.env.CC ?? "cc", "-std=c11", "-Wall", "-Wextra", "-Werror", source, "-o", binary]);
+      writeFileSync(source, '#include <stdio.h>\n#include "pocket_host_profile.h"\nint main(void){fwrite(pocket_profile.facts->id,1,pocket_profile.facts->id_length,stdout);return pocket_profile.facts->tick_hz==60u?0:1;}\n');
+      const compile = Bun.spawnSync([process.env.CC ?? "cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", join(import.meta.dir, "../contracts/generated"), source, "-o", binary]);
       if (!compile.success) throw new Error(compile.stderr.toString());
       const run = Bun.spawnSync([binary]);
       expect(run.success).toBe(true);
-      expect(run.stdout).toEqual(Buffer.from(canonicalProfileJson(profile)));
+      expect(run.stdout).toEqual(Buffer.from(profile.id));
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });

@@ -10,9 +10,8 @@ use pocket_guest_rquickjs::{BindingProfile, RquickjsGuest};
 use pocket_runtime_cabi::abi::*;
 use pocket_runtime_cabi::{
     pocket_runtime_add_display, pocket_runtime_add_input_source, pocket_runtime_add_op_provider,
-    pocket_runtime_boot, pocket_runtime_create, pocket_runtime_destroy, pocket_runtime_op,
-    pocket_runtime_set_guest, pocket_runtime_set_package_source, pocket_runtime_supports_op,
-    pocket_runtime_tick,
+    pocket_runtime_boot, pocket_runtime_destroy, pocket_runtime_op, pocket_runtime_set_guest,
+    pocket_runtime_set_package_source, pocket_runtime_supports_op, pocket_runtime_tick,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -230,23 +229,20 @@ fn boot(state: &PocketApple, code: &[u8]) -> i32 {
     }
     let (config, guest) = {
         let mut configuration = state.config.borrow_mut();
-        let (profile, package) = match package::encode(&configuration, &state.bridge, code) {
+        configuration.package = match package::encode(&configuration, &state.bridge, code) {
             Ok(value) => value,
             Err(message) => return error(message),
         };
-        configuration.package = package;
-        let mut config = PocketRuntimeConfig::empty();
-        config.profile_hash = pocket_package::sha256::sha256(&profile);
-        config.host_abi = configuration.abi;
-        config.tick_hz = configuration.hz;
-        config.heap_limit = MAX_PACKAGE_BYTES;
-        config.frame_buffer_budget = state.bridge.byte_length();
-        config.profile_json = profile.as_ptr();
-        config.profile_json_length = profile.len();
-        let runtime = unsafe { pocket_runtime_create(&config) };
-        if runtime.is_null() {
-            return error("runtime rejected Apple profile");
-        }
+        let runtime = match pocket_runtime_cabi::embedding::create(pocket_runtime::RuntimeConfig {
+            profile_hash: package::PROFILE_HASH,
+            host_abi: configuration.abi,
+            heap_limit: MAX_PACKAGE_BYTES,
+            frame_buffer_budget: state.bridge.byte_length(),
+            profile: package::profile(&configuration, &state.bridge),
+        }) {
+            Ok(runtime) => runtime,
+            Err(_) => return error("runtime rejected Apple profile"),
+        };
         state.runtime.set(runtime);
         (runtime, configuration.guest)
     };

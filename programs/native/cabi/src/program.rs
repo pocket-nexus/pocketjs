@@ -2,14 +2,14 @@
 //! owns the guest, package, retained tree, input encoding and presentation.
 #[cfg(any(feature = "std", feature = "software-only"))]
 use alloc::vec::Vec;
-use alloc::{boxed::Box, rc::Rc};
+use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::{
     cell::{Cell, RefCell},
     ffi::{c_char, c_void, CStr},
     ptr,
 };
 use pocket_drivers::*;
-use pocket_runtime::OpContext;
+use pocket_runtime::{Cow, OpContext, Profile, RuntimeConfig};
 use pocket_runtime_cabi::{abi::*, adapters::CInputSource, embedding as embed};
 
 const INPUT_CLASSES: u32 = POCKET_INPUT_CLASS_BUTTONS
@@ -277,7 +277,7 @@ unsafe fn create(
     density: u32,
     physics: u32,
     original_package: Option<&[u8]>,
-    trusted_profile: Option<(&[u8], [u8; 32])>,
+    trusted_profile: Option<(Profile, [u8; 32])>,
 ) -> Result<Box<PocketNativeProgram>, i32> {
     if host_abi != pocket_spec::BINDING_GENERATION
         || target.is_null()
@@ -301,28 +301,35 @@ unsafe fn create(
         .checked_mul(height as usize)
         .and_then(|n| n.checked_mul(4))
         .ok_or(POCKET_STATUS_INVALID)?;
-    let fallback_profile;
     let (profile, profile_hash) = match trusted_profile {
         Some(profile) => profile,
-        None => {
-            // Explicit private adapter for callers supplying raw JS/pak spans.
-            fallback_profile = serde_json::to_vec(&serde_json::json!({"id":target,"platform":target,"form":"embedded","tickHz":60,"display":{"physicalViewport":[width,height],"logicalViewports":[[width,height]],"rasterDensity":density},"capabilities":["input.buttons","input.analog.left","input.touch"],"roleCapabilities":{}})).map_err(|_|POCKET_STATUS_FAILED)?;
-            let hash = pocket_package::sha256::sha256(&fallback_profile);
-            (fallback_profile.as_slice(), hash)
-        }
+        // Explicit private adapter for callers supplying raw JS/pak spans: the
+        // profile is the one viewport they name, and the all-zero hash pairs
+        // it with the package encoded below.
+        None => (
+            Profile {
+                id: Cow::Owned(String::from(target)),
+                tick_hz: 60,
+                viewport: [width, height],
+                logical_viewports: Cow::Owned(alloc::vec![[width, height]]),
+                dynamic_viewport: None,
+                auxiliary: None,
+                auxiliary_logical: Cow::Borrowed(&[]),
+                density,
+                required_inputs: InputClasses::BUTTONS
+                    | InputClasses::AXIS_ABSOLUTE
+                    | InputClasses::CONTACT,
+            },
+            [0; 32],
+        ),
     };
-    let profile_value: serde_json::Value =
-        serde_json::from_slice(profile).map_err(|_| POCKET_STATUS_INVALID)?;
-    if profile_value["id"].as_str() != Some(target)
-        || profile_value["display"]["rasterDensity"].as_u64() != Some(density as u64)
-    {
+    if profile.id != target || profile.density != density {
         return Err(POCKET_STATUS_INVALID);
     }
-    let tick_hz = profile_value["tickHz"]
-        .as_u64()
-        .and_then(|n| u32::try_from(n).ok())
-        .ok_or(POCKET_STATUS_INVALID)?;
-    let plan=serde_json::to_vec(&serde_json::json!({"viewport":{"logical":[width,height],"rasterDensity":density},"features":{"ui.physics":physics!=0}})).map_err(|_|POCKET_STATUS_FAILED)?;
+    let plan = format!(
+        r#"{{"features":{{"ui.physics":{}}},"viewport":{{"logical":[{width},{height}],"rasterDensity":{density}}}}}"#,
+        physics != 0
+    );
     let identity = pocket_package::embedded::identity(
         "embedded",
         "dev.pocketjs.native.embedded",
@@ -337,26 +344,20 @@ unsafe fn create(
             host_abi,
             profile_hash,
             identity: &identity,
-            plan: &plan,
+            plan: plan.as_bytes(),
             code,
             pak,
         })
         .map_err(|_| POCKET_STATUS_INVALID)?
     };
-    let config = PocketRuntimeConfig {
+    let runtime = embed::create(RuntimeConfig {
         profile_hash,
         host_abi,
-        tick_hz,
         heap_limit: 128 * 1024 * 1024,
         frame_buffer_budget: length,
-        profile_json: profile.as_ptr(),
-        profile_json_length: profile.len(),
-        ..PocketRuntimeConfig::empty()
-    };
-    let runtime = unsafe { pocket_runtime_cabi::pocket_runtime_create(&config) };
-    if runtime.is_null() {
-        return Err(POCKET_STATUS_INVALID);
-    }
+        profile,
+    })
+    .map_err(|_| POCKET_STATUS_INVALID)?;
     let ops = match unsafe { embed::op_context(runtime) } {
         Ok(ops) => ops,
         Err(_) => {
@@ -460,7 +461,9 @@ pub unsafe extern "C" fn pocket_native_program_create(
     .unwrap_or(ptr::null_mut())
 }
 /// # Safety
-/// Input spans are readable. The profile comes from the host build, not its package.
+/// Input spans are readable; profile is null or an exported facts record and
+/// profile_hash names 32 readable bytes. Both come from the host build, not
+/// its package.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_native_program_create_profile(
     target: *const c_char,
@@ -473,12 +476,11 @@ pub unsafe extern "C" fn pocket_native_program_create_profile(
     height: u32,
     density: u32,
     physics: u32,
-    profile_json: *const u8,
-    profile_length: usize,
+    profile: *const PocketProfileFacts,
     profile_hash: *const u8,
 ) -> *mut PocketNativeProgram {
     let checked = || -> Result<Box<PocketNativeProgram>, i32> {
-        let profile = unsafe { trusted_profile(profile_json, profile_length, profile_hash) }?;
+        let profile = unsafe { trusted_profile(profile, profile_hash) }?;
         unsafe {
             create(
                 target,
@@ -498,26 +500,24 @@ pub unsafe extern "C" fn pocket_native_program_create_profile(
     };
     checked().map(Box::into_raw).unwrap_or(ptr::null_mut())
 }
-unsafe fn trusted_profile<'a>(
-    json: *const u8,
-    length: usize,
+/// The exporter wrote the facts and the hash from one profile; the hash is
+/// the identity packages are admitted against.
+unsafe fn trusted_profile(
+    facts: *const PocketProfileFacts,
     hash: *const u8,
-) -> Result<(&'a [u8], [u8; 32]), i32> {
-    if hash.is_null() || length == 0 {
+) -> Result<(Profile, [u8; 32]), i32> {
+    if hash.is_null() {
         return Err(POCKET_STATUS_INVALID);
     }
-    let profile =
-        unsafe { pocket_runtime_cabi::adapters::borrowed(json, length) }.map_err(|e| e.status())?;
+    let profile = unsafe { embed::profile_from_facts(facts) }.ok_or(POCKET_STATUS_INVALID)?;
     let hash: [u8; 32] = unsafe { core::slice::from_raw_parts(hash, 32) }
         .try_into()
         .unwrap();
-    if pocket_package::sha256::sha256(profile) != hash {
-        return Err(POCKET_STATUS_INVALID);
-    }
     Ok((profile, hash))
 }
 /// # Safety
-/// Strings are terminated UTF-8; package is readable for length bytes. The
+/// Strings are terminated UTF-8; package is readable for length bytes;
+/// profile and profile_hash follow `pocket_native_program_create_profile`. The
 /// complete original package is copied and admitted again by Runtime at boot.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_native_program_create_package(
@@ -532,8 +532,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
     height: u32,
     density: u32,
     physics: u32,
-    profile_json: *const u8,
-    profile_length: usize,
+    profile: *const PocketProfileFacts,
     profile_hash: *const u8,
 ) -> *mut PocketNativeProgram {
     let checked = || -> Result<Box<PocketNativeProgram>, i32> {
@@ -545,7 +544,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
                 .to_str()
                 .map_err(|_| POCKET_STATUS_INVALID)
         };
-        let profile = unsafe { trusted_profile(profile_json, profile_length, profile_hash) }?;
+        let profile = unsafe { trusted_profile(profile, profile_hash) }?;
         let target_name = string(target)?;
         let bytes = unsafe { pocket_runtime_cabi::adapters::borrowed(bytes, length) }
             .map_err(|error| error.status())?;
@@ -1159,24 +1158,70 @@ mod tests {
     #[test]
     fn original_package_admission_preserves_plan_and_copies_source() {
         let _lock = SERIAL.lock().unwrap();
-        let profile = serde_json::to_vec(&serde_json::json!({"id":"qnx","platform":"qnx","form":"embedded","tickHz":60,"display":{"physicalViewport":[32,24],"logicalViewports":[[32,24]],"rasterDensity":1},"capabilities":["input.buttons"],"roleCapabilities":{}})).unwrap();
-        let profile_hash = pocket_package::sha256::sha256(&profile);
+        let logical = [32u32, 24];
+        let display = PocketProfileDisplay {
+            physical: [32, 24],
+            logical: logical.as_ptr(),
+            logical_count: 1,
+            raster_density: 1,
+            ..PocketProfileDisplay::empty()
+        };
+        let profile = PocketProfileFacts {
+            id: b"qnx".as_ptr(),
+            id_length: 3,
+            tick_hz: 60,
+            input_classes: POCKET_INPUT_CLASS_BUTTONS,
+            display: &display,
+            ..PocketProfileFacts::empty()
+        };
+        let profile_hash = [0x51; 32];
         let package = |physics: bool| {
             let identity =
                 pocket_package::embedded::identity("fixture", "dev.fixture", "Fixture").unwrap();
-            let plan = serde_json::to_vec(&serde_json::json!({"viewport":{"logical":[32,24],"rasterDensity":1},"features":{"ui.physics":physics}})).unwrap();
+            let plan = format!(
+                r#"{{"features":{{"ui.physics":{physics}}},"viewport":{{"logical":[32,24],"rasterDensity":1}}}}"#
+            );
             pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
                 target: "qnx",
                 host_abi: pocket_spec::BINDING_GENERATION,
                 profile_hash,
                 identity: &identity,
-                plan: &plan,
+                plan: plan.as_bytes(),
                 code: b"fixture",
                 pak: &[],
             })
             .unwrap()
         };
         unsafe {
+            let create_with =
+                |bytes: &[u8], profile: *const PocketProfileFacts, hash: &[u8; 32]| {
+                    pocket_native_program_create_package(
+                        c"qnx".as_ptr(),
+                        pocket_spec::BINDING_GENERATION,
+                        bytes.as_ptr(),
+                        bytes.len(),
+                        c"fixture".as_ptr(),
+                        c"dev.fixture".as_ptr(),
+                        c"Fixture".as_ptr(),
+                        32,
+                        24,
+                        1,
+                        1,
+                        profile,
+                        hash.as_ptr(),
+                    )
+                };
+            let bytes = package(false);
+            // Admission needs the host build's facts, its hash, and a facts id equal to the target.
+            assert!(create_with(&bytes, ptr::null(), &profile_hash).is_null());
+            assert!(create_with(&bytes, &profile, &[0x52; 32]).is_null());
+            let other = PocketProfileFacts {
+                id: b"qnx-2".as_ptr(),
+                id_length: 5,
+                ..profile
+            };
+            assert!(create_with(&bytes, &other, &profile_hash).is_null());
+            drop(bytes);
             let create = |bytes: &[u8], target, abi, title, width, density, physics| {
                 pocket_native_program_create_package(
                     target,
@@ -1190,8 +1235,7 @@ mod tests {
                     24,
                     density,
                     physics,
-                    profile.as_ptr(),
-                    profile.len(),
+                    &profile,
                     profile_hash.as_ptr(),
                 )
             };

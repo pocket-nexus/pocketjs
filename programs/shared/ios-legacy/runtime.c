@@ -1041,7 +1041,7 @@ static void load_bundle_package(const char *executable) {
     (const uint8_t *)POCKETJS_TARGET_ID,
     strlen(POCKETJS_TARGET_ID),
     POCKETJS_HOST_ABI,
-    POCKETJS_HOST_PROFILE_HASH,
+    pocket_profile.profile_hash,
     &g_package
   );
   if (result != 0) {

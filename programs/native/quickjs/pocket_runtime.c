@@ -28,7 +28,7 @@ static char svc_poll_buffer[8193];
 #elif POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
 #error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
-#ifndef POCKET_HOST_PROFILE_H
+#ifndef POCKET_COMPILED_PROFILE_H
 #error "pocket_host_profile.h must come from the independent host build profile"
 #endif
 #ifndef POCKET_RASTER_DENSITY
@@ -255,7 +255,7 @@ int pocket_legacy_runtime_boot(const char *code, size_t length, const uint8_t *p
 #else
     0,
 #endif
-    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof(POCKETJS_HOST_PROFILE_JSON) - 1, POCKETJS_HOST_PROFILE_HASH
+    pocket_profile.facts, pocket_profile.profile_hash
   );
   if (!program) { set_error("PocketJS program allocation or configuration failed"); goto failed; }
   REPORT_BOOT_STAGE(2); REPORT_BOOT_STAGE(3);

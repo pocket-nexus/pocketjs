@@ -783,13 +783,13 @@ bool PocketJsRuntime::bootGuest(
             reinterpret_cast<const uint8_t *>(payload.package.constData()), payload.package.size(),
             output.constData(), id.constData(), title.constData(),
             app.logicalViewport.width(), app.logicalViewport.height(), 1, POCKETJS_PHYSICS,
-            reinterpret_cast<const uint8_t *>(POCKETJS_HOST_PROFILE_JSON), sizeof(POCKETJS_HOST_PROFILE_JSON) - 1, POCKETJS_HOST_PROFILE_HASH);
+            pocket_profile.facts, pocket_profile.profile_hash);
     } else {
         program_ = pocket_native_program_create_profile("symbian-e7-dev", POCKETJS_HOST_ABI,
             reinterpret_cast<const uint8_t *>(appJavaScript_.constData()), appJavaScript_.size(),
             reinterpret_cast<const uint8_t *>(appPack_.constData()), appPack_.size(),
             viewport.width(), viewport.height(), 1, POCKETJS_PHYSICS,
-            reinterpret_cast<const uint8_t *>(POCKETJS_HOST_PROFILE_JSON), sizeof(POCKETJS_HOST_PROFILE_JSON) - 1, POCKETJS_HOST_PROFILE_HASH);
+            pocket_profile.facts, pocket_profile.profile_hash);
     }
     if (program_ == 0) {
         fail("PocketJS package admission or program allocation failed"); return false;

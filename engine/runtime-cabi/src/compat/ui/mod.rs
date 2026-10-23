@@ -181,6 +181,10 @@ pub const POCKET_UI_PACKAGE_COMPANIONS: u32 = 4;
 /// argument, 13-14 a plan whose JSON or viewport cannot be read, 16 a profile
 /// mismatch, and 17 an invalid section layout. The expected profile hash comes
 /// from the independent host build (32 readable bytes).
+///
+/// # Safety
+/// `ptr` and `target_ptr` are readable for `len` and `target_len` bytes,
+/// `profile_hash` for 32 bytes, and `out` is writable.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_ui_package_open(
     ptr: *const u8,

@@ -3865,7 +3865,6 @@ dependencies = [
  "heapless",
  "libm",
  "pocket-drivers",
- "pocket-package",
  "pocket-runtime",
  "pocket-spec",
  "pocketjs-core",
@@ -4879,7 +4878,6 @@ dependencies = [
  "pocket-runtime-cabi",
  "pocket-spec",
  "rquickjs",
- "serde_json",
 ]
 
 [[package]]
@@ -5667,7 +5665,6 @@ dependencies = [
  "pocket-runtime",
  "pocket-runtime-cabi",
  "pocket-spec",
- "serde_json",
 ]
 
 [[package]]

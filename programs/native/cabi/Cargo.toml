@@ -55,4 +55,3 @@ pocket-raster = { workspace = true, default-features = true }
 pocket-gles = { workspace = true, default-features = true }
 pocket-gles1 = { workspace = true, default-features = true }
 pocket-gles2 = { workspace = true, default-features = true }
-serde_json = { version = "1", default-features = false, features = ["alloc"] }

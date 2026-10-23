@@ -1,7 +1,7 @@
 use super::*;
 use pocket_package::embedded::{self, EmbeddedPackage};
 use pocket_package::source::MemorySource;
-use pocket_runtime::{Guest, GuestEnvironment, GuestFrame, RuntimeConfig};
+use pocket_runtime::{Cow, Guest, GuestEnvironment, GuestFrame, Profile, RuntimeConfig};
 
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "pocket_web")]
@@ -231,16 +231,32 @@ pub unsafe extern "C" fn web_boot(
             let density = h.density.get();
             let (host, abi) = h.identity.borrow().clone();
             h.physical.set([w * scale, height * scale]);
-            let mut display = json!({"physicalViewport":[w*scale,height*scale],"logicalViewports":[[w,height]],"rasterDensity":density});
+            // No exported profile names this embedding; the synthesized
+            // package and the runtime share the all-zero hash.
+            let profile_hash = [0; 32];
+            let mut profile = Profile {
+                id: Cow::Owned(host.clone()),
+                tick_hz: hz,
+                viewport: [w * scale, height * scale],
+                logical_viewports: Cow::Owned(vec![[w, height]]),
+                dynamic_viewport: None,
+                auxiliary: None,
+                auxiliary_logical: Cow::Borrowed(&[]),
+                density,
+                required_inputs: InputClasses::BUTTONS
+                    | InputClasses::AXIS_ABSOLUTE
+                    | InputClasses::AXIS_RELATIVE
+                    | InputClasses::CONTACT,
+            };
             let mut plan = json!({"viewport":{"logical":[w,height],"rasterDensity":density},"features":{"input.buttons":true,"input.analog.left":true,"input.analog.right":true,"input.touch":true,"input.axis.relative":true,"text.glyphs.baked":true,"ui.physics":true}});
             if let Some([aw, ah]) = h.auxiliary.get() {
                 checked_size([aw, ah], scale).ok_or(RuntimeError::InvalidArgument)?;
-                display["auxiliary"] = json!({"physicalViewport":[aw*scale,ah*scale],"logicalViewports":[[aw,ah]],"rasterDensity":density});
+                profile.auxiliary = Some([aw * scale, ah * scale]);
+                profile.auxiliary_logical = Cow::Owned(vec![[aw, ah]]);
                 plan["surfaces"] = json!({"auxiliary":{"logical":[aw,ah],"rasterDensity":density}});
                 plan["features"]["display.auxiliary"] = json!(true);
                 plan["features"]["input.touch.auxiliary"] = json!(true);
             }
-            let profile=serde_json::to_vec(&json!({"id":host,"platform":"web","form":"embedded","tickHz":hz,"display":display,"capabilities":["input.buttons","input.analog.left","input.analog.right","input.touch","input.axis.relative","text.glyphs.baked","ui.physics"],"roleCapabilities":{}})).unwrap();
             let identity =
                 embedded::identity("web", "dev.pocketjs.web.embedded", "Web embedded guest")
                     .map_err(|_| RuntimeError::InvalidArgument)?;
@@ -248,7 +264,7 @@ pub unsafe extern "C" fn web_boot(
             let package = embedded::encode(EmbeddedPackage {
                 target: &host,
                 host_abi: abi,
-                profile_hash: pocket_package::sha256::sha256(&profile),
+                profile_hash,
                 identity: &identity,
                 plan: &plan,
                 code: bytes(code, code_len),
@@ -256,12 +272,11 @@ pub unsafe extern "C" fn web_boot(
             })
             .map_err(|_| RuntimeError::InvalidArgument)?;
             let mut runtime = Runtime::new(RuntimeConfig {
-                profile_hash: pocket_package::sha256::sha256(&profile),
+                profile_hash,
                 host_abi: abi,
-                tick_hz: hz,
                 heap_limit: MAX_BYTES,
                 frame_buffer_budget: MAX_BYTES,
-                profile_json: profile,
+                profile,
             })?;
             runtime.allow_embedded_viewport_changes()?;
             runtime.set_native_asset_loading(false)?;

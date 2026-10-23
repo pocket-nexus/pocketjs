@@ -20,7 +20,6 @@ pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
 pocket-guest-rquickjs = { workspace = true, default-features = true }
-serde_json = "1"
 log = { workspace = true }
 
 # rquickjs ships pre-generated FFI bindings for common targets but NOT the

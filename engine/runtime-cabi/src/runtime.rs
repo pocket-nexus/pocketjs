@@ -91,14 +91,11 @@ unsafe fn display(display: *const PocketProfileDisplay) -> Option<Option<Panel>>
     let logical = unsafe { pairs(display.logical, display.logical_count) }?;
     Some(Some((display.physical, logical, display.raster_density)))
 }
-/// Copy the exported profile facts into runtime-owned storage. The config's
-/// tick_hz must repeat the facts' rate: a program that passes a literal rate
-/// for a profile with another one is refused here, before any package loads.
+/// Copy exported profile facts into runtime-owned storage.
 /// # Safety
-/// config and the facts it points to provide their announced readable bytes.
-unsafe fn configuration(config: *const PocketRuntimeConfig) -> Option<RuntimeConfig> {
-    let config = unsafe { PocketRuntimeConfig::read_prefix(config) }?;
-    let facts = unsafe { PocketProfileFacts::read_prefix(config.profile) }?;
+/// facts is null or provides its announced readable bytes and live lists.
+pub(crate) unsafe fn profile(facts: *const PocketProfileFacts) -> Option<Profile> {
+    let facts = unsafe { PocketProfileFacts::read_prefix(facts) }?;
     let id = unsafe { borrowed(facts.id, facts.id_length) }.ok()?;
     let id = String::from(core::str::from_utf8(id).ok()?);
     let (viewport, logical_viewports, density) = unsafe { display(facts.display) }??;
@@ -109,9 +106,6 @@ unsafe fn configuration(config: *const PocketRuntimeConfig) -> Option<RuntimeCon
         let range = unsafe { PocketProfileRange::read_prefix(facts.dynamic_viewport) }?;
         Some([range.min, range.max])
     };
-    if config.tick_hz != facts.tick_hz {
-        return None;
-    }
     let (auxiliary, auxiliary_logical) = match auxiliary {
         Some((physical, logical, aux_density)) => {
             if aux_density != density {
@@ -121,22 +115,35 @@ unsafe fn configuration(config: *const PocketRuntimeConfig) -> Option<RuntimeCon
         }
         None => (None, Cow::Borrowed(&[][..])),
     };
+    Some(Profile {
+        id: Cow::Owned(id),
+        tick_hz: facts.tick_hz,
+        viewport,
+        logical_viewports,
+        dynamic_viewport,
+        auxiliary,
+        auxiliary_logical,
+        density,
+        required_inputs: InputClasses::from_bits(facts.input_classes),
+    })
+}
+/// Copy the exported profile facts into runtime-owned storage. The config's
+/// tick_hz must repeat the facts' rate: a program that passes a literal rate
+/// for a profile with another one is refused here, before any package loads.
+/// # Safety
+/// config and the facts it points to provide their announced readable bytes.
+unsafe fn configuration(config: *const PocketRuntimeConfig) -> Option<RuntimeConfig> {
+    let config = unsafe { PocketRuntimeConfig::read_prefix(config) }?;
+    let profile = unsafe { profile(config.profile) }?;
+    if config.tick_hz != profile.tick_hz {
+        return None;
+    }
     Some(RuntimeConfig {
         profile_hash: config.profile_hash,
         host_abi: config.host_abi,
         heap_limit: config.heap_limit,
         frame_buffer_budget: config.frame_buffer_budget,
-        profile: Profile {
-            id: Cow::Owned(id),
-            tick_hz: facts.tick_hz,
-            viewport,
-            logical_viewports,
-            dynamic_viewport,
-            auxiliary,
-            auxiliary_logical,
-            density,
-            required_inputs: InputClasses::from_bits(facts.input_classes),
-        },
+        profile,
     })
 }
 /// # Safety
@@ -151,6 +158,10 @@ pub unsafe extern "C" fn pocket_runtime_create(
     let Ok(runtime) = Runtime::new(config) else {
         return ptr::null_mut();
     };
+    into_handle(runtime)
+}
+/// Move a constructed runtime behind the opaque C handle.
+pub(crate) fn into_handle(runtime: Runtime) -> *mut PocketRuntime {
     let ops = runtime.op_context();
     Box::into_raw(Box::new(Handle {
         runtime: RefCell::new(runtime),

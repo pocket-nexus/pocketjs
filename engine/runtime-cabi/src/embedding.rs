@@ -1,9 +1,30 @@
 //! Rust composition helpers for a program whose public entry points use C
 //! runtime handles. These helpers share the handle's application instance.
 
-use crate::{abi::PocketRuntime, runtime};
+use crate::{
+    abi::{PocketProfileFacts, PocketRuntime},
+    runtime,
+};
 use alloc::boxed::Box;
-use pocket_runtime::{Guest, OpContext, RuntimeError};
+use pocket_runtime::{Guest, OpContext, Profile, Runtime, RuntimeConfig, RuntimeError};
+
+/// Copy an exported `pocket_profile_facts` record into a runtime `Profile`,
+/// the conversion `pocket_runtime_create` applies to `config.profile`.
+/// `Runtime::new` checks the ranges.
+///
+/// # Safety
+/// `facts` is null or provides its announced readable bytes, and its id and
+/// viewport lists are live for the call.
+pub unsafe fn profile_from_facts(facts: *const PocketProfileFacts) -> Option<Profile> {
+    unsafe { runtime::profile(facts) }
+}
+
+/// Construct a runtime from a Rust configuration and return the C handle the
+/// `pocket_runtime_*` entry points accept. Release it with
+/// `pocket_runtime_destroy`.
+pub fn create(config: RuntimeConfig) -> Result<*mut PocketRuntime, RuntimeError> {
+    Runtime::new(config).map(runtime::into_handle)
+}
 
 /// Register a Rust guest in the same instance used by the C driver tables.
 ///

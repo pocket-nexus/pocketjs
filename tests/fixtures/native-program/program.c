@@ -65,14 +65,14 @@ int main(void) {
   assert(source_length > 0 && (size_t)source_length < sizeof source);
   assert(!pocket_native_program_create_package("native-program-fixture", POCKET_BINDING_GENERATION - 1, fixture_package, sizeof fixture_package,
     "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
-    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH));
+    pocket_profile.facts, pocket_profile.profile_hash));
   program = pocket_native_program_create_package("native-program-fixture", POCKET_BINDING_GENERATION, fixture_package, sizeof fixture_package,
     "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
-    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH);
+    pocket_profile.facts, pocket_profile.profile_hash);
   assert(program); pocket_native_program_destroy(program); program = NULL;
   program = pocket_native_program_create_profile("native-program-fixture", POCKET_BINDING_GENERATION, (const uint8_t *)source,
     (size_t)source_length, NULL, 0, 360, 640, 1, 0,
-    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH);
+    pocket_profile.facts, pocket_profile.profile_hash);
   assert(program);
   JSRuntime *engine = JS_NewRuntime(); assert(engine);
   context = JS_NewContext(engine); assert(context);

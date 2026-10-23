@@ -74,7 +74,27 @@ mod tests {
     use super::*;
     use alloc::boxed::Box;
     use pocket_drivers::*;
-    use pocket_runtime::{OpArg, OpResult, RendererId, Runtime, RuntimeConfig};
+    use pocket_runtime::{Cow, OpArg, OpResult, Profile, RendererId, Runtime, RuntimeConfig};
+    const PROFILE_HASH: [u8; 32] = [0x5a; 32];
+    fn config(frame_buffer_budget: usize) -> RuntimeConfig {
+        RuntimeConfig {
+            profile_hash: PROFILE_HASH,
+            host_abi: pocket_spec::BINDING_GENERATION,
+            heap_limit: 65536,
+            frame_buffer_budget,
+            profile: Profile {
+                id: Cow::Borrowed("aot"),
+                tick_hz: 60,
+                viewport: [4, 4],
+                logical_viewports: Cow::Borrowed(&[[4, 4]]),
+                dynamic_viewport: None,
+                auxiliary: None,
+                auxiliary_logical: Cow::Borrowed(&[]),
+                density: 1,
+                required_inputs: InputClasses::NONE,
+            },
+        }
+    }
     struct App {
         ui: Ui,
         frames: usize,
@@ -130,17 +150,7 @@ mod tests {
     }
     #[test]
     fn compiled_guest_shares_core_and_runtime_advances_animation_once() {
-        let json = br#"{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"aot","platform":"test","tickHz":60}"#;
-        let hash = pocket_package::sha256::sha256(json);
-        let mut runtime = Runtime::new(RuntimeConfig {
-            profile_hash: hash,
-            profile_json: json.to_vec(),
-            host_abi: pocket_spec::BINDING_GENERATION,
-            tick_hz: 60,
-            heap_limit: 65536,
-            frame_buffer_budget: 64,
-        })
-        .unwrap();
+        let mut runtime = Runtime::new(config(64)).unwrap();
         let (guest, app) = AotGuest::<App>::new();
         runtime.set_guest(Box::new(guest)).unwrap();
         runtime
@@ -150,7 +160,9 @@ mod tests {
             runtime.boot_aot_deferred([0; 32], [4, 4], false),
             Err(RuntimeError::ProfileMismatch)
         );
-        runtime.boot_aot_deferred(hash, [4, 4], false).unwrap();
+        runtime
+            .boot_aot_deferred(PROFILE_HASH, [4, 4], false)
+            .unwrap();
         assert_eq!(app.borrow().as_ref().unwrap().frames, 0);
         let ops = runtime.op_context();
         assert!(!ops.supports_op(23)); // no package-backed tile operation
@@ -172,16 +184,7 @@ mod tests {
     }
     #[test]
     fn zero_cpu_budget_is_accepted_but_rejects_cpu_visible_display() {
-        let json = br#"{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"aot","platform":"test","tickHz":60}"#;
-        let mut runtime = Runtime::new(RuntimeConfig {
-            profile_hash: pocket_package::sha256::sha256(json),
-            profile_json: json.to_vec(),
-            host_abi: pocket_spec::BINDING_GENERATION,
-            tick_hz: 60,
-            heap_limit: 65536,
-            frame_buffer_budget: 0,
-        })
-        .unwrap();
+        let mut runtime = Runtime::new(config(0)).unwrap();
         assert!(
             runtime
                 .add_display(Display([0; 64]), RendererId::SOFTWARE)
