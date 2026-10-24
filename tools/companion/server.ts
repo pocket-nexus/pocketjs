@@ -22,7 +22,7 @@ import {
 } from "../../contracts/spec/link.ts";
 import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { AgentService, AGENT_LINK_FEATURE, type AgentLink, type AgentServiceOptions, type AgentSession } from "./agent.ts";
-import { AppCatalog, PackageReader } from "./catalog.ts";
+import { AppCatalog, PackageReader, type CatalogEntry } from "./catalog.ts";
 import { findCodex, userCodexHome } from "./codex.ts";
 import { NetFailure, normalizeNetRequest, performNet, type NetRequest } from "./fetch.ts";
 import { ServiceHost } from "./services.ts";
@@ -362,6 +362,17 @@ export class Companion {
     };
   }
 
+  /** Every app the catalog offers, once: for the default target and for the
+   *  others (a PSP's applets on the computer it is plugged into), the default
+   *  target's variant first. */
+  private offeredApps() {
+    const apps = new Map<string, Omit<CatalogEntry, "path">>();
+    for (const target of [DEFAULT_TARGET, ...this.catalog.targets()]) {
+      for (const { path: _path, ...app } of this.catalog.entries(target)) if (!apps.has(app.id)) apps.set(app.id, app);
+    }
+    return [...apps.values()].sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  }
+
   status() {
     const window = this.pairingWindow();
     return {
@@ -375,7 +386,7 @@ export class Companion {
       },
       consoles: this.connected(),
       paired: this.store.consoles().map(({ key: _key, ...entry }) => entry),
-      apps: this.catalog.entries(DEFAULT_TARGET).map(({ path: _path, ...app }) => app),
+      apps: this.offeredApps(),
       appsDirs: this.catalog.directories,
       appsDir: this.store.appsDir,
       pairing: window ? { open: true, uri: window.uri, expiresAt: window.expiresAt } : { open: false },

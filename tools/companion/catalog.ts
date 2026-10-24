@@ -252,6 +252,13 @@ export class AppCatalog {
       .slice(0, LINK_CATALOG_MAX_APPS);
   }
 
+  /** The targets the packages carry variants for. */
+  targets(): string[] {
+    const targets = new Set<string>();
+    for (const file of this.files.values()) if (!file.error) for (const variant of file.variants) targets.add(variant.target);
+    return [...targets];
+  }
+
   apps(target: string): LinkCatalogApp[] {
     return this.entries(target).map(({ path: _path, services: _services, ...app }) => app);
   }

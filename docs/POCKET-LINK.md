@@ -190,8 +190,10 @@ HTTP on `127.0.0.1`, a random port, `Authorization: Bearer <token>`:
 | `POST /service {name, args}` | runs a service's owner command (`x login`, `x logout`, `discord token <token>`, `discord logout`, `youtube install`): `{output}` |
 | `GET /services` | `services`: each service's setup state (`x {signedIn, since, signingIn, lastError}`, `discord {configured, bot, servers, invite, gateway, contentIntent}`, `youtube {ready, ytDlp, ffmpeg, managed, install}`), never a credential; `agent {on, enabled, codex, signedIn}`, the last two read at the request |
 
-`status.apps` entries carry each applet's `summary` and the `services` its
-manifest declares.
+`status.apps` lists every app the catalog offers once, for the default
+target (`3ds-dev`) and for the other targets its packages carry: on a
+CardputerZero the PSP applets. Entries carry each applet's `summary` and the
+`services` its manifest declares.
 
 ## Pocket Companion.app
 
@@ -254,6 +256,27 @@ renders a page (`start`, `consoles`, `applets`, `x`, `discord`, `youtube`,
 `assistant`, `settings`) to a PNG after five seconds without screen-recording
 permission; `--window` draws the page inside a picture of the window's title
 bar and sidebar (Pocket Studio's listing pictures).
+
+## The CardputerZero's screen
+
+`programs/cardputer-zero` runs `apps/companion-zero` on the Zero's 320x170
+panel: the app's pages, laid out for the panel and the keyboard. The arrows
+(Fn layer) move through the sidebar and the page beside it follows; Enter
+opens the page and moves to its buttons, Esc goes back. **The program's
+`net` reaches `http://companion/...` with the token from `control.json`, so
+the screen calls the same control API.** What differs from the Mac:
+
+- Links (Pocket Shell, the Discord invite and Developer Portal, Codex) show
+  as QR codes to open on a phone; pairing a 3DS shows the pairing code the
+  same way.
+- **X**, **Discord** and the assistant's Codex take no sign-in or token on
+  the Zero: X and Codex sign in through a browser and the Zero has none, and
+  the screen has no text entry. The pages name the commands to run over SSH
+  (`service x cookies`, `service discord token`, `codex login --device-auth`).
+- **Settings** restarts the companion's systemd unit and closes the screen.
+
+`bun tools/cardputer-zero.ts install root@<address>` builds and installs the
+program, the package and the launcher entry (programs/cardputer-zero/README.md).
 
 ## Tests
 

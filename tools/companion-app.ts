@@ -20,7 +20,7 @@
 // Contents/MacOS/pocket-transcribe the agent's speech helper (tools/companion/macos/Transcribe.swift)
 // Contents/MacOS/pocket-glyphs     the agent's glyph rasterizer (tools/companion/macos/Glyphs.swift)
 // Contents/MacOS/pocket-websignin  a service's sign-in window (tools/companion/macos/WebSignIn.swift)
-// Contents/Resources/AppIcon.icns  drawn here, no image assets
+// Contents/Resources/AppIcon.icns  drawn by tools/companion/icon.ts, no image assets
 // Contents/Resources/apps/         the applets of --apps
 //
 // Without --release, Info.plist names this checkout's dist/3ds so the daemon
@@ -29,7 +29,7 @@
 import { $ } from "bun";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { encodePNG } from "./png.ts";
+import { drawIcon } from "./companion/icon.ts";
 
 const root = resolve(import.meta.dir, "..");
 const argv = process.argv.slice(2);
@@ -56,53 +56,6 @@ if (process.platform !== "darwin") {
 }
 
 // --- icon ------------------------------------------------------------------------
-
-/** Signed distance to a rounded rectangle centred at the origin. */
-function roundedRect(x: number, y: number, hw: number, hh: number, r: number): number {
-  const qx = Math.abs(x) - hw + r;
-  const qy = Math.abs(y) - hh + r;
-  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
-}
-
-/** Plum tile with two interlocked link rings, anti-aliased by distance. */
-function drawIcon(size: number): Buffer {
-  const rgba = new Uint8Array(size * size * 4);
-  const s = size / 1024;
-  const plumTop = [0x2a, 0x1d, 0x3d];
-  const plumBottom = [0x17, 0x12, 0x26];
-  const ring = [0xf4, 0xee, 0xff];
-  const accent = [0xff, 0x9f, 0x5a];
-  for (let py = 0; py < size; py++) {
-    for (let px = 0; px < size; px++) {
-      const x = (px + 0.5) / s - 512;
-      const y = (py + 0.5) / s - 512;
-      const px1 = 1 / s; // one output pixel in icon units
-      const aa = (d: number) => Math.min(1, Math.max(0, 0.5 - d / px1));
-      const tile = aa(roundedRect(x, y, 412, 412, 92));
-      if (tile <= 0) continue;
-      const t = (y + 412) / 824;
-      let c = plumTop.map((v, i) => v + (plumBottom[i] - v) * t);
-      // Rings: rotate 45°, two rounded-rect outlines offset along the axis.
-      const rx = (x + y) / Math.SQRT2;
-      const ry = (y - x) / Math.SQRT2;
-      const ringA = Math.abs(roundedRect(rx + 110, ry, 190, 105, 105)) - 34;
-      const ringB = Math.abs(roundedRect(rx - 110, ry, 190, 105, 105)) - 34;
-      // Interlock: ring B under ring A on the upper half, over it on the lower half.
-      const a = aa(ringA);
-      const b = aa(ringB);
-      const mix = (from: number[], to: number[], k: number) => from.map((v, i) => v + (to[i] - v) * k);
-      c = mix(c, accent, b);
-      c = mix(c, ring, a);
-      if (ry >= 0) c = mix(c, accent, b);
-      const o = (py * size + px) * 4;
-      rgba[o] = Math.round(c[0]);
-      rgba[o + 1] = Math.round(c[1]);
-      rgba[o + 2] = Math.round(c[2]);
-      rgba[o + 3] = Math.round(255 * tile);
-    }
-  }
-  return encodePNG(rgba, size, size);
-}
 
 async function buildIcon(dir: string): Promise<string> {
   const iconset = join(dir, "AppIcon.iconset");

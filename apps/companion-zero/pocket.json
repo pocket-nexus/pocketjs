@@ -1,0 +1,24 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.companion-zero",
+  "name": "pocket-companion-zero",
+  "title": "Pocket Companion",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["text.glyphs.baked", "input.buttons", "net.http"]
+    }
+  },
+  "app": {
+    "entry": "apps/companion-zero/main.tsx",
+    "output": "companion-zero-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [320, 170],
+        "presentation": "native"
+      }
+    }
+  }
+}
