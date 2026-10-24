@@ -137,7 +137,9 @@ function hasRangedRequests(ffmpeg: string): Promise<boolean> {
     known = (async () => {
       try {
         const help = Bun.spawn([ffmpeg, "-hide_banner", "-h", "protocol=http"], { stdout: "pipe", stderr: "ignore" });
-        return (await new Response(help.stdout).text()).includes("-request_size");
+        const text = await new Response(help.stdout).text();
+        await help.exited;
+        return text.includes("-request_size");
       } catch {
         return false;
       }
