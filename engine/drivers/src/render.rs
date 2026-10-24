@@ -91,9 +91,10 @@ impl RendererDescriptor {
 /// shared reference.
 ///
 /// `damage` lists physical rectangles inside the target region whose pixels
-/// changed since the display's retained contents; `flush` receives the same
-/// rectangles. A renderer must repaint every pixel inside them and may repaint
-/// any other pixel of the region. Presentation supplies at least one rectangle.
+/// need repainting since the display's retained contents. Presentation also
+/// flushes any pixels it moved before rendering. A renderer must repaint every
+/// pixel inside them and may repaint any other pixel of the region.
+/// Presentation supplies at least one rectangle.
 #[non_exhaustive]
 pub struct FrameInput<'a> {
     pub list: &'a DrawList,

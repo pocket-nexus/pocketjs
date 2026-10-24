@@ -152,6 +152,21 @@ Stop interrupts the guest, wakes the task and joins it. A timeout retains the
 runner and its contexts. After a successful join, destroy runtime, guest,
 renderer/device and display in that order.
 
+**The PPA renderer owns paint scratch; `pocket-present` owns retained-buffer
+history.** The painter caches operation bounds and clips across strips of an
+unchanged DrawList. It skips hidden operations and blends the visible pieces
+of translucent rectangles. The Rust `RendererConfig::cpu_blend_max_pixels`
+defaults to 2048 physical pixels; zero routes those blends to the device before
+software fallback. CPU texture sampling and gradient rows share the rasterizer's color
+arithmetic. Device failures remain terminal, and unsupported operations use
+software fallback inside the acquired surface.
+
+Motion preparation returns a destination and logical offset. A caller that
+can move both source and destination copies those pixels before repainting
+the plan's regions, then commits after presentation. A GRAM strip does not
+grant access to pixels outside its acquisition. **The ESP LCD adapter, task
+schedule and board configuration do not select motion reuse.**
+
 ## Validation
 
 ```sh

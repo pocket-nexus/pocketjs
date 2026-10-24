@@ -46,6 +46,35 @@ impl DamageTransaction {
             .with_policy(self.policy)
     }
 
+    /// Plan retained-pixel movement before the remaining repaint regions.
+    pub fn prepare_with_motion<const MAX_REGIONS: usize>(
+        &self,
+        tracker: &mut DamageTracker<MAX_REGIONS>,
+        resources: &impl RenderResources,
+        words: &[u32],
+    ) -> Result<DamagePlan<MAX_REGIONS>, DamageError> {
+        let target = self.target(resources).ok_or(DamageError::InvalidTarget)?;
+        tracker
+            .prepare_with_motion(resources, words, target)?
+            .with_policy(self.policy)
+    }
+
+    /// Commit the exact list saved by `prepare_with_motion` after all moves,
+    /// rendering and presentation complete. Abort after any failed update.
+    pub fn commit_prepared<const MAX_REGIONS: usize>(
+        &self,
+        tracker: &mut DamageTracker<MAX_REGIONS>,
+        resources: &impl RenderResources,
+    ) -> bool {
+        match self.target(resources) {
+            Some(target) => tracker.commit_prepared(resources, target),
+            None => {
+                tracker.invalidate();
+                false
+            }
+        }
+    }
+
     /// Record completed output. Invalid target dimensions discard history.
     pub fn commit<const MAX_REGIONS: usize>(
         &self,

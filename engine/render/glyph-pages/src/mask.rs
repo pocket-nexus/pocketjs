@@ -99,6 +99,32 @@ pub fn blend_glyph_run(
         let gy = i64::from((glyph[0] >> 16) as u16 as i16) * scale;
         let right = gx + glyph_width;
         let bottom = gy + glyph_height;
+        if density == scale {
+            let left = x0.max(gx);
+            let right = x1.min(right);
+            if left < right {
+                let count = (right - left) as usize;
+                for py in y0.max(gy)..y1.min(bottom) {
+                    let source = (py - gy) as usize * source.stride + (left - gx) as usize;
+                    let target = (py - oy) as usize * stride + (left - ox) as usize;
+                    for (pixel, &coverage) in mask[target..target + count]
+                        .iter_mut()
+                        .zip(&rows[source..source + count])
+                    {
+                        if coverage == 0 {
+                            continue;
+                        }
+                        let coverage = ((u32::from(coverage) * u32::from(alpha) + 127) / 255) as u8;
+                        if *pixel == 0 {
+                            *pixel = coverage;
+                        } else {
+                            composite_mask(pixel, coverage);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
         for py in y0.max(gy)..y1.min(bottom) {
             let sy = (((2 * (py - gy) + 1) * density) / (2 * scale))
                 .clamp(0, i64::from(source.height) - 1) as usize;

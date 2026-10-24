@@ -16,6 +16,9 @@ pub struct DrawList {
     /// a screen this way (contracts/spec/agent.ts).
     pub capture_texts: i32,
     pub texts: Vec<TextBox>,
+    /// Opt-in paint with whole-pixel translations and clip-invariant gradients.
+    /// Software-clipped backends may receive coordinates outside the viewport.
+    pub stable_motion_paint: bool,
 }
 
 /// One painted text run: its visible box (clipped, world px) and its text.
@@ -34,6 +37,7 @@ impl DrawList {
             words: Vec::new(),
             capture_texts: 0,
             texts: Vec::new(),
+            stable_motion_paint: false,
         }
     }
 }

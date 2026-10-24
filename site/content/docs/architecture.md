@@ -140,6 +140,30 @@ The core's glyph texture preparation and the RGB565 glyph mask path use
 `pocket-glyph-pages`. Existing host entry points remain available during the
 runtime migration.
 
+**Motion history belongs to `pocket-present`.** `DamageTracker::prepare_with_motion`
+compares the previous and current DrawLists and returns a retained-pixel move
+with the remaining repaint regions. `motion::move_pixels` checks that both
+ends of the move fit the acquired CPU surface, then copies rows in overlap
+order. The coordinator uses this path for retained full-frame CPU buffers
+served by its software renderer. Display flush includes the moved destination
+as well as the repaint regions. A failed render or transfer invalidates the
+buffer's history. GRAM staging strips and external renderers keep their
+existing damage path.
+
+`Ui::set_stable_motion_paint(true)` rounds axis-aligned translations to whole
+logical pixels for drawing and hit testing. Clipped gradients retain their
+geometry inside a SCISSOR. **This mode requires a backend that accepts
+off-viewport geometry inside a clip; it is disabled at construction.** Rounded
+gradient corners at raster density 2 and above combine adjacent rows with the
+same color into one quad.
+
+The ESP PPA painter caches decoded operation bounds and absolute clips against
+a copy of the DrawList words and viewport. Each strip skips operations outside
+its bounds and operations hidden by later opaque rectangles. Glyph bounds use
+the current validated atlas. Vertical gradients, color textures and small
+alpha blends use the software rasterizer's integer color arithmetic. The
+native-density glyph path copies coverage rows through `pocket-glyph-pages`.
+
 ## The pipeline
 
 ```

@@ -4,7 +4,9 @@
 //! codes in spec::draw_op. GUARANTEE upheld here: every coordinate emitted is
 //! inside [0, viewport w] x [0, viewport h] — never negative, never off-screen —
 //! because the PSP GE wraps i16 coordinates. Clipping re-interpolates UVs
-//! (TEX_QUAD) and gradient endpoint colors (GRAD_RECT).
+//! (TEX_QUAD) and gradient endpoint colors (GRAD_RECT). A list with
+//! `stable_motion_paint` set instead emits partially clipped gradients
+//! unclipped inside a SCISSOR; those coordinates may leave the viewport.
 //!
 //! Transforms (translate/rotate/skewX/scale) compose down the walk as 2D affines.
 //! Axis-aligned content uses RECT/GRAD_RECT/TEX_QUAD; ROTATED solid/gradient
@@ -225,6 +227,17 @@ fn xy_word(x: f32, y: f32) -> u32 {
     let xi = roundf(x) as i32 as i16 as u16 as u32;
     let yi = roundf(y) as i32 as i16 as u16 as u32;
     xi | (yi << 16)
+}
+
+/// Whether the clip cut the box `(x0, y0)-(x1, y1)` down to `visible`, and the
+/// whole box still fits the DrawList's i16 positions and u16 sizes.
+fn clipped_inside_i16(x0: f32, y0: f32, x1: f32, y1: f32, visible: &Clip) -> bool {
+    let cut = roundf(visible.x0) != roundf(x0)
+        || roundf(visible.y0) != roundf(y0)
+        || roundf(visible.x1) != roundf(x1)
+        || roundf(visible.y1) != roundf(y1);
+    let fits = |v: f32| (-32768.0..=32767.0).contains(&roundf(v));
+    cut && fits(x0) && fits(y0) && fits(x1) && fits(y1)
 }
 
 #[inline]
@@ -786,7 +799,7 @@ pub fn hit_test_root(
     x: f32,
     y: f32,
 ) -> i32 {
-    hit_point(tree, styles, root_id, screen, x, y, true)
+    hit_point(tree, styles, root_id, screen, x, y, true, false)
 }
 
 /// Topmost node at a logical point by LAYOUT BOX alone (spec op
@@ -807,10 +820,13 @@ pub fn hit_test_bounds_root(
     x: f32,
     y: f32,
 ) -> i32 {
-    hit_point(tree, styles, root_id, screen, x, y, false)
+    hit_point(tree, styles, root_id, screen, x, y, false, false)
 }
 
-fn hit_point(
+/// The hit walk behind the public entries. `snap` follows a
+/// `stable_motion_paint` draw so hits match the painted, snapped boxes.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn hit_point(
     tree: &Tree,
     styles: &StyleTable,
     root_id: i32,
@@ -818,11 +834,21 @@ fn hit_point(
     x: f32,
     y: f32,
     ink: bool,
+    snap: bool,
 ) -> i32 {
     let Some(root_slot) = tree.resolve(root_id) else { return 0 };
     let mut hit = 0i32;
-    hit_walk(tree, styles, screen, root_slot, Affine::IDENTITY, 1.0, Clip::viewport(screen), x, y, ink, &mut hit);
+    hit_walk(tree, styles, screen, root_slot, Affine::IDENTITY, 1.0, Clip::viewport(screen), x, y, ink, snap, &mut hit);
     hit
+}
+
+/// Round an axis-aligned affine's translation to whole logical pixels.
+fn snap_translation(world: Affine) -> Affine {
+    if world.b == 0.0 && world.c == 0.0 {
+        Affine { tx: roundf(world.tx), ty: roundf(world.ty), ..world }
+    } else {
+        world
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -837,6 +863,7 @@ fn hit_walk(
     px: f32,
     py: f32,
     ink: bool,
+    snap: bool,
     hit: &mut i32,
 ) {
     // The point is fixed, so a clip that excludes it excludes the node AND
@@ -850,7 +877,10 @@ fn hit_walk(
         return;
     }
     let l = node.layout;
-    let world = parent_world.then(&local_affine(&l, &r));
+    let mut world = parent_world.then(&local_affine(&l, &r));
+    if snap {
+        world = snap_translation(world);
+    }
     // Effective-opacity-0 subtrees are culled exactly like paint culls them.
     let op = clampf(opacity * r.opacity, 0.0, 1.0);
     if op <= 0.0 {
@@ -885,7 +915,7 @@ fn hit_walk(
         return;
     }
     for_children_in_paint_order(tree, styles, slot, |cs| {
-        hit_walk(tree, styles, screen, cs, world, op, child_clip, px, py, ink, hit);
+        hit_walk(tree, styles, screen, cs, world, op, child_clip, px, py, ink, snap, hit);
     });
 }
 
@@ -1125,7 +1155,10 @@ impl<'a> Walker<'a> {
             return;
         }
         let l = node.layout;
-        let world = parent_world.then(&local_affine(&l, &r));
+        let mut world = parent_world.then(&local_affine(&l, &r));
+        if dl.stable_motion_paint {
+            world = snap_translation(world);
+        }
         // DevTools: capture the inspected node's border-box world AABB
         // (before the opacity cull so transparent nodes still highlight).
         if slot == self.inspect_slot {
@@ -1791,10 +1824,28 @@ impl<'a> Walker<'a> {
             }
             match fill {
                 Fill::Flat(color) => {
-                    dl.words.push(spec::draw_op::RECT);
-                    dl.words.push(xy_word(c.x0, c.y0));
-                    dl.words.push(wh_word(c.x1 - c.x0, c.y1 - c.y0));
-                    dl.words.push(color);
+                    dl.words.extend_from_slice(&[
+                        spec::draw_op::RECT,
+                        xy_word(c.x0, c.y0),
+                        wh_word(c.x1 - c.x0, c.y1 - c.y0),
+                        color,
+                    ]);
+                }
+                Fill::Grad { from, to, dir, .. } if dl.stable_motion_paint
+                    && clipped_inside_i16(sx0, sy0, sx1, sy1, &c) =>
+                {
+                    dl.words.extend_from_slice(&[
+                        spec::draw_op::SCISSOR,
+                        xy_word(clip.x0, clip.y0),
+                        wh_word(clip.x1 - clip.x0, clip.y1 - clip.y0),
+                        spec::draw_op::GRAD_RECT,
+                        xy_word(sx0, sy0),
+                        wh_word(sx1 - sx0, sy1 - sy0),
+                        from,
+                        to,
+                        dir,
+                        spec::draw_op::SCISSOR_POP,
+                    ]);
                 }
                 Fill::Grad { from, to, dir, .. } => {
                     // Re-interpolate the endpoint colors over the clipped
@@ -1819,12 +1870,14 @@ impl<'a> Walker<'a> {
                     } else {
                         (gf, gt)
                     };
-                    dl.words.push(spec::draw_op::GRAD_RECT);
-                    dl.words.push(xy_word(c.x0, c.y0));
-                    dl.words.push(wh_word(c.x1 - c.x0, c.y1 - c.y0));
-                    dl.words.push(out_from);
-                    dl.words.push(out_to);
-                    dl.words.push(dir);
+                    dl.words.extend_from_slice(&[
+                        spec::draw_op::GRAD_RECT,
+                        xy_word(c.x0, c.y0),
+                        wh_word(c.x1 - c.x0, c.y1 - c.y0),
+                        out_from,
+                        out_to,
+                        dir,
+                    ]);
                 }
             }
         } else {
@@ -1892,15 +1945,17 @@ impl<'a> Walker<'a> {
         let cu1 = u0 + (c.x1 - x) / r * du;
         let cv0 = v0 + (c.y0 - y) / r * du;
         let cv1 = v0 + (c.y1 - y) / r * du;
-        dl.words.push(spec::draw_op::TEX_QUAD);
-        dl.words.push(tex);
-        dl.words.push(xy_word(c.x0, c.y0));
-        dl.words.push(wh_word(c.x1 - c.x0, c.y1 - c.y0));
-        dl.words.push(cu0.to_bits());
-        dl.words.push(cv0.to_bits());
-        dl.words.push(cu1.to_bits());
-        dl.words.push(cv1.to_bits());
-        dl.words.push(color);
+        dl.words.extend_from_slice(&[
+            spec::draw_op::TEX_QUAD,
+            tex,
+            xy_word(c.x0, c.y0),
+            wh_word(c.x1 - c.x0, c.y1 - c.y0),
+            cu0.to_bits(),
+            cv0.to_bits(),
+            cu1.to_bits(),
+            cv1.to_bits(),
+            color,
+        ]);
     }
 
     fn rounded_interval_at_row(
@@ -2374,18 +2429,42 @@ impl<'a> Walker<'a> {
                     };
                     // Group masks into one texture batch. The center uses
                     // clipped full-box gradients: a constant number of quads,
-                    // with the same global stops as the corner strips.
-                    for a in a0 as i32..a1 as i32 {
-                        let strip = if vertical {
-                            Clip { x0: clip.x0, y0: clip.y0.max(a as f32), x1: clip.x1, y1: clip.y1.min((a + 1) as f32) }
-                        } else {
-                            Clip { x0: clip.x0.max(a as f32), y0: clip.y0, x1: clip.x1.min((a + 1) as f32), y1: clip.y1 }
-                        };
-                        let color = fill_color_at(&fill, sx0, sy0, sx1, sy1, a, a, a + 1, 255);
-                        for &(cx, cy, u, v) in &[(qx0, qy0, 0.0, 0.0), (qx1-rf, qy0, du, 0.0),
-                            (qx0, qy1-rf, 0.0, du), (qx1-rf, qy1-rf, du, du)] {
-                            self.emit_corner_quad(dl, tex, cx, cy, rf, u, v, du, color, &strip);
+                    // with the same global stops as the corner strips. Only
+                    // strips that meet a corner band emit quads, and
+                    // neighboring strips of one color share them.
+                    let (band0, band1) = if vertical { (qy0 + rf, qy1 - rf) } else { (qx0 + rf, qx1 - rf) };
+                    let mut run: Option<(i32, i32, u32)> = None;
+                    let strips = (a0 as i32..a1 as i32)
+                        .filter(|&a| (a as f32) < band0 || (a + 1) as f32 > band1)
+                        .map(|a| Some((a, fill_color_at(&fill, sx0, sy0, sx1, sy1, a, a, a + 1, 255))))
+                        .chain(core::iter::once(None));
+                    for next in strips {
+                        if let (Some((start, end, color)), Some((a, next_color))) = (run, next) {
+                            if a == end && next_color == color {
+                                run = Some((start, a + 1, color));
+                                continue;
+                            }
                         }
+                        if let Some((start, end, color)) = run {
+                            let strip = if vertical {
+                                Clip { x0: clip.x0, y0: clip.y0.max(start as f32), x1: clip.x1, y1: clip.y1.min(end as f32) }
+                            } else {
+                                Clip { x0: clip.x0.max(start as f32), y0: clip.y0, x1: clip.x1.min(end as f32), y1: clip.y1 }
+                            };
+                            // Corners in painter order TL, TR, BL, BR; a strip
+                            // meets the leading pair before band0 and the
+                            // trailing pair past band1.
+                            let corners = [(qx0, qy0, 0.0, 0.0), (qx1-rf, qy0, du, 0.0),
+                                (qx0, qy1-rf, 0.0, du), (qx1-rf, qy1-rf, du, du)];
+                            let (leading, trailing) = ((start as f32) < band0, end as f32 > band1);
+                            for (k, &(cx, cy, u, v)) in corners.iter().enumerate() {
+                                let first = if vertical { k < 2 } else { k % 2 == 0 };
+                                if if first { leading } else { trailing } {
+                                    self.emit_corner_quad(dl, tex, cx, cy, rf, u, v, du, color, &strip);
+                                }
+                            }
+                        }
+                        run = next.map(|(a, color)| (a, a + 1, color));
                     }
                     for &(x0, y0, x1, y1) in &[(qx0, qy0 + rf, qx1, qy1 - rf),
                         (qx0 + rf, qy0, qx1 - rf, qy0 + rf), (qx0 + rf, qy1 - rf, qx1 - rf, qy1)] {

@@ -12,7 +12,10 @@ use pocket_drivers::{
     DamageRect as Clip, PixelFormat, Rect as Region, RenderError, RenderResources, Surface, TexView,
 };
 use pocket_glyph_pages::composite_mask;
-use pocket_raster::{linear_sample_coordinates, pack_rgb565, render_operation, OperationResources};
+use pocket_raster::{
+    blend_rgb565_pixel, lerp_color, linear_sample_coordinates, pack_rgb565, render_operation,
+    texel, LinearSample, OperationResources,
+};
 use pocket_spec as spec;
 const MASK_ALIGNMENT: usize = 128;
 const TEXTURE_CLASS_CACHE_LEN: usize = 64;
@@ -130,6 +133,9 @@ pub struct RendererConfig {
     pub min_fill_pixels: u32,
     pub min_blend_pixels: u32,
     pub min_srm_pixels: u32,
+    /// CPU blend area below which a device transaction costs more than the blend.
+    /// Zero keeps the device-first routing for translucent operations.
+    pub cpu_blend_max_pixels: u32,
 }
 
 impl Default for RendererConfig {
@@ -139,6 +145,7 @@ impl Default for RendererConfig {
             min_fill_pixels: 1024,
             min_blend_pixels: 256,
             min_srm_pixels: 256,
+            cpu_blend_max_pixels: 2048,
         }
     }
 }
@@ -173,6 +180,7 @@ pub struct Painter {
     buffer_alignment: usize,
     alpha_texture_cache: Vec<(i32, u64, bool)>,
     raster_revision: u64,
+    index: OpIndex,
 }
 impl Painter {
     /// mask_budget bounds the A8 payload; alignment storage adds at most 143
@@ -191,6 +199,7 @@ impl Painter {
             buffer_alignment: 1,
             alpha_texture_cache: Vec::new(),
             raster_revision: 0,
+            index: OpIndex::default(),
         })
     }
     pub fn config(&self) -> RendererConfig {
@@ -281,7 +290,25 @@ impl Painter {
             return Err(RenderError::InvalidFrame);
         }
         let viewport = Clip::new(0, 0, vw as i32, vh as i32);
-        pocket_draw_ops::validate(words, viewport).map_err(|_| RenderError::InvalidFrame)?;
+        self.index.prepare(words, viewport)?;
+        let index = core::mem::take(&mut self.index);
+        let result =
+            self.render_indexed(resources, words, target, requested, ppa, viewport, &index);
+        self.index = index;
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_indexed<O: PpaOps>(
+        &mut self,
+        resources: &(impl RenderResources + ?Sized),
+        words: &[u32],
+        target: &mut Surface<'_>,
+        requested: Option<Clip>,
+        ppa: &mut O,
+        viewport: Clip,
+        index: &OpIndex,
+    ) -> Result<RenderStats, RenderError> {
         // A no-draw operation applies raster's checked surface/viewport bounds.
         let noop = Operation {
             opcode: spec::draw_op::SCISSOR_POP,
@@ -350,8 +377,14 @@ impl Painter {
             w: physical.w,
             h: physical.h,
         };
-        let mut cleared = false;
-        if hardware && clear.area() >= self.config.min_fill_pixels {
+        let first = index
+            .covers
+            .iter()
+            .rev()
+            .find(|(_, cover)| cover.intersect(draw_clip) == draw_clip)
+            .map(|&(start, _)| start as usize);
+        let mut cleared = first.is_some();
+        if !cleared && hardware && clear.area() >= self.config.min_fill_pixels {
             // Checked alignment, exact RGB565 packed length, and exclusive borrow.
             let pixels = unsafe {
                 core::slice::from_raw_parts_mut(
@@ -378,63 +411,65 @@ impl Painter {
                 }
             }
         }
-        let mut offset = 0usize;
-        let mut skip_until = 0usize;
-        for decoded in DrawOps::new(words, viewport) {
-            let mut operation = decoded.map_err(|_| RenderError::InvalidFrame)?;
-            if let Some(requested) = requested {
-                operation.clip = operation.clip.intersect(requested);
-            }
-            let start = offset;
-            offset += operation.words.len();
-            if start < skip_until {
+        let mut skip_until = first.unwrap_or(0);
+        for entry in &index.ops {
+            if entry.start < skip_until || entry.bounds.intersect(draw_clip).is_empty() {
                 continue;
             }
-            let clip = operation.clip.intersect(draw_clip);
-            if clip.is_empty() {
-                continue;
-            }
-            let bounds = match operation.opcode {
-                spec::draw_op::RECT | spec::draw_op::GRAD_RECT => {
-                    Some(logical_rect(operation.words[1], operation.words[2]))
-                }
-                spec::draw_op::TEX_QUAD | spec::draw_op::SURFACE_QUAD => {
-                    Some(logical_rect(operation.words[2], operation.words[3]))
-                }
-                _ => None,
+            let base = Operation {
+                opcode: words[entry.start],
+                words: &words[entry.start..entry.end],
+                clip: entry.clip.intersect(draw_clip),
             };
-            if bounds.is_some_and(|bounds| bounds.intersect(clip).is_empty()) {
-                continue;
-            }
-            let cached = OperationResources::new(resources, &operation, scale)?;
-            let mut drawn = false;
-            if hardware && !clip.is_empty() {
-                let mask_ready = self.ensure_mask(count);
-                let pixels = unsafe {
-                    core::slice::from_raw_parts_mut(
-                        target.pixels_mut().as_mut_ptr().cast::<u16>(),
-                        count,
-                    )
-                };
-                match operation.opcode {
-                    spec::draw_op::RECT if operation.words[3] >> 24 == 255 || mask_ready => {
-                        let logical =
-                            logical_rect(operation.words[1], operation.words[2]).intersect(clip);
-                        if !logical.is_empty() {
+            let cached = OperationResources::new(resources, &base, scale)?;
+            let bounds = if base.opcode == spec::draw_op::GLYPH_RUN {
+                glyph_run_bounds(&cached, base.words, base.clip)
+            } else {
+                entry.bounds.intersect(base.clip)
+            };
+            let split = match base.opcode {
+                spec::draw_op::RECT => base.words[3] >> 24 != 255,
+                spec::draw_op::GRAD_RECT => {
+                    base.words[3] >> 24 != 255 || base.words[4] >> 24 != 255
+                }
+                _ => false,
+            };
+            let (pieces, count_pieces) = visible_pieces(&index.covers, entry.start, bounds, split);
+            for &clip in &pieces[..count_pieces] {
+                let operation = Operation { clip, ..base };
+                let mut drawn = false;
+                if hardware {
+                    let mask_ready = self.ensure_mask(count);
+                    let pixels = unsafe {
+                        core::slice::from_raw_parts_mut(
+                            target.pixels_mut().as_mut_ptr().cast::<u16>(),
+                            count,
+                        )
+                    };
+                    match operation.opcode {
+                        spec::draw_op::RECT => {
                             drawn = self.try_rect(
                                 pixels,
                                 region.width,
                                 region.height,
                                 surface,
-                                logical,
+                                clip,
                                 operation.words[3],
+                                mask_ready,
                                 ppa,
                                 &mut stats,
                             )?;
                         }
-                    }
-                    spec::draw_op::GLYPH_RUN if mask_ready => {
-                        if !glyph_run_bounds(&cached, operation.words, clip).is_empty() {
+                        spec::draw_op::GRAD_RECT => {
+                            drawn = self.try_grad_rect(
+                                pixels,
+                                region.width,
+                                surface,
+                                clip,
+                                operation.words,
+                            );
+                        }
+                        spec::draw_op::GLYPH_RUN if mask_ready => {
                             drawn = self.try_glyph_run(
                                 &cached,
                                 pixels,
@@ -447,41 +482,29 @@ impl Painter {
                                 &mut stats,
                             )?;
                         }
-                    }
-                    spec::draw_op::TEX_QUAD
-                        if mask_ready
-                            || cached
-                                .texture(operation.words[1] as i32)
-                                .is_some_and(|v| v.psm == spec::psm::PSM_5650) =>
-                    {
-                        if let Some(end) = self.try_tex_quad_run(
-                            &cached,
-                            words,
-                            start,
-                            pixels,
-                            region.width,
-                            region.height,
-                            surface,
-                            clip,
-                            ppa,
-                            &mut stats,
-                        )? {
-                            skip_until = end;
-                            drawn = true;
+                        spec::draw_op::TEX_QUAD => {
+                            if let Some(end) = self.try_tex_quad_run(
+                                &cached,
+                                words,
+                                entry.start,
+                                pixels,
+                                region.width,
+                                region.height,
+                                surface,
+                                base.clip,
+                                mask_ready,
+                                ppa,
+                                &mut stats,
+                            )? {
+                                skip_until = end;
+                                drawn = true;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
-            if !drawn {
-                render_operation(&cached, &operation, target, scale)?;
-                if !matches!(
-                    operation.opcode,
-                    spec::draw_op::SCISSOR
-                        | spec::draw_op::SCISSOR_POP
-                        | spec::draw_op::TEXT_RUN
-                        | spec::draw_op::SURFACE_QUAD
-                ) {
+                if !drawn {
+                    render_operation(&cached, &operation, target, scale)?;
                     stats.software_ops += 1;
                     stats.software_words += operation.words.len() as u32;
                 }
@@ -498,6 +521,7 @@ impl Painter {
         surface: Clip,
         logical: Clip,
         color: u32,
+        mask_ready: bool,
         ppa: &mut O,
         stats: &mut RenderStats,
     ) -> Result<bool, RenderError> {
@@ -512,7 +536,17 @@ impl Painter {
                 stats.ppa_fills += 1;
                 return Ok(true);
             }
-        } else if rect.area() >= self.config.min_blend_pixels {
+        } else if a < 255
+            && self.config.cpu_blend_max_pixels > 0
+            && (rect.area() <= self.config.cpu_blend_max_pixels
+                || flat_row(destination, width, rect))
+        {
+            for row in rect.y..rect.y + rect.h {
+                let start = row as usize * width as usize + rect.x as usize;
+                blend_span(&mut destination[start..start + rect.w as usize], r, g, b, a);
+            }
+            return Ok(true);
+        } else if mask_ready && rect.area() >= self.config.min_blend_pixels {
             let mask = self.mask_mut();
             fill_mask_rect(mask, width, rect, a as u8);
             if accelerated(ppa.blend_a8_rgb565(
@@ -529,6 +563,48 @@ impl Painter {
             }
         }
         Ok(false)
+    }
+
+    fn try_grad_rect(
+        &self,
+        destination: &mut [u16],
+        width: u32,
+        surface: Clip,
+        clip: Clip,
+        op: &[u32],
+    ) -> bool {
+        let (from, to, dir) = (op[3], op[4], op[5]);
+        let vertical = dir == spec::GradDir::ToBottom as u32 || dir == spec::GradDir::ToTop as u32;
+        if !vertical {
+            return false;
+        }
+        let (a, b) = if dir == spec::GradDir::ToTop as u32 {
+            (to, from)
+        } else {
+            (from, to)
+        };
+        let logical = logical_rect(op[1], op[2]);
+        let scale = self.config.scale as i32;
+        let y = logical.y0 * scale;
+        let h = (logical.y1 - logical.y0) * scale;
+        let rect = local_physical_rect(logical.intersect(clip), surface, self.config.scale);
+        if h <= 0 || rect.is_empty() {
+            return true;
+        }
+        let inv = 1.0f32 / h as f32;
+        let origin = surface.y0 * scale;
+        for row in rect.y..rect.y + rect.h {
+            let f = ((origin + row as i32 - y) as f32 + 0.5) * inv;
+            let (r, g, b, alpha) = channels(lerp_color(a, b, f));
+            let start = row as usize * width as usize + rect.x as usize;
+            let span = &mut destination[start..start + rect.w as usize];
+            if alpha >= 255 {
+                fill_span(span, pack_rgb565(r, g, b));
+            } else {
+                blend_span(span, r, g, b, alpha);
+            }
+        }
+        true
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -561,12 +637,19 @@ impl Painter {
             let (x, y) = xy(glyph[0]);
             let gid = (glyph[1] & 0xffff) as u16;
             if gid < atlas.glyph_count {
-                bounds = bounds.union(Clip {
+                let glyph = Clip {
                     x0: x,
                     y0: y,
                     x1: x + cell_w,
                     y1: y + cell_h,
-                });
+                }
+                .intersect(clip);
+                // Combining overlapping coverage into one A8 mask changes
+                // RGB565's per-glyph rounding. Replay that run in software.
+                if !bounds.intersect(glyph).is_empty() {
+                    return Ok(false);
+                }
+                bounds = bounds.union(glyph);
             }
         }
         bounds = bounds.intersect(clip);
@@ -575,6 +658,7 @@ impl Painter {
         if rect.is_empty() || rect.area() < self.config.min_blend_pixels {
             return Ok(false);
         }
+        let cpu_limit = self.config.cpu_blend_max_pixels;
         let mask = self.mask_mut();
         fill_mask_rect(mask, width, rect, 0);
         if !pocket_glyph_pages::blend_glyph_run(
@@ -593,6 +677,10 @@ impl Painter {
             a as u8,
         ) {
             return Ok(false);
+        }
+        if rect.area() <= cpu_limit {
+            blend_mask_rect(mask, destination, width, rect, [r, g, b]);
+            return Ok(true);
         }
         if accelerated(ppa.blend_a8_rgb565(
             destination,
@@ -621,6 +709,7 @@ impl Painter {
         height: u32,
         surface: Clip,
         clip: Clip,
+        mask_ready: bool,
         ppa: &mut O,
         stats: &mut RenderStats,
     ) -> Result<Option<usize>, RenderError> {
@@ -637,7 +726,15 @@ impl Painter {
                 let Some((source_rect, mirror_x, mirror_y)) =
                     texture_source_rect(&view, op, logical)
                 else {
-                    return Ok(None);
+                    return Ok(Some(self.color_quad(
+                        &view,
+                        op,
+                        destination,
+                        width,
+                        surface,
+                        clip,
+                        start,
+                    )));
                 };
                 let one_to_one =
                     source_rect.w == destination_rect.w && source_rect.h == destination_rect.h;
@@ -663,11 +760,27 @@ impl Painter {
                     }
                 }
             }
-            return Ok(None);
+            return Ok(Some(self.color_quad(
+                &view,
+                op,
+                destination,
+                width,
+                surface,
+                clip,
+                start,
+            )));
         }
 
         if !self.is_white_alpha_texture(handle, ui.texture_revision(handle), &view) {
-            return Ok(None);
+            return Ok(Some(self.color_quad(
+                &view,
+                op,
+                destination,
+                width,
+                surface,
+                clip,
+                start,
+            )));
         }
         let modulate = op[8];
         let mut end = start;
@@ -691,10 +804,42 @@ impl Painter {
             return Ok(Some(end));
         }
         let rect = local_physical_rect(bounds, surface, self.config.scale);
-        if rect.is_empty() || rect.area() < self.config.min_blend_pixels {
-            return Ok(None);
+        if rect.is_empty() {
+            return Ok(Some(end));
         }
         let scale = self.config.scale;
+        let cpu_limit = self.config.cpu_blend_max_pixels;
+        let run = &words[start..end];
+        let covered: u64 = run
+            .as_chunks::<9>()
+            .0
+            .iter()
+            .map(|quad| {
+                local_physical_rect(
+                    logical_rect(quad[2], quad[3]).intersect(clip),
+                    surface,
+                    scale,
+                )
+                .area() as u64
+            })
+            .sum();
+        let disjoint = quads_disjoint(run, clip);
+        if !mask_ready
+            || !disjoint
+            || (cpu_limit > 0 && covered <= cpu_limit as u64 && covered * 2 < rect.area() as u64)
+        {
+            let mut sink = BlendSink {
+                destination,
+                color: [r, g, b],
+            };
+            for quad in run.as_chunks::<9>().0.iter() {
+                for_each_quad_alpha(&view, quad, surface, clip, scale, width, a as u8, &mut sink);
+            }
+            return Ok(Some(end));
+        }
+        if rect.area() > cpu_limit && rect.area() < self.config.min_blend_pixels {
+            return Ok(None);
+        }
         let mask = self.mask_mut();
         fill_mask_rect(mask, width, rect, 0);
         let mut cursor = start;
@@ -711,6 +856,10 @@ impl Painter {
             );
             cursor += 9;
         }
+        if rect.area() <= cpu_limit {
+            blend_mask_rect(mask, destination, width, rect, [r, g, b]);
+            return Ok(Some(end));
+        }
         if accelerated(ppa.blend_a8_rgb565(
             destination,
             width,
@@ -725,6 +874,40 @@ impl Painter {
         } else {
             Ok(None)
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn color_quad(
+        &self,
+        view: &TexView<'_>,
+        op: &[u32],
+        destination: &mut [u16],
+        width: u32,
+        surface: Clip,
+        clip: Clip,
+        start: usize,
+    ) -> usize {
+        let modulate = op[8];
+        let identity = modulate == 0xffff_ffff;
+        let (mr, mg, mb, ma) = channels(modulate);
+        for_each_quad_texel(
+            view,
+            op,
+            surface,
+            clip,
+            self.config.scale,
+            width,
+            |index, mut r, mut g, mut b, mut a| {
+                if !identity {
+                    r = (r * mr + 127) / 255;
+                    g = (g * mg + 127) / 255;
+                    b = (b * mb + 127) / 255;
+                    a = (a * ma + 127) / 255;
+                }
+                blend_rgb565_pixel(&mut destination[index], r, g, b, a);
+            },
+        );
+        start + 9
     }
 
     fn mask_mut(&mut self) -> &mut [u8] {
@@ -970,27 +1153,6 @@ fn texel_alpha(view: &TexView<'_>, x: i32, y: i32) -> u32 {
     }
 }
 
-fn sample_alpha(view: &TexView<'_>, u: f32, v: f32) -> u8 {
-    if !view.linear {
-        return texel_alpha(view, (u * view.w as f32) as i32, (v * view.h as f32) as i32) as u8;
-    }
-    let Some(sample) = linear_sample_coordinates(view.w, view.h, u, v) else {
-        return 0;
-    };
-    let lerp = |a: u32, b: u32, f: u32| (a * (256 - f) + b * f) >> 8;
-    let top = lerp(
-        texel_alpha(view, sample.x0 as i32, sample.y0 as i32),
-        texel_alpha(view, sample.x1 as i32, sample.y0 as i32),
-        sample.fx,
-    );
-    let bottom = lerp(
-        texel_alpha(view, sample.x0 as i32, sample.y1 as i32),
-        texel_alpha(view, sample.x1 as i32, sample.y1 as i32),
-        sample.fx,
-    );
-    lerp(top, bottom, sample.fy) as u8
-}
-
 #[allow(clippy::too_many_arguments)]
 fn alpha_quad_into_mask(
     view: &TexView<'_>,
@@ -1001,6 +1163,115 @@ fn alpha_quad_into_mask(
     mask: &mut [u8],
     stride: u32,
     global_alpha: u8,
+) {
+    for_each_quad_alpha(
+        view,
+        op,
+        surface,
+        clip,
+        scale,
+        stride,
+        global_alpha,
+        &mut |index: usize, alpha: u32| {
+            let target = &mut mask[index];
+            if *target == 0 {
+                *target = alpha as u8;
+            } else {
+                composite_mask(target, alpha as u8);
+            }
+        },
+    );
+}
+
+/// Receives the sampled, global-scaled alphas of one alpha TEX_QUAD.
+trait AlphaSink {
+    fn pixel(&mut self, index: usize, alpha: u32);
+
+    /// `count` pixels from buffer index `start` whose alphas are the texels
+    /// from texel index `first` on.
+    fn texels(
+        &mut self,
+        view: &TexView<'_>,
+        start: usize,
+        first: usize,
+        count: usize,
+        global_alpha: u8,
+    ) {
+        for_each_texel_alpha(view, first, count, |offset, mut alpha| {
+            if global_alpha != 255 {
+                alpha = (alpha * global_alpha as u32 + 127) / 255;
+            }
+            self.pixel(start + offset, alpha);
+        });
+    }
+}
+
+impl<F: FnMut(usize, u32)> AlphaSink for F {
+    fn pixel(&mut self, index: usize, alpha: u32) {
+        self(index, alpha)
+    }
+}
+
+/// Blends a flat color through quad alphas straight into the target.
+struct BlendSink<'a> {
+    destination: &'a mut [u16],
+    color: [u32; 3],
+}
+
+impl AlphaSink for BlendSink<'_> {
+    fn pixel(&mut self, index: usize, alpha: u32) {
+        let [r, g, b] = self.color;
+        blend_rgb565_pixel(&mut self.destination[index], r, g, b, alpha);
+    }
+
+    fn texels(
+        &mut self,
+        view: &TexView<'_>,
+        start: usize,
+        first: usize,
+        count: usize,
+        global_alpha: u8,
+    ) {
+        if view.psm != spec::psm::PSM_8888 {
+            for_each_texel_alpha(view, first, count, |offset, mut alpha| {
+                if global_alpha != 255 {
+                    alpha = (alpha * global_alpha as u32 + 127) / 255;
+                }
+                self.pixel(start + offset, alpha);
+            });
+            return;
+        }
+        // One texel per pixel of a row: walk both slices together.
+        let [r, g, b] = self.color;
+        let pixels = &mut self.destination[start..start + count];
+        let texels = &view.pixels[first * 4..(first + count) * 4];
+        let ga = global_alpha as u32;
+        for (pixel, texel) in pixels.iter_mut().zip(texels.as_chunks::<4>().0.iter()) {
+            let mut alpha = texel[3] as u32;
+            if alpha == 0 {
+                continue;
+            }
+            if ga != 255 {
+                alpha = (alpha * ga + 127) / 255;
+            }
+            blend_rgb565_pixel(pixel, r, g, b, alpha);
+        }
+    }
+}
+
+/// Visit every covered pixel of one alpha TEX_QUAD with its buffer index
+/// (row stride `stride`, origin at `surface`) and sampled, global-scaled
+/// alpha.
+#[allow(clippy::too_many_arguments)]
+fn for_each_quad_alpha(
+    view: &TexView<'_>,
+    op: &[u32],
+    surface: Clip,
+    clip: Clip,
+    scale: u32,
+    stride: u32,
+    global_alpha: u8,
+    sink: &mut impl AlphaSink,
 ) {
     let logical = logical_rect(op[2], op[3]).intersect(clip);
     if logical.is_empty() {
@@ -1014,20 +1285,225 @@ fn alpha_quad_into_mask(
     let v0 = f32::from_bits(op[5]);
     let u1 = f32::from_bits(op[6]);
     let v1 = f32::from_bits(op[7]);
-    for py in physical.y..physical.y + physical.h {
-        let v = v0 + (v1 - v0) * ((py as i32 - y * scale_i) as f32 + 0.5) / (h * scale_i) as f32;
-        for px in physical.x..physical.x + physical.w {
-            let u =
-                u0 + (u1 - u0) * ((px as i32 - x * scale_i) as f32 + 0.5) / (w * scale_i) as f32;
-            let alpha = (sample_alpha(view, u, v) as u32 * global_alpha as u32 + 127) / 255;
-            let local_x = px as i32 - surface.x0 * scale_i;
-            let local_y = py as i32 - surface.y0 * scale_i;
-            composite_mask(
-                &mut mask[local_y as usize * stride as usize + local_x as usize],
-                alpha as u8,
-            );
+    // Texture sampling is separable: texel columns depend on u alone and rows
+    // on v alone. Columns resolve once per chunk and rows once per row, so the
+    // inner loop only fetches texels.
+    const COLUMNS: usize = 32;
+    let mut columns = [LinearSample::default(); COLUMNS];
+    let end_x = physical.x + physical.w;
+    let mut chunk_x = physical.x;
+    // The core rasterizer's exact expressions, reciprocal included.
+    let inv_w = 1.0f32 / (w * scale_i) as f32;
+    let inv_h = 1.0f32 / (h * scale_i) as f32;
+    while chunk_x < end_x {
+        let count = ((end_x - chunk_x) as usize).min(COLUMNS);
+        for (column, px) in columns[..count].iter_mut().zip(chunk_x..) {
+            let u = u0 + (u1 - u0) * ((px as i32 - x * scale_i) as f32 + 0.5) * inv_w;
+            *column = sample_column(view, u);
         }
+        // Columns on consecutive in-range texels with zero weight read one
+        // texel per pixel: a quad drawn at its texture's own density.
+        let unit_columns = columns[..count].iter().all(|column| column.fx == 0)
+            && columns[..count]
+                .windows(2)
+                .all(|pair| pair[0].x0.checked_add(1) == Some(pair[1].x0))
+            && columns[0].x0 < view.w
+            && columns[count - 1].x0 < view.w;
+        for py in physical.y..physical.y + physical.h {
+            let v = v0 + (v1 - v0) * ((py as i32 - y * scale_i) as f32 + 0.5) * inv_h;
+            let row = sample_column(view, v);
+            let start = (py as i32 - surface.y0 * scale_i) as usize * stride as usize
+                + (chunk_x as i32 - surface.x0 * scale_i) as usize;
+            if unit_columns && row.fy == 0 && row.y0 < view.h {
+                let first = row.y0 as usize * view.w as usize + columns[0].x0 as usize;
+                sink.texels(view, start, first, count, global_alpha);
+                continue;
+            }
+            if view.linear {
+                // Clamped neighbors: every index lies inside the texture.
+                let rows = (
+                    row.y0 as usize * view.w as usize,
+                    row.y1 as usize * view.w as usize,
+                    row.fy,
+                );
+                let columns = &columns[..count];
+                let pixels = view.pixels;
+                match view.psm {
+                    spec::psm::PSM_8888 => bilinear_row(
+                        |i| pixels[i * 4 + 3] as u32,
+                        columns,
+                        rows,
+                        global_alpha,
+                        start,
+                        sink,
+                    ),
+                    spec::psm::PSM_4444 => bilinear_row(
+                        |i| {
+                            ((u16::from_le_bytes([pixels[i * 2], pixels[i * 2 + 1]]) >> 12) as u32)
+                                * 17
+                        },
+                        columns,
+                        rows,
+                        global_alpha,
+                        start,
+                        sink,
+                    ),
+                    spec::psm::PSM_T8 => {
+                        let palette = view.palette.unwrap();
+                        bilinear_row(
+                            |i| palette[pixels[i] as usize * 4 + 3] as u32,
+                            columns,
+                            rows,
+                            global_alpha,
+                            start,
+                            sink,
+                        )
+                    }
+                    _ => bilinear_row(|_| 0, columns, rows, global_alpha, start, sink),
+                }
+                continue;
+            }
+            for (offset, column) in columns[..count].iter().enumerate() {
+                let mut alpha = sample_separable(view, column, &row);
+                if global_alpha != 255 {
+                    alpha = (alpha * global_alpha as u32 + 127) / 255;
+                }
+                sink.pixel(start + offset, alpha);
+            }
+        }
+        chunk_x += count as u32;
     }
+}
+
+/// Visit every covered pixel of one TEX_QUAD with its buffer index (row
+/// stride `stride`, origin at `surface`) and its sampled RGBA: the core
+/// rasterizer's nearest or integer bilinear sample, resolved per column and
+/// per row.
+#[allow(clippy::too_many_arguments)]
+fn for_each_quad_texel(
+    view: &TexView<'_>,
+    op: &[u32],
+    surface: Clip,
+    clip: Clip,
+    scale: u32,
+    stride: u32,
+    mut visit: impl FnMut(usize, u32, u32, u32, u32),
+) {
+    let logical = logical_rect(op[2], op[3]).intersect(clip);
+    if logical.is_empty() || view.w == 0 || view.h == 0 {
+        return;
+    }
+    let (x, y) = xy(op[2]);
+    let (w, h) = wh(op[3]);
+    let scale_i = scale as i32;
+    let physical = physical_rect(logical, scale);
+    let (u0, v0) = (f32::from_bits(op[4]), f32::from_bits(op[5]));
+    let (u1, v1) = (f32::from_bits(op[6]), f32::from_bits(op[7]));
+    let inv_w = 1.0f32 / (w * scale_i) as f32;
+    let inv_h = 1.0f32 / (h * scale_i) as f32;
+    let tw = view.w as usize;
+    let (tw_max, th_max) = (view.w as i32 - 1, view.h as i32 - 1);
+    const COLUMNS: usize = 32;
+    let mut columns = [LinearSample::default(); COLUMNS];
+    let end_x = physical.x + physical.w;
+    let mut chunk_x = physical.x;
+    while chunk_x < end_x {
+        let count = ((end_x - chunk_x) as usize).min(COLUMNS);
+        for (column, px) in columns[..count].iter_mut().zip(chunk_x..) {
+            let u = u0 + (u1 - u0) * ((px as i32 - x * scale_i) as f32 + 0.5) * inv_w;
+            *column = if view.linear {
+                sample_column(view, u)
+            } else {
+                let tx = ((u * view.w as f32) as i32).clamp(0, tw_max);
+                LinearSample {
+                    x0: tx as u32,
+                    ..LinearSample::default()
+                }
+            };
+        }
+        for py in physical.y..physical.y + physical.h {
+            let v = v0 + (v1 - v0) * ((py as i32 - y * scale_i) as f32 + 0.5) * inv_h;
+            let start = (py as i32 - surface.y0 * scale_i) as usize * stride as usize
+                + (chunk_x as i32 - surface.x0 * scale_i) as usize;
+            if !view.linear {
+                let ty = ((v * view.h as f32) as i32).clamp(0, th_max) as usize;
+                for (offset, column) in columns[..count].iter().enumerate() {
+                    let Some((r, g, b, a)) = texel(view, ty * tw + column.x0 as usize) else {
+                        return;
+                    };
+                    visit(start + offset, r, g, b, a);
+                }
+                continue;
+            }
+            let row = sample_column(view, v);
+            let (top, bottom) = (row.y0 as usize * tw, row.y1 as usize * tw);
+            let lerp = |a: u32, b: u32, f: u32| (a * (256 - f) + b * f) >> 8;
+            for (offset, column) in columns[..count].iter().enumerate() {
+                let (x0, x1) = (column.x0 as usize, column.x1 as usize);
+                let (Some(c00), Some(c01), Some(c10), Some(c11)) = (
+                    texel(view, top + x0),
+                    texel(view, top + x1),
+                    texel(view, bottom + x0),
+                    texel(view, bottom + x1),
+                ) else {
+                    return;
+                };
+                let mix = |p: u32, q: u32, s: u32, t: u32| {
+                    lerp(lerp(p, q, column.fx), lerp(s, t, column.fx), row.fy)
+                };
+                visit(
+                    start + offset,
+                    mix(c00.0, c01.0, c10.0, c11.0),
+                    mix(c00.1, c01.1, c10.1, c11.1),
+                    mix(c00.2, c01.2, c10.2, c11.2),
+                    mix(c00.3, c01.3, c10.3, c11.3),
+                );
+            }
+        }
+        chunk_x += count as u32;
+    }
+}
+
+/// One axis of a texture lookup at normalized `t`. Nearest sampling keeps the
+/// texel index (`x0` for u, `y0` for v); linear sampling keeps the core's
+/// clamped neighbors and 8-bit weight.
+fn sample_column(view: &TexView<'_>, t: f32) -> LinearSample {
+    if !view.linear {
+        let index = (t * view.w as f32) as i32;
+        return LinearSample {
+            x0: index as u32,
+            y0: (t * view.h as f32) as i32 as u32,
+            ..LinearSample::default()
+        };
+    }
+    linear_sample_coordinates(view.w, view.h, t, t).unwrap_or_default()
+}
+
+/// Texel alpha from a resolved column (x fields) and row (y fields): nearest
+/// fetches one texel, linear blends four with integer weights.
+fn sample_separable(view: &TexView<'_>, column: &LinearSample, row: &LinearSample) -> u32 {
+    if !view.linear {
+        return texel_alpha(view, column.x0 as i32, row.y0 as i32);
+    }
+    if view.w == 0 || view.h == 0 {
+        return 0;
+    }
+    if column.fx == 0 && row.fy == 0 {
+        // Zero weights select the base texel; a 1:1 quad samples texel centers.
+        return texel_alpha(view, column.x0 as i32, row.y0 as i32);
+    }
+    let lerp = |a: u32, b: u32, f: u32| (a * (256 - f) + b * f) >> 8;
+    let top = lerp(
+        texel_alpha(view, column.x0 as i32, row.y0 as i32),
+        texel_alpha(view, column.x1 as i32, row.y0 as i32),
+        column.fx,
+    );
+    let bottom = lerp(
+        texel_alpha(view, column.x0 as i32, row.y1 as i32),
+        texel_alpha(view, column.x1 as i32, row.y1 as i32),
+        column.fx,
+    );
+    lerp(top, bottom, row.fy)
 }
 
 /// Logical dirty bounds for one acquired strip: the union of the frame's
@@ -1139,4 +1615,268 @@ impl<O: PpaOps> pocket_drivers::Renderer for PpaRenderer<O> {
         Ok(())
     }
     fn retire(&mut self, _: ()) {}
+}
+
+const COVERS_AHEAD: usize = 8;
+const MAX_PIECES: usize = 8;
+
+fn triangle_bounds(vertices: [u32; 3], clip: Clip) -> Clip {
+    let [(x0, y0), (x1, y1), (x2, y2)] = vertices.map(xy);
+    Clip {
+        x0: x0.min(x1).min(x2),
+        y0: y0.min(y1).min(y2),
+        x1: x0.max(x1).max(x2),
+        y1: y0.max(y1).max(y2),
+    }
+    .intersect(clip)
+}
+
+fn blend_span(span: &mut [u16], r: u32, g: u32, b: u32, a: u32) {
+    let Some(&first) = span.first() else {
+        return;
+    };
+    let mut source = first;
+    let mut result = first;
+    blend_rgb565_pixel(&mut result, r, g, b, a);
+    for pixel in span {
+        if *pixel != source {
+            source = *pixel;
+            result = source;
+            blend_rgb565_pixel(&mut result, r, g, b, a);
+        }
+        *pixel = result;
+    }
+}
+
+fn flat_row(destination: &[u16], stride: u32, rect: Rect) -> bool {
+    let start = rect.y as usize * stride as usize + rect.x as usize;
+    let row = &destination[start..start + rect.w as usize];
+    row.windows(2)
+        .filter(|pair| pair[0] != pair[1])
+        .take(4)
+        .count()
+        < 4
+}
+
+fn visible_pieces(
+    covers: &[(u32, Clip)],
+    at: usize,
+    rect: Clip,
+    split: bool,
+) -> ([Clip; MAX_PIECES], usize) {
+    let mut pieces = [Clip::empty(); MAX_PIECES];
+    if rect.is_empty() {
+        return (pieces, 0);
+    }
+    pieces[0] = rect;
+    let mut count = 1;
+    let later = covers.partition_point(|&(offset, _)| offset as usize <= at);
+    for &(_, cover) in covers[later..].iter().take(COVERS_AHEAD) {
+        if count == 0 {
+            break;
+        }
+        if pieces[..count]
+            .iter()
+            .all(|piece| piece.intersect(cover).is_empty())
+        {
+            continue;
+        }
+        let mut next = [Clip::empty(); MAX_PIECES];
+        let mut kept = 0;
+        let fits = pieces[..count].iter().all(|piece| {
+            piece
+                .subtract(cover)
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .all(|part| {
+                    if kept == MAX_PIECES {
+                        return false;
+                    }
+                    next[kept] = part;
+                    kept += 1;
+                    true
+                })
+        });
+        if fits {
+            pieces = next;
+            count = kept;
+        }
+    }
+    if !split && count > 0 {
+        pieces[0] = rect;
+        count = 1;
+    }
+    (pieces, count)
+}
+
+fn quads_disjoint(run: &[u32], clip: Clip) -> bool {
+    const MAX_QUADS: usize = 8;
+    let count = run.len() / 9;
+    if count > MAX_QUADS {
+        return false;
+    }
+    let mut rects = [Clip::empty(); MAX_QUADS];
+    for (index, quad) in run.as_chunks::<9>().0.iter().enumerate() {
+        rects[index] = logical_rect(quad[2], quad[3]).intersect(clip);
+        if rects[..index]
+            .iter()
+            .any(|other| !other.intersect(rects[index]).is_empty())
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn blend_mask_rect(mask: &[u8], destination: &mut [u16], stride: u32, rect: Rect, color: [u32; 3]) {
+    for row in rect.y..rect.y + rect.h {
+        let start = row as usize * stride as usize + rect.x as usize;
+        let end = start + rect.w as usize;
+        for (pixel, &alpha) in destination[start..end].iter_mut().zip(&mask[start..end]) {
+            if alpha != 0 {
+                blend_rgb565_pixel(pixel, color[0], color[1], color[2], alpha as u32);
+            }
+        }
+    }
+}
+
+fn fill_span(span: &mut [u16], color: u16) {
+    // SAFETY: every u32 bit pattern is two valid u16 values.
+    let (head, body, tail) = unsafe { span.align_to_mut::<u32>() };
+    head.fill(color);
+    body.fill(color as u32 * 0x0001_0001);
+    tail.fill(color);
+}
+
+fn bilinear_row(
+    texel: impl Fn(usize) -> u32,
+    columns: &[LinearSample],
+    (top, bottom, fy): (usize, usize, u32),
+    global_alpha: u8,
+    start: usize,
+    sink: &mut impl AlphaSink,
+) {
+    let lerp = |a: u32, b: u32, f: u32| (a * (256 - f) + b * f) >> 8;
+    for (offset, column) in columns.iter().enumerate() {
+        let (x0, x1) = (column.x0 as usize, column.x1 as usize);
+        let (a00, a01) = (texel(top + x0), texel(top + x1));
+        let (a10, a11) = (texel(bottom + x0), texel(bottom + x1));
+        let mut alpha = if a00 | a01 | a10 | a11 == 0 {
+            0
+        } else {
+            lerp(lerp(a00, a01, column.fx), lerp(a10, a11, column.fx), fy)
+        };
+        if global_alpha != 255 {
+            alpha = (alpha * global_alpha as u32 + 127) / 255;
+        }
+        sink.pixel(start + offset, alpha);
+    }
+}
+
+fn for_each_texel_alpha(
+    view: &TexView<'_>,
+    first: usize,
+    count: usize,
+    mut visit: impl FnMut(usize, u32),
+) {
+    match view.psm {
+        spec::psm::PSM_8888 => {
+            let texels = &view.pixels[first * 4..(first + count) * 4];
+            for (offset, texel) in texels.as_chunks::<4>().0.iter().enumerate() {
+                visit(offset, texel[3] as u32);
+            }
+        }
+        spec::psm::PSM_4444 => {
+            let texels = &view.pixels[first * 2..(first + count) * 2];
+            for (offset, texel) in texels.as_chunks::<2>().0.iter().enumerate() {
+                visit(
+                    offset,
+                    ((u16::from_le_bytes([texel[0], texel[1]]) >> 12) as u32) * 17,
+                );
+            }
+        }
+        spec::psm::PSM_T8 => {
+            let palette = view.palette.unwrap();
+            for (offset, &index) in view.pixels[first..first + count].iter().enumerate() {
+                visit(offset, palette[index as usize * 4 + 3] as u32);
+            }
+        }
+        _ => (0..count).for_each(|offset| visit(offset, 0)),
+    }
+}
+
+/// Index immutable geometry and absolute clips. Glyph bounds stay at their
+/// clip until the current validated atlas is borrowed, so atlas replacement
+/// and independent font revisions cannot leave stale row bounds.
+#[derive(Clone, Copy)]
+struct IndexedOp {
+    start: usize,
+    end: usize,
+    clip: Clip,
+    bounds: Clip,
+}
+#[derive(Default)]
+struct OpIndex {
+    words: Vec<u32>,
+    viewport: Option<Clip>,
+    ops: Vec<IndexedOp>,
+    covers: Vec<(u32, Clip)>,
+}
+impl OpIndex {
+    fn prepare(&mut self, words: &[u32], viewport: Clip) -> Result<(), RenderError> {
+        if self.viewport == Some(viewport) && self.words == words {
+            return Ok(());
+        }
+        self.viewport = None;
+        self.ops.clear();
+        self.covers.clear();
+        let mut decoder = DrawOps::new(words, viewport);
+        loop {
+            let start = decoder.position();
+            let Some(operation) = decoder.next() else {
+                break;
+            };
+            let op = operation.map_err(|_| RenderError::InvalidFrame)?;
+            let bounds = match op.opcode {
+                spec::draw_op::RECT | spec::draw_op::GRAD_RECT => {
+                    let rect = logical_rect(op.words[1], op.words[2]).intersect(op.clip);
+                    if op.words[3] >> 24 == 255
+                        && (op.opcode == spec::draw_op::RECT || op.words[4] >> 24 == 255)
+                        && !rect.is_empty()
+                    {
+                        self.covers.push((start as u32, rect));
+                    }
+                    rect
+                }
+                spec::draw_op::TEX_QUAD => {
+                    logical_rect(op.words[2], op.words[3]).intersect(op.clip)
+                }
+                spec::draw_op::TRI => {
+                    triangle_bounds([op.words[1], op.words[2], op.words[3]], op.clip)
+                }
+                spec::draw_op::TEX_TRI => {
+                    triangle_bounds([op.words[2], op.words[5], op.words[8]], op.clip)
+                }
+                spec::draw_op::GLYPH_RUN => op.clip,
+                // Clips are recorded on each paint operation. Native text
+                // and surface records preserve raster's no-op behavior,
+                // leaving the shell's fallback pixels visible.
+                spec::draw_op::SCISSOR
+                | spec::draw_op::SCISSOR_POP
+                | spec::draw_op::TEXT_RUN
+                | spec::draw_op::SURFACE_QUAD => continue,
+                _ => return Err(RenderError::Unsupported),
+            };
+            self.ops.push(IndexedOp {
+                start,
+                end: decoder.position(),
+                clip: op.clip,
+                bounds,
+            });
+        }
+        self.words.clear();
+        self.words.extend_from_slice(words);
+        self.viewport = Some(viewport);
+        Ok(())
+    }
 }

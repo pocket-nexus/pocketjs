@@ -283,10 +283,10 @@ fn unpack_rgb565(pixel: u16) -> (u32, u32, u32) {
 }
 
 /// Blend one straight-alpha RGB888 source pixel over an RGB565 pixel. Shared
-/// by the full-frame and compact-window targets so a strip render stays
-/// bit-identical to the same window of a full render by construction.
+/// by the full-frame and compact-window targets and by hardware backends'
+/// CPU blends, so every path stays bit-identical by construction.
 #[inline]
-fn blend_rgb565_pixel(pixel: &mut u16, r: u32, g: u32, b: u32, a: u32) {
+pub fn blend_rgb565_pixel(pixel: &mut u16, r: u32, g: u32, b: u32, a: u32) {
     if a >= 255 {
         *pixel = pack_rgb565(r, g, b);
         return;
@@ -382,9 +382,10 @@ fn fill_rect<T: RenderTarget>(target: &mut T, stride: i32, c: Clip, color: u32) 
 }
 
 /// Integer lerp of two packed ABGR colors at f in [0,1] (round-to-nearest;
-/// f itself is a deterministic f32 pixel-center fraction).
+/// f itself is a deterministic f32 pixel-center fraction). Hardware backends
+/// call it for gradient rows so their colors match this interpreter.
 #[inline]
-fn lerp_color(from: u32, to: u32, f: f32) -> u32 {
+pub fn lerp_color(from: u32, to: u32, f: f32) -> u32 {
     let mix = |a: u32, b: u32| {
         let af = a as f32;
         (af + (b as f32 - af) * f + 0.5) as u32
@@ -1069,8 +1070,9 @@ fn glyph_run<T: RenderTarget>(
 /// Fetch texel `idx` (row-major) as (r, g, b, a) channels 0..255. None for
 /// an unknown psm (corrupt stream — callers abort the op, matching the old
 /// inline `_ => return` arms byte-for-byte on the known formats).
+/// Decode texel `idx` of a texture to non-premultiplied RGBA.
 #[inline]
-fn texel(view: &TexView, idx: usize) -> Option<(u32, u32, u32, u32)> {
+pub fn texel(view: &TexView, idx: usize) -> Option<(u32, u32, u32, u32)> {
     match view.psm {
         spec::psm::PSM_5650 => {
             // PSP PSM 5650: u16 LE, B5:G6:R5 (red in the low bits). Always
@@ -1128,7 +1130,7 @@ fn texel(view: &TexView, idx: usize) -> Option<(u32, u32, u32, u32)> {
 /// paths. Texel coordinates are 24.8 fixed point centered on texel centers
 /// (`uf = u*w*256 - 128`). Clamp the base coordinate before selecting its
 /// second neighbor so every backend preserves the core's edge sampling.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LinearSample {
     pub x0: u32,
     pub y0: u32,

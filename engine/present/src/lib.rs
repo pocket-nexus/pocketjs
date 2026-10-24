@@ -9,6 +9,7 @@ pub mod coordinator;
 pub mod damage;
 pub mod incremental;
 pub mod ink;
+pub mod motion;
 pub mod transaction;
 
 pub use damage::*;

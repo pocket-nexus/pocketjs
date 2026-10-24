@@ -6,7 +6,7 @@
 //! frame stays in flight until the next present, so its device work overlaps
 //! the caller's next guest turn.
 
-use crate::damage::{DamagePolicy, DamageTarget, DamageTracker};
+use crate::damage::{DamageMotion, DamagePolicy, DamageTarget, DamageTracker};
 use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
 use core::{any::Any, cell::RefCell};
 
@@ -181,12 +181,14 @@ struct RegisteredDisplay {
     transfers: VecDeque<Pending>,
     histories: Vec<(BufferIdentity, DamageTracker)>,
     history_slot: Option<usize>,
+    motion: Option<DamageMotion>,
     history_valid: bool,
 }
 
 impl RegisteredDisplay {
     fn invalidate(&mut self) {
         self.history_valid = false;
+        self.motion = None;
         for (_, tracker) in &mut self.histories {
             tracker.invalidate();
         }
@@ -401,6 +403,7 @@ impl Coordinator {
             transfers: VecDeque::new(),
             histories: Vec::new(),
             history_slot: None,
+            motion: None,
             history_valid: false,
         });
         for (display, plan) in self.displays.iter_mut().zip(plans) {
@@ -696,6 +699,7 @@ impl Coordinator {
                     display.histories.len() - 1
                 }
             });
+            display.motion = None;
             display.damage = if let Some(slot) = display
                 .history_slot
                 .filter(|_| descriptor.partial_refresh && overlay.is_none())
@@ -706,11 +710,31 @@ impl Coordinator {
                     self.scale,
                     descriptor.format as u64,
                 );
-                let plan = display.histories[slot]
-                    .1
-                    .prepare(views.last().unwrap(), &list.words, target)
+                // A complete retained CPU buffer grants both ends of a
+                // move. GRAM staging strips grant only their current rows.
+                // Only the built-in rasterizer promises translation-invariant
+                // pixels; external renderers may apply position-based effects.
+                let tracker = &mut display.histories[slot].1;
+                let view = views.last().unwrap();
+                let mut plan = if display.renderer == RendererId::SOFTWARE
+                    && descriptor.target_ownership == TargetOwnership::CpuVisible
+                    && !descriptor.device_frame_storage
+                    && display.strip_height == descriptor.height
+                {
+                    tracker.prepare_with_motion(view, &list.words, target)
+                } else {
+                    tracker.prepare(view, &list.words, target)
+                }
                     .and_then(|plan| plan.with_policy(DamagePolicy::default()))
                     .map_err(|_| PresentError::InvalidFrame)?;
+                // The driver contract uses an empty repaint list for a full
+                // render. Keep a conventional plan for a move-only update.
+                if plan.motion().is_some() && plan.regions().is_empty() {
+                    plan = tracker
+                        .prepare(view, &list.words, target)
+                        .map_err(|_| PresentError::InvalidFrame)?;
+                }
+                display.motion = plan.motion();
                 physical_damage(plan.regions(), &descriptor, self.scale)?
             } else {
                 alloc::vec![Rect::new(0, 0, descriptor.width, descriptor.height)]
@@ -872,7 +896,7 @@ impl FrameGuard<'_> {
         // driver. If render panics after retaining it, FrameGuard destroys the
         // renderer before this allocation can be released.
         display.acquired_damage = Some(damage);
-        let target = display
+        let mut target = display
             .driver
             .as_mut()
             .ok_or(PresentError::InvalidTarget(id))?
@@ -891,6 +915,10 @@ impl FrameGuard<'_> {
             {
                 return Err(PresentError::InvalidTarget(id));
             }
+        }
+        if let (Some(motion), Target::CpuVisible(surface)) = (display.motion, &mut target) {
+            crate::motion::move_pixels(surface, self.coordinator.scale, motion)
+                .map_err(|_| PresentError::InvalidTarget(id))?;
         }
         let mut input = FrameInput::new(
             list,
@@ -911,11 +939,23 @@ impl FrameGuard<'_> {
             .render(&mut input, zero_copy);
         self.rendering = None;
         let submission = result.map_err(|error| PresentError::Render(id, error))?;
+        let mut flush_damage = display.acquired_damage.take().unwrap();
+        if let Some(motion) = display.motion {
+            // Moved pixels changed on the display even though the renderer
+            // only repainted the exposed/changed parts of the frame.
+            let mut regions = flush_damage.into_vec();
+            regions.extend(physical_damage(
+                &[motion.destination],
+                &descriptor,
+                self.coordinator.scale,
+            )?);
+            flush_damage = regions.into_boxed_slice();
+        }
         display.pending = Some(Pending {
             submission,
             render_waited: false,
             display_in_call: false,
-            damage: display.acquired_damage.take().unwrap(),
+            damage: flush_damage,
             token: None,
             defer: deferred,
             zero_copy,

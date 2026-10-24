@@ -47,6 +47,24 @@ impl DamageRect {
         }
     }
 
+    /// `self` minus `hole`, as up to four disjoint rectangles.
+    pub fn subtract(self, hole: Self) -> [Self; 4] {
+        let hole = hole.intersect(self);
+        if hole.is_empty() {
+            return [self, Self::empty(), Self::empty(), Self::empty()];
+        }
+        [
+            Self::new(self.x0, self.y0, self.x1, hole.y0),
+            Self::new(self.x0, hole.y1, self.x1, self.y1),
+            Self::new(self.x0, hole.y0, hole.x0, hole.y1),
+            Self::new(hole.x1, hole.y0, self.x1, hole.y1),
+        ]
+    }
+
+    pub const fn offset(self, dx: i32, dy: i32) -> Self {
+        Self::new(self.x0 + dx, self.y0 + dy, self.x1 + dx, self.y1 + dy)
+    }
+
     pub fn is_empty(self) -> bool {
         self.x0 >= self.x1 || self.y0 >= self.y1
     }

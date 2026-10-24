@@ -5226,6 +5226,7 @@ dependencies = [
  "pocket-raster",
  "pocket-runtime-cabi",
  "pocket-spec",
+ "pocketjs-core",
 ]
 
 [[package]]

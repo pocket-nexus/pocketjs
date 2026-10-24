@@ -240,6 +240,7 @@ pub unsafe extern "C" fn pocket_render_esp_ppa_create(
             min_fill_pixels: config.min_fill_pixels,
             min_blend_pixels: config.min_blend_pixels,
             min_srm_pixels: config.min_srm_pixels,
+            ..RendererConfig::default()
         },
         config.mask_budget,
     ) else {
