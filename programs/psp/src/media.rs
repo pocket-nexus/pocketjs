@@ -246,13 +246,15 @@ fn fail(generation: u32, error: u32) {
     }
 }
 
+/// Seek and read `into` whole, 32 KiB at a time: the size link.rs reads and
+/// writes over usbhostfs in. One 64 KiB read lost the stream after its header.
 unsafe fn pread(fd: SceUid, offset: u32, into: &mut [u8]) -> bool {
     if sys::sceIoLseek(fd, offset as i64, IoWhence::Set) != offset as i64 {
         return false;
     }
     let mut got = 0;
     while got < into.len() {
-        let n = sys::sceIoRead(fd, into.as_mut_ptr().add(got) as *mut c_void, (into.len() - got) as u32);
+        let n = sys::sceIoRead(fd, into.as_mut_ptr().add(got) as *mut c_void, (into.len() - got).min(32 * 1024) as u32);
         if n <= 0 {
             return false;
         }
