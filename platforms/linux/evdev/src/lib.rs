@@ -240,7 +240,9 @@ impl Decoder {
             (&[105, 546], btn::LEFT),
             (&[106, 547], btn::RIGHT),
             (&[28, 315], btn::START),
-            (&[57, 44, 304], btn::CROSS),
+            // Escape and Backspace go back on a keyboard (the CardputerZero's
+            // has no arrow keys on its first layer, but both of these).
+            (&[57, 44, 304, 1, 14], btn::CROSS),
             (&[45, 305], btn::CIRCLE),
             (&[42, 307], btn::SQUARE),
             (&[46, 308], btn::TRIANGLE),
@@ -349,6 +351,13 @@ mod tests {
         d.event(1, 57, 1);
         d.event(1, 44, 0);
         assert_eq!(report(&mut d).buttons, btn::CROSS);
+        d.event(1, 57, 0);
+        for key in [1, 14] {
+            d.event(1, key, 1);
+            assert_eq!(report(&mut d).buttons, btn::CROSS);
+            d.event(1, key, 0);
+            assert_eq!(report(&mut d).buttons, 0);
+        }
     }
     #[test]
     fn touch_ranges_and_drop_cancellation_once() {
