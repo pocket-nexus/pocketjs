@@ -25,10 +25,18 @@ use psp::sys::{
 
 use crate::{host, switch};
 
+/// 16-byte alignment for embedded bytes the GE samples.
+#[repr(C, align(16))]
+struct Align16<Bytes: ?Sized>(Bytes);
+
 /// 128×128 RGBA, baked from assets/brand by tools/psp.ts. Empty when a
 /// custom host builds without the backend env — the veil then dims without
-/// the mark.
-static LOGO: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/veil.raw"));
+/// the mark. The real GE reads a texture from its address rounded down to
+/// 16 bytes, so an unaligned mark sampled every pixel a few bytes early: the
+/// transparent white (FF FF FF 00) around it turned opaque yellow or cyan,
+/// depending on where the linker put it. PPSSPP does not round.
+static LOGO_ALIGNED: &Align16<[u8]> = &Align16(*include_bytes!(concat!(env!("OUT_DIR"), "/veil.raw")));
+static LOGO: &[u8] = &LOGO_ALIGNED.0;
 const LOGO_TEX: i16 = 128;
 /// On-screen mark size (logical px) and center.
 const MARK: i16 = 96;
