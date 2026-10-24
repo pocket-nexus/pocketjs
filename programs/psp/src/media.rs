@@ -55,6 +55,12 @@ const SILENT_LEAD_MS: u32 = 750;
 const STALL_US: u32 = 10_000_000;
 /// media.ack goes out after this many bytes, or when the reader waits.
 const ACK_BYTES: u32 = 16 * 1024;
+/// Stream bytes read out of the ring per pread: every byte the companion has
+/// written, up to this, so a packet header and its payload cost one round
+/// trip over usbhostfs, not two.
+const AHEAD_BYTES: usize = 64 * 1024;
+/// The wait between head reads while the ring holds nothing new.
+const WAIT_US: u32 = 5_000;
 
 const IDLE: u32 = 0;
 const OPENING: u32 = 1;
@@ -154,11 +160,12 @@ static FRAME_WRITE: AtomicU32 = AtomicU32::new(0);
 
 // Fixed worker buffers, allocated once on the guest's thread.
 static PACKET: Shared<*mut u8> = Shared(UnsafeCell::new(core::ptr::null_mut()));
+static AHEAD: Shared<*mut u8> = Shared(UnsafeCell::new(core::ptr::null_mut()));
 static PCM: Shared<*mut i16> = Shared(UnsafeCell::new(core::ptr::null_mut()));
 
 // Guest-thread state.
 static mut STARTED: bool = false;
-static mut OWNED: Option<(Vec<u8>, Vec<i16>)> = None;
+static mut OWNED: Option<(Vec<u8>, Vec<i16>, Vec<u8>)> = None;
 static mut OWNED_PICTURES: Option<(Vec<u8>, Vec<u8>)> = None;
 static mut TEXTURE: i32 = -1;
 static mut STAGING: Vec<u8> = Vec::new();
@@ -206,8 +213,15 @@ struct Stream {
     ring: SceUid,
     ack: SceUid,
     ring_bytes: u32,
+    /// Stream bytes handed to the decoder.
     pos: u32,
+    /// Stream bytes read out of the ring (pos plus the read-ahead buffer);
+    /// what media.ack reports, since the ring may then be overwritten.
+    fetched: u32,
     acked: u32,
+    /// Bytes in the read-ahead buffer from its start; the last
+    /// `fetched - pos` of them are not yet handed out.
+    ahead_len: usize,
     written: u32,
     closed: bool,
     answered: bool,
@@ -269,19 +283,19 @@ impl Stream {
     }
 
     unsafe fn acknowledge(&mut self) {
-        if self.acked == self.pos {
+        if self.acked == self.fetched {
             return;
         }
         let mut block = [0u8; 16];
         block[0..4].copy_from_slice(&ACK_MAGIC.to_le_bytes());
         block[4..8].copy_from_slice(&self.generation.to_le_bytes());
-        block[8..12].copy_from_slice(&self.pos.to_le_bytes());
+        block[8..12].copy_from_slice(&self.fetched.to_le_bytes());
         let hash = link::fnv1a32(&block[..12]);
         block[12..16].copy_from_slice(&hash.to_le_bytes());
         if sys::sceIoLseek(self.ack, 0, IoWhence::Set) == 0
             && sys::sceIoWrite(self.ack, block.as_ptr() as *const c_void, 16) == 16
         {
-            self.acked = self.pos;
+            self.acked = self.fetched;
         }
     }
 
@@ -309,10 +323,18 @@ impl Stream {
         }
     }
 
-    /// The next `into.len()` stream bytes. False when the stream ends under
-    /// the reader, stalls for STALL_US, or is no longer the guest's.
-    unsafe fn read(&mut self, into: &mut [u8]) -> bool {
-        let n = into.len() as u32;
+    /// Copy `into.len()` ring bytes from stream position `from` (fetched by
+    /// the caller's wait), in at most two preads across the ring's end.
+    unsafe fn pull(&mut self, from: u32, into: &mut [u8]) -> bool {
+        let at = from % self.ring_bytes;
+        let first = (into.len() as u32).min(self.ring_bytes - at) as usize;
+        pread(self.ring, HEAD_BYTES + at, &mut into[..first])
+            && (first == into.len() || pread(self.ring, HEAD_BYTES, &mut into[first..]))
+    }
+
+    /// Wait until the ring holds a byte past `fetched`. False when the stream
+    /// ends under the reader, stalls for STALL_US, or is no longer the guest's.
+    unsafe fn wait(&mut self) -> bool {
         loop {
             self.tick();
             if !current(self.generation) {
@@ -321,14 +343,14 @@ impl Stream {
             if PAUSED.load(Acquire) {
                 self.acknowledge();
                 self.progress_at = now();
-                sys::sceKernelDelayThread(5_000);
+                sys::sceKernelDelayThread(WAIT_US);
                 continue;
             }
-            if self.answered && self.written.wrapping_sub(self.pos) >= n {
-                break;
+            if self.answered && self.written != self.fetched {
+                return true;
             }
-            if self.head() && self.written.wrapping_sub(self.pos) >= n {
-                break;
+            if self.head() && self.written != self.fetched {
+                return true;
             }
             if self.answered && self.closed {
                 return false;
@@ -337,20 +359,56 @@ impl Stream {
                 return false;
             }
             self.acknowledge();
-            sys::sceKernelDelayThread(2_000);
+            sys::sceKernelDelayThread(WAIT_US);
         }
-        let at = self.pos % self.ring_bytes;
-        let first = n.min(self.ring_bytes - at) as usize;
-        if !pread(self.ring, HEAD_BYTES + at, &mut into[..first])
-            || (first < into.len() && !pread(self.ring, HEAD_BYTES, &mut into[first..]))
-        {
-            return false;
-        }
-        self.pos = self.pos.wrapping_add(n);
-        self.progress_at = now();
-        RECEIVED.fetch_add(n, Relaxed);
-        if self.pos.wrapping_sub(self.acked) >= ACK_BYTES {
-            self.acknowledge();
+    }
+
+    /// The next `into.len()` stream bytes, from the read-ahead buffer and the
+    /// ring. False when the stream ends under the reader, stalls for
+    /// STALL_US, or is no longer the guest's.
+    unsafe fn read(&mut self, into: &mut [u8]) -> bool {
+        let ahead = core::slice::from_raw_parts_mut(*AHEAD.0.get(), AHEAD_BYTES);
+        let mut done = 0;
+        while done < into.len() {
+            // The buffer's last `fetched - pos` bytes are not handed out yet.
+            let buffered = self.fetched.wrapping_sub(self.pos) as usize;
+            if buffered > 0 {
+                let from = self.ahead_len - buffered;
+                let k = buffered.min(into.len() - done);
+                into[done..done + k].copy_from_slice(&ahead[from..from + k]);
+                self.pos = self.pos.wrapping_add(k as u32);
+                done += k;
+                continue;
+            }
+            if !self.wait() {
+                return false;
+            }
+            let available = self.written.wrapping_sub(self.fetched) as usize;
+            let want = into.len() - done;
+            let k = if want >= AHEAD_BYTES {
+                // A large packet goes straight into its own buffer.
+                let k = available.min(want);
+                if !self.pull(self.fetched, &mut into[done..done + k]) {
+                    return false;
+                }
+                self.pos = self.pos.wrapping_add(k as u32);
+                self.ahead_len = 0;
+                done += k;
+                k
+            } else {
+                let k = available.min(AHEAD_BYTES);
+                if !self.pull(self.fetched, &mut ahead[..k]) {
+                    return false;
+                }
+                self.ahead_len = k;
+                k
+            };
+            self.fetched = self.fetched.wrapping_add(k as u32);
+            self.progress_at = now();
+            RECEIVED.fetch_add(k as u32, Relaxed);
+            if self.fetched.wrapping_sub(self.acked) >= ACK_BYTES {
+                self.acknowledge();
+            }
         }
         true
     }
@@ -533,6 +591,8 @@ unsafe fn play(generation: u32, token: &[u8; 64]) {
         ack,
         ring_bytes: 1,
         pos: 0,
+        fetched: 0,
+        ahead_len: 0,
         acked: u32::MAX,
         written: 0,
         closed: false,
@@ -659,10 +719,11 @@ pub unsafe fn open(token: &[u8]) -> bool {
         return false;
     }
     if !STARTED {
-        OWNED = Some((alloc::vec![0u8; wire::PACKET_BYTES], alloc::vec![0i16; wire::AUDIO_FRAMES * 2]));
-        let (packet, pcm) = OWNED.as_mut().expect("allocated");
+        OWNED = Some((alloc::vec![0u8; wire::PACKET_BYTES], alloc::vec![0i16; wire::AUDIO_FRAMES * 2], alloc::vec![0u8; AHEAD_BYTES]));
+        let (packet, pcm, ahead) = OWNED.as_mut().expect("allocated");
         *PACKET.0.get() = packet.as_mut_ptr();
         *PCM.0.get() = pcm.as_mut_ptr();
+        *AHEAD.0.get() = ahead.as_mut_ptr();
         let thread = sys::sceKernelCreateThread(
             b"pocket-media\0".as_ptr(),
             worker,

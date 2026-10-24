@@ -41,6 +41,11 @@ const SLOTS: usize = 2;
 const MAX_JSON: usize = 16 * 1024;
 const BEAT_US: u32 = 500_000;
 const SILENCE_US: u32 = 3_000_000;
+/// A sent request's reply is read every 5 ms for its first 200 ms (most
+/// replies), then every 25 ms (a long poll, a slow service): each read is an
+/// open, a read and a close on the computer serving the share.
+const REPLY_FAST_US: u32 = 200_000;
+const REPLY_SLOW_US: u32 = 25_000;
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
 const DEFAULT_RESPONSE_BYTES: u64 = 128 * 1024;
 const MAX_RESPONSE_BYTES: u64 = 256 * 1024;
@@ -856,6 +861,8 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
     let mut hello_due = epoch != 0;
     let mut generation = if epoch != 0 { 1u32 } else { 0 };
     let mut written = [false; SLOTS];
+    let mut sent_at = [0u32; SLOTS];
+    let mut read_at = [0u32; SLOTS];
     loop {
         let t = now();
         if t.wrapping_sub(ready_at) >= BEAT_US / 5 {
@@ -915,11 +922,17 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
                     }
                     if ok {
                         written[index] = true;
+                        sent_at[index] = t;
+                        read_at[index] = t;
                         let _ = slot.state.compare_exchange(QUEUED, SENT, Release, Relaxed);
                     }
                 }
                 SENT if epoch != 0 => {
-                    read_reply(index, epoch);
+                    let slow = t.wrapping_sub(sent_at[index]) > REPLY_FAST_US;
+                    if !slow || t.wrapping_sub(read_at[index]) >= REPLY_SLOW_US {
+                        read_at[index] = t;
+                        read_reply(index, epoch);
+                    }
                 }
                 CANCEL => {
                     let shared = &*slot.data.get();
