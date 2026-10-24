@@ -74,6 +74,8 @@ export const PAL8 = { width: 240, height: 136, fps: 12, maxSkips: 3, skipBehindM
 const H264 = { fps: 30, bitrate: 650_000, maxrate: 750_000 } as const;
 const RESULTS = 20;
 const CACHE_MS = 10 * 60_000;
+/** How long a yt-dlp resolve may run: under the 90 s the app gives /play. */
+const RESOLVE_TIMEOUT_MS = 80_000;
 const VIDEO_ID = /^[\w-]{11}$/;
 
 /** A companion with under 1 GiB of memory (a CardputerZero has 227 MiB)
@@ -124,17 +126,22 @@ export function createJobQueue(slots: number) {
 }
 
 /** ffmpeg 8's ranged HTTP requests (-request_size, -initial_request_size);
- *  ffmpeg 7.1 (Debian 13's) refuses the options. Asked once per binary. */
-const rangedRequests = new Map<string, boolean>();
-function hasRangedRequests(ffmpeg: string): boolean {
+ *  ffmpeg 7.1 (Debian 13's) refuses the options. Asked once per binary, and
+ *  without blocking: a synchronous ffmpeg start right after a yt-dlp
+ *  resolve held a CardputerZero's event loop (and the USB carrier's beat)
+ *  for 11 s. */
+const rangedRequests = new Map<string, Promise<boolean>>();
+function hasRangedRequests(ffmpeg: string): Promise<boolean> {
   let known = rangedRequests.get(ffmpeg);
-  if (known === undefined) {
-    try {
-      const help = Bun.spawnSync([ffmpeg, "-hide_banner", "-h", "protocol=http"], { stdout: "pipe", stderr: "pipe" });
-      known = help.stdout.toString().includes("-request_size");
-    } catch {
-      known = false;
-    }
+  if (!known) {
+    known = (async () => {
+      try {
+        const help = Bun.spawn([ffmpeg, "-hide_banner", "-h", "protocol=http"], { stdout: "pipe", stderr: "ignore" });
+        return (await new Response(help.stdout).text()).includes("-request_size");
+      } catch {
+        return false;
+      }
+    })();
     rangedRequests.set(ffmpeg, known);
   }
   return known;
@@ -174,8 +181,8 @@ function proxyArgs(flag: string): string[] {
   return proxy ? [flag, proxy] : [];
 }
 
-async function run(command: string[], signal?: AbortSignal): Promise<{ ok: boolean; stdout: Uint8Array; stderr: string }> {
-  const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe", timeout: 60_000 });
+async function run(command: string[], signal?: AbortSignal, timeoutMs = 60_000): Promise<{ ok: boolean; stdout: Uint8Array; stderr: string }> {
+  const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
   const stop = () => child.kill();
   signal?.addEventListener("abort", stop, { once: true });
   try {
@@ -327,13 +334,17 @@ async function* pcmPackets(chunks: AsyncIterable<Uint8Array>, originMs: number):
 async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: MediaCodec, seconds: number, signal: AbortSignal): AsyncGenerator<MediaPacket> {
   if (signal.aborted) return;
   const originMs = Math.round(seconds * 1000);
+  const ranged = await hasRangedRequests(tools.ffmpeg[0]!);
   const network = (url: string) =>
     /^https?:\/\//.test(url)
       ? [...proxyArgs("-http_proxy"), "-rw_timeout", "10000000",
           // googlevideo throttles one open-ended GET to a fraction of real
           // time; 1 MB ranges come at full speed (30 s of video in 0.75 s).
-          ...(hasRangedRequests(tools.ffmpeg[0]!) ? ["-request_size", "1048576", "-initial_request_size", "1048576"] : []),
-          "-short_seek_size", "1048576", "-multiple_requests", "1"]
+          ...(ranged ? ["-request_size", "1048576", "-initial_request_size", "1048576"] : []),
+          "-short_seek_size", "1048576", "-multiple_requests", "1",
+          // A DASH format's parameters are in its first bytes; the default
+          // 5 MB probe cost a CardputerZero 3 to 4 s before the first frame.
+          "-probesize", "262144", "-analyzeduration", "500000"]
       : [];
   const common = [...tools.ffmpeg, "-hide_banner", "-loglevel", "error", "-xerror"];
   const seek = seconds > 0 ? ["-ss", String(seconds)] : [];
@@ -473,6 +484,8 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
             "--print", "%(requested_formats.:.{url,vcodec,acodec,width,height})j",
             `https://www.youtube.com/watch?v=${id}`],
           signal,
+          // A small companion resolves in 25 to 55 s; the app waits 90 s for /play.
+          RESOLVE_TIMEOUT_MS,
         ),
       { signal, first: true },
     );
