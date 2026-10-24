@@ -1,7 +1,7 @@
 // tests/camera-photo.test.ts — camera.photo (contracts/spec/camera.ts):
 //
-// - the 3DS host's pure photo code (products/3ds/src/photos_image.c) and the
-//   libjpeg codec, compiled natively by tests/fixtures/3ds-photos.c:
+// - the hosts' shared photo code (engine/host-services/photos_image.c) and
+//   the 3DS libjpeg codec, compiled natively by tests/fixtures/3ds-photos.c:
 //   DCF names, a still encoded the way photos.c saves it and decoded back,
 //   the thumbnail and the full view;
 // - the C constants against the contract;
@@ -36,6 +36,7 @@ import { createSimCameraHost } from "../platforms/sim/camera.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const SRC = join(ROOT, "products/3ds/src");
+const SHARED = join(ROOT, "engine/host-services");
 let scratch = "";
 let binary = "";
 
@@ -54,7 +55,7 @@ beforeAll(() => {
   expect(pkg.exitCode, "libjpeg not found by pkg-config: brew install jpeg-turbo or apt install libjpeg-turbo8-dev").toBe(0);
   const compile = Bun.spawnSync([
     "cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-fsanitize=address,undefined",
-    join(ROOT, "tests/fixtures/3ds-photos.c"), join(SRC, "photos_image.c"),
+    join(ROOT, "tests/fixtures/3ds-photos.c"), join(SHARED, "photos_image.c"), join(SRC, "photos_jpeg.c"), "-I", SHARED,
     ...pkg.stdout.toString().trim().split(/\s+/), "-lm", "-o", binary,
   ]);
   expect(compile.exitCode, compile.stderr.toString()).toBe(0);
@@ -96,7 +97,7 @@ describe("the 3DS host's photo code", () => {
   });
 
   test("the C constants are the contract's", () => {
-    const image = readFileSync(join(SRC, "photos_image.h"), "utf8");
+    const image = readFileSync(join(SHARED, "photos_image.h"), "utf8");
     expect(image).toContain(`#define PHOTO_THUMB_SIZE ${PHOTO_THUMB_SIZE}u`);
     expect(image).toContain(`#define PHOTO_THUMB_TEXTURE ${PHOTO_THUMB_TEXTURE}u`);
     const photos = readFileSync(join(SRC, "photos.c"), "utf8");

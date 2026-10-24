@@ -1,0 +1,10 @@
+dependencies:
+  idf: ">=6.0,<6.2"
+  espressif/m5stack_tab5_noglib: "1.3.2"
+  espressif/esp_lcd_touch: "^1.2.1"
+  # The ESP32-P4 has no radio: esp_wifi runs on the board's ESP32-C6 over
+  # SDIO (sdkconfig.defaults has the pins).
+  espressif/esp_hosted: "3.0.10"
+  espressif/esp_wifi_remote: "1.6.5"
+  pocket-nexus/pocket_runtime:
+    override_path: ../../../platforms/esp-idf/pocket_runtime

@@ -40,6 +40,6 @@ persist across runs; power-cycle the board and `boot` increments while the
 row count is verified as `boots × 288` — flash persistence proven through
 both modules, not just asserted.
 
-Measured on a Waveshare ESP32-P4 (rev 1.3, LittleFS on 8 MB partition):
-fs contract pass ~0.5 s, 288-row insert transaction ~0.5–0.7 s, steady
-heap delta ~1 KB across the whole run.
+Measured on an M5Stack Tab5 (ESP32-P4 rev 1.3, LittleFS on 8 MB partition):
+fs contract pass ~0.3–0.6 s, 288-row insert transaction ~0.2–0.3 s, steady
+heap delta ~1.3 KB across the whole run.

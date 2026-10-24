@@ -43,6 +43,8 @@ SOURCE := $(CURDIR)/src
 INCLUDE_DIR := $(CURDIR)/include
 POCKETJS_ROOT ?= $(CURDIR)/../..
 PLATFORM_SOURCE := $(POCKETJS_ROOT)/platforms/3ds
+# Portable C every native host compiles (engine/host-services/README.md).
+SHARED := $(POCKETJS_ROOT)/engine/host-services
 OFFLOAD_INCLUDE := $(POCKETJS_ROOT)/engine/modules/offload/include
 POCKETJS_CONTRACTS := $(POCKETJS_ROOT)/contracts/generated
 POCKETJS_GUEST := $(POCKETJS_ROOT)/engine/guest-quickjs
@@ -79,7 +81,7 @@ CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections
   $(ARCH) -D__3DS__ -DJS_NO_NAN_BOXING -DPOCKET_QJS_BELLARD \
   -DPOCKETJS_TARGET_ID='"$(POCKETJS_TARGET)"' \
   -DPOCKETJS_HOST_ABI=$(POCKETJS_HOST_ABI) \
-  -I$(PLATFORM_SOURCE) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
+  -I$(PLATFORM_SOURCE) -I$(SHARED) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include -I$(DEVKITPRO)/portlibs/3ds/include
 
 # bytecode.c keys its per-slot bytecode cache by the QuickJS build: the first
@@ -108,16 +110,18 @@ CFLAGS += -DPOCKETJS_CAPTURE \
 endif
 
 LDFLAGS := -specs=3dsx.specs $(ARCH) -Wl,--gc-sections -Wl,-Map,$(BUILD)/pocketjs-3ds.map
-# libjpeg (devkitPro's 3ds-libjpeg-turbo portlib) for photos_image.c.
+# libjpeg (devkitPro's 3ds-libjpeg-turbo portlib) for photos_jpeg.c.
 LIBPATHS := -L$(DEVKITPRO)/portlibs/3ds/lib -L$(DEVKITPRO)/libctru/lib
 LIBS := -ljpeg -lcitro3d -lctru -lm
 
-# quirc (vendored, ISC; src/quirc/VENDORED.txt) decodes QR codes for camera.c.
+# quirc (vendored, ISC; engine/host-services/quirc/VENDORED.txt) decodes QR
+# codes for camera.c.
 QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
 OBJECTS := $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/input_policy.o $(BUILD)/input_source.o $(BUILD)/hooks.o \
-  $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/wifi.o $(BUILD)/camera.o \
+  $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
+  $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
-  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o
+  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o
 ELF := $(BUILD)/pocketjs-3ds.elf
 SMDH := $(BUILD)/pocketjs-3ds.smdh
 
@@ -174,7 +178,7 @@ $(BUILD)/pica_driver.o: $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-pica/src/driver.
 $(BUILD)/canonical_guest.o: $(POCKETJS_GUEST)/src/guest.c $(wildcard $(POCKETJS_GUEST)/src/*.h) $(wildcard $(POCKETJS_GUEST)/include/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(FLAGS_STAMP) | $(BUILD)
+$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(SHARED)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Platform mechanisms compile from their own source tree; product policy stays
@@ -182,24 +186,27 @@ $(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/
 $(BUILD)/%.o: $(PLATFORM_SOURCE)/%.c $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# The shared services compile from engine/host-services.
+$(BUILD)/%.o: $(SHARED)/%.c $(wildcard $(SHARED)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # Third-party code keeps its own warnings out of the host's build log.
-$(BUILD)/quirc/%.o: $(SOURCE)/quirc/%.c $(wildcard $(SOURCE)/quirc/*.h) $(FLAGS_STAMP) | $(BUILD)
+$(BUILD)/quirc/%.o: $(SHARED)/quirc/%.c $(wildcard $(SHARED)/quirc/*.h) $(FLAGS_STAMP) | $(BUILD)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -c $< -o $@
 
 $(BUILD)/offload.o: $(PLATFORM_SOURCE)/offload.h $(PLATFORM_SOURCE)/offload_queue.h
-$(BUILD)/link.o $(BUILD)/link_proto.o $(BUILD)/launcher.o $(BUILD)/qjs.o $(BUILD)/main.o $(BUILD)/devmenu.o: \
-  $(SOURCE)/link.h $(SOURCE)/link_proto.h $(SOURCE)/launcher.h $(SOURCE)/jscan.h $(SOURCE)/sha256.h $(SOURCE)/runtime.h
+$(BUILD)/services_host.o $(BUILD)/qjs.o $(BUILD)/main.o $(BUILD)/devmenu.o: \
+  $(wildcard $(SHARED)/*.h) $(SOURCE)/services_host.h $(SOURCE)/runtime.h
 $(BUILD)/camera.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/camera.h
 $(BUILD)/photos.o $(BUILD)/camera.o $(BUILD)/qjs.o: $(SOURCE)/photos.h
-$(BUILD)/photos.o $(BUILD)/photos_image.o: $(SOURCE)/photos_image.h
-$(BUILD)/photos.o: $(SOURCE)/jscan.h
-$(BUILD)/fs.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/fs.h
+$(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o: $(SHARED)/photos_image.h
+$(BUILD)/photos.o $(BUILD)/photos_jpeg.o: $(SOURCE)/photos_jpeg.h
 $(BUILD)/wifi.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/wifi.h
-$(BUILD)/stage.o $(BUILD)/agent.o $(BUILD)/qjs.o $(BUILD)/main.o $(BUILD)/link.o: $(SOURCE)/stage.h $(SOURCE)/agent.h
+$(BUILD)/stage.o $(BUILD)/agent.o $(BUILD)/qjs.o $(BUILD)/main.o $(BUILD)/services_host.o: $(SOURCE)/stage.h $(SOURCE)/agent.h
 $(BUILD)/runtime.o: $(SOURCE)/runtime.h
 $(BUILD)/qjs.o: $(PLATFORM_SOURCE)/offload.h $(PLATFORM_SOURCE)/offload_coverage.h
-$(BUILD)/media.o: $(PLATFORM_SOURCE)/media.h $(PLATFORM_SOURCE)/media_wire.h $(PLATFORM_SOURCE)/media_adpcm.h
+$(BUILD)/media.o: $(PLATFORM_SOURCE)/media.h $(SHARED)/media_wire.h $(SHARED)/media_adpcm.h
 $(BUILD)/main.o $(BUILD)/qjs.o $(BUILD)/gfx.o: $(PLATFORM_SOURCE)/media.h
 $(BUILD)/main.o $(BUILD)/transition.o: $(SOURCE)/transition.h
 $(BUILD)/main.o $(BUILD)/bytecode.o: $(SOURCE)/bytecode.h

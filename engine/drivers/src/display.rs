@@ -115,6 +115,11 @@ pub struct DisplayDescriptor {
     pub device_frame_storage: bool,
     pub device_rotation: bool,
     pub device_scaling: bool,
+    /// The device moves retained pixels inside its frame storage
+    /// ([`DisplayOutput::move_pixels`]), so presentation can reuse content
+    /// that only moved. Only valid with device frame storage and partial
+    /// refresh.
+    pub retained_move: bool,
     pub vsync: VsyncSource,
 }
 
@@ -143,6 +148,7 @@ impl DisplayDescriptor {
             device_frame_storage: false,
             device_rotation: false,
             device_scaling: false,
+            retained_move: false,
             vsync: VsyncSource::None,
         }
     }
@@ -301,4 +307,27 @@ pub trait DisplayOutput {
     /// memory released by renderer retirement.
     fn wait(&mut self, token: Self::Token) -> Result<(), DisplayError>;
     fn vsync(&mut self) -> VsyncSource;
+    /// Move retained pixels for a `retained_move` display: every pixel of
+    /// `destination` takes the value of the pixel at `(-dx, -dy)` from it.
+    /// Called after [`frame_identity`](Self::frame_identity) and before the
+    /// frame's first acquire; the move completes before any later flush
+    /// writes. `Unsupported` declines this move: the pixels stay and
+    /// presentation repaints `destination`. Any other error leaves
+    /// `destination` undefined.
+    fn move_pixels(&mut self, destination: Rect, dx: i32, dy: i32) -> Result<(), DisplayError> {
+        let _ = (destination, dx, dy);
+        Err(DisplayError::Unsupported)
+    }
+    /// Physical rectangles the display needs repainted this frame besides
+    /// the frame's own damage: a host overlay whose face changed, or whose
+    /// pixels a move carried along. Called once per frame after
+    /// [`frame_identity`](Self::frame_identity) and the frame's move, before
+    /// its first acquire. Returns how many of `out` it filled.
+    fn host_damage(&mut self, out: &mut [Rect; HOST_DAMAGE_RECTS]) -> usize {
+        let _ = out;
+        0
+    }
 }
+
+/// Rectangles one [`DisplayOutput::host_damage`] call may report.
+pub const HOST_DAMAGE_RECTS: usize = 4;

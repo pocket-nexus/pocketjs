@@ -325,8 +325,13 @@ pub struct Ui {
     /// coordinates always remain logical; only core-owned bitmap resources
     /// (currently rounded-corner masks) use this density.
     raster_density: u32,
+    /// See [`Ui::set_stable_motion_paint`].
+    stable_motion_paint: bool,
     /// Changes whenever raster-visible resource bytes or tables change.
     raster_revision: u64,
+    /// Changes with `raster_revision` except when a live texture's pixels
+    /// are overwritten in place (each texture's own revision records those).
+    resource_revision: u64,
     focused: i32,
     draw_list: DrawList,
     /// Virtual cursor sprite (spec ops 28/29, input.cursor capability):
@@ -411,7 +416,9 @@ impl Ui {
             texture_fence: 0,
             paint_cache: draw::PaintCache::new(),
             raster_density,
+            stable_motion_paint: false,
             raster_revision: 1,
+            resource_revision: 1,
             focused: 0,
             draw_list: DrawList::new(),
             cursor_tex: -1,
@@ -434,6 +441,17 @@ impl Ui {
     /// Raster pixels per logical UI pixel for core-owned bitmap resources.
     pub fn raster_density(&self) -> u32 {
         self.raster_density
+    }
+
+    /// Paint that repeats exactly when content moves by whole logical pixels
+    /// (see `DrawList::stable_motion_paint`): translations round to whole
+    /// pixels for drawing and hit testing, and partially clipped gradients
+    /// keep their unclipped geometry inside a SCISSOR. Damage tracking can
+    /// then move the pixels of sliding content. Only for backends that clip
+    /// in software: coordinates may leave the viewport, which the PSP GE
+    /// cannot draw.
+    pub fn set_stable_motion_paint(&mut self, enabled: bool) {
+        self.stable_motion_paint = enabled;
     }
 
     /// Declare how many `tick()` calls make one second of virtual time
@@ -460,7 +478,21 @@ impl Ui {
         self.raster_revision
     }
 
+    /// [`raster_revision`](Self::raster_revision) less the in-place pixel
+    /// writes of live textures: a damage tracker that compares each sampled
+    /// texture's [`texture_revision`](Self::texture_revision) repaints only
+    /// the ops drawing an updated one while this stays.
+    pub fn resource_revision(&self) -> u64 {
+        self.resource_revision
+    }
+
     fn bump_raster_revision(&mut self) {
+        self.raster_revision = self.raster_revision.wrapping_add(1);
+        self.resource_revision = self.resource_revision.wrapping_add(1);
+    }
+
+    /// A live texture's pixels were overwritten in place.
+    fn bump_texture_content(&mut self) {
         self.raster_revision = self.raster_revision.wrapping_add(1);
     }
 
@@ -1189,7 +1221,61 @@ impl Ui {
             );
         }
         tex.revision = tex.revision.wrapping_add(1);
-        self.bump_raster_revision();
+        self.bump_texture_content();
+        true
+    }
+
+    /// Overwrite the rectangle `x, y, w, h` of a live non-T8 texture IN PLACE
+    /// with `pixels`, `w * h` texels in the texture's own format, rows packed
+    /// (a host's camera or video plane: the handle and its image bindings
+    /// stay while the bytes change). Returns false, changing nothing, on
+    /// stale handles, T8 textures, a rectangle outside the texture or a size
+    /// mismatch.
+    pub fn update_texture_rect(
+        &mut self,
+        handle: i32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        pixels: &[u8],
+    ) -> bool {
+        let Some(slot) = tex_resolve(&self.textures, handle) else {
+            return false;
+        };
+        let Some(tex) = self.textures[slot as usize].tex.as_mut() else {
+            return false;
+        };
+        let bpp = match tex.psm {
+            spec::psm::PSM_5650 | spec::psm::PSM_4444 => 2usize,
+            spec::psm::PSM_8888 => 4usize,
+            _ => return false,
+        };
+        if w == 0
+            || h == 0
+            || x.checked_add(w).is_none_or(|right| right > tex.w)
+            || y.checked_add(h).is_none_or(|bottom| bottom > tex.h)
+            || pixels.len() != w as usize * h as usize * bpp
+        {
+            return false;
+        }
+        let row_bytes = w as usize * bpp;
+        let stride = tex.w as usize * bpp;
+        let base = tex.data.as_mut_ptr() as *mut u8;
+        for row in 0..h as usize {
+            let offset = (y as usize + row) * stride + x as usize * bpp;
+            // SAFETY: the rectangle lies inside the texture, whose storage
+            // holds tex.h * stride bytes.
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    pixels.as_ptr().add(row * row_bytes),
+                    base.add(offset),
+                    row_bytes,
+                );
+            }
+        }
+        tex.revision = tex.revision.wrapping_add(1);
+        self.bump_texture_content();
         true
     }
 
@@ -1588,7 +1674,7 @@ impl Ui {
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
-        draw::hit_test(&self.tree, &self.styles, self.layout.viewport, x, y)
+        draw::hit_point(&self.tree, &self.styles, spec::ROOT_ID, self.layout.viewport, x, y, true, self.stable_motion_paint)
     }
 
     /// `hit_test`'s bounds-only twin (spec op hitTestBounds): pure layout
@@ -1598,7 +1684,7 @@ impl Ui {
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
-        draw::hit_test_bounds(&self.tree, &self.styles, self.layout.viewport, x, y)
+        draw::hit_point(&self.tree, &self.styles, spec::ROOT_ID, self.layout.viewport, x, y, false, self.stable_motion_paint)
     }
 
     pub fn hit_test_auxiliary(&mut self, x: f32, y: f32) -> i32 {
@@ -1612,13 +1698,15 @@ impl Ui {
                 auxiliary.root,
             );
         }
-        draw::hit_test_root(
+        draw::hit_point(
             &self.tree,
             &self.styles,
             auxiliary.root,
             auxiliary.layout.viewport,
             x,
             y,
+            true,
+            self.stable_motion_paint,
         )
     }
 
@@ -1633,13 +1721,15 @@ impl Ui {
                 auxiliary.root,
             );
         }
-        draw::hit_test_bounds_root(
+        draw::hit_point(
             &self.tree,
             &self.styles,
             auxiliary.root,
             auxiliary.layout.viewport,
             x,
             y,
+            false,
+            self.stable_motion_paint,
         )
     }
 
@@ -1654,10 +1744,11 @@ impl Ui {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
         let screen = self.layout.viewport;
+        let snap = self.stable_motion_paint;
         let tree = &self.tree;
         let styles = &self.styles;
         self.touch_table.resolve(packed, out, |x, y| {
-            draw::hit_test_bounds(tree, styles, screen, x, y)
+            draw::hit_point(tree, styles, spec::ROOT_ID, screen, x, y, false, snap)
         })
     }
 
@@ -1674,10 +1765,11 @@ impl Ui {
         }
         let root = auxiliary.root;
         let screen = auxiliary.layout.viewport;
+        let snap = self.stable_motion_paint;
         let tree = &self.tree;
         let styles = &self.styles;
         auxiliary.touch_table.resolve(packed, out, |x, y| {
-            draw::hit_test_bounds_root(tree, styles, root, screen, x, y)
+            draw::hit_point(tree, styles, root, screen, x, y, false, snap)
         })
     }
 
@@ -1992,6 +2084,7 @@ impl Ui {
     /// Walk the tree into the DrawList (spec.ts DRAWLIST format) and return
     /// it. Output is valid until the next mutating call.
     pub fn draw(&mut self) -> &DrawList {
+        self.draw_list.stable_motion_paint = self.stable_motion_paint;
         self.fonts.stream_begin(self.frame);
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
@@ -2097,6 +2190,7 @@ impl Ui {
                 auxiliary.root,
             );
         }
+        auxiliary.draw_list.stable_motion_paint = self.stable_motion_paint;
         let (target, drawn, provider_stale) = draw::build_root(
             &self.tree,
             &self.styles,

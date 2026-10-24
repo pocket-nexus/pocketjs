@@ -37,7 +37,11 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     list(FILTER qjs_sources EXCLUDE REGEX "(^|/)quickjs[.]c$")
     set_property(TARGET ${qjs_lib} PROPERTY SOURCES ${qjs_sources} "${qjs_prepared}")
     get_source_file_property(qjs_options "${qjs_source}" DIRECTORY "${qjs_dir}" COMPILE_OPTIONS)
-    if(qjs_options)
-        set_source_files_properties("${qjs_prepared}" DIRECTORY "${qjs_dir}" PROPERTIES COMPILE_OPTIONS "${qjs_options}")
+    if(NOT qjs_options)
+        set(qjs_options)
     endif()
+    # ESP-IDF's uint32_t is unsigned long. QuickJS advances the string iterator
+    # through an int pointer to a uint32_t, which strict aliasing drops at -O2.
+    list(APPEND qjs_options -fno-strict-aliasing)
+    set_source_files_properties("${qjs_prepared}" DIRECTORY "${qjs_dir}" PROPERTIES COMPILE_OPTIONS "${qjs_options}")
 endif()

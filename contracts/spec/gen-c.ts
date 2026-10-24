@@ -9,7 +9,7 @@
 // the committed header, so the C constants can never drift from spec.ts. Keep
 // this generator free of anything non-deterministic.
 
-import { ANALOG_CENTER, BTN, DRAW_LIST_VERSION, DRAW_OP, POCKET_BINDING_GENERATION } from "./spec.ts";
+import { ANALOG_CENTER, BTN, DRAW_LIST_VERSION, DRAW_OP, OP, POCKET_BINDING_GENERATION } from "./spec.ts";
 
 function hex(n: number, pad = 4): string {
   return "0x" + (n >>> 0).toString(16).toUpperCase().padStart(pad, "0");
@@ -43,6 +43,12 @@ export function generateC(): string {
   for (const [name, value] of Object.entries(DRAW_OP)) {
     const constant = name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
     put(`#define POCKET_DRAW_OP_${constant} ${value}U`);
+  }
+  put();
+  put("/* Portable operation numbers (contracts/spec/ui-ops.ts): what a program's");
+  put(" * operation provider serves and pocket_runtime_op dispatches. */");
+  for (const [name, value] of Object.entries(OP)) {
+    put(`#define POCKET_OP_${name} ${value}U`);
   }
   put();
   put("#endif");

@@ -10,6 +10,7 @@ owner task. ESP32-P4 can register PPA; S3, C3 and C6 use the software renderer.
 | `pocket_runtime` | IDF heap/log; one Rust archive |
 | `pocket_guest_quickjs` | runtime and espressif/quickjs-ng 0.14.0 |
 | `pocket_display_esp_lcd` | runtime and esp_lcd SPI/I80 transport |
+| `pocket_display_esp_dpi` | runtime, esp_driver_dma and esp_driver_ppa: a picture in a MIPI-DSI framebuffer |
 | `pocket_render_esp_ppa` | runtime and esp_driver_ppa |
 | `pocket_input_touch` | One esp_lcd_touch contact with logical coordinate scaling |
 | `pocket_input_gpio` | GPIO and ADC button masks with debounce |
@@ -17,6 +18,21 @@ owner task. ESP32-P4 can register PPA; S3, C3 and C6 use the software renderer.
 
 Only the runner creates a task. Only the PPA component includes accelerator
 headers. Package admission and UI state remain in runtime crates.
+
+`programs/m5stack-tab5` is complete firmware for the M5Stack Tab5 (ESP32-P4,
+720x1280 MIPI-DSI panel, GT911 touch). **It embeds `apps/hero` at 640x360
+at raster density 2 by default; `-DPOCKETJS_TAB5_APP=clear` embeds
+`apps/clear` at 360x640.** Each app's `pocket.tab5.json` declares that
+viewport against the program's `hero.runtime-config.ts` or
+`clear.runtime-config.ts`. The DPI display turns a landscape picture 90
+degrees onto the portrait panel with the PPA and moves retained pixels for
+content that only scrolled (`POCKET_DISPLAY_RETAINED_MOVE`); two PPA
+renderers, one per core, split every strip (`pocketjs_esp32p4_ppa_lanes`).
+
+```sh
+cd programs/m5stack-tab5
+idf.py -DPOCKETJS_TAB5_APP=clear build flash
+```
 
 ## Native archive identity
 

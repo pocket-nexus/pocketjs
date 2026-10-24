@@ -28,6 +28,7 @@ pocketjs/
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
+│  ├─ host-services/        C link, launcher, fs and photo services for native programs
 │  ├─ backends/gpui/        desktop renderer and text integration
 │  ├─ ios/                 UIKit runtime integration
 │  ├─ crates/              module, UI embedding, text and widget libraries
@@ -58,6 +59,7 @@ pocketjs/
 │  ├─ pocketbook/           reader program and InkView integration
 │  ├─ linux-kms/            Linux program with its own profile
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
+│  ├─ m5stack-tab5/         ESP32-P4 tablet: embedded apps and the Pocket Home launcher
 │  └─ native/               compatibility C-shell composition and QuickJS glue
 ├─ products/
 │  └─ 3ds/                  Link, launcher, camera and development product

@@ -4109,3 +4109,109 @@ fn text_capture_reports_painted_runs_with_their_visible_boxes() {
     ui.draw();
     assert_eq!(ui.captured_texts(0), "0,10,10,10\tBB\n");
 }
+
+#[test]
+fn update_texture_rect_overwrites_in_place() {
+    let mut ui = Ui::new();
+    let plane = ui.upload_texture(&[0u8; 4 * 2 * 2], 4, 2, spec::psm::PSM_5650);
+    assert!(plane >= 0);
+    let before = ui.raster_revision();
+    let resources_before = ui.resource_revision();
+    // A 2x1 rectangle at (1, 1): two texels, the rest stays zero.
+    assert!(ui.update_texture_rect(plane, 1, 1, 2, 1, &[0x11, 0x22, 0x33, 0x44]));
+    let view = ui.texture(plane).expect("plane still live");
+    assert_eq!(&view.pixels[8..16], &[0, 0, 0x11, 0x22, 0x33, 0x44, 0, 0]);
+    assert_eq!(&view.pixels[..8], &[0u8; 8]);
+    assert_eq!(ui.texture_revision(plane), Some(1));
+    assert_ne!(ui.raster_revision(), before);
+    // The write is the texture's own revision, not a resource change.
+    assert_eq!(ui.resource_revision(), resources_before);
+
+    assert!(!ui.update_texture_rect(plane, 3, 0, 2, 1, &[0u8; 4]), "past the right edge");
+    assert!(!ui.update_texture_rect(plane, 0, 0, 2, 1, &[0u8; 3]), "wrong byte count");
+    assert!(!ui.update_texture_rect(plane, 0, 0, 0, 1, &[]), "empty rectangle");
+    assert_eq!(ui.texture_revision(plane), Some(1));
+    let indexed = ui.upload_texture(&[0u8; 1024 + 16], 4, 4, spec::psm::PSM_T8);
+    assert!(!ui.update_texture_rect(indexed, 0, 0, 1, 1, &[0u8; 1]), "T8 texture");
+    ui.free_texture(plane);
+    assert!(!ui.update_texture_rect(plane, 0, 0, 1, 1, &[0u8; 2]), "stale handle");
+}
+
+/// A vertical gradient box at `top`, drawn by a Ui with stable motion paint.
+fn stable_motion_gradient_frame(top: f64) -> (Ui, Vec<u32>) {
+    let mut ui = Ui::new();
+    ui.set_viewport(40.0, 30.0);
+    ui.set_stable_motion_paint(true);
+    let g = ui.create_node(0);
+    ui.set_prop(g, spec::prop::WIDTH, 40.0);
+    ui.set_prop(g, spec::prop::HEIGHT, 24.0);
+    ui.set_prop(g, spec::prop::POS_TYPE, spec::PosType::Absolute as u32 as f64);
+    ui.set_prop(g, spec::prop::INSET_T, 0.0);
+    ui.set_prop(g, spec::prop::INSET_L, 0.0);
+    ui.set_prop(g, spec::prop::GRAD_FROM, abgr(10, 40, 200, 255) as f64);
+    ui.set_prop(g, spec::prop::GRAD_TO, abgr(220, 30, 60, 255) as f64);
+    ui.set_prop(g, spec::prop::GRAD_DIR, spec::GradDir::ToBottom as u32 as f64);
+    ui.set_prop(g, spec::prop::TRANSLATE_Y, top);
+    ui.insert_before(spec::ROOT_ID, g, 0);
+    ui.tick();
+    let words = ui.draw().words.clone();
+    (ui, words)
+}
+
+#[test]
+fn stable_motion_paint_keeps_a_clipped_gradient_unclipped_inside_a_scissor() {
+    let (_, words) = stable_motion_gradient_frame(-10.0);
+    let at = words
+        .iter()
+        .position(|&w| w == spec::draw_op::GRAD_RECT)
+        .expect("gradient emitted");
+    assert_eq!(words[at - 3], spec::draw_op::SCISSOR);
+    assert_eq!(decode_xy(words[at - 2]), (0, 0));
+    assert_eq!(decode_wh(words[at - 1]), (40, 30));
+    assert_eq!(decode_xy(words[at + 1]), (0, -10));
+    assert_eq!(decode_wh(words[at + 2]), (40, 24));
+    assert_eq!(words[at + 3], abgr(10, 40, 200, 255));
+    assert_eq!(words[at + 4], abgr(220, 30, 60, 255));
+    assert_eq!(words[at + 6], spec::draw_op::SCISSOR_POP);
+    // A fully visible gradient needs no scissor.
+    let (_, inside) = stable_motion_gradient_frame(3.0);
+    assert!(!inside.contains(&spec::draw_op::SCISSOR));
+}
+
+#[test]
+fn stable_motion_gradient_pixels_follow_the_box_across_the_clip() {
+    let (ui, visible) = stable_motion_gradient_frame(3.0);
+    let (_, clipped) = stable_motion_gradient_frame(-7.0);
+    for scale in [1u32, 2] {
+        let width = 40 * scale as usize;
+        let mut whole = alloc::vec![0u16; width * 30 * scale as usize];
+        let mut cut = whole.clone();
+        crate::raster::render_scaled_rgb565(&ui, &visible, &mut whole, scale);
+        crate::raster::render_scaled_rgb565(&ui, &clipped, &mut cut, scale);
+        // Box row r sits at screen row 3 + r in `whole` and -7 + r in `cut`.
+        let shift = 10 * scale as usize;
+        for row in 0..(17 * scale as usize) {
+            assert_eq!(
+                cut[row * width..(row + 1) * width],
+                whole[(row + shift) * width..(row + shift + 1) * width],
+                "row {row} at scale {scale}"
+            );
+        }
+    }
+}
+
+#[test]
+fn stable_motion_paint_rounds_translations_for_paint_and_hits() {
+    let (mut ui, words) = stable_motion_gradient_frame(2.6);
+    let at = words
+        .iter()
+        .position(|&w| w == spec::draw_op::GRAD_RECT)
+        .expect("gradient emitted");
+    assert_eq!(decode_xy(words[at + 1]), (0, 3));
+    // y = 2.8 lies inside the unrounded box (2.6..26.6) but above the
+    // painted one (3..27): the hit follows the paint.
+    assert_eq!(ui.hit_test_bounds(5.0, 2.8), spec::ROOT_ID);
+    assert_ne!(ui.hit_test_bounds(5.0, 26.8), spec::ROOT_ID);
+    ui.set_stable_motion_paint(false);
+    assert_ne!(ui.hit_test_bounds(5.0, 2.8), spec::ROOT_ID);
+}

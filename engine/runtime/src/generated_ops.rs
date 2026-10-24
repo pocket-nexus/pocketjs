@@ -77,7 +77,7 @@ pub const OP_DESCRIPTORS: &[OpDescriptor] = &[
     OpDescriptor { id: 61, name: "capturedTexts", args: &[ArgDescriptor { name: "surface", kind: ArgKind::U32, optional: false }], result: ResultKind::String, provider: "core", capability: None },
 ];
 pub const LEGACY_C_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,24,25,26,27,28,29,42,57,58];
-pub const IDF_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,42,43];
+pub const IDF_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,39,40,41,42,43];
 pub fn descriptor(op: u16) -> Option<&'static OpDescriptor> { OP_DESCRIPTORS.iter().find(|entry| entry.id == op) }
 pub fn supports_core_op(op: u16) -> bool { matches!(op, 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24 | 25 | 26 | 27 | 28 | 29 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61) }
 pub fn validate_args(op: u16, args: &[OpArg<'_>]) -> Result<(), RuntimeError> {

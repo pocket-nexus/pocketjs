@@ -73,6 +73,8 @@ static void runner_task(void *opaque) {
         timing.skipped > UINT32_MAX ? UINT32_MAX : (uint32_t)timing.skipped;
     xSemaphoreGive(runner->stats_lock);
     const int64_t frame_started = esp_timer_get_time();
+    if (runner->config.before_tick)
+      runner->config.before_tick(runner->config.user_data);
     const int32_t result = pocket_runtime_tick(runner->runtime);
     if (runner->config.after_tick)
       runner->config.after_tick(result, runner->config.user_data);
@@ -85,8 +87,13 @@ static void runner_task(void *opaque) {
       runner->stats.max_frame_us = elapsed;
     xSemaphoreGive(runner->stats_lock);
   }
+  /* The runner may be freed once `exited` is given. */
+  const uint32_t stack_caps = runner->config.task_stack_caps;
   xSemaphoreGive(runner->exited);
-  vTaskDelete(NULL);
+  if (stack_caps != 0U)
+    vTaskDeleteWithCaps(NULL);
+  else
+    vTaskDelete(NULL);
 }
 
 esp_err_t pocket_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
@@ -127,10 +134,17 @@ esp_err_t pocket_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
     free(runner);
     return ESP_ERR_NO_MEM;
   }
-  const BaseType_t created = xTaskCreatePinnedToCore(
-      runner_task, config->task_name != NULL ? config->task_name : "pocketjs",
-      config->task_stack_bytes, runner, config->task_priority, NULL,
-      config->task_core);
+  const char *name = config->task_name != NULL ? config->task_name : "pocketjs";
+  const BaseType_t created =
+      config->task_stack_caps != 0U
+          ? xTaskCreatePinnedToCoreWithCaps(
+                runner_task, name, config->task_stack_bytes, runner,
+                config->task_priority, NULL, config->task_core,
+                config->task_stack_caps)
+          : xTaskCreatePinnedToCore(runner_task, name,
+                                    config->task_stack_bytes, runner,
+                                    config->task_priority, NULL,
+                                    config->task_core);
   if (created != pdPASS) {
     vSemaphoreDelete(runner->wake);
     vSemaphoreDelete(runner->exited);

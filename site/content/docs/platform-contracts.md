@@ -182,6 +182,33 @@ assets enter a bundle only when it is the chosen entry**. Inside an entry,
 folded `hasFeature()` calls and the runtime `modality` object from
 `@pocketjs/framework/modality` carry the smaller differences.
 
+## Animation classes
+
+An **animation class** is what a changed frame costs a target.
+`deriveAnimationClass` in `contracts/spec/animation.ts` reads it off the
+profile: the display's own `animation` field when the profile declares one,
+the platform's stock renderer otherwise. **Nothing registers a class.**
+
+| Class | Frame cost | Platforms |
+| --- | --- | --- |
+| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds`, `ios`, `macos`, `web`, `android`, `linux`, `blackberry10-qnx` |
+| `repaint` | A CPU repaints the pixels a change touched, so a frame costs in proportion to that area; the host moves the pixels of a translated opaque region instead of repainting them. | `esp-idf`, `symbian`, `wince`, and any platform the table does not list |
+| `still` | The display shows one change per refresh. `animate()` and `spring()` set the end value and return no animation. | `pocketbook` |
+
+The plan records `animation`, `tools/build.ts` folds it into the bundle,
+and `animationClass` from `@pocketjs/framework/animation` reads it. An
+application keeps two sets of transitions where the costs differ. On a
+repaint target, translations of opaque regions and changes inside a small
+area run at the tick rate; a `scale`, `opacity` or `rotate` tween over a
+large subtree repaints the whole area every frame, so the application
+replaces it with a cut; an animation that runs while nothing happens (a
+wiggle, a pulse) repaints its area every frame for no input.
+
+On the M5Stack Tab5 (ESP32-P4 at 360 MHz, 592×360 logical pixels), a
+full-surface repaint takes **25 to 60 ms per core** by content, a
+translated opaque page moves through DMA in **under 20 ms**, and an
+icon-sized region repaints in **under 10 ms**; the tick is 33 ms.
+
 ## Viewport policy and companion adapters
 
 A target profile carries a `form` (`takeover`, `window`, `widget`, `kiosk`,

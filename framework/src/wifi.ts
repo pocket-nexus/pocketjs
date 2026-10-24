@@ -4,18 +4,23 @@
 import {
   WIFI_SAVED_SLOTS,
   WIFI_STATE,
+  type WifiNetwork,
   type WifiSavedNetwork,
   type WifiState,
   type WifiStatus,
 } from "../../contracts/spec/wifi.ts";
 
 export { WIFI_SAVED_SLOTS, WIFI_STATE };
-export type { WifiSavedNetwork, WifiState, WifiStatus };
+export type { WifiNetwork, WifiSavedNetwork, WifiState, WifiStatus };
 
 export interface WifiOps {
   status(): string;
   setEnabled(on: boolean): boolean;
   connect(slot: number): boolean;
+  /** Consoles whose launcher is their settings (contracts/spec/wifi.ts). */
+  scan?(): boolean;
+  join?(ssid: string, passphrase: string): boolean;
+  forget?(slot: number): boolean;
 }
 
 export function wifiHost(): WifiOps | null {
@@ -48,4 +53,27 @@ export function setWifiEnabled(on: boolean): boolean {
 export function connectSavedNetwork(slot: number): boolean {
   if (!Number.isInteger(slot) || slot < 0 || slot >= WIFI_SAVED_SLOTS) return false;
   return wifiHost()?.connect(slot) ?? false;
+}
+
+/** The host lets the launcher scan, join and forget networks itself. */
+export function wifiCanJoin(): boolean {
+  const ops = wifiHost();
+  return typeof ops?.scan === "function" && typeof ops.join === "function" &&
+    typeof ops.forget === "function";
+}
+
+/** Start a scan; the result shows in `wifiStatus().networks`. */
+export function scanNetworks(): boolean {
+  return wifiHost()?.scan?.() ?? false;
+}
+
+/** Connect to a network and save it once connected. */
+export function joinNetwork(ssid: string, passphrase: string): boolean {
+  if (ssid.length === 0 || ssid.length > 32 || passphrase.length > 63) return false;
+  return wifiHost()?.join?.(ssid, passphrase) ?? false;
+}
+
+export function forgetNetwork(slot: number): boolean {
+  if (!Number.isInteger(slot) || slot < 0 || slot >= WIFI_SAVED_SLOTS) return false;
+  return wifiHost()?.forget?.(slot) ?? false;
 }

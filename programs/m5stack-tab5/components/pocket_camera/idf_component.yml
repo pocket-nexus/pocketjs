@@ -1,0 +1,11 @@
+version: "0.1.0"
+description: camera.qr and camera.photo on the M5Stack Tab5
+targets:
+  - esp32p4
+dependencies:
+  idf: ">=6.0,<6.2"
+  espressif/esp_video: "~2.0"
+  pocket-nexus/pocket_runtime:
+    override_path: ../../../../platforms/esp-idf/pocket_runtime
+  pocket-nexus/pocket_guest_quickjs:
+    override_path: ../../../../platforms/esp-idf/pocket_guest_quickjs

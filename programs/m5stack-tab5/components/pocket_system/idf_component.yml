@@ -1,0 +1,10 @@
+version: "0.1.0"
+description: Pocket Home services on the M5Stack Tab5 (installed apps, Pocket Link, net, data.fs, Wi-Fi)
+targets:
+  - esp32p4
+dependencies:
+  idf: ">=6.0,<6.2"
+  pocket-nexus/pocket_runtime:
+    override_path: ../../../../platforms/esp-idf/pocket_runtime
+  pocket-nexus/pocket_guest_quickjs:
+    override_path: ../../../../platforms/esp-idf/pocket_guest_quickjs

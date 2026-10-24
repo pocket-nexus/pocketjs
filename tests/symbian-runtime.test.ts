@@ -153,6 +153,7 @@ describe("experimental Nokia E7 runtime profile", () => {
           policy: liveViewport ? "dynamic" : "fixed",
         },
         modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
+        animation: "repaint",
         features: {},
         companions: [],
         profile,

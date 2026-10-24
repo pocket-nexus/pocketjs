@@ -101,6 +101,8 @@ fn config() -> RendererConfig {
         min_fill_pixels: 1,
         min_blend_pixels: 1,
         min_srm_pixels: 1,
+        // Every blend is offered to the device.
+        cpu_blend_max_pixels: 0,
     }
 }
 fn wh(w: u32, h: u32) -> u32 {
@@ -157,8 +159,9 @@ fn rejected_operations_draw_in_software_with_reference_pixels() {
     let stats = painter
         .render(&Resources, &words(), &mut s, &mut device)
         .unwrap();
+    // The opaque RECT covering the strip replaces the clear: one fill.
     assert!(
-        device.calls >= 2 && device.blends >= 2,
+        device.calls >= 1 && device.blends >= 2,
         "every operation was offered"
     );
     assert_eq!((stats.ppa_fills, stats.ppa_blends), (0, 0));
@@ -299,7 +302,7 @@ fn supported_and_unsupported_operations_follow_the_device_contract() {
         painter
             .render(&Resources, &words(), &mut s, &mut device)
             .unwrap();
-        assert!(device.calls >= 2);
+        assert!(device.calls >= 1);
         assert!(device.blends >= 2);
         assert_eq!(painter.scratch_bytes(), 48);
     }
@@ -308,7 +311,7 @@ fn supported_and_unsupported_operations_follow_the_device_contract() {
 fn failed_after_write_aborts_without_replay_or_later_operations() {
     let mut d = vec![0u16; 48];
     let mut device = Device {
-        fail_at: Some(2),
+        fail_at: Some(1),
         ..Default::default()
     };
     let mut painter = Painter::new(config(), 48).unwrap();
@@ -323,7 +326,7 @@ fn failed_after_write_aborts_without_replay_or_later_operations() {
         painter.render(&Resources, &words(), &mut s, &mut device),
         Err(RenderError::Failed)
     );
-    assert_eq!(device.calls, 2);
+    assert_eq!(device.calls, 1);
     assert_eq!(device.blends, 0);
     assert_eq!(d[0], 0x1234);
     assert!(d[1..].iter().all(|&v| v == 0));
@@ -364,7 +367,7 @@ fn zero_budget_keeps_fill_and_falls_back_for_a8() {
     painter
         .render(&Resources, &words(), &mut s, &mut device)
         .unwrap();
-    assert!(device.calls >= 2);
+    assert!(device.calls >= 1);
     assert_eq!(device.blends, 0);
     assert_eq!(painter.scratch_bytes(), 0);
 }

@@ -13,7 +13,7 @@ use core::{any::Any, cell::RefCell};
 use pocket_drivers::{
     BufferIdentity, DamageRect, DisplayDescriptor, DisplayError, DisplayOutput, DisplayRole,
     DrawList, FontView, FrameInput, Rect, RenderError, RenderResources, Renderer,
-    RendererDescriptor, Synchronization, Target, TargetOwnership, TexView,
+    RendererDescriptor, Synchronization, Target, TargetOwnership, TexView, HOST_DAMAGE_RECTS,
 };
 use pocket_raster::RasterRenderer;
 
@@ -115,6 +115,8 @@ trait ErasedDisplay {
     fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError>;
     fn flush(&mut self, regions: &[Rect]) -> Result<ErasedValue, DisplayError>;
     fn wait(&mut self, token: ErasedValue) -> Result<(), DisplayError>;
+    fn move_pixels(&mut self, destination: Rect, dx: i32, dy: i32) -> Result<(), DisplayError>;
+    fn host_damage(&mut self, out: &mut [Rect; HOST_DAMAGE_RECTS]) -> usize;
 }
 
 struct DisplayAdapter<D>(D);
@@ -140,6 +142,12 @@ where
     fn wait(&mut self, token: ErasedValue) -> Result<(), DisplayError> {
         self.0
             .wait(*token.downcast().expect("matching display token"))
+    }
+    fn move_pixels(&mut self, destination: Rect, dx: i32, dy: i32) -> Result<(), DisplayError> {
+        self.0.move_pixels(destination, dx, dy)
+    }
+    fn host_damage(&mut self, out: &mut [Rect; HOST_DAMAGE_RECTS]) -> usize {
+        self.0.host_damage(out)
     }
 }
 
@@ -706,11 +714,52 @@ impl Coordinator {
                     self.scale,
                     descriptor.format as u64,
                 );
-                let plan = display.histories[slot]
-                    .1
-                    .prepare(views.last().unwrap(), &list.words, target)
-                    .and_then(|plan| plan.with_policy(DamagePolicy::default()))
-                    .map_err(|_| PresentError::InvalidFrame)?;
+                let tracker = &mut display.histories[slot].1;
+                let view = views.last().unwrap();
+                // A display that moves retained pixels reuses content that
+                // only moved: it moves those pixels before the first strip.
+                let mut plan = if descriptor.retained_move {
+                    tracker.prepare_with_motion(view, &list.words, target)
+                } else {
+                    tracker.prepare(view, &list.words, target)
+                }
+                .and_then(|plan| plan.with_policy(DamagePolicy::default()))
+                .map_err(|_| PresentError::InvalidFrame)?;
+                let scale = self.scale;
+                let driver = display.driver.as_mut().expect("validated display");
+                if let Some(motion) = plan.motion() {
+                    let moved = motion.destination;
+                    let destination = Rect::new(
+                        moved.x0 as u32 * scale,
+                        moved.y0 as u32 * scale,
+                        (moved.x1 - moved.x0) as u32 * scale,
+                        (moved.y1 - moved.y0) as u32 * scale,
+                    );
+                    match driver.move_pixels(
+                        destination,
+                        motion.dx * scale as i32,
+                        motion.dy * scale as i32,
+                    ) {
+                        Ok(()) => {}
+                        // The display left the pixels alone: repaint them.
+                        Err(DisplayError::Unsupported) => plan.repaint_motion(),
+                        Err(error) => return Err(PresentError::Acquire(DisplayId(index), error)),
+                    }
+                }
+                // Rows a host overlay needs besides the frame's own damage.
+                let mut extra = [Rect::new(0, 0, 0, 0); HOST_DAMAGE_RECTS];
+                let count = driver.host_damage(&mut extra).min(HOST_DAMAGE_RECTS);
+                for rect in &extra[..count] {
+                    if rect.width == 0 || rect.height == 0 {
+                        continue;
+                    }
+                    plan.add_region(DamageRect::new(
+                        (rect.x / scale) as i32,
+                        (rect.y / scale) as i32,
+                        (rect.x + rect.width).div_ceil(scale) as i32,
+                        (rect.y + rect.height).div_ceil(scale) as i32,
+                    ));
+                }
                 physical_damage(plan.regions(), &descriptor, self.scale)?
             } else {
                 alloc::vec![Rect::new(0, 0, descriptor.width, descriptor.height)]
@@ -810,6 +859,9 @@ impl RenderResources for FrameResources<'_> {
     }
     fn raster_revision(&self) -> u64 {
         self.source.raster_revision()
+    }
+    fn resource_revision(&self) -> u64 {
+        self.source.resource_revision()
     }
     fn texture(&self, handle: i32) -> Option<TexView<'_>> {
         let view = self.source.texture(handle);
@@ -1167,6 +1219,7 @@ fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), Prese
                 || !display.device_frame_storage
                 || display.target_ownership != TargetOwnership::CpuVisible)
         || display.queued_flush && display.target_ownership != TargetOwnership::DeviceOwned
+        || display.retained_move && (!display.device_frame_storage || !display.partial_refresh)
     {
         return Err(PresentError::InvalidDisplayDescriptor);
     }
