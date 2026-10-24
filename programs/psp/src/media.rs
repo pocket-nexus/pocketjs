@@ -111,6 +111,14 @@ static PRESENTED: AtomicU32 = AtomicU32::new(0);
 static DROPPED: AtomicU32 = AtomicU32::new(0);
 static DECODE_MAX: AtomicU32 = AtomicU32::new(0);
 static UNDERRUNS: AtomicU32 = AtomicU32::new(0);
+/// What an invalid packet was, for the status's error: the check it failed
+/// (BAD_*), its kind, size and time, and where its header sat in the stream.
+static BAD_CHECK: AtomicU32 = AtomicU32::new(0);
+static BAD_KIND: AtomicU32 = AtomicU32::new(0);
+static BAD_SIZE: AtomicU32 = AtomicU32::new(0);
+static BAD_PTS: AtomicU32 = AtomicU32::new(0);
+static BAD_AT: AtomicU32 = AtomicU32::new(0);
+const BAD_CHECKS: [&str; 5] = ["", "header", "order", "picture", "sound"];
 /// The clock: stream time AUDIO_PTS sits at played frame AUDIO_BASE; no
 /// audio yet while AUDIO_KNOWN is false.
 static AUDIO_KNOWN: AtomicBool = AtomicBool::new(false);
@@ -218,6 +226,8 @@ struct Stream {
     ring_bytes: u32,
     /// Stream bytes handed to the decoder.
     pos: u32,
+    /// Where the packet being read starts in the stream.
+    packet_at: u32,
     /// Stream bytes read out of the ring (pos plus the read-ahead buffer);
     /// what media.ack reports, since the ring may then be overwritten.
     fetched: u32,
@@ -237,6 +247,14 @@ struct Stream {
 
 fn current(generation: u32) -> bool {
     OPEN.load(Acquire) && REQUESTED.load(Acquire) == generation
+}
+
+/// Fail the stream on an invalid packet, recording what it was.
+fn bad_packet(generation: u32, check: u32, kind: u32, size: u32, pts: u32, at: u32) {
+    for (slot, value) in [(&BAD_CHECK, check), (&BAD_KIND, kind), (&BAD_SIZE, size), (&BAD_PTS, pts), (&BAD_AT, at)] {
+        slot.store(value, Relaxed);
+    }
+    fail(generation, ERR_PACKET);
 }
 
 fn fail(generation: u32, error: u32) {
@@ -435,7 +453,7 @@ impl Stream {
         let frames = wire::decode_audio(data, pcm);
         note_decode(started);
         if frames == 0 {
-            fail(self.generation, ERR_PACKET);
+            bad_packet(self.generation, 4, wire::PACKET_AUDIO as u32, data.len() as u32, pts, self.packet_at);
             return false;
         }
         if !AUDIO_OUT.load(Acquire) {
@@ -487,7 +505,7 @@ impl Stream {
 
     unsafe fn video(&mut self, state: &mut wire::Pal8, data: &[u8], pts: u32) -> bool {
         let Some((w, h)) = wire::pal8_size(data) else {
-            fail(self.generation, ERR_PACKET);
+            bad_packet(self.generation, 3, wire::PACKET_VIDEO as u32, data.len() as u32, pts, self.packet_at);
             return false;
         };
         let need = (w * h) as u32;
@@ -514,7 +532,7 @@ impl Stream {
         let reference = core::slice::from_raw_parts_mut(pictures.reference, need as usize);
         let started = now();
         if !wire::pal8_apply(state, reference, data) {
-            fail(self.generation, ERR_PACKET);
+            bad_packet(self.generation, 3, wire::PACKET_VIDEO as u32, data.len() as u32, pts, self.packet_at);
             return false;
         }
         // The reference already holds this picture, so a full ring drops it
@@ -597,6 +615,7 @@ unsafe fn play(generation: u32, token: &[u8; 64]) {
         ack,
         ring_bytes: 1,
         pos: 0,
+        packet_at: 0,
         fetched: 0,
         ahead_len: 0,
         acked: u32::MAX,
@@ -637,17 +656,18 @@ impl Stream {
         let (mut last_video, mut last_audio) = (header.origin_ms, header.origin_ms);
         loop {
             let mut head = [0u8; wire::PACKET_HEADER_BYTES];
+            self.packet_at = self.pos;
             if !self.read(&mut head) {
                 fail(generation, ERR_CONNECTION);
                 return;
             }
             let Some((kind, size, pts)) = wire::packet(&head) else {
-                fail(generation, ERR_PACKET);
+                bad_packet(generation, 1, head[0] as u32, wire::u32_at(&head, 4), wire::u32_at(&head, 8), self.packet_at);
                 return;
             };
             let behind = |last: u32| pts < last || pts - last > 1000;
             if (kind == wire::PACKET_VIDEO && behind(last_video)) || (kind == wire::PACKET_AUDIO && behind(last_audio)) {
-                fail(generation, ERR_PACKET);
+                bad_packet(generation, 2, kind as u32, size as u32, pts, self.packet_at);
                 return;
             }
             if size != 0 && !self.read(&mut packet[..size]) {
@@ -888,7 +908,20 @@ pub fn status() -> String {
     if PAUSED.load(Acquire) && (phase == PLAYING || phase == BUFFERING) {
         name = "paused";
     }
-    let message = if phase == FAILED { ERRORS.get(error as usize).copied().unwrap_or("Media failed") } else { "" };
+    let message = if phase != FAILED {
+        String::new()
+    } else if error == ERR_PACKET {
+        format!(
+            "Invalid media packet ({} check, kind {} size {} pts {} at byte {})",
+            BAD_CHECKS.get(BAD_CHECK.load(Relaxed) as usize).copied().unwrap_or("?"),
+            BAD_KIND.load(Relaxed),
+            BAD_SIZE.load(Relaxed),
+            BAD_PTS.load(Relaxed),
+            BAD_AT.load(Relaxed),
+        )
+    } else {
+        String::from(ERRORS.get(error as usize).copied().unwrap_or("Media failed"))
+    };
     format!(
         "{{\"phase\":\"{}\",\"positionMs\":{},\"bufferedMs\":{},\"decodedFrames\":{},\"presentedFrames\":{},\"droppedFrames\":{},\"receivedBytes\":{},\"decodeMaxUs\":{},\"audioUnderruns\":{},\"hardware\":false,\"h264\":false,\"audio\":{},\"error\":\"{}\"}}",
         name,
