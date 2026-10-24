@@ -191,7 +191,7 @@ every `host0:` read and write, so a USB round trip never lands inside a frame;
 the guest's thread only builds records and allocates and frees the buffers the
 worker fills. The first `ready` read happens before a guest evaluates, so a
 request made at mount finds the session up. A new epoch (the companion
-restarted) or **3 s** without a beat fails every open request with
+restarted) or **10 s** without a beat (the TCP link's silence) fails every open request with
 `unavailable`; nothing is replayed. `link.status()` reports `linked` with the
 companion's name while it beats and `searching` otherwise; `pair`, `forget`,
 `catalog`, `install` and `remove` refuse.

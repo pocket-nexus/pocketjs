@@ -40,7 +40,7 @@ const KIND_MEDIA: u32 = 6;
 const SLOTS: usize = 2;
 const MAX_JSON: usize = 16 * 1024;
 const BEAT_US: u32 = 500_000;
-const SILENCE_US: u32 = 3_000_000;
+const SILENCE_US: u32 = 10_000_000;
 /// A sent request's reply is read every 5 ms for its first 200 ms (most
 /// replies), then every 25 ms (a long poll, a slow service): each read is an
 /// open, a read and a close on the computer serving the share.

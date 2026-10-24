@@ -406,7 +406,9 @@ export const LINK_USB_KIND = {
 /** Request slots: the NET module's in-flight limit (net.ts NET_MAX_INFLIGHT). */
 export const LINK_USB_SLOTS = 2;
 export const LINK_USB_BEAT_MS = 500;
-export const LINK_USB_SILENCE_MS = 3000;
+/** As the TCP link's LINK_SILENCE_MS: a small companion (a CardputerZero)
+ *  paused its beat 5.7 s while a yt-dlp resolve pushed it into swap. */
+export const LINK_USB_SILENCE_MS = 10_000;
 /** The largest `json` section of any record. */
 export const LINK_USB_MAX_JSON = 16 * 1024;
 /** What `ready` lists in `features` (LINK_FEATURE.net, and the media ring). */
