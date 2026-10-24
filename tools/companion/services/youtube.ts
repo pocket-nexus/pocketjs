@@ -32,7 +32,7 @@
 // feed is a search for its topic (News sorted by upload date). Results are cached for ten minutes. Titles
 // stay in UTF-8; the app folds what its fonts lack.
 
-import { existsSync, readdirSync } from "node:fs";
+import { closeSync, existsSync, read, readdirSync } from "node:fs";
 import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { MEDIA, type MediaCodec, type MediaSource } from "../../../contracts/spec/media.ts";
@@ -186,6 +186,38 @@ async function run(command: string[], signal?: AbortSignal): Promise<{ ok: boole
   }
 }
 
+const readInto = (fd: number, buffer: Uint8Array) =>
+  new Promise<number>((resolve, reject) => read(fd, buffer, 0, buffer.length, null, (error, n) => (error ? reject(error) : resolve(n))));
+
+/** A subprocess's extra pipe as chunks, read only when the consumer asks:
+ *  Bun buffers a piped stdout without bound (1 GB in 3 s from a fast
+ *  writer), so a console slower than ffmpeg had the companion hold the
+ *  whole decoded stream; a CardputerZero ran out of memory in three
+ *  minutes. Reading the descriptor leaves the writer blocked on a full
+ *  pipe. Bun hands the parent's end over non-blocking, so an empty pipe is
+ *  EAGAIN and a short wait. The descriptor is closed at the end. */
+export async function* pipeChunks(fd: number, size = 64 * 1024): AsyncGenerator<Uint8Array> {
+  try {
+    for (;;) {
+      const buffer = new Uint8Array(size);
+      let n: number;
+      try {
+        n = await readInto(fd, buffer);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error;
+        await Bun.sleep(5);
+        continue;
+      }
+      if (n === 0) return;
+      yield buffer.subarray(0, n);
+    }
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {}
+  }
+}
+
 /** A process pipe as chunks (Bun's streams iterate; the DOM types say not). */
 const chunks = (stream: ReadableStream<Uint8Array>) => stream as unknown as AsyncIterable<Uint8Array>;
 
@@ -288,7 +320,10 @@ async function* pcmPackets(chunks: AsyncIterable<Uint8Array>, originMs: number):
   }
 }
 
-/** One video and one audio ffmpeg, interleaved by timestamp. */
+/** One ffmpeg for the picture (fd 3) and the sound (fd 4), interleaved by
+ *  timestamp: two processes held about 43 MB each on a CardputerZero, most
+ *  of it the same libraries. Both pipes are read as packets are taken
+ *  (pipeChunks), so ffmpeg runs no further ahead than the console. */
 async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: MediaCodec, seconds: number, signal: AbortSignal): AsyncGenerator<MediaPacket> {
   if (signal.aborted) return;
   const originMs = Math.round(seconds * 1000);
@@ -304,57 +339,60 @@ async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: M
   const seek = seconds > 0 ? ["-ss", String(seconds)] : [];
   const encode =
     codec === "pal8"
-      ? ["-an", "-vf",
+      ? ["-vf",
           `fps=${PAL8.fps},scale=${PAL8.width}:${PAL8.height}:flags=area:force_original_aspect_ratio=decrease,` +
           `pad=${PAL8.width}:${PAL8.height}:(ow-iw)/2:(oh-ih)/2:black`,
-          "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
+          "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:3"]
       : (() => {
           const fit = planeFit(video.width, video.height);
           // zerolatency turns on sliced threading, and MVD takes one slice a frame.
-          return ["-an", "-vf", `fps=${H264.fps},scale=${fit.w}:${fit.h}:flags=lanczos,pad=${MEDIA.width}:${MEDIA.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`,
+          return ["-vf", `fps=${H264.fps},scale=${fit.w}:${fit.h}:flags=lanczos,pad=${MEDIA.width}:${MEDIA.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`,
             "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-threads:v", "1", "-profile:v", "baseline", "-level:v", "3.0",
             "-pix_fmt", "yuv420p", "-b:v", String(H264.bitrate), "-maxrate", String(H264.maxrate), "-bufsize", "750000",
             "-g", "30", "-keyint_min", "30", "-bf", "0",
-            "-x264-params", "aud=1:repeat-headers=1:scenecut=0:slices=1:sliced-threads=0", "-f", "h264", "pipe:1"];
+            "-x264-params", "aud=1:repeat-headers=1:scenecut=0:slices=1:sliced-threads=0", "-f", "h264", "pipe:3"];
         })();
-  const videoProcess = Bun.spawn([...common, ...network(video.videoUrl), ...seek, "-i", video.videoUrl, ...encode], { stdout: "pipe", stderr: "pipe" });
-  const audioProcess = Bun.spawn(
-    [...common, ...network(video.audioUrl), ...seek, "-i", video.audioUrl, "-vn", "-ac", "2", "-ar", String(MEDIA.sampleRate), "-f", "s16le", "pipe:1"],
-    { stdout: "pipe", stderr: "pipe" },
+  // A combined format names one URL for both.
+  const inputs = video.audioUrl === video.videoUrl
+    ? [...network(video.videoUrl), ...seek, "-i", video.videoUrl]
+    : [...network(video.videoUrl), ...seek, "-i", video.videoUrl, ...network(video.audioUrl), ...seek, "-i", video.audioUrl];
+  const audioInput = video.audioUrl === video.videoUrl ? 0 : 1;
+  const ffmpeg = Bun.spawn(
+    [...common, ...inputs, "-map", "0:v:0", ...encode,
+      "-map", `${audioInput}:a:0`, "-ac", "2", "-ar", String(MEDIA.sampleRate), "-f", "s16le", "pipe:4"],
+    { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
   );
-  const stop = () => {
-    videoProcess.kill();
-    audioProcess.kill();
-  };
+  const videoOut = pipeChunks(ffmpeg.stdio[3] as number), audioOut = pipeChunks(ffmpeg.stdio[4] as number);
+  const stop = () => ffmpeg.kill();
   signal.addEventListener("abort", stop, { once: true });
   const tail = async (stream: ReadableStream<Uint8Array>) => {
     let text = "";
     for await (const chunk of chunks(stream)) text = (text + new TextDecoder().decode(chunk)).slice(-1000);
     return scrub(text);
   };
-  const videoError = tail(videoProcess.stderr), audioError = tail(audioProcess.stderr);
+  const failure = tail(ffmpeg.stderr as ReadableStream<Uint8Array>);
   async function* videoPackets(): AsyncGenerator<MediaPacket> {
     let frame = 0;
     if (codec === "pal8") {
-      for await (const packet of pal8Packets(fixedChunks(chunks(videoProcess.stdout), PAL8.width * PAL8.height * 3), originMs)) {
+      for await (const packet of pal8Packets(fixedChunks(videoOut, PAL8.width * PAL8.height * 3), originMs)) {
         frame++;
         yield packet;
       }
     } else {
-      for await (const data of accessUnits(chunks(videoProcess.stdout))) yield { kind: 1, ptsMs: originMs + Math.round((frame++ * 1000) / H264.fps), data };
+      for await (const data of accessUnits(videoOut)) yield { kind: 1, ptsMs: originMs + Math.round((frame++ * 1000) / H264.fps), data };
     }
-    if ((await videoProcess.exited) || !frame) {
-      if (!signal.aborted) throw new Error(`video encoder failed: ${await videoError}`);
+    if ((await ffmpeg.exited) || !frame) {
+      if (!signal.aborted) throw new Error(`video encoder failed: ${await failure}`);
     }
   }
   async function* audioPackets(): AsyncGenerator<MediaPacket> {
     let count = 0;
-    for await (const packet of pcmPackets(chunks(audioProcess.stdout), originMs)) {
+    for await (const packet of pcmPackets(audioOut, originMs)) {
       count++;
       yield packet;
     }
-    if ((await audioProcess.exited) || !count) {
-      if (!signal.aborted) throw new Error(`audio encoder failed: ${await audioError}`);
+    if ((await ffmpeg.exited) || !count) {
+      if (!signal.aborted) throw new Error(`audio encoder failed: ${await failure}`);
     }
   }
   const v = videoPackets(), a = audioPackets();
@@ -372,7 +410,7 @@ async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: M
   } finally {
     stop();
     signal.removeEventListener("abort", stop);
-    await Promise.allSettled([videoProcess.exited, audioProcess.exited, videoError, audioError]);
+    await Promise.allSettled([ffmpeg.exited, failure, videoOut.return(undefined), audioOut.return(undefined)]);
   }
 }
 
