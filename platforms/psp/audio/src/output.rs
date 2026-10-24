@@ -17,7 +17,8 @@
 //! into `sceAudioOutputPannedBlocking`, which parks it in the kernel until
 //! the hardware drains each block.
 //!
-//! Single writer (main thread) + single reader (audio thread) over absolute
+//! Single writer (the main thread for the video plane, the media worker for
+//! media.playback, never both) + single reader (audio thread) over absolute
 //! frame counters; release/acquire pairs publish the PCM bytes with the
 //! counter. `flush()` (seek/epoch change) is writer-side: it advances the
 //! read cursor, and a racing reader at worst outputs one already-consumed
@@ -52,6 +53,10 @@ static RESERVED: AtomicBool = AtomicBool::new(false);
 static CHANNEL: AtomicI32 = AtomicI32::new(-1);
 /// Integer upsample factor to 44.1 kHz (44100 / stream rate).
 static UPSAMPLE: AtomicUsize = AtomicUsize::new(1);
+/// The output holds: queued PCM stays queued and the played position stops.
+static PAUSED: AtomicBool = AtomicBool::new(false);
+/// Channel volume, 0..=AUDIO_VOLUME_MAX.
+static VOLUME: AtomicI32 = AtomicI32::new(sys::AUDIO_VOLUME_MAX as i32);
 
 /// 44.1 kHz output covers the rates the hardware would have resampled from
 /// anyway; only integer ratios are supported (the host streams 22.05 kHz).
@@ -70,6 +75,10 @@ unsafe extern "C" fn audio_thread(_argc: usize, _argv: *mut c_void) -> i32 {
     let mut prev_l: i32 = 0;
     let mut prev_r: i32 = 0;
     while RUN.load(Ordering::Acquire) {
+        if PAUSED.load(Ordering::Acquire) {
+            sys::sceKernelDelayThread(4_000);
+            continue;
+        }
         let k = UPSAMPLE.load(Ordering::Relaxed).max(1);
         let need = BLOCK_OUT / k;
         let read = READ_POS.load(Ordering::Relaxed);
@@ -118,10 +127,11 @@ unsafe extern "C" fn audio_thread(_argc: usize, _argv: *mut c_void) -> i32 {
             (BLOCK_OUT * 2 * 2) as u32,
         );
         let ch = CHANNEL.load(Ordering::Relaxed);
+        let volume = VOLUME.load(Ordering::Relaxed);
         sys::sceAudioOutputPannedBlocking(
             ch,
-            sys::AUDIO_VOLUME_MAX as i32,
-            sys::AUDIO_VOLUME_MAX as i32,
+            volume,
+            volume,
             OUT.0.as_mut_ptr() as *mut c_void,
         );
     }
@@ -167,6 +177,8 @@ pub unsafe fn start(sample_rate: u32) -> bool {
     WRITE_POS.store(0, Ordering::Relaxed);
     READ_POS.store(0, Ordering::Relaxed);
     UPSAMPLE.store(k, Ordering::Relaxed);
+    PAUSED.store(false, Ordering::Release);
+    VOLUME.store(sys::AUDIO_VOLUME_MAX as i32, Ordering::Relaxed);
     // A stale hold (previous release timed out) blocks reserve forever —
     // clear it first, then give the reserve a grace window for the drain.
     release_channel();
@@ -265,4 +277,32 @@ pub unsafe fn push(pcm: &[i16], channels: u32) {
 /// to the write cursor. See the module header for the benign race.
 pub fn flush() {
     READ_POS.store(WRITE_POS.load(Ordering::Relaxed), Ordering::Release);
+}
+
+/// Hold or release the output. While held the hardware gets no block, so the
+/// played position stops where it is.
+pub fn set_paused(value: bool) {
+    PAUSED.store(value, Ordering::Release);
+}
+
+/// Channel volume from 0.0 to 1.0.
+pub fn set_volume(value: f32) {
+    let value = if value.is_finite() { value.clamp(0.0, 1.0) } else { 0.0 };
+    VOLUME.store((value * sys::AUDIO_VOLUME_MAX as f32) as i32, Ordering::Relaxed);
+}
+
+/// SOURCE sample frames handed to the hardware since start(); the media
+/// clock (the block in flight counts as played).
+pub fn played() -> usize {
+    READ_POS.load(Ordering::Acquire)
+}
+
+/// SOURCE sample frames pushed since start() (writer-side).
+pub fn written() -> usize {
+    WRITE_POS.load(Ordering::Relaxed)
+}
+
+/// SOURCE sample frames queued and not yet played.
+pub fn queued() -> usize {
+    RING_FRAMES - free_frames()
 }

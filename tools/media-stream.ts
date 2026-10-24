@@ -114,12 +114,41 @@ async function write(socket: Socket, bytes: Uint8Array): Promise<void> {
     socket.once("drain",drain);socket.once("close",close);socket.once("error",error);
   });
 }
+/** A ticket a consumer other than a socket took: the USB carrier
+ *  (tools/companion/usb.ts) runs `produce` itself and paces it by the ring
+ *  the console reads. `signal` aborts when the ticket is revoked. */
+export interface MediaTicket {
+  header: Buffer;
+  produce: (signal: AbortSignal) => AsyncIterable<MediaPacket>;
+  signal: AbortSignal;
+  /** The consumer stopped: the stream no longer counts against capacity. */
+  release(): void;
+}
+const servers = new Set<{ take(token: string): MediaTicket | undefined }>();
+/** The ticket `token` names on any stream server in this process, once. */
+export function takeMediaTicket(token: string): MediaTicket | undefined {
+  for (const server of servers) {
+    const ticket = server.take(token);
+    if (ticket) return ticket;
+  }
+  return undefined;
+}
 /** A stream server on every interface. A ticket names `host` (default
  *  `advertiseHost`), the address its console reaches this machine at. */
 export async function createMediaStreamServer(options: { advertiseHost?: string; port?: number; log?: (message: string) => void }) {
   type Ticket={ header:Buffer; produce:(signal:AbortSignal)=>AsyncIterable<MediaPacket>; expires:number };
-  const tickets=new Map<string,Ticket>(), sockets=new Map<string,Socket>();
+  const tickets=new Map<string,Ticket>(), sockets=new Map<string,Socket>(), local=new Map<string,AbortController>();
   const connections=new Set<Socket>();
+  const entry={
+    take(token:string):MediaTicket|undefined {
+      const ticket=tickets.get(token);
+      if(!ticket) return undefined;
+      tickets.delete(token);
+      if(ticket.expires<Date.now()) return undefined;
+      const abort=new AbortController(); local.set(token,abort);
+      return { header:ticket.header, produce:ticket.produce, signal:abort.signal, release:()=>{ if(local.get(token)===abort) local.delete(token); } };
+    },
+  };
   const server=createServer(socket=>{
     connections.add(socket);socket.once("close",()=>connections.delete(socket));
     socket.setNoDelay(true); socket.setTimeout(10000,()=>socket.destroy());
@@ -168,15 +197,16 @@ export async function createMediaStreamServer(options: { advertiseHost?: string;
   await new Promise<void>((resolve,reject)=>{server.once("error",reject);server.listen(options.port??0,"0.0.0.0",()=>{server.off("error",reject);resolve();});});
   const address=server.address();
   if(!address || typeof address==="string") throw new Error("No media listener");
+  servers.add(entry);
   return {
     publish(header:Buffer,produce:Ticket["produce"],host=options.advertiseHost):MediaSource {
       if(!host) throw new Error("Media stream needs the host its console reaches");
       for(const [token,ticket] of tickets) if(ticket.expires<Date.now()) tickets.delete(token);
-      if(tickets.size+sockets.size>=4 || header.length!==MEDIA.headerBytes) throw new Error("Media stream capacity exceeded");
+      if(tickets.size+sockets.size+local.size>=4 || header.length!==MEDIA.headerBytes) throw new Error("Media stream capacity exceeded");
       const token=randomBytes(32).toString("hex"); tickets.set(token,{header,produce,expires:Date.now()+60000});
       return {host,port:address.port,token};
     },
-    revoke(source:MediaSource) { tickets.delete(source.token);sockets.get(source.token)?.destroy(); },
-    close() { tickets.clear();for(const socket of connections)socket.destroy();server.close(); },
+    revoke(source:MediaSource) { tickets.delete(source.token);sockets.get(source.token)?.destroy();local.get(source.token)?.abort(); },
+    close() { servers.delete(entry);tickets.clear();for(const socket of connections)socket.destroy();for(const abort of local.values())abort.abort();local.clear();server.close(); },
   };
 }

@@ -6,22 +6,31 @@
 //
 // Everything here is polling over small files, because the share is the only
 // channel: usbhostfs_pc writes what the console writes, and the console reads
-// what this process renames into place.
+// what this process renames into place. The media ring is the exception: the
+// console holds it open, so it is written in place (UsbMedia).
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  LINK_FEATURE,
   LINK_USB_BEAT_MS,
   LINK_USB_DIR,
+  LINK_USB_FEATURES,
   LINK_USB_HEADER_BYTES,
   LINK_USB_KIND,
   LINK_USB_MAGIC,
   LINK_USB_MAX_JSON,
+  LINK_USB_MEDIA_ACK_BYTES,
+  LINK_USB_MEDIA_ACK_MAGIC,
+  LINK_USB_MEDIA_CLOSED,
+  LINK_USB_MEDIA_HEAD_BYTES,
+  LINK_USB_MEDIA_MAGIC,
+  LINK_USB_MEDIA_RING_BYTES,
   LINK_USB_SILENCE_MS,
   LINK_USB_SLOTS,
 } from "../../contracts/spec/link.ts";
+import { MEDIA_PACKET } from "../../contracts/spec/media.ts";
 import { NET_ERROR } from "../../contracts/spec/net.ts";
+import { mediaPacket, takeMediaTicket, type MediaTicket } from "../media-stream.ts";
 import { NetFailure, normalizeNetRequest } from "./fetch.ts";
 
 /** How often the slots and `hello` are read. */
@@ -131,6 +140,134 @@ export interface UsbDevice {
   target: string;
 }
 
+/** The media ring's head (contracts/spec/link.ts "Media"). */
+export function encodeMediaHead(epoch: number, generation: number, written: number, flags: number, ring = LINK_USB_MEDIA_RING_BYTES): Uint8Array {
+  const out = new Uint8Array(LINK_USB_MEDIA_HEAD_BYTES);
+  const view = new DataView(out.buffer);
+  for (const [at, value] of [[0, LINK_USB_MEDIA_MAGIC], [4, epoch], [8, generation], [12, written], [16, flags], [20, ring]] as const) {
+    view.setUint32(at, value >>> 0, true);
+  }
+  view.setUint32(24, fnv1a32(out.subarray(0, 24)), true);
+  return out;
+}
+
+/** The console's `media.ack`: the stream bytes it consumed, for `generation`. */
+export function decodeMediaAck(bytes: Uint8Array, generation: number): number | null {
+  if (bytes.length < LINK_USB_MEDIA_ACK_BYTES) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, LINK_USB_MEDIA_ACK_BYTES);
+  if (view.getUint32(0, true) !== LINK_USB_MEDIA_ACK_MAGIC || view.getUint32(4, true) !== generation >>> 0) return null;
+  if (view.getUint32(12, true) !== fnv1a32(bytes.subarray(0, 12))) return null;
+  return view.getUint32(8, true);
+}
+
+/** How often a full ring reads `media.ack` again. */
+const MEDIA_ACK_POLL_MS = 5;
+
+/** One media stream at a time into `media.ring`: the ticket `media.req`
+ *  names, produced here and paced by how much of the ring the console has
+ *  read back in `media.ack`. */
+class UsbMedia {
+  private readonly ring: string;
+  private readonly fd: number;
+  private boot = 0;
+  private seq = 0;
+  private abort: AbortController | undefined;
+
+  constructor(
+    private readonly root: string,
+    private readonly epoch: number,
+    private readonly log: (line: string) => void,
+    private readonly ringBytes = LINK_USB_MEDIA_RING_BYTES,
+  ) {
+    this.ring = join(root, "media.ring");
+    rmSync(join(root, "media.ack"), { force: true });
+    this.fd = openSync(this.ring, "w+");
+    ftruncateSync(this.fd, LINK_USB_MEDIA_HEAD_BYTES + ringBytes);
+    this.head(0, 0, LINK_USB_MEDIA_CLOSED);
+  }
+
+  private head(generation: number, written: number, flags: number) {
+    writeSync(this.fd, encodeMediaHead(this.epoch, generation, written, flags, this.ringBytes), 0, LINK_USB_MEDIA_HEAD_BYTES, 0);
+  }
+
+  private read(generation: number): number | null {
+    try {
+      return decodeMediaAck(readFileSync(join(this.root, "media.ack")), generation);
+    } catch {
+      return null;
+    }
+  }
+
+  stop() {
+    this.abort?.abort();
+    this.abort = undefined;
+  }
+
+  close() {
+    this.stop();
+    closeSync(this.fd);
+  }
+
+  poll(boot: number) {
+    const record = readUsbRecord(join(this.root, "media.req"));
+    if (!record || record.kind !== LINK_USB_KIND.media || record.epoch !== this.epoch || record.boot !== boot) return;
+    if (record.boot === this.boot && record.seq <= this.seq) return;
+    this.boot = record.boot;
+    this.seq = record.seq;
+    this.stop();
+    const token = record.json.token;
+    const ticket = typeof token === "string" && /^[0-9a-f]{64}$/.test(token) ? takeMediaTicket(token) : undefined;
+    if (!ticket) {
+      if (token !== undefined) this.log(`usb media #${record.seq}: no such ticket`);
+      this.head(record.seq, 0, LINK_USB_MEDIA_CLOSED);
+      return;
+    }
+    const abort = new AbortController();
+    this.abort = abort;
+    const revoked = () => abort.abort();
+    ticket.signal.addEventListener("abort", revoked, { once: true });
+    void this.stream(record.seq, ticket, abort).finally(() => {
+      ticket.signal.removeEventListener("abort", revoked);
+      ticket.release();
+    });
+  }
+
+  private async stream(generation: number, ticket: MediaTicket, abort: AbortController) {
+    const { signal } = abort;
+    let written = 0;
+    const started = Date.now();
+    const put = async (bytes: Uint8Array) => {
+      while (!signal.aborted && written + bytes.length - (this.read(generation) ?? 0) > this.ringBytes) await Bun.sleep(MEDIA_ACK_POLL_MS);
+      if (signal.aborted) return false;
+      for (let done = 0; done < bytes.length; ) {
+        const at = (written + done) % this.ringBytes;
+        const n = Math.min(bytes.length - done, this.ringBytes - at);
+        writeSync(this.fd, bytes, done, n, LINK_USB_MEDIA_HEAD_BYTES + at);
+        done += n;
+      }
+      written += bytes.length;
+      this.head(generation, written, 0);
+      return true;
+    };
+    this.head(generation, 0, 0);
+    try {
+      if (await put(ticket.header)) {
+        let open = true;
+        for await (const packet of ticket.produce(signal)) {
+          if (!(open = await put(mediaPacket(packet)))) break;
+        }
+        if (open) await put(mediaPacket({ kind: MEDIA_PACKET.end, ptsMs: 0, data: new Uint8Array(0) }));
+      }
+    } catch {
+      this.log(`usb media #${generation}: producer failed`);
+      if (!signal.aborted) await put(mediaPacket({ kind: MEDIA_PACKET.error, ptsMs: 0, data: new TextEncoder().encode("Media source failed") }));
+    } finally {
+      if (this.abort === abort) this.head(generation, written, LINK_USB_MEDIA_CLOSED);
+      this.log(`usb media #${generation}: ${written}B in ${Date.now() - started}ms${signal.aborted ? ", stopped" : ""}`);
+    }
+  }
+}
+
 /** What the carrier needs from the companion: its identity and the net path. */
 export interface UsbCompanion {
   readonly id: string;
@@ -155,13 +292,14 @@ export class UsbCarrier {
   private lastHelloBeat = -1;
   private lastHelloAt = 0;
   private slots: (UsbSlot | undefined)[] = new Array(LINK_USB_SLOTS).fill(undefined);
+  private media: UsbMedia | undefined;
   private beatTimer: ReturnType<typeof setInterval> | undefined;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly companion: UsbCompanion,
     share: string,
-    private readonly tuning: { beatMs?: number; pollMs?: number } = {},
+    private readonly tuning: { beatMs?: number; pollMs?: number; mediaRingBytes?: number } = {},
   ) {
     this.root = join(resolve(share), LINK_USB_DIR);
   }
@@ -171,6 +309,7 @@ export class UsbCarrier {
     // Replies from an earlier run carry its epoch and could never match, but
     // a console that boots while they sit there would read each one once.
     for (let i = 0; i < LINK_USB_SLOTS; i += 1) rmSync(join(this.root, `net${i}.res`), { force: true });
+    this.media = new UsbMedia(this.root, this.epoch, (line) => this.companion.log(line), this.tuning.mediaRingBytes);
     this.writeReady();
     this.beatTimer = setInterval(() => this.writeReady(), this.tuning.beatMs ?? LINK_USB_BEAT_MS);
     this.pollTimer = setInterval(() => this.poll(), this.tuning.pollMs ?? USB_POLL_MS);
@@ -181,6 +320,8 @@ export class UsbCarrier {
     clearInterval(this.beatTimer);
     clearInterval(this.pollTimer);
     this.dropRequests();
+    this.media?.close();
+    this.media = undefined;
     rmSync(join(this.root, "ready"), { force: true });
   }
 
@@ -204,7 +345,7 @@ export class UsbCarrier {
         v: 1,
         id: this.companion.id,
         name: this.companion.name,
-        features: [LINK_FEATURE.net],
+        features: [...LINK_USB_FEATURES],
         clock: { utc, offsetMinutes: -new Date(utc).getTimezoneOffset() },
       },
       body: new Uint8Array(0),
@@ -214,6 +355,7 @@ export class UsbCarrier {
   private dropRequests() {
     for (const slot of this.slots) slot?.abort.abort();
     this.slots.fill(undefined);
+    this.media?.stop();
   }
 
   /** One pass over `hello` and the request slots. */
@@ -240,6 +382,9 @@ export class UsbCarrier {
     }
     const device = this.device;
     if (!device) return;
+    // A console that stopped beating reads nothing more from the ring.
+    if (this.linked()) this.media?.poll(device.boot);
+    else this.media?.stop();
     for (let i = 0; i < LINK_USB_SLOTS; i += 1) {
       const record = readUsbRecord(join(this.root, `net${i}.req`));
       if (!record || record.epoch !== this.epoch || record.boot !== device.boot) continue;
@@ -283,7 +428,9 @@ export class UsbCarrier {
       const response = await this.companion.answerNet(
         { ...meta, body: record.body },
         { app, target: device.target },
-        { name: device.name, address: "usb", localAddress: "" },
+        // A media ticket's address is the TCP endpoint's; this console takes
+        // the ticket through media.req, so the address only has to be valid.
+        { name: device.name, address: "usb", localAddress: "127.0.0.1" },
         slot.abort.signal,
       );
       if (slot.abort.signal.aborted) return;

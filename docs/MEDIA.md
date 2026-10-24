@@ -99,6 +99,34 @@ private and its host ABI is 10; ABI 8 launchers require a native replacement.
 The CIA declares `mvd:STD` service access and the MVD system-module dependency
 listed in [3dbrew's title table](https://www.3dbrew.org/wiki/Title_list#00040130_-_System_Modules).
 
+## PSP over the USB carrier
+
+The PSP reads the same stream from the companion's USB carrier instead of a
+socket: `media.open` sends the source's token in `media.req`, and the worker
+reads the header and packets from `media.ring` in the PSPLINK share
+([POCKET-LINK.md](./POCKET-LINK.md), "USB carrier"). The source's address and
+port go unused. **The PSP takes PAL8 only**; `h264` is false in its status,
+and a stream of another codec fails as unsupported.
+
+`programs/psp/src/media.rs` runs one worker thread below the guest's
+priority. It does every `host0:` read of the stream, applies PAL8 packets to
+the reference picture (`media_wire.rs`, the Rust copy of
+`platforms/3ds/media_wire.h`), copies each picture into an 8-slot frame ring,
+and decodes ADPCM blocks into the audio output's ring (one 44.1 kHz channel,
+22,050 Hz doubled). **The worker reads no further than 400 ms of audio ahead
+of the clock**, which bounds the frame ring and the reads; playback starts
+when 300 ms is buffered, and again after an underrun. The clock is the audio
+output's played position; without an audio channel it is the system timer
+from the first picture, as on a 3DS without DSP firmware.
+
+The plane is a **512×256 T8 texture** with a CLUT from the stream's palette.
+Before each display list is encoded, the guest's thread expands the latest
+picture whose time has come into it and commits it through
+`Ui::update_texture_t8`, which keeps the storage a list in flight samples
+until that list retires. The global allocator is single-threaded, so the
+worker allocates nothing: it posts a picture size, and the guest's thread
+allocates the reference picture and frame ring at the next frame.
+
 ## Shared interaction
 
 `createMediaScrubber(seek)` keeps drag preview local. Begin and move change the

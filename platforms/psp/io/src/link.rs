@@ -36,6 +36,7 @@ const KIND_HELLO: u32 = 2;
 const KIND_REQUEST: u32 = 3;
 const KIND_CANCEL: u32 = 4;
 const KIND_REPLY: u32 = 5;
+const KIND_MEDIA: u32 = 6;
 const SLOTS: usize = 2;
 const MAX_JSON: usize = 16 * 1024;
 const BEAT_US: u32 = 500_000;
@@ -117,6 +118,8 @@ impl Slot {
 static SLOTS_STATE: [Slot; SLOTS] = [const { Slot::new() }; SLOTS];
 /// The worker's session generation while a companion beats; 0 while none does.
 static SESSION: AtomicU32 = AtomicU32::new(0);
+/// The beating companion's epoch; 0 while none beats.
+static EPOCH: AtomicU32 = AtomicU32::new(0);
 /// The companion's `ready` JSON (a seqlock: odd while the worker writes it).
 struct Status(UnsafeCell<[u8; STATUS_MAX]>);
 unsafe impl Sync for Status {}
@@ -156,7 +159,7 @@ fn now() -> u32 {
     unsafe { sys::sceKernelGetSystemTimeLow() }
 }
 
-fn fnv1a32(bytes: &[u8]) -> u32 {
+pub fn fnv1a32(bytes: &[u8]) -> u32 {
     bytes
         .iter()
         .fold(2166136261u32, |h, b| (h ^ *b as u32).wrapping_mul(16777619))
@@ -298,6 +301,7 @@ pub unsafe fn start(target: &str) {
         FIRST_EPOCH = epoch;
         FIRST_BEAT = beat;
         SESSION.store(1, Release);
+        EPOCH.store(epoch, Release);
     }
     let th = sys::sceKernelCreateThread(
         b"pocket-link\0".as_ptr(),
@@ -692,7 +696,7 @@ unsafe fn write_all(fd: SceUid, from: *const u8, len: usize) -> bool {
 }
 
 /// `host0:/pocket-link/<name>`, NUL-terminated.
-fn path(name: &[u8]) -> [u8; 48] {
+pub fn path(name: &[u8]) -> [u8; 48] {
     let mut out = [0u8; 48];
     let prefix = b"host0:/pocket-link/";
     out[..prefix.len()].copy_from_slice(prefix);
@@ -734,6 +738,40 @@ unsafe fn write_small(file: &[u8], epoch: u32, seq: u32, kind: u32, id: u32, bea
     let ok = write_all(fd, head.as_ptr(), HEADER) && write_all(fd, json.as_ptr(), json.len());
     sys::sceIoClose(fd);
     ok
+}
+
+/// The beating companion's epoch, 0 while none beats (any thread).
+pub fn epoch() -> u32 {
+    EPOCH.load(Acquire)
+}
+
+/// Write `media.req` (contracts/spec/link.ts "Media") for stream
+/// `generation`: open the ticket `token` names, or close with None. Any
+/// thread; false with no companion or when the write fails.
+///
+/// # Safety
+/// After start().
+pub unsafe fn media_request(generation: u32, token: Option<&[u8; 64]>) -> bool {
+    let epoch = EPOCH.load(Acquire);
+    if epoch == 0 {
+        return false;
+    }
+    let mut json = [0u8; 96];
+    let open = b"{\"t\":\"media\"";
+    json[..open.len()].copy_from_slice(open);
+    let mut len = open.len();
+    if let Some(token) = token {
+        let key = b",\"token\":\"";
+        json[len..len + key.len()].copy_from_slice(key);
+        len += key.len();
+        json[len..len + 64].copy_from_slice(token);
+        len += 64;
+        json[len] = b'"';
+        len += 1;
+    }
+    json[len] = b'}';
+    len += 1;
+    write_small(&path(b"media.req"), epoch, generation, KIND_MEDIA, 0, 0, &json[..len])
 }
 
 /// The companion's `ready` record into `status`: (epoch, beat, json length).
@@ -826,6 +864,7 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
                 Some((e, b, len)) => {
                     if e != epoch {
                         epoch = e;
+                        EPOCH.store(0, Release);
                         SESSION.store(0, Release);
                         lose_requests();
                         generation = (generation.wrapping_add(1)).max(1);
@@ -834,6 +873,7 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
                         hello_due = true;
                         publish_status(&status[..len]);
                         SESSION.store(generation, Release);
+                        EPOCH.store(epoch, Release);
                     }
                     if b != beat {
                         beat = b;
@@ -845,6 +885,7 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
             }
             if epoch != 0 && t.wrapping_sub(beat_at) > SILENCE_US {
                 epoch = 0;
+                EPOCH.store(0, Release);
                 SESSION.store(0, Release);
                 lose_requests();
             }

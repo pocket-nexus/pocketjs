@@ -218,6 +218,7 @@ describe("platform registry", () => {
       "link.companion",
       "input.cursor",
       "audio.pcm",
+      "media.playback",
       "text.glyphs.baked",
       "text.glyphs.streamed",
     ]);
