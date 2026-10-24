@@ -16,6 +16,39 @@ pub unsafe fn reset_fpu_status() {
 pub fn now_us() -> u64 {
     unsafe { sys::sceKernelGetSystemTimeWide() as u64 }
 }
+
+/// newlib's `struct timeval` on the PSP: a 64-bit `time_t`, a 32-bit
+/// `suseconds_t`, 16 bytes with padding.
+#[repr(C)]
+pub struct Timeval {
+    pub sec: i64,
+    pub usec: i32,
+}
+
+/// Microseconds from 0001-01-01 (the RTC's tick origin) to 1970-01-01.
+const RTC_UNIX_EPOCH_US: u64 = 62_135_596_800 * 1_000_000;
+
+/// newlib's `gettimeofday` backend, so `Date.now()` is the RTC's UTC time.
+/// pspsdk's libcglue answers through sceKernelLibcGettimeofday, which on a
+/// PSP Slim under PSPLINK gives the time of day on 1970-01-01. A program
+/// links this before libcglue by naming it from its own object (see
+/// programs/psp/src/main.rs).
+///
+/// # Safety
+/// `tv` is null or points at a writable `Timeval`.
+#[no_mangle]
+pub unsafe extern "C" fn _gettimeofday(tv: *mut Timeval, _tz: *mut c_void) -> i32 {
+    let mut tick = 0u64;
+    if sys::sceRtcGetCurrentTick(&mut tick) < 0 || tick < RTC_UNIX_EPOCH_US {
+        return -1;
+    }
+    if let Some(tv) = tv.as_mut() {
+        let us = tick - RTC_UNIX_EPOCH_US;
+        tv.sec = (us / 1_000_000) as i64;
+        tv.usec = (us % 1_000_000) as i32;
+    }
+    0
+}
 extern "C" {
     fn pocket_psp_fpu_reset();
     fn pocket_psp_fpu_mask() -> u32;

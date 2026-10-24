@@ -80,6 +80,11 @@ pub unsafe fn resume() -> Option<usize> {
     usize::try_from(RESUME).ok()
 }
 
+/// The running guest's manifest id: the app the link names in its requests.
+pub unsafe fn current_id() -> &'static str {
+    APPS[CURRENT].id
+}
+
 pub fn find(output: &str) -> Option<usize> {
     APPS.iter().position(|a| a.output == output)
 }
@@ -138,7 +143,9 @@ pub unsafe fn table_json() -> String {
         push_json_str(&mut out, a.title);
         out.push('}');
     }
-    out.push_str("],\"current\":");
+    out.push_str("],\"launcher\":");
+    push_json_str(&mut out, APPS[0].output);
+    out.push_str(",\"current\":");
     push_json_str(&mut out, APPS[CURRENT].output);
     out.push_str(",\"resume\":");
     match resume() {

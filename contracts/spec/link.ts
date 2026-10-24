@@ -306,3 +306,116 @@ export type LinkEvent =
 
 /** Pending `catalog`/`install` requests per console. */
 export const LINK_MAX_REQUESTS = 4;
+
+// ---------------------------------------------------------------------------
+// USB carrier (a console tethered over PSPLINK: the PSP)
+// ---------------------------------------------------------------------------
+//
+// A console with no network link reaches its companion through the USB file
+// share the tethered computer serves (usbhostfs_pc on a CardputerZero or a
+// Mac; `host0:` on the console). The same requests ride it as JSON records in
+// files under `<share>/pocket-link/`. The cable is the trust boundary: whoever
+// serves the share already decides every file the console reads, so there is
+// no pairing handshake and no key. The `net` and `media` features are
+// carried; catalog and install are not.
+//
+// Every file is one record: a 64-byte header, `json` bytes, `body` bytes.
+//
+//   off 0   u32  magic   'P','K','L','U'
+//   off 4   u32  epoch   the companion's session, never 0 (from `ready`)
+//   off 8   u32  boot    the console's boot id, never 0 (0 in `ready`)
+//   off 12  u32  seq     the slot's request number (0 in `ready`/`hello`)
+//   off 16  u32  kind    LINK_USB_KIND
+//   off 20  u32  id      the request id = the net handle (0 in `ready`/`hello`)
+//   off 24  u32  beat    `ready` only: bumped every LINK_USB_BEAT_MS
+//   off 32  u32  json    UTF-8 JSON bytes after the header
+//   off 36  u32  jsonHash  FNV-1a 32 of the JSON bytes
+//   off 40  u32  body    body bytes after the JSON
+//   off 44  u32  bodyHash  FNV-1a 32 of the body bytes
+//   other words are 0. All words little-endian.
+//
+// Files:
+//
+//   ready        companion -> console, rewritten every LINK_USB_BEAT_MS:
+//                {"v":1,"id":"<companion id>","name":"…","features":["net","media"],
+//                 "clock":{"utc":<epoch ms>,"offsetMinutes":<n>}}
+//   hello        console -> companion, written once per epoch before any request:
+//                {"t":"hello","device":"<id>","name":"…","model":"…","target":"psp"}
+//   net<i>.req   console -> companion, slot i < LINK_USB_SLOTS: kind request
+//                (json = the TCP link's net ctrl {"t":"net","id":n,"app":…,
+//                "bytes":k, …meta}, body = the request body) or kind cancel
+//                (json {"t":"net.cancel","id":n}, same seq)
+//   net<i>.res   companion -> console: kind reply, the request's epoch, boot,
+//                seq and id; json = the NET event itself ({"t":"done","h":n,
+//                "status":…,"url":…,"headers":{…},"bytes":N} or {"t":"error",
+//                "h":n,"code":…,"message":…}), body = the response body
+//
+// The companion writes each file whole under a temporary name and renames it,
+// so a reader sees an old record or a new one. The console's writes are not
+// atomic: the companion checks both hashes and reads a torn record again on
+// its next poll. A record from another epoch, boot or seq is stale and ignored.
+//
+// The console treats the companion as linked while `ready` is valid and its
+// beat moved within LINK_USB_SILENCE_MS. A new epoch fails every open request;
+// so does silence. A new boot in `hello` drops the previous boot's requests on
+// the companion. Nothing is replayed.
+//
+// Media. One `media.playback` stream (media.ts) at a time rides three more
+// files. The ring carries the bytes the TCP media endpoint sends (the 32-byte
+// header, then the packets), so a console decodes both carriers the same way.
+//
+//   media.req    console -> companion: kind media; seq = the stream's
+//                generation, counting up from 1 per boot; json
+//                {"t":"media","token":"<64 hex>"} opens the ticket a service
+//                issued (`MediaSource.token`), {"t":"media"} closes the stream
+//   media.ring   companion -> console, written in place and never renamed,
+//                so a reader holding it open sees each write: a 64-byte head
+//                (LINK_USB_MEDIA_MAGIC), then LINK_USB_MEDIA_RING_BYTES of ring;
+//                stream byte n sits at 64 + n % LINK_USB_MEDIA_RING_BYTES.
+//                  off 0   u32  magic       'P','K','L','M'
+//                  off 4   u32  epoch
+//                  off 8   u32  generation  the seq of the media.req it answers
+//                  off 12  u32  written     stream bytes in the ring so far
+//                  off 16  u32  flags       LINK_USB_MEDIA_CLOSED: no byte
+//                                           follows `written`
+//                  off 20  u32  ring        LINK_USB_MEDIA_RING_BYTES
+//                  off 24  u32  hash        FNV-1a 32 of bytes 0..24
+//                The companion writes stream bytes before the head that counts
+//                them, and keeps written - read <= ring.
+//   media.ack    console -> companion, written in place: 16 bytes.
+//                  off 0   u32  magic       'P','K','L','A'
+//                  off 4   u32  generation
+//                  off 8   u32  read        stream bytes the console consumed
+//                  off 12  u32  hash        FNV-1a 32 of bytes 0..12
+//
+// A token the companion does not hold gets a closed head with nothing
+// written. A new media.req (another generation, or a close) stops the stream
+// before it; so do a new epoch and a new boot.
+
+export const LINK_USB_DIR = "pocket-link";
+export const LINK_USB_MAGIC = 0x554c4b50; // 'PKLU' LE
+export const LINK_USB_HEADER_BYTES = 64;
+export const LINK_USB_KIND = {
+  ready: 1,
+  hello: 2,
+  request: 3,
+  cancel: 4,
+  reply: 5,
+  media: 6,
+} as const;
+/** Request slots: the NET module's in-flight limit (net.ts NET_MAX_INFLIGHT). */
+export const LINK_USB_SLOTS = 2;
+export const LINK_USB_BEAT_MS = 500;
+/** As the TCP link's LINK_SILENCE_MS: a small companion (a CardputerZero)
+ *  paused its beat 5.7 s while a yt-dlp resolve pushed it into swap. */
+export const LINK_USB_SILENCE_MS = 10_000;
+/** The largest `json` section of any record. */
+export const LINK_USB_MAX_JSON = 16 * 1024;
+/** What `ready` lists in `features` (LINK_FEATURE.net, and the media ring). */
+export const LINK_USB_FEATURES = ["net", "media"] as const;
+export const LINK_USB_MEDIA_MAGIC = 0x4d4c4b50; // 'PKLM' LE
+export const LINK_USB_MEDIA_ACK_MAGIC = 0x414c4b50; // 'PKLA' LE
+export const LINK_USB_MEDIA_HEAD_BYTES = 64;
+export const LINK_USB_MEDIA_ACK_BYTES = 16;
+export const LINK_USB_MEDIA_RING_BYTES = 1024 * 1024;
+export const LINK_USB_MEDIA_CLOSED = 1;

@@ -4,7 +4,9 @@
 //
 //   - one program runs on every launcher host: one touch surface that admits
 //     the 320x240 baseline (fixed at it, or adaptive across a range holding
-//     it), no primary display, input the host maps to its own buttons;
+//     it), no primary display, input the host maps to its own buttons; and,
+//     when the applet adds its full-screen presentation, the whole screen of
+//     a device with one screen and no touch (the PSP), by the same entry;
 //   - the system agent can read and operate it: system.agent is declared,
 //     the UI is Solid on the PocketJS components, so the agent's text capture
 //     and played input reach every control;
@@ -67,8 +69,18 @@ const APPLET_SURFACE = [320, 240] as const;
 /** The longest title: what a springboard label and the agent's app list show. */
 const APPLET_TITLE_MAX = 24;
 
-/** Capabilities every applet requires: its surface and its input. */
+/** Capabilities of the touch surface: every applet requires them, unless it
+ *  adds the full-screen presentation; then the baseline enhances them and
+ *  serves the devices that have the surface. */
 const APPLET_REQUIRED = ["display.auxiliary", "input.touch.auxiliary"] as const;
+
+/** The one presentation an applet may add: the full screen of a device with
+ *  one screen and no touch (the PSP), driven by its buttons. The entry is
+ *  app.entry, so one program lays out for either surface
+ *  (@pocketjs/framework/applet). */
+export const APPLET_FULL_SCREEN_MODALITY = { screens: 1, touch: "none", buttons: true } as const;
+/** What the baseline serves when the full-screen presentation exists. */
+const APPLET_BASELINE_MODALITY = { touch: "auxiliary" } as const;
 /** Capabilities every applet enhances: the system agent operates it. */
 const APPLET_ENHANCED = ["system.agent"] as const;
 
@@ -101,6 +113,8 @@ export const APPLET_BUDGET = { jsBytes: 640 * 1024, pakBytes: 3 * 1024 * 1024 } 
 /** `@pocketjs/framework/<subpath>` modules an applet may import. */
 export const APPLET_MODULES = [
   "solid",
+  "applet",
+  "modality",
   "components",
   "lifecycle",
   "input",
@@ -150,6 +164,14 @@ export function capabilityMatches(id: string, pattern: string): boolean {
   return pattern.endsWith(".") ? id.startsWith(pattern) : id === pattern;
 }
 
+/** Two modality requirements with the same fields and values. */
+function sameRequirement(a: object | undefined, b: object): boolean {
+  if (!a) return false;
+  const left = Object.entries(a).filter(([, value]) => value !== undefined);
+  const right = Object.entries(b);
+  return left.length === right.length && right.every(([key, value]) => (a as Record<string, unknown>)[key] === value);
+}
+
 function appletCapabilityAllowed(id: string): boolean {
   return [...APPLET_CAPABILITIES, ...APPLET_CAPABILITY_PREFIXES].some((pattern) => capabilityMatches(id, pattern));
 }
@@ -170,7 +192,32 @@ export function appletManifestDiagnostics(manifest: PocketManifestV2): ContractD
   if (manifest.app.framework !== "solid") push("framework", "/app/framework", "an applet is a Solid app");
   if (manifest.app.model === "rust") push("nativeModel", "/app/model", "an applet ships no native code: model \"rust\" is not allowed");
   if (manifest.app.companions?.length) push("companions", "/app/companions", "an applet reaches the companion through applet.services, not svc companions");
-  if (manifest.app.presentations?.length) push("presentations", "/app/presentations", "an applet has one presentation: its touch surface");
+  const presentations = manifest.app.presentations ?? [];
+  const fullScreen = presentations.length > 0;
+  if (presentations.length > 1) {
+    push("presentations", "/app/presentations", "an applet adds at most one presentation: the full screen of a single-screen device");
+  }
+  presentations.forEach((presentation, index) => {
+    const at = `/app/presentations/${index}`;
+    if (presentation.entry !== manifest.app.entry) {
+      push("presentationEntry", `${at}/entry`, "an applet is one program: its full-screen presentation runs app.entry");
+    }
+    if (!sameRequirement(presentation.modality, APPLET_FULL_SCREEN_MODALITY)) {
+      push("presentationModality", `${at}/modality`, `the full-screen presentation serves ${JSON.stringify(APPLET_FULL_SCREEN_MODALITY)}`);
+    }
+    if (presentation.surfaces) push("presentationSurfaces", `${at}/surfaces`, "the full-screen presentation draws on the screen itself, not an auxiliary surface");
+    if (presentation.output !== undefined) push("presentationOutput", `${at}/output`, "the full-screen presentation keeps app.output: it is the same applet");
+    const capabilities = [...(presentation.capabilities?.requires ?? []), ...(presentation.capabilities?.enhances ?? [])];
+    for (const id of capabilities) {
+      if (!appletCapabilityAllowed(id)) push("capability", `${at}/capabilities`, `${id} is not available to applets`);
+    }
+  });
+  if (fullScreen && !sameRequirement(manifest.app.modality, APPLET_BASELINE_MODALITY)) {
+    push("baselineModality", "/app/modality", `an applet with a full-screen presentation serves ${JSON.stringify(APPLET_BASELINE_MODALITY)} with app.entry`);
+  }
+  if (fullScreen && !requires.includes("input.buttons")) {
+    push("buttons", "/engine/capabilities/requires", "an applet with a full-screen presentation requires input.buttons: the full screen has no touch");
+  }
   const surface = manifest.app.surfaces?.auxiliary;
   const [baseW, baseH] = APPLET_SURFACE;
   const admitsBaseline = surface?.adaptive
@@ -185,7 +232,9 @@ export function appletManifestDiagnostics(manifest: PocketManifestV2): ContractD
     );
   }
   for (const id of APPLET_REQUIRED) {
-    if (!requires.includes(id)) push("required", "/engine/capabilities/requires", `an applet requires ${id}`);
+    if (fullScreen) {
+      if (!enhances.includes(id)) push("surfaceEnhanced", "/engine/capabilities/enhances", `an applet with a full-screen presentation enhances ${id}: the touch surface is the baseline's`);
+    } else if (!requires.includes(id)) push("required", "/engine/capabilities/requires", `an applet requires ${id}`);
   }
   for (const id of APPLET_ENHANCED) {
     if (!declared.includes(id)) push("agent", "/engine/capabilities/enhances", `an applet enhances ${id}, so the system agent can operate it`);

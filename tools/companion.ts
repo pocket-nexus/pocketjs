@@ -4,7 +4,7 @@
 //
 //   bun tools/companion.ts serve [--apps <dir>]... [--name <n>] [--port <p>]
 //                                [--allow-private] [--store <dir>] [--unicast <ip>]...
-//                                [--no-agent] [--agent-model <id>] [--agent-effort <level>]
+//                                [--usb <share>]... [--no-agent] [--agent-model <id>] [--agent-effort <level>]
 //   bun tools/companion.ts pair [--wait]     open a pairing window, print the QR code
 //   bun tools/companion.ts status [--json]
 //   bun tools/companion.ts forget <console id>
@@ -12,7 +12,7 @@
 //   bun tools/companion.ts service <name> [args...]
 //
 // `serve` runs the daemon: the link listener (TCP 8628), the beacon (UDP 8627),
-// the console agent (docs/POCKET-AGENT.md) and the local control API the
+// the USB carrier in each `--usb` share (a PSP under PSPLINK), the console agent (docs/POCKET-AGENT.md) and the local control API the
 // other commands and the menu-bar app use.
 
 import { existsSync } from "node:fs";
@@ -29,7 +29,7 @@ import { CompanionStore, defaultStoreDir } from "./companion/store.ts";
 const USAGE = `usage: bun tools/companion.ts <command>
 
   serve [--apps <dir>]... [--name <name>] [--port <port>] [--allow-private]
-        [--store <dir>] [--unicast <ip>]... [--parent-pid <pid>]
+        [--store <dir>] [--unicast <ip>]... [--usb <share>]... [--parent-pid <pid>]
         [--no-agent] [--agent-model <id>] [--agent-effort <level>]
   pair [--wait]          open a pairing window and print its QR code
   status [--json]        the running daemon's state
@@ -72,12 +72,13 @@ interface Args {
   positional: string[];
   apps: string[];
   unicast: string[];
+  usb: string[];
   flags: Map<string, string | true>;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { command: argv[0] ?? "", positional: [], apps: [], unicast: [], flags: new Map() };
-  const valued = new Set(["--apps", "--name", "--port", "--store", "--unicast", "--parent-pid", "--agent-model", "--agent-effort"]);
+  const args: Args = { command: argv[0] ?? "", positional: [], apps: [], unicast: [], usb: [], flags: new Map() };
+  const valued = new Set(["--apps", "--name", "--port", "--store", "--unicast", "--usb", "--parent-pid", "--agent-model", "--agent-effort"]);
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith("--")) {
@@ -86,6 +87,7 @@ function parseArgs(argv: string[]): Args {
       if (value === undefined) throw new Error(`${name} needs a value`);
       if (name === "--apps") args.apps.push(resolve(value as string));
       else if (name === "--unicast") args.unicast.push(value as string);
+      else if (name === "--usb") args.usb.push(resolve(value as string));
       else args.flags.set(name, value);
     } else args.positional.push(a);
   }
@@ -127,6 +129,7 @@ async function serve(args: Args) {
     appsDirs: apps,
     allowPrivate: args.flags.has("--allow-private"),
     unicast: args.unicast,
+    usb: args.usb,
     agent: args.flags.has("--no-agent")
       ? false
       : {

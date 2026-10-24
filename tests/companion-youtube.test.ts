@@ -5,19 +5,21 @@
 // would get. The ffmpeg tests skip on a machine without ffmpeg.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MEDIA } from "../contracts/spec/media.ts";
 import { PSM } from "../contracts/spec/spec.ts";
 import type { ServiceProvider } from "../tools/companion/services.ts";
-import { accessUnits, createYoutubeService, fixedChunks, PAL8, pal8Packets, planeFit } from "../tools/companion/services/youtube.ts";
+import { accessUnits, createJobQueue, createYoutubeService, fixedChunks, PAL8, pal8Packets, pipeChunks, planeFit } from "../tools/companion/services/youtube.ts";
 import { call, expectImg, serviceContext } from "./helpers/companion-service.ts";
 
 const DIR = mkdtempSync(join(tmpdir(), "pocket-youtube-"));
 const FFMPEG = Bun.which("ffmpeg");
 const CLIP = join(DIR, "clip.mp4");
+/** The audio format's file: YouTube names separate video and audio URLs. */
+const CLIP_AUDIO = join(DIR, "clip-audio.mp4");
 const THUMB = join(DIR, "thumb.jpg");
 const CALLS = join(DIR, "calls.txt");
 const YT_DLP = join(DIR, "yt-dlp.ts");
@@ -35,8 +37,9 @@ if (target.startsWith("ytsearch") || target.includes("/results?")) {
   for (let i = 0; i < 3; i++) console.log(JSON.stringify({ id: "vid" + i + "abcdefg", title: words + " " + i, channel: "Chan " + i, duration: 61 + i, view_count: 1000 * (i + 1) }));
   console.log(JSON.stringify({ id: "short", title: "a playlist, not a video" }));
 } else {
-  console.log(JSON.stringify({ id: "vid0abcdefg", title: "Clip", channel: "Chan", duration: 4, view_count: 7, description: "About the clip",
-    requested_formats: [{ url: ${JSON.stringify(CLIP)}, vcodec: "avc1", acodec: "none", width: 640, height: 360 }, { url: ${JSON.stringify(CLIP)}, vcodec: "none", acodec: "mp4a" }] }));
+  // The two --print templates: the video's fields, then requested_formats.
+  console.log(JSON.stringify({ id: "vid0abcdefg", title: "Clip", channel: "Chan", duration: 4, view_count: 7, description: "About the clip" }));
+  console.log(JSON.stringify([{ url: ${JSON.stringify(CLIP)}, vcodec: "avc1", acodec: "none", width: 640, height: 360 }, { url: ${JSON.stringify(CLIP_AUDIO)}, vcodec: "none", acodec: "mp4a" }]));
 }
 `,
 );
@@ -47,6 +50,7 @@ beforeAll(() => {
   if (FFMPEG) {
     Bun.spawnSync([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
       "-t", "4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", CLIP]);
+    copyFileSync(CLIP, CLIP_AUDIO);
     Bun.spawnSync([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180", "-frames:v", "1", THUMB]);
   }
   service = createYoutubeService(
@@ -161,6 +165,44 @@ describe.skipIf(!FFMPEG)("pictures and streams", () => {
 });
 
 describe("pure parts", () => {
+  test("a pipe is read only as its chunks are taken: the writer waits, nothing piles up", async () => {
+    const bytes = 64 * 1024 * 1024;
+    const writer = Bun.spawn(["sh", "-c", `head -c ${bytes} /dev/zero >&3`], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
+    const chunks = pipeChunks(writer.stdio[3] as number);
+    let total = (await chunks.next()).value!.length;
+    const before = process.memoryUsage().rss;
+    await Bun.sleep(300);
+    expect(process.memoryUsage().rss - before).toBeLessThan(16 * 1024 * 1024);
+    for await (const chunk of chunks) total += chunk.length;
+    expect(total).toBe(bytes);
+    expect(await writer.exited).toBe(0);
+  });
+
+  test("the job queue runs its slots in order, a first job ahead of the queue, and drops a job aborted while it waits", async () => {
+    const jobs = createJobQueue(1);
+    const order: string[] = [];
+    const gate = Promise.withResolvers<void>();
+    const job = (name: string, wait?: Promise<void>) => async () => {
+      order.push(`${name} start`);
+      await wait;
+      order.push(`${name} end`);
+      return name;
+    };
+    const aborted = new AbortController();
+    const runs = [
+      jobs(job("thumb 1", gate.promise)),
+      jobs(job("thumb 2")),
+      jobs(job("thumb 3")).catch(() => "dropped"),
+      jobs(job("resolve"), { first: true }),
+    ];
+    const dropped = jobs(job("thumb 4"), { signal: aborted.signal }).catch((error: Error) => error.message);
+    aborted.abort();
+    gate.resolve();
+    expect(await Promise.all(runs)).toEqual(["thumb 1", "thumb 2", "thumb 3", "resolve"]);
+    expect(await dropped).toBe("aborted");
+    expect(order).toEqual(["thumb 1 start", "thumb 1 end", "resolve start", "resolve end", "thumb 2 start", "thumb 2 end", "thumb 3 start", "thumb 3 end"]);
+  });
+
   test("fixedChunks cuts a pipe into frames; pal8Packets skips frames only while the stream is behind", async () => {
     const frame = new Uint8Array(PAL8.width * PAL8.height * 3);
     async function* pipe() {

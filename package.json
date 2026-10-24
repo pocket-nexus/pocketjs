@@ -127,6 +127,7 @@
     "./components": "./framework/src/components.ts",
     "./devtools": "./framework/src/devtools.ts",
     "./display": "./framework/src/display.ts",
+    "./applet": "./framework/src/applet.tsx",
     "./effects": "./framework/src/effects.ts",
     "./fs": "./framework/src/fs-api.ts",
     "./gesture": "./framework/src/gesture.ts",

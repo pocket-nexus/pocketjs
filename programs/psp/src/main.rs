@@ -31,6 +31,11 @@ use pocketjs_psp::{arena, dbg, host, switch, veil, Runtime};
 
 psp::module!("pocketjs", 1, 1);
 
+/// Named from this object so the linker takes the RTC clock
+/// (pocket_psp_system::_gettimeofday) before libcglue's.
+#[used]
+static RTC_CLOCK: unsafe extern "C" fn(*mut host::Timeval, *mut c_void) -> i32 = host::_gettimeofday;
+
 const CORE_TICKS_PER_SECOND: u32 = pocketjs_psp::profile::TICK_HZ;
 // The full launcher originally consumed about 42 ms of CPU work on real PSP
 // hardware. Batching cuts that to about 12 ms, but the texture-heavy GE pass

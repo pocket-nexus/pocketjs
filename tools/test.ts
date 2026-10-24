@@ -189,6 +189,7 @@ const SUITE: readonly Stage[] = [
       "tests/offload-provider.test.ts",
       "tests/companion-session.test.ts",
       "tests/pocket-link.test.ts",
+      "tests/pocket-link-usb.test.ts",
       "tests/pocket-agent.test.ts",
       "tests/companion-youtube.test.ts",
       "tests/companion-x.test.ts",

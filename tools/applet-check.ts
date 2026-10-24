@@ -155,10 +155,10 @@ export function checkAppletSources(input: AppletSourceInput): ContractDiagnostic
         out.push({ code: "applet.host", path: at, message: `${host} is not in applet.hosts` });
       }
     }
-    if (/\bAuxiliarySurface\b/.test(code)) surface = true;
+    if (/\b(?:AuxiliarySurface|AppletSurface)\b/.test(code)) surface = true;
   }
   if (!surface) {
-    out.push({ code: "applet.surface", path: input.entry, message: "an applet draws its UI inside AuxiliarySurface" });
+    out.push({ code: "applet.surface", path: input.entry, message: "an applet draws its UI inside AppletSurface (or AuxiliarySurface)" });
   }
   return out;
 }
