@@ -492,7 +492,8 @@ describe("link", () => {
       expect(status.consoles.map((c) => c.id)).toEqual([DEVICE.id]);
       expect(status.paired.map((p) => p.id)).toContain(DEVICE.id);
       expect(JSON.stringify(status)).not.toContain(key);
-      expect(status.apps.length).toBe(2);
+      // The PSP-only package is offered too: a PSP links to the computer it is plugged into.
+      expect(status.apps.map((app) => app.id)).toEqual(["dev.pocket-nexus.clock", "dev.pocket-nexus.hn", "dev.pocket-nexus.psp"]);
       expect(status.apps.every((app) => Array.isArray(app.services))).toBe(true);
 
       // The setup screens' view: every service's state, and no credential in it.
