@@ -9,17 +9,21 @@ description: Append a short PocketJS or Pocket3D animated end card to a local vi
 
 Turns any local video into a shareable clip that ends on the PocketJS or the
 Pocket3D card. The card is drawn the way the two homepages draw themselves
-(`site/assets/arcade.css`): the plum `#171226` ground with soft pixel dots and a
-few faint candy sprites, the product's mark with its name in white Fredoka 600 as
-the sites' bars set it, and the headline as candy Press Start 2P letters, each
+(`site/assets/arcade.css`, `site/pocket3d/public/index.html`): the plum
+`#171226` ground with soft pixel dots, a few faint candy sprites on the PocketJS
+card and pocket.nexus's confetti on the Pocket3D card, the product's mark with its
+name in white Fredoka 600 as the sites' bars set it, and the headline as candy Press Start 2P letters, each
 letter taking the next of the five hues, on the hero's marquee plate (a bezel in
 the hero hue, a lip, a spark and a row of bulbs). The site's address sits at the
 foot in muted Fredoka.
 
-| `--brand` | Mark | Headline | Plate | Footer |
-| --- | --- | --- | --- | --- |
-| `pocketjs` (default) | `site/assets/favicon.svg` | `CREATE UI ON` / `EVERY SCREEN` / `YOU LOVE` | pink | pocketjs.dev |
-| `pocket3d` | `site/pocket3d/mark.svg` | `CREATE 3D ON` / `EVERY SCREEN` / `YOU LOVE` | yellow | 3d.pocket.nexus |
+| `--brand` | Mark | Headline | Plate | Ground | Footer |
+| --- | --- | --- | --- | --- | --- |
+| `pocketjs` (default) | `site/assets/favicon.svg` | `CREATE UI ON` / `EVERY SCREEN` / `YOU LOVE` | pink | lilac glow, Arcade sprites | pocketjs.dev |
+| `pocket3d` | `site/pocket3d/mark.svg` | `CREATE 3D ON` / `EVERY DEVICE` / `YOU LOVE` | yellow | pink and cyan glow, confetti | 3d.pocket.nexus |
+
+Use `pocket3d` for a recording of a Pocket3D game (Pocket Tokyo, Pocket New York,
+OpenStrike, Pocket Atlas) and `pocketjs` for an app or interface recording.
 
 The marks and both faces are bundled with the skill (`tests/video-outro.test.ts`
 holds the marks and the pixel face equal to the sites' own files), so rendering
@@ -74,7 +78,7 @@ bun skills/pocketjs-video-outro/scripts/make-outro.ts -i ~/Downloads/clip.mov
 # adds 2 seconds after the full source, including a 0.35-second transition
 
 bun skills/pocketjs-video-outro/scripts/make-outro.ts -i ~/Downloads/clip.mov --brand pocket3d
-# Pocket3D card: CREATE 3D ON / EVERY SCREEN / YOU LOVE, 3d.pocket.nexus
+# Pocket3D card: CREATE 3D ON / EVERY DEVICE / YOU LOVE, 3d.pocket.nexus
 # prints the output path on stdout; progress/summary on stderr
 ```
 

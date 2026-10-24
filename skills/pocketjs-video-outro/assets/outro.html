@@ -5,7 +5,8 @@
 <!-- The end card, in the Arcade look of pocketjs.dev and 3d.pocket.nexus
      (site/assets/arcade.css): the mark and a white Fredoka wordmark as the
      sites' bars set them, the headline as candy Press Start 2P letters on the
-     hero's marquee plate, and the plum ground with soft pixel dots.
+     hero's marquee plate, and the plum ground with soft pixel dots (with
+     Arcade sprites for PocketJS, pocket.nexus's confetti for Pocket3D).
      make-outro.ts screenshots it once per layer (?layer=bg|logo|plate|line-N|url);
      every other element keeps its box through `visibility: hidden`, so the
      layers composite back into the same picture. -->
@@ -52,6 +53,20 @@
     background: radial-gradient(ellipse 96% 92% at 50% 50%, transparent 72%, rgba(10,6,20,.34) 100%); }
   .sprite { position: absolute; width: var(--s); height: var(--s); background: var(--f); opacity: .2;
     -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat; }
+
+  /* Pocket3D's ground is 3d.pocket.nexus's (site/pocket3d/public/index.html): a pink glow from
+     the top, a cyan one from the left, and pocket.nexus's confetti over the pixel dots in place
+     of the Arcade sprites and the vignette */
+  body[data-brand="pocket3d"] .ground {
+    background:
+      radial-gradient(60% 56rem at 50% 0, rgba(255,95,158,.14), transparent 70%),
+      radial-gradient(40% 42rem at 12% 13rem, rgba(63,208,232,.08), transparent 70%); }
+  body[data-brand="pocket3d"] .ground::after { opacity: .6;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='370' height='370'%3E%3Cg opacity='.3'%3E%3Crect x='30' y='42' width='13' height='5' rx='2.5' fill='%23ffd23f' transform='rotate(-24 36 44)'/%3E%3Ccircle cx='168' cy='26' r='2.6' fill='%233fd0e8'/%3E%3Crect x='292' y='118' width='11' height='5' rx='2.5' fill='%23ff5f9e' transform='rotate(38 297 120)'/%3E%3Cpath d='M92 214q5-6 10 0t10 0' stroke='%23ffb45c' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='238' cy='300' r='2.2' fill='%23a98bff'/%3E%3Crect x='24' y='318' width='10' height='4.5' rx='2.25' fill='%233fd0e8' transform='rotate(58 29 320)'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 37rem 37rem,
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='530' height='530'%3E%3Cg opacity='.24'%3E%3Ccircle cx='70' cy='120' r='2.4' fill='%23ff5f9e'/%3E%3Crect x='250' y='60' width='12' height='5' rx='2.5' fill='%23a98bff' transform='rotate(-52 256 62)'/%3E%3Cpath d='M418 250l1.8 4.5 4.5 1.8-4.5 1.8-1.8 4.5-1.8-4.5-4.5-1.8 4.5-1.8z' fill='%23ffd23f'/%3E%3Crect x='150' y='400' width='12' height='5' rx='2.5' fill='%23ffb45c' transform='rotate(16 156 402)'/%3E%3Ccircle cx='470' cy='470' r='2' fill='%233fd0e8'/%3E%3C/g%3E%3C/svg%3E") 14rem 9rem / 53rem 53rem,
+      radial-gradient(circle, rgba(203,189,226,.085) .11rem, transparent .16rem) 0 0 / 2.4rem 2.4rem; }
+  body[data-brand="pocket3d"] .sprite { display: none; }
 
   .stage { position: absolute; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 6.4rem; padding: 6rem 4rem 10rem; }
@@ -131,7 +146,7 @@
   <script>
     var BRANDS = {
       pocketjs: { word: "PocketJS", mark: "pocketjs-mark.svg", tagline: "Create UI on\nevery screen\nyou love", url: "pocketjs.dev" },
-      pocket3d: { word: "Pocket3D", mark: "pocket3d-mark.svg", tagline: "Create 3D on\nevery screen\nyou love", url: "3d.pocket.nexus" },
+      pocket3d: { word: "Pocket3D", mark: "pocket3d-mark.svg", tagline: "Create 3D on\nevery device\nyou love", url: "3d.pocket.nexus" },
     };
     var HUES = ["p", "y", "c", "l", "o"];
     var p = new URLSearchParams(location.search);
