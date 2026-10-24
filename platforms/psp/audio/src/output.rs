@@ -74,6 +74,7 @@ unsafe extern "C" fn audio_thread(_argc: usize, _argv: *mut c_void) -> i32 {
     // block, so upsampled blocks join without a step.
     let mut prev_l: i32 = 0;
     let mut prev_r: i32 = 0;
+    crate::stats::AUDIO_THREADS.fetch_add(1, Ordering::Relaxed);
     while RUN.load(Ordering::Acquire) {
         if PAUSED.load(Ordering::Acquire) {
             sys::sceKernelDelayThread(4_000);
@@ -128,17 +129,23 @@ unsafe extern "C" fn audio_thread(_argc: usize, _argv: *mut c_void) -> i32 {
         );
         let ch = CHANNEL.load(Ordering::Relaxed);
         let volume = VOLUME.load(Ordering::Relaxed);
-        sys::sceAudioOutputPannedBlocking(
+        let result = sys::sceAudioOutputPannedBlocking(
             ch,
             volume,
             volume,
             OUT.0.as_mut_ptr() as *mut c_void,
         );
+        crate::stats::AUDIO_OUTPUT_BLOCKS.fetch_add(1, Ordering::Relaxed);
+        if result < 0 {
+            crate::stats::AUDIO_OUTPUT_ERRORS.fetch_add(1, Ordering::Relaxed);
+            crate::stats::AUDIO_LAST_OUTPUT_ERR.store(result, Ordering::Relaxed);
+        }
     }
     // The channel release happens on the MAIN thread (stop()) once LIVE
     // drops — this thread only signals that it is done outputting. Freeing
     // the thread UID here too: a plain return parks the thread as STOPPED
     // forever and each session would leak one.
+    crate::stats::AUDIO_THREADS.fetch_sub(1, Ordering::Relaxed);
     LIVE.store(false, Ordering::Release);
     sys::sceKernelExitDeleteThread(0);
     0
