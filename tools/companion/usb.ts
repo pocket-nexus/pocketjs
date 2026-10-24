@@ -9,7 +9,7 @@
 // what this process renames into place. The media ring is the exception: the
 // console holds it open, so it is written in place (UsbMedia).
 
-import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync, writeSync, type FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   LINK_USB_BEAT_MS,
@@ -33,8 +33,12 @@ import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { mediaPacket, takeMediaTicket, type MediaTicket } from "../media-stream.ts";
 import { NetFailure, normalizeNetRequest } from "./fetch.ts";
 
-/** How often the slots and `hello` are read. */
+/** How often the slots and `hello` are read when the share cannot be watched. */
 const USB_POLL_MS = 10;
+/** How often they are read anyway while a watch reports the console's writes. */
+const USB_WATCHED_POLL_MS = 100;
+/** How long an unchanged change time and size stand for an unchanged file. */
+const RECORD_TRUST_MS = 1000;
 
 export function fnv1a32(bytes: Uint8Array): number {
   let h = 2166136261;
@@ -177,6 +181,7 @@ class UsbMedia {
     private readonly root: string,
     private readonly epoch: number,
     private readonly log: (line: string) => void,
+    private readonly record: (name: string) => UsbRecord | null,
     private readonly ringBytes = LINK_USB_MEDIA_RING_BYTES,
   ) {
     this.ring = join(root, "media.ring");
@@ -209,7 +214,7 @@ class UsbMedia {
   }
 
   poll(boot: number) {
-    const record = readUsbRecord(join(this.root, "media.req"));
+    const record = this.record("media.req");
     if (!record || record.kind !== LINK_USB_KIND.media || record.epoch !== this.epoch || record.boot !== boot) return;
     if (record.boot === this.boot && record.seq <= this.seq) return;
     this.boot = record.boot;
@@ -293,6 +298,14 @@ export class UsbCarrier {
   private lastHelloAt = 0;
   private slots: (UsbSlot | undefined)[] = new Array(LINK_USB_SLOTS).fill(undefined);
   private media: UsbMedia | undefined;
+  /** The console's files as last decoded, keyed by name, with the change
+   *  time and size they were read at: a poll reads a file again when either
+   *  moved, or after RECORD_TRUST_MS, because a change time is as coarse as
+   *  the share's filesystem (a jiffy on Linux, a second on HFS+). */
+  private seen = new Map<string, { mtime: bigint; size: bigint; at: number; record: UsbRecord | null }>();
+  private paths = new Map<string, string>();
+  private watcher: FSWatcher | undefined;
+  private pollQueued = false;
   private beatTimer: ReturnType<typeof setInterval> | undefined;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -309,14 +322,43 @@ export class UsbCarrier {
     // Replies from an earlier run carry its epoch and could never match, but
     // a console that boots while they sit there would read each one once.
     for (let i = 0; i < LINK_USB_SLOTS; i += 1) rmSync(join(this.root, `net${i}.res`), { force: true });
-    this.media = new UsbMedia(this.root, this.epoch, (line) => this.companion.log(line), this.tuning.mediaRingBytes);
+    this.media = new UsbMedia(this.root, this.epoch, (line) => this.companion.log(line), (name) => this.record(name), this.tuning.mediaRingBytes);
     this.writeReady();
     this.beatTimer = setInterval(() => this.writeReady(), this.tuning.beatMs ?? LINK_USB_BEAT_MS);
-    this.pollTimer = setInterval(() => this.poll(), this.tuning.pollMs ?? USB_POLL_MS);
+    // A write the console makes through usbhostfs_pc is a write on this
+    // machine, so a directory watch sees it at once; the interval is the
+    // fallback for an event a watch drops, and for the silence check. Polling
+    // every 10 ms cost a CardputerZero a fifth of a core.
+    const consoleFiles = new Set(["hello", "media.req", ...Array.from({ length: LINK_USB_SLOTS }, (_, i) => `net${i}.req`)]);
+    try {
+      this.watcher = watch(this.root, (_event, name) => {
+        if (!name || consoleFiles.has(String(name))) this.schedulePoll();
+      });
+      this.watcher.on("error", () => {
+        this.watcher?.close();
+        this.watcher = undefined;
+        clearInterval(this.pollTimer);
+        this.pollTimer = setInterval(() => this.poll(), this.tuning.pollMs ?? USB_POLL_MS);
+      });
+    } catch {
+      this.watcher = undefined;
+    }
+    this.pollTimer = setInterval(() => this.poll(), this.tuning.pollMs ?? (this.watcher ? USB_WATCHED_POLL_MS : USB_POLL_MS));
     this.companion.log(`usb: serving ${this.root} as epoch ${this.epoch.toString(16)}`);
   }
 
+  private schedulePoll() {
+    if (this.pollQueued) return;
+    this.pollQueued = true;
+    setTimeout(() => {
+      this.pollQueued = false;
+      this.poll();
+    }, 0);
+  }
+
   stop(): void {
+    this.watcher?.close();
+    this.watcher = undefined;
     clearInterval(this.beatTimer);
     clearInterval(this.pollTimer);
     this.dropRequests();
@@ -358,9 +400,26 @@ export class UsbCarrier {
     this.media?.stop();
   }
 
+  /** The console's record `name`, decoded again only when the file changed. */
+  private record(name: string): UsbRecord | null {
+    let path = this.paths.get(name);
+    if (!path) this.paths.set(name, (path = join(this.root, name)));
+    const stat = statSync(path, { bigint: true, throwIfNoEntry: false });
+    if (!stat) {
+      this.seen.delete(name);
+      return null;
+    }
+    const last = this.seen.get(name);
+    const now = Date.now();
+    if (last && last.mtime === stat.mtimeNs && last.size === stat.size && now - last.at < RECORD_TRUST_MS) return last.record;
+    const record = readUsbRecord(path);
+    this.seen.set(name, { mtime: stat.mtimeNs, size: stat.size, at: now, record });
+    return record;
+  }
+
   /** One pass over `hello` and the request slots. */
   poll(): void {
-    const hello = readUsbRecord(join(this.root, "hello"));
+    const hello = this.record("hello");
     if (hello && hello.kind === LINK_USB_KIND.hello && hello.epoch === this.epoch && hello.boot !== 0) {
       if (hello.boot !== this.device?.boot) {
         this.dropRequests();
@@ -386,7 +445,7 @@ export class UsbCarrier {
     if (this.linked()) this.media?.poll(device.boot);
     else this.media?.stop();
     for (let i = 0; i < LINK_USB_SLOTS; i += 1) {
-      const record = readUsbRecord(join(this.root, `net${i}.req`));
+      const record = this.record(`net${i}.req`);
       if (!record || record.epoch !== this.epoch || record.boot !== device.boot) continue;
       const slot = this.slots[i];
       if (record.kind === LINK_USB_KIND.cancel) {

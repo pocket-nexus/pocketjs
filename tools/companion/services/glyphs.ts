@@ -19,6 +19,7 @@
 
 import { atlasFont, codepointsOf, GlyphRasterizer, packAtlas } from "../glyphs.ts";
 import { bytesResponse, jsonResponse, readJson, type ServiceContext, type ServiceProvider } from "../services.ts";
+import { COMPUTER } from "../computer.ts";
 import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, MAX_FONT_SLOTS } from "../../../contracts/spec/spec.ts";
 
 /** Sizes an app may ask for. */
@@ -70,7 +71,7 @@ export function createGlyphsService(context: ServiceContext, options: GlyphsOpti
       }
       const bold = body.bold === true;
       const cells = await rasterizer(px, bold).cells(wanted);
-      if (cells.size === 0) return jsonResponse(503, { error: "this Mac cannot draw glyphs (no CoreText helper)" });
+      if (cells.size === 0) return jsonResponse(503, { error: `this ${COMPUTER} cannot draw glyphs (no CoreText helper)` });
       return bytesResponse(packAtlas(cells, atlasFont(px), slot, bold), "application/x-pocket-font");
     },
     close() {

@@ -1,5 +1,5 @@
 // The youtube service (tools/companion/services.ts): YouTube for a console,
-// with yt-dlp and ffmpeg on the Mac.
+// with yt-dlp and ffmpeg on the companion's computer.
 //
 //   GET /feed?topic=tech|music|gaming|news   {items: Video[]}
 //   GET /search?q=<text>                      {items: Video[]}
@@ -33,7 +33,7 @@
 // stay in UTF-8; the app folds what its fonts lack.
 
 import { existsSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { MEDIA, type MediaCodec, type MediaSource } from "../../../contracts/spec/media.ts";
 import { encodeMediaAudio } from "../../../contracts/spec/media-adpcm.ts";
@@ -42,6 +42,7 @@ import { encodeImageEntry } from "../../../framework/compiler/pak.ts";
 import { createMediaStreamServer, createPal8Encoder, mediaHeader, quantizeCube, type MediaPacket } from "../../media-stream.ts";
 import { envProxy } from "../fetch.ts";
 import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
+import { COMPUTER, INSTALL_MEDIA_TOOLS } from "../computer.ts";
 
 interface Video {
   id: string;
@@ -75,6 +76,70 @@ const RESULTS = 20;
 const CACHE_MS = 10 * 60_000;
 const VIDEO_ID = /^[\w-]{11}$/;
 
+/** A companion with under 1 GiB of memory (a CardputerZero has 227 MiB)
+ *  runs one yt-dlp or ffmpeg job at a time, a video's resolve ahead of the
+ *  thumbnails, and gives yt-dlp no JavaScript runtime: a second Bun for
+ *  YouTube's player challenge was the heaviest process of a resolve there
+ *  (yt-dlp alone peaked at 62 MB and took 23 s; with Bun beside it the
+ *  machine ran out of memory). */
+export const LEAN = totalmem() < 1024 ** 3;
+
+/** At most `slots` jobs at once, in order, except that a job asked `first`
+ *  starts before the queued ones. A job whose signal aborts while it waits
+ *  never starts. */
+export function createJobQueue(slots: number) {
+  let running = 0;
+  const queue: { first: boolean; start: () => void }[] = [];
+  const next = () => {
+    while (running < slots && queue.length) {
+      const at = queue.findIndex((job) => job.first);
+      const [job] = queue.splice(at >= 0 ? at : 0, 1);
+      running++;
+      job!.start();
+    }
+  };
+  return async <T>(work: () => Promise<T>, options: { first?: boolean; signal?: AbortSignal } = {}): Promise<T> => {
+    await new Promise<void>((resolve, reject) => {
+      const job = { first: !!options.first, start: resolve };
+      queue.push(job);
+      options.signal?.addEventListener(
+        "abort",
+        () => {
+          const at = queue.indexOf(job);
+          if (at < 0) return;
+          queue.splice(at, 1);
+          reject(new Error("aborted"));
+        },
+        { once: true },
+      );
+      next();
+    });
+    try {
+      return await work();
+    } finally {
+      running--;
+      next();
+    }
+  };
+}
+
+/** ffmpeg 8's ranged HTTP requests (-request_size, -initial_request_size);
+ *  ffmpeg 7.1 (Debian 13's) refuses the options. Asked once per binary. */
+const rangedRequests = new Map<string, boolean>();
+function hasRangedRequests(ffmpeg: string): boolean {
+  let known = rangedRequests.get(ffmpeg);
+  if (known === undefined) {
+    try {
+      const help = Bun.spawnSync([ffmpeg, "-hide_banner", "-h", "protocol=http"], { stdout: "pipe", stderr: "pipe" });
+      known = help.stdout.toString().includes("-request_size");
+    } catch {
+      known = false;
+    }
+    rangedRequests.set(ffmpeg, known);
+  }
+  return known;
+}
+
 /** The command lines the service runs; a test swaps in fakes. */
 interface YoutubeTools {
   ytDlp: string[];
@@ -86,7 +151,7 @@ interface YoutubeTools {
 /** yt-dlp and ffmpeg where Homebrew and the usual installers put them: a
  *  menu bar app starts with a short PATH. yt-dlp needs a JavaScript runtime
  *  for YouTube's player; the first of bun, deno and node found is used. */
-function findYoutubeTools(env: NodeJS.ProcessEnv = process.env): YoutubeTools | null {
+function findYoutubeTools(env: NodeJS.ProcessEnv = process.env, lean = LEAN): YoutubeTools | null {
   const home = homedir();
   const dirs = (env.PATH ?? "").split(":").filter(Boolean);
   dirs.push("/opt/homebrew/bin", "/usr/local/bin", join(home, ".local", "bin"), join(home, ".bun", "bin"), join(home, ".deno", "bin"));
@@ -96,7 +161,7 @@ function findYoutubeTools(env: NodeJS.ProcessEnv = process.env): YoutubeTools | 
   const ytDlp = find("yt-dlp");
   const ffmpeg = find("ffmpeg");
   if (!ytDlp || !ffmpeg) return null;
-  const runtime = (["bun", "deno", "node"] as const).map((name) => [name, find(name)] as const).find(([, path]) => path);
+  const runtime = lean ? undefined : (["bun", "deno", "node"] as const).map((name) => [name, find(name)] as const).find(([, path]) => path);
   return {
     ytDlp: [ytDlp, "--ignore-config", ...(runtime ? ["--js-runtimes", `${runtime[0]}:${runtime[1]}`] : [])],
     ffmpeg: [ffmpeg],
@@ -232,7 +297,8 @@ async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: M
       ? [...proxyArgs("-http_proxy"), "-rw_timeout", "10000000",
           // googlevideo throttles one open-ended GET to a fraction of real
           // time; 1 MB ranges come at full speed (30 s of video in 0.75 s).
-          "-request_size", "1048576", "-initial_request_size", "1048576", "-short_seek_size", "1048576", "-multiple_requests", "1"]
+          ...(hasRangedRequests(tools.ffmpeg[0]!) ? ["-request_size", "1048576", "-initial_request_size", "1048576"] : []),
+          "-short_seek_size", "1048576", "-multiple_requests", "1"]
       : [];
   const common = [...tools.ffmpeg, "-hide_banner", "-loglevel", "error", "-xerror"];
   const seek = seconds > 0 ? ["-ss", String(seconds)] : [];
@@ -318,9 +384,10 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
   let media: ReturnType<typeof createMediaStreamServer> | undefined;
   const server = () => (media ??= createMediaStreamServer({ log: context.log }));
   let active: MediaSource | undefined;
+  const jobs = createJobQueue(LEAN ? 1 : 4);
 
   const need = (): YoutubeTools => {
-    if (!tools) throw new Error("yt-dlp and ffmpeg are not installed on this Mac (brew install yt-dlp ffmpeg)");
+    if (!tools) throw new Error(`yt-dlp and ffmpeg are not installed on this ${COMPUTER} (${INSTALL_MEDIA_TOOLS})`);
     return tools;
   };
 
@@ -328,9 +395,13 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
   const list = async (key: string, source: string, signal: AbortSignal): Promise<Video[]> => {
     const cached = lists.get(key);
     if (cached && Date.now() - cached.at < CACHE_MS) return cached.items;
-    const result = await run(
-      [...need().ytDlp, ...proxyArgs("--proxy"), "--dump-json", "--flat-playlist", "--no-warnings", "--playlist-end", String(RESULTS), source],
-      signal,
+    const result = await jobs(
+      () =>
+        run(
+          [...need().ytDlp, ...proxyArgs("--proxy"), "--dump-json", "--flat-playlist", "--no-warnings", "--playlist-end", String(RESULTS), source],
+          signal,
+        ),
+      { signal },
     );
     if (!result.ok) throw new Error(`yt-dlp search failed: ${scrub(result.stderr)}`);
     const items: Video[] = [];
@@ -350,14 +421,29 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
   const resolve = async (id: string, signal: AbortSignal): Promise<ResolvedVideo> => {
     const cached = resolved.get(id);
     if (cached && Date.now() - cached.at < CACHE_MS) return cached.video;
-    const result = await run(
-      [...need().ytDlp, ...proxyArgs("--proxy"), "--dump-json", "--no-playlist", "--no-warnings",
-        "-f", "bv[height<=480]+ba/b[height<=480]/bv+ba/b", `https://www.youtube.com/watch?v=${id}`],
-      signal,
+    const result = await jobs(
+      () =>
+        run(
+          [...need().ytDlp, ...proxyArgs("--proxy"), "--no-playlist", "--no-warnings", "--skip-download",
+            // H.264 at 360p first: both planes are at most 512x256, and a small
+            // companion (a CardputerZero) decodes AVC at a fraction of VP9's or
+            // AV1's cost.
+            "-f", "bv[height<=360][vcodec^=avc1]+ba/bv[height<=480]+ba/b[height<=480]/bv+ba/b",
+            // The fields this service reads, about 6 KB: the whole info JSON is
+            // 11 MB (every format and caption track) for a companion to parse.
+            "--print", "%(.{id,title,channel,uploader,duration,view_count,description,url,vcodec,acodec,width,height})j",
+            "--print", "%(requested_formats.:.{url,vcodec,acodec,width,height})j",
+            `https://www.youtube.com/watch?v=${id}`],
+          signal,
+        ),
+      { signal, first: true },
     );
     if (!result.ok) throw new Error(`yt-dlp could not open the video: ${scrub(result.stderr)}`);
-    const j = JSON.parse(new TextDecoder().decode(result.stdout)) as Record<string, unknown>;
-    const formats = Array.isArray(j.requested_formats) ? (j.requested_formats as Record<string, unknown>[]) : [j];
+    const [info, requested] = new TextDecoder().decode(result.stdout).split("\n").filter((line) => line.startsWith("{") || line.startsWith("["));
+    const j = JSON.parse(info ?? "{}") as Record<string, unknown>;
+    // A single combined format prints NA for requested_formats.
+    const picked = requested ? (JSON.parse(requested) as unknown) : null;
+    const formats = Array.isArray(picked) ? (picked as Record<string, unknown>[]) : [j];
     const video = formats.find((f) => typeof f.url === "string" && f.vcodec !== "none");
     const audio = formats.find((f) => typeof f.url === "string" && f.acodec !== "none");
     const base = toVideo(j);
@@ -377,10 +463,14 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
   const thumbnail = async (id: string, signal: AbortSignal): Promise<Uint8Array> => {
     // mqdefault is 320x180; the middle 320x160 scales to 128x64.
     const url = need().thumbnailUrl?.(id) ?? `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
-    const result = await run(
-      [...need().ffmpeg, "-hide_banner", "-loglevel", "error", ...(/^https?:\/\//.test(url) ? proxyArgs("-http_proxy") : []), "-i", url,
-        "-vf", `crop=iw:iw/2,scale=${THUMB.width}:${THUMB.height}:flags=area`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"],
-      signal,
+    const result = await jobs(
+      () =>
+        run(
+          [...need().ffmpeg, "-hide_banner", "-loglevel", "error", ...(/^https?:\/\//.test(url) ? proxyArgs("-http_proxy") : []), "-i", url,
+            "-vf", `crop=iw:iw/2,scale=${THUMB.width}:${THUMB.height}:flags=area`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"],
+          signal,
+        ),
+      { signal },
     );
     if (!result.ok || result.stdout.length !== THUMB.width * THUMB.height * 4) throw new Error(`thumbnail failed: ${scrub(result.stderr)}`);
     const rgba = result.stdout;

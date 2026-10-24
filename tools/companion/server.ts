@@ -235,12 +235,19 @@ export class Companion {
     this.beaconTimer = setInterval(send, tuning.intervalMs ?? 1_000);
   }
 
+  /** The interfaces' broadcast addresses, read again every 10 s: listing
+   *  them every second took a CardputerZero a tenth of a core. */
+  private broadcasts: { at: number; addresses: string[] } | undefined;
+
   /** Every address one beacon goes to this second. */
   beaconTargets(broadcast = true): string[] {
     const targets = new Set<string>();
     if (broadcast) {
       targets.add("255.255.255.255");
-      for (const iface of lanInterfaces()) targets.add(iface.broadcast);
+      if (!this.broadcasts || Date.now() - this.broadcasts.at > 10_000) {
+        this.broadcasts = { at: Date.now(), addresses: lanInterfaces().map((iface) => iface.broadcast) };
+      }
+      for (const address of this.broadcasts.addresses) targets.add(address);
     }
     for (const entry of this.store.consoles()) if (entry.lastAddress) targets.add(entry.lastAddress);
     for (const address of this.options.unicast ?? []) targets.add(address);

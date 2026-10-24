@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { MEDIA } from "../contracts/spec/media.ts";
 import { PSM } from "../contracts/spec/spec.ts";
 import type { ServiceProvider } from "../tools/companion/services.ts";
-import { accessUnits, createYoutubeService, fixedChunks, PAL8, pal8Packets, planeFit } from "../tools/companion/services/youtube.ts";
+import { accessUnits, createJobQueue, createYoutubeService, fixedChunks, PAL8, pal8Packets, planeFit } from "../tools/companion/services/youtube.ts";
 import { call, expectImg, serviceContext } from "./helpers/companion-service.ts";
 
 const DIR = mkdtempSync(join(tmpdir(), "pocket-youtube-"));
@@ -35,8 +35,9 @@ if (target.startsWith("ytsearch") || target.includes("/results?")) {
   for (let i = 0; i < 3; i++) console.log(JSON.stringify({ id: "vid" + i + "abcdefg", title: words + " " + i, channel: "Chan " + i, duration: 61 + i, view_count: 1000 * (i + 1) }));
   console.log(JSON.stringify({ id: "short", title: "a playlist, not a video" }));
 } else {
-  console.log(JSON.stringify({ id: "vid0abcdefg", title: "Clip", channel: "Chan", duration: 4, view_count: 7, description: "About the clip",
-    requested_formats: [{ url: ${JSON.stringify(CLIP)}, vcodec: "avc1", acodec: "none", width: 640, height: 360 }, { url: ${JSON.stringify(CLIP)}, vcodec: "none", acodec: "mp4a" }] }));
+  // The two --print templates: the video's fields, then requested_formats.
+  console.log(JSON.stringify({ id: "vid0abcdefg", title: "Clip", channel: "Chan", duration: 4, view_count: 7, description: "About the clip" }));
+  console.log(JSON.stringify([{ url: ${JSON.stringify(CLIP)}, vcodec: "avc1", acodec: "none", width: 640, height: 360 }, { url: ${JSON.stringify(CLIP)}, vcodec: "none", acodec: "mp4a" }]));
 }
 `,
 );
@@ -161,6 +162,31 @@ describe.skipIf(!FFMPEG)("pictures and streams", () => {
 });
 
 describe("pure parts", () => {
+  test("the job queue runs its slots in order, a first job ahead of the queue, and drops a job aborted while it waits", async () => {
+    const jobs = createJobQueue(1);
+    const order: string[] = [];
+    const gate = Promise.withResolvers<void>();
+    const job = (name: string, wait?: Promise<void>) => async () => {
+      order.push(`${name} start`);
+      await wait;
+      order.push(`${name} end`);
+      return name;
+    };
+    const aborted = new AbortController();
+    const runs = [
+      jobs(job("thumb 1", gate.promise)),
+      jobs(job("thumb 2")),
+      jobs(job("thumb 3")).catch(() => "dropped"),
+      jobs(job("resolve"), { first: true }),
+    ];
+    const dropped = jobs(job("thumb 4"), { signal: aborted.signal }).catch((error: Error) => error.message);
+    aborted.abort();
+    gate.resolve();
+    expect(await Promise.all(runs)).toEqual(["thumb 1", "thumb 2", "thumb 3", "resolve"]);
+    expect(await dropped).toBe("aborted");
+    expect(order).toEqual(["thumb 1 start", "thumb 1 end", "resolve start", "resolve end", "thumb 2 start", "thumb 2 end", "thumb 3 start", "thumb 3 end"]);
+  });
+
   test("fixedChunks cuts a pipe into frames; pal8Packets skips frames only while the stream is behind", async () => {
     const frame = new Uint8Array(PAL8.width * PAL8.height * 3);
     async function* pipe() {
