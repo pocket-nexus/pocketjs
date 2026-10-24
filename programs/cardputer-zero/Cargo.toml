@@ -1,0 +1,28 @@
+[package]
+name = "pocket-cardputer-zero"
+edition = "2021"
+description = "PocketJS program for the M5Stack CardputerZero: its panel, its keyboard and a local HTTP transport"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-guest-rquickjs = { workspace = true, default-features = true }
+pocket-linux-hooks = { workspace = true, default-features = true }
+pocket-linux-fbdev = { workspace = true, default-features = true }
+pocket-linux-evdev = { workspace = true, default-features = true }
+pocket-net = { workspace = true }
+rquickjs = { workspace = true }
+serde_json = { workspace = true }
+libc = "0.2.191"
+
+[build-dependencies]
+pocket-profile-build.workspace = true
