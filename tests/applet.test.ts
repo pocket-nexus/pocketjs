@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { APPLET_BUDGET, appletManifestDiagnostics, type AppletDeclaration } from "../contracts/spec/applet.ts";
 import type { PocketManifestV2 } from "../contracts/spec/pocket-manifest.ts";
+import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
 import { checkApplet, checkAppletBundle, checkAppletSources } from "../tools/applet-check.ts";
@@ -88,6 +89,52 @@ describe("manifest rules", () => {
       requires: ["display.auxiliary", "input.touch.auxiliary", "net.http"],
     }));
     expect(plan.applet).toEqual({ version: 1, services: ["glyphs"] });
+  });
+});
+
+describe("the full-screen presentation", () => {
+  const FULL_SCREEN = {
+    id: "full-screen",
+    entry: "notes/main.tsx",
+    modality: { screens: 1, touch: "none", buttons: true },
+    viewport: { fixed: { logical: [480, 272], presentation: "native" } },
+  };
+  const both = (app: Record<string, unknown> = {}, capabilities?: { requires?: string[]; enhances?: string[] }) => {
+    const base = manifest({}, {
+      requires: capabilities?.requires ?? ["text.glyphs.baked", "input.buttons"],
+      enhances: capabilities?.enhances ?? ["system.agent", "display.auxiliary", "input.touch.auxiliary", "input.analog.left"],
+    });
+    return { ...base, app: { ...base.app, modality: { touch: "auxiliary" }, presentations: [FULL_SCREEN], ...app } } as unknown as PocketManifestV2;
+  };
+
+  test("one program serves the touch surface and the full screen", () => {
+    expect(codes(both())).toEqual([]);
+    const psp = validateAndResolveBuildPlan(both(), { target: "psp" });
+    if (!psp.ok) throw new Error(psp.diagnostics.map((d) => d.message).join("; "));
+    expect(psp.plan.presentation).toEqual({ id: "full-screen", entry: "notes/main.tsx" });
+    expect(psp.plan.app.entry).toBe("notes/main.tsx");
+    expect(psp.plan.surfaces?.auxiliary).toBeUndefined();
+    const dual = resolve3dsBuildPlan(both());
+    expect(dual.presentation).toEqual({ id: "default", entry: "notes/main.tsx" });
+    expect(dual.surfaces?.auxiliary?.logical).toEqual([320, 240]);
+  });
+
+  test("a second program, another modality, a surface or a new output is refused", () => {
+    expect(codes(both({ presentations: [{ ...FULL_SCREEN, entry: "notes/psp.tsx" }] }))).toContain("applet.presentationEntry");
+    expect(codes(both({ presentations: [{ ...FULL_SCREEN, modality: { screens: 1, touch: "primary" } }] }))).toContain("applet.presentationModality");
+    const surfaces = { auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } };
+    expect(codes(both({ presentations: [{ ...FULL_SCREEN, surfaces }] }))).toContain("applet.presentationSurfaces");
+    expect(codes(both({ presentations: [{ ...FULL_SCREEN, output: "notes-psp" }] }))).toContain("applet.presentationOutput");
+    expect(codes(both({ presentations: [FULL_SCREEN, { ...FULL_SCREEN, id: "again" }] }))).toContain("applet.presentations");
+  });
+
+  test("the baseline keeps the touch surface: its modality, enhanced surface capabilities, required buttons", () => {
+    expect(codes(both({ modality: undefined }))).toContain("applet.baselineModality");
+    expect(codes(both({}, { requires: ["text.glyphs.baked", "input.buttons", "display.auxiliary"], enhances: ["system.agent", "input.touch.auxiliary"] }))).toContain("applet.surfaceEnhanced");
+    expect(codes(both({}, { requires: ["text.glyphs.baked"] }))).toContain("applet.buttons");
+    // Without the presentation, the v1 rule stands: the surface is required.
+    const touchOnly = manifest({}, { requires: ["text.glyphs.baked", "input.buttons"], enhances: ["system.agent", "display.auxiliary", "input.touch.auxiliary"] });
+    expect(codes(touchOnly)).toContain("applet.required");
   });
 });
 
