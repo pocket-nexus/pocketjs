@@ -120,6 +120,7 @@ export const APPLET_BUDGET = { jsBytes: 640 * 1024, pakBytes: 3 * 1024 * 1024 } 
 export const APPLET_MODULES = [
   "solid",
   "applet",
+  "modality",
   "components",
   "lifecycle",
   "input",
