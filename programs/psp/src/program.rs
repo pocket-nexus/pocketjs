@@ -275,6 +275,7 @@ impl Runtime {
             // texture storage; the core keeps the old storage until retire.
             let mut state = self.ops.core_mut().map_err(|e| format!("{e:?}"))?;
             crate::vid::present(&mut state.ui);
+            crate::media::present(&mut state.ui);
         }
         self.check(embed::present(self.handle))
     }
@@ -304,6 +305,8 @@ impl Drop for Runtime {
             }
             crate::audio_mod::reset();
             crate::svc::reset();
+            crate::link::reset();
+            crate::media::reset();
             crate::offload::reset();
             crate::offload_local::reset();
             pocket_runtime_cabi::pocket_runtime_destroy(self.handle);

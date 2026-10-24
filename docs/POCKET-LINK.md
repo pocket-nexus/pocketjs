@@ -142,6 +142,66 @@ its streams carry microphone audio and touch-screen shots from the console,
 glyph atlases and own-screen frames from the companion (stream ids from the
 companion have bit 31 set). [POCKET-AGENT.md](POCKET-AGENT.md) describes them.
 
+## USB carrier
+
+A PSP has no network link to its companion. It reaches the companion through
+the PSPLINK file share: `usbhostfs_pc` serves a directory on the tethered
+computer (a CardputerZero or a Mac) as `host0:`, and the companion runs the
+**USB carrier** in that directory (`serve --usb <share>`). The records are in
+`contracts/spec/link.ts` under "USB carrier".
+
+| File in `<share>/pocket-link/` | Writer | Content |
+| --- | --- | --- |
+| `ready` | companion, every **500 ms** | companion id, name, features (`net`, `media`), clock |
+| `hello` | console, every **1 s** while linked | device id, name, model, target |
+| `net0.req`, `net1.req` | console | the TCP link's `net` ctrl and the request body, or a cancel |
+| `net0.res`, `net1.res` | companion | the NET event (`done` or `error`) and the response body |
+| `media.req` | console | the ticket of a media stream to open, or a close |
+| `media.ring` | companion, in place | a 64-byte head (generation, bytes written, closed flag), then a **1 MiB** ring of the stream's bytes |
+| `media.ack` | console, in place | the stream bytes the console has read |
+
+Each file is one record: a 64-byte header (magic `PKLU`, the companion's
+epoch, the console's boot id, the slot's sequence number, the kind, the
+request id, a beat counter, the JSON and body lengths, and an FNV-1a 32 hash
+of each), the JSON, the body. The companion writes under a temporary name and
+renames; the console's writes are plain, so the companion reads a record whose
+hashes fail again on its next poll, **every 10 ms**.
+
+**The cable is the trust boundary.** The computer serving the share already
+chooses every file the console reads, including the program it runs, so the
+carrier has no pairing and no key. It carries `net` and `media`: no catalog
+and no installs, because a PSP's apps are embedded in the EBOOT the share
+serves.
+
+**Media rides a ring, not records.** A service's `MediaSource` names a ticket
+on the companion's media stream server; the console writes its token to
+`media.req`, and the carrier takes the ticket in process, runs its producer
+and writes the bytes the TCP endpoint would send (the 32-byte header, then the
+packets) into `media.ring`. The console holds the ring open, so the companion
+writes it in place, the stream bytes before the head that counts them, and
+never more than **1 MiB** past what `media.ack` reports read. A new
+`media.req`, a revoked ticket, a new boot or a silent console stops the
+producer. The decode is in [MEDIA.md](./MEDIA.md).
+
+On the console, `platforms/psp/io/src/link.rs` runs the carrier,
+`programs/psp/src/media.rs` reads the media ring, and
+`programs/psp/src/service_bindings.rs` installs `globalThis.net`,
+`globalThis.link` and `globalThis.media` over them. A worker thread at a lower priority than the guest performs
+every `host0:` read and write, so a USB round trip never lands inside a frame;
+the guest's thread only builds records and allocates and frees the buffers the
+worker fills. The first `ready` read happens before a guest evaluates, so a
+request made at mount finds the session up. A new epoch (the companion
+restarted) or **10 s** without a beat (the TCP link's silence) fails every open request with
+`unavailable`; nothing is replayed. `link.status()` reports `linked` with the
+companion's name while it beats and `searching` otherwise; `pair`, `forget`,
+`catalog`, `install` and `remove` refuse.
+
+```
+# on the computer the PSP is plugged into
+usbhostfs_pc /opt/pocket/host0 &
+bun tools/companion.ts serve --usb /opt/pocket/host0 --no-agent
+```
+
 ## Running the companion
 
 ```
@@ -156,6 +216,7 @@ bun run companion apps-dir <path>
 `serve` options: `--apps <dir>` (repeatable; replaces the checkout's
 `dist/3ds`), `--name`, `--port` (default 8628), `--allow-private`,
 `--store <dir>`, `--unicast <ip>` (repeatable extra beacon target),
+`--usb <share>` (repeatable; the USB carrier in that share),
 `--parent-pid <pid>` (exit when that process exits). Logs are one line per
 event.
 

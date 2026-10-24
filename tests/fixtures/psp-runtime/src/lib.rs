@@ -67,6 +67,9 @@ mod switch {
     pub fn shot_handle() -> i32 {
         -1
     }
+    pub fn current_id() -> &'static str {
+        "fixture"
+    }
 }
 use libquickjs_sys::*;
 use pocket_drivers::*;
@@ -337,12 +340,73 @@ mod offload_local {
 }
 #[path = "../../../../programs/psp/src/offload_image.rs"]
 mod offload_image;
+#[path = "../../../../programs/psp/src/media_wire.rs"]
+mod media_wire;
+mod media {
+    thread_local! {pub static CALLS: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());}
+    fn note(call: String) {
+        CALLS.with(|calls| calls.borrow_mut().push(call));
+    }
+    pub fn open(token: &[u8]) -> bool {
+        note(format!("open {}", String::from_utf8_lossy(token)));
+        token.len() == 64
+    }
+    pub fn close() {
+        note("close".into());
+    }
+    pub fn set_paused(value: bool) {
+        note(format!("paused {value}"));
+    }
+    pub fn set_volume(value: f32) {
+        note(format!("volume {value}"));
+    }
+    pub fn texture(_: &mut pocketjs_core::Ui) -> i32 {
+        5
+    }
+    pub fn status() -> String {
+        "{\"phase\":\"idle\",\"h264\":false}".into()
+    }
+}
+mod link {
+    pub fn start(target: &str) {
+        assert_eq!(target, crate::profile::ID);
+    }
+    pub fn net_start(meta: &[u8], body: &[u8], app: &str) -> i32 {
+        if meta == br#"{"url":"u"}"# && body == [9, 8] && app == "fixture" {
+            3
+        } else {
+            -1
+        }
+    }
+    pub fn net_take(handle: i32, into: &mut [u8]) -> i32 {
+        if handle != 3 {
+            return -1;
+        }
+        into.fill(7);
+        into.len() as i32
+    }
+    pub fn net_cancel(_: i32) {}
+    pub fn net_poll() -> Option<String> {
+        None
+    }
+    pub fn net_last_error() -> &'static str {
+        ""
+    }
+    pub fn link_status() -> String {
+        "{\"state\":\"searching\"}".into()
+    }
+}
 
 #[test]
 fn public_namespace_providers_and_private_extensions_share_one_runtime() {
     unsafe {
         let p=Program::new(r#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='psp'||ui.__hostAbi!==EXPECTED_BINDING||ui.__tickHz!==60||__simHz!==20||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing provider');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false||audio.createStream(44100,2)!==1||offload.session()!==7)throw Error('private namespace');"#.replace("EXPECTED_BINDING", &pocket_spec::BINDING_GENERATION.to_string()).as_bytes());
         p.assert_js("if(node<=0)throw Error('core');let b=new Uint8Array([1,2,3,4,5,6]);if(audio.writePcm(1,b.subarray(1,5))!==2)throw Error('audio view');");
+        p.assert_js(r#"const token='ab'.repeat(32);if(!media.open('127.0.0.1',9000,token)||media.texture()!==5||JSON.parse(media.status()).h264!==false)throw Error('media');media.paused(true);media.volume(0.5);media.close();"#);
+        media::CALLS.with(|calls| {
+            assert_eq!(*calls.borrow(), [format!("open {}", "ab".repeat(32)), "paused true".into(), "volume 0.5".into(), "close".into()])
+        });
+        p.assert_js(r#"let into=new Uint8Array(6);if(net.start('{"url":"u"}',new Uint8Array([9,8]))!==3||net.take(3,into.subarray(2,5))!==3||into.join()!=='0,0,7,7,7,0')throw Error('net view');if(link.status()!=='{"state":"searching"}'||link.pair('x')!==false||link.catalog()!==-1)throw Error('link');"#);
         audio_mod::PCM.with(|pcm| assert_eq!(&*pcm.borrow(), &[0x302, 0x504]));
         assert_eq!(host::MASKED.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
@@ -471,4 +535,70 @@ fn packages_for_another_profile_are_refused_before_the_guest_runs() {
         assert_ne!(embed::boot_deferred(p.runtime), 0);
         p.assert_js("if(typeof started!=='undefined')throw Error('ran before admission')");
     }
+}
+
+/// Vectors from the companion's encoders (tools/media-stream.ts
+/// createPal8Encoder, contracts/spec/media-adpcm.ts encodeMediaAudio), and the
+/// PCM the 3DS's decoder (platforms/3ds/media_adpcm.h) gives for the block.
+#[test]
+fn media_wire_reads_what_the_companion_encodes() {
+    let mut state = media_wire::Pal8::new();
+    let mut reference = [9u8; 8];
+    let first = [4, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 248, 224, 7, 1, 7, 1, 2, 0, 1, 1, 2, 2];
+    assert!(!media_wire::pal8_apply(&mut media_wire::Pal8::new(), &mut reference, &[4, 0, 2, 0, 0, 0, 0, 0, 8, 0]));
+    reference = [0; 8];
+    assert!(media_wire::pal8_apply(&mut state, &mut reference, &first));
+    assert_eq!(reference, [0, 1, 2, 0, 1, 1, 2, 2]);
+    assert_eq!(&state.clut[..12], &[0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255]);
+    assert!(media_wire::pal8_apply(&mut state, &mut reference, &[4, 0, 2, 0, 0, 0, 0, 0, 5, 1, 0, 2, 0]));
+    assert_eq!(reference, [0, 1, 2, 0, 1, 0, 2, 2]);
+    // A run past the picture, or a size change mid-stream, stops the stream.
+    assert!(!media_wire::pal8_apply(&mut state, &mut reference, &[4, 0, 2, 0, 0, 0, 0, 0, 9, 0]));
+    assert!(!media_wire::pal8_apply(&mut state, &mut reference, &[2, 0, 2, 0, 0, 0, 0, 0, 4, 0]));
+
+    let block = [0, 0, 10, 0, 72, 244, 20, 0, 119, 119, 119, 119, 103, 25, 47, 31, 12, 0, 145];
+    let mut pcm = [0i16; media_wire::AUDIO_FRAMES * 2];
+    assert_eq!(media_wire::decode_audio(&block, &mut pcm), 12);
+    assert_eq!(
+        &pcm[..24],
+        &[0, -3000, 34, -2907, 110, -2708, 275, -2278, 630, -1353, 1395, 369, 1067, 1072, -425, 2138, -3624, 2720, -7741, 2896, -7188, 3056, -5679, 2620]
+    );
+    let mut bad = block;
+    bad[3] = 1;
+    assert_eq!(media_wire::decode_audio(&bad, &mut pcm), 0);
+
+    // The picture in the 512-wide plane, its last column and row repeated.
+    let mut plane = vec![7u8; media_wire::WIDTH * media_wire::HEIGHT];
+    media_wire::expand(&reference, 4, 2, &mut plane);
+    assert_eq!(&plane[..5], &[0, 1, 2, 0, 0]);
+    assert_eq!(&plane[512..517], &[1, 0, 2, 2, 2]);
+    assert_eq!(&plane[1024..1029], &[1, 0, 2, 2, 2]);
+    assert_eq!(plane[1029], 7);
+}
+
+#[test]
+fn media_wire_checks_headers_and_packets() {
+    let mut header = [0u8; media_wire::HEADER_BYTES];
+    for (at, value) in [(0usize, 0x564d4b50u32), (16, 22050), (24, 1500), (28, 60_000)] {
+        header[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    for (at, value) in [(4usize, 1u16), (6, 32), (8, 512), (10, 256), (12, 12), (14, 2), (20, 2), (22, 2)] {
+        header[at..at + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    let parsed = media_wire::header(&header).expect("valid header");
+    assert_eq!((parsed.fps, parsed.codec, parsed.origin_ms, parsed.duration_ms), (12, media_wire::CODEC_PAL8, 1500, 60_000));
+    header[12] = 0;
+    assert!(media_wire::header(&header).is_none());
+    let packet = |kind: u8, size: u32| {
+        let mut p = [0u8; media_wire::PACKET_HEADER_BYTES];
+        p[0] = kind;
+        p[4..8].copy_from_slice(&size.to_le_bytes());
+        p[8..12].copy_from_slice(&40u32.to_le_bytes());
+        p
+    };
+    assert_eq!(media_wire::packet(&packet(1, 100)), Some((1, 100, 40)));
+    assert_eq!(media_wire::packet(&packet(2, 1031)), Some((2, 1031, 40)));
+    assert_eq!(media_wire::packet(&packet(2, 1032)), None);
+    assert_eq!(media_wire::packet(&packet(3, 1)), None);
+    assert_eq!(media_wire::packet(&packet(5, 0)), None);
 }
