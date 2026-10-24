@@ -53,6 +53,9 @@ const START_MS: u32 = 300;
 const SILENT_LEAD_MS: u32 = 750;
 /// No new stream byte for this long is a lost connection.
 const STALL_US: u32 = 10_000_000;
+/// Before the first picture or sound: a CardputerZero's ffmpeg took 14 to 18 s
+/// from its start to the first frame (two HTTPS inputs through a proxy).
+const OPEN_STALL_US: u32 = 40_000_000;
 /// media.ack goes out after this many bytes, or when the reader waits.
 const ACK_BYTES: u32 = 16 * 1024;
 /// Stream bytes read out of the ring per pread: every byte the companion has
@@ -355,7 +358,8 @@ impl Stream {
             if self.answered && self.closed {
                 return false;
             }
-            if now().wrapping_sub(self.progress_at) > STALL_US {
+            let opening = DECODED.load(Relaxed) == 0 && !AUDIO_KNOWN.load(Acquire);
+            if now().wrapping_sub(self.progress_at) > if opening { OPEN_STALL_US } else { STALL_US } {
                 return false;
             }
             self.acknowledge();
