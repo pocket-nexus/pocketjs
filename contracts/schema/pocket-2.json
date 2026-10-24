@@ -71,6 +71,11 @@
         "version": {
           "const": 1
         },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
         "services": {
           "type": "array",
           "items": {

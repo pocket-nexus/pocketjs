@@ -12,7 +12,7 @@ import type { Server, ServerWebSocket } from "bun";
 import { PSM } from "../contracts/spec/spec.ts";
 import { encodePNG } from "../tools/png.ts";
 import type { ServiceProvider } from "../tools/companion/services.ts";
-import { createDiscordService, DISCORD_INVITE_PERMISSIONS, DISCORD_SETUP } from "../tools/companion/services/discord.ts";
+import { createDiscordService, DISCORD_INVITE_PERMISSIONS, DISCORD_SETUP, DISCORD_SETUP_HINT } from "../tools/companion/services/discord.ts";
 import { call, expectImg, serviceContext } from "./helpers/companion-service.ts";
 
 const TOKEN = "MTIz.fake-bot-token.zzz";
@@ -195,8 +195,9 @@ describe("the discord service", () => {
     const provider = service();
     const guilds = await get(provider, "/guilds");
     expect(guilds.status).toBe(409);
-    expect(guilds.json().setup).toBe(DISCORD_SETUP);
-    expect((await get(provider, "/status")).json()).toEqual({ ready: false, setup: DISCORD_SETUP });
+    expect(guilds.json().setup).toBe(DISCORD_SETUP_HINT);
+    expect((await get(provider, "/status")).json()).toEqual({ ready: false, setup: DISCORD_SETUP_HINT });
+    expect(await provider.state!()).toEqual({ configured: false });
     expect(await provider.command!(["status"])).toContain(DISCORD_SETUP);
     provider.close?.();
   });

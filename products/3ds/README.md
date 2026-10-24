@@ -435,7 +435,7 @@ the bytecode (`JS_WriteObject`), which main.c writes to
 `JS_ReadObject`. The file's header carries the package hash, the first 16
 hex digits of the QuickJS build stamp (`POCKETJS_QUICKJS_STAMP`, from
 `dist/3ds/quickjs/.stamp`) and an FNV-1a checksum; a mismatch compiles again.
-On an Old 3DS, compiling Pocket Home's 477 KB bundle takes 2.3 s and reading
+On an Old 3DS, compiling Pocket Shell's 477 KB bundle takes 2.3 s and reading
 its 368 KB of bytecode takes 80 ms. The guest's runtime strips function
 source text (`JS_STRIP_SOURCE`): line tables stay, so a stack names its
 lines, and `Function.prototype.toString` returns no source. Capture builds

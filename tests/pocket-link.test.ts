@@ -493,6 +493,15 @@ describe("link", () => {
       expect(status.paired.map((p) => p.id)).toContain(DEVICE.id);
       expect(JSON.stringify(status)).not.toContain(key);
       expect(status.apps.length).toBe(2);
+      expect(status.apps.every((app) => Array.isArray(app.services))).toBe(true);
+
+      // The setup screens' view: every service's state, and no credential in it.
+      const setup = await controlRequest<{ services: Record<string, Record<string, unknown>>; agent: Record<string, unknown> }>(info, "GET", "/services");
+      expect(setup.services.x).toMatchObject({ signedIn: false, signingIn: false });
+      expect(setup.services.discord).toEqual({ configured: false });
+      expect(setup.services.youtube).toMatchObject({ managed: false, install: { state: "idle" } });
+      expect(setup.services.glyphs).toBeUndefined();
+      expect(Object.keys(setup.agent).sort()).toEqual(["codex", "enabled", "on", "signedIn"]);
 
       const window = await controlRequest<{ uri: string; expiresAt: number }>(info, "POST", "/pair");
       expect(parsePairUri(window.uri)?.companion).toBe(companion.id);

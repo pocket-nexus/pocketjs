@@ -29,7 +29,7 @@ import { CompanionStore } from "../tools/companion/store.ts";
 
 const tmpRoot = mkdtempSync(join(tmpdir(), "pocket-agent-"));
 const DEVICE: ConsoleDevice = { id: "0a1b2c3d4e5f6071", name: "Test 3DS", model: "Nintendo 3DS", target: "3ds-dev" };
-const APP = { id: "dev.pocket-nexus.home", title: "Pocket", output: "home-main" };
+const APP = { id: "dev.pocket-nexus.shell", title: "Pocket", output: "pocket-shell" };
 const HN = { id: "dev.pocket-nexus.hn", title: "Hacker News", output: "hn-main" };
 
 // ---------------------------------------------------------------------------
@@ -249,7 +249,7 @@ describe("agent over the link", () => {
   test("hello is answered with the agent's state", async () => {
     client.sendCtrl({ t: "agent.hello", app: APP, apps: [APP, HN], locale: "zh-CN" });
     const state = await next(of("agent.state"));
-    expect(state).toMatchObject({ phase: "idle", turn: 0, screen: "user", app: "home-main" });
+    expect(state).toMatchObject({ phase: "idle", turn: 0, screen: "user", app: "pocket-shell" });
   });
 
   test("hello brings the base atlas: slot 23, ASCII and CJK punctuation, tofu at gid 0", async () => {
@@ -290,7 +290,7 @@ describe("agent over the link", () => {
     const report = { app: APP, keyboard: false, texts: [{ text: "Settings", x: 10, y: 20, w: 60, h: 16 }] };
     client.sendCtrl({ t: "agent.result", call: call.call, ok: true, text: JSON.stringify(report), shot });
     const done = await next(of("agent.done", 0x40000007));
-    expect(done.text).toContain('seen:{"app":{"id":"dev.pocket-nexus.home"');
+    expect(done.text).toContain('seen:{"app":{"id":"dev.pocket-nexus.shell"');
     expect(done.text).toContain("image:yes ok:true");
     expect(done.usage).toEqual({ input: 150, cachedInput: 20, output: 10, total: 1050 });
     expect(inbox.some((m) => m.t === "agent.delta" && m.id === 0x40000007)).toBe(true);

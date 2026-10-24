@@ -70,6 +70,9 @@ export interface ServiceProvider {
    *  <args>`, or the menu bar app): sign in, set a token, report status.
    *  Returns the text to show. */
   command?(args: string[]): Promise<string>;
+  /** What the owner's setup screen shows (signed in, the bot, the tools
+   *  found). Never carries a credential. */
+  state?(): Promise<Record<string, unknown>>;
   close?(): void;
 }
 
@@ -143,6 +146,21 @@ export class ServiceHost {
     if (!provider) throw new Error(`no service named ${name}`);
     if (!provider.command) throw new Error(`the ${name} service takes no commands`);
     return await provider.command(args);
+  }
+
+  /** Every service's setup state, by name; a service without one is left out. */
+  async states(): Promise<Record<string, Record<string, unknown>>> {
+    const out: Record<string, Record<string, unknown>> = {};
+    for (const name of Object.keys(SERVICE_FACTORIES)) {
+      const provider = this.provider(name)!;
+      if (!provider.state) continue;
+      try {
+        out[name] = await provider.state();
+      } catch (error) {
+        out[name] = { error: (error as Error).message };
+      }
+    }
+    return out;
   }
 
   /** The response when `request` names a service, else null. Throws a

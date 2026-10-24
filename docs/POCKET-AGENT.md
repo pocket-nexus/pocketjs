@@ -105,7 +105,7 @@ screen.
   other program inherits a dark top screen. The chord, the microphone and
   the mirror capture work as in dual mode.
 - **The framework** exports `displayMode()` and `setDisplayMode(mode)` from
-  `@pocketjs/framework/agent`; Pocket Home's Settings has the switch.
+  `@pocketjs/framework/agent`; Pocket Shell's Settings has the switch.
 
 ## The host's agent channel
 

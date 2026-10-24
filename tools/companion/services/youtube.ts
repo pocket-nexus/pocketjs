@@ -41,6 +41,7 @@ import { IMG_FLAG_LINEAR, PSM } from "../../../contracts/spec/spec.ts";
 import { encodeImageEntry } from "../../../framework/compiler/pak.ts";
 import { createMediaStreamServer, createPal8Encoder, mediaHeader, quantizeCube, type MediaPacket } from "../../media-stream.ts";
 import { envProxy } from "../fetch.ts";
+import { ManagedTools } from "../tools.ts";
 import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
 
 interface Video {
@@ -83,22 +84,26 @@ interface YoutubeTools {
   thumbnailUrl?: (id: string) => string;
 }
 
-/** yt-dlp and ffmpeg where Homebrew and the usual installers put them: a
- *  menu bar app starts with a short PATH. yt-dlp needs a JavaScript runtime
- *  for YouTube's player; the first of bun, deno and node found is used. */
-function findYoutubeTools(env: NodeJS.ProcessEnv = process.env): YoutubeTools | null {
+/** yt-dlp and ffmpeg: the ones the companion fetched (tools.ts), else where
+ *  Homebrew and the usual installers put them, since a menu bar app starts
+ *  with a short PATH. yt-dlp needs a JavaScript runtime for YouTube's player:
+ *  the first of bun, deno and node found, else this program itself when it
+ *  is the companion's compiled binary (BUN_BE_BUN makes it the bun CLI). */
+export function findYoutubeTools(env: NodeJS.ProcessEnv = process.env, managed?: ManagedTools): YoutubeTools | null {
   const home = homedir();
   const dirs = (env.PATH ?? "").split(":").filter(Boolean);
   dirs.push("/opt/homebrew/bin", "/usr/local/bin", join(home, ".local", "bin"), join(home, ".bun", "bin"), join(home, ".deno", "bin"));
   const nvm = join(home, ".nvm", "versions", "node");
   if (existsSync(nvm)) for (const version of readdirSync(nvm).sort().reverse()) dirs.push(join(nvm, version, "bin"));
   const find = (name: string) => dirs.map((dir) => join(dir, name)).find((path) => existsSync(path));
-  const ytDlp = find("yt-dlp");
-  const ffmpeg = find("ffmpeg");
+  const ytDlp = managed?.ytDlp ?? find("yt-dlp");
+  const ffmpeg = managed?.ffmpeg ?? find("ffmpeg");
   if (!ytDlp || !ffmpeg) return null;
   const runtime = (["bun", "deno", "node"] as const).map((name) => [name, find(name)] as const).find(([, path]) => path);
+  const compiled = !runtime && Bun.main.startsWith("/$bunfs/");
+  const js = runtime ? ["--js-runtimes", `${runtime[0]}:${runtime[1]}`] : compiled ? ["--js-runtimes", `bun:${process.execPath}`] : [];
   return {
-    ytDlp: [ytDlp, "--ignore-config", ...(runtime ? ["--js-runtimes", `${runtime[0]}:${runtime[1]}`] : [])],
+    ytDlp: [...(compiled ? ["/usr/bin/env", "BUN_BE_BUN=1"] : []), ytDlp, "--ignore-config", ...js],
     ffmpeg: [ffmpeg],
   };
 }
@@ -310,7 +315,15 @@ async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: M
   }
 }
 
-export function createYoutubeService(context: ServiceContext, tools: YoutubeTools | null = findYoutubeTools()): ServiceProvider {
+/** The program a command line runs: past an `env VAR=value` prefix. */
+const program = (command: string[]): string => command.find((part, index) => !(index === 0 && part === "/usr/bin/env") && !/^\w+=/.test(part)) ?? command[0]!;
+
+/** `tools` names the programs, or looks them up on each use (the default:
+ *  the companion's own copies, else the Mac's), so a fetch takes effect at
+ *  once. */
+export function createYoutubeService(context: ServiceContext, tools?: YoutubeTools | null | (() => YoutubeTools | null)): ServiceProvider {
+  const managed = new ManagedTools(context.storeDir, context.log);
+  const lookup = typeof tools === "function" ? tools : tools === undefined ? () => findYoutubeTools(process.env, managed) : () => tools;
   const lists = new Map<string, { at: number; items: Video[] }>();
   const resolved = new Map<string, { at: number; video: ResolvedVideo }>();
   /** The media stream server, on every interface; a ticket names the
@@ -320,8 +333,9 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
   let active: MediaSource | undefined;
 
   const need = (): YoutubeTools => {
-    if (!tools) throw new Error("yt-dlp and ffmpeg are not installed on this Mac (brew install yt-dlp ffmpeg)");
-    return tools;
+    const found = lookup();
+    if (!found) throw new Error("YouTube is not set up on the Mac. Open Pocket Companion and set up YouTube.");
+    return found;
   };
 
   /** `source`: a ytsearchN: query or a results page URL. */
@@ -463,8 +477,24 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
       }
     },
     async command(args) {
-      if (args[0] !== "status" && args.length) return "youtube commands: status";
-      return tools ? `yt-dlp: ${tools.ytDlp[0]}\nffmpeg: ${tools.ffmpeg[0]}` : "yt-dlp or ffmpeg is missing: brew install yt-dlp ffmpeg";
+      const [verb = "status"] = args;
+      if (verb === "install") {
+        void managed.start().catch(() => {});
+        return "Fetching yt-dlp and ffmpeg into the companion's tools folder.";
+      }
+      if (verb !== "status") return "youtube commands: status, install";
+      const found = lookup();
+      return found ? `yt-dlp: ${program(found.ytDlp)}\nffmpeg: ${found.ffmpeg[0]}` : "yt-dlp or ffmpeg is missing: bun tools/companion.ts service youtube install";
+    },
+    async state() {
+      const found = lookup();
+      return {
+        ready: found !== null,
+        ytDlp: found ? program(found.ytDlp) : null,
+        ffmpeg: found?.ffmpeg[0] ?? null,
+        managed: managed.ytDlp !== null,
+        install: managed.install,
+      };
     },
     close() {
       void media?.then((open) => open.close());

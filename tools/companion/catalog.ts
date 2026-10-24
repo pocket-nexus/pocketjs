@@ -100,7 +100,8 @@ function scanFile(path: string, mtimeMs: number, size: number): ScannedFile {
       const identity = decodeIdentity(identityBytes);
       variants.push({ target: variant.target, ...identity });
     }
-    const summary = typeof manifest.summary === "string" ? manifest.summary : typeof manifest.description === "string" ? manifest.description : "";
+    const applet = manifest.applet as { summary?: unknown } | undefined;
+    const summary = typeof applet?.summary === "string" ? applet.summary : typeof manifest.summary === "string" ? manifest.summary : typeof manifest.description === "string" ? manifest.description : "";
     return {
       ...base,
       hash,

@@ -57,6 +57,9 @@ describe("manifest rules", () => {
     expect(validatePocketManifest(manifest({ applet: { version: 2 } })).ok).toBe(false);
     expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["http://x.com"] } })).ok).toBe(false);
     expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["api.example.com"], services: ["glyphs"] } })).ok).toBe(true);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "The front page and its threads." } })).ok).toBe(true);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "" } })).ok).toBe(false);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "x".repeat(121) } })).ok).toBe(false);
   });
 
   test("system capabilities, a missing agent, a long title and a wrong surface are refused", () => {
