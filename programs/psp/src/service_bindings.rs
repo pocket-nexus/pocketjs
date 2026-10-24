@@ -1,4 +1,4 @@
-//! PSP private audio, debugger and offload extensions. Public UI methods are
+//! PSP private audio, debugger, offload and link extensions. Public UI methods are
 //! generated and dispatch to the active Runtime's OpContext.
 use alloc::{string::String, vec::Vec};
 use libquickjs_sys::*;
@@ -513,6 +513,146 @@ unsafe extern "C" fn js_offload_upload_indexed(
     JS_FreeCString(ctx, cp);
     JS_NewInt32(ctx, handle)
 }
+/// A typed array or ArrayBuffer argument as the guest's own bytes, for a
+/// native call that fills it before returning to JS.
+unsafe fn buffer_mut<'a>(ctx: *mut JSContext, value: JSValue) -> Option<&'a mut [u8]> {
+    let mut length = 0;
+    let pointer = JS_GetArrayBuffer(ctx, &mut length, value);
+    if !pointer.is_null() {
+        return Some(core::slice::from_raw_parts_mut(pointer, length));
+    }
+    JS_FreeValue(ctx, JS_GetException(ctx));
+    let (mut offset, mut count, mut element) = (0, 0, 0);
+    let buffer = JS_GetTypedArrayBuffer(ctx, value, &mut offset, &mut count, &mut element);
+    if JS_IsException(buffer) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return None;
+    }
+    let pointer = JS_GetArrayBuffer(ctx, &mut length, buffer);
+    JS_FreeValue(ctx, buffer);
+    if pointer.is_null() || offset > length || count > length - offset {
+        return None;
+    }
+    Some(core::slice::from_raw_parts_mut(pointer.add(offset), count))
+}
+
+// ---- globalThis.net and globalThis.link over the USB share (link.rs) ----------
+
+/// net.start(metaJson, body) -> handle | -1 (contracts/spec/net.ts).
+unsafe extern "C" fn js_net_start(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    let Some((meta_ptr, meta)) = arg_bytes(ctx, argc, argv, 0) else {
+        return JS_NewInt32(ctx, -1);
+    };
+    let body = if argc >= 2 {
+        buffer_bytes(ctx, *argv.offset(1)).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let handle = crate::link::net_start(meta, &body, crate::switch::current_id());
+    JS_FreeCString(ctx, meta_ptr);
+    JS_NewInt32(ctx, handle)
+}
+
+/// net.take(handle, into) -> bytes copied | -1.
+unsafe extern "C" fn js_net_take(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    if argc < 2 {
+        return JS_NewInt32(ctx, -1);
+    }
+    let handle = arg_i32(ctx, argc, argv, 0);
+    match buffer_mut(ctx, *argv.offset(1)) {
+        Some(into) => JS_NewInt32(ctx, crate::link::net_take(handle, into)),
+        None => JS_NewInt32(ctx, -1),
+    }
+}
+
+/// net.cancel(handle).
+unsafe extern "C" fn js_net_cancel(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    if argc >= 1 {
+        crate::link::net_cancel(arg_i32(ctx, argc, argv, 0));
+    }
+    JS_UNDEFINED
+}
+
+/// net.poll() -> the tick's events as one JSON array | undefined.
+unsafe extern "C" fn js_net_poll(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    match crate::link::net_poll() {
+        Some(s) => JS_NewStringLen(ctx, s.as_ptr(), s.len()),
+        None => JS_UNDEFINED,
+    }
+}
+
+/// net.lastError() -> "code: message".
+unsafe extern "C" fn js_net_last_error(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    let s = crate::link::net_last_error();
+    JS_NewStringLen(ctx, s.as_ptr(), s.len())
+}
+
+/// link.status() -> LinkStatus JSON (contracts/spec/link.ts).
+unsafe extern "C" fn js_link_status(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    let s = crate::link::link_status();
+    JS_NewStringLen(ctx, s.as_ptr(), s.len())
+}
+
+/// link.pair / forget / remove: the USB carrier has no pairing and no
+/// installs (the cable is the trust boundary), so each refuses.
+unsafe extern "C" fn js_link_refuse(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    JS_NewBool(ctx, false)
+}
+
+/// link.catalog / install -> -1: not carried over USB.
+unsafe extern "C" fn js_link_no_request(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    JS_NewInt32(ctx, -1)
+}
+
+/// link.poll() -> no link events over USB.
+unsafe extern "C" fn js_link_poll(
+    _ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    JS_UNDEFINED
+}
 /// Mount private namespaces after the generated guest has created ui.
 pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     if crate::offload::enabled() {
@@ -542,6 +682,32 @@ pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     add_fn(ctx, ui_obj, b"__dbgShot\0", js_dbg_shot, 0);
     JS_FreeValue(ctx, ui_obj);
     register_audio(ctx, global);
+    register_link(ctx, global);
+}
+/// Install `globalThis.net` and `globalThis.link`, both carried by the
+/// companion on the USB share (link.rs). The link starts here, before the
+/// guest evaluates, so a request at mount finds a companion that answers.
+///
+/// # Safety
+/// QuickJS context alive, worker thread.
+pub unsafe fn register_link(ctx: *mut JSContext, global: JSValue) {
+    crate::link::start(crate::profile::ID);
+    let net = JS_NewObject(ctx);
+    add_fn(ctx, net, b"start\0", js_net_start, 2);
+    add_fn(ctx, net, b"take\0", js_net_take, 2);
+    add_fn(ctx, net, b"cancel\0", js_net_cancel, 1);
+    add_fn(ctx, net, b"poll\0", js_net_poll, 0);
+    add_fn(ctx, net, b"lastError\0", js_net_last_error, 0);
+    JS_SetPropertyStr(ctx, global, b"net\0".as_ptr() as *const _, net);
+    let link = JS_NewObject(ctx);
+    add_fn(ctx, link, b"status\0", js_link_status, 0);
+    add_fn(ctx, link, b"pair\0", js_link_refuse, 1);
+    add_fn(ctx, link, b"forget\0", js_link_refuse, 1);
+    add_fn(ctx, link, b"remove\0", js_link_refuse, 1);
+    add_fn(ctx, link, b"catalog\0", js_link_no_request, 0);
+    add_fn(ctx, link, b"install\0", js_link_no_request, 1);
+    add_fn(ctx, link, b"poll\0", js_link_poll, 0);
+    JS_SetPropertyStr(ctx, global, b"link\0".as_ptr() as *const _, link);
 }
 /// Install `globalThis.audio` — the audio MODULE as its own namespace
 /// (capability audio.pcm = spec namespace, contracts/spec/audio.ts), the

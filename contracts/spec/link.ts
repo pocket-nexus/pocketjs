@@ -306,3 +306,73 @@ export type LinkEvent =
 
 /** Pending `catalog`/`install` requests per console. */
 export const LINK_MAX_REQUESTS = 4;
+
+// ---------------------------------------------------------------------------
+// USB carrier (a console tethered over PSPLINK: the PSP)
+// ---------------------------------------------------------------------------
+//
+// A console with no network link reaches its companion through the USB file
+// share the tethered computer serves (usbhostfs_pc on a CardputerZero or a
+// Mac; `host0:` on the console). The same requests ride it as JSON records in
+// files under `<share>/pocket-link/`. The cable is the trust boundary: whoever
+// serves the share already decides every file the console reads, so there is
+// no pairing handshake and no key. The `net` feature is carried; catalog and
+// install are not.
+//
+// Every file is one record: a 64-byte header, `json` bytes, `body` bytes.
+//
+//   off 0   u32  magic   'P','K','L','U'
+//   off 4   u32  epoch   the companion's session, never 0 (from `ready`)
+//   off 8   u32  boot    the console's boot id, never 0 (0 in `ready`)
+//   off 12  u32  seq     the slot's request number (0 in `ready`/`hello`)
+//   off 16  u32  kind    LINK_USB_KIND
+//   off 20  u32  id      the request id = the net handle (0 in `ready`/`hello`)
+//   off 24  u32  beat    `ready` only: bumped every LINK_USB_BEAT_MS
+//   off 32  u32  json    UTF-8 JSON bytes after the header
+//   off 36  u32  jsonHash  FNV-1a 32 of the JSON bytes
+//   off 40  u32  body    body bytes after the JSON
+//   off 44  u32  bodyHash  FNV-1a 32 of the body bytes
+//   other words are 0. All words little-endian.
+//
+// Files:
+//
+//   ready        companion -> console, rewritten every LINK_USB_BEAT_MS:
+//                {"v":1,"id":"<companion id>","name":"…","features":["net"],
+//                 "clock":{"utc":<epoch ms>,"offsetMinutes":<n>}}
+//   hello        console -> companion, written once per epoch before any request:
+//                {"t":"hello","device":"<id>","name":"…","model":"…","target":"psp"}
+//   net<i>.req   console -> companion, slot i < LINK_USB_SLOTS: kind request
+//                (json = the TCP link's net ctrl {"t":"net","id":n,"app":…,
+//                "bytes":k, …meta}, body = the request body) or kind cancel
+//                (json {"t":"net.cancel","id":n}, same seq)
+//   net<i>.res   companion -> console: kind reply, the request's epoch, boot,
+//                seq and id; json = the NET event itself ({"t":"done","h":n,
+//                "status":…,"url":…,"headers":{…},"bytes":N} or {"t":"error",
+//                "h":n,"code":…,"message":…}), body = the response body
+//
+// The companion writes each file whole under a temporary name and renames it,
+// so a reader sees an old record or a new one. The console's writes are not
+// atomic: the companion checks both hashes and reads a torn record again on
+// its next poll. A record from another epoch, boot or seq is stale and ignored.
+//
+// The console treats the companion as linked while `ready` is valid and its
+// beat moved within LINK_USB_SILENCE_MS. A new epoch fails every open request;
+// so does silence. A new boot in `hello` drops the previous boot's requests on
+// the companion. Nothing is replayed.
+
+export const LINK_USB_DIR = "pocket-link";
+export const LINK_USB_MAGIC = 0x554c4b50; // 'PKLU' LE
+export const LINK_USB_HEADER_BYTES = 64;
+export const LINK_USB_KIND = {
+  ready: 1,
+  hello: 2,
+  request: 3,
+  cancel: 4,
+  reply: 5,
+} as const;
+/** Request slots: the NET module's in-flight limit (net.ts NET_MAX_INFLIGHT). */
+export const LINK_USB_SLOTS = 2;
+export const LINK_USB_BEAT_MS = 500;
+export const LINK_USB_SILENCE_MS = 3000;
+/** The largest `json` section of any record. */
+export const LINK_USB_MAX_JSON = 16 * 1024;

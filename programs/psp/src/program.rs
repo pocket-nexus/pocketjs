@@ -304,6 +304,7 @@ impl Drop for Runtime {
             }
             crate::audio_mod::reset();
             crate::svc::reset();
+            crate::link::reset();
             crate::offload::reset();
             crate::offload_local::reset();
             pocket_runtime_cabi::pocket_runtime_destroy(self.handle);

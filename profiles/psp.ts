@@ -26,6 +26,8 @@ export default defineBuiltinProfile({
     "input.buttons",
     "io.offload",
     "text.layout.offload",
+    "net.http",
+    "link.companion",
     "input.cursor",
     "audio.pcm",
     "text.glyphs.baked",

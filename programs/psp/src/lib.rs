@@ -25,6 +25,7 @@ pub mod scene;
 pub mod service_bindings;
 pub use scene as ge;
 pub mod host;
+pub use pocket_psp_io::link;
 mod instance;
 /// The exported profile this EBOOT was built for (`psp` or `psp-runtime`);
 /// build.rs copies it into OUT_DIR from `POCKETJS_PROFILE_RS`.

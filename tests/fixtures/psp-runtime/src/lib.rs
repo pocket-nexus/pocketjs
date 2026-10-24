@@ -67,6 +67,9 @@ mod switch {
     pub fn shot_handle() -> i32 {
         -1
     }
+    pub fn current_id() -> &'static str {
+        "fixture"
+    }
 }
 use libquickjs_sys::*;
 use pocket_drivers::*;
@@ -337,12 +340,42 @@ mod offload_local {
 }
 #[path = "../../../../programs/psp/src/offload_image.rs"]
 mod offload_image;
+mod link {
+    pub fn start(target: &str) {
+        assert_eq!(target, crate::profile::ID);
+    }
+    pub fn net_start(meta: &[u8], body: &[u8], app: &str) -> i32 {
+        if meta == br#"{"url":"u"}"# && body == [9, 8] && app == "fixture" {
+            3
+        } else {
+            -1
+        }
+    }
+    pub fn net_take(handle: i32, into: &mut [u8]) -> i32 {
+        if handle != 3 {
+            return -1;
+        }
+        into.fill(7);
+        into.len() as i32
+    }
+    pub fn net_cancel(_: i32) {}
+    pub fn net_poll() -> Option<String> {
+        None
+    }
+    pub fn net_last_error() -> &'static str {
+        ""
+    }
+    pub fn link_status() -> String {
+        "{\"state\":\"searching\"}".into()
+    }
+}
 
 #[test]
 fn public_namespace_providers_and_private_extensions_share_one_runtime() {
     unsafe {
         let p=Program::new(r#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='psp'||ui.__hostAbi!==EXPECTED_BINDING||ui.__tickHz!==60||__simHz!==20||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing provider');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false||audio.createStream(44100,2)!==1||offload.session()!==7)throw Error('private namespace');"#.replace("EXPECTED_BINDING", &pocket_spec::BINDING_GENERATION.to_string()).as_bytes());
         p.assert_js("if(node<=0)throw Error('core');let b=new Uint8Array([1,2,3,4,5,6]);if(audio.writePcm(1,b.subarray(1,5))!==2)throw Error('audio view');");
+        p.assert_js(r#"let into=new Uint8Array(6);if(net.start('{"url":"u"}',new Uint8Array([9,8]))!==3||net.take(3,into.subarray(2,5))!==3||into.join()!=='0,0,7,7,7,0')throw Error('net view');if(link.status()!=='{"state":"searching"}'||link.pair('x')!==false||link.catalog()!==-1)throw Error('link');"#);
         audio_mod::PCM.with(|pcm| assert_eq!(&*pcm.borrow(), &[0x302, 0x504]));
         assert_eq!(host::MASKED.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
