@@ -180,6 +180,9 @@ failed:
   pocket_guest_idf_destroy(guest);
   return NULL;
 }
+JSContext *pocket_guest_idf_context(pocket_guest_idf *guest) {
+  return guest ? guest->context : NULL;
+}
 static int32_t initialize(void *opaque, pocket_runtime *runtime,
                           const pocket_guest_environment *environment) {
   pocket_guest_idf *guest = opaque;
@@ -189,12 +192,16 @@ static int32_t initialize(void *opaque, pocket_runtime *runtime,
 static int32_t evaluate(void *opaque, pocket_runtime *runtime,
                         const uint8_t *code, size_t size) {
   pocket_guest_idf *guest = opaque;
+  JS_UpdateStackTop(guest->runtime);
   int32_t status = pocket_guest_quickjs_vtable()->evaluate(guest->binding,
                                                            runtime, code, size);
   return status == POCKET_STATUS_OK ? report_rejections(guest) : status;
 }
 static int32_t frame(void *opaque, const pocket_guest_frame *input) {
   pocket_guest_idf *guest = opaque;
+  /* The stack limit counts from the calling task's stack: a frame may run
+   * on another task than the one that created the runtime. */
+  JS_UpdateStackTop(guest->runtime);
   int32_t status = pocket_guest_quickjs_vtable()->frame(guest->binding, input);
   return status == POCKET_STATUS_OK ? report_rejections(guest) : status;
 }

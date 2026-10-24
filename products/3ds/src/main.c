@@ -61,6 +61,7 @@
 #include "fs.h"
 #include "launcher.h"
 #include "link.h"
+#include "services_host.h"
 #include "wifi.h"
 #include "transition.h"
 #include "bytecode.h"
@@ -523,7 +524,8 @@ static bool boot_guest(
   /* link.c names the running app in every NET request, and the guest's
    * first code (a module's top level, the first effects) runs inside
    * qjs_boot and may fetch: the launcher learns the app before it starts. */
-  launcher_set_current(runtime_slot(), package);
+  LauncherPackage facts = launcher_package(package);
+  launcher_set_current(runtime_slot(), &facts);
   /* data.fs: the guest's tree is its own slot's data directory, bound before
    * qjs_boot publishes `globalThis.fs`. A card that cannot hold it leaves
    * the namespace out, as on a host without the capability; so does a
@@ -1108,12 +1110,13 @@ static bool route_upload(
     devserver_report_install("rejected", upload_hash, error);
     return true;
   }
-  launcher_note_installed(slot, installed);
+  LauncherPackage facts = launcher_package(installed);
+  launcher_note_installed(slot, &facts);
   LauncherTarget target;
   memset(&target, 0, sizeof target);
   snprintf(target.slot, sizeof target.slot, "%s", slot);
   target.home = strcmp(slot, launcher_home_slot()) == 0;
-  if (!launcher_package_output(installed, target.output, sizeof target.output)) target.output[0] = '\0';
+  if (!launcher_package_output(&facts, target.output, sizeof target.output)) target.output[0] = '\0';
   if (target.home) {
     runtime_package_free(installed);
     installed = NULL;
@@ -1203,8 +1206,10 @@ int main(void) {
      * while WiFi is still re-associating (e.g. right after ftpd exits). */
     runtime_write_error("devserver-init", runtime_error);
   }
-  launcher_init(embedded);
-  link_init(&runtime_state);
+  LauncherPackage home = launcher_package(embedded);
+  launcher_init(embedded->guest.slot, &home);
+  services_host_bind_runtime(&runtime_state);
+  link_init();
   qjs_set_interrupt(guest_interrupt);
 #endif
   PocketRuntimeFailureLineage failures = {0};

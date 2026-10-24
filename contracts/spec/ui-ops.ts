@@ -189,7 +189,7 @@ export const UI_BINDING_PROFILES = {
 } as const;
 
 export const UI_LEGACY_C_OPS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,24,25,26,27,28,29,42,57,58] as const;
-export const UI_IDF_OPS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,42,43] as const;
+export const UI_IDF_OPS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,39,40,41,42,43] as const;
 
 export function validateUiOps(): void {
   const names = new Set<string>(), ids = new Set<number>();

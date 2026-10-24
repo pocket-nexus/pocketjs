@@ -16,6 +16,13 @@ pub struct DrawList {
     /// a screen this way (contracts/spec/agent.ts).
     pub capture_texts: i32,
     pub texts: Vec<TextBox>,
+    /// Paint that repeats exactly when content moves by whole logical
+    /// pixels: axis-aligned world translations round to whole pixels, and a
+    /// partially clipped gradient is emitted as SCISSOR, the unclipped
+    /// GRAD_RECT, SCISSOR_POP so its colors do not depend on the clip. For
+    /// backends that clip in software: the unclipped rect may leave the
+    /// viewport.
+    pub stable_motion_paint: bool,
 }
 
 /// One painted text run: its visible box (clipped, world px) and its text.
@@ -34,6 +41,7 @@ impl DrawList {
             words: Vec::new(),
             capture_texts: 0,
             texts: Vec::new(),
+            stable_motion_paint: false,
         }
     }
 }

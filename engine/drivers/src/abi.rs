@@ -26,7 +26,7 @@ use record::abi_record;
 // Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.
 // Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.
 // Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. A DEFERRED renderer's frame completes at the start of the next present, so its device work overlaps the next guest turn. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks.
-// The guest receives eight frame arguments through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format.
+// The guest receives the eight frame arguments and the frame's text events through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format. A text event names an editing key as KeyboardEvent.key does (Enter, Backspace, Delete, Escape, Tab, ArrowLeft, Home), with a held modifier in front: Control+z, Alt+ArrowLeft.
 // Destroy completes in-flight DEFERRED frames and drains rendering and display transfers before shutting down the guest and releasing package or frame resources.
 // An application links exactly one PocketJS Rust archive. The six pocket_host_* functions are supplied by the program and are the archive's complete host-hook contract.
 
@@ -115,6 +115,7 @@ pub const POCKET_DISPLAY_DEVICE_ROTATION: u32 = 8;
 pub const POCKET_DISPLAY_DEVICE_SCALING: u32 = 16;
 pub const POCKET_DISPLAY_PIPELINED_ACQUIRE: u32 = 64;
 pub const POCKET_DISPLAY_QUEUED_FLUSH: u32 = 128;
+pub const POCKET_DISPLAY_RETAINED_MOVE: u32 = 256;
 pub const POCKET_STATUS_OK: i32 = 0;
 pub const POCKET_STATUS_UNSUPPORTED: i32 = -1;
 pub const POCKET_STATUS_INVALID: i32 = -2;
@@ -153,6 +154,12 @@ pub type PocketDisplayFlushFn = unsafe extern "C" fn(context: *mut c_void, regio
 pub type PocketDisplayWaitFn = unsafe extern "C" fn(context: *mut c_void, token: u64) -> i32;
 
 pub type PocketDisplayVsyncFn = unsafe extern "C" fn(context: *mut c_void) -> u32;
+
+/// RETAINED_MOVE displays only. Called after frame_identity and before the frame's first acquire: every retained pixel of destination takes the value of the pixel at (-dx, -dy) from it. The display completes the move before any later flush writes. UNSUPPORTED declines this move: the pixels stay and the runtime repaints destination. Any other error leaves destination undefined; the runtime repaints the whole target next frame.
+pub type PocketDisplayMoveFn = unsafe extern "C" fn(context: *mut c_void, destination: *const PocketRect, dx: i32, dy: i32) -> i32;
+
+/// Optional. Called once per frame after frame_identity and the frame's move, before its first acquire: up to capacity physical rectangles the display needs repainted besides the frame's own damage, such as a host overlay whose face changed or whose pixels a move carried along. The runtime repaints them this frame.
+pub type PocketDisplayHostDamageFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketRect, capacity: usize, count: *mut usize) -> i32;
 
 pub type PocketRendererDescriptorFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketRendererDescriptor) -> i32;
 
@@ -551,6 +558,8 @@ abi_record! {
         pub wait: Option<PocketDisplayWaitFn>,
         pub vsync: Option<PocketDisplayVsyncFn>,
         pub frame_identity: Option<PocketDisplayFrameIdentityFn>,
+        pub move_pixels: Option<PocketDisplayMoveFn>,
+        pub host_damage: Option<PocketDisplayHostDamageFn>,
     }
 }
 
@@ -732,7 +741,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// Legacy frame argument packet encoded by the runtime, including hit facts. touches/hits/touch_surfaces have touch_count entries. Borrowed until the guest frame callback returns.
+    /// Legacy frame argument packet encoded by the runtime, including hit facts. touches/hits/touch_surfaces have touch_count entries; text has text_count entries, the frame's text events in order. Borrowed until the guest frame callback returns.
     pub struct PocketGuestFrame {
         pub struct_size: usize,
         pub buttons: u32,
@@ -745,6 +754,8 @@ abi_record! {
         pub axis_deltas: *const PocketAxisDelta,
         pub axis_delta_count: usize,
         pub motion: *const PocketMotionState,
+        pub text: *const PocketTextEvent,
+        pub text_count: usize,
     }
 }
 
@@ -796,6 +807,8 @@ pub fn pocket_runtime_complete_presentation(runtime: *mut PocketRuntime) -> i32;
 pub fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32;
     /// Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime.
 pub fn pocket_runtime_op(runtime: *mut PocketRuntime, op: u16, args: *const c_void, length: usize, out: *mut PocketResult) -> i32;
+    /// Overwrite the rectangle of a live 16- or 32-bit texture in place with width*height texels in its format, rows packed: the handle and the nodes drawing it stay, and the next frame repaints only the quads that sample it. Not during a guest callback; INVALID for a stale handle, an indexed texture, a rectangle outside the texture or another byte count.
+pub fn pocket_runtime_update_texture(runtime: *mut PocketRuntime, handle: i32, x: u32, y: u32, width: u32, height: u32, pixels: *const u8, length: usize) -> i32;
     pub fn pocket_runtime_destroy(runtime: *mut PocketRuntime) -> ();
     /// Software fallback after accelerator completion and cache visibility, within target's acquired region.
 pub fn pocket_raster_draw_op(target: *mut PocketSurface, op: *const PocketDrawOp, resources: *const PocketRenderResources) -> i32;

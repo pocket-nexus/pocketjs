@@ -5,8 +5,8 @@
  * machine and checks it against the TypeScript contract and Bun's crypto.
  */
 
-#ifndef POCKETJS_3DS_LINK_PROTO_H
-#define POCKETJS_3DS_LINK_PROTO_H
+#ifndef POCKETJS_LINK_PROTO_H
+#define POCKETJS_LINK_PROTO_H
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -701,6 +701,14 @@ impl Runtime {
             state
                 .ui
                 .set_viewport(viewport[0] as f32, viewport[1] as f32);
+            // Content that slides repeats its pixels only when it moves by
+            // whole logical pixels; a display that moves retained pixels
+            // then reuses them.
+            state.ui.set_stable_motion_paint(
+                self.presenter
+                    .display_descriptors()
+                    .any(|display| display.retained_move),
+            );
             state.physics = facts.feature("ui.physics");
             if let Some(aux) = auxiliary_viewport {
                 state

@@ -11,6 +11,9 @@ impl RenderResources for Ui {
     fn raster_revision(&self) -> u64 {
         Ui::raster_revision(self)
     }
+    fn resource_revision(&self) -> u64 {
+        Ui::resource_revision(self)
+    }
     fn texture(&self, handle: i32) -> Option<TexView<'_>> {
         Ui::texture(self, handle)
     }

@@ -9,8 +9,8 @@
  * returning an error from every call.
  */
 
-#ifndef POCKETJS_3DS_JSCAN_H
-#define POCKETJS_3DS_JSCAN_H
+#ifndef POCKETJS_JSCAN_H
+#define POCKETJS_JSCAN_H
 
 #include <stdbool.h>
 #include <stddef.h>

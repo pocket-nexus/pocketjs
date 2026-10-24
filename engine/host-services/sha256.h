@@ -6,8 +6,8 @@
  * compiles it on the build machine and checks it against Bun's crypto.
  */
 
-#ifndef POCKETJS_3DS_SHA256_H
-#define POCKETJS_3DS_SHA256_H
+#ifndef POCKETJS_SHA256_H
+#define POCKETJS_SHA256_H
 
 #include <stdbool.h>
 #include <stddef.h>

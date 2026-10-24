@@ -79,11 +79,12 @@
     "text": "osk",
     "glyphs": "playstation"
   },
+  "animation": "composited",
   "features": {
     "input.analog.left": true,
     "input.buttons": true,
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:49a9efef7ff1ae97f921b8a0a38fc914afa1b39657d8fd588a3414558dd61691"
+  "planHash": "sha256:c61446e214e64dd6b83fcdd502a42420d1b29af2fe41dc9ee8e0a8a85fe1a0ea"
 }

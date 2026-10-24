@@ -28,6 +28,7 @@ pocketjs/
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
+│  ├─ host-services/        C link, launcher, fs and photo services for native programs
 │  ├─ backends/gpui/        desktop renderer and text integration
 │  ├─ ios/                 UIKit runtime integration
 │  ├─ crates/              module, UI embedding, text and widget libraries
@@ -85,6 +86,11 @@ and GPU mechanisms in `devices/`. Programs own their entries and driver
 composition; profiles describe the software contract. Device age and product
 category do not determine directory or repository ownership. See
 [Device native builds](DEVICE_BUILDS.md).
+
+**The M5Stack Tab5 program lives in pocket-nexus/pocket-m5.** It pins this
+repository as a submodule and composes the `platforms/esp-idf` components,
+`engine/host-services` and the IDF archive; its profiles (`tab5-hero`,
+`tab5-clear`, `tab5-home`) live with the program.
 
 **The 3DS product lives in `products/3ds`.**
 Its private package inspection, Link, camera, launcher and development services

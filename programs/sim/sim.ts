@@ -263,7 +263,7 @@ export async function bootWorld(
   const src = await Bun.file(DIST + app + ".js").text();
   (0, eval)(src);
   const appFrame = g.frame as
-    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[], motion?: MotionState | null) => void)
+    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[], motion?: MotionState | null, text?: readonly { kind: number; text: string; selectionStart: number; selectionEnd: number; repeat: boolean }[]) => void)
     | undefined;
   if (typeof appFrame !== "function") {
     throw new Error("sim: bundle did not install globalThis.frame (entry must call render()/mount())");
@@ -372,6 +372,27 @@ export interface StepInput {
   touches?: readonly SimContact[];
   /** The surface the contacts are on. Default `primary`. */
   surface?: SimSurface;
+  /** The frame's text events, as a keyboard host appends them. */
+  text?: readonly SimTextEvent[];
+}
+
+/** One text event of a frame: a typed string (`commit`), or an editing key
+ *  named as KeyboardEvent.key names it (`Enter`, `Backspace`, `ArrowLeft`,
+ *  `Control+z`), pressed unless `pressed` is false. */
+export type SimTextEvent = { commit: string } | { key: string; pressed?: boolean; repeat?: boolean };
+
+/** contracts/spec/input.ts TEXT_EVENT_KINDS, kept literal: this module stays host-side. */
+const TEXT_KEY_DOWN = 0;
+const TEXT_KEY_UP = 1;
+const TEXT_COMMIT = 2;
+
+function packTextEvents(events: readonly SimTextEvent[] | undefined): { kind: number; text: string; selectionStart: number; selectionEnd: number; repeat: boolean }[] | undefined {
+  if (!events || events.length === 0) return undefined;
+  return events.map((event) =>
+    "commit" in event
+      ? { kind: TEXT_COMMIT, text: event.commit, selectionStart: 0, selectionEnd: 0, repeat: false }
+      : { kind: event.pressed === false ? TEXT_KEY_UP : TEXT_KEY_DOWN, text: event.key, selectionStart: 0, selectionEnd: 0, repeat: event.repeat === true },
+  );
 }
 
 /** One node of the retained tree, as the core holds it. */
@@ -544,7 +565,7 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
     failure = failureOf(error, "boot", 0);
   }
   const appFrame = g.frame as
-    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[]) => void)
+    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[], motion?: MotionState | null, text?: readonly { kind: number; text: string; selectionStart: number; selectionEnd: number; repeat: boolean }[]) => void)
     | undefined;
 
   let surface = 0;
@@ -617,7 +638,7 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
         : undefined;
       try {
         guest(() => {
-          appFrame(input.buttons ?? 0, input.analog ?? 0x8080, touches, hitFacts(touches), touches?.map(() => surface));
+          appFrame(input.buttons ?? 0, input.analog ?? 0x8080, touches, hitFacts(touches), touches?.map(() => surface), undefined, undefined, undefined, packTextEvents(input.text));
           for (let t = 0; t < ticksPerFrame; t++) wasm.tick();
           for (const armed of armedCaptures) {
             if (armed === 1) wasm.drawHashAuxiliary?.();

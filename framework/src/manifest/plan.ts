@@ -1,6 +1,7 @@
 import type { HostExtension } from "./host-extension.ts";
 import { createHash } from "node:crypto";
 import type { AppletDeclaration } from "../../../contracts/spec/applet.ts";
+import type { AnimationClass } from "../../../contracts/spec/animation.ts";
 import type { Modality } from "../../../contracts/spec/modality.ts";
 import type { AnimationTheme, PocketManifestV2 } from "../../../contracts/spec/pocket-manifest.ts";
 import type { PresentationMode, Viewport } from "../../../contracts/spec/platforms.ts";
@@ -55,6 +56,9 @@ export interface ResolvedBuildPlanContent {
    *  (contracts/spec/modality.ts). Consumers read it from the plan, never
    *  from a second copy of the registry. */
   readonly modality: Modality;
+  /** What a changed frame costs the target, derived from its profile
+   *  (contracts/spec/animation.ts). */
+  readonly animation: AnimationClass;
   /** Required APIs are true; enhancements reflect target availability. */
   readonly features: Readonly<Record<string, boolean>>;
   /** Companion service names from the manifest (app.companions): the exact

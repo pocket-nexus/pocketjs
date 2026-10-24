@@ -1,12 +1,14 @@
 /*
- * The 3DS app table (docs/LAUNCHER.md, spec ops 39..41): the embedded ROMFS
- * guest is the launcher, and every OTHER runtime slot with a committed active
- * package is an installed app it can switch to.
+ * The app table of a console with installed apps (docs/LAUNCHER.md, spec ops
+ * 39..41): the guest the host embeds is the launcher, and every OTHER slot
+ * with a committed package is an installed app it can switch to. The host
+ * keeps the slots (host_services.h, launcher_host_*).
  *
- * This module owns the table and the switch request; main.c owns the swap
- * itself (teardown, slot selection, boot) at a GPU-idle frame boundary. The
- * table is cached and rebuilt only after launcher_invalidate (an install, a
- * removal, a routed push), never by scanning the SD card on every read.
+ * This module owns the table and the switch request; the host's main loop
+ * owns the swap itself (teardown, slot selection, boot) at a frame boundary.
+ * The table is cached and rebuilt only after launcher_invalidate (an
+ * install, a removal, a routed push), never by scanning storage on every
+ * read.
  *
  *   appTable() -> {"apps":[{output,id,title,version,bytes}],"current",
  *                  "resume","launcher","lastError":{output,message}|null}
@@ -14,14 +16,14 @@
  *   appShot() -> -1                 no frozen frame on this host (v1)
  */
 
-#ifndef POCKETJS_3DS_LAUNCHER_H
-#define POCKETJS_3DS_LAUNCHER_H
+#ifndef POCKETJS_LAUNCHER_H
+#define POCKETJS_LAUNCHER_H
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "runtime.h"
+#include "host_services.h"
 
 #define LAUNCHER_OUTPUT_BYTES 64
 #define LAUNCHER_ID_BYTES 128
@@ -33,8 +35,9 @@ typedef struct {
   bool home;
 } LauncherTarget;
 
-/* Record the embedded guest as the launcher. Call once at boot. */
-void launcher_init(const PocketRuntimePackage *embedded);
+/* Record the embedded guest, kept in slot `slot`, as the launcher. Call once
+ * at boot. */
+void launcher_init(const char *slot, const LauncherPackage *embedded);
 /* Rebuild the table on its next read. */
 void launcher_invalidate(void);
 
@@ -50,18 +53,21 @@ bool launcher_pending(void);
 bool launcher_take_request(LauncherTarget *out);
 
 /* The guest that just booted: home when `slot` is the launcher's. */
-void launcher_set_current(const char *slot, const PocketRuntimePackage *package);
+void launcher_set_current(const char *slot, const LauncherPackage *package);
 bool launcher_home_running(void);
 const char *launcher_home_slot(void);
+const char *launcher_current_slot(void);
 const char *launcher_current_output(void);
 const char *launcher_current_app_id(void);
 
 /* An app failed to boot or threw from a frame: shown once as lastError. */
 void launcher_report_failure(const char *output, const char *message);
 /* A package just committed as `slot`'s active: refresh its cached metadata
- * (sdmc:/pocketjs/runtime/apps/<slot>/app.txt) and the table. */
-void launcher_note_installed(const char *slot, const PocketRuntimePackage *package);
+ * (app.txt in the slot) and the table. */
+void launcher_note_installed(const char *slot, const LauncherPackage *package);
 /* `output` read from a package's plan `app` object. */
-bool launcher_package_output(const PocketRuntimePackage *package, char *out, size_t capacity);
+bool launcher_package_output(const LauncherPackage *package, char *out, size_t capacity);
+/* `id` read from the same object. */
+bool launcher_package_app_id(const LauncherPackage *package, char *out, size_t capacity);
 
 #endif

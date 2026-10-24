@@ -28,14 +28,12 @@
  */
 
 #include "link.h"
-#include "agent.h"
 #include "link_proto.h"
 
 #include <stdio.h>
 
 #ifdef POCKETJS_LINK
 
-#include <3ds.h>
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
@@ -51,20 +49,17 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "host_services.h"
 #include "jscan.h"
 #include "launcher.h"
 #include "sha256.h"
-#include "soc.h"
 
-#define LINK_DIR "sdmc:/pocketjs/link"
-#define LINK_COMPANIONS_DIR LINK_DIR "/companions"
-#define LINK_DEVICE_TXT LINK_DIR "/device.txt"
 #define LINK_MAX_COMPANIONS 8u
 
 /* One whole frame of the largest kind, plus its header. */
 #define LINK_RX_BYTES (LINK_HEADER_BYTES + LINK_MAX_FRAME)
 #define LINK_TX_BYTES (LINK_HEADER_BYTES + LINK_MAX_CTRL + 16u * 1024u)
-/* Received bytes per pump; also the most this pump writes to the SD card. */
+/* Received bytes per pump; also the most this pump writes to storage. */
 #define LINK_RX_BUDGET (64u * 1024u)
 /* Request-body data frames are cut to this size so pings interleave. */
 #define LINK_DATA_CHUNK (16u * 1024u)
@@ -131,7 +126,7 @@ typedef struct {
   bool guest;
   char app[LAUNCHER_ID_BYTES];
   char slot[17];
-  char path[96];
+  char path[128];
   FILE *file;
   bool head;
   uint64_t hash;
@@ -143,12 +138,15 @@ typedef struct {
 } LinkRequest;
 
 static bool initialized;
-static PocketRuntimeState *runtime_state;
+
+/* link_host_directory(), its companions/ and device.txt. */
+static char link_dir[96];
+static char companions_dir[112];
+static char device_txt[112];
 
 static char device_id[LINK_ID_HEX + 1];
 static char device_name[LINK_NAME_BYTES];
 static char device_model[32];
-static bool ps_ready;
 
 static Companion companions[LINK_MAX_COMPANIONS];
 static size_t companion_count;
@@ -193,9 +191,11 @@ static uint64_t sd_us;
 static uint64_t rx_bytes;
 static uint32_t pump_max_us;
 
-static uint8_t rx_buffer[LINK_RX_BYTES];
+/* Allocated once by link_init, so a host can keep them out of scarce
+ * internal memory. */
+static uint8_t *rx_buffer;
 static size_t rx_length;
-static uint8_t tx_buffer[LINK_TX_BYTES];
+static uint8_t *tx_buffer;
 static size_t tx_length;
 static size_t tx_offset;
 static uint64_t last_rx_ms;
@@ -223,39 +223,18 @@ static bool set_nonblocking(int fd) {
 }
 
 /* Milliseconds since `then`; 0 when `then` was taken after a stale `now`. */
-/* osGetTime() counts milliseconds from 1900-01-01; the epoch is 1970. */
-static uint64_t console_epoch_ms(void) {
-  return osGetTime() - 2208988800000ULL;
-}
-
 static uint64_t since(uint64_t then) {
-  uint64_t now = osGetTime();
+  uint64_t now = services_host_ms();
   return now > then ? now - then : 0;
 }
 
 static void enter(LinkPhase next) {
   phase = next;
-  phase_since_ms = osGetTime();
+  phase_since_ms = services_host_ms();
 }
 
 static void set_error(const char *message) {
   snprintf(last_error, sizeof last_error, "%s", message == NULL ? "" : message);
-}
-
-static void random_bytes(uint8_t *out, size_t length) {
-  if (ps_ready && R_SUCCEEDED(PS_GenerateRandomBytes(out, length))) return;
-  /* Without ps:ps, hash the free-running tick counter: the nonces only have
-   * to be fresh, and the key itself is minted by the companion. */
-  static uint64_t counter;
-  while (length > 0) {
-    uint64_t seed[4] = { svcGetSystemTick(), osGetTime(), ++counter, (uint64_t)(uintptr_t)out };
-    uint8_t digest[SHA256_BYTES];
-    sha256(seed, sizeof seed, digest);
-    size_t take = length < sizeof digest ? length : sizeof digest;
-    memcpy(out, digest, take);
-    out += take;
-    length -= take;
-  }
 }
 
 static bool has_feature(const char *feature) {
@@ -265,13 +244,15 @@ static bool has_feature(const char *feature) {
 }
 
 // ---------------------------------------------------------------------------
-// identity and paired companions (sdmc:/pocketjs/link)
+// identity and paired companions (link_host_directory())
 // ---------------------------------------------------------------------------
 
 static void ensure_directories(void) {
-  mkdir("sdmc:/pocketjs", 0777);
-  mkdir(LINK_DIR, 0777);
-  mkdir(LINK_COMPANIONS_DIR, 0777);
+  snprintf(link_dir, sizeof link_dir, "%s", link_host_directory());
+  snprintf(companions_dir, sizeof companions_dir, "%s/companions", link_dir);
+  snprintf(device_txt, sizeof device_txt, "%s/device.txt", link_dir);
+  mkdir(link_dir, 0777);
+  mkdir(companions_dir, 0777);
 }
 
 static bool write_atomic(const char *path, const char *text) {
@@ -290,7 +271,7 @@ static bool write_atomic(const char *path, const char *text) {
 }
 
 static void load_device_id(void) {
-  FILE *file = fopen(LINK_DEVICE_TXT, "rb");
+  FILE *file = fopen(device_txt, "rb");
   if (file != NULL) {
     char text[32] = {0};
     size_t length = fread(text, 1, sizeof text - 1, file);
@@ -305,74 +286,15 @@ static void load_device_id(void) {
     }
   }
   uint8_t bytes[LINK_ID_HEX / 2];
-  random_bytes(bytes, sizeof bytes);
+  services_host_random(bytes, sizeof bytes);
   hex_encode(bytes, sizeof bytes, device_id);
   char text[24];
   snprintf(text, sizeof text, "%s\n", device_id);
-  write_atomic(LINK_DEVICE_TXT, text);
-}
-
-/* UTF-16LE (the CFG block) to UTF-8, stopping at NUL. */
-static void utf16_to_text(const uint16_t *text, size_t units, char *out, size_t capacity) {
-  size_t used = 0;
-  for (size_t i = 0; i < units && text[i] != 0; i += 1) {
-    uint32_t code = text[i];
-    if (code >= 0xd800 && code < 0xdc00 && i + 1 < units && text[i + 1] >= 0xdc00 && text[i + 1] < 0xe000) {
-      code = 0x10000 + ((code - 0xd800) << 10) + (text[i + 1] - 0xdc00);
-      i += 1;
-    }
-    char encoded[4];
-    size_t bytes;
-    if (code < 0x80) {
-      encoded[0] = (char)code;
-      bytes = 1;
-    } else if (code < 0x800) {
-      encoded[0] = (char)(0xc0 | (code >> 6));
-      encoded[1] = (char)(0x80 | (code & 0x3f));
-      bytes = 2;
-    } else if (code < 0x10000) {
-      encoded[0] = (char)(0xe0 | (code >> 12));
-      encoded[1] = (char)(0x80 | ((code >> 6) & 0x3f));
-      encoded[2] = (char)(0x80 | (code & 0x3f));
-      bytes = 3;
-    } else {
-      encoded[0] = (char)(0xf0 | (code >> 18));
-      encoded[1] = (char)(0x80 | ((code >> 12) & 0x3f));
-      encoded[2] = (char)(0x80 | ((code >> 6) & 0x3f));
-      encoded[3] = (char)(0x80 | (code & 0x3f));
-      bytes = 4;
-    }
-    if (used + bytes >= capacity) break;
-    memcpy(out + used, encoded, bytes);
-    used += bytes;
-  }
-  out[used] = '\0';
-}
-
-static void load_console_identity(void) {
-  snprintf(device_name, sizeof device_name, "Nintendo 3DS");
-  snprintf(device_model, sizeof device_model, "Nintendo 3DS");
-  if (R_FAILED(cfguInit())) return;
-  /* Block 0x000A0000: the owner's user name, 10 UTF-16 units + NUL. */
-  uint16_t name[0x1c / 2] = {0};
-  if (R_SUCCEEDED(CFGU_GetConfigInfoBlk2(0x1c, 0x000a0000, name))) {
-    char text[LINK_NAME_BYTES];
-    utf16_to_text(name, 10, text, sizeof text);
-    if (text[0] != '\0') snprintf(device_name, sizeof device_name, "%s", text);
-  }
-  static const char *const MODELS[] = {
-    "Nintendo 3DS", "Nintendo 3DS XL", "New Nintendo 3DS",
-    "Nintendo 2DS", "New Nintendo 3DS XL", "New Nintendo 2DS XL",
-  };
-  u8 model = 0;
-  if (R_SUCCEEDED(CFGU_GetSystemModel(&model)) && model < sizeof MODELS / sizeof MODELS[0]) {
-    snprintf(device_model, sizeof device_model, "%s", MODELS[model]);
-  }
-  cfguExit();
+  write_atomic(device_txt, text);
 }
 
 static void companion_path(const char *id, char *out, size_t length) {
-  snprintf(out, length, LINK_COMPANIONS_DIR "/%s.txt", id);
+  snprintf(out, length, "%s/%s.txt", companions_dir, id);
 }
 
 static void save_companion(const Companion *companion) {
@@ -388,13 +310,13 @@ static void save_companion(const Companion *companion) {
     companion->address,
     (unsigned)companion->port
   );
-  char path[96];
+  char path[136];
   companion_path(companion->id, path, sizeof path);
   write_atomic(path, text);
 }
 
 static bool load_companion(const char *id, Companion *out) {
-  char path[96];
+  char path[136];
   companion_path(id, path, sizeof path);
   FILE *file = fopen(path, "rb");
   if (file == NULL) return false;
@@ -427,7 +349,7 @@ static bool load_companion(const char *id, Companion *out) {
 
 static void load_companions(void) {
   companion_count = 0;
-  DIR *directory = opendir(LINK_COMPANIONS_DIR);
+  DIR *directory = opendir(companions_dir);
   if (directory == NULL) return;
   struct dirent *entry;
   while ((entry = readdir(directory)) != NULL && companion_count < LINK_MAX_COMPANIONS) {
@@ -505,7 +427,7 @@ static size_t tx_space(void) {
     tx_length -= tx_offset;
     tx_offset = 0;
   }
-  return sizeof tx_buffer - tx_length;
+  return LINK_TX_BYTES - tx_length;
 }
 
 static bool queue_frame(uint8_t type, const uint8_t *prefix, size_t prefix_length, const void *payload, size_t length) {
@@ -618,7 +540,7 @@ static void finish_pairing(bool paired, const char *message) {
 static void drop(const char *reason) {
   bool was_up = phase == PHASE_UP;
   close_connection();
-  if (was_up) agent_link_changed(false);
+  if (was_up) link_host_linked(false);
   if (was_up || phase == PHASE_AUTH || phase == PHASE_CHALLENGE) fail_requests(reason);
   set_error(reason);
   if (attempt.pair && pair_active) {
@@ -645,7 +567,7 @@ static void start_connect(void) {
   setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof nodelay);
 #endif
   tcp_fd = fd;
-  attempt.started_ms = osGetTime();
+  attempt.started_ms = services_host_ms();
   int rc = connect(tcp_fd, (struct sockaddr *)&attempt.target, sizeof attempt.target);
   if (rc == 0 || errno == EINPROGRESS || errno == EWOULDBLOCK || errno == EALREADY) {
     enter(PHASE_CONNECTING);
@@ -696,7 +618,7 @@ static void start_next_pair_host(void) {
 
 static void send_hello(void) {
   uint8_t nonce[LINK_NONCE_BYTES];
-  random_bytes(nonce, sizeof nonce);
+  services_host_random(nonce, sizeof nonce);
   hex_encode(nonce, sizeof nonce, attempt.device_nonce);
   link_write_preamble(tx_buffer);
   tx_length = LINK_PREAMBLE_BYTES;
@@ -715,10 +637,10 @@ static void send_hello(void) {
   jbuf_text(&scratch, ",\"model\":");
   jbuf_cstring(&scratch, device_model);
   jbuf_text(&scratch, ",\"target\":");
-  jbuf_cstring(&scratch, POCKETJS_TARGET_ID);
+  jbuf_cstring(&scratch, link_host_target());
   jbuf_text(&scratch, "}");
   queue_scratch();
-  last_rx_ms = osGetTime();
+  last_rx_ms = services_host_ms();
   enter(PHASE_CHALLENGE);
 }
 
@@ -767,7 +689,7 @@ static void handle_challenge(JsonSpan message) {
     json_find_string(message, "message", text, sizeof text);
     snprintf(reason, sizeof reason, "refused: %s%s%s", code, text[0] ? ": " : "", text);
     Companion *companion = attempt.pair ? NULL : find_companion(attempt.companion);
-    if (companion != NULL) companion->refused_until_ms = osGetTime() + LINK_REFUSED_HOLD_MS;
+    if (companion != NULL) companion->refused_until_ms = services_host_ms() + LINK_REFUSED_HOLD_MS;
     /* A refusal is an answer: the next host would refuse the same secret. */
     if (attempt.pair) {
       finish_pairing(false, reason);
@@ -820,7 +742,7 @@ static void handle_challenge(JsonSpan message) {
 }
 
 static void become_linked(JsonSpan message, Companion *companion) {
-  uint64_t now = osGetTime();
+  uint64_t now = services_host_ms();
   connect_ms = (uint32_t)(now - attempt.started_ms);
   backoff_ms = LINK_BACKOFF_MIN_MS;
   set_error("");
@@ -836,7 +758,7 @@ static void become_linked(JsonSpan message, Companion *companion) {
   uint64_t utc = 0, local = 0;
   if (json_find(message, "clock", &clock) && json_is_object(clock) &&
       json_find_u64(clock, "utc", &utc) && json_find_u64(clock, "local", &local) && utc > 0) {
-    clock_skew_ms = (int64_t)utc - (int64_t)console_epoch_ms();
+    clock_skew_ms = (int64_t)utc - (int64_t)services_host_epoch_ms();
     clock_offset_min = (int32_t)(((int64_t)local - (int64_t)utc) / 60000);
     clock_known = true;
   }
@@ -855,7 +777,7 @@ static void become_linked(JsonSpan message, Companion *companion) {
   last_ping_ms = now;
   ping_sent_ms = 0;
   enter(PHASE_UP);
-  agent_link_changed(true);
+  link_host_linked(true);
 }
 
 static void handle_auth_reply(JsonSpan message) {
@@ -894,7 +816,7 @@ static void handle_auth_reply(JsonSpan message) {
     if (companion == NULL) {
       if (companion_count == LINK_MAX_COMPANIONS) {
         /* The oldest pairing gives way; its file goes with it. */
-        char path[96];
+        char path[136];
         companion_path(companions[0].id, path, sizeof path);
         remove(path);
         memmove(companions, companions + 1, (LINK_MAX_COMPANIONS - 1) * sizeof companions[0]);
@@ -990,14 +912,6 @@ static void handle_net_error(JsonSpan message, uint32_t id) {
   net_free(request);
 }
 
-static void ensure_slot_directory(const char *slot) {
-  char path[96];
-  mkdir("sdmc:/pocketjs", 0777);
-  mkdir(POCKET_RUNTIME_ROOT, 0777);
-  mkdir(POCKET_RUNTIME_APPS, 0777);
-  if (runtime_slot_path(slot, NULL, path, sizeof path)) mkdir(path, 0777);
-}
-
 static void handle_install_head(JsonSpan message, LinkRequest *request) {
   char app[LAUNCHER_ID_BYTES], hash_hex[24];
   uint64_t bytes = 0;
@@ -1016,8 +930,7 @@ static void handle_install_head(JsonSpan message, LinkRequest *request) {
   }
   request->hash = 0;
   for (size_t i = 0; i < 8; i += 1) request->hash = (request->hash << 8) | hash_bytes[i];
-  ensure_slot_directory(request->slot);
-  if (!runtime_slot_path(request->slot, "link-upload.pocket", request->path, sizeof request->path)) {
+  if (!link_host_staging_path(request->slot, request->path, sizeof request->path)) {
     request_error_event(request, "install: bad slot");
     request_free(request, false);
     return;
@@ -1035,7 +948,7 @@ static void handle_install_head(JsonSpan message, LinkRequest *request) {
 }
 
 static void install_progress(LinkRequest *request, bool force) {
-  uint64_t now = osGetTime();
+  uint64_t now = services_host_ms();
   if (!request->guest || (!force && since(request->progress_ms) < LINK_PROGRESS_MS)) return;
   request->progress_ms = now;
   size_t mark = link_events.length;
@@ -1053,37 +966,30 @@ static void install_progress(LinkRequest *request, bool force) {
 }
 
 /* The last byte arrived: flush, admit, commit, refresh the app table. This is
- * the one step that reads the whole package back (runtime_prepare_file
- * verifies its footer and admits it), so it costs one frame per install. */
+ * the one step that reads the whole package back (link_host_install verifies
+ * its footer and admits it), so it costs one frame per install. */
 static void finish_install(LinkRequest *request) {
   bool written = fflush(request->file) == 0 && fsync(fileno(request->file)) == 0;
   if (fclose(request->file) != 0) written = false;
   request->file = NULL;
   if (!written) {
-    request_error_event(request, "install: SD write failed");
+    request_error_event(request, "install: storage write failed");
     request_free(request, true);
     return;
   }
   install_progress(request, true);
   char error[256] = {0};
-  PocketRuntimePackage *package = runtime_slot_install(
-    request->slot,
-    request->path,
-    request->hash,
-    runtime_state,
-    error,
-    sizeof error
-  );
-  if (package == NULL) {
-    runtime_slot_write_error(request->slot, "link-install", error);
+  LauncherPackage package;
+  void *held = NULL;
+  if (!link_host_install(request->slot, request->path, request->hash, &package, &held, error, sizeof error)) {
     request_error_event(request, error);
     request_free(request, true);
     return;
   }
-  launcher_note_installed(request->slot, package);
+  launcher_note_installed(request->slot, &package);
   char output[LAUNCHER_OUTPUT_BYTES] = {0};
-  launcher_package_output(package, output, sizeof output);
-  runtime_package_free(package);
+  launcher_package_output(&package, output, sizeof output);
+  services_host_release(held);
   if (request->guest) {
     char hash[17];
     snprintf(hash, sizeof hash, "%016llx", (unsigned long long)request->hash);
@@ -1113,7 +1019,7 @@ static void handle_data(const uint8_t *payload, uint32_t length) {
   uint32_t id = link_read_u32(payload);
   const uint8_t *bytes = payload + 4;
   size_t count = length - 4;
-  if (agent_link_data(id, bytes, count)) return;
+  if (link_host_data(id, bytes, count)) return;
   NetRequest *net = find_net(id);
   if (net != NULL) {
     if (net->phase != NET_BODY || count > net->response_length - net->response_received) {
@@ -1140,16 +1046,16 @@ static void handle_data(const uint8_t *payload, uint32_t length) {
     request_free(request, true);
     return;
   }
-  u64 started = svcGetSystemTick();
+  uint64_t started = services_host_us();
   size_t written = count > 0 ? fwrite(bytes, 1, count, request->file) : 0;
-  sd_us += (svcGetSystemTick() - started) * 1000000u / SYSCLOCK_ARM11;
+  sd_us += services_host_us() - started;
   if (written != count) {
-    request_error_event(request, "install: SD write failed");
+    request_error_event(request, "install: storage write failed");
     request_free(request, true);
     return;
   }
   request->received += (uint32_t)count;
-  request->deadline_ms = osGetTime() + LINK_REQUEST_STALL_MS;
+  request->deadline_ms = services_host_ms() + LINK_REQUEST_STALL_MS;
   if (request->received == request->expected) finish_install(request);
   else install_progress(request, false);
 }
@@ -1164,7 +1070,7 @@ static void handle_ctrl(const uint8_t *payload, uint32_t length) {
     handle_auth_reply(message);
     return;
   }
-  if (agent_link_ctrl((const char *)payload, length)) return;
+  if (link_host_ctrl((const char *)payload, length)) return;
   char type[24];
   if (!json_find_string(message, "t", type, sizeof type)) return;
   uint64_t id = 0;
@@ -1215,7 +1121,7 @@ static void handle_frame(uint8_t type, const uint8_t *payload, uint32_t length) 
       pong_pending = true;
       break;
     case LINK_FRAME_PONG:
-      if (ping_sent_ms != 0) rtt_ms = (uint32_t)(osGetTime() - ping_sent_ms);
+      if (ping_sent_ms != 0) rtt_ms = (uint32_t)(services_host_ms() - ping_sent_ms);
       ping_sent_ms = 0;
       break;
     case LINK_FRAME_CTRL:
@@ -1247,17 +1153,17 @@ static void pump_rx(void) {
     }
     /* The buffer holds one whole frame of the largest kind, so a partial
      * frame always leaves room to read into. */
-    size_t want = sizeof rx_buffer - rx_length;
+    size_t want = LINK_RX_BYTES - rx_length;
     if (want > budget) want = budget;
     if (want == 0) return;
-    u64 started = svcGetSystemTick();
+    uint64_t started = services_host_us();
     ssize_t got = recv(tcp_fd, rx_buffer + rx_length, want, 0);
-    rx_us += (svcGetSystemTick() - started) * 1000000u / SYSCLOCK_ARM11;
+    rx_us += services_host_us() - started;
     if (got > 0) {
       rx_bytes += (uint64_t)got;
       rx_length += (size_t)got;
       budget -= (size_t)got;
-      last_rx_ms = osGetTime();
+      last_rx_ms = services_host_ms();
       continue;
     }
     if (got == 0) drop("the companion closed the link");
@@ -1288,7 +1194,7 @@ static void pump_tx(void) {
   if (tcp_fd < 0) return;
   if (phase == PHASE_UP) {
     if (pong_pending && queue_frame(LINK_FRAME_PONG, NULL, 0, NULL, 0)) pong_pending = false;
-    uint64_t now = osGetTime();
+    uint64_t now = services_host_ms();
     if (since(last_ping_ms) >= LINK_PING_MS && queue_frame(LINK_FRAME_PING, NULL, 0, NULL, 0)) {
       last_ping_ms = now;
       if (ping_sent_ms == 0) ping_sent_ms = now;
@@ -1310,7 +1216,7 @@ static void pump_tx(void) {
 }
 
 static void expire_requests(void) {
-  uint64_t now = osGetTime();
+  uint64_t now = services_host_ms();
   for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
     NetRequest *request = &net_requests[i];
     if ((request->phase == NET_HEAD || request->phase == NET_BODY) && now > request->deadline_ms) {
@@ -1364,7 +1270,7 @@ static bool poll_beacons(bool connect_now) {
     LinkBeacon beacon;
     if (!link_parse_beacon(datagram, (size_t)length, &beacon)) continue;
     Companion *companion = find_companion(beacon.companion);
-    if (companion == NULL || osGetTime() < companion->refused_until_ms) continue;
+    if (companion == NULL || services_host_ms() < companion->refused_until_ms) continue;
     if (beacon.name[0] != '\0') snprintf(companion->name, sizeof companion->name, "%s", beacon.name);
     char address[16];
     snprintf(address, sizeof address, "%s", inet_ntoa(sender.sin_addr));
@@ -1378,7 +1284,7 @@ static void try_direct(void) {
   for (size_t tried = 0; tried < companion_count; tried += 1) {
     Companion *companion = &companions[direct_next % companion_count];
     direct_next += 1;
-    if (companion->address[0] == '\0' || osGetTime() < companion->refused_until_ms) continue;
+    if (companion->address[0] == '\0' || services_host_ms() < companion->refused_until_ms) continue;
     connect_companion(companion, companion->address, companion->port);
     return;
   }
@@ -1390,13 +1296,17 @@ static void try_direct(void) {
 // public surface
 // ---------------------------------------------------------------------------
 
-void link_init(PocketRuntimeState *state) {
-  runtime_state = state;
+void link_init(void) {
   if (initialized) return;
-  ps_ready = R_SUCCEEDED(psInit());
+  if (rx_buffer == NULL) rx_buffer = malloc(LINK_RX_BYTES);
+  if (tx_buffer == NULL) tx_buffer = malloc(LINK_TX_BYTES);
+  if (rx_buffer == NULL || tx_buffer == NULL) {
+    set_error("link: buffers could not be allocated");
+    return;
+  }
   ensure_directories();
   load_device_id();
-  load_console_identity();
+  link_host_identity(device_name, sizeof device_name, device_model, sizeof device_model);
   load_companions();
   initialized = true;
   enter(companion_count == 0 ? PHASE_IDLE : PHASE_SEARCH);
@@ -1405,9 +1315,9 @@ void link_init(PocketRuntimeState *state) {
 static void pump(void);
 
 void link_pump(void) {
-  u64 started = svcGetSystemTick();
+  uint64_t started = services_host_us();
   pump();
-  uint32_t us = (uint32_t)((svcGetSystemTick() - started) * 1000000u / SYSCLOCK_ARM11);
+  uint32_t us = (uint32_t)(services_host_us() - started);
   if (us > pump_max_us) pump_max_us = us;
 }
 
@@ -1426,7 +1336,7 @@ static void pump(void) {
     phase = PHASE_IDLE;
     return;
   }
-  if (!soc_active() && !soc_ensure(NULL, 0)) return;
+  if (!link_host_net_ready()) return;
   ensure_beacon_socket();
   switch (phase) {
     case PHASE_IDLE:
@@ -1486,8 +1396,6 @@ void link_shutdown(void) {
   jbuf_free(&poll_out);
   jbuf_free(&status_out);
   jbuf_free(&scratch);
-  if (ps_ready) psExit();
-  ps_ready = false;
   initialized = false;
   phase = PHASE_IDLE;
 }
@@ -1532,14 +1440,6 @@ static const char *state_name(void) {
   }
 }
 
-static void console_address(char *out, size_t capacity) {
-  out[0] = '\0';
-  if (!soc_active()) return;
-  struct in_addr address;
-  address.s_addr = (in_addr_t)gethostid();
-  if (address.s_addr != 0) snprintf(out, capacity, "%s", inet_ntoa(address));
-}
-
 const char *link_status_json(void) {
   JsonBuffer *out = &status_out;
   jbuf_reset(out);
@@ -1555,7 +1455,7 @@ const char *link_status_json(void) {
     status_companion(out, companions[i].id, companions[i].name, companions[i].address, companions[i].port);
   }
   char address[16];
-  console_address(address, sizeof address);
+  link_host_address(address, sizeof address);
   jbuf_text(out, "],\"device\":{\"id\":");
   jbuf_cstring(out, device_id);
   jbuf_text(out, ",\"name\":");
@@ -1573,7 +1473,7 @@ const char *link_status_json(void) {
   jbuf_text(out, ",\"clock\":");
   if (clock_known) {
     jbuf_text(out, "{\"utc\":");
-    jbuf_i64(out, (int64_t)console_epoch_ms() + clock_skew_ms);
+    jbuf_i64(out, (int64_t)services_host_epoch_ms() + clock_skew_ms);
     jbuf_text(out, ",\"offsetMinutes\":");
     jbuf_i64(out, clock_offset_min);
     jbuf_text(out, "}");
@@ -1587,7 +1487,7 @@ const char *link_status_json(void) {
   jbuf_text(out, ",\"rttMs\":");
   jbuf_u64(out, rtt_ms);
   /* Stream diagnostics since the last status read: received bytes, time in
-   * recv(), time writing installs to the SD card, the slowest pump. */
+   * recv(), time writing installs to storage, the slowest pump. */
   jbuf_text(out, ",\"rxBytes\":");
   jbuf_u64(out, rx_bytes);
   jbuf_text(out, ",\"rxUs\":");
@@ -1629,7 +1529,7 @@ bool link_forget(const char *companion) {
     if (strcmp(companions[i].id, companion) != 0) continue;
     bool engaged = strcmp(attempt.companion, companion) == 0 && phase != PHASE_SEARCH && phase != PHASE_BACKOFF &&
                    phase != PHASE_IDLE;
-    char path[96];
+    char path[136];
     companion_path(companion, path, sizeof path);
     remove(path);
     memset(&companions[i], 0, sizeof companions[i]);
@@ -1654,7 +1554,7 @@ static LinkRequest *open_request(RequestKind kind) {
     request->kind = kind;
     request->id = take_id();
     request->guest = true;
-    request->deadline_ms = osGetTime() + LINK_REQUEST_STALL_MS;
+    request->deadline_ms = services_host_ms() + LINK_REQUEST_STALL_MS;
     return request;
   }
   return NULL;
@@ -1704,15 +1604,11 @@ bool link_remove(const char *app_id, size_t length) {
   if (app_id == NULL || length == 0 || length >= LAUNCHER_ID_BYTES) return false;
   char slot[17];
   sha256_slot(app_id, length, slot);
-  if (strcmp(slot, runtime_slot()) == 0 || strcmp(slot, launcher_home_slot()) == 0) return false;
+  if (strcmp(slot, launcher_current_slot()) == 0 || strcmp(slot, launcher_home_slot()) == 0) return false;
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
     if (requests[i].kind == REQUEST_INSTALL && strcmp(requests[i].slot, slot) == 0) return false;
   }
-  char error[160];
-  char root[96];
-  struct stat info;
-  if (!runtime_slot_path(slot, NULL, root, sizeof root) || stat(root, &info) != 0) return false;
-  bool removed = runtime_slot_remove(slot, error, sizeof error);
+  bool removed = link_host_remove(slot);
   launcher_invalidate();
   return removed;
 }
@@ -1798,7 +1694,7 @@ int32_t link_net_start(const char *meta, size_t meta_length, const uint8_t *body
   request->phase = NET_HEAD;
   request->id = id;
   request->max_bytes = (uint32_t)max_bytes;
-  request->deadline_ms = osGetTime() + timeout_ms + NET_GRACE_MS;
+  request->deadline_ms = services_host_ms() + timeout_ms + NET_GRACE_MS;
   if (body_length > 0) {
     request->body = malloc(body_length);
     if (request->body == NULL) {
@@ -1860,7 +1756,7 @@ uint32_t link_new_stream(void) {
 
 bool link_clock_now(int64_t *utc_ms, int32_t *offset_min) {
   if (!clock_known) return false;
-  *utc_ms = (int64_t)console_epoch_ms() + clock_skew_ms;
+  *utc_ms = (int64_t)services_host_epoch_ms() + clock_skew_ms;
   *offset_min = clock_offset_min;
   return true;
 }
@@ -1875,7 +1771,7 @@ void link_describe(char *out, size_t capacity) {
 
 #else /* capture and offload builds: an unpaired console with no link */
 
-void link_init(PocketRuntimeState *state) { (void)state; }
+void link_init(void) {}
 void link_pump(void) {}
 void link_shutdown(void) {}
 void link_reset_guest(void) {}

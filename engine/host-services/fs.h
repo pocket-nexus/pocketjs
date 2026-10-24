@@ -1,14 +1,16 @@
 /*
  * `globalThis.fs` (contracts/spec/fs.ts, capability data.fs): one guest's
- * file tree on the SD card, behind the nine synchronous ops of the contract.
+ * file tree in the console's storage, behind the nine synchronous ops of the
+ * contract.
  *
- * main.c binds the tree before the guest boots and unbinds it at teardown:
- * the root is POCKET_RUNTIME_APPS/<slot>/data, so a guest only ever names its
- * own files and an uninstall (runtime_slot_remove) deletes them with the
- * slot. Writes stage in POCKET_RUNTIME_APPS/<slot>/fs-tmp, outside the root.
+ * The host binds the tree before the guest boots and unbinds it at teardown:
+ * the root is the guest's slot's data/ directory, so a guest only ever names
+ * its own files and an uninstall deletes them with the slot. Writes stage in
+ * the slot's fs-tmp/, outside the root.
  *
- * Replacing a file. FAT (the SD card through newlib's sdmc devoptab) refuses
- * a rename onto an existing name, so a truncating write over an existing
+ * Replacing a file. FAT (the 3DS SD card through newlib's sdmc devoptab, or
+ * ESP-IDF's FatFs) refuses a rename onto an existing name, so a truncating
+ * write over an existing
  * file stages the new bytes, records the destination in a sidecar, removes
  * the old file, renames the staged one into place and deletes the sidecar.
  * fs_bind finishes a replacement a power loss interrupted: the guest reads
@@ -19,8 +21,8 @@
  * the sim's fs host.
  */
 
-#ifndef POCKETJS_3DS_FS_H
-#define POCKETJS_3DS_FS_H
+#ifndef POCKETJS_FS_H
+#define POCKETJS_FS_H
 
 #include <stdbool.h>
 #include <stddef.h>

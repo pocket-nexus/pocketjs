@@ -66,6 +66,23 @@ export type ExecutionClass = (typeof EXECUTION_CLASSES)[number];
 /** The forms whose logical viewport is a runtime variable. */
 export const DYNAMIC_FORMS: readonly TargetForm[] = ["window", "widget"];
 
+/**
+ * What a changed frame costs a target — a semantic FIELD of its display:
+ *
+ * - "composited": a GPU composes every frame from retained geometry; a prop
+ *                 change on any subtree costs the same at the tick rate.
+ * - "repaint":    a CPU repaints the pixels a change touched; a frame costs
+ *                 in proportion to that area, and the host moves the pixels
+ *                 of a translated opaque region instead of repainting them.
+ * - "still":      the display shows one change per refresh (electronic
+ *                 paper); a tween is its end value.
+ *
+ * `deriveAnimationClass` (contracts/spec/animation.ts) reads it from the
+ * profile: by platform when the display leaves it out.
+ */
+export const ANIMATION_CLASSES = ["composited", "repaint", "still"] as const;
+export type AnimationClass = (typeof ANIMATION_CLASSES)[number];
+
 export interface FixedDisplayProfile {
   readonly physicalViewport: Viewport;
   readonly logicalViewports: readonly Viewport[];
@@ -100,6 +117,9 @@ export interface DisplayProfile extends FixedDisplayProfile {
    * per-surface raster asset variants.
    */
   readonly auxiliary?: FixedDisplayProfile;
+  /** The target's animation class when it differs from its platform's
+   *  (contracts/spec/animation.ts). */
+  readonly animation?: AnimationClass;
 }
 
 export interface TargetProfile<C extends string = string> {

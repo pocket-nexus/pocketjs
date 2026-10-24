@@ -15,6 +15,7 @@
 
 #include "jscan.h"
 #include "photos_image.h"
+#include "photos_jpeg.h"
 #include "pocket_core.h"
 
 /* contracts/spec/camera.ts */

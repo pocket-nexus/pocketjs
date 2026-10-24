@@ -288,16 +288,29 @@ static int32_t frame(void *opaque,const pocket_guest_frame *input) {
   pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context||!input||!HAS_FIELD(input,pocket_guest_frame,motion))return -1;JSContext *ctx=guest->context;
   JSValue global=JS_GetGlobalObject(ctx),function=JS_GetPropertyStr(ctx,global,"frame");JS_FreeValue(ctx,global);
   if(JS_IsUndefined(function)){JS_FreeValue(ctx,function);return collect(guest);}
-  JSValue argv[8]={JS_NewUint32(ctx,input->buttons),JS_NewUint32(ctx,input->analog),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewUint32(ctx,input->right_analog),JS_NewArray(ctx),motion_value(ctx,input->motion)};
+  JSValue argv[9]={JS_NewUint32(ctx,input->buttons),JS_NewUint32(ctx,input->analog),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewUint32(ctx,input->right_analog),JS_NewArray(ctx),motion_value(ctx,input->motion),JS_NewArray(ctx)};
   int status=-1;
-  for(unsigned i=0;i<8;i++)if(JS_IsException(argv[i]))goto done;
+  for(unsigned i=0;i<9;i++)if(JS_IsException(argv[i]))goto done;
   if((input->axis_delta_count&&!input->axis_deltas)||(input->touch_count&&(!input->touches||!input->hits||!input->touch_surfaces))){JS_ThrowTypeError(ctx,"missing frame arrays");goto done;}
   for(size_t i=0;i<input->touch_count;i++) {if(JS_DefinePropertyValueUint32(ctx,argv[2],(uint32_t)i,JS_NewUint32(ctx,input->touches[i]),JS_PROP_C_W_E)<0||JS_DefinePropertyValueUint32(ctx,argv[3],(uint32_t)i,JS_NewInt32(ctx,input->hits[i]),JS_PROP_C_W_E)<0||JS_DefinePropertyValueUint32(ctx,argv[4],(uint32_t)i,JS_NewUint32(ctx,input->touch_surfaces[i]),JS_PROP_C_W_E)<0)goto done;}
   const pocket_axis_delta *delta=input->axis_deltas;
   for(size_t i=0;i<input->axis_delta_count;i++) {if(!HAS_FIELD(delta,pocket_axis_delta,delta)||delta->struct_size%POCKET_QJS_ALIGNOF(pocket_axis_delta)){JS_ThrowTypeError(ctx,"short axis delta record");goto done;}JSValue pair=JS_NewObject(ctx);if(set(ctx,pair,"axis",JS_NewUint32(ctx,delta->axis))<0||set(ctx,pair,"delta",JS_NewInt32(ctx,delta->delta))<0){JS_FreeValue(ctx,pair);goto done;}if(JS_DefinePropertyValueUint32(ctx,argv[6],(uint32_t)i,pair,JS_PROP_C_W_E)<0)goto done;delta=NEXT_RECORD(delta,pocket_axis_delta);}
+  /* The frame's text events, the ninth argument: a runtime older than the
+   * field sends none. */
+  if(HAS_FIELD(input,pocket_guest_frame,text_count)) {
+    if(input->text_count&&!input->text){JS_ThrowTypeError(ctx,"missing text events");goto done;}
+    const pocket_text_event *event=input->text;
+    for(size_t i=0;i<input->text_count;i++) {
+      if(!HAS_FIELD(event,pocket_text_event,repeat)||event->struct_size%POCKET_QJS_ALIGNOF(pocket_text_event)||(event->byte_length&&!event->text)){JS_ThrowTypeError(ctx,"short text event record");goto done;}
+      JSValue item=JS_NewObject(ctx);
+      if(set(ctx,item,"kind",JS_NewUint32(ctx,event->kind))<0||set(ctx,item,"text",JS_NewStringLen(ctx,event->byte_length?(const char *)event->text:"",event->byte_length))<0||set(ctx,item,"selectionStart",JS_NewUint32(ctx,event->selection_start))<0||set(ctx,item,"selectionEnd",JS_NewUint32(ctx,event->selection_end))<0||set(ctx,item,"repeat",JS_NewBool(ctx,event->repeat!=0))<0){JS_FreeValue(ctx,item);goto done;}
+      if(JS_DefinePropertyValueUint32(ctx,argv[8],(uint32_t)i,item,JS_PROP_C_W_E)<0)goto done;
+      event=NEXT_RECORD(event,pocket_text_event);
+    }
+  }
   phase(guest,POCKET_QJS_PHASE_FRAME);
-  JSValue result=JS_Call(ctx,function,JS_UNDEFINED,8,argv);phase(guest,POCKET_QJS_PHASE_IDLE);status=JS_IsException(result)?-1:0;JS_FreeValue(ctx,result);
-done:for(unsigned i=0;i<8;i++)JS_FreeValue(ctx,argv[i]);JS_FreeValue(ctx,function);return status<0?fail(guest):collect(guest);
+  JSValue result=JS_Call(ctx,function,JS_UNDEFINED,9,argv);phase(guest,POCKET_QJS_PHASE_IDLE);status=JS_IsException(result)?-1:0;JS_FreeValue(ctx,result);
+done:for(unsigned i=0;i<9;i++)JS_FreeValue(ctx,argv[i]);JS_FreeValue(ctx,function);return status<0?fail(guest):collect(guest);
 }
 static void shutdown(void *opaque) {
   pocket_guest_quickjs *guest=opaque;if(!guest)return;

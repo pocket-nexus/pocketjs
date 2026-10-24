@@ -1,6 +1,7 @@
 // Profile identity contract, shared by application compilation and Runtime admission.
 import type { JsonSchema } from "./pocket-manifest.ts";
 import {
+  ANIMATION_CLASSES,
   PRESENTATION_MODES,
   TARGET_FORMS,
   type DisplayProfile,
@@ -109,6 +110,7 @@ export const pocketProfileSchema = {
           properties: { min: viewport, max: viewport, acceptsFixed: { type: "boolean" } },
         },
         auxiliary: fixedDisplay,
+        animation: { enum: ANIMATION_CLASSES },
       },
     },
     capabilities,

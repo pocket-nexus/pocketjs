@@ -1,4 +1,4 @@
-/* Native harness for products/3ds/src/fs.c (tests/fs-3ds.test.ts).
+/* Native harness for engine/host-services/fs.c (tests/fs-3ds.test.ts).
  *
  * Reads one command a line from stdin and prints "<result>\t<lastError>" for
  * each. Strings travel hex-encoded so any bytes survive the line format:
@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../../products/3ds/src/fs.h"
+#include "../../engine/host-services/fs.h"
 
 extern int fs_test_no_replace;
 extern int fs_test_crash_after_unlink;

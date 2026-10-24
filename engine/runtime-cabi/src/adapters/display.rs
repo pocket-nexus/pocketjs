@@ -57,6 +57,14 @@ impl CDisplay {
         descriptor.device_frame_storage = raw.flags & POCKET_DISPLAY_FRAME_STORAGE != 0;
         descriptor.device_rotation = raw.flags & POCKET_DISPLAY_DEVICE_ROTATION != 0;
         descriptor.device_scaling = raw.flags & POCKET_DISPLAY_DEVICE_SCALING != 0;
+        descriptor.retained_move = raw.flags & POCKET_DISPLAY_RETAINED_MOVE != 0;
+        if descriptor.retained_move
+            && (table.move_pixels.is_none()
+                || !descriptor.device_frame_storage
+                || !descriptor.partial_refresh)
+        {
+            return Err(AdapterError::Invalid);
+        }
         if descriptor.pipelined_acquire
             && (!descriptor.double_buffered
                 || !descriptor.device_frame_storage
@@ -242,6 +250,34 @@ impl DisplayOutput for CDisplay {
             .vsync
             .and_then(|callback| vsync(unsafe { callback(self.context) }).ok())
             .unwrap_or(self.descriptor.vsync)
+    }
+    fn move_pixels(&mut self, destination: Rect, dx: i32, dy: i32) -> Result<(), DisplayError> {
+        let Some(callback) = self.table.move_pixels.filter(|_| self.descriptor.retained_move)
+        else {
+            return Err(DisplayError::Unsupported);
+        };
+        if self.acquired || !self.pending.is_empty() {
+            return Err(DisplayError::InvalidTarget);
+        }
+        let raw = c_rect(destination);
+        check(unsafe { callback(self.context, &raw, dx, dy) }).map_err(display_error)
+    }
+    fn host_damage(&mut self, out: &mut [Rect; HOST_DAMAGE_RECTS]) -> usize {
+        let Some(callback) = self.table.host_damage else {
+            return 0;
+        };
+        let mut raw = [PocketRect::empty(); HOST_DAMAGE_RECTS];
+        let mut count = 0usize;
+        if unsafe { callback(self.context, raw.as_mut_ptr(), HOST_DAMAGE_RECTS, &mut count) }
+            != POCKET_STATUS_OK
+        {
+            return 0;
+        }
+        let count = count.min(HOST_DAMAGE_RECTS);
+        for (slot, rect) in out.iter_mut().zip(&raw[..count]) {
+            *slot = Rect::new(rect.x, rect.y, rect.width, rect.height);
+        }
+        count
     }
 }
 impl Drop for CDisplay {

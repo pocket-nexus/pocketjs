@@ -1,7 +1,7 @@
 /*
  * Pocket Link client (contracts/spec/link.ts): the console's one
  * authenticated TCP connection to a paired companion computer, and the two
- * guest namespaces that ride it on this host:
+ * guest namespaces that ride it:
  *
  *   globalThis.link   status/pair/forget/catalog/install/remove/poll
  *   globalThis.net    the NET module (contracts/spec/net.ts) whose HTTP
@@ -13,31 +13,28 @@
  * handles, undelivered events, catalog replies) and keeps the connection and
  * any install already streaming into storage.
  *
- * Like svcwire.c this never blocks a frame: every socket is non-blocking and
- * link_pump does a bounded amount of work (LINK_RX_BUDGET received bytes, and
- * therefore at most that many bytes written to the SD card) per call.
+ * This never blocks a frame: every socket is non-blocking and link_pump does
+ * a bounded amount of work (LINK_RX_BUDGET received bytes, and therefore at
+ * most that many bytes written to storage) per call. The host supplies
+ * clocks, identity, storage and installs (host_services.h).
  *
  * Capture and offload builds compile the module to inert stubs: link.status()
  * reports an unpaired console, net.start() refuses with `unavailable`.
  */
 
-#ifndef POCKETJS_3DS_LINK_H
-#define POCKETJS_3DS_LINK_H
+#ifndef POCKETJS_LINK_H
+#define POCKETJS_LINK_H
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "runtime.h"
-
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
 #define POCKETJS_LINK 1
 #endif
 
-/* Read identity and paired companions from the SD card. `state` is the
- * running slot's live runtime state (runtime_slot_install keeps it current
- * when an install targets the running slot). */
-void link_init(PocketRuntimeState *state);
+/* Read identity and paired companions from link_host_directory(). */
+void link_init(void);
 void link_pump(void);
 void link_shutdown(void);
 /* Guest switch: drop per-guest state, keep the connection. */
@@ -62,7 +59,7 @@ void link_net_cancel(int32_t handle);
 const char *link_net_poll(void);
 const char *link_net_last_error(void);
 
-/* The agent channel (agent.c, contracts/spec/agent.ts). Ready when the
+/* The agent channel (contracts/spec/agent.ts). Ready when the
  * link is up and the companion offered the "agent" feature. The send calls
  * queue whole frames or nothing; false means no room (or no link) now. */
 bool link_agent_ready(void);

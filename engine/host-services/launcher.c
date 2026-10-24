@@ -1,16 +1,15 @@
 /*
- * The 3DS app table — see launcher.h.
+ * The app table — see launcher.h.
  *
  * A slot's display facts (output, id, title, version) come from the `app`
  * object of its active package's plan. Reading a whole package to learn them
- * costs a full SD read and hash, so the first read writes them beside the
- * slot's state as app.txt, keyed by the package hash; later scans read that
- * file alone and fall back to the package only when the hash moved on.
+ * costs a full storage read and hash, so the first read writes them beside
+ * the slot's state as app.txt, keyed by the package hash; later scans read
+ * that file alone and fall back to the package only when the hash moved on.
  */
 
 #include "launcher.h"
 
-#include <3ds.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,11 +31,13 @@ typedef struct {
   char version[LAUNCHER_VERSION_BYTES];
   uint64_t hash;
   uint64_t bytes;
-  /* osGetTime() when an install committed it; 0 when unknown. */
+  /* services_host_epoch_ms() when an install committed it; 0 when unknown. */
   uint64_t installed;
 } LauncherApp;
 
-static LauncherApp apps[LAUNCHER_MAX_APPS];
+/* LAUNCHER_MAX_APPS rows, allocated on the first scan: a host with a
+ * second, larger heap keeps the table out of its scarce internal RAM. */
+static LauncherApp *apps;
 static size_t app_count;
 static bool table_dirty = true;
 
@@ -57,8 +58,8 @@ static LauncherTarget request;
 static JsonBuffer table_json = { .limit = 32 * 1024 };
 
 /* Read the plan's app object fields; any may be missing in old packages. */
-static void read_plan(const PocketRuntimePackage *package, LauncherApp *out) {
-  JsonSpan plan = json_span((const char *)package->guest.plan, package->guest.plan_length);
+static void read_plan(const LauncherPackage *package, LauncherApp *out) {
+  JsonSpan plan = json_span(package->plan, package->plan_length);
   JsonSpan app;
   if (!json_find(plan, "app", &app) || !json_is_object(app)) return;
   json_find_string(app, "output", out->output, sizeof out->output);
@@ -67,7 +68,7 @@ static void read_plan(const PocketRuntimePackage *package, LauncherApp *out) {
   json_find_string(app, "version", out->version, sizeof out->version);
 }
 
-bool launcher_package_output(const PocketRuntimePackage *package, char *out, size_t capacity) {
+bool launcher_package_output(const LauncherPackage *package, char *out, size_t capacity) {
   LauncherApp facts;
   memset(&facts, 0, sizeof facts);
   if (package == NULL) return false;
@@ -77,11 +78,12 @@ bool launcher_package_output(const PocketRuntimePackage *package, char *out, siz
   return true;
 }
 
-static void package_app_id(const PocketRuntimePackage *package, char *out, size_t capacity) {
+bool launcher_package_app_id(const LauncherPackage *package, char *out, size_t capacity) {
   LauncherApp facts;
   memset(&facts, 0, sizeof facts);
-  read_plan(package, &facts);
+  if (package != NULL) read_plan(package, &facts);
   snprintf(out, capacity, "%s", facts.id);
+  return facts.id[0] != '\0';
 }
 
 // ---------------------------------------------------------------------------
@@ -101,8 +103,8 @@ static void write_line(FILE *file, const char *key, const char *value) {
 static void write_cache(const LauncherApp *app) {
   char path[128];
   char temporary[128];
-  if (!runtime_slot_path(app->slot, "app.txt", path, sizeof path) ||
-      !runtime_slot_path(app->slot, ".app.txt.tmp", temporary, sizeof temporary)) {
+  if (!launcher_host_slot_path(app->slot, "app.txt", path, sizeof path) ||
+      !launcher_host_slot_path(app->slot, ".app.txt.tmp", temporary, sizeof temporary)) {
     return;
   }
   FILE *file = fopen(temporary, "wb");
@@ -128,7 +130,7 @@ static void write_cache(const LauncherApp *app) {
 
 static bool read_cache(LauncherApp *app, uint64_t expected_hash) {
   char path[128];
-  if (!runtime_slot_path(app->slot, "app.txt", path, sizeof path)) return false;
+  if (!launcher_host_slot_path(app->slot, "app.txt", path, sizeof path)) return false;
   FILE *file = fopen(path, "rb");
   if (file == NULL) return false;
   char line[256];
@@ -151,11 +153,11 @@ static bool read_cache(LauncherApp *app, uint64_t expected_hash) {
   return hash == expected_hash && app->output[0] != '\0';
 }
 
-static void facts_from_package(LauncherApp *app, const char *slot, const PocketRuntimePackage *package) {
+static void facts_from_package(LauncherApp *app, const char *slot, const LauncherPackage *package) {
   memset(app, 0, sizeof *app);
   memcpy(app->slot, slot, 17);
-  app->hash = package->guest.package_hash;
-  app->bytes = package->length;
+  app->hash = package->hash;
+  app->bytes = package->bytes;
   read_plan(package, app);
   if (app->title[0] == '\0') snprintf(app->title, sizeof app->title, "%s", app->output);
 }
@@ -189,27 +191,29 @@ static LauncherApp *listed_output(const char *output) {
 
 static void rebuild_table(void) {
   app_count = 0;
+  if (apps == NULL) apps = calloc(LAUNCHER_MAX_APPS, sizeof *apps);
+  if (apps == NULL) return;
   table_dirty = false;
-  DIR *directory = opendir(POCKET_RUNTIME_APPS);
+  DIR *directory = opendir(launcher_host_apps_directory());
   if (directory == NULL) return;
   struct dirent *entry;
   while ((entry = readdir(directory)) != NULL && app_count < LAUNCHER_MAX_APPS) {
     if (!hex_slot_name(entry->d_name) || strcmp(entry->d_name, home_slot) == 0) continue;
-    PocketRuntimeState state;
-    if (!runtime_slot_state(entry->d_name, &state) || state.active_hash == 0) continue;
+    uint64_t active_hash = 0;
+    if (!launcher_host_active_hash(entry->d_name, &active_hash) || active_hash == 0) continue;
     LauncherApp app;
     memset(&app, 0, sizeof app);
     memcpy(app.slot, entry->d_name, 17);
-    if (!read_cache(&app, state.active_hash)) {
-      char error[192] = {0};
-      PocketRuntimePackage *package = runtime_slot_package_load(entry->d_name, state.active_hash, error, sizeof error);
-      if (package == NULL) continue;
-      facts_from_package(&app, entry->d_name, package);
-      runtime_package_free(package);
+    if (!read_cache(&app, active_hash)) {
+      LauncherPackage package;
+      void *held = NULL;
+      if (!launcher_host_load(entry->d_name, active_hash, &package, &held)) continue;
+      facts_from_package(&app, entry->d_name, &package);
+      services_host_release(held);
       if (app.output[0] == '\0') continue;
       write_cache(&app);
     }
-    app.hash = state.active_hash;
+    app.hash = active_hash;
     if (strcmp(app.output, home_output) == 0) continue;
     /* Two slots claiming one output (an app id renamed between versions)
      * would make appLaunch ambiguous: the later install wins. */
@@ -232,8 +236,8 @@ static const LauncherApp *find_output(const char *output) {
   return NULL;
 }
 
-void launcher_init(const PocketRuntimePackage *embedded) {
-  memcpy(home_slot, embedded->guest.slot, sizeof home_slot);
+void launcher_init(const char *slot, const LauncherPackage *embedded) {
+  snprintf(home_slot, sizeof home_slot, "%s", slot);
   if (!launcher_package_output(embedded, home_output, sizeof home_output)) home_output[0] = '\0';
   table_dirty = true;
 }
@@ -331,13 +335,13 @@ bool launcher_take_request(LauncherTarget *out) {
   return true;
 }
 
-void launcher_set_current(const char *slot, const PocketRuntimePackage *package) {
+void launcher_set_current(const char *slot, const LauncherPackage *package) {
   snprintf(current_slot, sizeof current_slot, "%s", slot == NULL ? "" : slot);
   current_output[0] = '\0';
   current_id[0] = '\0';
   if (package != NULL) {
     if (!launcher_package_output(package, current_output, sizeof current_output)) current_output[0] = '\0';
-    package_app_id(package, current_id, sizeof current_id);
+    launcher_package_app_id(package, current_id, sizeof current_id);
   }
   if (launcher_home_running() && current_output[0] == '\0') {
     snprintf(current_output, sizeof current_output, "%s", home_output);
@@ -350,6 +354,10 @@ bool launcher_home_running(void) {
 
 const char *launcher_home_slot(void) {
   return home_slot;
+}
+
+const char *launcher_current_slot(void) {
+  return current_slot;
 }
 
 const char *launcher_current_output(void) {
@@ -366,11 +374,11 @@ void launcher_report_failure(const char *output, const char *message) {
   error_pending = true;
 }
 
-void launcher_note_installed(const char *slot, const PocketRuntimePackage *package) {
+void launcher_note_installed(const char *slot, const LauncherPackage *package) {
   if (slot != NULL && package != NULL) {
     LauncherApp app;
     facts_from_package(&app, slot, package);
-    app.installed = osGetTime();
+    app.installed = services_host_epoch_ms();
     if (app.output[0] != '\0') write_cache(&app);
   }
   table_dirty = true;

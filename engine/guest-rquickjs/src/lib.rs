@@ -2,6 +2,13 @@
 use pocket_runtime::generated_ops::{
     ArgKind, OpDescriptor, ResultKind, BINDING_GENERATION, IDF_OPS, LEGACY_C_OPS, OP_DESCRIPTORS,
 };
+use pocket_drivers::{
+    abi::{
+        POCKET_TEXT_COMMIT, POCKET_TEXT_COMPOSITION, POCKET_TEXT_COMPOSITION_END,
+        POCKET_TEXT_KEY_DOWN, POCKET_TEXT_KEY_UP,
+    },
+    TextEvent,
+};
 use pocket_runtime::{
     Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, RuntimeError,
 };
@@ -145,6 +152,51 @@ pub fn call_frame(ctx: &Ctx<'_>, frame: &GuestFrame<'_>) -> rquickjs::Result<()>
         deltas.set(i, entry)?;
     }
     let motion = motion_value(ctx, frame.motion)?;
+    // The frame's text events, the ninth argument, as the QuickJS C guest
+    // shapes them: {kind, text, selectionStart, selectionEnd, repeat}.
+    let text = Array::new(ctx.clone())?;
+    let mut count = 0;
+    for event in frame.text.iter() {
+        let (kind, payload, start, end, repeat) = match event {
+            TextEvent::Key {
+                key,
+                pressed,
+                repeat,
+            } => (
+                if *pressed {
+                    POCKET_TEXT_KEY_DOWN
+                } else {
+                    POCKET_TEXT_KEY_UP
+                },
+                key.as_str(),
+                0,
+                0,
+                *repeat,
+            ),
+            TextEvent::Commit(payload) => (POCKET_TEXT_COMMIT, payload.as_str(), 0, 0, false),
+            TextEvent::Composition {
+                text,
+                selection_start,
+                selection_end,
+            } => (
+                POCKET_TEXT_COMPOSITION,
+                text.as_str(),
+                *selection_start,
+                *selection_end,
+                false,
+            ),
+            TextEvent::CompositionEnd => (POCKET_TEXT_COMPOSITION_END, "", 0, 0, false),
+            _ => continue,
+        };
+        let entry = Object::new(ctx.clone())?;
+        entry.set("kind", kind)?;
+        entry.set("text", payload)?;
+        entry.set("selectionStart", start)?;
+        entry.set("selectionEnd", end)?;
+        entry.set("repeat", repeat)?;
+        text.set(count, entry)?;
+        count += 1;
+    }
     function.call::<_, ()>((Rest(vec![
         frame.buttons.into_js(ctx)?,
         frame.analog.into_js(ctx)?,
@@ -154,6 +206,7 @@ pub fn call_frame(ctx: &Ctx<'_>, frame: &GuestFrame<'_>) -> rquickjs::Result<()>
         frame.right_analog.into_js(ctx)?,
         deltas.into_value(),
         motion,
+        text.into_value(),
     ]),))
 }
 
@@ -747,7 +800,7 @@ mod tests {
         ));
     }
     #[test]
-    fn frame_passes_eight_arguments_and_drains_jobs() {
+    fn frame_passes_nine_arguments_and_drains_jobs() {
         let (mut guest, _) = guest(BindingProfile::Canonical);
         guest.evaluate(b"globalThis.frame=(...args)=>{globalThis.received=args;Promise.resolve().then(()=>globalThis.drained=true)}").unwrap();
         let delta = pocket_drivers::AxisDelta { id: 1, delta: -5 };
@@ -763,12 +816,19 @@ mod tests {
                 right_analog: 0x807f,
                 axis_deltas: &[delta],
                 motion: Some(&motion),
-                text: &[],
+                text: &[
+                    pocket_drivers::TextEvent::Commit("hi".into()),
+                    pocket_drivers::TextEvent::Key {
+                        key: "Enter".into(),
+                        pressed: true,
+                        repeat: false,
+                    },
+                ],
             })
             .unwrap();
         assert!(evaluate::<bool>(
             &guest,
-            "received.length===8 && received[2][0]===0x40040000 && received[4][0]===1 && received[6][0].axis===1 && received[6][0].delta===-5 && received[7].timestamp===100 && drained"
+            "received.length===9 && received[2][0]===0x40040000 && received[4][0]===1 && received[6][0].axis===1 && received[6][0].delta===-5 && received[7].timestamp===100 && received[8].length===2 && received[8][0].kind===2 && received[8][0].text==='hi' && received[8][1].kind===0 && received[8][1].text==='Enter' && received[8][1].repeat===false && drained"
         ));
     }
     #[test]

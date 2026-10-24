@@ -19,6 +19,7 @@ import {
 } from "../../contracts/spec/spec.ts";
 import type { AxisDelta } from "./relative-axis.ts";
 import type { MotionState } from "./motion.ts";
+import type { TextEventRecord } from "./text-input.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
 // Replaced by tools/build.ts. A raw bundle has no target restriction but uses
@@ -462,6 +463,7 @@ export function installFrameHandler(
     rightAnalog?: number,
     axisDeltas?: readonly AxisDelta[],
     motion?: MotionState | null,
+    text?: readonly TextEventRecord[],
   ) => void,
 ): void {
   (
@@ -475,6 +477,7 @@ export function installFrameHandler(
         rightAnalog?: number,
         axisDeltas?: readonly AxisDelta[],
         motion?: MotionState | null,
+        text?: readonly TextEventRecord[],
       ) => void;
     }
   ).frame = fn;

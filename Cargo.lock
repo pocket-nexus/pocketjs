@@ -5011,6 +5011,7 @@ dependencies = [
 name = "pocket-idf-runtime"
 version = "0.1.0"
 dependencies = [
+ "pocket-package",
  "pocket-render-esp-ppa",
  "pocket-runtime-cabi",
 ]

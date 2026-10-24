@@ -10,6 +10,7 @@ owner task. ESP32-P4 can register PPA; S3, C3 and C6 use the software renderer.
 | `pocket_runtime` | IDF heap/log; one Rust archive |
 | `pocket_guest_quickjs` | runtime and espressif/quickjs-ng 0.14.0 |
 | `pocket_display_esp_lcd` | runtime and esp_lcd SPI/I80 transport |
+| `pocket_display_esp_dpi` | runtime, esp_driver_dma and esp_driver_ppa: a picture in a MIPI-DSI framebuffer |
 | `pocket_render_esp_ppa` | runtime and esp_driver_ppa |
 | `pocket_input_touch` | One esp_lcd_touch contact with logical coordinate scaling |
 | `pocket_input_gpio` | GPIO and ADC button masks with debounce |
@@ -17,6 +18,13 @@ owner task. ESP32-P4 can register PPA; S3, C3 and C6 use the software renderer.
 
 Only the runner creates a task. Only the PPA component includes accelerator
 headers. Package admission and UI state remain in runtime crates.
+
+**The M5Stack Tab5 firmware lives in pocket-nexus/pocket-m5**
+(`programs/m5stack-tab5`), which pins this repository as a submodule and
+composes these components. The DPI display turns a landscape picture 90
+degrees onto a portrait panel with the PPA and moves retained pixels for
+content that only scrolled (`POCKET_DISPLAY_RETAINED_MOVE`); two PPA
+renderers, one per core, split every strip (`pocketjs_esp32p4_ppa_lanes`).
 
 ## Native archive identity
 
