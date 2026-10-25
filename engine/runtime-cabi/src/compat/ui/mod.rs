@@ -553,6 +553,21 @@ pub extern "C" fn ui_hit_test_bounds(x: f32, y: f32) -> i32 {
     ui().hit_test_bounds(x, y)
 }
 
+/// Root-space border box of a node, packed x,y,w,h into the caller's four floats.
+/// Logical pixels. Returns 0 for a stale or none id.
+#[no_mangle]
+pub extern "C" fn ui_node_rect(id: i32, out: *mut f32) -> i32 {
+    let Some((x, y, w, h)) = ui().node_rect_root(id) else {
+        return 0;
+    };
+    unsafe {
+        for (index, value) in [x, y, w, h].into_iter().enumerate() {
+            *out.add(index) = value;
+        }
+    }
+    1
+}
+
 #[no_mangle]
 pub extern "C" fn ui_set_cursor(texture: i32, hot_x: f32, hot_y: f32, width: f32, height: f32) {
     ui().set_cursor(texture, hot_x, hot_y, width, height);

@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "pocket_spec.h"
 enum pocket_ui_arg_kind { PJS_ARG_I32=0, PJS_ARG_U32=1, PJS_ARG_REAL=2, PJS_ARG_NONNEGATIVE=3, PJS_ARG_BOOLEAN=4, PJS_ARG_STRING=5, PJS_ARG_BYTES=6 };
-enum pocket_ui_result_kind { PJS_RESULT_NONE=0, PJS_RESULT_INTEGER=1, PJS_RESULT_REAL=2, PJS_RESULT_BOOLEAN=3, PJS_RESULT_STRING=4, PJS_RESULT_OPTIONALSTRING=5, PJS_RESULT_U32ARRAY=6, PJS_RESULT_BYTES=7, PJS_RESULT_OPTIONALBYTES=8 };
+enum pocket_ui_result_kind { PJS_RESULT_NONE=0, PJS_RESULT_INTEGER=1, PJS_RESULT_REAL=2, PJS_RESULT_BOOLEAN=3, PJS_RESULT_STRING=4, PJS_RESULT_OPTIONALSTRING=5, PJS_RESULT_U32ARRAY=6, PJS_RESULT_BYTES=7, PJS_RESULT_OPTIONALBYTES=8, PJS_RESULT_RECT=9 };
 typedef struct { uint8_t kind; uint8_t optional; } pocket_ui_arg_descriptor;
 typedef struct { uint16_t op; const char *name; uint8_t argc; uint8_t result; uint8_t idf; uint8_t legacy_c; pocket_ui_arg_descriptor args[6]; } pocket_ui_op_descriptor;
 static const pocket_ui_op_descriptor pocket_ui_ops[] = {
@@ -68,5 +68,6 @@ static const pocket_ui_op_descriptor pocket_ui_ops[] = {
   { 59, "fontStreamBatch", 1, PJS_RESULT_INTEGER, 0, 0, { { PJS_ARG_BYTES, 0 } } },
   { 60, "captureTexts", 2, PJS_RESULT_BOOLEAN, 0, 0, { { PJS_ARG_U32, 0 }, { PJS_ARG_I32, 0 } } },
   { 61, "capturedTexts", 1, PJS_RESULT_STRING, 0, 0, { { PJS_ARG_U32, 0 } } },
+  { 62, "nodeRect", 1, PJS_RESULT_RECT, 0, 0, { { PJS_ARG_I32, 0 } } },
 };
 #define POCKET_UI_OP_COUNT (sizeof(pocket_ui_ops)/sizeof(pocket_ui_ops[0]))

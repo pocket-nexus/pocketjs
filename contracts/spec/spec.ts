@@ -308,6 +308,7 @@ export const OP = {
   fontStreamBatch: 59,
   captureTexts: 60,
   capturedTexts: 61,
+  nodeRect: 62,
 } as const;
 
 // ---------------------------------------------------------------------------

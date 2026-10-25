@@ -517,6 +517,19 @@ fn result_value<'js>(
         (ResultKind::Bytes | ResultKind::OptionalBytes, OpResult::Bytes(bytes)) => {
             Ok(ArrayBuffer::new(ctx.clone(), bytes)?.into_value())
         }
+        (ResultKind::Rect, OpResult::None) => Ok(Value::new_null(ctx.clone())),
+        (ResultKind::Rect, OpResult::Bytes(bytes)) => {
+            let bytes: [u8; 16] = bytes
+                .try_into()
+                .map_err(|_| Exception::throw_internal(ctx, "invalid rect result"))?;
+            let object = Object::new(ctx.clone())?;
+            for (index, name) in ["x", "y", "w", "h"].into_iter().enumerate() {
+                let at = index * 4;
+                let word = f32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+                object.set(name, f64::from(word))?;
+            }
+            Ok(object.into_value())
+        }
         _ => Err(Exception::throw_internal(ctx, "invalid UI result")),
     }
 }

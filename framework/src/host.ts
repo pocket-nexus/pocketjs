@@ -36,6 +36,14 @@ export interface BuildHostContract {
   readonly hostAbi: number;
 }
 
+/** Root-space border box of a node, in logical pixels (spec op 62). */
+export interface NodeRect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
 /** The `ui.*` op surface. Node ids are generation-tagged positive i32 values;
  *  node id 0 means "none" (anchor 0 = append, setFocus 0 = clear). Texture
  *  handles have operation-specific 0-based or generation-tagged contracts. */
@@ -115,6 +123,9 @@ export interface HostOps {
    * display.auxiliary; coordinates belong to its logical viewport. */
   hitTestAuxiliary?(x: number, y: number): number;
   hitTestBoundsAuxiliary?(x: number, y: number): number;
+
+  /** Root-space border box of a node (spec op 62); null for a none or stale id. */
+  nodeRect?(id: number): NodeRect | null;
 
   // -- 2D bodies (spec ops 52..56, ui.physics; contracts/spec/physics.ts).
   //    Present together or not at all; @pocketjs/framework/physics checks. ---

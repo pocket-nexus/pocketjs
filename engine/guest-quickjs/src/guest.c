@@ -8,6 +8,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+static JSValue pocket_ui_rect_value(JSContext *ctx, const uint8_t *bytes) {
+  static const char *const names[4] = {"x", "y", "w", "h"};
+  JSValue object = JS_NewObject(ctx);
+  if (JS_IsException(object)) return object;
+  for (int i = 0; i < 4; i++) {
+    const uint8_t *word = bytes + i * 4;
+    uint32_t bits = (uint32_t)word[0] | ((uint32_t)word[1] << 8) | ((uint32_t)word[2] << 16) | ((uint32_t)word[3] << 24);
+    float value;
+    memcpy(&value, &bits, sizeof value);
+    if (JS_SetPropertyStr(ctx, object, names[i], JS_NewFloat64(ctx, value)) < 0) {
+      JS_FreeValue(ctx, object);
+      return JS_EXCEPTION;
+    }
+  }
+  return object;
+}
+
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #define POCKET_QJS_ALIGNOF(type) _Alignof(type)
 #else
@@ -166,7 +183,9 @@ static JSValue invoke(JSContext *ctx,JSValueConst self,int argc,JSValueConst *ar
       const uint8_t *b=output.bytes+i*4;uint32_t value=(uint32_t)b[0]|(uint32_t)b[1]<<8|(uint32_t)b[2]<<16|(uint32_t)b[3]<<24;
       if(JS_DefinePropertyValueUint32(ctx,result,(uint32_t)i,JS_NewUint32(ctx,value),JS_PROP_C_W_E)<0) {JS_FreeValue(ctx,result);result=JS_EXCEPTION;}
     }
-  } else JS_ThrowInternalError(ctx,"invalid UI result");
+  } else if(op->result==PJS_RESULT_RECT&&output.tag==POCKET_RESULT_NONE) result=JS_NULL;
+  else if(op->result==PJS_RESULT_RECT&&output.tag==POCKET_RESULT_BYTES&&output.byte_length==16) result=pocket_ui_rect_value(ctx,(const uint8_t*)output.bytes);
+  else JS_ThrowInternalError(ctx,"invalid UI result");
 done:
   for(int i=0;i<6;i++) {if(strings[i])JS_FreeCString(ctx,strings[i]);free(replacement[i]);JS_FreeValue(ctx,buffers[i]);}
   return result;

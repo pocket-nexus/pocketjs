@@ -68,3 +68,23 @@ test("mount owns package bytes and invalidates retained functions at shutdown", 
   expect(global.ui).toBeUndefined();
   expect(global.__pak).toBeUndefined();
 });
+
+test("nodeRect decodes four little-endian f32 words and maps none to null", () => {
+  const global: any = {};
+  let next: any;
+  const guest = mountUi({ supportsOp: (op: number) => op === 62, dispatch: () => next }, environment, global);
+  const bytes = new Uint8Array(16), view = new DataView(bytes.buffer);
+  [25, 13, 40, 30].forEach((value, index) => view.setFloat32(index * 4, value, true));
+  next = { kind: "bytes", value: bytes };
+  expect(guest.ui.nodeRect(3)).toEqual({ x: 25, y: 13, w: 40, h: 30 });
+  next = { kind: "none" };
+  expect(guest.ui.nodeRect(0)).toBeNull();
+  next = { kind: "bytes", value: new Uint8Array(12) };
+  expect(() => guest.ui.nodeRect(3)).toThrow("invalid UI rect result");
+  guest.dispose();
+});
+test("nodeRect is absent from the surface when the host does not support op 62", () => {
+  const guest = mountUi({ supportsOp: (op: number) => op !== 62, dispatch: () => ({ kind: "none" as const }) }, environment, {} as any);
+  expect(guest.ui.nodeRect).toBeUndefined();
+  guest.dispose();
+});

@@ -51,10 +51,16 @@ function bytesOf(value) {
 function resultValue(expected, result) {
   if (expected === "none") return undefined;
   if ((expected === "optionalString" || expected === "optionalBytes") && result.kind === "none") return undefined;
+  if (expected === "rect" && result.kind === "none") return null;
   if (expected === "boolean" && result.kind === "integer") return result.value !== 0;
   if ((expected === "integer" || expected === "real") && result.kind === expected) return result.value;
   if (result.kind !== "bytes") throw new TypeError("invalid UI result kind");
   const bytes = bytesOf(result.value);
+  if (expected === "rect") {
+    if (bytes.length !== 16) throw new TypeError("invalid UI rect result");
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { x: view.getFloat32(0, true), y: view.getFloat32(4, true), w: view.getFloat32(8, true), h: view.getFloat32(12, true) };
+  }
   if (expected === "string" || expected === "optionalString") return decodeUiString(bytes);
   if (expected === "bytes" || expected === "optionalBytes") return bytes.slice().buffer;
   if (expected === "u32Array") {

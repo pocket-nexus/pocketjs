@@ -8,7 +8,7 @@ pub use pocket_spec::BINDING_GENERATION;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArgKind { I32, U32, Real, Nonnegative, Boolean, String, Bytes }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ResultKind { None, Integer, Real, Boolean, String, OptionalString, U32Array, Bytes, OptionalBytes }
+pub enum ResultKind { None, Integer, Real, Boolean, String, OptionalString, U32Array, Bytes, OptionalBytes, Rect }
 #[derive(Clone, Copy, Debug)]
 pub struct ArgDescriptor { pub name: &'static str, pub kind: ArgKind, pub optional: bool }
 #[derive(Clone, Copy, Debug)]
@@ -75,11 +75,12 @@ pub const OP_DESCRIPTORS: &[OpDescriptor] = &[
     OpDescriptor { id: 59, name: "fontStreamBatch", args: &[ArgDescriptor { name: "descriptor", kind: ArgKind::Bytes, optional: false }], result: ResultKind::Integer, provider: "core", capability: None },
     OpDescriptor { id: 60, name: "captureTexts", args: &[ArgDescriptor { name: "surface", kind: ArgKind::U32, optional: false }, ArgDescriptor { name: "root", kind: ArgKind::I32, optional: false }], result: ResultKind::Boolean, provider: "core", capability: None },
     OpDescriptor { id: 61, name: "capturedTexts", args: &[ArgDescriptor { name: "surface", kind: ArgKind::U32, optional: false }], result: ResultKind::String, provider: "core", capability: None },
+    OpDescriptor { id: 62, name: "nodeRect", args: &[ArgDescriptor { name: "id", kind: ArgKind::I32, optional: false }], result: ResultKind::Rect, provider: "core", capability: None },
 ];
 pub const LEGACY_C_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,24,25,26,27,28,29,42,57,58];
 pub const IDF_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,42,43];
 pub fn descriptor(op: u16) -> Option<&'static OpDescriptor> { OP_DESCRIPTORS.iter().find(|entry| entry.id == op) }
-pub fn supports_core_op(op: u16) -> bool { matches!(op, 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24 | 25 | 26 | 27 | 28 | 29 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61) }
+pub fn supports_core_op(op: u16) -> bool { matches!(op, 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24 | 25 | 26 | 27 | 28 | 29 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61 | 62) }
 pub fn validate_args(op: u16, args: &[OpArg<'_>]) -> Result<(), RuntimeError> {
     let descriptor = descriptor(op).ok_or(RuntimeError::UnsupportedOperation)?;
     if args.len() != descriptor.args.len() { return Err(RuntimeError::InvalidArgument); }
@@ -344,6 +345,11 @@ pub fn dispatch(ui: &mut Ui, op: u16, args: &[OpArg<'_>]) -> Result<OpResult, Ru
         61 => { // capturedTexts
             let a0 = integer(&args[0])? as u32;
             Ok(OpResult::Bytes(ui.captured_texts(a0).into_bytes()))
+        },
+        62 => { // nodeRect
+            let a0 = integer(&args[0])? as i32;
+            let result = ui.node_rect_root(a0);
+            Ok(match result { Some((x, y, w, h)) => OpResult::Bytes([x, y, w, h].into_iter().flat_map(f32::to_le_bytes).collect()), None => OpResult::None })
         },
         _ => Err(RuntimeError::UnsupportedOperation),
     }

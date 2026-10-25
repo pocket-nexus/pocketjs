@@ -45,6 +45,7 @@ int32_t pocket_runtime_op(pocket_runtime *runtime,uint16_t op,const void *data,s
   if(op==16){result->tag=POCKET_RESULT_F64;result->real=0;}
   if(op==43){result->tag=POCKET_RESULT_BYTES;result->bytes=NULL;result->byte_length=0;}
   if(op==58){result->tag=POCKET_RESULT_BYTES;result->bytes=(const uint8_t*)"[]";result->byte_length=2;}
+  if(op==62&&count>0&&args[0].integer!=0){static uint8_t rect[16];static const float words[4]={10,9,50,20};for(int i=0;i<4;i++){uint32_t bits;memcpy(&bits,&words[i],sizeof bits);for(int b=0;b<4;b++)rect[i*4+b]=(uint8_t)(bits>>(8*b));}result->tag=POCKET_RESULT_BYTES;result->bytes=rect;result->byte_length=sizeof rect;}
   return 0;
 }
 static void eval(pocket_guest_quickjs *guest,pocket_runtime *runtime,const char *source) {
@@ -88,6 +89,7 @@ static void canonical(void) {
   assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
   assert_generation(guest,&runtime);
   eval(guest,&runtime,"function check(x){if(!x)throw new Error('assertion')}check(ui.__host==='test'&&ui.__tickHz===60&&ui.__viewport.w===480);check(!('__textures' in ui)&&!('svcOpen' in ui)&&!('physicsCreate' in ui));check(ui.takeAnimationCompletions()==='[]');check(ui.wrapText('',0,1).length===0);let caught=false;try{ui.createNode()}catch(e){caught=e instanceof TypeError}check(caught)");
+  eval(guest,&runtime,"function check(x){if(!x)throw new Error('assertion')}let n=ui.createNode(0);ui.insertBefore(1,n,0);let r=ui.nodeRect(n);check(r!==null&&r.x===10&&r.y===9&&r.w===50&&r.h===20);check(ui.nodeRect(0)===null);");
   eval(guest,&runtime,"ui.uploadTexture(new Uint8Array([0,0,0,0,10,20,30,255]).subarray(4),{valueOf(){check(ui.createNode(0)===17);return 1}},1,3)");
   assert(runtime.last_op==9&&runtime.length==4&&memcmp(runtime.bytes,"\x0a\x14\x1e\xff",4)==0);
   eval(guest,&runtime,"ui.loadStyles(new ArrayBuffer(0));ui.loadStyles(new Uint8Array(new ArrayBuffer(0)));let bad=false;try{ui.loadStyles({})}catch(e){bad=e instanceof TypeError}check(bad);ui.createNode(0)");assert(runtime.last_op==1);

@@ -4109,3 +4109,27 @@ fn text_capture_reports_painted_runs_with_their_visible_boxes() {
     ui.draw();
     assert_eq!(ui.captured_texts(0), "0,10,10,10\tBB\n");
 }
+
+#[test]
+fn node_rect_root_sums_the_parent_chain() {
+    let mut ui = Ui::new();
+    ui.set_prop(spec::ROOT_ID, spec::prop::PADDING_T, 5.0);
+    ui.set_prop(spec::ROOT_ID, spec::prop::PADDING_L, 7.0);
+    let parent = ui.create_node(0);
+    ui.set_prop(parent, spec::prop::WIDTH, 200.0);
+    ui.set_prop(parent, spec::prop::HEIGHT, 100.0);
+    ui.set_prop(parent, spec::prop::PADDING_T, 4.0);
+    ui.set_prop(parent, spec::prop::PADDING_L, 3.0);
+    ui.insert_before(spec::ROOT_ID, parent, 0);
+    let child = ui.create_node(0);
+    ui.set_prop(child, spec::prop::WIDTH, 50.0);
+    ui.set_prop(child, spec::prop::HEIGHT, 20.0);
+    ui.insert_before(parent, child, 0);
+    ui.tick();
+    assert_eq!(ui.node_rect_root(parent), Some((7.0, 5.0, 200.0, 100.0)));
+    assert_eq!(ui.node_rect_root(child), Some((10.0, 9.0, 50.0, 20.0)));
+    assert_eq!(ui.node_rect_root(spec::ROOT_ID), Some((0.0, 0.0, 480.0, 272.0)));
+    assert_eq!(ui.node_rect_root(0), None);
+    ui.destroy_node(child);
+    assert_eq!(ui.node_rect_root(child), None);
+}

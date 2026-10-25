@@ -12,7 +12,7 @@ const numbered: readonly UiOperation[] = UI_OPS.filter(op => op.id !== null);
 function rust(): string {
   let out = `// ${banner}\nuse alloc::{string::String, vec::Vec};\nuse core::fmt::Write;\nuse pocketjs_core::Ui;\nuse crate::{OpArg, OpResult, RuntimeError};\npub use pocket_spec::BINDING_GENERATION;\n\n`;
   out += `#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum ArgKind { I32, U32, Real, Nonnegative, Boolean, String, Bytes }\n`;
-  out += `#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum ResultKind { None, Integer, Real, Boolean, String, OptionalString, U32Array, Bytes, OptionalBytes }\n`;
+  out += `#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum ResultKind { None, Integer, Real, Boolean, String, OptionalString, U32Array, Bytes, OptionalBytes, Rect }\n`;
   out += `#[derive(Clone, Copy, Debug)]\npub struct ArgDescriptor { pub name: &'static str, pub kind: ArgKind, pub optional: bool }\n`;
   out += `#[derive(Clone, Copy, Debug)]\npub struct OpDescriptor { pub id: u16, pub name: &'static str, pub args: &'static [ArgDescriptor], pub result: ResultKind, pub provider: &'static str, pub capability: Option<&'static str> }\n`;
   out += `pub const OP_DESCRIPTORS: &[OpDescriptor] = &[\n`;
@@ -29,7 +29,8 @@ function rust(): string {
       out += `            let a${i} = ${expression};\n`;
     });
     const expr=op.core!;
-    const body = op.result === "none" ? `${expr};\n            Ok(OpResult::None)` : op.result === "integer" || op.result === "boolean" ? `Ok(OpResult::Integer(${expr} as i64))` : op.result === "real" ? `Ok(OpResult::Real(${expr}))` : op.result === "string" ? `Ok(OpResult::Bytes(${expr}.into_bytes()))` : op.result === "u32Array" ? `Ok(OpResult::Bytes(${expr}.into_iter().flat_map(u32::to_le_bytes).collect()))` : op.result === "optionalBytes" ? `let result = ${expr};\n            Ok(if result.is_empty() { OpResult::None } else { OpResult::Bytes(result) })` : `Ok(OpResult::Bytes(${expr}))`;
+    const body = op.result === "none" ? `${expr};\n            Ok(OpResult::None)` : op.result === "integer" || op.result === "boolean" ? `Ok(OpResult::Integer(${expr} as i64))` : op.result === "real" ? `Ok(OpResult::Real(${expr}))` : op.result === "string" ? `Ok(OpResult::Bytes(${expr}.into_bytes()))` : op.result === "u32Array" ? `Ok(OpResult::Bytes(${expr}.into_iter().flat_map(u32::to_le_bytes).collect()))` : op.result === "rect" ? `let result = ${expr};
+            Ok(match result { Some((x, y, w, h)) => OpResult::Bytes([x, y, w, h].into_iter().flat_map(f32::to_le_bytes).collect()), None => OpResult::None })` : op.result === "optionalBytes" ? `let result = ${expr};\n            Ok(if result.is_empty() { OpResult::None } else { OpResult::Bytes(result) })` : `Ok(OpResult::Bytes(${expr}))`;
     out += `            ${body}\n        },\n`;
   }
   out += `        _ => Err(RuntimeError::UnsupportedOperation),\n    }\n}\n`;
@@ -40,7 +41,7 @@ function rust(): string {
 
 function c(): string {
   const kinds = ["i32", "u32", "real", "nonnegative", "boolean", "string", "bytes"];
-  const results = ["none", "integer", "real", "boolean", "string", "optionalString", "u32Array", "bytes", "optionalBytes"];
+  const results = ["none", "integer", "real", "boolean", "string", "optionalString", "u32Array", "bytes", "optionalBytes", "rect"];
   let out = `/* ${banner} */\n#pragma once\n#include <stdint.h>\n#include "pocket_spec.h"\n`;
   out += `enum pocket_ui_arg_kind { ${kinds.map((k,i) => `PJS_ARG_${k.toUpperCase()}=${i}`).join(", ")} };\n`;
   out += `enum pocket_ui_result_kind { ${results.map((k,i) => `PJS_RESULT_${k.toUpperCase()}=${i}`).join(", ")} };\n`;

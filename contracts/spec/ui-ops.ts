@@ -4,7 +4,7 @@
 import { OP } from "./spec.ts";
 
 export type UiArgKind = "i32" | "u32" | "real" | "nonnegative" | "boolean" | "string" | "bytes";
-export type UiResultKind = "none" | "integer" | "real" | "boolean" | "string" | "optionalString" | "u32Array" | "bytes" | "optionalBytes";
+export type UiResultKind = "none" | "integer" | "real" | "boolean" | "string" | "optionalString" | "u32Array" | "bytes" | "optionalBytes" | "rect";
 export interface UiOperation {
   readonly id: number | null;
   readonly name: string;
@@ -172,6 +172,7 @@ export const UI_OPS = [
   core("fontStreamBatch", [arg("descriptor", "bytes")], "integer", "ui.font_stream_batch(a0)"),
   core("captureTexts", [arg("surface", "u32"), arg("root", "i32")], "boolean", "ui.capture_texts(a0, a1)"),
   core("capturedTexts", [arg("surface", "u32")], "string", "ui.captured_texts(a0)"),
+  core("nodeRect", [arg("id", "i32")], "rect", "ui.node_rect_root(a0)"),
   privateHook("__dbgActive", [], "boolean"),
   privateHook("__dbgConnected", [], "boolean"),
   privateHook("__dbgPoll", [], "optionalString"),

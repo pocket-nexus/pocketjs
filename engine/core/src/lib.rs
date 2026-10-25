@@ -2337,6 +2337,23 @@ impl Ui {
         Some((n.layout.x, n.layout.y, n.layout.w, n.layout.h))
     }
 
+    /// Root-space border box (x, y, w, h) of a node, summed up the parent chain.
+    pub fn node_rect_root(&self, id: i32) -> Option<(f32, f32, f32, f32)> {
+        let n = self.tree.get(id)?;
+        let (mut x, mut y) = (n.layout.x, n.layout.y);
+        let (w, h) = (n.layout.w, n.layout.h);
+        let mut cur = n.parent;
+        let mut hops = 0u32;
+        while cur != 0 && hops <= spec::ID_SLOT_MASK {
+            let p = self.tree.get(cur)?;
+            x += p.layout.x;
+            y += p.layout.y;
+            cur = p.parent;
+            hops += 1;
+        }
+        Some((x, y, w, h))
+    }
+
     /// The fully-resolved style of a node (variants + overrides + anims).
     pub fn resolved_style(&self, id: i32) -> Option<style::Resolved> {
         let n = self.tree.get(id)?;
