@@ -36,7 +36,7 @@ test.skipIf(!cc)("PICA driver retains independent screen submissions and exact r
   const instance = resolve(runDir, "instance");
   run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
     "-I", resolve(root,"tests/fixtures/pica-driver"), "-I", resolve(root,"products/3ds/include"),
-    "-I", resolve(root,"contracts/generated"), "-I", resolve(root,"platforms/3ds"), "-I", runDir,
+    "-I", resolve(root,"contracts/generated"), "-I", resolve(root,"platforms/3ds"), "-I", resolve(root,"engine/host-services"), "-I", runDir,
     resolve(root,"tests/fixtures/pica-driver/instance.c"), resolve(root,"platforms/3ds/hooks.c"), resolve(root,"platforms/3ds/input_source.c"), resolve(target,"release/libpocket_runtime_cabi.a"), "-lm", "-o", instance]);
   expect(run([instance])).toContain("3DS runtime composition: package, auxiliary metadata, providers and exact input passed");
 }, 180_000);
