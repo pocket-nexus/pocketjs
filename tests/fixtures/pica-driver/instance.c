@@ -75,7 +75,7 @@ bool gfx_register(pocket_runtime *runtime) {
   pocket_display_output_v1 api = {
       sizeof api,    display_descriptor, acquire_display,
       flush_display, wait_display,       NULL,
-      NULL};
+      NULL,          NULL,               NULL};
   return !pocket_runtime_add_display(runtime, &api, &displays[0],
                                      POCKET_RENDERER_SOFTWARE) &&
          !pocket_runtime_add_display(runtime, &api, &displays[1],
