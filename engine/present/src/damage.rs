@@ -271,9 +271,12 @@ pub struct DamageTracker<const MAX_REGIONS: usize = DEFAULT_DAMAGE_REGIONS> {
     ops: Vec<MotionOp>,
     ops_valid: bool,
     /// The list [`prepare_with_motion`](Self::prepare_with_motion) decoded
-    /// last, adopted by a [`commit`](Self::commit) of the same words.
+    /// last, with the target and resource revision it was decoded for,
+    /// adopted by a [`commit`](Self::commit) of the same words under both.
     pending_words: Vec<u32>,
     pending_ops: Vec<MotionOp>,
+    pending_target: DamageTarget,
+    pending_resource_revision: u64,
     pending: bool,
     /// Working storage of the motion planner, kept between frames.
     scratch: MotionScratch,
@@ -299,6 +302,8 @@ impl<const MAX_REGIONS: usize> DamageTracker<MAX_REGIONS> {
             ops_valid: false,
             pending_words: Vec::new(),
             pending_ops: Vec::new(),
+            pending_target: DamageTarget::new(0, 0, 0, 0),
+            pending_resource_revision: 0,
             pending: false,
             scratch: MotionScratch {
                 pairs: Vec::new(),
@@ -376,6 +381,9 @@ impl<const MAX_REGIONS: usize> DamageTracker<MAX_REGIONS> {
         words: &[u32],
         target: DamageTarget,
     ) -> Result<DamagePlan<MAX_REGIONS>, DamageError> {
+        // An older decoded list is never committed after this call, including
+        // when it returns early.
+        self.pending = false;
         if MAX_REGIONS == 0 {
             return Err(DamageError::InvalidCapacity);
         }
@@ -389,8 +397,6 @@ impl<const MAX_REGIONS: usize> DamageTracker<MAX_REGIONS> {
         if !full && updated.is_empty() && same_words(&self.words, words) {
             return Ok(DamagePlan::empty(screen));
         }
-        // The pending buffers hold nothing worth keeping until this returns.
-        self.pending = false;
         decode_ops_into(ui, words, screen, &mut self.pending_ops)?;
         let plan = if full {
             DamagePlan::full(screen)
@@ -418,22 +424,32 @@ impl<const MAX_REGIONS: usize> DamageTracker<MAX_REGIONS> {
         };
         self.pending_words.clear();
         self.pending_words.extend_from_slice(words);
+        self.pending_target = target;
+        self.pending_resource_revision = ui.resource_revision();
         self.pending = true;
         Ok(plan)
     }
 
     /// Record the DrawList after its [`DamagePlan`] has been rendered.
     pub fn commit(&mut self, ui: &impl RenderResources, words: &[u32], target: DamageTarget) {
-        if !same_words(&self.words, words) {
-            if self.pending && same_words(&self.pending_words, words) {
-                core::mem::swap(&mut self.words, &mut self.pending_words);
-                core::mem::swap(&mut self.ops, &mut self.pending_ops);
-                self.ops_valid = true;
-            } else {
-                self.words.clear();
-                self.words.extend_from_slice(words);
-                self.ops_valid = false;
-            }
+        // Decoded bounds depend on the target and on resources such as font
+        // metrics as well as on the words: unchanged words decoded under
+        // other resources must not be kept.
+        if self.pending
+            && self.pending_target == target
+            && self.pending_resource_revision == ui.resource_revision()
+            && same_words(&self.pending_words, words)
+        {
+            core::mem::swap(&mut self.words, &mut self.pending_words);
+            core::mem::swap(&mut self.ops, &mut self.pending_ops);
+            self.ops_valid = true;
+        } else if !same_words(&self.words, words)
+            || self.target != target
+            || self.resource_revision != ui.resource_revision()
+        {
+            self.words.clear();
+            self.words.extend_from_slice(words);
+            self.ops_valid = false;
         }
         self.pending = false;
         self.target = target;

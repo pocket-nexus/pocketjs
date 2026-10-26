@@ -273,3 +273,62 @@ fn plain_prepare_never_moves_pixels() {
         .motion()
         .is_none());
 }
+
+#[test]
+fn unchanged_words_commit_new_resource_bounds_before_the_next_motion() {
+    use std::cell::Cell;
+    struct FontResources(Cell<bool>);
+    impl RenderResources for FontResources {
+        fn viewport(&self) -> (f32, f32) {
+            (64.0, 48.0)
+        }
+        fn raster_revision(&self) -> u64 {
+            self.0.get() as u64
+        }
+        fn texture(&self, _: i32) -> Option<TexView<'_>> {
+            None
+        }
+        fn font_atlas(&self, _: u8) -> Option<FontView<'_>> {
+            Some(FontView {
+                bitmap: &[128; 1024],
+                cell_w: 24,
+                cell_h: if self.0.get() { 20 } else { 2 },
+                raster_density: 1,
+                glyph_count: 1,
+            })
+        }
+    }
+    let resources = FontResources(Cell::new(false));
+    let scene = |y: i16| {
+        let mut list = rows(0);
+        list.extend([
+            spec::draw_op::GLYPH_RUN,
+            1 << 16,
+            0x80ff_ffff,
+            xy_word(10, y),
+            0,
+        ]);
+        list
+    };
+    let target = DamageTarget::new(64, 48, 1, 1);
+    let mut tracker = DamageTracker::<8>::new();
+    tracker
+        .prepare_with_motion(&resources, &scene(8), target)
+        .unwrap();
+    tracker.commit(&resources, &scene(8), target);
+    resources.0.set(true);
+    tracker
+        .prepare_with_motion(&resources, &scene(8), target)
+        .unwrap();
+    tracker.commit(&resources, &scene(8), target);
+    let actual = tracker
+        .prepare_with_motion(&resources, &scene(12), target)
+        .unwrap();
+    let mut fresh = DamageTracker::<8>::new();
+    fresh.commit(&resources, &scene(8), target);
+    let expected = fresh
+        .prepare_with_motion(&resources, &scene(12), target)
+        .unwrap();
+    assert_eq!(actual.regions(), expected.regions());
+    assert_eq!(actual.motion(), expected.motion());
+}
