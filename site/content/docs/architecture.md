@@ -67,7 +67,7 @@ perform scalar and string coercion before borrowing a JavaScript byte view.
 They omit optional service methods when no provider is registered.
 
 The C adapter provides QuickJS-NG lifecycle callbacks; the Rust adapter
-implements the runtime's `Guest` trait. Both retain the eight-argument frame
+implements the runtime's `Guest` trait. Both retain the nine-argument frame
 wire, promise-job draining, host identity, tick rate, viewport, and native asset
 tables. **Absent asset tables mean JavaScript must load assets from `__pak`.**
 An empty native table means native loading completed without that asset kind.
