@@ -7,6 +7,7 @@ import {
 } from "./platform-types.ts";
 import { appletSchema, type AppletDeclaration } from "./applet.ts";
 import { modalityRequirementSchema, type ModalityRequirement } from "./modality.ts";
+import { workerDeclarationSchema, type WorkerDeclaration } from "./worker.ts";
 
 export const POCKET_MANIFEST_VERSION = 2 as const;
 export const POCKET_MANIFEST_SCHEMA_ID = "https://pocketjs.dev/schema/pocket-2.json";
@@ -82,6 +83,7 @@ export interface PocketManifestV2 {
   };
   readonly app: {
     readonly entry: string;
+    readonly worker?: WorkerDeclaration;
     readonly output?: string;
     readonly framework: PocketFramework;
     /**
@@ -388,6 +390,7 @@ export const pocketManifestV2Schema = {
       additionalProperties: false,
       required: ["entry", "framework", "viewport"],
       properties: {
+        worker: workerDeclarationSchema,
         entry: entrySchema,
         output: outputSchema,
         framework: { enum: ["solid", "vue-vapor", "octane"] },

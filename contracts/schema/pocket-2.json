@@ -155,6 +155,93 @@
         "viewport"
       ],
       "properties": {
+        "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entry",
+            "nodes"
+          ],
+          "properties": {
+            "entry": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.ts$"
+            },
+            "nodes": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "kind"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "i2c",
+                      "uart",
+                      "http"
+                    ]
+                  }
+                }
+              }
+            },
+            "channels": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "kind",
+                  "direction",
+                  "recordBytes",
+                  "capacity"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "snapshot",
+                      "ring"
+                    ]
+                  },
+                  "direction": {
+                    "enum": [
+                      "ui-to-worker",
+                      "worker-to-ui"
+                    ]
+                  },
+                  "recordBytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1024
+                  },
+                  "capacity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  }
+                }
+              }
+            }
+          }
+        },
         "entry": {
           "type": "string",
           "minLength": 1,

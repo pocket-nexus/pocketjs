@@ -2,8 +2,10 @@
 //! The host composes C guest, PICA Renderer, Display and input drivers.
 #![no_std]
 extern crate alloc;
+mod worker_section;
 use pocket_package::sha256::sha256_hex_prefix;
-use pocket_package::{plan_facts, select_guest, GuestError, PackageError, PlanFactsError};
+use pocket_package::package::section;
+use pocket_package::{plan_facts, select_guest, GuestError, Package, PackageError, PlanFactsError};
 pub use pocket_runtime_cabi::*;
 
 unsafe fn bytes<'a>(pointer: *const u8, length: usize) -> &'a [u8] {
@@ -15,6 +17,8 @@ unsafe fn bytes<'a>(pointer: *const u8, length: usize) -> &'a [u8] {
 pub struct PocketGuestPackage {
     pub javascript: *const u8,
     pub javascript_length: usize,
+    pub worker_javascript: *const u8,
+    pub worker_javascript_length: usize,
     pub pak: *const u8,
     pub pak_length: usize,
     pub plan: *const u8,
@@ -116,12 +120,30 @@ pub unsafe extern "C" fn pocket_package_open(
         Err(PlanFactsError::Viewport) => return 14,
         Err(PlanFactsError::Auxiliary) => return 15,
     };
+    // select_guest has validated the package and profile. Read the append-only
+    // worker section from the same verified variant without hashing it twice.
+    let worker_declared = match pocket_package::plan_facts::worker_declared(guest.plan) {
+        Ok(declared) => declared,
+        Err(_) => return 18,
+    };
+    let worker = match Package::parse(bytes(ptr, len), true)
+        .and_then(|package| package.find_variant(target))
+        .and_then(|variant| variant.ok_or(PackageError::BadLayout))
+        .and_then(|variant| variant.section(section::WORKER_JS)) {
+        Ok(section) => match worker_section::select(worker_declared, section) {
+            Ok(source) => source,
+            Err(code) => return code,
+        },
+        Err(_) => return 17,
+    };
     let auxiliary = facts.auxiliary;
     let mut slot = [0u8; 17];
     slot[..16].copy_from_slice(&sha256_hex_prefix::<16>(guest.id.as_bytes()));
     out.write(PocketGuestPackage {
         javascript: guest.js.as_ptr(),
         javascript_length: guest.js.len(),
+        worker_javascript: worker.as_ptr(),
+        worker_javascript_length: worker.len(),
         pak: guest.pak.as_ptr(),
         pak_length: guest.pak.len(),
         plan: guest.plan.as_ptr(),

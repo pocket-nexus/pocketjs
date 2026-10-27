@@ -2,6 +2,7 @@ import { resolveSourceEntry, sourceAppContent, sourceOutputName } from "./source
 import { resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
 import { modelConfiguration } from "../microts/compiler/aot-model-build.ts";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
+import { buildWorker } from "./build-worker.ts";
 // tools/build.ts <app> — the TWO-PASS app build (docs/DESIGN.md "Build pipeline").
 //
 //   bun tools/build.ts apps/hero/app.tsx    (or just `hero`)
@@ -152,8 +153,10 @@ buildInputs.optional(join(projectRoot, "tsconfig.json"));
 // The public compiler passes a frozen plan. Low-level source builds read the
 // matching application manifest so they bake the same application theme.
 if (!buildPlan) modelConfiguration(requestedEntry);
+let appProjectRoot = projectRoot;
 const appContent = buildPlan ? buildPlan.app : sourceAppContent(requestedEntry, {
   frameworkRoot: ROOT, projectRoot, onRead: path => buildInputs.add(path),
+  onAppRoot: path => { appProjectRoot = path; },
 });
 if (appContent.theme !== undefined) {
   const diagnostics: ContractDiagnostic[] = [];
@@ -525,6 +528,7 @@ const result = await Bun.build({
     __POCKET_TARGET__: JSON.stringify(buildPlan?.target.id ?? ""),
     __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? POCKET_BINDING_GENERATION),
     __POCKET_FEATURES__: JSON.stringify(buildPlan?.features ?? {}),
+    __POCKET_WORKER_DECLARATION__: JSON.stringify(appContent.worker ?? null),
     // The modality and presentation the plan resolved; the runtime module
     // (@pocketjs/framework/modality) falls back to the portable PSP shape
     // when a bundle is built without a plan.
@@ -554,6 +558,11 @@ if (!result.success) {
   process.exit(1);
 }
 const bundle = result.outputs.find((o) => o.path.endsWith(".js"));
+if (appContent.worker) {
+  const worker = await buildWorker({ declaration: appContent.worker, projectRoot: appProjectRoot, outdir: DIST, output: outName });
+  buildInputs.metafile(worker.metafile);
+  console.log(`  worker: ${DIST}${outName}.worker.js`);
+}
 if (inputsFile) {
   buildInputs.metafile(result.metafile);
   await buildInputs.compiler([join(ROOT, "tools/build.ts"), join(ROOT, "tools/pocket.ts")], ROOT);

@@ -8,6 +8,9 @@
  *                     transport is the companion: start/take/cancel/poll/
  *                     lastError
  *
+ * Worker HTTP uses link_http.h and a bounded byte-credit window. The worker
+ * task exchanges commands and facts with this module through its host mailbox.
+ *
  * The host owns the connection, not a guest: it survives every app switch.
  * link_reset_guest drops what belongs to the guest being torn down (net
  * handles, undelivered events, catalog replies) and keeps the connection and

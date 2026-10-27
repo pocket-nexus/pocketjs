@@ -266,7 +266,14 @@ function mapFetchError(error: unknown): NetFailure {
   return new NetFailure(NET_ERROR.other, e.message ?? String(error));
 }
 
-export async function performNet(request: NetRequest, options: NetOptions = {}): Promise<NetResponse> {
+/** A consumer must resolve chunk only after downstream capacity is available.
+ * The reader retains one fetch chunk while the consumer applies backpressure. */
+export interface NetStreamSink {
+  head(response: Omit<NetResponse, "body">): Promise<void> | void;
+  chunk(bytes: Uint8Array): Promise<void>;
+}
+
+export async function performNet(request: NetRequest, options: NetOptions = {}, sink?: NetStreamSink): Promise<NetResponse> {
   const timeout = AbortSignal.timeout(request.timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const fail = (error: unknown): never => {
@@ -326,6 +333,8 @@ export async function performNet(request: NetRequest, options: NetOptions = {}):
       await response.body?.cancel().catch(() => {});
       throw new NetFailure(NET_ERROR.responseTooLarge, `response is ${declared} bytes, limit ${request.maxBytes}`);
     }
+    const head = { status: response.status, url: url.href, headers: responseHeaders(response.headers, decoded) };
+    if (sink) await sink.head(head);
     const chunks: Uint8Array[] = [];
     let total = 0;
     if (method !== "HEAD" && response.body) {
@@ -339,19 +348,23 @@ export async function performNet(request: NetRequest, options: NetOptions = {}):
             await reader.cancel().catch(() => {});
             throw new NetFailure(NET_ERROR.responseTooLarge, `response exceeds ${request.maxBytes} bytes`);
           }
-          chunks.push(value);
+          if (sink) await sink.chunk(value);
+          else chunks.push(value);
         }
       } catch (error) {
+        await reader.cancel().catch(() => {});
         fail(error);
+      } finally {
+        reader.releaseLock();
       }
     }
-    const out = new Uint8Array(total);
+    const out = new Uint8Array(sink ? 0 : total);
     let off = 0;
     for (const chunk of chunks) {
       out.set(chunk, off);
       off += chunk.length;
     }
-    return { status: response.status, url: url.href, headers: responseHeaders(response.headers, decoded), body: out };
+    return { ...head, body: out };
   }
 }
 

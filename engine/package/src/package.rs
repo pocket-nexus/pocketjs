@@ -26,7 +26,7 @@ pub use crate::package_format::{POCKET_MAGIC as MAGIC, POCKET_VERSION as VERSION
 pub mod section {
     pub use crate::package_format::{
         SECTION_COVER as COVER, SECTION_IDENTITY as IDENTITY, SECTION_JS as JS, SECTION_PAK as PAK,
-        SECTION_PLAN as PLAN,
+        SECTION_PLAN as PLAN, SECTION_WORKER_JS as WORKER_JS,
     };
 }
 
@@ -341,6 +341,7 @@ pub fn select_guest<'a>(
     if js.last() != Some(&0) {
         return Err(GuestError::JavaScriptNotTerminated);
     }
+    validate_worker_payload(plan, variant.section(section::WORKER_JS)?)?;
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
     Ok(Guest {
         id: identity.id,
@@ -350,6 +351,20 @@ pub fn select_guest<'a>(
         package_hash: package.package_hash()?,
         variant_hash: variant.variant_hash,
     })
+}
+
+fn validate_worker_payload(plan: &[u8], worker: Option<&[u8]>) -> Result<(), GuestError> {
+    let declared = crate::plan_facts::worker_declared(plan)
+        .map_err(|_| GuestError::Package(PackageError::BadLayout))?;
+    if declared != worker.is_some() {
+        return Err(GuestError::Package(PackageError::BadLayout));
+    }
+    if let Some(source) = worker {
+        if source.len() < 2 || source.last() != Some(&0) {
+            return Err(GuestError::JavaScriptNotTerminated);
+        }
+    }
+    Ok(())
 }
 
 impl<'a> Variant<'a> {
@@ -488,5 +503,32 @@ mod tests {
             select_guest(FIXTURE, "psp", 8, &[0x11; 32], false),
             Err(GuestError::HostAbiMismatch)
         ));
+    }
+
+    #[test]
+    fn worker_payload_requires_matching_entry_feature_and_terminated_code() {
+        let plan = br#"{"app":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#;
+        assert!(validate_worker_payload(plan, Some(b"turn();\0")).is_ok());
+        assert!(validate_worker_payload(plan, None).is_err());
+        assert!(validate_worker_payload(plan, Some(b"\0")).is_err());
+        assert!(validate_worker_payload(plan, Some(b"turn();")).is_err());
+        assert!(validate_worker_payload(b"{}", Some(b"turn();\0")).is_err());
+        assert!(validate_worker_payload(br#"{"features":{"runtime.worker":true}}"#, Some(b"turn();\0")).is_err());
+        assert!(validate_worker_payload(br#"{"features":{"runtime.worker":true}}"#, None).is_ok());
+        assert!(validate_worker_payload(br#"{"app":{"worker":{"entry":"worker.ts"}}}"#, Some(b"turn();\0")).is_err());
+        assert!(validate_worker_payload(b"{}", None).is_ok());
+    }
+
+    #[test]
+    fn admission_refuses_required_worker_without_worker_section() {
+        let identity = crate::embedded::identity("worker", "app.worker", "Worker").unwrap();
+        let bytes = crate::embedded::encode(crate::embedded::EmbeddedPackage {
+            target: "test-worker", host_abi: 7, profile_hash: [0x55; 32],
+            identity: &identity,
+            plan: br#"{"app":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#,
+            code: b"globalThis.frame=()=>{}", pak: &[],
+        }).unwrap();
+        assert!(matches!(select_guest(&bytes, "test-worker", 7, &[0x55; 32], false),
+            Err(GuestError::Package(PackageError::BadLayout))));
     }
 }

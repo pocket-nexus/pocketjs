@@ -551,6 +551,7 @@ describe("semantic resolution", () => {
       stats: [true, true, false, true],
       "text-offload": [true, false, false, true], // requires a supported companion transport
       "vue-sfc-lab": [true, true, false, true],
+      "worker-http": [false, false, false, false], // requires the 3DS program's independent worker runtime
       zoomlab: [true, true, false, true],
     };
     const targets = ["psp", "vita", "macos-widget", "macos-app"] as const;

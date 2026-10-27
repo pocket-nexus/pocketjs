@@ -53,6 +53,33 @@ impl<'a> PlanFacts<'a> {
     }
 }
 
+/// A worker's entry and required feature must agree. This check also applies
+/// to hosts that read a fixed host-input record instead of the complete plan.
+pub fn worker_declared(plan: &[u8]) -> Result<bool, PlanFactsError> {
+    let mut reader = Reader { bytes: plan, at: 0 };
+    reader.whitespace();
+    let root = reader.at;
+    let end = reader.value().map_err(|_| PlanFactsError::Malformed)?;
+    reader.at = end;
+    reader.whitespace();
+    if reader.at != plan.len() || plan.get(root) != Some(&b'{') {
+        return Err(PlanFactsError::Malformed);
+    }
+    let worker = find(plan, root, &[b"app", b"worker"]);
+    let feature = find(plan, root, &[b"features", b"runtime.worker"])
+        .is_some_and(|start| plan[start..].starts_with(b"true"));
+    if worker.is_some() && !feature {
+        return Err(PlanFactsError::Malformed);
+    }
+    if let Some(worker) = worker {
+        let entry = find(plan, worker, &[b"entry"]).ok_or(PlanFactsError::Malformed)?;
+        if plan.get(entry) != Some(&b'"') || plan.get(entry + 1) == Some(&b'"') {
+            return Err(PlanFactsError::Malformed);
+        }
+    }
+    Ok(worker.is_some())
+}
+
 /// Read the plan's viewport, auxiliary surface and feature table.
 pub fn plan_facts(plan: &[u8]) -> Result<PlanFacts<'_>, PlanFactsError> {
     let mut reader = Reader { bytes: plan, at: 0 };

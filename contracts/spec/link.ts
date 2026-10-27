@@ -163,6 +163,7 @@ export const LINK_SERVICES_ORIGIN = `https://${LINK_SERVICES_HOST}`;
 /** Features a companion may list in ready/paired. */
 export const LINK_FEATURE = {
   net: "net",
+  netStream: "net.stream",
   catalog: "catalog",
   install: "install",
 } as const;
@@ -203,6 +204,19 @@ export const LINK_PAIR_WINDOW_MS = 10 * 60_000;
 //              "headers":{…},"bytes":N}  then N bytes as data frames on n
 //          or {"t":"net.error","id":n,"code":"<NET_ERROR>","message":"…"}
 //   console   {"t":"net.cancel","id":n}
+//
+// net.stream (requires the companion feature; worker HTTP resource):
+//   console   net request above with "stream":true,"credit":8192
+//   companion {"t":"net.head","id":n,"status":200,"url":"…","headers":{…},"stream":true}
+//             data frames of at most 1024 bytes, in order
+//   console   {"t":"net.credit","id":n,"bytes":k} after releasing k bytes
+//   companion {"t":"net.end","id":n,"bytes":N} after the final body frame
+//          or net.error; the receiver preserves the known byte prefix
+// Initial credit is 1..8192 bytes. Returned credit cannot exceed outstanding
+// bytes. Header and end metadata do not consume body credit. The sender awaits
+// credit before forwarding another block and before reading the next upstream
+// chunk. net.cancel ends the request without replay. Existing non-stream net
+// messages keep their whole-response contract for UI-only packages.
 //
 // catalog:
 //   console   {"t":"catalog","id":n}

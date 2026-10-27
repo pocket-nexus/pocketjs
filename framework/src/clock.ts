@@ -1,4 +1,10 @@
-// The virtual clock — the runtime's ONLY notion of time (docs/DETERMINISM.md).
+// The UI virtual clock. Worker timestamps are latched by its event runner.
+import { workerContext, type WallClock } from "./worker.ts";
+
+/** Read-only UTC identity latched for the current worker turn, if available. */
+export function wallClock(): WallClock | undefined { return workerContext()?.wallClock; }
+/** Monotonic time of the worker turn; absent outside a worker turn. */
+export function nowMicros(): number | undefined { return workerContext()?.nowMicros; }
 //
 // PocketJS time is not the wall clock. It is a frame counter: every host
 // drives one `globalThis.frame(buttons)` call per VIRTUAL frame, and the

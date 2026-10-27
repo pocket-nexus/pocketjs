@@ -8,6 +8,7 @@ every program implements once.
 | Source | Contract | What it does |
 | --- | --- | --- |
 | `link.c`, `link.h` | `contracts/spec/link.ts`, `contracts/spec/net.ts` | The Pocket Link client: beacons, the handshake, pairing, catalog and install requests, and `net.http` through the companion. One state machine pumped once per frame; every socket is non-blocking. |
+| `link_http.c`, `link_http.h` | worker HTTP resource | Bounded streaming HTTP over the system Link, with an 8 KiB receive window, byte credit, separate headers and terminal state. All calls run on the Link owner task. |
 | `link_proto.c`, `link_proto.h` | `contracts/spec/link.ts` | The socket-free half: constants, beacon and frame layouts, the pairing URI, HMAC proofs. |
 | `launcher.c`, `launcher.h` | the `applications` operations, `docs/LAUNCHER.md` | The app table of a console with installed apps, the switch request, SELECT summons, `resume` and `lastError`. The program's main loop performs the switch. |
 | `fs.c`, `fs.h` | `contracts/spec/fs.ts` | One guest's `data.fs` tree: the nine ops, quota, and replacement of a file on FAT, which refuses a rename onto an existing name. |
@@ -26,6 +27,6 @@ every program implements once.
 
 `platforms/3ds/media.c` reads the media headers from this directory. The
 build machine compiles `fs.c`, `jscan.c`, `link.c`, `launcher.c`,
-`link_proto.c` and `sha256.c` in `tests/fs-3ds.test.ts`,
+`link_http.c`, `link_proto.c` and `sha256.c` in `tests/fs-3ds.test.ts`,
 `tests/3ds-link.test.ts`, `tests/3ds-runtime-state.test.ts` and
 `tests/host-services-link.test.ts`.

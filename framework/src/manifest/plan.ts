@@ -16,7 +16,7 @@ export interface ResolvedBuildPlanContent {
   /** Package identity travels with the plan: native hosts derive their
    *  platform package id and version from here, never from a second copy. */
   readonly app: Pick<PocketManifestV2, "id" | "title" | "version"> &
-    Pick<PocketManifestV2["app"], "entry" | "framework" | "aot" | "model" | "recursionLimit"> & {
+    Pick<PocketManifestV2["app"], "entry" | "worker" | "framework" | "aot" | "model" | "recursionLimit"> & {
     readonly output: string;
     /** Theme content; a module reference is loaded before resolution. */
     readonly theme?: AnimationTheme;

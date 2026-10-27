@@ -48,6 +48,7 @@
 #include "input_policy.h"
 #include "pocket_core.h"
 #include "qjs.h"
+#include "worker.h"
 #include "offload.h"
 #include "media.h"
 #include "devserver.h"
@@ -564,10 +565,10 @@ static void teardown_guest(void) {
   /* Host services keep their process-wide state (the link's connection, an
    * install still streaming) and drop what belonged to this guest. */
   camera_teardown();
+  qjs_shutdown();
   link_reset_guest();
   fs_unbind();
   agent_set_enabled(false);
-  qjs_shutdown();
   gfx_reset_resources();
   /* The svc reset contract: the next guest never sees this guest's lines. */
   svcwire_reset();
@@ -1289,7 +1290,9 @@ int main(void) {
     }
     devserver_poll();
     svcwire_pump();
+    pocket_3ds_worker_service();
     link_pump();
+    pocket_3ds_worker_service();
     wifi_pump();
     {
       /* An installed or named .3dsx starts when this process exits: the same

@@ -37,6 +37,7 @@ export default defineBuiltinProfile({
     }
   },
   "capabilities": [
+    "runtime.worker",
     "io.offload",
     "media.playback",
     "input.analog.left",

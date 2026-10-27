@@ -12,6 +12,9 @@ import { POCKET_FRAMEWORKS, SUBPATHS } from "./subpaths.ts";
 
 export interface AppCheckOptions {
   entry: string;
+  /** Resolve PocketJS imports against the same compiler checkout as bundling. */
+  frameworkRoot?: string;
+  framework?: PocketFramework;
   /** Optional app tsconfig whose compiler options/path mappings are inherited. */
   tsconfigPath?: string;
   /** Framework/app ambient declarations required by the reachable source graph. */
@@ -119,7 +122,7 @@ export function checkAppTypes(options: AppCheckOptions): AppCheckResult {
   for (const file of declarationFiles) {
     if (!existsSync(file)) throw new Error(`PocketJS app check: declaration file not found: ${file}`);
   }
-  const tsconfig = configJson(entry, inheritedConfig, declarationFiles);
+  let tsconfig = configJson(entry, inheritedConfig, declarationFiles);
   writeFileSync(generatedConfigPath, tsconfig);
 
   try {
@@ -135,6 +138,18 @@ export function checkAppTypes(options: AppCheckOptions): AppCheckResult {
           generatedConfigPath,
         );
     if (parsed) configDiagnostics.push(...parsed.errors);
+    if (parsed && options.frameworkRoot) {
+      parsed.options.paths = { ...parsed.options.paths, ...frameworkPaths(resolve(options.frameworkRoot), options.framework) };
+      // Preserve a runnable debug config, including inherited aliases whose
+      // relative paths belong to the parent config rather than this directory.
+      const pathBase = parsed.options.baseUrl ??
+        (typeof parsed.options.pathsBasePath === "string" ? parsed.options.pathsBasePath : temporaryParent);
+      const effective = JSON.parse(tsconfig);
+      effective.compilerOptions.paths = Object.fromEntries(Object.entries(parsed.options.paths)
+        .map(([name, paths]) => [name, paths.map(path => resolve(pathBase, path))]));
+      tsconfig = JSON.stringify(effective, null, 2) + "\n";
+      writeFileSync(generatedConfigPath, tsconfig);
+    }
 
     const program = parsed
       ? ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options })

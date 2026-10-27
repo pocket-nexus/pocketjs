@@ -29,6 +29,7 @@
 
 #include "link.h"
 #include "link_proto.h"
+#include "link_http.h"
 
 #include <stdio.h>
 
@@ -501,6 +502,9 @@ static void send_net_cancel(uint32_t id) {
 
 /* Every open request fails with the connection. */
 static void fail_requests(const char *message) {
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_disconnected();
+#endif
   for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
     NetRequest *request = &net_requests[i];
     if (request->phase == NET_HEAD || request->phase == NET_BODY) {
@@ -1019,6 +1023,9 @@ static void handle_data(const uint8_t *payload, uint32_t length) {
   uint32_t id = link_read_u32(payload);
   const uint8_t *bytes = payload + 4;
   size_t count = length - 4;
+#ifdef POCKETJS_WORKER_HTTP
+  if (link_http_data(id, bytes, count)) return;
+#endif
   if (link_host_data(id, bytes, count)) return;
   NetRequest *net = find_net(id);
   if (net != NULL) {
@@ -1075,6 +1082,9 @@ static void handle_ctrl(const uint8_t *payload, uint32_t length) {
   if (!json_find_string(message, "t", type, sizeof type)) return;
   uint64_t id = 0;
   bool has_id = json_find_u64(message, "id", &id) && id <= 0xffffffffu;
+#ifdef POCKETJS_WORKER_HTTP
+  if (has_id && link_http_ctrl(type, (uint32_t)id, (const char *)payload, length)) return;
+#endif
   if (strcmp(type, "net.head") == 0 && has_id) {
     handle_net_head(message, (uint32_t)id);
   } else if (strcmp(type, "net.error") == 0 && has_id) {
@@ -1317,6 +1327,9 @@ static void pump(void);
 void link_pump(void) {
   uint64_t started = services_host_us();
   pump();
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_pump();
+#endif
   uint32_t us = (uint32_t)(services_host_us() - started);
   if (us > pump_max_us) pump_max_us = us;
 }
@@ -1385,6 +1398,9 @@ static void pump(void) {
 }
 
 void link_shutdown(void) {
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_reset();
+#endif
   if (!initialized) return;
   close_connection();
   fail_requests("the console is shutting down");
@@ -1401,6 +1417,9 @@ void link_shutdown(void) {
 }
 
 void link_reset_guest(void) {
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_reset();
+#endif
   for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
     NetRequest *request = &net_requests[i];
     if (request->phase == NET_HEAD || request->phase == NET_BODY) send_net_cancel(request->id);
@@ -1735,6 +1754,8 @@ const char *link_net_last_error(void) {
   return net_error;
 }
 
+bool link_http_available(void) { return phase == PHASE_UP && has_feature("net.stream"); }
+
 bool link_agent_ready(void) {
   return phase == PHASE_UP && has_feature("agent");
 }
@@ -1827,6 +1848,7 @@ int32_t link_net_take(int32_t handle, uint8_t *into, size_t length) {
 void link_net_cancel(int32_t handle) { (void)handle; }
 const char *link_net_poll(void) { return NULL; }
 const char *link_net_last_error(void) { return "unavailable: this build has no Pocket Link"; }
+bool link_http_available(void) { return false; }
 bool link_agent_ready(void) { return false; }
 bool link_send_ctrl(const char *json, size_t length) {
   (void)json;

@@ -153,6 +153,9 @@ export function defineTargetRegistry<
 export type TargetId<T extends TargetRegistry> = Extract<keyof T, string>;
 
 export const POCKET_CAPABILITIES = defineCapabilityRegistry([
+  "runtime.worker",
+  "io.i2c",
+  "io.uart",
   "input.analog.left",
   "input.analog.right",
   "input.buttons",

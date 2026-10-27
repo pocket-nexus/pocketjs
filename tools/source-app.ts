@@ -46,6 +46,7 @@ export function sourceAppContent(entry: string, options: {
   frameworkRoot: string;
   projectRoot: string;
   onRead?: (path: string) => void;
+  onAppRoot?: (path: string) => void;
 }): Partial<SourceAppContent> {
   let directory = dirname(resolve(entry));
   while (!existsSync(join(directory, "pocket.json"))) {
@@ -59,12 +60,17 @@ export function sourceAppContent(entry: string, options: {
     expanded.inputs.forEach(input => options.onRead?.(input));
     return { path, app: (expanded.manifest as { app: SourceAppContent }).app };
   });
-  const matches = candidates.filter(({ app }) => app?.entry && [options.projectRoot, directory, options.frameworkRoot]
-    .some(base => resolve(base, app.entry) === entry));
-  if (new Set(matches.map(({ app }) => JSON.stringify([app.framework, app.theme]))).size > 1) {
+  const matches = candidates.flatMap(candidate => {
+    const base = candidate.app?.entry && [options.projectRoot, directory, options.frameworkRoot]
+      .find(base => resolve(base, candidate.app.entry) === entry);
+    return base ? [{ ...candidate, base }] : [];
+  });
+  if (new Set(matches.map(({ app }) => JSON.stringify([app.framework, app.theme, app.worker]))).size > 1) {
     throw new Error("PocketJS build: manifests disagree on application content; pass a ResolvedBuildPlan");
   }
-  return (matches[0] ?? candidates.find(({ path }) => path === join(directory, "pocket.json")))?.app ?? {};
+  const selected = matches[0] ?? candidates.find(({ path }) => path === join(directory, "pocket.json"));
+  if (selected) options.onAppRoot?.("base" in selected ? selected.base : directory);
+  return selected?.app ?? {};
 }
 
 export function sourceOutputName(file: string, frameworkRoot: string): string {

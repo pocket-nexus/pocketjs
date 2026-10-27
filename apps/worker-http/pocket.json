@@ -1,0 +1,23 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.worker-http",
+  "name": "pocketjs-worker-http",
+  "title": "Worker HTTP",
+  "version": "0.1.0",
+  "engine": { "capabilities": { "requires": ["runtime.worker", "net.http", "input.buttons", "text.glyphs.baked"] } },
+  "app": {
+    "entry": "apps/worker-http/main.tsx",
+    "output": "worker-http",
+    "framework": "solid",
+    "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } },
+    "worker": {
+      "entry": "apps/worker-http/worker.ts",
+      "nodes": [{ "name": "http", "kind": "http" }],
+      "channels": [
+        { "name": "request", "kind": "ring", "direction": "ui-to-worker", "recordBytes": 1, "capacity": 2 },
+        { "name": "progress", "kind": "snapshot", "direction": "worker-to-ui", "recordBytes": 12, "capacity": 1 }
+      ]
+    }
+  }
+}

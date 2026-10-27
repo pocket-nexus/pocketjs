@@ -8,6 +8,8 @@
 typedef struct {
   const uint8_t *javascript;
   size_t javascript_length;
+  const uint8_t *worker_javascript;
+  size_t worker_javascript_length;
   const uint8_t *pak;
   size_t pak_length;
   const uint8_t *plan;
@@ -39,7 +41,7 @@ typedef struct {
 /* 0 = admitted. The package footer, target, host ABI, identity, plan and
  * NUL-terminated JS section are all checked before success; 13, 14 and 15
  * name a plan whose JSON, viewport or auxiliary surface cannot be read.
- * 16 = profile mismatch; 17 = malformed layout. The expected profile hash
+ * 16 = profile mismatch; 17 = malformed layout; 18 = worker admission mismatch. The expected profile hash
  * is compiled into the program, never read from the package. */
 int32_t pocket_package_open(
   const uint8_t *bytes,

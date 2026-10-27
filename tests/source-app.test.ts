@@ -79,6 +79,20 @@ test("a source without a manifest keeps the explicit Solid default", () => {
   expect(parseFramework(app.framework, "pocket.json")).toBe("solid");
 });
 
+test("low-level worker builds use the entry's matched manifest root", () => {
+  const directory = project("worker-relative", {
+    "pocket.json": { app: { entry: "src/main.ts", framework: "solid", worker: { entry: "worker.ts", nodes: [] } } },
+    "src/main.ts": "globalThis.sourceAppWorker = true;\n",
+    "worker.ts": "export function turn() {}\n",
+  });
+  const out = join(directory, "compiled");
+  const built = Bun.spawnSync([process.execPath, join(root, "tools/build.ts"), join(directory, "src/main.ts"), `--outdir=${out}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  expect(built.success, built.stdout.toString() + built.stderr.toString()).toBe(true);
+  expect(existsSync(join(out, "main.worker.js"))).toBe(true);
+  writeFileSync(join(directory, "pocket.other.json"), JSON.stringify({ app: { entry: "src/main.ts", framework: "solid", worker: { entry: "other.ts", nodes: [] } } }));
+  expect(() => sourceAppContent(join(directory, "src/main.ts"), { frameworkRoot: root, projectRoot: root })).toThrow(/manifests disagree/);
+}, 120_000);
+
 test("compiler outputs match the wrapper selection for Vue and custom projects", () => {
   const directory = project("compile-custom", {
     "pocket.json": { app: { entry: "src/main.ts", framework: "octane" } },

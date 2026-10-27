@@ -468,12 +468,37 @@ pump.
 - **Pairing.** `link.pair(uri)` parses `pocketlink://pair?…`, replaces the
   current connection, tries each `h` host in order in mode `pair`, unmasks and
   stores the key on `paired` and stays linked.
-- **`globalThis.net`.** The NET module rides the link: at most 2 requests in
+- **UI-only packages (`globalThis.net`).** The NET module rides the link: at most 2 requests in
   flight, request bodies up to 64 KiB sent as 16 KiB data frames, response
   bodies accumulated in one buffer bounded by `maxBytes`, events delivered by
   `net.poll()` once per tick. `net.start` refuses with
   `unavailable: no companion linked` while unlinked, and adds the running
   guest's app id as `app`.
+- **Worker HTTP.** A package with `app.worker` starts an independent QuickJS
+  runtime on a libctru thread. `io.http("http")` submits through a bounded
+  mailbox to the system Link owner. The `net.stream` companion feature sends
+  response headers, body blocks and an end offset. **Each request has an
+  8 KiB receive window, 1 KiB blocks, and separate header and terminal storage.**
+  Credit returns after the resource queue accepts a block. The companion
+  stops reading upstream while credit is exhausted. TLS certificates, redirect
+  policy and destination checks use the companion's existing HTTP stack.
+  Request descriptors, including an optional UTF-8 text body, are limited to
+  1 KiB; response headers must fit 1 KiB; the response limit is 256 KiB. Two
+  HTTP resources can exist, subject to the shared resource queue's capacity.
+  Normal completion follows headers, body and `END`. Cancellation can report
+  the request outcome `UNKNOWN` before native access stops; **`END` gives the
+  final body offset** and follows the accepted body prefix.
+  `globalThis.net` is absent from these packages.
+- **Worker scheduling.** The worker sleeps on an event or timer deadline.
+  The UI latches channel mirrors before each frame; publication copies into
+  host buffers. The worker has a 512 KiB heap limit, a 128 KiB JS stack limit,
+  a 5 ms turn limit and a 10 ms runtime quota per 20 ms window. Shutdown joins
+  the worker before freeing package bytes. Worker `console` output uses the
+  libctru debug-output service. For worker packages, `data.fs` is mounted only
+  in the worker realm; teardown joins that realm before unbinding its filesystem. This host has no
+  `db` backend and does not provide a wall-clock mirror. **HTTP transport service
+  retains the system Link frame cadence**; the worker scheduler does not run
+  from the UI tick. Real-time network latency is not claimed.
 - **Installs.** `link.install(appId)` streams into
   `apps/<slot>/link-upload.pocket` of the app's own slot, admits the file
   against the head's hash and commits it as that slot's active package. The

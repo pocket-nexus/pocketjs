@@ -23,6 +23,7 @@
 #include "host_services.h"
 #include "launcher.h"
 #include "link.h"
+#include "link_http.h"
 
 static char apps[512];
 static char link_directory[512];
@@ -201,6 +202,32 @@ int main(int argc, char **argv) {
     printf("net %lu %s\n", code != NULL ? strtoul(code + 9, NULL, 10) : 0ul, body);
     free(body);
   }
+  snprintf(meta,sizeof meta,"{\"url\":\"%s/stream\",\"maxBytes\":262144}",argv[4]);
+  handle=link_http_start((const uint8_t *)meta,strlen(meta));
+  if (handle<0) return 6;
+  size_t streamed=0;bool head=false,ended=false;
+  for (int i=0;i<6000 && !ended;++i) {
+    link_pump();
+    /* Pause the consumer while the receiver window fills. */
+    if (i>100 && i%3==0) {
+      LinkHttpFact fact;
+      if (link_http_peek((uint32_t)handle,&fact)) {
+        if (fact.kind==LINK_HTTP_HEADERS) {if (head || streamed) return 7;head=true;}
+        else if (fact.kind==LINK_HTTP_DATA) {
+          if (!head || fact.offset!=streamed) return 8;
+          for (size_t j=0;j<fact.length;++j) if (fact.bytes[j]!=(uint8_t)((streamed+j)*31+7)) return 9;
+          streamed+=fact.length;
+        } else if (fact.kind==LINK_HTTP_END) {
+          if (!head || fact.status || fact.offset!=streamed) return 10;
+          ended=true;
+        }
+        link_http_consume((uint32_t)handle);
+      }
+    }
+    usleep(1000);
+  }
+  printf("stream %zu %d\n",streamed,ended);
+  if (!ended || streamed!=24000) return 11;
   link_shutdown();
   return 0;
 }
