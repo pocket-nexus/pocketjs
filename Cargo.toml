@@ -33,8 +33,6 @@ members = [
     "engine/backends/gpui",
     "engine/core",
     "engine/crates/microts",
-    "engine/crates/pocket-db",
-    "engine/crates/pocket-fs",
     "engine/crates/pocket-mod",
     "engine/crates/pocket-net",
     "engine/crates/pocket-sim",
@@ -100,8 +98,6 @@ default-members = [
     "devices/web/pocket-web-wgpu",
     "engine/core",
     "engine/crates/microts",
-    "engine/crates/pocket-db",
-    "engine/crates/pocket-fs",
     "engine/crates/pocket-mod",
     "engine/crates/pocket-net",
     "engine/crates/pocket-sim",
@@ -138,7 +134,6 @@ default-members = [
 # Test/fuzzer harnesses keep isolated dependency graphs.
 exclude = [
     "engine/package/fuzz",
-    "tests/esp-idf/data-smoke",
     "tests/fixtures/psp-runtime",
     "tests/fixtures/vita-dev",
     "tests/fixtures/vita-runtime",
@@ -171,12 +166,10 @@ pocket-gba-video = { path = "platforms/gba/video", version = "0.1.0", default-fe
 microts = { path = "engine/crates/microts", version = "0.1.0", default-features = false }
 note-widget = { path = "engine/pocket3d/examples/note-widget", version = "0.1.0", default-features = false }
 pocket-apple = { path = "engine/ios", version = "0.1.0", default-features = false }
-pocket-db = { path = "engine/crates/pocket-db", version = "0.1.0", default-features = false }
 pocket-desktop-host = { path = "programs/desktop", version = "0.1.0", default-features = false }
 pocket-draw-ops = { path = "engine/render/draw-ops", version = "0.1.0", default-features = false }
 pocket-drivers = { path = "engine/drivers", version = "0.1.0", default-features = false }
 pocket-driver-kit = { path = "engine/driver-kit", version = "0.1.0", default-features = false }
-pocket-fs = { path = "engine/crates/pocket-fs", version = "0.1.0", default-features = false }
 pocket-gles = { path = "devices/gles/pocket-gles", version = "0.1.0", default-features = false }
 pocket-gles1 = { path = "devices/gles/pocket-gles1", version = "0.1.0", default-features = false }
 pocket-gles2 = { path = "devices/gles/pocket-gles2", version = "0.1.0", default-features = false }
@@ -253,11 +246,6 @@ ab_glyph = "0.2"
 memmap2 = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# bundled: compile the vendored sqlite3.c — the same source a device host
-# compiles with its own toolchain; hooks: the authorizer that refuses ATTACH;
-# limits: SQLITE_LIMIT_ATTACHED=0, the backstop that refuses ATTACH spellings
-# the authorizer cannot see (an expression filename reaches it as NULL).
-rusqlite = { version = "0.40", features = ["bundled", "hooks", "limits"] }
 base64 = "0.23"
 env_logger = "0.11"
 font8x8 = "0.3"

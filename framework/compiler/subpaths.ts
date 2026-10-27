@@ -107,7 +107,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "profiles/gba": { file: "profiles/gba.ts" },
   "profiles/ipodnano": { file: "profiles/ipodnano.ts" },
 
-  db: { file: "framework/src/db-api.ts", aliases: TWINS },
   components: {
     file: {
       solid: "framework/src/components.ts",

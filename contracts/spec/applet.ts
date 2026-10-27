@@ -28,7 +28,7 @@ export interface AppletDeclaration {
   readonly services?: readonly string[];
   /** Hosts the applet fetches directly through net.http. */
   readonly hosts?: readonly string[];
-  /** Persistent state: required to declare data.fs or data.sqlite; the host
+  /** Persistent state: required to declare data.fs; the host
    *  confines the store to the applet and to this many bytes. */
   readonly store?: { readonly maxBytes: number };
 }
@@ -88,12 +88,11 @@ const APPLET_CAPABILITIES = [
   "audio.pcm",
   "media.playback",
   "data.fs",
-  "data.sqlite",
   "system.agent",
 ] as const;
 const APPLET_CAPABILITY_PREFIXES = ["camera."] as const;
 /** Capabilities that need `applet.store`. */
-const APPLET_STORE_CAPABILITIES = ["data.fs", "data.sqlite"] as const;
+const APPLET_STORE_CAPABILITIES = ["data.fs"] as const;
 
 /** Size budgets of a built applet (the guest bundle and its pak). */
 export const APPLET_BUDGET = { jsBytes: 640 * 1024, pakBytes: 3 * 1024 * 1024 } as const;
@@ -126,7 +125,6 @@ export const APPLET_MODULES = [
 export const APPLET_GATED_MODULES: Readonly<Record<string, readonly string[]>> = {
   camera: APPLET_CAPABILITY_PREFIXES,
   fs: ["data.fs"],
-  db: ["data.sqlite"],
 };
 /** Exports of @pocketjs/framework/link that act for the system: installing,
  *  removing and pairing belong to the launcher. */
@@ -197,7 +195,7 @@ export function appletManifestDiagnostics(manifest: PocketManifestV2): ContractD
     }
   });
   const usesStore = declared.some((id) => (APPLET_STORE_CAPABILITIES as readonly string[]).includes(id));
-  if (usesStore && !applet.store) push("store", "/applet/store", "data.fs and data.sqlite need applet.store with maxBytes");
+  if (usesStore && !applet.store) push("store", "/applet/store", "data.fs needs applet.store with maxBytes");
   const network = (applet.services?.length ?? 0) + (applet.hosts?.length ?? 0) > 0;
   if (network && !declared.includes("net.http")) push("network", "/engine/capabilities", "applet.services and applet.hosts need net.http");
   return out;
