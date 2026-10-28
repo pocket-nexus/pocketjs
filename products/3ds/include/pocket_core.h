@@ -35,6 +35,7 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_FS 8u      /* features["data.fs"] */
 #define POCKET_GUEST_FEATURE_CAMERA_QR 16u    /* features["camera.qr"] */
 #define POCKET_GUEST_FEATURE_CAMERA_PHOTO 32u /* features["camera.photo"] */
+#define POCKET_GUEST_FEATURE_PLAYSET 64u /* features["game.playset"] */
 
 /* 0 = admitted. The package footer, target, host ABI, identity, plan and
  * NUL-terminated JS section are all checked before success; 13, 14 and 15

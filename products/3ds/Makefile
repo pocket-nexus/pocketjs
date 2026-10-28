@@ -49,6 +49,9 @@ OFFLOAD_INCLUDE := $(POCKETJS_ROOT)/engine/modules/offload/include
 POCKETJS_CONTRACTS := $(POCKETJS_ROOT)/contracts/generated
 POCKETJS_GUEST := $(POCKETJS_ROOT)/engine/guest-quickjs
 POCKETJS_PICA_INCLUDE ?= $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-pica/include
+# The playset scene renderer and the kernels' C ABI (docs/PLAYSET.md).
+POCKETJS_3DS_PLAYSET := $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-playset
+POCKETJS_PLAYSET_INCLUDE := $(POCKETJS_ROOT)/engine/crates/pocket-playset/include
 BUILD := $(POCKETJS_BUILD_DIR)
 OUT := $(POCKETJS_OUT_3DSX)
 # 3dsxtool reads the recovery guest out of a RomFS directory.
@@ -81,7 +84,7 @@ CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections
   $(ARCH) -D__3DS__ -DJS_NO_NAN_BOXING -DPOCKET_QJS_BELLARD \
   -DPOCKETJS_TARGET_ID='"$(POCKETJS_TARGET)"' \
   -DPOCKETJS_HOST_ABI=$(POCKETJS_HOST_ABI) \
-  -I$(PLATFORM_SOURCE) -I$(SHARED) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
+  -I$(PLATFORM_SOURCE) -I$(SHARED) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_3DS_PLAYSET)/include -I$(POCKETJS_PLAYSET_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include -I$(DEVKITPRO)/portlibs/3ds/include
 
 # bytecode.c keys its per-slot bytecode cache by the QuickJS build: the first
@@ -121,7 +124,8 @@ OBJECTS := $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o
   $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
   $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
-  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o
+  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o \
+  $(BUILD)/playset.o $(BUILD)/p3ps_render.o $(BUILD)/playset_shbin.o
 ELF := $(BUILD)/pocketjs-3ds.elf
 SMDH := $(BUILD)/pocketjs-3ds.smdh
 
@@ -158,6 +162,16 @@ $(BUILD)/stage_shbin.s $(BUILD)/stage_shbin.h &: $(BUILD)/stage.shbin
 $(BUILD)/stage_shbin.o: $(BUILD)/stage_shbin.s
 	$(CC) $(ARCH) -c $< -o $@
 
+# The playset scene shader (devices/3ds/pocket-3ds-playset).
+$(BUILD)/playset.shbin: $(POCKETJS_3DS_PLAYSET)/src/playset.v.pica | $(BUILD)
+	$(PICASSO) -o $@ $<
+
+$(BUILD)/playset_shbin.s $(BUILD)/playset_shbin.h &: $(BUILD)/playset.shbin
+	cd $(BUILD) && $(BIN2S) -a 4 -H playset_shbin.h playset.shbin > playset_shbin.s
+
+$(BUILD)/playset_shbin.o: $(BUILD)/playset_shbin.s
+	$(CC) $(ARCH) -c $< -o $@
+
 # The capture window, the input tape and the viewport reach the C sources as -D
 # defines, so a rebuild driven by source mtimes alone would keep a previous
 # run's values — a stale tape or a short capture window produces a plausible
@@ -175,10 +189,13 @@ $(FLAGS_STAMP): $(FLAGS_STAMP).probe ;
 $(BUILD)/pica_driver.o: $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-pica/src/driver.c $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/p3ps_render.o: $(POCKETJS_3DS_PLAYSET)/src/render.c $(wildcard $(POCKETJS_3DS_PLAYSET)/include/*.h) $(wildcard $(POCKETJS_PLAYSET_INCLUDE)/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/canonical_guest.o: $(POCKETJS_GUEST)/src/guest.c $(wildcard $(POCKETJS_GUEST)/src/*.h) $(wildcard $(POCKETJS_GUEST)/include/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(SHARED)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(FLAGS_STAMP) | $(BUILD)
+$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(SHARED)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(wildcard $(POCKETJS_PLAYSET_INCLUDE)/*.h) $(wildcard $(POCKETJS_3DS_PLAYSET)/include/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(BUILD)/playset_shbin.h $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Platform mechanisms compile from their own source tree; product policy stays

@@ -52,6 +52,12 @@ pub const POCKET_GUEST_FEATURE_CAMERA_QR: u32 = 16;
 /// `features.camera.photo` is true in the plan: both cameras, capture and
 /// the photo store.
 pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
+/// `features.game.playset` is true in the plan: `globalThis.playset` and its
+/// scene under the primary surface.
+pub const POCKET_GUEST_FEATURE_PLAYSET: u32 = 64;
+
+// The playset kernels' C ABI (pps_*) is linked into this archive.
+pub use pocket_playset;
 
 fn package_error_code(error: GuestError) -> i32 {
     match error {
@@ -156,6 +162,10 @@ pub unsafe extern "C" fn pocket_package_open(
             0
         } | if facts.feature("camera.photo") {
             POCKET_GUEST_FEATURE_CAMERA_PHOTO
+        } else {
+            0
+        } | if facts.feature("game.playset") {
+            POCKET_GUEST_FEATURE_PLAYSET
         } else {
             0
         },

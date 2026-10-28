@@ -44,6 +44,7 @@
 
 #include "gfx.h"
 #include "stage.h"
+#include "playset.h"
 #include "agent.h"
 #include "input_policy.h"
 #include "pocket_core.h"
@@ -545,6 +546,8 @@ static bool boot_guest(
     (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_QR) != 0,
     (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_PHOTO) != 0
   );
+  /* qjs_boot publishes `globalThis.playset` only for a guest that declared it. */
+  playset_admit((package->guest.features & POCKET_GUEST_FEATURE_PLAYSET) != 0);
   /* The guest's capability decides who owns the top screen; it must be set
    * before qjs_boot, which publishes `globalThis.agent` only for it. */
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;

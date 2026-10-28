@@ -5,6 +5,7 @@
 #include "devmenu.h"
 #include "media.h"
 #include "stage.h"
+#include "playset.h"
 #include "transition.h"
 #include "vshader_shbin.h"
 #include <pocket_pica_driver.h>
@@ -45,6 +46,9 @@ static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
     }
     return true;
   }
+  /* A playset guest's scene, under its own top-screen DrawList. */
+  if (role == POCKET_DISPLAY_ROLE_PRIMARY && playset_active())
+    playset_render(target, right);
   return false;
 }
 /* The development menu stands in for the touch screen's guest list; the

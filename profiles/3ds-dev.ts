@@ -53,7 +53,8 @@ export default defineBuiltinProfile({
     "camera.qr",
     "camera.photo",
     "system.agent",
-    "data.fs"
+    "data.fs",
+    "game.playset"
   ],
   "tickHz": 60
 });
