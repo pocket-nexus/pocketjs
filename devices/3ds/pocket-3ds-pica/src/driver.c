@@ -77,6 +77,12 @@ struct Submission {
    * size; boundary keeps its first command apart from the guest's last. */
   uint32_t overlay_command, overlay_width, overlay_height;
   bool boundary;
+  /* What the build was a function of, when it can stand in for a later
+   * frame (no host overlay): the list's words and the raster revision. The
+   * referenced textures' revisions are checked against their entries. */
+  bool reusable;
+  uint64_t key_hash, key_raster;
+  size_t key_words;
 };
 struct pocket_pica_renderer {
   pocket_pica_config config;
@@ -103,6 +109,9 @@ struct pocket_pica_display {
   uint64_t id, token;
   pocket_rect region;
   bool acquired, flushed;
+  /* The last retired guest submission, kept while the next frame may draw
+   * the same list (`reuse`). */
+  Submission *cached;
 };
 static uint64_t next_target_identity;
 
@@ -837,6 +846,55 @@ static int32_t renderer_descriptor(void *context,
              ? 0
              : POCKET_STATUS_INVALID;
 }
+static uint64_t words_hash(const pocket_draw_list *list) {
+  uint64_t h = 0xcbf29ce484222325ull;
+  for (size_t i = 0; i < list->word_count; i++) {
+    h ^= list->words[i];
+    h *= 0x100000001b3ull;
+  }
+  return h;
+}
+static void drop_cached(pocket_pica_renderer *r, pocket_pica_display *d) {
+  if (d->cached) {
+    release_submission(r, d->cached);
+    d->cached = NULL;
+  }
+}
+/* A retired build stands in for this frame when the list and the raster
+ * revision are the same and every texture it binds is still current: the
+ * build is a function of those alone. */
+static bool reuse_valid(pocket_pica_renderer *r, const Submission *s,
+                        const pocket_draw_list *list, uint64_t hash,
+                        const pocket_render_resources *res) {
+  if (!s->reusable || s->native_count || s->key_words != list->word_count ||
+      s->key_hash != hash || s->key_raster != res->raster_revision)
+    return false;
+  for (size_t i = 0; i < s->ref_count; i++) {
+    const Cache *e = s->refs[i];
+    uint64_t revision = res->raster_revision;
+    if (e->font) {
+      if (res->font_revision &&
+          res->font_revision(res->context, (uint8_t)e->handle, &revision))
+        return false;
+    } else {
+      if (r->config.resolve) {
+        pocket_pica_native_texture native = {0};
+        if (r->config.resolve(r->config.context, e->handle, &native))
+          return false;
+        if (native.texture) {
+          r->config.release(r->config.context, native.lease);
+          return false;
+        }
+      }
+      if (res->texture_revision &&
+          res->texture_revision(res->context, e->handle, &revision))
+        return false;
+    }
+    if (revision != e->revision)
+      return false;
+  }
+  return true;
+}
 static int32_t render_timed(void *context, const pocket_frame_input *raw,
                             uint64_t *out);
 static int32_t render(void *context, const pocket_frame_input *raw,
@@ -885,7 +943,28 @@ static int32_t render_timed(void *context, const pocket_frame_input *raw,
   for (Submission *p = r->pending; p; p = p->next)
     if (p->display == display)
       return POCKET_STATUS_INVALID;
-  Submission *s = calloc(1, sizeof *s);
+  pocket_pica_overlay overlay = {
+      .list = {.struct_size = sizeof overlay.list,
+               .version = POCKET_DRAW_LIST_VERSION},
+      .subpixels = 1};
+  bool host = r->config.overlay &&
+              r->config.overlay(r->config.context, display->role, &overlay);
+  const pocket_draw_list *list =
+      host && overlay.replace ? &overlay.list : frame.list;
+  uint64_t hash = host ? 0 : words_hash(list);
+  Submission *s = NULL;
+  uint32_t build_w = (uint32_t)resources.viewport_width,
+           build_h = (uint32_t)resources.viewport_height;
+  if (!host && display->cached &&
+      reuse_valid(r, display->cached, list, hash, &resources)) {
+    s = display->cached;
+    display->cached = NULL;
+    s->terminal = false;
+    s->next = NULL;
+    goto submit;
+  }
+  drop_cached(r, display);
+  s = calloc(1, sizeof *s);
   if (!s)
     return POCKET_STATUS_FAILED;
   s->vertex_capacity = MAX_VERTICES;
@@ -905,16 +984,7 @@ static int32_t render_timed(void *context, const pocket_frame_input *raw,
     return POCKET_STATUS_FAILED;
   }
   s->display = display;
-  Build b = {r, s, resources, (uint32_t)resources.viewport_width,
-             (uint32_t)resources.viewport_height};
-  pocket_pica_overlay overlay = {
-      .list = {.struct_size = sizeof overlay.list,
-               .version = POCKET_DRAW_LIST_VERSION},
-      .subpixels = 1};
-  bool host = r->config.overlay &&
-              r->config.overlay(r->config.context, display->role, &overlay);
-  const pocket_draw_list *list =
-      host && overlay.replace ? &overlay.list : frame.list;
+  Build b = {r, s, resources, build_w, build_h};
   int32_t status = pocket_draw_list_visit(list, frame.resources, 1, visit, &b);
   if (!status && host && !overlay.replace)
     status = build_overlay(r, s, &overlay);
@@ -924,6 +994,12 @@ static int32_t render_timed(void *context, const pocket_frame_input *raw,
     release_submission(r, s);
     return status;
   }
+  s->reusable = !host;
+  s->key_hash = hash;
+  s->key_words = list->word_count;
+  s->key_raster = resources.raster_revision;
+  GSPGPU_FlushDataCache(s->vertices, s->vertex_count * sizeof(Vertex));
+submit:
   /* Only driver-owned bytes survive this function. No FrameInput pointer,
    * DrawList word or resource view is retained by a deferred submission. */
   if (!r->frame_open) {
@@ -937,12 +1013,11 @@ static int32_t render_timed(void *context, const pocket_frame_input *raw,
   s->id = ++r->next_id;
   s->next = r->pending;
   r->pending = s;
-  GSPGPU_FlushDataCache(s->vertices, s->vertex_count * sizeof(Vertex));
   bool replaced =
       r->config.scene && r->config.scene(r->config.context, display->role,
                                          display->target, display->right);
   if (!replaced)
-    draw(r, s, b.width, b.height);
+    draw(r, s, build_w, build_h);
   draw_overlay(r, s);
   r->words[display->role] = list->word_count;
   r->vertices += s->vertex_count;
@@ -975,6 +1050,14 @@ static void retire(void *context, uint64_t id) {
     drain(r);
   Submission *s = *slot;
   *slot = s->next;
+  /* A guest build stays with its display as the candidate for the next
+   * frame; its texture pins keep the cache entries it draws resident. */
+  if (s->reusable && !s->native_count && s->display) {
+    drop_cached(r, s->display);
+    s->next = NULL;
+    s->display->cached = s;
+    return;
+  }
   release_submission(r, s);
 }
 static int32_t display_descriptor(void *context,
@@ -1170,6 +1253,7 @@ void pocket_pica_display_destroy(pocket_pica_display *d) {
     return;
   pocket_pica_renderer *r = d->renderer;
   drain(r);
+  drop_cached(r, d);
   Submission **s = &r->pending;
   while (*s) {
     if ((*s)->display == d) {
@@ -1195,6 +1279,8 @@ void pocket_pica_renderer_reset(pocket_pica_renderer *r) {
     r->pending = s->next;
     release_submission(r, s);
   }
+  for (pocket_pica_display *d = r->displays; d; d = d->next)
+    drop_cached(r, d);
   while (r->cache)
     cache_delete(r, &r->cache);
   r->vertices = r->commands = 0;
