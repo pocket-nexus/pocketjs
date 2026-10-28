@@ -67,6 +67,9 @@ export const POCKET_SECTION = {
   /** Fixed-width ESP-IDF host admission data. Device readers validate this
    * without parsing the JSON build plan. */
   hostInputs: 7,
+  /** NUL-terminated classic-script worker bundle, with no outer function
+   * wrapper; evaluated only in the worker realm. */
+  workerJs: 8,
 } as const;
 
 export const POCKET_HOST_INPUTS_MAGIC = 0x54534850; // "PHST" as LE u32

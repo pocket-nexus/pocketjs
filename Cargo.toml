@@ -34,7 +34,6 @@ members = [
     "engine/core",
     "engine/crates/microts",
     "engine/crates/pocket-mod",
-    "engine/crates/pocket-net",
     "engine/crates/pocket-sim",
     "engine/crates/pocket-text",
     "engine/crates/pocket-ui-surface",
@@ -102,7 +101,6 @@ default-members = [
     "engine/core",
     "engine/crates/microts",
     "engine/crates/pocket-mod",
-    "engine/crates/pocket-net",
     "engine/crates/pocket-sim",
     "engine/crates/pocket-text",
     "engine/crates/pocket-ui-surface",
@@ -190,7 +188,6 @@ pocket-cardputer-zero = { path = "programs/cardputer-zero", version = "0.1.0", d
 pocketbook-host = { path = "programs/pocketbook", version = "0.1.0", default-features = false }
 pocket-media = { path = "engine/modules/media", version = "0.1.0", default-features = false }
 pocket-mod = { path = "engine/crates/pocket-mod", version = "0.1.0", default-features = false }
-pocket-net = { path = "engine/crates/pocket-net", version = "0.1.0", default-features = false }
 pocket-package = { path = "engine/package", version = "0.1.0", default-features = false }
 pocket-present = { path = "engine/present", version = "0.1.0", default-features = false }
 pocket-profile-build = { path = "engine/profile-build", version = "0.1.0", default-features = false }

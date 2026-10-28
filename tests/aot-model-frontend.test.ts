@@ -181,11 +181,6 @@ describe("Model AOT admitted module shapes", () => {
     expect(unions).toHaveLength(2);expect(unions[0]!.name).not.toBe(unions[1]!.name);
     expect(unions.map(t=>t.kind==="union"?t.variants[0]!.fields[0]!.type:undefined)).toEqual([{kind:"number",name:"i32"},{kind:"number",name:"f64"}]);
   });
-  test("mixed any results preserve optional typed service results", () => {
-    const p=analyze('import {any,after} from "@pocketjs/framework/solid/std";import {net} from "@pocketjs/framework/net/model";export const[result,setResult]=createSignal("");export async function run():Promise<void>{const response=await any([net.get("/x"),after(1)]);if(response!==undefined)setResult(response.kind);}');
-    const statement=p.modules[0]!.functions[0]!.body.stmts.find(s=>s.kind==="await");
-    expect(statement).toMatchObject({kind:"await",binder:{type:{kind:"option",value:{kind:"named"}}}});
-  });
   test("string literal unions adopt enum storage and retain primitive equality", () => {
     const module=analyze("export function choose():boolean{const property:'width'|'height'='width';return property==='width';}").modules[0]!;
     expect(module.functions[0]!.body.stmts[0]).toMatchObject({kind:"let",init:{kind:"literal",value:"width",type:{kind:"named"}}});

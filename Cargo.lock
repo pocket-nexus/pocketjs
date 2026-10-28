@@ -4845,7 +4845,6 @@ dependencies = [
  "pocket-linux-evdev",
  "pocket-linux-fbdev",
  "pocket-linux-hooks",
- "pocket-net",
  "pocket-package",
  "pocket-profile-build",
  "pocket-raster",
@@ -5042,17 +5041,6 @@ dependencies = [
  "log",
  "pocketjs-core",
  "rquickjs",
-]
-
-[[package]]
-name = "pocket-net"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "pocket-mod",
- "pocketjs-core",
- "serde",
- "serde_json",
 ]
 
 [[package]]

@@ -153,6 +153,9 @@ export function defineTargetRegistry<
 export type TargetId<T extends TargetRegistry> = Extract<keyof T, string>;
 
 export const POCKET_CAPABILITIES = defineCapabilityRegistry([
+  "runtime.worker",
+  "io.i2c",
+  "io.uart",
   "input.analog.left",
   "input.analog.right",
   "input.buttons",
@@ -205,10 +208,10 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // Native encoded-media playback with bounded worker handoff, audio clock,
   // pause/volume, texture output and observable decoder availability.
   "media.playback",
-  // Bounded whole-response HTTP through `fetch()` and the net module's own
-  // namespace (`globalThis.net`, contracts/spec/net.ts). Transport adapters
-  // remain host-owned; the browser dev host, deterministic sim and reference
-  // core exercise the contract without granting network access to every host.
+  // HTTP as a worker resource (`io.http` in @pocketjs/framework/io,
+  // engine/worker): bounded streaming requests through the host's transport
+  // under the limits of contracts/spec/net.ts. No UI realm has a network
+  // namespace.
   "io.offload",
   "net.http",
   // The console's system link to a paired companion computer

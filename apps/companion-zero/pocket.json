@@ -7,7 +7,7 @@
   "version": "0.1.0",
   "engine": {
     "capabilities": {
-      "requires": ["text.glyphs.baked", "input.buttons", "net.http"]
+      "requires": ["text.glyphs.baked", "input.buttons"]
     }
   },
   "app": {

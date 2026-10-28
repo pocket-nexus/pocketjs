@@ -50,9 +50,9 @@ describe("engine/host-services link client", () => {
     scratch = mkdtempSync(join(tmpdir(), "pocket-host-services-"));
     binary = join(scratch, "harness");
     const compile = Bun.spawnSync([
-      "cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-fsanitize=address,undefined", `-I${SHARED}`,
+      "cc", "-std=gnu11", "-DPOCKETJS_WORKER_HTTP", "-O1", "-Wall", "-Wextra", "-fsanitize=address,undefined", `-I${SHARED}`, `-I${join(ROOT, "engine/worker/include")}`,
       join(ROOT, "tests/fixtures/host-services-link.c"),
-      ...["link.c", "link_proto.c", "launcher.c", "jscan.c", "sha256.c"].map((file) => join(SHARED, file)),
+      ...["link.c", "link_http.c", "link_proto.c", "launcher.c", "jscan.c", "sha256.c"].map((file) => join(SHARED, file)),
       "-o", binary,
     ]);
     expect(compile.exitCode, compile.stderr.toString()).toBe(0);
@@ -74,7 +74,9 @@ describe("engine/host-services link client", () => {
       log: () => {},
     });
     await companion.start();
-    web = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("hello from the web") });
+    web = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => new Response(new URL(request.url).pathname.endsWith("/stream")
+      ? Uint8Array.from({ length: 24000 }, (_, i) => (i * 31 + 7) & 255)
+      : "hello from the web") });
   });
 
   afterAll(async () => {
@@ -105,6 +107,6 @@ describe("engine/host-services link client", () => {
     expect(lines.find((line) => line.startsWith("installed ")), stdout).toMatch(new RegExp(`^installed [0-9a-f]{16} ${hn.length} 1$`));
     const install = JSON.parse(lines.find((line) => line.startsWith("install "))!.slice("install ".length));
     expect(install.at(-1)).toMatchObject({ t: "install.done", app: "dev.pocket-nexus.hn", output: "hn" });
-    expect(lines).toContain("net 200 hello from the web");
+    expect(lines).toContain("stream 24000 1");
   }, 60_000);
 });

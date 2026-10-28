@@ -11,6 +11,7 @@ import { generatedGuestWebBindings } from "../tools/guest-web-bindings.ts";
 import { generatedIdfContracts } from "../tools/packaging/esp-idf/contracts.ts";
 import { threeDsProfileHeader } from "../tools/3ds-contracts.ts";
 import { withGeneratedExports } from "../tools/gen-exports.ts";
+import { workerProtocolHeader } from "../tools/worker-contracts.ts";
 
 const root = resolve(import.meta.dir, "..");
 const committed = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -24,6 +25,7 @@ describe("generated contracts are fresh", () => {
     ["engine/guest-web/src/ui-descriptors.js", generatedGuestWebBindings()],
     ...generatedIdfContracts(),
     ["products/3ds/include/pocket_profile.h", threeDsProfileHeader()],
+    ["engine/worker/include/pocket/worker_protocol.h", workerProtocolHeader()],
   ]);
   for (const [path, expected] of outputs) {
     test(`${path} matches its generator (run \`bun run gen\`)`, () => {

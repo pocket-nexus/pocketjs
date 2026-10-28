@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
-// Deterministic codegen: contracts/spec/{spec,audio,db,fs,net,physics}.ts -> engine/spec/src/lib.rs.
+// Deterministic codegen: contracts/spec/{spec,audio,db,fs,physics}.ts -> engine/spec/src/lib.rs.
 //
 // Run from PocketJS/:  bun contracts/spec/gen-rust.ts
 //
@@ -29,19 +29,6 @@ import {
   FS_WRITE_TRUNCATE,
 } from "./fs.ts";
 import {
-  NET_DEFAULT_RESPONSE_BYTES,
-  NET_DEFAULT_TIMEOUT_MS,
-  NET_ERROR,
-  NET_EVENT,
-  NET_MAX_HEADER_BYTES,
-  NET_MAX_HEADERS,
-  NET_MAX_INFLIGHT,
-  NET_MAX_REDIRECTS,
-  NET_MAX_REQUEST_BYTES,
-  NET_MAX_RESPONSE_BYTES,
-  NET_MAX_TIMEOUT_MS,
-  NET_METHODS,
-  NET_OP,
 } from "./net.ts";
 import {
   PHYSICS_ALPHA_CURVE,
@@ -561,32 +548,6 @@ export function generateRust(): string {
   put(`    pub const MAX_IO_BYTES: usize = ${FS_MAX_IO_BYTES};`);
   put(`    /// Entries per list() call (paged via offset + eof).`);
   put(`    pub const MAX_DIR_ENTRIES: usize = ${FS_MAX_DIR_ENTRIES};`);
-  put("}");
-  put("");
-
-  // --- net module ---------------------------------------------------------------
-  put("/// NET module boundary (contracts/spec/net.ts — `globalThis.net`).");
-  put("/// Bounded whole-response HTTP; completions batch to tick boundaries.");
-  put("pub mod net {");
-  for (const [name, v] of Object.entries(NET_OP)) {
-    put(`    pub const OP_${screaming(name)}: u8 = ${v};`);
-  }
-  put(`    pub const MAX_INFLIGHT: usize = ${NET_MAX_INFLIGHT};`);
-  put(`    pub const MAX_REQUEST_BYTES: usize = ${NET_MAX_REQUEST_BYTES};`);
-  put(`    pub const DEFAULT_RESPONSE_BYTES: usize = ${NET_DEFAULT_RESPONSE_BYTES};`);
-  put(`    pub const MAX_RESPONSE_BYTES: usize = ${NET_MAX_RESPONSE_BYTES};`);
-  put(`    pub const MAX_HEADERS: usize = ${NET_MAX_HEADERS};`);
-  put(`    pub const MAX_HEADER_BYTES: usize = ${NET_MAX_HEADER_BYTES};`);
-  put(`    pub const DEFAULT_TIMEOUT_MS: u32 = ${NET_DEFAULT_TIMEOUT_MS};`);
-  put(`    pub const MAX_TIMEOUT_MS: u32 = ${NET_MAX_TIMEOUT_MS};`);
-  put(`    pub const MAX_REDIRECTS: usize = ${NET_MAX_REDIRECTS};`);
-  put(`    pub const METHODS: [&str; ${NET_METHODS.length}] = [${NET_METHODS.map((method) => JSON.stringify(method)).join(", ")}];`);
-  for (const [name, v] of Object.entries(NET_EVENT)) {
-    put(`    pub const EVENT_${screaming(name)}: &str = ${JSON.stringify(v)};`);
-  }
-  for (const [name, v] of Object.entries(NET_ERROR)) {
-    put(`    pub const ERROR_${screaming(name)}: &str = ${JSON.stringify(v)};`);
-  }
   put("}");
   put("");
 

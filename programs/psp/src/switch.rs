@@ -82,10 +82,6 @@ pub unsafe fn resume() -> Option<usize> {
 }
 
 /// The running guest's manifest id: the app the link names in its requests.
-pub unsafe fn current_id() -> &'static str {
-    APPS[CURRENT].id
-}
-
 pub fn find(output: &str) -> Option<usize> {
     APPS.iter().position(|a| a.output == output)
 }

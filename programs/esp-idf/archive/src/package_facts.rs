@@ -53,6 +53,7 @@ fn package_error_code(error: GuestError) -> i32 {
         GuestError::MissingPlan => 9,
         GuestError::MissingJavaScript => 10,
         GuestError::JavaScriptNotTerminated => 11,
+        GuestError::WorkerSectionMismatch => 18,
     }
 }
 
@@ -61,7 +62,8 @@ fn package_error_code(error: GuestError) -> i32 {
 /// codes are those of the 3DS product's `pocket_package_open` (12 is a bad
 /// pointer, a short record or a non-UTF-8 target; 13 to 15 a plan whose
 /// JSON, viewport or auxiliary surface cannot be read; 16 a profile
-/// mismatch; 17 a malformed layout).
+/// mismatch; 17 a malformed layout; 18 a worker declaration and section
+/// that disagree).
 ///
 /// # Safety
 /// `bytes`, `target` and `expected_profile_hash` are readable for their

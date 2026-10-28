@@ -572,40 +572,6 @@ pub mod fs {
     pub const MAX_DIR_ENTRIES: usize = 256;
 }
 
-/// NET module boundary (contracts/spec/net.ts — `globalThis.net`).
-/// Bounded whole-response HTTP; completions batch to tick boundaries.
-pub mod net {
-    pub const OP_START: u8 = 1;
-    pub const OP_TAKE: u8 = 2;
-    pub const OP_CANCEL: u8 = 3;
-    pub const OP_POLL: u8 = 4;
-    pub const OP_LAST_ERROR: u8 = 5;
-    pub const MAX_INFLIGHT: usize = 2;
-    pub const MAX_REQUEST_BYTES: usize = 65536;
-    pub const DEFAULT_RESPONSE_BYTES: usize = 131072;
-    pub const MAX_RESPONSE_BYTES: usize = 262144;
-    pub const MAX_HEADERS: usize = 32;
-    pub const MAX_HEADER_BYTES: usize = 8192;
-    pub const DEFAULT_TIMEOUT_MS: u32 = 30000;
-    pub const MAX_TIMEOUT_MS: u32 = 120000;
-    pub const MAX_REDIRECTS: usize = 3;
-    pub const METHODS: [&str; 7] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
-    pub const EVENT_DONE: &str = "done";
-    pub const EVENT_ERROR: &str = "error";
-    pub const ERROR_UNAVAILABLE: &str = "unavailable";
-    pub const ERROR_INVALID_REQUEST: &str = "invalid_request";
-    pub const ERROR_BUSY: &str = "busy";
-    pub const ERROR_DNS: &str = "dns";
-    pub const ERROR_CONNECT: &str = "connect";
-    pub const ERROR_TLS: &str = "tls";
-    pub const ERROR_TIMEOUT: &str = "timeout";
-    pub const ERROR_REDIRECT: &str = "redirect";
-    pub const ERROR_RESPONSE_TOO_LARGE: &str = "response_too_large";
-    pub const ERROR_PROTOCOL: &str = "protocol";
-    pub const ERROR_CANCELLED: &str = "cancelled";
-    pub const ERROR_OTHER: &str = "other";
-}
-
 /// 2D bodies stepped by the UI core (contracts/spec/physics.ts).
 pub mod physics {
     pub const KIND_WORLD: u32 = 1;

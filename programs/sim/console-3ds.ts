@@ -16,7 +16,6 @@ import { bootBundle, type BundleWorld, type SimNode, type SimSurface } from "./s
 import { createSimLinkHost, type SimInstalledApp, type SimLinkFixture, type SimLinkHost } from "../../platforms/sim/link.ts";
 import { createSimWifiHost, type SimWifiFixture, type SimWifiHost } from "../../platforms/sim/wifi.ts";
 import { createSimCameraHost, type SimCameraHost, type SimCameraOptions } from "../../platforms/sim/camera.ts";
-import { createSimNetHost, type SimNetHost, type SimNetRoute } from "../../platforms/sim/net.ts";
 import { createSimAgentHost, type SimAgentHost } from "../../platforms/sim/agent.ts";
 import type { AgentDisplay } from "../../contracts/spec/agent.ts";
 
@@ -40,8 +39,6 @@ export interface Console3dsOptions {
   wifi?: SimWifiFixture | null;
   /** Mount the camera module (default true); an object seeds its photos. */
   camera?: boolean | SimCameraOptions;
-  /** NET routes; omitted = no NET module. */
-  net?: Readonly<Record<string, SimNetRoute>>;
   /** Mount the agent namespace (contracts/spec/agent.ts); omitted = none. */
   agent?: { available?: boolean; display?: AgentDisplay };
   /** Virtual epoch at boot, ms. Default 2026-10-19T01:41:00Z. */
@@ -62,7 +59,6 @@ export interface Console3ds {
   link: SimLinkHost | null;
   wifi: SimWifiHost | null;
   camera: SimCameraHost | null;
-  net: SimNetHost | null;
   agent: SimAgentHost | null;
   /** The table appTable() reports. */
   apps: Console3dsApp[];
@@ -152,7 +148,6 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
   });
   const wifiHost = options.wifi === null ? null : createSimWifiHost(options.wifi ?? {});
   const cameraHost = options.camera === false ? null : createSimCameraHost(typeof options.camera === "object" ? options.camera : {});
-  const netHost = options.net ? createSimNetHost(options.net) : null;
   const agentHost = options.agent ? createSimAgentHost(options.agent) : null;
 
   let epoch = options.epochMs ?? DEFAULT_EPOCH;
@@ -172,7 +167,6 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
   g.link = linkHost?.ns;
   g.wifi = wifiHost?.ns;
   g.camera = cameraHost?.ns;
-  g.net = netHost?.ns;
   g.agent = agentHost?.ns;
 
   // The bundle evaluates after bootBundle's first await, so the virtual
@@ -214,7 +208,6 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
     epoch += 1000 / world.hz;
     linkHost?.tick();
     wifiHost?.tick();
-    netHost?.tick();
     if (!ok) throw new Error(`${world.failure?.message}\n${world.failure?.stack}`);
     Date.now = () => epoch;
     try {
@@ -232,7 +225,6 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
     link: linkHost,
     wifi: wifiHost,
     camera: cameraHost,
-    net: netHost,
     agent: agentHost,
     apps,
     launches,

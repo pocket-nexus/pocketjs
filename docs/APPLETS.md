@@ -27,7 +27,6 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 "applet": {
   "version": 1,
   "services": ["x", "glyphs"],
-  "hosts": ["hacker-news.firebaseio.com"],
   "store": { "maxBytes": 65536 }
 }
 ```
@@ -36,8 +35,7 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | --- | --- |
 | `version` | **1**. A later version adds rules; a host refuses versions it does not know. |
 | `summary` | One sentence on what the applet does, at most **120** characters. The console's store and Pocket Companion's list of applets show it. |
-| `services` | Companion services the applet fetches (`companionService(name, path)`, `https://companion.pocket/<name>/…`). At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service request from an app it does not offer or whose list lacks the service; the console's runtime, not the guest, names the app in each request. |
-| `hosts` | Hosts the applet fetches through `net.http`. At most **8**, bare host names. |
+| `services` | Companion services the applet's worker fetches at `https://companion.pocket/<name>/…` through `io.http`. At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service the app does not declare. |
 | `store` | Persistent state: required for `data.fs`; `maxBytes` at most **4 MiB**. |
 
 ## Manifest rules
@@ -50,7 +48,8 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | `framework` is `solid`; no `model: "rust"`; no `app.companions` | One UI toolkit the agent's text capture and played input know; no native code; companion work goes through declared services. |
 | At most one presentation, the **full screen**: `entry` is `app.entry`, `modality` is `{screens: 1, touch: "none", buttons: true}`, no `surfaces`, no `output`. With it, `app.modality` is `{touch: "auxiliary"}`, `display.auxiliary` and `input.touch.auxiliary` move to `enhances`, and `input.buttons` is required | A device with one screen and no touch (the PSP, 480×272) runs the same program on its whole screen with its buttons. The baseline keeps serving the touch surface on dual-screen hosts. One entry means one program: the layout follows the surface size and the input follows the modality, never a second code path per device. |
 | `title` at most **24** characters | The title is the springboard label and the name the agent launches the applet by. |
-| `services` or `hosts` need `net.http`; `data.fs` needs `store` | Every destination and every persistent byte is declared before the applet runs. |
+| `services` needs `net.http` | A companion service is an HTTP destination of the applet's worker, and the capability admits the worker's `io.http` resource. |
+| `data.fs` needs `store` | Every persistent byte is declared before the applet runs. |
 
 ## Source rules
 
@@ -65,7 +64,6 @@ does not count.
 | No dynamic `import()` | The bundle is the whole program, checked once. |
 | No `eval` and no `Function` constructor | A checked applet runs the code that was checked and nothing else. |
 | No `installApp`, `removeApp`, `pairCompanion`, `forgetCompanion` or `requestCatalog` from `@pocketjs/framework/link` | Installing, removing and pairing belong to the launcher. |
-| Every `companionService("name", …)` names a declared service, with the name as a string literal; every `http(s)://host` names a declared host or a declared service under `companion.pocket` | The declaration is the full list of destinations. |
 | The UI draws inside `AppletSurface` (`@pocketjs/framework/applet`) or `AuxiliarySurface` | The applet draws on its surface, not on the system's display. `AppletSurface` mounts on the auxiliary surface when the plan has one and on the full screen otherwise. |
 
 ## Bundle budgets

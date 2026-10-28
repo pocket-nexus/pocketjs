@@ -53,11 +53,11 @@ describe("manifest rules", () => {
     expect(codes(app)).toEqual([]);
   });
 
-  test("the schema refuses an unknown key, a version other than 1 and a bad host", () => {
+  test("the schema refuses an unknown key and a version other than 1", () => {
     expect(validatePocketManifest(manifest({ applet: { version: 1, cookies: true } })).ok).toBe(false);
     expect(validatePocketManifest(manifest({ applet: { version: 2 } })).ok).toBe(false);
-    expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["http://x.com"] } })).ok).toBe(false);
-    expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["api.example.com"], services: ["glyphs"] } })).ok).toBe(true);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["api.example.com"] } })).ok).toBe(false);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, services: ["glyphs"] } })).ok).toBe(true);
     expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "The front page and its threads." } })).ok).toBe(true);
     expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "" } })).ok).toBe(false);
     expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "x".repeat(121) } })).ok).toBe(false);
@@ -75,20 +75,21 @@ describe("manifest rules", () => {
     expect(codes({ ...wide, app: { ...wide.app, companions: ["youtube"] } } as PocketManifestV2)).toContain("applet.companions");
   });
 
-  test("storage needs applet.store, network declarations need net.http, cameras are allowed", () => {
+  test("storage needs applet.store, services need net.http, cameras are allowed", () => {
     const requires = ["display.auxiliary", "input.touch.auxiliary"];
+    expect(codes(manifest({ applet: { version: 1, services: ["x"] } }))).toContain("applet.network");
+    expect(codes(manifest({ applet: { version: 1, services: ["x"] } }, { requires: [...requires, "net.http"] }))).toEqual([]);
     expect(codes(manifest({}, { requires: [...requires, "data.fs"] }))).toContain("applet.store");
     expect(codes(manifest({ applet: { version: 1, store: { maxBytes: 65536 } } }, { requires: [...requires, "data.fs"] }))).toEqual([]);
-    expect(codes(manifest({ applet: { version: 1, services: ["x"] } }))).toContain("applet.network");
     expect(codes(manifest({}, { requires: [...requires, "camera.photo"] }))).toEqual([]);
   });
 
   test("plan resolution refuses a broken applet and carries a passing one's section", () => {
     expect(() => resolve3dsBuildPlan(manifest({}, { enhances: ["system.agent", "system.wifi"] }))).toThrow(/system.wifi is not available to applets/);
-    const plan = resolve3dsBuildPlan(manifest({ applet: { version: 1, services: ["glyphs"] } }, {
-      requires: ["display.auxiliary", "input.touch.auxiliary", "net.http"],
+    const plan = resolve3dsBuildPlan(manifest({ applet: { version: 1, store: { maxBytes: 65536 } } }, {
+      requires: ["display.auxiliary", "input.touch.auxiliary", "data.fs"],
     }));
-    expect(plan.applet).toEqual({ version: 1, services: ["glyphs"] });
+    expect(plan.applet).toEqual({ version: 1, store: { maxBytes: 65536 } });
   });
 });
 
@@ -152,32 +153,21 @@ const CLEAN = {
   "notes/app.tsx": [
     `import { createSignal } from "solid-js";`,
     `import { AuxiliarySurface, Text } from "@pocketjs/framework/components";`,
-    `import { companionService } from "@pocketjs/framework/link";`,
-    `import { fetch } from "@pocketjs/framework/net";`,
     `import { label } from "../ui/label.ts";`,
-    `// a comment naming https://not-declared.example.com does not count`,
     `export default function App() {`,
     `  const [text] = createSignal(label);`,
-    `  void fetch(companionService("glyphs", "/atlas"));`,
-    `  void fetch("https://api.example.com/notes");`,
     `  return <AuxiliarySurface><Text>{text()}</Text></AuxiliarySurface>;`,
     `}`,
   ].join("\n"),
   "ui/label.ts": `export const label = <T,>(value: T): T => value;\n`,
 };
-const DECLARED: AppletDeclaration = { version: 1, services: ["glyphs"], hosts: ["api.example.com"] };
-const sources = (dir: string, applet = DECLARED, capabilities = ["net.http"]) =>
+const DECLARED: AppletDeclaration = { version: 1 };
+const sources = (dir: string, applet = DECLARED, capabilities: string[] = []) =>
   checkAppletSources({ projectRoot: dir, entry: "notes/main.tsx", applet, capabilities }).map((d) => d.code);
 
 describe("source rules", () => {
-  test("a clean applet passes: shared modules in the project, declared service and host", () => {
+  test("a clean applet passes: shared modules in the project", () => {
     expect(sources(project(CLEAN))).toEqual([]);
-  });
-
-  test("undeclared services and hosts are named", () => {
-    const dir = project(CLEAN);
-    expect(sources(dir, { version: 1, services: [], hosts: ["api.example.com"] })).toEqual(["applet.service"]);
-    expect(sources(dir, { version: 1, services: ["glyphs"], hosts: [] })).toEqual(["applet.host"]);
   });
 
   test("eval, Function, dynamic import, other packages, launcher exports and gated modules are refused", () => {
@@ -197,7 +187,7 @@ describe("source rules", () => {
       expect(found).toContain(code);
     }
     // camera is gated, not forbidden.
-    const withCamera = checkAppletSources({ projectRoot: dir, entry: "notes/main.tsx", applet: DECLARED, capabilities: ["net.http", "camera.photo"] });
+    const withCamera = checkAppletSources({ projectRoot: dir, entry: "notes/main.tsx", applet: DECLARED, capabilities: ["camera.photo"] });
     expect(withCamera.filter((d) => d.message.includes("camera"))).toEqual([]);
   });
 

@@ -90,6 +90,45 @@ describe("per-app TypeScript checks", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("uses the selected SDK for external apps while retaining their own aliases", () => {
+    const directory = mkdtempSync(resolve(tmpdir(), "pocketjs-selected-sdk-"));
+    try {
+      const main = resolve(directory, "main.ts");
+      const tsconfigPath = resolve(directory, "tsconfig.json");
+      writeFileSync(main, [
+        'import { io } from "@pocketjs/framework/io";',
+        'import type { Inbox, TurnContext } from "@pocketjs/framework/worker";',
+        'import { address } from "@board/settings";',
+        'const device = io.i2c("internal").open({ address });',
+        'export function turn(_ctx: TurnContext, _inbox: Inbox) { void device; }',
+      ].join("\n"));
+      writeFileSync(resolve(directory, "settings.ts"), "export const address = 0x32;\n");
+      writeFileSync(tsconfigPath, JSON.stringify({ compilerOptions: {
+        paths: {
+          "@pocketjs/framework/*": ["./old-sdk/*.ts"],
+          "@board/*": ["./*.ts"],
+        },
+      } }));
+      expect(errors(checkAppTypes({ entry: main, tsconfigPath }))).toContain("Cannot find module '@pocketjs/framework/io'");
+      const result = checkAppTypes({
+        entry: main,
+        domain: "worker",
+        tsconfigPath,
+        frameworkRoot: new URL("..", import.meta.url).pathname,
+        keepTemporaryFiles: true,
+      });
+      expect(errors(result)).toBe("");
+      expect(result.ok).toBe(true);
+      expect(result.checkedFiles.some(file => file.endsWith("/settings.ts"))).toBe(true);
+      expect(errors(checkAppTypes({
+        entry: main,
+        tsconfigPath: resolve(result.artifacts.directory!, "tsconfig.json"),
+      }))).toBe("");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("keeps Solid control-flow children contextually typed without lib.dom", () => {
     const result = checkAppTypes({
       entry: SOLID_CONTROL_FLOW_ENTRY,

@@ -175,11 +175,20 @@ async function main() {
   if (!existsSync(entry)) usage(`app entry not found: ${entry}`);
   const mismatch = runtimeVersionMismatch(plan.app.framework, projectRoot);
   if (mismatch) throw new Error(`the application resolves ${mismatch.name} ${mismatch.application.version} (${mismatch.application.directory}) and the compiler bundles ${mismatch.name} ${mismatch.bundled.version} (${mismatch.bundled.directory}); declare "${mismatch.name}": "${mismatch.bundled.version}" in the application's package.json`);
-  const typeResult = checkAppTypes({
+  const entries: [string, "ui" | "worker"][] = [[entry, "ui"], ...(plan.domains?.worker ? [[resolve(projectRoot, plan.domains.worker.entry), "worker"] as [string, "worker"]] : [])];
+  for (const [source] of entries) if (!existsSync(source)) usage(`app entry not found: ${source}`);
+  const typeResults = entries.map(([entry, domain]) => checkAppTypes({
     entry,
+    domain,
+    frameworkRoot,
     tsconfigPath: existsSync(resolve(projectRoot, "tsconfig.json")) ? resolve(projectRoot, "tsconfig.json") : undefined,
     declarationFiles: [resolve(frameworkRoot, "framework/src/jsx.d.ts"), resolve(frameworkRoot, "framework/src/vue-sfc.d.ts")],
-  });
+  }));
+  const typeResult = {
+    ok: typeResults.every(result => result.ok),
+    diagnostics: typeResults.flatMap(result => result.diagnostics),
+    checkedFiles: [...new Set(typeResults.flatMap(result => result.checkedFiles))],
+  };
   if (!typeResult.ok) throw new Error(typeResult.diagnostics.filter(item => item.category === "error").map(item => `${item.file ?? "TypeScript"}${item.line ? `:${item.line}:${item.column}` : ""} TS${item.code}: ${item.message}`).join("\n"));
   console.log(`✓ pocket.json v2\n✓ ${plan.target.id} satisfies pocket.json capabilities\n✓ TypeScript (${typeResult.checkedFiles.length} app module(s))\n✓ ResolvedBuildPlan ${plan.planHash}`);
   if (command === "check") return;
@@ -212,6 +221,7 @@ async function main() {
     target: plan.target.id, hostAbi: plan.target.hostAbi, planJson: canonicalJson(plan),
     identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
     js: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.js`))),
+    ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.worker.js`))) } : {}),
     pak: existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0),
   });
   const output = outputOption ? resolve(projectRoot, outputOption) : resolve(outdir, `${plan.app.output}.pocket`);

@@ -13,6 +13,9 @@
 #include "photos.h"
 #include "pocket_guest_quickjs.h"
 #include "wifi.h"
+#include "worker.h"
+#include "pocket/worker.h"
+#include "pocket/worker_ui.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -67,11 +70,6 @@ typedef enum {
   HostLinkInstall,
   HostLinkRemove,
   HostLinkPoll,
-  HostNetStart,
-  HostNetTake,
-  HostNetCancel,
-  HostNetPoll,
-  HostNetLastError,
   HostWifiStatus,
   HostWifiSetEnabled,
   HostWifiConnect,
@@ -127,6 +125,10 @@ static uint8_t **boot_compiled;
 static size_t *boot_compiled_length;
 /* The mounted tree waits for the first qjs_frame to present it. */
 static bool first_present;
+static bool boot_has_worker;
+/* Mirrors the worker's channels into this realm; detached before either
+ * the worker core or this context is destroyed. */
+static pocket_worker_ui *ui_bridge;
 
 static void set_error(const char *message) {
   size_t length = message == NULL ? 0 : strlen(message);
@@ -418,41 +420,10 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
   }
   case HostLinkCatalog:
     return JS_NewInt32(ctx, link_catalog());
-  case HostLinkPoll:
-  case HostNetPoll: {
-    const char *batch = magic == HostLinkPoll ? link_poll() : link_net_poll();
+  case HostLinkPoll: {
+    const char *batch = link_poll();
     return batch == NULL ? JS_UNDEFINED : JS_NewString(ctx, batch);
   }
-  case HostNetStart: {
-    if (argc < 1 || !JS_IsString(argv[0]))
-      return JS_NewInt32(ctx, -1);
-    text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
-    if (text == NULL)
-      return JS_NewInt32(ctx, -1);
-    /* Borrowed after the string conversion (which may allocate) and used
-     * before anything else can run JS: start() copies the body. */
-    if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length, &lease)) {
-      bytes = NULL;
-      byte_length = 0;
-    }
-    int32_t handle = link_net_start(text, text_length, bytes, byte_length);
-    JS_FreeValue(ctx, lease);
-    JS_FreeCString(ctx, text);
-    return JS_NewInt32(ctx, handle);
-  }
-  case HostNetTake: {
-    int32_t handle = argument_int(ctx, argc, argv, 0);
-    if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length, &lease))
-      return JS_NewInt32(ctx, -1);
-    int32_t count = link_net_take(handle, (uint8_t *)bytes, byte_length);
-    JS_FreeValue(ctx, lease);
-    return JS_NewInt32(ctx, count);
-  }
-  case HostNetCancel:
-    link_net_cancel(argument_int(ctx, argc, argv, 0));
-    return JS_UNDEFINED;
-  case HostNetLastError:
-    return JS_NewString(ctx, link_net_last_error());
   case HostWifiStatus:
     return JS_NewString(ctx, wifi_status_json());
   case HostWifiSetEnabled:
@@ -610,7 +581,26 @@ static void add_operation(JSValueConst object, const char *name, int arity,
                                          (int)operation));
 }
 
-static void install_host(void) {
+/* The worker owns the bound filesystem for worker packages. These callbacks
+ * use their argument context and never touch the UI realm's global values. */
+static int32_t mount_worker_services(JSContext *ctx) {
+  if (!fs_bound()) return POCKET_WORKER_OK;
+  const char *names[]={"read","write","remove","list","stat","mkdir","rename","usage","lastError"};
+  const int arities[]={3,3,2,2,1,1,2,0,0};
+  const HostOperation operations[]={HostFsRead,HostFsWrite,HostFsRemove,HostFsList,HostFsStat,HostFsMkdir,HostFsRename,HostFsUsage,HostFsLastError};
+  JSValue fs=JS_NewObject(ctx),root=JS_GetGlobalObject(ctx);
+  if (JS_IsException(fs)) { JS_FreeValue(ctx,root); return POCKET_WORKER_FAILED; }
+  for (size_t i=0;i<sizeof names/sizeof names[0];++i) {
+    JSValue fn=JS_NewCFunctionMagic(ctx,host_operation,names[i],arities[i],JS_CFUNC_generic_magic,operations[i]);
+    if (JS_IsException(fn) || JS_SetPropertyStr(ctx,fs,names[i],fn)<0) {
+      JS_FreeValue(ctx,fs);JS_FreeValue(ctx,root);return POCKET_WORKER_FAILED;
+    }
+  }
+  int result=JS_SetPropertyStr(ctx,root,"fs",fs);JS_FreeValue(ctx,root);
+  return result<0?POCKET_WORKER_FAILED:POCKET_WORKER_OK;
+}
+
+static int32_t install_host(void) {
 #ifdef POCKETJS_MEDIA
   JSValue media = JS_NewObject(context);
   add_operation(media, "open", 3, HostMediaOpen);
@@ -648,13 +638,15 @@ static void install_host(void) {
   add_operation(link, "poll", 0, HostLinkPoll);
   JS_SetPropertyStr(context, global, "link", link);
 
-  JSValue net = JS_NewObject(context);
-  add_operation(net, "start", 2, HostNetStart);
-  add_operation(net, "take", 2, HostNetTake);
-  add_operation(net, "cancel", 1, HostNetCancel);
-  add_operation(net, "poll", 0, HostNetPoll);
-  add_operation(net, "lastError", 0, HostNetLastError);
-  JS_SetPropertyStr(context, global, "net", net);
+  /* The worker declared its channels during bootstrap, before this realm
+   * evaluates its bundle. */
+  if (boot_has_worker) {
+    ui_bridge = pocket_worker_ui_attach(context, pocket_3ds_worker_core());
+    if (!ui_bridge) {
+      set_error("worker channel bridge attachment failed");
+      return POCKET_WORKER_FAILED;
+    }
+  }
 
   JSValue wifi = JS_NewObject(context);
   add_operation(wifi, "status", 0, HostWifiStatus);
@@ -682,7 +674,7 @@ static void install_host(void) {
   }
 
   /* Only a guest that declared "data.fs" has a bound tree (main.c). */
-  if (fs_bound()) {
+  if (fs_bound() && !boot_has_worker) {
     JSValue fs = JS_NewObject(context);
     add_operation(fs, "read", 3, HostFsRead);
     add_operation(fs, "write", 3, HostFsWrite);
@@ -711,6 +703,7 @@ static void install_host(void) {
     add_operation(agent, "homeHint", 1, HostAgentHomeHint);
     JS_SetPropertyStr(context, global, "agent", agent);
   }
+  return 0;
 }
 
 /* The generated guest owns Ui metadata, pak storage and all numbered ops.
@@ -724,8 +717,7 @@ static int32_t guest_initialize(void *self, pocket_runtime *owner,
   if (status)
     return status;
   global = JS_GetGlobalObject(context);
-  install_host();
-  return 0;
+  return install_host();
 }
 /* The bundle into the realm: from the cached bytecode when the boot carries
  * it, else compiled once and handed back for bytecode.c. The generated
@@ -814,6 +806,7 @@ bool qjs_boot(PocketRuntimePackage *package, const uint8_t *bytecode,
   last_error[0] = 0;
   interrupted = false;
   first_present = false;
+  boot_has_worker = package->guest.worker_javascript_length != 0;
   boot_bytecode = bytecode;
   boot_bytecode_length = bytecode_length;
   boot_compiled = compiled;
@@ -849,6 +842,11 @@ bool qjs_boot(PocketRuntimePackage *package, const uint8_t *bytecode,
     set_error("3DS runtime composition failed");
     return false;
   }
+  if (package->guest.worker_javascript_length && !pocket_3ds_worker_start(
+        package->guest.worker_javascript, package->guest.worker_javascript_length, mount_worker_services)) {
+    set_error(pocket_3ds_worker_error());
+    return false;
+  }
   int32_t booted = pocket_runtime_boot_deferred(instance);
   boot_bytecode = NULL;
   boot_compiled = NULL;
@@ -879,6 +877,10 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
                size_t count, int32_t right) {
   if (!instance)
     return false;
+  if (boot_has_worker) {
+    if (pocket_3ds_worker_error()[0]) { set_error(pocket_3ds_worker_error()); return false; }
+    if (pocket_worker_ui_latch(ui_bridge) < 0) { take_exception(); return false; }
+  }
   /* The frame after boot shows the mounted tree; the guest's first turn
    * follows at the next one. */
   if (first_present)
@@ -894,6 +896,11 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
 }
 const char *qjs_last_error(void) { return last_error; }
 void qjs_shutdown(void) {
+  if (ui_bridge) {
+    pocket_worker_ui_detach(ui_bridge);
+    ui_bridge = NULL;
+  }
+  pocket_3ds_worker_stop();
   instance_destroy();
   instance = NULL;
 #ifdef POCKETJS_MEDIA

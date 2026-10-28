@@ -14,6 +14,7 @@ test("raw-JavaScript embedding uses the compiler's exact package encoding", () =
   const module = (name: string, file: string) => `#[path=${JSON.stringify(resolve(root, file))}] mod ${name};`;
   writeFileSync(resolve(out, "main.rs"), `extern crate alloc;
 ${module("package_format", "engine/package/src/package_format.rs")}
+${module("plan_facts", "engine/package/src/plan_facts.rs")}
 ${module("package", "engine/package/src/package.rs")}
 ${module("embedded", "engine/package/src/embedded.rs")}
 fn main() {

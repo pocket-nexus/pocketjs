@@ -3,14 +3,15 @@
 // A Pocket Link is ONE authenticated TCP connection from a console to a
 // companion process on a computer the owner paired by scanning a QR code.
 // The console's runtime owns it, not a guest: it survives every app switch,
-// and the guest-facing modules that ride it (`globalThis.link`, and the NET
-// module on hosts whose HTTP transport is the companion) are host services.
+// and the guest-facing module that rides it (`globalThis.link`) and the
+// worker's HTTP resource are host services.
 //
 // What travels over it:
 //
-//   net      the NET module's whole-response HTTP (contracts/spec/net.ts). The
-//            companion performs the request with its own TLS stack, so a
-//            console whose TLS is too old for the modern web still reaches it.
+//   net.stream  a worker's HTTP request (contracts/spec/net.ts) as a bounded
+//            byte stream. The companion performs the request with its own
+//            TLS stack, so a console whose TLS is too old for the modern web
+//            still reaches it.
 //   catalog  the Pocket apps the companion offers for this console's target.
 //   install  one app package, streamed into the console's runtime storage.
 //
@@ -154,7 +155,7 @@ export const LINK_REFUSAL = {
   version: "version",
 } as const;
 
-/** Companion services (tools/companion/services.ts): an app's NET request
+/** Companion services (tools/companion/services.ts): a worker's HTTP request
  *  to this origin is answered by the companion itself, never fetched. The
  *  path's first segment names the service. */
 export const LINK_SERVICES_HOST = "companion.pocket";
@@ -162,7 +163,7 @@ export const LINK_SERVICES_ORIGIN = `https://${LINK_SERVICES_HOST}`;
 
 /** Features a companion may list in ready/paired. */
 export const LINK_FEATURE = {
-  net: "net",
+  netStream: "net.stream",
   catalog: "catalog",
   install: "install",
 } as const;
@@ -195,14 +196,23 @@ export const LINK_PAIR_WINDOW_MS = 10 * 60_000;
 // connection). Replies carry the same id. A connection that closes fails
 // every request still open on it; nothing is replayed on the next one.
 //
-// net (the NET module's start/take/cancel/poll ride these):
-//   console   {"t":"net","id":n,"app":"<app id>","url":"https://…","method":"GET",
-//              "headers":{…},"timeoutMs":30000,"maxBytes":131072,"bytes":k}
+// net.stream (the worker HTTP resource; requires the companion feature):
+//   console   {"t":"net","id":n,"stream":true,"credit":8192,"app":"<app id>",
+//              "url":"https://…","method":"GET","headers":{…},
+//              "timeoutMs":30000,"maxBytes":131072,"bytes":k}
 //             then k bytes of request body as data frames on stream n
-//   companion {"t":"net.head","id":n,"status":200,"url":"<final url>",
-//              "headers":{…},"bytes":N}  then N bytes as data frames on n
-//          or {"t":"net.error","id":n,"code":"<NET_ERROR>","message":"…"}
+//   companion {"t":"net.head","id":n,"status":200,"url":"…","headers":{…},"stream":true}
+//             data frames of at most 1024 bytes, in order
+//   console   {"t":"net.credit","id":n,"bytes":k} after releasing k bytes
+//   companion {"t":"net.end","id":n,"bytes":N} after the final body frame
+//          or {"t":"net.error","id":n,"code":"<NET_ERROR>","message":"…"};
+//             the receiver preserves the known byte prefix
 //   console   {"t":"net.cancel","id":n}
+// Initial credit is 1..8192 bytes. Returned credit cannot exceed outstanding
+// bytes. Header and end metadata do not consume body credit. The sender awaits
+// credit before forwarding another block and before reading the next upstream
+// chunk. net.cancel ends the request without replay. A net request without
+// "stream":true is refused.
 //
 // catalog:
 //   console   {"t":"catalog","id":n}
@@ -313,55 +323,44 @@ export const LINK_MAX_REQUESTS = 4;
 //
 // A console with no network link reaches its companion through the USB file
 // share the tethered computer serves (usbhostfs_pc on a CardputerZero or a
-// Mac; `host0:` on the console). The same requests ride it as JSON records in
-// files under `<share>/pocket-link/`. The cable is the trust boundary: whoever
+// Mac; `host0:` on the console). The link rides it as JSON records in files
+// under `<share>/pocket-link/`. The cable is the trust boundary: whoever
 // serves the share already decides every file the console reads, so there is
-// no pairing handshake and no key. The `net` and `media` features are
-// carried; catalog and install are not.
+// no pairing handshake and no key. The carrier offers link status and the
+// media ring. It carries no network requests (a UI realm has no network
+// namespace, and the PSP host runs no worker domain), no catalog and no
+// installs.
 //
-// Every file is one record: a 64-byte header, `json` bytes, `body` bytes.
+// Every file is one record: a 64-byte header, then `json` bytes.
 //
 //   off 0   u32  magic   'P','K','L','U'
 //   off 4   u32  epoch   the companion's session, never 0 (from `ready`)
 //   off 8   u32  boot    the console's boot id, never 0 (0 in `ready`)
-//   off 12  u32  seq     the slot's request number (0 in `ready`/`hello`)
+//   off 12  u32  seq     `media.req`: the stream's generation (0 elsewhere)
 //   off 16  u32  kind    LINK_USB_KIND
-//   off 20  u32  id      the request id = the net handle (0 in `ready`/`hello`)
 //   off 24  u32  beat    `ready` and `hello`: bumped at each rewrite
 //   off 32  u32  json    UTF-8 JSON bytes after the header
 //   off 36  u32  jsonHash  FNV-1a 32 of the JSON bytes
-//   off 40  u32  body    body bytes after the JSON
-//   off 44  u32  bodyHash  FNV-1a 32 of the body bytes
 //   other words are 0. All words little-endian.
 //
 // Files:
 //
 //   ready        companion -> console, rewritten every LINK_USB_BEAT_MS:
-//                {"v":1,"id":"<companion id>","name":"…","features":["net","media"],
+//                {"v":1,"id":"<companion id>","name":"…","features":["media"],
 //                 "clock":{"utc":<epoch ms>,"offsetMinutes":<n>}}
-//   hello        console -> companion, written before any request and rewritten
-//                every 2 * LINK_USB_BEAT_MS with the next beat:
+//   hello        console -> companion, written once `ready` beats and
+//                rewritten every 2 * LINK_USB_BEAT_MS with the next beat:
 //                {"t":"hello","device":"<id>","name":"…","model":"…","target":"psp"}
-//   net<i>.req   console -> companion, slot i < LINK_USB_SLOTS: kind request
-//                (json = the TCP link's net ctrl {"t":"net","id":n,"app":…,
-//                "bytes":k, …meta}, body = the request body) or kind cancel
-//                (json {"t":"net.cancel","id":n}, same seq)
-//   net<i>.res   companion -> console: kind reply, the request's epoch, boot,
-//                seq and id; json = the NET event itself ({"t":"done","h":n,
-//                "status":…,"url":…,"headers":{…},"bytes":N} or {"t":"error",
-//                "h":n,"code":…,"message":…}), body = the response body
 //
 // The companion writes each file whole under a temporary name and renames it,
 // so a reader sees an old record or a new one. The console's writes are not
-// atomic: the companion checks both hashes and reads a torn record again on
-// its next poll. A record from another epoch, boot or seq is stale and ignored.
+// atomic: the companion checks the hash and reads a torn record again on its
+// next poll. A record from another epoch or boot is stale and ignored.
 //
 // The console treats the companion as linked while `ready` is valid and its
 // beat moved within LINK_USB_SILENCE_MS; a `ready` left with the beat it went
 // silent on links nothing. The companion treats the console the same way by
-// `hello`'s beat. A new epoch fails every open request;
-// so does silence. A new boot in `hello` drops the previous boot's requests on
-// the companion. Nothing is replayed.
+// `hello`'s beat.
 //
 // Media. One `media.playback` stream (media.ts) at a time rides three more
 // files. The ring carries the bytes the TCP media endpoint sends (the 32-byte
@@ -393,7 +392,8 @@ export const LINK_MAX_REQUESTS = 4;
 //
 // A token the companion does not hold gets a closed head with nothing
 // written. A new media.req (another generation, or a close) stops the stream
-// before it; so do a new epoch and a new boot.
+// before it; so do a new epoch, a new boot and a console that stopped
+// beating.
 
 export const LINK_USB_DIR = "pocket-link";
 export const LINK_USB_MAGIC = 0x554c4b50; // 'PKLU' LE
@@ -401,21 +401,16 @@ export const LINK_USB_HEADER_BYTES = 64;
 export const LINK_USB_KIND = {
   ready: 1,
   hello: 2,
-  request: 3,
-  cancel: 4,
-  reply: 5,
-  media: 6,
+  media: 3,
 } as const;
-/** Request slots: the NET module's in-flight limit (net.ts NET_MAX_INFLIGHT). */
-export const LINK_USB_SLOTS = 2;
 export const LINK_USB_BEAT_MS = 500;
 /** As the TCP link's LINK_SILENCE_MS: a small companion (a CardputerZero)
  *  paused its beat 5.7 s while a yt-dlp resolve pushed it into swap. */
 export const LINK_USB_SILENCE_MS = 10_000;
 /** The largest `json` section of any record. */
 export const LINK_USB_MAX_JSON = 16 * 1024;
-/** What `ready` lists in `features` (LINK_FEATURE.net, and the media ring). */
-export const LINK_USB_FEATURES = ["net", "media"] as const;
+/** What `ready` lists in `features`: the media ring. */
+export const LINK_USB_FEATURES = ["media"] as const;
 export const LINK_USB_MEDIA_MAGIC = 0x4d4c4b50; // 'PKLM' LE
 export const LINK_USB_MEDIA_ACK_MAGIC = 0x414c4b50; // 'PKLA' LE
 export const LINK_USB_MEDIA_HEAD_BYTES = 64;

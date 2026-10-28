@@ -179,8 +179,9 @@ pub const POCKET_UI_PACKAGE_COMPANIONS: u32 = 4;
 /// numbers the same way (truncated, magic, version, footer hash, UTF-8,
 /// no variant, host ABI, identity, plan, JavaScript, NUL terminator), 12 a bad
 /// argument, 13-14 a plan whose JSON or viewport cannot be read, 16 a profile
-/// mismatch, and 17 an invalid section layout. The expected profile hash comes
-/// from the independent host build (32 readable bytes).
+/// mismatch, 17 an invalid section layout, and 18 a plan whose `domains.worker`
+/// and section 8 disagree. The expected profile hash comes from the
+/// independent host build (32 readable bytes).
 ///
 /// # Safety
 /// `ptr` and `target_ptr` are readable for `len` and `target_len` bytes,
@@ -230,6 +231,7 @@ pub unsafe extern "C" fn pocket_ui_package_open(
                 GuestError::MissingPlan => 9,
                 GuestError::MissingJavaScript => 10,
                 GuestError::JavaScriptNotTerminated => 11,
+                GuestError::WorkerSectionMismatch => 18,
             }
         }
     };

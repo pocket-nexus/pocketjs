@@ -15,6 +15,8 @@ unsafe fn bytes<'a>(pointer: *const u8, length: usize) -> &'a [u8] {
 pub struct PocketGuestPackage {
     pub javascript: *const u8,
     pub javascript_length: usize,
+    pub worker_javascript: *const u8,
+    pub worker_javascript_length: usize,
     pub pak: *const u8,
     pub pak_length: usize,
     pub plan: *const u8,
@@ -68,6 +70,7 @@ fn package_error_code(error: GuestError) -> i32 {
         GuestError::MissingPlan => 9,
         GuestError::MissingJavaScript => 10,
         GuestError::JavaScriptNotTerminated => 11,
+        GuestError::WorkerSectionMismatch => 18,
     }
 }
 
@@ -75,7 +78,8 @@ fn package_error_code(error: GuestError) -> i32 {
 /// Returns 0 on success; non-zero codes are stable for the C runtime's status
 /// and recovery files (12 is a bad pointer or non-UTF-8 target argument;
 /// 13-15 a plan whose JSON, viewport or auxiliary surface cannot be read;
-/// 16 a profile mismatch; 17 a malformed layout).
+/// 16 a profile mismatch; 17 a malformed layout; 18 a worker declaration and
+/// section that disagree).
 #[no_mangle]
 pub unsafe extern "C" fn pocket_package_open(
     ptr: *const u8,
@@ -122,6 +126,8 @@ pub unsafe extern "C" fn pocket_package_open(
     out.write(PocketGuestPackage {
         javascript: guest.js.as_ptr(),
         javascript_length: guest.js.len(),
+        worker_javascript: guest.worker_js.as_ptr(),
+        worker_javascript_length: guest.worker_js.len(),
         pak: guest.pak.as_ptr(),
         pak_length: guest.pak.len(),
         plan: guest.plan.as_ptr(),

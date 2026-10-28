@@ -67,9 +67,6 @@ mod switch {
     pub fn shot_handle() -> i32 {
         -1
     }
-    pub fn current_id() -> &'static str {
-        "fixture"
-    }
 }
 use libquickjs_sys::*;
 use pocket_drivers::*;
@@ -371,27 +368,6 @@ mod link {
     pub fn start(target: &str) {
         assert_eq!(target, crate::profile::ID);
     }
-    pub fn net_start(meta: &[u8], body: &[u8], app: &str) -> i32 {
-        if meta == br#"{"url":"u"}"# && body == [9, 8] && app == "fixture" {
-            3
-        } else {
-            -1
-        }
-    }
-    pub fn net_take(handle: i32, into: &mut [u8]) -> i32 {
-        if handle != 3 {
-            return -1;
-        }
-        into.fill(7);
-        into.len() as i32
-    }
-    pub fn net_cancel(_: i32) {}
-    pub fn net_poll() -> Option<String> {
-        None
-    }
-    pub fn net_last_error() -> &'static str {
-        ""
-    }
     pub fn link_status() -> String {
         "{\"state\":\"searching\"}".into()
     }
@@ -406,7 +382,7 @@ fn public_namespace_providers_and_private_extensions_share_one_runtime() {
         media::CALLS.with(|calls| {
             assert_eq!(*calls.borrow(), [format!("open {}", "ab".repeat(32)), "paused true".into(), "volume 0.5".into(), "close".into()])
         });
-        p.assert_js(r#"let into=new Uint8Array(6);if(net.start('{"url":"u"}',new Uint8Array([9,8]))!==3||net.take(3,into.subarray(2,5))!==3||into.join()!=='0,0,7,7,7,0')throw Error('net view');if(link.status()!=='{"state":"searching"}'||link.pair('x')!==false||link.catalog()!==-1)throw Error('link');"#);
+        p.assert_js(r#"if(typeof net!=='undefined')throw Error('net namespace');if(link.status()!=='{"state":"searching"}'||link.pair('x')!==false||link.catalog()!==-1)throw Error('link');"#);
         audio_mod::PCM.with(|pcm| assert_eq!(&*pcm.borrow(), &[0x302, 0x504]));
         assert_eq!(host::MASKED.load(std::sync::atomic::Ordering::Relaxed), 0);
     }

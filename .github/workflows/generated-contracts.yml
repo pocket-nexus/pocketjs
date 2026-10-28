@@ -15,6 +15,8 @@ on:
       - "tools/profile-export.ts"
       - "tools/gen-exports.ts"
       - "tools/packaging/esp-idf/contracts.ts"
+      - "tools/worker-contracts.ts"
+      - "engine/worker/include/pocket/worker_protocol.h"
       - "framework/src/profile.ts"
       - "framework/compiler/subpaths.ts"
       - "engine/spec/**"

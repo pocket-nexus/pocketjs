@@ -47,6 +47,7 @@ PLATFORM_SOURCE := $(POCKETJS_ROOT)/platforms/3ds
 SHARED := $(POCKETJS_ROOT)/engine/host-services
 OFFLOAD_INCLUDE := $(POCKETJS_ROOT)/engine/modules/offload/include
 POCKETJS_CONTRACTS := $(POCKETJS_ROOT)/contracts/generated
+POCKETJS_WORKER := $(POCKETJS_ROOT)/engine/worker
 POCKETJS_GUEST := $(POCKETJS_ROOT)/engine/guest-quickjs
 POCKETJS_PICA_INCLUDE ?= $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-pica/include
 BUILD := $(POCKETJS_BUILD_DIR)
@@ -78,10 +79,10 @@ ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 # without it links cleanly and then hands the library differently shaped
 # values — the guest boots and QuickJS's GC walks garbage pointers.
 CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections -fdata-sections \
-  $(ARCH) -D__3DS__ -DJS_NO_NAN_BOXING -DPOCKET_QJS_BELLARD \
+  $(ARCH) -D__3DS__ -DPOCKETJS_WORKER_HTTP -DJS_NO_NAN_BOXING -DPOCKET_QJS_BELLARD \
   -DPOCKETJS_TARGET_ID='"$(POCKETJS_TARGET)"' \
   -DPOCKETJS_HOST_ABI=$(POCKETJS_HOST_ABI) \
-  -I$(PLATFORM_SOURCE) -I$(SHARED) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
+  -I$(POCKETJS_WORKER)/include -I$(PLATFORM_SOURCE) -I$(SHARED) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include -I$(DEVKITPRO)/portlibs/3ds/include
 
 # bytecode.c keys its per-slot bytecode cache by the QuickJS build: the first
@@ -117,8 +118,8 @@ LIBS := -ljpeg -lcitro3d -lctru -lm
 # quirc (vendored, ISC; engine/host-services/quirc/VENDORED.txt) decodes QR
 # codes for camera.c.
 QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
-OBJECTS := $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/input_policy.o $(BUILD)/input_source.o $(BUILD)/hooks.o \
-  $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
+OBJECTS := $(BUILD)/worker.o $(BUILD)/worker_core.o $(BUILD)/worker_quickjs.o $(BUILD)/worker_quickjs_ui.o $(BUILD)/worker_runner.o $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/input_policy.o $(BUILD)/input_source.o $(BUILD)/hooks.o \
+  $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/link_http.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
   $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
   $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o
@@ -173,6 +174,18 @@ $(FLAGS_STAMP).probe: | $(BUILD)
 $(FLAGS_STAMP): $(FLAGS_STAMP).probe ;
 
 $(BUILD)/pica_driver.o: $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-pica/src/driver.c $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/worker_core.o: $(POCKETJS_WORKER)/src/worker.c $(wildcard $(POCKETJS_WORKER)/include/pocket/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/worker_quickjs.o: $(POCKETJS_WORKER)/src/quickjs.c $(wildcard $(POCKETJS_WORKER)/include/pocket/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/worker_quickjs_ui.o: $(POCKETJS_WORKER)/src/quickjs_ui.c $(wildcard $(POCKETJS_WORKER)/include/pocket/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/worker_runner.o: $(POCKETJS_WORKER)/src/runner.c $(wildcard $(POCKETJS_WORKER)/include/pocket/*.h) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/canonical_guest.o: $(POCKETJS_GUEST)/src/guest.c $(wildcard $(POCKETJS_GUEST)/src/*.h) $(wildcard $(POCKETJS_GUEST)/include/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)

@@ -19,16 +19,18 @@
  * connection and tries each host the QR code listed, in order, in mode
  * "pair". On `paired` the unmasked key is stored and the connection stays up.
  *
- * Requests. net requests (at most NET_MAX_INFLIGHT) and catalog/install
- * requests (at most LINK_MAX_REQUESTS) share one id sequence that never
- * repeats while the process lives, so a net handle is its link request id.
- * Response bodies accumulate in one malloc buffer bounded by the request's
- * maxBytes; install streams go straight to the target slot's staging file.
- * A closed connection fails every open request; nothing is replayed.
+ * Requests. Catalog/install requests (at most LINK_MAX_REQUESTS) and the
+ * worker HTTP streams (link_http.c) share one id sequence that never repeats
+ * while the process lives. Install streams go straight to the target slot's
+ * staging file. A closed connection fails every open request; nothing is
+ * replayed.
  */
 
 #include "link.h"
 #include "link_proto.h"
+#ifdef POCKETJS_WORKER_HTTP
+#include "link_http.h"
+#endif
 
 #include <stdio.h>
 
@@ -61,8 +63,6 @@
 #define LINK_TX_BYTES (LINK_HEADER_BYTES + LINK_MAX_CTRL + 16u * 1024u)
 /* Received bytes per pump; also the most this pump writes to storage. */
 #define LINK_RX_BUDGET (64u * 1024u)
-/* Request-body data frames are cut to this size so pings interleave. */
-#define LINK_DATA_CHUNK (16u * 1024u)
 #define LINK_SEARCH_DIRECT_MS 2500u
 #define LINK_BACKOFF_MIN_MS 1000u
 #define LINK_BACKOFF_MAX_MS 8000u
@@ -70,17 +70,6 @@
 #define LINK_PROGRESS_MS 200u
 /* Silence allowed on a catalog reply or an install stream. */
 #define LINK_REQUEST_STALL_MS 30000u
-
-/* contracts/spec/net.ts */
-#define NET_MAX_INFLIGHT 2u
-#define NET_MAX_REQUEST_BYTES (64u * 1024u)
-#define NET_DEFAULT_RESPONSE_BYTES (128u * 1024u)
-#define NET_MAX_RESPONSE_BYTES (256u * 1024u)
-#define NET_DEFAULT_TIMEOUT_MS 30000u
-#define NET_MAX_TIMEOUT_MS 120000u
-/* The companion enforces timeoutMs; the console only fails a request the
- * companion never answered, a little later. */
-#define NET_GRACE_MS 5000u
 
 typedef struct {
   char id[LINK_ID_HEX + 1];
@@ -100,22 +89,6 @@ typedef enum {
   PHASE_UP,
   PHASE_BACKOFF,
 } LinkPhase;
-
-typedef enum { NET_FREE, NET_HEAD, NET_BODY, NET_DONE } NetPhase;
-
-typedef struct {
-  NetPhase phase;
-  uint32_t id;
-  uint8_t *body;
-  size_t body_length;
-  size_t body_sent;
-  uint32_t max_bytes;
-  uint64_t deadline_ms;
-  char *done_event;
-  uint8_t *response;
-  size_t response_length;
-  size_t response_received;
-} NetRequest;
 
 typedef enum { REQUEST_FREE, REQUEST_CATALOG, REQUEST_INSTALL } RequestKind;
 
@@ -204,14 +177,11 @@ static uint64_t ping_sent_ms;
 static bool pong_pending;
 
 static uint32_t next_id = 1;
-static NetRequest net_requests[NET_MAX_INFLIGHT];
 static LinkRequest requests[LINK_MAX_REQUESTS];
 static JsonBuffer link_events = { .limit = 96u * 1024u };
-static JsonBuffer net_events = { .limit = 32u * 1024u };
 static JsonBuffer poll_out = { .limit = 100u * 1024u };
 static JsonBuffer status_out = { .limit = 8u * 1024u };
 static JsonBuffer scratch = { .limit = LINK_MAX_CTRL };
-static char net_error[192];
 
 static bool would_block(void) {
   return errno == EAGAIN || errno == EWOULDBLOCK;
@@ -400,19 +370,6 @@ static void request_error_event(const LinkRequest *request, const char *message)
   event_end(&link_events, mark);
 }
 
-static void net_error_event(uint32_t handle, const char *code, const char *message) {
-  size_t mark = net_events.length;
-  event_begin(&net_events);
-  jbuf_text(&net_events, "{\"t\":\"error\",\"h\":");
-  jbuf_u64(&net_events, handle);
-  jbuf_text(&net_events, ",\"code\":");
-  jbuf_cstring(&net_events, code);
-  jbuf_text(&net_events, ",\"message\":");
-  jbuf_cstring(&net_events, message);
-  jbuf_text(&net_events, "}");
-  event_end(&net_events, mark);
-}
-
 // ---------------------------------------------------------------------------
 // outbound frames
 // ---------------------------------------------------------------------------
@@ -463,20 +420,6 @@ static uint32_t take_id(void) {
   return id;
 }
 
-static void net_free(NetRequest *request) {
-  free(request->body);
-  free(request->done_event);
-  free(request->response);
-  memset(request, 0, sizeof *request);
-}
-
-static NetRequest *find_net(uint32_t id) {
-  for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
-    if (net_requests[i].phase != NET_FREE && net_requests[i].id == id) return &net_requests[i];
-  }
-  return NULL;
-}
-
 static LinkRequest *find_request(uint32_t id) {
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
     if (requests[i].kind != REQUEST_FREE && requests[i].id == id) return &requests[i];
@@ -490,24 +433,11 @@ static void request_free(LinkRequest *request, bool remove_staging) {
   memset(request, 0, sizeof *request);
 }
 
-static void send_net_cancel(uint32_t id) {
-  if (phase != PHASE_UP) return;
-  jbuf_reset(&scratch);
-  jbuf_text(&scratch, "{\"t\":\"net.cancel\",\"id\":");
-  jbuf_u64(&scratch, id);
-  jbuf_text(&scratch, "}");
-  queue_scratch();
-}
-
 /* Every open request fails with the connection. */
 static void fail_requests(const char *message) {
-  for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
-    NetRequest *request = &net_requests[i];
-    if (request->phase == NET_HEAD || request->phase == NET_BODY) {
-      net_error_event(request->id, "unavailable", message);
-      net_free(request);
-    }
-  }
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_disconnected();
+#endif
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
     if (requests[i].kind == REQUEST_FREE) continue;
     request_error_event(&requests[i], message);
@@ -841,77 +771,6 @@ static void handle_auth_reply(JsonSpan message) {
 // linked: inbound ctrl and data
 // ---------------------------------------------------------------------------
 
-static void handle_net_head(JsonSpan message, uint32_t id) {
-  NetRequest *request = find_net(id);
-  if (request == NULL || request->phase != NET_HEAD) return;
-  uint64_t status = 0, bytes = 0;
-  JsonSpan url, headers;
-  if (!json_find_u64(message, "status", &status) || status < 100 || status > 599 ||
-      !json_find_u64(message, "bytes", &bytes) ||
-      !json_find(message, "url", &url) || url.length < 2 || url.start[0] != '"' ||
-      !json_find(message, "headers", &headers) || !json_is_object(headers)) {
-    net_error_event(id, "protocol", "net: malformed response head");
-    send_net_cancel(id);
-    net_free(request);
-    return;
-  }
-  if (bytes > request->max_bytes) {
-    net_error_event(id, "response_too_large", "net: response exceeds maxBytes");
-    send_net_cancel(id);
-    net_free(request);
-    return;
-  }
-  JsonBuffer done = { .limit = LINK_MAX_CTRL + 128 };
-  jbuf_text(&done, "{\"t\":\"done\",\"h\":");
-  jbuf_u64(&done, id);
-  jbuf_text(&done, ",\"status\":");
-  jbuf_u64(&done, status);
-  jbuf_text(&done, ",\"url\":");
-  jbuf_raw(&done, url.start, url.length);
-  jbuf_text(&done, ",\"headers\":");
-  jbuf_raw(&done, headers.start, headers.length);
-  jbuf_text(&done, ",\"bytes\":");
-  jbuf_u64(&done, bytes);
-  jbuf_text(&done, "}");
-  if (jbuf_cstr(&done) == NULL) {
-    jbuf_free(&done);
-    net_error_event(id, "other", "net: out of memory");
-    send_net_cancel(id);
-    net_free(request);
-    return;
-  }
-  request->done_event = done.data;
-  request->response_length = (size_t)bytes;
-  request->response_received = 0;
-  if (bytes > 0) {
-    request->response = malloc((size_t)bytes);
-    if (request->response == NULL) {
-      net_error_event(id, "other", "net: response buffer allocation failed");
-      send_net_cancel(id);
-      net_free(request);
-      return;
-    }
-  }
-  request->phase = NET_BODY;
-  if (bytes == 0) {
-    size_t mark = net_events.length;
-    event_begin(&net_events);
-    jbuf_text(&net_events, request->done_event);
-    event_end(&net_events, mark);
-    request->phase = NET_DONE;
-  }
-}
-
-static void handle_net_error(JsonSpan message, uint32_t id) {
-  NetRequest *request = find_net(id);
-  if (request == NULL || (request->phase != NET_HEAD && request->phase != NET_BODY)) return;
-  char code[32] = "other", text[160] = "";
-  json_find_string(message, "code", code, sizeof code);
-  json_find_string(message, "message", text, sizeof text);
-  net_error_event(id, code, text[0] ? text : code);
-  net_free(request);
-}
-
 static void handle_install_head(JsonSpan message, LinkRequest *request) {
   char app[LAUNCHER_ID_BYTES], hash_hex[24];
   uint64_t bytes = 0;
@@ -1019,26 +878,10 @@ static void handle_data(const uint8_t *payload, uint32_t length) {
   uint32_t id = link_read_u32(payload);
   const uint8_t *bytes = payload + 4;
   size_t count = length - 4;
+#ifdef POCKETJS_WORKER_HTTP
+  if (link_http_data(id, bytes, count)) return;
+#endif
   if (link_host_data(id, bytes, count)) return;
-  NetRequest *net = find_net(id);
-  if (net != NULL) {
-    if (net->phase != NET_BODY || count > net->response_length - net->response_received) {
-      net_error_event(id, "protocol", "net: response body overran its declared length");
-      send_net_cancel(id);
-      net_free(net);
-      return;
-    }
-    memcpy(net->response + net->response_received, bytes, count);
-    net->response_received += count;
-    if (net->response_received == net->response_length) {
-      size_t mark = net_events.length;
-      event_begin(&net_events);
-      jbuf_text(&net_events, net->done_event);
-      event_end(&net_events, mark);
-      net->phase = NET_DONE;
-    }
-    return;
-  }
   LinkRequest *request = find_request(id);
   if (request == NULL || request->kind != REQUEST_INSTALL) return; /* cancelled: skip */
   if (!request->head || request->file == NULL || count > request->expected - request->received) {
@@ -1075,11 +918,10 @@ static void handle_ctrl(const uint8_t *payload, uint32_t length) {
   if (!json_find_string(message, "t", type, sizeof type)) return;
   uint64_t id = 0;
   bool has_id = json_find_u64(message, "id", &id) && id <= 0xffffffffu;
-  if (strcmp(type, "net.head") == 0 && has_id) {
-    handle_net_head(message, (uint32_t)id);
-  } else if (strcmp(type, "net.error") == 0 && has_id) {
-    handle_net_error(message, (uint32_t)id);
-  } else if (strcmp(type, "catalog") == 0 && has_id) {
+#ifdef POCKETJS_WORKER_HTTP
+  if (has_id && link_http_ctrl(type, (uint32_t)id, (const char *)payload, length)) return;
+#endif
+  if (strcmp(type, "catalog") == 0 && has_id) {
     LinkRequest *request = find_request((uint32_t)id);
     if (request == NULL || request->kind != REQUEST_CATALOG) return;
     JsonSpan apps;
@@ -1172,24 +1014,6 @@ static void pump_rx(void) {
   }
 }
 
-static void feed_request_bodies(void) {
-  for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
-    NetRequest *request = &net_requests[i];
-    while (request->phase == NET_HEAD && request->body_sent < request->body_length) {
-      size_t chunk = request->body_length - request->body_sent;
-      if (chunk > LINK_DATA_CHUNK) chunk = LINK_DATA_CHUNK;
-      uint8_t stream[4];
-      link_write_u32(stream, request->id);
-      if (!queue_frame(LINK_FRAME_DATA, stream, 4, request->body + request->body_sent, chunk)) return;
-      request->body_sent += chunk;
-    }
-    if (request->phase != NET_FREE && request->body_sent == request->body_length && request->body != NULL) {
-      free(request->body);
-      request->body = NULL;
-    }
-  }
-}
-
 static void pump_tx(void) {
   if (tcp_fd < 0) return;
   if (phase == PHASE_UP) {
@@ -1199,7 +1023,6 @@ static void pump_tx(void) {
       last_ping_ms = now;
       if (ping_sent_ms == 0) ping_sent_ms = now;
     }
-    feed_request_bodies();
   }
   while (tx_offset < tx_length) {
     ssize_t sent = send(tcp_fd, tx_buffer + tx_offset, tx_length - tx_offset, 0);
@@ -1217,14 +1040,6 @@ static void pump_tx(void) {
 
 static void expire_requests(void) {
   uint64_t now = services_host_ms();
-  for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
-    NetRequest *request = &net_requests[i];
-    if ((request->phase == NET_HEAD || request->phase == NET_BODY) && now > request->deadline_ms) {
-      net_error_event(request->id, "timeout", "net: the companion did not answer in time");
-      send_net_cancel(request->id);
-      net_free(request);
-    }
-  }
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
     LinkRequest *request = &requests[i];
     if (request->kind != REQUEST_FREE && now > request->deadline_ms) {
@@ -1317,6 +1132,9 @@ static void pump(void);
 void link_pump(void) {
   uint64_t started = services_host_us();
   pump();
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_pump();
+#endif
   uint32_t us = (uint32_t)(services_host_us() - started);
   if (us > pump_max_us) pump_max_us = us;
 }
@@ -1385,14 +1203,15 @@ static void pump(void) {
 }
 
 void link_shutdown(void) {
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_reset();
+#endif
   if (!initialized) return;
   close_connection();
   fail_requests("the console is shutting down");
-  for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) net_free(&net_requests[i]);
   if (beacon_fd >= 0) close(beacon_fd);
   beacon_fd = -1;
   jbuf_free(&link_events);
-  jbuf_free(&net_events);
   jbuf_free(&poll_out);
   jbuf_free(&status_out);
   jbuf_free(&scratch);
@@ -1401,11 +1220,9 @@ void link_shutdown(void) {
 }
 
 void link_reset_guest(void) {
-  for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
-    NetRequest *request = &net_requests[i];
-    if (request->phase == NET_HEAD || request->phase == NET_BODY) send_net_cancel(request->id);
-    net_free(request);
-  }
+#ifdef POCKETJS_WORKER_HTTP
+  link_http_reset();
+#endif
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
     LinkRequest *request = &requests[i];
     if (request->kind == REQUEST_CATALOG) request_free(request, false);
@@ -1413,8 +1230,6 @@ void link_reset_guest(void) {
     else if (request->kind == REQUEST_INSTALL) request->guest = false;
   }
   jbuf_reset(&link_events);
-  jbuf_reset(&net_events);
-  net_error[0] = '\0';
 }
 
 static void status_companion(JsonBuffer *out, const char *id, const char *name, const char *address, uint16_t port) {
@@ -1627,113 +1442,7 @@ const char *link_poll(void) {
   return drain(&link_events);
 }
 
-int32_t link_net_start(const char *meta, size_t meta_length, const uint8_t *body, size_t body_length) {
-  net_error[0] = '\0';
-  if (!initialized || phase != PHASE_UP) {
-    snprintf(net_error, sizeof net_error, "unavailable: no companion linked");
-    return -1;
-  }
-  if (!has_feature("net")) {
-    snprintf(net_error, sizeof net_error, "unavailable: the linked companion does not serve net requests");
-    return -1;
-  }
-  NetRequest *request = NULL;
-  for (size_t i = 0; i < NET_MAX_INFLIGHT; i += 1) {
-    if (net_requests[i].phase == NET_FREE) {
-      request = &net_requests[i];
-      break;
-    }
-  }
-  if (request == NULL) {
-    snprintf(net_error, sizeof net_error, "busy: %u requests are already in flight", NET_MAX_INFLIGHT);
-    return -1;
-  }
-  if (body_length > NET_MAX_REQUEST_BYTES) {
-    snprintf(net_error, sizeof net_error, "invalid_request: request body exceeds 64 KiB");
-    return -1;
-  }
-  JsonSpan object = json_span(meta, meta_length);
-  JsonSpan url;
-  size_t open = 0;
-  while (open < meta_length && (meta[open] == ' ' || meta[open] == '\n' || meta[open] == '\t' || meta[open] == '\r')) {
-    open += 1;
-  }
-  if (meta == NULL || open >= meta_length || meta[open] != '{' || !json_find(object, "url", &url) ||
-      meta_length > LINK_MAX_CTRL - 512) {
-    snprintf(net_error, sizeof net_error, "invalid_request: malformed request metadata");
-    return -1;
-  }
-  uint64_t max_bytes = NET_DEFAULT_RESPONSE_BYTES;
-  uint64_t timeout_ms = NET_DEFAULT_TIMEOUT_MS;
-  json_find_u64(object, "maxBytes", &max_bytes);
-  json_find_u64(object, "timeoutMs", &timeout_ms);
-  if (max_bytes == 0 || max_bytes > NET_MAX_RESPONSE_BYTES) max_bytes = NET_MAX_RESPONSE_BYTES;
-  if (timeout_ms == 0 || timeout_ms > NET_MAX_TIMEOUT_MS) timeout_ms = NET_MAX_TIMEOUT_MS;
-
-  uint32_t id = take_id();
-  /* The guest's metadata object, extended with the link fields:
-   * {"t":"net","id":n,"app":"…","bytes":k, <meta members>} */
-  jbuf_reset(&scratch);
-  jbuf_text(&scratch, "{\"t\":\"net\",\"id\":");
-  jbuf_u64(&scratch, id);
-  jbuf_text(&scratch, ",\"app\":");
-  jbuf_cstring(&scratch, launcher_current_app_id());
-  jbuf_text(&scratch, ",\"bytes\":");
-  jbuf_u64(&scratch, body_length);
-  size_t rest = open + 1;
-  while (rest < meta_length && (meta[rest] == ' ' || meta[rest] == '\n' || meta[rest] == '\t' || meta[rest] == '\r')) {
-    rest += 1;
-  }
-  if (rest < meta_length && meta[rest] != '}') jbuf_text(&scratch, ",");
-  jbuf_raw(&scratch, meta + rest, meta_length - rest);
-  if (!queue_scratch()) {
-    snprintf(net_error, sizeof net_error, "busy: the link outbox is full");
-    return -1;
-  }
-  memset(request, 0, sizeof *request);
-  request->phase = NET_HEAD;
-  request->id = id;
-  request->max_bytes = (uint32_t)max_bytes;
-  request->deadline_ms = services_host_ms() + timeout_ms + NET_GRACE_MS;
-  if (body_length > 0) {
-    request->body = malloc(body_length);
-    if (request->body == NULL) {
-      /* The ctrl already left: cancel it rather than stall the companion. */
-      send_net_cancel(id);
-      memset(request, 0, sizeof *request);
-      snprintf(net_error, sizeof net_error, "other: request body allocation failed");
-      return -1;
-    }
-    memcpy(request->body, body, body_length);
-    request->body_length = body_length;
-  }
-  return (int32_t)id;
-}
-
-int32_t link_net_take(int32_t handle, uint8_t *into, size_t length) {
-  if (handle <= 0) return -1;
-  NetRequest *request = find_net((uint32_t)handle);
-  if (request == NULL || request->phase != NET_DONE || length != request->response_length) return -1;
-  if (length > 0) memcpy(into, request->response, length);
-  net_free(request);
-  return (int32_t)length;
-}
-
-void link_net_cancel(int32_t handle) {
-  if (handle <= 0) return;
-  NetRequest *request = find_net((uint32_t)handle);
-  if (request == NULL) return;
-  if (request->phase == NET_HEAD || request->phase == NET_BODY) send_net_cancel(request->id);
-  net_free(request);
-}
-
-const char *link_net_poll(void) {
-  return drain(&net_events);
-}
-
-const char *link_net_last_error(void) {
-  return net_error;
-}
+bool link_http_available(void) { return phase == PHASE_UP && has_feature("net.stream"); }
 
 bool link_agent_ready(void) {
   return phase == PHASE_UP && has_feature("agent");
@@ -1809,24 +1518,7 @@ bool link_remove(const char *app_id, size_t length) {
 
 const char *link_poll(void) { return NULL; }
 
-int32_t link_net_start(const char *meta, size_t meta_length, const uint8_t *body, size_t body_length) {
-  (void)meta;
-  (void)meta_length;
-  (void)body;
-  (void)body_length;
-  return -1;
-}
-
-int32_t link_net_take(int32_t handle, uint8_t *into, size_t length) {
-  (void)handle;
-  (void)into;
-  (void)length;
-  return -1;
-}
-
-void link_net_cancel(int32_t handle) { (void)handle; }
-const char *link_net_poll(void) { return NULL; }
-const char *link_net_last_error(void) { return "unavailable: this build has no Pocket Link"; }
+bool link_http_available(void) { return false; }
 bool link_agent_ready(void) { return false; }
 bool link_send_ctrl(const char *json, size_t length) {
   (void)json;

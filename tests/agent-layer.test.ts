@@ -24,7 +24,7 @@ const OUTPUT = "agent-fixture-main";
 const GUEST = join(OUT, "guest", OUTPUT);
 const FIXTURE = { id: "dev.pocket-nexus.agent-fixture", title: "Agent Fixture", output: OUTPUT };
 const SHOTS = process.env.POCKET_AGENT_SHOTS;
-const GLOBALS = ["ui", "__pak", "__simHz", "frame", "link", "wifi", "camera", "net", "agent", "__pocketApp"] as const;
+const GLOBALS = ["ui", "__pak", "__simHz", "frame", "link", "wifi", "camera", "agent", "__pocketApp"] as const;
 const saved = new Map(GLOBALS.map((key) => [key, (globalThis as Record<string, unknown>)[key]]));
 
 beforeAll(() => {

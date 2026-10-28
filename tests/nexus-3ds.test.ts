@@ -29,7 +29,7 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = mkdtempSync(join(tmpdir(), "pocketjs-nexus-"));
 const GUEST = join(OUT, "guest", "nexus-main");
 const SHOTS = process.env.POCKET_NEXUS_SHOTS;
-const GLOBALS = ["ui", "__pak", "__simHz", "frame", "link", "wifi", "camera", "net", "agent", "__pocketApp"] as const;
+const GLOBALS = ["ui", "__pak", "__simHz", "frame", "link", "wifi", "camera", "agent", "__pocketApp"] as const;
 const saved = new Map(GLOBALS.map((key) => [key, (globalThis as Record<string, unknown>)[key]]));
 const POCKET: [number, number] = [POCKET_CX, (POCKET_TOP_Y + POCKET_TIP_Y) / 2];
 

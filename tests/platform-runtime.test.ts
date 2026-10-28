@@ -10,6 +10,7 @@ import {
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
+import { SUBPATHS, resolvesIn } from "../framework/compiler/subpaths.ts";
 import type { HostOps } from "../framework/src/host.ts";
 
 async function bundlePlatform(defines: Record<string, string> = {}) {
@@ -117,7 +118,11 @@ test("the build resolver owns every published framework export", async () => {
         exported.startsWith("./vue-vapor/")
       ? "vue-vapor"
       : "solid";
-    expect(packagePath(spec, framework), spec).not.toBeNull();
+    const key = exported === "." ? "" : exported.slice(2);
+    const row = SUBPATHS[key] ?? SUBPATHS[key.replace(/^(?:solid|vue-vapor|octane)(?:\/|$)/, "")];
+    // The UI compiler resolves its own domain's rows and refuses the rest by name.
+    if (resolvesIn(row, "ui")) expect(packagePath(spec, framework), spec).not.toBeNull();
+    else expect(() => packagePath(spec, framework), spec).toThrow(/worker domain/);
   }
 });
 

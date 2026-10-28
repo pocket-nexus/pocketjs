@@ -267,7 +267,7 @@ describe("link", () => {
   test("pair: the console receives the key the companion stored", async () => {
     const client = await pairOnce();
     expect(client.companionName).toBe("Test Mac");
-    expect(client.features).toEqual(["net", "catalog", "install"]);
+    expect(client.features).toEqual(["catalog", "install", "net.stream"]);
     expect(client.key).toMatch(/^[0-9a-f]{64}$/);
     const stored = store.console(DEVICE.id)!;
     expect(stored.key).toBe(client.key);

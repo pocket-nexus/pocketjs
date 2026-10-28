@@ -214,7 +214,6 @@ describe("platform registry", () => {
       "input.buttons",
       "io.offload",
       "text.layout.offload",
-      "net.http",
       "link.companion",
       "input.cursor",
       "audio.pcm",
@@ -523,7 +522,7 @@ describe("semantic resolution", () => {
       cards: [true, true, false, true],
       chrome: [true, true, false, true],
       clear: [false, false, false, false], // admitted only by the private ipodtouch4-dev profile (fixed 320x480 portrait touch surface)
-      "companion-zero": [false, false, false, false], // built against programs/cardputer-zero's profile: a fixed 320x170 panel with net.http
+      "companion-zero": [false, false, false, false], // built against programs/cardputer-zero's profile: a fixed 320x170 panel with no network
       cursor: [true, true, false, true],
       devkit: [true, true, false, true],
       gallery: [true, true, false, true],
@@ -551,6 +550,7 @@ describe("semantic resolution", () => {
       stats: [true, true, false, true],
       "text-offload": [true, false, false, true], // requires a supported companion transport
       "vue-sfc-lab": [true, true, false, true],
+      "worker-http": [false, false, false, false], // requires the 3DS program's independent worker runtime
       zoomlab: [true, true, false, true],
     };
     const targets = ["psp", "vita", "macos-widget", "macos-app"] as const;

@@ -77,6 +77,8 @@ interface Stream {
   chunks: Uint8Array[];
   done: (bytes: Uint8Array) => void;
   progress?: (received: number, total: number) => void;
+  /** Returns a landed block's bytes as credit on a net.stream request. */
+  credit?: (bytes: number) => void;
 }
 
 interface Pending {
@@ -98,6 +100,9 @@ export interface ConnectOptions {
   /** Test seam: override the hello's protocol version. */
   version?: number;
 }
+
+/** The initial receive window the client advertises; every block's credit returns as it lands. */
+const LINK_STREAM_CREDIT = 8192;
 
 export class LinkConsoleClient {
   companionName = "";
@@ -257,6 +262,7 @@ export class LinkConsoleClient {
       stream.chunks.push(frame.bytes);
       stream.received += frame.bytes.length;
       stream.progress?.(stream.received, stream.expected);
+      stream.credit?.(frame.bytes.length);
       if (stream.received >= stream.expected) {
         this.streams.delete(frame.stream);
         stream.done(concat(stream.chunks, stream.received));
@@ -348,12 +354,18 @@ export class LinkConsoleClient {
     return { id, done };
   }
 
+  /** One HTTP request through the companion's `net.stream` protocol: the
+   *  body arrives in credited blocks and the client returns every block's
+   *  credit as it lands, so the whole body is reassembled here. */
   net(request: ConsoleNetRequest): { id: number; done: Promise<ConsoleNetResponse> } {
     const body = request.body ?? new Uint8Array(0);
+    let head: { status: number; url: string; headers: Record<string, string> } | undefined;
     const handle = this.request<ConsoleNetResponse>(
       (id) => ({
         t: "net",
         id,
+        stream: true,
+        credit: LINK_STREAM_CREDIT,
         app: request.app ?? "dev.pocketjs.console-client",
         url: request.url,
         method: request.method ?? "GET",
@@ -363,12 +375,17 @@ export class LinkConsoleClient {
         bytes: body.length,
       }),
       (m, id, settle) => {
-        if (m.t === "net.error") settle.reject(new LinkNetError(String(m.code), String(m.message ?? "")));
-        else if (m.t === "net.head") {
-          const head = { status: Number(m.status), url: String(m.url), headers: (m.headers ?? {}) as Record<string, string> };
-          const bytes = Number(m.bytes);
-          if (bytes === 0) settle.resolve({ ...head, body: new Uint8Array(0) });
-          else this.streams.set(id, { expected: bytes, received: 0, chunks: [], done: (b) => settle.resolve({ ...head, body: b }) });
+        if (m.t === "net.error") {
+          this.streams.delete(id);
+          settle.reject(new LinkNetError(String(m.code), String(m.message ?? "")));
+        } else if (m.t === "net.head") {
+          head = { status: Number(m.status), url: String(m.url), headers: (m.headers ?? {}) as Record<string, string> };
+          this.streams.set(id, { expected: Infinity, received: 0, chunks: [], done: () => {}, credit: (bytes) => this.socket.write(encodeCtrl({ t: "net.credit", id, bytes })) });
+        } else if (m.t === "net.end") {
+          const stream = this.streams.get(id);
+          this.streams.delete(id);
+          if (!head || !stream || stream.received !== Number(m.bytes)) settle.reject(new LinkNetError("protocol", "net.end does not match the received body"));
+          else settle.resolve({ ...head, body: concat(stream.chunks, stream.received) });
         }
       },
     );

@@ -518,82 +518,7 @@ unsafe fn buffer_mut<'a>(ctx: *mut JSContext, value: JSValue) -> Option<&'a mut 
     Some(core::slice::from_raw_parts_mut(pointer.add(offset), count))
 }
 
-// ---- globalThis.net and globalThis.link over the USB share (link.rs) ----------
-
-/// net.start(metaJson, body) -> handle | -1 (contracts/spec/net.ts).
-unsafe extern "C" fn js_net_start(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    let Some((meta_ptr, meta)) = arg_bytes(ctx, argc, argv, 0) else {
-        return JS_NewInt32(ctx, -1);
-    };
-    // The body is read in place: net_start copies it into the request record.
-    let body: &[u8] = if argc >= 2 {
-        buffer_mut(ctx, *argv.offset(1)).map(|bytes| &*bytes).unwrap_or(&[])
-    } else {
-        &[]
-    };
-    let handle = crate::link::net_start(meta, body, crate::switch::current_id());
-    JS_FreeCString(ctx, meta_ptr);
-    JS_NewInt32(ctx, handle)
-}
-
-/// net.take(handle, into) -> bytes copied | -1.
-unsafe extern "C" fn js_net_take(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    if argc < 2 {
-        return JS_NewInt32(ctx, -1);
-    }
-    let handle = arg_i32(ctx, argc, argv, 0);
-    match buffer_mut(ctx, *argv.offset(1)) {
-        Some(into) => JS_NewInt32(ctx, crate::link::net_take(handle, into)),
-        None => JS_NewInt32(ctx, -1),
-    }
-}
-
-/// net.cancel(handle).
-unsafe extern "C" fn js_net_cancel(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    if argc >= 1 {
-        crate::link::net_cancel(arg_i32(ctx, argc, argv, 0));
-    }
-    JS_UNDEFINED
-}
-
-/// net.poll() -> the tick's events as one JSON array | undefined.
-unsafe extern "C" fn js_net_poll(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    match crate::link::net_poll() {
-        Some(s) => JS_NewStringLen(ctx, s.as_ptr(), s.len()),
-        None => JS_UNDEFINED,
-    }
-}
-
-/// net.lastError() -> "code: message".
-unsafe extern "C" fn js_net_last_error(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    let s = crate::link::net_last_error();
-    JS_NewStringLen(ctx, s.as_ptr(), s.len())
-}
+// ---- globalThis.link over the USB share (link.rs) ---------------------------
 
 /// link.status() -> LinkStatus JSON (contracts/spec/link.ts).
 unsafe extern "C" fn js_link_status(
@@ -732,21 +657,15 @@ pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     register_audio(ctx, global);
     register_link(ctx, global);
 }
-/// Install `globalThis.net`, `globalThis.link` and `globalThis.media`, all
-/// carried by the companion on the USB share (link.rs, media.rs). The link starts here, before the
-/// guest evaluates, so a request at mount finds a companion that answers.
+/// Install `globalThis.link` and `globalThis.media`, both carried by the
+/// companion on the USB share (link.rs, media.rs). The link starts here,
+/// before the guest evaluates, so a status read or a media stream opened at
+/// mount finds a companion that answers.
 ///
 /// # Safety
 /// QuickJS context alive, worker thread.
 pub unsafe fn register_link(ctx: *mut JSContext, global: JSValue) {
     crate::link::start(crate::profile::ID);
-    let net = JS_NewObject(ctx);
-    add_fn(ctx, net, b"start\0", js_net_start, 2);
-    add_fn(ctx, net, b"take\0", js_net_take, 2);
-    add_fn(ctx, net, b"cancel\0", js_net_cancel, 1);
-    add_fn(ctx, net, b"poll\0", js_net_poll, 0);
-    add_fn(ctx, net, b"lastError\0", js_net_last_error, 0);
-    JS_SetPropertyStr(ctx, global, b"net\0".as_ptr() as *const _, net);
     let link = JS_NewObject(ctx);
     add_fn(ctx, link, b"status\0", js_link_status, 0);
     add_fn(ctx, link, b"pair\0", js_link_refuse, 1);

@@ -2,14 +2,13 @@
 // the deterministic sim host with the 3DS geometry (programs/sim/console-3ds.ts),
 // that only the agent operates. The user sees it on the mascot's monitor.
 //
-// The sim swaps process globals (Date.now inside a frame, globalThis.ui/net
-// and the frame handler), so it runs in a child process: `OwnScreen` is the
+// The sim swaps process globals (Date.now inside a frame, globalThis.ui and
+// the frame handler), so it runs in a child process: `OwnScreen` is the
 // companion's side, `runOwnScreenChild` the child's. They speak JSON lines
 // over stdio; pixels travel as base64 RGB565 (320x240, little-endian).
 //
 // The child steps the app at 60 frames a second of wall time while it is
-// booted, so network replies (served by the companion's own fetch, the same
-// policy as the link's `net`) and animations land as they would on a console.
+// booted, so animations land as they would on a console.
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -21,7 +20,6 @@ import {
   type AgentButton,
   type AgentText,
 } from "../../contracts/spec/agent.ts";
-import { NET_ERROR, NET_MAX_INFLIGHT } from "../../contracts/spec/net.ts";
 
 export const OWN_SCREEN_SCRIPT = join(import.meta.dir, "own-screen.ts");
 
@@ -229,71 +227,10 @@ export function screenTexts(root: TreeNode | null, width = AGENT_SHOT_WIDTH, hei
 // The child
 // ---------------------------------------------------------------------------
 
-/** A NET module whose transport is the companion's own fetch: completions
- *  become visible at the first poll after they land. */
-async function liveNet() {
-  const { performNet, normalizeNetRequest, NetFailure } = await import("./fetch.ts");
-  const bodies = new Map<number, Uint8Array>();
-  const aborts = new Map<number, AbortController>();
-  const visible: object[] = [];
-  let nextHandle = 1;
-  let lastError = "";
-  const ns = {
-    start(metaJson: string, body: ArrayBuffer): number {
-      let meta;
-      try {
-        meta = normalizeNetRequest({ ...(JSON.parse(metaJson) as Record<string, unknown>), bytes: body.byteLength });
-      } catch (error) {
-        lastError = `${(error as { code?: string }).code ?? NET_ERROR.invalidRequest}: ${(error as Error).message}`;
-        return -1;
-      }
-      if (aborts.size >= NET_MAX_INFLIGHT) {
-        lastError = `${NET_ERROR.busy}: at most ${NET_MAX_INFLIGHT} requests may be in flight`;
-        return -1;
-      }
-      const handle = nextHandle++;
-      const abort = new AbortController();
-      aborts.set(handle, abort);
-      const { bytes: _bytes, ...request } = meta;
-      performNet({ ...request, body: new Uint8Array(body).slice() }, { signal: abort.signal }).then(
-        (response) => {
-          if (!aborts.delete(handle)) return;
-          bodies.set(handle, response.body);
-          visible.push({ t: "done", h: handle, status: response.status, url: response.url, headers: response.headers, bytes: response.body.byteLength });
-        },
-        (error: unknown) => {
-          if (!aborts.delete(handle)) return;
-          const failure = error instanceof NetFailure ? error : { code: NET_ERROR.other, message: String(error) };
-          visible.push({ t: "error", h: handle, code: failure.code, message: failure.message });
-        },
-      );
-      return handle;
-    },
-    take(handle: number, into: ArrayBuffer): number {
-      const body = bodies.get(handle);
-      if (!body || into.byteLength !== body.byteLength) return -1;
-      bodies.delete(handle);
-      new Uint8Array(into).set(body);
-      return body.byteLength;
-    },
-    cancel(handle: number) {
-      aborts.get(handle)?.abort();
-      aborts.delete(handle);
-      bodies.delete(handle);
-    },
-    poll(): string | undefined {
-      return visible.length ? JSON.stringify(visible.splice(0)) : undefined;
-    },
-    lastError: () => lastError,
-  };
-  return { ns, inflight: () => aborts.size };
-}
-
 export async function runOwnScreenChild(): Promise<void> {
   const { bootConsole3ds } = await import("../../programs/sim/console-3ds.ts");
   type Console = Awaited<ReturnType<typeof bootConsole3ds>>;
   type StepInput = Parameters<Console["step"]>[0];
-  const net = await liveNet();
   let world: Console | undefined;
   let frame = 0;
   const queue: StepInput[] = [];
@@ -325,12 +262,10 @@ export async function runOwnScreenChild(): Promise<void> {
     for (const waiter of waiters.splice(0)) waiter.wake();
   };
 
-  /** Let the app settle: AGENT_SETTLE_FRAMES frames, then while requests are
-   *  in flight, at most 4 s more. */
+  /** Let the app settle: AGENT_SETTLE_FRAMES frames, then four more. */
   const settle = async () => {
     await waitFrames(queue.length + AGENT_SETTLE_FRAMES);
-    for (let waited = 0; net.inflight() > 0 && waited < 240 && !failure; waited += 6) await waitFrames(6);
-    if (net.inflight() === 0) await waitFrames(4);
+    await waitFrames(4);
   };
 
   const report = (ok = true, error?: string) => {
@@ -414,9 +349,6 @@ export async function runOwnScreenChild(): Promise<void> {
               camera: false,
               epochMs: Date.now(),
             });
-            // The bundle evaluates after the boot's first await: the live NET
-            // module is in place before the app's first request.
-            (globalThis as Record<string, unknown>).net = net.ns;
             world = await booting;
             void loop();
             await waitFrames(30);

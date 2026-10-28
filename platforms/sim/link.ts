@@ -105,7 +105,7 @@ export function createSimLinkHost(fixture: SimLinkFixture = {}, hooks: SimLinkHo
   const schedule = (ticks: number, run: () => void) => queue.push({ at: now + Math.max(1, ticks), run });
   // The console keeps the companion's clock once one has linked (link.ts).
   let everLinked = state === LINK_STATE.linked;
-  const features = () => (state === LINK_STATE.linked ? [LINK_FEATURE.net, LINK_FEATURE.catalog, LINK_FEATURE.install] : []);
+  const features = () => (state === LINK_STATE.linked ? [LINK_FEATURE.catalog, LINK_FEATURE.install] : []);
 
   const status = (): LinkStatus => ({
     state,

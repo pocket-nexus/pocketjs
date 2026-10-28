@@ -26,7 +26,7 @@ pub use crate::package_format::{POCKET_MAGIC as MAGIC, POCKET_VERSION as VERSION
 pub mod section {
     pub use crate::package_format::{
         SECTION_COVER as COVER, SECTION_IDENTITY as IDENTITY, SECTION_JS as JS, SECTION_PAK as PAK,
-        SECTION_PLAN as PLAN,
+        SECTION_PLAN as PLAN, SECTION_WORKER_JS as WORKER_JS,
     };
 }
 
@@ -50,6 +50,9 @@ pub enum GuestError {
     MissingPlan,
     MissingJavaScript,
     JavaScriptNotTerminated,
+    /// The plan's `domains.worker` and section 8 disagree: a declaration without
+    /// a worker bundle, or a bundle without a declaration.
+    WorkerSectionMismatch,
 }
 
 impl From<PackageError> for GuestError {
@@ -91,6 +94,9 @@ pub struct Guest<'a> {
     /// The variant identity's application id (`app.id` of its plan).
     pub id: &'a str,
     pub js: &'a [u8],
+    /// Section 8, the NUL-terminated worker bundle of a plan with
+    /// `domains.worker`; empty for a plan without one.
+    pub worker_js: &'a [u8],
     pub pak: &'a [u8],
     pub plan: &'a [u8],
     pub package_hash: u64,
@@ -341,15 +347,30 @@ pub fn select_guest<'a>(
     if js.last() != Some(&0) {
         return Err(GuestError::JavaScriptNotTerminated);
     }
+    let worker_js = worker_payload(plan, variant.section(section::WORKER_JS)?)?;
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
     Ok(Guest {
         id: identity.id,
         js,
+        worker_js,
         pak,
         plan,
         package_hash: package.package_hash()?,
         variant_hash: variant.variant_hash,
     })
+}
+
+/// The worker bundle a plan with `domains.worker` requires, or an empty slice for
+/// a plan without one. The bundle ends with NUL like the UI JavaScript.
+fn worker_payload<'a>(plan: &[u8], worker: Option<&'a [u8]>) -> Result<&'a [u8], GuestError> {
+    let declared = crate::plan_facts::worker_declared(plan)
+        .map_err(|_| GuestError::Package(PackageError::BadLayout))?;
+    match (declared, worker) {
+        (false, None) => Ok(&[]),
+        (true, Some(source)) if source.len() >= 2 && source.last() == Some(&0) => Ok(source),
+        (true, Some(_)) => Err(GuestError::JavaScriptNotTerminated),
+        _ => Err(GuestError::WorkerSectionMismatch),
+    }
 }
 
 impl<'a> Variant<'a> {
@@ -476,6 +497,7 @@ mod tests {
         assert_eq!(guest.js.last(), Some(&0));
         assert!(!guest.id.is_empty());
         assert!(!guest.plan.is_empty());
+        assert!(guest.worker_js.is_empty());
     }
 
     #[test]
@@ -488,5 +510,32 @@ mod tests {
             select_guest(FIXTURE, "psp", 8, &[0x11; 32], false),
             Err(GuestError::HostAbiMismatch)
         ));
+    }
+
+    #[test]
+    fn worker_payload_requires_matching_entry_feature_and_terminated_code() {
+        let plan = br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#;
+        assert_eq!(worker_payload(plan, Some(b"turn();\0")), Ok(&b"turn();\0"[..]));
+        assert_eq!(worker_payload(plan, None), Err(GuestError::WorkerSectionMismatch));
+        assert_eq!(worker_payload(plan, Some(b"\0")), Err(GuestError::JavaScriptNotTerminated));
+        assert_eq!(worker_payload(plan, Some(b"turn();")), Err(GuestError::JavaScriptNotTerminated));
+        assert_eq!(worker_payload(b"{}", Some(b"turn();\0")), Err(GuestError::WorkerSectionMismatch));
+        assert_eq!(worker_payload(br#"{"features":{"runtime.worker":true}}"#, Some(b"turn();\0")), Err(GuestError::WorkerSectionMismatch));
+        assert_eq!(worker_payload(br#"{"features":{"runtime.worker":true}}"#, None), Ok(&[][..]));
+        assert_eq!(worker_payload(br#"{"domains":{"worker":{"entry":"worker.ts"}}}"#, Some(b"turn();\0")), Err(GuestError::Package(PackageError::BadLayout)));
+        assert_eq!(worker_payload(b"{}", None), Ok(&[][..]));
+    }
+
+    #[test]
+    fn admission_refuses_required_worker_without_worker_section() {
+        let identity = crate::embedded::identity("worker", "app.worker", "Worker").unwrap();
+        let bytes = crate::embedded::encode(crate::embedded::EmbeddedPackage {
+            target: "test-worker", host_abi: 7, profile_hash: [0x55; 32],
+            identity: &identity,
+            plan: br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#,
+            code: b"globalThis.frame=()=>{}", pak: &[],
+        }).unwrap();
+        assert_eq!(select_guest(&bytes, "test-worker", 7, &[0x55; 32], false).err(),
+            Some(GuestError::WorkerSectionMismatch));
     }
 }

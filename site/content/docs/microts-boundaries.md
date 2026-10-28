@@ -107,22 +107,22 @@ schedule; the [model guide](/docs/microts-model/) lists the Vue forms.
 
 ## A task requests work; the host performs it
 
-This compiled model requests a network response and publishes its result:
+A compiled model requests work from the host through a service module: a
+`@pocketjs/framework` subpath that ends in `/model` and exports typed async
+calls. The framework ships no such module; a host that provides one declares
+its calls, their result contracts and a request capacity. A task awaits the
+call like any other admitted awaitable:
 
 ```ts
 import { createSignal } from "solid-js";
-import { net } from "@pocketjs/framework/net/model";
+import { status as statusService } from "@pocketjs/framework/example/model";
 
 export const [status, setStatus] = createSignal("idle");
 
 export async function load(): Promise<void> {
   setStatus("loading");
-  const result = await net.get("https://example.org/status");
-  if (result.kind === "ok") {
-    setStatus(result.body);
-  } else {
-    setStatus(result.kind);
-  }
+  const result = await statusService.get("https://example.org/status");
+  setStatus(result.kind === "ok" ? result.body : result.kind);
 }
 ```
 
@@ -148,11 +148,10 @@ completions through `Ready.deliveries`. `Ui::set_model_services` and
 Advertising a service does not implement it. **The default `Ui` provides no
 network transport and declares no model services.**
 
-The current model service adapter exposes `net.get`. Its results distinguish
-`ok`, `failed`, `unavailable`, `busy` and `malformed`. The guest adapter uses
-the existing PocketJS network transport. A native host must implement the
-request and cancellation path. Other framework SDKs are not admitted as
-model awaitables by the presence of TypeScript declarations alone.
+A service result distinguishes `ok`, `failed`, `unavailable`, `busy` and
+`malformed`. A native host must implement the request and cancellation path.
+Other framework SDKs are not admitted as model awaitables by the presence of
+TypeScript declarations alone.
 
 An imported API's TypeScript type, the compiler's admission rule and the
 host's capability are separate checks. Passing the first two does not provide

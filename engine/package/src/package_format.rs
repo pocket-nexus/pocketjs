@@ -17,6 +17,7 @@ pub const SECTION_JS: u32 = 3;
 pub const SECTION_PAK: u32 = 4;
 pub const SECTION_COVER: u32 = 5;
 pub const SECTION_HOST_INPUTS: u32 = 7;
+pub const SECTION_WORKER_JS: u32 = 8;
 pub const OFFSET_HEADER_MAGIC: u32 = 0;
 pub const OFFSET_HEADER_VERSION: u32 = 4;
 pub const OFFSET_HEADER_MANIFEST_SIZE: usize = 8;

@@ -146,7 +146,6 @@ The grammar is implemented once, as infrastructure every runtime reuses:
 | Crate | Role |
 | --- | --- |
 | `pocket-mod` | Guest hosting: QuickJS realm lifecycle, surface mounting (`mount("ui", ops)`), per-tick pump (frame call + job drain + timers), console, hot reload. The "mod runtime" capability, as a library. |
-| `pocket-net` | Transport-neutral NET core and `globalThis.net` surface: validates bounded HTTP requests, owns handles/bodies and tick event batches, and accepts a host-owned `HttpTransport` adapter. See [NET.md](./NET.md). |
 | `pocket-ui-wgpu` | The `ui` surface, desktop edition: feeds paks to `pocketjs-core`, exposes the 17 `HostOps` ops to the guest, renders the DrawList through wgpu into any render target — a window (standalone app host) or an overlay pass over a 3D scene (game HUD). |
 | `pocket-widget` | The desktop-widget capability (WIDGET.md): a widget window shell whose guest ticks at a fixed rate while GPU frames render on demand, embedded `ui` surfaces bound onto meshes, and cursor-ray part picking mapped to declared inputs. `pocket-stage` is the first runtime on it; its bundled PSP stage runs admitted fixed-viewport apps unmodified. |
 | `pocketjs-core` | The 2D UI core (unchanged; now viewport-parameterized). |

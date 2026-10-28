@@ -34,7 +34,6 @@ export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, 
   "pocket3d": {}, "pocket3d-anim": {}, "pocket3d-mesh": {},
   "pocket3d-title": {}, "pocket3d-world": {}, "pocket-vrm": {},
   "pocket-ui-gpui": {}, "pocket-ui-surface": {}, "pocket-ui-wgpu": {}, "pocket-widget": {},
-  "pocket-net": { default: ["mount"], mount: ["dep:pocket-mod", "dep:anyhow"] },
   "pocket-mod": {}, "pocket-sim": {}, "pocket-text": {},
 };
 

@@ -34,6 +34,9 @@ export const PROFILE_HASH_FIELDS = [
  * the capability registry's display order. These masks are derived convenience
  * data; canonical JSON remains the profile identity and admission contract. */
 export const PROFILE_CAPABILITY_BITS = {
+  "runtime.worker": 0x40000000n,
+  "io.i2c": 0x80000000n,
+  "io.uart": 0x100000000n,
   "input.analog.left": 0x00000001n,
   "input.analog.right": 0x00000002n,
   "input.buttons": 0x00000004n,
