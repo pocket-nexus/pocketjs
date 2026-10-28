@@ -116,7 +116,10 @@ HTTP `open({url, method, headers, body, timeoutMs, maxBytes})` creates a request
 `submit()` starts it. The descriptor and UTF-8 request body fit within 1024
 bytes. Facts deliver headers, body blocks and an end record with the final
 offset. The 3DS provider uses Pocket Link `net.stream` and byte credits. It
-does not allocate a complete response body. Link socket servicing retains the
+does not allocate a complete response body. The CardputerZero provider
+(`programs/cardputer-zero/src/http.rs`) reaches loopback addresses and the
+companion's control API; each request runs on its own thread and queues its
+facts, which the owner task emits when it waits or finishes a turn. Link socket servicing retains the
 system's service-loop cadence; worker JS execution has an independent task.
 Cancellation can report an unknown request outcome before native access ends.
 The stream's end fact remains the boundary of the retained prefix; consumers
@@ -170,7 +173,8 @@ shutdown that waits for native access to end. The PRD's triggered sample executo
 channels, remote worker replacement for `offload`, complete domain tape,
 TCP/UDP/MQTT, generated board-node accessor types and UI fallback ownership
 tables remain unimplemented. UI-only hosts keep their offload module; HTTP is
-the worker's `io.http` resource and the 3DS routes it over Pocket Link.
+the worker's `io.http` resource. The 3DS routes it over Pocket Link; the
+CardputerZero routes it to its own loopback interface.
 
 QuickJS facts and SDK views allocate objects during a turn. The current runner
 disables threshold-triggered GC but does not provide an allocation-free hot
