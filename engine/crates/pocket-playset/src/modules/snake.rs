@@ -1051,3 +1051,41 @@ mod tests {
         assert_eq!(b.ps.world.live.len(), 1, "only the guest's own slot is left");
     }
 }
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use crate::schema::arch as A;
+    use crate::Playset;
+
+    /// cargo test -p pocket-playset --release planner_cost -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn planner_cost_per_tick() {
+        let mut ps = Playset::new(320, 16);
+        let mut d = [0.0f32; crate::schema::ARCH_LENGTH];
+        d[A::SCALE] = 1.0;
+        let a = ps.world.add_arch(&d) as f32;
+        let call = |ps: &mut Playset, op: u32, x: &[f32]| ps.modules.snake.call(&mut ps.world, &mut ps.scene, op, x, &mut []);
+        call(&mut ps, op::BOARD, &[16.0, 16.0, 1.0, 0.0, 0.0, 0.0, 1.0 / 60.0, 1337.0, 0.0]);
+        call(&mut ps, op::ADD, &[3.0, 8.0, 1.0, 4.0, a, a, 1.0, 2.4, 3.2, 3.5, 0.35, 0.0]);
+        call(&mut ps, op::ADD, &[12.0, 3.0, 3.0, 4.0, a, a, 1.0, 2.0, 3.0, 3.5, 0.5, 0.0]);
+        call(&mut ps, op::FOOD, &[a, 1.0, 1.0, 0.0]);
+        call(&mut ps, op::RUN, &[1.0]);
+        let t = std::time::Instant::now();
+        let mut ticks = 0;
+        for _ in 0..600 {
+            let n = ps.step(1.0 / 60.0);
+            ticks += 1;
+            for e in 0..n {
+                if ps.world.events[e * 8] as u32 == EV::CRASH {
+                    let i = ps.world.events[e * 8 + 3];
+                    call(&mut ps, op::RESPAWN, &[i, 0.0]);
+                }
+            }
+        }
+        let lens: Vec<usize> = ps.modules.snake.snakes.iter().map(|s| s.cells.len()).collect();
+        std::println!("{:?} per tick with both snakes planning (lengths {lens:?})", t.elapsed() / ticks);
+    }
+}
+
