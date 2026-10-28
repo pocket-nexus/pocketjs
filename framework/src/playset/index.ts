@@ -418,7 +418,9 @@ export class Playset {
   private encode(spec: ArchetypeSpec): Float32Array {
     const A = PLAYSET_ARCH;
     const F = PLAYSET_ARCH_FLAG;
-    const d = new Float32Array(PLAYSET_ARCH_LENGTH);
+    const behaviour = spec.brain?.behaviour;
+    const d = new Float32Array(PLAYSET_ARCH_LENGTH + (behaviour ? behaviour.length : 0));
+    if (behaviour) d.set(behaviour, PLAYSET_ARCH_LENGTH);
     d[A.MODEL] = spec.model ? spec.model.id + 1 : 0;
     d[A.SCALE] = spec.scale ?? 1;
     d[A.MOTION] = spec.motion?.kind ?? 0;

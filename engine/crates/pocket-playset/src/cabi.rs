@@ -283,6 +283,7 @@ pub unsafe extern "C" fn pps_clear(p: *mut Playset) {
     s.world.force_release_all();
     s.world.fx.pool.clear();
     s.world.event_count = 0;
+    s.world.step_events = 0;
 }
 
 /// Bring a KEEP_ON_DEATH slot back with `hp`.

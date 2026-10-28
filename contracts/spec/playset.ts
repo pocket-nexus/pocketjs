@@ -83,15 +83,18 @@ export const PLAYSET_EVENT = {
   BOUNDS: 6,
   /** a rule with the PICKUP flag: a = collector, b = item (removed) */
   PICKUP: 7,
-  /** a waypoint brain passed a gate: a = slot, DATA = gate index, VALUE = lap */
-  GATE: 8,
-  /** a snake ate: a = head slot, b = food slot, VALUE = new length */
-  EAT: 9,
-  /** a snake died: a = head slot, b = slot it hit or -1 */
-  CRASH: 10,
-  /** a marble fell through a hole (DATA = hole index) or reached the goal (DATA = -1) */
-  MARBLE: 11,
+  /** a path kernel slot reached the end of its path: a = slot */
+  ARRIVE: 8,
 } as const;
+
+/** Event types from MODULE_EVENT up belong to the genre modules: module m's
+ *  event n is MODULE_EVENT + m * 16 + n (playsetModuleEvent), and each
+ *  module's TS wrapper names its own. */
+export const PLAYSET_MODULE_EVENT = 64;
+
+export function playsetModuleEvent(module: number, n: number): number {
+  return PLAYSET_MODULE_EVENT + module * 16 + n;
+}
 
 /** CAMERA view (read-only): eye, forward and the frame's projection facts. */
 export const PLAYSET_CAMERA_FIELD = {
@@ -235,19 +238,86 @@ export const PLAYSET_MOTION = {
   ATTACHED: 14,
 } as const;
 
+/** BRAIN_P 0..8 choose the target (brains.rs); STEER evaluates the
+ *  archetype's behaviour (PLAYSET_BEHAVIOUR) every step. */
 export const PLAYSET_BRAIN = {
   NONE: 0,
+  STEER: 1,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Behaviours: the floats after an archetype's ARCH_LENGTH in playset.arch()
+// and playset.archSet(). A behaviour is up to STATES states; a state is a
+// head (STATE_HEAD), TERMS weighted steering terms and TRANSITIONS
+// conditions that move the slot to another state (engine steer.rs).
+
+export const PLAYSET_BEHAVIOUR = {
+  HEADER: 4,
+  STATES: 4,
+  STATE_HEAD: 6,
+  TERMS: 4,
+  TERM_LEN: 6,
+  TRANSITIONS: 3,
+  TRANSITION_LEN: 3,
+} as const;
+
+export const PLAYSET_BEHAVIOUR_STATE_LENGTH = 6 + 4 * 6 + 3 * 3;
+export const PLAYSET_BEHAVIOUR_LENGTH = 4 + 4 * PLAYSET_BEHAVIOUR_STATE_LENGTH;
+
+/** A state's head. */
+export const PLAYSET_BEHAVIOUR_STATE = {
+  /** length of the wanted direction, 0..1 of the kernel's speed */
+  SPEED: 0,
+  /** 1 holds the AUX intent (boost, run) */
+  BOOST: 1,
+  /** fire weapon 0 when the target is within this range (0 = hold) and the cone */
+  FIRE_RANGE: 2,
+  FIRE_CONE: 3,
+  /** 1 writes FWD below as the FWD intent (a plane's throttle) */
+  SET_FWD: 4,
+  FWD: 5,
+} as const;
+
+/** A term: kind, weight, a, b, c, d. Distances in metres, times in seconds. */
+export const PLAYSET_STEER = {
+  NONE: 0,
+  /** toward the target; a = slow-down radius, b = stop distance */
   SEEK: 1,
+  /** away from the target */
   FLEE: 2,
+  /** around the target at radius a on side b (+1/-1); c = seconds between
+   *  side flips (0 keeps the side); d = weight of the radial correction */
   ORBIT: 3,
+  /** a heading that turns by up to a radians every b seconds; idles with
+   *  probability c at each turn */
   WANDER: 4,
-  PURSUE: 5,
-  PATH: 6,
-  TURRET: 7,
-  WAYPOINTS: 8,
-  STRAFE: 9,
-  HERD: 10,
-  SNAKE: 11,
+  /** back to the spawn point beyond radius a */
+  HOME: 5,
+  /** toward where the target will be in a seconds */
+  LEAD: 6,
+  /** up while lower than a metres over the ground */
+  ALTITUDE: 7,
+  /** along the slot's own heading */
+  FORWARD: 8,
+  /** up and down at a rad/s, each slot at its own phase */
+  WEAVE: 9,
+} as const;
+
+/** A transition: condition, value, next state. */
+export const PLAYSET_STEER_WHEN = {
+  NONE: 0,
+  /** the target is within value metres */
+  NEAR: 1,
+  /** the target is beyond value metres, or there is none */
+  FAR: 2,
+  /** value seconds in this state */
+  AFTER: 3,
+  /** hit points below value of the archetype's HP */
+  HURT: 4,
+  NO_TARGET: 5,
+  /** with probability value per second */
+  CHANCE: 6,
+  TARGET: 7,
 } as const;
 
 /** One weapon: 16 floats at ARCH.WEAPON0 / WEAPON1. */

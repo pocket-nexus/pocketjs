@@ -1,7 +1,10 @@
 //! End-to-end checks of one Playset: content, a step, a frame.
 
 use crate::model::tests::boxes;
-use crate::schema::{arch as A, arch_flag as AF, brain as B, event as EV, event_field as EF, motion as M, rule as R, weapon as W};
+use crate::schema::{
+    arch as A, arch_flag as AF, behaviour as L, behaviour_state as H, brain as B, event as EV, event_field as EF, motion as M, rule as R, steer as T,
+    steer_when as C, weapon as W,
+};
 use crate::vec::*;
 use crate::Playset;
 use alloc::vec;
@@ -9,6 +12,47 @@ use alloc::vec::Vec;
 
 fn arch() -> Vec<f32> {
     vec![0.0; crate::schema::ARCH_LENGTH]
+}
+
+/// One behaviour state: speed, fire range and cone, FWD, terms
+/// (kind, weight, a, b, c, d), transitions (condition, value, next).
+struct State {
+    speed: f32,
+    fire: (f32, f32),
+    fwd: Option<f32>,
+    terms: Vec<[f32; 6]>,
+    next: Vec<[f32; 3]>,
+}
+
+fn state(speed: f32, fire: (f32, f32), terms: &[[f32; 6]], next: &[[f32; 3]]) -> State {
+    State { speed, fire, fwd: None, terms: terms.to_vec(), next: next.to_vec() }
+}
+
+/// A STEER descriptor: `d` followed by its behaviour.
+fn steering(mut d: Vec<f32>, states: &[State]) -> Vec<f32> {
+    d.truncate(crate::schema::ARCH_LENGTH);
+    d[A::BRAIN] = B::STEER as f32;
+    let mut b = vec![0.0f32; crate::schema::BEHAVIOUR_LENGTH];
+    for (i, st) in states.iter().enumerate() {
+        let at = L::HEADER + i * crate::schema::BEHAVIOUR_STATE_LENGTH;
+        b[at + H::SPEED] = st.speed;
+        b[at + H::FIRE_RANGE] = st.fire.0;
+        b[at + H::FIRE_CONE] = st.fire.1;
+        if let Some(f) = st.fwd {
+            b[at + H::SET_FWD] = 1.0;
+            b[at + H::FWD] = f;
+        }
+        for (k, t) in st.terms.iter().enumerate() {
+            let o = at + L::STATE_HEAD + k * L::TERM_LEN;
+            b[o..o + 6].copy_from_slice(t);
+        }
+        for (k, t) in st.next.iter().enumerate() {
+            let o = at + L::STATE_HEAD + L::TERMS * L::TERM_LEN + k * L::TRANSITION_LEN;
+            b[o..o + 3].copy_from_slice(t);
+        }
+    }
+    d.extend_from_slice(&b);
+    d
 }
 
 #[test]
@@ -28,7 +72,6 @@ fn shooter_kills_target_and_reports_it() {
     let mut gun = arch();
     gun[A::MODEL] = (model + 1) as f32;
     gun[A::LAYER] = 1.0;
-    gun[A::BRAIN] = B::TURRET as f32;
     gun[A::MOTION] = M::TURRET as f32;
     gun[A::MOTION_P] = 10.0;
     gun[A::MOTION_P + 1] = 10.0;
@@ -36,12 +79,10 @@ fn shooter_kills_target_and_reports_it() {
     gun[A::MOTION_P + 3] = 1.0;
     gun[A::BRAIN_P] = 1.0;
     gun[A::BRAIN_P + 1] = 4.0;
-    gun[A::BRAIN_P + 6] = 50.0;
-    gun[A::BRAIN_P + 7] = 0.2;
     gun[A::WEAPON0 + W::PROJECTILE] = (shot + 1) as f32;
     gun[A::WEAPON0 + W::COOLDOWN] = 0.2;
     gun[A::WEAPON0 + W::SPEED] = 30.0;
-    let gun = ps.world.add_arch(&gun);
+    let gun = ps.world.add_arch(&steering(gun, &[state(1.0, (50.0, 0.2), &[], &[])]));
     let mut target = arch();
     target[A::MODEL] = (model + 1) as f32;
     target[A::LAYER] = 4.0;
@@ -156,12 +197,11 @@ fn a_leading_turret_targets_the_creep_furthest_along_its_path() {
     creep[A::RADIUS] = 0.5;
     let creep = ps.world.add_arch(&creep);
     let mut tower = arch();
-    tower[A::BRAIN] = B::TURRET as f32;
     tower[A::BRAIN_P] = 4.0;
     tower[A::BRAIN_P + 1] = 4.0;
     tower[A::BRAIN_P + 5] = 30.0;
     tower[A::BRAIN_P + 8] = 0.05;
-    let tower = ps.world.add_arch(&tower);
+    let tower = ps.world.add_arch(&steering(tower, &[state(1.0, (0.0, 0.0), &[], &[])]));
     let t = ps.world.spawn(&ps.scene, tower as usize, v3(0.0, 0.0, 5.0), 0.0) as usize;
     // the first creep starts sooner and stays ahead; the second is nearer the tower
     let first = ps.world.spawn(&ps.scene, creep as usize, v3(-20.0, 0.0, 0.0), 0.0);
@@ -233,14 +273,23 @@ fn banked_plane_holds_its_floor_and_pursue_breaks_away() {
     }
     assert!(ps.world.pos(s).y >= 7.0 - 1e-3, "stopped at the floor, y = {}", ps.world.pos(s).y);
     // a pursuer inside its breakaway distance turns away from the target
-    let mut hunter = ps.world.archs[a];
-    hunter[A::BRAIN] = B::PURSUE as f32;
+    // (the brain.pursue preset with breakaway 70 and throttleDistance 90)
+    let mut hunter = ps.world.archs[a].to_vec();
     hunter[A::BRAIN_P] = 1.0;
     hunter[A::BRAIN_P + 1] = 1.0;
-    hunter[A::BRAIN_P + 9] = 70.0;
-    hunter[A::BRAIN_P + 11] = 90.0;
     hunter[A::LAYER] = 2.0;
-    let hunter = ps.world.add_arch(&hunter) as usize;
+    let seek = [T::SEEK as f32, 1.0, 0.0, 0.0, 0.0, 0.0];
+    let flee = [T::FLEE as f32, 1.0, 0.0, 0.0, 0.0, 0.0];
+    let (near, breakaway, far) = (C::NEAR as f32, C::NEAR as f32, C::FAR as f32);
+    let mut states = vec![
+        state(1.0, (50.0, 0.3), &[seek], &[[breakaway, 70.0, 2.0], [near, 90.0, 1.0]]),
+        state(1.0, (50.0, 0.3), &[seek], &[[breakaway, 70.0, 2.0], [far, 90.0, 0.0]]),
+        state(1.0, (0.0, 0.0), &[flee], &[[far, 70.0, 1.0]]),
+    ];
+    states[0].fwd = Some(1.0);
+    states[1].fwd = Some(-0.25);
+    states[2].fwd = Some(-0.25);
+    let hunter = ps.world.add_arch(&steering(hunter, &states)) as usize;
     let at = ps.world.pos(s) + v3(30.0, 10.0, 0.0);
     let h = ps.world.spawn(&ps.scene, hunter, at, 0.0) as usize;
     ps.step(1.0 / 60.0);
@@ -280,13 +329,14 @@ fn seek_scales_its_speed_inside_near() {
     hunter[A::MOTION] = M::PLANAR as f32;
     hunter[A::MOTION_P] = 1000.0;
     hunter[A::MOTION_P + 1] = 10.0;
-    hunter[A::BRAIN] = B::SEEK as f32;
     hunter[A::BRAIN_P] = 1.0;
     hunter[A::BRAIN_P + 1] = 1.0;
-    hunter[A::BRAIN_P + 10] = 0.5;
-    hunter[A::BRAIN_P + 11] = 20.0;
-    hunter[A::BRAIN_P + 12] = 2.0;
-    let hunter = ps.world.add_arch(&hunter);
+    // the brain.seek preset with speed 0.5, near 20 and nearSpeed 2
+    let seek = [T::SEEK as f32, 1.0, 0.0, 0.0, 0.0, 0.0];
+    let hunter = ps.world.add_arch(&steering(
+        hunter,
+        &[state(0.5, (0.0, 0.0), &[seek], &[[C::NEAR as f32, 20.0, 1.0]]), state(1.0, (0.0, 0.0), &[seek], &[[C::FAR as f32, 20.0, 0.0]])],
+    ));
     ps.world.spawn(&ps.scene, prey as usize, v3(0.0, 0.0, 0.0), 0.0);
     let far = ps.world.spawn(&ps.scene, hunter as usize, v3(50.0, 0.0, 0.0), 0.0) as usize;
     let near = ps.world.spawn(&ps.scene, hunter as usize, v3(0.0, 0.0, 10.0), 0.0) as usize;
@@ -296,4 +346,21 @@ fn seek_scales_its_speed_inside_near() {
     let (vf, vn) = (ps.world.vel(far).len(), ps.world.vel(near).len());
     assert!((vf - 5.0).abs() < 0.1, "outside near: half speed, {vf}");
     assert!((vn - 10.0).abs() < 0.1, "inside near: twice that, {vn}");
+}
+
+#[test]
+fn a_kill_between_steps_reports_its_death_in_the_next_step() {
+    let mut ps = Playset::new(16, 0);
+    let mut a = arch();
+    a[A::HP] = 5.0;
+    let a = ps.world.add_arch(&a);
+    let s = ps.world.spawn(&ps.scene, a as usize, Vec3::ZERO, 0.0) as usize;
+    ps.step(1.0 / 60.0);
+    // what a guest's play.kill(slot, "event") does after reading the step
+    ps.world.kill_mode(s, -1, crate::world::KILL_EVENT);
+    let n = ps.step(1.0 / 60.0);
+    let deaths = (0..n).filter(|&e| ps.world.events[e * 8 + EF::TYPE] as u32 == EV::DEATH && ps.world.events[e * 8 + EF::A] as usize == s).count();
+    assert_eq!(deaths, 1);
+    let n = ps.step(1.0 / 60.0);
+    assert_eq!((0..n).filter(|&e| ps.world.events[e * 8 + EF::TYPE] as u32 == EV::DEATH).count(), 0, "reported once");
 }

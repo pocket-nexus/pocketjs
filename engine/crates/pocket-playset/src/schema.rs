@@ -65,6 +65,29 @@ pub mod arch_sound {
     pub const VOLUME: usize = 120;
 }
 
+pub mod behaviour {
+    pub const HEADER: usize = 4;
+    pub const STATES: usize = 4;
+    pub const STATE_HEAD: usize = 6;
+    pub const TERMS: usize = 4;
+    pub const TERM_LEN: usize = 6;
+    pub const TRANSITIONS: usize = 3;
+    pub const TRANSITION_LEN: usize = 3;
+}
+
+pub const BEHAVIOUR_LENGTH: usize = 160;
+
+pub mod behaviour_state {
+    pub const SPEED: usize = 0;
+    pub const BOOST: usize = 1;
+    pub const FIRE_RANGE: usize = 2;
+    pub const FIRE_CONE: usize = 3;
+    pub const SET_FWD: usize = 4;
+    pub const FWD: usize = 5;
+}
+
+pub const BEHAVIOUR_STATE_LENGTH: usize = 39;
+
 pub mod blend {
     pub const OPAQUE: u32 = 0;
     pub const ALPHA: u32 = 1;
@@ -81,17 +104,7 @@ pub mod bounds {
 
 pub mod brain {
     pub const NONE: u32 = 0;
-    pub const SEEK: u32 = 1;
-    pub const FLEE: u32 = 2;
-    pub const ORBIT: u32 = 3;
-    pub const WANDER: u32 = 4;
-    pub const PURSUE: u32 = 5;
-    pub const PATH: u32 = 6;
-    pub const TURRET: u32 = 7;
-    pub const WAYPOINTS: u32 = 8;
-    pub const STRAFE: u32 = 9;
-    pub const HERD: u32 = 10;
-    pub const SNAKE: u32 = 11;
+    pub const STEER: u32 = 1;
 }
 
 pub mod camera {
@@ -209,10 +222,7 @@ pub mod event {
     pub const GROUND: u32 = 5;
     pub const BOUNDS: u32 = 6;
     pub const PICKUP: u32 = 7;
-    pub const GATE: u32 = 8;
-    pub const EAT: u32 = 9;
-    pub const CRASH: u32 = 10;
-    pub const MARBLE: u32 = 11;
+    pub const ARRIVE: u32 = 8;
 }
 
 pub mod event_field {
@@ -284,6 +294,8 @@ pub mod module {
     pub const MARBLE: u32 = 2;
     pub const VOXEL: u32 = 3;
 }
+
+pub const MODULE_EVENT: usize = 64;
 
 pub mod motion {
     pub const NONE: u32 = 0;
@@ -402,6 +414,30 @@ pub mod state {
     pub const FROZEN: u32 = 4;
     pub const DEAD: u32 = 8;
     pub const IN_WATER: u32 = 16;
+}
+
+pub mod steer {
+    pub const NONE: u32 = 0;
+    pub const SEEK: u32 = 1;
+    pub const FLEE: u32 = 2;
+    pub const ORBIT: u32 = 3;
+    pub const WANDER: u32 = 4;
+    pub const HOME: u32 = 5;
+    pub const LEAD: u32 = 6;
+    pub const ALTITUDE: u32 = 7;
+    pub const FORWARD: u32 = 8;
+    pub const WEAVE: u32 = 9;
+}
+
+pub mod steer_when {
+    pub const NONE: u32 = 0;
+    pub const NEAR: u32 = 1;
+    pub const FAR: u32 = 2;
+    pub const AFTER: u32 = 3;
+    pub const HURT: u32 = 4;
+    pub const NO_TARGET: u32 = 5;
+    pub const CHANCE: u32 = 6;
+    pub const TARGET: u32 = 7;
 }
 
 pub mod stride {

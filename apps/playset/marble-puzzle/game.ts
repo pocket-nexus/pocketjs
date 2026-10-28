@@ -20,7 +20,7 @@
 // (the demo has none); the moving blocks' clock starts with each level.
 
 import { EVENT, ENT, createPlayset, joint, motion, sfx, type Archetype, type Playset, type Sound } from "@pocketjs/framework/playset";
-import { MARBLE_PHASE, MARBLE_STATE, MarbleBoard, type MarbleLevel } from "@pocketjs/framework/playset/marble";
+import { MARBLE_EVENT, MARBLE_PHASE, MARBLE_STATE, MarbleBoard, type MarbleLevel } from "@pocketjs/framework/playset/marble";
 import * as V from "./visuals.ts";
 import type { GameStatus, Pad, PlaysetGame } from "../kit/game.ts";
 
@@ -191,7 +191,7 @@ export class MarblePuzzle {
     this.levelCue = play.sound(sfx.wave());
     this.roll = play.sound({ ...sfx.roll(), volume: 0.5 });
 
-    play.on(EVENT.MARBLE, (_m, _b, data, _x, _y, _z, elapsed) => this.onMarble(data, elapsed));
+    play.on(MARBLE_EVENT.END, (_m, _b, data, _x, _y, _z, elapsed) => this.onMarble(data, elapsed));
     play.on(EVENT.PICKUP, (_m, _s, _i, _x, _y, _z, collected) => {
       this.hud.collected = collected;
     });

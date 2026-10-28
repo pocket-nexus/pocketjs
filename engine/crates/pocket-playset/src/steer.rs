@@ -1,66 +1,20 @@
 //! Behaviours as data: a few states, each a weighted sum of steering terms
-//! with a speed, a boost and a fire policy, and transitions on conditions.
+//! with a speed, a boost, a fire range and an optional FWD intent, and
+//! transitions on conditions.
 //!
-//! The guest composes a behaviour once (TS presets build STRAFE, PURSUE and
-//! HERD from these parts); every step evaluates it per slot with no guest
+//! The guest composes a behaviour once (`brain.*` in the TS SDK are presets
+//! built from these parts); every step evaluates it per slot with no guest
 //! code. Nothing here knows a game: the terms are vector arithmetic, the
 //! conditions compare distances, times and hit points.
 //!
-//! Layout of one behaviour (floats): HEADER, then STATES states of
-//! STATE_LEN floats. A state: speed, boost, fire range, fire cone, then
+//! Layout (PLAYSET_BEHAVIOUR): HEADER floats, then STATES states of
+//! BEHAVIOUR_STATE_LENGTH floats. A state: its head (PLAYSET_BEHAVIOUR_STATE),
 //! TERMS terms of TERM_LEN (kind, weight, a, b, c, d), then TRANSITIONS of
 //! TRANSITION_LEN (condition, value, next state).
 
 use crate::fmath::*;
+use crate::schema::{behaviour as L, behaviour_state as H, steer as term, steer_when as cond, BEHAVIOUR_LENGTH, BEHAVIOUR_STATE_LENGTH};
 use crate::vec::*;
-
-pub const HEADER: usize = 4;
-pub const STATES: usize = 4;
-pub const TERMS: usize = 4;
-pub const TERM_LEN: usize = 6;
-pub const TRANSITIONS: usize = 3;
-pub const TRANSITION_LEN: usize = 3;
-pub const STATE_HEAD: usize = 4;
-pub const STATE_LEN: usize = STATE_HEAD + TERMS * TERM_LEN + TRANSITIONS * TRANSITION_LEN;
-pub const LEN: usize = HEADER + STATES * STATE_LEN;
-
-/// Steering terms. Distances in metres, times in seconds.
-pub mod term {
-    pub const NONE: u32 = 0;
-    /// toward the target; a = slow-down radius (arrive), b = stop distance
-    pub const SEEK: u32 = 1;
-    /// away from the target
-    pub const FLEE: u32 = 2;
-    /// around the target at radius a, side +1/-1 by b; c = seconds between
-    /// side flips (0 keeps the side); d = weight of the radial correction
-    pub const ORBIT: u32 = 3;
-    /// a heading that drifts by up to a radians every b seconds
-    pub const WANDER: u32 = 4;
-    /// back to the spawn point beyond radius a
-    pub const HOME: u32 = 5;
-    /// toward where the target will be in a seconds
-    pub const LEAD: u32 = 6;
-    /// up when closer than a metres to the ground (flight)
-    pub const ALTITUDE: u32 = 7;
-    /// the slot's own facing (keep going)
-    pub const FORWARD: u32 = 8;
-}
-
-/// Transition conditions.
-pub mod cond {
-    pub const NONE: u32 = 0;
-    /// target within value metres
-    pub const NEAR: u32 = 1;
-    /// target beyond value metres, or none
-    pub const FAR: u32 = 2;
-    /// value seconds in this state
-    pub const AFTER: u32 = 3;
-    /// hit points below value of the maximum
-    pub const HURT: u32 = 4;
-    pub const NO_TARGET: u32 = 5;
-    /// with probability value per second
-    pub const CHANCE: u32 = 6;
-}
 
 /// What a behaviour reads about its slot and target this step.
 pub struct Input {
@@ -69,12 +23,16 @@ pub struct Input {
     pub home: Vec3,
     pub ground: f32,
     pub hp_frac: f32,
+    /// the target's position and velocity
     pub target: Option<(Vec3, Vec3)>,
+    pub time: f32,
+    /// a per-slot phase for WEAVE
+    pub phase: f32,
     pub dt: f32,
 }
 
 /// What it asks for: a wanted direction (length = speed fraction), boost,
-/// whether to fire, and where to face.
+/// where to fire, where to face, and whether its state steers at all.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Output {
     pub want: Vec3,
@@ -82,10 +40,13 @@ pub struct Output {
     pub fire_range: f32,
     pub fire_cone: f32,
     pub face: Option<Vec3>,
+    pub fwd: Option<f32>,
+    /// false for a state without terms: the brain leaves the movement
+    /// intents alone (a turret's)
+    pub drives: bool,
 }
 
-/// Per-slot state: current state, time in it, wander heading and timer,
-/// orbit side and its timer.
+/// Per-slot state, kept in the slot's brain floats 1..8.
 #[derive(Clone, Copy, Default)]
 pub struct Memory {
     pub state: u8,
@@ -94,26 +55,41 @@ pub struct Memory {
     pub wander_timer: f32,
     pub side: f32,
     pub side_timer: f32,
+    pub idle: bool,
+}
+
+impl Memory {
+    pub fn load(b: &[f32]) -> Memory {
+        Memory { state: b[0] as u8, time: b[1], wander: b[2], wander_timer: b[3], side: b[4], side_timer: b[5], idle: b[6] > 0.5 }
+    }
+    pub fn store(&self, b: &mut [f32]) {
+        b[0] = self.state as f32;
+        b[1] = self.time;
+        b[2] = self.wander;
+        b[3] = self.wander_timer;
+        b[4] = self.side;
+        b[5] = self.side_timer;
+        b[6] = if self.idle { 1.0 } else { 0.0 };
+    }
 }
 
 fn state(d: &[f32], s: usize) -> &[f32] {
-    let at = HEADER + s.min(STATES - 1) * STATE_LEN;
-    &d[at..at + STATE_LEN]
+    let at = L::HEADER + s.min(L::STATES - 1) * BEHAVIOUR_STATE_LENGTH;
+    &d[at..at + BEHAVIOUR_STATE_LENGTH]
 }
 
 /// Evaluate one step; transitions apply before the terms of the state they
 /// land in.
 pub fn evaluate(d: &[f32], m: &mut Memory, i: &Input, rng: &mut Rng) -> Output {
-    if d.len() < LEN {
+    if d.len() < BEHAVIOUR_LENGTH {
         return Output::default();
     }
     m.time += i.dt;
-    // transitions
+    let dist = i.target.map(|(p, _)| (p - i.pos).len());
     let st = state(d, m.state as usize);
-    for t in 0..TRANSITIONS {
-        let at = STATE_HEAD + TERMS * TERM_LEN + t * TRANSITION_LEN;
+    for t in 0..L::TRANSITIONS {
+        let at = L::STATE_HEAD + L::TERMS * L::TERM_LEN + t * L::TRANSITION_LEN;
         let (c, value, next) = (st[at] as u32, st[at + 1], st[at + 2] as usize);
-        let dist = i.target.map(|(p, _)| (p - i.pos).len());
         let fire = match c {
             cond::NEAR => dist.is_some_and(|x| x <= value),
             cond::FAR => dist.is_none_or(|x| x > value),
@@ -121,22 +97,27 @@ pub fn evaluate(d: &[f32], m: &mut Memory, i: &Input, rng: &mut Rng) -> Output {
             cond::HURT => i.hp_frac < value,
             cond::NO_TARGET => i.target.is_none(),
             cond::CHANCE => rng.next() < value * i.dt,
+            cond::TARGET => i.target.is_some(),
             _ => false,
         };
-        if fire && next < STATES {
+        if fire && next < L::STATES {
             m.state = next as u8;
             m.time = 0.0;
             break;
         }
     }
     let st = state(d, m.state as usize);
-    let speed = if st[0] > 0.0 { st[0] } else { 1.0 };
     let mut want = Vec3::ZERO;
     let mut face = None;
-    for k in 0..TERMS {
-        let at = STATE_HEAD + k * TERM_LEN;
+    let mut drives = false;
+    for k in 0..L::TERMS {
+        let at = L::STATE_HEAD + k * L::TERM_LEN;
         let (kind, weight, a, b, c, dd) = (st[at] as u32, st[at + 1], st[at + 2], st[at + 3], st[at + 4], st[at + 5]);
-        if kind == term::NONE || weight == 0.0 {
+        if kind == term::NONE {
+            continue;
+        }
+        drives = true;
+        if weight == 0.0 {
             continue;
         }
         let v = match kind {
@@ -144,10 +125,17 @@ pub fn evaluate(d: &[f32], m: &mut Memory, i: &Input, rng: &mut Rng) -> Output {
                 Some((tp, tv)) => {
                     let aim = if kind == term::LEAD { tp + tv * a } else { tp };
                     let delta = aim - i.pos;
-                    let dist = delta.len();
+                    let flat = delta.flat().len();
                     face = Some(aim);
-                    let stop = if kind == term::SEEK { b } else { 0.0 };
-                    let slow = if kind == term::SEEK && a > 0.0 { clampf((dist - stop) / a, 0.0, 1.0) } else if dist > stop { 1.0 } else { 0.0 };
+                    let slow = if kind == term::LEAD {
+                        1.0
+                    } else if a > 0.0 {
+                        clampf((flat - b) / a, 0.0, 1.0)
+                    } else if flat > b {
+                        1.0
+                    } else {
+                        0.0
+                    };
                     delta.normalized() * slow
                 }
                 None => Vec3::ZERO,
@@ -174,17 +162,25 @@ pub fn evaluate(d: &[f32], m: &mut Memory, i: &Input, rng: &mut Rng) -> Output {
                     let tangent = v3(-radial.z, 0.0, radial.x) * m.side;
                     let correction = clampf((dist - a) / maxf(a * 0.5, 1.0), -1.0, 1.0);
                     face = Some(tp);
-                    (tangent + radial * (correction * if dd > 0.0 { dd } else { 1.0 })).normalized()
+                    (tangent + radial * (correction * dd)).normalized()
                 }
                 None => Vec3::ZERO,
             },
             term::WANDER => {
+                if m.wander == 0.0 && m.wander_timer == 0.0 {
+                    m.wander = i.yaw;
+                }
                 m.wander_timer -= i.dt;
                 if m.wander_timer <= 0.0 {
                     m.wander_timer = (if b > 0.0 { b } else { 2.0 }) * (0.5 + rng.next());
-                    m.wander += rng.signed() * a;
+                    m.wander = wrap_angle(m.wander + rng.signed() * a);
+                    m.idle = rng.next() < c;
                 }
-                forward_of(m.wander)
+                if m.idle {
+                    Vec3::ZERO
+                } else {
+                    forward_of(m.wander)
+                }
             }
             term::HOME => {
                 let to = (i.home - i.pos).flat();
@@ -202,42 +198,54 @@ pub fn evaluate(d: &[f32], m: &mut Memory, i: &Input, rng: &mut Rng) -> Output {
                 }
             }
             term::FORWARD => forward_of(i.yaw),
+            term::WEAVE => v3(0.0, sinf(i.time * a + i.phase), 0.0),
             _ => Vec3::ZERO,
         };
         want += v * weight;
     }
     let len = want.len();
     let want = if len > 1.0 { want * (1.0 / len) } else { want };
-    Output { want: want * speed, boost: st[1] > 0.5, fire_range: st[2], fire_cone: st[3], face }
+    Output {
+        want: want * st[H::SPEED],
+        boost: st[H::BOOST] > 0.5,
+        fire_range: st[H::FIRE_RANGE],
+        fire_cone: st[H::FIRE_CONE],
+        face,
+        fwd: if st[H::SET_FWD] > 0.5 { Some(st[H::FWD]) } else { None },
+        drives,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn behaviour(states: &[(f32, f32, [(u32, f32, f32, f32, f32, f32); TERMS], [(u32, f32, f32); TRANSITIONS])]) -> [f32; LEN] {
-        let mut d = [0.0f32; LEN];
+    type Term = (u32, f32, f32, f32, f32, f32);
+    type Transition = (u32, f32, f32);
+
+    fn behaviour(states: &[(f32, f32, [Term; L::TERMS], [Transition; L::TRANSITIONS])]) -> [f32; BEHAVIOUR_LENGTH] {
+        let mut d = [0.0f32; BEHAVIOUR_LENGTH];
         for (s, (speed, boost, terms, transitions)) in states.iter().enumerate() {
-            let at = HEADER + s * STATE_LEN;
-            d[at] = *speed;
-            d[at + 1] = *boost;
+            let at = L::HEADER + s * BEHAVIOUR_STATE_LENGTH;
+            d[at + H::SPEED] = *speed;
+            d[at + H::BOOST] = *boost;
             for (k, t) in terms.iter().enumerate() {
-                let o = at + STATE_HEAD + k * TERM_LEN;
+                let o = at + L::STATE_HEAD + k * L::TERM_LEN;
                 d[o..o + 6].copy_from_slice(&[t.0 as f32, t.1, t.2, t.3, t.4, t.5]);
             }
             for (k, t) in transitions.iter().enumerate() {
-                let o = at + STATE_HEAD + TERMS * TERM_LEN + k * TRANSITION_LEN;
+                let o = at + L::STATE_HEAD + L::TERMS * L::TERM_LEN + k * L::TRANSITION_LEN;
                 d[o..o + 3].copy_from_slice(&[t.0 as f32, t.1, t.2]);
             }
         }
         d
     }
 
-    const NO_TERM: (u32, f32, f32, f32, f32, f32) = (0, 0.0, 0.0, 0.0, 0.0, 0.0);
-    const NO_TR: (u32, f32, f32) = (0, 0.0, 0.0);
+    const NO_TERM: Term = (0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    const NO_TR: Transition = (0, 0.0, 0.0);
 
     fn input(pos: Vec3, target: Option<Vec3>, dt: f32) -> Input {
-        Input { pos, yaw: 0.0, home: Vec3::ZERO, ground: 0.0, hp_frac: 1.0, target: target.map(|t| (t, Vec3::ZERO)), dt }
+        Input { pos, yaw: 0.0, home: Vec3::ZERO, ground: 0.0, hp_frac: 1.0, target: target.map(|t| (t, Vec3::ZERO)), time: 0.0, phase: 0.0, dt }
     }
 
     #[test]
@@ -288,5 +296,22 @@ mod tests {
             sides[(m.side > 0.0) as usize] += 1;
         }
         assert!(sides[0] > 0 && sides[1] > 0);
+    }
+
+    #[test]
+    fn a_state_without_terms_does_not_drive() {
+        let d = behaviour(&[(1.0, 0.0, [NO_TERM; 4], [NO_TR; 3])]);
+        let out = evaluate(&d, &mut Memory::default(), &input(Vec3::ZERO, Some(v3(5.0, 0.0, 0.0)), 0.016), &mut Rng(1));
+        assert!(!out.drives);
+    }
+
+    #[test]
+    fn memory_round_trips_through_brain_floats() {
+        let m = Memory { state: 2, time: 1.5, wander: 0.3, wander_timer: 0.7, side: -1.0, side_timer: 0.2, idle: true };
+        let mut b = [0.0f32; 7];
+        m.store(&mut b);
+        let back = Memory::load(&b);
+        assert_eq!(back.state, 2);
+        assert!(back.idle && back.side == -1.0 && back.time == 1.5);
     }
 }

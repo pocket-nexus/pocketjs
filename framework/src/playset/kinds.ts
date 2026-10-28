@@ -7,7 +7,18 @@
 // Intent signs, for every kernel: X > 0 strafes right, FWD > 0 forward,
 // TURN > 0 turns right, RISE > 0 climbs or pitches up.
 
-import { PLAYSET_AIM, PLAYSET_BRAIN, PLAYSET_JOINT_DRIVER, PLAYSET_MOTION } from "../../../contracts/spec/playset.ts";
+import {
+  PLAYSET_AIM,
+  PLAYSET_BEHAVIOUR,
+  PLAYSET_BEHAVIOUR_LENGTH,
+  PLAYSET_BEHAVIOUR_STATE,
+  PLAYSET_BEHAVIOUR_STATE_LENGTH,
+  PLAYSET_BRAIN,
+  PLAYSET_JOINT_DRIVER,
+  PLAYSET_MOTION,
+  PLAYSET_STEER,
+  PLAYSET_STEER_WHEN,
+} from "../../../contracts/spec/playset.ts";
 
 export interface Motion {
   readonly kind: number;
@@ -17,6 +28,8 @@ export interface Motion {
 export interface Brain {
   readonly kind: number;
   readonly p: readonly number[];
+  /** the encoded behaviour a STEER brain evaluates (PLAYSET_BEHAVIOUR_LENGTH floats) */
+  readonly behaviour?: readonly number[];
 }
 
 const frames = { world: 0, heading: 1, tank: 2 } as const;
@@ -87,10 +100,12 @@ export const motion = {
     wheelbase?: number;
     gravity?: number;
     boost?: number;
+    /** top speed while boosting, times maxSpeed */
+    boostTop?: number;
   } = {}): Motion {
     return {
       kind: PLAYSET_MOTION.CAR,
-      p: [o.accel ?? 18, o.maxSpeed ?? 30, o.reverse ?? 8, o.brake ?? 30, o.steer ?? 0.55, o.steerRate ?? 3, o.grip ?? 8, o.drag ?? 0.15, o.driftGrip ?? 1.2, o.wheelbase ?? 2.4, o.gravity ?? 1, o.boost ?? 0],
+      p: [o.accel ?? 18, o.maxSpeed ?? 30, o.reverse ?? 8, o.brake ?? 30, o.steer ?? 0.55, o.steerRate ?? 3, o.grip ?? 8, o.drag ?? 0.15, o.driftGrip ?? 1.2, o.wheelbase ?? 2.4, o.gravity ?? 1, o.boost ?? 0, o.boostTop ?? 1.25],
     };
   },
   /** A hull on the water: FWD throttle, TURN rudder; rides the waves. */
@@ -155,11 +170,15 @@ export const motion = {
     minY?: number;
     maxY?: number;
     frame?: "heading" | "world" | "camera";
+    /** speed while AUX is held, times maxSpeed */
+    boost?: number;
+    /** most pitch and roll the lean into acceleration reaches, radians */
+    lean?: number;
   } = {}): Motion {
     const frame = { heading: 0, world: 1, camera: 2 }[o.frame ?? "heading"];
     return {
       kind: PLAYSET_MOTION.HOVER,
-      p: [o.accel ?? 20, o.maxSpeed ?? 10, o.damping ?? 3, o.vertical ?? 12, o.maxVertical ?? 6, o.turnRate ?? 2.2, o.tilt ?? 3, o.gravity ?? 0, o.minY ?? 0.5, o.maxY ?? 0, frame],
+      p: [o.accel ?? 20, o.maxSpeed ?? 10, o.damping ?? 3, o.vertical ?? 12, o.maxVertical ?? 6, o.turnRate ?? 2.2, o.tilt ?? 3, o.gravity ?? 0, o.minY ?? 0.5, o.maxY ?? 0, frame, o.boost ?? 1.6, o.lean ?? 0.5],
     };
   },
   /** Along a path at SPEED (ENT.SPEED; the guest may change it per slot). */
@@ -171,10 +190,10 @@ export const motion = {
     return { kind: PLAYSET_MOTION.TURRET, p: [o.yawRate ?? 3, o.pitchRate ?? 2, o.minPitch ?? -0.3, o.maxPitch ?? 1] };
   },
   /** Lanes toward -Z: X changes lane on the press, JUMP/RISE jumps, RISE < 0 slides. */
-  runner(o: { speed?: number; accel?: number; maxSpeed?: number; laneWidth?: number; lanes?: number; laneRate?: number; jump?: number; gravity?: number; slide?: number } = {}): Motion {
+  runner(o: { speed?: number; accel?: number; maxSpeed?: number; laneWidth?: number; lanes?: number; laneRate?: number; jump?: number; gravity?: number; slide?: number; slideLean?: number } = {}): Motion {
     return {
       kind: PLAYSET_MOTION.RUNNER,
-      p: [o.speed ?? 12, o.accel ?? 0.25, o.maxSpeed ?? 30, o.laneWidth ?? 2.5, o.lanes ?? 3, o.laneRate ?? 14, o.jump ?? 9, o.gravity ?? 1.4, o.slide ?? 0.7],
+      p: [o.speed ?? 12, o.accel ?? 0.25, o.maxSpeed ?? 30, o.laneWidth ?? 2.5, o.lanes ?? 3, o.laneRate ?? 14, o.jump ?? 9, o.gravity ?? 1.4, o.slide ?? 0.7, o.slideLean ?? 1.1],
     };
   },
   /** Rides another slot (Playset.attach sets the parent and offset). */
@@ -198,20 +217,95 @@ export type Target =
   | { readonly slot: true }
   | { readonly point: readonly [number, number, number] };
 
-interface BrainCommon {
-  target?: Target;
-  /** fire weapon 0 when the target is within range and inside the cone */
-  fireRange?: number;
-  fireCone?: number;
-  /** distance to keep (seek stops, orbit circles, strafe holds) */
-  distance?: number;
+/** One steering term: kind, weight and four parameters (PLAYSET_STEER). */
+export type SteerTerm = readonly [kind: number, weight: number, a: number, b: number, c: number, d: number];
+/** One transition: condition, value, the state it moves to (PLAYSET_STEER_WHEN). */
+export type SteerTransition = readonly [condition: number, value: number, next: number];
+
+/** Steering terms. A state sums its terms by weight; the sum's length is
+ *  capped at 1 and scaled by the state's speed. */
+export const steer = {
+  /** toward the target, slowing inside `slow` metres of `stop` and halting there */
+  seek: (weight = 1, o: { slow?: number; stop?: number } = {}): SteerTerm => [PLAYSET_STEER.SEEK, weight, o.slow ?? 0, o.stop ?? 0, 0, 0],
+  flee: (weight = 1): SteerTerm => [PLAYSET_STEER.FLEE, weight, 0, 0, 0, 0],
+  /** around the target at `radius`; `flip` seconds between side changes
+   *  (0 keeps `side`); `correction` weighs the pull back to the radius */
+  orbit: (radius: number, o: { weight?: number; side?: 1 | -1; flip?: number; correction?: number } = {}): SteerTerm => [
+    PLAYSET_STEER.ORBIT, o.weight ?? 1, radius, o.side ?? 1, o.flip ?? 0, o.correction ?? 1,
+  ],
+  /** a heading that turns by up to `turn` radians every `every` seconds; at
+   *  each turn it rests with probability `idle` */
+  wander: (o: { weight?: number; turn?: number; every?: number; idle?: number } = {}): SteerTerm => [
+    PLAYSET_STEER.WANDER, o.weight ?? 1, o.turn ?? 1.5, o.every ?? 2, o.idle ?? 0, 0,
+  ],
+  /** back toward the spawn point while further than `radius` */
+  home: (radius: number, weight = 1): SteerTerm => [PLAYSET_STEER.HOME, weight, radius, 0, 0, 0],
+  /** toward where the target will be in `seconds` */
+  lead: (seconds: number, weight = 1): SteerTerm => [PLAYSET_STEER.LEAD, weight, seconds, 0, 0, 0],
+  /** up while lower than `metres` over the ground */
+  altitude: (metres: number, weight = 1): SteerTerm => [PLAYSET_STEER.ALTITUDE, weight, metres, 0, 0, 0],
+  /** along the current heading */
+  forward: (weight = 1): SteerTerm => [PLAYSET_STEER.FORWARD, weight, 0, 0, 0, 0],
+  /** up and down at `rate` rad/s, each slot at its own phase */
+  weave: (rate: number, weight: number): SteerTerm => [PLAYSET_STEER.WEAVE, weight, rate, 0, 0, 0],
+};
+
+/** Transitions, checked in order before a state's terms; the first that
+ *  holds moves the slot to state `to`. */
+export const when = {
+  near: (metres: number, to: number): SteerTransition => [PLAYSET_STEER_WHEN.NEAR, metres, to],
+  /** beyond `metres`, or no target */
+  far: (metres: number, to: number): SteerTransition => [PLAYSET_STEER_WHEN.FAR, metres, to],
+  after: (seconds: number, to: number): SteerTransition => [PLAYSET_STEER_WHEN.AFTER, seconds, to],
+  /** hit points below `fraction` of the archetype's */
+  hurt: (fraction: number, to: number): SteerTransition => [PLAYSET_STEER_WHEN.HURT, fraction, to],
+  noTarget: (to: number): SteerTransition => [PLAYSET_STEER_WHEN.NO_TARGET, 0, to],
+  target: (to: number): SteerTransition => [PLAYSET_STEER_WHEN.TARGET, 0, to],
+  /** with probability `perSecond` each second */
+  chance: (perSecond: number, to: number): SteerTransition => [PLAYSET_STEER_WHEN.CHANCE, perSecond, to],
+};
+
+export interface SteerState {
   /** fraction of the kernel's speed */
   speed?: number;
+  /** hold AUX (boost, run) */
+  boost?: boolean;
+  /** fire weapon 0 when the target is within range and inside the cone (radians) */
+  fireRange?: number;
+  fireCone?: number;
+  /** the FWD intent instead of the steered one (a plane's throttle) */
+  fwd?: number;
+  terms?: readonly SteerTerm[];
+  next?: readonly SteerTransition[];
 }
 
-function common(o: BrainCommon, extra: number[] = []): number[] {
+export function encodeBehaviour(states: readonly SteerState[]): number[] {
+  const L = PLAYSET_BEHAVIOUR;
+  const H = PLAYSET_BEHAVIOUR_STATE;
+  if (states.length > L.STATES) throw new Error(`playset: a behaviour has at most ${L.STATES} states`);
+  const b = new Array<number>(PLAYSET_BEHAVIOUR_LENGTH).fill(0);
+  states.forEach((st, i) => {
+    const at = L.HEADER + i * PLAYSET_BEHAVIOUR_STATE_LENGTH;
+    b[at + H.SPEED] = st.speed ?? 1;
+    b[at + H.BOOST] = st.boost ? 1 : 0;
+    b[at + H.FIRE_RANGE] = st.fireRange ?? 0;
+    b[at + H.FIRE_CONE] = st.fireCone ?? 0.25;
+    if (st.fwd !== undefined) {
+      b[at + H.SET_FWD] = 1;
+      b[at + H.FWD] = st.fwd;
+    }
+    const terms = st.terms ?? [];
+    const next = st.next ?? [];
+    if (terms.length > L.TERMS || next.length > L.TRANSITIONS) throw new Error(`playset: a state has at most ${L.TERMS} terms and ${L.TRANSITIONS} transitions`);
+    terms.forEach((t, k) => t.forEach((v, j) => (b[at + L.STATE_HEAD + k * L.TERM_LEN + j] = v)));
+    next.forEach((t, k) => t.forEach((v, j) => (b[at + L.STATE_HEAD + L.TERMS * L.TERM_LEN + k * L.TRANSITION_LEN + j] = v)));
+  });
+  return b;
+}
+
+/** BRAIN_P: the target choice (brains.rs). */
+function targetFloats(t: Target | undefined): number[] {
   const p = new Array(16).fill(0);
-  const t = o.target;
   if (t && "nearest" in t) {
     p[0] = 1;
     p[1] = t.nearest;
@@ -230,51 +324,101 @@ function common(o: BrainCommon, extra: number[] = []): number[] {
     p[3] = t.point[1];
     p[4] = t.point[2];
   }
-  p[6] = o.fireRange ?? 0;
-  p[7] = o.fireCone ?? 0.25;
-  p[9] = o.distance ?? 0;
-  p[10] = o.speed ?? 1;
-  extra.forEach((v, i) => (p[11 + i] = v));
   return p;
+}
+
+interface BrainCommon {
+  target?: Target;
+  /** fire weapon 0 when the target is within range and inside the cone */
+  fireRange?: number;
+  fireCone?: number;
+  /** distance to keep (seek stops, orbit circles, strafe holds, pursue breaks away) */
+  distance?: number;
+  /** fraction of the kernel's speed */
+  speed?: number;
+}
+
+const fire = (o: BrainCommon) => ({ fireRange: o.fireRange ?? 0, fireCone: o.fireCone ?? 0.25 });
+
+/** A behaviour from steering states (`steer`, `when`). The presets below
+ *  are written with it; a game composes its own the same way. */
+function steering(target: Target | undefined, states: readonly SteerState[]): Brain {
+  return { kind: PLAYSET_BRAIN.STEER, p: targetFloats(target), behaviour: encodeBehaviour(states) };
 }
 
 export const brain = {
   none: (): Brain => ({ kind: PLAYSET_BRAIN.NONE, p: [] }),
-  /** Toward the target; inside `near` metres its speed scales by `nearSpeed`
-   *  (above 1 the kernel's maxSpeed must leave room: speed * nearSpeed <= 1). */
-  seek: (o: BrainCommon & { near?: number; nearSpeed?: number } = {}): Brain => ({
-    kind: PLAYSET_BRAIN.SEEK,
-    p: common(o, [o.near ?? 0, o.nearSpeed ?? 1]),
-  }),
-  flee: (o: BrainCommon = {}): Brain => ({ kind: PLAYSET_BRAIN.FLEE, p: common(o) }),
-  orbit: (o: BrainCommon & { clockwise?: boolean } = {}): Brain => ({ kind: PLAYSET_BRAIN.ORBIT, p: common(o, [o.clockwise ? -1 : 1]) }),
-  /** Ambles about its spawn point; `leash` pulls it home. */
-  wander: (o: BrainCommon & { every?: number; turn?: number; leash?: number } = {}): Brain => ({
-    kind: PLAYSET_BRAIN.WANDER,
-    p: common(o, [0, o.every ?? 2, o.turn ?? 1.5, o.leash ?? 0]),
-  }),
-  /** Wanders, and bolts from anything on the target layers within sight. */
-  herd: (o: BrainCommon & { panic?: number; every?: number; turn?: number; leash?: number } = {}): Brain => ({
-    kind: PLAYSET_BRAIN.HERD,
-    p: common(o, [o.panic ?? 3, o.every ?? 2.5, o.turn ?? 1.2, o.leash ?? 0]),
-  }),
-  /** Flight pursuit with lead; keeps off the ground. A banked plane
-   *  (motion.plane `banked`) flies straight at the target instead, breaks away
-   *  and holds fire inside `distance`, and with `throttleDistance` opens its
-   *  throttle beyond that range and eases it inside. */
-  pursue: (o: BrainCommon & { throttleDistance?: number } = {}): Brain => ({
-    kind: PLAYSET_BRAIN.PURSUE,
-    p: common(o, o.throttleDistance !== undefined ? [o.throttleDistance] : []),
-  }),
-  turret: (o: BrainCommon = {}): Brain => ({ kind: PLAYSET_BRAIN.TURRET, p: common(o) }),
+  steer: (o: { target?: Target; states: readonly SteerState[] }): Brain => steering(o.target, o.states),
+  /** Toward the target, stopping at `distance`; inside `near` metres its
+   *  speed scales by `nearSpeed` (above 1 the kernel's maxSpeed must leave
+   *  room: speed * nearSpeed <= 1). */
+  seek(o: BrainCommon & { near?: number; nearSpeed?: number } = {}): Brain {
+    const d = o.distance ?? 0;
+    const term = steer.seek(1, { slow: d > 0 ? Math.max(d * 0.5, 0.5) : 0, stop: d });
+    const speed = o.speed ?? 1;
+    if (!o.near) return steering(o.target, [{ speed, ...fire(o), terms: [term] }]);
+    return steering(o.target, [
+      { speed, ...fire(o), terms: [term], next: [when.near(o.near, 1)] },
+      { speed: speed * (o.nearSpeed ?? 1), ...fire(o), terms: [term], next: [when.far(o.near, 0)] },
+    ]);
+  },
+  flee: (o: BrainCommon = {}): Brain => steering(o.target, [{ speed: o.speed ?? 1, terms: [steer.flee()] }]),
+  orbit: (o: BrainCommon & { clockwise?: boolean } = {}): Brain =>
+    steering(o.target, [{ speed: o.speed ?? 1, ...fire(o), terms: [steer.orbit(o.distance ?? 0, { side: o.clockwise ? -1 : 1, correction: 0.5 })] }]),
+  /** Ambles about its spawn point at half speed, resting now and then;
+   *  `leash` pulls it home; with a target it drifts toward it. */
+  wander(o: BrainCommon & { every?: number; turn?: number; leash?: number } = {}): Brain {
+    const terms: SteerTerm[] = [steer.wander({ turn: o.turn ?? 1.5, every: o.every ?? 2, idle: 0.3 })];
+    if (o.leash) terms.push(steer.home(o.leash, 2));
+    if (o.target) terms.push(steer.seek(0.3));
+    return steering(o.target, [{ speed: (o.speed ?? 1) * 0.5, ...fire(o), terms }]);
+  },
+  /** Wanders, and bolts at full speed with AUX held for `panic` seconds
+   *  from anything on the target layers within sight. */
+  herd(o: BrainCommon & { panic?: number; every?: number; turn?: number; leash?: number } = {}): Brain {
+    const graze: SteerTerm[] = [steer.wander({ turn: o.turn ?? 1.2, every: o.every ?? 2.5, idle: 0.3 })];
+    if (o.leash) graze.push(steer.home(o.leash, 2));
+    return steering(o.target, [
+      { speed: (o.speed ?? 1) * 0.5, terms: graze, next: [when.target(1)] },
+      { speed: 1, boost: true, terms: [steer.flee()], next: [when.after(Math.max(o.panic ?? 3, 1), 0)] },
+    ]);
+  },
+  /** Flight pursuit: toward where the target will be in `lead` seconds,
+   *  climbing below `floor` metres. With `distance` it breaks away inside
+   *  that range and holds fire; with `throttleDistance` FWD opens the
+   *  throttle beyond it and eases it inside; `weave` adds a pitch weave. */
+  pursue(o: BrainCommon & { lead?: number; floor?: number; throttleDistance?: number; weave?: number } = {}): Brain {
+    const lead = o.lead ?? 0.6;
+    const terms: SteerTerm[] = [lead > 0 ? steer.lead(lead) : steer.seek()];
+    const cruise: SteerTerm[] = [steer.forward()];
+    const extra: SteerTerm[] = [];
+    if ((o.floor ?? 12) > 0) extra.push(steer.altitude(o.floor ?? 12));
+    if (o.weave) extra.push(steer.weave(0.9, o.weave));
+    terms.push(...extra);
+    cruise.push(...extra);
+    const t = o.throttleDistance;
+    const open = t ? 1 : undefined;
+    const ease = t ? -0.25 : undefined;
+    const away = o.distance ?? 0;
+    if (!away && !t) {
+      return steering(o.target, [
+        { speed: o.speed ?? 1, ...fire(o), terms, next: [when.noTarget(1)] },
+        { speed: o.speed ?? 1, terms: cruise, next: [when.target(0)] },
+      ]);
+    }
+    // 0 closing, 1 inside the throttle distance, 2 breaking away, 3 no target
+    const breakaway = away ? [when.near(away, 2)] : [];
+    return steering(o.target, [
+      { speed: o.speed ?? 1, ...fire(o), fwd: open, terms, next: [...breakaway, ...(t ? [when.near(t, 1)] : []), when.noTarget(3)] },
+      { speed: o.speed ?? 1, ...fire(o), fwd: ease, terms, next: [...breakaway, when.far(t ?? 0, 0)] },
+      { speed: o.speed ?? 1, fwd: ease, terms: [steer.flee(), ...extra.filter((x) => x[0] === PLAYSET_STEER.WEAVE)], next: [when.far(away, t ? 1 : 0)] },
+      { speed: o.speed ?? 1, fwd: ease, terms: cruise, next: [when.target(0)] },
+    ]);
+  },
+  turret: (o: BrainCommon = {}): Brain => steering(o.target, [{ ...fire(o) }]),
   /** Circles the target at `distance`, switching sides every few seconds. */
-  strafe: (o: BrainCommon & { every?: number } = {}): Brain => ({ kind: PLAYSET_BRAIN.STRAFE, p: common(o, [o.every ?? 1.6]) }),
-  /** Drives a path's points in order and reports GATE events with laps. */
-  waypoints: (o: BrainCommon & { path: number; look?: number; gate?: number }): Brain => ({
-    kind: PLAYSET_BRAIN.WAYPOINTS,
-    p: common(o, [o.path, o.look ?? 6, o.gate ?? 8]),
-  }),
-  snake: (o: BrainCommon & { caution?: number } = {}): Brain => ({ kind: PLAYSET_BRAIN.SNAKE, p: common(o, [o.caution ?? 0.5]) }),
+  strafe: (o: BrainCommon & { every?: number } = {}): Brain =>
+    steering(o.target, [{ speed: o.speed ?? 1, ...fire(o), terms: [steer.orbit(o.distance ?? 0, { flip: o.every ?? 1.6, correction: 1.25 })] }]),
 };
 
 export interface Weapon {

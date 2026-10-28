@@ -18,8 +18,8 @@
 // every fifth apple plays a cue as the snakes speed up; the rival bursts
 // into particles before it respawns.
 
-import { EVENT, createPlayset, motion, sfx, type Archetype, type Playset, type Sound } from "@pocketjs/framework/playset";
-import { SNAKE_DIR, SnakeBoard } from "@pocketjs/framework/playset/snake";
+import { createPlayset, motion, sfx, type Archetype, type Playset, type Sound } from "@pocketjs/framework/playset";
+import { SNAKE_DIR, SNAKE_EVENT, SnakeBoard } from "@pocketjs/framework/playset/snake";
 import * as V from "./visuals.ts";
 import type { GameStatus, Pad, PlaysetGame } from "../kit/game.ts";
 
@@ -89,8 +89,8 @@ export class SnakeClash {
     this.apple = play.archetype({ model: play.model(V.apple()), motion: still, shadow: 0.45, death: burst(P.leaf, 16, 3.5), sounds: { death: bite } });
     this.focusArch = play.archetype({ motion: still, hidden: true });
 
-    play.on(EVENT.EAT, (_head, _food, snake) => this.onEat(snake));
-    play.on(EVENT.CRASH, (_head, _hit, snake, x, y, z) => this.onCrash(snake, x, y, z));
+    play.on(SNAKE_EVENT.EAT, (_head, _food, snake) => this.onEat(snake));
+    play.on(SNAKE_EVENT.CRASH, (_head, _hit, snake, x, y, z) => this.onCrash(snake, x, y, z));
     this.reset(true);
   }
 

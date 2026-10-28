@@ -8,7 +8,7 @@
 // so the plate and everything on it tilt together. The marble slot's
 // intents steer it (Playset.steer(marble, right, forward), each -1..1).
 //
-// It reports EVENT.MARBLE (a = marble, DATA = hole index when it fell
+// It reports MARBLE_EVENT.END (a = marble, DATA = hole index when it fell
 // through one, -1 when it reached the goal; VALUE = seconds on the level),
 // EVENT.PICKUP for a star (a = marble, b = star slot, DATA = star index,
 // VALUE = stars collected) and EVENT.HIT for a bump (a = marble, DATA = wall
@@ -17,7 +17,11 @@
 // Coordinates are plate-local (right, forward), the plate centred on its
 // origin, as GameBlocks' marble-puzzle levels are written.
 
+import { playsetModuleEvent } from "../../../contracts/spec/playset.ts";
 import { MODULE, type Archetype, type Playset } from "./index.ts";
+
+/** The module's events, for Playset.on(). */
+export const MARBLE_EVENT = { END: playsetModuleEvent(MODULE.MARBLE, 0) } as const;
 
 export const MARBLE_OP = { LEVEL: 1, WALL: 2, BLOCK: 3, HOLE: 4, STAR: 5, PHASE: 6, TUNE: 7, STATE: 8, ROUTE: 9 } as const;
 

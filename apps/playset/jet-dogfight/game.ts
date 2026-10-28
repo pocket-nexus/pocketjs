@@ -231,7 +231,7 @@ export class JetDogfight {
       play.archetype({
         model: play.model(V.airplane(look)),
         motion: banked({ min: E.minSpeed, max: E.maxSpeed, pitch: E.pitchRate, bank: E.bankTurnRate, yaw: 0.85 * 0.42 * aggression, throttle: 0.45, floor: 120 * S, floorPitch: 0.28, clearance: E.terrainClearance }),
-        brain: brain.pursue({ target: { nearest: L.player, every: 1 }, fireRange: E.gunRange, fireCone: Math.acos(E.gunAimDot), distance: E.breakaway, throttleDistance: 900 * S }),
+        brain: brain.pursue({ target: { nearest: L.player, every: 1 }, fireRange: E.gunRange, fireCone: Math.acos(E.gunAimDot), distance: E.breakaway, throttleDistance: 900 * S, lead: 0, floor: 0, weave: 0.1 }),
         layer: L.enemy, hits: 0, team: 2, radius, hp, value: 100, flash: 0.12,
         death: boom, sounds: { death: explosion, hit: hitTick },
         weapons: [

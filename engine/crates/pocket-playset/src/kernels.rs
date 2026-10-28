@@ -17,6 +17,16 @@ fn p(w: &World, arch: usize, i: usize) -> f32 {
     w.archs[arch][A::MOTION_P + i]
 }
 
+/// A tuning float, or its default when the descriptor leaves it at 0.
+#[inline]
+fn or(v: f32, default: f32) -> f32 {
+    if v > 0.0 {
+        v
+    } else {
+        default
+    }
+}
+
 /// Planar velocity toward `target` at `accel`, decaying by `damping` when
 /// the target is zero (GameBlocks' GeneralVehicleMotionController).
 fn approach_velocity(v: Vec3, target: Vec3, accel: f32, damping: f32, dt: f32) -> Vec3 {
@@ -300,7 +310,7 @@ fn car(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
     let r = right_of(yaw);
     let mut vf = v.dot(f);
     let mut vr = v.dot(r);
-    let top = if boosting { max * 1.25 } else { max };
+    let top = if boosting { max * or(p(w, arch, 12), 1.25) } else { max };
     if throttle > 0.0 {
         vf += (accel + if boosting { boost } else { 0.0 }) * throttle * dt;
         if vf > top {
@@ -390,7 +400,6 @@ fn lag_alpha(lag: f32, dt: f32) -> f32 {
 /// height (0 = none), 21 least pitch on the floor.
 fn plane_banked(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
     let (min_s, max_s, pitch_rate, yaw_rate, bank_turn, clearance) = (p(w, arch, 0), p(w, arch, 1), p(w, arch, 3), p(w, arch, 5), p(w, arch, 6), p(w, arch, 9));
-    let or = |v: f32, d: f32| if v > 0.0 { v } else { d };
     let throttle_rate = or(p(w, arch, 11), 0.42);
     let speed_lag = or(p(w, arch, 12), 0.56);
     let boost_lag = or(p(w, arch, 13), 0.26);
@@ -540,7 +549,8 @@ fn hover(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
         _ => right_of(yaw) * ix + forward_of(yaw) * iz,
     };
     let mag = minf(dir.len(), 1.0);
-    let boosted = if w.intent(slot, I::AUX) > 0.5 { 1.6 } else { 1.0 };
+    let boosted = if w.intent(slot, I::AUX) > 0.5 { or(p(w, arch, 11), 1.6) } else { 1.0 };
+    let lean = or(p(w, arch, 12), 0.5);
     let target = if mag > 1e-3 { dir.normalized() * (max * mag * boosted) } else { Vec3::ZERO };
     let v0 = w.vel(slot);
     let flat = approach_velocity(v0.flat(), target, accel, damping, dt);
@@ -561,8 +571,8 @@ fn hover(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
     // lean into the acceleration
     let acc = (flat - v0.flat()) * (1.0 / maxf(dt, 1e-4));
     let k = smoothing(6.0, dt);
-    let want_pitch = -clampf(acc.dot(forward_of(yaw)) * tilt * 0.01, -0.5, 0.5);
-    let want_roll = -clampf(acc.dot(right_of(yaw)) * tilt * 0.01, -0.5, 0.5);
+    let want_pitch = -clampf(acc.dot(forward_of(yaw)) * tilt * 0.01, -lean, lean);
+    let want_roll = -clampf(acc.dot(right_of(yaw)) * tilt * 0.01, -lean, lean);
     w.set(slot, E::PITCH, lerpf(w.e(slot, E::PITCH), want_pitch, k));
     w.set(slot, E::ROLL, lerpf(w.e(slot, E::ROLL), want_roll, k));
     w.set_pos(slot, pos);
@@ -623,7 +633,7 @@ fn path(w: &mut World, slot: usize, arch: usize, dt: f32) {
     if ended {
         w.s[slot].k[3] = 1.0;
         let p = w.pos(slot);
-        w.emit_event(EV::GATE, slot as i32, -1, -1.0, p, 0.0);
+        w.emit_event(EV::ARRIVE, slot as i32, -1, -1.0, p, 0.0);
     }
 }
 
@@ -709,11 +719,168 @@ fn runner(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
     let pos = v3(x, old.y + v.y * dt, old.z - speed * dt);
     v.x = (x - old.x) / maxf(dt, 1e-4);
     v.z = -speed;
-    w.set(slot, E::PITCH, lerpf(w.e(slot, E::PITCH), if sliding { -1.1 } else { 0.0 }, smoothing(14.0, dt)));
+    let slide_lean = or(p(w, arch, 9), 1.1);
+    w.set(slot, E::PITCH, lerpf(w.e(slot, E::PITCH), if sliding { -slide_lean } else { 0.0 }, smoothing(14.0, dt)));
     w.set_pos(slot, pos);
     w.set_vel(slot, v);
     w.set(slot, E::SPEED, speed);
     w.set(slot, E::YAW, 0.0);
+}
+
+/// The gravity scale a weapon's arc aim solves for: a ballistic body's own,
+/// 0 for kernels that fly straight.
+pub fn gravity_scale(w: &World, arch: usize) -> f32 {
+    if w.archs[arch][A::MOTION] as u32 == M::BALLISTIC {
+        maxf(p(w, arch, 0), 0.0)
+    } else {
+        0.0
+    }
+}
+
+/// How far along its path a slot is, for targets picked by progress; slots
+/// on other kernels count as at the start.
+pub fn progress(w: &World, slot: usize) -> f32 {
+    match w.arch_of(slot) {
+        Some(a) if w.archs[a][A::MOTION] as u32 == M::PATH => w.s[slot].k[0] * 1.0e4 + w.s[slot].k[1],
+        _ => 0.0,
+    }
+}
+
+/// The cosine between the slot's aim and the unit direction `d` to a target:
+/// a plane aims along its nose, everything else on the ground plane.
+pub fn aim_cos(w: &World, slot: usize, arch: usize, d: Vec3) -> f32 {
+    let yaw = w.e(slot, E::YAW);
+    if w.archs[arch][A::MOTION] as u32 == M::PLANE {
+        Mat34::from_ypr(Vec3::ZERO, yaw, w.e(slot, E::PITCH), 0.0, 1.0).vector(v3(0.0, 0.0, -1.0)).dot(d)
+    } else {
+        forward_of(yaw).dot(d.flat().normalized())
+    }
+}
+
+/// A brain's wanted world direction (magnitude 0..1) as this kernel's
+/// intents: the stick a player would hold to go that way. `face` is a point
+/// to turn toward; `fwd` replaces the FWD intent (a plane's throttle).
+pub fn drive(w: &mut World, slot: usize, arch: usize, want: Vec3, face: Option<Vec3>, fwd: Option<f32>) {
+    let kind = w.archs[arch][A::MOTION] as u32;
+    let frame = p(w, arch, 3) as u32;
+    let yaw = w.e(slot, E::YAW);
+    let f = forward_of(yaw);
+    let r = right_of(yaw);
+    let flat = want.flat();
+    let m = minf(flat.len(), 1.0);
+    let dir = flat.normalized();
+    let pos = w.pos(slot);
+    // TURN toward a heading: proportional, saturating at 0.6 rad
+    let turn_to = |target_yaw: f32| -> f32 { clampf(-wrap_angle(target_yaw - yaw) / 0.6, -1.0, 1.0) };
+    let face_yaw = match face {
+        Some(t) => {
+            let d = t - pos;
+            Some(yaw_of(d.x, d.z))
+        }
+        None if m > 0.05 => Some(yaw_of(dir.x, dir.z)),
+        None => None,
+    };
+    if kind == M::TURRET {
+        return;
+    }
+    let (mut ix, mut it, mut ir) = (0.0, 0.0, 0.0);
+    let iz;
+    match kind {
+        M::PLANAR => match frame {
+            1 => {
+                ix = dir.dot(r) * m;
+                iz = dir.dot(f) * m;
+                if let Some(y) = face_yaw {
+                    it = turn_to(y);
+                }
+            }
+            2 => {
+                if let Some(y) = face_yaw {
+                    it = turn_to(y);
+                }
+                iz = m * clampf(dir.dot(f) * 1.5, 0.0, 1.0);
+            }
+            _ => {
+                ix = dir.x * m;
+                iz = -dir.z * m;
+                if let Some(y) = face_yaw {
+                    it = turn_to(y);
+                }
+            }
+        },
+        M::CHARACTER => {
+            // the character kernel's frame is MOTION_P 7
+            match p(w, arch, 7) as u32 {
+                0 | 2 => {
+                    ix = dir.x * m;
+                    iz = -dir.z * m;
+                }
+                1 | 4 => {
+                    ix = dir.dot(r) * m;
+                    iz = dir.dot(f) * m;
+                    if let Some(y) = face_yaw {
+                        it = turn_to(y);
+                    }
+                }
+                _ => {
+                    if let Some(y) = face_yaw {
+                        it = turn_to(y);
+                    }
+                    iz = m * clampf(dir.dot(f) * 1.5, 0.0, 1.0);
+                }
+            }
+        }
+        M::HOVER => {
+            ix = dir.dot(r) * m;
+            iz = dir.dot(f) * m;
+            if let Some(y) = face_yaw {
+                it = turn_to(y);
+            }
+            ir = clampf(want.y, -1.0, 1.0);
+        }
+        M::CAR | M::BOAT => {
+            if let Some(y) = face_yaw {
+                it = turn_to(y);
+            }
+            // slow for sharp corners
+            iz = m * clampf(1.2 - absf(it) * 0.6, 0.3, 1.0);
+        }
+        M::PLANE if p(w, arch, 10) > 0.5 => {
+            // the banked plane flies by world yaw and pitch errors, as
+            // GameBlocks' jet-dogfight steers its fighters: bank and pitch
+            // past a deadband, the rudder in proportion
+            let d = want.normalized();
+            let yaw_error = wrap_angle(yaw_of(d.x, d.z) - yaw);
+            let pitch_error = clampf(asinf(clampf(d.y, -0.85, 0.85)) - w.e(slot, E::PITCH), -1.0, 1.0);
+            it = if yaw_error > 0.08 { -1.0 } else if yaw_error < -0.08 { 1.0 } else { 0.0 };
+            ix = -clampf(yaw_error / 0.85, -1.0, 1.0);
+            ir = if pitch_error > 0.04 { 1.0 } else if pitch_error < -0.04 { -1.0 } else { 0.0 };
+            iz = 0.6;
+        }
+        M::PLANE => {
+            // steer the nose at the wanted direction in the body frame
+            let q = w.s[slot].quat;
+            let inv = Quat { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+            let local = inv.rotate(want.normalized());
+            it = clampf(local.x * 3.0, -1.0, 1.0);
+            ir = clampf(local.y * 3.0, -1.0, 1.0);
+            iz = 0.6;
+            if local.z > 0.0 {
+                // behind: hard roll and pull
+                ir = 1.0;
+            }
+        }
+        _ => {
+            ix = dir.x * m;
+            iz = -dir.z * m;
+        }
+    }
+    w.set_intent(slot, I::X, ix);
+    w.set_intent(slot, I::FWD, fwd.unwrap_or(iz));
+    w.set_intent(slot, I::TURN, it);
+    if kind == M::HOVER || kind == M::PLANE {
+        w.set_intent(slot, I::RISE, ir);
+    }
 }
 
 /// Joint angles from the archetype's drivers, read by the renderer.

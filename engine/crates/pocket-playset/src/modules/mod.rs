@@ -9,6 +9,11 @@
 use crate::scene::Scene;
 use crate::world::World;
 
+/// Module `module`'s event `n` (contracts playsetModuleEvent).
+pub const fn event(module: u32, n: u32) -> u32 {
+    crate::schema::MODULE_EVENT as u32 + module * 16 + n
+}
+
 pub mod marble;
 pub mod snake;
 pub mod voxel;

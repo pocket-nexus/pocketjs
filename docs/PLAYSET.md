@@ -81,13 +81,33 @@ the new values on the next step.
 | `runner` | lanes toward -Z with jumps and slides | X, JUMP, RISE |
 | `attached` | rides another slot at an offset | none |
 
-A brain (`brain.*`: seek, flee, orbit, wander, herd, pursue, turret, strafe,
-waypoints) picks a target and writes the same intents a player's stick
-writes, then fires weapon 0 when the target is inside its range and cone. The
-target is the nearest slot on some layers (`{ nearest }`), the slot on some
-layers furthest along its `motion.path` path (`{ leading }`, a tower's
+A brain picks a target and writes the same intents a player's stick writes.
+The target is the nearest slot on some layers (`{ nearest }`), the slot on
+some layers furthest along its `motion.path` path (`{ leading }`, a tower's
 creep), the slot's own TARGET, or a point. A slot without a brain takes its
 intents from the guest (`Playset.steer`, `Playset.buttons`).
+
+**The native brain holds no behaviour of its own.** It evaluates the
+archetype's behaviour: up to four states, each a weighted sum of up to four
+steering terms (`steer.seek`, `flee`, `orbit`, `wander`, `home`, `lead`,
+`altitude`, `forward`, `weave`) with a speed, a boost, a fire range and cone
+and an optional FWD intent, and up to three transitions (`when.near`, `far`,
+`after`, `hurt`, `target`, `noTarget`, `chance`). The kernel's `drive` turns
+the summed direction into that kernel's intents. The behaviour is 160 floats
+sent after the archetype's 128, so `retune` changes it like any other field.
+`brain.seek`, `flee`, `orbit`, `wander`, `herd`, `pursue`, `turret` and
+`strafe` are TypeScript presets written with `brain.steer({ target, states })`:
+
+```ts
+// brain.herd: graze at half speed; bolt with AUX held while a hunter is in sight
+brain.steer({
+  target: { nearest: L.player, sight: 18 },
+  states: [
+    { speed: 0.5, terms: [steer.wander({ turn: 1.2, every: 2.5, idle: 0.3 }), steer.home(9, 2)], next: [when.target(1)] },
+    { speed: 1, boost: true, terms: [steer.flee()], next: [when.after(2.6, 0)] },
+  ],
+});
+```
 
 A rule (`Playset.rule(layersA, layersB, spec)`) says what a contact does:
 damage either side, kill either side, push apart, bounce, collect (PICKUP),
@@ -97,7 +117,10 @@ their shooter and its team.
 Genre engines beyond the kernels are modules reached through
 `Playset.call(module, op, args, out)`: the snake board, the marble plate and
 the voxel world (`PLAYSET_MODULE`). Each drives its own slots after the
-world's step. `@pocketjs/framework/playset/snake` (`SnakeBoard`: grid snakes
+world's step and reports its own events, numbered from `PLAYSET_MODULE_EVENT`
+(`SNAKE_EVENT.EAT`, `SNAKE_EVENT.CRASH`, `MARBLE_EVENT.END`); the global
+`EVENT` table holds HIT, DEATH, EXPIRE, FIRE, GROUND, BOUNDS, PICKUP and
+ARRIVE. `@pocketjs/framework/playset/snake` (`SnakeBoard`: grid snakes
 with a slot per segment, food, collisions and a flood-fill + BFS planner) and
 `@pocketjs/framework/playset/marble` (`MarbleBoard`: a tilting plate with
 walls, moving blocks, holes, stars and a goal, the ball's physics, and a
@@ -153,8 +176,8 @@ What follows from them for a game's per-frame JavaScript:
   building in the frame path. Event handlers receive numbers.
 - **About twenty native calls per frame** at most; slot state is read and
   written through the views.
-- Logic that touches every slot every frame belongs to a kernel, a brain or a
-  rule. `Playset.script(arch, fn, every)` runs a guest function over the slots
+- Logic that touches every slot every frame belongs to a kernel, a
+  behaviour or a rule. `Playset.script(arch, fn, every)` runs a guest function over the slots
   of one archetype every `every` steps, for logic that a few dozen slots can
   afford.
 
