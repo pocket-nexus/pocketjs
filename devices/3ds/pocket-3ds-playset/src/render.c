@@ -317,6 +317,9 @@ static void eye_pass(p3ps_renderer *r, const pps_frame *f, C3D_RenderTarget *tar
   int last_blend = -1, last_cull = -1, last_depth = -1;
   int last_source = -1, last_id = -1;
   float last_mode = -1, last_opacity = -1;
+  /* the palette the uniforms hold: consecutive draws of static batches and
+   * ground tiles share the identity bone, and citro3d keeps uniforms */
+  uint32_t last_bone_first = UINT32_MAX, last_nb = 0;
   for (uint32_t i = 0; i < f->draw_count; i++) {
     const pps_draw *d = &f->draws[i];
     const void *verts = NULL;
@@ -373,13 +376,17 @@ static void eye_pass(p3ps_renderer *r, const pps_frame *f, C3D_RenderTarget *tar
     }
     uint32_t nb = d->bones > MAX_BONES ? MAX_BONES : d->bones;
     if (d->bone_first + nb > f->bone_count) continue;
-    C3D_FVec *rows = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, r->u_bones, nb * 4);
-    const float *m = f->bones + (size_t)d->bone_first * 16;
-    for (uint32_t b = 0; b < nb; b++, m += 16) {
-      rows[b * 4 + 0] = FVec4_New(m[0], m[1], m[2], m[3]);
-      rows[b * 4 + 1] = FVec4_New(m[4], m[5], m[6], m[7]);
-      rows[b * 4 + 2] = FVec4_New(m[8], m[9], m[10], m[11]);
-      rows[b * 4 + 3] = FVec4_New(m[12], m[13], m[14], m[15]);
+    if (d->bone_first != last_bone_first || nb != last_nb) {
+      C3D_FVec *rows = C3D_FVUnifWritePtr(GPU_VERTEX_SHADER, r->u_bones, nb * 4);
+      const float *m = f->bones + (size_t)d->bone_first * 16;
+      for (uint32_t b = 0; b < nb; b++, m += 16) {
+        rows[b * 4 + 0] = FVec4_New(m[0], m[1], m[2], m[3]);
+        rows[b * 4 + 1] = FVec4_New(m[4], m[5], m[6], m[7]);
+        rows[b * 4 + 2] = FVec4_New(m[8], m[9], m[10], m[11]);
+        rows[b * 4 + 3] = FVec4_New(m[12], m[13], m[14], m[15]);
+      }
+      last_bone_first = d->bone_first;
+      last_nb = nb;
     }
     C3D_DrawElements(GPU_TRIANGLES, (int)d->index_count, C3D_UNSIGNED_SHORT,
                      idx + d->index_first);
