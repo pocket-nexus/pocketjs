@@ -1,0 +1,35 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.playset.archery-hunting",
+  "name": "playset-archery-hunting",
+  "title": "Archery Hunting",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "game.playset",
+        "text.glyphs.baked",
+        "input.buttons",
+        "display.auxiliary",
+        "input.touch.auxiliary"
+      ],
+      "enhances": [
+        "input.analog.left"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/playset/archery-hunting/main.tsx",
+    "output": "playset-archery-hunting",
+    "framework": "solid",
+    "surfaces": {
+      "auxiliary": {
+        "fixed": { "logical": [320, 240], "presentation": "native" }
+      }
+    },
+    "viewport": {
+      "fixed": { "logical": [400, 240], "presentation": "native" }
+    }
+  }
+}
