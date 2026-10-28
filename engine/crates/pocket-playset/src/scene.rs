@@ -162,6 +162,41 @@ impl Water {
         let hz = self.height(x, z + e, t) - self.height(x, z - e, t);
         v3(-hx, 2.0 * e, -hz).normalized()
     }
+
+    /// Heights and normals of the `n` x `n` grid from (x0, z0) at `step`, row
+    /// by row, through `out(i, x, z, height, normal)`. Both waves separate
+    /// along the grid's axes, so a table of sines per column and per row
+    /// replaces ten sines per vertex (`height` plus a finite-difference
+    /// `normal`) with a few products.
+    pub fn grid(&self, x0: f32, z0: f32, step: f32, n: usize, t: f32, mut out: impl FnMut(usize, f32, f32, f32, Vec3)) {
+        const MAX: usize = 48;
+        let n = n.min(MAX);
+        let k = TAU / maxf(self.wavelength, 0.1);
+        let w = t * self.speed * k;
+        let (k2, w2) = (k * 1.3, w * 1.2);
+        let a = self.amplitude;
+        // columns: wave one's sine and cosine, wave two's x part
+        let (mut s1, mut c1, mut sa, mut ca) = ([0.0f32; MAX], [0.0f32; MAX], [0.0f32; MAX], [0.0f32; MAX]);
+        for i in 0..n {
+            let x = x0 + i as f32 * step;
+            s1[i] = sinf(x * k + w);
+            c1[i] = cosf(x * k + w);
+            sa[i] = sinf(0.6 * x * k2);
+            ca[i] = cosf(0.6 * x * k2);
+        }
+        for j in 0..n {
+            let z = z0 + j as f32 * step;
+            let (sb, cb) = (sinf(0.8 * z * k2 + w2), cosf(0.8 * z * k2 + w2));
+            for i in 0..n {
+                let sin2 = sa[i] * cb + ca[i] * sb;
+                let cos2 = ca[i] * cb - sa[i] * sb;
+                let h = self.level + a * (0.6 * s1[i] + 0.4 * sin2);
+                let dx = a * (0.6 * k * c1[i] + 0.24 * k2 * cos2);
+                let dz = a * (0.32 * k2 * cos2);
+                out(j * n + i, x0 + i as f32 * step, z, h, v3(-dx, 1.0, -dz).normalized());
+            }
+        }
+    }
 }
 
 /// Static colliders the movers slide against.

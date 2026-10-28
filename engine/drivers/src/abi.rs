@@ -802,6 +802,8 @@ pub fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32;
 pub fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32;
     /// Complete in-flight DEFERRED frames: renderer wait, flush or display wait, retire. Returns zero when none is pending. A failed completion returns its error once and invalidates that display's damage history. Call before reading a presented buffer or releasing state a pending submission reads.
 pub fn pocket_runtime_complete_presentation(runtime: *mut PocketRuntime) -> i32;
+    /// Sample input, run one guest frame and one core step, and submit nothing: pocket_runtime_present submits the frame. pocket_runtime_tick is advance followed by present; a program that times the two phases calls them in turn.
+pub fn pocket_runtime_advance(runtime: *mut PocketRuntime) -> i32;
     pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
     /// Returns 0 or 1 without executing the operation. Does not invalidate borrowed results.
 pub fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32;

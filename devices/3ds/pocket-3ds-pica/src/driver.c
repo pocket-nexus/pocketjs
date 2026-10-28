@@ -693,12 +693,16 @@ static int32_t visit(void *context, const pocket_draw_op *raw) {
 
 /* Microseconds of the last submit per display role, and of the last GPU
  * idle wait (pocket_pica_renderer_timing). */
-static uint32_t timing_submit[2], timing_idle;
+static uint32_t timing_submit[2], timing_idle, timing_transfer[2];
 void pocket_pica_renderer_timing(uint32_t *submit_primary, uint32_t *submit_auxiliary,
                                  uint32_t *gpu_idle_us) {
   *submit_primary = timing_submit[0];
   *submit_auxiliary = timing_submit[1];
   *gpu_idle_us = timing_idle;
+}
+void pocket_pica_renderer_transfer_timing(uint32_t *primary_us, uint32_t *auxiliary_us) {
+  *primary_us = timing_transfer[0];
+  *auxiliary_us = timing_transfer[1];
 }
 static uint32_t ticks_us(u64 a, u64 b) { return (uint32_t)((b - a) * 1000000ull / SYSCLOCK_ARM11); }
 /* End the open frame and wait for the GPU to finish it. */
@@ -1128,6 +1132,7 @@ static int32_t display_flush(void *context, const pocket_rect *regions,
       regions->width != d->width || regions->height != d->height)
     return POCKET_STATUS_INVALID;
   drain(d->renderer);
+  u64 t0 = svcGetSystemTick();
   /* No citro3d frame is open: SyncDisplayTransfer now waits for PPF before
    * return. Within an open frame it would only append another queued command.
    */
@@ -1138,6 +1143,7 @@ static int32_t display_flush(void *context, const pocket_rect *regions,
     transfer(d, d->right, GFX_RIGHT);
   gfxScreenSwapBuffers(
       d->role == POCKET_DISPLAY_ROLE_PRIMARY ? GFX_TOP : GFX_BOTTOM, stereo);
+  timing_transfer[d->role == POCKET_DISPLAY_ROLE_PRIMARY ? 0 : 1] = ticks_us(t0, svcGetSystemTick());
   d->acquired = false;
   d->flushed = true;
   *token = ++d->token;

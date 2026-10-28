@@ -419,18 +419,13 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
         let oz = floorf(eye.z / step) * step;
         let base = b.dyn_verts.len() as u16;
         let first = b.dyn_idx.len() as u32;
-        for z in 0..=cells {
-            for x in 0..=cells {
-                let px = ox - half + x as f32 * step;
-                let pz = oz - half + z as f32 * step;
-                let h = water.height(px, pz, t);
-                let n = water.normal(px, pz, t);
-                let k = clampf((h - water.level) / maxf(water.amplitude, 0.01) * 0.5 + 0.5, 0.0, 1.0);
-                let c = water.deep.lerp(water.color, k);
-                let q = |v: f32| (clampf(v, 0.0, 1.0) * 255.0 + 0.5) as u8;
-                b.dyn_verts.push(GpuVertex { pos: [px, h, pz], nb: pack_normal(n, 0), rgba: [q(c.x), q(c.y), q(c.z), 0] });
-            }
-        }
+        let inv_amp = 0.5 / maxf(water.amplitude, 0.01);
+        let q = |v: f32| (clampf(v, 0.0, 1.0) * 255.0 + 0.5) as u8;
+        let verts = &mut b.dyn_verts;
+        water.grid(ox - half, oz - half, step, cells + 1, t, |_, px, pz, h, n| {
+            let c = water.deep.lerp(water.color, clampf((h - water.level) * inv_amp + 0.5, 0.0, 1.0));
+            verts.push(GpuVertex { pos: [px, h, pz], nb: pack_normal(n, 0), rgba: [q(c.x), q(c.y), q(c.z), 0] });
+        });
         let row = cells as u16 + 1;
         for z in 0..cells as u16 {
             for x in 0..cells as u16 {

@@ -1486,10 +1486,12 @@ int main(void) {
       static u64 previous_js;
       static uint32_t previous_frame = UINT32_MAX;
       if (previous_frame != UINT32_MAX && run_frame == previous_frame + 1) {
+        uint32_t advance_us = 0, present_us = 0;
+        qjs_frame_phases(&advance_us, &present_us);
         devserver_set_frame_timing(
           ticks_to_us(phase_tick - phase_js),
-          0, /* Internal tick/layout/render phases belong to the runtime. */
-          0,
+          advance_us, /* tick: input, the guest frame, the core step */
+          present_us, /* draw: draw lists and both screens' submission */
           0,
           ticks_to_us(phase_js - previous_js),
           ticks_to_us((phase_wait - phase_loop) + (phase_js - phase_wait_end)),

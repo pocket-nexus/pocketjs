@@ -61,6 +61,7 @@ typedef enum {
   OpVolume,
 } Op;
 
+static uint32_t audio_frame_us;
 void playset_admit(bool value) { admitted = value; }
 bool playset_admitted(void) { return admitted; }
 bool playset_active(void) { return world != NULL; }
@@ -270,13 +271,22 @@ static JSValue call(JSContext *ctx, JSValueConst this_value, int argc,
     return JS_UNDEFINED;
   case OpRenderStats:
     /* draws, bone matrices, uploads, dynamic vertices, triangles, then
-     * citro3d's GPU drawing and command processing time of the last frame (ms) */
+     * citro3d's GPU drawing and command processing time of the last frame
+     * (ms); 7..9 the driver's submissions and GPU idle wait, 10..12 words and
+     * vertices, 13 the DSP state, 14 the display transfers and 15 the audio
+     * frame (µs) */
     f = floats(ctx, argc, argv, 0, &n);
     if (f && n >= 14) {
       f[10] = (float)gfx_frame_words(0);
       f[11] = (float)gfx_frame_words(1);
       f[12] = (float)gfx_frame_vertices();
       f[13] = (float)playset_audio_state();
+    }
+    if (f && n >= 16) {
+      uint32_t top, bottom;
+      pocket_pica_renderer_transfer_timing(&top, &bottom);
+      f[14] = (float)(top + bottom);
+      f[15] = (float)audio_frame_us;
     }
     if (f && n >= 10) {
       uint32_t a, b, c;
@@ -364,5 +374,6 @@ bool playset_render(C3D_RenderTarget *target, C3D_RenderTarget *right) {
   pps_note_timing(world, -1, -1, (float)((t1 - t0) * 1000000ull / SYSCLOCK_ARM11));
   /* the prepare above finished this frame's sound requests */
   playset_audio_frame(world);
+  audio_frame_us = (uint32_t)((svcGetSystemTick() - t1) * 1000000ull / SYSCLOCK_ARM11);
   return ok;
 }
