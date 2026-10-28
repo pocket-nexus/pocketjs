@@ -393,8 +393,12 @@ static void eye_pass(p3ps_renderer *r, const pps_frame *f, C3D_RenderTarget *tar
 bool p3ps_render(p3ps_renderer *r, pps *ps, C3D_RenderTarget *target,
                  C3D_RenderTarget *right, float iod, p3ps_stats *stats) {
   if (!r || !ps || !target) return false;
+  u64 t0 = svcGetSystemTick();
   const pps_frame *f = pps_prepare(ps, 400.0f / 240.0f);
   if (!f) return false;
+  /* the frame record's share of the render: culling, grouping, palettes,
+   * shadows, water and particles */
+  pps_note_timing(ps, -1, (float)((svcGetSystemTick() - t0) * 1000000ull / SYSCLOCK_ARM11), -1);
   p3ps_stats local = {0};
   if (!sync_models(r, ps, &local.uploads) || !sync_batches(r, ps, 1, &local.uploads) ||
       !sync_batches(r, ps, 2, &local.uploads) || !sync_dynamic(r, f))

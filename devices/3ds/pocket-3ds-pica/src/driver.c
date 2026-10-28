@@ -83,6 +83,8 @@ struct Submission {
   bool reusable;
   uint64_t key_hash, key_raster;
   size_t key_words;
+  /* Both screen buffers already show this build: no draw, transfer or swap. */
+  bool skipped;
 };
 struct pocket_pica_renderer {
   pocket_pica_config config;
@@ -115,6 +117,12 @@ struct pocket_pica_display {
   /* The last retired guest submission, kept while the next frame may draw
    * the same list (`reuse`). */
   Submission *cached;
+  /* How many of the screen's two buffers show the current build (0..2),
+   * frames since one was last drawn, and whether the native scene drew the
+   * last frame (a scene changes under an unchanged list). */
+  uint8_t shown;
+  uint8_t unchanged_frames;
+  bool scene_drawn;
 };
 static uint64_t next_target_identity;
 
@@ -995,8 +1003,20 @@ static int32_t render_timed(void *context, const pocket_frame_input *raw,
     display->cached = NULL;
     s->terminal = false;
     s->next = NULL;
+    /* Both buffers hold this image and no scene draws over it: the screen
+     * keeps showing it. A full present every 30 frames bounds what anything
+     * outside the driver could have changed in the buffers. */
+    s->skipped = display->shown >= 2 && !display->scene_drawn &&
+                 ++display->unchanged_frames < 30;
+    if (!s->skipped) {
+      display->unchanged_frames = 0;
+      if (display->shown < 2)
+        display->shown++;
+    }
     goto submit;
   }
+  display->shown = 1;
+  display->unchanged_frames = 0;
   drop_cached(r, display);
   s = calloc(1, sizeof *s);
   if (!s)
@@ -1047,10 +1067,19 @@ submit:
   s->id = ++r->next_id;
   s->next = r->pending;
   r->pending = s;
-  bool replaced =
-      r->config.scene && r->config.scene(r->config.context, display->role,
-                                         display->target, display->right);
-  if (!replaced)
+  if (s->skipped) {
+    r->words[display->role] = list->word_count;
+    *out = s->id;
+    return 0;
+  }
+  uint32_t scene =
+      r->config.scene ? r->config.scene(r->config.context, display->role,
+                                        display->target, display->right)
+                      : POCKET_PICA_SCENE_NONE;
+  display->scene_drawn = scene != POCKET_PICA_SCENE_NONE;
+  if (display->scene_drawn)
+    display->shown = 0;
+  if (scene != POCKET_PICA_SCENE_REPLACES)
     draw(r, s, build_w, build_h);
   draw_overlay(r, s);
   r->words[display->role] = list->word_count;
@@ -1167,6 +1196,14 @@ static void present_target(pocket_pica_display *d) {
       d->role == POCKET_DISPLAY_ROLE_PRIMARY ? GFX_TOP : GFX_BOTTOM, stereo);
   timing_transfer[d->role == POCKET_DISPLAY_ROLE_PRIMARY ? 0 : 1] = ticks_us(t0, svcGetSystemTick());
 }
+/* The display's submission this frame was skipped (it shows the build on
+ * both buffers already). */
+static bool skipped_frame(pocket_pica_display *d) {
+  for (Submission *p = d->renderer->pending; p; p = p->next)
+    if (p->display == d)
+      return p->skipped;
+  return false;
+}
 static int32_t display_flush(void *context, const pocket_rect *regions,
                              size_t count, uint64_t *token) {
   pocket_pica_display *d = context;
@@ -1186,10 +1223,11 @@ static int32_t display_flush(void *context, const pocket_rect *regions,
       r->frame_open = false;
       r->in_flight = true;
     }
-    d->transfer_pending = true;
+    d->transfer_pending = !skipped_frame(d);
   } else {
     drain(r);
-    present_target(d);
+    if (!skipped_frame(d))
+      present_target(d);
   }
   d->acquired = false;
   d->flushed = true;
@@ -1343,8 +1381,10 @@ void pocket_pica_renderer_reset(pocket_pica_renderer *r) {
   while (r->cache)
     cache_delete(r, &r->cache);
   r->vertices = r->commands = 0;
-  for (pocket_pica_display *d = r->displays; d; d = d->next)
+  for (pocket_pica_display *d = r->displays; d; d = d->next) {
     d->acquired = d->flushed = d->transfer_pending = false;
+    d->shown = 0;
+  }
 }
 void pocket_pica_renderer_destroy(pocket_pica_renderer *r) {
   if (!r)
@@ -1406,6 +1446,7 @@ bool pocket_pica_renderer_present_overlays(pocket_pica_renderer *r) {
    * frame keeps its own lifetime and leaves that flag alone. */
   for (pocket_pica_display *d = r->displays; d; d = d->next) {
     bool stereo = d->right && gfxIs3D();
+    d->shown = 0;
     C3D_RenderTargetClear(d->target, C3D_CLEAR_ALL, 0x000000ff, 0);
     if (stereo)
       C3D_RenderTargetClear(d->right, C3D_CLEAR_ALL, 0x000000ff, 0);

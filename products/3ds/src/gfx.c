@@ -32,8 +32,8 @@ static void release_native(void *context, void *lease) {
   (void)context;
   (void)lease;
 }
-static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
-                  C3D_RenderTarget *right) {
+static uint32_t scene(void *context, uint32_t role, C3D_RenderTarget *target,
+                      C3D_RenderTarget *right) {
   (void)context;
   C3D_RenderTargetClear(target, C3D_CLEAR_ALL, 0x000000ff, 0);
   if (role == POCKET_DISPLAY_ROLE_PRIMARY && agent_enabled()) {
@@ -44,12 +44,12 @@ static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
         C3D_RenderTargetClear(right, C3D_CLEAR_ALL, 0x000000ff, 0);
       stage_render(target, right);
     }
-    return true;
+    return POCKET_PICA_SCENE_REPLACES;
   }
   /* A playset guest's scene, under its own top-screen DrawList. */
   if (role == POCKET_DISPLAY_ROLE_PRIMARY && playset_active())
-    playset_render(target, right);
-  return false;
+    return playset_render(target, right) ? POCKET_PICA_SCENE_UNDER : POCKET_PICA_SCENE_NONE;
+  return POCKET_PICA_SCENE_NONE;
 }
 /* The development menu stands in for the touch screen's guest list; the
  * app-switch transition draws over both screens, in quarter pixels. */
