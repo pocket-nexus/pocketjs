@@ -5,7 +5,7 @@
 //! views over them for the world's lifetime.
 
 use crate::fmath::*;
-use crate::schema::{arch as A, arch_flag as AF, bounds as BM, ent as E, event as EV, event_field as EF, ground as GM, intent as I, state as ST, weapon as W};
+use crate::schema::{arch_sound as AS, arch as A, arch_flag as AF, bounds as BM, ent as E, event as EV, event_field as EF, ground as GM, intent as I, state as ST, weapon as W};
 use crate::scene::Scene;
 use crate::vec::*;
 use crate::{brains, collide, kernels, particles::Particles};
@@ -77,6 +77,7 @@ pub struct World {
     pub broad: collide::Broadphase,
     pub pairs: u32,
     pub fx: Particles,
+    pub audio: crate::audio::Audio,
     /// the camera rig's yaw, for camera-relative kernels
     pub cam_yaw: f32,
     /// slots killed during this step, freed at its end
@@ -128,6 +129,7 @@ impl World {
             broad: collide::Broadphase::default(),
             pairs: 0,
             fx: Particles::new(particles),
+            audio: crate::audio::Audio::default(),
             cam_yaw: 0.0,
             doomed: Vec::with_capacity(64),
         }
@@ -306,6 +308,7 @@ impl World {
         self.live_at[slot] = self.live.len() as i32;
         self.live.push(slot as u16);
         kernels::on_spawn(self, scene, slot, arch);
+        self.arch_sound(arch, AS::SPAWN, pos);
         slot as i32
     }
 
@@ -352,6 +355,7 @@ impl World {
                 self.emit_event(EV::DEATH, slot as i32, killer, arch as f32, p, value);
             }
             if mode != KILL_SILENT {
+                self.arch_sound(arch, AS::DEATH, p);
                 let em = self.a(arch, A::DEATH_EMITTER);
                 if em >= 1.0 {
                     let v = self.vel(slot) * 0.3;
@@ -365,6 +369,17 @@ impl World {
             self.release(slot);
         }
         self.doomed.clear();
+    }
+
+    /// Play one of an archetype's sounds (ARCH_SOUND slot) at a point.
+    pub fn arch_sound(&mut self, arch: usize, field: usize, at: Vec3) {
+        let s = self.archs[arch][field];
+        if s < 1.0 {
+            return;
+        }
+        let v = self.archs[arch][AS::VOLUME];
+        let pitch = 1.0 + self.rng.signed() * 0.04;
+        self.audio.play(s as u32 - 1, if v > 0.0 { v } else { 1.0 }, pitch, Some(at));
     }
 
     /// Free every slot, KEEP_ON_DEATH ones included.
@@ -388,6 +403,10 @@ impl World {
         self.s[slot].flash = self.a(arch, A::FLASH);
         self.s[slot].hurt = self.a(arch, A::EXTRA);
         self.s[slot].last_hit_by = by;
+        if hp > 0.0 {
+            let p = self.pos(slot);
+            self.arch_sound(arch, AS::HIT, p);
+        }
         if hp <= 0.0 && self.a(arch, A::HP) > 0.0 {
             self.kill(slot, by, true);
         }
@@ -607,6 +626,11 @@ impl World {
                 }
             }
             _ => {}
+        }
+        if w[W::SOUND] >= 1.0 {
+            let v = self.archs[arch][AS::VOLUME];
+            let pitch = 1.0 + self.rng.signed() * 0.05;
+            self.audio.play(w[W::SOUND] as u32 - 1, if v > 0.0 { v } else { 1.0 }, pitch, Some(muzzle));
         }
         let count = (w[W::COUNT] as u32).max(1);
         let spread = w[W::SPREAD];

@@ -16,47 +16,10 @@ import { AuxiliarySurface, Text, View, type NodeMirror } from "@pocketjs/framewo
 import * as hot from "@pocketjs/framework/hot";
 import { BTN } from "@pocketjs/framework/input";
 import { analogX, analogY, onButtonPress, onFrame, rightAnalogX, rightAnalogY } from "@pocketjs/framework/lifecycle";
-import { STAT, type Playset } from "@pocketjs/framework/playset";
+import { sfx, STAT } from "@pocketjs/framework/playset";
+import type { GameStatus, Pad, PlaysetGame } from "./game.ts";
 
-export type GameStatus = "title" | "playing" | "paused" | "gameover";
-
-/** The pad as a game reads it: sticks in -1..1 with up positive, buttons held and newly pressed. */
-export interface Pad {
-  x: number;
-  y: number;
-  rx: number;
-  ry: number;
-  held: number;
-  pressed: number;
-}
-
-export interface Readout {
-  readonly label: string;
-  /** a number or short text, sampled six times a second */
-  value(): string | number;
-  /** 0..1 draws a bar under the value */
-  bar?(): number;
-  readonly color?: string;
-}
-
-export interface PlaysetGame {
-  readonly title: string;
-  readonly tagline: string;
-  /** accent for buttons and bars, "#rrggbb" */
-  readonly accent: string;
-  readonly controls: readonly (readonly [string, string])[];
-  readonly readouts: readonly Readout[];
-  readonly play: Playset;
-  status(): GameStatus;
-  /** start a run; demo = the game plays itself */
-  start(demo: boolean): void;
-  frame(pad: Pad): void;
-  /** the top-screen corner line while playing */
-  topLine(): string;
-  /** the game-over card's second line */
-  result(): string;
-  pause?(paused: boolean): void;
-}
+export type { GameStatus, Pad, PlaysetGame, Readout } from "./game.ts";
 
 const DPAD = BTN.UP | BTN.DOWN | BTN.LEFT | BTN.RIGHT;
 
@@ -74,13 +37,19 @@ export function GameShell(props: { game: PlaysetGame }) {
   let topLine: NodeMirror | undefined;
   const statNodes: (NodeMirror | undefined)[] = [];
 
+  const play = game.play;
+  const confirm = play.sound(sfx.confirm());
+  const select = play.sound(sfx.select());
+  const pauseSound = play.sound(sfx.pause());
   const start = (demo: boolean) => {
+    play.play(demo ? select : confirm);
     game.start(demo);
     setStatus(game.status());
   };
   const togglePause = () => {
     const s = game.status();
     if (s === "playing" || s === "paused") {
+      play.play(pauseSound);
       game.pause?.(s === "playing");
       setStatus(game.status());
     }
@@ -96,7 +65,10 @@ export function GameShell(props: { game: PlaysetGame }) {
     if (s === "title" || s === "gameover") start(true);
   });
   onButtonPress(BTN.START, togglePause);
-  onButtonPress(BTN.SQUARE, () => setStats(!stats()));
+  onButtonPress(BTN.SQUARE, () => {
+    play.play(select, 0.6);
+    setStats(!stats());
+  });
 
   onFrame((held) => {
     const t0 = game.play.now();
@@ -130,6 +102,8 @@ export function GameShell(props: { game: PlaysetGame }) {
     jsUs += us;
     if (us > jsMax) jsMax = us;
     if (frames % 30 === 0) {
+      // read by the dev wire: eval `__playsetShell`
+      (globalThis as { __playsetShell?: unknown }).__playsetShell = { jsMs: jsUs / 30000, jsMaxMs: jsMax / 1000, frames };
       if (stats()) {
         const st = game.play.stats;
         const r = game.play.renderStats();

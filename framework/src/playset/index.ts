@@ -20,6 +20,8 @@ import {
   PLAYSET_ARCH,
   PLAYSET_ARCH_FLAG,
   PLAYSET_ARCH_LENGTH,
+  PLAYSET_ARCH_SOUND,
+  PLAYSET_VOICE,
   PLAYSET_BOUNDS,
   PLAYSET_CAMERA,
   PLAYSET_CAMERA_LENGTH,
@@ -39,8 +41,10 @@ import {
 } from "../../../contracts/spec/playset.ts";
 import { Color, describeModel, type Object3D } from "./three.ts";
 import { encodeWeapon, type Brain, type JointDriver, type Motion, type Weapon } from "./kinds.ts";
+import { encodeSound, type Sound, type SoundSpec } from "./sound.ts";
 
 export * from "./kinds.ts";
+export { sfx, type Sound, type SoundSpec } from "./sound.ts";
 export {
   PLAYSET_ENT as ENT,
   PLAYSET_INTENT as INTENT,
@@ -48,6 +52,7 @@ export {
   PLAYSET_STATE as STATE,
   PLAYSET_STAT as STAT,
   PLAYSET_CAMERA_FIELD as CAMERA_FIELD,
+  PLAYSET_MODULE as MODULE,
 } from "../../../contracts/spec/playset.ts";
 
 /** The host namespace (products/3ds/src/playset.c). */
@@ -84,6 +89,10 @@ export interface PlaysetNative {
   clear(): void;
   now(): number;
   renderStats(out: Float32Array): void;
+  call(module: number, op: number, args?: Float32Array, out?: Float32Array): number;
+  sound(desc: Float32Array): number;
+  soundPlay(kind: number, sound: number, volume: number, pitch: number, panOrX: number, y: number, z: number, placed: number): number;
+  volume(v: number): void;
 }
 
 export function nativePlayset(): PlaysetNative | null {
@@ -147,6 +156,11 @@ export interface ArchetypeSpec {
   ghost?: boolean;
   weapons?: readonly (Weapon | undefined)[];
   joints?: readonly JointDriver[];
+  /** played natively where they happen; weapons name their own shot sound */
+  sounds?: { death?: Sound; hit?: Sound; spawn?: Sound; volume?: number };
+  /** a loop while this archetype is the camera's target, its pitch rising
+   *  to `pitch` times the base at `speed` */
+  hum?: { sound: Sound; speed?: number; pitch?: number };
 }
 
 export interface Archetype {
@@ -451,6 +465,14 @@ export class Playset {
       d[A.JOINTS + i * 4 + 2] = j.axis;
       d[A.JOINTS + i * 4 + 3] = j.rate;
     });
+    const AS = PLAYSET_ARCH_SOUND;
+    d[AS.DEATH] = spec.sounds?.death ? spec.sounds.death.id + 1 : 0;
+    d[AS.HIT] = spec.sounds?.hit ? spec.sounds.hit.id + 1 : 0;
+    d[AS.SPAWN] = spec.sounds?.spawn ? spec.sounds.spawn.id + 1 : 0;
+    d[AS.VOLUME] = spec.sounds?.volume ?? 0;
+    d[AS.HUM] = spec.hum ? spec.hum.sound.id + 1 : 0;
+    d[AS.HUM_SPEED] = spec.hum?.speed ?? 0;
+    d[AS.HUM_PITCH] = spec.hum?.pitch ?? 0;
     d[A.EXTRA] = spec.invulnerable ?? 0;
     d[A.EXTRA + 1] = spec.expireEvent ? 1 : 0;
     return d;
@@ -481,6 +503,45 @@ export class Playset {
       (r.pickup ? R.PICKUP : 0) |
       (r.bounce ? R.BOUNCE : 0);
     return this.native.rule(a, b, flags, r.value ?? 0);
+  }
+
+  // --- sound ----------------------------------------------------------------
+
+  /** Synthesize a sound once (see `sfx` for presets). */
+  sound(spec: SoundSpec): Sound {
+    return { id: this.native.sound(encodeSound(spec)) };
+  }
+
+  /** Play a sound now; `at` places it in the world (distance and pan). */
+  play(s: Sound | undefined, volume = 1, pitch = 1, at?: readonly [number, number, number]): void {
+    if (!s) return;
+    if (at) this.native.soundPlay(PLAYSET_VOICE.PLAY, s.id, volume, pitch, at[0], at[1], at[2], 1);
+    else this.native.soundPlay(PLAYSET_VOICE.PLAY, s.id, volume, pitch, 0, 0, 0, 0);
+  }
+
+  /** Play a sound at a slot's position. */
+  playAt(s: Sound | undefined, slot: number, volume = 1, pitch = 1): void {
+    if (!s || slot < 0) return;
+    const o = slot * 16;
+    this.native.soundPlay(PLAYSET_VOICE.PLAY, s.id, volume, pitch, this.ent[o], this.ent[o + 1], this.ent[o + 2], 1);
+  }
+
+  /** Start a loop (a sound made with loop: true); its voice. */
+  loop(s: Sound, volume = 1, pitch = 1): number {
+    return this.native.soundPlay(PLAYSET_VOICE.LOOP, s.id, volume, pitch, 0, 0, 0, 0);
+  }
+
+  setLoop(voice: number, volume: number, pitch = 1, pan = 0): void {
+    if (voice > 0) this.native.soundPlay(PLAYSET_VOICE.SET, voice, volume, pitch, pan, 0, 0, 0);
+  }
+
+  stopLoop(voice: number): void {
+    if (voice > 0) this.native.soundPlay(PLAYSET_VOICE.STOP, voice, 0, 1, 0, 0, 0, 0);
+  }
+
+  /** 0..1 for everything this playset plays. */
+  volume(v: number): void {
+    this.native.volume(v);
   }
 
   // --- slots ----------------------------------------------------------------
@@ -700,6 +761,11 @@ export class Playset {
       if (h) h(ev[o + 1], ev[o + 2], ev[o + 3], ev[o + 4], ev[o + 5], ev[o + 6], ev[o + 7]);
     }
     return n;
+  }
+
+  /** A genre module's call (PLAYSET_MODULE); module wrappers name the ops. */
+  call(module: number, op: number, args?: Float32Array, out?: Float32Array): number {
+    return this.native.call(module, op, args, out);
   }
 
   /** Microseconds on the host's clock, for profiling guest code. */

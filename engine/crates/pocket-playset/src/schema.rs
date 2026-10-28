@@ -55,6 +55,16 @@ pub mod arch_flag {
 
 pub const ARCH_LENGTH: usize = 128;
 
+pub mod arch_sound {
+    pub const DEATH: usize = 114;
+    pub const HIT: usize = 115;
+    pub const SPAWN: usize = 116;
+    pub const HUM: usize = 117;
+    pub const HUM_SPEED: usize = 118;
+    pub const HUM_PITCH: usize = 119;
+    pub const VOLUME: usize = 120;
+}
+
 pub mod blend {
     pub const OPAQUE: u32 = 0;
     pub const ALPHA: u32 = 1;
@@ -269,6 +279,12 @@ pub mod model {
     pub const PART_STRIDE: usize = 32;
 }
 
+pub mod module {
+    pub const SNAKE: u32 = 1;
+    pub const MARBLE: u32 = 2;
+    pub const VOXEL: u32 = 3;
+}
+
 pub mod motion {
     pub const NONE: u32 = 0;
     pub const BALLISTIC: u32 = 1;
@@ -336,6 +352,35 @@ pub mod rule {
     pub const BOUNCE: u32 = 128;
 }
 
+pub mod sound {
+    pub const WAVE: usize = 0;
+    pub const FREQ: usize = 1;
+    pub const FREQ_END: usize = 2;
+    pub const CURVE: usize = 3;
+    pub const ATTACK: usize = 4;
+    pub const SUSTAIN: usize = 5;
+    pub const DECAY: usize = 6;
+    pub const VOLUME: usize = 7;
+    pub const DUTY: usize = 8;
+    pub const DUTY_SWEEP: usize = 9;
+    pub const VIBRATO: usize = 10;
+    pub const VIBRATO_RATE: usize = 11;
+    pub const NOISE: usize = 12;
+    pub const LOWPASS: usize = 13;
+    pub const ARP: usize = 14;
+    pub const ARP_TIME: usize = 15;
+    pub const LOOP: usize = 16;
+    pub const HARMONIC: usize = 17;
+    pub const HARMONIC_MIX: usize = 18;
+    pub const RATE: usize = 19;
+    pub const CRUSH: usize = 20;
+    pub const ECHO: usize = 21;
+    pub const ECHO_FEEDBACK: usize = 22;
+    pub const SEED: usize = 23;
+}
+
+pub const SOUND_LENGTH: usize = 24;
+
 pub mod stat {
     pub const STEP_US: usize = 0;
     pub const PREPARE_US: usize = 1;
@@ -382,6 +427,21 @@ pub mod view {
     pub const STATS: u32 = 8;
 }
 
+pub mod voice {
+    pub const PLAY: u32 = 1;
+    pub const LOOP: u32 = 2;
+    pub const SET: u32 = 3;
+    pub const STOP: u32 = 4;
+}
+
+pub mod wave {
+    pub const SQUARE: u32 = 0;
+    pub const SAW: u32 = 1;
+    pub const SINE: u32 = 2;
+    pub const TRIANGLE: u32 = 3;
+    pub const NOISE: u32 = 4;
+}
+
 pub mod weapon {
     pub const PROJECTILE: usize = 0;
     pub const COOLDOWN: usize = 1;
@@ -392,11 +452,11 @@ pub mod weapon {
     pub const MY: usize = 6;
     pub const MZ: usize = 7;
     pub const AIM: usize = 8;
-    pub const RANGE: usize = 9;
     pub const INHERIT: usize = 10;
     pub const BURST: usize = 11;
     pub const BURST_GAP: usize = 12;
     pub const EVENT: usize = 13;
     pub const PITCH: usize = 14;
     pub const AUTO: usize = 15;
+    pub const SOUND: usize = 9;
 }

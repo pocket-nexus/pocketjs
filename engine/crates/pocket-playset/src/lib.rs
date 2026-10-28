@@ -13,7 +13,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-pub mod board;
+pub mod audio;
 pub mod brains;
 pub mod camera;
 pub mod collide;
@@ -21,6 +21,7 @@ pub mod fmath;
 pub mod geom;
 pub mod kernels;
 pub mod model;
+pub mod modules;
 pub mod particles;
 pub mod render;
 pub mod scene;
@@ -41,7 +42,7 @@ pub struct Playset {
     pub render: render::Builder,
     pub camera_out: [f32; 16],
     pub stats: [f32; 16],
-    pub board: board::Board,
+    pub modules: modules::Modules,
 }
 
 fn c3(p: &[f32], i: usize) -> Vec3 {
@@ -61,7 +62,7 @@ impl Playset {
             render: render::Builder::default(),
             camera_out: [0.0; 16],
             stats: [0.0; 16],
-            board: board::Board::default(),
+            modules: modules::Modules::default(),
         })
     }
 
@@ -117,8 +118,11 @@ impl Playset {
     pub fn step(&mut self, dt: f32) -> usize {
         let dt = fmath::clampf(dt, 0.0, 0.1);
         self.world.step(&self.scene, dt);
-        self.board.step(&mut self.world, &self.scene, dt);
+        self.modules.step(&mut self.world, &mut self.scene, dt);
+        // deaths a module queued
+        self.world.bury();
         self.rig.step(&mut self.world, dt);
+        self.hum();
         self.rig.publish(&mut self.camera_out, self.world.time, 400.0 / 240.0);
         self.stats[S::LIVE] = self.world.live.len() as f32;
         self.stats[S::PARTICLES] = self.world.fx.pool.len() as f32;
@@ -128,8 +132,52 @@ impl Playset {
         self.world.event_count
     }
 
+    /// The camera target's engine loop: started, retuned by speed, stopped.
+    fn hum(&mut self) {
+        use crate::schema::arch_sound as AS;
+        let target = self.rig.d[crate::schema::camera::TARGET] as i32;
+        let w = &mut self.world;
+        let want = if target >= 0 && w.alive(target as usize) {
+            w.arch_of(target as usize).and_then(|a| {
+                let s = w.archs[a][AS::HUM];
+                if s >= 1.0 {
+                    Some((target as usize, a, s as u32 - 1))
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+        match (w.audio.hum, want) {
+            (Some((slot, voice, sound)), Some((s, a, snd))) if slot == s && sound == snd => {
+                let top = w.archs[a][AS::HUM_SPEED];
+                let k = fmath::clampf(fmath::absf(w.e(s, crate::schema::ent::SPEED)) / if top > 0.0 { top } else { 10.0 }, 0.0, 1.0);
+                let pmax = if w.archs[a][AS::HUM_PITCH] > 0.0 { w.archs[a][AS::HUM_PITCH] } else { 2.0 };
+                let v = w.archs[a][AS::VOLUME];
+                let vol = (if v > 0.0 { v } else { 1.0 }) * (0.55 + 0.45 * k);
+                w.audio.set_loop(voice, vol, 1.0 + (pmax - 1.0) * k, 0.0);
+            }
+            (current, want) => {
+                if let Some((_, voice, _)) = current {
+                    w.audio.stop_loop(voice);
+                    w.audio.hum = None;
+                }
+                if let Some((s, a, snd)) = want {
+                    let v = w.archs[a][AS::VOLUME];
+                    let voice = w.audio.start_loop(snd, (if v > 0.0 { v } else { 1.0 }) * 0.55, 1.0);
+                    w.audio.hum = Some((s, voice, snd));
+                }
+            }
+        }
+    }
+
     pub fn prepare(&mut self, aspect: f32) -> *const render::Frame {
         let f = render::prepare(self, aspect);
+        let (eye, fwd, up) = self.rig.basis(self.world.time);
+        let right = fwd.cross(up).normalized();
+        let far = self.rig.far;
+        self.world.audio.finish(eye, right, far);
         let fr = &self.render.frame;
         self.stats[S::DRAWS] = fr.draw_count as f32;
         self.stats[S::TRIS] = fr.tris as f32;

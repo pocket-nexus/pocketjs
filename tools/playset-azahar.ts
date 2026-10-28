@@ -76,7 +76,8 @@ set("use_disk_shader_cache", "false");
 set("check_for_update_on_start", "false");
 writeFileSync(join(userDir, "config/qt-config.ini"), config);
 
-const kill = () => Bun.spawnSync(["pkill", "-9", "-f", binary], { stdout: "ignore", stderr: "ignore" });
+// only this run's emulator: its command line names this checkout's .3dsx
+const kill = () => Bun.spawnSync(["pkill", "-9", "-f", rom], { stdout: "ignore", stderr: "ignore" });
 kill();
 const log = join(work, "console.log");
 Bun.spawnSync(["open", "-n", "-a", azahar, "--env", `HOME=${home}`, "--stdout", log, "--stderr", log, "--args", rom]);
@@ -95,7 +96,8 @@ while (Date.now() - began < Number(process.env.E2E_AZAHAR_TIMEOUT_MS ?? 240_000)
 }
 if (!ok) {
   // a graceful quit flushes Azahar's own log (CPU faults, guest debug output)
-  Bun.spawnSync(["osascript", "-e", 'tell application "Azahar" to quit']);
+  // a graceful quit of this run's instance (SIGTERM is ignored; SIGINT is not)
+  Bun.spawnSync(["pkill", "-INT", "-f", rom], { stdout: "ignore", stderr: "ignore" });
   await Bun.sleep(3000);
   kill();
   const emulatorLog = join(userDir, "log/azahar_log.txt");

@@ -14,7 +14,7 @@ const OUT = resolve(import.meta.dir, "../engine/crates/pocket-playset/src/schema
 const LAYOUT = new Set([
   "PLAYSET_STRIDE", "PLAYSET_ENT", "PLAYSET_INTENT", "PLAYSET_EVENT_FIELD",
   "PLAYSET_CAMERA_FIELD", "PLAYSET_STAT", "PLAYSET_PART", "PLAYSET_ARCH",
-  "PLAYSET_WEAPON", "PLAYSET_CAMERA", "PLAYSET_EMITTER", "PLAYSET_MODEL",
+  "PLAYSET_WEAPON", "PLAYSET_CAMERA", "PLAYSET_EMITTER", "PLAYSET_MODEL", "PLAYSET_SOUND", "PLAYSET_ARCH_SOUND",
 ]);
 
 function moduleName(name: string): string {

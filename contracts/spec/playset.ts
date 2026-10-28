@@ -254,8 +254,10 @@ export const PLAYSET_BRAIN = {
 export const PLAYSET_WEAPON = {
   PROJECTILE: 0, COOLDOWN: 1, SPEED: 2, SPREAD: 3, COUNT: 4,
   MX: 5, MY: 6, MZ: 7,
-  AIM: 8, RANGE: 9, INHERIT: 10, BURST: 11, BURST_GAP: 12,
+  AIM: 8, INHERIT: 10, BURST: 11, BURST_GAP: 12,
+  /** sound id + 1 played at the muzzle on every shot; 0 = none */
   EVENT: 13, PITCH: 14, AUTO: 15,
+  SOUND: 9,
 } as const;
 
 export const PLAYSET_AIM = { FORWARD: 0, LEAD: 1, ARC: 2, INTENT: 3 } as const;
@@ -299,6 +301,73 @@ export const PLAYSET_RULE = {
   PICKUP: 64,
   /** bounce a off b */
   BOUNCE: 128,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Sound: playset.sound(desc) synthesizes a 24-float description into PCM once;
+// archetypes, weapons and the guest play it. The renderer's host mixes it.
+
+export const PLAYSET_SOUND_LENGTH = 24;
+export const PLAYSET_SOUND = {
+  /** PLAYSET_WAVE */
+  WAVE: 0,
+  /** Hz at the start and the end of the sound */
+  FREQ: 1, FREQ_END: 2,
+  /** 0 linear, 1 exponential sweep */
+  CURVE: 3,
+  /** seconds */
+  ATTACK: 4, SUSTAIN: 5, DECAY: 6,
+  /** 0..1 */
+  VOLUME: 7,
+  /** square duty 0..1 and its change per second */
+  DUTY: 8, DUTY_SWEEP: 9,
+  /** cents of vibrato and its rate in Hz */
+  VIBRATO: 10, VIBRATO_RATE: 11,
+  /** 0..1 noise mixed into the tone */
+  NOISE: 12,
+  /** one-pole low-pass, 0 = off .. 1 = closed */
+  LOWPASS: 13,
+  /** after ARP_TIME seconds the pitch is multiplied by ARP */
+  ARP: 14, ARP_TIME: 15,
+  /** 1 = a loop (engines, wind); its length is ATTACK + SUSTAIN */
+  LOOP: 16,
+  /** a second oscillator at FREQ * HARMONIC mixed by HARMONIC_MIX */
+  HARMONIC: 17, HARMONIC_MIX: 18,
+  /** samples per second, default 22050 */
+  RATE: 19,
+  /** 0..1 of the shape folded back into the tone (grit) */
+  CRUSH: 20,
+  /** seconds of repeat echo, and its feedback */
+  ECHO: 21, ECHO_FEEDBACK: 22,
+  SEED: 23,
+} as const;
+
+export const PLAYSET_WAVE = { SQUARE: 0, SAW: 1, SINE: 2, TRIANGLE: 3, NOISE: 4 } as const;
+
+/** Archetype sound slots (sound id + 1, 0 = none), in the EXTRA block. */
+export const PLAYSET_ARCH_SOUND = {
+  DEATH: 114,
+  HIT: 115,
+  SPAWN: 116,
+  /** a loop following the camera's target: pitch from SPEED */
+  HUM: 117,
+  /** the speed at which the hum reaches HUM_PITCH times its base pitch */
+  HUM_SPEED: 118,
+  HUM_PITCH: 119,
+  /** 0..1 volume of this archetype's sounds; 0 = 1 */
+  VOLUME: 120,
+} as const;
+
+/** One mixer request (pps_audio_requests): the host plays, loops, changes or
+ *  stops a voice. */
+export const PLAYSET_VOICE = {
+  /** play once */
+  PLAY: 1,
+  /** start a loop on voice VOICE */
+  LOOP: 2,
+  /** change a loop's volume, pitch and pan */
+  SET: 3,
+  STOP: 4,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -366,6 +435,16 @@ export const PLAYSET_QUERY = {
   NEAREST: 3,
   /** ground height at (a, b) */
   HEIGHT: 4,
+} as const;
+
+/** Genre modules reached through playset.call(module, op, args, out): each
+ *  keeps its own state and drives its own slots after the world's step
+ *  (engine/crates/pocket-playset/src/modules). Their ops are listed in the
+ *  module's TS wrapper. */
+export const PLAYSET_MODULE = {
+  SNAKE: 1,
+  MARBLE: 2,
+  VOXEL: 3,
 } as const;
 
 /** Static scenery and dynamic nodes: playset.node(model, x, y, z, yaw, pitch,

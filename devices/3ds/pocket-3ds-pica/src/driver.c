@@ -644,8 +644,19 @@ static int32_t visit(void *context, const pocket_draw_op *raw) {
   return 0;
 }
 
+/* Microseconds of the last submit per display role, and of the last GPU
+ * idle wait (pocket_pica_renderer_timing). */
+static uint32_t timing_submit[2], timing_idle;
+void pocket_pica_renderer_timing(uint32_t *submit_primary, uint32_t *submit_auxiliary,
+                                 uint32_t *gpu_idle_us) {
+  *submit_primary = timing_submit[0];
+  *submit_auxiliary = timing_submit[1];
+  *gpu_idle_us = timing_idle;
+}
+static uint32_t ticks_us(u64 a, u64 b) { return (uint32_t)((b - a) * 1000000ull / SYSCLOCK_ARM11); }
 /* End the open frame and wait for the GPU to finish it. */
 static void gpu_idle(pocket_pica_renderer *r) {
+  u64 t0 = svcGetSystemTick();
   C3D_FrameEnd(0);
   /* Blocking FrameBegin waits and clears the preceding GPU queue. FrameSync
    * only waits for VBlank and cannot establish this resource lifetime. */
@@ -656,6 +667,7 @@ static void gpu_idle(pocket_pica_renderer *r) {
   BufInfo_Init(&empty);
   C3D_SetBufInfo(&empty);
   C3D_FrameEnd(0);
+  timing_idle = ticks_us(t0, svcGetSystemTick());
 }
 static bool drain(pocket_pica_renderer *r) {
   if (!r->frame_open)
@@ -787,8 +799,20 @@ static int32_t renderer_descriptor(void *context,
              ? 0
              : POCKET_STATUS_INVALID;
 }
+static int32_t render_timed(void *context, const pocket_frame_input *raw,
+                            uint64_t *out);
 static int32_t render(void *context, const pocket_frame_input *raw,
                       uint64_t *out) {
+  u64 t0 = svcGetSystemTick();
+  int32_t status = render_timed(context, raw, out);
+  pocket_pica_renderer *r = context;
+  if (r && r->pending && r->pending->display)
+    timing_submit[r->pending->display->role == POCKET_DISPLAY_ROLE_PRIMARY ? 0 : 1] =
+        ticks_us(t0, svcGetSystemTick());
+  return status;
+}
+static int32_t render_timed(void *context, const pocket_frame_input *raw,
+                            uint64_t *out) {
   pocket_pica_renderer *r = context;
   pocket_frame_input frame;
   pocket_target target;

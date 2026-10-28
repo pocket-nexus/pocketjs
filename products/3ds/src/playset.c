@@ -9,9 +9,12 @@
 
 #include <3ds.h>
 #include <pocket_3ds_playset.h>
+#include <pocket_pica_driver.h>
 #include <pocket_playset.h>
 #include <string.h>
 
+#include "gfx.h"
+#include "playset_audio.h"
 #include "playset_shbin.h"
 
 static bool admitted;
@@ -52,6 +55,10 @@ typedef enum {
   OpClear,
   OpNow,
   OpRenderStats,
+  OpCall,
+  OpSound,
+  OpSoundPlay,
+  OpVolume,
 } Op;
 
 void playset_admit(bool value) { admitted = value; }
@@ -241,15 +248,51 @@ static JSValue call(JSContext *ctx, JSValueConst this_value, int argc,
   case OpClear:
     pps_clear(world);
     return JS_UNDEFINED;
-  case OpRenderStats:
-    /* draws, bone matrices, uploads, dynamic vertices, triangles */
+  case OpCall: {
+    /* call(module, op, args, out?) */
+    uint32_t nout = 0;
+    f = floats(ctx, argc, argv, 2, &n);
+    float *out = floats(ctx, argc, argv, 3, &nout);
+    return JS_NewFloat64(ctx, pps_call(world, (uint32_t)num(ctx, argc, argv, 0), (uint32_t)num(ctx, argc, argv, 1),
+                                       f, n, out, nout));
+  }
+  case OpSound:
     f = floats(ctx, argc, argv, 0, &n);
-    if (f && n >= 5) {
+    return JS_NewInt32(ctx, f ? pps_sound(world, f, n) : -1);
+  case OpSoundPlay:
+    /* soundPlay(kind, sound | voice, volume, pitch, panOrX, y, z, placed) */
+    return JS_NewInt32(ctx, pps_sound_play(world, (uint32_t)num(ctx, argc, argv, 0), (int32_t)num(ctx, argc, argv, 1),
+                                           (float)num(ctx, argc, argv, 2), (float)num(ctx, argc, argv, 3),
+                                           (float)num(ctx, argc, argv, 4), (float)num(ctx, argc, argv, 5),
+                                           (float)num(ctx, argc, argv, 6), (int32_t)num(ctx, argc, argv, 7)));
+  case OpVolume:
+    pps_audio_master(world, (float)num(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+  case OpRenderStats:
+    /* draws, bone matrices, uploads, dynamic vertices, triangles, then
+     * citro3d's GPU drawing and command processing time of the last frame (ms) */
+    f = floats(ctx, argc, argv, 0, &n);
+    if (f && n >= 14) {
+      f[10] = (float)gfx_frame_words(0);
+      f[11] = (float)gfx_frame_words(1);
+      f[12] = (float)gfx_frame_vertices();
+      f[13] = (float)playset_audio_state();
+    }
+    if (f && n >= 10) {
+      uint32_t a, b, c;
+      pocket_pica_renderer_timing(&a, &b, &c);
+      f[7] = (float)a;
+      f[8] = (float)b;
+      f[9] = (float)c;
+    }
+    if (f && n >= 7) {
       f[0] = (float)last_stats.draws;
       f[1] = (float)last_stats.bones;
       f[2] = (float)last_stats.uploads;
       f[3] = (float)last_stats.dyn_vertices;
       f[4] = (float)last_stats.tris;
+      f[5] = C3D_GetDrawingTime();
+      f[6] = C3D_GetProcessingTime();
     }
     return JS_UNDEFINED;
   default:
@@ -280,6 +323,8 @@ int playset_install(JSContext *ctx, JSValueConst global) {
       {"camera", 1, OpCamera},     {"query", 5, OpQuery},
       {"seed", 1, OpSeed},         {"clear", 0, OpClear},
       {"now", 0, OpNow},           {"renderStats", 1, OpRenderStats},
+      {"call", 4, OpCall},         {"sound", 1, OpSound},
+      {"soundPlay", 8, OpSoundPlay}, {"volume", 1, OpVolume},
   };
   JSValue ns = JS_NewObject(ctx);
   if (JS_IsException(ns)) return -1;
@@ -295,6 +340,7 @@ int playset_install(JSContext *ctx, JSValueConst global) {
 }
 
 void playset_shutdown(void) {
+  playset_audio_shutdown();
   if (renderer) p3ps_forget(renderer);
   if (world) {
     pps_destroy(world);
@@ -316,5 +362,7 @@ bool playset_render(C3D_RenderTarget *target, C3D_RenderTarget *right) {
                         slider * 0.4f, &last_stats);
   u64 t1 = svcGetSystemTick();
   pps_note_timing(world, -1, -1, (float)((t1 - t0) * 1000000ull / SYSCLOCK_ARM11));
+  /* the prepare above finished this frame's sound requests */
+  playset_audio_frame(world);
   return ok;
 }

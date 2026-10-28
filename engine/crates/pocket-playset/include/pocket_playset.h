@@ -108,9 +108,28 @@ void pps_layer(pps *p, int32_t slot, uint32_t layer, uint32_t mask, int32_t team
 void pps_emit(pps *p, int32_t emitter, float x, float y, float z, float count);
 void pps_fire(pps *p, int32_t slot, int32_t weapon);
 int32_t pps_step(pps *p, float dt);
+/* a genre module's call (PLAYSET_MODULE): args in, results into out */
+float pps_call(pps *p, uint32_t module, uint32_t op, const float *args, uint32_t n,
+               float *out, uint32_t nout);
 void pps_camera(pps *p, const float *desc, uint32_t n);
 float pps_query(pps *p, uint32_t kind, float a, float b, float c, float d);
 void pps_seed(pps *p, uint32_t seed);
+
+/* sound (contracts/spec/playset.ts PLAYSET_SOUND, PLAYSET_VOICE) */
+typedef struct {
+  uint32_t kind;
+  uint32_t sound;
+  int32_t voice;
+  float volume, pitch, pan;
+} pps_voice_request;
+int32_t pps_sound(pps *p, const float *desc, uint32_t n);
+int32_t pps_sound_data(pps *p, uint32_t id, const int16_t **pcm, uint32_t *samples,
+                       uint32_t *rate, uint32_t *looping);
+int32_t pps_sound_play(pps *p, uint32_t kind, int32_t sound, float volume, float pitch,
+                       float pan_or_x, float y, float z, int32_t placed);
+/* built by pps_prepare; valid until the next prepare */
+const pps_voice_request *pps_audio_requests(pps *p, uint32_t *count);
+void pps_audio_master(pps *p, float volume);
 
 const pps_frame *pps_prepare(pps *p, float aspect);
 uint32_t pps_model_count(pps *p);

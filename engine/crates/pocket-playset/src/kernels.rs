@@ -76,8 +76,8 @@ pub fn step(w: &mut World, scene: &Scene, slot: usize, dt: f32) {
         M::TURRET => turret(w, slot, arch, dt),
         M::ATTACHED => attached(w, slot, dt),
         M::RUNNER => runner(w, scene, slot, arch, dt),
-        M::SNAKE => crate::board::step_snake(w, scene, slot, arch, dt),
-        M::MARBLE => crate::board::step_marble(w, scene, slot, arch, dt),
+        // driven by their modules after the world's step (modules/)
+        M::SNAKE | M::MARBLE => {}
         _ => {
             // NONE: velocity integrates, nothing steers
             let v = w.vel(slot);
