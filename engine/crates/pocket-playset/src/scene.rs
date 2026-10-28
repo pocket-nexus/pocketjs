@@ -221,8 +221,9 @@ impl Scene {
             let c = m.point(md.center);
             let half = (md.max - md.min) * (0.5 * s);
             if flags & crate::schema::node::COLLIDE_BOX != 0 {
+                // the node's yaw; collide.rs rotates by it into the box's frame
                 let yaw = atan2f(-m.0[8], m.0[0]);
-                self.colliders.push(Collider::Box { c, half, yaw: -yaw });
+                self.colliders.push(Collider::Box { c, half, yaw });
             } else {
                 self.colliders.push(Collider::Cylinder { c, r: maxf(half.x, half.z), half_h: half.y });
             }
@@ -274,12 +275,13 @@ impl Scene {
     }
 
     /// A flat checkered ground of `half` metres around the origin, one tile
-    /// per 16x16 cells.
+    /// per 8x8 cells. Cells are at most 32 m: a quad that spans far past the
+    /// view is not drawn reliably, and small tiles cull well.
     pub fn flat_ground(&mut self, y: f32, half: f32, a: [f32; 3], b: [f32; 3], cell: f32) {
         self.flat_y = y;
         self.ground.clear();
-        let cell = if cell > 0.5 { cell } else { 4.0 };
-        let n = ((half * 2.0 / cell) as i32).clamp(1, 128);
+        let cell = if cell > 0.5 { minf(cell, 32.0) } else { 4.0 };
+        let n = ((half * 2.0 / cell + 0.999) as i32).clamp(1, 256);
         let step = half * 2.0 / n as f32;
         let ca = srgb(a[0], a[1], a[2]);
         let cb = srgb(b[0], b[1], b[2]);
@@ -290,8 +292,8 @@ impl Scene {
             let mut tx = 0;
             while tx < n {
                 let mut tile = Batch { revision: self.batch_revision, ..Batch::default() };
-                for iz in tz..(tz + 16).min(n) {
-                    for ix in tx..(tx + 16).min(n) {
+                for iz in tz..(tz + 8).min(n) {
+                    for ix in tx..(tx + 8).min(n) {
                         let x0 = -half + ix as f32 * step;
                         let z0 = -half + iz as f32 * step;
                         let c = if (ix + iz) % 2 == 0 { ca } else { cb };
@@ -304,9 +306,9 @@ impl Scene {
                     }
                 }
                 self.ground.push(tile);
-                tx += 16;
+                tx += 8;
             }
-            tz += 16;
+            tz += 8;
         }
     }
 

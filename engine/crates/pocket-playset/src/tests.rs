@@ -249,3 +249,22 @@ fn banked_plane_holds_its_floor_and_pursue_breaks_away() {
     assert!(ps.world.intent(h, I::FWD) < 0.0, "eases the throttle inside the throttle distance");
     assert!(ps.world.intent(h, I::FIRE) < 0.5, "holds fire while breaking away");
 }
+
+#[test]
+fn a_yawed_box_node_collides_where_it_is_drawn() {
+    let mut ps = Playset::new(16, 0);
+    // a 10 x 2 wall turned 90 degrees: it runs along Z through the origin
+    let wall = ps.scene.add_model(&boxes(&[(10.0, 2.0, 2.0, [0.0, 0.0, 0.0], 1.0)])).unwrap();
+    let m = Mat34::from_ypr(Vec3::ZERO, core::f32::consts::FRAC_PI_2, 0.0, 0.0, 1.0);
+    ps.scene.add_node(wall, m, crate::schema::node::STATIC | crate::schema::node::COLLIDE_BOX);
+    let mut a = arch();
+    a[A::RADIUS] = 0.5;
+    a[A::LAYER] = 1.0;
+    let a = ps.world.add_arch(&a) as usize;
+    // a body 3 m down the wall's length is inside it and gets pushed out sideways
+    let s = ps.world.spawn(&ps.scene, a, v3(0.3, 0.0, 3.0), 0.0) as usize;
+    ps.step(1.0 / 60.0);
+    let p = ps.world.pos(s);
+    assert!(p.x > 1.4, "pushed out of the wall's side, x = {}", p.x);
+    assert!((p.z - 3.0).abs() < 1e-3, "not along its length, z = {}", p.z);
+}
