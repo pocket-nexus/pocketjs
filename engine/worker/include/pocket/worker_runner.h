@@ -46,7 +46,8 @@ pocket_worker_runner_create(const pocket_worker_runner_config *);
  * stop was requested. After a realm fault the loop keeps the core alive
  * until stop is requested, so a UI bridge detaches before destroy. */
 void pocket_worker_runner_run(pocket_worker_runner *);
-/* Any task: end the loop. Also releases a paused runner. */
+/* Any task after create returned: end the loop, interrupting a turn in
+ * progress. Also releases a paused runner. */
 void pocket_worker_runner_stop(pocket_worker_runner *);
 /* Any task: let a runner created with start_paused execute turns. */
 void pocket_worker_runner_resume(pocket_worker_runner *);

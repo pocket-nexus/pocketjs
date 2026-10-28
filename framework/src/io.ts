@@ -1,30 +1,54 @@
 import { ResourceKind, ResourceStatus, WORKER_LIMITS } from "../../contracts/spec/worker.ts";
-import { workerHost, workerDeclaration, type Inbox, type FactView } from "./worker.ts";
+import { ResourceError, settle, workerDeclaration, workerHost, type FactRecord } from "./worker.ts";
+import { createTimer, observeChannel, observeResource, releaseResource, snapshotOf, type Timer } from "./worker-runtime.ts";
 import { encodeI2CScript, integer, type I2CStep } from "./io/i2c.ts";
 
 export { ResourceStatus, FactKind } from "../../contracts/spec/worker.ts";
+export { ResourceError } from "./worker.ts";
+export type { FactRecord, TimerTick } from "./worker.ts";
+export type { Timer } from "./worker-runtime.ts";
+
 export class Resource {
   private closed = false;
-  constructor(readonly handle: number) {}
+  constructor(readonly handle: number, readonly node: string) {}
   protected host() {
     if (this.closed) throw new Error("Resource is closed");
     return workerHost();
   }
-  observe(inbox: Inbox): readonly FactView[] { return inbox.events(this.handle); }
+  /** The resource's stream facts in arrival order: ready, headers, data, end,
+   *  gap, error, credit and closed. A completion settles its request instead.
+   *  Records that arrive while no loop reads the stream expire with their
+   *  turn; a loop that falls OBSERVER_LIMIT records behind faults the realm.
+   *  The stream ends when the resource closes. */
+  observe(): AsyncIterable<FactRecord> { this.host(); return observeResource(this.handle, `${this.node} stream`); }
   cancel(request: number): number { return this.host().cancel(request); }
   close(): number {
     if (this.closed) return ResourceStatus.ok;
     const result = workerHost().close(this.handle);
-    if (result === ResourceStatus.ok || result === ResourceStatus.busy) this.closed = true;
+    if (result === ResourceStatus.ok || result === ResourceStatus.busy) { this.closed = true; releaseResource(this.handle); }
     return result;
   }
 }
 export class I2CDevice extends Resource {
-  constructor(handle: number, private readonly timeoutMillis: number) { super(handle); }
+  constructor(handle: number, node: string, private readonly timeoutMillis: number) { super(handle, node); }
+  /** Reserves a request slot and result capacity; -1 when nothing was accepted. */
   submit<const S extends readonly I2CStep[]>(script: S, options?: { readonly timeoutMillis?: number }): number {
-    const { payload, resultBytes } = encodeI2CScript(script, options?.timeoutMillis ?? this.timeoutMillis);
-    const request = this.host().submit(this.handle, 1, payload, resultBytes);
+    const request = this.accept(script, options);
     return request < 0 ? -1 : request;
+  }
+  /** Submits the script and resolves with the concatenated read results once
+   *  the completion arrives. Rejects with a ResourceError when the host does
+   *  not accept the script or the transaction ends with another status. */
+  async run<const S extends readonly I2CStep[]>(script: S, options?: { readonly timeoutMillis?: number }): Promise<Uint8Array> {
+    const request = this.accept(script, options);
+    if (request < 0) throw new ResourceError(request, -1, `${this.node} did not accept the I2C script: ${request}`);
+    const record = await settle(request);
+    if (record.status !== ResourceStatus.ok) throw new ResourceError(record.status, request, `${this.node} request ${request} ended with status ${record.status}`);
+    return record.data;
+  }
+  private accept(script: readonly I2CStep[], options?: { readonly timeoutMillis?: number }): number {
+    const { payload, resultBytes } = encodeI2CScript(script, options?.timeoutMillis ?? this.timeoutMillis);
+    return this.host().submit(this.handle, 1, payload, resultBytes);
   }
 }
 export class ByteStream extends Resource {
@@ -48,6 +72,8 @@ export interface HttpOptions {
   readonly maxBytes?: number;
 }
 export class HttpRequest extends Resource {
+  /** Starts the request; -1 when the host did not accept it. The response
+   *  streams through observe(); the completion settles the request id. */
   submit(): number { const request = this.host().submit(this.handle, 1, new Uint8Array(0), 0); return request < 0 ? -1 : request; }
 }
 function open(kind: keyof typeof ResourceKind, name: string, config: Uint8Array): number {
@@ -76,7 +102,7 @@ export const io = {
       integer(options.address, 8, 0x77, "I2C address");
       const timeout = options.timeoutMillis ?? 100;
       integer(timeout, 1, 65535, "I2C timeoutMillis");
-      return new I2CDevice(open("i2c", name, Uint8Array.of(1, options.address)), timeout);
+      return new I2CDevice(open("i2c", name, Uint8Array.of(1, options.address)), name, timeout);
     } };
   },
   uart(name: string) {
@@ -90,7 +116,7 @@ export const io = {
       const config = new Uint8Array(9);
       config.set([1, dataBits, stopBits, parity]);
       new DataView(config.buffer).setUint32(4, options.baudRate, true); config[8] = flow;
-      return new ByteStream(open("uart", name, config));
+      return new ByteStream(open("uart", name, config), name);
     } };
   },
   http(name = "http") {
@@ -101,26 +127,39 @@ export const io = {
       if (options.maxBytes !== undefined) integer(options.maxBytes, 1, 0x7fff_ffff, "HTTP maxBytes");
       const config = utf8(JSON.stringify(options));
       if (config.length > WORKER_LIMITS.payloadBytes) throw new RangeError("HTTP descriptor exceeds 1024 bytes");
-      return new HttpRequest(open("http", name, config));
+      return new HttpRequest(open("http", name, config), name);
     } };
   },
-  timer(id: number, deadlineMicros: number, periodMicros = 0): boolean {
-    integer(id, 1, WORKER_LIMITS.timers, "timer id");
-    integer(deadlineMicros, 0, Number.MAX_SAFE_INTEGER, "timer deadline");
-    integer(periodMicros, 0, Number.MAX_SAFE_INTEGER, "timer period");
-    return workerHost().timer(id, deadlineMicros, periodMicros) === ResourceStatus.ok;
+  /** A periodic deadline read with `for await`. Each tick carries its planned
+   *  deadline and the periods that passed unobserved; the deadline advances
+   *  by whole periods, so the schedule does not drift with turn latency.
+   *  The first tick is due after `firstMicros` (default: one period). */
+  timer(periodMicros: number, options?: { readonly firstMicros?: number }): Timer {
+    return createTimer(periodMicros, options?.firstMicros);
   },
-  /** A declared channel's worker side: publish toward the UI. Inbound
-   *  records arrive through the turn inbox. */
+  /** A declared channel's worker side. */
   channel(name: string) {
     const channels = workerDeclaration()?.channels ?? [];
     const id = channels.findIndex(channel => channel.name === name);
     if (id < 0) throw new Error(`Undeclared worker channel: ${name}`);
-    const channel = channels[id];
-    return { publish(data: Uint8Array): boolean {
-      if (channel.direction !== "worker-to-ui") throw new Error(`Channel ${name} is receive-only in the worker domain; read it from the turn inbox`);
-      if (data.length > channel.recordBytes) throw new RangeError(`Channel ${name} record exceeds ${channel.recordBytes} bytes`);
-      return workerHost().publish(id + 1, data) === ResourceStatus.ok;
-    } };
+    const channel = channels[id]!;
+    return {
+      /** Worker-to-UI: copies one record toward the UI; false when a ring is full. */
+      publish(data: Uint8Array): boolean {
+        if (channel.direction !== "worker-to-ui") throw new Error(`Channel ${name} is receive-only in the worker domain; read it with observe()`);
+        if (data.length > channel.recordBytes) throw new RangeError(`Channel ${name} record exceeds ${channel.recordBytes} bytes`);
+        return workerHost().publish(id + 1, data) === ResourceStatus.ok;
+      },
+      /** UI-to-worker: each arriving record, as a retained copy. */
+      observe(): AsyncIterable<Uint8Array> {
+        if (channel.direction !== "ui-to-worker") throw new Error(`Channel ${name} is publish-only in the worker domain`);
+        return observeChannel(id + 1, `channel ${name}`);
+      },
+      /** UI-to-worker snapshot: the retained newest record, or undefined before the first one. */
+      snapshot(): Uint8Array | undefined {
+        if (channel.kind !== "snapshot" || channel.direction !== "ui-to-worker") throw new Error(`No inbound snapshot channel: ${name}`);
+        return snapshotOf(id + 1);
+      },
+    };
   },
 };

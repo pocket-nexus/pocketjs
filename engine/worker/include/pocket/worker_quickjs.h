@@ -10,7 +10,15 @@ typedef struct {
   uint32_t struct_size;
   pocket_worker *worker;
   size_t heap_limit, stack_limit;
-  uint32_t max_turn_micros, max_jobs, max_facts, max_bytes;
+  /* Per-step bounds: Promise jobs executed after the turn callback returns
+   * (default 64), facts observed per turn (default 16, at most 64) and their
+   * payload bytes (default 8192). The job bound is a count, never a time, so
+   * a replay splits a continuation chain at the same place. */
+  uint32_t max_jobs, max_facts, max_bytes;
+  /* Optional CPU share: at most quota_micros of JS execution per
+   * window_micros. Zero quota disables it (the default). A platform sets it
+   * when the worker task outranks the UI task on the same core, where the
+   * scheduler would not give the UI any time. */
   uint32_t window_micros, quota_micros;
   void *context;
   uint64_t (*now_micros)(void *);
@@ -19,8 +27,6 @@ typedef struct {
   int32_t (*mount)(void *, JSContext *);
   const JSMallocFunctions *allocator;
   void *allocator_context;
-  /* Bootstrap parsing/evaluation has a separate limit (default 250000 us). */
-  uint32_t max_boot_micros;
 } pocket_worker_quickjs_config;
 pocket_worker_quickjs *
 pocket_worker_quickjs_create(const pocket_worker_quickjs_config *);
@@ -33,6 +39,10 @@ int32_t pocket_worker_quickjs_eval(pocket_worker_quickjs *, const char *,
 int32_t pocket_worker_quickjs_step(pocket_worker_quickjs *,
                                    const pocket_worker_context *);
 uint64_t pocket_worker_quickjs_deadline(pocket_worker_quickjs *);
+/* Any task while the realm exists: the JS execution in progress, or the next
+ * one, ends with a fault. There is no execution time limit; this is how a
+ * stop reaches a turn that never returns. */
+void pocket_worker_quickjs_interrupt(pocket_worker_quickjs *);
 const char *pocket_worker_quickjs_error(const pocket_worker_quickjs *);
 JSContext *pocket_worker_quickjs_context(pocket_worker_quickjs *);
 /* The caller stops and destroys the resource core before destroying this

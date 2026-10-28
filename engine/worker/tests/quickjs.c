@@ -3,6 +3,7 @@
 #include "pocket/worker_runner.h"
 #include "pocket/worker_ui.h"
 #include <assert.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -29,6 +30,13 @@ static uint64_t realtime(void *opaque) {
   struct timespec t;
   clock_gettime(CLOCK_MONOTONIC, &t);
   return (uint64_t)t.tv_sec * 1000000 + (uint64_t)t.tv_nsec / 1000;
+}
+/* Another task's stop request reaching a turn that never returns. */
+static void *interrupt_later(void *opaque) {
+  struct timespec delay = {.tv_sec = 0, .tv_nsec = 20 * 1000 * 1000};
+  nanosleep(&delay, NULL);
+  pocket_worker_quickjs_interrupt(opaque);
+  return NULL;
 }
 static void eval(pocket_worker_quickjs *g, const char *source) {
   int32_t result =
@@ -63,7 +71,6 @@ int main(void) {
                                     .worker = w,
                                     .heap_limit = 1024 * 1024,
                                     .stack_limit = 64 * 1024,
-                                    .max_turn_micros = 10000,
                                     .max_jobs = 4,
                                     .window_micros = 1000,
                                     .quota_micros = 2,
@@ -163,14 +170,29 @@ int main(void) {
   assert(w);
   q.worker = w;
   q.now_micros = realtime;
-  q.quota_micros = 500;
-  q.max_turn_micros = 1000;
+  q.quota_micros = 0;
   g = pocket_worker_quickjs_create(&q);
   assert(g);
-  eval(g, "globalThis.__pocketWorkerTurn=()=>{for(;;){}};");
+  /* Continuations run in the step that resolved them; a chain longer than
+   * max_jobs continues in the next step. */
+  eval(g, "let ran=0;globalThis.__pocketWorkerTurn=(c,f)=>{if(c.sequence===1){"
+          "let p=Promise.resolve();for(let i=0;i<6;i++)p=p.then(()=>{ran++;});}"
+          "};");
   context.now_micros = realtime(NULL);
+  assert(pocket_worker_quickjs_step(g, &context) == 1);
+  eval(g, "if(ran!==4)throw Error('jobs per step '+ran);");
+  assert(pocket_worker_quickjs_deadline(g) <= realtime(NULL));
+  assert(pocket_worker_quickjs_step(g, &context) == 1);
+  eval(g, "if(ran!==6)throw Error('spilled jobs '+ran);");
+  assert(pocket_worker_quickjs_step(g, &context) == 0);
+  /* No execution time limit: only an interrupt ends an unbounded turn. */
+  eval(g, "globalThis.__pocketWorkerTurn=()=>{for(;;){}};");
+  assert(pocket_worker_timer(w, 1, 1, 0) == 0);
+  pthread_t interrupter;
+  assert(pthread_create(&interrupter, NULL, interrupt_later, g) == 0);
   assert(pocket_worker_quickjs_step(g, &context) == -1);
-  assert(strlen(pocket_worker_quickjs_error(g)) > 0);
+  assert(pthread_join(interrupter, NULL) == 0);
+  assert(strstr(pocket_worker_quickjs_error(g), "interrupted"));
   assert(pocket_worker_destroy(w) == 0);
   pocket_worker_quickjs_destroy(g);
   host hr = {.time = 5000};
@@ -213,6 +235,6 @@ int main(void) {
   pocket_worker_runner_run(runner);
   pocket_worker_runner_destroy(runner);
   puts("worker QuickJS: separate realm, event turns, channel copies, quota, "
-       "forced interruption and the runner loop passed");
+       "job spill, interruption and the runner loop passed");
   return 0;
 }

@@ -246,7 +246,6 @@ static void run(void *opaque) {
       .realm = {.struct_size = sizeof config.realm,
                 .heap_limit = 512u * 1024u,
                 .stack_limit = 128u * 1024u,
-                .max_turn_micros = 5000,
                 .max_jobs = 64,
                 .max_facts = 8,
                 .max_bytes = 8192,
