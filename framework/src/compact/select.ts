@@ -11,15 +11,22 @@ export interface Selection {
   /** True when the index moved. */
   move(delta: number): boolean;
   count: Accessor<number>;
+  /** Counts presses of the focused item: a view that draws the selection
+   *  bumps the pressed cell when it changes. */
+  pressed: Accessor<number>;
+  press(): void;
 }
 
 /** A clamped index over `count` items; the index follows a shrinking list. */
 export function createSelection(count: Accessor<number>, initial = 0): Selection {
   const [raw, setRaw] = createSignal(initial);
+  const [pressed, setPressed] = createSignal(0);
   const index = createMemo(() => Math.max(0, Math.min(raw(), count() - 1)));
   return {
     index,
     count,
+    pressed,
+    press: () => setPressed(n => n + 1),
     set: value => setRaw(Math.max(0, Math.min(value, Math.max(0, count() - 1)))),
     move: delta => {
       const next = Math.max(0, Math.min(index() + delta, count() - 1));

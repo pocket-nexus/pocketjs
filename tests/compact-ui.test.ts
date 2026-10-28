@@ -148,6 +148,17 @@ describe("compact input", () => {
 });
 
 describe("compact controls", () => {
+  test("a selection counts presses for the views that draw it", () => {
+    createRoot(dispose => {
+      const selection = createSelection(() => 3);
+      expect(selection.pressed()).toBe(0);
+      selection.press();
+      selection.press();
+      expect(selection.pressed()).toBe(2);
+      dispose();
+    });
+  });
+
   test("a selection clamps and follows a shrinking list", () => {
     createRoot(dispose => {
       const [count, setCount] = createSignal(5);

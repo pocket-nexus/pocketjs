@@ -9,7 +9,7 @@
 
 export * from "./tokens.ts";
 export * from "./text.ts";
-export { MOTION, FADES, SECTION_SHIFT, glide, place, createFollower, slideIn, slideOut, slideFrom, arrive, flip, pop, type Rect } from "./motion.ts";
+export { MOTION, FADES, SECTION_SHIFT, glide, place, createFollower, slideIn, slideOut, slideFrom, arrive, flip, pop, bump, type Rect } from "./motion.ts";
 export { navKeyOf, onNavIn, onKeyIn, setActiveScope, activeInputScope, installCompactInput, GLOBAL_SCOPE, KEY_LABEL, type NavKey, type NavEvent, type NavHandler, type KeyHandler, type Scope } from "./input.ts";
 export { CompactApp, useScenes, useSceneActive, useNav, useKey, useHints, useTitle, toast, confirm, type SceneDef, type Scenes, type CompactAppProps, type ConfirmOptions } from "./app.tsx";
 export {

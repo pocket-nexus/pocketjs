@@ -118,6 +118,7 @@ target it adds the fades; on a still target every move is a jump.
 | --- | ---: | --- |
 | The focus cursor (wash and bar) between rows, tiles and cells | 150 ms | `List`, `ValueRows`, `AppGrid`, `ActionPad` |
 | A list's rows sliding when the focus passes the view's edge | 160 ms | `List`, `ValueRows` |
+| A pressed cell or tile dipping to 88 % and springing back, so the press shows before what it does arrives | 150 ms | `ActionPad`, `AppGrid`, `bump` (`Selection.press()`) |
 | The section highlight between tabs; the new section's content sliding in 56 px from its side | 180 ms | `SectionTabs`, `SectionBody` |
 | A pushed scene sliding in from the right, a popped one sliding out | 200 ms | `CompactApp` |
 | A toast, a dialog or a search field rising into place | 180 ms | `CompactApp`, `arrive` |

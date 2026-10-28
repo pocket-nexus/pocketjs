@@ -5,14 +5,14 @@
 // leaves input to the hooks beside it (`useListNav`, `useValueRows`,
 // `useActionPad`): a scene composes the two.
 
-import { createEffect, createMemo, createSignal, For, Index, Show, type Accessor, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, Show, untrack, type Accessor, type JSX } from "solid-js";
 import { ENUMS } from "../../../contracts/spec/spec.ts";
 import { after } from "../clock.ts";
 import { Image, Text, View } from "../primitives.ts";
 import type { NodeMirror } from "../renderer.ts";
 import { useKey, useNav } from "./app.tsx";
 import type { NavEvent } from "./input.ts";
-import { createFollower, flip, glide, MOTION, place, pop, SECTION_SHIFT, slideFrom, type Rect } from "./motion.ts";
+import { bump, createFollower, flip, glide, MOTION, place, pop, SECTION_SHIFT, slideFrom, type Rect } from "./motion.ts";
 import { ellipsize, measure } from "./text.ts";
 import { BUTTON_H, COLOR, CONTENT_W, FOCUS_BAR_W, GUTTER, LINE, RADIUS, ROW_GAP, ROW_H, SLOT, TONE_COLOR, type Tone } from "./tokens.ts";
 
@@ -485,6 +485,13 @@ export function ActionPad(props: ActionPadProps): JSX.Element {
             edgeColor(cell, focused() ? COLOR.accent : COLOR.line);
             labelColor(label, focused() ? COLOR.accentInk : tone());
           });
+          // A press dips the focused cell.
+          let presses = props.selection.pressed();
+          createEffect(() => {
+            const now = props.selection.pressed();
+            if (now !== presses && untrack(focused) && cell) bump(cell);
+            presses = now;
+          });
           return (
             <View ref={node => (cell = node)} class="absolute rounded-md border" style={{ insetL: col * (cellW() + gap), insetT: row * (cellH() + gap), width: cellW(), height: cellH() }}>
               <Text ref={node => (label = node)} class="absolute left-0 text-sm font-bold text-center" style={{ width: cellW(), insetT: action().sub ? Math.max(2, (cellH() - 30) / 2) : (cellH() - 16) / 2, lineHeight: 16 }}>
@@ -523,7 +530,10 @@ export function useActionPad(actions: Accessor<readonly PadAction[]>, columns: n
         return true;
       case "ok": {
         const action = actions()[at];
-        if (action && !action.disabled) action.press();
+        if (action && !action.disabled) {
+          selection.press();
+          action.press();
+        }
         return true;
       }
       case "back":
@@ -736,6 +746,13 @@ export function AppGrid(props: AppGridProps): JSX.Element {
               }
               last = next;
             });
+            // Opening a tile dips it as its scene arrives.
+            let presses = props.selection.pressed();
+            createEffect(() => {
+              const now = props.selection.pressed();
+              if (now !== presses && untrack(focused) && node) bump(node);
+              presses = now;
+            });
             const icon = () => size().iconSize;
             const labelFont = () => (size().text === "large" ? SLOT.xsBold : SLOT.tinyBold);
             const labelText = () => ellipsize(tile.label, labelFont(), cellW());
@@ -814,6 +831,7 @@ export function useAppGrid(tiles: Accessor<readonly GridTile[]>, selection: Sele
         return true;
       }
       case "ok":
+        selection.press();
         options.onOk?.(at);
         return true;
     }

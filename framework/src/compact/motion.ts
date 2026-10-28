@@ -100,6 +100,14 @@ export function pop(node: NodeMirror, ms: number = MOTION.reflow): void {
   animate(node, "scale", 1, { dur: ms, easing: "out" });
 }
 
+/** A pressed cell dips and springs back: the press is seen before what it
+ *  does arrives. */
+export function bump(node: NodeMirror, ms: number = MOTION.focus): void {
+  if (animationClass === "still") return;
+  jump(node, "scale", 0.88);
+  animate(node, "scale", 1, { dur: ms, easing: "out" });
+}
+
 /** Start `prop` offset by `offset` and glide it back to 0: content arriving
  *  from a side. */
 export function slideFrom(node: NodeMirror, prop: "translateX" | "translateY", offset: number, ms: number): void {
