@@ -101,6 +101,8 @@ export function createJobQueue(slots: number) {
     }
   };
   return async <T>(work: () => Promise<T>, options: { first?: boolean; signal?: AbortSignal } = {}): Promise<T> => {
+    // A request cancelled before its turn takes no slot.
+    if (options.signal?.aborted) throw new Error("aborted");
     await new Promise<void>((resolve, reject) => {
       const job = { first: !!options.first, start: resolve };
       queue.push(job);
@@ -117,6 +119,7 @@ export function createJobQueue(slots: number) {
       next();
     });
     try {
+      if (options.signal?.aborted) throw new Error("aborted");
       return await work();
     } finally {
       running--;
@@ -187,6 +190,7 @@ async function run(command: string[], signal?: AbortSignal, timeoutMs = 60_000):
   const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
   const stop = () => child.kill();
   signal?.addEventListener("abort", stop, { once: true });
+  if (signal?.aborted) stop();
   try {
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).bytes(), new Response(child.stderr).text(), child.exited]);
     return { ok: code === 0, stdout, stderr };
@@ -206,9 +210,11 @@ const readInto = (fd: number, buffer: Uint8Array) =>
  *  pipe. Bun hands the parent's end over non-blocking, so an empty pipe is
  *  EAGAIN and a short wait. The descriptor is closed at the end. */
 export async function* pipeChunks(fd: number, size = 64 * 1024): AsyncGenerator<Uint8Array> {
+  // One buffer waits through every EAGAIN; a short read is copied out, so
+  // only a full buffer goes to the consumer and is replaced.
+  let buffer = new Uint8Array(size);
   try {
     for (;;) {
-      const buffer = new Uint8Array(size);
       let n: number;
       try {
         n = await readInto(fd, buffer);
@@ -218,7 +224,11 @@ export async function* pipeChunks(fd: number, size = 64 * 1024): AsyncGenerator<
         continue;
       }
       if (n === 0) return;
-      yield buffer.subarray(0, n);
+      if (n < size) yield buffer.slice(0, n);
+      else {
+        yield buffer;
+        buffer = new Uint8Array(size);
+      }
     }
   } finally {
     try {
@@ -329,10 +339,93 @@ async function* pcmPackets(chunks: AsyncIterable<Uint8Array>, originMs: number):
   }
 }
 
+/** A packet stream read ahead by up to `ahead` packets while the consumer
+ *  takes from the other: one process writes both pipes, and a pipe nobody
+ *  reads blocks it. `stop()` ends the reading and the source. */
+export function lookahead<T>(source: AsyncGenerator<T>, ahead: number) {
+  const items: T[] = [];
+  let done = false;
+  let stopped = false;
+  let error: unknown;
+  let wake: (() => void) | null = null;
+  let room: (() => void) | null = null;
+  const signal = () => {
+    const resolve = wake;
+    wake = null;
+    resolve?.();
+  };
+  const pump = (async () => {
+    try {
+      for await (const item of source) {
+        items.push(item);
+        signal();
+        while (items.length >= ahead && !stopped) await new Promise<void>((resolve) => (room = resolve));
+        if (stopped) break;
+      }
+    } catch (cause) {
+      error = cause;
+    } finally {
+      done = true;
+      signal();
+    }
+  })();
+  const free = () => {
+    const resolve = room;
+    room = null;
+    resolve?.();
+  };
+  return {
+    pump,
+    head: (): T | undefined => items[0],
+    take: (): T => {
+      const item = items.shift()!;
+      free();
+      return item;
+    },
+    full: () => items.length >= ahead,
+    done: () => done && items.length === 0,
+    error: () => error,
+    /** Resolves when a packet arrives or the source ends. */
+    changed: () => new Promise<void>((resolve) => (wake = resolve)),
+    stop: () => {
+      stopped = true;
+      free();
+    },
+  };
+}
+
+/** Packets of two lookahead streams in timestamp order. A side with nothing
+ *  read yet holds the other back until the other's lookahead is full: then
+ *  the full side goes first, because its writer may be blocked on that pipe
+ *  (a track that ends early, a large frame). */
+export async function* mergeByTime(
+  v: ReturnType<typeof lookahead<MediaPacket>>,
+  a: ReturnType<typeof lookahead<MediaPacket>>,
+  signal: AbortSignal,
+): AsyncGenerator<MediaPacket> {
+  while (!signal.aborted) {
+    // A side that failed has its packets taken first.
+    const failed = (v.head() ? undefined : v.error()) ?? (a.head() ? undefined : a.error());
+    if (failed) throw failed;
+    const vh = v.head(), ah = a.head();
+    if (vh && ah) yield vh.ptsMs <= ah.ptsMs ? v.take() : a.take();
+    else if (vh && (a.done() || v.full())) yield v.take();
+    else if (ah && (v.done() || a.full())) yield a.take();
+    else if (v.done() && a.done()) return;
+    else await Promise.race([v.changed(), a.changed()]);
+  }
+}
+
+/** Video and audio packets each side reads ahead (a few pictures, about 1.5 s
+ *  of sound). */
+const VIDEO_AHEAD = 4;
+const AUDIO_AHEAD = 32;
+
 /** One ffmpeg for the picture (fd 3) and the sound (fd 4), interleaved by
  *  timestamp: two processes held about 43 MB each on a CardputerZero, most
- *  of it the same libraries. Both pipes are read as packets are taken
- *  (pipeChunks), so ffmpeg runs no further ahead than the console. */
+ *  of it the same libraries. Each pipe is read a few packets ahead
+ *  (pipeChunks, lookahead), so ffmpeg runs no further ahead than the
+ *  console and never waits on a pipe the merge is not reading. */
 async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: MediaCodec, seconds: number, signal: AbortSignal): AsyncGenerator<MediaPacket> {
   if (signal.aborted) return;
   const originMs = Math.round(seconds * 1000);
@@ -408,22 +501,15 @@ async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: M
       if (!signal.aborted) throw new Error(`audio encoder failed: ${await failure}`);
     }
   }
-  const v = videoPackets(), a = audioPackets();
+  const v = lookahead(videoPackets(), VIDEO_AHEAD), a = lookahead(audioPackets(), AUDIO_AHEAD);
   try {
-    let [vp, ap] = await Promise.all([v.next(), a.next()]);
-    while ((!vp.done || !ap.done) && !signal.aborted) {
-      if (!vp.done && (ap.done || vp.value.ptsMs <= ap.value.ptsMs)) {
-        yield vp.value;
-        vp = await v.next();
-      } else if (!ap.done) {
-        yield ap.value;
-        ap = await a.next();
-      }
-    }
+    yield* mergeByTime(v, a, signal);
   } finally {
     stop();
     signal.removeEventListener("abort", stop);
-    await Promise.allSettled([ffmpeg.exited, failure, videoOut.return(undefined), audioOut.return(undefined)]);
+    v.stop();
+    a.stop();
+    await Promise.allSettled([ffmpeg.exited, failure, v.pump, a.pump, videoOut.return(undefined), audioOut.return(undefined)]);
   }
 }
 

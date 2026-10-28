@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { MEDIA } from "../contracts/spec/media.ts";
 import { PSM } from "../contracts/spec/spec.ts";
 import type { ServiceProvider } from "../tools/companion/services.ts";
-import { accessUnits, createJobQueue, createYoutubeService, fixedChunks, PAL8, pal8Packets, pipeChunks, planeFit } from "../tools/companion/services/youtube.ts";
+import { accessUnits, createJobQueue, createYoutubeService, fixedChunks, lookahead, mergeByTime, PAL8, pal8Packets, pipeChunks, planeFit } from "../tools/companion/services/youtube.ts";
 import { call, expectImg, serviceContext } from "./helpers/companion-service.ts";
 
 const DIR = mkdtempSync(join(tmpdir(), "pocket-youtube-"));
@@ -236,6 +236,64 @@ describe("pure parts", () => {
     const units: number[] = [];
     for await (const unit of accessUnits(chunks())) units.push(unit.length);
     expect(units).toEqual([13, 13]);
+  });
+
+  test("a job cancelled before its turn neither waits for a slot nor runs", async () => {
+    const jobs = createJobQueue(1);
+    const cancelled = new AbortController();
+    cancelled.abort();
+    let ran = false;
+    await expect(jobs(async () => (ran = true), { signal: cancelled.signal })).rejects.toThrow("aborted");
+    expect(ran).toBe(false);
+    expect(await jobs(async () => "next")).toBe("next");
+  });
+
+  test("one writer of two bounded pipes: the merge finishes when either track ends first", async () => {
+    // A process writing pictures and sound to two pipes of `capacity`
+    // packets: a write to a full pipe waits until it is read, and both pipes
+    // close only once everything is written, as ffmpeg's do.
+    const writer = (pictures: number, sounds: number, capacity: number) => {
+      const pipes = [[], []] as { kind: number; ptsMs: number; data: Uint8Array }[][];
+      const waiting: (() => void)[] = [];
+      const readers: (() => void)[] = [];
+      let closed = false;
+      const wakeReaders = () => readers.splice(0).forEach((wake) => wake());
+      const write = async (pipe: number, packet: { kind: number; ptsMs: number; data: Uint8Array }) => {
+        while (pipes[pipe]!.length >= capacity) await new Promise<void>((resolve) => waiting.push(resolve));
+        pipes[pipe]!.push(packet);
+        wakeReaders();
+      };
+      void (async () => {
+        const events = [
+          ...Array.from({ length: pictures }, (_, i) => ({ pipe: 0, packet: { kind: 1, ptsMs: i * 100, data: new Uint8Array(1) } })),
+          ...Array.from({ length: sounds }, (_, i) => ({ pipe: 1, packet: { kind: 2, ptsMs: i * 50, data: new Uint8Array(1) } })),
+        ].sort((x, y) => x.packet.ptsMs - y.packet.ptsMs);
+        for (const { pipe, packet } of events) await write(pipe, packet);
+        closed = true;
+        wakeReaders();
+      })();
+      const read = async function* (pipe: number) {
+        for (;;) {
+          const packet = pipes[pipe]!.shift();
+          if (packet) {
+            waiting.splice(0).forEach((wake) => wake());
+            yield packet;
+          } else if (closed) return;
+          else await new Promise<void>((resolve) => readers.push(resolve));
+        }
+      };
+      return { video: read(0), audio: read(1) };
+    };
+    for (const [pictures, sounds] of [[10, 60], [40, 6]]) {
+      const { video, audio } = writer(pictures, sounds, 2);
+      const merged: number[] = [];
+      const run = (async () => {
+        for await (const packet of mergeByTime(lookahead(video, 4), lookahead(audio, 4), new AbortController().signal)) merged.push(packet.kind);
+      })();
+      await Promise.race([run, Bun.sleep(2000).then(() => Promise.reject(new Error(`stalled at ${merged.length}`)))]);
+      expect(merged.filter((kind) => kind === 1).length).toBe(pictures);
+      expect(merged.filter((kind) => kind === 2).length).toBe(sounds);
+    }
   });
 
   test("a 16:9 source fills the plane for a 16:9 box; a 4:3 one is pillarboxed", () => {

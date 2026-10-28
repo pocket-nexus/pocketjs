@@ -164,8 +164,11 @@ export function decodeMediaAck(bytes: Uint8Array, generation: number): number | 
   return view.getUint32(8, true);
 }
 
-/** How often a full ring reads `media.ack` again. */
-const MEDIA_ACK_POLL_MS = 5;
+/** How often a full ring reads `media.ack` again when no change woke it:
+ *  with a directory watch the console's write wakes it, and the poll covers
+ *  a dropped event. */
+const MEDIA_ACK_WATCHED_POLL_MS = 100;
+const MEDIA_ACK_POLL_MS = 20;
 
 /** One media stream at a time into `media.ring`: the ticket `media.req`
  *  names, produced here and paced by how much of the ring the console has
@@ -176,6 +179,8 @@ class UsbMedia {
   private boot = 0;
   private seq = 0;
   private abort: AbortController | undefined;
+  /** A full ring's wait, woken when `media.ack` changes. */
+  private ackWaiters: (() => void)[] = [];
 
   constructor(
     private readonly root: string,
@@ -183,6 +188,7 @@ class UsbMedia {
     private readonly log: (line: string) => void,
     private readonly record: (name: string) => UsbRecord | null,
     private readonly ringBytes = LINK_USB_MEDIA_RING_BYTES,
+    private readonly watched: () => boolean = () => false,
   ) {
     this.ring = join(root, "media.ring");
     rmSync(join(root, "media.ack"), { force: true });
@@ -203,9 +209,15 @@ class UsbMedia {
     }
   }
 
+  /** The console wrote `media.ack`. */
+  acked() {
+    for (const wake of this.ackWaiters.splice(0)) wake();
+  }
+
   stop() {
     this.abort?.abort();
     this.abort = undefined;
+    this.acked();
   }
 
   close() {
@@ -242,7 +254,12 @@ class UsbMedia {
     let written = 0;
     const started = Date.now();
     const put = async (bytes: Uint8Array) => {
-      while (!signal.aborted && written + bytes.length - (this.read(generation) ?? 0) > this.ringBytes) await Bun.sleep(MEDIA_ACK_POLL_MS);
+      while (!signal.aborted && written + bytes.length - (this.read(generation) ?? 0) > this.ringBytes) {
+        await Promise.race([
+          new Promise<void>((wake) => this.ackWaiters.push(wake)),
+          Bun.sleep(this.watched() ? MEDIA_ACK_WATCHED_POLL_MS : MEDIA_ACK_POLL_MS),
+        ]);
+      }
       if (signal.aborted) return false;
       for (let done = 0; done < bytes.length; ) {
         const at = (written + done) % this.ringBytes;
@@ -322,7 +339,7 @@ export class UsbCarrier {
     // Replies from an earlier run carry its epoch and could never match, but
     // a console that boots while they sit there would read each one once.
     for (let i = 0; i < LINK_USB_SLOTS; i += 1) rmSync(join(this.root, `net${i}.res`), { force: true });
-    this.media = new UsbMedia(this.root, this.epoch, (line) => this.companion.log(line), (name) => this.record(name), this.tuning.mediaRingBytes);
+    this.media = new UsbMedia(this.root, this.epoch, (line) => this.companion.log(line), (name) => this.record(name), this.tuning.mediaRingBytes, () => !!this.watcher);
     this.writeReady();
     this.beatTimer = setInterval(() => this.writeReady(), this.tuning.beatMs ?? LINK_USB_BEAT_MS);
     // A write the console makes through usbhostfs_pc is a write on this
@@ -332,6 +349,7 @@ export class UsbCarrier {
     const consoleFiles = new Set(["hello", "media.req", ...Array.from({ length: LINK_USB_SLOTS }, (_, i) => `net${i}.req`)]);
     try {
       this.watcher = watch(this.root, (_event, name) => {
+        if (!name || String(name) === "media.ack") this.media?.acked();
         if (!name || consoleFiles.has(String(name))) this.schedulePoll();
       });
       this.watcher.on("error", () => {
