@@ -1,8 +1,9 @@
 // Glyphs for the agent's words on a console (contracts/spec/agent.ts
 // "Glyphs"): a console bakes only the glyphs its bundle's source names, so
 // the companion rasterizes the agent's text with CoreText
-// (tools/companion/macos/Glyphs.swift, built through swift-helper.ts;
-// $POCKET_AGENT_GLYPHS overrides it) and sends the console a FONT ATLAS v3
+// (tools/companion/macos/Glyphs.swift, built through swift-helper.ts), or
+// FreeType on Linux (tools/companion/linux/glyphs.c; $POCKET_AGENT_GLYPHS
+// overrides either) and sends the console a FONT ATLAS v3
 // (contracts/spec/spec.ts) for AGENT_FONT_SLOT before the first message that
 // needs a glyph the console lacks.
 //
@@ -18,6 +19,8 @@ import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, FONT_MAGIC, FONT_VERSION } from
 import { helperCommand } from "./swift-helper.ts";
 
 export const GLYPHS_SOURCE = join(import.meta.dir, "macos", "Glyphs.swift");
+/** The FreeType build of the same helper, for a companion on Linux. */
+export const GLYPHS_LINUX_SOURCE = join(import.meta.dir, "linux", "glyphs.c");
 
 export type AgentFont = { size: number; cellW: number; cellH: number; baseline: number; lineHeight: number };
 
@@ -137,7 +140,11 @@ export class GlyphRasterizer {
   private start(): Promise<ChildProcessWithoutNullStreams | null> {
     if (this.child) return Promise.resolve(this.child);
     if (this.failed) return Promise.resolve(null);
-    this.starting ??= helperCommand({ name: "pocket-glyphs", source: GLYPHS_SOURCE, env: "POCKET_AGENT_GLYPHS" }, this.storeDir, this.log).then((command) => {
+    this.starting ??= helperCommand(
+      { name: "pocket-glyphs", source: GLYPHS_SOURCE, env: "POCKET_AGENT_GLYPHS", linux: { source: GLYPHS_LINUX_SOURCE, packages: ["freetype2", "fontconfig"] } },
+      this.storeDir,
+      this.log,
+    ).then((command) => {
       this.starting = undefined;
       if (!command) {
         this.failed = true;
@@ -243,7 +250,7 @@ export class GlyphFeed {
     for (const cp of needed) this.wanted.add(cp);
     if (this.wanted.size > this.max) this.wanted = new Set([...AGENT_BASE_CODEPOINTS, ...this.turn]);
     const cells = await this.raster.cells(this.wanted);
-    if (cells.size === 0) return null; // no helper on this Mac: send text as is
+    if (cells.size === 0) return null; // no glyph helper on this computer: send text as is
     this.delivered = new Set(this.wanted);
     return packAtlas(cells, this.font);
   }

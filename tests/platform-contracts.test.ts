@@ -214,8 +214,11 @@ describe("platform registry", () => {
       "input.buttons",
       "io.offload",
       "text.layout.offload",
+      "net.http",
+      "link.companion",
       "input.cursor",
       "audio.pcm",
+      "media.playback",
       "text.glyphs.baked",
       "text.glyphs.streamed",
     ]);

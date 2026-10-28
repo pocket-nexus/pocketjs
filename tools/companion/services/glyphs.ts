@@ -2,7 +2,9 @@
 // runtime text. A console bakes only the glyphs its bundle's source names, so
 // Chinese names, Japanese posts or an emoji in a message have no glyph on it.
 // The app sends the text it is about to show; the companion draws PingFang
-// with CoreText (glyphs.ts, macos/Glyphs.swift) and answers a FONT ATLAS v3
+// with CoreText on a Mac (glyphs.ts, macos/Glyphs.swift), or fontconfig's
+// CJK sans-serif with FreeType on Linux (linux/glyphs.c), and answers a
+// FONT ATLAS v3
 // (contracts/spec/spec.ts) for the slot the app names, holding printable
 // ASCII and every codepoint of the text. The app loads it with
 // `ui.loadFontAtlas` and draws that text from the slot.
@@ -19,6 +21,7 @@
 
 import { atlasFont, codepointsOf, GlyphRasterizer, packAtlas } from "../glyphs.ts";
 import { bytesResponse, jsonResponse, readJson, type ServiceContext, type ServiceProvider } from "../services.ts";
+import { COMPUTER } from "../computer.ts";
 import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, MAX_FONT_SLOTS } from "../../../contracts/spec/spec.ts";
 
 /** Sizes an app may ask for. */
@@ -70,7 +73,7 @@ export function createGlyphsService(context: ServiceContext, options: GlyphsOpti
       }
       const bold = body.bold === true;
       const cells = await rasterizer(px, bold).cells(wanted);
-      if (cells.size === 0) return jsonResponse(503, { error: "this Mac cannot draw glyphs (no CoreText helper)" });
+      if (cells.size === 0) return jsonResponse(503, { error: `this ${COMPUTER} cannot draw glyphs (no glyph helper)` });
       return bytesResponse(packAtlas(cells, atlasFont(px), slot, bold), "application/x-pocket-font");
     },
     close() {
