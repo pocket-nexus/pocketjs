@@ -20,9 +20,9 @@ function App() {
       setStatus(new DataView(record.copy().buffer).getInt32(8, true));
     }
   });
-  return <View class="w-full h-full bg-slate-950 p-6 gap-3">
+  return <View class="w-full h-full flex-col bg-slate-950 p-4 gap-3">
     <Text class="text-xl text-white">Worker HTTP</Text>
-    <Text class="text-sm text-slate-300">Pair Pocket Link, then press A to request.</Text>
+    <Text class="text-sm text-slate-300">Pair Pocket Link, then press B to request.</Text>
     <Text class="text-lg text-white">{state()}</Text>
     <Text class="text-sm text-slate-300">Bytes: {bytes()} / status: {status()}</Text>
   </View>;
