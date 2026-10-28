@@ -8,4 +8,4 @@ repository.workspace = true
 description = "PocketJS psp alloc driver"
 
 [dependencies]
-psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "880d36aa7d221ccdb120471f8f9d5d1d2bccef30", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
