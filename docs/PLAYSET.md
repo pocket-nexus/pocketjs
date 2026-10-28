@@ -83,9 +83,11 @@ the new values on the next step.
 
 A brain (`brain.*`: seek, flee, orbit, wander, herd, pursue, turret, strafe,
 waypoints) picks a target and writes the same intents a player's stick
-writes, then fires weapon 0 when the target is inside its range and cone. A
-slot without a brain takes its intents from the guest (`Playset.steer`,
-`Playset.buttons`).
+writes, then fires weapon 0 when the target is inside its range and cone. The
+target is the nearest slot on some layers (`{ nearest }`), the slot on some
+layers furthest along its `motion.path` path (`{ leading }`, a tower's
+creep), the slot's own TARGET, or a point. A slot without a brain takes its
+intents from the guest (`Playset.steer`, `Playset.buttons`).
 
 A rule (`Playset.rule(layersA, layersB, spec)`) says what a contact does:
 damage either side, kill either side, push apart, bounce, collect (PICKUP),
@@ -95,7 +97,13 @@ their shooter and its team.
 Genre engines beyond the kernels are modules reached through
 `Playset.call(module, op, args, out)`: the snake board, the marble plate and
 the voxel world (`PLAYSET_MODULE`). Each drives its own slots after the
-world's step.
+world's step. `@pocketjs/framework/playset/snake` (`SnakeBoard`: grid snakes
+with a slot per segment, food, collisions and a flood-fill + BFS planner) and
+`@pocketjs/framework/playset/marble` (`MarbleBoard`: a tilting plate with
+walls, moving blocks, holes, stars and a goal, the ball's physics, and a
+route planner) name their ops; **the calls a game makes while it plays
+(`turn`, `state`, `route`) write a preallocated argument array and allocate
+nothing**.
 
 ## Sound
 
