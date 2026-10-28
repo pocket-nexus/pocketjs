@@ -634,6 +634,9 @@ int32_t pocket_runtime_present(pocket_runtime * runtime);
 /* Complete in-flight DEFERRED frames: renderer wait, flush or display wait, retire. Returns zero when none is pending. A failed completion returns its error once and invalidates that display's damage history. Call before reading a presented buffer or releasing state a pending submission reads. */
 int32_t pocket_runtime_complete_presentation(pocket_runtime * runtime);
 
+/* Sample input, run one guest frame and one core step, and submit nothing: pocket_runtime_present submits the frame. pocket_runtime_tick is advance followed by present; a program that times the two phases calls them in turn. */
+int32_t pocket_runtime_advance(pocket_runtime * runtime);
+
 int32_t pocket_runtime_tick(pocket_runtime * runtime);
 
 /* Returns 0 or 1 without executing the operation. Does not invalidate borrowed results. */

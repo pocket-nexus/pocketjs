@@ -364,3 +364,16 @@ fn a_kill_between_steps_reports_its_death_in_the_next_step() {
     let n = ps.step(1.0 / 60.0);
     assert_eq!((0..n).filter(|&e| ps.world.events[e * 8 + EF::TYPE] as u32 == EV::DEATH).count(), 0, "reported once");
 }
+
+#[test]
+fn the_water_grid_matches_height_and_normal() {
+    let w = crate::scene::Water { active: true, level: 0.3, amplitude: 0.7, wavelength: 48.0, speed: 5.0, half: 230.0, cells: 32, ..Default::default() };
+    let t = 12.34;
+    let mut worst = (0.0f32, 0.0f32);
+    w.grid(-230.0, -230.0, 460.0 / 32.0, 33, t, |_, x, z, h, n| {
+        worst.0 = worst.0.max((h - w.height(x, z, t)).abs());
+        worst.1 = worst.1.max((n - w.normal(x, z, t)).len());
+    });
+    assert!(worst.0 < 1e-3, "height off by {}", worst.0);
+    assert!(worst.1 < 2e-3, "normal off by {}", worst.1);
+}

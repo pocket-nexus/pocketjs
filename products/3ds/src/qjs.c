@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <3ds.h>
 
 #include "devserver.h"
 #include "pocket_core.h"
@@ -880,6 +881,7 @@ bool qjs_present(void) {
   }
   return true;
 }
+static uint32_t advance_us, present_us;
 bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
                size_t count, int32_t right) {
   if (!instance)
@@ -893,13 +895,25 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
   if (first_present)
     return qjs_present();
   instance_input(buttons, analog, touches, count, right);
-  if (pocket_runtime_tick(instance)) {
+  u64 t0 = svcGetSystemTick();
+  int32_t failed = pocket_runtime_advance(instance);
+  u64 t1 = svcGetSystemTick();
+  if (!failed)
+    failed = pocket_runtime_present(instance);
+  u64 t2 = svcGetSystemTick();
+  advance_us = (uint32_t)((t1 - t0) * 1000000ull / SYSCLOCK_ARM11);
+  present_us = (uint32_t)((t2 - t1) * 1000000ull / SYSCLOCK_ARM11);
+  if (failed) {
     const char *message = pocket_guest_quickjs_error(guest);
     set_error(message && *message ? message
                                   : "3DS runtime frame or presentation failed");
     return false;
   }
   return true;
+}
+void qjs_frame_phases(uint32_t *advance, uint32_t *present) {
+  *advance = advance_us;
+  *present = present_us;
 }
 const char *qjs_last_error(void) { return last_error; }
 void qjs_shutdown(void) {
