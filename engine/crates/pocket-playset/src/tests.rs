@@ -268,3 +268,32 @@ fn a_yawed_box_node_collides_where_it_is_drawn() {
     assert!(p.x > 1.4, "pushed out of the wall's side, x = {}", p.x);
     assert!((p.z - 3.0).abs() < 1e-3, "not along its length, z = {}", p.z);
 }
+
+#[test]
+fn seek_scales_its_speed_inside_near() {
+    let mut ps = Playset::new(16, 0);
+    let mut prey = arch();
+    prey[A::LAYER] = 1.0;
+    prey[A::RADIUS] = 0.5;
+    let prey = ps.world.add_arch(&prey);
+    let mut hunter = arch();
+    hunter[A::MOTION] = M::PLANAR as f32;
+    hunter[A::MOTION_P] = 1000.0;
+    hunter[A::MOTION_P + 1] = 10.0;
+    hunter[A::BRAIN] = B::SEEK as f32;
+    hunter[A::BRAIN_P] = 1.0;
+    hunter[A::BRAIN_P + 1] = 1.0;
+    hunter[A::BRAIN_P + 10] = 0.5;
+    hunter[A::BRAIN_P + 11] = 20.0;
+    hunter[A::BRAIN_P + 12] = 2.0;
+    let hunter = ps.world.add_arch(&hunter);
+    ps.world.spawn(&ps.scene, prey as usize, v3(0.0, 0.0, 0.0), 0.0);
+    let far = ps.world.spawn(&ps.scene, hunter as usize, v3(50.0, 0.0, 0.0), 0.0) as usize;
+    let near = ps.world.spawn(&ps.scene, hunter as usize, v3(0.0, 0.0, 10.0), 0.0) as usize;
+    for _ in 0..3 {
+        ps.step(1.0 / 60.0);
+    }
+    let (vf, vn) = (ps.world.vel(far).len(), ps.world.vel(near).len());
+    assert!((vf - 5.0).abs() < 0.1, "outside near: half speed, {vf}");
+    assert!((vn - 10.0).abs() < 0.1, "inside near: twice that, {vn}");
+}
