@@ -288,8 +288,10 @@ pub fn torus(p: &[f32; 8], lod: &Lod) -> Shape {
 pub fn plane(p: &[f32; 8]) -> Shape {
     let w = if p[0] > 0.0 { p[0] } else { 1.0 };
     let h = if p[1] > 0.0 { p[1] } else { 1.0 };
-    let gx = segs(p[2], 1, 1, 32);
-    let gy = segs(p[3], 1, 1, 32);
+    // at least one segment per 32 units: very large quads are not drawn
+    // reliably once they cross far outside the view
+    let gx = segs(maxf(p[2], (w / 32.0) as u32 as f32 + 1.0), 1, 1, 32);
+    let gy = segs(maxf(p[3], (h / 32.0) as u32 as f32 + 1.0), 1, 1, 32);
     let mut s = Shape::default();
     let n = v3(0.0, 0.0, 1.0);
     for iy in 0..=gy {
