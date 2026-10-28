@@ -117,6 +117,8 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   },
   devtools: { file: "framework/src/devtools.ts" },
   display: { file: "framework/src/display.ts", aliases: TWINS },
+  // Pocket Applets are Solid apps (contracts/spec/applet.ts): solid only.
+  applet: { file: { solid: "framework/src/applet.tsx" } },
   effects: { file: "framework/src/effects.ts", aliases: TWINS },
   fs: { file: "framework/src/fs-api.ts", aliases: TWINS },
   gesture: {

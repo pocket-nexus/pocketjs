@@ -47,7 +47,8 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | One touch surface that admits **320×240** logical: `app.surfaces.auxiliary` is `fixed` at 320×240, or `adaptive` with a `{min, max}` range holding 320×240; `display.auxiliary` and `input.touch.auxiliary` are required | The surface is the unit every launcher host presents: the 3DS touch screen (320×240), the M5Stack Tab5's portrait panel above its home button (360×592), a browser frame. An adaptive applet reads the size the host chose with `auxiliaryViewport()` (`@pocketjs/framework/display`) and lays out for it. The primary display belongs to the system (the agent's stage on the 3DS). |
 | `system.agent` is enhanced | The overlay is added to every applet, so the agent can summon over it, read it and act in it. |
 | Capabilities come from an allowlist: text, buttons, left stick, the surface and touch, `net.http`, `ui.physics`, `audio.pcm`, `media.playback`, `data.fs`, `system.agent`, and `camera.*` | Pairing, Wi-Fi, offload workers and launcher control act for the whole console and stay with the launcher. An allowlist, not a denylist: a new capability is unavailable to applets until it is added here. |
-| `framework` is `solid`; no `model: "rust"`; no `app.companions`; no `presentations` | One UI toolkit the agent's text capture and played input know; no native code; companion work goes through declared services; one presentation, the 320×240 surface. |
+| `framework` is `solid`; no `model: "rust"`; no `app.companions` | One UI toolkit the agent's text capture and played input know; no native code; companion work goes through declared services. |
+| At most one presentation, the **full screen**: `entry` is `app.entry`, `modality` is `{screens: 1, touch: "none", buttons: true}`, no `surfaces`, no `output`. With it, `app.modality` is `{touch: "auxiliary"}`, `display.auxiliary` and `input.touch.auxiliary` move to `enhances`, and `input.buttons` is required | A device with one screen and no touch (the PSP, 480×272) runs the same program on its whole screen with its buttons. The baseline keeps serving the touch surface on dual-screen hosts. One entry means one program: the layout follows the surface size and the input follows the modality, never a second code path per device. |
 | `title` at most **24** characters | The title is the springboard label and the name the agent launches the applet by. |
 | `services` or `hosts` need `net.http`; `data.fs` needs `store` | Every destination and every persistent byte is declared before the applet runs. |
 
@@ -65,7 +66,7 @@ does not count.
 | No `eval` and no `Function` constructor | A checked applet runs the code that was checked and nothing else. |
 | No `installApp`, `removeApp`, `pairCompanion`, `forgetCompanion` or `requestCatalog` from `@pocketjs/framework/link` | Installing, removing and pairing belong to the launcher. |
 | Every `companionService("name", …)` names a declared service, with the name as a string literal; every `http(s)://host` names a declared host or a declared service under `companion.pocket` | The declaration is the full list of destinations. |
-| The UI draws inside `AuxiliarySurface` | The applet draws on its surface, not on the system's display. |
+| The UI draws inside `AppletSurface` (`@pocketjs/framework/applet`) or `AuxiliarySurface` | The applet draws on its surface, not on the system's display. `AppletSurface` mounts on the auxiliary surface when the plan has one and on the full screen otherwise. |
 
 ## Bundle budgets
 
@@ -73,6 +74,23 @@ does not count.
 | --- | --- | --- |
 | Guest bundle (`<output>.js`) | **640 KiB** | 355 to 400 KiB |
 | Pak (`<output>.pak`) | **3 MiB** | 206 KiB (Hacker News) to 2.33 MB (Pocket Nexus) |
+
+## One program on two surfaces
+
+`@pocketjs/framework/applet` gives an applet its surface:
+
+| Export | Value |
+| --- | --- |
+| `AppletSurface` | Mounts the UI on the auxiliary surface when the plan has one, else on the primary display at its full size |
+| `appletViewport()` | The surface's logical `{width, height}`: 320×240 on a 3DS, the adaptive size on a Tab5, 480×272 on a PSP |
+| `appletTouch()` | Whether the surface reports contacts |
+| `appletOnAuxiliary()` | Whether the UI is on the auxiliary surface |
+
+The surface exists once the app mounts, so an applet reads the size inside
+`mount()` and never at module load. On a surface without touch every control
+answers a button: the d-pad moves a focus through rows and controls, ○ (A)
+activates, × (B) goes back, the shoulders page and switch segments, and the
+footer names the buttons that act on the current page.
 
 ## What the agent relies on
 

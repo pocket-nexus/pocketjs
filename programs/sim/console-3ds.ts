@@ -48,8 +48,13 @@ export interface Console3dsOptions {
   epochMs?: number;
   /** The auxiliary surface's logical size: the touch screen of a launcher
    *  host. Default BOTTOM_SCREEN; an adaptive applet runs at others (the
-   *  M5Stack Tab5 offers 360x592). */
-  auxiliary?: [number, number];
+   *  M5Stack Tab5 offers 360x592). Null: a single-screen host without touch
+   *  (a PSP), where an applet draws its full-screen presentation on the
+   *  primary display. */
+  auxiliary?: [number, number] | null;
+  /** The primary display's logical size. Default TOP_SCREEN; a PSP is
+   *  [480, 272]. */
+  primary?: [number, number];
 }
 
 export interface Console3ds {
@@ -161,7 +166,8 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
     }
   };
 
-  const touchScreen = options.auxiliary ?? BOTTOM_SCREEN;
+  const touchScreen = options.auxiliary === null ? null : options.auxiliary ?? BOTTOM_SCREEN;
+  const primary = options.primary ?? TOP_SCREEN;
   const g = globalThis as Record<string, unknown>;
   g.link = linkHost?.ns;
   g.wifi = wifiHost?.ns;
@@ -175,7 +181,7 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
   const booting = bootBundle({
       js: options.js,
       pak: options.pak,
-      viewport: { width: TOP_SCREEN[0], height: TOP_SCREEN[1], auxiliary: touchScreen },
+      viewport: { width: primary[0], height: primary[1], ...(touchScreen ? { auxiliary: touchScreen } : {}) },
       ops(ops) {
         ops.appTable = () =>
           JSON.stringify({
@@ -256,10 +262,12 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
       await step({ text: [{ key: name, pressed: false }] });
       await run(settle);
     },
-    texts: (surface = "primary") => flatTexts(world.tree(surface), surface === "auxiliary" ? touchScreen : TOP_SCREEN, []),
+    texts: (surface = "primary") => flatTexts(world.tree(surface), surface === "auxiliary" && touchScreen ? touchScreen : primary, []),
     tree: (surface = "primary") => world.tree(surface),
-    locate: (text, surface = "auxiliary") => locateText(world.tree(surface), text, surface === "auxiliary" ? touchScreen : TOP_SCREEN),
+    locate: (text, surface = touchScreen ? "auxiliary" : "primary") =>
+      locateText(world.tree(surface), text, surface === "auxiliary" && touchScreen ? touchScreen : primary),
     async tapText(text) {
+      if (!touchScreen) throw new Error("console-3ds: this console has no touch screen");
       const rect = locateText(world.tree("auxiliary"), text, touchScreen);
       if (!rect) throw new Error(`console-3ds: "${text}" is not on the bottom screen`);
       const x = Math.max(1, Math.min(touchScreen[0] - 2, rect[0] + Math.min(rect[2], 40) / 2));
