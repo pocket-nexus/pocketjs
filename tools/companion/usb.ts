@@ -1,8 +1,9 @@
 // The Pocket Link USB carrier (contracts/spec/link.ts "USB carrier"): a
 // console tethered over PSPLINK reaches this companion through the file share
 // usbhostfs_pc serves. The companion owns `<share>/pocket-link/`: it beats
-// `ready`, reads the console's `hello` and request slots, and answers each
-// request with the same net path the TCP link uses (Companion.answerNet).
+// `ready`, reads the console's `hello`, and streams the media ticket named in
+// `media.req` into the ring. No network request rides the share: a UI realm
+// has no network namespace, and the PSP host runs no worker domain.
 //
 // Everything here is polling over small files, because the share is the only
 // channel: usbhostfs_pc writes what the console writes, and the console reads
@@ -26,12 +27,9 @@ import {
   LINK_USB_MEDIA_MAGIC,
   LINK_USB_MEDIA_RING_BYTES,
   LINK_USB_SILENCE_MS,
-  LINK_USB_SLOTS,
 } from "../../contracts/spec/link.ts";
 import { MEDIA_PACKET } from "../../contracts/spec/media.ts";
-import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { mediaPacket, takeMediaTicket, type MediaTicket } from "../media-stream.ts";
-import { NetFailure, normalizeNetRequest } from "./fetch.ts";
 
 /** How often the slots and `hello` are read when the share cannot be watched. */
 const USB_POLL_MS = 10;
@@ -51,20 +49,18 @@ export interface UsbRecord {
   boot: number;
   seq: number;
   kind: number;
-  id: number;
   beat: number;
   json: Record<string, unknown>;
-  body: Uint8Array;
 }
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** One record: the 64-byte header, the JSON, the body. */
+/** One record: the 64-byte header, then the JSON. */
 export function encodeUsbRecord(record: Omit<UsbRecord, "json"> & { json: unknown }): Uint8Array {
   const json = encoder.encode(JSON.stringify(record.json));
   if (json.length > LINK_USB_MAX_JSON) throw new Error(`USB record JSON is ${json.length} bytes, over ${LINK_USB_MAX_JSON}`);
-  const out = new Uint8Array(LINK_USB_HEADER_BYTES + json.length + record.body.length);
+  const out = new Uint8Array(LINK_USB_HEADER_BYTES + json.length);
   const view = new DataView(out.buffer);
   const words: [number, number][] = [
     [0, LINK_USB_MAGIC],
@@ -72,16 +68,12 @@ export function encodeUsbRecord(record: Omit<UsbRecord, "json"> & { json: unknow
     [8, record.boot],
     [12, record.seq],
     [16, record.kind],
-    [20, record.id],
     [24, record.beat],
     [32, json.length],
     [36, fnv1a32(json)],
-    [40, record.body.length],
-    [44, fnv1a32(record.body)],
   ];
   for (const [at, value] of words) view.setUint32(at, value >>> 0, true);
   out.set(json, LINK_USB_HEADER_BYTES);
-  out.set(record.body, LINK_USB_HEADER_BYTES + json.length);
   return out;
 }
 
@@ -92,11 +84,9 @@ export function decodeUsbRecord(bytes: Uint8Array): UsbRecord | null {
   const word = (at: number) => view.getUint32(at, true);
   if (word(0) !== LINK_USB_MAGIC) return null;
   const jsonLength = word(32);
-  const bodyLength = word(40);
-  if (jsonLength > LINK_USB_MAX_JSON || LINK_USB_HEADER_BYTES + jsonLength + bodyLength !== bytes.length) return null;
-  const json = bytes.subarray(LINK_USB_HEADER_BYTES, LINK_USB_HEADER_BYTES + jsonLength);
-  const body = bytes.subarray(LINK_USB_HEADER_BYTES + jsonLength);
-  if (fnv1a32(json) !== word(36) || fnv1a32(body) !== word(44)) return null;
+  if (jsonLength > LINK_USB_MAX_JSON || LINK_USB_HEADER_BYTES + jsonLength !== bytes.length) return null;
+  const json = bytes.subarray(LINK_USB_HEADER_BYTES);
+  if (fnv1a32(json) !== word(36)) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(decoder.decode(json));
@@ -109,10 +99,8 @@ export function decodeUsbRecord(bytes: Uint8Array): UsbRecord | null {
     boot: word(8),
     seq: word(12),
     kind: word(16),
-    id: word(20),
     beat: word(24),
     json: parsed as Record<string, unknown>,
-    body,
   };
 }
 
@@ -290,20 +278,11 @@ class UsbMedia {
   }
 }
 
-/** What the carrier needs from the companion: its identity and the net path. */
+/** What the carrier needs from the companion: its identity and its log. */
 export interface UsbCompanion {
   readonly id: string;
   readonly name: string;
-  answerNet: import("./server.ts").Companion["answerNet"];
   log(line: string): void;
-}
-
-/** The request a slot last carried. It stays after the reply: the console's
- *  record sits in the file until its next request, and must not run twice. */
-interface UsbSlot {
-  boot: number;
-  seq: number;
-  abort: AbortController;
 }
 
 export class UsbCarrier {
@@ -313,7 +292,6 @@ export class UsbCarrier {
   private beat = 0;
   private lastHelloBeat = -1;
   private lastHelloAt = 0;
-  private slots: (UsbSlot | undefined)[] = new Array(LINK_USB_SLOTS).fill(undefined);
   private media: UsbMedia | undefined;
   /** The console's files as last decoded, keyed by name, with the change
    *  time and size they were read at: a poll reads a file again when either
@@ -336,9 +314,6 @@ export class UsbCarrier {
 
   start(): void {
     mkdirSync(this.root, { recursive: true });
-    // Replies from an earlier run carry its epoch and could never match, but
-    // a console that boots while they sit there would read each one once.
-    for (let i = 0; i < LINK_USB_SLOTS; i += 1) rmSync(join(this.root, `net${i}.res`), { force: true });
     this.media = new UsbMedia(this.root, this.epoch, (line) => this.companion.log(line), (name) => this.record(name), this.tuning.mediaRingBytes, () => !!this.watcher);
     this.writeReady();
     this.beatTimer = setInterval(() => this.writeReady(), this.tuning.beatMs ?? LINK_USB_BEAT_MS);
@@ -346,7 +321,7 @@ export class UsbCarrier {
     // machine, so a directory watch sees it at once; the interval is the
     // fallback for an event a watch drops, and for the silence check. Polling
     // every 10 ms cost a CardputerZero a fifth of a core.
-    const consoleFiles = new Set(["hello", "media.req", ...Array.from({ length: LINK_USB_SLOTS }, (_, i) => `net${i}.req`)]);
+    const consoleFiles = new Set(["hello", "media.req"]);
     try {
       this.watcher = watch(this.root, (_event, name) => {
         if (!name || String(name) === "media.ack") this.media?.acked();
@@ -379,7 +354,6 @@ export class UsbCarrier {
     this.watcher = undefined;
     clearInterval(this.beatTimer);
     clearInterval(this.pollTimer);
-    this.dropRequests();
     this.media?.close();
     this.media = undefined;
     rmSync(join(this.root, "ready"), { force: true });
@@ -399,7 +373,6 @@ export class UsbCarrier {
       boot: 0,
       seq: 0,
       kind: LINK_USB_KIND.ready,
-      id: 0,
       beat: this.beat,
       json: {
         v: 1,
@@ -408,14 +381,7 @@ export class UsbCarrier {
         features: [...LINK_USB_FEATURES],
         clock: { utc, offsetMinutes: -new Date(utc).getTimezoneOffset() },
       },
-      body: new Uint8Array(0),
     });
-  }
-
-  private dropRequests() {
-    for (const slot of this.slots) slot?.abort.abort();
-    this.slots.fill(undefined);
-    this.media?.stop();
   }
 
   /** The console's record `name`, decoded again only when the file changed. */
@@ -435,12 +401,13 @@ export class UsbCarrier {
     return record;
   }
 
-  /** One pass over `hello` and the request slots. */
+  /** One pass over `hello` and `media.req`. */
   poll(): void {
     const hello = this.record("hello");
     if (hello && hello.kind === LINK_USB_KIND.hello && hello.epoch === this.epoch && hello.boot !== 0) {
       if (hello.boot !== this.device?.boot) {
-        this.dropRequests();
+        // A rebooted console reads nothing the previous boot asked for.
+        this.media?.stop();
         const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
         this.device = {
           id: text(hello.json.device, 64),
@@ -462,65 +429,5 @@ export class UsbCarrier {
     // A console that stopped beating reads nothing more from the ring.
     if (this.linked()) this.media?.poll(device.boot);
     else this.media?.stop();
-    for (let i = 0; i < LINK_USB_SLOTS; i += 1) {
-      const record = this.record(`net${i}.req`);
-      if (!record || record.epoch !== this.epoch || record.boot !== device.boot) continue;
-      const slot = this.slots[i];
-      if (record.kind === LINK_USB_KIND.cancel) {
-        // The slot keeps its seq, so the cancelled request never runs again.
-        if (slot && slot.seq === record.seq) slot.abort.abort();
-        continue;
-      }
-      if (record.kind !== LINK_USB_KIND.request || (slot && slot.seq === record.seq)) continue;
-      if (slot?.boot === device.boot && record.seq < slot.seq) continue;
-      slot?.abort.abort();
-      const next: UsbSlot = { boot: device.boot, seq: record.seq, abort: new AbortController() };
-      this.slots[i] = next;
-      void this.answer(i, next, record, device);
-    }
-  }
-
-  private async answer(index: number, slot: UsbSlot, record: UsbRecord, device: UsbDevice) {
-    const reply = (json: unknown, body: Uint8Array = new Uint8Array(0)) => {
-      if (slot.abort.signal.aborted || this.slots[index] !== slot) return;
-      writeUsbRecord(join(this.root, `net${index}.res`), {
-        epoch: this.epoch,
-        boot: slot.boot,
-        seq: slot.seq,
-        kind: LINK_USB_KIND.reply,
-        id: record.id,
-        beat: 0,
-        json,
-        body,
-      });
-    };
-    const id = record.id;
-    const started = Date.now();
-    let label = `usb net #${id}`;
-    try {
-      const { bytes, ...meta } = normalizeNetRequest(record.json);
-      label = `usb net ${meta.method} ${meta.url}`;
-      if (bytes !== record.body.length) throw new NetFailure(NET_ERROR.invalidRequest, `the request declared ${bytes} body bytes and carried ${record.body.length}`);
-      const app = typeof record.json.app === "string" ? record.json.app : "";
-      const response = await this.companion.answerNet(
-        { ...meta, body: record.body },
-        { app, target: device.target },
-        // A media ticket's address is the TCP endpoint's; this console takes
-        // the ticket through media.req, so the address only has to be valid.
-        { name: device.name, address: "usb", localAddress: "127.0.0.1" },
-        slot.abort.signal,
-      );
-      if (slot.abort.signal.aborted) return;
-      this.companion.log(`${label} ${response.status} ${response.body.length}B ${Date.now() - started}ms`);
-      reply(
-        { t: "done", h: id, status: response.status, url: response.url, headers: response.headers, bytes: response.body.length },
-        response.body,
-      );
-    } catch (failure) {
-      if (slot.abort.signal.aborted) return;
-      const f = failure instanceof NetFailure ? failure : new NetFailure(NET_ERROR.other, String(failure));
-      this.companion.log(`${label} ${f.code}: ${f.message}`);
-      reply({ t: "error", h: id, code: f.code, message: f.message.slice(0, 200) });
-    }
   }
 }

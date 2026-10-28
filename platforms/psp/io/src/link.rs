@@ -1,130 +1,43 @@
 //! Pocket Link over the PSPLINK share (contracts/spec/link.ts "USB carrier"):
-//! `globalThis.net` and `globalThis.link` on a PSP whose companion serves
-//! host0:. The companion beats `host0:/pocket-link/ready`; requests go out as
-//! `net<i>.req` records and come back as `net<i>.res` records whose JSON is
-//! the NET event itself.
+//! `globalThis.link` and the media ring on a PSP whose companion serves
+//! host0:. The companion beats `host0:/pocket-link/ready`; the console
+//! answers with `hello`, and media.rs opens a stream by writing `media.req`.
+//! Nothing else rides the share: a UI realm has no network namespace, and
+//! the PSP host runs no worker domain.
 //!
-//! A lower-priority worker owns every host0 operation, so a slow USB round
-//! trip never lands in a frame. The QuickJS thread builds each request record,
-//! allocates the reply buffers, and frees them; the worker only reads and
-//! writes inside buffers it was handed, because the global allocator is
-//! single-threaded. Slot ownership moves by release/acquire state changes,
-//! as in offload.rs.
+//! A lower-priority worker owns the beat: it reads `ready` and writes
+//! `hello`, so a slow USB round trip never lands in a frame. The QuickJS
+//! thread reads the companion's `ready` JSON through a seqlock and performs
+//! no host0: read.
 //!
 //! The link is a host service: the program starts it when it installs the
-//! namespaces and it survives guest switches; `reset()` cancels the outgoing
-//! guest's requests.
+//! namespaces and it survives guest switches.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use core::{
     cell::UnsafeCell,
     ffi::c_void,
     sync::atomic::{
         AtomicBool, AtomicU32,
-        Ordering::{Acquire, Relaxed, Release},
+        Ordering::{Acquire, Release},
     },
 };
 
 use psp::sys::{self, IoOpenFlags, SceUid};
 
-// contracts/spec/link.ts (USB carrier) and contracts/spec/net.ts.
+// contracts/spec/link.ts (USB carrier).
 const MAGIC: u32 = 0x554c4b50;
 const HEADER: usize = 64;
 const KIND_READY: u32 = 1;
 const KIND_HELLO: u32 = 2;
-const KIND_REQUEST: u32 = 3;
-const KIND_CANCEL: u32 = 4;
-const KIND_REPLY: u32 = 5;
-const KIND_MEDIA: u32 = 6;
-const SLOTS: usize = 2;
-const MAX_JSON: usize = 16 * 1024;
+const KIND_MEDIA: u32 = 3;
 const BEAT_US: u32 = 500_000;
 const SILENCE_US: u32 = 10_000_000;
 /// How often a console with no companion reads `ready`.
 const UNLINKED_READY_US: u32 = 1_000_000;
-/// A sent request's reply is read every 5 ms for its first 200 ms (most
-/// replies), then every 25 ms (a long poll, a slow service): each read is an
-/// open, a read and a close on the computer serving the share.
-const REPLY_FAST_US: u32 = 200_000;
-const REPLY_SLOW_US: u32 = 25_000;
-const MAX_REQUEST_BYTES: usize = 64 * 1024;
-const DEFAULT_RESPONSE_BYTES: u64 = 128 * 1024;
-const MAX_RESPONSE_BYTES: u64 = 256 * 1024;
-const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const MAX_TIMEOUT_MS: u64 = 120_000;
-/// Past the request's own timeout, the time the companion gets to report it.
-const GRACE_MS: u64 = 5_000;
 /// The companion's `ready` JSON, at most.
 const STATUS_MAX: usize = 1024;
 
-// Slot states. The QuickJS thread owns FREE, READY, DONE, CANCELLED and LOST;
-// the worker owns QUEUED, SENT and CANCEL.
-const FREE: u32 = 0;
-/// Record built, not yet written.
-const QUEUED: u32 = 1;
-/// Record written, waiting for the reply.
-const SENT: u32 = 2;
-/// Reply read into the slot's buffers.
-const READY: u32 = 3;
-/// The guest cancelled (or the request timed out) while the worker held it.
-const CANCEL: u32 = 4;
-/// The worker is done with a cancelled slot.
-const CANCELLED: u32 = 5;
-/// The companion's session ended under the request (restart or silence).
-const LOST: u32 = 6;
-/// The done event went out; the body waits for take().
-const DONE: u32 = 7;
-
-/// What the QuickJS thread hands the worker with QUEUED, and what the worker
-/// hands back with READY.
-struct Shared {
-    generation: u32,
-    seq: u32,
-    record: *mut u8,
-    record_len: usize,
-    json: *mut u8,
-    json_cap: usize,
-    json_len: usize,
-    body: *mut u8,
-    body_cap: usize,
-    body_len: usize,
-    /// The reply did not fit the buffers (the companion broke maxBytes).
-    oversize: bool,
-}
-
-struct Slot {
-    state: AtomicU32,
-    data: UnsafeCell<Shared>,
-}
-
-// A release/acquire state change hands `data` to its next owner.
-unsafe impl Sync for Slot {}
-
-impl Slot {
-    const fn new() -> Self {
-        Self {
-            state: AtomicU32::new(FREE),
-            data: UnsafeCell::new(Shared {
-                generation: 0,
-                seq: 0,
-                record: core::ptr::null_mut(),
-                record_len: 0,
-                json: core::ptr::null_mut(),
-                json_cap: 0,
-                json_len: 0,
-                body: core::ptr::null_mut(),
-                body_cap: 0,
-                body_len: 0,
-                oversize: false,
-            }),
-        }
-    }
-}
-
-static SLOTS_STATE: [Slot; SLOTS] = [const { Slot::new() }; SLOTS];
-/// The worker's session generation while a companion beats; 0 while none does.
-static SESSION: AtomicU32 = AtomicU32::new(0);
 /// The beating companion's epoch; 0 while none beats.
 static EPOCH: AtomicU32 = AtomicU32::new(0);
 /// The companion's `ready` JSON (a seqlock: odd while the worker writes it).
@@ -134,34 +47,15 @@ static STATUS: Status = Status(UnsafeCell::new([0; STATUS_MAX]));
 static STATUS_LEN: AtomicU32 = AtomicU32::new(0);
 static STATUS_SEQ: AtomicU32 = AtomicU32::new(0);
 
-/// The buffers a slot's request owns: QuickJS-thread memory the worker
-/// borrows through `Shared`. Freed only on this thread.
-struct Owned {
-    handle: i32,
-    record: Vec<u8>,
-    deadline: u32,
-    /// An event (done, error, timeout) already went to the guest, or the
-    /// guest cancelled: nothing more is reported for this request.
-    reported: bool,
-}
-
 // QuickJS-thread state.
 static mut STARTED: bool = false;
 static mut BOOT: u32 = 0;
-static mut NEXT_ID: u32 = 1;
-static mut SEQ: [u32; SLOTS] = [0; SLOTS];
-static mut OWNED: [Option<Owned>; SLOTS] = [const { None }; SLOTS];
-static mut LAST_ERROR: String = String::new();
 static mut DEVICE_ID: [u8; 16] = [b'0'; 16];
 /// The `hello` record body the worker writes (built once at start).
 static mut HELLO: [u8; 256] = [0; 256];
 static mut HELLO_LEN: usize = 0;
 /// The worker's first look at `ready` is done (start() waits for it).
 static FIRST_READ: AtomicBool = AtomicBool::new(false);
-/// Each slot's reply buffers (JSON, body), allocated on the guest's thread
-/// at the slot's first request and kept: a request reuses them, so a page of
-/// requests leaves no holes in the arena.
-static mut REPLY: [Option<(Vec<u8>, Vec<u8>)>; SLOTS] = [const { None }; SLOTS];
 
 fn now() -> u32 {
     unsafe { sys::sceKernelGetSystemTimeLow() }
@@ -269,18 +163,10 @@ fn skip_value(s: &[u8], mut i: usize) -> Option<usize> {
     }
 }
 
-fn number(value: Option<&[u8]>) -> Option<u64> {
-    let digits = value?;
-    if digits.is_empty() || !digits.iter().all(|b| b.is_ascii_digit()) || digits.len() > 12 {
-        return None;
-    }
-    Some(digits.iter().fold(0u64, |n, b| n * 10 + (b - b'0') as u64))
-}
-
 /// Start the link once per process (it serves every guest); `target` is the
-/// profile id the `hello` record names. The first `ready` read happens here,
-/// on the QuickJS thread before a guest runs, so a request at mount finds the
-/// session already up.
+/// profile id the `hello` record names. The call waits for the worker's first
+/// look at `ready` (200 ms at most), so a guest that reads `link.status()`
+/// or opens a media stream at mount finds a companion already beating.
 pub unsafe fn start(target: &str) {
     if STARTED {
         return;
@@ -326,293 +212,6 @@ pub unsafe fn start(target: &str) {
     }
 }
 
-fn set_error(code: &str, message: &str) {
-    unsafe {
-        LAST_ERROR.clear();
-        LAST_ERROR.push_str(code);
-        LAST_ERROR.push_str(": ");
-        LAST_ERROR.push_str(message);
-    }
-}
-
-/// Release a slot's buffers (QuickJS thread, the slot in a thread-owned state).
-unsafe fn release(index: usize) {
-    OWNED[index] = None;
-    SLOTS_STATE[index].state.store(FREE, Release);
-}
-
-/// spec net op start(metaJson, body) -> handle | -1.
-pub unsafe fn net_start(meta: &[u8], body: &[u8], app: &str) -> i32 {
-    LAST_ERROR.clear();
-    if SESSION.load(Acquire) == 0 {
-        set_error("unavailable", "no companion answers on the USB share");
-        return -1;
-    }
-    if body.len() > MAX_REQUEST_BYTES {
-        set_error("invalid_request", "request body exceeds 64 KiB");
-        return -1;
-    }
-    let open = match meta.iter().position(|b| !matches!(b, b' ' | b'\n' | b'\r' | b'\t')) {
-        Some(at) if meta[at] == b'{' && member(meta, "url").is_some() => at,
-        _ => {
-            set_error("invalid_request", "malformed request metadata");
-            return -1;
-        }
-    };
-    let index = match (0..SLOTS).find(|&i| {
-        let state = SLOTS_STATE[i].state.load(Acquire);
-        if state == CANCELLED {
-            release(i);
-        }
-        SLOTS_STATE[i].state.load(Acquire) == FREE
-    }) {
-        Some(i) => i,
-        None => {
-            set_error("busy", "2 requests are already in flight");
-            return -1;
-        }
-    };
-    let max_bytes = match number(member(meta, "maxBytes")) {
-        Some(n) if n > 0 && n <= MAX_RESPONSE_BYTES => n,
-        Some(0) | None => DEFAULT_RESPONSE_BYTES,
-        Some(_) => MAX_RESPONSE_BYTES,
-    } as usize;
-    let timeout_ms = match number(member(meta, "timeoutMs")) {
-        Some(n) if n > 0 && n <= MAX_TIMEOUT_MS => n,
-        Some(0) | None => DEFAULT_TIMEOUT_MS,
-        Some(_) => MAX_TIMEOUT_MS,
-    };
-
-    let id = NEXT_ID;
-    NEXT_ID = NEXT_ID.wrapping_add(1).max(1) & 0x7fff_ffff;
-    SEQ[index] = SEQ[index].wrapping_add(1).max(1);
-    // The guest's metadata object, extended with the link fields, exactly as
-    // the TCP link sends it: {"t":"net","id":n,"app":"…","bytes":k, <meta>}.
-    let mut json = String::from("{\"t\":\"net\",\"id\":");
-    json.push_str(itoa(id).as_str());
-    json.push_str(",\"app\":");
-    push_json_str(&mut json, app);
-    json.push_str(",\"bytes\":");
-    json.push_str(itoa(body.len() as u32).as_str());
-    let rest = &meta[open + 1..];
-    let rest_at = rest.iter().position(|b| !matches!(b, b' ' | b'\n' | b'\r' | b'\t')).unwrap_or(rest.len());
-    if rest_at < rest.len() && rest[rest_at] != b'}' {
-        json.push(',');
-    }
-    let Ok(rest) = core::str::from_utf8(&rest[rest_at..]) else {
-        set_error("invalid_request", "request metadata is not UTF-8");
-        return -1;
-    };
-    json.push_str(rest);
-    if json.len() > MAX_JSON {
-        set_error("invalid_request", "request metadata exceeds 16 KiB");
-        return -1;
-    }
-
-    let mut record: Vec<u8> = Vec::with_capacity(HEADER + json.len() + body.len());
-    record.resize(HEADER, 0);
-    record.extend_from_slice(json.as_bytes());
-    record.extend_from_slice(body);
-    // Epoch (word 4) is the worker's to fill when it writes the record.
-    for (at, value) in [
-        (0, MAGIC),
-        (8, BOOT),
-        (12, SEQ[index]),
-        (16, KIND_REQUEST),
-        (20, id),
-        (32, json.len() as u32),
-        (36, fnv1a32(json.as_bytes())),
-        (40, body.len() as u32),
-        (44, fnv1a32(body)),
-    ] {
-        put(&mut record, at, value);
-    }
-    // The slot's reply buffers grow to the largest maxBytes asked of it.
-    let (reply_json, reply_body) = (*core::ptr::addr_of_mut!(REPLY[index]))
-        .get_or_insert_with(|| (Vec::with_capacity(MAX_JSON), Vec::new()));
-    if reply_body.capacity() < max_bytes {
-        *reply_body = Vec::with_capacity(max_bytes);
-    }
-    let shared = &mut *SLOTS_STATE[index].data.get();
-    *shared = Shared {
-        generation: SESSION.load(Acquire),
-        seq: SEQ[index],
-        record: record.as_mut_ptr(),
-        record_len: record.len(),
-        json: reply_json.as_mut_ptr(),
-        json_cap: MAX_JSON,
-        json_len: 0,
-        body: reply_body.as_mut_ptr(),
-        body_cap: max_bytes,
-        body_len: 0,
-        oversize: false,
-    };
-    OWNED[index] = Some(Owned {
-        handle: id as i32,
-        record,
-        deadline: now().wrapping_add(((timeout_ms + GRACE_MS) * 1000) as u32),
-        reported: false,
-    });
-    SLOTS_STATE[index].state.store(QUEUED, Release);
-    id as i32
-}
-
-/// `value` in decimal, written into `out` without allocating (the worker uses it).
-fn decimal(value: u32, out: &mut [u8; 10]) -> &[u8] {
-    let mut n = 10;
-    let mut v = value;
-    loop {
-        n -= 1;
-        out[n] = b'0' + (v % 10) as u8;
-        v /= 10;
-        if v == 0 {
-            break;
-        }
-    }
-    &out[n..]
-}
-
-fn itoa(value: u32) -> String {
-    let mut digits = [0u8; 10];
-    String::from(core::str::from_utf8(decimal(value, &mut digits)).unwrap_or("0"))
-}
-
-fn push_error_event(events: &mut String, handle: i32, code: &str, message: &str) {
-    if events.len() > 1 {
-        events.push(',');
-    }
-    events.push_str("{\"t\":\"error\",\"h\":");
-    events.push_str(itoa(handle as u32).as_str());
-    events.push_str(",\"code\":");
-    push_json_str(events, code);
-    events.push_str(",\"message\":");
-    push_json_str(events, message);
-    events.push('}');
-}
-
-/// spec net op poll() -> the tick's events as one JSON array, or None.
-pub unsafe fn net_poll() -> Option<String> {
-    let mut events = String::from("[");
-    let t = now();
-    for index in 0..SLOTS {
-        let slot = &SLOTS_STATE[index];
-        let Some(owned) = OWNED[index].as_mut() else { continue };
-        match slot.state.load(Acquire) {
-            READY => {
-                let shared = &*slot.data.get();
-                owned.record = Vec::new();
-                if owned.reported {
-                    release(index);
-                    continue;
-                }
-                owned.reported = true;
-                if shared.oversize {
-                    push_error_event(&mut events, owned.handle, "response_too_large", "the reply exceeds maxBytes");
-                    release(index);
-                    continue;
-                }
-                let json = core::slice::from_raw_parts(shared.json, shared.json_len);
-                let is_done = member(json, "t") == Some(b"\"done\"");
-                if events.len() > 1 {
-                    events.push(',');
-                }
-                events.push_str(core::str::from_utf8(json).unwrap_or("{}"));
-                if is_done {
-                    slot.state.store(DONE, Release);
-                } else {
-                    release(index);
-                }
-            }
-            LOST => {
-                if !owned.reported {
-                    push_error_event(&mut events, owned.handle, "unavailable", "the companion on the USB share went away");
-                }
-                release(index);
-            }
-            CANCELLED => release(index),
-            QUEUED | SENT => {
-                if !owned.reported && t.wrapping_sub(owned.deadline) < 0x8000_0000 {
-                    owned.reported = true;
-                    push_error_event(&mut events, owned.handle, "timeout", "the companion did not answer in time");
-                    cancel_slot(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    if events.len() == 1 {
-        None
-    } else {
-        events.push(']');
-        Some(events)
-    }
-}
-
-/// spec net op take(handle, into) -> bytes copied | -1.
-pub unsafe fn net_take(handle: i32, into: &mut [u8]) -> i32 {
-    for index in 0..SLOTS {
-        let Some(owned) = OWNED[index].as_ref() else { continue };
-        if owned.handle != handle || SLOTS_STATE[index].state.load(Acquire) != DONE {
-            continue;
-        }
-        let shared = &*SLOTS_STATE[index].data.get();
-        if into.len() != shared.body_len {
-            return -1;
-        }
-        into.copy_from_slice(core::slice::from_raw_parts(shared.body, shared.body_len));
-        let n = into.len() as i32;
-        release(index);
-        return n;
-    }
-    -1
-}
-
-/// spec net op cancel(handle).
-pub unsafe fn net_cancel(handle: i32) {
-    for index in 0..SLOTS {
-        let Some(owned) = OWNED[index].as_mut() else { continue };
-        if owned.handle != handle {
-            continue;
-        }
-        owned.reported = true;
-        cancel_slot(index);
-    }
-}
-
-/// Hand a slot back: CANCEL while the worker holds it (it writes the cancel
-/// record and lets go), released here when this thread holds it.
-unsafe fn cancel_slot(index: usize) {
-    let slot = &SLOTS_STATE[index];
-    loop {
-        match slot.state.load(Acquire) {
-            state @ (QUEUED | SENT) => {
-                // A failure means the worker moved it on meanwhile: look again.
-                if slot.state.compare_exchange(state, CANCEL, Release, Relaxed).is_ok() {
-                    return;
-                }
-            }
-            CANCEL => return,
-            _ => return release(index),
-        }
-    }
-}
-
-pub unsafe fn net_last_error() -> &'static str {
-    LAST_ERROR.as_str()
-}
-
-/// Guest teardown: the outgoing guest's requests are cancelled. The worker
-/// and the companion's session carry on for the next guest.
-pub unsafe fn reset() {
-    for index in 0..SLOTS {
-        if let Some(owned) = OWNED[index].as_mut() {
-            owned.reported = true;
-            cancel_slot(index);
-        }
-    }
-    LAST_ERROR.clear();
-}
-
 /// spec link op status(): a LinkStatus JSON for the share's companion.
 pub unsafe fn link_status() -> String {
     let mut status = [0u8; STATUS_MAX];
@@ -630,7 +229,7 @@ pub unsafe fn link_status() -> String {
         sys::sceKernelDelayThread(100);
     }
     let ready = &status[..len];
-    let linked = SESSION.load(Acquire) != 0 && len > 0;
+    let linked = EPOCH.load(Acquire) != 0 && len > 0;
     let device = core::str::from_utf8(&DEVICE_ID).unwrap_or("");
     let text = |value: Option<&[u8]>, fallback: &'static str| -> String {
         String::from(value.and_then(|v| core::str::from_utf8(v).ok()).unwrap_or(fallback))
@@ -720,17 +319,8 @@ pub fn path(name: &[u8]) -> [u8; 48] {
     out
 }
 
-fn slot_file(index: usize, reply: bool) -> [u8; 48] {
-    let mut name = *b"net0.req";
-    name[3] = b'0' + index as u8;
-    if reply {
-        name[5..8].copy_from_slice(b"res");
-    }
-    path(&name)
-}
-
-/// Write a record of `json` with no body: hello and cancel records.
-unsafe fn write_small(file: &[u8], epoch: u32, seq: u32, kind: u32, id: u32, beat: u32, json: &[u8]) -> bool {
+/// Write the record of `json`: hello and media records.
+unsafe fn write_record(file: &[u8], epoch: u32, seq: u32, kind: u32, beat: u32, json: &[u8]) -> bool {
     let mut head = [0u8; HEADER];
     for (at, value) in [
         (0, MAGIC),
@@ -738,12 +328,9 @@ unsafe fn write_small(file: &[u8], epoch: u32, seq: u32, kind: u32, id: u32, bea
         (8, BOOT),
         (12, seq),
         (16, kind),
-        (20, id),
         (24, beat),
         (32, json.len() as u32),
         (36, fnv1a32(json)),
-        (40, 0),
-        (44, fnv1a32(&[])),
     ] {
         put(&mut head, at, value);
     }
@@ -787,7 +374,7 @@ pub unsafe fn media_request(generation: u32, token: Option<&[u8; 64]>) -> bool {
     }
     json[len] = b'}';
     len += 1;
-    write_small(&path(b"media.req"), epoch, generation, KIND_MEDIA, 0, 0, &json[..len])
+    write_record(&path(b"media.req"), epoch, generation, KIND_MEDIA, 0, &json[..len])
 }
 
 /// The companion's `ready` record into `status`: (epoch, beat, json length).
@@ -816,51 +403,6 @@ unsafe fn publish_status(json: &[u8]) {
     STATUS_SEQ.fetch_add(1, Release);
 }
 
-/// Every request the worker holds of an ended session is lost.
-fn lose_requests() {
-    for slot in &SLOTS_STATE {
-        for state in [QUEUED, SENT] {
-            let _ = slot.state.compare_exchange(state, LOST, Release, Relaxed);
-        }
-    }
-}
-
-/// The reply for a SENT slot, if the companion wrote it: true once READY.
-unsafe fn read_reply(index: usize, epoch: u32) -> bool {
-    let slot = &SLOTS_STATE[index];
-    let shared = &mut *slot.data.get();
-    let fd = open(&slot_file(index, true), false);
-    if fd.0 < 0 {
-        return false;
-    }
-    let mut head = [0u8; HEADER];
-    let mut ready = false;
-    if read_all(fd, head.as_mut_ptr(), HEADER)
-        && word(&head, 0) == MAGIC
-        && word(&head, 4) == epoch
-        && word(&head, 8) == BOOT
-        && word(&head, 12) == shared.seq
-        && word(&head, 16) == KIND_REPLY
-    {
-        let json_len = word(&head, 32) as usize;
-        let body_len = word(&head, 40) as usize;
-        if json_len > shared.json_cap || body_len > shared.body_cap {
-            shared.oversize = true;
-            ready = true;
-        } else if read_all(fd, shared.json, json_len)
-            && read_all(fd, shared.body, body_len)
-            && fnv1a32(core::slice::from_raw_parts(shared.json, json_len)) == word(&head, 36)
-            && fnv1a32(core::slice::from_raw_parts(shared.body, body_len)) == word(&head, 44)
-        {
-            shared.json_len = json_len;
-            shared.body_len = body_len;
-            ready = true;
-        }
-    }
-    sys::sceIoClose(fd);
-    ready && slot.state.compare_exchange(SENT, READY, Release, Relaxed).is_ok()
-}
-
 unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
     let mut status = [0u8; STATUS_MAX];
     let mut epoch = 0u32;
@@ -873,10 +415,6 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
     let mut hello_at = 0u32;
     let mut hello_beat = 0u32;
     let mut hello_due = false;
-    let mut generation = 0u32;
-    let mut written = [false; SLOTS];
-    let mut sent_at = [0u32; SLOTS];
-    let mut read_at = [0u32; SLOTS];
     loop {
         let t = now();
         // A linked console looks at the beat five times a beat; one with no
@@ -890,14 +428,9 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
                     if e != epoch {
                         epoch = e;
                         EPOCH.store(0, Release);
-                        SESSION.store(0, Release);
-                        lose_requests();
-                        generation = (generation.wrapping_add(1)).max(1);
-                        written = [false; SLOTS];
                         beat_at = t;
                         hello_due = true;
                         publish_status(&status[..len]);
-                        SESSION.store(generation, Release);
                         EPOCH.store(epoch, Release);
                     }
                     if b != beat {
@@ -913,71 +446,17 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
                 silent = (epoch, beat);
                 epoch = 0;
                 EPOCH.store(0, Release);
-                SESSION.store(0, Release);
-                lose_requests();
             }
         }
         if epoch != 0 && (hello_due || t.wrapping_sub(hello_at) >= 2 * BEAT_US) {
             hello_beat = hello_beat.wrapping_add(1);
-            if write_small(&path(b"hello"), epoch, 0, KIND_HELLO, 0, hello_beat, &HELLO[..HELLO_LEN]) {
+            if write_record(&path(b"hello"), epoch, 0, KIND_HELLO, hello_beat, &HELLO[..HELLO_LEN]) {
                 hello_due = false;
                 hello_at = t;
             }
         }
-        for index in 0..SLOTS {
-            let slot = &SLOTS_STATE[index];
-            match slot.state.load(Acquire) {
-                QUEUED if epoch != 0 => {
-                    let shared = &mut *slot.data.get();
-                    if shared.generation != generation {
-                        let _ = slot.state.compare_exchange(QUEUED, LOST, Release, Relaxed);
-                        continue;
-                    }
-                    let record = core::slice::from_raw_parts_mut(shared.record, shared.record_len);
-                    put(record, 4, epoch);
-                    let fd = open(&slot_file(index, false), true);
-                    let ok = fd.0 >= 0 && write_all(fd, shared.record, shared.record_len);
-                    if fd.0 >= 0 {
-                        sys::sceIoClose(fd);
-                    }
-                    if ok {
-                        written[index] = true;
-                        sent_at[index] = t;
-                        read_at[index] = t;
-                        let _ = slot.state.compare_exchange(QUEUED, SENT, Release, Relaxed);
-                    }
-                }
-                SENT if epoch != 0 => {
-                    let slow = t.wrapping_sub(sent_at[index]) > REPLY_FAST_US;
-                    if !slow || t.wrapping_sub(read_at[index]) >= REPLY_SLOW_US {
-                        read_at[index] = t;
-                        read_reply(index, epoch);
-                    }
-                }
-                CANCEL => {
-                    let shared = &*slot.data.get();
-                    if epoch != 0 && written[index] {
-                        let id = word(core::slice::from_raw_parts(shared.record, HEADER), 20);
-                        let mut json = [0u8; 40];
-                        let head = b"{\"t\":\"net.cancel\",\"id\":";
-                        json[..head.len()].copy_from_slice(head);
-                        let mut digits = [0u8; 10];
-                        let id_text = decimal(id, &mut digits);
-                        json[head.len()..head.len() + id_text.len()].copy_from_slice(id_text);
-                        let len = head.len() + id_text.len() + 1;
-                        json[len - 1] = b'}';
-                        write_small(&slot_file(index, false), epoch, shared.seq, KIND_CANCEL, id, 0, &json[..len]);
-                    }
-                    written[index] = false;
-                    slot.state.store(CANCELLED, Release);
-                }
-                _ => {}
-            }
-        }
-        // With no companion and no slot to serve, the next thing to do is the
-        // next look at `ready`.
-        let idle = epoch == 0 && SLOTS_STATE.iter().all(|slot| !matches!(slot.state.load(Acquire), CANCEL));
-        sys::sceKernelDelayThread(if idle { BEAT_US / 5 } else { 5000 });
+        // The next thing to do is the next look at `ready`.
+        sys::sceKernelDelayThread(BEAT_US / 5);
     }
 }
 
@@ -987,11 +466,10 @@ mod tests {
 
     #[test]
     fn member_reads_top_level_values_only() {
-        let json = br#"{"v":1,"id":"ab\"c","nested":{"id":"no"},"features":["net"],"clock":{"utc":5,"offsetMinutes":480},"maxBytes":4096}"#;
+        let json = br#"{"v":1,"id":"ab\"c","nested":{"id":"no"},"features":["media"],"clock":{"utc":5,"offsetMinutes":480}}"#;
         assert_eq!(member(json, "id"), Some(&br#""ab\"c""#[..]));
-        assert_eq!(member(json, "features"), Some(&br#"["net"]"#[..]));
+        assert_eq!(member(json, "features"), Some(&br#"["media"]"#[..]));
         assert_eq!(member(json, "clock"), Some(&br#"{"utc":5,"offsetMinutes":480}"#[..]));
-        assert_eq!(number(member(json, "maxBytes")), Some(4096));
         assert_eq!(member(json, "missing"), None);
     }
 

@@ -305,7 +305,6 @@ impl Drop for Runtime {
             }
             crate::audio_mod::reset();
             crate::svc::reset();
-            crate::link::reset();
             crate::media::reset();
             crate::offload::reset();
             crate::offload_local::reset();

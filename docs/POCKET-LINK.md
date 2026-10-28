@@ -154,27 +154,26 @@ computer (a CardputerZero or a Mac) as `host0:`, and the companion runs the
 
 | File in `<share>/pocket-link/` | Writer | Content |
 | --- | --- | --- |
-| `ready` | companion, every **500 ms** | companion id, name, features (`net`, `media`), clock |
+| `ready` | companion, every **500 ms** | companion id, name, features (`media`), clock |
 | `hello` | console, every **1 s** while linked | device id, name, model, target |
-| `net0.req`, `net1.req` | console | the TCP link's `net` ctrl and the request body, or a cancel |
-| `net0.res`, `net1.res` | companion | the NET event (`done` or `error`) and the response body |
 | `media.req` | console | the ticket of a media stream to open, or a close |
 | `media.ring` | companion, in place | a 64-byte head (generation, bytes written, closed flag), then a **1 MiB** ring of the stream's bytes |
 | `media.ack` | console, in place | the stream bytes the console has read |
 
-Each file is one record: a 64-byte header (magic `PKLU`, the companion's
-epoch, the console's boot id, the slot's sequence number, the kind, the
-request id, a beat counter, the JSON and body lengths, and an FNV-1a 32 hash
-of each), the JSON, the body. The companion writes under a temporary name and
-renames; the console's writes are plain, so the companion reads a record whose
-hashes fail again on its next poll: **every 100 ms** behind a directory watch
-that sees the console's writes, **every 10 ms** without one.
+Each record is a 64-byte header (magic `PKLU`, the companion's epoch, the
+console's boot id, a sequence number, the kind, a beat counter, the JSON
+length and its FNV-1a 32 hash) followed by the JSON. The companion writes
+under a temporary name and renames; the console's writes are plain, so the
+companion reads a record whose hash fails again on its next poll: **every
+100 ms** behind a directory watch that sees the console's writes, **every
+10 ms** without one.
 
 **The cable is the trust boundary.** The computer serving the share already
 chooses every file the console reads, including the program it runs, so the
-carrier has no pairing and no key. It carries `net` and `media`: no catalog
-and no installs, because a PSP's apps are embedded in the EBOOT the share
-serves.
+carrier has no pairing and no key. It carries link status and media. It
+carries no network requests: HTTP is a worker resource (`io.http`), and the
+PSP host runs no worker domain. It carries no catalog and no installs,
+because a PSP's apps are embedded in the EBOOT the share serves.
 
 **Media rides a ring, not records.** A service's `MediaSource` names a ticket
 on the companion's media stream server; the console writes its token to
@@ -188,18 +187,19 @@ producer. The decode is in [MEDIA.md](./MEDIA.md).
 
 On the console, `platforms/psp/io/src/link.rs` runs the carrier,
 `programs/psp/src/media.rs` reads the media ring, and
-`programs/psp/src/service_bindings.rs` installs `globalThis.net`,
-`globalThis.link` and `globalThis.media` over them. A worker thread at a lower priority than the guest performs
-every `host0:` read and write, so a USB round trip never lands inside a frame.
-The guest's thread builds records and allocates each slot's reply buffers at
-its first request; it performs no `host0:` I/O. The first guest evaluates
-after the worker's first `ready` read or **200 ms**, whichever comes first, so
-a request made at mount finds the session up and a hung share delays the boot
-by 200 ms at most. A `ready` left behind by a companion that went silent (a
+`programs/psp/src/service_bindings.rs` installs `globalThis.link` and
+`globalThis.media` over them. A worker thread at a lower priority than the
+guest reads `ready` and writes `hello`, so a USB round trip never lands
+inside a frame; the guest's thread reads the companion's status from memory
+and performs no `host0:` read. The first guest evaluates after the worker's
+first `ready` read or **200 ms**, whichever comes first, so a media stream
+opened at mount finds the session up and a hung share delays the boot by
+200 ms at most. A `ready` left behind by a companion that went silent (a
 crash, an OOM kill) links again only once its beat moves. With no companion
 the worker reads `ready` once a second. A new epoch (the companion
-restarted) or **10 s** without a beat (the TCP link's silence) fails every open request with
-`unavailable`; nothing is replayed. `link.status()` reports `linked` with the
+restarted) or **10 s** without a beat (the TCP link's silence) ends the
+session: the companion stops the stream, and the console's ring reader sees a
+head from another epoch. `link.status()` reports `linked` with the
 companion's name while it beats and `searching` otherwise; `pair`, `forget`,
 `catalog`, `install` and `remove` refuse.
 

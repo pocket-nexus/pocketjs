@@ -24,8 +24,8 @@ import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { AgentService, AGENT_LINK_FEATURE, type AgentLink, type AgentServiceOptions, type AgentSession } from "./agent.ts";
 import { AppCatalog, PackageReader, type CatalogEntry } from "./catalog.ts";
 import { findCodex, userCodexHome } from "./codex.ts";
-import { NetFailure, normalizeNetRequest, performNet, type NetRequest, type NetResponse } from "./fetch.ts";
-import { ServiceHost, type ServiceConsole } from "./services.ts";
+import { NetFailure, normalizeNetRequest, performNet, type NetRequest } from "./fetch.ts";
+import { ServiceHost } from "./services.ts";
 import { StreamCredit } from "./stream-credit.ts";
 import {
   LinkFrameDecoder,
@@ -371,22 +371,6 @@ export class Companion {
     const connection = new LinkConnection(this, socket);
     this.connections.add(connection);
     socket.on("close", () => this.connections.delete(connection));
-  }
-
-  /** One net request from a linked console, over either carrier: a service
-   *  this companion runs answers it when the URL names one, else the request
-   *  is fetched. */
-  async answerNet(
-    request: NetRequest,
-    caller: { app: string; target: string },
-    console: ServiceConsole,
-    signal: AbortSignal,
-  ): Promise<NetResponse> {
-    const services = this.catalog.find(caller.target, caller.app)?.services ?? [];
-    return (
-      (await this.services.handle(request, console, { app: caller.app, services }, signal)) ??
-      (await performNet(request, { allowPrivate: this.options.allowPrivate, signal, resolve: this.options.resolve }))
-    );
   }
 
   /** The console agent as the setup screen shows it: on, or what it waits
