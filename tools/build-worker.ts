@@ -3,13 +3,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Script } from "node:vm";
 import { workerDeclarationSchema, type WorkerDeclaration } from "../contracts/spec/worker.ts";
-import { SUBPATHS } from "../framework/compiler/subpaths.ts";
+import { SUBPATHS, resolvesIn } from "../framework/compiler/subpaths.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-/** The worker import allowlist: the subpath registry rows marked `worker`. */
+/** The worker import set: the subpath registry rows whose domains include "worker". */
 const modules: Record<string, string> = Object.fromEntries(Object.entries(SUBPATHS).flatMap(([name, decl]) => {
-  if (!decl.worker) return [];
+  if (!resolvesIn(decl, "worker")) return [];
   if (typeof decl.file !== "string") throw new Error(`subpaths: worker row "${name}" needs one file for every framework`);
   return [[name, decl.file]];
 }));
@@ -34,12 +34,12 @@ export async function buildWorker(options: {
     entrypoints: [wrapper], target: "browser", format: "esm", outdir: options.outdir,
     naming: `${options.output}.worker.js`, minify: true, metafile: true,
     banner: '"use strict";',
-    define: { __POCKET_WORKER_DECLARATION__: JSON.stringify(options.declaration), "process.env.NODE_ENV": '"production"' },
+    define: { __POCKET_DOMAIN__: '"worker"', __POCKET_WORKER_DECLARATION__: JSON.stringify(options.declaration), "process.env.NODE_ENV": '"production"' },
     plugins: [{ name: "worker-domain", setup(builder) {
       builder.onResolve({ filter: /^@pocketjs\/framework(?:\/.*)?$/ }, args => {
         const subpath = args.path.slice("@pocketjs/framework/".length);
         const file = modules[subpath];
-        if (!file) throw new Error(`Worker domain cannot import ${args.path}`);
+        if (!file) throw new Error(`Worker domain cannot import ${args.path}: ${subpath in SUBPATHS ? "the subpath resolves only in the UI domain (app.entry)" : "no such framework subpath"}`);
         return { path: join(ROOT, file) };
       });
       builder.onResolve({ filter: /^(solid-js|vue|octane)(\/|$)/ }, args => {

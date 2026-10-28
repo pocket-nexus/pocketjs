@@ -112,6 +112,7 @@ describe("per-app TypeScript checks", () => {
       expect(errors(checkAppTypes({ entry: main, tsconfigPath }))).toContain("Cannot find module '@pocketjs/framework/io'");
       const result = checkAppTypes({
         entry: main,
+        domain: "worker",
         tsconfigPath,
         frameworkRoot: new URL("..", import.meta.url).pathname,
         keepTemporaryFiles: true,

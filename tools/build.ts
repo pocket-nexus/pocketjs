@@ -528,6 +528,7 @@ const result = await Bun.build({
     __POCKET_TARGET__: JSON.stringify(buildPlan?.target.id ?? ""),
     __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? POCKET_BINDING_GENERATION),
     __POCKET_FEATURES__: JSON.stringify(buildPlan?.features ?? {}),
+    __POCKET_DOMAIN__: '"ui"',
     __POCKET_WORKER_DECLARATION__: JSON.stringify(appContent.worker ?? null),
     // The modality and presentation the plan resolved; the runtime module
     // (@pocketjs/framework/modality) falls back to the portable PSP shape

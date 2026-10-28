@@ -13,6 +13,9 @@ export const ResourceStatus = {
 export const WORKER_LIMITS = {
   resources: 8, requests: 8, payloadBytes: 1024, events: 8, timers: 8, channels: 8,
 } as const;
+/** The execution domains of one package: the UI realm and the worker realm. */
+export const POCKET_DOMAINS = ["ui", "worker"] as const;
+export type PocketDomain = (typeof POCKET_DOMAINS)[number];
 
 export interface WorkerChannelDeclaration {
   readonly name: string;

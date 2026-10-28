@@ -1,7 +1,12 @@
 import { FactKind, ResourceStatus, type WorkerDeclaration } from "../../contracts/spec/worker.ts";
 
-export { FactKind, ResourceStatus };
+import { ByteView } from "./byte-view.ts";
+import { assertDomain } from "./domain.ts";
+
+export { FactKind, ResourceStatus, ByteView };
 export type { WorkerDeclaration, WorkerChannelDeclaration } from "../../contracts/spec/worker.ts";
+
+assertDomain("worker", "@pocketjs/framework/worker");
 
 export interface WallClock {
   readonly utcMicros: number;
@@ -46,32 +51,16 @@ let declaration: WorkerDeclaration | undefined = typeof __POCKET_WORKER_DECLARAT
 /** Host operations never fall back to a UI timer or the ambient browser APIs. */
 export function workerHost(): WorkerHost {
   const host = (globalThis as WorkerGlobal).__pocketWorker;
-  if (!host) throw new Error("This host does not provide a worker execution domain");
+  if (!host) throw new Error("No worker host in this realm: the worker runtime installs __pocketWorker before evaluating the bundle");
   return host;
 }
 
 export function workerContext(): TurnContext | undefined { return activeContext; }
 export function workerDeclaration(): WorkerDeclaration | undefined { return declaration; }
-
-/** A turn-scoped view. Only copy() produces bytes that survive another turn. */
-export class ByteView {
-  private readonly view: DataView;
-  constructor(private readonly bytes: Uint8Array, private readonly valid: () => void) {
-    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  }
-  get length(): number { this.valid(); return this.bytes.length; }
-  u8(offset: number): number { this.valid(); return this.view.getUint8(offset); }
-  i8(offset: number): number { this.valid(); return this.view.getInt8(offset); }
-  u16le(offset: number): number { this.valid(); return this.view.getUint16(offset, true); }
-  u16be(offset: number): number { this.valid(); return this.view.getUint16(offset, false); }
-  i16le(offset: number): number { this.valid(); return this.view.getInt16(offset, true); }
-  i16be(offset: number): number { this.valid(); return this.view.getInt16(offset, false); }
-  u24(offset: number): number { this.valid(); return this.view.getUint16(offset, true) + this.view.getUint8(offset + 2) * 65536; }
-  i24(offset: number): number { const value = this.u24(offset); return value >= 0x800000 ? value - 0x1000000 : value; }
-  u32(offset: number): number { this.valid(); return this.view.getUint32(offset, true); }
-  f32(offset: number): number { this.valid(); return this.view.getFloat32(offset, true); }
-  copy(): Uint8Array { this.valid(); return this.bytes.slice(); }
-}
+/** Monotonic microseconds latched for the current turn; absent outside a turn. */
+export function nowMicros(): number | undefined { return activeContext?.nowMicros; }
+/** The host's read-only UTC clock identity latched for the current turn, if it has one. */
+export function wallClock(): WallClock | undefined { return activeContext?.wallClock; }
 
 export class FactView {
   readonly data: ByteView;

@@ -175,12 +175,12 @@ async function main() {
   if (!existsSync(entry)) usage(`app entry not found: ${entry}`);
   const mismatch = runtimeVersionMismatch(plan.app.framework, projectRoot);
   if (mismatch) throw new Error(`the application resolves ${mismatch.name} ${mismatch.application.version} (${mismatch.application.directory}) and the compiler bundles ${mismatch.name} ${mismatch.bundled.version} (${mismatch.bundled.directory}); declare "${mismatch.name}": "${mismatch.bundled.version}" in the application's package.json`);
-  const entries = [entry, ...(plan.app.worker ? [resolve(projectRoot, plan.app.worker.entry)] : [])];
-  for (const source of entries) if (!existsSync(source)) usage(`app entry not found: ${source}`);
-  const typeResults = entries.map(entry => checkAppTypes({
+  const entries: [string, "ui" | "worker"][] = [[entry, "ui"], ...(plan.app.worker ? [[resolve(projectRoot, plan.app.worker.entry), "worker"] as [string, "worker"]] : [])];
+  for (const [source] of entries) if (!existsSync(source)) usage(`app entry not found: ${source}`);
+  const typeResults = entries.map(([entry, domain]) => checkAppTypes({
     entry,
+    domain,
     frameworkRoot,
-    framework: plan.app.framework,
     tsconfigPath: existsSync(resolve(projectRoot, "tsconfig.json")) ? resolve(projectRoot, "tsconfig.json") : undefined,
     declarationFiles: [resolve(frameworkRoot, "framework/src/jsx.d.ts"), resolve(frameworkRoot, "framework/src/vue-sfc.d.ts")],
   }));

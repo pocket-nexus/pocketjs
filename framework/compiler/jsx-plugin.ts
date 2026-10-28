@@ -38,7 +38,7 @@ import tsPresetPkg from "@babel/preset-typescript/package.json";
 import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
 import { FRAMEWORK_CHOICES, parseFramework } from "./framework-choice.ts";
 export { parseFramework } from "./framework-choice.ts";
-import { POCKET_FRAMEWORKS, SUBPATHS } from "./subpaths.ts";
+import { POCKET_FRAMEWORKS, SUBPATHS, resolvesIn } from "./subpaths.ts";
 
 export type { PocketFramework };
 
@@ -475,12 +475,25 @@ export function packagePath(spec: string, framework: PocketFramework): string | 
   const subpath = resolvePackageSubpath(spec);
   if (subpath === null) return null;
   for (const fw of POCKET_FRAMEWORKS) {
-    if (subpath === fw) return RESOLVED[fw][""] ?? null;
+    if (subpath === fw) return uiDomain(spec, "", RESOLVED[fw][""] ?? null);
     if (subpath.startsWith(fw + "/")) {
-      return RESOLVED[fw][subpath] ?? RESOLVED[fw][subpath.slice(fw.length + 1)] ?? null;
+      const bare = subpath.slice(fw.length + 1);
+      return RESOLVED[fw][subpath] !== undefined
+        ? uiDomain(spec, subpath, RESOLVED[fw][subpath])
+        : uiDomain(spec, bare, RESOLVED[fw][bare] ?? null);
     }
   }
-  return RESOLVED[framework][subpath] ?? null;
+  return uiDomain(spec, subpath, RESOLVED[framework][subpath] ?? null);
+}
+
+/** This compiler builds the UI bundle: a registry row another domain owns is
+ *  an error here, not a fallthrough to package.json resolution. */
+function uiDomain(spec: string, name: string, path: string | null): string | null {
+  const decl = SUBPATHS[name];
+  if (decl && !resolvesIn(decl, "ui")) {
+    throw new Error(`UI domain cannot import ${spec}: the subpath resolves only in the worker domain (app.worker.entry)`);
+  }
+  return path;
 }
 
 /** The framework's own directory. An application install places it under

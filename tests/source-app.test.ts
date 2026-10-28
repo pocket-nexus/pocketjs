@@ -89,6 +89,11 @@ test("low-level worker builds use the entry's matched manifest root", () => {
   const built = Bun.spawnSync([process.execPath, join(root, "tools/build.ts"), join(directory, "src/main.ts"), `--outdir=${out}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
   expect(built.success, built.stdout.toString() + built.stderr.toString()).toBe(true);
   expect(existsSync(join(out, "main.worker.js"))).toBe(true);
+  // The UI bundle refuses a worker-domain subpath instead of bundling worker code.
+  writeFileSync(join(directory, "src/main.ts"), 'import { io } from "@pocketjs/framework/io";\nvoid io;\n');
+  const refused = Bun.spawnSync([process.execPath, join(root, "tools/build.ts"), join(directory, "src/main.ts"), `--outdir=${join(directory, "refused")}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  expect(refused.success).toBe(false);
+  expect(refused.stdout.toString() + refused.stderr.toString()).toContain("UI domain cannot import @pocketjs/framework/io");
   writeFileSync(join(directory, "pocket.other.json"), JSON.stringify({ app: { entry: "src/main.ts", framework: "solid", worker: { entry: "other.ts", nodes: [] } } }));
   expect(() => sourceAppContent(join(directory, "src/main.ts"), { frameworkRoot: root, projectRoot: root })).toThrow(/manifests disagree/);
 }, 120_000);

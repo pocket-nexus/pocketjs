@@ -3,11 +3,11 @@ import { mount } from "@pocketjs/framework/solid";
 import { Text, View } from "@pocketjs/framework/components";
 import { onButtonPress, onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
-import { io } from "@pocketjs/framework/io";
+import { worker } from "@pocketjs/framework/worker/channels";
 
 function App() {
-  const request = io.channel("request");
-  const progress = io.channel("progress");
+  const request = worker.channel("request");
+  const progress = worker.channel("progress");
   const [state, setState] = createSignal("Ready");
   const [bytes, setBytes] = createSignal(0);
   const [status, setStatus] = createSignal(0);

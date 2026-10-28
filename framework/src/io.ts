@@ -1,15 +1,8 @@
 import { ResourceKind, ResourceStatus, WORKER_LIMITS } from "../../contracts/spec/worker.ts";
-import { ByteView, workerHost, workerDeclaration, type Inbox, type FactView } from "./worker.ts";
+import { workerHost, workerDeclaration, type Inbox, type FactView } from "./worker.ts";
 import { encodeI2CScript, integer, type I2CStep } from "./io/i2c.ts";
 
 export { ResourceStatus, FactKind } from "../../contracts/spec/worker.ts";
-type ChannelGlobal = typeof globalThis & {
-  __pocketWorker?: unknown;
-  __pocketWorkerChannels?: { configure(id: number, snapshot: number): number; publish(id: number, data: Uint8Array): number; observe(id: number): Uint8Array[] };
-  __pocketWorkerChannelFrame?: () => void;
-};
-let channelEpoch = 0;
-(globalThis as ChannelGlobal).__pocketWorkerChannelFrame = () => { ++channelEpoch; };
 export class Resource {
   private closed = false;
   constructor(readonly handle: number) {}
@@ -117,31 +110,17 @@ export const io = {
     integer(periodMicros, 0, Number.MAX_SAFE_INTEGER, "timer period");
     return workerHost().timer(id, deadlineMicros, periodMicros) === ResourceStatus.ok;
   },
+  /** A declared channel's worker side: publish toward the UI. Inbound
+   *  records arrive through the turn inbox. */
   channel(name: string) {
     const channels = workerDeclaration()?.channels ?? [];
     const id = channels.findIndex(channel => channel.name === name);
     if (id < 0) throw new Error(`Undeclared worker channel: ${name}`);
     const channel = channels[id];
-    const inWorker = !!(globalThis as ChannelGlobal).__pocketWorker;
-    if (!inWorker) {
-      const host = (globalThis as ChannelGlobal).__pocketWorkerChannels;
-      if (!host || host.configure(id + 1, channel.kind === "snapshot" ? 1 : 0) !== ResourceStatus.ok) throw new Error(`Cannot configure worker channel ${name}`);
-    }
     return { publish(data: Uint8Array): boolean {
-      if (channel.direction !== (inWorker ? "worker-to-ui" : "ui-to-worker")) throw new Error(`Channel ${name} is receive-only in this domain`);
+      if (channel.direction !== "worker-to-ui") throw new Error(`Channel ${name} is receive-only in the worker domain; read it from the turn inbox`);
       if (data.length > channel.recordBytes) throw new RangeError(`Channel ${name} record exceeds ${channel.recordBytes} bytes`);
-      const host = inWorker ? workerHost() : (globalThis as ChannelGlobal).__pocketWorkerChannels;
-      if (!host) throw new Error("Host does not provide worker channels");
-      return host.publish(id + 1, data) === ResourceStatus.ok;
-    }, observe(): readonly ByteView[] {
-      if (inWorker) throw new Error("Read worker channels from the turn inbox");
-      if (channel.direction !== "worker-to-ui") throw new Error(`Channel ${name} is publish-only in this domain`);
-      const host = (globalThis as ChannelGlobal).__pocketWorkerChannels;
-      if (!host) throw new Error("Host does not provide worker channels");
-      const current = channelEpoch;
-      return host.observe(id + 1).map(bytes => new ByteView(bytes, () => {
-        if (channelEpoch !== current) throw new Error("Channel view expired; copy bytes before the next frame");
-      }));
+      return workerHost().publish(id + 1, data) === ResourceStatus.ok;
     } };
   },
 };

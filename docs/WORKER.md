@@ -43,10 +43,15 @@ function wrapper. The worker owns its global namespace; omitting the wrapper
 avoids a retained whole-bundle function source copy in QuickJS.
 **Package section 8 contains the
 NUL-terminated worker bundle.** The host evaluates this section in the worker
-runtime. The worker compiler accepts the `@pocketjs/framework` subpaths whose
-row in `framework/compiler/subpaths.ts` sets `worker: true`: `worker`, `io`,
-`io/i2c`, `clock` and `fs`. The host's worker mount determines whether `fs` is
-available. UI framework imports are rejected.
+runtime. **Each bundle carries its execution domain as the compile-time
+constant `__POCKET_DOMAIN__`**: `"ui"` from `tools/build.ts`, `"worker"` from
+`tools/build-worker.ts`. The registry in `framework/compiler/subpaths.ts` lists
+the domains that resolve each `@pocketjs/framework` subpath: `worker`, `io` and
+`io/i2c` resolve in the worker domain, `fs` in both, every other subpath in the
+UI domain. The UI compiler rejects a worker subpath, the worker bundler rejects
+a UI subpath and the UI frameworks, and `pocket check` maps each entry's imports
+with the same table. The host's worker mount determines whether `fs` is
+available.
 
 ```ts
 import { io } from "@pocketjs/framework/io";
@@ -124,8 +129,9 @@ storage.
 `TurnContext` contains session generation, turn sequence and latched monotonic
 microseconds. A host can provide a read-only UTC clock identity containing UTC
 microseconds, generation, source and error bound. Absence means that the host
-has no wall-clock mapping. `clock.nowMicros()` and `clock.wallClock()` expose
-these worker-turn values; `virtualNow()` retains the UI frame clock.
+has no wall-clock mapping. `nowMicros()` and `wallClock()` from
+`@pocketjs/framework/worker` expose these turn values; the UI `clock` module
+keeps the frame clock.
 
 `io.timer(id, deadlineMicros, periodMicros)` sets a deadline. A zero deadline
 cancels it. Timer facts retain the planned deadline in `offset` and the number
@@ -143,8 +149,9 @@ record; rings reject a publish when full. The v1 host copies channel records
 under a lock, which prevents writes during a reader's copy.
 Channels have one direction and a maximum record length. Worker consumers read
 `inbox.channel(name)` for arriving records or `inbox.snapshot(name)` for the
-retained inbound snapshot; UI consumers call `io.channel(name).observe()` on the
-mirror latched at frame entry. UI views expire at the next frame.
+retained inbound snapshot; UI consumers call `worker.channel(name).observe()`
+from `@pocketjs/framework/worker/channels` on the mirror latched at frame entry.
+UI views expire at the next frame.
 
 ## Limits and implementation status
 

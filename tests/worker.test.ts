@@ -5,6 +5,7 @@ import { createContext, Script } from "node:vm";
 import { bindWorker, ByteView, FactKind, Inbox, ResourceStatus, type HostFact, type WorkerHost } from "../framework/src/worker.ts";
 import { io, utf8 } from "../framework/src/io.ts";
 import { bytes, encodeI2CScript, i16le, read, u8, write } from "../framework/src/io/i2c.ts";
+import { worker } from "../framework/src/worker-channels.ts";
 import { buildWorker } from "../tools/build-worker.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { POCKET_CAPABILITIES, POCKET_TARGETS } from "../contracts/spec/platforms.ts";
@@ -12,7 +13,7 @@ import { POCKET_SECTION, decodePocketPackage, encodePocketPackage, findSection }
 import { makeVariant } from "../tools/pocket-pack.ts";
 
 const global = globalThis as any;
-afterEach(() => { delete global.__pocketWorker; delete global.__pocketWorkerTurn; delete global.__pocketWorkerChannels; });
+afterEach(() => { delete global.__pocketWorker; delete global.__pocketWorkerTurn; delete global.__pocketWorkerChannels; delete global.__POCKET_WORKER_DECLARATION__; });
 function host(overrides: Partial<WorkerHost> = {}): WorkerHost {
   return { open: () => 1, submit: () => 2, cancel: () => 0, close: () => 0, write: () => 0,
     publish: () => 0, timer: () => 0, declareChannel: () => 0, ...overrides };
@@ -30,7 +31,7 @@ test("I2C scripts preserve repeated-start order and reserve the exact read capac
 });
 
 test("resources fail closed without a worker and normalize unaccepted submissions", () => {
-  expect(() => io.i2c("i2c0").open({ address: 0x32 })).toThrow(/worker execution domain/);
+  expect(() => io.i2c("i2c0").open({ address: 0x32 })).toThrow(/worker runtime/);
   let submits = 0;
   global.__pocketWorker = host({ submit() { ++submits; return ResourceStatus.busy; } });
   bindWorker(() => {}, { entry: "worker.ts", nodes: [{ name: "i2c0", kind: "i2c" }] });
@@ -88,11 +89,9 @@ test("snapshot mirrors persist without new input and reject views from a previou
 });
 
 test("UI channel reads are frame mirrors and direction is enforced", () => {
-  global.__pocketWorker = host();
-  bindWorker(() => {}, { entry: "worker.ts", nodes: [], channels: [{ name: "state", kind: "snapshot", direction: "worker-to-ui", recordBytes: 1, capacity: 1 }] });
-  delete global.__pocketWorker;
+  global.__POCKET_WORKER_DECLARATION__ = { entry: "worker.ts", nodes: [], channels: [{ name: "state", kind: "snapshot", direction: "worker-to-ui", recordBytes: 1, capacity: 1 }] };
   global.__pocketWorkerChannels = { configure: () => 0, observe: () => [Uint8Array.of(7)], publish: () => 0 };
-  const channel = io.channel("state");
+  const channel = worker.channel("state");
   const view = channel.observe()[0];
   expect(view.u8(0)).toBe(7);
   expect(() => channel.publish(Uint8Array.of(8))).toThrow(/receive-only/);
@@ -152,13 +151,17 @@ test("pocket check includes the independent worker entry", () => {
   const output = resolve(".pocket-build/validation/worker/sdk/typecheck-worker");
   mkdirSync(output, { recursive: true });
   const manifest = JSON.parse(readFileSync(resolve("apps/worker-http/pocket.json"), "utf8"));
-  const worker = resolve(output, "invalid.ts");
   manifest.app.worker.entry = ".pocket-build/validation/worker/sdk/typecheck-worker/invalid.ts";
-  writeFileSync(worker, "export function turn() { const value: number = 'incorrect'; return value; }\n");
+  writeFileSync(resolve(output, "invalid.ts"), "export function turn() { const value: number = 'incorrect'; return value; }\n");
+  // The UI entry's imports map through the UI domain: a worker subpath is unresolvable there.
+  manifest.app.entry = ".pocket-build/validation/worker/sdk/typecheck-worker/ui.tsx";
+  writeFileSync(resolve(output, "ui.tsx"), 'import { io } from "@pocketjs/framework/io";\nvoid io;\n');
   const path = resolve(output, "pocket.json");
   writeFileSync(path, JSON.stringify(manifest));
   const checked = Bun.spawnSync([process.execPath, resolve("tools/pocket.ts"), "check", "--manifest", path, "--project-root", resolve("."), "--target", "3ds-dev"], { cwd: resolve("."), stdout: "pipe", stderr: "pipe" });
   expect(checked.exitCode).not.toBe(0);
   expect(checked.stderr.toString()).toContain("TS2322");
   expect(checked.stderr.toString()).toContain("invalid.ts");
+  expect(checked.stderr.toString()).toContain("TS2306");
+  expect(checked.stderr.toString()).toContain("not-in-domain.d.ts");
 }, 120_000);

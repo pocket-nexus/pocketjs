@@ -98,6 +98,7 @@
     "./media/audio": "./contracts/spec/media-adpcm.ts",
     "./clock": "./framework/src/clock.ts",
     "./worker": "./framework/src/worker.ts",
+    "./worker/channels": "./framework/src/worker-channels.ts",
     "./io": "./framework/src/io.ts",
     "./io/i2c": "./framework/src/io/i2c.ts",
     "./profile": "./framework/src/profile.ts",
