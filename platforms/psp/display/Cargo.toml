@@ -8,5 +8,5 @@ repository.workspace = true
 description = "PocketJS psp display driver"
 
 [dependencies]
-psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "675ff56fd94b892ca1794e1f6ec8066a89b48d20", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
 pocket-psp-ge.workspace = true

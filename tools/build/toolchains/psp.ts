@@ -22,7 +22,7 @@ export const pspToolchain = {
       "kind": "cargo-install",
       "source": {
         "git": "https://github.com/pocket-nexus/rust-psp.git",
-        "revision": "2cbaf8c9bc72569c76240a1d9743de10731e5f6b"
+        "revision": "675ff56fd94b892ca1794e1f6ec8066a89b48d20"
       },
       "package": "cargo-psp",
       "binaries": [

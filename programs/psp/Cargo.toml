@@ -38,7 +38,7 @@ pocket-psp-io.workspace = true
 pocket-spec = { workspace = true, default-features = true }
 pocket-psp-render = { workspace = true, default-features = true }
 pocket-psp-ge = { workspace = true, default-features = true }
-psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "675ff56fd94b892ca1794e1f6ec8066a89b48d20", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
