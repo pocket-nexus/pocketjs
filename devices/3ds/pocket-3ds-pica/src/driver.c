@@ -439,20 +439,30 @@ static int32_t image_texture(Build *b, int32_t handle, C3D_Tex **out, float *us,
   *vs = entry->vs;
   return 0;
 }
+/* The page a glyph run used last: consecutive glyphs of a run share a page,
+ * so the cache search and the pin happen once per page change. */
+typedef struct {
+  Cache *entry;
+  uint32_t page;
+} GlyphMemo;
 static int32_t font_texture(Build *b, uint8_t slot, uint32_t gid,
-                            const pocket_font_view *font, C3D_Tex **out,
-                            float *uv) {
+                            const pocket_font_view *font, uint64_t revision,
+                            GlyphMemo *memo, C3D_Tex **out, float *uv) {
   pocket_glyph_page page = {.struct_size = sizeof page};
   int32_t status = pocket_glyph_page_a8(font, gid, 1024, NULL, 0, &page);
   if (status)
     return status;
   memcpy(uv, page.uv, sizeof page.uv);
-  uint64_t revision = b->resources.raster_revision;
-  if (b->resources.font_revision &&
-      b->resources.font_revision(b->resources.context, slot, &revision))
-    return POCKET_STATUS_INVALID;
+  if (memo->entry && memo->page == page.page) {
+    for (unsigned i = 0; i < 4; i++)
+      uv[i] *= (i & 1) ? memo->entry->vs : memo->entry->us;
+    *out = &memo->entry->texture;
+    return 0;
+  }
   Cache *entry = find_cache(b, slot, revision, true, page.page);
   if (entry) {
+    memo->entry = entry;
+    memo->page = page.page;
     for (unsigned i = 0; i < 4; i++)
       uv[i] *= (i & 1) ? entry->vs : entry->us;
     *out = &entry->texture;
@@ -485,10 +495,32 @@ static int32_t font_texture(Build *b, uint8_t slot, uint32_t gid,
   entry->vs = (float)page.height / th;
   if (!publish_cache(b, entry))
     return POCKET_STATUS_FAILED;
+  memo->entry = entry;
+  memo->page = page.page;
   for (unsigned i = 0; i < 4; i++)
     uv[i] *= (i & 1) ? entry->vs : entry->us;
   *out = &entry->texture;
   return 0;
+}
+/* A quad in one colour already unpacked: two triangles, six vertices. */
+static void flat_quad(Submission *s, float x, float y, float w, float h,
+                      const float *uv, const float *rgba) {
+  Vertex *p = &s->vertices[s->vertex_count];
+  const float xs[6] = {x, x + w, x + w, x, x + w, x};
+  const float ys[6] = {y, y, y + h, y, y + h, y + h};
+  const float us[6] = {uv[0], uv[2], uv[2], uv[0], uv[2], uv[0]};
+  const float vs[6] = {uv[1], uv[1], uv[3], uv[1], uv[3], uv[3]};
+  for (unsigned i = 0; i < 6; i++) {
+    p[i].x = xs[i];
+    p[i].y = ys[i];
+    p[i].u = us[i];
+    p[i].v = vs[i];
+    p[i].r = rgba[0];
+    p[i].g = rgba[1];
+    p[i].b = rgba[2];
+    p[i].a = rgba[3];
+  }
+  s->vertex_count += 6;
 }
 static void vertex(Submission *s, float x, float y, float u, float v,
                    uint32_t rgba) {
@@ -568,20 +600,26 @@ static int32_t visit(void *context, const pocket_draw_op *raw) {
     if (font.struct_size <
         offsetof(pocket_font_view, glyph_count) + sizeof font.glyph_count)
       return POCKET_STATUS_INVALID;
-    for (unsigned i = 0; i < 4; i++)
-      colors[i] = w[2];
+    uint64_t revision = b->resources.raster_revision;
+    if (b->resources.font_revision &&
+        b->resources.font_revision(b->resources.context, slot, &revision))
+      return POCKET_STATUS_INVALID;
+    float rgba[4];
+    unpack_color(w[2], rgba);
+    GlyphMemo memo = {NULL, 0};
+    const float cw = (float)font.cell_width * scale;
+    const float ch = (float)font.cell_height * scale;
     for (uint32_t i = 0; i < count; i++) {
       uint32_t gid = w[4 + 2 * i] & 65535u;
       if (gid >= font.glyph_count)
         continue;
-      int32_t status = font_texture(b, slot, gid, &font, &texture, uv);
+      int32_t status = font_texture(b, slot, gid, &font, revision, &memo, &texture, uv);
       if (status)
         return status;
       if (!command(s, texture, clip, 6))
         return POCKET_STATUS_FAILED;
-      quad(s, word_x(w[3 + 2 * i]) * scale, word_y(w[3 + 2 * i]) * scale,
-           (float)font.cell_width * scale, (float)font.cell_height * scale, uv,
-           colors);
+      flat_quad(s, word_x(w[3 + 2 * i]) * scale, word_y(w[3 + 2 * i]) * scale,
+                cw, ch, uv, rgba);
     }
     return 0;
   }

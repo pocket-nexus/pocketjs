@@ -10,8 +10,8 @@
 ; the emissive amount; with mode.x = 1 it is opacity instead and lighting is
 ; off (particles, shadows, the sky).
 ;
-; Fog is per vertex: linear in the eye distance between fogp.x and
-; 1 / fogp.y beyond it, capped at fogp.z.
+; Fog is per vertex: linear in the view depth (three.js Fog) between fogp.x
+; and 1 / fogp.y beyond it, capped at fogp.z; fogz is the depth row.
 ;
 ; Hardware rules this follows (devices/3ds/pocket-3ds-pica/src/vshader.v.pica):
 ; a uniform is only ever the first source operand, an instruction reads at
@@ -26,7 +26,7 @@
 .fvec hgnd
 .fvec fogp
 .fvec fogc
-.fvec eye
+.fvec fogz
 .fvec mode
 
 ; 0, 1, 1/127 (a normal byte), 1/255 (a colour byte)
@@ -107,12 +107,8 @@
     mul r11.xyz, r11.xyz, r15.xyz
     min r11.xyz, k.yyy, r11.xyz
 
-    ; fog by eye distance
-    add r12.xyz, -eye.xyz, r2.xyz
-    dp3 r12.x, r12, r12
-    max r12.x, k2.z, r12.x
-    rsq r12.x, r12.x
-    rcp r12.x, r12.x
+    ; fog by view depth
+    dp4 r12.x, fogz, r2
     add r12.x, -fogp.x, r12.x
     mul r12.x, fogp.y, r12.x
     max r12.x, k.x, r12.x
