@@ -6,7 +6,7 @@ mkdir -p "$out"
 cc=${CC:-cc}
 "$cc" -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -I"$repo/engine/worker/include" "$repo/engine/worker/src/worker.c" "$repo/engine/worker/tests/core.c" -lpthread -o "$out/core"
 "$out/core"
-if [ "$#" -gt 0 ]; then
+if [ -n "${1:-}" ]; then
   qjs=$1
   engine=${3:-ng}
   engine_flags=""

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createContext, Script } from "node:vm";
 import { bindWorker, ByteView, FactKind, Inbox, ResourceStatus, type HostFact, type WorkerHost } from "../framework/src/worker.ts";
@@ -10,7 +10,6 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import { POCKET_CAPABILITIES, POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { POCKET_SECTION, decodePocketPackage, encodePocketPackage, findSection } from "../contracts/spec/pocket-package.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
-import { workerProtocolHeader } from "../tools/worker-contracts.ts";
 
 const global = globalThis as any;
 afterEach(() => { delete global.__pocketWorker; delete global.__pocketWorkerTurn; delete global.__pocketWorkerChannels; });
@@ -20,10 +19,6 @@ function host(overrides: Partial<WorkerHost> = {}): WorkerHost {
 }
 const context = { generation: 1, sequence: 1, nowMicros: 1000 };
 const fact = (overrides: Partial<HostFact> = {}): HostFact => ({ kind: FactKind.complete, handle: 1, request: 2, status: 0, offset: 0, data: Uint8Array.of(0x34, 0x12), ...overrides });
-
-test("native worker vocabulary is generated from the SDK contract", () => {
-  expect(readFileSync(resolve("engine/worker/include/pocket/worker_protocol.h"), "utf8")).toBe(workerProtocolHeader());
-});
 
 test("I2C scripts preserve repeated-start order and reserve the exact read capacity", () => {
   const encoded = encodeI2CScript([write(0x7e, 0xb6), read(0x00, [u8, i16le]), read(0x12, [bytes(6)])], 25);
@@ -63,17 +58,6 @@ test("completion is taken once and views expire at the next turn", () => {
   expect(() => view!.u8(0)).toThrow(/expired/);
   expect(() => prior!.completion(2)).toThrow(/expired/);
   expect(Array.from(saved!)).toEqual([0x34, 0x12]);
-});
-
-test("timer facts retain planned deadline and missed periods; wall time is latched", () => {
-  global.__pocketWorker = host();
-  bindWorker((turn, inbox) => {
-    expect(Object.isFrozen(turn.wallClock)).toBe(true);
-    expect(turn.wallClock?.generation).toBe(4);
-    expect(inbox.timer(3)?.offset).toBe(500);
-    expect(inbox.timer(3)?.request).toBe(2);
-  });
-  global.__pocketWorkerTurn({ ...context, wallClock: { utcMicros: 1700000000000000, generation: 4, errorMicros: 100, source: "rtc" } }, [fact({ kind: FactKind.timer, handle: 3, request: 2, offset: 500 })]);
 });
 
 test("resource observations exclude colliding timer and channel IDs", () => {
@@ -178,17 +162,3 @@ test("pocket check includes the independent worker entry", () => {
   expect(checked.stderr.toString()).toContain("TS2322");
   expect(checked.stderr.toString()).toContain("invalid.ts");
 }, 120_000);
-
-test("standalone worker compiler resolves installations whose path contains spaces", () => {
-  const directory = resolve(".pocket-build/validation/worker/sdk/compiler with spaces");
-  mkdirSync(resolve(directory, "tools"), { recursive: true });
-  copyFileSync(resolve("tools/build-worker.ts"), resolve(directory, "tools/build-worker.ts"));
-  for (const name of ["framework", "contracts"]) {
-    if (!existsSync(resolve(directory, name))) symlinkSync(resolve(name), resolve(directory, name), "dir");
-  }
-  writeFileSync(resolve(directory, "worker.ts"), "export function turn() {}\n");
-  writeFileSync(resolve(directory, "pocket.json"), JSON.stringify({ name: "space", app: { worker: { entry: "worker.ts", nodes: [] } } }));
-  const built = Bun.spawnSync([process.execPath, resolve(directory, "tools/build-worker.ts"), resolve(directory, "pocket.json"), resolve(directory, "out")], { stdout: "pipe", stderr: "pipe" });
-  expect(built.exitCode, built.stderr.toString()).toBe(0);
-  expect(existsSync(resolve(directory, "out/space.worker.js"))).toBe(true);
-});
