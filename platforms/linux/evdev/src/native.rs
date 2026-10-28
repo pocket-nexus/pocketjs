@@ -96,9 +96,14 @@ impl Evdev {
         ]
         .iter()
         .any(|key| has(&keys, *key));
+        // A device with letter keys is a keyboard: its keys are text too.
+        let text = has(&keys, 30) && has(&keys, 16) && has(&keys, 28);
         let mut classes = InputClasses::NONE;
         if touch {
             classes |= InputClasses::CONTACT;
+        }
+        if text {
+            classes |= InputClasses::TEXT;
         }
         if pointer {
             classes |= InputClasses::POINTER;
@@ -126,6 +131,13 @@ impl Evdev {
             bytes: EventBytes::new(size_of::<libc::c_long>())?,
             classes,
         })
+    }
+}
+impl Evdev {
+    /// Name the characters the device's keymap puts on its own key codes
+    /// (`Decoder::set_symbols`).
+    pub fn set_symbols(&mut self, symbols: Vec<(u16, String)>) {
+        self.decoder.set_symbols(symbols);
     }
 }
 impl InputSource for Evdev {
