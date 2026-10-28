@@ -326,7 +326,14 @@ fn own(host: Arc<Host>, source: Vec<u8>, booted: mpsc::SyncSender<Result<RunnerH
             worker: ptr::null_mut(),
             heap_limit: 16 * 1024 * 1024,
             stack_limit: 256 * 1024,
-            max_turn_micros: 0,
+            // The realm faults a turn that runs past this many microseconds
+            // of wall time (engine/worker's default is 10 ms). On the Zero a
+            // turn is preempted by the camera's start, a swap-in or the
+            // panel's flush: turns of 16 and 29 ms were measured with
+            // Pocket Tools while rpicam-vid started. One second still
+            // catches a turn that hangs; the CPU quota (50 ms in every
+            // 100 ms window) throttles a busy worker without faulting it.
+            max_turn_micros: 1_000_000,
             max_jobs: 0,
             max_facts: 0,
             max_bytes: 0,
