@@ -72,6 +72,18 @@ impl FrameStore for Mapping {
     fn bytes_mut(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.pointer.cast(), self.length) }
     }
+    /// A framebuffer that DRM emulates for a panel without scanout memory (an
+    /// SPI panel such as panel-mipi-dbi) uses deferred I/O: the kernel collects
+    /// the pages written through the mapping and sends them to the panel 50 ms
+    /// after the first write, about 18 updates a second on the CardputerZero,
+    /// so the frames of a 30 Hz animation merge. fsync on the device runs that
+    /// flush now (fb_deferred_io_fsync). On a framebuffer without deferred I/O
+    /// the call fails or does nothing, and the error is ignored.
+    fn sync(&mut self) {
+        unsafe {
+            libc::fsync(self._file.as_raw_fd());
+        }
+    }
 }
 impl Drop for Mapping {
     fn drop(&mut self) {
