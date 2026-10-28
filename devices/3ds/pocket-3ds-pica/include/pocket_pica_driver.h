@@ -18,10 +18,16 @@ typedef struct {
 typedef int32_t (*pocket_pica_resolve_fn)(void *, int32_t,
                                           pocket_pica_native_texture *);
 typedef void (*pocket_pica_release_fn)(void *, void *);
-/* Called within the driver's native frame, before UI draws. Return true when
- * native content replaces the UI for this display. Right target can be null. */
-typedef bool (*pocket_pica_scene_fn)(void *, uint32_t, C3D_RenderTarget *,
-                                     C3D_RenderTarget *);
+/* Called within the driver's native frame, before UI draws, with what it
+ * drew: nothing, native content under the UI, or native content in place of
+ * the UI for this display. Right target can be null. */
+enum {
+  POCKET_PICA_SCENE_NONE = 0,
+  POCKET_PICA_SCENE_UNDER = 1,
+  POCKET_PICA_SCENE_REPLACES = 2,
+};
+typedef uint32_t (*pocket_pica_scene_fn)(void *, uint32_t, C3D_RenderTarget *,
+                                         C3D_RenderTarget *);
 
 /* A host list drawn in the display's frame: the app-switch transition over
  * the guest's list, or the development menu in its place. Words are in
