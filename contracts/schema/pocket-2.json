@@ -85,16 +85,6 @@
           "uniqueItems": true,
           "maxItems": 8
         },
-        "hosts": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "maxLength": 253,
-            "pattern": "^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$"
-          },
-          "uniqueItems": true,
-          "maxItems": 8
-        },
         "store": {
           "type": "object",
           "additionalProperties": false,

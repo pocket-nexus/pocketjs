@@ -7,17 +7,28 @@ The worker has no `ui` namespace. A host can mount its worker-owned `fs` and
 
 ## Host integration
 
-1. Create a core with a node table and monotonic clock. Supply `lock` and
-   `unlock` when another task produces facts or uses channels. These locks are
-   task-context locks; ISRs must stage records in an ISR-safe platform queue.
-2. Create and evaluate the QuickJS adapter on the task that will own it.
-   The `allocator` option lets a platform place the JS heap in internal RAM.
-3. Call `pocket_worker_quickjs_step` after a notification or deadline. Read
-   `pocket_worker_quickjs_deadline` and block until that time or a notification.
-   A notification must remain pending across the check-to-wait transition.
-4. On exit or fault, stop external channel publishers and call
-   `pocket_worker_destroy`. `BUSY` preserves the core and its buffers. Retry
-   after native activity ends. Destroy the QuickJS adapter after the core.
+`runner.c` holds the owner task's protocol; a platform supplies primitives.
+
+1. Fill `pocket_worker_runner_config`: the core's node table, generation and
+   task-context `lock`/`unlock`/`wake`/`now_micros`; the realm's limits,
+   `mount` and optional `allocator`; the NUL-terminated bundle; and `wait`,
+   which blocks the owner task until `wake` or an absolute deadline. ISRs
+   must stage records in an ISR-safe platform queue; the locks are
+   task-context operations.
+2. On the owner task, `pocket_worker_runner_create` builds the core and the
+   realm and evaluates the bundle. A bootstrap failure returns a runner whose
+   `failed` flag is set and whose `error` names the cause.
+3. `pocket_worker_runner_run` steps the realm, waits through `wait` until the
+   next deadline or wake, and returns once another task called
+   `pocket_worker_runner_stop`. **After a realm fault the loop holds the core
+   until stop**, so the UI bridge detaches first; any task reads the fault
+   through `pocket_worker_runner_failed` and `pocket_worker_runner_error`.
+   `start_paused` holds turns until `pocket_worker_runner_resume`; the
+   optional `after_turn` hook runs on the owner task after each turn.
+4. After run returns, `pocket_worker_runner_destroy` shuts the core down,
+   retries destroy through `wait` at 1 ms while native users remain, then
+   destroys the realm. A platform that delivers facts from another task
+   keeps servicing that task until destroy returns.
 
 Source parsing and top-level initialization have a separate **250 ms default
 bootstrap limit**. Turn execution has a **10 ms default limit**, at most
@@ -28,9 +39,11 @@ the inbox and Promise queue are empty and counts against that allowance.
 
 The platform must supply a monotonic clock while JS runs so the interrupt
 handler can enforce execution limits. The turn receives the host's latched
-time and optional UTC clock identity. A timer fact uses `handle` for its timer
-ID, `offset` for its scheduled deadline and `request` for the missed-period
-count. The next deadline advances past the observed time.
+time and optional UTC clock identity. A timer fact carries its timer id in
+`timer`, its planned deadline in `deadline` and the periods missed before
+observation in `missed`; a channel fact carries the channel id in `channel`.
+The resource fields of both stay zero. The next deadline advances past the
+observed time.
 
 ## Drivers and ownership
 

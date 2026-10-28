@@ -23,6 +23,6 @@ if [ -n "${1:-}" ]; then
     "$cc" -std=gnu11 -D_GNU_SOURCE -DCONFIG_VERSION=\"test\" $engine_flags -O1 -I"$qjs" -c "$qjs/$source.c" -o "$out/$source.o"
     objects="$objects $out/$source.o"
   done
-  "$cc" -std=c11 -Wall -Wextra -Werror $engine_flags -I"$repo/engine/worker/include" -isystem "$qjs" "$repo/engine/worker/src/worker.c" "$repo/engine/worker/src/quickjs.c" "$repo/engine/worker/src/quickjs_ui.c" "$repo/engine/worker/tests/quickjs.c" $objects -lm -lpthread -o "$out/quickjs-test"
+  "$cc" -std=c11 -Wall -Wextra -Werror $engine_flags -I"$repo/engine/worker/include" -isystem "$qjs" "$repo/engine/worker/src/worker.c" "$repo/engine/worker/src/quickjs.c" "$repo/engine/worker/src/quickjs_ui.c" "$repo/engine/worker/src/runner.c" "$repo/engine/worker/tests/quickjs.c" $objects -lm -lpthread -o "$out/quickjs-test"
   "$out/quickjs-test"
 fi

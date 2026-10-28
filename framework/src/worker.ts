@@ -30,6 +30,9 @@ export interface WorkerHost {
   timer(id: number, deadlineMicros: number, periodMicros: number): number;
   declareChannel(id: number, snapshot: number, maxBytes: number, capacity: number, direction: number): number;
 }
+/** One observed fact. Resource facts fill handle, request, status, offset
+ *  and data; a timer fact fills timer, deadline and missed; a channel fact
+ *  fills channel and data. Unused fields are zero. */
 export interface HostFact {
   readonly kind: number;
   readonly handle: number;
@@ -37,6 +40,10 @@ export interface HostFact {
   readonly status: number;
   readonly offset: number;
   readonly data: Uint8Array;
+  readonly timer: number;
+  readonly channel: number;
+  readonly deadline: number;
+  readonly missed: number;
 }
 type WorkerGlobal = typeof globalThis & {
   __pocketWorker?: WorkerHost;
@@ -73,6 +80,10 @@ export class FactView {
   get request(): number { this.valid(); return this.fact.request; }
   get status(): number { this.valid(); return this.fact.status; }
   get offset(): number { this.valid(); return this.fact.offset; }
+  get timer(): number { this.valid(); return this.fact.timer; }
+  get channel(): number { this.valid(); return this.fact.channel; }
+  get deadline(): number { this.valid(); return this.fact.deadline; }
+  get missed(): number { this.valid(); return this.fact.missed; }
   /** A completion can be taken once; copying does not change its terminal status. */
   take(): Uint8Array | undefined {
     this.valid();
@@ -94,8 +105,7 @@ export class Inbox {
   events(resource?: number | { readonly handle: number }): readonly FactView[] {
     this.valid();
     const handle = typeof resource === "number" ? resource : resource?.handle;
-    return handle === undefined ? this.facts : this.facts.filter(fact =>
-      fact.handle === handle && fact.kind !== FactKind.timer && fact.kind !== FactKind.channel);
+    return handle === undefined ? this.facts : this.facts.filter(fact => fact.handle === handle);
   }
   completion(request: number): FactView | undefined {
     this.valid();
@@ -104,13 +114,13 @@ export class Inbox {
   }
   timer(id: number): FactView | undefined {
     this.valid();
-    return this.facts.find(fact => fact.kind === FactKind.timer && fact.handle === id);
+    return this.facts.find(fact => fact.kind === FactKind.timer && fact.timer === id);
   }
   channel(name: string): readonly FactView[] {
     this.valid();
     const id = declaration?.channels?.findIndex(channel => channel.name === name) ?? -1;
     if (id < 0) throw new Error(`Undeclared worker channel: ${name}`);
-    return this.facts.filter(fact => fact.kind === FactKind.channel && fact.handle === id + 1);
+    return this.facts.filter(fact => fact.kind === FactKind.channel && fact.channel === id + 1);
   }
   snapshot(name: string): ByteView | undefined {
     this.valid();
@@ -137,7 +147,7 @@ export function bindWorker(turn: (context: TurnContext, inbox: Inbox) => void, c
     ++epoch;
     if (activeContext && activeContext.generation !== context.generation) snapshots.clear();
     for (const fact of facts) {
-      if (fact.kind === FactKind.channel && declaration?.channels?.[fact.handle - 1]?.kind === "snapshot") snapshots.set(fact.handle, fact.data.slice());
+      if (fact.kind === FactKind.channel && declaration?.channels?.[fact.channel - 1]?.kind === "snapshot") snapshots.set(fact.channel, fact.data.slice());
     }
     activeContext = Object.freeze({ ...context, ...(context.wallClock ? { wallClock: Object.freeze({ ...context.wallClock }) } : {}) });
     const result: unknown = turn(activeContext, new Inbox(facts));

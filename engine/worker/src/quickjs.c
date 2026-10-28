@@ -386,6 +386,10 @@ int32_t pocket_worker_quickjs_step(pocket_worker_quickjs *g,
         set(c, fact, "request", JS_NewUint32(c, f->request)) < 0 ||
         set(c, fact, "status", JS_NewInt32(c, f->status)) < 0 ||
         set(c, fact, "offset", JS_NewFloat64(c, (double)f->offset)) < 0 ||
+        set(c, fact, "timer", JS_NewUint32(c, f->timer)) < 0 ||
+        set(c, fact, "channel", JS_NewUint32(c, f->channel)) < 0 ||
+        set(c, fact, "missed", JS_NewUint32(c, f->missed)) < 0 ||
+        set(c, fact, "deadline", JS_NewFloat64(c, (double)f->deadline)) < 0 ||
         set(c, fact, "data", byte_array(c, f->data, f->length)) < 0) {
       JS_FreeValue(c, fact);
       goto failed_turn;

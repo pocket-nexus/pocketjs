@@ -33,7 +33,9 @@ project root as `app.entry`.
 ```
 
 This fragment extends the application's `pocket.json`; the identity, framework
-and viewport fields remain required. UART needs `io.uart`; HTTP needs `net.http`.
+and viewport fields remain required. The resource table in
+`contracts/spec/worker.ts` names the capability each node kind requires:
+`io.i2c`, `io.uart` and `net.http`.
 **HTTP exists only as a worker resource**: no UI realm has a network module.
 The current resolver requires the worker. An `enhances` declaration with a UI
 fallback ownership table is not implemented.
@@ -135,9 +137,9 @@ has no wall-clock mapping. `nowMicros()` and `wallClock()` from
 keeps the frame clock.
 
 `io.timer(id, deadlineMicros, periodMicros)` sets a deadline. A zero deadline
-cancels it. Timer facts retain the planned deadline in `offset` and the number
-of missed periods in `request`. The actual observation time is the turn's
-`nowMicros`.
+cancels it. Timer facts carry the timer id in `timer`, the planned deadline in
+`deadline` and the number of missed periods in `missed`. The actual
+observation time is the turn's `nowMicros`.
 
 **Incoming views expire at the next turn.** `ByteView.copy()` and completion
 `take()` create retained bytes. Turns must return before subsequent input is

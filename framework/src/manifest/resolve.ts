@@ -1,3 +1,4 @@
+import { WORKER_RESOURCES } from "../../../contracts/spec/worker.ts";
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { hashPocketProfile, profileHashProjection } from "../profile.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
@@ -716,7 +717,7 @@ export function resolveBuildPlan(
       }
     }
     for (const [index, node] of manifest.app.worker.nodes.entries()) {
-      const capability = node.kind === "http" ? "net.http" : `io.${node.kind}`;
+      const capability = WORKER_RESOURCES[node.kind].capability;
       if (!requires.has(capability)) diagnostics.push({ code: "worker.nodeCapability", path: `/app/worker/nodes/${index}`, message: `Worker ${node.kind} nodes require ${capability}` });
     }
   }

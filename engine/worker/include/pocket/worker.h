@@ -19,12 +19,18 @@ extern "C" {
 #include "pocket/worker_protocol.h"
 
 typedef struct pocket_worker pocket_worker;
+/* Resource facts fill handle, request, status, offset and data. A timer fact
+ * fills timer, deadline (its planned deadline) and missed (periods missed
+ * before observation); a channel fact fills channel and data. Fields a kind
+ * does not use are zero. */
 typedef struct {
   uint32_t struct_size, kind, handle, request;
   int32_t status;
   uint32_t length;
   uint64_t offset;
   const uint8_t *data;
+  uint32_t timer, channel, missed;
+  uint64_t deadline;
 } pocket_worker_fact;
 typedef struct {
   uint32_t struct_size, generation, sequence;

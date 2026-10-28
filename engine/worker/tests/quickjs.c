@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "pocket/worker_quickjs.h"
+#include "pocket/worker_runner.h"
 #include "pocket/worker_ui.h"
 #include <assert.h>
 #include <stdio.h>
@@ -7,7 +8,18 @@
 #include <time.h>
 typedef struct {
   uint64_t time;
+  pocket_worker_runner *runner;
+  unsigned idle_waits;
 } host;
+/* The runner's wait on a fake clock: a deadline advances time to it; an idle
+ * wait without a deadline ends the run after the work is observed. */
+static void runner_wait(void *opaque, uint64_t deadline) {
+  host *h = opaque;
+  if (deadline != UINT64_MAX)
+    h->time = deadline;
+  else if (++h->idle_waits >= 2)
+    pocket_worker_runner_stop(h->runner);
+}
 static uint64_t now(void *opaque) {
   host *h = opaque;
   return h->time;
@@ -75,7 +87,8 @@ int main(void) {
           "declareChannel(2,1,16,1,0);globalThis.__pocketWorkerTurn=(c,f)=>{if("
           "c.generation!==42||c.nowMicros!==1000)throw "
           "Error('clock');calls++;for(const x of "
-          "f)if(x.kind===7){if(x.data.length!==3)throw Error('data length "
+          "f)if(x.kind===7){if(x.channel!==1||x.handle!==0)throw Error('channel "
+          "id');if(x.data.length!==3)throw Error('data length "
           "'+x.data.length);__pocketWorker.publish(2,x.data);};};");
   uint8_t message[] = {1, 2, 3};
   assert(pocket_worker_receive(w, 1, message, 3) == 0);
@@ -160,7 +173,46 @@ int main(void) {
   assert(strlen(pocket_worker_quickjs_error(g)) > 0);
   assert(pocket_worker_destroy(w) == 0);
   pocket_worker_quickjs_destroy(g);
-  puts("worker QuickJS: separate realm, event turns, channel copies, quota and "
-       "forced interruption passed");
+  host hr = {.time = 5000};
+  const char *bundle =
+      "__pocketWorker.declareChannel(1,1,8,1,0);globalThis.__pocketWorkerTurn="
+      "(c,f)=>{if(c.sequence===1)__pocketWorker.timer(1,c.nowMicros+500,0);for("
+      "const x of f)if(x.kind===6)__pocketWorker.publish(1,new Uint8Array([x."
+      "timer,x.missed]));};";
+  pocket_worker_runner_config rc = {
+      .struct_size = sizeof rc,
+      .core = {.struct_size = sizeof rc.core,
+               .generation = 7,
+               .context = &hr,
+               .now_micros = now},
+      .realm = {.struct_size = sizeof rc.realm,
+                .heap_limit = 1024 * 1024,
+                .stack_limit = 64 * 1024,
+                .context = &hr,
+                .now_micros = now},
+      .source = bundle,
+      .source_size = strlen(bundle),
+      .context = &hr,
+      .wait = runner_wait};
+  pocket_worker_runner *runner = pocket_worker_runner_create(&rc);
+  assert(runner && !pocket_worker_runner_failed(runner));
+  hr.runner = runner;
+  pocket_worker_runner_run(runner);
+  assert(!pocket_worker_runner_failed(runner) && hr.time == 5500);
+  uint8_t fired[8];
+  assert(pocket_worker_channel_take(pocket_worker_runner_core(runner), 1, fired,
+                                    sizeof fired) == 2 &&
+         fired[0] == 1 && fired[1] == 0);
+  pocket_worker_runner_destroy(runner);
+  const char *broken = "throw new Error('boot');";
+  rc.source = broken;
+  rc.source_size = strlen(broken);
+  runner = pocket_worker_runner_create(&rc);
+  assert(runner && pocket_worker_runner_failed(runner) &&
+         strstr(pocket_worker_runner_error(runner), "boot"));
+  pocket_worker_runner_run(runner);
+  pocket_worker_runner_destroy(runner);
+  puts("worker QuickJS: separate realm, event turns, channel copies, quota, "
+       "forced interruption and the runner loop passed");
   return 0;
 }

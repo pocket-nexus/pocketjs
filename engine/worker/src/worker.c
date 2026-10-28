@@ -329,8 +329,13 @@ int32_t pocket_worker_emit(pocket_worker *w, uint32_t handle, uint32_t kind,
   }
   event *e =
       &w->events[(w->event_head + w->event_count) % POCKET_WORKER_MAX_EVENTS];
-  e->fact = (pocket_worker_fact){sizeof e->fact,   kind,   handle,  0, status,
-                                 (uint32_t)length, offset, e->bytes};
+  e->fact = (pocket_worker_fact){.struct_size = sizeof e->fact,
+                                 .kind = kind,
+                                 .handle = handle,
+                                 .status = status,
+                                 .length = (uint32_t)length,
+                                 .offset = offset,
+                                 .data = e->bytes};
   if (length)
     memcpy(e->bytes, data, length);
   w->event_count++;
@@ -539,11 +544,11 @@ size_t pocket_worker_observe(pocket_worker *w, pocket_worker_fact *out,
           uint64_t missed = t->period ? (now - t->deadline) / t->period : 0;
           if (copy_fact(out, &count, capacity, bytes, &used, size,
                         (pocket_worker_fact){.kind = POCKET_WORKER_TIMER,
-                                             .handle = t->id,
-                                             .offset = t->deadline,
-                                             .request = missed > UINT32_MAX
-                                                            ? UINT32_MAX
-                                                            : (uint32_t)missed},
+                                             .timer = t->id,
+                                             .deadline = t->deadline,
+                                             .missed = missed > UINT32_MAX
+                                                           ? UINT32_MAX
+                                                           : (uint32_t)missed},
                         NULL)) {
             if (t->period && missed < (UINT64_MAX - t->deadline) / t->period)
               t->deadline += (missed + 1) * t->period;
@@ -561,7 +566,7 @@ size_t pocket_worker_observe(pocket_worker *w, pocket_worker_fact *out,
           uint32_t length = c->lengths[c->head];
           if (!copy_fact(out, &count, capacity, bytes, &used, size,
                          (pocket_worker_fact){.kind = POCKET_WORKER_CHANNEL,
-                                              .handle = c->id,
+                                              .channel = c->id,
                                               .length = length},
                          c->bytes + (size_t)c->head * c->size))
             break;

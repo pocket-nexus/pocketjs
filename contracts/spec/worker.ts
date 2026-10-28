@@ -2,7 +2,19 @@ import type { JsonSchema } from "./pocket-manifest.ts";
 
 /** Version 1 of the worker host protocol; matches pocket/worker.h. */
 export const WORKER_PROTOCOL_VERSION = 1;
-export const ResourceKind = { i2c: 1, uart: 2, http: 3 } as const;
+/** The resource kinds a worker node can own: each kind's protocol id and the
+ *  capability a manifest must require to declare a node of that kind. The
+ *  SDK accessor (`io.<kind>` in framework/src/io.ts) encodes each kind's
+ *  descriptor. */
+export const WORKER_RESOURCES = {
+  i2c: { kind: 1, capability: "io.i2c" },
+  uart: { kind: 2, capability: "io.uart" },
+  http: { kind: 3, capability: "net.http" },
+} as const;
+export type WorkerResourceKind = keyof typeof WORKER_RESOURCES;
+export const ResourceKind = Object.fromEntries(
+  Object.entries(WORKER_RESOURCES).map(([name, row]) => [name, row.kind]),
+) as { readonly [K in WorkerResourceKind]: (typeof WORKER_RESOURCES)[K]["kind"] };
 export const FactKind = {
   ready: 1, complete: 2, data: 3, end: 4, gap: 5, timer: 6,
   channel: 7, headers: 8, error: 9, credit: 10, closed: 11,
@@ -28,7 +40,7 @@ export interface WorkerChannelDeclaration {
 export interface WorkerDeclaration {
   /** Path relative to the project root, as for app.entry. */
   readonly entry: string;
-  readonly nodes: readonly { readonly name: string; readonly kind: keyof typeof ResourceKind }[];
+  readonly nodes: readonly { readonly name: string; readonly kind: WorkerResourceKind }[];
   readonly channels?: readonly WorkerChannelDeclaration[];
 }
 
@@ -39,7 +51,7 @@ export const workerDeclarationSchema = {
     entry: { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.ts$" },
     nodes: { type: "array", maxItems: 8, items: {
       type: "object", additionalProperties: false, required: ["name", "kind"],
-      properties: { name: nodeName, kind: { enum: ["i2c", "uart", "http"] } },
+      properties: { name: nodeName, kind: { enum: Object.keys(WORKER_RESOURCES) } },
     } },
     channels: { type: "array", maxItems: 8, items: {
       type: "object", additionalProperties: false,

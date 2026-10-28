@@ -154,8 +154,8 @@ int main(void) {
   assert(pocket_worker_timer(w, 7, 1000, 100) == 0);
   h.now = 1350;
   count = observe(w, f, bytes);
-  assert(count == 2 && f[1].kind == POCKET_WORKER_TIMER &&
-         f[1].offset == 1000 && f[1].request == 3);
+  assert(count == 2 && f[1].kind == POCKET_WORKER_TIMER && f[1].timer == 7 &&
+         f[1].deadline == 1000 && f[1].missed == 3 && f[1].handle == 0);
   assert(pocket_worker_deadline(w) == 1400);
   assert(pocket_worker_timer(w, 7, 0, 0) == 0);
   assert(pocket_worker_channel(w, 1, 1, 128, 1) == 0);
@@ -180,7 +180,8 @@ int main(void) {
   assert(pocket_worker_receive(w, 2, payload, 3) == POCKET_WORKER_BUSY);
   assert(pocket_worker_publish(w, 2, payload, 3) == POCKET_WORKER_INVALID);
   count = observe(w, f, bytes);
-  assert(count == 2 && f[0].kind == POCKET_WORKER_CHANNEL && f[1].handle == 2);
+  assert(count == 2 && f[0].kind == POCKET_WORKER_CHANNEL && f[1].channel == 2 &&
+         f[1].handle == 0);
   assert(pocket_worker_destroy(w) == 0);
 
   w = create(&h, &d, &node);

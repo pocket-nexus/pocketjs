@@ -19,7 +19,7 @@ function host(overrides: Partial<WorkerHost> = {}): WorkerHost {
     publish: () => 0, timer: () => 0, declareChannel: () => 0, ...overrides };
 }
 const context = { generation: 1, sequence: 1, nowMicros: 1000 };
-const fact = (overrides: Partial<HostFact> = {}): HostFact => ({ kind: FactKind.complete, handle: 1, request: 2, status: 0, offset: 0, data: Uint8Array.of(0x34, 0x12), ...overrides });
+const fact = (overrides: Partial<HostFact> = {}): HostFact => ({ kind: FactKind.complete, handle: 1, request: 2, status: 0, offset: 0, data: Uint8Array.of(0x34, 0x12), timer: 0, channel: 0, deadline: 0, missed: 0, ...overrides });
 
 test("I2C scripts preserve repeated-start order and reserve the exact read capacity", () => {
   const encoded = encodeI2CScript([write(0x7e, 0xb6), read(0x00, [u8, i16le]), read(0x12, [bytes(6)])], 25);
@@ -61,15 +61,17 @@ test("completion is taken once and views expire at the next turn", () => {
   expect(Array.from(saved!)).toEqual([0x34, 0x12]);
 });
 
-test("resource observations exclude colliding timer and channel IDs", () => {
+test("timer and channel facts carry their own ids beside the resource facts", () => {
   global.__pocketWorker = host();
   bindWorker((_turn, inbox) => {
     expect(inbox.events()).toHaveLength(4);
     expect(inbox.events(1).map(item => item.kind)).toEqual([FactKind.complete, FactKind.data]);
-    expect(inbox.events({ handle: 1 })).toHaveLength(2);
-  });
-  global.__pocketWorkerTurn(context, [fact(), fact({ kind: FactKind.timer }),
-    fact({ kind: FactKind.channel }), fact({ kind: FactKind.data })]);
+    expect(inbox.timer(1)?.deadline).toBe(500);
+    expect(inbox.timer(1)?.missed).toBe(2);
+    expect(inbox.channel("state")).toHaveLength(1);
+  }, { entry: "worker.ts", nodes: [], channels: [{ name: "state", kind: "ring", direction: "ui-to-worker", recordBytes: 2, capacity: 1 }] });
+  global.__pocketWorkerTurn(context, [fact(), fact({ kind: FactKind.timer, handle: 0, timer: 1, deadline: 500, missed: 2 }),
+    fact({ kind: FactKind.channel, handle: 0, channel: 1 }), fact({ kind: FactKind.data })]);
 });
 
 test("UTF-8 request encoding works without browser globals", () => {
@@ -84,7 +86,7 @@ test("snapshot mirrors persist without new input and reject views from a previou
     const snapshot = inbox.snapshot("setpoint");
     expect(snapshot?.u8(0)).toBe(42); previous = snapshot;
   }, { entry: "worker.ts", nodes: [], channels: [{ name: "setpoint", kind: "snapshot", direction: "ui-to-worker", recordBytes: 1, capacity: 1 }] });
-  global.__pocketWorkerTurn(context, [fact({ kind: FactKind.channel, handle: 1, data: Uint8Array.of(42) })]);
+  global.__pocketWorkerTurn(context, [fact({ kind: FactKind.channel, handle: 0, channel: 1, data: Uint8Array.of(42) })]);
   global.__pocketWorkerTurn({ ...context, sequence: 2 }, []);
 });
 
