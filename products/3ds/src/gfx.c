@@ -89,7 +89,13 @@ bool gfx_init(uint32_t width, uint32_t height) {
                                .resolve = native_texture,
                                .release = release_native,
                                .scene = scene,
-                               .overlay = overlay};
+                               .overlay = overlay,
+#ifndef POCKETJS_CAPTURE
+                               /* the GPU draws a frame while the next turn
+                                * runs; captures keep every frame terminal */
+                               .deferred = true,
+#endif
+                               };
   renderer = pocket_pica_renderer_create(&config);
   return renderer != NULL;
 }
@@ -124,6 +130,7 @@ void gfx_shutdown(void) {
   renderer = NULL;
   primary = auxiliary = NULL;
 }
+bool gfx_frame_in_flight(void) { return pocket_pica_renderer_in_flight(renderer); }
 uint32_t gfx_dropped_vertices(void) {
   return 0;
 } /* Overflow now fails the whole submission. */

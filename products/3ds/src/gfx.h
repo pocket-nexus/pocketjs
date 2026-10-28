@@ -14,6 +14,9 @@ void gfx_shutdown(void);
  * (main.c's loading thread). False when the GPU still owns a frame. */
 bool gfx_present_overlays(void);
 uint32_t gfx_dropped_vertices(void);
+/* A presented frame the GPU may still draw, or whose transfers wait for the
+ * next present (qjs_complete_presentation finishes it). */
+bool gfx_frame_in_flight(void);
 uint32_t gfx_frame_commands(void);
 uint32_t gfx_frame_vertices(void);
 size_t gfx_frame_words(uint32_t surface);

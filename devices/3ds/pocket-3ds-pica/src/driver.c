@@ -91,7 +91,8 @@ struct pocket_pica_renderer {
   C3D_AttrInfo attributes;
   int projection;
   C3D_Tex white;
-  bool white_live, frame_open;
+  /* in_flight: a deferred frame was ended and the GPU may still draw it */
+  bool white_live, frame_open, in_flight;
   Cache *cache;
   size_t cache_bytes;
   uint64_t next_id, stamp;
@@ -108,7 +109,9 @@ struct pocket_pica_display {
   uint32_t role, width, height;
   uint64_t id, token;
   pocket_rect region;
-  bool acquired, flushed;
+  /* transfer_pending: a queued flush whose transfer and swap wait for the
+   * completion's display wait */
+  bool acquired, flushed, transfer_pending;
   /* The last retired guest submission, kept while the next frame may draw
    * the same list (`reuse`). */
   Submission *cached;
@@ -720,11 +723,35 @@ static void gpu_idle(pocket_pica_renderer *r) {
   C3D_FrameEnd(0);
   timing_idle = ticks_us(t0, svcGetSystemTick());
 }
+/* Wait for a deferred frame the GPU still draws, polling 0.2 ms apart; false
+ * after about three seconds (a hung command list). FrameBegin leaves a frame
+ * open that only clears the queue; it ends empty, as in gpu_idle. */
+static bool settle(pocket_pica_renderer *r) {
+  u64 t0 = svcGetSystemTick();
+  for (uint32_t polls = 0; !C3D_FrameBegin(C3D_FRAME_NONBLOCK); polls++) {
+    if (polls == 15000)
+      return false;
+    svcSleepThread(200000);
+  }
+  C3D_TexBind(0, &r->white);
+  C3D_BufInfo empty;
+  BufInfo_Init(&empty);
+  C3D_SetBufInfo(&empty);
+  C3D_FrameEnd(0);
+  r->in_flight = false;
+  timing_idle = ticks_us(t0, svcGetSystemTick());
+  return true;
+}
 static bool drain(pocket_pica_renderer *r) {
-  if (!r->frame_open)
+  if (r->frame_open) {
+    r->frame_open = false;
+    gpu_idle(r);
+  } else if (r->in_flight) {
+    if (!settle(r))
+      return false;
+  } else {
     return true;
-  r->frame_open = false;
-  gpu_idle(r);
+  }
   for (Submission *p = r->pending; p; p = p->next)
     p->terminal = true;
   return true;
@@ -837,13 +864,16 @@ static int32_t renderer_descriptor(void *context,
     return POCKET_STATUS_INVALID;
   static const uint32_t formats[] = {POCKET_PIXEL_FORMAT_RGBA8888};
   /* IMMEDIATE: render records into an open citro3d frame that only the
-   * renderer wait ends and drains. A frame left open across the guest turn
-   * would block host overlays and native frames. */
+   * renderer wait ends and drains. DEFERRED: the displays' queued flushes end
+   * that frame, so none stays open across the guest turn, and the GPU draws
+   * it while the turn runs. */
+  pocket_pica_renderer *r = context;
   pocket_renderer_descriptor value = {sizeof value,
                                       formats,
                                       1,
                                       POCKET_TARGET_DEVICE_OWNED,
-                                      POCKET_SYNC_IMMEDIATE,
+                                      r->config.deferred ? POCKET_SYNC_DEFERRED
+                                                         : POCKET_SYNC_IMMEDIATE,
                                       POCKET_DRAW_LIST_VERSION,
                                       0};
   return WRITE_RECORD(out, value, pocket_renderer_descriptor, zero_copy)
@@ -1038,8 +1068,7 @@ static int32_t render_wait(void *context, uint64_t id) {
     s = s->next;
   if (!s)
     return POCKET_STATUS_INVALID;
-  drain(r);
-  return 0;
+  return drain(r) ? 0 : POCKET_STATUS_FAILED;
 }
 static void retire(void *context, uint64_t id) {
   pocket_pica_renderer *r = context;
@@ -1077,7 +1106,8 @@ static int32_t display_descriptor(void *context,
       .pixel_format = POCKET_PIXEL_FORMAT_RGBA8888,
       .stride_bytes = (size_t)d->width * 4,
       .target_kind = POCKET_TARGET_DEVICE_OWNED,
-      .flags = POCKET_DISPLAY_DEVICE_ROTATION | POCKET_DISPLAY_DEVICE_SCALING,
+      .flags = POCKET_DISPLAY_DEVICE_ROTATION | POCKET_DISPLAY_DEVICE_SCALING |
+               (d->renderer->config.deferred ? POCKET_DISPLAY_QUEUED_FLUSH : 0),
       .refresh_width = d->width,
       .refresh_height = d->height,
       .window_x_alignment = 1,
@@ -1123,19 +1153,11 @@ static void transfer(pocket_pica_display *d, C3D_RenderTarget *target,
                           GX_BUFFER_DIM(d->height, d->width), (u32 *)pixels,
                           GX_BUFFER_DIM(w, h), flags);
 }
-static int32_t display_flush(void *context, const pocket_rect *regions,
-                             size_t count, uint64_t *token) {
-  pocket_pica_display *d = context;
-  if (!d || !d->acquired || d->flushed || !token || !regions || count != 1)
-    return POCKET_STATUS_INVALID;
-  if (!HAS(regions, pocket_rect, height) || regions->x || regions->y ||
-      regions->width != d->width || regions->height != d->height)
-    return POCKET_STATUS_INVALID;
-  drain(d->renderer);
+/* The rendered target to the screen's back buffer, then the swap. No
+ * citro3d frame is open: SyncDisplayTransfer waits for PPF before return.
+ * Within an open frame it would only append another queued command. */
+static void present_target(pocket_pica_display *d) {
   u64 t0 = svcGetSystemTick();
-  /* No citro3d frame is open: SyncDisplayTransfer now waits for PPF before
-   * return. Within an open frame it would only append another queued command.
-   */
   transfer(d, d->target, GFX_LEFT);
   /* In 2D mode libctru aliases the right framebuffer to the left one. */
   bool stereo = d->right && gfxIs3D();
@@ -1144,6 +1166,31 @@ static int32_t display_flush(void *context, const pocket_rect *regions,
   gfxScreenSwapBuffers(
       d->role == POCKET_DISPLAY_ROLE_PRIMARY ? GFX_TOP : GFX_BOTTOM, stereo);
   timing_transfer[d->role == POCKET_DISPLAY_ROLE_PRIMARY ? 0 : 1] = ticks_us(t0, svcGetSystemTick());
+}
+static int32_t display_flush(void *context, const pocket_rect *regions,
+                             size_t count, uint64_t *token) {
+  pocket_pica_display *d = context;
+  if (!d || !d->acquired || d->flushed || !token || !regions || count != 1)
+    return POCKET_STATUS_INVALID;
+  if (!HAS(regions, pocket_rect, height) || regions->x || regions->y ||
+      regions->width != d->width || regions->height != d->height)
+    return POCKET_STATUS_INVALID;
+  pocket_pica_renderer *r = d->renderer;
+  if (r->config.deferred) {
+    /* Queued: the round's first flush ends the frame both displays recorded
+     * into, so the GPU starts on it now. The transfer and the swap wait for
+     * display_wait, after the renderer wait and past the vblank between the
+     * turns: the buffer it writes is no longer scanned out. */
+    if (r->frame_open) {
+      C3D_FrameEnd(0);
+      r->frame_open = false;
+      r->in_flight = true;
+    }
+    d->transfer_pending = true;
+  } else {
+    drain(r);
+    present_target(d);
+  }
   d->acquired = false;
   d->flushed = true;
   *token = ++d->token;
@@ -1153,6 +1200,12 @@ static int32_t display_wait(void *context, uint64_t token) {
   pocket_pica_display *d = context;
   if (!d || !d->flushed || token != d->token)
     return POCKET_STATUS_INVALID;
+  if (d->transfer_pending) {
+    if (!drain(d->renderer))
+      return POCKET_STATUS_FAILED;
+    d->transfer_pending = false;
+    present_target(d);
+  }
   /* PPF has completed both copies. The host schedules one shared tick/vblank
    * boundary; waiting once per display here would halve a dual-screen rate. */
   d->flushed = false;
@@ -1291,7 +1344,7 @@ void pocket_pica_renderer_reset(pocket_pica_renderer *r) {
     cache_delete(r, &r->cache);
   r->vertices = r->commands = 0;
   for (pocket_pica_display *d = r->displays; d; d = d->next)
-    d->acquired = d->flushed = false;
+    d->acquired = d->flushed = d->transfer_pending = false;
 }
 void pocket_pica_renderer_destroy(pocket_pica_renderer *r) {
   if (!r)
@@ -1308,6 +1361,9 @@ void pocket_pica_renderer_destroy(pocket_pica_renderer *r) {
   if (r->shader)
     DVLB_Free(r->shader);
   free(r);
+}
+bool pocket_pica_renderer_in_flight(const pocket_pica_renderer *r) {
+  return r && (r->in_flight || r->pending);
 }
 uint32_t pocket_pica_renderer_vertices(const pocket_pica_renderer *r) {
   return r ? r->vertices : 0;
