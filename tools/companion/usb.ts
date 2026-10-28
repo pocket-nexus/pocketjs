@@ -280,8 +280,8 @@ class UsbMedia {
         }
         if (open) await put(mediaPacket({ kind: MEDIA_PACKET.end, ptsMs: 0, data: new Uint8Array(0) }));
       }
-    } catch {
-      this.log(`usb media #${generation}: producer failed`);
+    } catch (cause) {
+      this.log(`usb media #${generation}: producer failed: ${cause instanceof Error ? cause.message : String(cause)}`);
       if (!signal.aborted) await put(mediaPacket({ kind: MEDIA_PACKET.error, ptsMs: 0, data: new TextEncoder().encode("Media source failed") }));
     } finally {
       if (this.abort === abort) this.head(generation, written, LINK_USB_MEDIA_CLOSED);
