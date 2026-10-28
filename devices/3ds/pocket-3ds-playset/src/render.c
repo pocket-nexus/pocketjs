@@ -34,7 +34,7 @@ struct p3ps_renderer {
   shaderProgram_s program;
   C3D_AttrInfo attributes;
   int u_proj, u_bones, u_sundir, u_suncol, u_hsky, u_hgnd, u_fogp, u_fogc,
-      u_eye, u_mode;
+      u_fogz, u_mode;
   Gpu *models;
   uint32_t model_cap;
   Gpu *batches[3];
@@ -108,7 +108,7 @@ p3ps_renderer *p3ps_create(const void *shader, size_t shader_size) {
   r->u_hgnd = shaderInstanceGetUniformLocation(vs, "hgnd");
   r->u_fogp = shaderInstanceGetUniformLocation(vs, "fogp");
   r->u_fogc = shaderInstanceGetUniformLocation(vs, "fogc");
-  r->u_eye = shaderInstanceGetUniformLocation(vs, "eye");
+  r->u_fogz = shaderInstanceGetUniformLocation(vs, "fogz");
   r->u_mode = shaderInstanceGetUniformLocation(vs, "mode");
   AttrInfo_Init(&r->attributes);
   AttrInfo_AddLoader(&r->attributes, 0, GPU_FLOAT, 3);
@@ -311,7 +311,8 @@ static void eye_pass(p3ps_renderer *r, const pps_frame *f, C3D_RenderTarget *tar
   set_vec(r->u_hgnd, f->hemi_ground);
   set_vec(r->u_fogp, f->fog);
   set_vec(r->u_fogc, f->fog_color);
-  set_vec(r->u_eye, f->eye);
+  /* depth along the view's forward: the negated third view row */
+  C3D_FVUnifSet(GPU_VERTEX_SHADER, r->u_fogz, -f->view[8], -f->view[9], -f->view[10], -f->view[11]);
 
   int last_blend = -1, last_cull = -1, last_depth = -1;
   int last_source = -1, last_id = -1;
