@@ -19,7 +19,6 @@ pocket-guest-rquickjs = { workspace = true, default-features = true }
 pocket-linux-hooks = { workspace = true, default-features = true }
 pocket-linux-fbdev = { workspace = true, default-features = true }
 pocket-linux-evdev = { workspace = true, default-features = true }
-pocket-net = { workspace = true }
 rquickjs = { workspace = true }
 serde_json = { workspace = true }
 libc = "0.2.191"

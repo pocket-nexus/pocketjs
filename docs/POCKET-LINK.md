@@ -330,9 +330,11 @@ bar and sidebar (Pocket Studio's listing pictures).
 `programs/cardputer-zero` runs `apps/companion-zero` on the Zero's 320x170
 panel: the app's pages, laid out for the panel and the keyboard. The arrows
 (Fn layer) move through the sidebar and the page beside it follows; Enter
-opens the page and moves to its buttons, Esc goes back. **The program's
-`net` reaches `http://companion/...` with the token from `control.json`, so
-the screen calls the same control API.** What differs from the Mac:
+opens the page and moves to its buttons, Esc goes back. **The screen reads
+no live state yet: a UI realm has no network namespace, and the worker domain
+that would carry its control API calls is not on the Zero's program.** Until
+that port lands, the pages show the companion as unreachable and every button
+answers the same way. What differs from the Mac:
 
 - Links (Pocket Shell, the Discord invite and Developer Portal, Codex) show
   as QR codes to open on a phone; pairing a 3DS shows the pairing code the
@@ -341,7 +343,7 @@ the screen calls the same control API.** What differs from the Mac:
   the Zero: X and Codex sign in through a browser and the Zero has none, and
   the screen has no text entry. The pages name the commands to run over SSH
   (`service x cookies`, `service discord token`, `codex login --device-auth`).
-- **Settings** restarts the companion's systemd unit and closes the screen.
+- **Settings** restarts the companion's systemd unit and closes the screen; both commands wait for the port.
 
 `bun tools/cardputer-zero.ts install root@<address>` builds and installs the
 program, the package and the launcher entry (programs/cardputer-zero/README.md).

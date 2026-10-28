@@ -1,14 +1,17 @@
 // Pocket Companion's control API as this screen reads it
-// (tools/companion/control.ts). The program's transport sends
-// `http://companion/...` to the companion on this machine with its token
-// (programs/cardputer-zero/src/net.rs); `http://zero/...` is the program.
+// (tools/companion/control.ts). No request reaches it yet: a UI realm has no
+// network namespace, and the worker domain that will carry these calls is
+// not on the Zero's program (programs/cardputer-zero). Every request answers
+// NO_NETWORK, so the pages show the companion as unreachable.
 
 import { batch, createSignal } from "solid-js";
 import { after } from "@pocketjs/framework/clock";
-import { fetch, type NetMethod } from "@pocketjs/framework/net";
 import { toAscii } from "./text.ts";
 
+type NetMethod = "GET" | "POST" | "DELETE";
+
 const COMPANION = "http://companion";
+const NO_NETWORK = "No network on this screen yet: the companion's state and commands arrive with the worker port.";
 const STATUS_SECONDS = 2;
 const SERVICES_SECONDS = 5;
 
@@ -65,23 +68,10 @@ export interface Services {
   agent: { on: boolean; enabled: boolean; codex?: string | null; signedIn: boolean };
 }
 
-async function request<T>(url: string, method: NetMethod = "GET", body?: unknown, timeoutMs = 8000): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: body === undefined ? {} : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    timeoutMs,
-    maxBytes: 256 * 1024,
-  });
-  const text = await response.text();
-  let value: { error?: string } = {};
-  try {
-    value = text ? JSON.parse(text) : {};
-  } catch {
-    if (response.ok) throw new Error("Pocket Companion sent something that is not JSON.");
-  }
-  if (!response.ok) throw new Error(value.error ?? (text || `HTTP ${response.status}`));
-  return value as T;
+/** The control API call the worker port will make: `method url` with a JSON
+ *  body, at most `timeoutMs`. Until then every call fails with NO_NETWORK. */
+function request<T>(_url: string, _method: NetMethod = "GET", _body?: unknown, _timeoutMs = 8000): Promise<T> {
+  return Promise.reject(new Error(NO_NETWORK));
 }
 
 const message = (error: unknown) => toAscii(error instanceof Error ? error.message : String(error));
@@ -194,8 +184,8 @@ export function createCompanion() {
     note,
     clearNote: () => setNote(null),
     start() {
-      void pollStatus();
-      void pollServices();
+      // No poll runs: nothing answers until the worker port lands.
+      setDown(toAscii(NO_NETWORK));
     },
     openPairing: () => run("Opening a pairing code", () => request(`${COMPANION}/pair`, "POST").then(() => {})),
     closePairing: () => run("Closing the pairing code", () => request(`${COMPANION}/pair`, "DELETE").then(() => {})),

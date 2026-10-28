@@ -4845,7 +4845,6 @@ dependencies = [
  "pocket-linux-evdev",
  "pocket-linux-fbdev",
  "pocket-linux-hooks",
- "pocket-net",
  "pocket-package",
  "pocket-profile-build",
  "pocket-raster",
