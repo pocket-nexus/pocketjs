@@ -24,9 +24,11 @@ export async function buildWorker(options: {
   const entry = resolve(options.projectRoot, options.declaration.entry);
   const wrapper = join(options.outdir, ".entries", `${options.output}.worker.ts`);
   mkdirSync(dirname(wrapper), { recursive: true });
-  writeFileSync(wrapper, `import { bindWorker } from ${JSON.stringify(join(ROOT, modules.worker))};\n` +
-    `import { turn } from ${JSON.stringify(entry)};\n` +
-    `bindWorker(turn, ${JSON.stringify(options.declaration)});\n`);
+  // The scheduler module binds itself to the host when it evaluates, so it
+  // precedes the application entry: the entry's top-level code can start
+  // async tasks and publish at once. The declaration reaches it as a define.
+  writeFileSync(wrapper, `import ${JSON.stringify(join(ROOT, modules.worker))};\n` +
+    `import ${JSON.stringify(entry)};\n`);
   const result = await Bun.build({
     // The wrapper exports nothing, so ESM bundling produces a classic script.
     // An outer IIFE makes QuickJS retain a second copy of the entire source
@@ -61,8 +63,11 @@ export async function buildWorker(options: {
 }
 
 if (import.meta.main) {
-  const [manifestPath, outdir = ".pocket-build/worker"] = process.argv.slice(2);
-  if (!manifestPath) throw new Error("usage: bun tools/build-worker.ts <pocket.json> [outdir]");
+  const args = process.argv.slice(2);
+  const rootIndex = args.findIndex(arg => arg === "--project-root");
+  const projectRootOption = rootIndex >= 0 ? args.splice(rootIndex, 2)[1] : undefined;
+  const [manifestPath, outdir = ".pocket-build/worker"] = args;
+  if (!manifestPath) throw new Error("usage: bun tools/build-worker.ts <pocket.json> [outdir] [--project-root <dir>]");
   const path = resolve(manifestPath), manifest = await Bun.file(path).json();
   if (!manifest.domains?.worker) throw new Error("Manifest has no domains.worker entry");
   const diagnostics: ContractDiagnostic[] = [];
@@ -70,5 +75,6 @@ if (import.meta.main) {
   if (diagnostics.length) throw new Error(diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
   const output = manifest.app.output ?? manifest.name;
   if (typeof output !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(output)) throw new Error("Worker output requires app.output or name without path separators");
-  await buildWorker({ declaration: manifest.domains.worker, projectRoot: dirname(path), outdir: resolve(outdir), output });
+  // Entry paths are relative to the project root; the default matches `pocket check`.
+  await buildWorker({ declaration: manifest.domains.worker, projectRoot: resolve(projectRootOption ?? dirname(path)), outdir: resolve(outdir), output });
 }

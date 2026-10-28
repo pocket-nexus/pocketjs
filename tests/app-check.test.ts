@@ -97,10 +97,11 @@ describe("per-app TypeScript checks", () => {
       const tsconfigPath = resolve(directory, "tsconfig.json");
       writeFileSync(main, [
         'import { io } from "@pocketjs/framework/io";',
-        'import type { Inbox, TurnContext } from "@pocketjs/framework/worker";',
+        'import { sleep } from "@pocketjs/framework/worker";',
         'import { address } from "@board/settings";',
         'const device = io.i2c("internal").open({ address });',
-        'export function turn(_ctx: TurnContext, _inbox: Inbox) { void device; }',
+        'async function main(): Promise<void> { await sleep(1_000); void device; }',
+        'main();',
       ].join("\n"));
       writeFileSync(resolve(directory, "settings.ts"), "export const address = 0x32;\n");
       writeFileSync(tsconfigPath, JSON.stringify({ compilerOptions: {

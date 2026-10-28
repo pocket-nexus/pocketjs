@@ -1,6 +1,6 @@
 #include "pocket/worker_quickjs.h"
-#include <inttypes.h>
 #include <math.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,8 +17,8 @@ struct pocket_worker_quickjs {
   uint32_t sequence, booted, fault;
   uint32_t rejection_count, rejection_overflow;
   JSValue rejected_promises[8], rejected_reasons[8];
-  uint64_t interrupt_at, window_start, spent, resume_at;
-  uint64_t host_micros[DECLARE_CHANNEL + 1];
+  uint64_t window_start, spent, resume_at;
+  atomic_int interrupted;
   char error[256];
 };
 static uint64_t now(pocket_worker_quickjs *g) {
@@ -27,11 +27,10 @@ static uint64_t now(pocket_worker_quickjs *g) {
 static int interrupt(JSRuntime *rt, void *opaque) {
   (void)rt;
   pocket_worker_quickjs *g = opaque;
-  return g->fault || (g->interrupt_at && now(g) >= g->interrupt_at);
+  return g->fault || atomic_load(&g->interrupted);
 }
 static int32_t failed(pocket_worker_quickjs *g) {
   g->fault = 1;
-  g->interrupt_at = 0;
   pocket_worker_shutdown(g->config.worker);
   JSValue e = JS_GetException(g->context);
   const char *message = JS_ToCString(g->context, e);
@@ -154,7 +153,6 @@ static JSValue operation(JSContext *c, JSValueConst self, int argc,
            direction = 0;
   if (u32_arg(c, args[0], &id) < 0)
     return JS_EXCEPTION;
-  uint64_t began = now(g);
   JSValue buffer = JS_UNDEFINED, result = JS_EXCEPTION;
   const uint8_t *bytes = NULL;
   size_t length = 0;
@@ -204,7 +202,6 @@ static JSValue operation(JSContext *c, JSValueConst self, int argc,
   result = JS_NewInt32(c, status);
 done:
   JS_FreeValue(c, buffer);
-  g->host_micros[op] += now(g) - began;
   return result;
 }
 pocket_worker_quickjs *
@@ -217,23 +214,17 @@ pocket_worker_quickjs_create(const pocket_worker_quickjs_config *config) {
     return NULL;
   g->config = *config;
   g->token = JS_UNDEFINED;
-  if (!g->config.max_turn_micros)
-    g->config.max_turn_micros = 10000;
-  if (!g->config.max_boot_micros)
-    g->config.max_boot_micros = 250000;
+  atomic_init(&g->interrupted, 0);
   if (!g->config.max_jobs)
     g->config.max_jobs = 64;
   if (!g->config.max_facts)
     g->config.max_facts = 16;
   if (!g->config.max_bytes)
     g->config.max_bytes = 8192;
-  if (!g->config.window_micros)
-    g->config.window_micros = 100000;
-  if (!g->config.quota_micros)
-    g->config.quota_micros = 50000;
   if (g->config.max_facts > 64 || g->config.max_bytes > 65536 ||
       g->config.max_bytes < POCKET_WORKER_MAX_PAYLOAD ||
-      g->config.quota_micros > g->config.window_micros)
+      (g->config.quota_micros &&
+       g->config.quota_micros > g->config.window_micros))
     goto fail;
   g->facts = calloc(g->config.max_facts, sizeof *g->facts);
   g->bytes = malloc(g->config.max_bytes);
@@ -290,13 +281,10 @@ int32_t pocket_worker_quickjs_eval(pocket_worker_quickjs *g, const char *source,
     return -1;
   memcpy(copy, source, length);
   copy[length] = 0;
-  uint64_t began = now(g);
-  g->interrupt_at = began + g->config.max_boot_micros;
   JSValue result =
       JS_Eval(g->context, copy, length, filename ? filename : "worker.js",
               JS_EVAL_TYPE_GLOBAL);
   free(copy);
-  g->interrupt_at = 0;
   if (JS_IsException(result))
     return failed(g);
   JS_FreeValue(g->context, result);
@@ -342,30 +330,31 @@ int32_t pocket_worker_quickjs_step(pocket_worker_quickjs *g,
                                    const pocket_worker_context *input) {
   if (!g || g->fault || !input || input->struct_size < sizeof *input)
     return -1;
-  uint64_t began = now(g);
-  if (began < g->window_start ||
-      began - g->window_start >= g->config.window_micros) {
-    g->window_start = began;
-    g->spent = 0;
-    g->resume_at = 0;
-  }
-  if (g->spent >= g->config.quota_micros) {
-    g->resume_at = g->window_start + g->config.window_micros;
-    return 0;
+  uint64_t began = 0;
+  if (g->config.quota_micros) {
+    began = now(g);
+    if (began < g->window_start ||
+        began - g->window_start >= g->config.window_micros) {
+      g->window_start = began;
+      g->spent = 0;
+      g->resume_at = 0;
+    }
+    if (g->spent >= g->config.quota_micros) {
+      g->resume_at = g->window_start + g->config.window_micros;
+      return 0;
+    }
   }
   pocket_worker_dispatch(g->config.worker);
   size_t count =
       pocket_worker_observe(g->config.worker, g->facts, g->config.max_facts,
                             g->bytes, g->config.max_bytes);
-  uint64_t collected = now(g);
   if (g->booted && !count && !JS_IsJobPending(g->runtime)) {
     JS_RunGC(g->runtime);
-    g->spent += now(g) - began;
+    if (g->config.quota_micros)
+      g->spent += now(g) - began;
     return 0;
   }
   g->booted = 1;
-  memset(g->host_micros, 0, sizeof g->host_micros);
-  g->interrupt_at = began + g->config.max_turn_micros;
   JSContext *c = g->context;
   JSValue global = JS_GetGlobalObject(c),
           callback = JS_GetPropertyStr(c, global, "__pocketWorkerTurn");
@@ -397,7 +386,6 @@ int32_t pocket_worker_quickjs_step(pocket_worker_quickjs *g,
     if (JS_SetPropertyUint32(c, args[1], (uint32_t)i, fact) < 0)
       goto failed_turn;
   }
-  uint64_t packed = now(g);
   JSValue result = JS_Call(c, callback, JS_UNDEFINED, 2, args);
   JS_FreeValue(c, callback);
   JS_FreeValue(c, args[0]);
@@ -405,16 +393,15 @@ int32_t pocket_worker_quickjs_step(pocket_worker_quickjs *g,
   if (JS_IsException(result))
     return failed(g);
   JS_FreeValue(c, result);
-  uint64_t called = now(g);
+  /* Promise continuations run here, in the turn whose facts resolved them.
+   * The bound is a job count: a longer chain continues in the next step,
+   * after that step's turn callback and ahead of the jobs it queues. */
   for (uint32_t i = 0; i < g->config.max_jobs && JS_IsJobPending(g->runtime);
        i++) {
-    if (now(g) >= g->interrupt_at)
-      break;
     JSContext *job_context = NULL;
     if (JS_ExecutePendingJob(g->runtime, &job_context) < 0)
       return failed(g);
   }
-  g->interrupt_at = 0;
   if (g->rejection_overflow ||
       (!JS_IsJobPending(g->runtime) && g->rejection_count)) {
     if (g->rejection_overflow)
@@ -423,24 +410,9 @@ int32_t pocket_worker_quickjs_step(pocket_worker_quickjs *g,
       JS_Throw(c, JS_DupValue(c, g->rejected_reasons[0]));
     return failed(g);
   }
-  uint64_t finished = now(g);
-  uint64_t elapsed = finished - began;
-  g->spent += elapsed ? elapsed : 1;
-  if (elapsed >= g->config.max_turn_micros) {
-    snprintf(g->error, sizeof g->error,
-             "worker turn exceeded %" PRIu32 " microseconds "
-             "(total=%" PRIu64 " native=%" PRIu64 " pack=%" PRIu64
-             " callback=%" PRIu64 " jobs=%" PRIu64 " facts=%zu "
-             "open=%" PRIu64 " submit=%" PRIu64 " write=%" PRIu64
-             " publish=%" PRIu64 " timer=%" PRIu64 ")",
-             g->config.max_turn_micros, elapsed, collected - began,
-             packed - collected, called - packed, finished - called, count,
-             g->host_micros[OPEN], g->host_micros[SUBMIT],
-             g->host_micros[WRITE], g->host_micros[PUBLISH],
-             g->host_micros[TIMER]);
-    g->fault = 1;
-    pocket_worker_shutdown(g->config.worker);
-    return -1;
+  if (g->config.quota_micros) {
+    uint64_t elapsed = now(g) - began;
+    g->spent += elapsed ? elapsed : 1;
   }
   return 1;
 failed_turn:
@@ -458,6 +430,10 @@ uint64_t pocket_worker_quickjs_deadline(pocket_worker_quickjs *g) {
       pocket_worker_pending(g->config.worker))
     return now(g);
   return pocket_worker_deadline(g->config.worker);
+}
+void pocket_worker_quickjs_interrupt(pocket_worker_quickjs *g) {
+  if (g)
+    atomic_store(&g->interrupted, 1);
 }
 const char *pocket_worker_quickjs_error(const pocket_worker_quickjs *g) {
   return g ? g->error : "missing worker";

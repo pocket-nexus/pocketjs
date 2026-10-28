@@ -1,8 +1,9 @@
 # Native worker runtime
 
 `worker.c` owns bounded resources and copies between host tasks. `quickjs.c`
-owns a second QuickJS runtime and invokes `__pocketWorkerTurn(context, facts)`.
-The worker has no `ui` namespace. A host can mount its worker-owned `fs` and
+owns a second QuickJS runtime and invokes `__pocketWorkerTurn(context, facts)`,
+which the SDK's scheduler module installs before the application entry
+evaluates. The worker has no `ui` namespace. A host can mount its worker-owned `fs` and
 `console` implementations through `pocket_worker_quickjs_config.mount`.
 
 ## Host integration
@@ -30,16 +31,20 @@ The worker has no `ui` namespace. A host can mount its worker-owned `fs` and
    destroys the realm. A platform that delivers facts from another task
    keeps servicing that task until destroy returns.
 
-Source parsing and top-level initialization have a separate **250 ms default
-bootstrap limit**. Turn execution has a **10 ms default limit**, at most
-**64 Promise jobs**, **16 facts** and **8192 payload bytes**. The default domain
-allowance is **50 ms per 100 ms window**. A completed turn can consume the
-remaining allowance; the next turn waits until replenishment. GC runs while
-the inbox and Promise queue are empty and counts against that allowance.
+A step observes at most **16 facts** and **8192 payload bytes**, calls the
+turn entry once with them and then executes at most **64 Promise jobs**; a
+longer chain continues in the next step. **The bounds are counts; no
+execution time limit exists.** `pocket_worker_quickjs_interrupt` ends the JS
+execution in progress with a fault; the runner's stop calls it, which is how
+a stop reaches a turn that never returns. A platform can set a CPU share
+(`quota_micros` per `window_micros`), off by default, for a worker task that
+outranks the UI task on the same core; a step that exhausted the share waits
+until the window replenishes. GC runs while the inbox and Promise queue are
+empty.
 
-The platform must supply a monotonic clock while JS runs so the interrupt
-handler can enforce execution limits. The turn receives the host's latched
-time and optional UTC clock identity. A timer fact carries its timer id in
+The platform's monotonic clock latches each turn's time and drives timer
+deadlines. The turn receives the host's latched time and optional UTC clock
+identity. A timer fact carries its timer id in
 `timer`, its planned deadline in `deadline` and the periods missed before
 observation in `missed`; a channel fact carries the channel id in `channel`.
 The resource fields of both stay zero. The next deadline advances past the
@@ -109,8 +114,9 @@ The core test uses AddressSanitizer and UndefinedBehaviorSanitizer. It covers
 admission, cancellation racing native completion, terminal reservations,
 generation rejection, stream ordering, discontinuities, timer catch-up,
 fairness, close retry, and concurrent snapshot publication. The QuickJS test
-covers realm separation, event turns, channel copying, domain throttling and
-forced interruption. It also runs UI-to-worker-to-UI messages across two real
+covers realm separation, event turns, channel copying, the optional CPU
+share, the job bound with its spill into the next step, and the interrupt
+that ends an unbounded turn. It also runs UI-to-worker-to-UI messages across two real
 runtimes and checks frame boundaries, snapshot persistence, ring replacement,
 frame-view invalidation and retained callbacks after detachment.
 

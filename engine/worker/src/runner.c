@@ -73,7 +73,9 @@ void pocket_worker_runner_run(pocket_worker_runner *r) {
     if (r->config.after_turn)
       r->config.after_turn(r->config.context);
     if (result < 0) {
-      fail(r, pocket_worker_quickjs_error(r->realm));
+      /* A stop interrupts the turn in progress; that is not a fault. */
+      if (!atomic_load(&r->stopping))
+        fail(r, pocket_worker_quickjs_error(r->realm));
       break;
     }
     if (result > 0)
@@ -92,6 +94,8 @@ void pocket_worker_runner_stop(pocket_worker_runner *r) {
   if (!r)
     return;
   atomic_store(&r->stopping, 1);
+  if (r->realm)
+    pocket_worker_quickjs_interrupt(r->realm);
   wake(r);
 }
 void pocket_worker_runner_resume(pocket_worker_runner *r) {
