@@ -26,6 +26,7 @@ pub mod particles;
 pub mod render;
 pub mod scene;
 pub mod schema;
+pub mod steer;
 pub mod vec;
 pub mod world;
 
