@@ -153,6 +153,7 @@
     "./playset/three": "./framework/src/playset/three.ts",
     "./playset/snake": "./framework/src/playset/snake.ts",
     "./playset/marble": "./framework/src/playset/marble.ts",
+    "./playset/voxel": "./framework/src/playset/voxel.ts",
     "./system": "./framework/src/system.ts",
     "./vita-package": "./tools/vita-package.ts",
     "./prelude": "./framework/src/prelude.ts",

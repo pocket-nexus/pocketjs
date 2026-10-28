@@ -261,14 +261,17 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
     // ground tiles and static batches
     for (list, source) in [(&ps.scene.ground, SOURCE_GROUND), (&ps.scene.batches, SOURCE_BATCH)] {
         for (i, bt) in list.iter().enumerate() {
+            // an empty tile (a voxel chunk of air) is no draw
+            if bt.idx.is_empty() {
+                continue;
+            }
             let c = (bt.min + bt.max) * 0.5;
             let rad = (bt.max - bt.min).len() * 0.5;
             if cull.sphere(c, rad).is_none() {
                 culled += 1;
                 continue;
             }
-            tris += bt.idx.len() as u32 / 3;
-            b.draws.push(Draw {
+            let tile = |first: u32, count: u32| Draw {
                 source,
                 blend: 0,
                 flags: DRAW_CULL | DRAW_DEPTH_WRITE,
@@ -276,10 +279,40 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
                 id: i as u16,
                 bones: 1,
                 bone_first: 0,
-                index_first: 0,
-                index_count: bt.idx.len() as u32,
+                index_first: first,
+                index_count: count,
                 opacity: 1.0,
-            });
+            };
+            let g = &bt.faces;
+            if g[6] == 0 {
+                tris += bt.idx.len() as u32 / 3;
+                b.draws.push(tile(0, bt.idx.len() as u32));
+                continue;
+            }
+            // axis-facing groups: a group whose every plane is behind the eye
+            // is skipped, and neighbouring kept groups share one draw
+            let facing = [eye.x > bt.min.x, eye.x < bt.max.x, eye.y > bt.min.y, eye.y < bt.max.y, eye.z > bt.min.z, eye.z < bt.max.z];
+            let mut keep = [false; 6];
+            for (k, &dir) in crate::scene::FACE_GROUPS.iter().enumerate() {
+                keep[k] = facing[dir];
+            }
+            let mut d = 0;
+            while d < 6 {
+                if !keep[d] || g[d + 1] == g[d] {
+                    d += 1;
+                    continue;
+                }
+                let first = g[d];
+                let mut end = g[d + 1];
+                let mut e = d + 1;
+                while e < 6 && (keep[e] || g[e + 1] == g[e]) {
+                    end = g[e + 1];
+                    e += 1;
+                }
+                tris += (end - first) / 3;
+                b.draws.push(tile(first, end - first));
+                d = e;
+            }
         }
     }
     // entities
