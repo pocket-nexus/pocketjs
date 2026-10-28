@@ -119,6 +119,7 @@ pub struct Framebuffer<S: FrameStore> {
     sequence: u64,
     pending: Option<u64>,
     acquired: bool,
+    partial_refresh: bool,
 }
 impl<S: FrameStore> Framebuffer<S> {
     pub fn new(mut store: S, geometry: Geometry) -> io::Result<Self> {
@@ -143,7 +144,14 @@ impl<S: FrameStore> Framebuffer<S> {
             sequence: 0,
             pending: None,
             acquired: false,
+            partial_refresh: false,
         })
+    }
+    /// Report partial refresh: the presenter then draws and flushes only the
+    /// regions that changed. The staging frame is retained, so this holds
+    /// while no other process writes the framebuffer.
+    pub fn set_partial_refresh(&mut self, on: bool) {
+        self.partial_refresh = on;
     }
     #[cfg(test)]
     fn storage(&mut self) -> &mut [u8] {
@@ -162,6 +170,7 @@ impl<S: FrameStore> DisplayOutput for Framebuffer<S> {
             TargetOwnership::CpuVisible,
         );
         d.vsync = VsyncSource::Timer;
+        d.partial_refresh = self.partial_refresh;
         d
     }
     fn frame_identity(&mut self) -> Result<Option<BufferIdentity>, DisplayError> {
@@ -269,6 +278,13 @@ mod tests {
         expected[14..16].copy_from_slice(&0xf800u16.to_le_bytes());
         assert_eq!(display.storage(), expected);
         assert!(display.wait(token).is_err());
+    }
+    #[test]
+    fn partial_refresh_is_reported_once_set() {
+        let mut display = Framebuffer::new(vec![0; 30], geometry()).unwrap();
+        assert!(!display.descriptor().partial_refresh);
+        display.set_partial_refresh(true);
+        assert!(display.descriptor().partial_refresh);
     }
     #[test]
     fn rejects_mapping_overflow_and_aliased_channels() {
