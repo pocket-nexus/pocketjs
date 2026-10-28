@@ -5160,6 +5160,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-render-sifli-epic"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-raster",
+ "pocket-runtime-cabi",
+ "pocket-spec",
+ "pocket-tex-cache",
+]
+
+[[package]]
 name = "pocket-rockbox-input"
 version = "0.1.0"
 dependencies = [
@@ -5191,6 +5204,14 @@ dependencies = [
  "pocket-runtime",
  "pocket-spec",
  "pocketjs-core",
+]
+
+[[package]]
+name = "pocket-sifli-runtime"
+version = "0.1.0"
+dependencies = [
+ "pocket-render-sifli-epic",
+ "pocket-runtime-cabi",
 ]
 
 [[package]]

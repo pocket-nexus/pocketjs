@@ -420,6 +420,7 @@ repository or the Rust AOT build.
 | [`profiles/`](./profiles/) | Software contracts identified by content hashes |
 | [`platforms/`](./platforms/) | Operating-system, SDK and fixed-console drivers |
 | [`platforms/esp-idf/`](./platforms/esp-idf/) | Runtime, QuickJS, display, PPA, input and runner components |
+| [`platforms/sifli/`](./platforms/sifli/) | SiFli SF32LB5x hooks, EPIC/VG Lite executor and renderer, display, input, guest and runner |
 | [`apps/`](./apps/) | Framework demos and system applications used by the launcher and acceptance suites |
 | [`tools/`](./tools/) | Build, package, launcher, device, DevTools, benchmark and release commands |
 | [`tests/`](./tests/) | Contract, compiler, simulation, emulator, package and golden verification |

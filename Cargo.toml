@@ -78,6 +78,8 @@ members = [
     "programs/psp",
     "programs/vita",
     "platforms/esp-idf/render-ppa",
+    "platforms/sifli/render-epic",
+    "programs/sifli/archive",
     "platforms/linux/alsa",
     "platforms/linux/drm",
     "platforms/linux/evdev",
@@ -130,6 +132,7 @@ default-members = [
     "engine/runtime-cabi",
     "engine/spec",
     "platforms/esp-idf/render-ppa",
+    "platforms/sifli/render-epic",
 ]
 # Test/fuzzer harnesses keep isolated dependency graphs.
 exclude = [
@@ -193,8 +196,10 @@ pocket-psp-ge = { path = "devices/psp/pocket-psp-ge", version = "0.1.0", default
 pocket-psp-render = { path = "devices/psp/pocket-psp-render", version = "0.1.0", default-features = false }
 pocket-raster = { path = "engine/raster", version = "0.1.0", default-features = false }
 pocket-render-esp-ppa = { path = "platforms/esp-idf/render-ppa", version = "0.1.0", default-features = false }
+pocket-render-sifli-epic = { path = "platforms/sifli/render-epic", version = "0.1.0", default-features = false }
 pocket-runtime = { path = "engine/runtime", version = "0.1.0", default-features = false }
 pocket-runtime-cabi = { path = "engine/runtime-cabi", version = "0.1.0", default-features = false }
+pocket-sifli-runtime = { path = "programs/sifli/archive", version = "0.1.0", default-features = false }
 pocket-sim = { path = "engine/crates/pocket-sim", version = "0.1.0", default-features = false }
 pocket-solid-aot-lab = { path = "apps/solid-aot-lab", version = "0.1.0", default-features = false }
 pocket-spec = { path = "engine/spec", version = "0.1.0", default-features = false }
