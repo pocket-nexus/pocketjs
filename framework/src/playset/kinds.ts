@@ -248,12 +248,14 @@ export interface Weapon {
   event?: boolean;
   /** extra pitch, radians */
   pitch?: number;
+  /** played at the muzzle on every shot */
+  sound?: { readonly id: number };
 }
 
 export function encodeWeapon(w: Weapon): number[] {
   const aim = { forward: PLAYSET_AIM.FORWARD, lead: PLAYSET_AIM.LEAD, arc: PLAYSET_AIM.ARC }[w.aim ?? "forward"];
   const m = w.muzzle ?? [0, 0, -1];
-  return [w.projectile.id + 1, w.cooldown ?? 0.25, w.speed ?? 30, w.spread ?? 0, w.count ?? 1, m[0], m[1], m[2], aim, 0, w.inherit ? 1 : 0, w.burst ?? 0, w.burstGap ?? 0.08, w.event ? 1 : 0, w.pitch ?? 0, 0];
+  return [w.projectile.id + 1, w.cooldown ?? 0.25, w.speed ?? 30, w.spread ?? 0, w.count ?? 1, m[0], m[1], m[2], aim, w.sound ? w.sound.id + 1 : 0, w.inherit ? 1 : 0, w.burst ?? 0, w.burstGap ?? 0.08, w.event ? 1 : 0, w.pitch ?? 0, 0];
 }
 
 export interface JointDriver {

@@ -380,7 +380,8 @@ pub fn think(w: &mut World, scene: &Scene, slot: usize, dt: f32) {
             drive(w, slot, arch, want, None, dt);
             fire_control(w, slot, arch, tp);
         }
-        B::SNAKE => crate::board::think_snake(w, scene, slot, arch, dt),
+        // the snake module steers its own heads
+        B::SNAKE => {}
         _ => {}
     }
 }

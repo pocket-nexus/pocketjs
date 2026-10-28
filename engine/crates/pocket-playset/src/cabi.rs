@@ -360,6 +360,98 @@ pub unsafe extern "C" fn pps_fire(p: *mut Playset, slot: i32, weapon: i32) {
     }
 }
 
+/// Synthesize a sound description (PLAYSET_SOUND); its id.
+///
+/// # Safety
+/// `desc` points at `n` floats.
+#[no_mangle]
+pub unsafe extern "C" fn pps_sound(p: *mut Playset, desc: *const f32, n: u32) -> i32 {
+    match ps(p) {
+        Some(s) => s.world.audio.add(floats(desc, n)),
+        None => -1,
+    }
+}
+
+/// A sound's PCM: mono s16 at `rate`; stable for the playset's lifetime.
+///
+/// # Safety
+/// Out pointers are writable.
+#[no_mangle]
+pub unsafe extern "C" fn pps_sound_data(p: *mut Playset, id: u32, pcm: *mut *const i16, samples: *mut u32, rate: *mut u32, looping: *mut u32) -> i32 {
+    let Some(s) = ps(p) else { return -1 };
+    let Some(snd) = s.world.audio.sounds.get(id as usize) else { return -1 };
+    *pcm = snd.pcm.as_ptr();
+    *samples = snd.pcm.len() as u32;
+    *rate = snd.rate;
+    *looping = snd.looping as u32;
+    0
+}
+
+/// kind PLAY: a one-shot at (x, y, z) when `placed`, else straight to the
+/// speakers; LOOP returns its voice; SET and STOP name the voice in `sound`.
+///
+/// # Safety
+/// `p` is live.
+#[no_mangle]
+pub unsafe extern "C" fn pps_sound_play(p: *mut Playset, kind: u32, sound: i32, volume: f32, pitch: f32, pan_or_x: f32, y: f32, z: f32, placed: i32) -> i32 {
+    use crate::schema::voice as VO;
+    let Some(s) = ps(p) else { return -1 };
+    let a = &mut s.world.audio;
+    match kind {
+        VO::PLAY if sound >= 0 => {
+            a.play(sound as u32, volume, if pitch > 0.0 { pitch } else { 1.0 }, if placed != 0 { Some(v3(pan_or_x, y, z)) } else { None });
+            0
+        }
+        VO::LOOP if sound >= 0 => a.start_loop(sound as u32, volume, if pitch > 0.0 { pitch } else { 1.0 }),
+        VO::SET => {
+            a.set_loop(sound, volume, if pitch > 0.0 { pitch } else { 1.0 }, pan_or_x);
+            0
+        }
+        VO::STOP => {
+            a.stop_loop(sound);
+            0
+        }
+        _ => -1,
+    }
+}
+
+/// The frame's mixer requests, built by the last prepare.
+///
+/// # Safety
+/// `count` is writable.
+#[no_mangle]
+pub unsafe extern "C" fn pps_audio_requests(p: *mut Playset, count: *mut u32) -> *const crate::audio::Request {
+    let Some(s) = ps(p) else {
+        *count = 0;
+        return core::ptr::null();
+    };
+    *count = s.world.audio.out.len() as u32;
+    s.world.audio.out.as_ptr()
+}
+
+/// 0..1 for everything the playset plays.
+///
+/// # Safety
+/// `p` is live.
+#[no_mangle]
+pub unsafe extern "C" fn pps_audio_master(p: *mut Playset, volume: f32) {
+    if let Some(s) = ps(p) {
+        s.world.audio.master = crate::fmath::clampf(volume, 0.0, 1.0);
+    }
+}
+
+/// A genre module's call (modules/mod.rs): `args` in, results in `out`.
+///
+/// # Safety
+/// `args` points at `n` floats and `out` at `nout` writable floats.
+#[no_mangle]
+pub unsafe extern "C" fn pps_call(p: *mut Playset, module: u32, op: u32, args: *const f32, n: u32, out: *mut f32, nout: u32) -> f32 {
+    let Some(s) = ps(p) else { return -1.0 };
+    let a = floats(args, n);
+    let o: &mut [f32] = if out.is_null() || nout == 0 { &mut [] } else { core::slice::from_raw_parts_mut(out, nout as usize) };
+    s.modules.call(&mut s.world, &mut s.scene, module, op, a, o)
+}
+
 /// # Safety
 /// `p` is live.
 #[no_mangle]

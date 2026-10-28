@@ -23,10 +23,13 @@ import {
   joint,
   layers,
   motion,
+  sfx,
+  type Sound,
   type Archetype,
   type Playset,
 } from "@pocketjs/framework/playset";
 import * as V from "./visuals.ts";
+import type { GameStatus, Pad, PlaysetGame } from "../kit/game.ts";
 
 export const ARENA = { halfRight: 18, minForward: -26, maxForward: 34, playerForward: -18 };
 export const PLAYER_RADIUS = 1.15;
@@ -121,6 +124,8 @@ export class SpaceShooter {
   private readonly ram = new Set<number>();
   private readonly backdrop: { node: number; k: number }[] = [];
   private readonly boom: { id: number };
+  private readonly laser: Sound;
+  private readonly waveSound: Sound;
 
   constructor() {
     const play = createPlayset({ capacity: 256, particles: 600, seed: 20260616 });
@@ -144,10 +149,22 @@ export class SpaceShooter {
       count: 1, life: 0.28, speed: 3, spread: 0.25, dir: [0, 0, 1], size: [0.28, 0.05], color: [0xffa060, 0xff3a20], alpha: [0.9, 0], blend: "add", drag: 0,
     });
 
+    // sounds: rendered once here, played natively where they happen
+    this.laser = play.sound(sfx.laser());
+    const blaster = play.sound({ ...sfx.blaster(), volume: 0.18 });
+    const tick = play.sound({ ...sfx.hit(), volume: 0.14 });
+    const boomSound = play.sound(sfx.explosion());
+    const crumble = play.sound(sfx.crumble());
+    const hurt = play.sound(sfx.hurt());
+    const bigBoom = play.sound(sfx.bigExplosion());
+    this.waveSound = play.sound(sfx.wave());
+    const jet = play.sound(sfx.jet());
+
     const shotModel = play.model(V.bolt(0x6df4ff, 0.07, 0.82));
     this.shot = play.archetype({
       model: shotModel, motion: motion.linear({ speed: 54 }), layer: L.shot, hits: L.enemy | L.rock,
       radius: 1.75, damage: 22, lifetime: 1.45, projectile: true, bounds: "kill", death: hitCyan,
+      sounds: { death: tick },
     });
     const eshotModel = play.model(V.bolt(0xff5d38, 0.085, 0.7));
     this.enemyShot = play.archetype({
@@ -160,6 +177,7 @@ export class SpaceShooter {
       model: ship, motion: motion.planar({ accel: 95, maxSpeed: 28, damping: 7, frame: "world", face: "none", bank: 0.42 }),
       layer: L.player, hits: L.pickup, team: 1, radius: PLAYER_RADIUS, hp: 100, keepOnDeath: true, flash: 0.2, invulnerable: 0.05,
       trail: exhaust, trailRate: 40, weapons: [this.weapon(false, -1)],
+      sounds: { hit: hurt, death: bigBoom }, hum: { sound: jet, speed: 28, pitch: 1.6 },
     });
     this.shieldArch = play.archetype({ model: play.model(V.shieldBubble()), motion: motion.attached() });
 
@@ -172,8 +190,8 @@ export class SpaceShooter {
         motion: motion.linear({ speed: s.speed, homing: 2.2 }),
         brain: brain.seek({ target: { nearest: L.player | L.shielded, every: 1 }, fireRange: 70, fireCone: 0.5 }),
         layer: L.enemy, hits: L.player | L.shielded, team: 2, radius: ENEMY_RADIUS, hp: s.hp, value: s.value,
-        bounds: "kill", death: ramRed, flash: 0.1,
-        weapons: [{ projectile: this.enemyShot, cooldown: 1.8, speed: 28, muzzle: [0, 0, -1], aim: "lead" }],
+        bounds: "kill", death: ramRed, flash: 0.1, sounds: { death: boomSound },
+        weapons: [{ projectile: this.enemyShot, cooldown: 1.8, speed: 28, muzzle: [0, 0, -1], aim: "lead", sound: blaster }],
       });
     }
     const rockModel = play.model(V.asteroid(), { seed: 7 });
@@ -181,14 +199,17 @@ export class SpaceShooter {
       play.archetype({
         model: rockModel, scale: V.OBJECT_VISUAL_SCALE, motion: motion.linear({ speed: 10 }),
         layer: L.rock, hits: L.player | L.shielded, radius: 1, hp: 1, value: 35, bounds: "kill", death: rockAmber,
+        sounds: { death: crumble },
         joints: [joint.spin("rock", axis, [1.6, -1.2, 2.1][i])],
       }),
     );
     this.pickups = {} as Record<V.PickupType, Archetype>;
+    const pickupSounds = { rapid: play.sound(sfx.powerup()), shield: play.sound(sfx.pickup()), health: play.sound(sfx.heal()) };
     for (const t of ["rapid", "shield", "health"] as const) {
+      // bounds kills are silent; only a collection plays the sound
       this.pickups[t] = play.archetype({
         model: play.model(V.pickup(t)), motion: motion.linear({ speed: 4 }), layer: L.pickup, radius: 0.9,
-        bounds: "kill", death: pickupTeal, joints: [joint.spin("spin", "y", 2.4)],
+        bounds: "kill", death: pickupTeal, joints: [joint.spin("spin", "y", 2.4)], sounds: { death: pickupSounds[t] },
       });
     }
 
@@ -216,7 +237,10 @@ export class SpaceShooter {
   }
 
   private weapon(rapid: boolean, side: number) {
-    return { projectile: this.shot, cooldown: rapid ? 0.105 : 0.22, speed: 54, muzzle: [rapid ? side * 0.45 : 0, 0, -1.25] as [number, number, number] };
+    return {
+      projectile: this.shot, cooldown: rapid ? 0.105 : 0.22, speed: 54, muzzle: [rapid ? side * 0.45 : 0, 0, -1.25] as [number, number, number],
+      sound: side > 0 && rapid ? undefined : this.laser,
+    };
   }
 
   private buildBackdrop(): void {
@@ -353,7 +377,7 @@ export class SpaceShooter {
       let mx = stickX;
       let mf = stickFwd;
       if (this.hud.demo) {
-        if (this.aiTick++ % 3 === 0) this.autopilot();
+        if (this.aiTick++ % 6 === 0) this.autopilot();
         mx = this.aiX;
         mf = this.aiFwd;
       }
@@ -365,6 +389,7 @@ export class SpaceShooter {
       if (this.waves.wave !== this.hud.wave) {
         this.hud.wave = this.waves.wave;
         this.retuneEnemies();
+        play.play(this.waveSound, 0.8);
       }
       this.asteroidTimer -= dt;
       if (this.asteroidTimer <= 0) {
@@ -417,40 +442,81 @@ export class SpaceShooter {
     this.hud.rapid = Math.max(0, this.rapidSeconds);
   }
 
-  /** The demo's PlayerAi: pick a target and a lane, dodge what is coming. */
+  /** The demo's PlayerAi: pick a target and a lane, dodge what is coming.
+   *  Written for the 3DS interpreter: one pass over the nearby slots into
+   *  flat arrays, then nine lanes against the threats alone, with every
+   *  constant and view in a local. */
+  private readonly threatX = new Float32Array(64);
+  private readonly threatT = new Float32Array(64);
+  private readonly threatW = new Float32Array(64);
+  private readonly threatK = new Float32Array(64);
   private autopilot(): void {
     const play = this.play;
     const ent = play.ent;
+    const look = play.look;
+    const list = play.list;
     const p = this.player * 16;
     const px = ent[p];
     const pf = -ent[p + 2];
     const n = play.near(L.enemy | L.rock | L.pickup | L.eshot, px, -pf, 70);
-    const list = play.list;
-    let best = -1;
-    let bestScore = -1e9;
-    let pick = -1;
-    let pickScore = -1e9;
+    const eshot = this.enemyShot.id;
+    const g0 = this.enemy.grunt.id, g1 = this.enemy.dart.id, g2 = this.enemy.heavy.id;
+    const r0 = this.rocks[0].id, r1 = this.rocks[1].id, r2 = this.rocks[2].id;
+    const ph = this.pickups.health.id, pr = this.pickups.rapid.id, psh = this.pickups.shield.id;
+    const hp = ent[p + 10];
+    const tx = this.threatX, tt = this.threatT, tw = this.threatW, tk = this.threatK;
+    let threats = 0;
+    let bestX = 0, bestScore = -1e9, haveBest = false;
+    let pickX = 0, pickF = 0, pickScore = -1e9, havePick = false;
     for (let i = 0; i < n; i++) {
-      const s = list[i];
-      const o = s * 16;
-      const arch = ent[o + ENT.ARCH] - 1;
+      const o = list[i] * 16;
+      const arch = ent[o + 13] - 1;
       const sx = ent[o];
       const gap = -ent[o + 2] - pf;
-      if (this.isEnemy(arch) || this.isRock(arch)) {
-        if (gap < 1.8 || gap > 62) continue;
-        const score = (this.isEnemy(arch) ? 16 : 9) - Math.abs(sx - px) * 0.42 - gap * 0.055;
-        if (score > bestScore) {
-          bestScore = score;
-          best = s;
+      const enemy = arch === g0 || arch === g1 || arch === g2;
+      const rock = arch === r0 || arch === r1 || arch === r2;
+      if (enemy || rock) {
+        if (gap >= 1.8 && gap <= 62) {
+          const score = (enemy ? 16 : 9) - Math.abs(sx - px) * 0.42 - gap * 0.055;
+          if (score > bestScore) {
+            bestScore = score;
+            bestX = sx;
+            haveBest = true;
+          }
         }
-      } else if (arch === this.pickups.health.id || arch === this.pickups.rapid.id || arch === this.pickups.shield.id) {
-        if (gap < -4 || gap > 18) continue;
-        const hp = ent[p + ENT.HP];
-        const value = arch === this.pickups.health.id ? (hp < 72 ? 12 : 3) : arch === this.pickups.rapid.id ? (this.rapidSeconds <= 1 ? 8 : 2) : this.shieldSeconds <= 1 ? 7 : 2;
-        const score = value - Math.abs(sx - px) * 0.2 - Math.abs(gap) * 0.12;
-        if (score > pickScore) {
-          pickScore = score;
-          pick = s;
+        if (gap >= -3 && threats < 64) {
+          const t = gap / Math.max(Math.abs(ent[o + 9]), 1);
+          if (t <= 2.8) {
+            tx[threats] = sx;
+            tt[threats] = t;
+            tw[threats] = (rock ? look[list[i] * 4] / 2 : ENEMY_RADIUS) + PLAYER_RADIUS + 1.25;
+            tk[threats] = rock ? 1.25 * 4.5 : 1.05 * 4.5;
+            threats++;
+          }
+        }
+      } else if (arch === eshot) {
+        const vf = -ent[o + 5];
+        if (gap >= -3 && vf < -0.1 && threats < 64) {
+          const t = gap / -vf;
+          if (t >= 0 && t <= 1.6) {
+            // a shot is a threat at its predicted crossing, scored like the demo's
+            tx[threats] = sx + ent[o + 3] * t;
+            tt[threats] = t;
+            tw[threats] = 2.9;
+            tk[threats] = -9;
+            threats++;
+          }
+        }
+      } else if (arch === ph || arch === pr || arch === psh) {
+        if (gap >= -4 && gap <= 18) {
+          const value = arch === ph ? (hp < 72 ? 12 : 3) : arch === pr ? (this.rapidSeconds <= 1 ? 8 : 2) : this.shieldSeconds <= 1 ? 7 : 2;
+          const score = value - Math.abs(sx - px) * 0.2 - Math.abs(gap) * 0.12;
+          if (score > pickScore) {
+            pickScore = score;
+            pickX = sx;
+            pickF = -ent[o + 2];
+            havePick = true;
+          }
         }
       }
     }
@@ -458,33 +524,20 @@ export class SpaceShooter {
     let laneScore = -1e9;
     for (let lane = -16; lane <= 16; lane += 4) {
       let score = -Math.abs(lane - px) * 0.08 - Math.abs(lane) * 0.025;
-      if (best >= 0) score -= Math.abs(lane - ent[best * 16]) * 0.62;
-      if (pick >= 0) score += Math.max(0, 5 - Math.abs(lane - ent[pick * 16])) * 0.9;
-      for (let i = 0; i < n; i++) {
-        const o = list[i] * 16;
-        const arch = ent[o + ENT.ARCH] - 1;
-        const gap = -ent[o + 2] - pf;
-        if (gap < -3) continue;
-        if (arch === this.enemyShot.id) {
-          const vf = -ent[o + ENT.VZ];
-          if (vf >= -0.1) continue;
-          const t = gap / -vf;
-          if (t < 0 || t > 1.6) continue;
-          const predicted = ent[o] + ent[o + ENT.VX] * t;
-          score -= Math.max(0, 2.9 - Math.abs(lane - predicted)) * (2 - t) * 9;
-        } else if (this.isEnemy(arch) || this.isRock(arch)) {
-          const t = gap / Math.max(Math.abs(ent[o + ENT.SPEED]), 1);
-          if (t > 2.8) continue;
-          const width = (this.isRock(arch) ? play.look[list[i] * 4] / 2 : ENEMY_RADIUS) + PLAYER_RADIUS + 1.25;
-          score -= Math.max(0, width - Math.abs(lane - ent[o])) * (3 - t) * 4.5 * (this.isRock(arch) ? 1.25 : 1.05);
-        }
+      if (haveBest) score -= Math.abs(lane - bestX) * 0.62;
+      if (havePick) score += Math.max(0, 5 - Math.abs(lane - pickX)) * 0.9;
+      for (let k = 0; k < threats; k++) {
+        const overlap = tw[k] - Math.abs(lane - tx[k]);
+        if (overlap <= 0) continue;
+        const kind = tk[k];
+        score -= kind < 0 ? overlap * (2 - tt[k]) * 9 : overlap * (3 - tt[k]) * kind;
       }
       if (score > laneScore) {
         laneScore = score;
         bestLane = lane;
       }
     }
-    const want = pick >= 0 ? Math.min(Math.max(-ent[pick * 16 + 2], ARENA.minForward + 3), ARENA.playerForward + 6) : ARENA.playerForward - 2;
+    const want = havePick ? Math.min(Math.max(pickF, ARENA.minForward + 3), ARENA.playerForward + 6) : ARENA.playerForward - 2;
     this.aiX = Math.max(-1, Math.min(1, (bestLane - px) * 0.28));
     this.aiFwd = Math.max(-1, Math.min(1, (want - pf) * 0.24));
   }
@@ -492,4 +545,60 @@ export class SpaceShooter {
   private isRock(arch: number): boolean {
     return arch === this.rocks[0].id || arch === this.rocks[1].id || arch === this.rocks[2].id;
   }
+}
+
+/** The game as the playset shell and the headless runner drive it. */
+export function createGame(): PlaysetGame {
+  const game = new SpaceShooter();
+  // read by the dev wire for profiling
+  (globalThis as { __playsetGame?: unknown }).__playsetGame = game;
+  let paused = false;
+  let overAt = -1;
+  return {
+    title: "Space Shooter",
+    tagline: "Hold the line against raiders and asteroids.\nGrab rapid fire, shields and repairs.",
+    accent: "#2f8fd8",
+    controls: [
+      ["Circle Pad / D-Pad", "Fly"],
+      ["Fire", "Automatic"],
+      ["START", "Pause"],
+      ["Y", "Developer stats"],
+      ["SELECT", "Home"],
+    ],
+    readouts: [
+      { label: "Hull", value: () => game.hud.health, bar: () => game.hud.health / 100, color: "#ff6f8f" },
+      { label: "Score", value: () => game.hud.score },
+      { label: "Wave", value: () => game.hud.wave },
+      { label: "Shield", value: () => (game.hud.shield > 0 ? game.hud.shield.toFixed(1) + " s" : "-"), bar: () => game.hud.shield / 8, color: "#58a6ff" },
+      { label: "Rapid fire", value: () => (game.hud.rapid > 0 ? game.hud.rapid.toFixed(1) + " s" : "-"), bar: () => game.hud.rapid / 7, color: "#8bff7a" },
+    ],
+    play: game.play,
+    status(): GameStatus {
+      if (game.hud.status === "title") return "title";
+      if (game.hud.status === "gameover") return game.hud.demo ? "title" : "gameover";
+      return paused ? "paused" : "playing";
+    },
+    start(demo: boolean) {
+      paused = false;
+      game.reset(demo);
+      if (!demo) game.hud.status = "playing";
+    },
+    pause(p: boolean) {
+      paused = p;
+    },
+    frame(pad: Pad) {
+      // the attract loop restarts itself two seconds after a demo ends
+      if (game.hud.demo && game.hud.status === "gameover") {
+        if (overAt < 0) overAt = game.play.tick;
+        else if (game.play.tick - overAt > 120) {
+          overAt = -1;
+          game.reset(true);
+        }
+      }
+      if (paused) return;
+      game.frame(pad.x, pad.y);
+    },
+    topLine: () => `SCORE ${game.hud.score}    WAVE ${game.hud.wave}    HULL ${game.hud.health}`,
+    result: () => `Score ${game.hud.score} · reached wave ${game.hud.wave}`,
+  };
 }

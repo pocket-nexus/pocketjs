@@ -102,12 +102,12 @@ export function enemyShip(type: EnemyType): THREE.Group {
 export function bolt(color: number, radius: number, length: number): THREE.Group {
   const group = new THREE.Group();
   const glow = new THREE.Mesh(
-    new THREE.CapsuleGeometry(radius * 2.5, length * 1.12, 2, 6),
+    new THREE.CapsuleGeometry(radius * 2.5, length * 1.12, 1, 4),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.24, blending: THREE.AdditiveBlending }),
   );
   glow.rotation.x = Math.PI / 2;
   const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(radius, length, 2, 6),
+    new THREE.CapsuleGeometry(radius, length, 1, 4),
     new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.5 }),
   );
   body.rotation.x = Math.PI / 2;
@@ -119,10 +119,10 @@ export function bolt(color: number, radius: number, length: number): THREE.Group
 /** A unit asteroid; instances scale it by their radius. */
 export function asteroid(): THREE.Group {
   const rock = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(1, 1),
+    new THREE.IcosahedronGeometry(1, 0),
     new THREE.MeshStandardMaterial({ color: PALETTE.asteroid, emissive: 0x0a0f17, emissiveIntensity: 0.18, flatShading: true }),
   );
-  rock.userData.jitter = 0.12;
+  rock.userData.jitter = 0.16;
   const spin = new THREE.Joint("rock");
   spin.add(rock);
   const group = new THREE.Group();

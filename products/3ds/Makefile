@@ -126,7 +126,7 @@ OBJECTS := $(BUILD)/worker.o $(BUILD)/worker_core.o $(BUILD)/worker_quickjs.o $(
   $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
   $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o \
-  $(BUILD)/playset.o $(BUILD)/p3ps_render.o $(BUILD)/playset_shbin.o
+  $(BUILD)/playset.o $(BUILD)/playset_audio.o $(BUILD)/p3ps_render.o $(BUILD)/playset_shbin.o
 ELF := $(BUILD)/pocketjs-3ds.elf
 SMDH := $(BUILD)/pocketjs-3ds.smdh
 

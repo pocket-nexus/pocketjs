@@ -68,6 +68,9 @@ void pocket_pica_renderer_reset(pocket_pica_renderer *renderer);
  * the caller serializes it with every other citro3d use. False when the GPU
  * still owns the previous frame. */
 bool pocket_pica_renderer_present_overlays(pocket_pica_renderer *renderer);
+/* Microseconds of the last submit per display, and of the last GPU idle wait. */
+void pocket_pica_renderer_timing(uint32_t *submit_primary, uint32_t *submit_auxiliary,
+                                 uint32_t *gpu_idle_us);
 size_t pocket_pica_renderer_words(const pocket_pica_renderer *, uint32_t role);
 uint32_t pocket_pica_renderer_vertices(const pocket_pica_renderer *renderer);
 uint32_t pocket_pica_renderer_commands(const pocket_pica_renderer *renderer);

@@ -33,7 +33,9 @@ const F = FFIType;
 export interface PlaysetSim {
   readonly native: PlaysetNative;
   /** pps_prepare: the frame record's draw and triangle counts */
-  prepare(): { draws: number; tris: number; culled: number; bones: number; dynVertices: number };
+  prepare(): { draws: number; tris: number; culled: number; bones: number; dynVertices: number; sounds: number };
+  /** mixer requests since install */
+  readonly soundsPlayed: number;
   destroy(): void;
 }
 
@@ -67,10 +69,15 @@ export function installPlaysetSim(): PlaysetSim {
     pps_emit: { args: [F.ptr, F.i32, F.f32, F.f32, F.f32, F.f32], returns: F.void },
     pps_fire: { args: [F.ptr, F.i32, F.i32], returns: F.void },
     pps_step: { args: [F.ptr, F.f32], returns: F.i32 },
+    pps_call: { args: [F.ptr, F.u32, F.u32, F.ptr, F.u32, F.ptr, F.u32], returns: F.f32 },
     pps_camera: { args: [F.ptr, F.ptr, F.u32], returns: F.void },
     pps_query: { args: [F.ptr, F.u32, F.f32, F.f32, F.f32, F.f32], returns: F.f32 },
     pps_seed: { args: [F.ptr, F.u32], returns: F.void },
     pps_prepare: { args: [F.ptr, F.f32], returns: F.ptr },
+    pps_sound: { args: [F.ptr, F.ptr, F.u32], returns: F.i32 },
+    pps_sound_play: { args: [F.ptr, F.u32, F.i32, F.f32, F.f32, F.f32, F.f32, F.f32, F.i32], returns: F.i32 },
+    pps_audio_requests: { args: [F.ptr, F.ptr], returns: F.ptr },
+    pps_audio_master: { args: [F.ptr, F.f32], returns: F.void },
   });
   const s = lib.symbols;
   let world: Pointer | null = null;
@@ -130,6 +137,10 @@ export function installPlaysetSim(): PlaysetSim {
     emit: (e, x, y, z, count) => s.pps_emit(need(), e, x, y, z, count ?? 1),
     fire: (slot, w) => s.pps_fire(need(), slot, w),
     step: (dt) => s.pps_step(need(), dt) as number,
+    sound: (d) => s.pps_sound(need(), fp(d), n(d)) as number,
+    soundPlay: (kind, sound, volume, pitch, x, y, z, placed) => s.pps_sound_play(need(), kind, sound, volume, pitch, x, y, z, placed) as number,
+    volume: (v) => s.pps_audio_master(need(), v),
+    call: (module, op, args, out) => s.pps_call(need(), module, op, fp(args), n(args), fp(out), n(out)) as number,
     camera: (d) => s.pps_camera(need(), fp(d), n(d)),
     query: (kind, a, b, c, d) => s.pps_query(need(), kind, a, b, c, d) as number,
     seed: (v) => s.pps_seed(need(), v >>> 0),
@@ -140,8 +151,12 @@ export function installPlaysetSim(): PlaysetSim {
     },
   };
   (globalThis as { playset?: PlaysetNative }).playset = native;
+  let sounds = 0;
   return {
     native,
+    get soundsPlayed() {
+      return sounds;
+    },
     prepare() {
       const p = s.pps_prepare(need(), 400 / 240) as Pointer;
       // pps_frame: 12 + 4 + 10 * 4 floats, then (pointer, count) pairs with
@@ -153,7 +168,10 @@ export function installPlaysetSim(): PlaysetSim {
       const dynVertices = head.getUint32(at + 40, true);
       const tris = head.getUint32(at + 60, true);
       const culled = head.getUint32(at + 64, true);
-      return { draws: drawCount, tris, culled, bones: boneCount, dynVertices };
+      const count = new Uint32Array(1);
+      s.pps_audio_requests(need(), ptr(count));
+      sounds += count[0];
+      return { draws: drawCount, tris, culled, bones: boneCount, dynVertices, sounds: count[0] };
     },
     destroy() {
       if (world) s.pps_destroy(world);
