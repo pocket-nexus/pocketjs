@@ -162,9 +162,12 @@ export const motion = {
   },
 };
 
-/** What a brain looks at. */
+/** What a brain looks at: the nearest slot on some layers, the one on some
+ *  layers furthest along its path kernel's path (tower defense), the
+ *  slot's own TARGET, or a point. */
 export type Target =
   | { readonly nearest: number; readonly sight?: number; readonly every?: number }
+  | { readonly leading: number; readonly sight?: number; readonly every?: number }
   | { readonly slot: true }
   | { readonly point: readonly [number, number, number] };
 
@@ -185,6 +188,11 @@ function common(o: BrainCommon, extra: number[] = []): number[] {
   if (t && "nearest" in t) {
     p[0] = 1;
     p[1] = t.nearest;
+    p[5] = t.sight ?? 0;
+    p[8] = t.every ?? 0.5;
+  } else if (t && "leading" in t) {
+    p[0] = 4;
+    p[1] = t.leading;
     p[5] = t.sight ?? 0;
     p[8] = t.every ?? 0.5;
   } else if (t && "slot" in t) {

@@ -675,7 +675,8 @@ export class Playset {
     });
   }
 
-  fixedCamera(eye: readonly [number, number, number], look: readonly [number, number, number], fov = 55, far = 200): void {
+  /** `near` well past 0.5 buys depth precision for a far camera. */
+  fixedCamera(eye: readonly [number, number, number], look: readonly [number, number, number], fov = 55, far = 200, near = 0.5): void {
     const C = PLAYSET_CAMERA;
     this.sendCamera(PLAYSET_CAMERA_MODE.FIXED, -1, (d) => {
       d[C.EX] = eye[0];
@@ -686,6 +687,7 @@ export class Playset {
       d[C.LZ] = look[2];
       d[C.FOV] = fov;
       d[C.FAR] = far;
+      d[C.NEAR] = near;
     });
   }
 

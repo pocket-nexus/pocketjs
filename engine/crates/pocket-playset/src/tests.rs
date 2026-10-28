@@ -143,3 +143,44 @@ fn planar_player_slides_along_a_wall() {
     assert!(p.z > -4.6 && p.z < -3.9, "stopped at the wall face, z = {}", p.z);
     assert!(p.x > 3.0, "kept sliding sideways, x = {}", p.x);
 }
+
+#[test]
+fn a_leading_turret_targets_the_creep_furthest_along_its_path() {
+    let mut ps = Playset::new(32, 0);
+    let path = ps.world.add_path(&[-20.0, 0.0, 0.0, 20.0, 0.0, 0.0]);
+    let mut creep = arch();
+    creep[A::MOTION] = M::PATH as f32;
+    creep[A::MOTION_P] = 1.0;
+    creep[A::MOTION_P + 1] = path as f32;
+    creep[A::LAYER] = 4.0;
+    creep[A::RADIUS] = 0.5;
+    let creep = ps.world.add_arch(&creep);
+    let mut tower = arch();
+    tower[A::BRAIN] = B::TURRET as f32;
+    tower[A::BRAIN_P] = 4.0;
+    tower[A::BRAIN_P + 1] = 4.0;
+    tower[A::BRAIN_P + 5] = 30.0;
+    tower[A::BRAIN_P + 8] = 0.05;
+    let tower = ps.world.add_arch(&tower);
+    let t = ps.world.spawn(&ps.scene, tower as usize, v3(0.0, 0.0, 5.0), 0.0) as usize;
+    // the first creep starts sooner and stays ahead; the second is nearer the tower
+    let first = ps.world.spawn(&ps.scene, creep as usize, v3(-20.0, 0.0, 0.0), 0.0);
+    for _ in 0..240 {
+        ps.step(1.0 / 60.0);
+    }
+    let second = ps.world.spawn(&ps.scene, creep as usize, v3(-20.0, 0.0, 0.0), 0.0);
+    ps.world.set(second as usize, crate::schema::ent::SPEED, 0.5);
+    for _ in 0..60 {
+        ps.step(1.0 / 60.0);
+    }
+    assert!(ps.world.pos(first as usize).x > ps.world.pos(second as usize).x);
+    assert_eq!(ps.world.e(t, crate::schema::ent::TARGET) as i32, first);
+    // nearest picks the other one when the tower stands by it
+    ps.world.archs[tower as usize][A::BRAIN_P] = 1.0;
+    let near = ps.world.pos(second as usize);
+    ps.world.set_pos(t, v3(near.x, 0.0, 1.0));
+    for _ in 0..10 {
+        ps.step(1.0 / 60.0);
+    }
+    assert_eq!(ps.world.e(t, crate::schema::ent::TARGET) as i32, second);
+}
