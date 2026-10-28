@@ -22,8 +22,8 @@ pub const FRAMERATE: u32 = 15;
 /// The viewfinder texture: 256x128 RGBA, the whole frame box-sampled into it.
 pub const TEXTURE_W: usize = 256;
 pub const TEXTURE_H: usize = 128;
-/// `GET /dev/camera/thumbnail.rgb565`: the last photo at 128x64, small
-/// enough for the worker's channels (16 KiB).
+/// `GET /dev/camera/thumbnail.rgb565`: the last photo at 128x64 in PSM_5650,
+/// small enough for the worker's channels (16 KiB).
 pub const THUMB_W: usize = 128;
 pub const THUMB_H: usize = 64;
 
@@ -142,8 +142,9 @@ pub fn texture_from_rgb(pixels: &[u8], w: usize, h: usize) -> Vec<u8> {
     out
 }
 
-/// The 256x128 RGBA texture box-sampled to the 128x64 thumbnail, RGB565
-/// little endian.
+/// The 256x128 RGBA texture box-sampled to the 128x64 thumbnail in the
+/// core's PSM_5650 (16 bits, little endian, red in the low five bits and
+/// blue in the high five, as the GE stores it).
 pub fn thumbnail_rgb565(rgba: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(THUMB_W * THUMB_H * 2);
     for y in 0..THUMB_H {
@@ -156,7 +157,7 @@ pub fn thumbnail_rgb565(rgba: &[u8]) -> Vec<u8> {
                 }
             }
             let [r, g, b] = sum.map(|value| value / 4);
-            let packed = ((r >> 3) << 11 | (g >> 2) << 5 | b >> 3) as u16;
+            let packed = ((b >> 3) << 11 | (g >> 2) << 5 | r >> 3) as u16;
             out.extend_from_slice(&packed.to_le_bytes());
         }
     }
@@ -248,7 +249,8 @@ mod tests {
         }
         let thumbnail = thumbnail_rgb565(&rgba);
         assert_eq!(thumbnail.len(), THUMB_W * THUMB_H * 2);
-        assert_eq!(u16::from_le_bytes([thumbnail[0], thumbnail[1]]), 0xf800);
+        // Red is the low five bits.
+        assert_eq!(u16::from_le_bytes([thumbnail[0], thumbnail[1]]), 0x001f);
     }
 
     #[test]

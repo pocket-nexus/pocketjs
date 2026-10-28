@@ -213,7 +213,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let profile = profile::profile().ok_or_else(|| error("missing exported profile"))?;
     if profile.dynamic_viewport.is_some()
         || profile.auxiliary.is_some()
-        || !InputClasses::BUTTONS.contains(profile.required_inputs)
+        || !(InputClasses::BUTTONS | InputClasses::TEXT).contains(profile.required_inputs)
     {
         return Err(error("profile promises facts this program cannot honor").into());
     }
