@@ -279,7 +279,11 @@ pub fn think(w: &mut World, scene: &Scene, slot: usize, dt: f32) {
                     let d = t - pos;
                     let dist = d.flat().len();
                     let slow = if pref > 0.0 { clampf((dist - pref) / maxf(pref * 0.5, 0.5), 0.0, 1.0) } else { 1.0 };
-                    v3(d.x, d.y, d.z).normalized() * (slow * scale)
+                    // BRAIN_P 11..12: inside `near` metres the speed scales by
+                    // `near speed` (a charge, a spitter that slows to aim)
+                    let near = bp(w, arch, 11);
+                    let close = if near > 0.0 && dist < near { bp(w, arch, 12) } else { 1.0 };
+                    v3(d.x, d.y, d.z).normalized() * (slow * scale * close)
                 }
                 None => Vec3::ZERO,
             };

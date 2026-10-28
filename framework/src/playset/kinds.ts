@@ -240,7 +240,12 @@ function common(o: BrainCommon, extra: number[] = []): number[] {
 
 export const brain = {
   none: (): Brain => ({ kind: PLAYSET_BRAIN.NONE, p: [] }),
-  seek: (o: BrainCommon = {}): Brain => ({ kind: PLAYSET_BRAIN.SEEK, p: common(o) }),
+  /** Toward the target; inside `near` metres its speed scales by `nearSpeed`
+   *  (above 1 the kernel's maxSpeed must leave room: speed * nearSpeed <= 1). */
+  seek: (o: BrainCommon & { near?: number; nearSpeed?: number } = {}): Brain => ({
+    kind: PLAYSET_BRAIN.SEEK,
+    p: common(o, [o.near ?? 0, o.nearSpeed ?? 1]),
+  }),
   flee: (o: BrainCommon = {}): Brain => ({ kind: PLAYSET_BRAIN.FLEE, p: common(o) }),
   orbit: (o: BrainCommon & { clockwise?: boolean } = {}): Brain => ({ kind: PLAYSET_BRAIN.ORBIT, p: common(o, [o.clockwise ? -1 : 1]) }),
   /** Ambles about its spawn point; `leash` pulls it home. */
