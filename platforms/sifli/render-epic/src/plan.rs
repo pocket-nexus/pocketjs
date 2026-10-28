@@ -226,7 +226,7 @@ fn cpu(op: &Op<'_>) -> PlanItem {
     PlanItem::Cpu {
         at: op.offset,
         len: op.words.len(),
-        clip: op.clip,
+        clip: op.bounds,
     }
 }
 

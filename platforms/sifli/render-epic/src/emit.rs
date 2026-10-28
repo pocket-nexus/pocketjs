@@ -16,7 +16,7 @@ use pocket_spec as spec;
 use crate::caps::Capabilities;
 use crate::cmd::{Cmd, Corners, Filter, MaskId, MaskRef, Mirror, TexSrc, TileId, MODULATE_NONE};
 use crate::executor::Executor;
-use crate::geom::{channels, pack_wh, pack_xy, physical_rect, Clip, Point, Rect};
+use crate::geom::{channels, logical_rect, pack_wh, pack_xy, physical_rect, Clip, Point, Rect};
 use crate::mask::{alpha_quad_into_mask, composite_glyph_run, fill_mask_window};
 use crate::plan::PlanItem;
 use crate::quad::{axis_aligned_texture_rect, texture_source_rect};
@@ -278,13 +278,13 @@ impl<'r, E: Executor> Context<'r, E> {
                     logical,
                     clip,
                 } => {
-                    let logical = logical.intersect(region);
+                    let logical = logical.intersect(clip).intersect(region);
                     if logical.is_empty() {
                         continue;
                     }
                     let op = &words[at..at + 9];
                     if !self.tex_quad(op, handle, logical)? {
-                        self.push_cpu(words, at, 9, clip.intersect(region));
+                        self.push_cpu(words, at, 9, logical);
                     }
                 }
                 PlanItem::TriPair {
@@ -300,7 +300,7 @@ impl<'r, E: Executor> Context<'r, E> {
                         continue;
                     }
                     if !self.tri_pair(quad, color, bounds, axis_aligned)? {
-                        let clip = clip.intersect(region);
+                        let clip = clip.intersect(bounds);
                         self.push_cpu(words, at, 7, clip);
                         self.push_cpu(words, at + 7, 7, clip);
                     }
@@ -319,7 +319,7 @@ impl<'r, E: Executor> Context<'r, E> {
                         continue;
                     }
                     if !self.tex_tri_pair(handle, modulate, source_rect, quad, bounds)? {
-                        let clip = clip.intersect(region);
+                        let clip = clip.intersect(bounds);
                         self.push_cpu(words, at, 12, clip);
                         self.push_cpu(words, at + 12, 12, clip);
                     }
@@ -589,21 +589,35 @@ impl<'r, E: Executor> Context<'r, E> {
             return Some(false);
         };
         let modulate = op[8];
-        let destination = self.local(logical);
-        if destination.is_empty() {
+        let destination_clip = self.local(logical);
+        if destination_clip.is_empty() {
             return Some(true);
         }
-        if destination.area() < self.caps.thresholds.min_blit || !self.addressable(destination) {
+        if destination_clip.area() < self.caps.thresholds.min_blit
+            || !self.addressable(destination_clip)
+        {
             return Some(false);
         }
         let (_, _, _, alpha) = channels(modulate);
         if alpha == 0 {
             return Some(true);
         }
-        // A fractional texel edge is a sampling transform a blit cannot
-        // express; the op stays on the CPU rather than shifting its phase.
-        let Some((source_rect, mirror_x, mirror_y)) = texture_source_rect(&view, op, logical)
-        else {
+        // Damage and scissors restrict writes, not the sampling transform.
+        // Preserve the original source/destination when it fits the target;
+        // clipping a scaled quad's UVs can create fractional texel edges even
+        // though the complete quad is a valid hardware blit.
+        let original = logical_rect(op[2], op[3]);
+        let full_destination = self.local(original);
+        let full = (original.intersect(self.surface) == original
+            && self.addressable(full_destination))
+        .then(|| texture_source_rect(&view, op, original))
+        .flatten()
+        .map(|source| (source, full_destination));
+        // A larger or off-screen quad may still have an exact integral crop.
+        // Never round fractional UVs merely to make a blit fit.
+        let Some(((source_rect, mirror_x, mirror_y), destination)) = full.or_else(|| {
+            texture_source_rect(&view, op, logical).map(|source| (source, destination_clip))
+        }) else {
             return Some(false);
         };
         let Some(src) = self.blit_source(handle, &view, modulate, false, mirror_y)? else {
@@ -613,7 +627,7 @@ impl<'r, E: Executor> Context<'r, E> {
             src,
             src_rect: source_rect,
             dst: destination,
-            clip: destination,
+            clip: destination_clip,
             mirror: Mirror {
                 x: mirror_x,
                 y: mirror_y,

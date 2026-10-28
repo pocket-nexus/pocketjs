@@ -58,7 +58,9 @@ def PocketjsEmbed(name, path):
         with open(out, 'w') as handle:
             handle.write(text)
     objs = DefineGroup('PocketJS ' + name, [out], depend=[''])
-    Depends(objs, source)
+    # DefineGroup returns source nodes in the SDK. The .S text is unchanged
+    # when only .incbin bytes change, so attach that dependency to the object.
+    Depends(env.Object(objs), source)
     return objs
 
 
@@ -95,6 +97,12 @@ if GetDepend('POCKETJS'):
     if not GetOption('clean') and not os.path.isfile(archive):
         _fail('missing Rust archive ' + archive)
     env.AppendUnique(LINKFLAGS_POST=[archive])
+    # LINKFLAGS_POST is outside SCons' library scanner. Relink a program when
+    # Cargo updates this archive even if none of its C/assembly inputs changed.
+    def _runtime_dependency(target, source, env, archive=archive):
+        env.Depends(target, archive)
+        return target, source
+    env.Append(PROGEMITTER=[_runtime_dependency])
     pocketjs_runtime_archive = archive
     Export('pocketjs_runtime_archive')
 

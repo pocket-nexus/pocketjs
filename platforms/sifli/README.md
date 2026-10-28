@@ -56,6 +56,10 @@ alignment** as `pocketjs_<name>_data` with its length in the 32-bit
 `pocketjs_<name>_size`; programs embed the `.pocket` package and the `.epic`
 table with it.
 
+The embedded file is a dependency of its assembly **object**, so replacing
+package or texture bytes rebuilds the `.incbin` object. A program link also
+depends on the Rust archive even though it is passed through `LINKFLAGS_POST`.
+
 With `POCKETJS_RUST_FROM_SOURCE=y` the SConscript runs `cargo build --release
 --locked --no-default-features --target thumbv8m.main-none-eabihf` on
 `programs/sifli/archive` from the checkout root, so rustup selects the
@@ -91,12 +95,25 @@ threshold; otherwise it joins a CPU batch.
 | TRI pair, flat color | `Fill`/`FillAlpha` when upright, else a solid `BlitQuad` | unpaired, Gouraud colors |
 | SCISSOR, TEXT_RUN, SURFACE_QUAD | none | none |
 
+**Damage clips writes without changing a scaled texture's sampling map.**
+An on-screen quad within the coordinate limit keeps its original source and
+destination rectangles and passes damage/scissor bounds as `Blit.clip`.
+Fractional UVs introduced only by damage do not force CPU rendering. Larger
+or off-screen quads still need an integral source crop; source UVs are never
+rounded to make a hardware operation fit.
+
 **The CPU never writes a framebuffer.** A CPU batch renders with
 `engine/raster` into one of two SRAM tiles after `TileOut` copied the target
 band into it and a fence completed the copy; `TileIn` copies it back. A8 runs
 larger than a plane split into row bands, and a plane is rewritten only after
 a fence retired the blend that read it. Fills and bands split at
 `EPIC_COORDINATES_MAX` (**1010 on 55x/56x/58x, 505 on 52x/57x**).
+
+CPU texture and triangle fallbacks bound their copied tiles to their
+geometry, intersected with damage and scissors. Triangle fallback traverses the exact covered interval
+of each row and steps integer edge weights, preserving the rasterizer's
+pixel-center coverage and UV interpolation. This does not add a rotation
+command to 52x or enable VG Lite capabilities on that chip.
 
 The frame's last commands stay in flight after `render` returns; the next
 render, the coordinator's renderer wait or retirement completes them through
@@ -162,6 +179,21 @@ interrupt-driven transaction in flight**; a command for the other engine
 drains the one in use, and begin, fence and end drain both.
 
 ## Open on a board
+
+Host regression checks for damage, fallback pixels and triangle coverage:
+
+```sh
+cargo test --locked -p pocket-raster -p pocket-render-sifli-epic -p pocketjs-core
+cargo clippy --locked -p pocket-raster -p pocket-render-sifli-epic --all-targets --no-deps -- -D warnings
+```
+
+For a hardware clipping check, add `tests/clip_selftest.c` to the diagnostic
+program and call `pocket_sifli_epic_test_clip(epic, framebuffers[0],
+framebuffers[1], width, height)` after creating the executor, before starting
+the renderer. It repaints both buffers and compares every pixel of a clipped
+scaled alpha blit to a full blit, including supported mirror modes; pixels
+outside the clip must retain the background. It returns 0 on success and
+prints the first mismatch otherwise. This checks EPIC output without a panel.
 
 A link result is not a device run. Open:
 
