@@ -50,7 +50,7 @@ describe("engine/host-services link client", () => {
     scratch = mkdtempSync(join(tmpdir(), "pocket-host-services-"));
     binary = join(scratch, "harness");
     const compile = Bun.spawnSync([
-      "cc", "-std=gnu11", "-DPOCKETJS_WORKER_HTTP", "-O1", "-Wall", "-Wextra", "-fsanitize=address,undefined", `-I${SHARED}`,
+      "cc", "-std=gnu11", "-DPOCKETJS_WORKER_HTTP", "-O1", "-Wall", "-Wextra", "-fsanitize=address,undefined", `-I${SHARED}`, `-I${join(ROOT, "engine/worker/include")}`,
       join(ROOT, "tests/fixtures/host-services-link.c"),
       ...["link.c", "link_http.c", "link_proto.c", "launcher.c", "jscan.c", "sha256.c"].map((file) => join(SHARED, file)),
       "-o", binary,

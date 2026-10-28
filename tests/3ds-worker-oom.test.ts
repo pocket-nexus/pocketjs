@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-test.skipIf(!process.env.POCKET_WORKER_QUICKJS_SOURCE)("3DS worker propagates namespace and channel allocation failures", () => {
+test.skipIf(!process.env.POCKET_WORKER_QUICKJS_SOURCE)("3DS worker console mount propagates allocation failures", () => {
   const root = resolve(import.meta.dir, "..");
   const source = resolve(process.env.POCKET_WORKER_QUICKJS_SOURCE!);
   const output = resolve(root, ".pocket-build/validation/worker/network/oom");

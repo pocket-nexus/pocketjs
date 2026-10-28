@@ -43,9 +43,10 @@ function wrapper. The worker owns its global namespace; omitting the wrapper
 avoids a retained whole-bundle function source copy in QuickJS.
 **Package section 8 contains the
 NUL-terminated worker bundle.** The host evaluates this section in the worker
-runtime. The worker compiler accepts `worker`, `io`, `io/i2c`, `clock`, `fs` and
-`db` imports from `@pocketjs/framework`; host module mounts determine whether
-`fs` and `db` are available. UI framework imports are rejected.
+runtime. The worker compiler accepts the `@pocketjs/framework` subpaths whose
+row in `framework/compiler/subpaths.ts` sets `worker: true`: `worker`, `io`,
+`io/i2c`, `clock` and `fs`. The host's worker mount determines whether `fs` is
+available. UI framework imports are rejected.
 
 ```ts
 import { io } from "@pocketjs/framework/io";
@@ -165,8 +166,8 @@ QuickJS facts and SDK views allocate objects during a turn. The current runner
 disables threshold-triggered GC but does not provide an allocation-free hot
 path or a measured 1 ms control-loop guarantee. On 3DS, a package with a worker
 and `data.fs` mounts the filesystem in the worker and removes the UI mount.
-Other hosts must supply their `fs`/`db` implementations through the worker
-mount callback before admitting those modules in that domain.
+Other hosts must supply their `fs` implementation through the worker mount
+callback before admitting that module in that domain.
 
 ## Validation
 

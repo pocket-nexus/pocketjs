@@ -29,7 +29,9 @@
 
 #include "link.h"
 #include "link_proto.h"
+#ifdef POCKETJS_WORKER_HTTP
 #include "link_http.h"
+#endif
 
 #include <stdio.h>
 

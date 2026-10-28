@@ -5,10 +5,14 @@
 #include <stdint.h>
 /* The system Link owner calls every function in this interface. Cross-task
  * callers use the worker provider mailbox; this module does not lock Link. */
+#include "pocket/worker_protocol.h"
 #define LINK_HTTP_SLOTS 2
-#define LINK_HTTP_CHUNK 1024
+/* One block fills one worker event slot. Facts carry the protocol's kinds
+ * (POCKET_WORKER_HEADERS, POCKET_WORKER_DATA, POCKET_WORKER_END) and
+ * statuses, so the worker provider passes them to pocket_worker_emit and
+ * pocket_worker_finish unchanged. */
+#define LINK_HTTP_CHUNK POCKET_WORKER_MAX_PAYLOAD
 #define LINK_HTTP_WINDOW (8 * LINK_HTTP_CHUNK)
-enum { LINK_HTTP_HEADERS = 8, LINK_HTTP_DATA = 3, LINK_HTTP_END = 4 };
 typedef struct {
   uint32_t kind;
   int32_t status;
@@ -16,7 +20,6 @@ typedef struct {
   const uint8_t *bytes;
   size_t length;
 } LinkHttpFact;
-bool link_http_available(void);
 /* Pure descriptor validation; callable before transport admission. */
 bool link_http_validate(const uint8_t *descriptor, size_t length);
 /* descriptor: JSON {url,method?,headers?,body?:UTF8

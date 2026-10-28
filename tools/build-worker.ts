@@ -3,13 +3,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Script } from "node:vm";
 import { workerDeclarationSchema, type WorkerDeclaration } from "../contracts/spec/worker.ts";
+import { SUBPATHS } from "../framework/compiler/subpaths.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const modules: Record<string, string> = {
-  worker: "framework/src/worker.ts", io: "framework/src/io.ts", "io/i2c": "framework/src/io/i2c.ts",
-  clock: "framework/src/clock.ts", fs: "framework/src/fs-api.ts", db: "framework/src/db-api.ts",
-};
+/** The worker import allowlist: the subpath registry rows marked `worker`. */
+const modules: Record<string, string> = Object.fromEntries(Object.entries(SUBPATHS).flatMap(([name, decl]) => {
+  if (!decl.worker) return [];
+  if (typeof decl.file !== "string") throw new Error(`subpaths: worker row "${name}" needs one file for every framework`);
+  return [[name, decl.file]];
+}));
 
 /** One classic script for one independently owned runtime. */
 export async function buildWorker(options: {

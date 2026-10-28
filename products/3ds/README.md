@@ -495,8 +495,10 @@ pump.
   a 5 ms turn limit and a 10 ms runtime quota per 20 ms window. Shutdown joins
   the worker before freeing package bytes. Worker `console` output uses the
   libctru debug-output service. For worker packages, `data.fs` is mounted only
-  in the worker realm; teardown joins that realm before unbinding its filesystem. This host has no
-  `db` backend and does not provide a wall-clock mirror. **HTTP transport service
+  in the worker realm; teardown joins that realm before unbinding its filesystem.
+  The UI realm reads worker channels through the shared bridge in
+  `engine/worker/src/quickjs_ui.c`, attached after worker bootstrap and detached
+  before the worker stops. This host does not provide a wall-clock mirror. **HTTP transport service
   retains the system Link frame cadence**; the worker scheduler does not run
   from the UI tick. Real-time network latency is not claimed.
 - **Installs.** `link.install(appId)` streams into

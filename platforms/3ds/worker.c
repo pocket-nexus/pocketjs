@@ -29,12 +29,6 @@ typedef struct {
   pocket_worker_node node;
   int32_t (*mount)(JSContext *);
   HttpResource resources[LINK_HTTP_SLOTS];
-  struct {
-    bool configured, snapshot;
-    uint32_t count;
-    size_t lengths[8];
-    uint8_t bytes[8][POCKET_WORKER_MAX_PAYLOAD];
-  } mirrors[POCKET_WORKER_MAX_CHANNELS];
   char error[512];
 } Worker;
 static Worker *active;
@@ -162,7 +156,7 @@ void pocket_3ds_worker_service(void) {
     }
     LinkHttpFact fact;
     while (r->link_id && link_http_peek(r->link_id, &fact)) {
-      if (fact.kind == LINK_HTTP_END) {
+      if (fact.kind == POCKET_WORKER_END) {
         pocket_worker_finish(w->core, r->handle, r->request, fact.status,
                              fact.offset);
         link_http_consume(r->link_id);
@@ -173,7 +167,7 @@ void pocket_3ds_worker_service(void) {
                              fact.offset, fact.bytes,
                              fact.length) != POCKET_WORKER_OK)
         break;
-      if (fact.kind == LINK_HTTP_DATA)
+      if (fact.kind == POCKET_WORKER_DATA)
         r->delivered = fact.offset + fact.length;
       link_http_consume(r->link_id);
     }
@@ -358,119 +352,6 @@ const char *pocket_3ds_worker_error(void) {
   return active ? (atomic_load(&active->stopping) ? active->error : "")
                 : last_error;
 }
-
-static JSValue ui_channel(JSContext *ctx, JSValueConst self, int argc,
-                          JSValueConst *argv, int magic) {
-  (void)self;
-  Worker *w = active;
-  uint32_t id = 0;
-  if (!w || atomic_load(&w->stopping) || argc < 1 ||
-      JS_ToUint32(ctx, &id, argv[0]) || id < 1 ||
-      id > POCKET_WORKER_MAX_CHANNELS)
-    return JS_ThrowTypeError(ctx, "invalid worker channel");
-  if (magic == 0) {
-    if (argc < 2)
-      return JS_ThrowTypeError(ctx, "channel configuration missing");
-    w->mirrors[id - 1].configured = true;
-    w->mirrors[id - 1].snapshot = JS_ToBool(ctx, argv[1]) > 0;
-    return JS_NewInt32(ctx, POCKET_WORKER_OK);
-  }
-  if (magic == 1) {
-    if (argc < 2)
-      return JS_ThrowTypeError(ctx, "channel bytes missing");
-    size_t offset = 0, length = 0, element = 0;
-    JSValue buffer =
-        JS_GetTypedArrayBuffer(ctx, argv[1], &offset, &length, &element);
-    if (JS_IsException(buffer))
-      return buffer;
-    size_t capacity = 0;
-    uint8_t *bytes = JS_GetArrayBuffer(ctx, &capacity, buffer);
-    int32_t result = POCKET_WORKER_INVALID;
-    if ((bytes || !length) && offset <= capacity && length <= capacity - offset)
-      result = pocket_worker_receive(w->core, id, bytes ? bytes + offset : NULL,
-                                     length);
-    JS_FreeValue(ctx, buffer);
-    return JS_NewInt32(ctx, result);
-  }
-  JSValue result = JS_NewArray(ctx);
-  if (JS_IsException(result))
-    return result;
-  for (uint32_t i = 0; i < w->mirrors[id - 1].count; ++i) {
-    JSValue buffer = JS_NewArrayBufferCopy(ctx, w->mirrors[id - 1].bytes[i],
-                                           w->mirrors[id - 1].lengths[i]);
-    if (JS_IsException(buffer)) {
-      JS_FreeValue(ctx, result);
-      return buffer;
-    }
-    JSValue args[3] = {buffer, JS_UNDEFINED, JS_UNDEFINED};
-    JSValue bytes = JS_NewTypedArray(ctx, 3, args, JS_TYPED_ARRAY_UINT8);
-    JS_FreeValue(ctx, buffer);
-    if (JS_IsException(bytes) ||
-        JS_SetPropertyUint32(ctx, result, i, bytes) < 0) {
-      JS_FreeValue(ctx, result);
-      return JS_EXCEPTION;
-    }
-  }
-  return result;
-}
-int32_t pocket_3ds_worker_mount_ui(JSContext *ctx) {
-  JSValue object = JS_NewObject(ctx), global = JS_GetGlobalObject(ctx);
-  if (JS_IsException(object)) {
-    JS_FreeValue(ctx, global);
-    return POCKET_WORKER_FAILED;
-  }
-  const char *names[] = {"configure", "publish", "observe"};
-  for (int i = 0; i < 3; ++i) {
-    JSValue fn = JS_NewCFunctionMagic(ctx, ui_channel, names[i], i == 2 ? 1 : 2,
-                                     JS_CFUNC_generic_magic, i);
-    if (JS_IsException(fn) || JS_SetPropertyStr(ctx, object, names[i], fn) < 0) {
-      JS_FreeValue(ctx, object);
-      JS_FreeValue(ctx, global);
-      return POCKET_WORKER_FAILED;
-    }
-  }
-  int result = JS_SetPropertyStr(ctx, global, "__pocketWorkerChannels", object);
-  JS_FreeValue(ctx, global);
-  return result < 0 ? POCKET_WORKER_FAILED : POCKET_WORKER_OK;
-}
-int32_t pocket_3ds_worker_latch_ui(JSContext *ctx) {
-  Worker *w = active;
-  if (!w || atomic_load(&w->stopping))
-    return 0;
-  for (uint32_t i = 0; i < POCKET_WORKER_MAX_CHANNELS; ++i) {
-    if (!w->mirrors[i].configured)
-      continue;
-    if (!w->mirrors[i].snapshot)
-      w->mirrors[i].count = 0;
-    for (uint32_t n = 0; n < 8; ++n) {
-      uint32_t slot = w->mirrors[i].snapshot ? 0 : w->mirrors[i].count;
-      if (slot >= 8)
-        break;
-      int32_t count = pocket_worker_channel_take(
-          w->core, i + 1, w->mirrors[i].bytes[slot], POCKET_WORKER_MAX_PAYLOAD);
-      if (count < 0)
-        break;
-      w->mirrors[i].lengths[slot] = (size_t)count;
-      w->mirrors[i].count = slot + 1;
-    }
-  }
-  JSValue global = JS_GetGlobalObject(ctx),
-          callback =
-              JS_GetPropertyStr(ctx, global, "__pocketWorkerChannelFrame");
-  if (JS_IsException(callback)) {
-    JS_FreeValue(ctx, global);
-    return -1;
-  }
-  if (JS_IsFunction(ctx, callback)) {
-    JSValue result = JS_Call(ctx, callback, global, 0, NULL);
-    if (JS_IsException(result)) {
-      JS_FreeValue(ctx, callback);
-      JS_FreeValue(ctx, global);
-      return -1;
-    }
-    JS_FreeValue(ctx, result);
-  }
-  JS_FreeValue(ctx, callback);
-  JS_FreeValue(ctx, global);
-  return 0;
+pocket_worker *pocket_3ds_worker_core(void) {
+  return active ? active->core : NULL;
 }

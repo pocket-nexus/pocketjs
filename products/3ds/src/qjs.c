@@ -15,6 +15,7 @@
 #include "wifi.h"
 #include "worker.h"
 #include "pocket/worker.h"
+#include "pocket/worker_ui.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -130,6 +131,9 @@ static size_t *boot_compiled_length;
 /* The mounted tree waits for the first qjs_frame to present it. */
 static bool first_present;
 static bool boot_has_worker;
+/* Mirrors the worker's channels into this realm; detached before either
+ * the worker core or this context is destroyed. */
+static pocket_worker_ui *ui_bridge;
 
 static void set_error(const char *message) {
   size_t length = message == NULL ? 0 : strlen(message);
@@ -679,8 +683,15 @@ static int32_t install_host(void) {
     add_operation(net, "lastError", 0, HostNetLastError);
     JS_SetPropertyStr(context, global, "net", net);
   }
-  if (boot_has_worker && pocket_3ds_worker_mount_ui(context) != POCKET_WORKER_OK)
-    return POCKET_WORKER_FAILED;
+  /* The worker declared its channels during bootstrap, before this realm
+   * evaluates its bundle. */
+  if (boot_has_worker) {
+    ui_bridge = pocket_worker_ui_attach(context, pocket_3ds_worker_core());
+    if (!ui_bridge) {
+      set_error("worker channel bridge attachment failed");
+      return POCKET_WORKER_FAILED;
+    }
+  }
 
   JSValue wifi = JS_NewObject(context);
   add_operation(wifi, "status", 0, HostWifiStatus);
@@ -913,7 +924,7 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
     return false;
   if (boot_has_worker) {
     if (pocket_3ds_worker_error()[0]) { set_error(pocket_3ds_worker_error()); return false; }
-    if (pocket_3ds_worker_latch_ui(context) < 0) { take_exception(); return false; }
+    if (pocket_worker_ui_latch(ui_bridge) < 0) { take_exception(); return false; }
   }
   /* The frame after boot shows the mounted tree; the guest's first turn
    * follows at the next one. */
@@ -930,6 +941,10 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
 }
 const char *qjs_last_error(void) { return last_error; }
 void qjs_shutdown(void) {
+  if (ui_bridge) {
+    pocket_worker_ui_detach(ui_bridge);
+    ui_bridge = NULL;
+  }
   pocket_3ds_worker_stop();
   instance_destroy();
   instance = NULL;

@@ -212,12 +212,12 @@ int main(int argc, char **argv) {
     if (i>100 && i%3==0) {
       LinkHttpFact fact;
       if (link_http_peek((uint32_t)handle,&fact)) {
-        if (fact.kind==LINK_HTTP_HEADERS) {if (head || streamed) return 7;head=true;}
-        else if (fact.kind==LINK_HTTP_DATA) {
+        if (fact.kind==POCKET_WORKER_HEADERS) {if (head || streamed) return 7;head=true;}
+        else if (fact.kind==POCKET_WORKER_DATA) {
           if (!head || fact.offset!=streamed) return 8;
           for (size_t j=0;j<fact.length;++j) if (fact.bytes[j]!=(uint8_t)((streamed+j)*31+7)) return 9;
           streamed+=fact.length;
-        } else if (fact.kind==LINK_HTTP_END) {
+        } else if (fact.kind==POCKET_WORKER_END) {
           if (!head || fact.status || fact.offset!=streamed) return 10;
           ended=true;
         }

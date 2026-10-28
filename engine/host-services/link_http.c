@@ -113,7 +113,9 @@ int32_t link_http_start(const uint8_t *descriptor, size_t length) {
   uint32_t id = link_new_stream();
   if (!id)
     return -1;
-  jbuf_text(&out, "{\"t\":\"net\",\"stream\":true,\"credit\":8192,\"id\":");
+  jbuf_text(&out, "{\"t\":\"net\",\"stream\":true,\"credit\":");
+  jbuf_u64(&out, LINK_HTTP_WINDOW);
+  jbuf_text(&out, ",\"id\":");
   jbuf_u64(&out, id);
   jbuf_text(&out, ",\"app\":");
   jbuf_cstring(&out, launcher_current_app_id());
@@ -145,7 +147,7 @@ int32_t link_http_start(const uint8_t *descriptor, size_t length) {
   r->deadline = services_host_ms() + timeout + 5000;
   if (body_length && !link_send_data(id, (const uint8_t *)body, body_length)) {
     control(id, "net.cancel", 0);
-    finish(r, -3);
+    finish(r, POCKET_WORKER_UNKNOWN);
   }
   return (int32_t)id;
 }
@@ -163,7 +165,7 @@ bool link_http_ctrl(const char *type, uint32_t id, const char *json,
     if (r->started || !json_find_u64(object, "status", &status) ||
         status < 100 || status > 599 || !json_find(object, "url", &url) ||
         !json_find(object, "headers", &headers) || !json_is_object(headers)) {
-      finish(r, -1);
+      finish(r, POCKET_WORKER_FAILED);
       control(id, "net.cancel", 0);
       return true;
     }
@@ -177,7 +179,7 @@ bool link_http_ctrl(const char *type, uint32_t id, const char *json,
     jbuf_text(&head, "}");
     if (!jbuf_cstr(&head)) {
       jbuf_free(&head);
-      finish(r, -1);
+      finish(r, POCKET_WORKER_FAILED);
       control(id, "net.cancel", 0);
       return true;
     }
@@ -190,10 +192,10 @@ bool link_http_ctrl(const char *type, uint32_t id, const char *json,
     uint64_t bytes;
     finish(r, r->started && json_find_u64(object, "bytes", &bytes) &&
                       bytes == r->received
-                  ? 0
-                  : -1);
+                  ? POCKET_WORKER_OK
+                  : POCKET_WORKER_FAILED);
   } else if (!strcmp(type, "net.error")) {
-    finish(r, -3);
+    finish(r, POCKET_WORKER_UNKNOWN);
   }
   return true;
 }
@@ -205,7 +207,7 @@ bool link_http_data(uint32_t id, const uint8_t *bytes, size_t length) {
     return true;
   if (!r->started || !length || length > LINK_HTTP_CHUNK ||
       length > r->max_bytes - r->received) {
-    finish(r, -1);
+    finish(r, POCKET_WORKER_FAILED);
     control(id, "net.cancel", 0);
     return true;
   }
@@ -217,7 +219,7 @@ bool link_http_data(uint32_t id, const uint8_t *bytes, size_t length) {
       slot = (r->head + r->count - 1) % 8;
     } else {
       if (r->count == 8) {
-        finish(r, -1);
+        finish(r, POCKET_WORKER_FAILED);
         control(id, "net.cancel", 0);
         return true;
       }
@@ -239,7 +241,7 @@ bool link_http_peek(uint32_t id, LinkHttpFact *fact) {
     return false;
   *fact = (LinkHttpFact){0};
   if (r->headers) {
-    fact->kind = LINK_HTTP_HEADERS;
+    fact->kind = POCKET_WORKER_HEADERS;
     fact->bytes = r->header;
     fact->length = r->header_length;
     return true;
@@ -248,14 +250,14 @@ bool link_http_peek(uint32_t id, LinkHttpFact *fact) {
     uint64_t waiting = 0;
     for (uint32_t i = 0; i < r->count; ++i)
       waiting += r->chunks[(r->head + i) % 8].length;
-    fact->kind = LINK_HTTP_DATA;
+    fact->kind = POCKET_WORKER_DATA;
     fact->bytes = r->chunks[r->head].bytes;
     fact->length = r->chunks[r->head].length;
     fact->offset = r->received - waiting;
     return true;
   }
   if (r->terminal) {
-    fact->kind = LINK_HTTP_END;
+    fact->kind = POCKET_WORKER_END;
     fact->status = r->status;
     fact->offset = r->received;
     return true;
@@ -290,7 +292,7 @@ void link_http_pump(void) {
       continue;
     if (services_host_ms() > r->deadline) {
       control(r->id, "net.cancel", 0);
-      finish(r, -3);
+      finish(r, POCKET_WORKER_UNKNOWN);
     } else if (r->credit && control(r->id, "net.credit", r->credit))
       r->credit = 0;
   }
@@ -298,7 +300,7 @@ void link_http_pump(void) {
 void link_http_disconnected(void) {
   for (size_t i = 0; i < LINK_HTTP_SLOTS; ++i)
     if (requests[i].id)
-      finish(&requests[i], -3);
+      finish(&requests[i], POCKET_WORKER_UNKNOWN);
 }
 void link_http_reset(void) {
   for (size_t i = 0; i < LINK_HTTP_SLOTS; ++i)

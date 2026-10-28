@@ -2,8 +2,8 @@
 
 `worker.c` owns bounded resources and copies between host tasks. `quickjs.c`
 owns a second QuickJS runtime and invokes `__pocketWorkerTurn(context, facts)`.
-The worker has no `ui` namespace. A host can mount its worker-owned `fs`, `db`
-and `console` implementations through `pocket_worker_quickjs_config.mount`.
+The worker has no `ui` namespace. A host can mount its worker-owned `fs` and
+`console` implementations through `pocket_worker_quickjs_config.mount`.
 
 ## Host integration
 

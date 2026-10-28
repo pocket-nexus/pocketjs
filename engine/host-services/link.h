@@ -62,6 +62,10 @@ void link_net_cancel(int32_t handle);
 const char *link_net_poll(void);
 const char *link_net_last_error(void);
 
+/* The link is up and the companion advertised net.stream; link_http.c
+ * checks this before starting a stream. */
+bool link_http_available(void);
+
 /* The agent channel (contracts/spec/agent.ts). Ready when the
  * link is up and the companion offered the "agent" feature. The send calls
  * queue whole frames or nothing; false means no room (or no link) now. */

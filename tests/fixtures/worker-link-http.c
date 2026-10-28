@@ -23,14 +23,14 @@ int main(void) {
   for (size_t i=0;i<LINK_HTTP_WINDOW;++i) {uint8_t byte=(uint8_t)i;assert(link_http_data((uint32_t)id,&byte,1));}
   link_http_disconnected();
   LinkHttpFact fact;
-  assert(link_http_peek((uint32_t)id,&fact) && fact.kind==LINK_HTTP_HEADERS);
+  assert(link_http_peek((uint32_t)id,&fact) && fact.kind==POCKET_WORKER_HEADERS);
   link_http_consume((uint32_t)id);
   for (size_t i=0;i<8;++i) {
-    assert(link_http_peek((uint32_t)id,&fact) && fact.kind==LINK_HTTP_DATA && fact.length==1024 && fact.offset==i*1024);
+    assert(link_http_peek((uint32_t)id,&fact) && fact.kind==POCKET_WORKER_DATA && fact.length==1024 && fact.offset==i*1024);
     for (size_t j=0;j<fact.length;++j) assert(fact.bytes[j]==(uint8_t)j);
     link_http_consume((uint32_t)id);
   }
-  assert(link_http_peek((uint32_t)id,&fact) && fact.kind==LINK_HTTP_END && fact.status==-3 && fact.offset==8192);
+  assert(link_http_peek((uint32_t)id,&fact) && fact.kind==POCKET_WORKER_END && fact.status==POCKET_WORKER_UNKNOWN && fact.offset==8192);
   link_http_consume((uint32_t)id);assert(!link_http_peek((uint32_t)id,&fact));
   int32_t next=link_http_start((const uint8_t *)config,sizeof config-1);assert(next>id);
   assert(!link_http_data((uint32_t)id,(const uint8_t *)"x",1));
@@ -41,11 +41,11 @@ int main(void) {
   assert(link_http_data((uint32_t)next,(const uint8_t *)"abc",3));
   assert(link_http_data((uint32_t)next,(const uint8_t *)"x",1));
   assert(strstr(last,"net.cancel"));
-  assert(link_http_peek((uint32_t)next,&fact) && fact.kind==LINK_HTTP_HEADERS);
+  assert(link_http_peek((uint32_t)next,&fact) && fact.kind==POCKET_WORKER_HEADERS);
   link_http_consume((uint32_t)next);
-  assert(link_http_peek((uint32_t)next,&fact) && fact.kind==LINK_HTTP_DATA && fact.length==3 && fact.offset==0);
+  assert(link_http_peek((uint32_t)next,&fact) && fact.kind==POCKET_WORKER_DATA && fact.length==3 && fact.offset==0);
   link_http_consume((uint32_t)next);
-  assert(link_http_peek((uint32_t)next,&fact) && fact.kind==LINK_HTTP_END && fact.status==-1 && fact.offset==3);
+  assert(link_http_peek((uint32_t)next,&fact) && fact.kind==POCKET_WORKER_END && fact.status==POCKET_WORKER_FAILED && fact.offset==3);
   link_http_consume((uint32_t)next);
   puts("link HTTP window, terminal reservation, response limit and stale ids pass");
   return 0;

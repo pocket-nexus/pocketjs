@@ -47,7 +47,7 @@ test("native Link stream preserves a full byte window and its disconnect termina
   const mkdir = Bun.spawnSync(["mkdir", "-p", directory]);
   expect(mkdir.exitCode).toBe(0);
   const compile = Bun.spawnSync(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
-    `-I${root}engine/host-services`, `${root}tests/fixtures/worker-link-http.c`,
+    `-I${root}engine/host-services`, `-I${root}engine/worker/include`, `${root}tests/fixtures/worker-link-http.c`,
     `${root}engine/host-services/link_http.c`, `${root}engine/host-services/jscan.c`, "-o", `${directory}/link-http-test`]);
   expect(compile.exitCode, compile.stderr.toString()).toBe(0);
   const run = Bun.spawnSync([`${directory}/link-http-test`]);
