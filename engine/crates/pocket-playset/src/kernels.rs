@@ -51,6 +51,8 @@ pub fn on_spawn(w: &mut World, scene: &Scene, slot: usize, arch: usize) {
         M::PLANE => {
             let s = maxf(p(w, arch, 0), p(w, arch, 0) * 0.5 + p(w, arch, 1) * 0.5);
             w.set(slot, E::SPEED, s);
+            // banked mode: k[2] throttle, k[3] boosting, k[4] boost left, k[5] boost held
+            w.s[slot].k[2] = clampf(p(w, arch, 19), 0.0, 1.0);
         }
         M::BOAT | M::CAR => {}
         _ => {}
@@ -366,7 +368,103 @@ fn boat(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
     w.set(slot, E::SPEED, vf);
 }
 
+/// `1 - e^(-dt / lag)`: GameBlocks' smoothingAlpha.
+#[inline]
+fn lag_alpha(lag: f32, dt: f32) -> f32 {
+    if lag <= 0.0 {
+        1.0
+    } else {
+        1.0 - expf(-dt / lag)
+    }
+}
+
+/// The banked plane (MOTION_P 10 = 1): GameBlocks' AirplaneMotionController.
+/// TURN holds a bank angle and the bank turns the heading; RISE pitches the
+/// flight path; X yaws directly (a rudder); FWD moves a throttle that sets
+/// the cruise speed; AUX starts a boost on its press.
+///
+/// MOTION_P: 0 min speed, 1 max speed, 3 pitch rate, 5 rudder yaw rate,
+/// 6 bank turn rate, 9 clearance over the ground, 11 throttle rate, 12 speed
+/// lag, 13 boost speed lag, 14 max bank, 15 bank lag, 16 bank turn reference
+/// roll, 17 boost seconds, 18 boost multiplier, 19 initial throttle, 20 floor
+/// height (0 = none), 21 least pitch on the floor.
+fn plane_banked(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
+    let (min_s, max_s, pitch_rate, yaw_rate, bank_turn, clearance) = (p(w, arch, 0), p(w, arch, 1), p(w, arch, 3), p(w, arch, 5), p(w, arch, 6), p(w, arch, 9));
+    let or = |v: f32, d: f32| if v > 0.0 { v } else { d };
+    let throttle_rate = or(p(w, arch, 11), 0.42);
+    let speed_lag = or(p(w, arch, 12), 0.56);
+    let boost_lag = or(p(w, arch, 13), 0.26);
+    let max_bank = or(p(w, arch, 14), 1.1868);
+    let bank_lag = or(p(w, arch, 15), 0.21);
+    let turn_ref = or(p(w, arch, 16), 0.9774);
+    let boost_time = or(p(w, arch, 17), 1.7);
+    let boost_mult = or(p(w, arch, 18), 1.28);
+    let (floor_abs, floor_pitch) = (p(w, arch, 20), p(w, arch, 21));
+    let pitch_in = clampf(w.intent(slot, I::RISE), -1.0, 1.0);
+    let bank_in = clampf(w.intent(slot, I::TURN), -1.0, 1.0);
+    let rudder = clampf(w.intent(slot, I::X), -1.0, 1.0);
+    let throttle_in = w.intent(slot, I::FWD);
+    let boost_held = w.intent(slot, I::AUX) > 0.5;
+    let k = &mut w.s[slot].k;
+    if throttle_in > 0.0 {
+        k[2] = minf(1.0, k[2] + throttle_rate * dt);
+    } else if throttle_in < 0.0 {
+        k[2] = maxf(0.0, k[2] - throttle_rate * dt);
+    }
+    if k[4] > 0.0 {
+        k[4] -= dt;
+        if k[4] <= 0.0 {
+            k[4] = 0.0;
+            k[3] = 0.0;
+        }
+    }
+    if boost_held {
+        if k[5] < 0.5 && k[3] < 0.5 {
+            k[3] = 1.0;
+            k[4] = boost_time;
+        }
+        k[5] = 1.0;
+    } else {
+        k[5] = 0.0;
+    }
+    let boosting = k[3] > 0.5;
+    let cruise = min_s + k[2] * (max_s - min_s);
+    let target = if boosting { max_s * boost_mult } else { cruise };
+    let mut speed = w.e(slot, E::SPEED);
+    speed += (target - speed) * lag_alpha(if boosting { boost_lag } else { speed_lag }, dt);
+    let effect = if speed > min_s || min_s <= 0.0 { 1.0 } else { speed / min_s };
+    let mut pitch = w.e(slot, E::PITCH) + pitch_in * pitch_rate * dt * effect;
+    // the controller's roll is positive to the right; ENT.ROLL is positive to the left
+    let mut bank = clampf(-w.e(slot, E::ROLL), -max_bank, max_bank);
+    bank += (bank_in * max_bank - bank) * lag_alpha(bank_lag, dt);
+    let mut yaw = w.e(slot, E::YAW);
+    yaw += clampf(-bank / turn_ref, -1.0, 1.0) * bank_turn * dt * effect;
+    yaw -= rudder * yaw_rate * dt;
+    let fwd = Mat34::from_ypr(Vec3::ZERO, yaw, pitch, 0.0, 1.0).vector(v3(0.0, 0.0, -1.0));
+    let mut pos = w.pos(slot) + fwd * (speed * dt);
+    let mut floor = scene.ground_height(pos.x, pos.z) + clearance;
+    if floor_abs != 0.0 {
+        floor = maxf(floor, floor_abs);
+    }
+    if pos.y < floor {
+        pos.y = floor;
+        pitch = maxf(pitch, floor_pitch);
+    }
+    let pitch = wrap_angle(pitch);
+    let yaw = wrap_angle(yaw);
+    w.s[slot].quat = Quat::from_ypr(yaw, pitch, -bank);
+    w.set_pos(slot, pos);
+    w.set_vel(slot, fwd * speed);
+    w.set(slot, E::YAW, yaw);
+    w.set(slot, E::PITCH, pitch);
+    w.set(slot, E::ROLL, -bank);
+    w.set(slot, E::SPEED, speed);
+}
+
 fn plane(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
+    if p(w, arch, 10) > 0.5 {
+        return plane_banked(w, scene, slot, arch, dt);
+    }
     let (min_s, max_s, accel, pitch_rate, roll_rate, yaw_rate, bank_turn, level, gfx, min_alt) = (
         p(w, arch, 0),
         p(w, arch, 1),
