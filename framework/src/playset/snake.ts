@@ -4,14 +4,19 @@
 // The module owns the board: every snake's cells, a slot per segment (a head
 // archetype and a body archetype), food slots, the tick, collisions and the
 // flood-fill + BFS planner that steers AI snakes. It runs after the world's
-// step and reports EVENT.EAT (a = head slot, b = food slot, DATA = snake,
-// VALUE = length with the growth still to come) and EVENT.CRASH (a = head
-// slot, b = the slot it ran into or -1, DATA = snake, VALUE = SNAKE_CRASH).
+// step and reports SNAKE_EVENT.EAT (a = head slot, b = food slot, DATA =
+// snake, VALUE = length with the growth still to come) and SNAKE_EVENT.CRASH
+// (a = head slot, b = the slot it ran into or -1, DATA = snake, VALUE =
+// SNAKE_CRASH).
 //
 // Cell (right, forward) sits at origin + (right * cell, up, -forward * cell).
 // Every call below writes a preallocated argument array: none allocates.
 
+import { playsetModuleEvent } from "../../../contracts/spec/playset.ts";
 import { MODULE, type Archetype, type Playset } from "./index.ts";
+
+/** The module's events, for Playset.on(). */
+export const SNAKE_EVENT = { EAT: playsetModuleEvent(MODULE.SNAKE, 0), CRASH: playsetModuleEvent(MODULE.SNAKE, 1) } as const;
 
 export const SNAKE_OP = {
   BOARD: 1,
@@ -31,7 +36,7 @@ export const SNAKE_OP = {
 /** 0 up (+forward), 1 right, 2 down, 3 left. */
 export const SNAKE_DIR = { UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3 } as const;
 
-/** CRASH event VALUE. */
+/** SNAKE_EVENT.CRASH VALUE. */
 export const SNAKE_CRASH = { WALL: 0, SELF: 1, SNAKE: 2 } as const;
 
 /** `SnakeBoard.state()` fields. */

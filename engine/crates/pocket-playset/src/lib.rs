@@ -130,6 +130,7 @@ impl Playset {
         self.stats[S::PAIRS] = self.world.pairs as f32;
         self.stats[S::MODELS] = self.scene.models.len() as f32;
         self.stats[S::NODES] = self.scene.nodes.len() as f32;
+        self.world.step_events = self.world.event_count;
         self.world.event_count
     }
 

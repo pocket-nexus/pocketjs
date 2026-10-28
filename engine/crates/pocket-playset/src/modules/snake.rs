@@ -23,11 +23,17 @@
 
 use crate::fmath::*;
 use crate::scene::Scene;
-use crate::schema::{ent as E, event as EV};
+use crate::schema::ent as E;
 use crate::vec::*;
 use crate::world::{World, KILL_EFFECTS, KILL_SILENT};
 use alloc::vec;
 use alloc::vec::Vec;
+
+/// A snake ate: a = head slot, b = food slot, DATA = snake, VALUE = length.
+pub const EAT: u32 = super::event(crate::schema::module::SNAKE, 0);
+/// A snake died: a = head slot, b = the slot it hit or -1, DATA = snake,
+/// VALUE = the reason (WALL, SELF, SNAKE).
+pub const CRASH: u32 = super::event(crate::schema::module::SNAKE, 1);
 
 /// Call ops (framework/src/playset/snake.ts names them).
 pub mod op {
@@ -496,7 +502,7 @@ impl Snakes {
         s.alive = false;
         let head = s.slots.first().copied().unwrap_or(NO_SLOT);
         let p = self.world(self.snakes[i].cells[0], self.snakes[i].up);
-        w.emit_event(EV::CRASH, if head == NO_SLOT { -1 } else { head as i32 }, hit, i as f32, p, reason);
+        w.emit_event(CRASH, if head == NO_SLOT { -1 } else { head as i32 }, hit, i as f32, p, reason);
     }
 
     fn grid_tick(&mut self, w: &mut World, scene: &Scene) {
@@ -594,7 +600,7 @@ impl Snakes {
                     w.kill_mode(f.slot as usize, if hs == NO_SLOT { -1 } else { hs as i32 }, KILL_EFFECTS);
                 }
                 let p = self.world(head, self.food_up);
-                w.emit_event(EV::EAT, if hs == NO_SLOT { -1 } else { hs as i32 }, f.slot, i as f32, p, len);
+                w.emit_event(EAT, if hs == NO_SLOT { -1 } else { hs as i32 }, f.slot, i as f32, p, len);
             }
         }
         self.spawn_food(w, scene);
@@ -905,7 +911,7 @@ mod tests {
         call(&mut b.ps, op::RUN, &[1.0], &mut []);
         b.ps.step(1.0 / 60.0);
         let n = b.ps.step(1.0 / 60.0);
-        let eats = events(&b.ps, n, EV::EAT);
+        let eats = events(&b.ps, n, EAT);
         assert_eq!(eats.len(), 1);
         assert_eq!(eats[0][EF::B] as i32, fslot);
         assert_eq!(eats[0][EF::VALUE], 5.0);
@@ -925,7 +931,7 @@ mod tests {
         call(&mut b.ps, op::RUN, &[1.0], &mut []);
         b.ps.step(1.0 / 60.0);
         let n = b.ps.step(1.0 / 60.0);
-        let c = events(&b.ps, n, EV::CRASH);
+        let c = events(&b.ps, n, CRASH);
         assert_eq!(c.len(), 1);
         assert_eq!(c[0][EF::VALUE], crash::WALL);
         assert_eq!(state(&mut b.ps, 0.0)[state::ALIVE], 0.0);
@@ -945,7 +951,7 @@ mod tests {
         for d in [0.0, 3.0, 2.0] {
             call(&mut b.ps, op::TURN, &[0.0, d], &mut []);
             let n = b.ps.step(1.0 / 60.0);
-            if let Some(c) = events(&b.ps, n, EV::CRASH).first() {
+            if let Some(c) = events(&b.ps, n, CRASH).first() {
                 crashed = Some(c[EF::VALUE]);
             }
         }
@@ -957,7 +963,7 @@ mod tests {
         call(&mut b.ps, op::ADD, &[7.0, 5.0, 3.0, 3.0, b.head, b.body, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &mut []);
         call(&mut b.ps, op::RUN, &[1.0], &mut []);
         let n = b.ps.step(1.0 / 60.0);
-        let c = events(&b.ps, n, EV::CRASH);
+        let c = events(&b.ps, n, CRASH);
         assert_eq!(c.len(), 2);
         assert!(c.iter().all(|e| e[EF::VALUE] == crash::SNAKE));
     }
@@ -974,8 +980,8 @@ mod tests {
         let mut crashes = 0;
         for _ in 0..600 {
             let n = b.ps.step(1.0 / 60.0);
-            eaten += events(&b.ps, n, EV::EAT).len();
-            for c in events(&b.ps, n, EV::CRASH) {
+            eaten += events(&b.ps, n, EAT).len();
+            for c in events(&b.ps, n, CRASH) {
                 crashes += 1;
                 call(&mut b.ps, op::RESPAWN, &[c[EF::DATA], 0.0], &mut []);
             }
@@ -1078,7 +1084,7 @@ mod bench {
             let n = ps.step(1.0 / 60.0);
             ticks += 1;
             for e in 0..n {
-                if ps.world.events[e * 8] as u32 == EV::CRASH {
+                if ps.world.events[e * 8] as u32 == CRASH {
                     let i = ps.world.events[e * 8 + 3];
                     call(&mut ps, op::RESPAWN, &[i, 0.0]);
                 }

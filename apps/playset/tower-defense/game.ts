@@ -307,7 +307,7 @@ export class TowerDefense {
 
     play.on(EVENT.HIT, (shot, creep, rule, x, _y, z, damage) => this.onHit(rule, creep, x, z, damage));
     play.on(EVENT.DEATH, (slot, _killer, arch, x, y, z) => this.onDeath(slot, arch, x, y, z));
-    play.on(EVENT.GATE, (slot, _b, _gate, x, y, z) => this.onBreach(slot, x, y, z));
+    play.on(EVENT.ARRIVE, (slot, _b, _gate, x, y, z) => this.onBreach(slot, x, y, z));
     this.reset(true);
   }
 

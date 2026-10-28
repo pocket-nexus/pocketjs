@@ -21,6 +21,7 @@ pub const KILL_EFFECTS: u8 = 1;
 /// DEATH event and the death emitter.
 pub const KILL_EVENT: u8 = 2;
 pub const ARCH_LEN: usize = crate::schema::ARCH_LENGTH;
+use crate::schema::BEHAVIOUR_LENGTH;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Rule {
@@ -63,9 +64,14 @@ pub struct World {
     pub joint: Vec<f32>,
     pub events: Vec<f32>,
     pub event_count: usize,
+    /// records the last step wrote; those after it came from guest calls
+    /// between steps (a kill with its event) and carry into the next step
+    pub step_events: usize,
     pub events_dropped: u32,
     pub list: Vec<f32>,
     pub archs: Vec<[f32; ARCH_LEN]>,
+    /// the steering behaviour of each archetype (the floats after its descriptor)
+    pub behaviours: Vec<[f32; BEHAVIOUR_LENGTH]>,
     pub rules: Vec<Rule>,
     pub s: Vec<Slot>,
     pub live: Vec<u16>,
@@ -115,9 +121,11 @@ impl World {
             joint: vec![0.0; cap * crate::schema::stride::JOINT],
             events: vec![0.0; MAX_EVENTS * crate::schema::stride::EVENTS],
             event_count: 0,
+            step_events: 0,
             events_dropped: 0,
             list: vec![0.0; cap],
             archs: Vec::new(),
+            behaviours: Vec::new(),
             rules: Vec::new(),
             s: vec![Slot { owner: -1, parent: -1, last_hit_by: -1, quat: Quat::IDENTITY, ..Slot::default() }; cap],
             live: Vec::with_capacity(cap),
@@ -212,7 +220,21 @@ impl World {
             d[A::SCALE] = 1.0;
         }
         self.archs.push(d);
-        (self.archs.len() - 1) as i32
+        self.behaviours.push([0.0; BEHAVIOUR_LENGTH]);
+        let id = self.archs.len() - 1;
+        self.set_behaviour(id, desc);
+        id as i32
+    }
+
+    /// The behaviour that follows an archetype descriptor, if the guest sent one.
+    fn set_behaviour(&mut self, id: usize, desc: &[f32]) {
+        if desc.len() > ARCH_LEN {
+            let tail = &desc[ARCH_LEN..];
+            let n = tail.len().min(BEHAVIOUR_LENGTH);
+            let b = &mut self.behaviours[id];
+            *b = [0.0; BEHAVIOUR_LENGTH];
+            b[..n].copy_from_slice(&tail[..n]);
+        }
     }
 
     pub fn set_arch(&mut self, id: usize, desc: &[f32]) {
@@ -222,6 +244,9 @@ impl World {
             if d[A::SCALE] <= 0.0 {
                 d[A::SCALE] = 1.0;
             }
+        }
+        if id < self.archs.len() {
+            self.set_behaviour(id, desc);
         }
     }
 
@@ -414,7 +439,12 @@ impl World {
 
     /// The step: brains, weapons, kernels, ageing, collisions, deaths, effects.
     pub fn step(&mut self, scene: &Scene, dt: f32) {
-        self.event_count = 0;
+        let carried = self.event_count.saturating_sub(self.step_events);
+        if carried > 0 {
+            let stride = crate::schema::stride::EVENTS;
+            self.events.copy_within(self.step_events * stride..self.event_count * stride, 0);
+        }
+        self.event_count = carried;
         self.events_dropped = 0;
         self.time += dt;
         let n = self.live.len();
@@ -620,7 +650,7 @@ impl World {
             }
             crate::schema::aim::ARC if target >= 0 && self.alive(target as usize) => {
                 let tp = self.pos(target as usize);
-                let g = scene.env.gravity * maxf(self.a(proj, A::MOTION_P), 0.0);
+                let g = scene.env.gravity * crate::kernels::gravity_scale(self, proj);
                 if let Some(d) = ballistic_aim(muzzle, tp, speed, g) {
                     dir = d;
                 }

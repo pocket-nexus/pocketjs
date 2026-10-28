@@ -27,6 +27,10 @@ use crate::world::{World, KILL_EFFECTS, KILL_SILENT};
 use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
 
+/// The ball's run ended: a = marble, DATA = the hole it fell through or -1
+/// at the goal, VALUE = seconds on the level.
+pub const END: u32 = super::event(crate::schema::module::MARBLE, 0);
+
 /// Call ops (framework/src/playset/marble.ts names them).
 pub mod op {
     /// sizeR, sizeF, startR, startF, goalR, goalF, goalRadius, radius, cx,
@@ -440,7 +444,7 @@ impl Marble {
                 self.phase = phase::FAILED;
                 self.fall_speed = 3.8;
                 let p = self.world(self.r, self.up, self.f);
-                w.emit_event(EV::MARBLE, self.slot, -1, i as f32, p, self.elapsed);
+                w.emit_event(END, self.slot, -1, i as f32, p, self.elapsed);
                 return;
             }
         }
@@ -465,7 +469,7 @@ impl Marble {
         if dr * dr + df * df < (g.radius * 0.5) * (g.radius * 0.5) && sqrtf(self.vr * self.vr + self.vf * self.vf) < 5.5 {
             self.phase = phase::DONE;
             let p = self.world(self.r, self.up, self.f);
-            w.emit_event(EV::MARBLE, self.slot, -1, -1.0, p, self.elapsed);
+            w.emit_event(END, self.slot, -1, -1.0, p, self.elapsed);
         }
     }
 
@@ -1001,7 +1005,7 @@ mod tests {
         ps.modules.marble.vr = 0.0;
         ps.modules.marble.vf = 0.0;
         let n = ps.step(1.0 / 60.0);
-        let fell = (0..n).any(|e| ps.world.events[e * 8 + EF::TYPE] as u32 == EV::MARBLE && ps.world.events[e * 8 + EF::DATA] == 1.0);
+        let fell = (0..n).any(|e| ps.world.events[e * 8 + EF::TYPE] as u32 == END && ps.world.events[e * 8 + EF::DATA] == 1.0);
         assert!(fell);
         assert_eq!(st(&mut ps)[state::PHASE], phase::FAILED as f32);
         let up0 = st(&mut ps)[state::UP];
@@ -1014,7 +1018,7 @@ mod tests {
         ps.modules.marble.vr = 0.0;
         ps.modules.marble.vf = 0.0;
         let n = ps.step(1.0 / 60.0);
-        let done = (0..n).any(|e| ps.world.events[e * 8 + EF::TYPE] as u32 == EV::MARBLE && ps.world.events[e * 8 + EF::DATA] == -1.0);
+        let done = (0..n).any(|e| ps.world.events[e * 8 + EF::TYPE] as u32 == END && ps.world.events[e * 8 + EF::DATA] == -1.0);
         assert!(done);
         assert_eq!(st(&mut ps)[state::PHASE], phase::DONE as f32);
     }

@@ -45,7 +45,7 @@ plus the deviations from the original.
 | In the demo | In the port |
 | --- | --- |
 | `THREE.Mesh/Group` factories | the same code with `import * as THREE from "@pocketjs/framework/playset/three"`, passed to `play.model()` once |
-| a class with `update(dt)` that moves an object | an archetype with a kernel (`motion.*`) and maybe a brain (`brain.*`) |
+| a class with `update(dt)` that moves an object | an archetype with a kernel (`motion.*`) and maybe a brain (`brain.*` presets, or `brain.steer` states of `steer.*` terms and `when.*` transitions) |
 | `MotionController` (vehicle, character, aircraft, car) | `motion.planar/character/plane/car/boat/hover`; copy the demo's tuning numbers |
 | `ProjectileManager`, `ProjectileWeaponSystem` | a projectile archetype (`motion.linear` or `ballistic`, `projectile: true`) and a weapon on the shooter |
 | hit tests in `resolve*` | layers (`layers(...)`), `hits:` masks and `play.rule(a, b, {...})` |

@@ -1,17 +1,20 @@
 //! Brains: native steering that writes the same INTENT floats a player's stick
-//! writes. Each picks a target, computes a wanted direction, and the shared
-//! `drive` turns that direction into intents for the slot's kernel.
+//! writes. A STEER brain picks a target, evaluates the archetype's behaviour
+//! (steer.rs: states of weighted terms the guest composed), and the kernel's
+//! `drive` turns the wanted direction into that kernel's intents.
 //!
-//! BRAIN_P layout shared by every brain:
+//! BRAIN_P layout:
 //!   0 target mode (0 none, 1 nearest on layers [1], 2 keep TARGET, 3 point [2..4],
 //!     4 furthest along its path on layers [1])
-//!   1 target layers, 2..4 point, 5 sight range, 6 fire range, 7 fire cone (rad),
-//!   8 retarget seconds, 9 preferred distance, 10 speed scale (0 = 1),
-//!   11.. brain specific.
+//!   1 target layers, 2..4 point, 5 sight range, 8 retarget seconds.
+//!
+//! A slot's brain floats: 0 the retarget timer, 1..8 the behaviour's memory.
 
 use crate::fmath::*;
-use crate::schema::{arch as A, brain as B, ent as E, event as EV, intent as I, motion as M, state as ST};
+use crate::kernels;
+use crate::schema::{arch as A, brain as B, ent as E, intent as I, state as ST};
 use crate::scene::Scene;
+use crate::steer;
 use crate::vec::*;
 use crate::world::World;
 
@@ -64,135 +67,13 @@ pub fn leading(w: &World, from: usize, layers: u32, range: f32) -> i32 {
         if w.pos(s).dist_xz_sq(p) > r2 {
             continue;
         }
-        let progress = match w.arch_of(s) {
-            Some(a) if w.archs[a][A::MOTION] as u32 == M::PATH => w.s[s].k[0] * 1.0e4 + w.s[s].k[1],
-            _ => 0.0,
-        };
+        let progress = kernels::progress(w, s);
         if progress > best_progress {
             best_progress = progress;
             best = s as i32;
         }
     }
     best
-}
-
-/// Turn a wanted world direction (magnitude 0..1) into the kernel's intents.
-fn drive(w: &mut World, slot: usize, arch: usize, want: Vec3, face: Option<Vec3>, dt: f32) {
-    let kind = w.archs[arch][A::MOTION] as u32;
-    let frame = w.archs[arch][A::MOTION_P + 3] as u32;
-    let yaw = w.e(slot, E::YAW);
-    let f = forward_of(yaw);
-    let r = right_of(yaw);
-    let flat = want.flat();
-    let m = minf(flat.len(), 1.0);
-    let dir = flat.normalized();
-    let pos = w.pos(slot);
-    // TURN toward a heading: proportional, saturating at 0.6 rad
-    let turn_to = |target_yaw: f32| -> f32 { clampf(-wrap_angle(target_yaw - yaw) / 0.6, -1.0, 1.0) };
-    let face_yaw = match face {
-        Some(t) => {
-            let d = t - pos;
-            Some(yaw_of(d.x, d.z))
-        }
-        None if m > 0.05 => Some(yaw_of(dir.x, dir.z)),
-        None => None,
-    };
-    let (mut ix, mut iz, mut it, mut ir) = (0.0, 0.0, 0.0, 0.0);
-    match kind {
-        M::PLANAR => match frame {
-            1 => {
-                ix = dir.dot(r) * m;
-                iz = dir.dot(f) * m;
-                if let Some(y) = face_yaw {
-                    it = turn_to(y);
-                }
-            }
-            2 => {
-                if let Some(y) = face_yaw {
-                    it = turn_to(y);
-                }
-                iz = m * clampf(dir.dot(f) * 1.5, 0.0, 1.0);
-            }
-            _ => {
-                ix = dir.x * m;
-                iz = -dir.z * m;
-                if let Some(y) = face_yaw {
-                    it = turn_to(y);
-                }
-            }
-        },
-        M::CHARACTER => match frame {
-            0 | 2 => {
-                ix = dir.x * m;
-                iz = -dir.z * m;
-            }
-            1 | 4 => {
-                ix = dir.dot(r) * m;
-                iz = dir.dot(f) * m;
-                if let Some(y) = face_yaw {
-                    it = turn_to(y);
-                }
-            }
-            _ => {
-                if let Some(y) = face_yaw {
-                    it = turn_to(y);
-                }
-                iz = m * clampf(dir.dot(f) * 1.5, 0.0, 1.0);
-            }
-        },
-        M::HOVER => {
-            ix = dir.dot(r) * m;
-            iz = dir.dot(f) * m;
-            if let Some(y) = face_yaw {
-                it = turn_to(y);
-            }
-            ir = clampf(want.y, -1.0, 1.0);
-        }
-        M::CAR | M::BOAT => {
-            if let Some(y) = face_yaw {
-                it = turn_to(y);
-            }
-            // slow for sharp corners
-            iz = m * clampf(1.2 - absf(it) * 0.6, 0.3, 1.0);
-        }
-        M::PLANE if w.archs[arch][A::MOTION_P + 10] > 0.5 => {
-            // the banked plane flies by world yaw and pitch errors, as
-            // GameBlocks' jet-dogfight steers its fighters: bank and pitch
-            // past a deadband, the rudder in proportion
-            let d = want.normalized();
-            let yaw_error = wrap_angle(yaw_of(d.x, d.z) - yaw);
-            let pitch_error = clampf(asinf(clampf(d.y, -0.85, 0.85)) - w.e(slot, E::PITCH), -1.0, 1.0);
-            it = if yaw_error > 0.08 { -1.0 } else if yaw_error < -0.08 { 1.0 } else { 0.0 };
-            ix = -clampf(yaw_error / 0.85, -1.0, 1.0);
-            ir = if pitch_error > 0.04 { 1.0 } else if pitch_error < -0.04 { -1.0 } else { 0.0 };
-            iz = 0.6;
-        }
-        M::PLANE => {
-            // steer the nose at the wanted direction in the body frame
-            let q = w.s[slot].quat;
-            let inv = Quat { x: -q.x, y: -q.y, z: -q.z, w: q.w };
-            let local = inv.rotate(want.normalized());
-            it = clampf(local.x * 3.0, -1.0, 1.0);
-            ir = clampf(local.y * 3.0, -1.0, 1.0);
-            iz = 0.6;
-            if local.z > 0.0 {
-                // behind: hard roll and pull
-                ir = 1.0;
-            }
-        }
-        M::TURRET => {}
-        _ => {
-            ix = dir.x * m;
-            iz = -dir.z * m;
-        }
-    }
-    let _ = dt;
-    w.set_intent(slot, I::X, ix);
-    w.set_intent(slot, I::FWD, iz);
-    w.set_intent(slot, I::TURN, it);
-    if kind == M::HOVER || kind == M::PLANE {
-        w.set_intent(slot, I::RISE, ir);
-    }
 }
 
 /// Retarget on the brain's interval and return the target position.
@@ -229,33 +110,13 @@ fn target(w: &mut World, slot: usize, arch: usize, dt: f32) -> Option<(i32, Vec3
     }
 }
 
-fn fire_control(w: &mut World, slot: usize, arch: usize, tp: Option<Vec3>) {
-    let range = bp(w, arch, 6);
+fn fire_control(w: &mut World, slot: usize, arch: usize, tp: Option<Vec3>, range: f32, cone: f32) {
     let mut fire = 0.0;
     if let Some(t) = tp {
-        if range > 0.0 {
-            let pos = w.pos(slot);
-            let d = t - pos;
-            let dist = d.len();
-            if dist <= range {
-                let cone = bp(w, arch, 7);
-                let yaw = w.e(slot, E::YAW);
-                let pitch = w.e(slot, E::PITCH);
-                let f = Mat34::from_ypr(Vec3::ZERO, yaw, pitch, 0.0, 1.0).vector(v3(0.0, 0.0, -1.0));
-                let fwd_flat = forward_of(yaw);
-                let aim = if w.archs[arch][A::WEAPON0 + crate::schema::weapon::AIM] as u32 == crate::schema::aim::FORWARD {
-                    if w.archs[arch][A::MOTION] as u32 == M::PLANE {
-                        f.dot(d * (1.0 / maxf(dist, 1e-3)))
-                    } else {
-                        fwd_flat.dot(d.flat().normalized())
-                    }
-                } else {
-                    1.0
-                };
-                if cone <= 0.0 || aim >= cosf(cone) {
-                    fire = 1.0;
-                }
-            }
+        let d = t - w.pos(slot);
+        let dist = d.len();
+        if range > 0.0 && dist <= range && (cone <= 0.0 || kernels::aim_cos(w, slot, arch, d * (1.0 / maxf(dist, 1e-3))) >= cosf(cone)) {
+            fire = 1.0;
         }
     }
     w.set_intent(slot, I::FIRE, fire);
@@ -263,203 +124,29 @@ fn fire_control(w: &mut World, slot: usize, arch: usize, tp: Option<Vec3>) {
 
 pub fn think(w: &mut World, scene: &Scene, slot: usize, dt: f32) {
     let Some(arch) = w.arch_of(slot) else { return };
-    let kind = w.archs[arch][A::BRAIN] as u32;
-    if kind == B::NONE {
+    if w.archs[arch][A::BRAIN] as u32 != B::STEER {
         return;
     }
-    let scale = if bp(w, arch, 10) > 0.0 { bp(w, arch, 10) } else { 1.0 };
-    let pos = w.pos(slot);
     let tgt = target(w, slot, arch, dt);
-    let tp = tgt.map(|t| t.1);
-    let pref = bp(w, arch, 9);
-    match kind {
-        B::SEEK => {
-            let want = match tp {
-                Some(t) => {
-                    let d = t - pos;
-                    let dist = d.flat().len();
-                    let slow = if pref > 0.0 { clampf((dist - pref) / maxf(pref * 0.5, 0.5), 0.0, 1.0) } else { 1.0 };
-                    // BRAIN_P 11..12: inside `near` metres the speed scales by
-                    // `near speed` (a charge, a spitter that slows to aim)
-                    let near = bp(w, arch, 11);
-                    let close = if near > 0.0 && dist < near { bp(w, arch, 12) } else { 1.0 };
-                    v3(d.x, d.y, d.z).normalized() * (slow * scale * close)
-                }
-                None => Vec3::ZERO,
-            };
-            drive(w, slot, arch, want, tp, dt);
-            fire_control(w, slot, arch, tp);
-        }
-        B::FLEE => {
-            let sight = bp(w, arch, 5);
-            let want = match tp {
-                Some(t) if t.dist_xz_sq(pos) < sight * sight || sight <= 0.0 => (pos - t).normalized() * scale,
-                _ => Vec3::ZERO,
-            };
-            drive(w, slot, arch, want, None, dt);
-        }
-        B::ORBIT => {
-            let want = match tp {
-                Some(t) => {
-                    let d = (t - pos).flat();
-                    let dist = d.len();
-                    let radial = d.normalized();
-                    let side = if bp(w, arch, 11) < 0.0 { -1.0 } else { 1.0 };
-                    let tangent = v3(-radial.z, 0.0, radial.x) * side;
-                    let correction = clampf((dist - pref) / maxf(pref, 1.0), -1.0, 1.0);
-                    (tangent + radial * correction).normalized() * scale
-                }
-                None => Vec3::ZERO,
-            };
-            drive(w, slot, arch, want, tp, dt);
-            fire_control(w, slot, arch, tp);
-        }
-        B::WANDER | B::HERD => {
-            let st = &mut w.s[slot];
-            st.b[2] -= dt;
-            let flee_left = st.b[3];
-            let mut fleeing = false;
-            let mut want;
-            if kind == B::HERD {
-                let sight = bp(w, arch, 5);
-                if let Some(t) = tp {
-                    if t.dist_xz_sq(pos) < sight * sight {
-                        w.s[slot].b[3] = bp(w, arch, 11).max(1.0);
-                        w.s[slot].b[1] = {
-                            let d = pos - t;
-                            yaw_of(d.x, d.z)
-                        };
-                    }
-                }
-                w.s[slot].b[3] = maxf(w.s[slot].b[3] - dt, 0.0);
-                fleeing = flee_left > 0.0;
-            }
-            if w.s[slot].b[2] <= 0.0 && !fleeing {
-                let every = if bp(w, arch, 12) > 0.0 { bp(w, arch, 12) } else { 2.0 };
-                w.s[slot].b[2] = every * (0.5 + w.rng.next());
-                let turn = if bp(w, arch, 13) > 0.0 { bp(w, arch, 13) } else { 1.5 };
-                w.s[slot].b[1] += w.rng.signed() * turn;
-                // idle sometimes
-                w.s[slot].b[4] = if w.rng.next() < 0.3 { 0.0 } else { 1.0 };
-            }
-            let home = w.s[slot].home;
-            let leash = bp(w, arch, 14);
-            if leash > 0.0 && pos.dist_xz_sq(home) > leash * leash && !fleeing {
-                let d = home - pos;
-                w.s[slot].b[1] = yaw_of(d.x, d.z);
-                w.s[slot].b[4] = 1.0;
-            }
-            let speed = if fleeing { 1.0 } else { w.s[slot].b[4] * 0.5 * scale };
-            want = forward_of(w.s[slot].b[1]) * speed;
-            if fleeing {
-                w.set_intent(slot, I::AUX, 1.0);
-            } else {
-                w.set_intent(slot, I::AUX, 0.0);
-            }
-            if kind == B::WANDER {
-                if let Some(t) = tp {
-                    // wanderers with a target drift toward it
-                    let d = (t - pos).normalized();
-                    want = (want + d * 0.3).normalized() * speed;
-                }
-            }
-            drive(w, slot, arch, want, None, dt);
-            fire_control(w, slot, arch, if kind == B::WANDER { tp } else { None });
-        }
-        B::PURSUE if w.archs[arch][A::MOTION] as u32 == M::PLANE && w.archs[arch][A::MOTION_P + 10] > 0.5 => {
-            // a banked plane: straight at the target with no lead; inside
-            // `distance` it breaks away and holds fire; FWD opens the throttle
-            // beyond BRAIN_P 11 and eases it inside; a slow pitch weave
-            let (want, breakaway, dist) = match tp {
-                Some(t) => {
-                    let d = t - pos;
-                    let dist = d.len();
-                    if pref > 0.0 && dist < pref && dist > 1e-4 {
-                        (d * (-1.0 / dist), true, dist)
-                    } else {
-                        (d.normalized(), false, dist)
-                    }
-                }
-                None => (forward_of(w.e(slot, E::YAW)), true, 0.0),
-            };
-            drive(w, slot, arch, want, None, dt);
-            let throttle_at = bp(w, arch, 11);
-            if throttle_at > 0.0 {
-                w.set_intent(slot, I::FWD, if dist > throttle_at { 1.0 } else { -0.25 });
-            }
-            let pitch_rate = maxf(w.archs[arch][A::MOTION_P + 3], 0.1);
-            let weave = sinf(w.time * 0.9 + slot as f32 * 2.399) * 0.25 / pitch_rate;
-            let rise = w.intent(slot, I::RISE);
-            w.set_intent(slot, I::RISE, rise + weave);
-            fire_control(w, slot, arch, if breakaway { None } else { tp });
-        }
-        B::PURSUE => {
-            let want = match tgt {
-                Some((t, p)) => {
-                    let lead = if t >= 0 { p + w.vel(t as usize) * 0.6 } else { p };
-                    (lead - pos).normalized()
-                }
-                None => forward_of(w.e(slot, E::YAW)),
-            };
-            // keep off the ground
-            let floor = scene.ground_height(pos.x, pos.z);
-            let want = if pos.y - floor < 12.0 { (want + Vec3::UP).normalized() } else { want };
-            drive(w, slot, arch, want, None, dt);
-            fire_control(w, slot, arch, tp);
-        }
-        B::TURRET => {
-            fire_control(w, slot, arch, tp);
-        }
-        B::STRAFE => {
-            let want = match tp {
-                Some(t) => {
-                    let d = (t - pos).flat();
-                    let dist = d.len();
-                    let radial = d.normalized();
-                    w.s[slot].b[2] -= dt;
-                    if w.s[slot].b[2] <= 0.0 {
-                        let every = if bp(w, arch, 11) > 0.0 { bp(w, arch, 11) } else { 1.6 };
-                        w.s[slot].b[2] = every * (0.6 + w.rng.next() * 0.8);
-                        w.s[slot].b[4] = if w.rng.next() < 0.5 { -1.0 } else { 1.0 };
-                    }
-                    let side = w.s[slot].b[4];
-                    let tangent = v3(-radial.z, 0.0, radial.x) * side;
-                    let correction = clampf((dist - pref) / maxf(pref * 0.5, 1.0), -1.0, 1.0);
-                    (tangent * 0.8 + radial * correction).normalized() * scale
-                }
-                None => Vec3::ZERO,
-            };
-            drive(w, slot, arch, want, tp, dt);
-            fire_control(w, slot, arch, tp);
-        }
-        B::WAYPOINTS => {
-            let path_id = bp(w, arch, 11) as usize;
-            let look = if bp(w, arch, 12) > 0.0 { bp(w, arch, 12) } else { 6.0 };
-            let gate_r = if bp(w, arch, 13) > 0.0 { bp(w, arch, 13) } else { 8.0 };
-            let Some(points) = w.paths.get(path_id) else { return };
-            let n = points.len();
-            if n == 0 {
-                return;
-            }
-            let i = (w.s[slot].b[5] as usize) % n;
-            let gate = points[i];
-            let next = points[(i + 1) % n];
-            if gate.dist_xz_sq(pos) < gate_r * gate_r {
-                let lap = w.s[slot].b[6] + if i + 1 == n { 1.0 } else { 0.0 };
-                w.s[slot].b[6] = lap;
-                w.s[slot].b[5] = ((i + 1) % n) as f32;
-                w.emit_event(EV::GATE, slot as i32, -1, i as f32, pos, lap);
-            }
-            // aim between the gate and the one after it, by distance
-            let d = gate.dist_xz_sq(pos);
-            let t = clampf(1.0 - d / (look * look * 4.0), 0.0, 0.6);
-            let aim = gate.lerp(next, t);
-            let want = (aim - pos).normalized() * scale;
-            drive(w, slot, arch, want, None, dt);
-            fire_control(w, slot, arch, tp);
-        }
-        // the snake module steers its own heads
-        B::SNAKE => {}
-        _ => {}
+    let pos = w.pos(slot);
+    let hp_max = w.e(slot, E::HP_MAX);
+    let input = steer::Input {
+        pos,
+        yaw: w.e(slot, E::YAW),
+        home: w.s[slot].home,
+        ground: scene.ground_height(pos.x, pos.z),
+        hp_frac: if hp_max > 0.0 { w.e(slot, E::HP) / hp_max } else { 1.0 },
+        target: tgt.map(|(t, p)| (p, if t >= 0 { w.vel(t as usize) } else { Vec3::ZERO })),
+        time: w.time,
+        phase: slot as f32 * 2.399,
+        dt,
+    };
+    let mut memory = steer::Memory::load(&w.s[slot].b[1..8]);
+    let out = steer::evaluate(&w.behaviours[arch], &mut memory, &input, &mut w.rng);
+    memory.store(&mut w.s[slot].b[1..8]);
+    if out.drives {
+        kernels::drive(w, slot, arch, out.want, out.face, out.fwd);
+        w.set_intent(slot, I::AUX, if out.boost { 1.0 } else { 0.0 });
     }
+    fire_control(w, slot, arch, tgt.map(|t| t.1), out.fire_range, out.fire_cone);
 }
