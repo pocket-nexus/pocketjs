@@ -1,7 +1,7 @@
 [package]
 name = "pocket-cardputer-zero"
 edition = "2021"
-description = "PocketJS program for the M5Stack CardputerZero: its panel, its keyboard and a worker whose HTTP reaches this machine"
+description = "PocketJS program for the M5Stack CardputerZero: its panel, its keyboard, its sensors and camera, and a worker whose HTTP reaches this machine"
 
 version.workspace = true
 repository.workspace = true
@@ -15,6 +15,7 @@ pocket-drivers = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
+pocketjs-core = { workspace = true, default-features = true }
 pocket-guest-rquickjs = { workspace = true, default-features = true }
 pocket-linux-hooks = { workspace = true, default-features = true }
 pocket-linux-fbdev = { workspace = true, default-features = true }
@@ -22,6 +23,8 @@ pocket-linux-evdev = { workspace = true, default-features = true }
 rquickjs = { workspace = true }
 serde_json = { workspace = true }
 libc = "0.2.191"
+zune-jpeg = "0.5"
+rqrr = { version = "0.11", default-features = false }
 
 [build-dependencies]
 pocket-profile-build.workspace = true

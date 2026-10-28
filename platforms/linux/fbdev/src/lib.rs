@@ -105,6 +105,9 @@ fn checked_region(region: Rect, width: u32, height: u32) -> Result<(), DisplayEr
 /// Implementations copy synchronously; no source span may be retained.
 pub trait FrameStore {
     fn bytes_mut(&mut self) -> &mut [u8];
+    /// Called once per flush, after the frame's regions are written: a store
+    /// whose writes reach the panel later sends them now.
+    fn sync(&mut self) {}
 }
 impl FrameStore for Vec<u8> {
     fn bytes_mut(&mut self) -> &mut [u8] {
@@ -219,6 +222,7 @@ impl<S: FrameStore> DisplayOutput for Framebuffer<S> {
                 }
             }
         }
+        self.store.sync();
         self.sequence = sequence;
         self.pending = Some(sequence);
         self.acquired = false;

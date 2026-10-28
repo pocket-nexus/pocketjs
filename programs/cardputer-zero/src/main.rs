@@ -1,13 +1,19 @@
 //! The M5Stack CardputerZero program: one package on the 320x170 panel
-//! (fbdev, RGB565), the keyboard as buttons (evdev), and the package's worker
-//! domain (worker.rs), whose `http` node reaches Pocket Companion's control
-//! API on this machine (http.rs). Pocket Companion's own screen
-//! (apps/companion-zero) runs on it.
+//! (fbdev, RGB565), the keyboard as buttons and as text keys (evdev, with the
+//! Zero's symbol layer from keymap.rs), and the package's worker domain
+//! (worker.rs), whose `http` node reaches this machine (http.rs): Pocket
+//! Companion's control API, and the device API (device/) under
+//! `http://zero/dev/`: sensors, radios, microphone, camera and infrared as
+//! JSON. The camera's live picture is the runtime's video plane (video.rs),
+//! so its frames never cross JavaScript. Pocket Companion's own screen
+//! (apps/companion-zero) and Pocket Tools (pocket-nexus/pocket-zero-tools)
+//! run on it.
 //!
 //! `--shot DIR --script "…"` runs the same program on any system without the
-//! panel and keyboard: a scripted button source and an in-memory RGB565
-//! framebuffer of the panel's geometry, written to DIR/<tick>.rgb565 at each
-//! `shot` event (shot.rs).
+//! panel and keyboard: a scripted button and key source and an in-memory
+//! RGB565 framebuffer of the panel's geometry, written to DIR/<tick>.rgb565
+//! at each `shot` event (shot.rs). `--mock` answers the device API from
+//! synthesized readings (device/mock.rs).
 use pocket_drivers::{Clock, InputClasses};
 use pocket_guest_rquickjs::RquickjsGuest;
 use pocket_linux_hooks::{FileSource, MonotonicClock};
@@ -26,8 +32,11 @@ use std::{
     },
 };
 
+mod device;
 mod http;
+mod keymap;
 mod shot;
+mod video;
 mod worker;
 
 #[allow(dead_code)] // The export defines every fact; the program reads some.
@@ -38,6 +47,8 @@ mod profile {
 const PACKAGE_LIMIT: usize = 16 * 1024 * 1024;
 const DEFAULT_PACKAGE: &str = "/usr/share/pocketjs/companion.pocket";
 const DEFAULT_CONTROL: &str = "/opt/pocket/store/control.json";
+/// `auto` picks the codec card by name (device/linux.rs `pcm_device`).
+const DEFAULT_AUDIO_DEVICE: &str = "auto";
 
 static STOP: AtomicBool = AtomicBool::new(false);
 extern "C" fn stop(_: libc::c_int) {
@@ -56,7 +67,26 @@ struct Options {
     unit: Option<String>,
     shot: Option<PathBuf>,
     script: Option<String>,
+    store: Option<PathBuf>,
+    audio_device: Option<String>,
+    mock: bool,
     check: bool,
+}
+
+/// Where the device layer keeps an application's files (calibration, saved
+/// signals, recordings, photos, the guest's store) when `--store` names no
+/// directory: `$XDG_CONFIG_HOME` or `~/.config`, then the package file's
+/// name without its extension, as the CardputerZero's application guidelines
+/// ask (`$HOME/.config/<app>/`).
+fn default_store(package: &std::path::Path) -> PathBuf {
+    let name = package.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_else(|| "pocket".into());
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    match config {
+        Some(config) => config.join(name),
+        None => PathBuf::from("/tmp").join(name),
+    }
 }
 
 fn options() -> Result<Option<Options>, Box<dyn Error>> {
@@ -65,11 +95,12 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" => {
-                println!("pocket-cardputer-zero [--package app.pocket] [--fb /dev/fb0] [--input /dev/input/eventN] [--control control.json] [--unit pocket-companion.service] [--check]\n                     [--shot DIR --script \"30:DOWN 45:START 90:shot\"]\nProfile {} is compiled in. Default package: {DEFAULT_PACKAGE}; default control file: {DEFAULT_CONTROL}. The program exits on SIGINT, SIGTERM, when the worker requests http://zero/quit, or after the script's last event.", profile::ID);
+                println!("pocket-cardputer-zero [--package app.pocket] [--fb /dev/fb0] [--input /dev/input/eventN] [--control control.json] [--unit pocket-companion.service]\n                     [--store DIR] [--audio-device NAME] [--mock] [--check]\n                     [--shot DIR --script \"30:DOWN 45:key:Enter 60:type:hello 90:shot\"]\nProfile {} is compiled in. Default package: {DEFAULT_PACKAGE}; default control file: {DEFAULT_CONTROL}; default store: ~/.config/<package name>. The program exits on SIGINT, SIGTERM, when the worker requests http://zero/quit, or after the script's last event.", profile::ID);
                 return Ok(None);
             }
             "--check" => output.check = true,
-            "--package" | "--fb" | "--input" | "--control" | "--unit" | "--shot" | "--script" => {
+            "--mock" => output.mock = true,
+            "--package" | "--fb" | "--input" | "--control" | "--unit" | "--shot" | "--script" | "--store" | "--audio-device" => {
                 let value = args.next().ok_or_else(|| error("missing option value"))?;
                 match arg.as_str() {
                     "--package" => output.package = Some(value.into()),
@@ -78,6 +109,8 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
                     "--control" => output.control = Some(value.into()),
                     "--unit" => output.unit = Some(value),
                     "--shot" => output.shot = Some(value.into()),
+                    "--store" => output.store = Some(value.into()),
+                    "--audio-device" => output.audio_device = Some(value),
                     _ => output.script = Some(value),
                 }
             }
@@ -180,7 +213,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let profile = profile::profile().ok_or_else(|| error("missing exported profile"))?;
     if profile.dynamic_viewport.is_some()
         || profile.auxiliary.is_some()
-        || !InputClasses::BUTTONS.contains(profile.required_inputs)
+        || !(InputClasses::BUTTONS | InputClasses::TEXT).contains(profile.required_inputs)
     {
         return Err(error("profile promises facts this program cannot honor").into());
     }
@@ -213,6 +246,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let renderer = runtime
         .add_renderer(pocket_raster::RasterRenderer::new(profile.density).map_err(error)?)
         .map_err(error)?;
+    let headless = options.shot.is_some();
     let mut shot = match options.shot {
         Some(directory) => Some(shot::attach(
             &mut runtime,
@@ -229,11 +263,27 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     runtime
         .set_package_source(Box::new(source))
         .map_err(error)?;
+    // The device layer runs when the program has the hardware (a Linux
+    // machine, with or without the panel) or stands in for it with --mock;
+    // a shot elsewhere keeps the API absent.
+    let device = if options.mock || !headless || cfg!(target_os = "linux") {
+        Some(device::Device::new(
+            options.store.unwrap_or_else(|| default_store(&path)),
+            options.mock,
+            options.audio_device.unwrap_or_else(|| DEFAULT_AUDIO_DEVICE.into()),
+        ))
+    } else {
+        None
+    };
+    if let Some(device) = &device {
+        runtime.add_provider(Box::new(video::CameraPlane::new(device.clone()))).map_err(error)?;
+    }
     let notify = Arc::new(worker::Notify::default());
     let http = Arc::new(http::Http::new(
         options.control.unwrap_or_else(|| DEFAULT_CONTROL.into()),
         options.unit.unwrap_or_else(|| http::COMPANION_UNIT.into()),
         notify.clone(),
+        device.clone(),
     ));
     runtime
         .set_guest(Box::new(ZeroGuest {
@@ -264,6 +314,11 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         }
     }
     runtime.shutdown().map_err(error)?;
+    // A microphone capture, a camera stream and a raised preamplifier must
+    // not outlive the program.
+    if let Some(device) = device {
+        device.stop();
+    }
     Ok(())
 }
 
@@ -291,7 +346,9 @@ fn attach_devices(
     }
     runtime.add_display(display, renderer).map_err(error)?;
     // The keyboard is the tca8418 matrix; other devices that report buttons
-    // (the HDMI CEC keys, the IR receiver) join it.
+    // (the HDMI CEC keys, the IR receiver) join it. Text keys name the symbol
+    // layer from the vendor's key codes (keymap.rs).
+    let symbols = keymap::load();
     let mut inputs = inputs;
     if inputs.is_empty() {
         if let Ok(entries) = std::fs::read_dir("/dev/input") {
@@ -307,12 +364,13 @@ fn attach_devices(
         }
     }
     for (index, path) in inputs.iter().take(16).enumerate() {
-        let device = pocket_linux_evdev::Evdev::open(
+        let mut device = pocket_linux_evdev::Evdev::open(
             path,
             profile.logical_viewports[0],
             index as u32 * 16,
             16,
         )?;
+        device.set_symbols(symbols.clone());
         runtime.add_input_source(Box::new(device)).map_err(error)?;
     }
     Ok(())

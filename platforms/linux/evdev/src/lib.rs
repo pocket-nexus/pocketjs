@@ -1,5 +1,14 @@
 //! Bounded evdev packet decoding. State is published at SYN_REPORT; dropped
 //! kernel packets cancel contacts once and require fresh device events.
+//!
+//! A keyboard's keys are reported twice: as the buttons their positions
+//! stand for (`append`), and as text events that name each key the way
+//! `KeyboardEvent.key` does (`a`, `A`, `Enter`, `ArrowLeft`, `Control+z`),
+//! published with the SYN_REPORT that carries the key change. A device whose
+//! kernel keymap puts characters on other key codes (the CardputerZero's
+//! symbol layer) names them through `set_symbols`, which wins over the US
+//! layout.
+use pocket_drivers::input::TextEvent;
 use pocket_drivers::{CancelledContact, Contact, InputFrameBuilder, Pointer};
 use pocket_spec::btn;
 use std::io;
@@ -58,6 +67,14 @@ pub struct Decoder {
     retired: Vec<u32>,
     cancelled: Vec<CancelledContact>,
     pointer_enabled: bool,
+    /// Text events of the report being read; moved to `published_text` at
+    /// its SYN_REPORT.
+    text: Vec<TextEvent>,
+    published_text: Vec<TextEvent>,
+    /// Key codes the device's own keymap names: looked up before the US
+    /// layout.
+    symbols: Vec<(u16, String)>,
+    caps_lock: bool,
 }
 impl Decoder {
     /// Contact IDs are reserved per device. Distinct devices must use disjoint
@@ -93,6 +110,67 @@ impl Decoder {
             retired: Vec::with_capacity(16),
             cancelled: Vec::with_capacity(16),
             pointer_enabled: false,
+            text: Vec::new(),
+            published_text: Vec::new(),
+            symbols: Vec::new(),
+            caps_lock: false,
+        })
+    }
+    /// Name the characters the device's keymap puts on `codes`; each entry
+    /// is a key code and the text it types (the CardputerZero's symbol layer
+    /// arrives on codes the US layout gives other meanings).
+    pub fn set_symbols(&mut self, symbols: Vec<(u16, String)>) {
+        self.symbols = symbols;
+    }
+    fn held(&self, codes: &[u16]) -> bool {
+        codes.iter().any(|code| self.current.keys[*code as usize])
+    }
+    /// The text event a key change produces, named as KeyboardEvent.key
+    /// names keys. None for a key this layout does not know.
+    fn key_text(&self, code: u16, pressed: bool, repeat: bool) -> Option<TextEvent> {
+        // A modifier's own event carries no prefix.
+        if let Some(name) = modifier_name(code) {
+            return Some(TextEvent::Key {
+                key: name.to_string(),
+                pressed,
+                repeat,
+            });
+        }
+        let shift = self.held(&[42, 54]);
+        let control = self.held(&[29, 97]);
+        let alt = self.held(&[56, 100]);
+        let (name, character): (String, bool) = if let Some((_, text)) =
+            self.symbols.iter().find(|(symbol, _)| *symbol == code)
+        {
+            (text.clone(), true)
+        } else if let Some(name) = named_key(code) {
+            (name.to_string(), false)
+        } else {
+            let (plain, shifted) = character_key(code)?;
+            let letter = plain.len() == 1 && plain.as_bytes()[0].is_ascii_alphabetic();
+            let upper = letter && (shift ^ self.caps_lock);
+            let text = if upper || (shift && !letter) {
+                shifted
+            } else {
+                plain
+            };
+            (text.to_string(), true)
+        };
+        let mut key = String::new();
+        if control {
+            key.push_str("Control+");
+        }
+        if alt {
+            key.push_str("Alt+");
+        }
+        if shift && !character {
+            key.push_str("Shift+");
+        }
+        key.push_str(&name);
+        Some(TextEvent::Key {
+            key,
+            pressed,
+            repeat,
         })
     }
     fn release(&mut self, slot: usize, cancel: bool) {
@@ -138,6 +216,7 @@ impl Decoder {
             (0, 0) => {
                 self.assign_ids();
                 self.published = self.current.clone();
+                self.published_text.append(&mut self.text);
             }
             (1, 330) if !self.multitouch => {
                 if value == 0 {
@@ -156,7 +235,18 @@ impl Decoder {
                 }
             }
             (1, key) if (key as usize) < self.current.keys.len() => {
-                self.current.keys[key as usize] = value != 0
+                let was = self.current.keys[key as usize];
+                let pressed = value != 0;
+                let repeat = value == 2;
+                if (pressed && (!was || repeat)) || (!pressed && was) {
+                    if key == 58 && pressed && !repeat {
+                        self.caps_lock = !self.caps_lock;
+                    }
+                    if let Some(event) = self.key_text(key, pressed, repeat) {
+                        self.text.push(event);
+                    }
+                }
+                self.current.keys[key as usize] = pressed
             }
             (2, 0..=1) => {
                 self.pointer_enabled = true;
@@ -212,6 +302,8 @@ impl Decoder {
         self.current.keys.fill(false);
         self.current.pointer_buttons = 0;
         self.published = self.current.clone();
+        self.text.clear();
+        self.published_text.clear();
     }
     pub fn append(&mut self, frame: &mut InputFrameBuilder) {
         for slot in 0..16 {
@@ -273,8 +365,145 @@ impl Decoder {
             }
         }
         frame.cancelled.append(&mut self.cancelled);
+        frame.text.append(&mut self.published_text);
         self.retired.clear();
     }
+}
+
+/// Modifier keys, named as KeyboardEvent.key names them.
+fn modifier_name(code: u16) -> Option<&'static str> {
+    Some(match code {
+        42 | 54 => "Shift",
+        29 | 97 => "Control",
+        56 | 100 => "Alt",
+        125 | 126 => "Meta",
+        58 => "CapsLock",
+        464 => "Fn",
+        _ => return None,
+    })
+}
+
+/// Editing and function keys of the US layout, named as KeyboardEvent.key
+/// names them. KEY_HOMEPAGE (172) reads as Home: the CardputerZero's launcher
+/// labels that key HOME.
+fn named_key(code: u16) -> Option<&'static str> {
+    Some(match code {
+        1 => "Escape",
+        14 => "Backspace",
+        15 => "Tab",
+        28 | 96 => "Enter",
+        59 => "F1",
+        60 => "F2",
+        61 => "F3",
+        62 => "F4",
+        63 => "F5",
+        64 => "F6",
+        65 => "F7",
+        66 => "F8",
+        67 => "F9",
+        68 => "F10",
+        87 => "F11",
+        88 => "F12",
+        102 | 172 => "Home",
+        103 => "ArrowUp",
+        104 => "PageUp",
+        105 => "ArrowLeft",
+        106 => "ArrowRight",
+        107 => "End",
+        108 => "ArrowDown",
+        109 => "PageDown",
+        110 => "Insert",
+        111 => "Delete",
+        113 => "AudioVolumeMute",
+        114 => "AudioVolumeDown",
+        115 => "AudioVolumeUp",
+        116 => "Power",
+        224 => "BrightnessDown",
+        225 => "BrightnessUp",
+        _ => return None,
+    })
+}
+
+/// Character keys of the US layout: the plain and the shifted text.
+fn character_key(code: u16) -> Option<(&'static str, &'static str)> {
+    const DIGITS: [(&str, &str); 10] = [
+        ("1", "!"),
+        ("2", "@"),
+        ("3", "#"),
+        ("4", "$"),
+        ("5", "%"),
+        ("6", "^"),
+        ("7", "&"),
+        ("8", "*"),
+        ("9", "("),
+        ("0", ")"),
+    ];
+    const ROW1: [(&str, &str); 10] = [
+        ("q", "Q"),
+        ("w", "W"),
+        ("e", "E"),
+        ("r", "R"),
+        ("t", "T"),
+        ("y", "Y"),
+        ("u", "U"),
+        ("i", "I"),
+        ("o", "O"),
+        ("p", "P"),
+    ];
+    const ROW2: [(&str, &str); 9] = [
+        ("a", "A"),
+        ("s", "S"),
+        ("d", "D"),
+        ("f", "F"),
+        ("g", "G"),
+        ("h", "H"),
+        ("j", "J"),
+        ("k", "K"),
+        ("l", "L"),
+    ];
+    const ROW3: [(&str, &str); 7] = [
+        ("z", "Z"),
+        ("x", "X"),
+        ("c", "C"),
+        ("v", "V"),
+        ("b", "B"),
+        ("n", "N"),
+        ("m", "M"),
+    ];
+    Some(match code {
+        2..=11 => DIGITS[code as usize - 2],
+        16..=25 => ROW1[code as usize - 16],
+        30..=38 => ROW2[code as usize - 30],
+        44..=50 => ROW3[code as usize - 44],
+        12 => ("-", "_"),
+        13 => ("=", "+"),
+        26 => ("[", "{"),
+        27 => ("]", "}"),
+        39 => (";", ":"),
+        40 => ("'", "\""),
+        41 => ("`", "~"),
+        43 | 86 => ("\\", "|"),
+        51 => (",", "<"),
+        52 => (".", ">"),
+        53 => ("/", "?"),
+        57 => (" ", " "),
+        55 => ("*", "*"),
+        71 => ("7", "7"),
+        72 => ("8", "8"),
+        73 => ("9", "9"),
+        74 => ("-", "-"),
+        75 => ("4", "4"),
+        76 => ("5", "5"),
+        77 => ("6", "6"),
+        78 => ("+", "+"),
+        79 => ("1", "1"),
+        80 => ("2", "2"),
+        81 => ("3", "3"),
+        82 => ("0", "0"),
+        83 => (".", "."),
+        98 => ("/", "/"),
+        _ => return None,
+    })
 }
 /// Linux input_event timestamps use kernel long, followed by type/code/value.
 /// The decoder accepts fragments without casting unaligned bytes to structs.
@@ -358,6 +587,114 @@ mod tests {
             d.event(1, key, 0);
             assert_eq!(report(&mut d).buttons, 0);
         }
+    }
+    fn key_names(frame: &InputFrameBuilder) -> Vec<(String, bool, bool)> {
+        frame
+            .text
+            .iter()
+            .map(|event| match event {
+                TextEvent::Key {
+                    key,
+                    pressed,
+                    repeat,
+                } => (key.clone(), *pressed, *repeat),
+                other => panic!("not a key: {other:?}"),
+            })
+            .collect()
+    }
+    #[test]
+    fn keys_are_named_as_keyboard_events_with_shift_control_and_caps_lock() {
+        let mut d = decoder();
+        d.event(1, 30, 1);
+        d.event(1, 30, 0);
+        let f = report(&mut d);
+        assert_eq!(
+            key_names(&f),
+            [("a".to_string(), true, false), ("a".to_string(), false, false)]
+        );
+        // Shift: letters upper-case, digits their US symbols; the modifier
+        // itself is an event too.
+        d.event(1, 42, 1);
+        d.event(1, 30, 1);
+        d.event(1, 3, 1);
+        d.event(1, 103, 1);
+        let f = report(&mut d);
+        assert_eq!(
+            key_names(&f).iter().map(|k| k.0.as_str()).collect::<Vec<_>>(),
+            ["Shift", "A", "@", "Shift+ArrowUp"]
+        );
+        d.event(1, 30, 0);
+        d.event(1, 3, 0);
+        d.event(1, 103, 0);
+        d.event(1, 42, 0);
+        report(&mut d);
+        // Control and Alt prefix the key; the letter stays lower-case.
+        d.event(1, 29, 1);
+        d.event(1, 44, 1);
+        d.event(1, 44, 0);
+        d.event(1, 29, 0);
+        let f = report(&mut d);
+        assert_eq!(
+            key_names(&f).iter().map(|k| k.0.as_str()).collect::<Vec<_>>(),
+            ["Control", "Control+z", "Control+z", "Control"]
+        );
+        // Caps lock toggles letters only; a kernel repeat is marked.
+        d.event(1, 58, 1);
+        d.event(1, 58, 0);
+        d.event(1, 16, 1);
+        d.event(1, 16, 2);
+        d.event(1, 2, 1);
+        let f = report(&mut d);
+        assert_eq!(
+            key_names(&f),
+            [
+                ("CapsLock".to_string(), true, false),
+                ("CapsLock".to_string(), false, false),
+                ("Q".to_string(), true, false),
+                ("Q".to_string(), true, true),
+                ("1".to_string(), true, false),
+            ]
+        );
+        d.event(1, 16, 0);
+        d.event(1, 2, 0);
+        report(&mut d);
+        // Named keys, the space bar as its character, and an unknown code
+        // as nothing.
+        for (code, name) in [(28, "Enter"), (1, "Escape"), (14, "Backspace"), (57, " "), (172, "Home")] {
+            d.event(1, code, 1);
+            d.event(1, code, 0);
+            let f = report(&mut d);
+            assert_eq!(key_names(&f)[0].0, name, "code {code}");
+        }
+        d.event(1, 700, 1);
+        d.event(1, 700, 0);
+        assert!(report(&mut d).text.is_empty());
+        // Text is published with its SYN_REPORT and taken once.
+        d.event(1, 30, 1);
+        let mut f = InputFrameBuilder::new();
+        d.append(&mut f);
+        assert!(f.text.is_empty());
+        d.event(0, 0, 0);
+        let mut f = InputFrameBuilder::new();
+        d.append(&mut f);
+        assert_eq!(f.text.len(), 1);
+        let mut f = InputFrameBuilder::new();
+        d.append(&mut f);
+        assert!(f.text.is_empty());
+    }
+    #[test]
+    fn a_device_keymap_names_its_own_symbol_codes_before_the_us_layout() {
+        let mut d = decoder();
+        d.set_symbols(vec![(26, "!".to_string()), (74, "[".to_string())]);
+        d.event(1, 42, 1);
+        d.event(1, 26, 1);
+        d.event(1, 74, 1);
+        d.event(1, 27, 1);
+        let f = report(&mut d);
+        assert_eq!(
+            key_names(&f).iter().map(|k| k.0.as_str()).collect::<Vec<_>>(),
+            ["Shift", "!", "[", "}"]
+        );
     }
     #[test]
     fn touch_ranges_and_drop_cancellation_once() {

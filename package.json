@@ -97,6 +97,7 @@
     "./media/provider": "./tools/media-stream.ts",
     "./media/audio": "./contracts/spec/media-adpcm.ts",
     "./clock": "./framework/src/clock.ts",
+    "./compact": "./framework/src/compact/index.ts",
     "./worker": "./framework/src/worker.ts",
     "./worker/channels": "./framework/src/worker-channels.ts",
     "./io": "./framework/src/io.ts",

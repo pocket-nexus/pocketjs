@@ -3,9 +3,9 @@ import { resolve } from "node:path";
 import { cargo, defineRuntimeConfig } from "../../framework/src/runtime-config.ts";
 import profile from "./profile.ts";
 
-/** Services this program composes: evdev buttons, baked glyphs on the panel,
- * and a worker domain whose `http` node reaches this machine. */
-export const ZERO_PROGRAM_CAPABILITIES: readonly string[] = ["input.buttons", "text.glyphs.baked", "runtime.worker", "net.http"];
+/** Services this program composes: evdev buttons and text keys, baked glyphs
+ * on the panel, and a worker domain whose `http` node reaches this machine. */
+export const ZERO_PROGRAM_CAPABILITIES: readonly string[] = ["input.buttons", "input.text", "text.glyphs.baked", "runtime.worker", "net.http"];
 
 const absent = profile.capabilities.filter((capability) => !ZERO_PROGRAM_CAPABILITIES.includes(capability));
 if (absent.length) throw new Error(`${profile.id}: profile promises capabilities absent from this program: ${absent.join(", ")}`);
