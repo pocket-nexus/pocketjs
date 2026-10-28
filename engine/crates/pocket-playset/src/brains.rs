@@ -3,7 +3,8 @@
 //! `drive` turns that direction into intents for the slot's kernel.
 //!
 //! BRAIN_P layout shared by every brain:
-//!   0 target mode (0 none, 1 nearest on layers [1], 2 keep TARGET, 3 point [2..4])
+//!   0 target mode (0 none, 1 nearest on layers [1], 2 keep TARGET, 3 point [2..4],
+//!     4 furthest along its path on layers [1])
 //!   1 target layers, 2..4 point, 5 sight range, 6 fire range, 7 fire cone (rad),
 //!   8 retarget seconds, 9 preferred distance, 10 speed scale (0 = 1),
 //!   11.. brain specific.
@@ -36,6 +37,39 @@ pub fn nearest(w: &World, from: usize, layers: u32, range: f32) -> i32 {
         let d = w.pos(s).dist_sq(p);
         if d < best_d {
             best_d = d;
+            best = s as i32;
+        }
+    }
+    best
+}
+
+/// The live slot on `layers` within `range` of `from` on the ground plane
+/// that is furthest along its path (a PATH kernel's segment and distance
+/// into it); slots on other kernels count as at the start. Tower defense
+/// targeting: the creep closest to the base.
+pub fn leading(w: &World, from: usize, layers: u32, range: f32) -> i32 {
+    let p = w.pos(from);
+    let r2 = range * range;
+    let team = w.s[from].team;
+    let mut best = -1;
+    let mut best_progress = f32::NEG_INFINITY;
+    for &s in w.live.iter() {
+        let s = s as usize;
+        if s == from || w.s[s].layer & layers == 0 || w.state(s) & ST::DEAD != 0 {
+            continue;
+        }
+        if team != 0 && w.s[s].team == team {
+            continue;
+        }
+        if w.pos(s).dist_xz_sq(p) > r2 {
+            continue;
+        }
+        let progress = match w.arch_of(s) {
+            Some(a) if w.archs[a][A::MOTION] as u32 == M::PATH => w.s[s].k[0] * 1.0e4 + w.s[s].k[1],
+            _ => 0.0,
+        };
+        if progress > best_progress {
+            best_progress = progress;
             best = s as i32;
         }
     }
@@ -153,14 +187,15 @@ fn drive(w: &mut World, slot: usize, arch: usize, want: Vec3, face: Option<Vec3>
 fn target(w: &mut World, slot: usize, arch: usize, dt: f32) -> Option<(i32, Vec3)> {
     let mode = bp(w, arch, 0) as u32;
     match mode {
-        1 => {
+        1 | 4 => {
             w.s[slot].b[0] -= dt;
             let mut t = w.e(slot, E::TARGET) as i32;
             if w.s[slot].b[0] <= 0.0 || t < 0 || !w.alive(t as usize) {
                 let every = bp(w, arch, 8);
                 w.s[slot].b[0] = if every > 0.0 { every } else { 0.5 };
                 let sight = bp(w, arch, 5);
-                t = nearest(w, slot, bp(w, arch, 1) as u32, if sight > 0.0 { sight } else { 1e9 });
+                let (layers, range) = (bp(w, arch, 1) as u32, if sight > 0.0 { sight } else { 1e9 });
+                t = if mode == 4 { leading(w, slot, layers, range) } else { nearest(w, slot, layers, range) };
                 w.set(slot, E::TARGET, t as f32);
             }
             if t >= 0 {
