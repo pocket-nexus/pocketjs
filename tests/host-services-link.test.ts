@@ -107,7 +107,6 @@ describe("engine/host-services link client", () => {
     expect(lines.find((line) => line.startsWith("installed ")), stdout).toMatch(new RegExp(`^installed [0-9a-f]{16} ${hn.length} 1$`));
     const install = JSON.parse(lines.find((line) => line.startsWith("install "))!.slice("install ".length));
     expect(install.at(-1)).toMatchObject({ t: "install.done", app: "dev.pocket-nexus.hn", output: "hn" });
-    expect(lines).toContain("net 200 hello from the web");
     expect(lines).toContain("stream 24000 1");
   }, 60_000);
 });

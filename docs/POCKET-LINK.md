@@ -2,8 +2,8 @@
 
 Pocket Link is the console's system link to one computer its owner paired with.
 The console's runtime holds **one authenticated TCP connection** to a companion
-process on that computer. Three services ride it: the NET module's HTTP on hosts
-whose net transport is the link, the companion's app catalog, and app installs.
+process on that computer. Three services ride it: a worker's HTTP requests as
+credited byte streams, the companion's app catalog, and app installs.
 The wire contract is `contracts/spec/link.ts`; this page describes the
 mechanism and the companion implementation in `tools/companion/`.
 
@@ -94,8 +94,10 @@ console-chosen `id`; bodies are data frames (`u32` stream id = request id, then
 at most **32 KiB**). A closed connection fails every open request; nothing is
 replayed.
 
-**net.** The companion performs the NET module's whole-response request
-(`contracts/spec/net.ts`) with its own HTTP and TLS stack:
+**net.stream.** The companion performs a worker's HTTP request
+(`contracts/spec/net.ts`, the worker's `io.http` resource) with its own HTTP
+and TLS stack, and streams the response body in blocks of at most 1 KiB under
+the console's byte credit:
 
 - methods `GET HEAD POST PUT PATCH DELETE OPTIONS`; request body at most
   **64 KiB**; timeout at most **120 s**; response at most `maxBytes` (at most

@@ -5045,17 +5045,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-net"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "pocket-mod",
- "pocketjs-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "pocket-package"
 version = "0.1.0"
 dependencies = [

@@ -34,6 +34,7 @@ project root as `app.entry`.
 
 This fragment extends the application's `pocket.json`; the identity, framework
 and viewport fields remain required. UART needs `io.uart`; HTTP needs `net.http`.
+**HTTP exists only as a worker resource**: no UI realm has a network module.
 The current resolver requires the worker. An `enhances` declaration with a UI
 fallback ownership table is not implemented.
 
@@ -166,8 +167,8 @@ streams, streaming HTTP, snapshot/ring channels, timer facts and resource
 shutdown that waits for native access to end. The PRD's triggered sample executor, GPIO edges, command
 channels, remote worker replacement for `offload`, complete domain tape,
 TCP/UDP/MQTT, generated board-node accessor types and UI fallback ownership
-tables remain unimplemented. Existing UI-only hosts retain their legacy
-network/offload modules; worker packages on 3DS use the new HTTP resource.
+tables remain unimplemented. UI-only hosts keep their offload module; HTTP is
+the worker's `io.http` resource and the 3DS routes it over Pocket Link.
 
 QuickJS facts and SDK views allocate objects during a turn. The current runner
 disables threshold-triggered GC but does not provide an allocation-free hot

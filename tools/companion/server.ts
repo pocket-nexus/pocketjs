@@ -57,7 +57,7 @@ function linkClock(): { utc: number; local: number } {
   return { utc, local: utc - new Date(utc).getTimezoneOffset() * 60_000 };
 }
 
-export const LINK_FEATURES = [LINK_FEATURE.net, LINK_FEATURE.catalog, LINK_FEATURE.install, LINK_FEATURE.netStream];
+export const LINK_FEATURES = [LINK_FEATURE.catalog, LINK_FEATURE.install, LINK_FEATURE.netStream];
 /** Concurrent net requests one connection may hold open. */
 export const LINK_MAX_NET = 8;
 /** Failed pairing proofs before a window closes. */
@@ -447,8 +447,8 @@ interface NetPending {
   received: number;
   abort: AbortController;
   started: boolean;
-  stream?: StreamCredit;
-  timer?: ReturnType<typeof setTimeout>;
+  stream: StreamCredit;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 class LinkConnection {
@@ -715,19 +715,22 @@ class LinkConnection {
     }
     const { bytes, ...rest } = meta;
     const app = typeof message.app === "string" ? message.app : "";
-    const pending: NetPending = { meta: rest, app, expected: bytes, chunks: [], received: 0, abort: new AbortController(), started: false };
-    if (message.stream === true) {
-      const credit = Number(message.credit);
-      if (!Number.isInteger(credit) || credit < 1 || credit > 8192) return error(NET_ERROR.invalidRequest, "stream credit must be 1..8192");
-      pending.stream = new StreamCredit(credit, pending.abort.signal);
-      pending.timer = setTimeout(() => {
-        pending.abort.abort(new NetFailure(NET_ERROR.timeout, "stream deadline exceeded"));
+    // Every net request streams its response under the console's byte credit.
+    if (message.stream !== true) return error(NET_ERROR.invalidRequest, "net requests stream: send stream:true with an initial credit");
+    const credit = Number(message.credit);
+    if (!Number.isInteger(credit) || credit < 1 || credit > 8192) return error(NET_ERROR.invalidRequest, "stream credit must be 1..8192");
+    const abort = new AbortController();
+    const pending: NetPending = {
+      meta: rest, app, expected: bytes, chunks: [], received: 0, abort, started: false,
+      stream: new StreamCredit(credit, abort.signal),
+      timer: setTimeout(() => {
+        abort.abort(new NetFailure(NET_ERROR.timeout, "stream deadline exceeded"));
         if (!pending.started && this.net.get(id) === pending) {
           this.net.delete(id);
           error(NET_ERROR.timeout, "request body deadline exceeded");
         }
-      }, rest.timeoutMs);
-    }
+      }, rest.timeoutMs),
+    };
     this.net.set(id, pending);
     if (bytes === 0) void this.netRun(id, pending);
   }
@@ -755,54 +758,40 @@ class LinkConnection {
     const label = `net ${pending.meta.method} ${pending.meta.url}`;
     try {
       const device = this.device ?? { id: "", name: "", model: "", target: "" };
-      if (pending.stream) {
-        const services = this.companion.catalog.find(device.target, pending.app)?.services ?? [];
-        let offset = 0;
-        const sink = {
-          head: (head: { status: number; url: string; headers: Record<string, string> }) => {
-            if (this.net.get(id) === pending) this.send({ t: "net.head", id, ...head, stream: true });
-          },
-          chunk: async (bytes: Uint8Array) => {
-            for (let at = 0; at < bytes.length;) {
-              const count = await pending.stream!.take(Math.min(1024, bytes.length - at));
-              if (this.net.get(id) !== pending) throw new NetFailure(NET_ERROR.cancelled, "stream cancelled");
-              if (!(await this.write(encodeData(id, bytes.subarray(at, at + count)), pending.abort.signal))) throw new NetFailure(NET_ERROR.connect, "link closed");
-              at += count;
-              offset += count;
-            }
-          },
-        };
-        // Service responses retain their declared whole-response bound. External
-        // HTTP reads one chunk at a time and awaits the receiver's credit.
-        const service = await this.companion.services.handle(
-          { ...pending.meta, body },
-          { name: device.name, address: this.address, localAddress: this.localAddress },
-          { app: pending.app, services }, pending.abort.signal);
-        if (service) {
-          sink.head(service);
-          await sink.chunk(service.body);
-        } else {
-          await performNet({ ...pending.meta, body }, {
-            allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal,
-            resolve: this.companion.options.resolve,
-          }, sink);
-        }
-        if (this.net.get(id) === pending) this.send({ t: "net.end", id, bytes: offset });
-        return;
-      }
-      const response = await this.companion.answerNet(
+      const services = this.companion.catalog.find(device.target, pending.app)?.services ?? [];
+      let offset = 0;
+      const sink = {
+        head: (head: { status: number; url: string; headers: Record<string, string> }) => {
+          if (this.net.get(id) === pending) this.send({ t: "net.head", id, ...head, stream: true });
+        },
+        chunk: async (bytes: Uint8Array) => {
+          for (let at = 0; at < bytes.length;) {
+            const count = await pending.stream.take(Math.min(1024, bytes.length - at));
+            if (this.net.get(id) !== pending) throw new NetFailure(NET_ERROR.cancelled, "stream cancelled");
+            if (!(await this.write(encodeData(id, bytes.subarray(at, at + count)), pending.abort.signal))) throw new NetFailure(NET_ERROR.connect, "link closed");
+            at += count;
+            offset += count;
+          }
+        },
+      };
+      // Service responses retain their declared whole-response bound. External
+      // HTTP reads one chunk at a time and awaits the receiver's credit.
+      const service = await this.companion.services.handle(
         { ...pending.meta, body },
-        { app: pending.app, target: device.target },
         { name: device.name, address: this.address, localAddress: this.localAddress },
-        pending.abort.signal,
-      );
-      if (this.net.get(id) !== pending) return;
-      this.companion.log(`${label} ${response.status} ${response.body.length}B ${Date.now() - started}ms`);
-      this.send({ t: "net.head", id, status: response.status, url: response.url, headers: response.headers, bytes: response.body.length });
-      for (let at = 0; at < response.body.length; at += LINK_MAX_DATA) {
-        if (this.net.get(id) !== pending) return; // cancelled mid-stream: the console dropped the stream
-        if (!(await this.write(encodeData(id, response.body.subarray(at, at + LINK_MAX_DATA))))) return;
+        { app: pending.app, services }, pending.abort.signal);
+      if (service) {
+        sink.head(service);
+        await sink.chunk(service.body);
+      } else {
+        await performNet({ ...pending.meta, body }, {
+          allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal,
+          resolve: this.companion.options.resolve,
+        }, sink);
       }
+      if (this.net.get(id) !== pending) return;
+      this.companion.log(`${label} ${offset}B ${Date.now() - started}ms`);
+      this.send({ t: "net.end", id, bytes: offset });
     } catch (failure) {
       if (this.net.get(id) !== pending) return;
       const f = failure instanceof NetFailure ? failure : new NetFailure(NET_ERROR.other, String(failure));

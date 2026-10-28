@@ -29,7 +29,6 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/classic` | `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSelection`, `ClassicSpinner`, `ClassicSkeleton`, `ClassicButton`, `ClassicFace`, `ClassicPanel`, `ClassicSheet`, `CLASSIC` (Solid) |
 | `@pocketjs/framework/clock` | `simulationHz`, `ticksPerFrame`, `virtualFrame`, `virtualNow`, `after` |
 | `@pocketjs/framework/effects` | `installEffectDriver`, `runEffect`, effect types |
-| `@pocketjs/framework/net` | `fetch`, `NetError`, `PocketResponse`, `FetchOptions` |
 | `@pocketjs/framework/db` | `Database`, `Statement`, `SqlValue`, `SqlParams`, `RunResult` |
 | `@pocketjs/framework/fs` | `file`, `write`, `usage`, and the `node:fs` sync subset (`readFileSync`, `writeFileSync`, `appendFileSync`, `mkdirSync`, `readdirSync`, `rmSync`, `renameSync`, `statSync`, `existsSync`) |
 | `@pocketjs/framework/audio` | `decodeWav`, `createWavPlayer`, `WavPcm` / `WavPlayer` types |
@@ -1183,69 +1182,6 @@ time, but PocketJS delivers the result only at the next frame boundary. This
 callback surface keeps promise and microtask timing out of deterministic
 journeys. A host-injected `globalThis.__pocketEffectDriver` overrides the app
 driver for replay and simulation.
-
-## `@pocketjs/framework/net`
-
-A bounded HTTP client over the host's `net` namespace. Declare `net.http` in
-the manifest's `requires`; where no host mounts the module every call rejects
-with code `unavailable`.
-
-```ts
-import { fetch } from "@pocketjs/framework/net";
-
-const response = await fetch("https://api.example.com/items", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ name: "Pocket" }),
-  timeoutMs: 5_000,
-  maxBytes: 64 * 1024,
-});
-if (!response.ok) throw new Error(`HTTP ${response.status}`);
-const data = await response.json();
-```
-
-```ts
-function fetch(url: string, options?: FetchOptions): Promise<PocketResponse>
-```
-
-`url` must be an absolute `http://` or `https://` URL. `options.method` is one
-of `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` (default `GET`;
-`GET` and `HEAD` reject a body), `options.body` a string, `Uint8Array`, or
-`ArrayBuffer`, and header names are lower-cased and rejected when malformed.
-`PocketResponse` carries `status`, `ok`, `url`, `headers`, `byteLength`, and
-the buffered reads `text()`, `json()`, `bytes()`, `arrayBuffer()`.
-
-The response is whole-body — the promise resolves once the body is complete
-and holds it — so the omitted surface is streams, cookies, cache, `Request`,
-`Headers`, `AbortSignal`, WebSocket, servers, and raw sockets.
-
-| Resource | Limit |
-| --- | ---: |
-| Concurrent requests | 2 |
-| Request body | 64 KiB |
-| Response body | 128 KiB default, 256 KiB maximum |
-| Headers | 32 fields / 8 KiB |
-| Timeout | 30 s default, 120 s maximum |
-| Redirects | 3 |
-
-A fetch settles at a tick boundary and never inside a native callback: the
-first pending request registers a service pump that makes one `net.poll()`
-call per tick and settles the whole batch that call returns, and the last
-completion removes the pump. An HTTP status never rejects — a 404 resolves
-with `ok === false`. A transport failure rejects with a `NetError` whose
-`code` is one of `unavailable`, `invalid_request`, `busy`, `dns`, `connect`,
-`tls`, `timeout`, `redirect`, `response_too_large`, `protocol`, `cancelled`,
-`other`.
-
----
-
-The fs module mounts its own namespace beside `ui` (`globalThis.fs`). Every
-op is synchronous and completes inside the guest's turn: no events, no clock,
-no promises. Paths resolve under the app's own data root, and the vocabulary
-cannot spell another app's tree or an absolute path. Absence is not a no-op —
-every entry point throws where the namespace is unmounted, so declare
-`data.fs` in the manifest's `requires` and let admission catch a missing
-module before the app runs.
 
 ## `@pocketjs/framework/fs`
 

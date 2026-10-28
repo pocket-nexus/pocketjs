@@ -1,19 +1,16 @@
 /*
  * Pocket Link client (contracts/spec/link.ts): the console's one
- * authenticated TCP connection to a paired companion computer, and the two
- * guest namespaces that ride it:
+ * authenticated TCP connection to a paired companion computer, the guest
+ * namespace that rides it and the worker's HTTP stream:
  *
  *   globalThis.link   status/pair/forget/catalog/install/remove/poll
- *   globalThis.net    the NET module (contracts/spec/net.ts) whose HTTP
- *                     transport is the companion: start/take/cancel/poll/
- *                     lastError
- *
- * Worker HTTP uses link_http.h and a bounded byte-credit window. The worker
- * task exchanges commands and facts with this module through its host mailbox.
+ *   link_http.h       the worker's HTTP resource as a bounded byte-credit
+ *                     stream; the worker task exchanges commands and facts
+ *                     with this module through its host mailbox
  *
  * The host owns the connection, not a guest: it survives every app switch.
- * link_reset_guest drops what belongs to the guest being torn down (net
- * handles, undelivered events, catalog replies) and keeps the connection and
+ * link_reset_guest drops what belongs to the guest being torn down (HTTP
+ * streams, undelivered events, catalog replies) and keeps the connection and
  * any install already streaming into storage.
  *
  * This never blocks a frame: every socket is non-blocking and link_pump does
@@ -22,7 +19,7 @@
  * clocks, identity, storage and installs (host_services.h).
  *
  * Capture and offload builds compile the module to inert stubs: link.status()
- * reports an unpaired console, net.start() refuses with `unavailable`.
+ * reports an unpaired console and no HTTP stream is available.
  */
 
 #ifndef POCKETJS_LINK_H
@@ -53,14 +50,6 @@ int32_t link_install(const char *app_id, size_t length);
 bool link_remove(const char *app_id, size_t length);
 /* NULL when no event is waiting. */
 const char *link_poll(void);
-
-/* `globalThis.net` over the link. */
-int32_t link_net_start(const char *meta, size_t meta_length, const uint8_t *body, size_t body_length);
-/* Bytes copied, or -1 (unknown handle, not done, or wrong size). */
-int32_t link_net_take(int32_t handle, uint8_t *into, size_t length);
-void link_net_cancel(int32_t handle);
-const char *link_net_poll(void);
-const char *link_net_last_error(void);
 
 /* The link is up and the companion advertised net.stream; link_http.c
  * checks this before starting a stream. */

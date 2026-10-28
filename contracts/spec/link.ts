@@ -3,14 +3,15 @@
 // A Pocket Link is ONE authenticated TCP connection from a console to a
 // companion process on a computer the owner paired by scanning a QR code.
 // The console's runtime owns it, not a guest: it survives every app switch,
-// and the guest-facing modules that ride it (`globalThis.link`, and the NET
-// module on hosts whose HTTP transport is the companion) are host services.
+// and the guest-facing module that rides it (`globalThis.link`) and the
+// worker's HTTP resource are host services.
 //
 // What travels over it:
 //
-//   net      the NET module's whole-response HTTP (contracts/spec/net.ts). The
-//            companion performs the request with its own TLS stack, so a
-//            console whose TLS is too old for the modern web still reaches it.
+//   net.stream  a worker's HTTP request (contracts/spec/net.ts) as a bounded
+//            byte stream. The companion performs the request with its own
+//            TLS stack, so a console whose TLS is too old for the modern web
+//            still reaches it.
 //   catalog  the Pocket apps the companion offers for this console's target.
 //   install  one app package, streamed into the console's runtime storage.
 //
@@ -154,7 +155,7 @@ export const LINK_REFUSAL = {
   version: "version",
 } as const;
 
-/** Companion services (tools/companion/services.ts): an app's NET request
+/** Companion services (tools/companion/services.ts): a worker's HTTP request
  *  to this origin is answered by the companion itself, never fetched. The
  *  path's first segment names the service. */
 export const LINK_SERVICES_HOST = "companion.pocket";
@@ -162,7 +163,6 @@ export const LINK_SERVICES_ORIGIN = `https://${LINK_SERVICES_HOST}`;
 
 /** Features a companion may list in ready/paired. */
 export const LINK_FEATURE = {
-  net: "net",
   netStream: "net.stream",
   catalog: "catalog",
   install: "install",
@@ -196,27 +196,23 @@ export const LINK_PAIR_WINDOW_MS = 10 * 60_000;
 // connection). Replies carry the same id. A connection that closes fails
 // every request still open on it; nothing is replayed on the next one.
 //
-// net (the NET module's start/take/cancel/poll ride these):
-//   console   {"t":"net","id":n,"app":"<app id>","url":"https://…","method":"GET",
-//              "headers":{…},"timeoutMs":30000,"maxBytes":131072,"bytes":k}
+// net.stream (the worker HTTP resource; requires the companion feature):
+//   console   {"t":"net","id":n,"stream":true,"credit":8192,"app":"<app id>",
+//              "url":"https://…","method":"GET","headers":{…},
+//              "timeoutMs":30000,"maxBytes":131072,"bytes":k}
 //             then k bytes of request body as data frames on stream n
-//   companion {"t":"net.head","id":n,"status":200,"url":"<final url>",
-//              "headers":{…},"bytes":N}  then N bytes as data frames on n
-//          or {"t":"net.error","id":n,"code":"<NET_ERROR>","message":"…"}
-//   console   {"t":"net.cancel","id":n}
-//
-// net.stream (requires the companion feature; worker HTTP resource):
-//   console   net request above with "stream":true,"credit":8192
 //   companion {"t":"net.head","id":n,"status":200,"url":"…","headers":{…},"stream":true}
 //             data frames of at most 1024 bytes, in order
 //   console   {"t":"net.credit","id":n,"bytes":k} after releasing k bytes
 //   companion {"t":"net.end","id":n,"bytes":N} after the final body frame
-//          or net.error; the receiver preserves the known byte prefix
+//          or {"t":"net.error","id":n,"code":"<NET_ERROR>","message":"…"};
+//             the receiver preserves the known byte prefix
+//   console   {"t":"net.cancel","id":n}
 // Initial credit is 1..8192 bytes. Returned credit cannot exceed outstanding
 // bytes. Header and end metadata do not consume body credit. The sender awaits
 // credit before forwarding another block and before reading the next upstream
-// chunk. net.cancel ends the request without replay. Existing non-stream net
-// messages keep their whole-response contract for UI-only packages.
+// chunk. net.cancel ends the request without replay. A net request without
+// "stream":true is refused.
 //
 // catalog:
 //   console   {"t":"catalog","id":n}

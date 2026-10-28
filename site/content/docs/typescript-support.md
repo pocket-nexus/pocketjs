@@ -238,7 +238,6 @@ registration forms; arbitrary startup calls belong in model methods/hooks.
 | Framework `solid/std` or `vue-vapor/std` | The numeric, collection, ownership and task functions listed on this page |
 | `@pocketjs/framework/input` | `BTN` constants |
 | `@pocketjs/framework/animation` | `createNodeRef`, `animate`, `jump` |
-| `@pocketjs/framework/net/model` | Typed `net.get` awaitable |
 | Relative pure module | Named functions and constants; no model state or host access |
 
 Every reachable module's top level is checked, including a module imported
@@ -375,7 +374,6 @@ an async function, not inside a memo or effect.
 | `join(task())` | `done` with its value, or `cancelled` |
 | `all([a, b])` | All results, in member order |
 | `any([a, b])` | First ready member; ties choose the lower member index |
-| `net.get(url)` | Typed response or failure variant |
 | `animate(ref, property, value, options)` | `ended`, `replaced` or `dropped` |
 
 `all` and `any` require a nonempty literal list of admitted awaitables.
@@ -385,9 +383,9 @@ ordinary synchronous recursion has the separate depth rule above.
 
 `Promise<T>` describes a task result; it is not a general promise object.
 Arbitrary promises, `.then`, native `fetch` and timers such as `setTimeout`
-are not model APIs. The current shipped model service adapter is `net.get`;
-a TypeScript declaration for another SDK is not enough to admit a service.
-A native host must provide its transport and typed deliveries. See
+are not model APIs. The framework ships no model service adapter: a service
+module ends in `/model`, and a TypeScript declaration alone is not enough to
+admit one. A native host must provide its transport and typed deliveries. See
 [the host boundary](/docs/microts-boundaries/#a-task-requests-work-the-host-performs-it).
 
 ## Imperative code

@@ -9,7 +9,7 @@ import { lowerModelTasks } from "./aot-model-tasks.ts";
 import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames, type ModelObservation } from "./model-harness.ts";
 import { interpretModel, type ModelFrame, type ModelFrameInput } from "./model-interp.ts";
 
-export interface ModelFuzzOptions { size?: number; frames?: number; invalid?: boolean; weights?: Partial<Record<"arithmetic" | "conditional" | "memo" | "array" | "task" | "struct" | "helper" | "loop" | "capacity" | "field" | "service" | "join" | "animation", number>> }
+export interface ModelFuzzOptions { size?: number; frames?: number; invalid?: boolean; weights?: Partial<Record<"arithmetic" | "conditional" | "memo" | "array" | "task" | "struct" | "helper" | "loop" | "capacity" | "field" | "join" | "animation", number>> }
 export interface GeneratedModelCase { seed: number; entry: string; sources: Map<string, string>; tape: ModelFrameInput[]; coverage: string[]; diagnostic?: string;
   services?: Record<string,{available?:boolean;capacity?:number}>;
   deliveries?: {frame:number;fn:string;member:number;value:unknown}[];
@@ -20,7 +20,7 @@ export const MODEL_FUZZ_SEEDS = [1, 431, 0x12345678, 0x7fffffff] as const;
 export const MODEL_FUZZ_DIAGNOSTICS = ["cycle", "dependencies of this effect depend on control flow", "private field", "write through a view", "fractional literal", "cycle of task starts", "while"] as const;
 /** Every generated grammar family has a fixed probe; random seeds vary its typed holes. */
 export const MODEL_FUZZ_PROBES = [0,1,2,3,4,5,6,7,8,9,10,11] as const;
-export const MODEL_FUZZ_COVERAGE = ["after","all","animate","any","batch","bounded-for","capacity-array","capacity-string","color","conditional","copy","declared-effect","f64-operation","filter","for-of","frames","handler","helper","i32-operation","if","inferred-effect","integer-boundary","join","len","literal","map","member","memo","memo-between-writes","node-ref","option-change","owned-array","pre","primitive-enum","private-field","pure-module","return","scripted-delivery","service","shadowing","signal","struct","switch","tagged-union","task","task-result","template","unary","unit-number","until","untrack","wrapped-join","write-back"] as const;
+export const MODEL_FUZZ_COVERAGE = ["after","all","animate","any","batch","bounded-for","capacity-array","capacity-string","color","conditional","copy","declared-effect","f64-operation","filter","for-of","frames","handler","helper","i32-operation","if","inferred-effect","integer-boundary","join","len","literal","map","member","memo","memo-between-writes","node-ref","option-change","owned-array","pre","primitive-enum","private-field","pure-module","return","shadowing","signal","struct","switch","tagged-union","task","task-result","template","unary","unit-number","until","untrack","wrapped-join","write-back"] as const;
 class Random {
   constructor(private value: number) { if (!this.value) this.value = 0x9e3779b9; }
   next(): number { let x = this.value | 0; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; this.value = x; return x >>> 0; }
@@ -104,11 +104,6 @@ export function generateModelCase(seed: number, options: ModelFuzzOptions = {}):
     declarations.push(`let privateField:i32=0;export const [observations,setObservations]=createSignal<i32>(0);createEffect(()=>{count();untrack(()=>setObservations(privateField));});`);
     body.push(`privateField=privateField+1;setCount(v=>v+1);setObserved(${memoCount ? `memo${memoCount-1}()` : "count()"});setCount(v=>v-1);`);
     coverage.add("private-field");coverage.add("inferred-effect");coverage.add("untrack");coverage.add("memo-between-writes");
-  }
-  if (family === 5 && options.weights?.task !== 0 && options.weights?.service !== 0) {
-    declarations.push(`import {net} from "@pocketjs/framework/net/model";export const [serviceResult,setServiceResult]=createSignal("idle");export async function fetchData():Promise<void>{const response=await net.get("/generated");setServiceResult(response.kind);}`);
-    services={"@pocketjs/framework/net/model":{capacity:4}};deliveries=[{frame:2,fn:"fetchData",member:0,value:{kind:"ok",status:200,body:"generated"}}];
-    coverage.add("service");coverage.add("scripted-delivery");
   }
   if (family === 5 && options.weights?.task !== 0 && options.weights?.join !== 0) {
     declarations.push(`export const [joined,setJoined]=createSignal<i32>(0);async function child(n:i32):Promise<i32>{await frames(1);return n+1;}export async function parent():Promise<void>{const value=await child(count());setJoined(value);}`);

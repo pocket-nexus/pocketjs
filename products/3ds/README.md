@@ -468,12 +468,6 @@ pump.
 - **Pairing.** `link.pair(uri)` parses `pocketlink://pair?…`, replaces the
   current connection, tries each `h` host in order in mode `pair`, unmasks and
   stores the key on `paired` and stays linked.
-- **UI-only packages (`globalThis.net`).** The NET module rides the link: at most 2 requests in
-  flight, request bodies up to 64 KiB sent as 16 KiB data frames, response
-  bodies accumulated in one buffer bounded by `maxBytes`, events delivered by
-  `net.poll()` once per tick. `net.start` refuses with
-  `unavailable: no companion linked` while unlinked, and adds the running
-  guest's app id as `app`.
 - **Worker HTTP.** A package with `app.worker` starts an independent QuickJS
   runtime on a libctru thread. `io.http("http")` submits through a bounded
   mailbox to the system Link owner. The `net.stream` companion feature sends
@@ -487,8 +481,8 @@ pump.
   HTTP resources can exist, subject to the shared resource queue's capacity.
   Normal completion follows headers, body and `END`. Cancellation can report
   the request outcome `UNKNOWN` before native access stops; **`END` gives the
-  final body offset** and follows the accepted body prefix.
-  `globalThis.net` is absent from these packages.
+  final body offset** and follows the accepted body prefix. No package has a
+  UI network namespace.
 - **Worker scheduling.** The worker sleeps on an event or timer deadline.
   The UI latches channel mirrors before each frame; publication copies into
   host buffers. The worker has a 512 KiB heap limit, a 128 KiB JS stack limit,

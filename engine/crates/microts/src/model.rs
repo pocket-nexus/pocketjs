@@ -251,14 +251,7 @@ impl<const N: usize> ServiceRequests<N> {
 }
 fn validate_model_value<T: ModelValue>(value: &Value) -> bool { T::from_model_value(value).is_some() }
 fn service_failure(kind: &str) -> Value { Value::Object(alloc::vec![(String::from("kind"), Value::String(String::from(kind)))]) }
-fn service_result(service: &str, value: &Value, validate: fn(&Value) -> bool) -> bool {
-    if !validate(value) { return false; }
-    if service == "@pocketjs/framework/net/model" && value_tag(value, "kind") == Some("ok") {
-        let status = match object_field(value, "status") { Some(Value::I32(n)) => *n as f64, Some(Value::Number(n)) => *n, _ => return false };
-        return status.is_finite() && libm::trunc(status) == status && (100.0..=599.0).contains(&status);
-    }
-    true
-}
+fn service_result(_service: &str, value: &Value, validate: fn(&Value) -> bool) -> bool { validate(value) }
 impl<const N: usize, T: TaskValue> Wait<N, T> {
     pub fn new(nodes: impl IntoIterator<Item = WaitNode<T>>) -> Self {
         let mut storage = heapless::Vec::new();

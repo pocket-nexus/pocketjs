@@ -187,31 +187,6 @@ export async function nested(): Promise<void> { await all([any([frames(1), frame
 `), `#[test] fn snapshot() { let mut m = AppModel::default(); let mut cmds = Vec::new(); m.writer(&mut cmds); m.reader(&mut cmds); m.resume(&Ready { frame: 1, ..Default::default() }, &mut cmds); assert_eq!(m.gate(), 1); assert_eq!(m.seen(), 0); m.resume(&Ready { frame: 2, ..Default::default() }, &mut cmds); assert_eq!(m.seen(), 1); m.nested(&mut cmds); m.resume(&Ready { frame: 3, ..Default::default() }, &mut cmds); assert_eq!(m.seen(), 1); m.resume(&Ready { frame: 4, ..Default::default() }, &mut cmds); assert_eq!(m.seen(), 2); assert!(cmds.is_empty()); }`);
 }, 120_000);
 
-test("typed services enforce capability, region capacity, boundary validation and late-result dropping", () => {
-  checkModelRust("task-service", compileSource(`
-import { net } from "@pocketjs/framework/net/model";
-export const [result, setResult] = createSignal("idle");
-export async function load(): Promise<void> { const r = await net.get("/resource"); setResult(r.kind); }
-export async function crowded(): Promise<void> { const r = await all([net.get("/1"), net.get("/2"), net.get("/3"), net.get("/4"), net.get("/5")]); }
-export async function nested(): Promise<void> { const r = await all([any([net.get("/first"), net.get("/loser")]), net.get("/last")]); }
-`), `
-use microts::model::{Value, Completion, Delivery};
-fn ready(frame: u64) -> Ready { Ready { frame, services: vec!["@pocketjs/framework/net/model".into()], ..Default::default() } }
-#[test] fn services() {
- let mut m = AppModel::default(); let mut cmds = Vec::new(); m.load(&mut cmds); assert_eq!(m.result(), "idle"); m.resume(&Ready { frame: 1, ..Default::default() }, &mut cmds); assert_eq!(m.result(), "unavailable"); assert!(cmds.is_empty());
- m.prepare_resume(&ready(2)); m.load(&mut cmds); m.react(false, &mut cmds); let old = match cmds.pop().unwrap() { Cmd::Request { request, .. } => request, _ => panic!() };
- m.load(&mut cmds); m.react(false, &mut cmds); let current = match cmds.pop().unwrap() { Cmd::Request { request, .. } => request, _ => panic!() }; assert_ne!(old, current);
- let mut boundary = ready(3); boundary.deliveries.push(Delivery { request: old, result: Completion::Value(Value::String("late".into())) }); m.resume(&boundary, &mut cmds); assert_eq!(m.result(), "unavailable");
- boundary.frame = 4; boundary.deliveries = vec![Delivery { request: current, result: Completion::Value(Value::Object(vec![("kind".into(), Value::String("ok".into())), ("status".into(), Value::I32(900)), ("body".into(), Value::String("bad".into()))])) }]; m.resume(&boundary, &mut cmds); assert_eq!(m.result(), "malformed");
- cmds.clear(); m.crowded(&mut cmds); m.react(false, &mut cmds); assert_eq!(cmds.iter().filter(|cmd| matches!(cmd, Cmd::Request { .. })).count(), 4);
- m.cancel_tasks(&mut cmds); assert_eq!(cmds.iter().filter(|cmd| matches!(cmd, Cmd::Cancel { .. })).count(), 4);
- cmds.clear(); m.nested(&mut cmds); m.react(false, &mut cmds); let pending: Vec<_> = cmds.iter().filter_map(|cmd| match cmd { Cmd::Request { request, .. } => Some(*request), _ => None }).collect(); assert_eq!(pending.len(), 3);
- cmds.clear(); let mut boundary = ready(5); boundary.deliveries.push(Delivery { request: pending[0], result: Completion::Value(Value::Object(vec![("kind".into(), Value::String("failed".into())), ("message".into(), Value::String("failure".into()))])) }); m.resume(&boundary, &mut cmds);
- assert_eq!(cmds, vec![Cmd::Cancel { request: pending[1] }]);
- cmds.clear(); m.crowded(&mut cmds); m.react(false, &mut cmds); assert_eq!(cmds.iter().filter(|cmd| matches!(cmd, Cmd::Request { .. })).count(), 3);
-}`);
-}, 120_000);
-
 test("awaited animation emits a tracked command and decodes all track outcomes", () => {
   checkModelRust("task-animation", compileSource(`
 import { createNodeRef, animate, jump } from "@pocketjs/framework/animation";

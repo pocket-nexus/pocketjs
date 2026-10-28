@@ -102,6 +102,5 @@ export function transformCompiledModel(source: string, filename: string, buildEn
   const contexts = ast.statements.flatMap(statement => ts.isVariableStatement(statement) ? statement.declarationList.declarations.flatMap(declaration => declaration.initializer && ts.isCallExpression(declaration.initializer) && ts.isIdentifier(declaration.initializer.expression) && contextImports.has(declaration.initializer.expression.text)
     ? [`${statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ? "export " : ""}const ${declaration.getText(ast)};`] : []) : []);
   if (contexts.length) output = `import {${[...contextImports].map(name => `createContext as ${name}`).join(",")}} from "solid-js";\n` + contexts.join("\n") + "\n" + output;
-  if (program.modules.some(m => m.functions.some(f => JSON.stringify(f.body).includes('@pocketjs/framework/net/model')))) output = 'import "@pocketjs/framework/net/model";\n' + output;
   return output;
 }

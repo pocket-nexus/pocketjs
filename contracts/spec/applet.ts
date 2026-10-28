@@ -11,7 +11,7 @@
 //     the UI is Solid on the PocketJS components, so the agent's text capture
 //     and played input reach every control;
 //   - a generated (UGC, model-written) applet can be admitted by checks
-//     alone: a capability allowlist, declared network destinations, no
+//     alone: a capability allowlist, declared companion services, no
 //     native code, no code evaluation, size budgets.
 //
 // The manifest rules below are checked when a plan resolves (framework/src/
@@ -28,11 +28,10 @@ export interface AppletDeclaration {
   /** One sentence on what the applet does, shown where it is offered (the
    *  console's store, Pocket Companion's list). */
   readonly summary?: string;
-  /** Companion services the applet fetches (`companionService(name, …)`,
-   *  contracts/spec/link.ts LINK_SERVICES_ORIGIN). */
+  /** Companion services the applet's worker fetches at
+   *  `https://companion.pocket/<name>/…` (contracts/spec/link.ts
+   *  LINK_SERVICES_ORIGIN) through io.http. */
   readonly services?: readonly string[];
-  /** Hosts the applet fetches directly through net.http. */
-  readonly hosts?: readonly string[];
   /** Persistent state: required to declare data.fs; the host
    *  confines the store to the applet and to this many bytes. */
   readonly store?: { readonly maxBytes: number };
@@ -45,11 +44,6 @@ export const APPLET_SUMMARY_MAX = 120;
 export const APPLET_STORE_MAX_BYTES = 4 * 1024 * 1024;
 
 const serviceNameSchema = { type: "string", pattern: "^[a-z][a-z0-9-]{0,31}$" } as const satisfies JsonSchema;
-const hostSchema = {
-  type: "string",
-  maxLength: 253,
-  pattern: "^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$",
-} as const satisfies JsonSchema;
 
 export const appletSchema = {
   type: "object",
@@ -59,7 +53,6 @@ export const appletSchema = {
     version: { const: APPLET_VERSION },
     summary: { type: "string", minLength: 1, maxLength: APPLET_SUMMARY_MAX },
     services: { type: "array", items: serviceNameSchema, uniqueItems: true, maxItems: 8 },
-    hosts: { type: "array", items: hostSchema, uniqueItems: true, maxItems: 8 },
     store: {
       type: "object",
       additionalProperties: false,
@@ -128,7 +121,6 @@ export const APPLET_MODULES = [
   "clock",
   "host",
   "renderer",
-  "net",
   "link",
   "gesture",
   "kinetics",
@@ -252,7 +244,6 @@ export function appletManifestDiagnostics(manifest: PocketManifestV2): ContractD
   });
   const usesStore = declared.some((id) => (APPLET_STORE_CAPABILITIES as readonly string[]).includes(id));
   if (usesStore && !applet.store) push("store", "/applet/store", "data.fs needs applet.store with maxBytes");
-  const network = (applet.services?.length ?? 0) + (applet.hosts?.length ?? 0) > 0;
-  if (network && !declared.includes("net.http")) push("network", "/engine/capabilities", "applet.services and applet.hosts need net.http");
+  if (applet.services?.length && !declared.includes("net.http")) push("network", "/engine/capabilities", "applet.services needs net.http");
   return out;
 }

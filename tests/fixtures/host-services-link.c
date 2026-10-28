@@ -188,22 +188,8 @@ int main(int argc, char **argv) {
   const char *install = await_event(link_poll, "install.done");
   printf("install %s\n", install != NULL ? install : "none");
   char meta[512];
-  snprintf(meta, sizeof meta, "{\"url\":\"%s\",\"method\":\"GET\",\"headers\":{}}", argv[4]);
-  int32_t handle = link_net_start(meta, strlen(meta), NULL, 0);
-  const char *done = handle > 0 ? await_event(link_net_poll, "\"done\"") : NULL;
-  if (done == NULL) {
-    printf("net none %s\n", link_net_last_error());
-  } else {
-    const char *bytes = strstr(done, "\"bytes\":");
-    const char *code = strstr(done, "\"status\":");
-    size_t length = bytes != NULL ? strtoul(bytes + 8, NULL, 10) : 0;
-    char *body = calloc(1, length + 1);
-    link_net_take(handle, (uint8_t *)body, length);
-    printf("net %lu %s\n", code != NULL ? strtoul(code + 9, NULL, 10) : 0ul, body);
-    free(body);
-  }
   snprintf(meta,sizeof meta,"{\"url\":\"%s/stream\",\"maxBytes\":262144}",argv[4]);
-  handle=link_http_start((const uint8_t *)meta,strlen(meta));
+  int32_t handle=link_http_start((const uint8_t *)meta,strlen(meta));
   if (handle<0) return 6;
   size_t streamed=0;bool head=false,ended=false;
   for (int i=0;i<6000 && !ended;++i) {

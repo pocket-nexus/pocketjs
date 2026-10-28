@@ -1187,7 +1187,7 @@ class ModelRust {
       return block([let_("request", request), ...args.map(arg => let_(arg.name, arg.value)), let_("joined", rm(self, `start_${target.fn}`, ...args.map(arg => rp(arg.name))))], { kind: "struct", path: ["WaitNode", "Join"], fields: [{ name: "request", value: rp("request") }, { name: "target", value: rp("joined") }, { name: "wrapped", value: rl(wait.wrapped) }] });
     }
     if (wait.kind === "service") {
-      const capacity = wait.capacity ?? (wait.module === "@pocketjs/framework/net/model" ? 4 : undefined);
+      const capacity = wait.capacity;
       if (capacity === undefined) throw new Error(`Service ${wait.module} does not declare a request capacity`);
       const args = wait.args.map((arg, index) => ({ name: `arg_${index}`, value: this.expr(arg) }));
       return block([let_("request", request), ...args.map(arg => let_(arg.name, arg.value))], { kind: "method", object: field("requests"), method: "wait", typeArgs: [this.type(wait.result), { kind: "infer" }], args: [ref(field("services")), rl(wait.module), rl(wait.call), { kind: "macro", name: ["alloc", "vec"], args: args.map(arg => rm(rp(arg.name), "model_value")) }, rp("request"), rl(capacity), ref(field("commands"))] });

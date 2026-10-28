@@ -70,11 +70,6 @@ typedef enum {
   HostLinkInstall,
   HostLinkRemove,
   HostLinkPoll,
-  HostNetStart,
-  HostNetTake,
-  HostNetCancel,
-  HostNetPoll,
-  HostNetLastError,
   HostWifiStatus,
   HostWifiSetEnabled,
   HostWifiConnect,
@@ -425,41 +420,10 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
   }
   case HostLinkCatalog:
     return JS_NewInt32(ctx, link_catalog());
-  case HostLinkPoll:
-  case HostNetPoll: {
-    const char *batch = magic == HostLinkPoll ? link_poll() : link_net_poll();
+  case HostLinkPoll: {
+    const char *batch = link_poll();
     return batch == NULL ? JS_UNDEFINED : JS_NewString(ctx, batch);
   }
-  case HostNetStart: {
-    if (argc < 1 || !JS_IsString(argv[0]))
-      return JS_NewInt32(ctx, -1);
-    text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
-    if (text == NULL)
-      return JS_NewInt32(ctx, -1);
-    /* Borrowed after the string conversion (which may allocate) and used
-     * before anything else can run JS: start() copies the body. */
-    if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length, &lease)) {
-      bytes = NULL;
-      byte_length = 0;
-    }
-    int32_t handle = link_net_start(text, text_length, bytes, byte_length);
-    JS_FreeValue(ctx, lease);
-    JS_FreeCString(ctx, text);
-    return JS_NewInt32(ctx, handle);
-  }
-  case HostNetTake: {
-    int32_t handle = argument_int(ctx, argc, argv, 0);
-    if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length, &lease))
-      return JS_NewInt32(ctx, -1);
-    int32_t count = link_net_take(handle, (uint8_t *)bytes, byte_length);
-    JS_FreeValue(ctx, lease);
-    return JS_NewInt32(ctx, count);
-  }
-  case HostNetCancel:
-    link_net_cancel(argument_int(ctx, argc, argv, 0));
-    return JS_UNDEFINED;
-  case HostNetLastError:
-    return JS_NewString(ctx, link_net_last_error());
   case HostWifiStatus:
     return JS_NewString(ctx, wifi_status_json());
   case HostWifiSetEnabled:
@@ -674,15 +638,6 @@ static int32_t install_host(void) {
   add_operation(link, "poll", 0, HostLinkPoll);
   JS_SetPropertyStr(context, global, "link", link);
 
-  if (!boot_has_worker) {
-    JSValue net = JS_NewObject(context);
-    add_operation(net, "start", 2, HostNetStart);
-    add_operation(net, "take", 2, HostNetTake);
-    add_operation(net, "cancel", 1, HostNetCancel);
-    add_operation(net, "poll", 0, HostNetPoll);
-    add_operation(net, "lastError", 0, HostNetLastError);
-    JS_SetPropertyStr(context, global, "net", net);
-  }
   /* The worker declared its channels during bootstrap, before this realm
    * evaluates its bundle. */
   if (boot_has_worker) {
