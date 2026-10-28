@@ -1,0 +1,139 @@
+# platforms/sifli/SConscript: the one file a SiFli SDK project includes to
+# link PocketJS. It adds the drivers its Kconfig selects, links the program's
+# Rust archive and exports PocketjsEmbed for packages and native textures.
+#
+#   project/SConscript:
+#     objs.extend(SConscript(os.path.join(POCKETJS_ROOT, 'platforms', 'sifli', 'SConscript'),
+#                            variant_dir='pocketjs', duplicate=0))
+#   project/Kconfig.proj:
+#     source "$POCKETJS_ROOT/platforms/sifli/Kconfig"
+import os
+import re
+import subprocess
+import sys
+from building import *
+
+cwd = GetCurrentDir()
+root = os.path.abspath(os.path.join(cwd, '..', '..'))
+env = GetCurrentEnv()
+RUST_TARGET = 'thumbv8m.main-none-eabihf'
+ARCHIVE = 'libpocket_sifli_runtime.a'
+
+
+def _fail(message):
+    print('pocketjs: ' + message)
+    sys.exit(1)
+
+
+def PocketjsEmbed(name, path):
+    """Link `path` 64-byte aligned in .rodata as pocketjs_<name>_data, with its
+    length in the 32-bit pocketjs_<name>_size."""
+    if not re.match(r'^[a-z][a-z0-9_]*$', name):
+        _fail('embed name %r must match [a-z][a-z0-9_]*' % name)
+    source = os.path.abspath(path)
+    if not GetOption('clean') and not os.path.isfile(source):
+        _fail('missing embedded file ' + source)
+    out = os.path.join(Dir('.').abspath, 'pocketjs_embed_%s.S' % name)
+    if not os.path.isdir(os.path.dirname(out)):
+        os.makedirs(os.path.dirname(out))
+    symbol = 'pocketjs_' + name
+    text = '\n'.join([
+        '    .section .rodata.%s, "a"' % symbol,
+        '    .balign 64',
+        '    .global %s_data' % symbol,
+        '%s_data:' % symbol,
+        '    .incbin "%s"' % source.replace('\\', '/').replace('"', '\\"'),
+        '%s_end:' % symbol,
+        '    .balign 4',
+        '    .global %s_size' % symbol,
+        '%s_size:' % symbol,
+        '    .word %s_end - %s_data' % (symbol, symbol),
+        '',
+    ])
+    previous = None
+    if os.path.isfile(out):
+        with open(out) as handle:
+            previous = handle.read()
+    if previous != text:
+        with open(out, 'w') as handle:
+            handle.write(text)
+    objs = DefineGroup('PocketJS ' + name, [out], depend=[''])
+    Depends(objs, source)
+    return objs
+
+
+Export('PocketjsEmbed')
+
+objs = []
+if GetDepend('POCKETJS'):
+    profile = os.environ.get('POCKET_PROFILE_EXPORT_DIR', '')
+    if not profile or not os.path.isfile(os.path.join(profile, 'pocket_profile.h')):
+        _fail('run `pocket profile export --config <pocket.runtime-config.ts> --out <dir>` '
+              'and set POCKET_PROFILE_EXPORT_DIR to <dir>')
+
+    archive = os.environ.get('POCKET_RUNTIME_ARCHIVE', '')
+    if GetDepend('POCKETJS_RUST_FROM_SOURCE'):
+        target_dir = os.path.join(Dir('.').abspath, 'cargo')
+        archive = os.path.join(target_dir, RUST_TARGET, 'release', ARCHIVE)
+        if not GetOption('clean'):
+            command = ['cargo', 'build', '--release', '--locked', '--no-default-features',
+                       '--target', RUST_TARGET, '--manifest-path',
+                       os.path.join(root, 'programs', 'sifli', 'archive', 'Cargo.toml')]
+            cargo_env = dict(os.environ, CARGO_TARGET_DIR=target_dir,
+                             CARGO_PROFILE_RELEASE_PANIC='abort')
+            print('pocketjs: ' + ' '.join(command))
+            # The checkout root holds rust-toolchain.toml, which rustup reads
+            # from the working directory.
+            try:
+                subprocess.check_call(command, cwd=root, env=cargo_env)
+            except (OSError, subprocess.CalledProcessError) as error:
+                _fail('cargo build failed: %s' % error)
+    if not archive:
+        _fail('set POCKET_RUNTIME_ARCHIVE to a libpocket_sifli_runtime.a or enable '
+              'POCKETJS_RUST_FROM_SOURCE')
+    archive = os.path.abspath(archive)
+    if not GetOption('clean') and not os.path.isfile(archive):
+        _fail('missing Rust archive ' + archive)
+    env.AppendUnique(LINKFLAGS_POST=[archive])
+    pocketjs_runtime_archive = archive
+    Export('pocketjs_runtime_archive')
+
+    CPPPATH = [
+        os.path.join(cwd, 'include'),
+        os.path.join(cwd, 'render-epic', 'include'),
+        os.path.join(root, 'contracts', 'generated'),
+        os.path.join(root, 'engine', 'guest-quickjs', 'include'),
+        os.path.abspath(profile),
+    ]
+    flags = ' -Wall -Wextra -Werror'
+    src = [os.path.join(cwd, 'hooks', 'hooks.c'), os.path.join(cwd, 'hooks', 'package.c')]
+    if GetDepend('POCKETJS_MPU_OVERRIDE'):
+        src.append(os.path.join(cwd, 'hooks', 'mpu.c'))
+    if GetDepend('POCKETJS_EPIC'):
+        src += Glob(os.path.join(cwd, 'epic', '*.c'))
+    if GetDepend('POCKETJS_DISPLAY'):
+        src.append(os.path.join(cwd, 'display', 'display.c'))
+    if GetDepend('POCKETJS_INPUT_KEYS'):
+        src.append(os.path.join(cwd, 'input', 'keys.c'))
+    if GetDepend('POCKETJS_INPUT_TOUCH'):
+        src.append(os.path.join(cwd, 'input', 'touch.c'))
+    if GetDepend('POCKETJS_RUNNER'):
+        src.append(os.path.join(cwd, 'runner', 'runner.c'))
+    objs += DefineGroup('PocketJS', src, depend=['POCKETJS'], CPPPATH=CPPPATH,
+                        LOCAL_CCFLAGS=flags)
+
+    if GetDepend('POCKETJS_GUEST_QUICKJS'):
+        guest_flags = flags
+        if GetDepend('POCKETJS_QUICKJS_BELLARD'):
+            guest_flags += ' -DPOCKET_QJS_BELLARD'
+        objs += DefineGroup('PocketJS guest', [os.path.join(cwd, 'guest', 'guest.c')],
+                            depend=['POCKETJS_GUEST_QUICKJS'], LOCAL_CCFLAGS=guest_flags)
+        # The generated guest lives outside this directory: name its object
+        # in the build tree so nothing lands in the checkout.
+        generated = os.path.join(root, 'engine', 'guest-quickjs', 'src')
+        objs += env.Object(os.path.join(Dir('.').abspath, 'pocket_guest_quickjs.o'),
+                           os.path.join(generated, 'guest.c'),
+                           CPPPATH=env['CPPPATH'] + [generated],
+                           CCFLAGS=env['CCFLAGS'] + guest_flags)
+
+Return('objs')

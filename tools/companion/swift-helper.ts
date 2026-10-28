@@ -1,8 +1,10 @@
-// The companion's macOS helpers (tools/companion/macos/*.swift, not the app):
-// a helper runs from, in order, its environment override (a binary, or a .ts
-// file run with this Bun; the tests use it), the binary of its name next to
-// the running executable (the app bundle's Contents/MacOS), or a build of its
-// Swift source with swiftc into `<store>/bin`, keyed by the source's hash.
+// The companion's native helpers (tools/companion/macos/*.swift, not the app;
+// tools/companion/linux/*.c on Linux): a helper runs from, in order, its
+// environment override (a binary, or a .ts file run with this Bun; the tests
+// use it), the binary of its name next to the running executable (the app
+// bundle's Contents/MacOS), or a build of its source into `<store>/bin`,
+// keyed by the source's hash: the Swift source with swiftc on a Mac, the C
+// source with cc and its pkg-config packages on Linux.
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -18,18 +20,22 @@ export interface SwiftHelper {
   env: string;
   /** Extra swiftc flags (`-parse-as-library` for an @main type). */
   flags?: string[];
+  /** The Linux build: a C source and the pkg-config packages it links. */
+  linux?: { source: string; packages: string[] };
 }
 
 const builds = new Map<string, Promise<string[] | null>>();
 
 /** The command that runs `helper`, building it first when needed; null when
- *  this Mac cannot run it (no swiftc, or the build failed). */
+ *  this computer cannot run it (no compiler, or the build failed). */
 export function helperCommand(helper: SwiftHelper, storeDir: string, log?: (line: string) => void): Promise<string[] | null> {
   const override = process.env[helper.env];
   if (override) return Promise.resolve(override.endsWith(".ts") ? [process.execPath, override] : [override]);
   const bundled = join(dirname(process.execPath), helper.name);
   if (existsSync(bundled)) return Promise.resolve([bundled]);
-  if (!existsSync(helper.source)) return Promise.resolve(null);
+  if (process.platform === "linux") {
+    if (!helper.linux || !existsSync(helper.linux.source)) return Promise.resolve(null);
+  } else if (!existsSync(helper.source)) return Promise.resolve(null);
   let build = builds.get(helper.name);
   if (!build) {
     build = buildHelper(helper, storeDir, log).finally(() => builds.delete(helper.name));
@@ -39,19 +45,34 @@ export function helperCommand(helper: SwiftHelper, storeDir: string, log?: (line
 }
 
 async function buildHelper(helper: SwiftHelper, storeDir: string, log?: (line: string) => void): Promise<string[] | null> {
-  const hash = createHash("sha256").update(readFileSync(helper.source)).digest("hex").slice(0, 12);
+  const linux = process.platform === "linux" ? helper.linux : undefined;
+  const source = linux?.source ?? helper.source;
+  const hash = createHash("sha256").update(readFileSync(source)).digest("hex").slice(0, 12);
   const dir = join(storeDir, "bin");
   const binary = join(dir, `${helper.name}-${hash}`);
   if (existsSync(binary)) return [binary];
-  if (spawnSync("which", ["swiftc"]).status !== 0) {
-    log?.(`agent: swiftc not found; ${helper.name} is off`);
+  const compiler = linux ? "cc" : "swiftc";
+  if (spawnSync("which", [compiler]).status !== 0) {
+    log?.(`agent: ${compiler} not found; ${helper.name} is off`);
     return null;
+  }
+  let flags: string[] = [];
+  if (linux) {
+    const config = spawnSync("pkg-config", ["--cflags", "--libs", ...linux.packages], { encoding: "utf8" });
+    if (config.status !== 0) {
+      log?.(`agent: ${helper.name} needs ${linux.packages.join(" and ")} (pkg-config: ${String(config.stderr).trim().slice(0, 200)})`);
+      return null;
+    }
+    flags = config.stdout.trim().split(/\s+/).filter(Boolean);
   }
   mkdirSync(dir, { recursive: true });
   const partial = `${binary}.${process.pid}.tmp`;
   const started = Date.now();
   const ok = await new Promise<boolean>((resolve) => {
-    const child = spawn("swiftc", ["-O", ...(helper.flags ?? []), "-swift-version", "5", helper.source, "-o", partial], { stdio: ["ignore", "ignore", "pipe"] });
+    const args = linux
+      ? ["-O2", source, "-o", partial, ...flags]
+      : ["-O", ...(helper.flags ?? []), "-swift-version", "5", source, "-o", partial];
+    const child = spawn(compiler, args, { stdio: ["ignore", "ignore", "pipe"] });
     let errors = "";
     child.stderr.on("data", (chunk: Buffer) => (errors += chunk.toString()));
     child.on("exit", (code) => {

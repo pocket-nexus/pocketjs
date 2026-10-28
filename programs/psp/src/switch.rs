@@ -12,6 +12,7 @@
 //! style.
 
 use alloc::{boxed::Box, string::String};
+use crate::link::push_json_str;
 
 use psp::sys::{self, DisplayPixelFormat, DisplaySetBufSync};
 
@@ -80,6 +81,11 @@ pub unsafe fn resume() -> Option<usize> {
     usize::try_from(RESUME).ok()
 }
 
+/// The running guest's manifest id: the app the link names in its requests.
+pub unsafe fn current_id() -> &'static str {
+    APPS[CURRENT].id
+}
+
 pub fn find(output: &str) -> Option<usize> {
     APPS.iter().position(|a| a.output == output)
 }
@@ -138,7 +144,9 @@ pub unsafe fn table_json() -> String {
         push_json_str(&mut out, a.title);
         out.push('}');
     }
-    out.push_str("],\"current\":");
+    out.push_str("],\"launcher\":");
+    push_json_str(&mut out, APPS[0].output);
+    out.push_str(",\"current\":");
     push_json_str(&mut out, APPS[CURRENT].output);
     out.push_str(",\"resume\":");
     match resume() {
@@ -149,24 +157,6 @@ pub unsafe fn table_json() -> String {
     out
 }
 
-fn push_json_str(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => {
-                out.push_str("\\u00");
-                let b = c as u32;
-                let hex = b"0123456789abcdef";
-                out.push(hex[(b >> 4) as usize] as char);
-                out.push(hex[(b & 0xf) as usize] as char);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-}
 
 /// Capture the just-presented display framebuffer (Psm8888, 512 stride, the
 /// dbg.rs shot technique: uncached VRAM mirror, cached-RAM bounce rows) and

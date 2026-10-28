@@ -5,11 +5,12 @@ endif()
 idf_component_register(
     SRCS
         "src/accelerator.c"
+        "src/lanes.c"
         "src/pocketjs_ppa.c"
     INCLUDE_DIRS ${pocketjs_ppa_includes}
     PRIV_INCLUDE_DIRS "src"
     REQUIRES pocket_runtime esp_driver_ppa
-    PRIV_REQUIRES log esp_mm
+    PRIV_REQUIRES log esp_mm freertos
     REQUIRED_IDF_TARGETS esp32p4
 )
 

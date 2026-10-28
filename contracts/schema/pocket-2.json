@@ -262,9 +262,7 @@
             "auxiliary": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "fixed"
-              ],
+              "description": "Exactly one of fixed and adaptive (checked at resolution).",
               "properties": {
                 "fixed": {
                   "type": "object",
@@ -291,6 +289,34 @@
                         "native",
                         "stretch"
                       ]
+                    }
+                  }
+                },
+                "adaptive": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "properties": {
+                    "min": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "max": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
                     }
                   }
                 }
@@ -630,9 +656,7 @@
                   "auxiliary": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": [
-                      "fixed"
-                    ],
+                    "description": "Exactly one of fixed and adaptive (checked at resolution).",
                     "properties": {
                       "fixed": {
                         "type": "object",
@@ -659,6 +683,34 @@
                               "native",
                               "stretch"
                             ]
+                          }
+                        }
+                      },
+                      "adaptive": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "properties": {
+                          "min": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "max": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
                           }
                         }
                       }

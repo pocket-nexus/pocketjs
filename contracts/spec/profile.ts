@@ -1,6 +1,7 @@
 // Profile identity contract, shared by application compilation and Runtime admission.
 import type { JsonSchema } from "./pocket-manifest.ts";
 import {
+  ANIMATION_CLASSES,
   PRESENTATION_MODES,
   TARGET_FORMS,
   type DisplayProfile,
@@ -52,7 +53,7 @@ export const PROFILE_CAPABILITY_BITS = {
   "system.wifi": 0x00010000n,
   "camera.qr": 0x00020000n,
   "system.agent": 0x00040000n,
-  "data.sqlite": 0x00080000n,
+  // 0x00080000n was data.sqlite, retired in October 2026; the bit stays unassigned.
   "data.fs": 0x00100000n,
   "host.clipboard": 0x00200000n,
   "display.viewport.live": 0x00400000n,
@@ -109,6 +110,7 @@ export const pocketProfileSchema = {
           properties: { min: viewport, max: viewport, acceptsFixed: { type: "boolean" } },
         },
         auxiliary: fixedDisplay,
+        animation: { enum: ANIMATION_CLASSES },
       },
     },
     capabilities,

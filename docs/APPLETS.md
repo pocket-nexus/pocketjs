@@ -38,18 +38,18 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | `summary` | One sentence on what the applet does, at most **120** characters. The console's store and Pocket Companion's list of applets show it. |
 | `services` | Companion services the applet fetches (`companionService(name, path)`, `https://companion.pocket/<name>/…`). At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service request from an app it does not offer or whose list lacks the service; the console's runtime, not the guest, names the app in each request. |
 | `hosts` | Hosts the applet fetches through `net.http`. At most **8**, bare host names. |
-| `store` | Persistent state: required for `data.fs` and `data.sqlite`; `maxBytes` at most **4 MiB**. |
+| `store` | Persistent state: required for `data.fs`; `maxBytes` at most **4 MiB**. |
 
 ## Manifest rules
 
 | Rule | Reason |
 | --- | --- |
-| One touch surface: `app.surfaces.auxiliary` is **320×240** logical; `display.auxiliary` and `input.touch.auxiliary` are required | The surface is the unit every launcher host presents: the 3DS touch screen, the full screen of a single-screen device, a browser frame. The primary display belongs to the system (the agent's stage on the 3DS). |
+| One touch surface that admits **320×240** logical: `app.surfaces.auxiliary` is `fixed` at 320×240, or `adaptive` with a `{min, max}` range holding 320×240; `display.auxiliary` and `input.touch.auxiliary` are required | The surface is the unit every launcher host presents: the 3DS touch screen (320×240), the M5Stack Tab5's portrait panel above its home button (360×592), a browser frame. An adaptive applet reads the size the host chose with `auxiliaryViewport()` (`@pocketjs/framework/display`) and lays out for it. The primary display belongs to the system (the agent's stage on the 3DS). |
 | `system.agent` is enhanced | The overlay is added to every applet, so the agent can summon over it, read it and act in it. |
-| Capabilities come from an allowlist: text, buttons, left stick, the surface and touch, `net.http`, `ui.physics`, `audio.pcm`, `media.playback`, `data.fs`, `data.sqlite`, `system.agent`, and `camera.*` | Pairing, Wi-Fi, offload workers and launcher control act for the whole console and stay with the launcher. An allowlist, not a denylist: a new capability is unavailable to applets until it is added here. |
+| Capabilities come from an allowlist: text, buttons, left stick, the surface and touch, `net.http`, `ui.physics`, `audio.pcm`, `media.playback`, `data.fs`, `system.agent`, and `camera.*` | Pairing, Wi-Fi, offload workers and launcher control act for the whole console and stay with the launcher. An allowlist, not a denylist: a new capability is unavailable to applets until it is added here. |
 | `framework` is `solid`; no `model: "rust"`; no `app.companions`; no `presentations` | One UI toolkit the agent's text capture and played input know; no native code; companion work goes through declared services; one presentation, the 320×240 surface. |
 | `title` at most **24** characters | The title is the springboard label and the name the agent launches the applet by. |
-| `services` or `hosts` need `net.http`; `data.fs` or `data.sqlite` need `store` | Every destination and every persistent byte is declared before the applet runs. |
+| `services` or `hosts` need `net.http`; `data.fs` needs `store` | Every destination and every persistent byte is declared before the applet runs. |
 
 ## Source rules
 

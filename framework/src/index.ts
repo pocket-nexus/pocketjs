@@ -49,6 +49,7 @@ import type { AxisDelta } from "./relative-axis.ts";
 import type { MotionState } from "./motion.ts";
 import { flushLifecycleHooks, flushUnmountedHooks, disposeRootModelRegions } from "./lifecycle-solid-aot.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
+import { __dispatchTextEvents, __resetTextInput, __setTextEvents, type TextEventRecord } from "./text-input.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
 import { __drainEffects, resetEffects } from "./effects.ts";
 import { runServicePumps } from "./services.ts";
@@ -286,6 +287,7 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       rightAnalog?: number,
       axisDeltas?: readonly AxisDelta[],
       motion?: MotionState | null,
+      text?: readonly TextEventRecord[],
     ) => {
       __advanceClock(); // virtual frame++, fire due after() timers
       // A system layer may take the frame's input first (system-layers.ts).
@@ -298,8 +300,10 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       }
       __setAnalog(analog, rightAnalog); // latch the nub before any app code reads it
       __setTouches(touches, hits, touchSurfaces); // latch contacts + surface-specific hit facts
+      __setTextEvents(text); // the keyboard's events for this frame
       runServicePumps(); // only modules with pending async work register here
       __drainEffects(); // frame-boundary deliveries enter the world first
+      __dispatchTextEvents(); // typed text lands before button handlers run
       runFrameHooks(buttons, axisDeltas,
         defer => handleFrame(buttons, defer),
         runDeferredGestures, motion);
@@ -315,6 +319,7 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
     removeResizeViewportHook();
     disposeSystemLayers();
     __resetTouches();
+    __resetTextInput();
     resetGestures();
     dispose(); // tears down reactivity only — universal keeps the nodes
     disposeRootModelRegions();

@@ -28,6 +28,7 @@ pocketjs/
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
+│  ├─ host-services/        C link, launcher, fs and photo services for native programs
 │  ├─ backends/gpui/        desktop renderer and text integration
 │  ├─ ios/                 UIKit runtime integration
 │  ├─ crates/              module, UI embedding, text and widget libraries
@@ -42,7 +43,8 @@ pocketjs/
 │  ├─ web/ sim/             browser and deterministic service providers
 │  ├─ android/              JNI helpers, input queue, logging and clock
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
-│  └─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
+│  ├─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
+│  └─ sifli/                RT-Thread drivers, EPIC executor and renderer
 ├─ profiles/                software contracts identified by content hashes
 ├─ programs/
 │  ├─ psp/ vita/ 3ds/       console entries and runtime configurations
@@ -58,6 +60,7 @@ pocketjs/
 │  ├─ pocketbook/           reader program and InkView integration
 │  ├─ linux-kms/            Linux program with its own profile
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
+│  ├─ sifli/archive/        one Rust archive for the SiFli composition
 │  └─ native/               compatibility C-shell composition and QuickJS glue
 ├─ products/
 │  └─ 3ds/                  Link, launcher, camera and development product
@@ -85,6 +88,11 @@ and GPU mechanisms in `devices/`. Programs own their entries and driver
 composition; profiles describe the software contract. Device age and product
 category do not determine directory or repository ownership. See
 [Device native builds](DEVICE_BUILDS.md).
+
+**The M5Stack Tab5 program lives in pocket-nexus/pocket-m5.** It pins this
+repository as a submodule and composes the `platforms/esp-idf` components,
+`engine/host-services` and the IDF archive; its profiles (`tab5-hero`,
+`tab5-clear`, `tab5-home`) live with the program.
 
 **The 3DS product lives in `products/3ds`.**
 Its private package inspection, Link, camera, launcher and development services
@@ -131,7 +139,8 @@ nightly, and `esp.ts` pins the Xtensa compiler.
 describes an application. A program's `pocket.runtime-config.ts` imports its
 profile and declares native build steps. The executor verifies application
 inputs, compiler identity and source hashes before writing a build receipt.
-IDF, Zephyr and Buildroot retain ownership of their firmware configuration.
+IDF, Zephyr, the SiFli SDK and Buildroot retain ownership of their firmware
+configuration.
 
 **SDK exports contain one no_std Rust archive.** `pocket sdk export` retrieves a
 verified release; `pocket sdk build` creates a local candidate. Canonical headers,

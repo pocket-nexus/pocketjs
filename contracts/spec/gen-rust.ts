@@ -18,14 +18,6 @@ import {
   audioFramesForTick,
 } from "./audio.ts";
 import {
-  DB_BLOB_KEY,
-  DB_MAX_DATABASES,
-  DB_MAX_RESULT_ROWS,
-  DB_MAX_SAFE_INTEGER,
-  DB_MEMORY,
-  DB_OP,
-} from "./db.ts";
-import {
   FS_BLOB_KEY,
   FS_MAX_DEPTH,
   FS_MAX_DIR_ENTRIES,
@@ -542,35 +534,11 @@ export function generateRust(): string {
   put("}");
   put("");
 
-  // --- db module -----------------------------------------------------------
-  // The db MODULE's boundary (contracts/spec/db.ts): SQLite behind five
-  // synchronous ops, mounted as `globalThis.db`, independent of the ui
-  // surface. A native host implementing it reads these constants; the
-  // reference implementation is engine/crates/pocket-db.
-  put("/// DB module boundary (contracts/spec/db.ts — `globalThis.db`).");
-  put("/// SQLite behind five synchronous ops; rows cross as one JSON line per");
-  put("/// query() call. The module owns no clock and emits no events.");
-  put("pub mod db {");
-  for (const [name, v] of Object.entries(DB_OP)) {
-    put(`    pub const OP_${screaming(name)}: u8 = ${v};`);
-  }
-  put(`    /// The in-memory database name (private to the handle).`);
-  put(`    pub const MEMORY: &str = ${JSON.stringify(DB_MEMORY)};`);
-  put(`    /// Marker key for a BLOB value inside a row or a parameter list.`);
-  put(`    pub const BLOB_KEY: &str = ${JSON.stringify(DB_BLOB_KEY)};`);
-  put(`    /// Largest integer magnitude that crosses the boundary losslessly.`);
-  put(`    pub const MAX_SAFE_INTEGER: i64 = ${DB_MAX_SAFE_INTEGER};`);
-  put(`    pub const MAX_DATABASES: usize = ${DB_MAX_DATABASES};`);
-  put(`    /// Result-row ceiling per query() call (exceeding it fails the op).`);
-  put(`    pub const MAX_RESULT_ROWS: usize = ${DB_MAX_RESULT_ROWS};`);
-  put("}");
-  put("");
-
   // --- fs module -----------------------------------------------------------
   // The fs MODULE's boundary (contracts/spec/fs.ts): a per-app file tree
   // behind nine synchronous ops, mounted as `globalThis.fs`, independent of
   // the ui surface. A native host implementing it reads these constants; the
-  // reference implementation is engine/crates/pocket-fs.
+  // implementations are engine/host-services/fs.c and platforms/sim/fs.ts.
   put("/// FS module boundary (contracts/spec/fs.ts — `globalThis.fs`).");
   put("/// A per-app file tree behind nine synchronous ops; every path resolves");
   put("/// under the app's own data root. No clock, no events, no mtime.");
@@ -581,7 +549,7 @@ export function generateRust(): string {
   put(`    /// write() modes.`);
   put(`    pub const WRITE_TRUNCATE: u32 = ${FS_WRITE_TRUNCATE};`);
   put(`    pub const WRITE_APPEND: u32 = ${FS_WRITE_APPEND};`);
-  put(`    /// Marker key for a bytes payload (db's blob spelling).`);
+  put(`    /// Marker key for a bytes payload.`);
   put(`    pub const BLOB_KEY: &str = ${JSON.stringify(FS_BLOB_KEY)};`);
   put(`    /// Maximum UTF-8 bytes in one path segment.`);
   put(`    pub const MAX_SEGMENT_BYTES: usize = ${FS_MAX_SEGMENT_BYTES};`);

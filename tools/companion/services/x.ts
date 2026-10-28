@@ -42,6 +42,7 @@ import { PSM } from "../../../contracts/spec/spec.ts";
 import { decodePng, type DecodedImage } from "../../../framework/compiler/pak.ts";
 import { discImage } from "../images.ts";
 import { bytesResponse, jsonResponse, readJson, ServiceError, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
+import { COMPUTER } from "../computer.ts";
 import { writeSecret } from "../store.ts";
 import { helperCommand } from "../swift-helper.ts";
 
@@ -159,7 +160,7 @@ class XService implements ServiceProvider {
       case "logout":
         rmSync(this.sessionPath(), { force: true });
         this.lastError = "";
-        return "Signed out of X on this Mac.";
+        return `Signed out of X on this ${COMPUTER}.`;
       case "status": {
         const session = this.session();
         if (!session) return "Not signed in to X. Run: bun tools/companion.ts service x login";
@@ -199,10 +200,10 @@ class XService implements ServiceProvider {
   }
 
   private async login(): Promise<string> {
-    if (this.signIn) return "The X sign-in window is already open on this Mac.";
+    if (this.signIn) return `The X sign-in window is already open on this ${COMPUTER}.`;
     const command = await (this.options.signInCommand?.() ??
       helperCommand({ name: "pocket-websignin", source: WEB_SIGN_IN_SOURCE, env: "POCKET_WEB_SIGN_IN" }, this.context.storeDir, this.context.log));
-    if (!command) throw new Error("this Mac cannot open the sign-in window (no swiftc); use: service x cookies <auth_token> <ct0>");
+    if (!command) throw new Error(`this ${COMPUTER} cannot open the sign-in window (no swiftc); use: service x cookies <auth_token> <ct0>`);
     const child = spawn(
       command[0]!,
       [...command.slice(1), "--url", `${this.origin}/i/flow/login`, "--domain", new URL(this.origin).hostname, "--cookies", "auth_token,ct0", "--title", "Sign in to X for Pocket", "--timeout", "900"],
@@ -230,7 +231,7 @@ class XService implements ServiceProvider {
       this.signIn = null;
       this.context.log(`x: sign-in helper failed: ${error.message}`);
     });
-    return "A sign-in window for X opened on this Mac. Sign in there; it closes by itself. Then: bun tools/companion.ts service x status";
+    return `A sign-in window for X opened on this ${COMPUTER}. Sign in there; it closes by itself. Then: bun tools/companion.ts service x status`;
   }
 
   /** Read the operations with the new session ahead of the first request. */
@@ -295,7 +296,7 @@ class XService implements ServiceProvider {
 
   private requireSession(): Session {
     const session = this.session();
-    if (!session) throw failure(401, "signed-out", "Not signed in to X on the Mac. Open Pocket Companion on the Mac and sign in to X.");
+    if (!session) throw failure(401, "signed-out", `Not signed in to X on the ${COMPUTER}. Open Pocket Companion on the ${COMPUTER} and sign in to X.`);
     return session;
   }
 
@@ -426,7 +427,7 @@ class XService implements ServiceProvider {
       }
       const message = body?.errors?.map((e) => e.message).filter(Boolean).join("; ") || text.slice(0, 160);
       if (response.status === 401 || body?.errors?.some((e) => e.code === 32 || e.code === 89 || e.code === 239)) {
-        throw failure(401, "signed-out", `X refused the session (${response.status}); sign in again on the Mac`);
+        throw failure(401, "signed-out", `X refused the session (${response.status}); sign in again on the ${COMPUTER}`);
       }
       const unknown = response.status === 404 || /persisted|not found|unknown operation|query: unspecified/i.test(message);
       if (!response.ok || !body?.data) {

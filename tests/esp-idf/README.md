@@ -44,5 +44,4 @@ CLI once those artifacts exist. Source compilation uses `pocketjs_compile_app`;
 `pocketjs_profile_header` exports a profile without an application.
 
 See [component maintenance](../../docs/ESP_IDF.md) for archive receipts,
-QuickJS source identity and validation. `tests/data-smoke` retains its independent
-data-module toolchain and does not participate in the UI runtime graph.
+QuickJS source identity and validation.

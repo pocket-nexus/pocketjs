@@ -338,6 +338,36 @@ All three are animatable (timelines and `animate()`), which is how the Motion
 Lab reload study reproduces SVG `stroke-dasharray` drawing: the compiler samples
 the dash motion into `arcStart`/`arcSweep` keyframe stops.
 
+## Animation classes
+
+A GPU composes a frame from retained geometry, so a tween costs the same
+whatever it moves. A CPU rasterizer repaints the pixels a tween changes,
+so a `scale` over the whole page costs the whole page every frame, while a
+`translateX` of an opaque page is a pixel move. `animationClass` names
+which of the two this bundle runs on, from the target profile the plan
+resolved (see [Platform contracts](/docs/platform-contracts/#animation-classes)):
+
+```ts
+import { animate, animationClass, jump } from "@pocketjs/framework/animation";
+
+const launch = (board: NodeMirror, icon: NodeMirror) => {
+  if (animationClass === "composited") {
+    animate(board, "scale", 1.6, { dur: 260, easing: "in" });
+    animate(board, "opacity", 0, { dur: 260, easing: "in" });
+  } else {
+    // One icon's area, then a cut.
+    animate(icon, "scale", 1.12, { dur: 120, easing: "out" });
+  }
+};
+```
+
+On a `repaint` target, keep tweens to translations of opaque regions and to
+changes inside a small area; replace a `scale`, `opacity` or `rotate` tween
+over a large subtree with a cut; and run nothing while nothing happens. On
+a `still` target (electronic paper) `animate()` and `spring()` set the end
+value at once and return `0`, so a page written for the other classes shows
+its end states without a branch.
+
 ## Which props animate where
 
 Every animation path gates on the same native animatable-prop set, with one

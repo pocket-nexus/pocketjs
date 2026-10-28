@@ -143,7 +143,7 @@ export const FS_WRITE_APPEND = 1;
 // native core fails the op). Arbitrary byte data belongs in the bytes
 // spelling, never in a string.
 
-/** Marker key for a bytes payload (same spelling as db's DB_BLOB_KEY). */
+/** Marker key for a bytes payload. */
 export const FS_BLOB_KEY = "$b";
 
 // ---------------------------------------------------------------------------

@@ -940,9 +940,8 @@ async function packPackages(
   ];
   for (const entry of entries) {
     const absoluteManifest = manifestPath(entry);
-    const manifestBytes = readFileSync(absoluteManifest);
-    const manifest: unknown = JSON.parse(manifestBytes.toString("utf8"));
-    const resolution = resolveForTarget(manifest, target);
+    const loaded = readPocketManifest(absoluteManifest);
+    const resolution = resolveForTarget(loaded.manifest, target);
     if (!resolution.ok) {
       throw new Error(
         `launcher pack: ${absoluteManifest} no longer admits ${target}`,
@@ -958,7 +957,7 @@ async function packPackages(
       : new Uint8Array(0);
     const coverPath = join(COVERS_DIR, `cover-${plan.app.output}.png`);
     const bytes = encodePocketPackage({
-      manifest: new Uint8Array(manifestBytes),
+      manifest: loaded.embedded,
       variants: [
         makeVariant({
           target,

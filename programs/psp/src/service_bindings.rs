@@ -1,9 +1,10 @@
-//! PSP private audio, debugger and offload extensions. Public UI methods are
+//! PSP private audio, debugger, offload, link and media extensions. Public UI methods are
 //! generated and dispatch to the active Runtime's OpContext.
 use alloc::{string::String, vec::Vec};
 use libquickjs_sys::*;
 extern "C" {
     fn JS_NewStringLen(ctx: *mut JSContext, text: *const u8, length: usize) -> JSValue;
+    fn JS_ToBool(ctx: *mut JSContext, value: JSValue) -> i32;
     fn JS_ParseJSON(
         ctx: *mut JSContext,
         buf: *const core::ffi::c_char,
@@ -41,26 +42,7 @@ pub unsafe fn arg_f64(ctx: *mut JSContext, argc: i32, argv: *mut JSValue, i: isi
 /// Copy audio bytes before any later JS call. Native typed-array offsets are
 /// read through QuickJS rather than user-controlled properties.
 unsafe fn buffer_bytes(ctx: *mut JSContext, value: JSValue) -> Option<Vec<u8>> {
-    let mut length = 0;
-    let pointer = JS_GetArrayBuffer(ctx, &mut length, value);
-    if !pointer.is_null() {
-        return Some(core::slice::from_raw_parts(pointer, length).to_vec());
-    }
-    JS_FreeValue(ctx, JS_GetException(ctx));
-    let (mut offset, mut count, mut element) = (0, 0, 0);
-    let buffer = JS_GetTypedArrayBuffer(ctx, value, &mut offset, &mut count, &mut element);
-    if JS_IsException(buffer) {
-        JS_FreeValue(ctx, JS_GetException(ctx));
-        return None;
-    }
-    let pointer = JS_GetArrayBuffer(ctx, &mut length, buffer);
-    let bytes = if !pointer.is_null() && offset <= length && count <= length - offset {
-        Some(core::slice::from_raw_parts(pointer.add(offset), count).to_vec())
-    } else {
-        None
-    };
-    JS_FreeValue(ctx, buffer);
-    bytes
+    buffer_mut(ctx, value).map(|bytes| bytes.to_vec())
 }
 unsafe extern "C" fn js_dbg_active(
     ctx: *mut JSContext,
@@ -513,6 +495,212 @@ unsafe extern "C" fn js_offload_upload_indexed(
     JS_FreeCString(ctx, cp);
     JS_NewInt32(ctx, handle)
 }
+/// A typed array or ArrayBuffer argument as the guest's own bytes, for a
+/// native call that fills it before returning to JS.
+unsafe fn buffer_mut<'a>(ctx: *mut JSContext, value: JSValue) -> Option<&'a mut [u8]> {
+    let mut length = 0;
+    let pointer = JS_GetArrayBuffer(ctx, &mut length, value);
+    if !pointer.is_null() {
+        return Some(core::slice::from_raw_parts_mut(pointer, length));
+    }
+    JS_FreeValue(ctx, JS_GetException(ctx));
+    let (mut offset, mut count, mut element) = (0, 0, 0);
+    let buffer = JS_GetTypedArrayBuffer(ctx, value, &mut offset, &mut count, &mut element);
+    if JS_IsException(buffer) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return None;
+    }
+    let pointer = JS_GetArrayBuffer(ctx, &mut length, buffer);
+    JS_FreeValue(ctx, buffer);
+    if pointer.is_null() || offset > length || count > length - offset {
+        return None;
+    }
+    Some(core::slice::from_raw_parts_mut(pointer.add(offset), count))
+}
+
+// ---- globalThis.net and globalThis.link over the USB share (link.rs) ----------
+
+/// net.start(metaJson, body) -> handle | -1 (contracts/spec/net.ts).
+unsafe extern "C" fn js_net_start(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    let Some((meta_ptr, meta)) = arg_bytes(ctx, argc, argv, 0) else {
+        return JS_NewInt32(ctx, -1);
+    };
+    // The body is read in place: net_start copies it into the request record.
+    let body: &[u8] = if argc >= 2 {
+        buffer_mut(ctx, *argv.offset(1)).map(|bytes| &*bytes).unwrap_or(&[])
+    } else {
+        &[]
+    };
+    let handle = crate::link::net_start(meta, body, crate::switch::current_id());
+    JS_FreeCString(ctx, meta_ptr);
+    JS_NewInt32(ctx, handle)
+}
+
+/// net.take(handle, into) -> bytes copied | -1.
+unsafe extern "C" fn js_net_take(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    if argc < 2 {
+        return JS_NewInt32(ctx, -1);
+    }
+    let handle = arg_i32(ctx, argc, argv, 0);
+    match buffer_mut(ctx, *argv.offset(1)) {
+        Some(into) => JS_NewInt32(ctx, crate::link::net_take(handle, into)),
+        None => JS_NewInt32(ctx, -1),
+    }
+}
+
+/// net.cancel(handle).
+unsafe extern "C" fn js_net_cancel(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    if argc >= 1 {
+        crate::link::net_cancel(arg_i32(ctx, argc, argv, 0));
+    }
+    JS_UNDEFINED
+}
+
+/// net.poll() -> the tick's events as one JSON array | undefined.
+unsafe extern "C" fn js_net_poll(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    match crate::link::net_poll() {
+        Some(s) => JS_NewStringLen(ctx, s.as_ptr(), s.len()),
+        None => JS_UNDEFINED,
+    }
+}
+
+/// net.lastError() -> "code: message".
+unsafe extern "C" fn js_net_last_error(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    let s = crate::link::net_last_error();
+    JS_NewStringLen(ctx, s.as_ptr(), s.len())
+}
+
+/// link.status() -> LinkStatus JSON (contracts/spec/link.ts).
+unsafe extern "C" fn js_link_status(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    let s = crate::link::link_status();
+    JS_NewStringLen(ctx, s.as_ptr(), s.len())
+}
+
+/// link.pair / forget / remove: the USB carrier has no pairing and no
+/// installs (the cable is the trust boundary), so each refuses.
+unsafe extern "C" fn js_link_refuse(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    JS_NewBool(ctx, false)
+}
+
+/// link.catalog / install -> -1: not carried over USB.
+unsafe extern "C" fn js_link_no_request(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    JS_NewInt32(ctx, -1)
+}
+
+/// link.poll() -> no link events over USB.
+unsafe extern "C" fn js_link_poll(
+    _ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    JS_UNDEFINED
+}
+// ---- globalThis.media over the USB share's media ring (media.rs) ---------------
+
+/// media.open(host, port, token) -> bool (contracts/spec/media.ts MediaOps).
+unsafe extern "C" fn js_media_open(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    let Some((pointer, token)) = arg_bytes(ctx, argc, argv, 2) else {
+        return JS_NewBool(ctx, false);
+    };
+    let ok = crate::media::open(token);
+    JS_FreeCString(ctx, pointer);
+    JS_NewBool(ctx, ok)
+}
+
+unsafe extern "C" fn js_media_close(
+    _ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    crate::media::close();
+    JS_UNDEFINED
+}
+
+unsafe extern "C" fn js_media_paused(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    crate::media::set_paused(argc >= 1 && JS_ToBool(ctx, *argv) > 0);
+    JS_UNDEFINED
+}
+
+unsafe extern "C" fn js_media_volume(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    crate::media::set_volume(arg_f64(ctx, argc, argv, 0) as f32);
+    JS_UNDEFINED
+}
+
+unsafe extern "C" fn js_media_texture(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    JS_NewInt32(ctx, crate::instance::with_ui(ctx, |ui| crate::media::texture(ui)).unwrap_or(-1))
+}
+
+unsafe extern "C" fn js_media_status(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    _argc: i32,
+    _argv: *mut JSValue,
+) -> JSValue {
+    let s = crate::media::status();
+    JS_NewStringLen(ctx, s.as_ptr(), s.len())
+}
 /// Mount private namespaces after the generated guest has created ui.
 pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     if crate::offload::enabled() {
@@ -542,6 +730,40 @@ pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     add_fn(ctx, ui_obj, b"__dbgShot\0", js_dbg_shot, 0);
     JS_FreeValue(ctx, ui_obj);
     register_audio(ctx, global);
+    register_link(ctx, global);
+}
+/// Install `globalThis.net`, `globalThis.link` and `globalThis.media`, all
+/// carried by the companion on the USB share (link.rs, media.rs). The link starts here, before the
+/// guest evaluates, so a request at mount finds a companion that answers.
+///
+/// # Safety
+/// QuickJS context alive, worker thread.
+pub unsafe fn register_link(ctx: *mut JSContext, global: JSValue) {
+    crate::link::start(crate::profile::ID);
+    let net = JS_NewObject(ctx);
+    add_fn(ctx, net, b"start\0", js_net_start, 2);
+    add_fn(ctx, net, b"take\0", js_net_take, 2);
+    add_fn(ctx, net, b"cancel\0", js_net_cancel, 1);
+    add_fn(ctx, net, b"poll\0", js_net_poll, 0);
+    add_fn(ctx, net, b"lastError\0", js_net_last_error, 0);
+    JS_SetPropertyStr(ctx, global, b"net\0".as_ptr() as *const _, net);
+    let link = JS_NewObject(ctx);
+    add_fn(ctx, link, b"status\0", js_link_status, 0);
+    add_fn(ctx, link, b"pair\0", js_link_refuse, 1);
+    add_fn(ctx, link, b"forget\0", js_link_refuse, 1);
+    add_fn(ctx, link, b"remove\0", js_link_refuse, 1);
+    add_fn(ctx, link, b"catalog\0", js_link_no_request, 0);
+    add_fn(ctx, link, b"install\0", js_link_no_request, 1);
+    add_fn(ctx, link, b"poll\0", js_link_poll, 0);
+    JS_SetPropertyStr(ctx, global, b"link\0".as_ptr() as *const _, link);
+    let media = JS_NewObject(ctx);
+    add_fn(ctx, media, b"open\0", js_media_open, 3);
+    add_fn(ctx, media, b"close\0", js_media_close, 0);
+    add_fn(ctx, media, b"paused\0", js_media_paused, 1);
+    add_fn(ctx, media, b"volume\0", js_media_volume, 1);
+    add_fn(ctx, media, b"texture\0", js_media_texture, 0);
+    add_fn(ctx, media, b"status\0", js_media_status, 0);
+    JS_SetPropertyStr(ctx, global, b"media\0".as_ptr() as *const _, media);
 }
 /// Install `globalThis.audio` — the audio MODULE as its own namespace
 /// (capability audio.pcm = spec namespace, contracts/spec/audio.ts), the

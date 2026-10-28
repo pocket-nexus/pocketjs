@@ -18,7 +18,7 @@
 //        [--xfade SECS] [--crf N] [--preset P] [--x]
 //
 // Defaults: brand pocketjs ("Create UI on / every screen / you love",
-// pocketjs.dev); pocket3d is "Create 3D on / every screen / you love",
+// pocketjs.dev); pocket3d is "Create 3D on / every device / you love",
 // 3d.pocket.nexus. outro 2s, xfade 0.35s, crf 18, preset medium. Pass --url ""
 // to hide the url.
 
@@ -37,7 +37,7 @@ export const ASSETS = ["press-start-2p-latin.woff2", "Fredoka.ttf", "pocketjs-ma
 /** Each product's wordmark, headline and url, as its site's hero and bar set them. */
 export const BRANDS = {
   pocketjs: { word: "PocketJS", tagline: "Create UI on\nevery screen\nyou love", url: "pocketjs.dev" },
-  pocket3d: { word: "Pocket3D", tagline: "Create 3D on\nevery screen\nyou love", url: "3d.pocket.nexus" },
+  pocket3d: { word: "Pocket3D", tagline: "Create 3D on\nevery device\nyou love", url: "3d.pocket.nexus" },
 } as const;
 export type Brand = keyof typeof BRANDS;
 export const DEFAULT_TAGLINE = BRANDS.pocketjs.tagline;

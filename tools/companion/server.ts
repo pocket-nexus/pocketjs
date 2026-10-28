@@ -24,8 +24,8 @@ import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { AgentService, AGENT_LINK_FEATURE, type AgentLink, type AgentServiceOptions, type AgentSession } from "./agent.ts";
 import { AppCatalog, PackageReader } from "./catalog.ts";
 import { findCodex, userCodexHome } from "./codex.ts";
-import { NetFailure, normalizeNetRequest, performNet, type NetRequest } from "./fetch.ts";
-import { ServiceHost } from "./services.ts";
+import { NetFailure, normalizeNetRequest, performNet, type NetRequest, type NetResponse } from "./fetch.ts";
+import { ServiceHost, type ServiceConsole } from "./services.ts";
 import {
   LinkFrameDecoder,
   LinkProtocolError,
@@ -46,6 +46,7 @@ import {
   type LinkCtrl,
 } from "./protocol.ts";
 import { CompanionStore, defaultCompanionName } from "./store.ts";
+import { UsbCarrier } from "./usb.ts";
 
 /** The companion's wall clock for the console (link.ts `clock`): UTC and
  *  local time in epoch milliseconds, so the offset never goes negative on
@@ -84,6 +85,9 @@ export interface CompanionOptions {
   log?: (line: string) => void;
   /** The console agent (contracts/spec/agent.ts); absent or false: off. */
   agent?: false | Partial<Omit<AgentServiceOptions, "storeDir" | "catalog" | "log">>;
+  /** USB shares a tethered console reaches this companion through (the
+   *  link.ts USB carrier): each one gets a `pocket-link/` directory. */
+  usb?: string[];
 }
 
 export interface PairingWindow {
@@ -131,6 +135,7 @@ export class Companion {
   private beaconSocket: UdpSocket | undefined;
   private beaconTimer: ReturnType<typeof setInterval> | undefined;
   private connections = new Set<LinkConnection>();
+  private usb: UsbCarrier[] = [];
   private pairing: PairingWindow | undefined;
   private pairTimer: ReturnType<typeof setTimeout> | undefined;
   private cliDirs: string[];
@@ -195,6 +200,11 @@ export class Companion {
     this.log(`link: listening ${host}:${this.port} as ${this.id} "${this.name}"`);
     this.catalog.watch();
     if (this.options.beacon !== false) await this.startBeacons();
+    for (const share of this.options.usb ?? []) {
+      const carrier = new UsbCarrier(this, share);
+      carrier.start();
+      this.usb.push(carrier);
+    }
   }
 
   async stop(): Promise<void> {
@@ -202,6 +212,8 @@ export class Companion {
     clearTimeout(this.pairTimer);
     this.catalog.close();
     for (const connection of this.connections) connection.close("companion stopping");
+    for (const carrier of this.usb) carrier.stop();
+    this.usb = [];
     this.agent?.stop();
     this.services.close();
     this.beaconSocket?.close();
@@ -226,12 +238,19 @@ export class Companion {
     this.beaconTimer = setInterval(send, tuning.intervalMs ?? 1_000);
   }
 
+  /** The interfaces' broadcast addresses, read again every 10 s: listing
+   *  them every second took a CardputerZero a tenth of a core. */
+  private broadcasts: { at: number; addresses: string[] } | undefined;
+
   /** Every address one beacon goes to this second. */
   beaconTargets(broadcast = true): string[] {
     const targets = new Set<string>();
     if (broadcast) {
       targets.add("255.255.255.255");
-      for (const iface of lanInterfaces()) targets.add(iface.broadcast);
+      if (!this.broadcasts || Date.now() - this.broadcasts.at > 10_000) {
+        this.broadcasts = { at: Date.now(), addresses: lanInterfaces().map((iface) => iface.broadcast) };
+      }
+      for (const address of this.broadcasts.addresses) targets.add(address);
     }
     for (const entry of this.store.consoles()) if (entry.lastAddress) targets.add(entry.lastAddress);
     for (const address of this.options.unicast ?? []) targets.add(address);
@@ -322,6 +341,10 @@ export class Companion {
       if (!connection.ready || !connection.device) continue;
       out.push({ ...connection.device, address: connection.address, since: connection.since });
     }
+    for (const carrier of this.usb) {
+      const device = carrier.linked();
+      if (device) out.push({ id: device.id, name: device.name, model: device.model, target: device.target, address: "usb", since: device.since });
+    }
     return out;
   }
 
@@ -347,6 +370,22 @@ export class Companion {
     const connection = new LinkConnection(this, socket);
     this.connections.add(connection);
     socket.on("close", () => this.connections.delete(connection));
+  }
+
+  /** One net request from a linked console, over either carrier: a service
+   *  this companion runs answers it when the URL names one, else the request
+   *  is fetched. */
+  async answerNet(
+    request: NetRequest,
+    caller: { app: string; target: string },
+    console: ServiceConsole,
+    signal: AbortSignal,
+  ): Promise<NetResponse> {
+    const services = this.catalog.find(caller.target, caller.app)?.services ?? [];
+    return (
+      (await this.services.handle(request, console, { app: caller.app, services }, signal)) ??
+      (await performNet(request, { allowPrivate: this.options.allowPrivate, signal, resolve: this.options.resolve }))
+    );
   }
 
   /** The console agent as the setup screen shows it: on, or what it waits
@@ -671,18 +710,12 @@ class LinkConnection {
     const label = `net ${pending.meta.method} ${pending.meta.url}`;
     try {
       const device = this.device ?? { id: "", name: "", model: "", target: "" };
-      const services = this.companion.catalog.find(device.target, pending.app)?.services ?? [];
-      const response =
-        (await this.companion.services.handle(
-          { ...pending.meta, body },
-          { name: device.name, address: this.address, localAddress: this.localAddress },
-          { app: pending.app, services },
-          pending.abort.signal,
-        )) ??
-        (await performNet(
-          { ...pending.meta, body },
-          { allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal, resolve: this.companion.options.resolve },
-        ));
+      const response = await this.companion.answerNet(
+        { ...pending.meta, body },
+        { app: pending.app, target: device.target },
+        { name: device.name, address: this.address, localAddress: this.localAddress },
+        pending.abort.signal,
+      );
       if (this.net.get(id) !== pending) return;
       this.companion.log(`${label} ${response.status} ${response.body.length}B ${Date.now() - started}ms`);
       this.send({ t: "net.head", id, status: response.status, url: response.url, headers: response.headers, bytes: response.body.length });

@@ -1,0 +1,7 @@
+quirc — QR-code recognition library (ISC, see LICENSE)
+Upstream: https://github.com/dlbeer/quirc
+Commit: 927d680904dc95fdff4cd9d022eb374b438ff8f2
+Vendored unmodified: lib/*.c, lib/*.h and LICENSE. Built by products/3ds/Makefile
+(the devkitARM container has no network) and by the ESP-IDF component
+programs/m5stack-tab5/components/pocket_camera in pocket-nexus/pocket-m5. Used by products/3ds/src/camera.c
+and that component's camera.c.

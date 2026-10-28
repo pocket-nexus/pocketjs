@@ -51,7 +51,8 @@ pub fn json() -> String {
         concat!(
             "{{\"app\":\"{}\",\"bundle\":\"{}\",",
             "\"audio\":{{\"starved\":{},\"reserveGiveups\":{},\"lastReserveErr\":{},",
-            "\"releaseTimeouts\":{},\"pushedFrames\":{}}},",
+            "\"releaseTimeouts\":{},\"pushedFrames\":{},\"outputBlocks\":{},",
+            "\"outputErrors\":{},\"lastOutputErr\":{},\"threads\":{}}},",
             "\"vid\":{{\"presented\":{},\"torn\":{},\"lapped\":{},\"epochs\":{},",
             "\"hdrFails\":{},\"bytes\":{}}},",
             "\"svc\":{{\"truncResets\":{}}},",
@@ -65,6 +66,10 @@ pub fn json() -> String {
         AUDIO_LAST_RESERVE_ERR.load(Ordering::Relaxed),
         r(&AUDIO_RELEASE_TIMEOUTS),
         r(&AUDIO_PUSHED_FRAMES),
+        r(&AUDIO_OUTPUT_BLOCKS),
+        r(&AUDIO_OUTPUT_ERRORS),
+        AUDIO_LAST_OUTPUT_ERR.load(Ordering::Relaxed),
+        AUDIO_THREADS.load(Ordering::Relaxed),
         r(&VID_PRESENTED),
         r(&VID_TORN),
         r(&VID_LAPPED),
@@ -83,6 +88,7 @@ pub fn json() -> String {
 }
 
 pub use pocket_psp_audio::stats::{
+    AUDIO_LAST_OUTPUT_ERR, AUDIO_OUTPUT_BLOCKS, AUDIO_OUTPUT_ERRORS, AUDIO_THREADS,
     AUDIO_LAST_RESERVE_ERR, AUDIO_PUSHED_FRAMES, AUDIO_RELEASE_TIMEOUTS, AUDIO_RESERVE_GIVEUPS,
     AUDIO_STARVED,
 };

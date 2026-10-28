@@ -67,7 +67,7 @@ static int32_t display_wait(void *context, uint64_t token) {
   return 0;
 }
 static const pocket_display_output_v1 display_api = {
-  sizeof display_api, describe, acquire, flush, display_wait, NULL, NULL
+  sizeof display_api, describe, acquire, flush, display_wait, NULL, NULL, NULL, NULL
 };
 static void evaluate(JSContext *ctx, const char *code) {
   JSValue value = JS_Eval(ctx, code, strlen(code), "fixture", JS_EVAL_TYPE_GLOBAL);

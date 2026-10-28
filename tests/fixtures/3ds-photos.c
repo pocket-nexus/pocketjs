@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../../products/3ds/src/photos_image.h"
+#include "../../products/3ds/src/photos_jpeg.h"
 
 /* The camera's RGB565 (red high): left half red, right half blue, a white
  * square in the middle. */

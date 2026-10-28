@@ -13,6 +13,7 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 pocket-runtime-cabi = { workspace = true }
 pocket-render-esp-ppa = { workspace = true, default-features = true, features = ["cabi"] }
+pocket-package = { workspace = true }
 [features]
 default = ["std"]
 std = ["pocket-runtime-cabi/std"]

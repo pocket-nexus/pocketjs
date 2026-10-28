@@ -285,17 +285,30 @@ pub unsafe extern "C" fn pocket_runtime_add_op_provider(
         })
     }
 }
+/// A boot failure names its cause in the host log: the status alone does not
+/// tell package admission from guest evaluation or the first present, and
+/// the guest's error text covers evaluation only.
+fn report_boot_failure(error: RuntimeError) -> RuntimeError {
+    let message = alloc::format!("boot failed: {error:?}");
+    // SAFETY: the message bytes are live for the call.
+    unsafe { pocket_host_log(0, message.as_ptr().cast(), message.len()) };
+    error
+}
 /// # Safety
 /// runtime is a live instance on its owning thread.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32 {
-    unsafe { modify(runtime, Runtime::boot) }
+    unsafe { modify(runtime, |runtime| runtime.boot().map_err(report_boot_failure)) }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32 {
-    unsafe { modify(runtime, Runtime::boot_deferred) }
+    unsafe {
+        modify(runtime, |runtime| {
+            runtime.boot_deferred().map_err(report_boot_failure)
+        })
+    }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.
@@ -322,6 +335,45 @@ pub unsafe extern "C" fn pocket_runtime_supports_op(runtime: *const PocketRuntim
     unsafe { handle(runtime) }
         .map(|handle| u32::from(handle.ops.supports_op(op)))
         .unwrap_or(0)
+}
+
+/// # Safety
+/// runtime is live and no guest or driver callback is running; pixels
+/// supplies length readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_update_texture(
+    runtime: *mut PocketRuntime,
+    texture: i32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    pixels: *const u8,
+    length: usize,
+) -> i32 {
+    let Some(handle) = (unsafe { handle(runtime) }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    if let Err(status) = invalidate(handle) {
+        return status;
+    }
+    if handle.operation_active.get() || handle.guest_active.get() {
+        return POCKET_STATUS_FAILED;
+    }
+    let bytes = match unsafe { crate::adapters::borrowed(pixels, length) } {
+        Ok(bytes) => bytes,
+        Err(error) => return error.status(),
+    };
+    match handle.ops.core_mut() {
+        Ok(mut core) => {
+            if core.ui.update_texture_rect(texture, x, y, width, height, bytes) {
+                POCKET_STATUS_OK
+            } else {
+                POCKET_STATUS_INVALID
+            }
+        }
+        Err(error) => status(error),
+    }
 }
 
 /// # Safety

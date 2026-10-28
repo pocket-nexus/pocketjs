@@ -73,6 +73,13 @@ artifacts: `$JOB_TMP/map-*.json`).
   blending, and compatible PSM 5650 texture transforms to the PPA, then
   preserves ordering with `engine/raster` for unsupported ops.
   It never allocates a full-frame RGB888/ARGB8888 intermediate.
+- **SiFli renders into device-owned RGB565 framebuffers**:
+  `platforms/sifli/render-epic/` plans each damage rectangle against the
+  executor's capabilities and emits fills, A8 blends, gradients, blits,
+  four-point quads and tile copies; `platforms/sifli/epic/` runs them on EPIC
+  through `HAL_EPIC_*` and, on SF32LB58, on VG Lite. The CPU never writes a
+  framebuffer: `engine/raster` draws fallbacks into SRAM tiles that EPIC
+  copies out and back. See [platforms/sifli](../platforms/sifli/README.md).
 - **Native animation**: tweens/springs tick in Rust per vblank with **fixed
   dt = 1/60 s** (frame content is a pure function of frame index — this is
   what makes byte-exact goldens possible **[R]**). JS only declares motion.

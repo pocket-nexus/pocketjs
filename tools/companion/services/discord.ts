@@ -45,6 +45,7 @@ import { PSM } from "../../../contracts/spec/spec.ts";
 import { envProxy } from "../fetch.ts";
 import { discImage } from "../images.ts";
 import { bytesResponse, jsonResponse, readJson, ServiceError, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
+import { COMPUTER } from "../computer.ts";
 import { writeSecret } from "../store.ts";
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -78,8 +79,8 @@ const AVATAR_CIRCLE = 28;
 export const DISCORD_SETUP = "bun tools/companion.ts service discord token <bot-token>";
 /** The 409 a data endpoint answers until a token is set. */
 /** What the console shows until a token is set: the owner sets it in the app. */
-export const DISCORD_SETUP_HINT = "Open Pocket Companion on the Mac and set up Discord.";
-const NOT_SET_UP = { error: "Discord is not set up on the Mac.", setup: DISCORD_SETUP_HINT };
+export const DISCORD_SETUP_HINT = `Open Pocket Companion on the ${COMPUTER} and set up Discord.`;
+const NOT_SET_UP = { error: `Discord is not set up on the ${COMPUTER}.`, setup: DISCORD_SETUP_HINT };
 
 // ---------------------------------------------------------------------------
 // What the console gets
@@ -763,7 +764,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     trimmed.clear();
     images.clear();
     context.log("discord: token forgotten");
-    return "Discord is logged out; the token is deleted from this Mac.";
+    return `Discord is logged out; the token is deleted from this ${COMPUTER}.`;
   }
 
   // -- requests ------------------------------------------------------------------

@@ -275,6 +275,8 @@ pub static DISPLAY: PocketDisplayOutputV1 = PocketDisplayOutputV1 {
     wait: Some(wait),
     vsync: Some(vsync),
     frame_identity: Some(frame_identity),
+    move_pixels: None,
+    host_damage: None,
 };
 unsafe extern "C" fn classes(_: *mut c_void) -> u32 {
     POCKET_INPUT_CLASS_CONTACT | POCKET_INPUT_CLASS_BUTTONS | POCKET_INPUT_CLASS_AXIS_ABSOLUTE

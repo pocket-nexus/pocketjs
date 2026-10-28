@@ -36,6 +36,7 @@ function plan(
       policy: "dynamic",
     },
     modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
+    animation: "repaint",
     features: {},
     companions: [],
     profile,

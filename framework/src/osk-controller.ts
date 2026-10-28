@@ -4,6 +4,7 @@
 
 import { createSignal, type Accessor } from "solid-js";
 import { virtualFrame } from "./clock.ts";
+import { onTextEvent, type TextEvent } from "./text-input.ts";
 
 export interface CreateOskOptions {
   /** The app-owned text signal the OSK edits. */
@@ -46,8 +47,50 @@ export function createOsk(opts: CreateOskOptions): OskController {
   const [isOpen, setOpen] = createSignal(false);
   const [caretRaw, setCaretRaw] = createSignal(0);
   let opened = -1;
+  // A real keyboard (input.text) types into the open session the way the
+  // on-screen keys do; the subscription lasts while the session is open.
+  let releaseKeyboard: (() => void) | null = null;
 
   const caret = () => Math.min(caretRaw(), opts.value().length);
+
+  const typed = (event: TextEvent): boolean => {
+    if (event.kind === "commit") {
+      controller.insert(event.text);
+      return true;
+    }
+    if (event.kind !== "key" || !event.pressed) return false;
+    switch (event.key) {
+      case "Backspace":
+        controller.backspace();
+        return true;
+      case "Delete": {
+        const c = caret();
+        const v = opts.value();
+        if (c < v.length) opts.setValue(v.slice(0, c) + v.slice(c + 1));
+        return true;
+      }
+      case "Enter":
+        controller.commit();
+        return true;
+      case "Escape":
+        controller.cancel();
+        return true;
+      case "ArrowLeft":
+        controller.moveCaret(-1);
+        return true;
+      case "ArrowRight":
+        controller.moveCaret(1);
+        return true;
+      case "Home":
+        controller.moveCaret(-opts.value().length);
+        return true;
+      case "End":
+        controller.moveCaret(opts.value().length);
+        return true;
+      default:
+        return false;
+    }
+  };
 
   const controller: OskController = {
     open() {
@@ -55,10 +98,14 @@ export function createOsk(opts: CreateOskOptions): OskController {
       opened = virtualFrame();
       setOpen(true);
       openController = controller;
+      releaseKeyboard?.();
+      releaseKeyboard = onTextEvent(typed);
     },
     close() {
       setOpen(false);
       if (openController === controller) openController = null;
+      releaseKeyboard?.();
+      releaseKeyboard = null;
     },
     isOpen,
     caret,

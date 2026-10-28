@@ -12,6 +12,11 @@ typedef struct {
   /* Called from stopping task; must be thread-safe and interrupt the guest. */
   void (*interrupt)(void *context);
   void *user_data;
+  /* heap_caps for the task stack (MALLOC_CAP_SPIRAM for a deep guest), or 0
+   * for internal RAM. */
+  uint32_t task_stack_caps;
+  /* Called on the runner task before each tick, with user_data. */
+  void (*before_tick)(void *context);
 } pocket_runner_config_t;
 typedef struct {
   size_t struct_size;

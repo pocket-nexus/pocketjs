@@ -439,6 +439,7 @@ function createPortalRoot(): { marker: NodeMirror; host: NodeMirror; root: Rende
       insetB: 0,
       insetL: 0,
       zIndex: 1000,
+      hitPass: 1,
     },
     undefined,
   );

@@ -94,7 +94,7 @@ static void canonical(void) {
   eval(guest,&runtime,"ui.setText(17,{toString(){ui.createNode(0);return 'ok'}})");assert(runtime.last_op==7&&runtime.length==2&&memcmp(runtime.bytes,"ok",2)==0);
   eval(guest,&runtime,"ui.setText(17,'\\ud800')");assert(runtime.length>0&&runtime.bytes[0]==0xef);
   eval(guest,&runtime,"let b=new ArrayBuffer(4),v=new Uint8Array(b);let rejected=false;try{ui.uploadTexture(v,{valueOf(){b.transfer();return 1}},1,3)}catch(e){rejected=true}check(rejected)");
-  eval(guest,&runtime,"globalThis.frame=(...args)=>{check(args.length===8&&args[2][0]===0x40040000&&args[6][0].axis===1&&args[6][0].delta===-5&&args[7].timestamp===100);Promise.resolve().then(()=>globalThis.drained=true)}");
+  eval(guest,&runtime,"globalThis.frame=(...args)=>{check(args.length===9&&args[2][0]===0x40040000&&args[6][0].axis===1&&args[6][0].delta===-5&&args[7].timestamp===100&&Array.isArray(args[8])&&args[8].length===0);Promise.resolve().then(()=>globalThis.drained=true)}");
   const uint32_t touches[]={0x40040000};const int32_t hits[]={0};const uint8_t surfaces[]={1};pocket_axis_delta delta={0};delta.struct_size=sizeof delta;delta.axis=1;delta.delta=-5;pocket_motion_state motion={0};motion.struct_size=sizeof motion;motion.timestamp=100;
   pocket_guest_frame frame={0};frame.struct_size=sizeof frame;frame.touches=touches;frame.hits=hits;frame.touch_surfaces=surfaces;frame.touch_count=1;frame.axis_deltas=&delta;frame.axis_delta_count=1;frame.motion=&motion;
   assert(pocket_guest_quickjs_vtable()->frame(guest,&frame)==0);eval(guest,&runtime,"check(drained)");

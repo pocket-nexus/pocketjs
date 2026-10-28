@@ -71,11 +71,11 @@ int main(void) {
     "check(!('svcOpen' in ui));"
 #endif
     "globalThis.count=0;";
-  /* Function form tests the canonical eight-argument wire, with hits recomputed
+  /* Function form tests the canonical nine-argument wire, with hits recomputed
    * by Runtime instead of trusting a caller's stale hit id. */
   const char *frame =
-    "globalThis.frame=function(buttons,analog,touches,hits,surfaces,right,deltas,motion){"
-    "if(arguments.length!==8||analog!==0x8080||right!==0x8080)throw Error('wire '+JSON.stringify([...arguments]));"
+    "globalThis.frame=function(buttons,analog,touches,hits,surfaces,right,deltas,motion,text){"
+    "if(arguments.length!==9||analog!==0x8080||right!==0x8080||!Array.isArray(text)||text.length)throw Error('wire '+JSON.stringify([...arguments]));"
     "check(new Uint8Array(__pak)[0]===12);"
     "if(buttons===7){if(touches.length!==1||hits[0]!==1||surfaces[0]!==0)throw Error('touch '+JSON.stringify([...arguments]));check((touches[0]&255)===5)}"
     "if(buttons===8){check(touches.length===1&&touches[0]===0x400c0000&&hits[0]===0)}"

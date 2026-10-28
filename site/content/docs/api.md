@@ -13,10 +13,10 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `solid-js` | `createSignal`, `createEffect`, `createMemo`, `onMount`, `onCleanup`, `batch`, `untrack`, `Show`, `For`, `Index`, `Switch`, `Match` |
 | `vue` | `defineComponent`, `ref`, `computed`, `watchEffect`, `onMounted`, `onScopeDispose` |
 | `octane` | `useState`, `useEffect`, `useMemo`, `useRef`, `useLayoutEffect`, `useEffectEvent` |
-| `@pocketjs/framework/animation` | `animate`, `spring`, `jump`, `cancelAnim` |
+| `@pocketjs/framework/animation` | `animate`, `spring`, `jump`, `cancelAnim`, `animationClass` |
 | `@pocketjs/framework/physics` | `createWorld`, `hasPhysics`, `World`, `Body`, `Collider`, `Zone`, `Emitter` and their option types — see [Physics](/docs/physics/) |
 | `@pocketjs/framework/lifecycle` | `onFrame`, `onButtonPress`, `analogX`, `analogY`, `analogRaw`, `createSpriteAnimation`, `pushButtonHandlerBlock` (Octane builds: `useFrame`, `useButtonPress`, `useSpriteAnimation`) |
-| `@pocketjs/framework/input` | `BTN`, `touches`, `auxiliaryTouches`, `focusNode`, `getFocused`, `pressNode`, `setActiveNode`, `pushFocusScope`, `pushFocusGrid`, `pushFocusController`, `hitFocusable`, `hitNode`, `enableCursor`, `cursorX`, `cursorY` |
+| `@pocketjs/framework/input` | `BTN`, `touches`, `auxiliaryTouches`, `onTextEvent`, `hasTextInput`, `focusNode`, `getFocused`, `pressNode`, `setActiveNode`, `pushFocusScope`, `pushFocusGrid`, `pushFocusController`, `hitFocusable`, `hitNode`, `enableCursor`, `cursorX`, `cursorY` |
 | `@pocketjs/framework/gesture` | `createGesture`, `attachGesture`, `pushTouchBlock`, gesture types (Solid and Vue Vapor) |
 | `@pocketjs/framework/kinetics` | `createScroller`, `bindDpadScroll`, `Scroller` / `ScrollerOptions` / `ScrollerState` types (Solid and Vue Vapor) |
 | `@pocketjs/framework/osk` | `Osk`, `TextField`, `createOsk`, `OSK_H`, `OSK_LAYERS`, `OSK_LAYOUTS`, `oskPanelHeight`, `resetPanelMemory` (Solid) |
@@ -536,6 +536,19 @@ function cancelAnim(animId: number): void
 ```
 
 Stops a running animation by the id `animate`/`spring` returned.
+
+### `animationClass`
+
+```ts
+const animationClass: "composited" | "repaint" | "still";
+```
+
+What a changed frame costs the target this bundle was compiled for, from
+the plan (see [Platform contracts](/docs/platform-contracts/#animation-classes)).
+`composited` is a GPU; `repaint` is a CPU that pays per repainted pixel and
+moves translated opaque regions; `still` is electronic paper, where
+`animate` and `spring` set the end value and return `0`. A bundle built
+without a plan reads `composited`.
 
 ---
 
@@ -1226,58 +1239,13 @@ with `ok === false`. A transport failure rejects with a `NetError` whose
 
 ---
 
-The two data modules mount their own namespaces beside `ui` (`globalThis.db`,
-`globalThis.fs`). Every op is synchronous and completes inside the guest's
-turn: no events, no clock, no promises. Names and paths resolve under the
-app's own data root, and the vocabulary cannot spell another app's tree or an
-absolute path. Absence is not a no-op — every entry point throws where the
-namespace is unmounted, so declare `data.sqlite` or `data.fs` in the
-manifest's `requires` and let admission catch a missing module before the app
-runs.
-
-## `@pocketjs/framework/db`
-
-SQLite in the `bun:sqlite` shape, so code written against Bun's built-in
-driver runs against the mounted module unchanged.
-
-```ts
-import { Database } from "@pocketjs/framework/db";
-
-const db = new Database("notes.sqlite");
-db.exec("CREATE TABLE IF NOT EXISTS note (id INTEGER PRIMARY KEY, body TEXT)");
-
-const insert = db.query("INSERT INTO note (body) VALUES (?)");
-db.transaction(() => {
-  insert.run("first");
-  insert.run("second");
-})();
-
-for (const row of db.query("SELECT id, body FROM note").all()) {
-  console.log(row.id, row.body);
-}
-```
-
-| Member | Signature | Description |
-| --- | --- | --- |
-| `new Database` | `(name?: string)` | Open or create a database under the app's data root; the default is `":memory:"` (`DB_MEMORY`). Throws where `globalThis.db` is unmounted or the host refuses the name. |
-| `query` | `(sql: string) => Statement` | A `Statement` cached on this `Database` by SQL text. The prepared handle is host-side and keyed by the same string, so there is nothing to finalize and no handle to leak. |
-| `prepare` | `(sql: string) => Statement` | The uncached spelling. |
-| `run` | `(sql: string, params?: SqlParams) => RunResult` | One statement for effect, through the cache. |
-| `exec` | `(sql: string) => void` | One or more statements with no parameters and no result rows — the schema and migration path. |
-| `transaction` | `(fn: (...args) => R) => (...args) => R` | Wraps `fn` in `BEGIN`/`COMMIT`, `ROLLBACK` on throw; a nested call becomes a `SAVEPOINT`. Returns the wrapped function — call it. |
-| `close` | `() => void` | Drop the cached statements and close the handle. |
-
-A `Statement` takes positional values (`stmt.all(1, "x")`), one array, or one
-named-parameter object, and reads back through `get()` (first row as a
-column-keyed object, or `null`), `all()` (every row as objects), `values()`
-(every row as an array in column order), or `run()`
-(`{ changes, lastInsertRowid }`). `columnNames` holds the last execution's
-columns and is empty before the first run.
-
-A cell or a bound value is `null`, a number, a string, a boolean, or a
-`Uint8Array` for a `BLOB`. **An integer whose magnitude exceeds
-`DB_MAX_SAFE_INTEGER` (2^53 − 1) throws instead of losing precision**, and a
-non-finite number throws the same way — store money in cents.
+The fs module mounts its own namespace beside `ui` (`globalThis.fs`). Every
+op is synchronous and completes inside the guest's turn: no events, no clock,
+no promises. Paths resolve under the app's own data root, and the vocabulary
+cannot spell another app's tree or an absolute path. Absence is not a no-op —
+every entry point throws where the namespace is unmounted, so declare
+`data.fs` in the manifest's `requires` and let admission catch a missing
+module before the app runs.
 
 ## `@pocketjs/framework/fs`
 

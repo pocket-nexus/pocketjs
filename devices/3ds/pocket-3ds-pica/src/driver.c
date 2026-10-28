@@ -1019,7 +1019,8 @@ static const pocket_renderer_v1 renderer_api = {sizeof renderer_api,
                                                 NULL};
 static const pocket_display_output_v1 display_api = {
     sizeof display_api, display_descriptor, acquire, display_flush,
-    display_wait,       display_vsync,      NULL};
+    display_wait,       display_vsync,      NULL,    NULL,
+    NULL};
 const pocket_renderer_v1 *pocket_pica_renderer_vtable(void) {
   return &renderer_api;
 }

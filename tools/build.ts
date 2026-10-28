@@ -530,6 +530,9 @@ const result = await Bun.build({
     // when a bundle is built without a plan.
     __POCKET_MODALITY__: JSON.stringify(buildPlan?.modality ?? null),
     __POCKET_PRESENTATION__: JSON.stringify(buildPlan?.presentation.id ?? "default"),
+    // The animation class the plan derived (contracts/spec/animation.ts);
+    // a bundle built without a plan animates as a composited target.
+    __POCKET_ANIMATION__: JSON.stringify(buildPlan?.animation ?? "composited"),
     __POCKET_PIXEL_RATIO__: String(rasterDensity),
     __POCKET_TICK_HZ__: String(tickHz),
     ...(framework === "vue-vapor"

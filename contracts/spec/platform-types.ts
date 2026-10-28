@@ -66,6 +66,23 @@ export type ExecutionClass = (typeof EXECUTION_CLASSES)[number];
 /** The forms whose logical viewport is a runtime variable. */
 export const DYNAMIC_FORMS: readonly TargetForm[] = ["window", "widget"];
 
+/**
+ * What a changed frame costs a target — a semantic FIELD of its display:
+ *
+ * - "composited": a GPU composes every frame from retained geometry; a prop
+ *                 change on any subtree costs the same at the tick rate.
+ * - "repaint":    a CPU repaints the pixels a change touched; a frame costs
+ *                 in proportion to that area, and the host moves the pixels
+ *                 of a translated opaque region instead of repainting them.
+ * - "still":      the display shows one change per refresh (electronic
+ *                 paper); a tween is its end value.
+ *
+ * `deriveAnimationClass` (contracts/spec/animation.ts) reads it from the
+ * profile: by platform when the display leaves it out.
+ */
+export const ANIMATION_CLASSES = ["composited", "repaint", "still"] as const;
+export type AnimationClass = (typeof ANIMATION_CLASSES)[number];
+
 export interface FixedDisplayProfile {
   readonly physicalViewport: Viewport;
   readonly logicalViewports: readonly Viewport[];
@@ -100,6 +117,9 @@ export interface DisplayProfile extends FixedDisplayProfile {
    * per-surface raster asset variants.
    */
   readonly auxiliary?: FixedDisplayProfile;
+  /** The target's animation class when it differs from its platform's
+   *  (contracts/spec/animation.ts). */
+  readonly animation?: AnimationClass;
 }
 
 export interface TargetProfile<C extends string = string> {
@@ -211,24 +231,14 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // declares it hands the top screen to the host's 3D stage and keeps its
   // whole interface on the auxiliary surface.
   "system.agent",
-  // SQLite behind the db module's own namespace (`globalThis.db`,
-  // contracts/spec/db.ts): five synchronous ops, rows as one JSON line per
-  // query() call, per-app storage the host confines. Registered ahead of any
-  // stock TARGET advertising it: the sim host and the engine/crates/pocket-db
-  // reference core implement and test the whole contract, so apps can already
-  // declare the requirement and fail admission where the module is absent. A
-  // device target appends the id to its profile only when its native host
-  // ships the module.
-  "data.sqlite",
   // A per-app file tree behind the fs module's own namespace
   // (`globalThis.fs`, contracts/spec/fs.ts): nine synchronous ops, every
   // path confined to the app's own data root — apps cannot name, let alone
-  // reach, each other's trees. Registered ahead of any stock TARGET
-  // advertising it: the sim host and the engine/crates/pocket-fs reference
-  // core implement and test the whole contract, so apps can already declare
-  // the requirement and fail admission where the module is absent. A device
-  // target appends the id to its profile only when its native host ships
-  // the module.
+  // reach, each other's trees. The sim host (platforms/sim/fs.ts) and the
+  // host-services implementation (engine/host-services/fs.c, compiled into
+  // the 3DS product and the Tab5 program) ship the whole contract; a device
+  // target appends the id to its profile only when its program compiles the
+  // module in.
   "data.fs",
   // Copy/cut/paste round-trips with the OS clipboard.
   "host.clipboard",

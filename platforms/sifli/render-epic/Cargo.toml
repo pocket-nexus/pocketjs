@@ -1,0 +1,22 @@
+[package]
+name = "pocket-render-sifli-epic"
+edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS render SiFli EPIC component"
+
+[features]
+default = []
+cabi = ["dep:pocket-runtime-cabi"]
+
+[dependencies]
+pocket-runtime-cabi = { workspace = true, optional = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-draw-ops = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-glyph-pages = { workspace = true, default-features = true }
+pocket-tex-cache = { workspace = true, default-features = true }

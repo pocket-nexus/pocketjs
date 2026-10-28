@@ -1,0 +1,179 @@
+# SiFli SF32LB5x platform
+
+**A SiFli program links one Rust archive, the drivers in this directory and
+its own composition.** The archive (`programs/sifli/archive`) contains the
+canonical runtime and the EPIC renderer's C factory. The program creates a
+runtime from its exported profile, registers the generated QuickJS guest, a
+package source, the renderer, the framebuffer display and input sources, and
+starts the runner thread. It owns board files, the partition table,
+`proj.conf`, framebuffer storage and any switching between applications.
+
+| Unit | Source | Kconfig |
+| --- | --- | --- |
+| DrawList renderer and its C factory | `render-epic/` (Rust, `pocket-render-sifli-epic`) | linked through the archive |
+| EPIC executor behind `pocket_epic_ops`, VG Lite on SF32LB58 | `epic/` | `POCKETJS_EPIC`, `POCKETJS_EPIC_VGLITE` |
+| `pocket_host_*` heap, panic and log hooks; memory package source | `hooks/hooks.c`, `hooks/package.c` | `POCKETJS` |
+| SF32LB58x MPU table | `hooks/mpu.c` | `POCKETJS_MPU_OVERRIDE` |
+| Framebuffer ring over the RT-Thread `lcd` device | `display/display.c` | `POCKETJS_DISPLAY` |
+| Board keys, touch contacts | `input/keys.c`, `input/touch.c` | `POCKETJS_INPUT_KEYS`, `POCKETJS_INPUT_TOUCH` |
+| Generated QuickJS guest with heap and stack limits | `guest/guest.c` | `POCKETJS_GUEST_QUICKJS` |
+| Runner thread | `runner/runner.c` | `POCKETJS_RUNNER` |
+| Native texture baker | `tools/build/sifli/epic.ts` | |
+
+`include/pocket/sifli.h` declares the drivers;
+`render-epic/include/pocket/render_sifli_epic.h` declares the renderer factory
+and the executor table. Only the runner creates a thread. Only `epic/`
+includes EPIC and VG Lite headers, and it owns `EPIC_IRQHandler`: keep
+`BSP_USING_EPIC` (the SDK's `drv_epic`) and LVGL out of the build.
+
+## Build
+
+The project's `SConscript` includes the SDK, then this directory, then its own
+sources; `Kconfig.proj` sources the menu:
+
+```python
+objs.extend(SConscript(os.path.join(POCKETJS_ROOT, 'platforms', 'sifli', 'SConscript'),
+                       variant_dir='pocketjs', duplicate=0))
+```
+
+```
+source "$POCKETJS_ROOT/platforms/sifli/Kconfig"
+```
+
+```sh
+bun tools/pocket.ts profile export --config pocket.runtime-config.ts --out build/profile
+bun tools/pocket.ts compile --manifest pocket.json --project-root . \
+  --runtime-config pocket.runtime-config.ts --output build/app.pocket
+bun tools/build/sifli/epic.ts --pocket build/app.pocket --out build/app.epic
+POCKET_PROFILE_EXPORT_DIR=$PWD/build/profile scons --board=<board> -j8
+```
+
+**Viewport, render scale, raster density and tick rate come from the exported
+profile**, not from Kconfig; the SConscript stops when
+`POCKET_PROFILE_EXPORT_DIR` holds no `pocket_profile.h`. `PocketjsEmbed(name,
+path)`, exported by the SConscript, links a file in `.rodata` at **64-byte
+alignment** as `pocketjs_<name>_data` with its length in the 32-bit
+`pocketjs_<name>_size`; programs embed the `.pocket` package and the `.epic`
+table with it.
+
+With `POCKETJS_RUST_FROM_SOURCE=y` the SConscript runs `cargo build --release
+--locked --no-default-features --target thumbv8m.main-none-eabihf` on
+`programs/sifli/archive` from the checkout root, so rustup selects the
+toolchain in `rust-toolchain.toml`; the target must be installed. Without it,
+`POCKET_RUNTIME_ARCHIVE` names a prebuilt `libpocket_sifli_runtime.a`. **Every
+SF32LB5x HCPU is a Cortex-M33 with FPU; one target serves 52x through 58x.**
+
+## Renderer
+
+**The target is a device-owned RGB565 framebuffer; the renderer is Deferred.**
+A display hands out device handle N for `framebuffers[N - 1]`, and the
+executor binds the same array. The presentation coordinator supplies the
+damage rectangles of the framebuffer it acquired, so damage history follows
+each framebuffer's retained pixels.
+
+Per frame the renderer decodes the DrawList once with `pocket-draw-ops`,
+recovers the rectangles and quads the core flattened into triangle pairs, and
+groups consecutive coverage-only texture quads into one A8 run. For each
+damage rectangle it clears the covering logical pixels and replays every
+planned item clipped to it. An item goes to hardware when the executor's
+capabilities include it and its physical area reaches the executor's
+threshold; otherwise it joins a CPU batch.
+
+| DrawList operation | Hardware command | CPU path |
+| --- | --- | --- |
+| RECT, opaque | `Fill` | below `min_fill` |
+| RECT, translucent | `FillAlpha`, else an A8 plane filled with the alpha | below `min_blend` |
+| GRAD_RECT | `Gradient` for unclipped opaque two-stop gradients | clipped or translucent |
+| GLYPH_RUN | atlas coverage in an A8 plane, one `BlendA8` per band | below `min_blend` |
+| TEX_QUAD, coverage-only texture | consecutive quads in one A8 plane | below `min_blend` |
+| TEX_QUAD, other textures | `Blit` of a registered texture | fractional texel edges, no registration, tint or vertical mirror without the capability |
+| TEX_TRI pair | `Blit` when upright, else `BlitQuad` | unpaired, no registration |
+| TRI pair, flat color | `Fill`/`FillAlpha` when upright, else a solid `BlitQuad` | unpaired, Gouraud colors |
+| SCISSOR, TEXT_RUN, SURFACE_QUAD | none | none |
+
+**The CPU never writes a framebuffer.** A CPU batch renders with
+`engine/raster` into one of two SRAM tiles after `TileOut` copied the target
+band into it and a fence completed the copy; `TileIn` copies it back. A8 runs
+larger than a plane split into row bands, and a plane is rewritten only after
+a fence retired the blend that read it. Fills and bands split at
+`EPIC_COORDINATES_MAX` (**1010 on 55x/56x/58x, 505 on 52x/57x**).
+
+The frame's last commands stay in flight after `render` returns; the next
+render, the coordinator's renderer wait or retirement completes them through
+the executor's `end`. A frame that blits a portable registration completes
+before `render` returns, because the core's texture storage is borrowed for
+that call only. The renderer does not declare zero-copy: the C renderer
+adapter waits inside zero-copy calls, which would remove the overlap with the
+next guest turn.
+
+## Native textures
+
+**Textures reach hardware through registrations.** On the first blit of a
+texture revision the renderer computes the source digest of its texture view
+and looks it up in the `.epic` table the program passed at creation. A match
+registers the native copy; without one, an executor with VG Lite registers the
+portable bytes; otherwise the texture stays on the CPU. Registrations are
+cached by handle and revision and released when a newer revision replaces
+them and no submission reads them.
+
+`epic.ts` turns every `ui:img.*` entry of a package into one 64-byte aligned
+payload in EPIC channel order: **RGB565 with red in the high bits, BGRA8888,
+or L8 behind a 1024-byte BGRA palette**. `--opaque RRGGBB` composites PSM_8888
+alpha over one color at bake time and stores opaque RGB565. The source digest
+is FNV-1a 64 over the texture's width, height, PSM code, PSM_T8 palette and
+decoded pixels, as `native::source_digest` computes it. The core keeps the
+portable bytes, so software fallback reads the same texels.
+
+The executor reads registered storage from **64-byte aligned addresses** and
+cleans it from the data cache once at registration. The `.epic` table meets
+the alignment when linked with `PocketjsEmbed`. Core texture storage carries
+no such guarantee: portable registrations of unaligned textures return
+`POCKET_STATUS_UNSUPPORTED` and those textures render on the CPU.
+
+## Buffers
+
+- **Framebuffers belong to the program.** It places them in memory EPIC and
+  the LCD controller read without cache maintenance and passes the same array
+  to `pocket_sifli_epic_create` and `pocket_sifli_display_create`. On SF32LB58
+  the program links them into PSRAM2 (`0x62000000..0x62FFFFFF`) and enables
+  `POCKETJS_MPU_OVERRIDE`, which marks that window non-cacheable at startup
+  and keeps PSRAM1 cached. With the override the display rejects framebuffers
+  outside PSRAM2.
+- **A8 planes and fallback tiles live in on-chip SRAM** (`L1_NON_RET_BSS`), two
+  of each, `POCKETJS_EPIC_MASK_TILE_KB` and `POCKETJS_EPIC_CPU_TILE_KB` each,
+  **64 KB by default, 256 KB in all**.
+- The `pocket_host_*` hooks allocate from one `rt_memheap` of
+  `POCKETJS_HEAP_KB` (**7 MiB by default**) in cached PSRAM; the QuickJS guest
+  allocates from the same heap under its own `heap_limit`.
+
+## Presentation
+
+The display declares device-owned targets, device frame storage, partial
+refresh and double buffering; each framebuffer reports its own buffer
+identity. A frame takes the most recently presented framebuffer that the
+panel neither scans nor is being switched to: **two framebuffers alternate**,
+and a third covers a present that timed out.
+
+Flush starts one `draw_rect_async` of the whole framebuffer after the renderer
+wait. Display wait returns at its `tx_complete`, which makes that framebuffer
+the scanned one; a wait longer than `wait_timeout_ms` fails and keeps the
+framebuffer reserved until the present lands. The EPIC executor keeps **one
+interrupt-driven transaction in flight**; a command for the other engine
+drains the one in use, and begin, fence and end drain both.
+
+## Open on a board
+
+A link result is not a device run. Open:
+
+- that `tx_complete` of a RAM-less DPI panel follows the switch of the scanned
+  framebuffer, which the two-framebuffer rotation depends on;
+- VG Lite channel order for tints, `VG_LITE_BLEND_SRC_OVER` over straight-alpha
+  sources, projective sampling phase and its alignment requirement for
+  registered portable textures;
+- per-transaction cost behind `POCKETJS_EPIC_MIN_PIXELS` and the engine switch
+  cost;
+- runner pacing on the RT-Thread tick and the guest stack limit on the runner
+  thread.
+
+Keep UART logs, maps and receipts in ignored
+`.pocket-build/validation/<task>/<run>/` or an artifact store.

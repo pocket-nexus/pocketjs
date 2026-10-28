@@ -1,7 +1,7 @@
 use crate::{adapters::AdapterError, runtime::handle};
 use alloc::vec::Vec;
 use core::{cell::Cell, ffi::c_void, ptr};
-use pocket_drivers::{abi::*, MotionState};
+use pocket_drivers::{abi::*, MotionState, TextEvent};
 use pocket_runtime::{Guest, GuestEnvironment, GuestFrame, OpContext, RuntimeError};
 
 pub struct CGuest {
@@ -128,6 +128,7 @@ impl Guest for CGuest {
             })
             .collect();
         let motion = frame.motion.map(motion_header);
+        let text: Vec<_> = frame.text.iter().filter_map(text_record).collect();
         let frame = PocketGuestFrame {
             buttons: frame.buttons,
             analog: frame.analog,
@@ -139,6 +140,8 @@ impl Guest for CGuest {
             axis_deltas: relative.as_ptr(),
             axis_delta_count: relative.len(),
             motion: motion.as_ref().map_or(ptr::null(), |motion| motion),
+            text: text.as_ptr(),
+            text_count: text.len(),
             ..PocketGuestFrame::empty()
         };
         result(unsafe { self.table.frame.unwrap()(self.context, &frame) })
@@ -158,6 +161,52 @@ impl Guest for CGuest {
         }
     }
 }
+/// The guest's view of one text event: the same record a driver appends,
+/// borrowing the runtime's string for the frame.
+fn text_record(event: &TextEvent) -> Option<PocketTextEvent> {
+    let (kind, text, selection_start, selection_end, repeat) = match event {
+        TextEvent::Key {
+            key,
+            pressed,
+            repeat,
+        } => (
+            if *pressed {
+                POCKET_TEXT_KEY_DOWN
+            } else {
+                POCKET_TEXT_KEY_UP
+            },
+            key.as_str(),
+            0,
+            0,
+            u32::from(*repeat),
+        ),
+        TextEvent::Commit(text) => (POCKET_TEXT_COMMIT, text.as_str(), 0, 0, 0),
+        TextEvent::Composition {
+            text,
+            selection_start,
+            selection_end,
+        } => (
+            POCKET_TEXT_COMPOSITION,
+            text.as_str(),
+            *selection_start,
+            *selection_end,
+            0,
+        ),
+        TextEvent::CompositionEnd => (POCKET_TEXT_COMPOSITION_END, "", 0, 0, 0),
+        // A kind this build does not know has no record for the guest.
+        _ => return None,
+    };
+    Some(PocketTextEvent {
+        kind,
+        text: text.as_ptr(),
+        byte_length: text.len(),
+        selection_start,
+        selection_end,
+        repeat,
+        ..PocketTextEvent::empty()
+    })
+}
+
 fn motion_header(source: &MotionState) -> PocketMotionState {
     PocketMotionState {
         timestamp: source.timestamp,

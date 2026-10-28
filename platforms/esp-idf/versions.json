@@ -38,5 +38,11 @@
     "requires": {
       "pocket_runtime": "0.1.0"
     }
+  },
+  "pocket_display_esp_dpi": {
+    "version": "0.1.0",
+    "requires": {
+      "pocket_runtime": "0.1.0"
+    }
   }
 }

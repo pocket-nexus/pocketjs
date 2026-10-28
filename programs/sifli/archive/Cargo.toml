@@ -1,0 +1,18 @@
+[package]
+name = "pocket-sifli-runtime"
+edition = "2021"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS SiFli runtime archive"
+publish = false
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+[dependencies]
+pocket-runtime-cabi = { workspace = true }
+pocket-render-sifli-epic = { workspace = true, default-features = true, features = ["cabi"] }
+[features]
+default = ["std"]
+std = ["pocket-runtime-cabi/std"]

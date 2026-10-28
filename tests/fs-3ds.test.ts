@@ -1,4 +1,4 @@
-// tests/fs-3ds.test.ts — the 3DS host's fs module (products/3ds/src/fs.c),
+// tests/fs-3ds.test.ts — the native hosts' fs module (engine/host-services/fs.c),
 // compiled natively under ASan/UBSan by tests/fixtures/3ds-fs.c over a
 // temporary directory:
 //
@@ -18,7 +18,7 @@ import { FS_MAX_IO_BYTES, FS_WRITE_APPEND, FS_WRITE_TRUNCATE } from "../contract
 import { createSimFsHost } from "../platforms/sim/fs.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const SRC = join(ROOT, "products/3ds/src");
+const SRC = join(ROOT, "engine/host-services");
 let scratch = "";
 let binary = "";
 

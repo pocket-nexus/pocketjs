@@ -2,8 +2,9 @@
 // the system (docs/APPLETS.md). An applet is a Pocket app that declares the
 // manifest section `applet` and accepts stronger rules than an app, so that
 //
-//   - one package runs on every launcher host: one logical 320x240 touch
-//     surface, no primary display, input the host maps to its own buttons;
+//   - one program runs on every launcher host: one touch surface that admits
+//     the 320x240 baseline (fixed at it, or adaptive across a range holding
+//     it), no primary display, input the host maps to its own buttons;
 //   - the system agent can read and operate it: system.agent is declared,
 //     the UI is Solid on the PocketJS components, so the agent's text capture
 //     and played input reach every control;
@@ -30,7 +31,7 @@ export interface AppletDeclaration {
   readonly services?: readonly string[];
   /** Hosts the applet fetches directly through net.http. */
   readonly hosts?: readonly string[];
-  /** Persistent state: required to declare data.fs or data.sqlite; the host
+  /** Persistent state: required to declare data.fs; the host
    *  confines the store to the applet and to this many bytes. */
   readonly store?: { readonly maxBytes: number };
 }
@@ -66,7 +67,8 @@ export const appletSchema = {
   },
 } as const satisfies JsonSchema;
 
-/** The one surface an applet draws: the touch screen, 320x240 logical. */
+/** The baseline surface every applet runs on: the 3DS touch screen, 320x240
+ *  logical. An adaptive surface's range holds it. */
 const APPLET_SURFACE = [320, 240] as const;
 
 /** The longest title: what a springboard label and the agent's app list show. */
@@ -85,6 +87,7 @@ const APPLET_CAPABILITIES = [
   "text.glyphs.runtime",
   "input.buttons",
   "input.analog.left",
+  "input.text",
   "display.auxiliary",
   "input.touch.auxiliary",
   "net.http",
@@ -92,12 +95,11 @@ const APPLET_CAPABILITIES = [
   "audio.pcm",
   "media.playback",
   "data.fs",
-  "data.sqlite",
   "system.agent",
 ] as const;
 const APPLET_CAPABILITY_PREFIXES = ["camera."] as const;
 /** Capabilities that need `applet.store`. */
-const APPLET_STORE_CAPABILITIES = ["data.fs", "data.sqlite"] as const;
+const APPLET_STORE_CAPABILITIES = ["data.fs"] as const;
 
 /** Size budgets of a built applet (the guest bundle and its pak). */
 export const APPLET_BUDGET = { jsBytes: 640 * 1024, pakBytes: 3 * 1024 * 1024 } as const;
@@ -123,12 +125,13 @@ export const APPLET_MODULES = [
   "physics",
   "media",
   "audio",
+  "display",
+  "platform",
 ] as const;
 /** Modules allowed when the manifest declares the capability that gates them. */
 export const APPLET_GATED_MODULES: Readonly<Record<string, readonly string[]>> = {
   camera: APPLET_CAPABILITY_PREFIXES,
   fs: ["data.fs"],
-  db: ["data.sqlite"],
 };
 /** Exports of @pocketjs/framework/link that act for the system: installing,
  *  removing and pairing belong to the launcher. */
@@ -172,10 +175,19 @@ export function appletManifestDiagnostics(manifest: PocketManifestV2): ContractD
   if (manifest.app.framework !== "solid") push("framework", "/app/framework", "an applet is a Solid app");
   if (manifest.app.model === "rust") push("nativeModel", "/app/model", "an applet ships no native code: model \"rust\" is not allowed");
   if (manifest.app.companions?.length) push("companions", "/app/companions", "an applet reaches the companion through applet.services, not svc companions");
-  if (manifest.app.presentations?.length) push("presentations", "/app/presentations", "an applet has one presentation: its 320x240 surface");
-  const surface = manifest.app.surfaces?.auxiliary.fixed.logical;
-  if (!surface || surface[0] !== APPLET_SURFACE[0] || surface[1] !== APPLET_SURFACE[1]) {
-    push("surface", "/app/surfaces/auxiliary/fixed/logical", `an applet draws one ${APPLET_SURFACE.join("x")} touch surface (app.surfaces.auxiliary)`);
+  if (manifest.app.presentations?.length) push("presentations", "/app/presentations", "an applet has one presentation: its touch surface");
+  const surface = manifest.app.surfaces?.auxiliary;
+  const [baseW, baseH] = APPLET_SURFACE;
+  const admitsBaseline = surface?.adaptive
+    ? surface.adaptive.min[0] <= baseW && surface.adaptive.min[1] <= baseH &&
+      surface.adaptive.max[0] >= baseW && surface.adaptive.max[1] >= baseH
+    : surface?.fixed?.logical[0] === baseW && surface.fixed.logical[1] === baseH;
+  if (!admitsBaseline) {
+    push(
+      "surface",
+      "/app/surfaces/auxiliary",
+      `an applet draws one touch surface (app.surfaces.auxiliary) that admits ${baseW}x${baseH}: fixed at it, or adaptive across a range holding it`,
+    );
   }
   for (const id of APPLET_REQUIRED) {
     if (!requires.includes(id)) push("required", "/engine/capabilities/requires", `an applet requires ${id}`);
@@ -190,7 +202,7 @@ export function appletManifestDiagnostics(manifest: PocketManifestV2): ContractD
     }
   });
   const usesStore = declared.some((id) => (APPLET_STORE_CAPABILITIES as readonly string[]).includes(id));
-  if (usesStore && !applet.store) push("store", "/applet/store", "data.fs and data.sqlite need applet.store with maxBytes");
+  if (usesStore && !applet.store) push("store", "/applet/store", "data.fs needs applet.store with maxBytes");
   const network = (applet.services?.length ?? 0) + (applet.hosts?.length ?? 0) > 0;
   if (network && !declared.includes("net.http")) push("network", "/engine/capabilities", "applet.services and applet.hosts need net.http");
   return out;
