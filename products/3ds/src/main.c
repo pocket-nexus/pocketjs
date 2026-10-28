@@ -743,6 +743,9 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   loading_end();
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
   gspWaitForVBlank();
+  /* A deferred frame is the runtime's until its next present, which waits
+   * for it (bounded) after the guest's turn. */
+  if (gfx_frame_in_flight()) return 0;
   uint32_t waited = 0;
   while (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) {
     gspWaitForVBlank();
@@ -1419,10 +1422,14 @@ int main(void) {
     );
     u64 phase_wait_end __attribute__((unused)) = svcGetSystemTick();
 #ifdef POCKETJS_MEDIA
+    qjs_complete_presentation();
     media_present();
 #endif
+    /* The camera and photos write textures the last frame may still sample. */
+    if (camera_viewfinder_admitted() || camera_photos_admitted()) qjs_complete_presentation();
     camera_present();
     if (agent_enabled()) {
+      qjs_complete_presentation();
       stage_capture_mirror(auxiliary_target);
       agent_capture(auxiliary_target);
     }
@@ -1522,8 +1529,9 @@ int main(void) {
             &top_rgb,
             &auxiliary_rgb
           )) {
-        /* Canonical tick has retired both surfaces. Copy both targets before
-         * the next tick can overwrite either. */
+        /* Retire both surfaces, then copy both targets before the next tick
+         * can overwrite either. */
+        qjs_complete_presentation();
         gspWaitForVBlank();
         read_surface_rgb8(primary_target, VIEW_W, VIEW_H, top_rgb);
         read_surface_rgb8(

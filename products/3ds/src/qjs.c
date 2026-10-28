@@ -907,6 +907,10 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
   }
   return true;
 }
+void qjs_complete_presentation(void) {
+  if (instance)
+    (void)pocket_runtime_complete_presentation(instance);
+}
 void qjs_frame_phases(uint32_t *advance, uint32_t *present) {
   *advance = advance_us;
   *present = present_us;

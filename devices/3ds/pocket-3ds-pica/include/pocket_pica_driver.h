@@ -43,11 +43,19 @@ typedef struct {
   pocket_pica_release_fn release;
   pocket_pica_scene_fn scene;
   pocket_pica_overlay_fn overlay; /* Optional host overlay or replacement. */
+  /* DEFERRED with queued flushes: a frame's flush ends its citro3d frame and
+   * the GPU draws it while the guest's next turn runs; the next present's
+   * completion waits for the GPU, then transfers and swaps each screen.
+   * False keeps every frame terminal before present returns. */
+  bool deferred;
 } pocket_pica_config;
 
 /* The application initializes citro3d and owns targets. It serializes all
  * citro3d calls with this instance and never opens another native frame while
- * a driver submission is pending. One instance owns a citro3d context. */
+ * a driver submission is pending. One instance owns a citro3d context. With
+ * `deferred`, a submission stays pending from one present to the next: the
+ * application completes the runtime's presentation before its own citro3d
+ * work or before reading a target. */
 pocket_pica_renderer *
 pocket_pica_renderer_create(const pocket_pica_config *config);
 const pocket_renderer_v1 *pocket_pica_renderer_vtable(void);
@@ -74,6 +82,8 @@ void pocket_pica_renderer_timing(uint32_t *submit_primary, uint32_t *submit_auxi
 /* Microseconds the last display_flush spent in each screen's display transfer. */
 void pocket_pica_renderer_transfer_timing(uint32_t *primary_us, uint32_t *auxiliary_us);
 size_t pocket_pica_renderer_words(const pocket_pica_renderer *, uint32_t role);
+/* True while a deferred frame's GPU work or transfers are outstanding. */
+bool pocket_pica_renderer_in_flight(const pocket_pica_renderer *renderer);
 uint32_t pocket_pica_renderer_vertices(const pocket_pica_renderer *renderer);
 uint32_t pocket_pica_renderer_commands(const pocket_pica_renderer *renderer);
 #ifdef __cplusplus
