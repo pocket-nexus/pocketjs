@@ -42,26 +42,7 @@ pub unsafe fn arg_f64(ctx: *mut JSContext, argc: i32, argv: *mut JSValue, i: isi
 /// Copy audio bytes before any later JS call. Native typed-array offsets are
 /// read through QuickJS rather than user-controlled properties.
 unsafe fn buffer_bytes(ctx: *mut JSContext, value: JSValue) -> Option<Vec<u8>> {
-    let mut length = 0;
-    let pointer = JS_GetArrayBuffer(ctx, &mut length, value);
-    if !pointer.is_null() {
-        return Some(core::slice::from_raw_parts(pointer, length).to_vec());
-    }
-    JS_FreeValue(ctx, JS_GetException(ctx));
-    let (mut offset, mut count, mut element) = (0, 0, 0);
-    let buffer = JS_GetTypedArrayBuffer(ctx, value, &mut offset, &mut count, &mut element);
-    if JS_IsException(buffer) {
-        JS_FreeValue(ctx, JS_GetException(ctx));
-        return None;
-    }
-    let pointer = JS_GetArrayBuffer(ctx, &mut length, buffer);
-    let bytes = if !pointer.is_null() && offset <= length && count <= length - offset {
-        Some(core::slice::from_raw_parts(pointer.add(offset), count).to_vec())
-    } else {
-        None
-    };
-    JS_FreeValue(ctx, buffer);
-    bytes
+    buffer_mut(ctx, value).map(|bytes| bytes.to_vec())
 }
 unsafe extern "C" fn js_dbg_active(
     ctx: *mut JSContext,
@@ -549,12 +530,13 @@ unsafe extern "C" fn js_net_start(
     let Some((meta_ptr, meta)) = arg_bytes(ctx, argc, argv, 0) else {
         return JS_NewInt32(ctx, -1);
     };
-    let body = if argc >= 2 {
-        buffer_bytes(ctx, *argv.offset(1)).unwrap_or_default()
+    // The body is read in place: net_start copies it into the request record.
+    let body: &[u8] = if argc >= 2 {
+        buffer_mut(ctx, *argv.offset(1)).map(|bytes| &*bytes).unwrap_or(&[])
     } else {
-        Vec::new()
+        &[]
     };
-    let handle = crate::link::net_start(meta, &body, crate::switch::current_id());
+    let handle = crate::link::net_start(meta, body, crate::switch::current_id());
     JS_FreeCString(ctx, meta_ptr);
     JS_NewInt32(ctx, handle)
 }

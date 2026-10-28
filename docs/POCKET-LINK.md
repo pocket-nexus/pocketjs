@@ -165,7 +165,8 @@ epoch, the console's boot id, the slot's sequence number, the kind, the
 request id, a beat counter, the JSON and body lengths, and an FNV-1a 32 hash
 of each), the JSON, the body. The companion writes under a temporary name and
 renames; the console's writes are plain, so the companion reads a record whose
-hashes fail again on its next poll, **every 10 ms**.
+hashes fail again on its next poll: **every 100 ms** behind a directory watch
+that sees the console's writes, **every 10 ms** without one.
 
 **The cable is the trust boundary.** The computer serving the share already
 chooses every file the console reads, including the program it runs, so the
@@ -187,10 +188,14 @@ On the console, `platforms/psp/io/src/link.rs` runs the carrier,
 `programs/psp/src/media.rs` reads the media ring, and
 `programs/psp/src/service_bindings.rs` installs `globalThis.net`,
 `globalThis.link` and `globalThis.media` over them. A worker thread at a lower priority than the guest performs
-every `host0:` read and write, so a USB round trip never lands inside a frame;
-the guest's thread only builds records and allocates and frees the buffers the
-worker fills. The first `ready` read happens before a guest evaluates, so a
-request made at mount finds the session up. A new epoch (the companion
+every `host0:` read and write, so a USB round trip never lands inside a frame.
+The guest's thread builds records and allocates each slot's reply buffers at
+its first request; it performs no `host0:` I/O. The first guest evaluates
+after the worker's first `ready` read or **200 ms**, whichever comes first, so
+a request made at mount finds the session up and a hung share delays the boot
+by 200 ms at most. A `ready` left behind by a companion that went silent (a
+crash, an OOM kill) links again only once its beat moves. With no companion
+the worker reads `ready` once a second. A new epoch (the companion
 restarted) or **10 s** without a beat (the TCP link's silence) fails every open request with
 `unavailable`; nothing is replayed. `link.status()` reports `linked` with the
 companion's name while it beats and `searching` otherwise; `pair`, `forget`,

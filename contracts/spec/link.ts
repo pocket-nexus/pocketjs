@@ -327,7 +327,7 @@ export const LINK_MAX_REQUESTS = 4;
 //   off 12  u32  seq     the slot's request number (0 in `ready`/`hello`)
 //   off 16  u32  kind    LINK_USB_KIND
 //   off 20  u32  id      the request id = the net handle (0 in `ready`/`hello`)
-//   off 24  u32  beat    `ready` only: bumped every LINK_USB_BEAT_MS
+//   off 24  u32  beat    `ready` and `hello`: bumped at each rewrite
 //   off 32  u32  json    UTF-8 JSON bytes after the header
 //   off 36  u32  jsonHash  FNV-1a 32 of the JSON bytes
 //   off 40  u32  body    body bytes after the JSON
@@ -339,7 +339,8 @@ export const LINK_MAX_REQUESTS = 4;
 //   ready        companion -> console, rewritten every LINK_USB_BEAT_MS:
 //                {"v":1,"id":"<companion id>","name":"…","features":["net","media"],
 //                 "clock":{"utc":<epoch ms>,"offsetMinutes":<n>}}
-//   hello        console -> companion, written once per epoch before any request:
+//   hello        console -> companion, written before any request and rewritten
+//                every 2 * LINK_USB_BEAT_MS with the next beat:
 //                {"t":"hello","device":"<id>","name":"…","model":"…","target":"psp"}
 //   net<i>.req   console -> companion, slot i < LINK_USB_SLOTS: kind request
 //                (json = the TCP link's net ctrl {"t":"net","id":n,"app":…,
@@ -356,7 +357,9 @@ export const LINK_MAX_REQUESTS = 4;
 // its next poll. A record from another epoch, boot or seq is stale and ignored.
 //
 // The console treats the companion as linked while `ready` is valid and its
-// beat moved within LINK_USB_SILENCE_MS. A new epoch fails every open request;
+// beat moved within LINK_USB_SILENCE_MS; a `ready` left with the beat it went
+// silent on links nothing. The companion treats the console the same way by
+// `hello`'s beat. A new epoch fails every open request;
 // so does silence. A new boot in `hello` drops the previous boot's requests on
 // the companion. Nothing is replayed.
 //

@@ -21,7 +21,7 @@ use core::{
     cell::UnsafeCell,
     ffi::c_void,
     sync::atomic::{
-        AtomicU32,
+        AtomicBool, AtomicU32,
         Ordering::{Acquire, Relaxed, Release},
     },
 };
@@ -41,6 +41,8 @@ const SLOTS: usize = 2;
 const MAX_JSON: usize = 16 * 1024;
 const BEAT_US: u32 = 500_000;
 const SILENCE_US: u32 = 10_000_000;
+/// How often a console with no companion reads `ready`.
+const UNLINKED_READY_US: u32 = 1_000_000;
 /// A sent request's reply is read every 5 ms for its first 200 ms (most
 /// replies), then every 25 ms (a long poll, a slow service): each read is an
 /// open, a read and a close on the computer serving the share.
@@ -137,8 +139,6 @@ static STATUS_SEQ: AtomicU32 = AtomicU32::new(0);
 struct Owned {
     handle: i32,
     record: Vec<u8>,
-    json: Vec<u8>,
-    body: Vec<u8>,
     deadline: u32,
     /// An event (done, error, timeout) already went to the guest, or the
     /// guest cancelled: nothing more is reported for this request.
@@ -156,9 +156,12 @@ static mut DEVICE_ID: [u8; 16] = [b'0'; 16];
 /// The `hello` record body the worker writes (built once at start).
 static mut HELLO: [u8; 256] = [0; 256];
 static mut HELLO_LEN: usize = 0;
-/// The session start() found, handed to the worker before it runs.
-static mut FIRST_EPOCH: u32 = 0;
-static mut FIRST_BEAT: u32 = 0;
+/// The worker's first look at `ready` is done (start() waits for it).
+static FIRST_READ: AtomicBool = AtomicBool::new(false);
+/// Each slot's reply buffers (JSON, body), allocated on the guest's thread
+/// at the slot's first request and kept: a request reuses them, so a page of
+/// requests leaves no holes in the arena.
+static mut REPLY: [Option<(Vec<u8>, Vec<u8>)>; SLOTS] = [const { None }; SLOTS];
 
 fn now() -> u32 {
     unsafe { sys::sceKernelGetSystemTimeLow() }
@@ -178,7 +181,8 @@ fn put(b: &mut [u8], at: usize, value: u32) {
     b[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 
-fn push_json_str(out: &mut String, s: &str) {
+/// `s` as a JSON string literal, appended to `out`.
+pub fn push_json_str(out: &mut String, s: &str) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -300,14 +304,6 @@ pub unsafe fn start(target: &str) {
     let len = hello.len().min(HELLO.len());
     HELLO[..len].copy_from_slice(&hello.as_bytes()[..len]);
     HELLO_LEN = len;
-    let mut status = [0u8; STATUS_MAX];
-    if let Some((epoch, beat, len)) = read_ready(&mut status) {
-        publish_status(&status[..len]);
-        FIRST_EPOCH = epoch;
-        FIRST_BEAT = beat;
-        SESSION.store(1, Release);
-        EPOCH.store(epoch, Release);
-    }
     let th = sys::sceKernelCreateThread(
         b"pocket-link\0".as_ptr(),
         worker,
@@ -318,6 +314,15 @@ pub unsafe fn start(target: &str) {
     );
     if th.0 >= 0 {
         sys::sceKernelStartThread(th, 0, core::ptr::null_mut());
+        // A companion already beating is linked before the first guest runs.
+        // The worker reads `ready`, so a hung usbhostfs holds the boot for
+        // this wait (200 ms) and no longer.
+        for _ in 0..100 {
+            if FIRST_READ.load(Acquire) {
+                break;
+            }
+            sys::sceKernelDelayThread(2_000);
+        }
     }
 }
 
@@ -422,8 +427,12 @@ pub unsafe fn net_start(meta: &[u8], body: &[u8], app: &str) -> i32 {
     ] {
         put(&mut record, at, value);
     }
-    let mut reply_json: Vec<u8> = Vec::with_capacity(MAX_JSON);
-    let mut reply_body: Vec<u8> = Vec::with_capacity(max_bytes);
+    // The slot's reply buffers grow to the largest maxBytes asked of it.
+    let (reply_json, reply_body) = (*core::ptr::addr_of_mut!(REPLY[index]))
+        .get_or_insert_with(|| (Vec::with_capacity(MAX_JSON), Vec::new()));
+    if reply_body.capacity() < max_bytes {
+        *reply_body = Vec::with_capacity(max_bytes);
+    }
     let shared = &mut *SLOTS_STATE[index].data.get();
     *shared = Shared {
         generation: SESSION.load(Acquire),
@@ -431,18 +440,16 @@ pub unsafe fn net_start(meta: &[u8], body: &[u8], app: &str) -> i32 {
         record: record.as_mut_ptr(),
         record_len: record.len(),
         json: reply_json.as_mut_ptr(),
-        json_cap: reply_json.capacity(),
+        json_cap: MAX_JSON,
         json_len: 0,
         body: reply_body.as_mut_ptr(),
-        body_cap: reply_body.capacity(),
+        body_cap: max_bytes,
         body_len: 0,
         oversize: false,
     };
     OWNED[index] = Some(Owned {
         handle: id as i32,
         record,
-        json: reply_json,
-        body: reply_body,
         deadline: now().wrapping_add(((timeout_ms + GRACE_MS) * 1000) as u32),
         reported: false,
     });
@@ -504,14 +511,12 @@ pub unsafe fn net_poll() -> Option<String> {
                     release(index);
                     continue;
                 }
-                owned.json.set_len(shared.json_len);
-                owned.body.set_len(shared.body_len);
-                let is_done = member(&owned.json, "t") == Some(b"\"done\"");
+                let json = core::slice::from_raw_parts(shared.json, shared.json_len);
+                let is_done = member(json, "t") == Some(b"\"done\"");
                 if events.len() > 1 {
                     events.push(',');
                 }
-                events.push_str(core::str::from_utf8(&owned.json).unwrap_or("{}"));
-                owned.json = Vec::new();
+                events.push_str(core::str::from_utf8(json).unwrap_or("{}"));
                 if is_done {
                     slot.state.store(DONE, Release);
                 } else {
@@ -550,10 +555,11 @@ pub unsafe fn net_take(handle: i32, into: &mut [u8]) -> i32 {
         if owned.handle != handle || SLOTS_STATE[index].state.load(Acquire) != DONE {
             continue;
         }
-        if into.len() != owned.body.len() {
+        let shared = &*SLOTS_STATE[index].data.get();
+        if into.len() != shared.body_len {
             return -1;
         }
-        into.copy_from_slice(&owned.body);
+        into.copy_from_slice(core::slice::from_raw_parts(shared.body, shared.body_len));
         let n = into.len() as i32;
         release(index);
         return n;
@@ -676,7 +682,12 @@ unsafe fn open(path: &[u8], write: bool) -> SceUid {
     )
 }
 
-unsafe fn read_all(fd: SceUid, into: *mut u8, len: usize) -> bool {
+/// Read `len` bytes into `into`, 32 KiB at a time: the size usbhostfs moves
+/// whole (one 64 KiB read lost a media stream after its header).
+///
+/// # Safety
+/// `into` holds `len` writable bytes.
+pub unsafe fn read_all(fd: SceUid, into: *mut u8, len: usize) -> bool {
     let mut n = 0;
     while n < len {
         let k = sys::sceIoRead(fd, into.add(n) as *mut c_void, (len - n).min(32768) as u32);
@@ -852,23 +863,30 @@ unsafe fn read_reply(index: usize, epoch: u32) -> bool {
 
 unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
     let mut status = [0u8; STATUS_MAX];
-    let mut epoch = FIRST_EPOCH;
-    let mut beat = FIRST_BEAT;
+    let mut epoch = 0u32;
+    let mut beat = 0u32;
     let mut beat_at = now();
-    let mut ready_at = 0u32;
+    // The epoch and beat a companion went silent on: the same `ready` read
+    // again is a file it left behind (a crash or an OOM kill), not a companion.
+    let mut silent = (0u32, 0u32);
+    let mut ready_at = now().wrapping_sub(UNLINKED_READY_US);
     let mut hello_at = 0u32;
     let mut hello_beat = 0u32;
-    let mut hello_due = epoch != 0;
-    let mut generation = if epoch != 0 { 1u32 } else { 0 };
+    let mut hello_due = false;
+    let mut generation = 0u32;
     let mut written = [false; SLOTS];
     let mut sent_at = [0u32; SLOTS];
     let mut read_at = [0u32; SLOTS];
     loop {
         let t = now();
-        if t.wrapping_sub(ready_at) >= BEAT_US / 5 {
+        // A linked console looks at the beat five times a beat; one with no
+        // companion looks once a second.
+        let cadence = if epoch != 0 { BEAT_US / 5 } else { UNLINKED_READY_US };
+        if t.wrapping_sub(ready_at) >= cadence {
             ready_at = t;
             match read_ready(&mut status) {
-                Some((e, b, len)) => {
+                Some((e, b, len)) if (e, b) != silent => {
+                    silent = (0, 0);
                     if e != epoch {
                         epoch = e;
                         EPOCH.store(0, Release);
@@ -888,9 +906,11 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
                         publish_status(&status[..len]);
                     }
                 }
-                None => {}
+                _ => {}
             }
+            FIRST_READ.store(true, Release);
             if epoch != 0 && t.wrapping_sub(beat_at) > SILENCE_US {
+                silent = (epoch, beat);
                 epoch = 0;
                 EPOCH.store(0, Release);
                 SESSION.store(0, Release);
@@ -954,7 +974,10 @@ unsafe extern "C" fn worker(_: usize, _: *mut c_void) -> i32 {
                 _ => {}
             }
         }
-        sys::sceKernelDelayThread(5000);
+        // With no companion and no slot to serve, the next thing to do is the
+        // next look at `ready`.
+        let idle = epoch == 0 && SLOTS_STATE.iter().all(|slot| !matches!(slot.state.load(Acquire), CANCEL));
+        sys::sceKernelDelayThread(if idle { BEAT_US / 5 } else { 5000 });
     }
 }
 

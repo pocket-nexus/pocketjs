@@ -280,6 +280,25 @@ pub unsafe fn push(pcm: &[i16], channels: u32) {
     crate::stats::AUDIO_PUSHED_FRAMES.fetch_add(n as u32, Ordering::Relaxed);
 }
 
+/// Fill the queue with silence up to a whole output block. The thread
+/// outputs whole blocks, so a stream's last frames play only once the block
+/// they start is complete (writer-side, after the stream's last push).
+pub unsafe fn pad_to_block() {
+    let need = BLOCK_OUT / UPSAMPLE.load(Ordering::Relaxed).max(1);
+    let rest = queued() % need;
+    if rest == 0 {
+        return;
+    }
+    let n = (need - rest).min(free_frames());
+    let write = WRITE_POS.load(Ordering::Relaxed);
+    for i in 0..n {
+        let dst = ((write + i) % RING_FRAMES) * 2;
+        RING[dst] = 0;
+        RING[dst + 1] = 0;
+    }
+    WRITE_POS.store(write.wrapping_add(n), Ordering::Release);
+}
+
 /// Drop everything queued (seek/epoch discontinuity): jump the read cursor
 /// to the write cursor. See the module header for the benign race.
 pub fn flush() {

@@ -132,6 +132,8 @@ static SILENT_AT: AtomicU32 = AtomicU32::new(0);
 static END_MS: AtomicU32 = AtomicU32::new(0);
 /// The worker is inside a stream and may touch the picture buffers.
 static BUSY: AtomicBool = AtomicBool::new(false);
+/// The guest's volume (f32 bits), 1.0 until it sets one.
+static VOLUME: AtomicU32 = AtomicU32::new(0x3f80_0000);
 
 // The picture buffers: NEED is the size (w * h) the worker asks for, HAVE the
 // size present() allocated. The pointers change only while the worker waits.
@@ -264,21 +266,9 @@ fn fail(generation: u32, error: u32) {
     }
 }
 
-/// Seek and read `into` whole, 32 KiB at a time: the size link.rs reads and
-/// writes over usbhostfs in. One 64 KiB read lost the stream after its header.
+/// Seek and read `into` whole (link::read_all's 32 KiB reads).
 unsafe fn pread(fd: SceUid, offset: u32, into: &mut [u8]) -> bool {
-    if sys::sceIoLseek(fd, offset as i64, IoWhence::Set) != offset as i64 {
-        return false;
-    }
-    let mut got = 0;
-    while got < into.len() {
-        let n = sys::sceIoRead(fd, into.as_mut_ptr().add(got) as *mut c_void, (into.len() - got).min(32 * 1024) as u32);
-        if n <= 0 {
-            return false;
-        }
-        got += n as usize;
-    }
-    true
+    sys::sceIoLseek(fd, offset as i64, IoWhence::Set) == offset as i64 && link::read_all(fd, into.as_mut_ptr(), into.len())
 }
 
 impl Stream {
@@ -359,10 +349,12 @@ impl Stream {
     /// ends under the reader, stalls for STALL_US, or is no longer the guest's.
     unsafe fn wait(&mut self) -> bool {
         loop {
-            self.tick();
+            // A stream the guest left touches the output no more: the next
+            // stream's open() has restarted it.
             if !current(self.generation) {
                 return false;
             }
+            self.tick();
             if PAUSED.load(Acquire) {
                 self.acknowledge();
                 self.progress_at = now();
@@ -569,6 +561,9 @@ impl Stream {
         self.draining = true;
         self.started = true;
         while current(self.generation) {
+            if AUDIO_OUT.load(Acquire) {
+                audio::pad_to_block();
+            }
             self.tick();
             let done = if AUDIO_OUT.load(Acquire) {
                 audio::queued() == 0
@@ -764,13 +759,18 @@ pub unsafe fn open(token: &[u8]) -> bool {
         sys::sceKernelStartThread(thread, 0, core::ptr::null_mut());
         STARTED = true;
     }
-    // The worker leaves the previous stream before the output restarts.
+    // The worker leaves the previous stream before the output restarts. A
+    // worker still inside a host0: read after the wait keeps the output: this
+    // open fails and the guest may try again.
     OPEN.store(false, Release);
     REQUESTED.fetch_add(1, AcqRel);
-    wait_idle();
+    if !wait_idle() {
+        return false;
+    }
     let audio_out = audio::start(wire::SAMPLE_RATE);
     if audio_out {
         audio::set_paused(true);
+        audio::set_volume(f32::from_bits(VOLUME.load(Relaxed)));
     }
     AUDIO_OUT.store(audio_out, Release);
     (*TOKEN.0.get()).copy_from_slice(token);
@@ -781,9 +781,10 @@ pub unsafe fn open(token: &[u8]) -> bool {
     true
 }
 
-/// Wait (bounded) for the worker to leave a stream it may still be reading.
+/// Wait (bounded, one second) for the worker to leave a stream it may still
+/// be reading.
 unsafe fn wait_idle() -> bool {
-    for _ in 0..200 {
+    for _ in 0..500 {
         if !BUSY.load(Acquire) {
             return true;
         }
@@ -812,7 +813,10 @@ pub fn set_paused(value: bool) {
     PAUSED.store(value, Release);
 }
 
+/// The guest's volume holds across streams: open() gives it to the output it
+/// restarts.
 pub fn set_volume(value: f32) {
+    VOLUME.store(value.to_bits(), Relaxed);
     audio::set_volume(value);
 }
 
