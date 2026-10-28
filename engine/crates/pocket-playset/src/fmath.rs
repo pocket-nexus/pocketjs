@@ -73,17 +73,20 @@ pub fn lerpf(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-/// sin over all reals: reduce to [-pi, pi], fold to [-pi/2, pi/2], odd
-/// polynomial (error below 1e-6).
+/// sin for |x| below 2^22 turns: the nearest whole turn by the 1.5 * 2^23
+/// rounding constant, the remainder folded onto [0, pi/2] with bit masks,
+/// an odd polynomial there (error below 4e-6). No float comparison: on the
+/// ARM11 each one stalls while its flags move to the integer core.
 pub fn sinf(x: f32) -> f32 {
-    let mut r = x - TAU * floorf((x + PI) / TAU);
-    if r > HALF_PI {
-        r = PI - r;
-    } else if r < -HALF_PI {
-        r = -PI - r;
-    }
-    let x2 = r * r;
-    r * (1.0 + x2 * (-1.0 / 6.0 + x2 * (1.0 / 120.0 + x2 * (-1.0 / 5040.0 + x2 * (1.0 / 362_880.0)))))
+    const ROUND: f32 = 12_582_912.0;
+    let n = (x * (1.0 / TAU) + ROUND) - ROUND;
+    let r = x - n * TAU;
+    let sign = r.to_bits() & 0x8000_0000;
+    // sin |r| = sin m for m = pi/2 - | |r| - pi/2 | in [0, pi/2]
+    let m = HALF_PI - absf(absf(r) - HALF_PI);
+    let x2 = m * m;
+    let s = m * (1.0 + x2 * (-1.0 / 6.0 + x2 * (1.0 / 120.0 + x2 * (-1.0 / 5040.0 + x2 * (1.0 / 362_880.0)))));
+    f32::from_bits(s.to_bits() ^ sign)
 }
 
 #[inline]
@@ -115,6 +118,16 @@ pub fn rsqrtf(x: f32) -> f32 {
     let half = 0.5 * x;
     let mut y = f32::from_bits(0x5f37_59df - (x.to_bits() >> 1));
     y *= 1.5 - half * y * y;
+    y *= 1.5 - half * y * y;
+    y * (1.5 - half * y * y)
+}
+
+/// 1/sqrt of a positive `x` with no branch: the bit estimate and two Newton
+/// steps (relative error under 5e-6), for vectors known not to be zero.
+#[inline]
+pub fn rsqrt_positive(x: f32) -> f32 {
+    let half = 0.5 * x;
+    let mut y = f32::from_bits(0x5f37_59df - (x.to_bits() >> 1));
     y *= 1.5 - half * y * y;
     y * (1.5 - half * y * y)
 }

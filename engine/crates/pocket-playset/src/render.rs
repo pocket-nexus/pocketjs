@@ -113,7 +113,23 @@ pub struct Builder {
     pub dyn_idx: Vec<u16>,
     items: Vec<Item>,
     transparent: Vec<(f32, Draw)>,
+    /// the water grid's indices for (cells, first vertex): the same every
+    /// frame while the grid is the first dynamic geometry
+    water_idx: Vec<u16>,
+    water_key: (usize, u16),
 }
+
+/// A blob shadow's rim: cos and sin of k * tau / 8.
+const OCTAGON: [(f32, f32); 8] = [
+    (1.0, 0.0),
+    (core::f32::consts::FRAC_1_SQRT_2, core::f32::consts::FRAC_1_SQRT_2),
+    (0.0, 1.0),
+    (-core::f32::consts::FRAC_1_SQRT_2, core::f32::consts::FRAC_1_SQRT_2),
+    (-1.0, 0.0),
+    (-core::f32::consts::FRAC_1_SQRT_2, -core::f32::consts::FRAC_1_SQRT_2),
+    (0.0, -1.0),
+    (core::f32::consts::FRAC_1_SQRT_2, -core::f32::consts::FRAC_1_SQRT_2),
+];
 
 /// A visible instance: an entity slot or a dynamic node.
 #[derive(Clone, Copy)]
@@ -419,23 +435,35 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
         let oz = floorf(eye.z / step) * step;
         let base = b.dyn_verts.len() as u16;
         let first = b.dyn_idx.len() as u32;
+        // Every value below is in range by construction (|h - level| <=
+        // amplitude, a unit normal), so the loop has no float comparison:
+        // on the ARM11 each one stalls to move the flags to the core.
         let inv_amp = 0.5 / maxf(water.amplitude, 0.01);
-        let q = |v: f32| (clampf(v, 0.0, 1.0) * 255.0 + 0.5) as u8;
+        let lo = water.deep * 255.0 + v3(0.5, 0.5, 0.5);
+        let span = (water.color - water.deep) * 255.0;
         let verts = &mut b.dyn_verts;
+        verts.reserve((cells + 1) * (cells + 1));
         water.grid(ox - half, oz - half, step, cells + 1, t, |_, px, pz, h, n| {
-            let c = water.deep.lerp(water.color, clampf((h - water.level) * inv_amp + 0.5, 0.0, 1.0));
-            verts.push(GpuVertex { pos: [px, h, pz], nb: pack_normal(n, 0), rgba: [q(c.x), q(c.y), q(c.z), 0] });
+            let k = (h - water.level) * inv_amp + 0.5;
+            let nb = [(n.x * 127.0) as i32 as i8, (n.y * 127.0) as i32 as i8, (n.z * 127.0) as i32 as i8, 0];
+            let rgba = [(lo.x + span.x * k) as i32 as u8, (lo.y + span.y * k) as i32 as u8, (lo.z + span.z * k) as i32 as u8, 0];
+            verts.push(GpuVertex { pos: [px, h, pz], nb, rgba });
         });
-        let row = cells as u16 + 1;
-        for z in 0..cells as u16 {
-            for x in 0..cells as u16 {
-                let a = base + z * row + x;
-                let bb = a + 1;
-                let c = a + row;
-                let d = c + 1;
-                b.dyn_idx.extend_from_slice(&[a, c, d, a, d, bb]);
+        if b.water_key != (cells, base) {
+            b.water_idx.clear();
+            let row = cells as u16 + 1;
+            for z in 0..cells as u16 {
+                for x in 0..cells as u16 {
+                    let a = base + z * row + x;
+                    let bb = a + 1;
+                    let c = a + row;
+                    let d = c + 1;
+                    b.water_idx.extend_from_slice(&[a, c, d, a, d, bb]);
+                }
             }
+            b.water_key = (cells, base);
         }
+        b.dyn_idx.extend_from_slice(&b.water_idx);
         let count = b.dyn_idx.len() as u32 - first;
         tris += count / 3;
         b.draws.push(Draw {
@@ -478,9 +506,8 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
         let up = pack_normal(Vec3::UP, 0);
         let y = gy + 0.04;
         b.dyn_verts.push(GpuVertex { pos: [p.x, y, p.z], nb: up, rgba: [0, 0, 0, (alpha * 255.0) as u8] });
-        for k in 0..8 {
-            let a = k as f32 * (TAU / 8.0);
-            b.dyn_verts.push(GpuVertex { pos: [p.x + cosf(a) * rad, y, p.z - sinf(a) * rad], nb: up, rgba: [0, 0, 0, 0] });
+        for (c, s) in OCTAGON {
+            b.dyn_verts.push(GpuVertex { pos: [p.x + c * rad, y, p.z - s * rad], nb: up, rgba: [0, 0, 0, 0] });
         }
         for k in 0..8u16 {
             b.dyn_idx.extend_from_slice(&[base, base + 1 + k, base + 1 + (k + 1) % 8]);
@@ -506,7 +533,9 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
     for (_, d) in b.transparent.iter() {
         b.draws.push(*d);
     }
-    // particles: alpha first, then additive
+    // particles: alpha first, then additive. Colours lerp between the
+    // emitter's ends and the u8 casts saturate: no clamp per channel.
+    let facing = pack_normal(-f, 0);
     for blend in [1u8, 2u8] {
         let first = b.dyn_idx.len() as u32;
         for p in w.fx.pool.iter() {
@@ -520,7 +549,7 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
             if cull.sphere(p.pos, size).is_none() {
                 continue;
             }
-            let q = |v: f32| (clampf(v, 0.0, 1.0) * 255.0 + 0.5) as u8;
+            let q = |v: f32| (v * 255.0 + 0.5) as u8;
             let col = [
                 q(lerpf(e[P::R], e[P::R2], k)),
                 q(lerpf(e[P::G], e[P::G2], k)),
@@ -529,7 +558,7 @@ pub fn prepare(ps: &mut Playset, aspect: f32) -> *const Frame {
             ];
             let rr = r * size;
             let uu = u * size;
-            let nb = pack_normal(-f, 0);
+            let nb = facing;
             let base = b.dyn_verts.len() as u16;
             for c in [p.pos - rr - uu, p.pos + rr - uu, p.pos + rr + uu, p.pos - rr + uu] {
                 b.dyn_verts.push(GpuVertex { pos: [c.x, c.y, c.z], nb, rgba: col });
