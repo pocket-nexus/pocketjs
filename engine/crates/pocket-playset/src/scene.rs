@@ -30,7 +30,15 @@ pub struct Batch {
     pub min: Vec3,
     pub max: Vec3,
     pub revision: u32,
+    /// Index offsets of axis-facing groups in FACE_GROUPS order, the seventh
+    /// the end: when `faces[6] > 0` the renderer skips the groups that face
+    /// away from the eye (voxel chunks). Zero = one group.
+    pub faces: [u32; 7],
 }
+
+/// The direction of each face group (0 +x, 1 -x, 2 +y, 3 -y, 4 +z, 5 -z),
+/// ordered so the groups an eye sees are mostly one contiguous range.
+pub const FACE_GROUPS: [usize; 6] = [5, 1, 2, 3, 0, 4];
 
 impl Batch {
     fn grow(&mut self, p: Vec3) {
