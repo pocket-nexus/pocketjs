@@ -642,6 +642,7 @@ impl Runtime {
             raster_density: self.profile.density,
             heap_limit: self.config.heap_limit,
             pak: &[],
+            worker_javascript: &[],
             assets: None,
         };
         let guest = self.guest.as_mut().unwrap();
@@ -729,6 +730,7 @@ impl Runtime {
             raster_density: self.profile.density,
             heap_limit: self.config.heap_limit,
             pak: package.pak(),
+            worker_javascript: package.worker_javascript(),
             assets: registry.as_ref(),
         };
         let guest = self.guest.as_mut().unwrap();

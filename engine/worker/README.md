@@ -91,7 +91,11 @@ outgoing channel records at its frame boundary. Observation rotates source
 groups and slot indexes so a saturated stream cannot exclude timers or
 channels from every turn.
 
-`quickjs_ui.c` supplies the UI bridge for a separate QuickJS context. After
+`quickjs_ui.c` supplies the UI bridge for a separate QuickJS context. **The
+bridge calls the UI context's QuickJS, so the worker library compiles against
+the QuickJS build that runs the UI realm**: the CardputerZero program
+(`programs/cardputer-zero/build.rs`) compiles it against the `rquickjs-sys`
+source in the workspace lock. After
 worker bootstrap declares channels, call `pocket_worker_ui_attach` before UI
 bundle evaluation. Call `pocket_worker_ui_latch` before each UI frame; it copies
 records into UI-owned mirrors and advances the SDK's frame-view generation.

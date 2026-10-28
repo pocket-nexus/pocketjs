@@ -5,7 +5,7 @@
 //
 //   bun tools/cardputer-zero.ts build             -> .pocket-build/cardputer-zero/
 //   bun tools/cardputer-zero.ts install <host>    build, then install over SSH (root@<address>)
-//   bun tools/cardputer-zero.ts shot --script "<tick>:<event> ..." [--out <dir>]
+//   bun tools/cardputer-zero.ts shot --control <control.json> --script "<tick>:<event> ..." [--out <dir>]
 //
 // build    the profile, the package, the program for aarch64 Linux against
 //          glibc 2.36 (the Zero's Debian 13 has 2.41; needs cargo-zigbuild and
@@ -89,13 +89,14 @@ async function install(host: string): Promise<void> {
 }
 
 async function shot(): Promise<void> {
+  const control = option("--control");
   const script = option("--script");
-  if (!script) throw new Error("shot needs --script");
+  if (!control || !script) throw new Error("shot needs --control <control.json> and --script");
   const dir = resolve(option("--out") ?? join(out, "shots"));
   await compile();
   await $`cargo build -p pocket-cardputer-zero --target-dir ${join(out, "host")}`.cwd(root).env({ ...process.env, POCKETJS_PROFILE_RS: profileRs });
   mkdirSync(dir, { recursive: true });
-  await $`${join(out, "host", "debug", "pocket-cardputer-zero")} --package ${pocket} --shot ${dir} --script ${script}`;
+  await $`${join(out, "host", "debug", "pocket-cardputer-zero")} --package ${pocket} --control ${resolve(control)} --shot ${dir} --script ${script}`;
   for (const name of readdirSync(dir).filter(name => name.endsWith(".rgb565"))) {
     const raw = readFileSync(join(dir, name));
     const rgba = new Uint8Array(WIDTH * 2 * HEIGHT * 2 * 4);
@@ -127,6 +128,6 @@ switch (argv[0]) {
     await shot();
     break;
   default:
-    console.error("usage: bun tools/cardputer-zero.ts build | install <host> | shot --script <events> [--out <dir>]");
+    console.error("usage: bun tools/cardputer-zero.ts build | install <host> | shot --control <file> --script <events> [--out <dir>]");
     process.exit(2);
 }

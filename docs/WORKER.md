@@ -143,12 +143,16 @@ HTTP `open({url, method, headers, body, timeoutMs, maxBytes})` creates a request
 bytes. Facts deliver headers, body blocks and an end record with the final
 offset through `observe()`; the completion settles the request id. The 3DS
 provider uses Pocket Link `net.stream` and byte credits. It does not allocate a
-complete response body. Link socket servicing retains the system's service-loop
-cadence; worker JS execution has an independent task. Cancellation can report
-an unknown request outcome before native access ends. The stream's end fact
-remains the boundary of the retained prefix; a consumer that needs that prefix
-reads to the end fact before closing the resource. `apps/worker-http/worker.ts`
-closes the resource from the completion, which ends the stream loop whether or
+complete response body. The CardputerZero provider
+(`programs/cardputer-zero/src/http.rs`) reaches loopback addresses and the
+companion's control API; each request runs on its own thread and queues its
+facts, which the owner task emits when it waits or finishes a turn. Link socket
+servicing retains the system's service-loop cadence; worker JS execution has an
+independent task. Cancellation can report an unknown request outcome before
+native access ends. The stream's end fact remains the boundary of the retained
+prefix; a consumer that needs that prefix reads to the end fact before closing
+the resource. `apps/worker-http/worker.ts` and `apps/companion-zero/worker.ts`
+close the resource from the completion, which ends the stream loop whether or
 not an end fact arrived.
 
 `close()` stops admission and ends the resource's stream. Native drivers stop
@@ -227,8 +231,8 @@ shutdown that waits for native access to end. The PRD's triggered sample
 executor, GPIO edges, command channels, remote worker replacement for
 `offload`, complete domain tape, TCP/UDP/MQTT, generated board-node accessor
 types and UI fallback ownership tables remain unimplemented. UI-only hosts keep
-their offload module; HTTP is the worker's `io.http` resource and the 3DS
-routes it over Pocket Link.
+their offload module; HTTP is the worker's `io.http` resource. The 3DS routes
+it over Pocket Link; the CardputerZero routes it to its own loopback interface.
 
 QuickJS facts and SDK records allocate objects during a turn. The current
 runner disables threshold-triggered GC and runs GC while idle; it does not

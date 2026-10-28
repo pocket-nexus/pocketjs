@@ -24,6 +24,7 @@ pub enum LoadError {
 pub struct LoadedPackage {
     bytes: PackageBytes,
     js: Range<usize>,
+    worker_js: Range<usize>,
     pak: Range<usize>,
     plan: Range<usize>,
     pub package_hash: u64,
@@ -130,11 +131,17 @@ impl LoadedPackage {
             let offset = part.as_ptr() as usize - bytes.as_ref().as_ptr() as usize;
             offset..offset + part.len()
         };
-        let (js, pak, plan) = (range(guest.js), range(guest.pak), range(guest.plan));
+        let (js, worker_js, pak, plan) = (
+            range(guest.js),
+            range(guest.worker_js),
+            range(guest.pak),
+            range(guest.plan),
+        );
         let (package_hash, variant_hash) = (guest.package_hash, guest.variant_hash);
         Ok(Self {
             bytes,
             js,
+            worker_js,
             pak,
             plan,
             package_hash,
@@ -146,6 +153,11 @@ impl LoadedPackage {
     }
     pub fn javascript(&self) -> &[u8] {
         &self.bytes.as_ref()[self.js.clone()]
+    }
+    /// Section 8, the NUL-terminated worker bundle; empty for a plan
+    /// without `domains.worker`.
+    pub fn worker_javascript(&self) -> &[u8] {
+        &self.bytes.as_ref()[self.worker_js.clone()]
     }
     pub fn pak(&self) -> &[u8] {
         &self.bytes.as_ref()[self.pak.clone()]

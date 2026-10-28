@@ -33,6 +33,10 @@ pub struct GuestEnvironment<'a> {
     pub raster_density: u32,
     pub heap_limit: usize,
     pub pak: &'a [u8],
+    /// The package's NUL-terminated worker bundle (section 8); empty when
+    /// its plan declares no worker domain. A guest that hosts the worker
+    /// starts it before the UI bundle evaluates.
+    pub worker_javascript: &'a [u8],
     /// None means that JS must load assets from pak. Some(empty) means that
     /// native asset loading completed and found no texture or sprite entries.
     pub assets: Option<&'a AssetRegistry>,
