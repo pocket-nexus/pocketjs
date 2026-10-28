@@ -78,7 +78,9 @@ const AVATAR_CIRCLE = 28;
 
 export const DISCORD_SETUP = "bun tools/companion.ts service discord token <bot-token>";
 /** The 409 a data endpoint answers until a token is set. */
-const NOT_SET_UP = { error: `Discord is not set up on the ${COMPUTER}.`, setup: DISCORD_SETUP };
+/** What the console shows until a token is set: the owner sets it in the app. */
+export const DISCORD_SETUP_HINT = `Open Pocket Companion on the ${COMPUTER} and set up Discord.`;
+const NOT_SET_UP = { error: `Discord is not set up on the ${COMPUTER}.`, setup: DISCORD_SETUP_HINT };
 
 // ---------------------------------------------------------------------------
 // What the console gets
@@ -314,7 +316,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
         await Bun.sleep(Math.max(0, wait) * 1000);
         continue;
       }
-      if (response.status === 401) throw new ServiceError(409, { error: "Discord no longer accepts the bot token.", setup: DISCORD_SETUP });
+      if (response.status === 401) throw new ServiceError(409, { error: "Discord no longer accepts the bot token.", setup: NOT_SET_UP.setup });
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { message?: string };
         const status = response.status === 403 || response.status === 404 ? response.status : 502;
@@ -698,6 +700,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     stopGateway();
     writeSecret(tokenFile, value);
     token = value;
+    shown = null;
     bot = user;
     guildCache.clear();
     recent.clear();
@@ -725,6 +728,32 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     ].join("\n");
   }
 
+  /** The setup screen's view: the bot, its servers, the invite link, the gateway. */
+  let shown: { at: number; token: string; value: Record<string, unknown> } | null = null;
+  async function state(): Promise<Record<string, unknown>> {
+    if (!token) return { configured: false };
+    // The window asks every few seconds; Discord is asked at most every half minute.
+    if (shown && shown.token === token && now() - shown.at < 30_000) return { ...shown.value, gateway: gatewayLive(), contentIntent };
+    try {
+      const user = await me();
+      const guilds = await rest<{ id: string; name: string }[]>("GET", "/users/@me/guilds");
+      const application = await rest<{ id: string }>("GET", "/oauth2/applications/@me").catch(() => ({ id: user.id }));
+      void startGateway();
+      const value = {
+        configured: true,
+        bot: displayName(user),
+        servers: guilds.map((guild) => guild.name),
+        invite: `https://discord.com/oauth2/authorize?client_id=${application.id}&scope=bot&permissions=${DISCORD_INVITE_PERMISSIONS}`,
+        gateway: gatewayLive(),
+        contentIntent,
+      };
+      shown = { at: now(), token, value };
+      return value;
+    } catch (error) {
+      return { configured: true, error: (error as Error).message };
+    }
+  }
+
   function logout(): string {
     stopGateway();
     rmSync(tokenFile, { force: true });
@@ -744,7 +773,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     const parts = request.path.split("/").filter(Boolean);
     const [head, id, tail] = parts;
     if (request.method === "GET" && head === "status") {
-      if (!token) return jsonResponse(200, { ready: false, setup: DISCORD_SETUP });
+      if (!token) return jsonResponse(200, { ready: false, setup: NOT_SET_UP.setup });
       const user = await me();
       void startGateway();
       return jsonResponse(200, { ready: true, bot: displayName(user), gateway: gatewayLive(), contentIntent });
@@ -814,6 +843,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
   return {
     name: "discord",
     handle: route,
+    state,
     async command(args) {
       const [verb, ...rest] = args;
       if (verb === "token") return await setToken(rest.join(" "));

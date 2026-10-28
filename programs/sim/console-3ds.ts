@@ -30,7 +30,7 @@ export interface Console3dsOptions {
   pak?: string;
   /** Installed mini-apps (the launcher's own entry is not among them). */
   apps?: Console3dsApp[];
-  /** Output name of the system launcher. Default "home-main". */
+  /** Output name of the system launcher. Default "pocket-shell". */
   launcher?: string;
   /** Output name of the running bundle. Default: the launcher. */
   current?: string;
@@ -128,7 +128,7 @@ function flatTexts(node: SimNode | null, size: [number, number], out: string[], 
 }
 
 export async function bootConsole3ds(options: Console3dsOptions): Promise<Console3ds> {
-  const launcher = options.launcher ?? "home-main";
+  const launcher = options.launcher ?? "pocket-shell";
   const apps: Console3dsApp[] = (options.apps ?? []).map((app) => ({ ...app }));
   const launches: string[] = [];
   const current = options.current ?? launcher;

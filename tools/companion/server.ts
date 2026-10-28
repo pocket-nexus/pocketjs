@@ -3,8 +3,10 @@
 // is, pairing windows, and per-connection dispatch of net / catalog / install.
 
 import { createSocket, type Socket as UdpSocket } from "node:dgram";
+import { existsSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { networkInterfaces } from "node:os";
+import { join } from "node:path";
 import {
   LINK_BEACON_PORT,
   LINK_FEATURE,
@@ -21,6 +23,7 @@ import {
 import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { AgentService, AGENT_LINK_FEATURE, type AgentLink, type AgentServiceOptions, type AgentSession } from "./agent.ts";
 import { AppCatalog, PackageReader } from "./catalog.ts";
+import { findCodex, userCodexHome } from "./codex.ts";
 import { NetFailure, normalizeNetRequest, performNet, type NetRequest, type NetResponse } from "./fetch.ts";
 import { ServiceHost, type ServiceConsole } from "./services.ts";
 import {
@@ -385,6 +388,19 @@ export class Companion {
     );
   }
 
+  /** The console agent as the setup screen shows it: on, or what it waits
+   *  for. `codex` and `signedIn` are read now, so a Codex installed or
+   *  signed in since the start shows as ready to turn on (a restart). */
+  agentState() {
+    const codex = findCodex();
+    return {
+      on: this.agent?.available ?? false,
+      enabled: this.agent !== null,
+      codex,
+      signedIn: existsSync(join(userCodexHome(), "auth.json")),
+    };
+  }
+
   status() {
     const window = this.pairingWindow();
     return {
@@ -398,7 +414,7 @@ export class Companion {
       },
       consoles: this.connected(),
       paired: this.store.consoles().map(({ key: _key, ...entry }) => entry),
-      apps: this.catalog.apps(DEFAULT_TARGET),
+      apps: this.catalog.entries(DEFAULT_TARGET).map(({ path: _path, ...app }) => app),
       appsDirs: this.catalog.directories,
       appsDir: this.store.appsDir,
       pairing: window ? { open: true, uri: window.uri, expiresAt: window.expiresAt } : { open: false },

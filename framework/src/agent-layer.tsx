@@ -396,7 +396,7 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
     const table = appTable();
     const current = table?.current ?? "";
     const entry = table?.apps.find((candidate) => candidate.output === current);
-    return entry ? { id: entry.id, title: entry.title, output: entry.output } : { id: current, title: "Pocket Home", output: current };
+    return entry ? { id: entry.id, title: entry.title, output: entry.output } : { id: current, title: "Pocket Shell", output: current };
   };
   const hello = () => {
     const table = appTable();

@@ -279,12 +279,12 @@ describe("tools on the user's screen", () => {
     app.agent!.push({ t: "agent.tool", id: 13, call: "l1", name: "launch", args: { app: "Agent Fixture" } });
     await app.run(30);
     expect(sentOf(app, "agent.result").find((message) => message.call === "l1")?.ok).toBe(true);
-    app.agent!.push({ t: "agent.tool", id: 13, call: "l2", name: "launch", args: { app: "Pocket Home" } });
+    app.agent!.push({ t: "agent.tool", id: 13, call: "l2", name: "launch", args: { app: "Pocket Shell" } });
     await app.run(4);
     expect(sentOf(app, "agent.result").find((message) => message.call === "l2")?.ok).toBe(false);
     app.agent!.push({ t: "agent.tool", id: 13, call: "l3", name: "launch", args: { app: "home" } });
     await app.run(4);
-    expect(app.launches).toEqual(["home-main"]);
+    expect(app.launches).toEqual(["pocket-shell"]);
     expect(sentOf(app, "agent.result").find((message) => message.call === "l3")).toBeUndefined();
   });
 });

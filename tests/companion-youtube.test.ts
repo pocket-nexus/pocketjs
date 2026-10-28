@@ -68,6 +68,16 @@ const get = (path: string, query: Record<string, string> = {}) => call(service, 
 const json = (body: Uint8Array) => JSON.parse(new TextDecoder().decode(body));
 const calls = () => (existsSync(CALLS) ? readFileSync(CALLS, "utf8").trim().split("\n") : []);
 
+describe("setup", () => {
+  test("the setup screen sees the programs in use; without them a request asks the owner to set YouTube up", async () => {
+    expect(await service.state!()).toMatchObject({ ready: true, ytDlp: process.execPath, managed: false, install: { state: "idle" } });
+    const bare = createYoutubeService(serviceContext(DIR), null);
+    expect(await bare.state!()).toMatchObject({ ready: false, ytDlp: null, ffmpeg: null });
+    await expect(call(bare, "/search", { query: { q: "cats" } })).rejects.toThrow("Open Pocket Companion and set up YouTube");
+    bare.close?.();
+  });
+});
+
 describe("lists", () => {
   test("a search keeps the video rows yt-dlp printed and drops notices and non-videos; a second ask is cached", async () => {
     const first = await get("/search", { q: "pocket" });

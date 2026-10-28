@@ -23,6 +23,9 @@ const APPLET_VERSION = 1 as const;
 /** The manifest section. */
 export interface AppletDeclaration {
   readonly version: typeof APPLET_VERSION;
+  /** One sentence on what the applet does, shown where it is offered (the
+   *  console's store, Pocket Companion's list). */
+  readonly summary?: string;
   /** Companion services the applet fetches (`companionService(name, …)`,
    *  contracts/spec/link.ts LINK_SERVICES_ORIGIN). */
   readonly services?: readonly string[];
@@ -32,6 +35,9 @@ export interface AppletDeclaration {
    *  confines the store to the applet and to this many bytes. */
   readonly store?: { readonly maxBytes: number };
 }
+
+/** The longest summary, in UTF-16 units: one line of the console's store. */
+export const APPLET_SUMMARY_MAX = 120;
 
 /** The largest store an applet may declare: 4 MiB. */
 export const APPLET_STORE_MAX_BYTES = 4 * 1024 * 1024;
@@ -49,6 +55,7 @@ export const appletSchema = {
   required: ["version"],
   properties: {
     version: { const: APPLET_VERSION },
+    summary: { type: "string", minLength: 1, maxLength: APPLET_SUMMARY_MAX },
     services: { type: "array", items: serviceNameSchema, uniqueItems: true, maxItems: 8 },
     hosts: { type: "array", items: hostSchema, uniqueItems: true, maxItems: 8 },
     store: {

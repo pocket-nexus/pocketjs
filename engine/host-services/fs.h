@@ -29,7 +29,7 @@
 #include <stdint.h>
 
 /* The quota for a guest that declares data.fs without an applet store
- * (Pocket Home): 4 MiB, the largest store an applet may declare. */
+ * (Pocket Shell): 4 MiB, the largest store an applet may declare. */
 #define FS_DEFAULT_QUOTA_BYTES (4u * 1024u * 1024u)
 /* The deepest directory a guest's tree holds below its root. */
 #define FS_MAX_DEPTH 8

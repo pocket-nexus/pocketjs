@@ -159,6 +159,7 @@ class XService implements ServiceProvider {
       }
       case "logout":
         rmSync(this.sessionPath(), { force: true });
+        this.lastError = "";
         return `Signed out of X on this ${COMPUTER}.`;
       case "status": {
         const session = this.session();
@@ -190,6 +191,12 @@ class XService implements ServiceProvider {
       default:
         throw new Error("x commands: login, cookies <auth_token> <ct0>, status, logout, probe");
     }
+  }
+
+  /** The setup screen's view: signed in or not, since when, a sign-in window open, the last failure. */
+  async state(): Promise<Record<string, unknown>> {
+    const session = this.session();
+    return { signedIn: session !== null, since: session?.savedAt ?? null, signingIn: this.signIn !== null, lastError: session ? this.lastError || null : null };
   }
 
   private async login(): Promise<string> {
@@ -289,7 +296,7 @@ class XService implements ServiceProvider {
 
   private requireSession(): Session {
     const session = this.session();
-    if (!session) throw failure(401, "signed-out", `Not signed in to X on the ${COMPUTER}. Run: bun tools/companion.ts service x login`);
+    if (!session) throw failure(401, "signed-out", `Not signed in to X on the ${COMPUTER}. Open Pocket Companion on the ${COMPUTER} and sign in to X.`);
     return session;
   }
 

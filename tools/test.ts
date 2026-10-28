@@ -361,7 +361,7 @@ const SUITE: readonly Stage[] = [
   {
     // The system agent's overlay over a fixture app on the 3DS geometry, with
     // the agent fake (programs/sim/console-3ds.ts). The test builds its guest
-    // with `bun tools/3ds.ts --plan=... --pocket-only`. Pocket Home and the
+    // with `bun tools/3ds.ts --plan=... --pocket-only`. Pocket Shell and the
     // Hacker News app live in pocket-shell (shells/3ds) with their own sims.
     name: "agent overlay sim",
     prep: [

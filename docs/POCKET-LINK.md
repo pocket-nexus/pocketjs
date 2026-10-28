@@ -231,7 +231,16 @@ State lives in `~/Library/Application Support/Pocket Companion/`
 - `companion.json` (mode **0600**): the companion id, the owner's apps folder,
   and each paired console `{id, name, model, key, lastAddress, lastSeen}`;
 - `control.json` (mode **0600**, present while a daemon runs): `{port, token, pid}`
-  of the control API.
+  of the control API;
+- `services/<name>/`: a service's credentials (the X session, the Discord bot
+  token), mode **0600**;
+- `tools/`: `yt-dlp` and `ffmpeg` fetched by `service youtube install`
+  (`tools/companion/tools.ts`): yt-dlp's macOS build from its latest release,
+  checked against that release's `SHA2-256SUMS`, and a pinned ffmpeg 9.0.2
+  static build for the Mac's architecture, checked against a SHA-256 in the
+  source. The YouTube service uses these before any on `PATH`. Without bun,
+  deno or node on the Mac, the compiled daemon runs yt-dlp's JavaScript
+  itself (`BUN_BE_BUN=1`).
 
 ### Control API
 
@@ -244,6 +253,11 @@ HTTP on `127.0.0.1`, a random port, `Authorization: Bearer <token>`:
 | `DELETE /pair` | closes the window |
 | `DELETE /consoles/:id` | forgets the console: `{removed}` |
 | `POST /apps-dir {path}` | sets the owner's apps folder: `{appsDir, apps}` |
+| `POST /service {name, args}` | runs a service's owner command (`x login`, `x logout`, `discord token <token>`, `discord logout`, `youtube install`): `{output}` |
+| `GET /services` | `services`: each service's setup state (`x {signedIn, since, signingIn, lastError}`, `discord {configured, bot, servers, invite, gateway, contentIntent}`, `youtube {ready, ytDlp, ffmpeg, managed, install}`), never a credential; `agent {on, enabled, codex, signedIn}`, the last two read at the request |
+
+`status.apps` entries carry each applet's `summary` and the `services` its
+manifest declares.
 
 ## Pocket Companion.app
 
@@ -253,23 +267,59 @@ open "dist/companion/Pocket Companion.app"
 ```
 
 The build compiles the daemon with `bun build --compile`, compiles
-`tools/companion/macos/PocketCompanion.swift` with `swiftc`, draws the icon,
-writes `Info.plist` (`LSUIElement`, `NSLocalNetworkUsageDescription`, the
-checkout's `dist/3ds` path) and signs the bundle ad hoc.
+`tools/companion/macos/*.swift` with `swiftc`, draws the icon, writes
+`Info.plist` (`LSUIElement`, `NSLocalNetworkUsageDescription`) and signs the
+bundle. Options of `tools/companion-app.ts`:
 
-The app is a menu-bar item. It starts `Contents/MacOS/pocket-companion serve`
-as a child process with `--parent-pid`, or attaches to a daemon already running
-for the same store, and reads its state from the control API once a second.
-The menu shows the listening address and the linked consoles. **Pair a
-Console…** opens a window with the QR code (CoreImage, level M, integer-scaled
-modules), the instruction for the 3DS, and the window's countdown; the same
-window lists paired consoles with **Forget** and the apps folders with a folder
-chooser. Quitting the app stops the daemon. Daemon output goes to
-`~/Library/Logs/Pocket Companion/companion.log`.
+| Option | Effect |
+| --- | --- |
+| `--apps <dir>` | copies the `.pocket` files of `<dir>` into `Contents/Resources/apps`; the app offers them with no folder set (repeatable) |
+| `--release` | leaves out `PocketRepoAppsDir`, the checkout's `dist/3ds` |
+| `--universal` | builds every executable for `arm64` and `x86_64` and joins them with `lipo` |
+| `--version <v>` | `CFBundleShortVersionString` |
+| `--sign <identity>` | signs with a Developer ID, the hardened runtime and a timestamp; the daemon gets the JIT entitlements a compiled Bun program needs |
+| `--notarize <profile>` | submits the signed app to Apple's notary service with a `notarytool` keychain profile, staples the ticket and checks it with `spctl` |
+| `--zip <file>` | writes the app as a zip with `ditto` |
+
+The release of the app and its applets is built from Pocket Shell, which
+builds the applets and passes their folder with `--apps`.
+
+The app lives in the menu bar and starts `Contents/MacOS/pocket-companion
+serve` as a child process with `--parent-pid` and `--apps` for its bundled
+applets, or attaches to a daemon already running for the same store. It reads
+`/status` once a second, and `/services` every two seconds while its window is
+open. The window opens at launch when no console is paired; while it is open
+the app shows in the Dock. Its pages:
+
+- **Get Started**: four steps with links to Pocket Shell on Pocket Studio and
+  the install guide, the pairing QR code (CoreImage, level M, integer-scaled
+  modules) with its countdown, the applets, and the service pages.
+- **Consoles**: paired consoles, connected or last seen, with **Forget…**, and
+  the pairing code.
+- **Applets**: the offered applets with their summaries, links to the pages
+  of the services each declares, and a folder chooser for developers.
+- **X**: sign in through `pocket-websignin` (`x login`) or sign out.
+- **Discord**: the three steps of making a bot (Developer Portal, Message
+  Content Intent, the token in a secure field), then the bot, its servers, the
+  invite link and a warning when the intent is off.
+- **YouTube**: the programs found, a download of both with a progress bar, and
+  **Update yt-dlp** for the fetched copy.
+- **Assistant**: whether Codex is installed and signed in; **Sign In to
+  Codex…** runs `codex login`, and a restart turns the agent on once Codex is
+  ready.
+- **Settings**: open at login (`SMAppService`), the name and address consoles
+  see, the version, the log, a restart.
+
+Quitting the app stops the daemon. Daemon output goes to
+`~/Library/Logs/Pocket Companion/companion.log`. The app and the daemon read
+`$POCKET_COMPANION_HOME` for the store.
 
 Launch arguments for checks: `--show-window` opens the window at launch,
-`--pair` opens a pairing window, `--snapshot <png>` renders the window's
-content to a PNG after four seconds without screen-recording permission.
+`--pair` opens a pairing window, `--snapshot <png> [--page <page>] [--window]`
+renders a page (`start`, `consoles`, `applets`, `x`, `discord`, `youtube`,
+`assistant`, `settings`) to a PNG after five seconds without screen-recording
+permission; `--window` draws the page inside a picture of the window's title
+bar and sidebar (Pocket Studio's listing pictures).
 
 ## Tests
 

@@ -9,6 +9,7 @@
 //   POST   /apps-dir       {path} -> set the owner's apps folder
 //   POST   /service        {name, args} -> run a service's owner command
 //                          (sign in, set a token) -> {output}
+//   GET    /services       {services: {<name>: state}, agent} for the setup screens
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -39,6 +40,7 @@ export function startControl(companion: Companion, storeDir: string): { info: Co
       const { pathname } = new URL(request.url);
       const method = request.method;
       if (method === "GET" && pathname === "/status") return json(companion.status());
+      if (method === "GET" && pathname === "/services") return json({ services: await companion.services.states(), agent: companion.agentState() });
       if (method === "POST" && pathname === "/pair") return json(companion.openPairing());
       if (method === "DELETE" && pathname === "/pair") return json({ closed: companion.closePairing() });
       const forget = pathname.match(/^\/consoles\/([0-9a-f]{16})$/);
