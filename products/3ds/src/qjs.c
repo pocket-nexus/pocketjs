@@ -3,6 +3,7 @@
 #include "qjs.h"
 #include "agent.h"
 #include "camera.h"
+#include "playset.h"
 #include "fs.h"
 #include "instance.h"
 #include "launcher.h"
@@ -688,6 +689,12 @@ static int32_t install_host(void) {
     JS_SetPropertyStr(context, global, "fs", fs);
   }
 
+  /* Only a guest that declared "game.playset" sees the namespace. */
+  if (playset_install(context, global) < 0) {
+    set_error("playset namespace installation failed");
+    return POCKET_WORKER_FAILED;
+  }
+
   /* Only a guest that declared "system.agent" sees the namespace. */
   if (agent_enabled()) {
     JSValue agent = JS_NewObject(context);
@@ -920,4 +927,6 @@ void qjs_shutdown(void) {
     runtime = NULL;
   }
   global = JS_UNDEFINED;
+  /* The views into the world died with the realm; the world goes now. */
+  playset_shutdown();
 }

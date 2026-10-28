@@ -11,7 +11,7 @@ static const uint32_t pocket_3ds_profile_auxiliary_logical[] = {320u, 240u};
 static const pocket_profile_display pocket_3ds_profile_auxiliary = {sizeof(pocket_profile_display), {320u, 240u}, pocket_3ds_profile_auxiliary_logical, 1u, 1u};
 /* struct_size, id, id_length, tick_hz, input_classes, display, auxiliary, dynamic_viewport */
 static const pocket_profile_facts pocket_3ds_profile = {sizeof(pocket_profile_facts), (const uint8_t *)"\x33\x64\x73\x2d\x64\x65\x76", 7u, 60u, 19u, &pocket_3ds_profile_display, &pocket_3ds_profile_auxiliary, NULL};
-static const uint8_t pocket_3ds_profile_hash[32] = {217,111,102,198,183,46,85,247,190,166,127,241,64,99,16,129,246,163,77,138,211,250,237,48,42,95,17,243,18,200,125,10};
+static const uint8_t pocket_3ds_profile_hash[32] = {98,227,61,178,93,207,200,31,0,252,231,184,42,190,68,91,133,8,190,181,11,241,89,135,162,187,33,54,44,86,192,63};
 #define POCKET_3DS_OP_createNode 1u
 #define POCKET_3DS_OP_destroyNode 2u
 #define POCKET_3DS_OP_insertBefore 3u

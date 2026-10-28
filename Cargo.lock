@@ -5052,6 +5052,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-playset"
+version = "0.1.0"
+
+[[package]]
 name = "pocket-posix-svc-wire"
 version = "0.1.0"
 dependencies = [
@@ -5528,6 +5532,7 @@ name = "pocketjs-3ds-core"
 version = "0.1.0"
 dependencies = [
  "pocket-package",
+ "pocket-playset",
  "pocket-runtime-cabi",
 ]
 

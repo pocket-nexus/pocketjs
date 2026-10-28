@@ -152,6 +152,8 @@
     "./modality": "./framework/src/modality.ts",
     "./actions": "./framework/src/actions.ts",
     "./agent": "./framework/src/agent.ts",
+    "./playset": "./framework/src/playset/index.ts",
+    "./playset/three": "./framework/src/playset/three.ts",
     "./system": "./framework/src/system.ts",
     "./vita-package": "./tools/vita-package.ts",
     "./prelude": "./framework/src/prelude.ts",
