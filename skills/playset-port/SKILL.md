@@ -78,7 +78,16 @@ its own file under `engine/crates/pocket-playset/src/modules/` behind
   one small model share draws (up to 20 per draw).
 - `tools/playset-sim.ts` enforces 140 draws, 16,000 triangles and 1,200 bone
   matrices.
-- The touch screen costs 3–4 ms of CPU: use the shell; keep readouts to six.
+- The touch screen costs 0.1 ms while it does not change and a few
+  milliseconds on the frame a readout's text changes: use the shell, keep
+  readouts to six, and let values that change every frame (a timer in
+  tenths) change at most a few times a second.
+- **The tick is about 7 ms before the game's own work** (the frame pump, both
+  screens' draw lists, the transfers): a game has about 8 ms for its
+  JavaScript, its native step and its scene. Read `tick`/`draw` in devStats
+  and the STATS view's STEP_US, PREPARE_US and RENDER_US.
+- A new kernel or module loop: no float comparison per element (each stalls
+  the ARM11), tables for what repeats.
 
 ## 5. Verify
 

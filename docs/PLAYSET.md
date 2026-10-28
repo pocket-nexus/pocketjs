@@ -159,11 +159,34 @@ title screen's backdrop and what the headless runner plays.
 | A Float32Array element read-modify-write | **3.7 µs** |
 | A small object allocation | **23 µs** |
 | A call from JS into the playset binding | **20–40 µs** |
-| Space Shooter's native step (≈40 slots, rules, particles) | **0.7–1.4 ms** |
-| Space Shooter's render preparation and PICA submission | **1.3–2.1 ms** |
 | PICA vertex work with the playset shader | **≈0.3 µs per vertex** |
-| The touch-screen UI submission (text, rounded rects) | **3.3–4.3 ms** |
-| Space Shooter in play: canonical tick | **12.1 ms; 16.71 ms frame interval, 60 fps** |
+| A float comparison in native code (VFP flags moved to the integer core) | **a pipeline stall per comparison** |
+
+### One frame
+
+devStats reports the canonical tick as two phases: `tick` is the runtime's
+advance (input, the guest's frame, the core step) and `draw` is its present
+(both screens' draw lists and their submission, the playset scene included).
+Snake Clash, launched from Pocket Shell's Home:
+
+| Part | ms |
+| --- | --- |
+| Guest JavaScript and the native step (`game.frame`) | 1.2 |
+| The rest of advance (the frame pump, the core step) | 1.4 |
+| The playset scene: `pps_prepare` and the PICA submission | 1.7 |
+| The touch screen: its draw list, and a reused or skipped submission | 0.1–0.4 |
+| Both screens' draw lists in the core, and the coordinator | ≈1.1 |
+| Display transfers | 0.45 per screen |
+| Waiting for the GPU | 0.15 |
+| **Canonical tick** | **6.8–7.4** |
+
+**The PICA driver presents deferred**: a frame's flush ends its citro3d
+frame, the GPU draws it while the guest's next turn runs, and the next
+present's completion transfers and swaps each screen after the vblank
+between the turns. Before, the CPU waited 2.5–3.6 ms a frame for the GPU.
+**A screen whose two buffers already show its unchanged build is not
+submitted again**, so a touch screen whose readouts did not change costs
+0.1 ms.
 
 What follows from them for a game's per-frame JavaScript:
 
@@ -176,10 +199,22 @@ What follows from them for a game's per-frame JavaScript:
   building in the frame path. Event handlers receive numbers.
 - **About twenty native calls per frame** at most; slot state is read and
   written through the views.
+- **A readout is written when its text changes**: each write rebuilds the
+  touch screen's submission.
 - Logic that touches every slot every frame belongs to a kernel, a
   behaviour or a rule. `Playset.script(arch, fn, every)` runs a guest function over the slots
   of one archetype every `every` steps, for logic that a few dozen slots can
   afford.
+
+For native code that runs per element every frame:
+
+- **No float comparison in the loop body**: clamps, `min`/`max` and range
+  folds each stall the ARM11. `sinf` rounds with the 1.5 × 2²³ constant and
+  folds with bit masks; the water grid writes values that are in range by
+  construction. Pirate Seas' `pps_prepare` went from 4.7 to 1.7 ms this way.
+- **Tables for what repeats**: the water's sines per column and per row
+  (about 130 a frame instead of ten per vertex), a blob shadow's rim, the
+  water's index buffer.
 
 For content, the GPU is the limit: **about 10,000 vertices a frame** leaves
 time for the interface. Flat shading and jitter unshare vertices (three per
