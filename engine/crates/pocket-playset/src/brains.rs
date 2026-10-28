@@ -155,6 +155,18 @@ fn drive(w: &mut World, slot: usize, arch: usize, want: Vec3, face: Option<Vec3>
             // slow for sharp corners
             iz = m * clampf(1.2 - absf(it) * 0.6, 0.3, 1.0);
         }
+        M::PLANE if w.archs[arch][A::MOTION_P + 10] > 0.5 => {
+            // the banked plane flies by world yaw and pitch errors, as
+            // GameBlocks' jet-dogfight steers its fighters: bank and pitch
+            // past a deadband, the rudder in proportion
+            let d = want.normalized();
+            let yaw_error = wrap_angle(yaw_of(d.x, d.z) - yaw);
+            let pitch_error = clampf(asinf(clampf(d.y, -0.85, 0.85)) - w.e(slot, E::PITCH), -1.0, 1.0);
+            it = if yaw_error > 0.08 { -1.0 } else if yaw_error < -0.08 { 1.0 } else { 0.0 };
+            ix = -clampf(yaw_error / 0.85, -1.0, 1.0);
+            ir = if pitch_error > 0.04 { 1.0 } else if pitch_error < -0.04 { -1.0 } else { 0.0 };
+            iz = 0.6;
+        }
         M::PLANE => {
             // steer the nose at the wanted direction in the body frame
             let q = w.s[slot].quat;
@@ -349,6 +361,33 @@ pub fn think(w: &mut World, scene: &Scene, slot: usize, dt: f32) {
             }
             drive(w, slot, arch, want, None, dt);
             fire_control(w, slot, arch, if kind == B::WANDER { tp } else { None });
+        }
+        B::PURSUE if w.archs[arch][A::MOTION] as u32 == M::PLANE && w.archs[arch][A::MOTION_P + 10] > 0.5 => {
+            // a banked plane: straight at the target with no lead; inside
+            // `distance` it breaks away and holds fire; FWD opens the throttle
+            // beyond BRAIN_P 11 and eases it inside; a slow pitch weave
+            let (want, breakaway, dist) = match tp {
+                Some(t) => {
+                    let d = t - pos;
+                    let dist = d.len();
+                    if pref > 0.0 && dist < pref && dist > 1e-4 {
+                        (d * (-1.0 / dist), true, dist)
+                    } else {
+                        (d.normalized(), false, dist)
+                    }
+                }
+                None => (forward_of(w.e(slot, E::YAW)), true, 0.0),
+            };
+            drive(w, slot, arch, want, None, dt);
+            let throttle_at = bp(w, arch, 11);
+            if throttle_at > 0.0 {
+                w.set_intent(slot, I::FWD, if dist > throttle_at { 1.0 } else { -0.25 });
+            }
+            let pitch_rate = maxf(w.archs[arch][A::MOTION_P + 3], 0.1);
+            let weave = sinf(w.time * 0.9 + slot as f32 * 2.399) * 0.25 / pitch_rate;
+            let rise = w.intent(slot, I::RISE);
+            w.set_intent(slot, I::RISE, rise + weave);
+            fire_control(w, slot, arch, if breakaway { None } else { tp });
         }
         B::PURSUE => {
             let want = match tgt {
