@@ -4,9 +4,13 @@
 //! A script is a list of `<tick>:<event>` words. An event is a button name
 //! (`UP`, `DOWN`, `LEFT`, `RIGHT`, `START`, `SELECT`, `CROSS`, `CIRCLE`,
 //! `SQUARE`, `TRIANGLE`, `LTRIGGER`, `RTRIGGER`; `ENTER` and `ESC` name the
-//! buttons those keys give), held for two ticks, or `shot`, which writes the
-//! framebuffer after that tick to `<dir>/<tick>.rgb565`. The program exits
-//! after the last event.
+//! buttons those keys give), held for two ticks; a text key `key:<name>`
+//! (`key:ArrowDown`, `key:Enter`, `key:f`, `key:Shift+ArrowRight`) pressed at
+//! the tick and released two ticks later, as the keyboard reports it;
+//! `type:<text>` typed as one committed string (`_` stands for a space); or
+//! `shot`, which writes the framebuffer after that tick to
+//! `<dir>/<tick>.rgb565`. The program exits after the last event.
+use pocket_drivers::input::TextEvent;
 use pocket_drivers::{InputClasses, InputFrameBuilder, InputSource};
 use pocket_linux_fbdev::{Channel, FrameStore, Framebuffer, Geometry};
 use pocket_runtime::{RendererId, Runtime};
@@ -17,6 +21,8 @@ const HOLD_TICKS: u32 = 2;
 
 enum Event {
     Press(u32),
+    Key(String),
+    Type(String),
     Shot,
 }
 
@@ -33,17 +39,31 @@ impl FrameStore for Store {
 struct Buttons {
     tick: Rc<Cell<u32>>,
     presses: Vec<(u32, u32)>,
+    keys: Vec<(u32, String)>,
+    typed: Vec<(u32, String)>,
 }
 
 impl InputSource for Buttons {
     fn classes(&self) -> InputClasses {
-        InputClasses::BUTTONS
+        InputClasses::BUTTONS | InputClasses::TEXT
     }
     fn poll(&mut self, frame: &mut InputFrameBuilder) {
         let tick = self.tick.get();
         for (at, mask) in &self.presses {
             if (*at..*at + HOLD_TICKS).contains(&tick) {
                 frame.buttons |= mask;
+            }
+        }
+        for (at, key) in &self.keys {
+            if *at == tick {
+                frame.text.push(TextEvent::Key { key: key.clone(), pressed: true, repeat: false });
+            } else if *at + HOLD_TICKS == tick {
+                frame.text.push(TextEvent::Key { key: key.clone(), pressed: false, repeat: false });
+            }
+        }
+        for (at, text) in &self.typed {
+            if *at == tick {
+                frame.text.push(TextEvent::Commit(text.clone()));
             }
         }
     }
@@ -86,6 +106,8 @@ fn parse(script: &str) -> Result<Vec<(u32, Event)>, String> {
             let tick: u32 = tick.parse().map_err(|_| format!("{word}: bad tick"))?;
             let event = match name {
                 "shot" => Event::Shot,
+                _ if name.starts_with("key:") => Event::Key(name["key:".len()..].to_string()),
+                _ if name.starts_with("type:") => Event::Type(name["type:".len()..].replace('_', " ")),
                 _ => Event::Press(button(name).ok_or_else(|| format!("{word}: unknown button"))?),
             };
             Ok((tick, event))
@@ -133,12 +155,16 @@ pub fn attach(
         .map_err(|e| format!("{e:?}"))?;
     let tick = Rc::new(Cell::new(0));
     let mut presses = Vec::new();
+    let mut keys = Vec::new();
+    let mut typed = Vec::new();
     let mut shots = Vec::new();
     let mut last = 0;
     for (at, event) in events {
-        last = last.max(at);
+        last = last.max(at + HOLD_TICKS);
         match event {
             Event::Press(mask) => presses.push((at, mask)),
+            Event::Key(name) => keys.push((at, name)),
+            Event::Type(text) => typed.push((at, text)),
             Event::Shot => shots.push(at),
         }
     }
@@ -146,6 +172,8 @@ pub fn attach(
         .add_input_source(Box::new(Buttons {
             tick: tick.clone(),
             presses,
+            keys,
+            typed,
         }))
         .map_err(|e| format!("{e:?}"))?;
     Ok(Shot {
@@ -181,10 +209,12 @@ mod tests {
 
     #[test]
     fn a_script_names_ticks_buttons_and_shots() {
-        let events = parse("3:DOWN 9:ENTER 12:shot").unwrap();
+        let events = parse("3:DOWN 9:ENTER 12:shot 14:key:ArrowDown 20:type:hello_world").unwrap();
         assert!(matches!(events[0], (3, Event::Press(mask)) if mask == btn::DOWN));
         assert!(matches!(events[1], (9, Event::Press(mask)) if mask == btn::START));
         assert!(matches!(events[2], (12, Event::Shot)));
+        assert!(matches!(&events[3], (14, Event::Key(name)) if name == "ArrowDown"));
+        assert!(matches!(&events[4], (20, Event::Type(text)) if text == "hello world"));
         assert!(parse("4:JUMP").is_err());
         assert!(parse("DOWN").is_err());
     }

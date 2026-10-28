@@ -1,8 +1,10 @@
 //! The worker's `http` node on the CardputerZero: `io.http` requests over
-//! loopback HTTP/1.1.
+//! loopback HTTP/1.1, and the device API in process.
 //!
-//! The screen on this program is Pocket Companion's, so the servers it needs
-//! run on this machine. `http://companion/…` goes to the companion's control
+//! The packages on this program need servers on this machine only.
+//! `http://zero/dev/…` is the device API (device/mod.rs): the request's
+//! thread calls the device layer and answers with its JSON or bytes; no
+//! socket is involved. `http://companion/…` goes to the companion's control
 //! API: the port and the bearer token come from `control.json` in the
 //! companion's store, read again for every request because a restarted
 //! companion has a new port and token, and the worker never sees the token.
@@ -19,6 +21,7 @@
 //! blocks of at most 1 KiB, END. The worker's owner task emits them into the
 //! core when it waits or finishes a turn (worker.rs). A request thread never
 //! touches the core, so close returns at once and a late answer is dropped.
+use crate::device::Device;
 use crate::worker::{
     pocket_worker_emit, pocket_worker_finish, Core, Driver, Notify, BUSY, FACT_DATA, FACT_HEADERS,
     FAILED, INVALID, MAX_PAYLOAD, OK, UNKNOWN,
@@ -56,6 +59,10 @@ enum Route {
     Quit,
     Restart,
     Companion {
+        path: String,
+    },
+    /// The device API; the path without its query.
+    Device {
         path: String,
     },
     Loopback {
@@ -137,15 +144,17 @@ pub struct Http {
     control: PathBuf,
     unit: String,
     notify: Arc<Notify>,
+    device: Option<Device>,
     state: Mutex<State>,
 }
 
 impl Http {
-    pub fn new(control: PathBuf, unit: String, notify: Arc<Notify>) -> Self {
+    pub fn new(control: PathBuf, unit: String, notify: Arc<Notify>, device: Option<Device>) -> Self {
         Self {
             control,
             unit,
             notify,
+            device,
             state: Mutex::default(),
         }
     }
@@ -336,7 +345,7 @@ unsafe extern "C" fn start(
         .name("pocket-http".into())
         .stack_size(64 * 1024)
         .spawn(move || {
-            let answer = perform(&job, &owned.control, &owned.unit);
+            let answer = perform(&job, &owned);
             owned.answer(handle, request, answer, &job.url);
         });
     if spawned.is_ok() {
@@ -447,6 +456,10 @@ fn route(url: &str) -> Option<Route> {
     if authority == CONTROL_HOST {
         return Some(Route::Companion { path: path.into() });
     }
+    if authority == "zero" && path.starts_with("/dev/") {
+        let path = path.split('?').next().unwrap_or(path);
+        return Some(Route::Device { path: path.into() });
+    }
     let (name, port) = authority.rsplit_once(':')?;
     if name != "127.0.0.1" && name != "localhost" {
         return None;
@@ -458,10 +471,28 @@ fn route(url: &str) -> Option<Route> {
     })
 }
 
-fn perform(request: &Request, control: &PathBuf, unit: &str) -> Result<Response, Failure> {
+fn perform(request: &Request, http: &Http) -> Result<Response, Failure> {
+    let (control, unit) = (&http.control, http.unit.as_str());
     match &request.route {
         Route::Quit => Ok(no_content()),
         Route::Restart => Ok(restart(unit)),
+        Route::Device { path } => {
+            let Some(device) = &http.device else {
+                return Ok(gateway(503, "this program runs no device layer".into()));
+            };
+            let answer = device.handle(&request.method, path, &request.body);
+            if answer.body.len() > request.max_bytes {
+                return Err(Failure {
+                    reached: true,
+                    message: "the response is over maxBytes".into(),
+                });
+            }
+            Ok(Response {
+                status: answer.status,
+                headers: BTreeMap::from([("content-type".into(), answer.content_type.into())]),
+                body: answer.body,
+            })
+        }
         Route::Loopback { port, host, path } => exchange(request, *port, host, path, None),
         Route::Companion { path } => Ok(match control_info(control) {
             Err(message) => gateway(503, message),
@@ -645,4 +676,54 @@ fn exchange(
         headers,
         body,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn descriptor(url: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({ "url": url, "method": "GET" })).unwrap()
+    }
+
+    #[test]
+    fn routes_are_this_machine_only() {
+        assert!(matches!(route("http://zero/quit"), Some(Route::Quit)));
+        assert!(matches!(route("http://zero/restart"), Some(Route::Restart)));
+        assert!(matches!(route("http://companion/status"), Some(Route::Companion { path }) if path == "/status"));
+        // The device API drops the query: the device layer routes on the path.
+        assert!(matches!(route("http://zero/dev/motion?t=3"), Some(Route::Device { path }) if path == "/dev/motion"));
+        assert!(matches!(route("http://127.0.0.1:8080/x"), Some(Route::Loopback { port: 8080, .. })));
+        assert!(matches!(route("http://localhost:9/"), Some(Route::Loopback { port: 9, .. })));
+        for refused in ["http://zero/other", "http://example.com/", "https://companion/status", "http://10.0.0.1:80/", "http://zero/dev/a b"] {
+            assert!(route(refused).is_none(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn descriptors_are_bounded_and_headers_cannot_split() {
+        assert!(parse(&descriptor("http://zero/dev/battery")).is_some());
+        let split = serde_json::json!({ "url": "http://companion/x", "headers": { "x": "a\r\nInjected: 1" } });
+        assert!(parse(&serde_json::to_vec(&split).unwrap()).is_none());
+        let method = serde_json::json!({ "url": "http://companion/x", "method": "TRACE" });
+        assert!(parse(&serde_json::to_vec(&method).unwrap()).is_none());
+        let large = serde_json::json!({ "url": "http://companion/x", "maxBytes": MAX_RESPONSE_BYTES + 1 });
+        assert!(parse(&serde_json::to_vec(&large).unwrap()).is_none());
+    }
+
+    #[test]
+    fn the_device_api_answers_in_process() {
+        let dir = std::env::temp_dir().join(format!("pocket-zero-http-{}", std::process::id()));
+        let device = Device::new(dir.clone(), true, "default".into());
+        let http = Http::new(PathBuf::from("/nonexistent/control.json"), COMPANION_UNIT.into(), Arc::default(), Some(device));
+        let request = parse(&descriptor("http://zero/dev/capabilities")).unwrap();
+        let response = perform(&request, &http).ok().unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.headers["content-type"], "application/json");
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&response.body).unwrap()["mock"], true);
+        // Without a companion, its host answers as a gateway.
+        let companion = perform(&parse(&descriptor("http://companion/status")).unwrap(), &http).ok().unwrap();
+        assert_eq!(companion.status, 503);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
