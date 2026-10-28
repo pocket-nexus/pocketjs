@@ -34,6 +34,11 @@ export function GameShell(props: { game: PlaysetGame }) {
   let jsMax = 0;
   const values: (NodeMirror | undefined)[] = [];
   const bars: (NodeMirror | undefined)[] = [];
+  // What each node shows: a write that changes nothing would still rebuild
+  // the touch screen's submission, a few milliseconds on the Old 3DS.
+  const shownValues: (string | number | undefined)[] = [];
+  const shownBars: (number | undefined)[] = [];
+  let shownTop = "";
   let topLine: NodeMirror | undefined;
   const statNodes: (NodeMirror | undefined)[] = [];
 
@@ -92,11 +97,26 @@ export function GameShell(props: { game: PlaysetGame }) {
     if (frames % 6 === 0) {
       const rs = game.readouts;
       for (let i = 0; i < rs.length; i++) {
-        hot.text(values[i], rs[i].value());
+        const v = rs[i].value();
+        if (v !== shownValues[i]) {
+          shownValues[i] = v;
+          hot.text(values[i], v);
+        }
         const b = rs[i].bar;
-        if (b) hot.prop(bars[i], "scaleX", Math.max(0, Math.min(1, b())));
+        if (b) {
+          // in steps of 1/64 of the bar's width
+          const x = Math.round(Math.max(0, Math.min(1, b())) * 64) / 64;
+          if (x !== shownBars[i]) {
+            shownBars[i] = x;
+            hot.prop(bars[i], "scaleX", x);
+          }
+        }
       }
-      hot.text(topLine, s === "playing" ? game.topLine() : "");
+      const top = s === "playing" ? game.topLine() : "";
+      if (top !== shownTop) {
+        shownTop = top;
+        hot.text(topLine, top);
+      }
     }
     const us = game.play.now() - t0;
     jsUs += us;
@@ -132,7 +152,15 @@ export function GameShell(props: { game: PlaysetGame }) {
       {/* top screen: the scene shows through; text only where it is needed */}
       <View class="relative w-full h-full">
         <View class="absolute left-[6] top-[4] w-[388] h-[16]">
-          <Text ref={(el) => (topLine = el)} class="text-sm text-white font-bold">{""}</Text>
+          <Text
+            ref={(el) => {
+              topLine = el;
+              shownTop = "";
+            }}
+            class="text-sm text-white font-bold"
+          >
+            {""}
+          </Text>
         </View>
         <Show when={status() === "paused"}>
           <View class="absolute left-[130] top-[100] w-[140] h-[40] rounded-[12] bg-[#000000a0] items-center justify-center">
@@ -174,12 +202,27 @@ export function GameShell(props: { game: PlaysetGame }) {
                   <View class="w-[288] h-[18] flex-row justify-between">
                     <Text class="text-xs text-[#8d9bc0]">{r.label}</Text>
                     <View class="w-[140] h-[18] items-end">
-                      <Text ref={(el) => (values[i()] = el)} class="text-sm text-white font-bold">{""}</Text>
+                      <Text
+                        ref={(el) => {
+                          values[i()] = el;
+                          shownValues[i()] = undefined;
+                        }}
+                        class="text-sm text-white font-bold"
+                      >
+                        {""}
+                      </Text>
                     </View>
                   </View>
                   <Show when={r.bar}>
                     <View class="w-[288] h-[6] rounded-[3] bg-[#ffffff20]">
-                      <View ref={(el) => (bars[i()] = el)} class="w-[288] h-[6] rounded-[3] origin-left" style={{ bgColor: r.color ?? game.accent }} />
+                      <View
+                        ref={(el) => {
+                          bars[i()] = el;
+                          shownBars[i()] = undefined;
+                        }}
+                        class="w-[288] h-[6] rounded-[3] origin-left"
+                        style={{ bgColor: r.color ?? game.accent }}
+                      />
                     </View>
                   </Show>
                 </View>

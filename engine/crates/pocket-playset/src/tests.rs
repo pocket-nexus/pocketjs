@@ -377,3 +377,19 @@ fn the_water_grid_matches_height_and_normal() {
     assert!(worst.0 < 1e-3, "height off by {}", worst.0);
     assert!(worst.1 < 2e-3, "normal off by {}", worst.1);
 }
+
+#[test]
+fn sinf_and_cosf_match_f64_over_a_wide_range() {
+    use crate::fmath::{cosf, sinf};
+    let mut worst = 0.0f64;
+    let mut x = -2000.0f32;
+    while x < 2000.0 {
+        let tol = 4e-6 + 1.2e-7 * (x.abs() as f64);
+        let es = (sinf(x) as f64 - (x as f64).sin()).abs();
+        let ec = (cosf(x) as f64 - (x as f64).cos()).abs();
+        assert!(es < tol && ec < tol, "x = {x}: sin off {es}, cos off {ec}");
+        worst = worst.max(es.max(ec) - 1.2e-7 * (x.abs() as f64));
+        x += 0.0137;
+    }
+    assert!(worst < 4e-6, "worst {worst}");
+}

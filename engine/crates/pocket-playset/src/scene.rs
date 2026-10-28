@@ -193,7 +193,9 @@ impl Water {
                 let h = self.level + a * (0.6 * s1[i] + 0.4 * sin2);
                 let dx = a * (0.6 * k * c1[i] + 0.24 * k2 * cos2);
                 let dz = a * (0.32 * k2 * cos2);
-                out(j * n + i, x0 + i as f32 * step, z, h, v3(-dx, 1.0, -dz).normalized());
+                // (-dx, 1, -dz) is never zero: no branch in the normalize
+                let r = rsqrt_positive(dx * dx + 1.0 + dz * dz);
+                out(j * n + i, x0 + i as f32 * step, z, h, v3(-dx * r, r, -dz * r));
             }
         }
     }
