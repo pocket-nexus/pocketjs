@@ -74,7 +74,7 @@ the new values on the next step.
 | `character` | walks, runs, jumps under gravity; world, heading, camera, tank or first-person frame | X, FWD, TURN, RISE, JUMP, AUX |
 | `car` | arcade car with grip, drift and slopes | FWD, TURN, JUMP (handbrake), AUX (boost) |
 | `boat` | hull on the water surface with roll and pitch | FWD, TURN |
-| `plane` | aircraft attitude with banked turns | RISE (pitch), TURN (roll), X (rudder), FWD |
+| `plane` | aircraft attitude with banked turns; with `banked`, GameBlocks' AirplaneMotionController: TURN holds a bank angle that turns the heading, FWD moves a throttle, a floor over the terrain | RISE (pitch), TURN (roll, or bank), X (rudder), FWD, AUX (boost when banked) |
 | `hover` | drone or submarine | X, FWD, TURN, RISE |
 | `path` | along a path at its slot's SPEED | none |
 | `turret` | yaw and pitch toward its target | TURN, RISE without a target |

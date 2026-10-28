@@ -184,3 +184,68 @@ fn a_leading_turret_targets_the_creep_furthest_along_its_path() {
     }
     assert_eq!(ps.world.e(t, crate::schema::ent::TARGET) as i32, second);
 }
+
+/// A banked plane (GameBlocks' AirplaneMotionController) with its demo tuning.
+fn banked_plane(ps: &mut Playset, floor: f32) -> usize {
+    let mut a = arch();
+    a[A::MOTION] = M::PLANE as f32;
+    let p = [8.8, 26.0, 0.0, 1.35, 0.0, 0.78, 0.56, 0.0, 0.0, 2.0, 1.0, 0.55, 0.56, 0.26, 1.1868, 0.21, 0.9774, 1.7, 1.28, 0.55, floor, 0.08];
+    a[A::MOTION_P..A::MOTION_P + p.len()].copy_from_slice(&p);
+    a[A::LAYER] = 1.0;
+    a[A::RADIUS] = 3.0;
+    ps.world.add_arch(&a) as usize
+}
+
+#[test]
+fn banked_plane_turns_toward_its_bank_and_settles_on_cruise() {
+    use crate::schema::{ent as E, intent as I};
+    let mut ps = Playset::new(16, 0);
+    let a = banked_plane(&mut ps, 0.0);
+    let s = ps.world.spawn(&ps.scene, a, v3(0.0, 50.0, 0.0), 0.0) as usize;
+    ps.world.set(s, E::SPEED, 15.0);
+    for _ in 0..60 {
+        ps.world.set_intent(s, I::TURN, 1.0);
+        ps.step(1.0 / 60.0);
+    }
+    // right bank: ENT.ROLL negative (right wing down), heading clockwise
+    assert!(ps.world.e(s, E::ROLL) < -0.9, "banked right, roll = {}", ps.world.e(s, E::ROLL));
+    assert!(ps.world.e(s, E::YAW) < -0.2, "turned right, yaw = {}", ps.world.e(s, E::YAW));
+    assert!(ps.world.pos(s).x > 1.0, "moved right of its start");
+    for _ in 0..600 {
+        ps.world.set_intent(s, I::TURN, 0.0);
+        ps.step(1.0 / 60.0);
+    }
+    // the throttle holds 0.55: cruise = 8.8 + 0.55 * (26 - 8.8)
+    let cruise = 8.8 + 0.55 * (26.0 - 8.8);
+    assert!((ps.world.e(s, E::SPEED) - cruise).abs() < 0.2, "cruise speed {}", ps.world.e(s, E::SPEED));
+    assert!(ps.world.e(s, E::ROLL).abs() < 0.05, "levelled out");
+}
+
+#[test]
+fn banked_plane_holds_its_floor_and_pursue_breaks_away() {
+    use crate::schema::intent as I;
+    let mut ps = Playset::new(16, 0);
+    let a = banked_plane(&mut ps, 7.0);
+    let s = ps.world.spawn(&ps.scene, a, v3(0.0, 20.0, 0.0), 0.0) as usize;
+    for _ in 0..240 {
+        ps.world.set_intent(s, I::RISE, -1.0);
+        ps.step(1.0 / 60.0);
+    }
+    assert!(ps.world.pos(s).y >= 7.0 - 1e-3, "stopped at the floor, y = {}", ps.world.pos(s).y);
+    // a pursuer inside its breakaway distance turns away from the target
+    let mut hunter = ps.world.archs[a];
+    hunter[A::BRAIN] = B::PURSUE as f32;
+    hunter[A::BRAIN_P] = 1.0;
+    hunter[A::BRAIN_P + 1] = 1.0;
+    hunter[A::BRAIN_P + 9] = 70.0;
+    hunter[A::BRAIN_P + 11] = 90.0;
+    hunter[A::LAYER] = 2.0;
+    let hunter = ps.world.add_arch(&hunter) as usize;
+    let at = ps.world.pos(s) + v3(30.0, 10.0, 0.0);
+    let h = ps.world.spawn(&ps.scene, hunter, at, 0.0) as usize;
+    ps.step(1.0 / 60.0);
+    // the target is to its left (-X): breaking away banks it right, throttle eased
+    assert!(ps.world.intent(h, I::TURN) > 0.5, "banks away, turn = {}", ps.world.intent(h, I::TURN));
+    assert!(ps.world.intent(h, I::FWD) < 0.0, "eases the throttle inside the throttle distance");
+    assert!(ps.world.intent(h, I::FIRE) < 0.5, "holds fire while breaking away");
+}

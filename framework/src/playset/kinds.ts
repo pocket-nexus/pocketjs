@@ -97,7 +97,14 @@ export const motion = {
   boat(o: { accel?: number; maxSpeed?: number; turnRate?: number; drag?: number; lateralDrag?: number; bob?: number; roll?: number; pitch?: number } = {}): Motion {
     return { kind: PLAYSET_MOTION.BOAT, p: [o.accel ?? 6, o.maxSpeed ?? 12, o.turnRate ?? 0.9, o.drag ?? 0.3, o.lateralDrag ?? 2, o.bob ?? 0.1, o.roll ?? 0.25, o.pitch ?? 1] };
   },
-  /** An aircraft: RISE pitch, TURN roll, X rudder, FWD throttle. */
+  /** An aircraft: RISE pitch, TURN roll, X rudder, FWD throttle.
+   *
+   *  With `banked`, GameBlocks' AirplaneMotionController instead: TURN holds
+   *  a bank angle (up to `maxBank`) that turns the heading at `bankTurn`,
+   *  RISE pitches the flight path at `pitchRate`, X yaws at `yawRate`, FWD
+   *  moves a throttle (`throttleRate` per second) that sets the cruise speed
+   *  between min and max, AUX starts a boost; the plane stays `minAltitude`
+   *  over the ground and at or above `floor`. */
   plane(o: {
     minSpeed?: number;
     maxSpeed?: number;
@@ -109,11 +116,31 @@ export const motion = {
     autoLevel?: number;
     gravity?: number;
     minAltitude?: number;
-  } = {}): Motion {
-    return {
-      kind: PLAYSET_MOTION.PLANE,
-      p: [o.minSpeed ?? 14, o.maxSpeed ?? 40, o.accel ?? 12, o.pitchRate ?? 1.4, o.rollRate ?? 2.6, o.yawRate ?? 0.5, o.bankTurn ?? 1.2, o.autoLevel ?? 1.2, o.gravity ?? 0.3, o.minAltitude ?? 3],
+    banked?: {
+      throttleRate?: number;
+      /** seconds the speed takes toward the cruise speed (smoothing lag) */
+      speedLag?: number;
+      boostSpeedLag?: number;
+      maxBank?: number;
+      bankLag?: number;
+      /** the roll at which the bank turn reaches `bankTurn` */
+      bankTurnReference?: number;
+      boostDuration?: number;
+      boostMultiplier?: number;
+      /** throttle at spawn, 0..1 */
+      throttle?: number;
+      /** least height, world units; 0 = none */
+      floor?: number;
+      /** least pitch while held on the floor */
+      floorPitch?: number;
     };
+  } = {}): Motion {
+    const p = [o.minSpeed ?? 14, o.maxSpeed ?? 40, o.accel ?? 12, o.pitchRate ?? 1.4, o.rollRate ?? 2.6, o.yawRate ?? 0.5, o.bankTurn ?? 1.2, o.autoLevel ?? 1.2, o.gravity ?? 0.3, o.minAltitude ?? 3];
+    const b = o.banked;
+    if (b) {
+      p.push(1, b.throttleRate ?? 0.42, b.speedLag ?? 0.56, b.boostSpeedLag ?? 0.26, b.maxBank ?? 1.1868, b.bankLag ?? 0.21, b.bankTurnReference ?? 0.9774, b.boostDuration ?? 1.7, b.boostMultiplier ?? 1.28, b.throttle ?? 0, b.floor ?? 0, b.floorPitch ?? 0);
+    }
+    return { kind: PLAYSET_MOTION.PLANE, p };
   },
   /** A drone or a submarine: heading-relative X/FWD, TURN yaw, RISE vertical. */
   hover(o: {
@@ -226,8 +253,14 @@ export const brain = {
     kind: PLAYSET_BRAIN.HERD,
     p: common(o, [o.panic ?? 3, o.every ?? 2.5, o.turn ?? 1.2, o.leash ?? 0]),
   }),
-  /** Flight pursuit with lead; keeps off the ground. */
-  pursue: (o: BrainCommon = {}): Brain => ({ kind: PLAYSET_BRAIN.PURSUE, p: common(o) }),
+  /** Flight pursuit with lead; keeps off the ground. A banked plane
+   *  (motion.plane `banked`) flies straight at the target instead, breaks away
+   *  and holds fire inside `distance`, and with `throttleDistance` opens its
+   *  throttle beyond that range and eases it inside. */
+  pursue: (o: BrainCommon & { throttleDistance?: number } = {}): Brain => ({
+    kind: PLAYSET_BRAIN.PURSUE,
+    p: common(o, o.throttleDistance !== undefined ? [o.throttleDistance] : []),
+  }),
   turret: (o: BrainCommon = {}): Brain => ({ kind: PLAYSET_BRAIN.TURRET, p: common(o) }),
   /** Circles the target at `distance`, switching sides every few seconds. */
   strafe: (o: BrainCommon & { every?: number } = {}): Brain => ({ kind: PLAYSET_BRAIN.STRAFE, p: common(o, [o.every ?? 1.6]) }),
