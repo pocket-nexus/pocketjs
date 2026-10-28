@@ -468,7 +468,7 @@ pump.
 - **Pairing.** `link.pair(uri)` parses `pocketlink://pair?…`, replaces the
   current connection, tries each `h` host in order in mode `pair`, unmasks and
   stores the key on `paired` and stays linked.
-- **Worker HTTP.** A package with `app.worker` starts an independent QuickJS
+- **Worker HTTP.** A package with `domains.worker` starts an independent QuickJS
   runtime on a libctru thread. `io.http("http")` submits through a bounded
   mailbox to the system Link owner. The `net.stream` companion feature sends
   response headers, body blocks and an end offset. **Each request has an

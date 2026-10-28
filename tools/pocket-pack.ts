@@ -89,7 +89,7 @@ export function makeVariant(input: {
     { kind: POCKET_SECTION.pak, bytes: input.pak },
   ];
   if (input.cover) sections.push({ kind: POCKET_SECTION.cover, bytes: input.cover });
-  if (!!plan.app.worker !== !!input.workerJs) throw new Error("pocket-pack: worker declaration and worker bundle must both be present");
+  if (!!plan.domains?.worker !== !!input.workerJs) throw new Error("pocket-pack: worker declaration and worker bundle must both be present");
   if (input.workerJs) {
     if (!input.workerJs.length) throw new Error("pocket-pack: worker bundle is empty");
     const worker = new Uint8Array(input.workerJs.length + 1);
@@ -182,7 +182,7 @@ async function buildCommand(argv: string[]): Promise<void> {
         planJson: canonicalJson(plan),
         identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
         js,
-        ...(plan.app.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
+        ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
         pak,
         cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
       }),

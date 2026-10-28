@@ -103,13 +103,13 @@ test("UI channel reads are frame mirrors and direction is enforced", () => {
 
 test("worker manifest admission rejects hosts without a second runtime and duplicate node owners", async () => {
   const manifest = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
-  manifest.app.worker = { entry: "worker.ts", nodes: [] };
+  manifest.domains = { worker: { entry: "worker.ts", nodes: [] } };
   expect(validateAndResolveBuildPlan(manifest, { target: "psp" }).ok).toBe(false);
   manifest.engine.capabilities.requires.push("runtime.worker");
   expect(validateAndResolveBuildPlan(manifest, { target: "psp" }).ok).toBe(false);
   const registry = { capabilities: POCKET_CAPABILITIES, targets: { test: { ...POCKET_TARGETS.psp, capabilities: [...POCKET_TARGETS.psp.capabilities, "runtime.worker", "io.i2c"] } } };
   const availabilityOnly = structuredClone(manifest);
-  delete availabilityOnly.app.worker;
+  delete availabilityOnly.domains;
   availabilityOnly.engine.capabilities.requires = availabilityOnly.engine.capabilities.requires.filter((capability: string) => capability !== "runtime.worker");
   availabilityOnly.engine.capabilities.enhances = ["runtime.worker"];
   expect(validateAndResolveBuildPlan(availabilityOnly, { target: "test" }, registry).ok).toBe(true);
@@ -121,7 +121,7 @@ test("worker manifest admission rejects hosts without a second runtime and dupli
   const variant = makeVariant({ ...input, workerJs: utf8("globalThis.__pocketWorkerTurn=()=>{}") });
   const decoded = decodePocketPackage(encodePocketPackage({ manifest: utf8(JSON.stringify(manifest)), variants: [variant] }));
   expect(findSection(decoded.variants[0], POCKET_SECTION.workerJs)?.at(-1)).toBe(0);
-  manifest.app.worker.nodes = [{ name: "bus", kind: "i2c" }, { name: "bus", kind: "i2c" }];
+  manifest.domains.worker.nodes = [{ name: "bus", kind: "i2c" }, { name: "bus", kind: "i2c" }];
   const invalid = validateAndResolveBuildPlan(manifest, { target: "test" }, registry);
   expect(invalid.ok).toBe(false);
   if (!invalid.ok) expect(invalid.diagnostics.some(d => d.code === "worker.duplicate")).toBe(true);
@@ -153,7 +153,7 @@ test("pocket check includes the independent worker entry", () => {
   const output = resolve(".pocket-build/validation/worker/sdk/typecheck-worker");
   mkdirSync(output, { recursive: true });
   const manifest = JSON.parse(readFileSync(resolve("apps/worker-http/pocket.json"), "utf8"));
-  manifest.app.worker.entry = ".pocket-build/validation/worker/sdk/typecheck-worker/invalid.ts";
+  manifest.domains.worker.entry = ".pocket-build/validation/worker/sdk/typecheck-worker/invalid.ts";
   writeFileSync(resolve(output, "invalid.ts"), "export function turn() { const value: number = 'incorrect'; return value; }\n");
   // The UI entry's imports map through the UI domain: a worker subpath is unresolvable there.
   manifest.app.entry = ".pocket-build/validation/worker/sdk/typecheck-worker/ui.tsx";

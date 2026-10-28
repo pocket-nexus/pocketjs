@@ -969,7 +969,7 @@ async function packPackages(
             title: plan.app.title,
           },
           js,
-          ...(plan.app.worker ? { workerJs: new Uint8Array(readFileSync(join(paths.output, `${plan.app.output}.worker.js`))) } : {}),
+          ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(paths.output, `${plan.app.output}.worker.js`))) } : {}),
           pak,
           cover: existsSync(coverPath)
             ? new Uint8Array(readFileSync(coverPath))

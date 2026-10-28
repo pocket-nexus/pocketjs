@@ -136,14 +136,9 @@
         }
       }
     },
-    "app": {
+    "domains": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "entry",
-        "framework",
-        "viewport"
-      ],
       "properties": {
         "worker": {
           "type": "object",
@@ -231,7 +226,18 @@
               }
             }
           }
-        },
+        }
+      }
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry",
+        "framework",
+        "viewport"
+      ],
+      "properties": {
         "entry": {
           "type": "string",
           "minLength": 1,

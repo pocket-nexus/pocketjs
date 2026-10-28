@@ -65,7 +65,7 @@ pub fn worker_declared(plan: &[u8]) -> Result<bool, PlanFactsError> {
     if reader.at != plan.len() || plan.get(root) != Some(&b'{') {
         return Err(PlanFactsError::Malformed);
     }
-    let worker = find(plan, root, &[b"app", b"worker"]);
+    let worker = find(plan, root, &[b"domains", b"worker"]);
     let feature = find(plan, root, &[b"features", b"runtime.worker"])
         .is_some_and(|start| plan[start..].starts_with(b"true"));
     if worker.is_some() && !feature {

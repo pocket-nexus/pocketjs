@@ -64,11 +64,11 @@ if (import.meta.main) {
   const [manifestPath, outdir = ".pocket-build/worker"] = process.argv.slice(2);
   if (!manifestPath) throw new Error("usage: bun tools/build-worker.ts <pocket.json> [outdir]");
   const path = resolve(manifestPath), manifest = await Bun.file(path).json();
-  if (!manifest.app?.worker) throw new Error("Manifest has no app.worker entry");
+  if (!manifest.domains?.worker) throw new Error("Manifest has no domains.worker entry");
   const diagnostics: ContractDiagnostic[] = [];
-  validateSchema(manifest.app.worker, workerDeclarationSchema, "/app/worker", diagnostics);
+  validateSchema(manifest.domains.worker, workerDeclarationSchema, "/domains/worker", diagnostics);
   if (diagnostics.length) throw new Error(diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
   const output = manifest.app.output ?? manifest.name;
   if (typeof output !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(output)) throw new Error("Worker output requires app.output or name without path separators");
-  await buildWorker({ declaration: manifest.app.worker, projectRoot: dirname(path), outdir: resolve(outdir), output });
+  await buildWorker({ declaration: manifest.domains.worker, projectRoot: dirname(path), outdir: resolve(outdir), output });
 }

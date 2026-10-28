@@ -8,15 +8,15 @@ when there is no work. The build resolver refuses a package that requires
 
 ## Application entry
 
-The manifest declares the worker entry and its node names. Paths have the same
-project root as `app.entry`.
+The manifest's `domains.worker` declares the worker entry and its node names.
+Paths have the same project root as `app.entry`.
 
 ```json
 {
   "engine": {
     "capabilities": { "requires": ["runtime.worker", "io.i2c"] }
   },
-  "app": {
+  "domains": {
     "worker": {
       "entry": "apps/sensors/worker.ts",
       "nodes": [{ "name": "i2c0", "kind": "i2c" }],

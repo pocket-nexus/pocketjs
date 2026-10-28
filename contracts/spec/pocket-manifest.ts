@@ -83,7 +83,6 @@ export interface PocketManifestV2 {
   };
   readonly app: {
     readonly entry: string;
-    readonly worker?: WorkerDeclaration;
     readonly output?: string;
     readonly framework: PocketFramework;
     /**
@@ -127,6 +126,13 @@ export interface PocketManifestV2 {
      * every device.
      */
     readonly modality?: ModalityRequirement;
+  };
+  /**
+   * Execution domains beside the UI realm. `worker` runs its entry in a
+   * second QuickJS runtime owned by the host (contracts/spec/worker.ts).
+   */
+  readonly domains?: {
+    readonly worker?: WorkerDeclaration;
   };
 }
 
@@ -385,12 +391,16 @@ export const pocketManifestV2Schema = {
         },
       },
     },
+    domains: {
+      type: "object",
+      additionalProperties: false,
+      properties: { worker: workerDeclarationSchema },
+    },
     app: {
       type: "object",
       additionalProperties: false,
       required: ["entry", "framework", "viewport"],
       properties: {
-        worker: workerDeclarationSchema,
         entry: entrySchema,
         output: outputSchema,
         framework: { enum: ["solid", "vue-vapor", "octane"] },

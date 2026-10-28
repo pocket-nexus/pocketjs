@@ -580,7 +580,7 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
           title: plan.app.title,
         },
         js: new Uint8Array(readFileSync(guestJavaScript)),
-        workerJs: plan.app.worker ? new Uint8Array(readFileSync(join(args.outputDir, `${inputs.appOutput}.worker.js`))) : undefined,
+        workerJs: plan.domains?.worker ? new Uint8Array(readFileSync(join(args.outputDir, `${inputs.appOutput}.worker.js`))) : undefined,
         pak: new Uint8Array(readFileSync(guestPack)),
       }),
     ],

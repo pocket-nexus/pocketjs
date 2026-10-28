@@ -81,7 +81,7 @@ test("a source without a manifest keeps the explicit Solid default", () => {
 
 test("low-level worker builds use the entry's matched manifest root", () => {
   const directory = project("worker-relative", {
-    "pocket.json": { app: { entry: "src/main.ts", framework: "solid", worker: { entry: "worker.ts", nodes: [] } } },
+    "pocket.json": { app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "worker.ts", nodes: [] } } },
     "src/main.ts": "globalThis.sourceAppWorker = true;\n",
     "worker.ts": "export function turn() {}\n",
   });
@@ -94,7 +94,7 @@ test("low-level worker builds use the entry's matched manifest root", () => {
   const refused = Bun.spawnSync([process.execPath, join(root, "tools/build.ts"), join(directory, "src/main.ts"), `--outdir=${join(directory, "refused")}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
   expect(refused.success).toBe(false);
   expect(refused.stdout.toString() + refused.stderr.toString()).toContain("UI domain cannot import @pocketjs/framework/io");
-  writeFileSync(join(directory, "pocket.other.json"), JSON.stringify({ app: { entry: "src/main.ts", framework: "solid", worker: { entry: "other.ts", nodes: [] } } }));
+  writeFileSync(join(directory, "pocket.other.json"), JSON.stringify({ app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "other.ts", nodes: [] } } }));
   expect(() => sourceAppContent(join(directory, "src/main.ts"), { frameworkRoot: root, projectRoot: root })).toThrow(/manifests disagree/);
 }, 120_000);
 

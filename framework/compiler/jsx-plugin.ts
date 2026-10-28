@@ -491,7 +491,7 @@ export function packagePath(spec: string, framework: PocketFramework): string | 
 function uiDomain(spec: string, name: string, path: string | null): string | null {
   const decl = SUBPATHS[name];
   if (decl && !resolvesIn(decl, "ui")) {
-    throw new Error(`UI domain cannot import ${spec}: the subpath resolves only in the worker domain (app.worker.entry)`);
+    throw new Error(`UI domain cannot import ${spec}: the subpath resolves only in the worker domain (domains.worker.entry)`);
   }
   return path;
 }

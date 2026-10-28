@@ -10,7 +10,9 @@
     "entry": "apps/worker-http/main.tsx",
     "output": "worker-http",
     "framework": "solid",
-    "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } },
+    "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } }
+  },
+  "domains": {
     "worker": {
       "entry": "apps/worker-http/worker.ts",
       "nodes": [{ "name": "http", "kind": "http" }],

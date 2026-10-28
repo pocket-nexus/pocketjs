@@ -705,20 +705,21 @@ export function resolveBuildPlan(
   // on every target, before a plan exists.
   diagnostics.push(...appletManifestDiagnostics(manifest));
 
-  if (requires.has("runtime.worker") && !manifest.app.worker) diagnostics.push({ code: "worker.entry", path: "/app/worker", message: "runtime.worker requires a worker entry" });
-  if (manifest.app.worker) {
+  const worker = manifest.domains?.worker;
+  if (requires.has("runtime.worker") && !worker) diagnostics.push({ code: "worker.entry", path: "/domains/worker", message: "runtime.worker requires a worker entry" });
+  if (worker) {
     if (!requires.has("runtime.worker")) diagnostics.push({ code: "worker.required", path: "/engine/capabilities/requires", message: "A worker entry requires runtime.worker; UI fallback ownership is not supported by this version" });
-    if (manifest.app.aot) diagnostics.push({ code: "worker.execution", path: "/app/worker", message: "Worker entries require the guest execution class" });
+    if (manifest.app.aot) diagnostics.push({ code: "worker.execution", path: "/domains/worker", message: "Worker entries require the guest execution class" });
     for (const field of ["nodes", "channels"] as const) {
       const names = new Set<string>();
-      for (const [index, value] of (manifest.app.worker[field] ?? []).entries()) {
-        if (names.has(value.name)) diagnostics.push({ code: "worker.duplicate", path: `/app/worker/${field}/${index}/name`, message: `Duplicate worker ${field} name: ${value.name}` });
+      for (const [index, value] of (worker[field] ?? []).entries()) {
+        if (names.has(value.name)) diagnostics.push({ code: "worker.duplicate", path: `/domains/worker/${field}/${index}/name`, message: `Duplicate worker ${field} name: ${value.name}` });
         names.add(value.name);
       }
     }
-    for (const [index, node] of manifest.app.worker.nodes.entries()) {
+    for (const [index, node] of worker.nodes.entries()) {
       const capability = WORKER_RESOURCES[node.kind].capability;
-      if (!requires.has(capability)) diagnostics.push({ code: "worker.nodeCapability", path: `/app/worker/nodes/${index}`, message: `Worker ${node.kind} nodes require ${capability}` });
+      if (!requires.has(capability)) diagnostics.push({ code: "worker.nodeCapability", path: `/domains/worker/nodes/${index}`, message: `Worker ${node.kind} nodes require ${capability}` });
     }
   }
 
@@ -743,7 +744,6 @@ export function resolveBuildPlan(
       title: manifest.title,
       version: manifest.version,
       entry: presentation.entry,
-      ...(manifest.app.worker ? { worker: manifest.app.worker } : {}),
       output,
       framework: manifest.app.framework,
       ...(manifest.app.theme !== undefined ? { theme: manifest.app.theme } : {}),
@@ -751,6 +751,7 @@ export function resolveBuildPlan(
       ...(manifest.app.model !== undefined ? { model: manifest.app.model } : {}),
       ...(manifest.app.recursionLimit !== undefined ? { recursionLimit: manifest.app.recursionLimit } : {}),
     },
+    ...(worker ? { domains: { worker } } : {}),
     presentation,
     target: {
       id: request.target,

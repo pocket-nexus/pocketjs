@@ -47,7 +47,7 @@ export function sourceAppContent(entry: string, options: {
   projectRoot: string;
   onRead?: (path: string) => void;
   onAppRoot?: (path: string) => void;
-}): Partial<SourceAppContent> {
+}): Partial<SourceAppContent> & { domains?: PocketManifestV2["domains"] } {
   let directory = dirname(resolve(entry));
   while (!existsSync(join(directory, "pocket.json"))) {
     if (dirname(directory) === directory) return {};
@@ -58,19 +58,20 @@ export function sourceAppContent(entry: string, options: {
     options.onRead?.(path);
     const expanded = expandThemeReference(JSON.parse(readFileSync(path, "utf8")), path);
     expanded.inputs.forEach(input => options.onRead?.(input));
-    return { path, app: (expanded.manifest as { app: SourceAppContent }).app };
+    const manifest = expanded.manifest as { app: SourceAppContent; domains?: PocketManifestV2["domains"] };
+    return { path, app: manifest.app, domains: manifest.domains };
   });
   const matches = candidates.flatMap(candidate => {
     const base = candidate.app?.entry && [options.projectRoot, directory, options.frameworkRoot]
       .find(base => resolve(base, candidate.app.entry) === entry);
     return base ? [{ ...candidate, base }] : [];
   });
-  if (new Set(matches.map(({ app }) => JSON.stringify([app.framework, app.theme, app.worker]))).size > 1) {
+  if (new Set(matches.map(({ app, domains }) => JSON.stringify([app.framework, app.theme, domains?.worker]))).size > 1) {
     throw new Error("PocketJS build: manifests disagree on application content; pass a ResolvedBuildPlan");
   }
   const selected = matches[0] ?? candidates.find(({ path }) => path === join(directory, "pocket.json"));
   if (selected) options.onAppRoot?.("base" in selected ? selected.base : directory);
-  return selected?.app ?? {};
+  return selected ? { ...selected.app, ...(selected.domains ? { domains: selected.domains } : {}) } : {};
 }
 
 export function sourceOutputName(file: string, frameworkRoot: string): string {

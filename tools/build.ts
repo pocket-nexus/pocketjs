@@ -154,10 +154,13 @@ buildInputs.optional(join(projectRoot, "tsconfig.json"));
 // matching application manifest so they bake the same application theme.
 if (!buildPlan) modelConfiguration(requestedEntry);
 let appProjectRoot = projectRoot;
-const appContent = buildPlan ? buildPlan.app : sourceAppContent(requestedEntry, {
+const sourceContent = buildPlan ? undefined : sourceAppContent(requestedEntry, {
   frameworkRoot: ROOT, projectRoot, onRead: path => buildInputs.add(path),
   onAppRoot: path => { appProjectRoot = path; },
 });
+const appContent = buildPlan ? buildPlan.app : sourceContent!;
+/** The worker domain: the frozen plan's, or the source manifest's. */
+const workerDeclaration = buildPlan ? buildPlan.domains?.worker : sourceContent?.domains?.worker;
 if (appContent.theme !== undefined) {
   const diagnostics: ContractDiagnostic[] = [];
   validateSchema(appContent.theme, animationThemeSchema, "/app/theme", diagnostics);
@@ -529,7 +532,7 @@ const result = await Bun.build({
     __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? POCKET_BINDING_GENERATION),
     __POCKET_FEATURES__: JSON.stringify(buildPlan?.features ?? {}),
     __POCKET_DOMAIN__: '"ui"',
-    __POCKET_WORKER_DECLARATION__: JSON.stringify(appContent.worker ?? null),
+    __POCKET_WORKER_DECLARATION__: JSON.stringify(workerDeclaration ?? null),
     // The modality and presentation the plan resolved; the runtime module
     // (@pocketjs/framework/modality) falls back to the portable PSP shape
     // when a bundle is built without a plan.
@@ -559,8 +562,8 @@ if (!result.success) {
   process.exit(1);
 }
 const bundle = result.outputs.find((o) => o.path.endsWith(".js"));
-if (appContent.worker) {
-  const worker = await buildWorker({ declaration: appContent.worker, projectRoot: appProjectRoot, outdir: DIST, output: outName });
+if (workerDeclaration) {
+  const worker = await buildWorker({ declaration: workerDeclaration, projectRoot: appProjectRoot, outdir: DIST, output: outName });
   buildInputs.metafile(worker.metafile);
   console.log(`  worker: ${DIST}${outName}.worker.js`);
 }

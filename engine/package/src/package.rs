@@ -50,7 +50,7 @@ pub enum GuestError {
     MissingPlan,
     MissingJavaScript,
     JavaScriptNotTerminated,
-    /// The plan's `app.worker` and section 8 disagree: a declaration without
+    /// The plan's `domains.worker` and section 8 disagree: a declaration without
     /// a worker bundle, or a bundle without a declaration.
     WorkerSectionMismatch,
 }
@@ -95,7 +95,7 @@ pub struct Guest<'a> {
     pub id: &'a str,
     pub js: &'a [u8],
     /// Section 8, the NUL-terminated worker bundle of a plan with
-    /// `app.worker`; empty for a plan without one.
+    /// `domains.worker`; empty for a plan without one.
     pub worker_js: &'a [u8],
     pub pak: &'a [u8],
     pub plan: &'a [u8],
@@ -360,7 +360,7 @@ pub fn select_guest<'a>(
     })
 }
 
-/// The worker bundle a plan with `app.worker` requires, or an empty slice for
+/// The worker bundle a plan with `domains.worker` requires, or an empty slice for
 /// a plan without one. The bundle ends with NUL like the UI JavaScript.
 fn worker_payload<'a>(plan: &[u8], worker: Option<&'a [u8]>) -> Result<&'a [u8], GuestError> {
     let declared = crate::plan_facts::worker_declared(plan)
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn worker_payload_requires_matching_entry_feature_and_terminated_code() {
-        let plan = br#"{"app":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#;
+        let plan = br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#;
         assert_eq!(worker_payload(plan, Some(b"turn();\0")), Ok(&b"turn();\0"[..]));
         assert_eq!(worker_payload(plan, None), Err(GuestError::WorkerSectionMismatch));
         assert_eq!(worker_payload(plan, Some(b"\0")), Err(GuestError::JavaScriptNotTerminated));
@@ -522,7 +522,7 @@ mod tests {
         assert_eq!(worker_payload(b"{}", Some(b"turn();\0")), Err(GuestError::WorkerSectionMismatch));
         assert_eq!(worker_payload(br#"{"features":{"runtime.worker":true}}"#, Some(b"turn();\0")), Err(GuestError::WorkerSectionMismatch));
         assert_eq!(worker_payload(br#"{"features":{"runtime.worker":true}}"#, None), Ok(&[][..]));
-        assert_eq!(worker_payload(br#"{"app":{"worker":{"entry":"worker.ts"}}}"#, Some(b"turn();\0")), Err(GuestError::Package(PackageError::BadLayout)));
+        assert_eq!(worker_payload(br#"{"domains":{"worker":{"entry":"worker.ts"}}}"#, Some(b"turn();\0")), Err(GuestError::Package(PackageError::BadLayout)));
         assert_eq!(worker_payload(b"{}", None), Ok(&[][..]));
     }
 
@@ -532,7 +532,7 @@ mod tests {
         let bytes = crate::embedded::encode(crate::embedded::EmbeddedPackage {
             target: "test-worker", host_abi: 7, profile_hash: [0x55; 32],
             identity: &identity,
-            plan: br#"{"app":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#,
+            plan: br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#,
             code: b"globalThis.frame=()=>{}", pak: &[],
         }).unwrap();
         assert_eq!(select_guest(&bytes, "test-worker", 7, &[0x55; 32], false).err(),
