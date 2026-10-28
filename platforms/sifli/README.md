@@ -91,7 +91,7 @@ threshold; otherwise it joins a CPU batch.
 | GLYPH_RUN | atlas coverage in an A8 plane, one `BlendA8` per band | below `min_blend` |
 | TEX_QUAD, coverage-only texture | consecutive quads in one A8 plane | below `min_blend` |
 | TEX_QUAD, other textures | `Blit` of a registered texture | fractional texel edges, no registration, tint or vertical mirror without the capability |
-| TEX_TRI pair | `Blit` when upright, else `BlitQuad` | unpaired, no registration |
+| TEX_TRI pair | `Blit` when upright; `BlitQuad` with VG Lite; `BlitRotate` on 52x after preflight | unpaired, no registration, unsupported transform |
 | TRI pair, flat color | `Fill`/`FillAlpha` when upright, else a solid `BlitQuad` | unpaired, Gouraud colors |
 | SCISSOR, TEXT_RUN, SURFACE_QUAD | none | none |
 
@@ -112,8 +112,27 @@ a fence retired the blend that read it. Fills and bands split at
 CPU texture and triangle fallbacks bound their copied tiles to their
 geometry, intersected with damage and scissors. Triangle fallback traverses the exact covered interval
 of each row and steps integer edge weights, preserving the rasterizer's
-pixel-center coverage and UV interpolation. This does not add a rotation
-command to 52x or enable VG Lite capabilities on that chip.
+pixel-center coverage and UV interpolation.
+
+**52x rotates native texture rectangles through EPIC.** `BlitRotate` keeps
+the source rectangle and four destination vertices, with a separate clip.
+The executor's read-only `can_blit_rotate` callback fits rotation and uniform
+scale to the rounded vertices before the renderer submits a command. The
+HAL angle is quantized to 0.1 degree and inverse scale to units of 1/1024.
+After quantization, every vertex must remain within **one physical pixel per
+axis** of its supplied position. The source width plus height and destination
+extents must each fit the coordinate limit. Reflections, nonuniform scales,
+shear and perspective outside that tolerance, RGB tint and missing native
+registrations retain CPU rendering. Solid-color triangles still require
+VG Lite or CPU rendering.
+
+The HAL rotates texel centers; the executor offsets the edge-based DrawList
+mapping by half a texel/pixel to preserve placement. EPIC's sampling and edge
+coverage need not match the software rasterizer at arbitrary angles. Damage
+and scissors clip the hardware result without changing its mapping. The
+rotation capability is separate from `blit_quad`; 52x does not enable VG
+Lite. Older executor ops tables omit the optional tail callback and keep
+the CPU path.
 
 The frame's last commands stay in flight after `render` returns; the next
 render, the coordinator's renderer wait or retirement completes them through
@@ -185,6 +204,19 @@ Host regression checks for damage, fallback pixels and triangle coverage:
 ```sh
 cargo test --locked -p pocket-raster -p pocket-render-sifli-epic -p pocketjs-core
 cargo clippy --locked -p pocket-raster -p pocket-render-sifli-epic --all-targets --no-deps -- -D warnings
+cargo test --locked -p pocket-render-sifli-epic --features cabi,pocket-runtime-cabi/std
+```
+
+The rotation preflight also runs on the host, with address/undefined-behavior
+sanitizers and no SDK dependency:
+
+```sh
+mkdir -p .pocket-build/validation/rotation/host
+cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined,address \
+  -Iplatforms/sifli/render-epic/include -Icontracts/generated \
+  platforms/sifli/epic/rotate.c platforms/sifli/tests/rotation_geometry.c \
+  -lm -o .pocket-build/validation/rotation/host/geometry
+.pocket-build/validation/rotation/host/geometry
 ```
 
 For a hardware clipping check, add `tests/clip_selftest.c` to the diagnostic
@@ -194,6 +226,14 @@ the renderer. It repaints both buffers and compares every pixel of a clipped
 scaled alpha blit to a full blit, including supported mirror modes; pixels
 outside the clip must retain the background. It returns 0 on success and
 prints the first mismatch otherwise. This checks EPIC output without a panel.
+
+Add `tests/rotation_selftest.c` and call `pocket_sifli_epic_test_rotation`
+with the same arguments on 52x, using buffers of at least 128x128. It checks
+32 combinations of rotation, scale, atlas cropping, global alpha and partial
+off-screen placement. It compares clipped/full hardware output pixel for
+pixel, checks colored landmarks, and compares every pixel at 0/90/180/270
+degrees and unit scale against an independent expected image. Both tests
+repaint the buffers and must run before the renderer starts.
 
 A link result is not a device run. Open:
 

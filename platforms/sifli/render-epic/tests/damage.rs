@@ -64,11 +64,15 @@ struct RecordingExecutor {
     recording: Rc<RefCell<Recording>>,
     tiles: [Vec<u16>; 2],
     masks: [Vec<u8>; 2],
+    accept_rotation: bool,
 }
 
 impl Executor for RecordingExecutor {
     fn caps(&self) -> Capabilities {
         self.caps
+    }
+    fn can_blit_rotate(&self, cmd: &Cmd) -> bool {
+        self.accept_rotation && matches!(cmd, Cmd::BlitRotate { .. })
     }
     fn begin(&mut self, _: u64, width: u32, height: u32) -> Result<(), ExecError> {
         let mut r = self.recording.borrow_mut();
@@ -110,7 +114,7 @@ impl Executor for RecordingExecutor {
                         }
                     }
                 }
-                Cmd::Blit { .. } => {} // Geometry assertions below; not a HAL simulator.
+                Cmd::Blit { .. } | Cmd::BlitRotate { .. } => {} // Geometry assertions below; not a HAL simulator.
                 _ => panic!("unexpected command: {cmd:?}"),
             }
         }
@@ -143,6 +147,7 @@ fn caps() -> Capabilities {
         blit: true,
         blit_mirror_y: true,
         blit_quad: false,
+        blit_rotate: false,
         blit_modulate: false,
         portable_textures: true,
         coordinate_limit: 505,
@@ -164,12 +169,24 @@ fn render(
     scale: u32,
     caps: Capabilities,
 ) -> (RenderStats, Rc<RefCell<Recording>>) {
+    render_rotation(words, res, region, scale, caps, false)
+}
+
+fn render_rotation(
+    words: &[u32],
+    res: &Resources,
+    region: Region,
+    scale: u32,
+    caps: Capabilities,
+    accept_rotation: bool,
+) -> (RenderStats, Rc<RefCell<Recording>>) {
     let recording = Rc::new(RefCell::new(Recording::default()));
     let executor = RecordingExecutor {
         caps,
         recording: recording.clone(),
         tiles: std::array::from_fn(|_| vec![0; caps.tile_pixels as usize]),
         masks: std::array::from_fn(|_| vec![0; caps.mask_bytes as usize]),
+        accept_rotation,
     };
     let mut renderer = EpicRenderer::new(
         RendererConfig {
@@ -328,4 +345,86 @@ fn oversized_destination_keeps_an_addressable_integral_crop() {
         && *dst == Rect { x: 6, y: 7, w: 5, h: 6 }
         && dst == clip
     )));
+}
+
+fn rotated_pair(modulate: u32) -> Vec<u32> {
+    let mut words = vec![draw_op::SCISSOR, pack_xy(5, 7), pack_wh(15, 15)];
+    for vertices in [
+        [
+            (12, 4, 0.0f32, 0.0f32),
+            (4, 20, 0.0, 1.0),
+            (12, 24, 1.0, 1.0),
+        ],
+        [
+            (12, 4, 0.0f32, 0.0f32),
+            (12, 24, 1.0, 1.0),
+            (20, 8, 1.0, 0.0),
+        ],
+    ] {
+        words.extend([draw_op::TEX_TRI, 1]);
+        for (x, y, u, v) in vertices {
+            words.extend([pack_xy(x, y), u.to_bits(), v.to_bits()]);
+        }
+        words.push(modulate);
+    }
+    words.push(draw_op::SCISSOR_POP);
+    words
+}
+
+#[test]
+fn rotation_preflight_preserves_full_mapping_under_damage_scissor_and_scale() {
+    let res = Resources::new(8, 16);
+    let words = rotated_pair(0xcfff_ffff);
+    let mut caps = caps();
+    caps.blit_rotate = true;
+    let (stats, recording) =
+        render_rotation(&words, &res, Region::new(16, 18, 14, 14), 2, caps, true);
+    assert_eq!(stats.software_ops, 0);
+    assert_eq!(stats.cpu_tile_pixels, 0);
+    let commands = &recording.borrow().commands;
+    let rotations: Vec<_> = commands
+        .iter()
+        .filter(|c| matches!(c, Cmd::BlitRotate { .. }))
+        .collect();
+    assert_eq!(rotations.len(), 1);
+    assert!(
+        matches!(rotations[0], Cmd::BlitRotate { src_rect, quad, clip, modulate, .. }
+        if *src_rect == Rect { x: 0, y: 0, w: 8, h: 16 }
+        && quad.map(|p| (p.x, p.y)) == [(24, 8), (8, 40), (24, 48), (40, 16)]
+        && *clip == Rect { x: 16, y: 18, w: 14, h: 14 }
+        && *modulate == 0xcfff_ffff)
+    );
+}
+
+#[test]
+fn rejected_rotation_preflight_replays_the_original_pixels() {
+    let res = Resources::new(8, 16);
+    let words = rotated_pair(0xcfff_ffff);
+    let mut caps = caps();
+    caps.blit_rotate = true;
+    let (stats, recording) =
+        render_rotation(&words, &res, Region::new(0, 0, 32, 32), 1, caps, false);
+    assert_eq!(stats.software_ops, 2);
+    let mut expected = vec![0; 32 * 32];
+    pocket_raster::render_scaled_rgb565(&res, &words, &mut expected, 1);
+    assert_eq!(recording.borrow().pixels, expected);
+}
+
+#[test]
+fn rotation_capability_does_not_enable_tinted_textures_or_generic_quads() {
+    let res = Resources::new(8, 16);
+    let words = rotated_pair(0xcfff_00ff);
+    let mut caps = caps();
+    caps.blit_rotate = true;
+    let (stats, recording) =
+        render_rotation(&words, &res, Region::new(0, 0, 32, 32), 1, caps, true);
+    assert_eq!(stats.software_ops, 2);
+    assert!(!recording
+        .borrow()
+        .commands
+        .iter()
+        .any(|c| matches!(c, Cmd::BlitRotate { .. } | Cmd::BlitQuad { .. })));
+    let mut expected = vec![0; 32 * 32];
+    pocket_raster::render_scaled_rgb565(&res, &words, &mut expected, 1);
+    assert_eq!(recording.borrow().pixels, expected);
 }

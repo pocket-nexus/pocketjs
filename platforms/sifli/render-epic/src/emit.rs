@@ -756,6 +756,25 @@ impl<'r, E: Executor> Context<'r, E> {
                 return Some(true);
             }
         }
+        if !self.caps.blit_quad && self.caps.blit_rotate {
+            let Some(src) = self.blit_source(handle, &view, modulate, false, false)? else {
+                return Some(false);
+            };
+            let cmd = Cmd::BlitRotate {
+                src,
+                src_rect: source_rect,
+                quad: physical_quad,
+                clip: destination_clip,
+                modulate,
+                filter: filter(&view),
+            };
+            if !self.executor.can_blit_rotate(&cmd) {
+                return Some(false);
+            }
+            self.submit(cmd)?;
+            self.stats.epic_copies += 1;
+            return Some(true);
+        }
         let Some(src) = self.blit_source(handle, &view, modulate, true, false)? else {
             return Some(false);
         };

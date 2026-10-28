@@ -102,6 +102,16 @@ pub enum Cmd {
         modulate: u32,
         filter: Filter,
     },
+    /// Native texture rotation/uniform scale, after executor preflight.
+    /// Vertices retain the original mapping while `clip` restricts writes.
+    BlitRotate {
+        src: TexSrc,
+        src_rect: Rect,
+        quad: Quad,
+        clip: Rect,
+        modulate: u32,
+        filter: Filter,
+    },
     /// Copy target pixels of `src` into a tightly packed tile.
     TileOut { tile: TileId, src: Rect },
     /// Copy a tightly packed tile back over `dst`.
