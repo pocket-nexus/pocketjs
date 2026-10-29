@@ -14,6 +14,9 @@ typedef struct {
   size_t pak_length;
   const uint8_t *plan;
   size_t plan_length;
+  /* The launcher icon set (section 9); length 0 when the package has none. */
+  const uint8_t *icon;
+  size_t icon_length;
   uint64_t package_hash;
   uint64_t variant_hash;
   /* Read from the variant's plan when the package is opened: one runtime
@@ -37,6 +40,7 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_FS 8u      /* features["data.fs"] */
 #define POCKET_GUEST_FEATURE_CAMERA_QR 16u    /* features["camera.qr"] */
 #define POCKET_GUEST_FEATURE_CAMERA_PHOTO 32u /* features["camera.photo"] */
+#define POCKET_GUEST_FEATURE_PLAYSET 64u /* features["game.playset"] */
 
 /* 0 = admitted. The package footer, target, host ABI, identity, plan and
  * NUL-terminated JS section are all checked before success; 13, 14 and 15

@@ -5,6 +5,7 @@
 #include "devmenu.h"
 #include "media.h"
 #include "stage.h"
+#include "playset.h"
 #include "transition.h"
 #include "vshader_shbin.h"
 #include <pocket_pica_driver.h>
@@ -31,8 +32,8 @@ static void release_native(void *context, void *lease) {
   (void)context;
   (void)lease;
 }
-static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
-                  C3D_RenderTarget *right) {
+static uint32_t scene(void *context, uint32_t role, C3D_RenderTarget *target,
+                      C3D_RenderTarget *right) {
   (void)context;
   C3D_RenderTargetClear(target, C3D_CLEAR_ALL, 0x000000ff, 0);
   if (role == POCKET_DISPLAY_ROLE_PRIMARY && agent_enabled()) {
@@ -43,9 +44,12 @@ static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
         C3D_RenderTargetClear(right, C3D_CLEAR_ALL, 0x000000ff, 0);
       stage_render(target, right);
     }
-    return true;
+    return POCKET_PICA_SCENE_REPLACES;
   }
-  return false;
+  /* A playset guest's scene, under its own top-screen DrawList. */
+  if (role == POCKET_DISPLAY_ROLE_PRIMARY && playset_active())
+    return playset_render(target, right) ? POCKET_PICA_SCENE_UNDER : POCKET_PICA_SCENE_NONE;
+  return POCKET_PICA_SCENE_NONE;
 }
 /* The development menu stands in for the touch screen's guest list; the
  * app-switch transition draws over both screens, in quarter pixels. */
@@ -85,7 +89,13 @@ bool gfx_init(uint32_t width, uint32_t height) {
                                .resolve = native_texture,
                                .release = release_native,
                                .scene = scene,
-                               .overlay = overlay};
+                               .overlay = overlay,
+#ifndef POCKETJS_CAPTURE
+                               /* the GPU draws a frame while the next turn
+                                * runs; captures keep every frame terminal */
+                               .deferred = true,
+#endif
+                               };
   renderer = pocket_pica_renderer_create(&config);
   return renderer != NULL;
 }
@@ -120,6 +130,7 @@ void gfx_shutdown(void) {
   renderer = NULL;
   primary = auxiliary = NULL;
 }
+bool gfx_frame_in_flight(void) { return pocket_pica_renderer_in_flight(renderer); }
 uint32_t gfx_dropped_vertices(void) {
   return 0;
 } /* Overflow now fails the whole submission. */

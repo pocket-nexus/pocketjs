@@ -77,6 +77,14 @@ struct Submission {
    * size; boundary keeps its first command apart from the guest's last. */
   uint32_t overlay_command, overlay_width, overlay_height;
   bool boundary;
+  /* What the build was a function of, when it can stand in for a later
+   * frame (no host overlay): the list's words and the raster revision. The
+   * referenced textures' revisions are checked against their entries. */
+  bool reusable;
+  uint64_t key_hash, key_raster;
+  size_t key_words;
+  /* Both screen buffers already show this build: no draw, transfer or swap. */
+  bool skipped;
 };
 struct pocket_pica_renderer {
   pocket_pica_config config;
@@ -85,7 +93,8 @@ struct pocket_pica_renderer {
   C3D_AttrInfo attributes;
   int projection;
   C3D_Tex white;
-  bool white_live, frame_open;
+  /* in_flight: a deferred frame was ended and the GPU may still draw it */
+  bool white_live, frame_open, in_flight;
   Cache *cache;
   size_t cache_bytes;
   uint64_t next_id, stamp;
@@ -102,7 +111,18 @@ struct pocket_pica_display {
   uint32_t role, width, height;
   uint64_t id, token;
   pocket_rect region;
-  bool acquired, flushed;
+  /* transfer_pending: a queued flush whose transfer and swap wait for the
+   * completion's display wait */
+  bool acquired, flushed, transfer_pending;
+  /* The last retired guest submission, kept while the next frame may draw
+   * the same list (`reuse`). */
+  Submission *cached;
+  /* How many of the screen's two buffers show the current build (0..2),
+   * frames since one was last drawn, and whether the native scene drew the
+   * last frame (a scene changes under an unchanged list). */
+  uint8_t shown;
+  uint8_t unchanged_frames;
+  bool scene_drawn;
 };
 static uint64_t next_target_identity;
 
@@ -312,6 +332,7 @@ static void cache_delete(pocket_pica_renderer *r, Cache **slot) {
   pocket_pica_texture_destroy(&entry->texture);
   free(entry);
 }
+static void drop_cached(pocket_pica_renderer *r, pocket_pica_display *d);
 static bool reserve_cache(pocket_pica_renderer *r, size_t bytes) {
   if (bytes > r->config.texture_budget)
     return false;
@@ -320,8 +341,18 @@ static bool reserve_cache(pocket_pica_renderer *r, size_t bytes) {
     for (Cache **p = &r->cache; *p; p = &(*p)->next)
       if (!(*p)->refs && (!oldest || (*p)->stamp < (*oldest)->stamp))
         oldest = p;
-    if (!oldest)
+    if (!oldest) {
+      /* A retained build pins its entries only for a redraw: the displays
+       * give theirs up before the budget fails a frame. */
+      bool dropped = false;
+      for (pocket_pica_display *d = r->displays; d; d = d->next) {
+        dropped |= d->cached != NULL;
+        drop_cached(r, d);
+      }
+      if (dropped)
+        continue;
       return false;
+    }
     cache_delete(r, oldest);
   }
   return true;
@@ -439,20 +470,30 @@ static int32_t image_texture(Build *b, int32_t handle, C3D_Tex **out, float *us,
   *vs = entry->vs;
   return 0;
 }
+/* The page a glyph run used last: consecutive glyphs of a run share a page,
+ * so the cache search and the pin happen once per page change. */
+typedef struct {
+  Cache *entry;
+  uint32_t page;
+} GlyphMemo;
 static int32_t font_texture(Build *b, uint8_t slot, uint32_t gid,
-                            const pocket_font_view *font, C3D_Tex **out,
-                            float *uv) {
+                            const pocket_font_view *font, uint64_t revision,
+                            GlyphMemo *memo, C3D_Tex **out, float *uv) {
   pocket_glyph_page page = {.struct_size = sizeof page};
   int32_t status = pocket_glyph_page_a8(font, gid, 1024, NULL, 0, &page);
   if (status)
     return status;
   memcpy(uv, page.uv, sizeof page.uv);
-  uint64_t revision = b->resources.raster_revision;
-  if (b->resources.font_revision &&
-      b->resources.font_revision(b->resources.context, slot, &revision))
-    return POCKET_STATUS_INVALID;
+  if (memo->entry && memo->page == page.page) {
+    for (unsigned i = 0; i < 4; i++)
+      uv[i] *= (i & 1) ? memo->entry->vs : memo->entry->us;
+    *out = &memo->entry->texture;
+    return 0;
+  }
   Cache *entry = find_cache(b, slot, revision, true, page.page);
   if (entry) {
+    memo->entry = entry;
+    memo->page = page.page;
     for (unsigned i = 0; i < 4; i++)
       uv[i] *= (i & 1) ? entry->vs : entry->us;
     *out = &entry->texture;
@@ -485,10 +526,32 @@ static int32_t font_texture(Build *b, uint8_t slot, uint32_t gid,
   entry->vs = (float)page.height / th;
   if (!publish_cache(b, entry))
     return POCKET_STATUS_FAILED;
+  memo->entry = entry;
+  memo->page = page.page;
   for (unsigned i = 0; i < 4; i++)
     uv[i] *= (i & 1) ? entry->vs : entry->us;
   *out = &entry->texture;
   return 0;
+}
+/* A quad in one colour already unpacked: two triangles, six vertices. */
+static void flat_quad(Submission *s, float x, float y, float w, float h,
+                      const float *uv, const float *rgba) {
+  Vertex *p = &s->vertices[s->vertex_count];
+  const float xs[6] = {x, x + w, x + w, x, x + w, x};
+  const float ys[6] = {y, y, y + h, y, y + h, y + h};
+  const float us[6] = {uv[0], uv[2], uv[2], uv[0], uv[2], uv[0]};
+  const float vs[6] = {uv[1], uv[1], uv[3], uv[1], uv[3], uv[3]};
+  for (unsigned i = 0; i < 6; i++) {
+    p[i].x = xs[i];
+    p[i].y = ys[i];
+    p[i].u = us[i];
+    p[i].v = vs[i];
+    p[i].r = rgba[0];
+    p[i].g = rgba[1];
+    p[i].b = rgba[2];
+    p[i].a = rgba[3];
+  }
+  s->vertex_count += 6;
 }
 static void vertex(Submission *s, float x, float y, float u, float v,
                    uint32_t rgba) {
@@ -568,20 +631,26 @@ static int32_t visit(void *context, const pocket_draw_op *raw) {
     if (font.struct_size <
         offsetof(pocket_font_view, glyph_count) + sizeof font.glyph_count)
       return POCKET_STATUS_INVALID;
-    for (unsigned i = 0; i < 4; i++)
-      colors[i] = w[2];
+    uint64_t revision = b->resources.raster_revision;
+    if (b->resources.font_revision &&
+        b->resources.font_revision(b->resources.context, slot, &revision))
+      return POCKET_STATUS_INVALID;
+    float rgba[4];
+    unpack_color(w[2], rgba);
+    GlyphMemo memo = {NULL, 0};
+    const float cw = (float)font.cell_width * scale;
+    const float ch = (float)font.cell_height * scale;
     for (uint32_t i = 0; i < count; i++) {
       uint32_t gid = w[4 + 2 * i] & 65535u;
       if (gid >= font.glyph_count)
         continue;
-      int32_t status = font_texture(b, slot, gid, &font, &texture, uv);
+      int32_t status = font_texture(b, slot, gid, &font, revision, &memo, &texture, uv);
       if (status)
         return status;
       if (!command(s, texture, clip, 6))
         return POCKET_STATUS_FAILED;
-      quad(s, word_x(w[3 + 2 * i]) * scale, word_y(w[3 + 2 * i]) * scale,
-           (float)font.cell_width * scale, (float)font.cell_height * scale, uv,
-           colors);
+      flat_quad(s, word_x(w[3 + 2 * i]) * scale, word_y(w[3 + 2 * i]) * scale,
+                cw, ch, uv, rgba);
     }
     return 0;
   }
@@ -644,8 +713,23 @@ static int32_t visit(void *context, const pocket_draw_op *raw) {
   return 0;
 }
 
+/* Microseconds of the last submit per display role, and of the last GPU
+ * idle wait (pocket_pica_renderer_timing). */
+static uint32_t timing_submit[2], timing_idle, timing_transfer[2];
+void pocket_pica_renderer_timing(uint32_t *submit_primary, uint32_t *submit_auxiliary,
+                                 uint32_t *gpu_idle_us) {
+  *submit_primary = timing_submit[0];
+  *submit_auxiliary = timing_submit[1];
+  *gpu_idle_us = timing_idle;
+}
+void pocket_pica_renderer_transfer_timing(uint32_t *primary_us, uint32_t *auxiliary_us) {
+  *primary_us = timing_transfer[0];
+  *auxiliary_us = timing_transfer[1];
+}
+static uint32_t ticks_us(u64 a, u64 b) { return (uint32_t)((b - a) * 1000000ull / SYSCLOCK_ARM11); }
 /* End the open frame and wait for the GPU to finish it. */
 static void gpu_idle(pocket_pica_renderer *r) {
+  u64 t0 = svcGetSystemTick();
   C3D_FrameEnd(0);
   /* Blocking FrameBegin waits and clears the preceding GPU queue. FrameSync
    * only waits for VBlank and cannot establish this resource lifetime. */
@@ -656,12 +740,37 @@ static void gpu_idle(pocket_pica_renderer *r) {
   BufInfo_Init(&empty);
   C3D_SetBufInfo(&empty);
   C3D_FrameEnd(0);
+  timing_idle = ticks_us(t0, svcGetSystemTick());
+}
+/* Wait for a deferred frame the GPU still draws, polling 0.2 ms apart; false
+ * after about three seconds (a hung command list). FrameBegin leaves a frame
+ * open that only clears the queue; it ends empty, as in gpu_idle. */
+static bool settle(pocket_pica_renderer *r) {
+  u64 t0 = svcGetSystemTick();
+  for (uint32_t polls = 0; !C3D_FrameBegin(C3D_FRAME_NONBLOCK); polls++) {
+    if (polls == 15000)
+      return false;
+    svcSleepThread(200000);
+  }
+  C3D_TexBind(0, &r->white);
+  C3D_BufInfo empty;
+  BufInfo_Init(&empty);
+  C3D_SetBufInfo(&empty);
+  C3D_FrameEnd(0);
+  r->in_flight = false;
+  timing_idle = ticks_us(t0, svcGetSystemTick());
+  return true;
 }
 static bool drain(pocket_pica_renderer *r) {
-  if (!r->frame_open)
+  if (r->frame_open) {
+    r->frame_open = false;
+    gpu_idle(r);
+  } else if (r->in_flight) {
+    if (!settle(r))
+      return false;
+  } else {
     return true;
-  r->frame_open = false;
-  gpu_idle(r);
+  }
   for (Submission *p = r->pending; p; p = p->next)
     p->terminal = true;
   return true;
@@ -774,21 +883,85 @@ static int32_t renderer_descriptor(void *context,
     return POCKET_STATUS_INVALID;
   static const uint32_t formats[] = {POCKET_PIXEL_FORMAT_RGBA8888};
   /* IMMEDIATE: render records into an open citro3d frame that only the
-   * renderer wait ends and drains. A frame left open across the guest turn
-   * would block host overlays and native frames. */
+   * renderer wait ends and drains. DEFERRED: the displays' queued flushes end
+   * that frame, so none stays open across the guest turn, and the GPU draws
+   * it while the turn runs. */
+  pocket_pica_renderer *r = context;
   pocket_renderer_descriptor value = {sizeof value,
                                       formats,
                                       1,
                                       POCKET_TARGET_DEVICE_OWNED,
-                                      POCKET_SYNC_IMMEDIATE,
+                                      r->config.deferred ? POCKET_SYNC_DEFERRED
+                                                         : POCKET_SYNC_IMMEDIATE,
                                       POCKET_DRAW_LIST_VERSION,
                                       0};
   return WRITE_RECORD(out, value, pocket_renderer_descriptor, zero_copy)
              ? 0
              : POCKET_STATUS_INVALID;
 }
+static uint64_t words_hash(const pocket_draw_list *list) {
+  uint64_t h = 0xcbf29ce484222325ull;
+  for (size_t i = 0; i < list->word_count; i++) {
+    h ^= list->words[i];
+    h *= 0x100000001b3ull;
+  }
+  return h;
+}
+static void drop_cached(pocket_pica_renderer *r, pocket_pica_display *d) {
+  if (d->cached) {
+    release_submission(r, d->cached);
+    d->cached = NULL;
+  }
+}
+/* A retired build stands in for this frame when the list and the raster
+ * revision are the same and every texture it binds is still current: the
+ * build is a function of those alone. */
+static bool reuse_valid(pocket_pica_renderer *r, const Submission *s,
+                        const pocket_draw_list *list, uint64_t hash,
+                        const pocket_render_resources *res) {
+  if (!s->reusable || s->native_count || s->key_words != list->word_count ||
+      s->key_hash != hash || s->key_raster != res->raster_revision)
+    return false;
+  for (size_t i = 0; i < s->ref_count; i++) {
+    const Cache *e = s->refs[i];
+    uint64_t revision = res->raster_revision;
+    if (e->font) {
+      if (res->font_revision &&
+          res->font_revision(res->context, (uint8_t)e->handle, &revision))
+        return false;
+    } else {
+      if (r->config.resolve) {
+        pocket_pica_native_texture native = {0};
+        if (r->config.resolve(r->config.context, e->handle, &native))
+          return false;
+        if (native.texture) {
+          r->config.release(r->config.context, native.lease);
+          return false;
+        }
+      }
+      if (res->texture_revision &&
+          res->texture_revision(res->context, e->handle, &revision))
+        return false;
+    }
+    if (revision != e->revision)
+      return false;
+  }
+  return true;
+}
+static int32_t render_timed(void *context, const pocket_frame_input *raw,
+                            uint64_t *out);
 static int32_t render(void *context, const pocket_frame_input *raw,
                       uint64_t *out) {
+  u64 t0 = svcGetSystemTick();
+  int32_t status = render_timed(context, raw, out);
+  pocket_pica_renderer *r = context;
+  if (r && r->pending && r->pending->display)
+    timing_submit[r->pending->display->role == POCKET_DISPLAY_ROLE_PRIMARY ? 0 : 1] =
+        ticks_us(t0, svcGetSystemTick());
+  return status;
+}
+static int32_t render_timed(void *context, const pocket_frame_input *raw,
+                            uint64_t *out) {
   pocket_pica_renderer *r = context;
   pocket_frame_input frame;
   pocket_target target;
@@ -823,7 +996,40 @@ static int32_t render(void *context, const pocket_frame_input *raw,
   for (Submission *p = r->pending; p; p = p->next)
     if (p->display == display)
       return POCKET_STATUS_INVALID;
-  Submission *s = calloc(1, sizeof *s);
+  pocket_pica_overlay overlay = {
+      .list = {.struct_size = sizeof overlay.list,
+               .version = POCKET_DRAW_LIST_VERSION},
+      .subpixels = 1};
+  bool host = r->config.overlay &&
+              r->config.overlay(r->config.context, display->role, &overlay);
+  const pocket_draw_list *list =
+      host && overlay.replace ? &overlay.list : frame.list;
+  uint64_t hash = host ? 0 : words_hash(list);
+  Submission *s = NULL;
+  uint32_t build_w = (uint32_t)resources.viewport_width,
+           build_h = (uint32_t)resources.viewport_height;
+  if (!host && display->cached &&
+      reuse_valid(r, display->cached, list, hash, &resources)) {
+    s = display->cached;
+    display->cached = NULL;
+    s->terminal = false;
+    s->next = NULL;
+    /* Both buffers hold this image and no scene draws over it: the screen
+     * keeps showing it. A full present every 30 frames bounds what anything
+     * outside the driver could have changed in the buffers. */
+    s->skipped = display->shown >= 2 && !display->scene_drawn &&
+                 ++display->unchanged_frames < 30;
+    if (!s->skipped) {
+      display->unchanged_frames = 0;
+      if (display->shown < 2)
+        display->shown++;
+    }
+    goto submit;
+  }
+  display->shown = 1;
+  display->unchanged_frames = 0;
+  drop_cached(r, display);
+  s = calloc(1, sizeof *s);
   if (!s)
     return POCKET_STATUS_FAILED;
   s->vertex_capacity = MAX_VERTICES;
@@ -843,16 +1049,7 @@ static int32_t render(void *context, const pocket_frame_input *raw,
     return POCKET_STATUS_FAILED;
   }
   s->display = display;
-  Build b = {r, s, resources, (uint32_t)resources.viewport_width,
-             (uint32_t)resources.viewport_height};
-  pocket_pica_overlay overlay = {
-      .list = {.struct_size = sizeof overlay.list,
-               .version = POCKET_DRAW_LIST_VERSION},
-      .subpixels = 1};
-  bool host = r->config.overlay &&
-              r->config.overlay(r->config.context, display->role, &overlay);
-  const pocket_draw_list *list =
-      host && overlay.replace ? &overlay.list : frame.list;
+  Build b = {r, s, resources, build_w, build_h};
   int32_t status = pocket_draw_list_visit(list, frame.resources, 1, visit, &b);
   if (!status && host && !overlay.replace)
     status = build_overlay(r, s, &overlay);
@@ -862,6 +1059,12 @@ static int32_t render(void *context, const pocket_frame_input *raw,
     release_submission(r, s);
     return status;
   }
+  s->reusable = !host;
+  s->key_hash = hash;
+  s->key_words = list->word_count;
+  s->key_raster = resources.raster_revision;
+  GSPGPU_FlushDataCache(s->vertices, s->vertex_count * sizeof(Vertex));
+submit:
   /* Only driver-owned bytes survive this function. No FrameInput pointer,
    * DrawList word or resource view is retained by a deferred submission. */
   if (!r->frame_open) {
@@ -875,12 +1078,20 @@ static int32_t render(void *context, const pocket_frame_input *raw,
   s->id = ++r->next_id;
   s->next = r->pending;
   r->pending = s;
-  GSPGPU_FlushDataCache(s->vertices, s->vertex_count * sizeof(Vertex));
-  bool replaced =
-      r->config.scene && r->config.scene(r->config.context, display->role,
-                                         display->target, display->right);
-  if (!replaced)
-    draw(r, s, b.width, b.height);
+  if (s->skipped) {
+    r->words[display->role] = list->word_count;
+    *out = s->id;
+    return 0;
+  }
+  uint32_t scene =
+      r->config.scene ? r->config.scene(r->config.context, display->role,
+                                        display->target, display->right)
+                      : POCKET_PICA_SCENE_NONE;
+  display->scene_drawn = scene != POCKET_PICA_SCENE_NONE;
+  if (display->scene_drawn)
+    display->shown = 0;
+  if (scene != POCKET_PICA_SCENE_REPLACES)
+    draw(r, s, build_w, build_h);
   draw_overlay(r, s);
   r->words[display->role] = list->word_count;
   r->vertices += s->vertex_count;
@@ -897,8 +1108,7 @@ static int32_t render_wait(void *context, uint64_t id) {
     s = s->next;
   if (!s)
     return POCKET_STATUS_INVALID;
-  drain(r);
-  return 0;
+  return drain(r) ? 0 : POCKET_STATUS_FAILED;
 }
 static void retire(void *context, uint64_t id) {
   pocket_pica_renderer *r = context;
@@ -913,6 +1123,14 @@ static void retire(void *context, uint64_t id) {
     drain(r);
   Submission *s = *slot;
   *slot = s->next;
+  /* A guest build stays with its display as the candidate for the next
+   * frame; its texture pins keep the cache entries it draws resident. */
+  if (s->reusable && !s->native_count && s->display) {
+    drop_cached(r, s->display);
+    s->next = NULL;
+    s->display->cached = s;
+    return;
+  }
   release_submission(r, s);
 }
 static int32_t display_descriptor(void *context,
@@ -928,7 +1146,8 @@ static int32_t display_descriptor(void *context,
       .pixel_format = POCKET_PIXEL_FORMAT_RGBA8888,
       .stride_bytes = (size_t)d->width * 4,
       .target_kind = POCKET_TARGET_DEVICE_OWNED,
-      .flags = POCKET_DISPLAY_DEVICE_ROTATION | POCKET_DISPLAY_DEVICE_SCALING,
+      .flags = POCKET_DISPLAY_DEVICE_ROTATION | POCKET_DISPLAY_DEVICE_SCALING |
+               (d->renderer->config.deferred ? POCKET_DISPLAY_QUEUED_FLUSH : 0),
       .refresh_width = d->width,
       .refresh_height = d->height,
       .window_x_alignment = 1,
@@ -974,6 +1193,28 @@ static void transfer(pocket_pica_display *d, C3D_RenderTarget *target,
                           GX_BUFFER_DIM(d->height, d->width), (u32 *)pixels,
                           GX_BUFFER_DIM(w, h), flags);
 }
+/* The rendered target to the screen's back buffer, then the swap. No
+ * citro3d frame is open: SyncDisplayTransfer waits for PPF before return.
+ * Within an open frame it would only append another queued command. */
+static void present_target(pocket_pica_display *d) {
+  u64 t0 = svcGetSystemTick();
+  transfer(d, d->target, GFX_LEFT);
+  /* In 2D mode libctru aliases the right framebuffer to the left one. */
+  bool stereo = d->right && gfxIs3D();
+  if (stereo)
+    transfer(d, d->right, GFX_RIGHT);
+  gfxScreenSwapBuffers(
+      d->role == POCKET_DISPLAY_ROLE_PRIMARY ? GFX_TOP : GFX_BOTTOM, stereo);
+  timing_transfer[d->role == POCKET_DISPLAY_ROLE_PRIMARY ? 0 : 1] = ticks_us(t0, svcGetSystemTick());
+}
+/* The display's submission this frame was skipped (it shows the build on
+ * both buffers already). */
+static bool skipped_frame(pocket_pica_display *d) {
+  for (Submission *p = d->renderer->pending; p; p = p->next)
+    if (p->display == d)
+      return p->skipped;
+  return false;
+}
 static int32_t display_flush(void *context, const pocket_rect *regions,
                              size_t count, uint64_t *token) {
   pocket_pica_display *d = context;
@@ -982,17 +1223,23 @@ static int32_t display_flush(void *context, const pocket_rect *regions,
   if (!HAS(regions, pocket_rect, height) || regions->x || regions->y ||
       regions->width != d->width || regions->height != d->height)
     return POCKET_STATUS_INVALID;
-  drain(d->renderer);
-  /* No citro3d frame is open: SyncDisplayTransfer now waits for PPF before
-   * return. Within an open frame it would only append another queued command.
-   */
-  transfer(d, d->target, GFX_LEFT);
-  /* In 2D mode libctru aliases the right framebuffer to the left one. */
-  bool stereo = d->right && gfxIs3D();
-  if (stereo)
-    transfer(d, d->right, GFX_RIGHT);
-  gfxScreenSwapBuffers(
-      d->role == POCKET_DISPLAY_ROLE_PRIMARY ? GFX_TOP : GFX_BOTTOM, stereo);
+  pocket_pica_renderer *r = d->renderer;
+  if (r->config.deferred) {
+    /* Queued: the round's first flush ends the frame both displays recorded
+     * into, so the GPU starts on it now. The transfer and the swap wait for
+     * display_wait, after the renderer wait and past the vblank between the
+     * turns: the buffer it writes is no longer scanned out. */
+    if (r->frame_open) {
+      C3D_FrameEnd(0);
+      r->frame_open = false;
+      r->in_flight = true;
+    }
+    d->transfer_pending = !skipped_frame(d);
+  } else {
+    drain(r);
+    if (!skipped_frame(d))
+      present_target(d);
+  }
   d->acquired = false;
   d->flushed = true;
   *token = ++d->token;
@@ -1002,6 +1249,12 @@ static int32_t display_wait(void *context, uint64_t token) {
   pocket_pica_display *d = context;
   if (!d || !d->flushed || token != d->token)
     return POCKET_STATUS_INVALID;
+  if (d->transfer_pending) {
+    if (!drain(d->renderer))
+      return POCKET_STATUS_FAILED;
+    d->transfer_pending = false;
+    present_target(d);
+  }
   /* PPF has completed both copies. The host schedules one shared tick/vblank
    * boundary; waiting once per display here would halve a dual-screen rate. */
   d->flushed = false;
@@ -1108,6 +1361,7 @@ void pocket_pica_display_destroy(pocket_pica_display *d) {
     return;
   pocket_pica_renderer *r = d->renderer;
   drain(r);
+  drop_cached(r, d);
   Submission **s = &r->pending;
   while (*s) {
     if ((*s)->display == d) {
@@ -1133,11 +1387,15 @@ void pocket_pica_renderer_reset(pocket_pica_renderer *r) {
     r->pending = s->next;
     release_submission(r, s);
   }
+  for (pocket_pica_display *d = r->displays; d; d = d->next)
+    drop_cached(r, d);
   while (r->cache)
     cache_delete(r, &r->cache);
   r->vertices = r->commands = 0;
-  for (pocket_pica_display *d = r->displays; d; d = d->next)
-    d->acquired = d->flushed = false;
+  for (pocket_pica_display *d = r->displays; d; d = d->next) {
+    d->acquired = d->flushed = d->transfer_pending = false;
+    d->shown = 0;
+  }
 }
 void pocket_pica_renderer_destroy(pocket_pica_renderer *r) {
   if (!r)
@@ -1154,6 +1412,9 @@ void pocket_pica_renderer_destroy(pocket_pica_renderer *r) {
   if (r->shader)
     DVLB_Free(r->shader);
   free(r);
+}
+bool pocket_pica_renderer_in_flight(const pocket_pica_renderer *r) {
+  return r && (r->in_flight || r->pending);
 }
 uint32_t pocket_pica_renderer_vertices(const pocket_pica_renderer *r) {
   return r ? r->vertices : 0;
@@ -1196,6 +1457,7 @@ bool pocket_pica_renderer_present_overlays(pocket_pica_renderer *r) {
    * frame keeps its own lifetime and leaves that flag alone. */
   for (pocket_pica_display *d = r->displays; d; d = d->next) {
     bool stereo = d->right && gfxIs3D();
+    d->shown = 0;
     C3D_RenderTargetClear(d->target, C3D_CLEAR_ALL, 0x000000ff, 0);
     if (stereo)
       C3D_RenderTargetClear(d->right, C3D_CLEAR_ALL, 0x000000ff, 0);

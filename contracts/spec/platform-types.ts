@@ -234,6 +234,13 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // declares it hands the top screen to the host's 3D stage and keeps its
   // whole interface on the auxiliary surface.
   "system.agent",
+  // Native game kernels and a 3D scene on the primary surface
+  // (`globalThis.playset`, contracts/spec/playset.ts, docs/PLAYSET.md): models
+  // from three.js-shaped primitives, an entity world stepped by genre motion
+  // kernels, brains, weapons, collision rules and particles, drawn under the
+  // guest's primary DrawList. The 3ds-dev profile advertises it because
+  // products/3ds links engine/crates/pocket-playset and its PICA renderer.
+  "game.playset",
   // A per-app file tree behind the fs module's own namespace
   // (`globalThis.fs`, contracts/spec/fs.ts): nine synchronous ops, every
   // path confined to the app's own data root — apps cannot name, let alone

@@ -18,3 +18,4 @@ crate-type = ["staticlib"]
 [dependencies]
 pocket-runtime-cabi = { workspace = true }
 pocket-package = { workspace = true, default-features = true }
+pocket-playset = { workspace = true }

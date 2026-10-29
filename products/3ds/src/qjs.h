@@ -16,6 +16,13 @@ bool qjs_frame(int32_t buttons,int32_t analog,const uint32_t *touches,size_t cou
  * an app switch, drawn under the transition. */
 bool qjs_present(void);
 const char *qjs_last_error(void);
+/* The last qjs_frame's two phases in microseconds: advance (input, the
+ * guest's frame, the core step) and present (both screens' draw lists and
+ * their submission, the native scene included). */
+void qjs_frame_phases(uint32_t *advance_us, uint32_t *present_us);
+/* Finish the last presented frame: GPU work, transfers, swaps. Before host
+ * citro3d work or reading a render target. */
+void qjs_complete_presentation(void);
 void qjs_shutdown(void);
 /* Called from QuickJS's interrupt handler while the guest's code runs (a
  * boot or a frame), every few thousand bytecode steps. Returning true ends

@@ -1,0 +1,131 @@
+; The playset scene shader (render.c): every draw of a playset frame.
+;
+; Each vertex names a bone; a bone is four rows in `bones`: the three rows of
+; its 3x4 world matrix and an rgba tint. One draw carries up to 20 bones, so
+; up to 20 instances of a one-joint model share a draw.
+;
+; Colours are sRGB bytes. Lighting runs in linear light (the byte squared,
+; lights given linear) and the result leaves through a square root, the
+; gamma-2 transfer of the citro3d backend. The vertex colour's fourth byte is
+; the emissive amount; with mode.x = 1 it is opacity instead and lighting is
+; off (particles, shadows, the sky).
+;
+; Fog is per vertex: linear in the view depth (three.js Fog) between fogp.x
+; and 1 / fogp.y beyond it, capped at fogp.z; fogz is the depth row.
+;
+; Hardware rules this follows (devices/3ds/pocket-3ds-pica/src/vshader.v.pica):
+; a uniform is only ever the first source operand, an instruction reads at
+; most one input register, no two `mova` in a row, and every component of
+; both outputs is written.
+
+.fvec proj[4]
+.fvec bones[80]
+.fvec sundir
+.fvec suncol
+.fvec hsky
+.fvec hgnd
+.fvec fogp
+.fvec fogc
+.fvec fogz
+.fvec mode
+
+; 0, 1, 1/127 (a normal byte), 1/255 (a colour byte)
+.constf k(0.0, 1.0, 0.007874016, 0.003921569)
+; 4 (rows per bone), 0.5, a floor for the square root
+.constf k2(4.0, 0.5, 0.000001, 0.0)
+
+.in inpos v0
+.in innb v1
+.in inclr v2
+
+.out outpos position
+.out outclr color
+
+.entry vmain
+.proc vmain
+    ; a0.x = bone * 4
+    mul r0.x, k2.x, innb.w
+    mova a0.x, r0.x
+
+    ; world position through the bone
+    mov r1.xyz, inpos.xyz
+    mov r1.w, k.y
+    dp4 r2.x, bones[a0.x], r1
+    dp4 r2.y, bones[a0.x+1], r1
+    dp4 r2.z, bones[a0.x+2], r1
+    mov r2.w, k.y
+    dp4 outpos.x, proj[0], r2
+    dp4 outpos.y, proj[1], r2
+    dp4 outpos.z, proj[2], r2
+    dp4 outpos.w, proj[3], r2
+
+    ; world normal, renormalised (bones may scale)
+    mul r3.xyz, k.zzz, innb.xyz
+    mov r3.w, k.x
+    dp3 r4.x, bones[a0.x], r3
+    dp3 r4.y, bones[a0.x+1], r3
+    dp3 r4.z, bones[a0.x+2], r3
+    mov r4.w, k.x
+    dp3 r5.x, r4, r4
+    max r5.x, k2.z, r5.x
+    rsq r5.x, r5.x
+    mul r4.xyz, r5.xxx, r4.xyz
+
+    ; hemisphere: ground colour below, sky colour above
+    mul r5.y, k2.y, r4.y
+    add r5.y, k2.y, r5.y
+    mov r7, hgnd
+    add r6, hsky, -r7
+    mul r6, r6, r5.yyyy
+    add r6, hgnd, r6
+    ; sun
+    dp3 r7.x, sundir, r4
+    max r7.x, k.x, r7.x
+    mul r8, suncol, r7.xxxx
+    add r6, r6, r8
+
+    ; albedo: the colour byte, tinted, into linear light
+    mul r9, k.wwww, inclr
+    mul r10, bones[a0.x+3], r9
+    mul r10.xyz, r10.xyz, r10.xyz
+
+    ; lit = albedo * light, then toward albedo by the emissive amount e',
+    ; e' = e + m - e*m (m = mode.x, e = the fourth byte)
+    mul r11.xyz, r10.xyz, r6.xyz
+    add r12.xyz, r10.xyz, -r11.xyz
+    mul r14.x, mode.x, r9.w
+    add r13.x, -r14.x, r9.w
+    add r13.x, mode.x, r13.x
+    mul r12.xyz, r12.xyz, r13.xxx
+    add r11.xyz, r11.xyz, r12.xyz
+
+    ; back to sRGB: x * rsq(x)
+    max r11.xyz, k2.zzz, r11.xyz
+    rsq r15.x, r11.x
+    rsq r15.y, r11.y
+    rsq r15.z, r11.z
+    mul r11.xyz, r11.xyz, r15.xyz
+    min r11.xyz, k.yyy, r11.xyz
+
+    ; fog by view depth
+    dp4 r12.x, fogz, r2
+    add r12.x, -fogp.x, r12.x
+    mul r12.x, fogp.y, r12.x
+    max r12.x, k.x, r12.x
+    min r12.x, fogp.z, r12.x
+    add r13.xyz, fogc.xyz, -r11.xyz
+    mul r13.xyz, r13.xyz, r12.xxx
+    add r11.xyz, r11.xyz, r13.xyz
+
+    ; alpha: tint.a * draw opacity, times the fourth byte when it is opacity:
+    ; a = tint.a * mode.y * (1 + (b - 1) * m)
+    add r14.x, -k.y, r9.w
+    mul r14.x, mode.x, r14.x
+    add r14.x, k.y, r14.x
+    mul r14.x, mode.y, r14.x
+    mov r15, bones[a0.x+3]
+    mul r11.w, r15.w, r14.x
+
+    mov outclr, r11
+    end
+.end

@@ -6,6 +6,8 @@
  * costs a full storage read and hash, so the first read writes them beside
  * the slot's state as app.txt, keyed by the package hash; later scans read
  * that file alone and fall back to the package only when the hash moved on.
+ * The package's icon set goes beside it as icon.bin in the same pass, and
+ * app.txt records whether there is one.
  */
 
 #include "launcher.h"
@@ -22,6 +24,8 @@
 #define LAUNCHER_TITLE_BYTES 96
 #define LAUNCHER_VERSION_BYTES 32
 #define LAUNCHER_ERROR_BYTES 256
+/* A 64 px icon set at raster density 2 is 147 KiB. */
+#define LAUNCHER_ICON_MAX_BYTES (256u * 1024u)
 
 typedef struct {
   char slot[17];
@@ -33,6 +37,8 @@ typedef struct {
   uint64_t bytes;
   /* services_host_epoch_ms() when an install committed it; 0 when unknown. */
   uint64_t installed;
+  /* icon.bin holds the package's icon set. */
+  bool icon;
 } LauncherApp;
 
 /* LAUNCHER_MAX_APPS rows, allocated on the first scan: a host with a
@@ -56,6 +62,7 @@ static bool request_summon;
 static LauncherTarget request;
 
 static JsonBuffer table_json = { .limit = 32 * 1024 };
+static uint8_t *icon_bytes;
 
 /* Read the plan's app object fields; any may be missing in old packages. */
 static void read_plan(const LauncherPackage *package, LauncherApp *out) {
@@ -120,12 +127,37 @@ static void write_cache(const LauncherApp *app) {
   write_line(file, "id", app->id);
   write_line(file, "title", app->title);
   write_line(file, "version", app->version);
+  write_line(file, "icon", app->icon ? "1" : "0");
   if (fclose(file) != 0) {
     remove(temporary);
     return;
   }
   remove(path);
   rename(temporary, path);
+}
+
+/* The package's icon set as icon.bin, or no icon.bin when it has none.
+ * Returns whether icon.bin now holds it. */
+static bool write_icon(const char *slot, const LauncherPackage *package) {
+  char path[128];
+  char temporary[128];
+  if (!launcher_host_slot_path(slot, "icon.bin", path, sizeof path) ||
+      !launcher_host_slot_path(slot, ".icon.bin.tmp", temporary, sizeof temporary)) {
+    return false;
+  }
+  if (package->icon == NULL || package->icon_length == 0 || package->icon_length > LAUNCHER_ICON_MAX_BYTES) {
+    remove(path);
+    return false;
+  }
+  FILE *file = fopen(temporary, "wb");
+  if (file == NULL) return false;
+  bool written = fwrite(package->icon, 1, package->icon_length, file) == package->icon_length;
+  if (fclose(file) != 0 || !written) {
+    remove(temporary);
+    return false;
+  }
+  remove(path);
+  return rename(temporary, path) == 0;
 }
 
 static bool read_cache(LauncherApp *app, uint64_t expected_hash) {
@@ -135,6 +167,8 @@ static bool read_cache(LauncherApp *app, uint64_t expected_hash) {
   if (file == NULL) return false;
   char line[256];
   uint64_t hash = 0;
+  /* An app.txt from before icon.bin has no icon line: read the package again. */
+  bool icon_known = false;
   while (fgets(line, sizeof line, file) != NULL) {
     size_t length = strlen(line);
     while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r')) line[--length] = '\0';
@@ -148,9 +182,13 @@ static bool read_cache(LauncherApp *app, uint64_t expected_hash) {
     else if (strcmp(line, "id") == 0) snprintf(app->id, sizeof app->id, "%s", value);
     else if (strcmp(line, "title") == 0) snprintf(app->title, sizeof app->title, "%s", value);
     else if (strcmp(line, "version") == 0) snprintf(app->version, sizeof app->version, "%s", value);
+    else if (strcmp(line, "icon") == 0) {
+      app->icon = strcmp(value, "1") == 0;
+      icon_known = true;
+    }
   }
   fclose(file);
-  return hash == expected_hash && app->output[0] != '\0';
+  return hash == expected_hash && icon_known && app->output[0] != '\0';
 }
 
 static void facts_from_package(LauncherApp *app, const char *slot, const LauncherPackage *package) {
@@ -209,6 +247,7 @@ static void rebuild_table(void) {
       void *held = NULL;
       if (!launcher_host_load(entry->d_name, active_hash, &package, &held)) continue;
       facts_from_package(&app, entry->d_name, &package);
+      app.icon = write_icon(entry->d_name, &package);
       services_host_release(held);
       if (app.output[0] == '\0') continue;
       write_cache(&app);
@@ -287,6 +326,23 @@ const char *launcher_table_json(void) {
   jbuf_text(out, "}");
   const char *text = jbuf_cstr(out);
   return text == NULL ? "{\"apps\":[],\"current\":\"\",\"resume\":null,\"launcher\":\"\",\"lastError\":null}" : text;
+}
+
+const uint8_t *launcher_app_icon(const char *output, size_t *length) {
+  *length = 0;
+  if (output == NULL) return NULL;
+  const LauncherApp *app = find_output(output);
+  if (app == NULL || !app->icon) return NULL;
+  char path[128];
+  if (!launcher_host_slot_path(app->slot, "icon.bin", path, sizeof path)) return NULL;
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) return NULL;
+  if (icon_bytes == NULL) icon_bytes = malloc(LAUNCHER_ICON_MAX_BYTES);
+  size_t read = icon_bytes == NULL ? 0 : fread(icon_bytes, 1, LAUNCHER_ICON_MAX_BYTES, file);
+  fclose(file);
+  if (read == 0) return NULL;
+  *length = read;
+  return icon_bytes;
 }
 
 bool launcher_launch(const char *output) {
@@ -379,6 +435,7 @@ void launcher_note_installed(const char *slot, const LauncherPackage *package) {
     LauncherApp app;
     facts_from_package(&app, slot, package);
     app.installed = services_host_epoch_ms();
+    app.icon = write_icon(slot, package);
     if (app.output[0] != '\0') write_cache(&app);
   }
   table_dirty = true;

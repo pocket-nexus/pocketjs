@@ -183,6 +183,11 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   modality: { file: "framework/src/modality.ts" },
   actions: { file: { solid: "framework/src/actions.ts" } },
   agent: { file: { solid: "framework/src/agent.ts" } },
+  playset: { file: "framework/src/playset/index.ts" },
+  "playset/three": { file: "framework/src/playset/three.ts" },
+  "playset/grid": { file: "framework/src/playset/grid.ts" },
+  "playset/tilt": { file: "framework/src/playset/tilt.ts" },
+  "playset/voxel": { file: "framework/src/playset/voxel.ts" },
   system: { file: { solid: "framework/src/system.ts" } },
   "vita-package": { file: "tools/vita-package.ts" },
   prelude: {

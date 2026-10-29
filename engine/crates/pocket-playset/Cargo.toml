@@ -1,0 +1,19 @@
+[package]
+name = "pocket-playset"
+description = "Playset kernels: models from primitives, a retained scene, an entity world with genre motion kernels, brains, weapons, collision rules, particles and camera rigs (docs/PLAYSET.md)"
+edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = ["std"]
+# Desktop tests and the wasm build. The 3DS archive builds without it.
+std = []
+
+[dependencies]

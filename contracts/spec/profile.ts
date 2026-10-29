@@ -67,6 +67,7 @@ export const PROFILE_CAPABILITY_BITS = {
   "text.layout.native": 0x08000000n,
   "text.layout.offload": 0x10000000n,
   "camera.photo": 0x20000000n,
+  "game.playset": 0x40000000n,
 } as const satisfies Readonly<Record<PocketCapabilityId, bigint>>;
 
 /** Append-only native presentation mask assignments. */

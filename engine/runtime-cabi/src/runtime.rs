@@ -325,6 +325,12 @@ pub unsafe extern "C" fn pocket_runtime_complete_presentation(runtime: *mut Pock
 /// # Safety
 /// runtime is a live instance on its owning thread.
 #[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_advance(runtime: *mut PocketRuntime) -> i32 {
+    unsafe { modify(runtime, Runtime::advance) }
+}
+/// # Safety
+/// runtime is a live instance on its owning thread.
+#[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32 {
     unsafe { modify(runtime, Runtime::tick) }
 }

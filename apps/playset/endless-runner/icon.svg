@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b8e0ff"/><stop offset="1" stop-color="#eef6fc"/></linearGradient><linearGradient id="road" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b4a86"/><stop offset="1" stop-color="#162d5c"/></linearGradient></defs>
+<rect width="128" height="128" fill="url(#sky)"/>
+<rect y="38" width="128" height="90" fill="#f4f8fb"/>
+<path d="M10 52 L18 32 L26 52 Z M102 50 L110 30 L118 50 Z" fill="#3f8f4e"/>
+<path d="M54 38 L74 38 L124 128 L4 128 Z" fill="url(#road)"/>
+<path d="M54 38 L4 128" stroke="#e8463c" stroke-width="5"/>
+<path d="M74 38 L124 128" stroke="#e8463c" stroke-width="5"/>
+<path d="M60.5 44 L56 60 M58 70 L52 92 M50 102 L45 124" stroke="#dfe8f5" stroke-width="3" stroke-linecap="round"/>
+<path d="M67.5 44 L72 60 M70 70 L76 92 M78 102 L83 124" stroke="#dfe8f5" stroke-width="3" stroke-linecap="round"/>
+<g stroke="#9a6a0a" stroke-width="3">
+<circle cx="64" cy="104" r="13" fill="#ffd23f"/>
+<circle cx="64" cy="70" r="8" fill="#ffd23f"/>
+<circle cx="64" cy="50" r="5" fill="#ffd23f" stroke-width="2"/>
+</g>
+<rect x="60" y="97" width="8" height="14" rx="3" fill="#f7a816"/>
+<g stroke="#6b1612" stroke-width="3" stroke-linejoin="round">
+<rect x="94" y="80" width="22" height="20" fill="#e0453d"/>
+</g>
+<rect x="103" y="80" width="4" height="20" fill="#ffe27a"/>
+</svg>

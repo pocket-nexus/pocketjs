@@ -21,6 +21,11 @@ size_t svcwire_recv_lines(char *out, size_t size) {
 const char *devserver_debug_stats(void) { return "{\"host\":\"3ds\"}"; }
 const char *launcher_table_json(void) { return "{\"apps\":[]}"; }
 bool launcher_launch(const char *text) { return !strcmp(text, "fixture"); }
+const uint8_t *launcher_app_icon(const char *text, size_t *length) {
+  (void)text;
+  *length = 0;
+  return NULL;
+}
 
 typedef struct {
   uint32_t role, width;

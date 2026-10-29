@@ -14,6 +14,7 @@
  *                  "resume","launcher","lastError":{output,message}|null}
  *   appLaunch(output) -> 1 | 0      switch after this frame presents
  *   appShot() -> -1                 no frozen frame on this host (v1)
+ *   appIcon(output) -> bytes | null the installed app's icon set
  */
 
 #ifndef POCKETJS_LAUNCHER_H
@@ -46,6 +47,9 @@ void launcher_invalidate(void);
 const char *launcher_table_json(void);
 /* spec op 40: schedule a switch; false for an unknown output. */
 bool launcher_launch(const char *output);
+/* spec op 62: the icon set (package section 9) of installed app `output`,
+ * NULL when it has none. The bytes live until the next call. */
+const uint8_t *launcher_app_icon(const char *output, size_t *length);
 /* The SELECT press-edge in a guest other than the launcher. */
 void launcher_summon(void);
 /* A switch is requested and not yet taken. */

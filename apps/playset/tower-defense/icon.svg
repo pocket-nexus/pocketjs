@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2f4ff"/><stop offset="1" stop-color="#bfe6ff"/></linearGradient><linearGradient id="turret" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6aa8f5"/><stop offset="1" stop-color="#2f63c2"/></linearGradient><linearGradient id="stone" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#d4d9e0"/><stop offset="1" stop-color="#98a0ac"/></linearGradient></defs>
+<rect width="128" height="128" fill="url(#sky)"/>
+<path d="M8 66 L64 98 L120 66 L120 76 L64 108 L8 76 Z" fill="#6a9a3e" stroke="#3a5a1e" stroke-width="3" stroke-linejoin="round"/>
+<path d="M64 34 L120 66 L64 98 L8 66 Z" fill="#9ad66e" stroke="#3a5a1e" stroke-width="3" stroke-linejoin="round"/>
+<path d="M36 50 L92 82 M92 50 L36 82" stroke="#b9e892" stroke-width="2"/>
+<path d="M22 58 L50 74 L78 58 L106 74" stroke="#ead7a2" stroke-width="13" stroke-linejoin="round" fill="none"/>
+<g stroke="#6b1612" stroke-width="2.5">
+<rect x="92" y="60" width="11" height="13" rx="5.5" fill="#e5483e"/>
+<rect x="27" y="52" width="11" height="13" rx="5.5" fill="#e5483e"/>
+</g>
+<g fill="#ffffff"><circle cx="95.5" cy="64" r="1.8"/><circle cx="100" cy="64" r="1.8"/><circle cx="30.5" cy="56" r="1.8"/><circle cx="35" cy="56" r="1.8"/></g>
+<g stroke="#26324a" stroke-width="4" stroke-linejoin="round" stroke-linecap="round">
+<path d="M44 84 V62 H74 V84 C74 90 44 90 44 84 Z" fill="url(#stone)"/>
+<ellipse cx="59" cy="62" rx="15" ry="6" fill="#e3e7ec"/>
+<path d="M44 58 C44 36 74 36 74 58 C74 64 44 64 44 58 Z" fill="url(#turret)"/>
+<path d="M62 48 L94 36" stroke-width="12"/>
+<path d="M62 48 L94 36" stroke="#4a5a74" stroke-width="5"/>
+</g>
+<path d="M50 50 C50 44 54 42 58 42" stroke="#bfe0ff" stroke-width="3" stroke-linecap="round" fill="none"/>
+</svg>

@@ -21,6 +21,9 @@ pub struct PocketGuestPackage {
     pub pak_length: usize,
     pub plan: *const u8,
     pub plan_length: usize,
+    /// The launcher icon set (section 9); length 0 when the package has none.
+    pub icon: *const u8,
+    pub icon_length: usize,
     pub package_hash: u64,
     pub variant_hash: u64,
     /// What the runtime takes from the variant's plan at boot instead of
@@ -54,6 +57,12 @@ pub const POCKET_GUEST_FEATURE_CAMERA_QR: u32 = 16;
 /// `features.camera.photo` is true in the plan: both cameras, capture and
 /// the photo store.
 pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
+/// `features.game.playset` is true in the plan: `globalThis.playset` and its
+/// scene under the primary surface.
+pub const POCKET_GUEST_FEATURE_PLAYSET: u32 = 64;
+
+// The playset kernels' C ABI (pps_*) is linked into this archive.
+pub use pocket_playset;
 
 fn package_error_code(error: GuestError) -> i32 {
     match error {
@@ -132,6 +141,8 @@ pub unsafe extern "C" fn pocket_package_open(
         pak_length: guest.pak.len(),
         plan: guest.plan.as_ptr(),
         plan_length: guest.plan.len(),
+        icon: guest.icon.as_ptr(),
+        icon_length: guest.icon.len(),
         package_hash: guest.package_hash,
         variant_hash: guest.variant_hash,
         view_width: facts.viewport.width,
@@ -162,6 +173,10 @@ pub unsafe extern "C" fn pocket_package_open(
             0
         } | if facts.feature("camera.photo") {
             POCKET_GUEST_FEATURE_CAMERA_PHOTO
+        } else {
+            0
+        } | if facts.feature("game.playset") {
+            POCKET_GUEST_FEATURE_PLAYSET
         } else {
             0
         },

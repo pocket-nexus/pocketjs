@@ -3,6 +3,7 @@
 #include "qjs.h"
 #include "agent.h"
 #include "camera.h"
+#include "playset.h"
 #include "fs.h"
 #include "instance.h"
 #include "launcher.h"
@@ -19,6 +20,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <3ds.h>
 
 #include "devserver.h"
 #include "pocket_core.h"
@@ -688,6 +690,12 @@ static int32_t install_host(void) {
     JS_SetPropertyStr(context, global, "fs", fs);
   }
 
+  /* Only a guest that declared "game.playset" sees the namespace. */
+  if (playset_install(context, global) < 0) {
+    set_error("playset namespace installation failed");
+    return POCKET_WORKER_FAILED;
+  }
+
   /* Only a guest that declared "system.agent" sees the namespace. */
   if (agent_enabled()) {
     JSValue agent = JS_NewObject(context);
@@ -873,6 +881,7 @@ bool qjs_present(void) {
   }
   return true;
 }
+static uint32_t advance_us, present_us;
 bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
                size_t count, int32_t right) {
   if (!instance)
@@ -886,13 +895,29 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
   if (first_present)
     return qjs_present();
   instance_input(buttons, analog, touches, count, right);
-  if (pocket_runtime_tick(instance)) {
+  u64 t0 = svcGetSystemTick();
+  int32_t failed = pocket_runtime_advance(instance);
+  u64 t1 = svcGetSystemTick();
+  if (!failed)
+    failed = pocket_runtime_present(instance);
+  u64 t2 = svcGetSystemTick();
+  advance_us = (uint32_t)((t1 - t0) * 1000000ull / SYSCLOCK_ARM11);
+  present_us = (uint32_t)((t2 - t1) * 1000000ull / SYSCLOCK_ARM11);
+  if (failed) {
     const char *message = pocket_guest_quickjs_error(guest);
     set_error(message && *message ? message
                                   : "3DS runtime frame or presentation failed");
     return false;
   }
   return true;
+}
+void qjs_complete_presentation(void) {
+  if (instance)
+    (void)pocket_runtime_complete_presentation(instance);
+}
+void qjs_frame_phases(uint32_t *advance, uint32_t *present) {
+  *advance = advance_us;
+  *present = present_us;
 }
 const char *qjs_last_error(void) { return last_error; }
 void qjs_shutdown(void) {
@@ -920,4 +945,6 @@ void qjs_shutdown(void) {
     runtime = NULL;
   }
   global = JS_UNDEFINED;
+  /* The views into the world died with the realm; the world goes now. */
+  playset_shutdown();
 }

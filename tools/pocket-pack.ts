@@ -17,7 +17,7 @@
 // with a log under --all-targets): a package can never carry a variant its
 // own manifest disowns.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -58,6 +58,21 @@ function usage(message?: string): never {
   process.exit(1);
 }
 
+/** A manifest's launcher icon set at `density` (tools/launcher-icon.ts), or
+ *  undefined when it names none. The rasterizer runs in its own process:
+ *  this module is part of runtime configurations, which load no canvas. */
+export function bakeIconSection(manifestPath: string, density: number): Uint8Array | undefined {
+  const out = join(ROOT, ".pocket-build", "pack", `icon-${process.pid}-${Date.now()}.bin`);
+  mkdirSync(dirname(out), { recursive: true });
+  const run = Bun.spawnSync(["bun", join(ROOT, "tools/launcher-icon.ts"), manifestPath, "--density", String(density), "--out", out],
+    { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
+  if (!run.success) throw new Error(`pocket-pack: launcher icon failed for ${manifestPath}\n${run.stderr.toString()}`);
+  if (!existsSync(out)) return undefined;
+  const bytes = new Uint8Array(readFileSync(out));
+  rmSync(out, { force: true });
+  return bytes;
+}
+
 /** Assemble one variant from prebuilt pieces. Shared with the launcher
  *  chain (tools/launcher.ts pack), which reuses its existing psp dist. */
 export function makeVariant(input: {
@@ -69,6 +84,8 @@ export function makeVariant(input: {
   workerJs?: Uint8Array;
   pak: Uint8Array;
   cover?: Uint8Array;
+  /** The launcher icon set (tools/launcher-icon.ts bakeIconSet). */
+  icon?: Uint8Array;
 }): PocketPackageVariant {
   if (input.hostAbi !== POCKET_BINDING_GENERATION) {
     throw new Error(`pocket-pack: binding generation ${input.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
@@ -89,6 +106,7 @@ export function makeVariant(input: {
     { kind: POCKET_SECTION.pak, bytes: input.pak },
   ];
   if (input.cover) sections.push({ kind: POCKET_SECTION.cover, bytes: input.cover });
+  if (input.icon) sections.push({ kind: POCKET_SECTION.icon, bytes: input.icon });
   if (!!plan.domains?.worker !== !!input.workerJs) throw new Error("pocket-pack: worker declaration and worker bundle must both be present");
   if (input.workerJs) {
     if (!input.workerJs.length) throw new Error("pocket-pack: worker bundle is empty");
@@ -185,6 +203,7 @@ async function buildCommand(argv: string[]): Promise<void> {
         ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
         pak,
         cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
+        icon: bakeIconSection(manifestPath, plan.viewport.rasterDensity),
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
@@ -219,6 +238,8 @@ function inspectCommand(file: string): void {
       4: "pak",
       5: "cover",
       7: "hostInputs",
+      8: "workerJs",
+      9: "icon",
     };
     for (const s of v.sections) {
       console.log(`    ${(names[s.kind] ?? `kind${s.kind}`).padEnd(8)} ${s.bytes.length}B`);

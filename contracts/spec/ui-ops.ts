@@ -172,6 +172,7 @@ export const UI_OPS = [
   core("fontStreamBatch", [arg("descriptor", "bytes")], "integer", "ui.font_stream_batch(a0)"),
   core("captureTexts", [arg("surface", "u32"), arg("root", "i32")], "boolean", "ui.capture_texts(a0, a1)"),
   core("capturedTexts", [arg("surface", "u32")], "string", "ui.captured_texts(a0)"),
+  provider("appIcon", [arg("output", "string")], "optionalBytes", "applications"),
   privateHook("__dbgActive", [], "boolean"),
   privateHook("__dbgConnected", [], "boolean"),
   privateHook("__dbgPoll", [], "optionalString"),

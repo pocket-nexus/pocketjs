@@ -1,0 +1,36 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.playset.jet-dogfight",
+  "name": "playset-jet-dogfight",
+  "title": "Jet Dogfight",
+  "icon": "icon.svg",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "game.playset",
+        "text.glyphs.baked",
+        "input.buttons",
+        "display.auxiliary",
+        "input.touch.auxiliary"
+      ],
+      "enhances": [
+        "input.analog.left"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/playset/jet-dogfight/main.tsx",
+    "output": "playset-jet-dogfight",
+    "framework": "solid",
+    "surfaces": {
+      "auxiliary": {
+        "fixed": { "logical": [320, 240], "presentation": "native" }
+      }
+    },
+    "viewport": {
+      "fixed": { "logical": [400, 240], "presentation": "native" }
+    }
+  }
+}

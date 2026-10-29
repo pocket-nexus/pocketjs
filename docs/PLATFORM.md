@@ -95,7 +95,7 @@ Rust and Python readers share maintained valid and malformed fixtures.
 | Variant, 64 bytes | Target string offset and size, binding generation, section count and table offset, zero reserved word, FNV-1a64 payload hash, 32-byte profile hash |
 | String table | UTF-8 target IDs, 1–65535 bytes each, without NUL terminators |
 | Section entry, 16 bytes | Kind, zero reserved word, payload offset and length |
-| Payloads | Identity, plan, NUL-terminated JavaScript, asset pack, cover, or other declared sections, each padded to 16 bytes |
+| Payloads | Identity, plan, NUL-terminated JavaScript, asset pack, cover, launcher icon set, or other declared sections, each padded to 16 bytes |
 | Footer, 8 bytes | FNV-1a64 over all preceding bytes |
 
 Variants sort by UTF-8 bytes and section kinds increase within each variant.

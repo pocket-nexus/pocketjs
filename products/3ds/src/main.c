@@ -44,6 +44,7 @@
 
 #include "gfx.h"
 #include "stage.h"
+#include "playset.h"
 #include "agent.h"
 #include "input_policy.h"
 #include "pocket_core.h"
@@ -546,6 +547,8 @@ static bool boot_guest(
     (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_QR) != 0,
     (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_PHOTO) != 0
   );
+  /* qjs_boot publishes `globalThis.playset` only for a guest that declared it. */
+  playset_admit((package->guest.features & POCKET_GUEST_FEATURE_PLAYSET) != 0);
   /* The guest's capability decides who owns the top screen; it must be set
    * before qjs_boot, which publishes `globalThis.agent` only for it. */
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
@@ -741,6 +744,9 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
   loading_end();
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
   gspWaitForVBlank();
+  /* A deferred frame is the runtime's until its next present, which waits
+   * for it (bounded) after the guest's turn. */
+  if (gfx_frame_in_flight()) return 0;
   uint32_t waited = 0;
   while (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) {
     gspWaitForVBlank();
@@ -1419,10 +1425,14 @@ int main(void) {
     );
     u64 phase_wait_end __attribute__((unused)) = svcGetSystemTick();
 #ifdef POCKETJS_MEDIA
+    qjs_complete_presentation();
     media_present();
 #endif
+    /* The camera and photos write textures the last frame may still sample. */
+    if (camera_viewfinder_admitted() || camera_photos_admitted()) qjs_complete_presentation();
     camera_present();
     if (agent_enabled()) {
+      qjs_complete_presentation();
       stage_capture_mirror(auxiliary_target);
       agent_capture(auxiliary_target);
     }
@@ -1486,10 +1496,12 @@ int main(void) {
       static u64 previous_js;
       static uint32_t previous_frame = UINT32_MAX;
       if (previous_frame != UINT32_MAX && run_frame == previous_frame + 1) {
+        uint32_t advance_us = 0, present_us = 0;
+        qjs_frame_phases(&advance_us, &present_us);
         devserver_set_frame_timing(
           ticks_to_us(phase_tick - phase_js),
-          0, /* Internal tick/layout/render phases belong to the runtime. */
-          0,
+          advance_us, /* tick: input, the guest frame, the core step */
+          present_us, /* draw: draw lists and both screens' submission */
           0,
           ticks_to_us(phase_js - previous_js),
           ticks_to_us((phase_wait - phase_loop) + (phase_js - phase_wait_end)),
@@ -1520,8 +1532,9 @@ int main(void) {
             &top_rgb,
             &auxiliary_rgb
           )) {
-        /* Canonical tick has retired both surfaces. Copy both targets before
-         * the next tick can overwrite either. */
+        /* Retire both surfaces, then copy both targets before the next tick
+         * can overwrite either. */
+        qjs_complete_presentation();
         gspWaitForVBlank();
         read_surface_rgb8(primary_target, VIEW_W, VIEW_H, top_rgb);
         read_surface_rgb8(

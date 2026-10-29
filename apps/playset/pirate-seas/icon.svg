@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#86d0ee"/><stop offset="1" stop-color="#d7f1fb"/></linearGradient><linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a8fb0"/><stop offset="1" stop-color="#14506e"/></linearGradient><linearGradient id="hull" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8c5630"/><stop offset="1" stop-color="#5c3519"/></linearGradient></defs>
+<rect width="128" height="128" fill="url(#sky)"/>
+<rect y="88" width="128" height="40" fill="url(#sea)"/>
+<g stroke="#3a2210" stroke-width="4" stroke-linejoin="round">
+<path d="M60 92 V16" stroke-width="5"/>
+<path d="M62 22 C84 30 88 54 84 72 H62 Z" fill="#f4e2a8"/>
+<path d="M58 30 C42 38 40 58 42 72 H58 Z" fill="#f4e2a8"/>
+<path d="M62 12 C70 8 78 16 90 11 L88 25 C78 30 70 22 62 26 Z" fill="#222428"/>
+<path d="M14 76 H112 L104 98 C90 104 36 104 24 98 Z" fill="url(#hull)"/>
+</g>
+<circle cx="75" cy="18" r="3" fill="#ffffff"/>
+<g fill="#2a1a0e"><circle cx="36" cy="86" r="4"/><circle cx="56" cy="87" r="4"/><circle cx="76" cy="87" r="4"/><circle cx="94" cy="86" r="4"/></g>
+<path d="M0 104 C12 98 22 98 32 104 C42 110 52 110 64 104 C76 98 86 98 96 104 C106 110 118 110 128 104 V128 H0 Z" fill="#2f9cc0"/>
+<path d="M0 104 C12 98 22 98 32 104 C42 110 52 110 64 104 C76 98 86 98 96 104 C106 110 118 110 128 104" fill="none" stroke="#e6f7ff" stroke-width="4"/>
+</svg>
