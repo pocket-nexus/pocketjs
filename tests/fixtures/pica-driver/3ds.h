@@ -4,6 +4,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 typedef uint32_t u32;
+typedef uint64_t u64;
+/* The driver times its waits and transfers; the mock clock ticks per read. */
+#define SYSCLOCK_ARM11 268111856ull
+static uint64_t mock_ticks;
+static inline u64 svcGetSystemTick(void) { return mock_ticks += 1000; }
+static inline void svcSleepThread(int64_t ns) { (void)ns; }
 typedef enum { GFX_TOP, GFX_BOTTOM } gfxScreen_t;
 typedef enum { GFX_LEFT, GFX_RIGHT } gfx3dSide_t;
 #define GX_TRANSFER_FLIP_VERT(v) 0

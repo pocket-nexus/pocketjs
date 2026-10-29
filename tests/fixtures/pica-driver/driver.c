@@ -144,10 +144,12 @@ static void versioned_two_screen_submission(void) {
                  (uint8_t[]){255, 6, 5, 4}, 4));
   words[2] = xy(90, 90);
   assert(r->pending->vertices[0].x == 3);
+  /* Each display keeps its last build as the candidate for the next frame,
+   * so a finished submission still pins the entries it draws. */
   finish(r, bottom, second);
-  assert(old->refs == 1 && new->refs == 0);
+  assert(old->refs == 1 && new->refs == 1);
   finish(r, top, first);
-  assert(!old->refs && !new->refs);
+  assert(old->refs == 1 && new->refs == 1);
   assert(swaps[0] == 1 && swaps[1] == 1 && transfers == 2);
   pocket_pica_renderer_destroy(r);
   assert(!tex_live && !linear_live && !native_open && !queued);
@@ -189,7 +191,9 @@ static void pressure_and_failure_recovery(void) {
   uint32_t invalid[] = {POCKET_DRAW_OP_RECT, 0, xy(1, 1), ~0u,
                         POCKET_DRAW_OP_TEX_QUAD};
   submit(r, top, invalid, 5, POCKET_STATUS_INVALID);
-  assert(begins == before && !linear_live);
+  /* The failures leaked nothing: the one vertex buffer left is the bottom
+   * display's retained build. */
+  assert(begins == before && linear_live == 1);
   first = submit(r, top, words, 9, 0);
   finish(r, top, first);
   pocket_pica_renderer_destroy(r);
