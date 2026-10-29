@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.memo-between-writes",
-  "name": "memo-between-writes",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

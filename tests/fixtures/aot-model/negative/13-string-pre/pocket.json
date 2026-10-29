@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.string-pre",
-  "name": "string-pre",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

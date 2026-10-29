@@ -2,7 +2,6 @@
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.pocket-nexus.test-system-ui",
-  "name": "test-system-ui",
   "title": "Test System UI",
   "version": "1.0.0",
   "engine": {

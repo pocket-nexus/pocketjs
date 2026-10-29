@@ -1,3 +1,4 @@
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ describe("private iPod touch 4 profile", () => {
   });
 
   test("resolves Pocket Nexus and binds the physics ops it requires", () => {
-    const manifest = JSON.parse(readFileSync(join(repository, "apps/nexus-touch/pocket.json"), "utf8"));
+    const manifest = readPocketManifest(join(repository, "apps/nexus-touch/pocket.json")).manifest as any;
     const plan = resolveIPodTouch4BuildPlan(manifest);
     expect(plan.app.entry).toBe("apps/nexus-touch/main.tsx");
     expect(plan.app.output).toBe("nexus-touch-main");

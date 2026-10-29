@@ -5,7 +5,8 @@ import { pocketManifestV2Schema } from "../contracts/spec/pocket-manifest.ts";
 import { decodeStyleTable } from "../contracts/spec/spec.ts";
 import { KEY_STYLES, unpack } from "../framework/compiler/pak.ts";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { readAuthoredManifest, readPocketManifest } from "../framework/src/manifest/load.ts";
+import { encodePng } from "../tools/repack/shared/png.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 
@@ -110,4 +111,24 @@ test("a theme module that is missing or exports the wrong shape is refused by pa
   expect(() => readPocketManifest(write("./named.ts"))).toThrow(/named\.ts has no default export/);
   writeFileSync(resolve(directory, "theme.json"), JSON.stringify(theme));
   expect((readPocketManifest(write("./theme.json")).manifest as typeof application).app.theme).toEqual(theme);
+});
+
+test("an authored manifest names its theme and icon by path", async () => {
+  const directory = resolve(".pocket-build/validation/manifest-theme", `authored-${process.pid}`);
+  mkdirSync(directory, { recursive: true });
+  const write = (manifest: unknown) => {
+    writeFileSync(resolve(directory, "pocket.json"), JSON.stringify(manifest));
+    return resolve(directory, "pocket.json");
+  };
+  // Inline content is the loaded form; an authored file names a module.
+  expect(() => readAuthoredManifest(write(application))).toThrow("/app/theme");
+  writeFileSync(resolve(directory, "theme.json"), JSON.stringify(theme));
+  const square = await encodePng({ width: 4, height: 4, rgba: new Uint8Array(4 * 4 * 4) });
+  writeFileSync(resolve(directory, "icon.png"), square);
+  const loaded = readAuthoredManifest(write({ ...application, icon: "icon.png", app: { ...application.app, theme: "./theme.json" } }));
+  expect((loaded.manifest as typeof application).app.theme).toEqual(theme);
+  expect(loaded.icon).toEqual(square);
+  expect(loaded.inputs).toContain(resolve(directory, "icon.png"));
+  writeFileSync(resolve(directory, "wide.png"), await encodePng({ width: 4, height: 2, rgba: new Uint8Array(4 * 2 * 4) }));
+  expect(() => readAuthoredManifest(write({ ...application, icon: "wide.png", app: { ...application.app, theme: "./theme.json" } }))).toThrow("square PNG");
 });

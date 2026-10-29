@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.shadow-local",
-  "name": "shadow-local",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

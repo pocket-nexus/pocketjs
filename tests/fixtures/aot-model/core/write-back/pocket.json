@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.write-back",
-  "name": "write-back",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

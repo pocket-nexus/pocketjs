@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.large-number-display",
-  "name": "large-number-display",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

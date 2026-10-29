@@ -3,7 +3,6 @@ import { readPocketManifest } from "../framework/src/manifest/load.ts";
 
 export interface DemoIdentity {
   readonly id: string;
-  readonly name: string;
   readonly title: string;
 }
 
@@ -12,7 +11,6 @@ export function demoIdentity(demo: string): DemoIdentity {
   const normalized = demo.replace(/-main$/, "");
   return {
     id: `dev.pocket-nexus.${normalized.replace(/-/g, ".")}`,
-    name: `pocketjs-${normalized}`,
     title: `PocketJS ${normalized}`,
   };
 }
@@ -20,7 +18,7 @@ export function demoIdentity(demo: string): DemoIdentity {
 /**
  * The manifest a stock demo builds with: its own apps/<name>/pocket.json
  * when committed (the truthful capability declaration), else the legacy
- * synthesis — the repo-root template with this demo's identity spliced in.
+ * synthesis — the hero manifest with this demo's identity spliced in.
  * `framework` overrides only apply to the synthesized path; a real manifest
  * owns its framework.
  */
@@ -33,10 +31,12 @@ export function demoManifestFor(
   if (existsSync(own)) {
     return readPocketManifest(own).manifest as Record<string, unknown>;
   }
-  const manifest = readPocketManifest(`${root}pocket.json`).manifest as Record<string, any>;
+  // The hero manifest is the template; its AOT settings are its own.
+  const manifest = readPocketManifest(`${root}apps/hero/pocket.json`).manifest as Record<string, any>;
+  delete manifest.app.aot;
+  delete manifest.app.model;
   const identity = demoIdentity(demo);
   manifest.id = identity.id;
-  manifest.name = identity.name;
   manifest.title = identity.title;
   manifest.app.entry = `apps/${demo}/main.tsx`;
   manifest.app.output = `${demo}-main`;

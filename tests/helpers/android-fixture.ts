@@ -92,7 +92,7 @@ export function fixtureRuntime(overrides: Record<string, unknown> = {}, template
 export const IDENTITY = { id: "dev.pocket-nexus.studio.test-game", title: "Tom's \"Test\" & <Game>", author: "A Creator", version: "1.2.3" };
 /** A fixture application: repack must keep package and application identity equal. */
 export const clear = (id = IDENTITY.id) => ({
-  $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id, name: "fixture-android", title: "Android Fixture", version: "0.1.0",
+  $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id, title: "Android Fixture", version: "0.1.0",
   engine: { capabilities: { requires: ["input.touch", "text.glyphs.baked", "io.offload"] } },
   app: { entry: "fixture.ts", output: "clear-main", framework: "solid",
     viewport: { fixed: { logical: [360, 640], presentation: "native" } } },

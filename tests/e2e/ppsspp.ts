@@ -238,7 +238,6 @@ mkdirSync(goldensDir, { recursive: true });
 function writeDemoManifest(app: string): string {
   const manifest = demoManifestFor(pspUiDir, app) as Record<string, any>;
   manifest.id = `dev.pocket-nexus.e2e.psp.${app.replace(/-/g, ".")}`;
-  manifest.name = `pocketjs-e2e-${app}`;
   manifest.title = `PocketJS E2E ${app}`;
   manifest.app.entry = `apps/${app}/main.tsx`;
   manifest.app.output = `${app}-main`;

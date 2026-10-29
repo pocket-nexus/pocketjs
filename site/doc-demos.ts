@@ -70,12 +70,15 @@ export function resolveDocDemo(app: string): DocDemo {
     app?: {
       output?: string;
       framework?: keyof typeof OUTPUT_SUFFIX;
-      viewport?: { fixed?: { logical?: [number, number] } };
+      viewport?: { fixed?: { logical?: [number, number] | [number, number][] | { min: [number, number] } } };
     };
   };
   const output = manifest.app?.output;
   const framework = manifest.app?.framework;
-  const logical = manifest.app?.viewport?.fixed?.logical;
+  // A preference list's first size; a range's lower bound.
+  const declared = manifest.app?.viewport?.fixed?.logical;
+  const logical = !declared ? undefined : "min" in declared ? declared.min
+    : typeof declared[0] === "number" ? declared as [number, number] : (declared as [number, number][])[0];
   if (!output || !framework || !(framework in OUTPUT_SUFFIX)) {
     throw new Error(`apps/${app}/pocket.json declares no app.output/app.framework`);
   }

@@ -1,7 +1,5 @@
 import {
-  EXECUTION_CLASSES,
   PRESENTATION_MODES,
-  type ExecutionClass,
   type PresentationMode,
   type Viewport,
 } from "./platform-types.ts";
@@ -55,20 +53,15 @@ export interface PocketManifestV2 {
   readonly $schema: typeof POCKET_MANIFEST_SCHEMA_ID;
   readonly pocket: typeof POCKET_MANIFEST_VERSION;
   readonly id: string;
-  readonly name: string;
   readonly title: string;
   readonly version: string;
+  /** Who publishes the application; repacked programs record it. */
+  readonly author?: string;
   /**
-   * Execution classes this package ships as; omitted means ["guest"].
-   * Declaring "aot" states that the entry compiles under an AOT family
-   * whose admission is compile-time derived demands
-   * against a board profile, not this manifest's capability ids. A package
-   * whose classes exclude "guest" is refused by the guest build resolver.
-   * Per-class blocks (e.g. an `aot` section) hang off this object later.
+   * A square PNG, relative to this file. `pocket compile` stores it as each
+   * variant's cover section; `pocket pack` uses it when no `--icon` is given.
    */
-  readonly execution?: {
-    readonly classes: readonly ExecutionClass[];
-  };
+  readonly icon?: string;
   /**
    * Declares the package a Pocket Applet (contracts/spec/applet.ts): the
    * program a launcher runs, held to the applet rules at resolution and
@@ -86,11 +79,11 @@ export interface PocketManifestV2 {
     readonly output?: string;
     readonly framework: PocketFramework;
     /**
-     * Animation content, or the path of a module relative to this file whose
-     * default export is that content. `readPocketManifest` replaces the path
-     * with the export; a build plan and a package carry the content.
+     * The path of a module or JSON file, relative to this file, whose default
+     * export is the animation content. `readPocketManifest` replaces the path
+     * with the content; a build plan and a package carry the content.
      */
-    readonly theme?: AnimationTheme | string;
+    readonly theme?: string | AnimationTheme;
     /** Admit the complete Solid component graph to the AOT view subset. */
     readonly aot?: boolean;
     readonly model?: "rust" | "compiled";
@@ -161,8 +154,24 @@ export interface PresentationSpec {
   };
 }
 
-/** A fixed-screen viewport declaration (takeover/kiosk/embedded targets). */
+/** An inclusive range of logical sizes. */
+export interface ViewportRange {
+  readonly min: Viewport;
+  readonly max: Viewport;
+}
+
+/**
+ * A fixed-screen viewport declaration (takeover/kiosk/embedded targets).
+ * `logical` is one size, a list of sizes in preference order, or a range;
+ * the resolver takes the first size the target lists.
+ */
 export interface FixedViewportSpec {
+  readonly logical: Viewport | readonly Viewport[] | ViewportRange;
+  readonly presentation: PresentationMode;
+}
+
+/** An auxiliary surface's fixed declaration: one size. */
+export interface FixedSurfaceSpec {
   readonly logical: Viewport;
   readonly presentation: PresentationMode;
 }
@@ -180,7 +189,7 @@ export interface AdaptiveViewportSpec {
 
 /** `fixed` requires the target's size; `adaptive` takes it. One of the two. */
 export type AuxiliarySurfaceSpec =
-  | { readonly fixed: FixedViewportSpec; readonly adaptive?: undefined }
+  | { readonly fixed: FixedSurfaceSpec; readonly adaptive?: undefined }
   | { readonly adaptive: AdaptiveViewportSpec; readonly fixed?: undefined };
 
 /** A dynamic-window viewport declaration (window/widget targets). */
@@ -238,12 +247,35 @@ const viewportSizeSchema = {
   maxItems: 2,
 } as const satisfies JsonSchema;
 
-const fixedViewportSchema = {
+/** One auxiliary size. */
+const fixedSurfaceSchema = {
   type: "object",
   additionalProperties: false,
   required: ["logical", "presentation"],
   properties: {
     logical: viewportSizeSchema,
+    presentation: { enum: PRESENTATION_MODES },
+  },
+} as const satisfies JsonSchema;
+
+/** The primary fixed viewport: one size, a preference list or a range. */
+const fixedViewportSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["logical", "presentation"],
+  properties: {
+    logical: {
+      anyOf: [
+        viewportSizeSchema,
+        { type: "array", items: viewportSizeSchema, minItems: 1, uniqueItems: true },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["min", "max"],
+          properties: { min: viewportSizeSchema, max: viewportSizeSchema },
+        },
+      ],
+    },
     presentation: { enum: PRESENTATION_MODES },
   },
 } as const satisfies JsonSchema;
@@ -258,7 +290,7 @@ const surfacesSchema = {
       additionalProperties: false,
       description: "Exactly one of fixed and adaptive (checked at resolution).",
       properties: {
-        fixed: fixedViewportSchema,
+        fixed: fixedSurfaceSchema,
         adaptive: {
           type: "object",
           additionalProperties: false,
@@ -339,7 +371,7 @@ export const pocketManifestV2Schema = {
   title: "Pocket application manifest, format 2",
   type: "object",
   additionalProperties: false,
-  required: ["$schema", "pocket", "id", "name", "title", "version", "engine", "app"],
+  required: ["$schema", "pocket", "id", "title", "version", "engine", "app"],
   properties: {
     $schema: { const: POCKET_MANIFEST_SCHEMA_ID },
     pocket: { const: POCKET_MANIFEST_VERSION },
@@ -348,30 +380,13 @@ export const pocketManifestV2Schema = {
       minLength: 3,
       pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$",
     },
-    name: {
-      type: "string",
-      minLength: 1,
-      maxLength: 64,
-      pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
-    },
     title: { type: "string", minLength: 1, maxLength: 128 },
     version: {
       type: "string",
       pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
     },
-    execution: {
-      type: "object",
-      additionalProperties: false,
-      required: ["classes"],
-      properties: {
-        classes: {
-          type: "array",
-          items: { enum: EXECUTION_CLASSES },
-          minItems: 1,
-          uniqueItems: true,
-        },
-      },
-    },
+    author: { type: "string", minLength: 1, maxLength: 128 },
+    icon: { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.png$" },
     applet: appletSchema,
     engine: {
       type: "object",
@@ -411,7 +426,7 @@ export const pocketManifestV2Schema = {
         entry: entrySchema,
         output: outputSchema,
         framework: { enum: ["solid", "vue-vapor", "octane"] },
-        theme: { anyOf: [animationThemeSchema, { type: "string", minLength: 1 }] },
+        theme: { type: "string", minLength: 1 },
         aot: { type: "boolean" },
         model: { enum: ["rust", "compiled"] },
         recursionLimit: { type: "integer", minimum: 1, default: 256 },
@@ -434,6 +449,25 @@ export const pocketManifestV2Schema = {
           minItems: 1,
         },
         modality: modalityRequirementSchema,
+      },
+    },
+  },
+} as const satisfies JsonSchema;
+
+/**
+ * The schema `validatePocketManifest` applies: the published file schema,
+ * with `app.theme` also accepting the content `readPocketManifest` loads in
+ * place of the path. Packages embed that loaded form.
+ */
+export const loadedManifestSchema = {
+  ...pocketManifestV2Schema,
+  properties: {
+    ...pocketManifestV2Schema.properties,
+    app: {
+      ...pocketManifestV2Schema.properties.app,
+      properties: {
+        ...pocketManifestV2Schema.properties.app.properties,
+        theme: { anyOf: [animationThemeSchema, { type: "string", minLength: 1 }] },
       },
     },
   },

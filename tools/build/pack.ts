@@ -43,10 +43,14 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
   const selection = selectVariant(decodePocketPackage(pocket), admissionHost(metadata.document, metadata.profileHash, metadata.hostAbi));
   if (!selection.ok) throw new Error(`this runtime does not admit the application: ${describeRejection(selection)}`);
   const plan = JSON.parse(new TextDecoder().decode(findSection(selection.variant, POCKET_SECTION.plan)!)) as ResolvedBuildPlan;
+  // The manifest's author and icon (stored as the cover section) are the
+  // identity defaults.
+  const declared = JSON.parse(new TextDecoder().decode(decodePocketPackage(pocket).manifest)) as { author?: unknown; icon?: unknown };
+  const cover = typeof declared.icon === "string" ? findSection(selection.variant, POCKET_SECTION.cover) : null;
   const identity: RepackIdentity = {
     id: options.id ?? plan.app.id, title: options.title ?? plan.app.title,
-    author: options.author ?? "Unspecified", version: options.version ?? plan.app.version,
-    ...(options.icon ? { icon: new Uint8Array(readFileSync(resolve(cwd, options.icon))) } : {}),
+    author: options.author ?? (typeof declared.author === "string" ? declared.author : "Unspecified"), version: options.version ?? plan.app.version,
+    ...(options.icon ? { icon: new Uint8Array(readFileSync(resolve(cwd, options.icon))) } : cover ? { icon: cover } : {}),
   };
   await admitPocket(pocket, metadata, identity);
   const result = await adapter.repack({ runtime, pocket, identity, ...(adapter.signed ? { signer: readCommunitySigner() } : {}) });

@@ -22,7 +22,7 @@ import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { readAuthoredManifest } from "../framework/src/manifest/load.ts";
 import {
   canonicalJson,
   verifyPlanHash,
@@ -35,6 +35,7 @@ import {
   POCKET_SECTION,
   decodePocketPackage,
   decodeHostInputs,
+  decodeIdentity,
   encodeHostInputs,
   encodeIdentity,
   encodePocketPackage,
@@ -155,7 +156,7 @@ async function buildCommand(argv: string[]): Promise<void> {
   }
   if (!manifestPath) usage("--manifest is required");
   if (!allTargets && targets.length === 0) usage("give --target (repeatable) or --all-targets");
-  const loaded = readPocketManifest(manifestPath);
+  const loaded = readAuthoredManifest(manifestPath);
   const manifest: unknown = loaded.manifest;
 
   const requested = allTargets ? Object.keys(POCKET_TARGETS) : targets;
@@ -185,14 +186,14 @@ async function buildCommand(argv: string[]): Promise<void> {
         js,
         ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
         pak,
-        cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
+        cover: loaded.icon ?? (existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined),
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
   }
   if (variants.length === 0) throw new Error("pocket-pack: no variant admitted — nothing to pack");
 
-  const id = (manifest as { name?: string }).name ?? "app";
+  const id = variants.length ? decodeIdentity(findSection(variants[0]!, POCKET_SECTION.identity)!).output : "app";
   const file = output || join(ROOT, "dist/packages", `${id}.pocket`);
   mkdirSync(dirname(file), { recursive: true });
   const bytes = encodePocketPackage({ manifest: loaded.embedded, variants });

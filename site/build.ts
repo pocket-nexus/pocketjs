@@ -15,6 +15,7 @@
 
 import { stageWebAssets } from "../tools/build/web-assets.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -368,7 +369,7 @@ function demoManifest() {
     // viewport) keeps its demo off the site.
     const manifestPath = dir + name + "/pocket.json";
     if (existsSync(manifestPath)) {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const manifest = readPocketManifest(manifestPath).manifest;
       if (!validateAndResolveBuildPlan(manifest, { target: "psp" }).ok) continue;
     }
     const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"));

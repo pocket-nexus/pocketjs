@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.negative.region-reset",
-  "name": "Model region reset",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

@@ -70,7 +70,6 @@ describe("published PocketJS CLI", () => {
       $schema: "https://pocketjs.dev/schema/pocket-2.json",
       pocket: 2,
       id: "dev.example.portable.counter",
-      name: "portable-counter",
       version: "0.1.0",
       app: {
         entry: "main.tsx",

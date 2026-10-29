@@ -50,7 +50,6 @@ describe("Symbian launcher", () => {
         readFileSync(join(repository, "apps/hero/pocket.json"), "utf8"),
       );
       manifest.id = "dev.pocket-nexus.launcher.throw-probe";
-      manifest.name = output;
       manifest.title = "AAAA Launcher Throw Probe";
       manifest.app.entry = "app.tsx";
       manifest.app.output = output;

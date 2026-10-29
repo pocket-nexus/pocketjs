@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.float-literal",
-  "name": "float-literal",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

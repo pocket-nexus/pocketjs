@@ -12,6 +12,10 @@ export const WORKER_RESOURCES = {
   http: { kind: 3, capability: "net.http" },
 } as const;
 export type WorkerResourceKind = keyof typeof WORKER_RESOURCES;
+/** The capabilities a worker declaration implies. */
+export function workerCapabilities(declaration: { readonly nodes: readonly { readonly kind: WorkerResourceKind }[] }): string[] {
+  return ["runtime.worker", ...new Set(declaration.nodes.map(node => WORKER_RESOURCES[node.kind].capability))];
+}
 export const ResourceKind = Object.fromEntries(
   Object.entries(WORKER_RESOURCES).map(([name, row]) => [name, row.kind]),
 ) as { readonly [K in WorkerResourceKind]: (typeof WORKER_RESOURCES)[K]["kind"] };
@@ -37,6 +41,9 @@ export interface WorkerChannelDeclaration {
   readonly capacity: number;
 }
 
+/** A worker declaration implies these requirements: the second runtime and
+ *  the capability of each node kind it owns. Node and channel counts are
+ *  checked at resolution against WORKER_LIMITS and the host's worker table. */
 export interface WorkerDeclaration {
   /** Path relative to the project root, as for app.entry. */
   readonly entry: string;
@@ -49,11 +56,11 @@ export const workerDeclarationSchema = {
   type: "object", additionalProperties: false, required: ["entry", "nodes"],
   properties: {
     entry: { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.ts$" },
-    nodes: { type: "array", maxItems: 8, items: {
+    nodes: { type: "array", items: {
       type: "object", additionalProperties: false, required: ["name", "kind"],
       properties: { name: nodeName, kind: { enum: Object.keys(WORKER_RESOURCES) } },
     } },
-    channels: { type: "array", maxItems: 8, items: {
+    channels: { type: "array", items: {
       type: "object", additionalProperties: false,
       required: ["name", "kind", "direction", "recordBytes", "capacity"],
       properties: {

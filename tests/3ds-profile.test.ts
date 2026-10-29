@@ -29,7 +29,6 @@ function topScreenManifest(): Record<string, any> {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: "dev.pocket-nexus.3ds-demo",
-    name: "pocketjs-3ds-hero",
     title: "PocketJS: 3DS Hero",
     version: "0.1.0",
     engine: {

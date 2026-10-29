@@ -41,7 +41,7 @@ Android and the default iPod touch 4 config build without application code. Pack
 ```sh
 bun tools/pocket.ts build --config programs/redmi-1s/pocket.runtime-config.ts \
   --out dist/redmi-runtime
-bun tools/pocket.ts compile --manifest apps/clear/pocket.redmi-1s.json \
+bun tools/pocket.ts compile --manifest apps/clear/pocket.json \
   --project-root . --runtime-config programs/redmi-1s/pocket.runtime-config.ts \
   --output dist/clear-redmi.pocket
 bun tools/pocket.ts pack --config programs/redmi-1s/pocket.runtime-config.ts \

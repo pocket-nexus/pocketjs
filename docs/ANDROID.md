@@ -51,7 +51,7 @@ The [Device native build recipes](DEVICE_BUILDS.md) separate application compila
 ```sh
 bun redmi-1s setup
 bun redmi-1s doctor
-bun tools/pocket.ts compile --manifest apps/clear/pocket.redmi-1s.json \
+bun tools/pocket.ts compile --manifest apps/clear/pocket.json \
   --project-root . --runtime-config programs/redmi-1s/pocket.runtime-config.ts \
   --output dist/clear-redmi.pocket
 bun tools/android.ts --profile=redmi-1s build-app \

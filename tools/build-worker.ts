@@ -73,8 +73,8 @@ if (import.meta.main) {
   const diagnostics: ContractDiagnostic[] = [];
   validateSchema(manifest.domains.worker, workerDeclarationSchema, "/domains/worker", diagnostics);
   if (diagnostics.length) throw new Error(diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
-  const output = manifest.app.output ?? manifest.name;
-  if (typeof output !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(output)) throw new Error("Worker output requires app.output or name without path separators");
+  const output = manifest.app.output;
+  if (typeof output !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(output)) throw new Error("Worker output requires app.output without path separators");
   // Entry paths are relative to the project root; the default matches `pocket check`.
   await buildWorker({ declaration: manifest.domains.worker, projectRoot: resolve(projectRootOption ?? dirname(path)), outdir: resolve(outdir), output });
 }

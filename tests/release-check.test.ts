@@ -30,7 +30,7 @@ describe("release version gate", () => {
     const root = await releaseFixture({
       "package.json": "0.4.0",
       "tools/cli/package.json": "0.4.0",
-      "pocket.json": "0.4.0",
+      "apps/hero/pocket.json": "0.4.0",
     });
 
     expect((await checkReleaseVersion("0.4.0", root)).version).toBe("0.4.0");
@@ -46,11 +46,11 @@ describe("release version gate", () => {
     const root = await releaseFixture({
       "package.json": "0.4.0",
       "tools/cli/package.json": "0.3.0",
-      "pocket.json": "0.3.1",
+      "apps/hero/pocket.json": "0.3.1",
     });
 
     await expect(checkReleaseVersion("v0.4.0", root)).rejects.toThrow(
-      "tools/cli/package.json: 0.3.0\n  pocket.json: 0.3.1",
+      "tools/cli/package.json: 0.3.0\n  apps/hero/pocket.json: 0.3.1",
     );
   });
 
@@ -59,12 +59,12 @@ describe("release version gate", () => {
       "package.json": "0.4.0",
       "tools/cli/package.json": "0.4.0",
     });
-    await expect(checkReleaseVersion("0.4.0", missing)).rejects.toThrow("cannot read pocket.json");
+    await expect(checkReleaseVersion("0.4.0", missing)).rejects.toThrow("cannot read apps/hero/pocket.json");
 
     const nonString = await releaseFixture({
       "package.json": "0.4.0",
       "tools/cli/package.json": 4,
-      "pocket.json": "0.4.0",
+      "apps/hero/pocket.json": "0.4.0",
     });
     await expect(checkReleaseVersion("0.4.0", nonString)).rejects.toThrow(
       "tools/cli/package.json must contain a valid SemVer string",
@@ -73,7 +73,7 @@ describe("release version gate", () => {
     const invalid = await releaseFixture({
       "package.json": "0.4.0",
       "tools/cli/package.json": "next",
-      "pocket.json": "0.4.0",
+      "apps/hero/pocket.json": "0.4.0",
     });
     await expect(checkReleaseVersion("0.4.0", invalid)).rejects.toThrow(
       "tools/cli/package.json must contain a valid SemVer string",

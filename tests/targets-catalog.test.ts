@@ -30,7 +30,6 @@ function minimalManifest(profile: TargetProfile<string>): unknown {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: "dev.example.catalog",
-    name: "catalog",
     title: "Catalog",
     version: "0.1.0",
     engine: { capabilities: { requires: ["text.glyphs.baked"] } },
@@ -79,11 +78,11 @@ describe("target catalog", () => {
   test("catalog resolution equals each device profile's own resolver", () => {
     const cases: [string, string, (manifest: unknown) => ReturnType<typeof resolve3dsBuildPlan>][] = [
       ["3ds", "apps/3ds-demo/pocket.json", resolve3dsBuildPlan],
-      ["moto-g-play", "apps/clear/pocket.android.json", resolveMotoGPlayBuildPlan],
-      ["redmi-1s", "apps/clear/pocket.redmi-1s.json", resolveRedmi1sBuildPlan],
+      ["moto-g-play", "apps/clear/pocket.json", resolveMotoGPlayBuildPlan],
+      ["redmi-1s", "apps/clear/pocket.json", resolveRedmi1sBuildPlan],
       ["blackberry-classic", "apps/blackberry-classic-demo/pocket.json", (m) => resolveBlackBerryClassicBuildPlan(m, BLACKBERRY_QNX_DEV_TARGET_ID)],
       ["meizu-m8", "apps/meizu-m8-demo/pocket.json", resolveMeizuM8BuildPlan],
-      ["nokia-e7", "apps/clear/pocket.symbian.json", resolveSymbianE7BuildPlan],
+      ["nokia-e7", "apps/clear/pocket.json", resolveSymbianE7BuildPlan],
       ["iphone2g", "apps/iphone2g-demo/pocket.json", resolveIPhone2GBuildPlan],
       ["iphone4s", "apps/iphone4s-demo/pocket.json", resolveIPhone4SBuildPlan],
       ["ipodtouch6", "apps/ipodtouch-demo/pocket.json", resolveIPodTouchBuildPlan],

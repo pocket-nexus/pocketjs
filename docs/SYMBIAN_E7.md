@@ -606,7 +606,7 @@ receipt records the encoded registry hash.
 ```
 
 ```sh
-bun tools/symbian.ts build app --manifest apps/clear/pocket.symbian.json \
+bun tools/symbian.ts build app --manifest apps/clear/pocket.json \
   --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
   --frame-rate 60 --sis-version 0.3.12
 ```

@@ -2,7 +2,6 @@
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.pocket-nexus.nexus-touch",
-  "name": "pocketjs-nexus-touch",
   "title": "Pocket Nexus",
   "version": "0.1.0",
   "engine": {
@@ -33,83 +32,6 @@
         ]
       }
     },
-    "theme": {
-      "keyframes": {
-        "bob": {
-          "from": {
-            "transform": "translateY(0px) rotate(0deg)"
-          },
-          "50%": {
-            "transform": "translateY(-1.42px) rotate(0.8deg)"
-          },
-          "to": {
-            "transform": "translateY(0px) rotate(0deg)"
-          }
-        },
-        "breathe": {
-          "from": {
-            "transform": "scaleX(1) scaleY(1)"
-          },
-          "50%": {
-            "transform": "scaleX(0.993) scaleY(1.014)"
-          },
-          "to": {
-            "transform": "scaleX(1) scaleY(1)"
-          }
-        },
-        "nudge": {
-          "from": {
-            "transform": "translateY(0px)"
-          },
-          "50%": {
-            "transform": "translateY(5px)"
-          },
-          "to": {
-            "transform": "translateY(0px)"
-          }
-        }
-      },
-      "animation": {
-        "bob-0": {
-          "value": "bob 3808ms ease-in-out 0ms infinite both"
-        },
-        "bob-1": {
-          "value": "bob 3808ms ease-in-out 412ms infinite both"
-        },
-        "bob-2": {
-          "value": "bob 3808ms ease-in-out 824ms infinite both"
-        },
-        "bob-3": {
-          "value": "bob 3808ms ease-in-out 1236ms infinite both"
-        },
-        "bob-4": {
-          "value": "bob 3808ms ease-in-out 1648ms infinite both"
-        },
-        "bob-5": {
-          "value": "bob 3808ms ease-in-out 2060ms infinite both"
-        },
-        "bob-6": {
-          "value": "bob 3808ms ease-in-out 2472ms infinite both"
-        },
-        "bob-7": {
-          "value": "bob 3808ms ease-in-out 2884ms infinite both"
-        },
-        "bob-8": {
-          "value": "bob 3808ms ease-in-out 3296ms infinite both"
-        },
-        "bob-9": {
-          "value": "bob 3808ms ease-in-out 3708ms infinite both"
-        },
-        "bob-10": {
-          "value": "bob 3808ms ease-in-out 312ms infinite both"
-        },
-        "nudge": {
-          "value": "nudge 1300ms ease-in-out infinite both"
-        },
-        "breathe": {
-          "value": "breathe 3700ms ease-in-out infinite both"
-        }
-      }
-    }
+    "theme": "./e7/theme.json"
   }
 }

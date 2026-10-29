@@ -17,6 +17,7 @@ export interface RegistryApp {
 }
 
 export const REGISTRY: readonly RegistryApp[] = [
+  { output: "clear-main", id: "dev.pocket-nexus.clear", title: "Pocket Clear", cover: "covers/cover-clear-main.png", refl: "covers/refl-clear-main.png" },
   { output: "note-main", id: "dev.pocket-nexus.note", title: "Pocket Note", cover: "covers/cover-note-main.png", refl: "covers/refl-note-main.png" },
   { output: "nsengine-main", id: "dev.pocket-nexus.nsengine", title: "PocketJS NS Engine", cover: "covers/cover-nsengine-main.png", refl: "covers/refl-nsengine-main.png" },
   { output: "cafe-main", id: "dev.pocket-nexus.cafe", title: "PocketJS: Café", cover: "covers/cover-cafe-main.png", refl: "covers/refl-cafe-main.png" },

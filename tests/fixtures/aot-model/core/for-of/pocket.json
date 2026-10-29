@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.for-of",
-  "name": "for-of",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

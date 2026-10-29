@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.overflow-multiply",
-  "name": "overflow-multiply",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

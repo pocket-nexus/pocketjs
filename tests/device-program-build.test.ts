@@ -25,7 +25,7 @@ const generic = new Set(["moto-g-play", "redmi-1s", "ipodtouch4"]);
 function select(id: string) { return resolveProfile({ from: root, runtimeConfig: join(root, `programs/${id}/pocket.runtime-config.ts`), requireConfig: true }); }
 function packageFixture(selected: ResolvedProfile, directory: string) {
   const manifest = {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocketjs.native-input", name: "current-package", title: "Current package", version: "1.2.3",
+    $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocketjs.native-input", title: "Current package", version: "1.2.3",
     engine: { capabilities: { requires: ["text.glyphs.baked"] } },
     app: { entry: "source-does-not-exist.tsx", output: "current-package", framework: "solid", viewport: { fixed: {
       logical: selected.profile.display.logicalViewports[0], presentation: selected.profile.display.presentations[0],

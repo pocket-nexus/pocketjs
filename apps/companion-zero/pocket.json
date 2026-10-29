@@ -2,12 +2,11 @@
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.pocket-nexus.companion-zero",
-  "name": "pocket-companion-zero",
   "title": "Pocket Companion",
   "version": "0.1.0",
   "engine": {
     "capabilities": {
-      "requires": ["runtime.worker", "net.http", "text.glyphs.baked", "input.buttons"]
+      "requires": ["text.glyphs.baked", "input.buttons"]
     }
   },
   "app": {

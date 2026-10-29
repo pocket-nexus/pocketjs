@@ -1,3 +1,4 @@
+import { readPocketManifest } from "../../framework/src/manifest/load.ts";
 import { capture, prepareNative3ds, runNative3dsMake } from "../../tools/build/3ds/native.ts";
 // tools/3ds.ts <app> [cargo args…] — build the app JS+pak (tools/build.ts), the
 // Rust core staticlib, QuickJS, and the .3dsx for the out-of-registry "3ds-dev"
@@ -473,7 +474,7 @@ async function loadBuildPlan(
           "the runtime package carries the admitted manifest verbatim",
       );
     }
-    const manifestPlan = resolve3dsBuildPlan(JSON.parse(readFileSync(manifestPath, "utf8")));
+    const manifestPlan = resolve3dsBuildPlan(readPocketManifest(manifestPath).manifest);
     if (canonicalJson(manifestPlan) !== canonicalJson(checked)) {
       throw new Error(
         `PocketJS 3ds: ${args.planPath} has drifted from ${manifestPath}; regenerate the resolved plan before packaging`,
@@ -497,7 +498,7 @@ async function loadBuildPlan(
     );
   }
   const plan = assert3dsPlan(
-    resolve3dsBuildPlan(JSON.parse(readFileSync(manifest, "utf8"))),
+    resolve3dsBuildPlan(readPocketManifest(manifest).manifest),
     manifest,
   );
   const planPath = `${repository}.pocket/3ds/${plan.app.output}.plan.json`;

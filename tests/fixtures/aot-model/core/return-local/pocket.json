@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.return-local",
-  "name": "return-local",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

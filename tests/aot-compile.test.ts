@@ -16,11 +16,10 @@ function temporary() { return mkdtempSync(join(RUNS, "test-")); }
 const files = (path: string): string[] => readdirSync(path, { withFileTypes: true }).flatMap(item => item.isDirectory() ? files(join(path, item.name)) : [join(path, item.name)]);
 
 describe("AOT application artifact", () => {
-  test("compile --aot admits an AOT-only manifest and emits input dependencies without a package", async () => {
+  test("compile --aot admits an AOT manifest and emits input dependencies without a package", async () => {
     const directory = temporary();
     try {
       const manifest = JSON.parse(readFileSync(resolve(ROOT, "apps/ipodnano-hero/pocket.json"), "utf8"));
-      manifest.execution = { classes: ["aot"] };
       const source = join(directory, "pocket.json");
       writeFileSync(source, JSON.stringify(manifest));
       const out = join(directory, "generated"), dependencyFile = join(directory, "generated.d");
@@ -83,7 +82,7 @@ import {View, Text} from '@pocketjs/framework/vue-vapor/components';
 import {label} from './App';
 </script><template><View class="w-[20] h-[20]"><Text>{{label}}</Text></View></template>`);
       writeFileSync(join(project, "App.d.ts"), "export declare const label: string;");
-      const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", name: "vue-aot-test", pocket: 2, id: "dev.test.vue-aot", title: "Vue AOT", version: "1.0.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } }, app: {
+      const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.test.vue-aot", title: "Vue AOT", version: "1.0.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } }, app: {
         entry: "main.ts", framework: "vue-vapor", aot: true, viewport: { fixed: { logical: [240,160], presentation: "native" } },
       } };
       const manifestPath = join(project, "pocket.json");
@@ -103,7 +102,7 @@ import {label} from './App';
     try {
       const entry = join(project, "app.tsx"), manifestPath = join(project, "pocket.json");
       writeFileSync(entry, `import {View} from '@pocketjs/framework/solid/components';\nexport default function App(){return <View class="w-[20] h-[20] animate-app-fade"/>}`);
-      const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", name: "aot-test", pocket: 2, id: "dev.test.aot", title: "AOT", version: "1.0.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } }, app: {
+      const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.test.aot", title: "AOT", version: "1.0.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } }, app: {
         entry: "app.tsx", framework: "solid", aot: true, tickHz: 30, viewport: { fixed: { logical: [240,160], presentation: "native" } },
         theme: { keyframes: { fade: { from: {opacity: 0}, to: {opacity: 1} } }, animation: { "app-fade": "fade 1s linear" } },
       } };

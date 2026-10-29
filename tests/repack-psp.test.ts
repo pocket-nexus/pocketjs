@@ -32,7 +32,6 @@ function manifest(features: string[] = []) {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: ID,
-    name: "snack-snake",
     title: "Snack Snake",
     version: "1.2.0",
     engine: { capabilities: { requires: ["text.glyphs.baked", ...features], enhances: ["input.buttons"] } },

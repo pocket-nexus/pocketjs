@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.primitive-same",
-  "name": "primitive-same",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

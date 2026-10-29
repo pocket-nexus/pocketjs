@@ -30,7 +30,6 @@ function manifest() {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: ID,
-    name: "twenty48",
     title: "Twenty48",
     version: "0.1.0",
     engine: { capabilities: { requires: ["text.glyphs.baked"], enhances: ["input.buttons"] } },

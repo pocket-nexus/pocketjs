@@ -107,7 +107,6 @@ function manifest(): Record<string, any> {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: "dev.pocket-nexus.presentations",
-    name: "pocket-presentations",
     title: "Pocket Presentations",
     version: "1.0.0",
     engine: {

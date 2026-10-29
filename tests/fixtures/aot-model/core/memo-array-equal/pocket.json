@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.memo-array-equal",
-  "name": "memo-array-equal",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

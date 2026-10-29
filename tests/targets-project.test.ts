@@ -205,7 +205,7 @@ int main(void) {
     const runtime = join(directory, "pocket.runtime-config.ts");
     writeFileSync(runtime, `export default {profiles:${JSON.stringify(documents)}};`);
     writeFileSync(join(app, "main.tsx"), 'import {mount} from "@pocketjs/framework";import {View} from "@pocketjs/framework/components";mount(()=><View class="w-full h-full bg-red-500"/>);');
-    writeFileSync(join(app, "pocket.json"), JSON.stringify({ $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "example.compile", name: "compile", title: "Compile", version: "1.0.0", engine: { capabilities: { requires: ["input.buttons"] } }, app: { entry: "main.tsx", output: "app", framework: "solid", viewport: { logical: [4, 4], presentation: "native" } } }));
+    writeFileSync(join(app, "pocket.json"), JSON.stringify({ $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "example.compile", title: "Compile", version: "1.0.0", engine: { capabilities: { requires: ["input.buttons"] } }, app: { entry: "main.tsx", output: "app", framework: "solid", viewport: { logical: [4, 4], presentation: "native" } } }));
     for (const target of ["external-a", "external-b"]) {
       const output = join(directory, target, "app.pocket");
       const dependency = join(directory, target, "app.d");

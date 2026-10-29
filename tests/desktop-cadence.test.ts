@@ -16,7 +16,7 @@ const target = process.platform === "darwin" ? "macos-app" : "linux-app";
 function compile(directory: string, tickHz: number): string {
   const manifest = join(directory, `pocket-${tickHz}.json`);
   writeFileSync(manifest, JSON.stringify({
-    $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocketjs.cadence-probe", name: "cadence-probe",
+    $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocketjs.cadence-probe",
     title: "Cadence Probe", version: "0.1.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } },
     app: { entry: "tests/fixtures/cadence-probe/main.tsx", output: "cadence-probe", framework: "solid", tickHz,
       viewport: { dynamic: { default: [320, 240] } } },

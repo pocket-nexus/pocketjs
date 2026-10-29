@@ -2,7 +2,6 @@
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.pocket-nexus.settings",
-  "name": "pocketjs-settings",
   "title": "PocketJS: Settings",
   "version": "0.6.0",
   "engine": {

@@ -258,6 +258,27 @@ test("pack uses the program's repack adapter after matching runtime, package and
   rmSync(join(runtime, "unlisted.bin"));
 });
 
+test("pack takes the identity's author and icon from the package manifest", async () => {
+  const dir = scratch(); const runtime = join(dir, "runtime"); mkdirSync(runtime);
+  const config = join(dir, "pocket.runtime-config.ts");
+  writeFileSync(config, `import {defineRuntimeConfig,compilerOnly} from '@pocketjs/framework/runtime-config';
+    export default defineRuntimeConfig({profile:${JSON.stringify(join(import.meta.dir, "../profiles/psp.json"))},build:{hosts:['darwin-arm64','darwin-x64','linux-x64','linux-arm64'],steps:compilerOnly(),
+      genericRuntime:{extension:'.fixture',async repack(input){return new TextEncoder().encode(JSON.stringify({author:input.identity.author,icon:[...(input.identity.icon??[])]}));}}}});`);
+  const selected = await resolveProfile({ from: dir });
+  writeFileSync(join(runtime, "native.bin"), new Uint8Array([7]));
+  await writeRuntimeManifest(runtime, { target: "psp", hostAbi: POCKET_BINDING_GENERATION, profile: selected.profile, files: ["native.bin"] });
+  const resolved = plan(), cover = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const variant = makeVariant({ target: "psp", hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(resolved),
+    identity: { output: resolved.app.output, id: resolved.app.id, title: resolved.app.title },
+    js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array(), cover });
+  const pocket = join(dir, "authored.pocket");
+  writeFileSync(pocket, encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify({ ...manifest, author: "Pocket Nexus", icon: "icon.png" })), variants: [variant] }));
+  const packed = await packRuntime({ config, runtime, pocket, output: join(dir, "app.fixture") }, dir);
+  expect(JSON.parse(readFileSync(packed, "utf8"))).toEqual({ author: "Pocket Nexus", icon: [...cover] });
+  const explicit = await packRuntime({ config, runtime, pocket, output: join(dir, "explicit.fixture"), author: "Someone" }, dir);
+  expect(JSON.parse(readFileSync(explicit, "utf8")).author).toBe("Someone");
+});
+
 test("config resolution directories exclude generated native outputs but retain package and module candidates", async () => {
   for (const mutation of ["native-output", "package", "lock", "module"] as const) {
     const dir = scratch();

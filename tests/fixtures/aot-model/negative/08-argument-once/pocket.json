@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.argument-once",
-  "name": "argument-once",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

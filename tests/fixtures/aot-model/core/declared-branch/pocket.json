@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.declared-branch",
-  "name": "declared-branch",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

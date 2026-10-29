@@ -5,12 +5,14 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { animationThemeSchema, type AnimationTheme } from "../../../contracts/spec/pocket-manifest.ts";
+import { animationThemeSchema, pocketManifestV2Schema, type AnimationTheme } from "../../../contracts/spec/pocket-manifest.ts";
 import { validateSchema, type ContractDiagnostic } from "./schema.ts";
 
 export interface LoadedManifest {
   /** The manifest, with `app.theme` holding content. */
   readonly manifest: unknown;
+  /** The PNG `icon` names, read by `readAuthoredManifest`. */
+  readonly icon?: Uint8Array;
   /** The manifest file and, for a theme module reference, the module and every relative import it reaches. */
   readonly inputs: readonly string[];
   /** The bytes a package embeds: the file as written, or the manifest with its theme reference replaced. */
@@ -30,6 +32,35 @@ export function readPocketManifest(path: string): LoadedManifest {
       : new TextEncoder().encode(JSON.stringify(expanded.manifest, null, 2) + "\n"),
   };
 }
+
+/**
+ * Read a manifest an author wrote: the file must satisfy the published
+ * schema (contracts/schema/pocket-2.json), which takes `app.theme` as a path
+ * only. Files a package or a tool wrote in the loaded form are read with
+ * `readPocketManifest`.
+ */
+export function readAuthoredManifest(path: string): LoadedManifest {
+  const absolute = resolve(path);
+  const raw = JSON.parse(readFileSync(absolute, "utf8")) as { icon?: string };
+  const diagnostics: ContractDiagnostic[] = [];
+  validateSchema(raw, pocketManifestV2Schema, "", diagnostics);
+  if (diagnostics.length) {
+    throw new Error(`${absolute}: ${diagnostics.map(item => `${item.code} ${item.path || "/"}: ${item.message}`).join("; ")}`);
+  }
+  const loaded = readPocketManifest(absolute);
+  if (raw.icon === undefined) return loaded;
+  const iconPath = resolve(dirname(absolute), raw.icon);
+  if (!existsSync(iconPath) || !statSync(iconPath).isFile()) throw new Error(`icon names ${iconPath}, which is not a file`);
+  const icon = new Uint8Array(readFileSync(iconPath));
+  const view = new DataView(icon.buffer, icon.byteOffset, icon.byteLength);
+  const png = icon.length >= 24 && PNG_SIGNATURE.every((byte, index) => icon[index] === byte);
+  if (!png || view.getUint32(16) !== view.getUint32(20) || view.getUint32(16) === 0) {
+    throw new Error(`${iconPath}: icon must be a square PNG`);
+  }
+  return { ...loaded, icon, inputs: [...loaded.inputs, iconPath] };
+}
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 /**
  * Replace a string `app.theme` with the default export of the module it

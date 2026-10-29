@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.switch",
-  "name": "switch",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

@@ -51,7 +51,7 @@ test("PSP writer emits real static tables with exact package bytes and explicit 
 test("PSP --pocket captures admitted original bytes without requiring or compiling application sources", () => {
   const directory = embedDirectory();
   const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2,
-    id: "dev.pocket.psp-embed", name: "example", title: "Original package", version: "1.0.0",
+    id: "dev.pocket.psp-embed", title: "Original package", version: "1.0.0",
     engine: { capabilities: { requires: ["text.glyphs.baked"] } },
     app: { entry: "does-not-exist.tsx", framework: "solid", output: "original",
       viewport: { fixed: { logical: [480, 272], presentation: "native" } } } };

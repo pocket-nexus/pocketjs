@@ -2,7 +2,6 @@
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.pocket-nexus.note",
-  "name": "pocket-note",
   "title": "Pocket Note",
   "version": "0.1.0",
   "engine": {
@@ -41,20 +40,6 @@
         ]
       }
     },
-    "theme": {
-      "keyframes": {
-        "caret": {
-          "0%,49.99%": {
-            "opacity": 1
-          },
-          "50%,100%": {
-            "opacity": 0
-          }
-        }
-      },
-      "animation": {
-        "caret": "caret 1s linear infinite"
-      }
-    }
+    "theme": "./theme.json"
   }
 }

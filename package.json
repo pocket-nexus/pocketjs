@@ -59,7 +59,6 @@
     "assets/fonts",
     "assets/images/logo.png",
     "assets/images/spinner-*.svg",
-    "pocket.json",
     "tsconfig.json",
     "devices/LICENSE",
     "engine/pocket3d/LICENSE",

@@ -6,7 +6,7 @@ import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
 import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { readAuthoredManifest } from "../framework/src/manifest/load.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { POCKET_PROFILES } from "../profiles/index.ts";
@@ -166,7 +166,7 @@ async function main() {
   if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");
   if (!existsSync(manifestPath)) usage(`manifest not found: ${manifestPath}`);
   const selected = await resolveProfile({ from: dirname(manifestPath), target, runtimeConfig, env: process.env });
-  const loaded = readPocketManifest(manifestPath);
+  const loaded = readAuthoredManifest(manifestPath);
   const manifestInput: unknown = loaded.manifest;
   const resolution = validateAndResolveBuildPlan(manifestInput, { target: selected.profile.id, executionClass: aot ? "aot" : "guest" }, profileRegistry(selected.profile));
   if (!resolution.ok) throw new Error(resolution.diagnostics.map(item => `${item.code} ${item.path || "/"}: ${item.message}`).join("\n"));
@@ -223,6 +223,8 @@ async function main() {
     js: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.js`))),
     ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.worker.js`))) } : {}),
     pak: existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0),
+    // The manifest's icon travels as the variant's cover section.
+    ...(loaded.icon ? { cover: loaded.icon } : {}),
   });
   const output = outputOption ? resolve(projectRoot, outputOption) : resolve(outdir, `${plan.app.output}.pocket`);
   if (dependencies) {

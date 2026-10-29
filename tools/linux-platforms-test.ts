@@ -17,7 +17,7 @@ const profile = readPocketProfile(resolve(root, "programs/linux-kms/profile.json
 export function linuxFixture(directory: string): string {
   mkdirSync(directory, { recursive: true });
   const { module } = exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, directory);
-  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "test.linux.runtime", name: "linux-check", title: "Linux Runtime Check", version: "1.0.0",
+  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "test.linux.runtime", title: "Linux Runtime Check", version: "1.0.0",
     engine: { capabilities: { requires: ["input.buttons"] } }, app: { entry: "test.ts", output: "linux-check", framework: "solid", viewport: { fixed: { logical: [800, 600], presentation: "native" } } } };
   const plan = (selected: PocketProfile) => {
     const result = validateAndResolveBuildPlan(manifest, { target: selected.id }, profileRegistry(selected));

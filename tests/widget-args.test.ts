@@ -1,3 +1,4 @@
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { describe, expect, test } from "bun:test";
 import {
   STAGE_HOST_ABI,
@@ -146,7 +147,7 @@ describe("widget wrapper arguments", () => {
 
 describe("Pocket Stage manifest admission", () => {
   test("resolves a fixed PSP-shaped app as an embedded target", async () => {
-    const manifest = await Bun.file(new URL("../pocket.json", import.meta.url)).json();
+    const manifest = await Bun.file(new URL("../apps/hero/pocket.json", import.meta.url)).json();
     const plan = resolveStageBuildPlan(manifest);
     expect(plan.target).toEqual({ id: STAGE_TARGET_ID, hostAbi: STAGE_HOST_ABI });
     expect(plan.viewport).toEqual({
@@ -159,9 +160,7 @@ describe("Pocket Stage manifest admission", () => {
   });
 
   test("rejects a dynamic-only app before the native host starts", async () => {
-    const manifest = await Bun.file(
-      new URL("../apps/note/pocket.json", import.meta.url),
-    ).json();
+    const manifest = readPocketManifest(new URL("../apps/note/pocket.json", import.meta.url).pathname).manifest;
     expect(() => resolveStageBuildPlan(manifest)).toThrow("fixed screen");
   });
 

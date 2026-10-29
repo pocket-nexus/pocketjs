@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.memo-chain",
-  "name": "memo-chain",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

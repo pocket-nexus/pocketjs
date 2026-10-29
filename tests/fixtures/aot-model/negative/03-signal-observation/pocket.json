@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.signal-observation",
-  "name": "signal-observation",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

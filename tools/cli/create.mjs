@@ -180,7 +180,6 @@ function manifest({ name, title, framework, viewport, requires }) {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: `dev.example.${name.replace(/-/g, ".")}`,
-    name,
     title,
     version: "0.1.0",
     engine: { capabilities: { requires } },

@@ -171,5 +171,5 @@ export async function compileBuiltinAot(target: "gba" | "ipodnano", outdir: stri
   const loaded = readPocketManifest(manifestPath);
   const resolved = validateAndResolveBuildPlan(loaded.manifest, { target, executionClass: "aot" }, profileRegistry(POCKET_PROFILES[target]));
   if (!resolved.ok) throw new Error(resolved.diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
-  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `profiles/${target}.ts`), ...loaded.inputs] });
+  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `profiles/${target}.json`), ...loaded.inputs] });
 }

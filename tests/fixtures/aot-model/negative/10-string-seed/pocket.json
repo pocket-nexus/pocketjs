@@ -1,7 +1,6 @@
 {
   "pocket": 2,
   "id": "test.model.string-seed",
-  "name": "string-seed",
   "app": {
     "entry": "App.tsx",
     "framework": "solid",

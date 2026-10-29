@@ -56,7 +56,7 @@ test("native launcher inputs are explicit existing paths while recipe-owned comp
 
 test("web assembly stages admitted bytes and the complete runtime/text provider modules", async () => {
   const ctx = context(web);
-  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocket.program", name: "example", title: "Example", version: "1.0.0",
+  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocket.program", title: "Example", version: "1.0.0",
     engine: { capabilities: { requires: ["text.glyphs.baked"] } },
     app: { entry: "missing-source.tsx", framework: "solid", output: "example", viewport: { fixed: { logical: [800, 600], presentation: "native" } } } };
   const resolved = validateAndResolveBuildPlan(manifest, { target: web.id }, profileRegistry(web));

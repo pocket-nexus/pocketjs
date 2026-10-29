@@ -73,7 +73,6 @@ describe("guest runtime packages", () => {
       $schema: "https://pocketjs.dev/schema/pocket-2.json",
       pocket: 2,
       id: "dev.example.runtime.mismatch",
-      name: "runtime-mismatch",
       title: "Runtime Mismatch",
       version: "0.1.0",
       engine: { capabilities: { requires: ["text.glyphs.baked"] } },
