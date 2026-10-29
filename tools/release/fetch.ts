@@ -11,6 +11,8 @@ import { verifySdk, type SdkManifest } from "./receipt.ts";
 import { readRuntimeDirectory } from "../repack.ts";
 import { readRuntime } from "../repack/shared/runtime.ts";
 import { readRelease, releaseVersion } from "./manifest.ts";
+import { createHash } from "node:crypto";
+import { hashPocketProfile, validatePocketProfile, type PocketProfile } from "../../framework/src/profile.ts";
 
 export interface ReleaseFetchOptions { version?: string; manifestUrl?: string; env?: NodeJS.ProcessEnv; }
 async function withReleaseArtifact<T>(kind: "sdks" | "runtimes", id: string, options: ReleaseFetchOptions,
@@ -61,4 +63,24 @@ export async function releasedRuntime(target: string, profileHash: string, optio
       throw new Error("runtime does not match its release identity");
     return files;
   });
+}
+
+/** The profile document a release publishes for a runtime target, checked
+ *  against the release's file hash, profileHash and binding generation. An
+ *  application compiles against it with `pocket compile --target FILE.json`. */
+export async function releasedProfile(target: string, options: ReleaseFetchOptions = {}): Promise<PocketProfile> {
+  const version = releaseVersion(options.version);
+  const { manifest, url } = await readRelease(version, options.manifestUrl);
+  const asset = manifest.runtimes[target];
+  if (!asset?.profile) throw new Error("release " + version + " publishes no profile document for " + target);
+  const response = await fetch(new URL(asset.profile.file, url));
+  if (!response.ok) throw new Error("release profile unavailable: " + asset.profile.file + " (HTTP " + response.status + ")");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length !== asset.profile.bytes || createHash("sha256").update(bytes).digest("hex") !== asset.profile.sha256)
+    throw new Error("release profile does not match its recorded hash: " + target);
+  const validated = validatePocketProfile(JSON.parse(new TextDecoder().decode(bytes)));
+  if (!validated.ok) throw new Error("release profile is invalid: " + validated.diagnostics.map(item => item.path + ": " + item.message).join("; "));
+  if (validated.value.hostAbi !== manifest.hostAbi || hashPocketProfile(validated.value) !== asset.profileHash)
+    throw new Error("release profile does not match its runtime: " + target);
+  return validated.value;
 }

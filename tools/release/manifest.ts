@@ -2,12 +2,18 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
-export interface ReleaseAsset {
+/** A file published beside the archives. */
+export interface ReleaseFile {
   readonly file: string;
   readonly sha256: string;
   readonly bytes: number;
+}
+export interface ReleaseAsset extends ReleaseFile {
   readonly format: "tar.gz";
   readonly profileHash?: string;
+  /** A runtime's stamped pocket-profile.json, published as its own file so
+   *  an application compiles against it without the runtime archive. */
+  readonly profile?: ReleaseFile;
 }
 export interface ReleaseManifest {
   readonly schema: "pocket-release/1";
@@ -39,14 +45,18 @@ export function validateReleaseManifest(value: unknown, version: string): Releas
       validateAsset(asset);
       if (kind === "runtimes" && !/^sha256:[0-9a-f]{64}$/.test(asset.profileHash ?? ""))
         throw new Error("release runtime lacks profileHash: " + id);
+      if (kind === "runtimes") validateFile(asset.profile);
     }
   }
   if (manifest.source) validateAsset(manifest.source);
   return manifest;
 }
 function validateAsset(asset: ReleaseAsset): void {
-  if (!asset || !NAME.test(asset.file) || asset.format !== "tar.gz" ||
-      !/^[0-9a-f]{64}$/.test(asset.sha256) || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0)
+  if (!asset || asset.format !== "tar.gz") throw new Error("invalid release asset");
+  validateFile(asset);
+}
+function validateFile(file: ReleaseFile | undefined): void {
+  if (!file || !NAME.test(file.file) || !/^[0-9a-f]{64}$/.test(file.sha256) || !Number.isSafeInteger(file.bytes) || file.bytes <= 0)
     throw new Error("invalid release asset");
 }
 export async function readRelease(version: string, url = releaseManifestUrl(version)): Promise<{ manifest: ReleaseManifest; url: string }> {

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { exportReleasedSdk, releasedRuntime } from "../tools/release/fetch.ts";
+import { exportReleasedSdk, releasedProfile, releasedRuntime } from "../tools/release/fetch.ts";
 import { validateReleaseManifest } from "../tools/release/manifest.ts";
 import { prepareRelease } from "../tools/release/publish.ts";
 import { verifySdk, type SdkManifest } from "../tools/release/receipt.ts";
@@ -59,6 +59,7 @@ test("SDK and runtime downloads reuse the cache and reject existing destinations
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const file = new URL(request.url).pathname.slice(1);
     if (file === "pocket-release.json") return Response.json(release);
+    if (file === release.runtimes.fixture?.profile?.file) return new Response(readFileSync(join(output, file)));
     if (!Object.values({ ...release.sdks, ...release.runtimes }).some(asset => asset.file === file)) return new Response("missing", { status: 404 });
     downloads++;
     return new Response(readFileSync(join(output, file)));
@@ -69,6 +70,9 @@ test("SDK and runtime downloads reuse the cache and reject existing destinations
     expect(first.status).toBe("release"); expect(first.abiFrozen).toBe(false);
     await exportReleasedSdk(triple, join(directory, "export2"), options); expect(downloads).toBe(1);
     expect((await releasedRuntime("fixture", profileHash, options)).get("program.bin")).toEqual(new Uint8Array(Buffer.from("runtime fixture")));
+    // The firmware release publishes its stamped profile document beside the archive.
+    expect(release.runtimes.fixture!.profile!.file).toBe("pocket-profile-fixture.json");
+    expect(await releasedProfile("fixture", options)).toEqual({ ...fixtureProfile, hostAbi: POCKET_BINDING_GENERATION });
     await expect(exportReleasedSdk(triple, join(directory, "export1"), options)).rejects.toThrow("already exists");
   } finally { server.stop(true); }
 }, 30_000);
@@ -79,7 +83,12 @@ test("release metadata rejects path escapes, stale ABI and invalid artifact size
   expect(() => validateReleaseManifest(value, value.version)).toThrow("invalid release asset");
   value.sdks.host.file = "sdk.tar.gz"; value.sdks.host.bytes = 0;
   expect(() => validateReleaseManifest(value, value.version)).toThrow("invalid release asset");
-  value.sdks.host.bytes = 1; value.hostAbi = 1 as typeof POCKET_BINDING_GENERATION;
+  value.sdks.host.bytes = 1;
+  // A runtime publishes its profile document beside the archive.
+  const runtime = { file: "runtime.tar.gz", bytes: 1, sha256: "b".repeat(64), format: "tar.gz", profileHash: "sha256:" + "c".repeat(64) };
+  expect(() => validateReleaseManifest({ ...value, runtimes: { psp: runtime } }, value.version)).toThrow("invalid release asset");
+  expect(validateReleaseManifest({ ...value, runtimes: { psp: { ...runtime, profile: { file: "pocket-profile-psp.json", bytes: 2, sha256: "d".repeat(64) } } } }, value.version).runtimes.psp!.profile!.file).toBe("pocket-profile-psp.json");
+  value.hostAbi = 1 as typeof POCKET_BINDING_GENERATION;
   expect(() => validateReleaseManifest(value, value.version)).toThrow("binding generation");
 });
 

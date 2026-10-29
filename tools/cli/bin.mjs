@@ -6,7 +6,7 @@
 //   pocket create <name> [--target T] [--framework F]
 //                            scaffold an app: apps/<name> inside a checkout, a
 //                            standalone project anywhere else
-//   pocket [+<id>] check|compile|build [+<id>] [--target <id|module>] [...args]
+//   pocket [+<id>] check|compile|build [+<id>] [--target <id|profile.json>] [...args]
 //                            select a target, resolve pocket.json once, build from its plan
 //   pocket show [--json]     framework, project, selected target and the catalog
 //                            with each target's install state
@@ -268,7 +268,7 @@ if (leading !== undefined && !SELECTING.has(cmd)) fail(`+${leading} selects a ta
 const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
 
   pocket create <name> [--target ID]
-  pocket [+id] check|compile [--manifest pocket.json] [--target ID|MODULE]
+  pocket [+id] check|compile [--manifest pocket.json] [--target ID|FILE.json]
       --runtime-config FILE  choose the program configuration
       --output FILE          compile a .pocket package
       --aot --out DIR        compile native guest sources
@@ -280,6 +280,7 @@ const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
       --deploy               deploy the resulting artifact
   pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]
   pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]
+  pocket profile fetch --target ID --out FILE   the profile document a release publishes
   pocket show [--json]       profile selection and toolchain status
   pocket target add [ID…] | list [--check] [--json] | remove ID…
   pocket sdk export         export a relocatable C SDK

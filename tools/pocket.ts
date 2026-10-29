@@ -1,5 +1,5 @@
 // Application compilation and program-owned runtime builds.
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkAppTypes } from "../framework/compiler/app-check.ts";
@@ -25,11 +25,12 @@ const argv = Bun.argv.slice(2);
 const command = argv.shift();
 function usage(message?: string): never {
   if (message) console.error(`PocketJS: ${message}`);
-  console.error("usage: pocket check|compile [--manifest pocket.json] [--target <id|module>] [--runtime-config FILE]\n" +
+  console.error("usage: pocket check|compile [--manifest pocket.json] [--target <id|profile.json>] [--runtime-config FILE]\n" +
     "       pocket compile [--output app.pocket] [--depfile FILE] [--aot --out DIR]\n" +
     "       pocket build [--config pocket.runtime-config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
     "       pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]\n" +
     "       pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]\n" +
+    "       pocket profile fetch --target ID --out FILE [--release-version V] [--manifest-url URL]\n" +
     "       pocket doctor --target ID [--config FILE] [--generic] [--build-receipt FILE] [--runtime DIR] [--evidence FILE --identity FILE] [--device KEY] [--json]");
   process.exit(1);
 }
@@ -102,7 +103,21 @@ async function main() {
     return;
   }
   if (command === "profile") {
-    if (argv.shift() !== "export") usage("expected profile export");
+    const subcommand = argv.shift();
+    if (subcommand === "fetch") {
+      // The document a firmware release publishes; compile with --target FILE.
+      const target = takeOption("target"), out = takeOption("out");
+      const releaseVersion = takeOption("release-version"), manifestUrl = takeOption("manifest-url");
+      noArguments();
+      if (!target || !out) usage("profile fetch requires --target and --out");
+      const { releasedProfile } = await import("./release/fetch.ts");
+      const profile = await releasedProfile(target, { version: releaseVersion, manifestUrl });
+      mkdirSync(dirname(resolve(out)), { recursive: true });
+      writeFileSync(resolve(out), JSON.stringify(profile, null, 2) + "\n");
+      console.log(`✓ ${resolve(out)} (${profile.id}, binding generation ${profile.hostAbi})`);
+      return;
+    }
+    if (subcommand !== "export") usage("expected profile export or profile fetch");
     const config = takeOption("config");
     const target = takeOption("target");
     const out = takeOption("out") ?? takeOption("outdir");
