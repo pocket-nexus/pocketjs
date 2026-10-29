@@ -5181,6 +5181,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-rg-ds-plus"
+version = "0.1.0"
+dependencies = [
+ "drm",
+ "libc",
+ "pocket-drivers",
+ "pocket-gles",
+ "pocket-gles2",
+ "pocket-guest-rquickjs",
+ "pocket-linux-drm",
+ "pocket-linux-evdev",
+ "pocket-linux-hooks",
+ "pocket-package",
+ "pocket-profile-build",
+ "pocket-raster",
+ "pocket-runtime",
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-rockbox-input"
 version = "0.1.0"
 dependencies = [

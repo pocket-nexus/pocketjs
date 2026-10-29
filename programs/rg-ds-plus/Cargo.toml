@@ -1,0 +1,30 @@
+[package]
+name = "pocket-rg-ds-plus"
+edition = "2021"
+description = "PocketJS program for the Anbernic RG DS Plus: both DSI panels through GBM/EGL/GLES on KMS, the gamepad and touch through evdev"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-guest-rquickjs = { workspace = true, default-features = true }
+pocket-linux-hooks = { workspace = true, default-features = true }
+pocket-linux-drm = { workspace = true, default-features = true }
+pocket-linux-evdev = { workspace = true, default-features = true }
+libc = "0.2.191"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pocket-gles = { workspace = true, default-features = true }
+pocket-gles2 = { workspace = true, default-features = true }
+drm = { version = "0.14.1", default-features = false }
+
+[build-dependencies]
+pocket-profile-build.workspace = true
