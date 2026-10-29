@@ -17,7 +17,7 @@
 // with a log under --all-targets): a package can never carry a variant its
 // own manifest disowns.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -29,7 +29,6 @@ import {
   type ResolvedBuildPlan,
 } from "../framework/src/manifest/plan.ts";
 import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
-import { bakeIconSet } from "./launcher-icon.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
   POCKET_SECTION,
@@ -57,6 +56,21 @@ function usage(message?: string): never {
       "  bun tools/pocket-pack.ts verify <file.pocket>",
   );
   process.exit(1);
+}
+
+/** A manifest's launcher icon set at `density` (tools/launcher-icon.ts), or
+ *  undefined when it names none. The rasterizer runs in its own process:
+ *  this module is part of runtime configurations, which load no canvas. */
+export function bakeIconSection(manifestPath: string, density: number): Uint8Array | undefined {
+  const out = join(ROOT, ".pocket-build", "pack", `icon-${process.pid}-${Date.now()}.bin`);
+  mkdirSync(dirname(out), { recursive: true });
+  const run = Bun.spawnSync(["bun", join(ROOT, "tools/launcher-icon.ts"), manifestPath, "--density", String(density), "--out", out],
+    { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
+  if (!run.success) throw new Error(`pocket-pack: launcher icon failed for ${manifestPath}\n${run.stderr.toString()}`);
+  if (!existsSync(out)) return undefined;
+  const bytes = new Uint8Array(readFileSync(out));
+  rmSync(out, { force: true });
+  return bytes;
 }
 
 /** Assemble one variant from prebuilt pieces. Shared with the launcher
@@ -180,7 +194,7 @@ async function buildCommand(argv: string[]): Promise<void> {
         js,
         pak,
         cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
-        icon: await bakeIconSet(manifestPath, manifest, plan.viewport.rasterDensity),
+        icon: bakeIconSection(manifestPath, plan.viewport.rasterDensity),
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);

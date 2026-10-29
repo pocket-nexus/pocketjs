@@ -2,6 +2,7 @@
 // a `.pocket` variant carries (contracts/spec/pocket-package.ts section 9).
 //
 //   bun tools/launcher-icon.ts <pocket.json>... [--density <n>] [--sheet <file.png>]
+//   bun tools/launcher-icon.ts <pocket.json> --density <n> --out <file>
 //
 // The manifest's `icon` names a square SVG (with width and height) or PNG,
 // relative to the manifest file, full-bleed and opaque: the launcher's mask
@@ -10,9 +11,12 @@
 // cut to the rounded square of POCKET_ICON_RADIUS with 4x4 coverage, and
 // centred in its power-of-two texture as a PSM_8888 IMG entry. The command
 // form bakes the named manifests and, with --sheet, writes every entry at 1x
-// and 4x on one sheet for review.
+// and 4x on one sheet for review; with --out it writes one manifest's section
+// (or removes the file when the manifest names no icon). The packers run that
+// form as a subprocess (tools/pocket-pack.ts bakeIconSection), so a runtime
+// configuration that imports them never loads the rasterizer.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import { PSM } from "../contracts/spec/spec.ts";
 import {
@@ -105,16 +109,25 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   let density = 1;
   let sheet = "";
+  let out = "";
   const manifests: string[] = [];
   while (args.length) {
     const a = args.shift()!;
     if (a === "--density") density = Number(args.shift());
     else if (a === "--sheet") sheet = resolve(args.shift() ?? "");
+    else if (a === "--out") out = resolve(args.shift() ?? "");
     else manifests.push(resolve(a));
   }
   if (manifests.length === 0) {
     console.error("usage: bun tools/launcher-icon.ts <pocket.json>... [--density <n>] [--sheet <file.png>]");
     process.exit(1);
+  }
+  if (out) {
+    if (manifests.length !== 1) throw new Error("launcher icon: --out takes one manifest");
+    const set = await bakeIconSet(manifests[0]!, JSON.parse(readFileSync(manifests[0]!, "utf8")), density);
+    if (set) writeFileSync(out, set);
+    else rmSync(out, { force: true });
+    process.exit(0);
   }
   const sets: { name: string; entries: PocketIconEntry[] }[] = [];
   for (const manifestPath of manifests) {

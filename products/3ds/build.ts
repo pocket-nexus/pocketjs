@@ -105,8 +105,7 @@ import {
   THREE_DS_DEV_TARGET_ID,
   resolve3dsBuildPlan,
 } from "../../tools/3ds-profile.ts";
-import { makeVariant } from "../../tools/pocket-pack.ts";
-import { bakeIconSet } from "../../tools/launcher-icon.ts";
+import { bakeIconSection, makeVariant } from "../../tools/pocket-pack.ts";
 
 const repository = new URL("../..", import.meta.url).pathname; // PocketJS/
 const hostDirectory = `${repository}products/3ds/`;
@@ -582,7 +581,7 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
         },
         js: new Uint8Array(readFileSync(guestJavaScript)),
         pak: new Uint8Array(readFileSync(guestPack)),
-        icon: await bakeIconSet(manifestPath, JSON.parse(new TextDecoder().decode(manifestBytes)), plan.viewport.rasterDensity),
+        icon: bakeIconSection(manifestPath, plan.viewport.rasterDensity),
       }),
     ],
   });
