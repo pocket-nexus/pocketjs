@@ -68,5 +68,6 @@ static const pocket_ui_op_descriptor pocket_ui_ops[] = {
   { 59, "fontStreamBatch", 1, PJS_RESULT_INTEGER, 0, 0, { { PJS_ARG_BYTES, 0 } } },
   { 60, "captureTexts", 2, PJS_RESULT_BOOLEAN, 0, 0, { { PJS_ARG_U32, 0 }, { PJS_ARG_I32, 0 } } },
   { 61, "capturedTexts", 1, PJS_RESULT_STRING, 0, 0, { { PJS_ARG_U32, 0 } } },
+  { 62, "appIcon", 1, PJS_RESULT_OPTIONALBYTES, 0, 0, { { PJS_ARG_STRING, 0 } } },
 };
 #define POCKET_UI_OP_COUNT (sizeof(pocket_ui_ops)/sizeof(pocket_ui_ops[0]))

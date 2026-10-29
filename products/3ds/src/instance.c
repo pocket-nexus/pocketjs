@@ -60,7 +60,7 @@ static int32_t provider(void *context, uint16_t op, const pocket_op_arg *args,
   const char *text = NULL;
   size_t n = 0;
   if (op == POCKET_3DS_OP_svcOpen || op == POCKET_3DS_OP_svcSend ||
-      op == POCKET_3DS_OP_appLaunch) {
+      op == POCKET_3DS_OP_appLaunch || op == POCKET_3DS_OP_appIcon) {
     if (!args || length < sizeof *args || args->struct_size < sizeof *args ||
         args->tag != POCKET_ARG_BYTES || args->byte_length > 8192)
       return POCKET_STATUS_INVALID;
@@ -107,6 +107,11 @@ static int32_t provider(void *context, uint16_t op, const pocket_op_arg *args,
     out->tag = POCKET_RESULT_I64;
     out->integer = -1;
     break;
+  case POCKET_3DS_OP_appIcon:
+    out->bytes = launcher_app_icon(text, &out->byte_length);
+    if (out->bytes)
+      out->tag = POCKET_RESULT_BYTES;
+    break;
 #endif
   default:
     return POCKET_STATUS_UNSUPPORTED;
@@ -138,6 +143,7 @@ pocket_runtime *instance_create(PocketRuntimePackage *package) {
       POCKET_3DS_OP_debugStats,
 #ifdef POCKETJS_LINK
       POCKET_3DS_OP_appTable,   POCKET_3DS_OP_appLaunch, POCKET_3DS_OP_appShot,
+      POCKET_3DS_OP_appIcon,
 #endif
   };
   if (pocket_runtime_set_package_source(active, &source_api, NULL) ||

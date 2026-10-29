@@ -104,5 +104,6 @@
 #define POCKET_OP_fontStreamBatch 59U
 #define POCKET_OP_captureTexts 60U
 #define POCKET_OP_capturedTexts 61U
+#define POCKET_OP_appIcon 62U
 
 #endif

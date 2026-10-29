@@ -1,10 +1,11 @@
 // @pocketjs/framework/launcher — the guest side of app switching
-// (spec ops 39..41 and 51, docs/LAUNCHER.md).
+// (spec ops 39..41, 51 and 62, docs/LAUNCHER.md).
 //
 // Embedded catalogs replace the guest on each switch. Native catalogs retain
 // a process per installed app and foreground it on launch. Hosts without the
 // optional operations return null/false/-1 from these accessors.
 
+import { decodeIconSet } from "../../contracts/spec/pocket-package.ts";
 import { getOps } from "./host.ts";
 
 /** One configured app, as the host reports it (registry order). */
@@ -17,6 +18,9 @@ export interface AppEntry {
   id: string;
   /** Manifest title, for display. */
   title: string;
+  /** Manifest version and package size, on hosts with installed apps. */
+  version?: string;
+  bytes?: number;
 }
 
 export interface AppTable {
@@ -61,6 +65,62 @@ export function closeApp(output: string): boolean {
  *  registerTexture(key, handle) and reference it as <Image src={key}>. */
 export function frozenShot(): number {
   return getOps().appShot?.() ?? -1;
+}
+
+/** One size of an installed app's launcher icon, uploaded as a texture. */
+export interface AppIcon {
+  /** The texture handle: draw it as a square of `texture` logical px with
+   *  the icon centred in it. */
+  handle: number;
+  /** The icon's side, logical px. */
+  icon: number;
+  /** The texture's side, logical px. */
+  texture: number;
+}
+
+/** Uploaded icons by output, kept while the app's version and size hold. */
+const icons = new Map<string, { revision: string; sizes: Map<number, AppIcon | null> }>();
+
+function forget(output: string): void {
+  const held = icons.get(output);
+  if (!held) return;
+  for (const handle of new Set([...held.sizes.values()].map((icon) => icon?.handle ?? -1))) {
+    if (handle >= 0) getOps().freeTexture?.(handle);
+  }
+  icons.delete(output);
+}
+
+/** An installed app's icon (package section 9) to draw at `size` logical px:
+ *  the smallest entry at least 95% of `size`, else the largest. Null when
+ *  the package ships none or the host has no appIcon. Each entry is uploaded
+ *  once; a new version or package size of the app replaces it. */
+export function appIcon(app: AppEntry, size: number): AppIcon | null {
+  const revision = `${app.version ?? ""}:${app.bytes ?? ""}`;
+  let held = icons.get(app.output);
+  if (held && held.revision !== revision) {
+    forget(app.output);
+    held = undefined;
+  }
+  if (!held) icons.set(app.output, (held = { revision, sizes: new Map() }));
+  const cached = held.sizes.get(size);
+  if (cached !== undefined) return cached;
+  let icon: AppIcon | null = null;
+  const raw = getOps().appIcon?.(app.output);
+  if (raw) {
+    try {
+      const entries = decodeIconSet(new Uint8Array(raw));
+      const entry = entries.find((candidate) => candidate.icon >= size * 0.95) ?? entries[entries.length - 1]!;
+      icon = [...held.sizes.values()].find((other) => other?.icon === entry.icon) ?? null;
+      if (!icon) {
+        const handle = getOps().uploadImgEntry?.(entry.image) ?? -1;
+        if (handle >= 0) icon = { handle, icon: entry.icon, texture: entry.texture };
+      }
+    } catch {
+      icon = null;
+    }
+  }
+  held.sizes.set(size, icon);
+  return icon;
 }
 
 export interface NativeAppReturn {

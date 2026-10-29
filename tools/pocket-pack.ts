@@ -29,6 +29,7 @@ import {
   type ResolvedBuildPlan,
 } from "../framework/src/manifest/plan.ts";
 import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
+import { bakeIconSet } from "./launcher-icon.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
   POCKET_SECTION,
@@ -68,6 +69,8 @@ export function makeVariant(input: {
   js: Uint8Array;
   pak: Uint8Array;
   cover?: Uint8Array;
+  /** The launcher icon set (tools/launcher-icon.ts bakeIconSet). */
+  icon?: Uint8Array;
 }): PocketPackageVariant {
   if (input.hostAbi !== POCKET_BINDING_GENERATION) {
     throw new Error(`pocket-pack: binding generation ${input.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
@@ -88,6 +91,7 @@ export function makeVariant(input: {
     { kind: POCKET_SECTION.pak, bytes: input.pak },
   ];
   if (input.cover) sections.push({ kind: POCKET_SECTION.cover, bytes: input.cover });
+  if (input.icon) sections.push({ kind: POCKET_SECTION.icon, bytes: input.icon });
   if (plan.profile.platform === "esp-idf") {
     sections.push({
       kind: POCKET_SECTION.hostInputs,
@@ -176,6 +180,7 @@ async function buildCommand(argv: string[]): Promise<void> {
         js,
         pak,
         cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
+        icon: await bakeIconSet(manifestPath, manifest, plan.viewport.rasterDensity),
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
@@ -210,6 +215,7 @@ function inspectCommand(file: string): void {
       4: "pak",
       5: "cover",
       7: "hostInputs",
+      9: "icon",
     };
     for (const s of v.sections) {
       console.log(`    ${(names[s.kind] ?? `kind${s.kind}`).padEnd(8)} ${s.bytes.length}B`);

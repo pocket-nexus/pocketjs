@@ -57,10 +57,14 @@ bool launcher_host_slot_path(const char *slot, const char *name, char *out, size
   return written > 0 && (size_t)written < capacity;
 }
 
+/* The slot link_host_install committed, as the table finds it. */
+static char installed_slot[17];
+static uint64_t installed_hash;
+
 bool launcher_host_active_hash(const char *slot, uint64_t *hash) {
-  (void)slot;
-  (void)hash;
-  return false;
+  if (strcmp(slot, installed_slot) != 0) return false;
+  *hash = installed_hash;
+  return true;
 }
 
 bool launcher_host_load(const char *slot, uint64_t hash, LauncherPackage *out, void **held) {
@@ -123,7 +127,13 @@ bool link_host_install(const char *slot, const char *path, uint64_t hash, Launch
     return false;
   }
   static const char plan[] = "{\"app\":{\"output\":\"hn\",\"id\":\"dev.pocket-nexus.hn\"}}";
-  *out = (LauncherPackage){ .plan = plan, .plan_length = sizeof plan - 1, .hash = hash, .bytes = (uint64_t)size };
+  /* An icon set stands in as opaque bytes: the launcher stores, never parses it. */
+  static uint8_t icon[3000];
+  for (size_t i = 0; i < sizeof icon; i += 1) icon[i] = (uint8_t)(i * 13 + 5);
+  *out = (LauncherPackage){ .plan = plan, .plan_length = sizeof plan - 1, .icon = icon, .icon_length = sizeof icon,
+                            .hash = hash, .bytes = (uint64_t)size };
+  snprintf(installed_slot, sizeof installed_slot, "%s", slot);
+  installed_hash = hash;
   *held = NULL;
   return true;
 }
@@ -186,6 +196,11 @@ int main(int argc, char **argv) {
   if (link_install(argv[3], strlen(argv[3])) < 0) return 5;
   const char *install = await_event(link_poll, "install.done");
   printf("install %s\n", install != NULL ? install : "none");
+  size_t icon_length = 0;
+  const uint8_t *icon = launcher_app_icon("hn", &icon_length);
+  bool icon_intact = icon != NULL;
+  for (size_t i = 0; icon_intact && i < icon_length; i += 1) icon_intact = icon[i] == (uint8_t)(i * 13 + 5);
+  printf("icon %zu %d %d\n", icon_length, icon_intact, launcher_app_icon("nope", &icon_length) == NULL);
   char meta[512];
   snprintf(meta, sizeof meta, "{\"url\":\"%s\",\"method\":\"GET\",\"headers\":{}}", argv[4]);
   int32_t handle = link_net_start(meta, strlen(meta), NULL, 0);

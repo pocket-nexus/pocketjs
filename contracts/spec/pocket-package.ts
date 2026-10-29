@@ -67,7 +67,82 @@ export const POCKET_SECTION = {
   /** Fixed-width ESP-IDF host admission data. Device readers validate this
    * without parsing the JSON build plan. */
   hostInputs: 7,
+  /** The launcher icon, baked from the manifest's `icon` at the variant's
+   *  raster density: one IMG entry per POCKET_ICON_SIZES row (layout at
+   *  encodeIconSet). A launcher draws it under its own gloss and rim. */
+  icon: 9,
 } as const;
+
+// --- launcher icon (section kind 9) -----------------------------------------
+//
+// Layout (little-endian):
+//   off 0  u32  magic "PICN"
+//   off 4  u16  version = 1
+//   off 6  u16  count
+//   off 8  count x 8 B: u16 icon side, u16 texture side (logical px),
+//                       u32 IMG entry length
+//   then the IMG entries (framework/compiler/pak.ts layout) in row order.
+// Rows ascend by icon side.
+//
+// Each entry is the picture cut to the rounded square of POCKET_ICON_RADIUS,
+// transparent outside it, centred in a power-of-two texture of side
+// `texture` x rasterDensity texels: the frame Pocket Shell's own icons and
+// their finish use, so a launcher draws both with one rectangle.
+
+export const POCKET_ICON_MAGIC = 0x4e434950; // "PICN" as LE u32
+export const POCKET_ICON_VERSION = 1;
+/** Corner radius as a fraction of the side (Pocket Shell's ICON_RADIUS). */
+export const POCKET_ICON_RADIUS = 0.2;
+/** The sides a launcher draws: table rows and banners, the springboard and
+ *  its dock, a store's detail page. */
+export const POCKET_ICON_SIZES = [
+  { icon: 24, texture: 32 },
+  { icon: 46, texture: 64 },
+  { icon: 64, texture: 64 },
+] as const;
+
+export interface PocketIconEntry {
+  icon: number;
+  texture: number;
+  /** One IMG entry. */
+  image: Uint8Array;
+}
+
+export function encodeIconSet(entries: readonly PocketIconEntry[]): Uint8Array {
+  if (entries.length === 0 || entries.length > 0xffff) throw new Error("pocket package: invalid icon count");
+  const head = 8 + entries.length * 8;
+  const out = new Uint8Array(head + entries.reduce((n, entry) => n + entry.image.length, 0));
+  const view = new DataView(out.buffer);
+  view.setUint32(0, POCKET_ICON_MAGIC, true);
+  view.setUint16(4, POCKET_ICON_VERSION, true);
+  view.setUint16(6, entries.length, true);
+  let offset = head;
+  entries.forEach((entry, index) => {
+    view.setUint16(8 + index * 8, entry.icon, true);
+    view.setUint16(10 + index * 8, entry.texture, true);
+    view.setUint32(12 + index * 8, entry.image.length, true);
+    out.set(entry.image, offset);
+    offset += entry.image.length;
+  });
+  return out;
+}
+
+export function decodeIconSet(bytes: Uint8Array): PocketIconEntry[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length < 8 || view.getUint32(0, true) !== POCKET_ICON_MAGIC) throw new Error("pocket package: invalid icon magic");
+  if (view.getUint16(4, true) !== POCKET_ICON_VERSION) throw new Error("pocket package: unsupported icon version");
+  const count = view.getUint16(6, true);
+  let offset = 8 + count * 8;
+  if (count === 0 || offset > bytes.length) throw new Error("pocket package: truncated icon table");
+  const entries: PocketIconEntry[] = [];
+  for (let index = 0; index < count; index++) {
+    const length = view.getUint32(12 + index * 8, true);
+    if (offset + length > bytes.length) throw new Error("pocket package: truncated icon entry");
+    entries.push({ icon: view.getUint16(8 + index * 8, true), texture: view.getUint16(10 + index * 8, true), image: bytes.subarray(offset, offset + length) });
+    offset += length;
+  }
+  return entries;
+}
 
 export const POCKET_HOST_INPUTS_MAGIC = 0x54534850; // "PHST" as LE u32
 export const POCKET_HOST_INPUTS_VERSION = 1;

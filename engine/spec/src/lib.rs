@@ -119,6 +119,7 @@ pub mod op {
     pub const FONT_STREAM_BATCH: u8 = 59;
     pub const CAPTURE_TEXTS: u8 = 60;
     pub const CAPTURED_TEXTS: u8 = 61;
+    pub const APP_ICON: u8 = 62;
 }
 
 /// Property ids (u8, stable, append-only). Groups:

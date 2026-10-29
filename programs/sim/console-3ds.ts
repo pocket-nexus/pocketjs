@@ -23,7 +23,10 @@ import type { AgentDisplay } from "../../contracts/spec/agent.ts";
 export const TOP_SCREEN: [number, number] = [400, 240];
 export const BOTTOM_SCREEN: [number, number] = [320, 240];
 
-export interface Console3dsApp extends SimInstalledApp {}
+export interface Console3dsApp extends SimInstalledApp {
+  /** The package's icon set (section 9), which appIcon() returns. */
+  icon?: Uint8Array;
+}
 
 export interface Console3dsOptions {
   js: string;
@@ -179,7 +182,7 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
       ops(ops) {
         ops.appTable = () =>
           JSON.stringify({
-            apps: apps.map((app) => ({ ...app })),
+            apps: apps.map(({ icon: _icon, ...app }) => app),
             current,
             resume: options.resume ?? null,
             launcher,
@@ -191,6 +194,10 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
           return 1;
         };
         ops.appShot = () => -1;
+        ops.appIcon = (output: string) => {
+          const icon = apps.find((app) => app.output === output)?.icon;
+          return icon ? icon.slice().buffer : undefined;
+        };
       },
     });
   let world: BundleWorld;

@@ -250,6 +250,16 @@ The ops keep their numbers and meanings, with these differences:
 | `appTable` | `{apps:[{output,id,title,version,bytes}], current, resume, launcher, lastError}`. `apps` lists installed slots only, **never the launcher**, sorted by title; `launcher` is the launcher's output; `lastError` is `{output, message}` for the last installed app that failed to boot or threw from a frame, reported once and then `null` (also cleared by the next launch). |
 | `appLaunch` | Launching `launcher` returns home. Two slots with one output resolve to the later install. |
 | `appShot` | Always `-1`: no frozen frame is kept. |
+| `appIcon` | Op 62. `(output) -> bytes \| undefined`: the installed app's icon set, package section 9. The launcher copies the section to `icon.bin` beside the slot's `app.txt` when it first reads the package (an install or a table scan) and reads that file on each call; `undefined` when the package has no icon. |
+
+**An installed app's icon comes from its own package.** The manifest's `icon`
+names a square, opaque SVG or PNG; packing bakes it into each variant at
+that variant's raster density, one PSM_8888 IMG entry per launcher size (24,
+46 and 64 logical px), each cut to the rounded square of corner radius 0.2
+and centred in a power-of-two texture. `@pocketjs/framework/launcher`
+`appIcon(app, size)` picks the entry for a size, uploads it once and returns
+`{handle, icon, texture}`; Pocket Shell draws it under the gloss and rim of
+its own icons. A launcher never draws an app's initials in place of an icon.
 
 **An installed app's failure never reaches the launcher's recovery chain.**
 Its error is written to its own slot's `last-error.txt`, the host switches to
