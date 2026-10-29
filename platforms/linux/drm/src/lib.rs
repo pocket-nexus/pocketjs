@@ -16,6 +16,7 @@ pub trait Scanout {
 
 pub struct Display<B: Scanout> {
     backend: B,
+    role: DisplayRole,
     size: [u32; 2],
     buffers: [Vec<u8>; 2],
     back: usize,
@@ -59,6 +60,7 @@ impl<B: Scanout> Display<B> {
         };
         Ok(Self {
             backend,
+            role: DisplayRole::Primary,
             size,
             buffers,
             back: 1,
@@ -67,6 +69,12 @@ impl<B: Scanout> Display<B> {
             acquired: false,
             failed: false,
         })
+    }
+    /// The surface this output presents: Primary unless set (a two-panel
+    /// device registers its second panel as Auxiliary).
+    pub fn with_role(mut self, role: DisplayRole) -> Self {
+        self.role = role;
+        self
     }
     fn fail(&mut self) {
         self.backend.stop();
@@ -79,7 +87,7 @@ impl<B: Scanout> DisplayOutput for Display<B> {
     type Token = u64;
     fn descriptor(&self) -> DisplayDescriptor {
         let mut d = DisplayDescriptor::new(
-            DisplayRole::Primary,
+            self.role,
             self.size[0],
             self.size[1],
             PixelFormat::Argb8888,
@@ -160,7 +168,7 @@ impl<B: Scanout> Drop for Display<B> {
 #[cfg(target_os = "linux")]
 mod native;
 #[cfg(target_os = "linux")]
-pub use native::{open, NativeScanout};
+pub use native::{open, open_outputs, select_output, NativeScanout, Output, Selection};
 
 #[cfg(test)]
 mod tests {

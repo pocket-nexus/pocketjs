@@ -32,6 +32,8 @@ struct State {
     touches: [Touch; 16],
     pointer: [f32; 2],
     pointer_buttons: u32,
+    /// ABS_HAT0X/ABS_HAT0Y: a gamepad's D-pad reported as a hat (-1, 0, 1).
+    hat: [i32; 2],
 }
 impl Default for State {
     fn default() -> Self {
@@ -40,6 +42,7 @@ impl Default for State {
             touches: [Touch::default(); 16],
             pointer: [0.0; 2],
             pointer_buttons: 0,
+            hat: [0; 2],
         }
     }
 }
@@ -58,6 +61,8 @@ pub struct Decoder {
     retired: Vec<u32>,
     cancelled: Vec<CancelledContact>,
     pointer_enabled: bool,
+    /// Key codes and the buttons they press, in place of the default table.
+    keymap: Option<Vec<(u16, u32)>>,
 }
 impl Decoder {
     /// Contact IDs are reserved per device. Distinct devices must use disjoint
@@ -93,6 +98,7 @@ impl Decoder {
             retired: Vec::with_capacity(16),
             cancelled: Vec::with_capacity(16),
             pointer_enabled: false,
+            keymap: None,
         })
     }
     fn release(&mut self, slot: usize, cancel: bool) {
@@ -185,6 +191,7 @@ impl Decoder {
                     self.current.touches[self.slot].y = value;
                 }
             }
+            (3, 16 | 17) => self.current.hat[usize::from(code - 16)] = value.signum(),
             (3, 0 | 1) if !self.multitouch => {
                 if code == 0 {
                     self.current.touches[0].x = value;
@@ -194,6 +201,25 @@ impl Decoder {
             }
             _ => {}
         }
+    }
+    /// Replaces the default key table for this device: each key code presses
+    /// its button mask. A program supplies one for a gamepad whose codes do
+    /// not follow the default table's layout.
+    pub fn set_keymap(&mut self, keymap: &[(u16, u32)]) {
+        self.keymap = Some(keymap.to_vec());
+    }
+    /// The surface this device's contacts and pointer land on (0 primary,
+    /// 1 auxiliary) and that surface's logical extent.
+    pub fn set_surface(&mut self, surface: u32, extent: [u32; 2]) -> io::Result<()> {
+        if extent.contains(&0) || surface > 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid evdev surface",
+            ));
+        }
+        self.surface = surface;
+        self.extent = extent;
+        Ok(())
     }
     pub fn disconnect(&mut self) {
         for touch in &self.published.touches {
@@ -211,7 +237,32 @@ impl Decoder {
         }
         self.current.keys.fill(false);
         self.current.pointer_buttons = 0;
+        self.current.hat = [0; 2];
         self.published = self.current.clone();
+    }
+    fn default_buttons(keys: &[bool; 768], frame: &mut InputFrameBuilder) {
+        for (codes, mask) in [
+            (&[103u16, 544][..], btn::UP),
+            (&[108, 545], btn::DOWN),
+            (&[105, 546], btn::LEFT),
+            (&[106, 547], btn::RIGHT),
+            (&[28, 315], btn::START),
+            // Escape and Backspace go back on a keyboard (the CardputerZero's
+            // has no arrow keys on its first layer, but both of these).
+            (&[57, 44, 304, 1, 14], btn::CROSS),
+            (&[45, 305], btn::CIRCLE),
+            (&[42, 307], btn::SQUARE),
+            (&[46, 308], btn::TRIANGLE),
+            (&[310], btn::LTRIGGER),
+            (&[311], btn::RTRIGGER),
+            (&[312], btn::ZL),
+            (&[313], btn::ZR),
+            (&[314], btn::SELECT),
+        ] {
+            if codes.iter().any(|c| keys[*c as usize]) {
+                frame.buttons |= mask;
+            }
+        }
     }
     pub fn append(&mut self, frame: &mut InputFrameBuilder) {
         for slot in 0..16 {
@@ -234,22 +285,23 @@ impl Decoder {
             }
         }
         let keys = &self.published.keys;
-        for (codes, mask) in [
-            (&[103u16, 544][..], btn::UP),
-            (&[108, 545], btn::DOWN),
-            (&[105, 546], btn::LEFT),
-            (&[106, 547], btn::RIGHT),
-            (&[28, 315], btn::START),
-            // Escape and Backspace go back on a keyboard (the CardputerZero's
-            // has no arrow keys on its first layer, but both of these).
-            (&[57, 44, 304, 1, 14], btn::CROSS),
-            (&[45, 305], btn::CIRCLE),
-            (&[42, 307], btn::SQUARE),
-            (&[46, 308], btn::TRIANGLE),
-            (&[310], btn::LTRIGGER),
-            (&[311], btn::RTRIGGER),
+        if let Some(keymap) = &self.keymap {
+            for (code, mask) in keymap {
+                if keys.get(*code as usize).copied().unwrap_or(false) {
+                    frame.buttons |= mask;
+                }
+            }
+        } else {
+            Self::default_buttons(keys, frame);
+        }
+        let hat = self.published.hat;
+        for (on, mask) in [
+            (hat[0] < 0, btn::LEFT),
+            (hat[0] > 0, btn::RIGHT),
+            (hat[1] < 0, btn::UP),
+            (hat[1] > 0, btn::DOWN),
         ] {
-            if codes.iter().any(|c| keys[*c as usize]) {
+            if on {
                 frame.buttons |= mask;
             }
         }
@@ -339,6 +391,53 @@ mod tests {
         let mut f = InputFrameBuilder::new();
         d.append(&mut f);
         f
+    }
+    #[test]
+    fn gamepad_hat_select_and_second_triggers_are_buttons() {
+        let mut d = decoder();
+        d.event(3, 16, -1);
+        d.event(3, 17, 1);
+        d.event(1, 314, 1);
+        d.event(1, 312, 1);
+        d.event(1, 313, 1);
+        assert_eq!(
+            report(&mut d).buttons,
+            btn::LEFT | btn::DOWN | btn::SELECT | btn::ZL | btn::ZR
+        );
+        d.event(3, 16, 0);
+        d.event(3, 17, -1);
+        d.event(1, 314, 0);
+        d.event(1, 312, 0);
+        d.event(1, 313, 0);
+        assert_eq!(report(&mut d).buttons, btn::UP);
+        d.disconnect();
+        assert_eq!(report(&mut d).buttons, 0);
+    }
+    #[test]
+    fn a_keymap_replaces_the_default_table() {
+        let mut d = decoder();
+        d.set_keymap(&[(304, btn::CIRCLE), (310, btn::SELECT)]);
+        d.event(1, 304, 1);
+        assert_eq!(report(&mut d).buttons, btn::CIRCLE);
+        d.event(1, 304, 0);
+        d.event(1, 305, 1);
+        d.event(1, 310, 1);
+        assert_eq!(report(&mut d).buttons, btn::SELECT);
+        d.event(3, 17, -1);
+        assert_eq!(report(&mut d).buttons, btn::SELECT | btn::UP);
+    }
+    #[test]
+    fn contacts_land_on_the_surface_the_device_is_routed_to() {
+        let mut d = decoder();
+        d.set_surface(1, [512, 384]).unwrap();
+        d.event(3, 57, 4);
+        d.event(3, 53, 0);
+        d.event(3, 54, 0);
+        let f = report(&mut d);
+        assert_eq!(f.contacts.len(), 1);
+        assert_eq!(f.contacts[0].surface, 1);
+        assert!(d.set_surface(2, [512, 384]).is_err());
+        assert!(d.set_surface(0, [0, 384]).is_err());
     }
     #[test]
     fn packets_are_atomic_and_alias_keys_stay_pressed() {

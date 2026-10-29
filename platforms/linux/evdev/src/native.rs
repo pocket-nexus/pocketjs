@@ -95,7 +95,8 @@ impl Evdev {
             103, 108, 105, 106, 28, 57, 44, 304, 305, 315, 544, 545, 546, 547,
         ]
         .iter()
-        .any(|key| has(&keys, *key));
+        .any(|key| has(&keys, *key))
+            || has(&absolute, 16) && has(&absolute, 17);
         let mut classes = InputClasses::NONE;
         if touch {
             classes |= InputClasses::CONTACT;
@@ -126,6 +127,17 @@ impl Evdev {
             bytes: EventBytes::new(size_of::<libc::c_long>())?,
             classes,
         })
+    }
+}
+impl Evdev {
+    /// Routes this device's contacts and pointer to `surface` (0 primary,
+    /// 1 auxiliary) with that surface's logical extent.
+    pub fn set_surface(&mut self, surface: u32, extent: [u32; 2]) -> io::Result<()> {
+        self.decoder.set_surface(surface, extent)
+    }
+    /// Replaces the default key table for this device (see Decoder::set_keymap).
+    pub fn set_keymap(&mut self, keymap: &[(u16, u32)]) {
+        self.decoder.set_keymap(keymap);
     }
 }
 impl InputSource for Evdev {
