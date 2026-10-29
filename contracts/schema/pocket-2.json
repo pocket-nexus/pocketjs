@@ -335,6 +335,12 @@
           "minimum": 1,
           "default": 256
         },
+        "tickHz": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 60
+        },
         "surfaces": {
           "type": "object",
           "additionalProperties": false,

@@ -67,7 +67,8 @@ describe("AOT application artifact", () => {
         expect(readFileSync(exportAotProfile(dependencies, exported), "utf8")).toContain(`pub const PROFILE_HASH: [u8; 32] = [${hashBytes}];`);
         expect(() => exportAotProfile({ ...dependencies, profileHash: `sha256:${"0".repeat(64)}` }, exported)).toThrow("compiled for profile");
         const layers = JSON.parse(readFileSync(join(out, "layers.json"), "utf8"));
-        expect(layers.tickRate).toBe(30);
+        // gba-hero states app.tickHz 30; ipodnano-hero runs at the default 60.
+        expect(layers.tickRate).toBe(target === "gba" ? 30 : 60);
         expect(layers.layers.length > 0).toBe(target === "gba");
       }
     } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -97,13 +98,13 @@ import {label} from './App';
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
 
-  test("custom app theme and profile tick rate are isolated across compilations", async () => {
+  test("custom app theme and application tick rate are isolated across compilations", async () => {
     const project = temporary();
     try {
       const entry = join(project, "app.tsx"), manifestPath = join(project, "pocket.json");
       writeFileSync(entry, `import {View} from '@pocketjs/framework/solid/components';\nexport default function App(){return <View class="w-[20] h-[20] animate-app-fade"/>}`);
       const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", name: "aot-test", pocket: 2, id: "dev.test.aot", title: "AOT", version: "1.0.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } }, app: {
-        entry: "app.tsx", framework: "solid", aot: true, viewport: { fixed: { logical: [240,160], presentation: "native" } },
+        entry: "app.tsx", framework: "solid", aot: true, tickHz: 30, viewport: { fixed: { logical: [240,160], presentation: "native" } },
         theme: { keyframes: { fade: { from: {opacity: 0}, to: {opacity: 1} } }, animation: { "app-fade": "fade 1s linear" } },
       } };
       writeFileSync(manifestPath, JSON.stringify(manifest));

@@ -95,6 +95,13 @@ export interface PocketManifestV2 {
     readonly aot?: boolean;
     readonly model?: "rust" | "compiled";
     readonly recursionLimit?: number;
+    /**
+     * Core ticks per virtual second the package is compiled at, 1 through
+     * 60; absent, 60. A host runs it at the largest cadence the rate is a
+     * whole multiple of and advances the core by rate / cadence ticks per
+     * frame (contracts/spec/admission.ts).
+     */
+    readonly tickHz?: number;
     readonly viewport: ManifestViewport;
     /** Additional UI output intent. Physical geometry remains target-owned. */
     readonly surfaces?: {
@@ -408,6 +415,7 @@ export const pocketManifestV2Schema = {
         aot: { type: "boolean" },
         model: { enum: ["rust", "compiled"] },
         recursionLimit: { type: "integer", minimum: 1, default: 256 },
+        tickHz: { type: "integer", minimum: 1, maximum: 60, default: 60 },
         surfaces: surfacesSchema,
         companions: {
           type: "array",

@@ -217,7 +217,9 @@ int main(void) {
       expect(variant.target).toBe(target);
       expect(variant.hostAbi).toBe(POCKET_BINDING_GENERATION);
       const plan = JSON.parse(new TextDecoder().decode(findSection(variant, POCKET_SECTION.plan)!));
-      expect(plan.profile.tickHz).toBe(target === "external-a" ? 60 : 30);
+      // The rate is the application's (default 60); the cadences are the target's.
+      expect(plan.profile.tickHz).toBe(60);
+      expect(plan.profile.cadences).toEqual(target === "external-a" ? [60] : [30]);
       expect(readFileSync(dependency, "utf8")).toContain(join(directory, `${target}.json`));
       expect(readFileSync(dependency, "utf8")).toContain(runtime);
       expect(existsSync(join(directory, target, "app.js"))).toBe(true);

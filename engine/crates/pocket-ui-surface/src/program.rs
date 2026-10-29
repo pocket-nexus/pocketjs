@@ -383,10 +383,17 @@ mod tests {
         profile: Profile,
         profile_hash: [u8; 32],
     ) -> (UiProgram, Rc<RefCell<usize>>) {
+        program_at(profile, profile_hash, 60)
+    }
+    fn program_at(
+        profile: Profile,
+        profile_hash: [u8; 32],
+        tick_hz: u32,
+    ) -> (UiProgram, Rc<RefCell<usize>>) {
         let mut program = UiProgram::new(ProgramConfig {
             profile,
             profile_hash,
-            tick_hz: 60,
+            tick_hz,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical: [16, 16],
             heap_limit: 4 * 1024 * 1024,
@@ -440,6 +447,36 @@ mod tests {
         }
         assert_eq!(*first_count.borrow(), 1);
         assert_eq!(*second_count.borrow(), 1);
+    }
+    #[test]
+    fn the_package_rate_selects_the_cadence_and_core_ticks_per_frame() {
+        // (host cadences, package rate) -> (cadence, core ticks, guest __simHz)
+        for (cadences, tick_hz, cadence_hz, core_ticks) in [
+            (vec![60, 30], 30, 30, 1),
+            (vec![60, 30], 60, 60, 1),
+            (vec![30], 60, 30, 2),
+        ] {
+            let (mut profile, profile_hash) = embedded_profile("native-test", [16, 16], 1, 60);
+            profile.cadences = Cow::Owned(cadences.clone());
+            let (mut program, _) = program_at(profile, profile_hash, tick_hz);
+            program
+                .boot(
+                    Rc::new(Guest::new().unwrap()),
+                    "native-test",
+                    &format!(
+                        "globalThis.frame=()=>{{if(globalThis.__simHz!=={cadence_hz})throw Error('simHz '+globalThis.__simHz)}}"
+                    ),
+                    &[],
+                )
+                .unwrap();
+            let timing = program.timing().unwrap();
+            assert_eq!(
+                (timing.tick_hz, timing.cadence_hz, timing.core_ticks()),
+                (tick_hz, cadence_hz, core_ticks),
+                "{cadences:?} at {tick_hz} Hz"
+            );
+            program.advance().unwrap();
+        }
     }
     #[test]
     fn logical_viewport_outside_the_profile_is_rejected() {

@@ -25,6 +25,7 @@ import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { fileURLToPath } from "node:url";
 import { POCKET_PROFILES } from "../profiles/index.ts";
+import { cadenceFor } from "../contracts/spec/admission.ts";
 
 const fixtureUrl = (name: string) => new URL(`./fixtures/manifests/${name}.json`, import.meta.url);
 const portableInput: unknown = await Bun.file(fixtureUrl("portable-psp")).json();
@@ -460,6 +461,28 @@ describe("semantic resolution", () => {
       "input.buttons": true,
       "text.glyphs.baked": true,
     });
+  });
+
+  test("the application states its rate; the target must present it at a whole divisor", () => {
+    const withRate = (tickHz?: number) => {
+      const input = structuredClone(portableInput) as { app: Record<string, unknown> };
+      if (tickHz !== undefined) input.app.tickHz = tickHz;
+      return input;
+    };
+    const rate = (tickHz: number | undefined, target: string) => {
+      const result = validateAndResolveBuildPlan(withRate(tickHz), { target });
+      return result.ok ? result.plan.profile.tickHz : result.diagnostics.map(item => item.code);
+    };
+    expect(rate(undefined, "psp")).toBe(60);
+    expect(rate(30, "psp")).toBe(30);
+    expect(rate(20, "psp")).toBe(20);
+    // Vita presents at 60 only; 30 is not a whole multiple of 60.
+    expect(rate(30, "vita")).toEqual(["app.tickHz"]);
+    // PocketBook presents at 30; the default 60 runs two core ticks per frame.
+    expect(cadenceFor(60, POCKET_PROFILES.pocketbook.cadences)).toBe(30);
+    for (const tickHz of [0, 61, 2.5]) {
+      expect(validatePocketManifest(withRate(tickHz)).ok, String(tickHz)).toBe(false);
+    }
   });
 
   test("desktop-widget capabilities are first-class: PSP admission refuses them", () => {

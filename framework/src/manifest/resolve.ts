@@ -26,7 +26,10 @@ import {
 import { validatePocketManifest, type ContractDiagnostic } from "./validate.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 import { appletManifestDiagnostics } from "../../../contracts/spec/applet.ts";
+import { cadenceFor } from "../../../contracts/spec/admission.ts";
 
+/** The package rate when the manifest states none (`app.tickHz`). */
+export const DEFAULT_TICK_HZ = 60;
 const AUXILIARY_DISPLAY = "display.auxiliary";
 const AUXILIARY_TOUCH = "input.touch.auxiliary";
 
@@ -724,6 +727,17 @@ export function resolveBuildPlan(
     }
   }
 
+  // The package rate is the application's; the target must present it at a
+  // cadence the rate is a whole multiple of.
+  const tickHz = manifest.app.tickHz ?? DEFAULT_TICK_HZ;
+  if (cadenceFor(tickHz, profile.cadences) === null) {
+    diagnostics.push({
+      code: "app.tickHz",
+      path: "/app/tickHz",
+      message: `app.tickHz ${tickHz} is not a whole multiple of a ${request.target} cadence (${profile.cadences.join(", ")} Hz)`,
+    });
+  }
+
   if (diagnostics.length > 0 || !resolvedViewport) return { ok: false, diagnostics };
 
   const logical: Viewport = [resolvedViewport.logical[0], resolvedViewport.logical[1]];
@@ -734,9 +748,7 @@ export function resolveBuildPlan(
     [...featureAvailability.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
   );
 
-  // The plan records the profile with the rate the package is compiled at:
-  // the profile's highest cadence.
-  const tickHz = Math.max(...profile.cadences);
+  // The plan records the profile with the rate the package is compiled at.
   const document = profileDocument(request.target, profile);
   const content: ResolvedBuildPlanContent = {
     profile: { ...compiledProfile(document), tickHz },
