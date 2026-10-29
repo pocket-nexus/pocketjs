@@ -4,8 +4,8 @@
 //! bytes (a picture is that frame, written as it is) and decodes it to the
 //! 256x128 RGBA texture the video plane copies into the viewfinder's texture
 //! (video.rs). While the tool scans, a second
-//! thread reads QR codes from the latest frame with rqrr, about four times a
-//! second. libcamera takes 9 to 11 s to deliver the first frame on the
+//! thread reads QR codes from the latest frame about four times a second,
+//! with zxing-cpp when the system has it (zxing.rs) and rqrr otherwise. libcamera takes 9 to 11 s to deliver the first frame on the
 //! CardputerZero (measured 2026-10-28 with 53 MiB free and swap in use), so
 //! the topic reports `starting` until it lands; from then the stream runs at
 //! about 12.7 frames a second, about 11 KiB a frame.
@@ -175,6 +175,10 @@ pub fn read_qr_luma(luma: &[u8], w: usize, h: usize) -> Option<String> {
     if luma.len() < w * h {
         return None;
     }
+    #[cfg(target_os = "linux")]
+    if let Some(zxing) = super::zxing::get() {
+        return zxing.read(luma, w, h);
+    }
     let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(w, h, |x, y| luma[y * w + x]);
     prepared.detect_grids().into_iter().find_map(|grid| grid.decode().ok().map(|(_, text)| text)).filter(|text| !text.is_empty())
 }
@@ -251,6 +255,20 @@ mod tests {
         assert_eq!(thumbnail.len(), THUMB_W * THUMB_H * 2);
         // Red is the low five bits.
         assert_eq!(u16::from_le_bytes([thumbnail[0], thumbnail[1]]), 0x001f);
+    }
+
+    #[test]
+    fn a_small_soft_code_reads_from_a_viewfinder_frame() {
+        // "https://pocket.nexus" at 3.3 pixels a module with a white margin,
+        // blurred (sigma 1.1) and JPEG-compressed in a 640x360 frame: a 5 cm
+        // code 25 cm from the Zero's camera.
+        let jpeg = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/qr-viewfinder.jpg"));
+        #[cfg(target_os = "linux")]
+        if super::super::zxing::get().is_some() {
+            assert_eq!(read_qr(jpeg).unwrap().as_deref(), Some("https://pocket.nexus"));
+            return;
+        }
+        eprintln!("without zxing-cpp, rqrr reads {:?}", read_qr(jpeg));
     }
 
     #[test]

@@ -1,16 +1,20 @@
 //! The Zero's hardware through Linux: IIO sysfs for the BMI270 and BMM150,
 //! the power supply class for the BQ27220 gauge, /proc and /sys for the
 //! system, NetworkManager and BlueZ command-line tools for scans, ALSA's
-//! arecord/aplay for the microphone and speaker, rpicam-still for the camera
-//! and zbarimg for QR codes. Every reader returns None or an error string
-//! when its device or tool is absent; nothing here panics.
+//! arecord for the microphone, PipeWire's pw-play (or aplay) and wpctl (or
+//! amixer) for the speaker, and rpicam-still and rpicam-vid for the camera.
+//! Every reader returns None or an error string when its device or tool is
+//! absent; nothing here panics.
 
 use super::pose::Vec3;
 use super::{BleDevice, Network};
 use std::{
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{Arc, Mutex},
+    thread,
     time::Duration,
 };
 
@@ -32,8 +36,26 @@ pub fn tool(name: &str) -> Option<PathBuf> {
     })
 }
 
+/// The user's runtime directory when the user's PipeWire runs in it: from
+/// XDG_RUNTIME_DIR (set when APPLaunch starts the program) or /run/user/<uid>.
+pub fn pipewire_runtime() -> Option<PathBuf> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })));
+    dir.join("pipewire-0").exists().then_some(dir)
+}
+
+/// A command with XDG_RUNTIME_DIR set, so PipeWire's tools find the daemon.
+fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(program);
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+        if let Some(dir) = pipewire_runtime() {
+            command.env("XDG_RUNTIME_DIR", dir);
+        }
+    }
+    command
+}
+
 fn run(program: &str, args: &[&str], timeout: Duration) -> Result<String, String> {
-    let mut child = Command::new(program)
+    let mut child = command(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -393,7 +415,21 @@ fn mixer_args<'a>(card: &'a Option<String>, rest: &[&'a str]) -> Vec<&'a str> {
     args
 }
 
+/// PipeWire's default output, whose volume APPLaunch's settings set.
+const SINK: &str = "@DEFAULT_AUDIO_SINK@";
+
+fn wpctl() -> bool {
+    pipewire_runtime().is_some() && tool("wpctl").is_some()
+}
+
+/// The speaker's volume in percent: PipeWire's default sink when PipeWire
+/// runs (`wpctl get-volume` prints `Volume: 0.40`), else the codec's mixer.
 pub fn volume() -> Option<u8> {
+    if wpctl() {
+        if let Some(level) = run("wpctl", &["get-volume", SINK], Duration::from_secs(2)).ok().and_then(|text| text.split_whitespace().nth(1).and_then(|v| v.parse::<f32>().ok())) {
+            return Some((level * 100.0).round().clamp(0.0, 100.0) as u8);
+        }
+    }
     tool("amixer")?;
     let card = audio_card();
     for mixer in MIXERS {
@@ -407,6 +443,12 @@ pub fn volume() -> Option<u8> {
 }
 
 pub fn set_volume(value: u8) -> Result<(), String> {
+    if wpctl() {
+        let level = format!("{:.2}", value.min(100) as f32 / 100.0);
+        if run("wpctl", &["set-volume", SINK, &level], Duration::from_secs(2)).is_ok() {
+            return Ok(());
+        }
+    }
     tool("amixer").ok_or("amixer is not installed")?;
     let card = audio_card();
     let level = format!("{}%", value.min(100));
@@ -478,17 +520,90 @@ pub fn spawn_capture(device: &str) -> Result<std::process::Child, String> {
         .map_err(|error| format!("arecord: {error}"))
 }
 
-pub fn play(device: &str, path: &Path) -> Result<std::process::Child, String> {
-    tool("aplay").ok_or("aplay is not installed")?;
-    let pcm = pcm_device(device);
-    Command::new("aplay")
-        .args(["-q", "-D", &pcm])
-        .arg(path)
-        .stdin(Stdio::null())
+/// The speaker's outputs (speaker.rs), each a player reading raw 16 kHz
+/// mono samples on its stdin, in the order to try them: the configured ALSA
+/// device; PipeWire's `pw-play` when the user's PipeWire runs; `aplay` on the
+/// codec. APPLaunch 0.6.108 keeps a PipeWire stream open on the codec, so
+/// `aplay` on it answers "Device or resource busy" there; and on 2026-10-29,
+/// before that update, a 880 Hz tone reached the microphone at 163 through
+/// `aplay` on the codec and at about 4,700 through `pw-play`.
+pub fn speaker_players(configured: &str) -> Vec<Vec<String>> {
+    let rate = super::speaker::RATE.to_string();
+    let aplay = |pcm: String| -> Vec<String> { ["aplay", "-q", "-D", &pcm, "-t", "raw", "-f", "S16_LE", "-r", &rate, "-c", "1", "-B", "200000"].map(String::from).to_vec() };
+    let mut players = Vec::new();
+    if configured != "auto" {
+        players.push(aplay(configured.to_string()));
+    }
+    if pipewire_runtime().is_some() && tool("pw-play").is_some() {
+        players.push(["pw-play", "--raw", "--format=s16", &format!("--rate={rate}"), "--channels=1", "-"].map(String::from).to_vec());
+    }
+    if tool("aplay").is_some() {
+        players.push(aplay(pcm_device("auto")));
+    }
+    players
+}
+
+/// A player reading the speaker's samples on its stdin. Its last line of
+/// stderr says why it stopped.
+pub struct Player {
+    name: String,
+    child: std::process::Child,
+    stdin: Option<std::process::ChildStdin>,
+    said: Arc<Mutex<String>>,
+}
+
+pub fn open_player(argv: &[String]) -> Result<Box<dyn super::speaker::Output>, String> {
+    let (program, args) = argv.split_first().ok_or("no player")?;
+    let path = tool(program).ok_or_else(|| format!("{program} is not installed"))?;
+    let mut child = command(path)
+        .args(args)
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("aplay: {error}"))
+        .map_err(|error| format!("{program}: {error}"))?;
+    let said = Arc::new(Mutex::new(String::new()));
+    if let Some(mut stderr) = child.stderr.take() {
+        let said = said.clone();
+        let _ = thread::Builder::new().name("pocket-zero-player-err".into()).stack_size(64 * 1024).spawn(move || {
+            let mut text = String::new();
+            let mut buffer = [0u8; 256];
+            while let Ok(n) = stderr.read(&mut buffer) {
+                if n == 0 {
+                    break;
+                }
+                text.push_str(&String::from_utf8_lossy(&buffer[..n]));
+                if let Some(line) = text.lines().rev().find(|line| !line.trim().is_empty()) {
+                    *said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = line.trim().to_string();
+                }
+                if let Some(end) = text.rfind('\n') {
+                    text.drain(..=end);
+                }
+            }
+        });
+    }
+    let stdin = child.stdin.take();
+    Ok(Box::new(Player { name: program.clone(), child, stdin, said }))
+}
+
+impl super::speaker::Output for Player {
+    fn write(&mut self, samples: &[i16]) -> Result<(), String> {
+        let bytes: Vec<u8> = samples.iter().flat_map(|sample| sample.to_le_bytes()).collect();
+        let pipe = self.stdin.as_mut().ok_or("the speaker is closed")?;
+        pipe.write_all(&bytes).map_err(|error| {
+            // The player has exited; give its stderr a moment to arrive.
+            thread::sleep(Duration::from_millis(50));
+            let said = self.said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+            format!("{}: {}", self.name, if said.is_empty() { error.to_string() } else { said })
+        })
+    }
+}
+
+impl Drop for Player {
+    fn drop(&mut self) {
+        drop(self.stdin.take());
+        let _ = self.child.wait();
+    }
 }
 
 // ---- camera ------------------------------------------------------------------

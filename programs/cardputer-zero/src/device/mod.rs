@@ -16,6 +16,9 @@ pub mod camera;
 pub mod dsp;
 pub mod ir;
 pub mod pose;
+pub mod speaker;
+#[cfg(target_os = "linux")]
+pub mod zxing;
 
 mod mock;
 #[cfg(target_os = "linux")]
@@ -120,7 +123,8 @@ struct Audio {
     wave: [f32; dsp::WAVE],
     pitch_hz: Option<f32>,
     recordings: Vec<(String, f32, u64)>,
-    playing: Option<String>,
+    /// What the speaker plays, until when.
+    playing: Option<(String, Instant)>,
     error: Option<String>,
     blocks: u64,
     /// The `arecord` child while it runs, so `stop` can end it.
@@ -245,6 +249,7 @@ struct Inner {
     mock: bool,
     store: PathBuf,
     audio_device: String,
+    speaker: speaker::Speaker,
     started: Instant,
     state: Mutex<State>,
 }
@@ -325,16 +330,17 @@ fn wav_header(data_bytes: u32) -> [u8; 44] {
     h
 }
 
-/// A short 880 Hz tone as a WAV file.
-fn beep_wav() -> Vec<u8> {
-    let samples = (dsp::RATE as usize * 150) / 1000;
-    let mut out = wav_header((samples * 2) as u32).to_vec();
-    for i in 0..samples {
-        let envelope = 1.0 - i as f32 / samples as f32;
-        let v = (0.4 * envelope * (2.0 * std::f32::consts::PI * 880.0 * i as f32 / dsp::RATE as f32).sin() * 32767.0) as i16;
-        out.extend_from_slice(&v.to_le_bytes());
+/// The speaker: the players linux.rs names, tried in order (PipeWire's
+/// `pw-play`, then `aplay` on the codec); the mock's goes nowhere.
+fn open_speaker(mock: bool, audio_device: &str) -> speaker::Speaker {
+    let timing = speaker::Timing::default();
+    #[cfg(target_os = "linux")]
+    if !mock {
+        let players = linux::speaker_players(audio_device);
+        return speaker::Speaker::new(timing, move |attempt| players.get(attempt).map(|argv| linux::open_player(argv)));
     }
-    out
+    let _ = (mock, audio_device);
+    speaker::Speaker::new(timing, |attempt| (attempt == 0).then(|| Ok(Box::new(speaker::Silent) as Box<dyn speaker::Output>)))
 }
 
 #[derive(Clone)]
@@ -351,6 +357,7 @@ impl Device {
         let device = Device(Arc::new(Inner {
             mock,
             store,
+            speaker: open_speaker(mock, &audio_device),
             audio_device,
             started: Instant::now(),
             state: Mutex::new(State::default()),
@@ -577,10 +584,10 @@ impl Device {
             state.caps.ir_tx = state.ir.tx.is_some();
             state.caps.ir_rx = state.ir.rx.is_some();
             state.caps.audio_capture = linux::tool("arecord").is_some();
-            state.caps.audio_play = linux::tool("aplay").is_some();
+            state.caps.audio_play = !linux::speaker_players(&self.0.audio_device).is_empty();
             state.caps.camera = linux::camera_tool().is_some() || linux::live_tool().is_some();
             state.camera.available = state.caps.camera;
-            // QR codes are read in-process (camera.rs, rqrr).
+            // QR codes are read in-process (camera.rs: zxing-cpp, or rqrr).
             state.caps.qr = state.caps.camera;
             state.camera.qr_available = state.caps.qr;
             state.caps.wifi = linux::tool("nmcli").is_some();
@@ -903,41 +910,23 @@ impl Device {
             return error_response(400, "bad name");
         }
         let path = self.0.store.join("recordings").join(name);
-        if !path.exists() {
+        let Ok(bytes) = std::fs::read(&path) else {
             return error_response(404, "no such recording");
+        };
+        match speaker::wav_samples(&bytes) {
+            Ok(samples) => self.sound(&samples, name),
+            Err(error) => error_response(415, error),
         }
-        self.play_file(path, Some(name.to_string()))
-    }
-
-    fn play_file(&self, path: PathBuf, label: Option<String>) -> Response {
-        let device = self.clone();
-        let seconds = std::fs::metadata(&path).map(|m| m.len().saturating_sub(44) as f32 / (dsp::RATE * 2) as f32).unwrap_or(0.5);
-        self.lock().audio.playing = label.clone().or_else(|| Some("tone".into()));
-        let _ = thread::Builder::new().name("pocket-zero-play".into()).spawn(move || {
-            if device.0.mock {
-                thread::sleep(Duration::from_secs_f32(seconds.min(30.0)));
-            } else {
-                #[cfg(target_os = "linux")]
-                match linux::play(&device.0.audio_device, &path) {
-                    Ok(mut child) => {
-                        let _ = child.wait();
-                    }
-                    Err(error) => {
-                        device.lock().audio.error = Some(error);
-                    }
-                }
-            }
-            device.lock().audio.playing = None;
-        });
-        ok_response()
     }
 
     fn beep(&self) -> Response {
-        let path = self.0.store.join("beep.wav");
-        if !path.exists() {
-            let _ = std::fs::write(&path, beep_wav());
-        }
-        self.play_file(path, None)
+        self.sound(&speaker::beep(), "tone")
+    }
+
+    fn sound(&self, samples: &[i16], label: &str) -> Response {
+        let until = Instant::now() + self.0.speaker.play(samples);
+        self.lock().audio.playing = Some((label.to_string(), until));
+        ok_response()
     }
 
     // ---- infrared ----------------------------------------------------------------
@@ -1544,8 +1533,8 @@ impl Device {
             "blocks": a.blocks,
             "recording": a.recording.as_ref().map(|r| json!({ "name": r.name, "seconds": round(r.seconds, 1), "started": round(r.started as f32, 1) })),
             "recordings": a.recordings.iter().map(|(name, seconds, bytes)| json!({ "name": name, "seconds": round(*seconds, 1), "bytes": bytes })).collect::<Vec<_>>(),
-            "playing": a.playing,
-            "error": a.error,
+            "playing": a.playing.as_ref().filter(|(_, until)| Instant::now() < *until).map(|(name, _)| name),
+            "error": a.error.clone().or_else(|| self.0.speaker.error()),
             "device": if self.0.mock { self.0.audio_device.clone() } else { audio_device_name(&self.0.audio_device) },
         })
     }
@@ -1970,6 +1959,5 @@ mod tests {
         assert_eq!(u32::from_le_bytes(header[40..44].try_into().unwrap()), 32000);
         assert!(valid_key("ir-signals") && !valid_key("Ir") && !valid_key("a/b") && !valid_key(""));
         assert!(valid_name("TV power") && !valid_name("../x") && !valid_name(".hidden"));
-        assert_eq!(beep_wav().len(), 44 + 2400 * 2);
     }
 }
