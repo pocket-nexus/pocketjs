@@ -67,7 +67,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     renameSync(options.out, `${options.out}-hidden`);
     cpSync(join(root, "tests/fixtures/sdk"), join(external, "program"), { recursive: true });
     cpSync(quickjs, join(external, "program/quickjs"), { recursive: true });
-    const fixtureProfile: PocketProfile = { format: "pocket-profile/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
+    const fixtureProfile: PocketProfile = { format: "pocket-host/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
     const profile = canonicalProfileJson(fixtureProfile);
     const bytes = (source: string) => new TextEncoder().encode(source);
     const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [

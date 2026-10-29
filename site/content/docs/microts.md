@@ -30,7 +30,7 @@ implementation.
 
 ## How Vue becomes Rust
 
-The `app.model` setting in `pocket.json` chooses the model implementation.
+The `app.model` setting in `pocket.app.json` chooses the model implementation.
 The default `"rust"` mode uses a handwritten Rust model. With `app.aot: true`,
 `"compiled"` generates that model from its `.ts` implementation. The
 [execution-mode comparison](/docs/typescript-support/#execution-modes) describes

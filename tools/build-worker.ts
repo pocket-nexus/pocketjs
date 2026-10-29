@@ -67,7 +67,7 @@ if (import.meta.main) {
   const rootIndex = args.findIndex(arg => arg === "--project-root");
   const projectRootOption = rootIndex >= 0 ? args.splice(rootIndex, 2)[1] : undefined;
   const [manifestPath, outdir = ".pocket-build/worker"] = args;
-  if (!manifestPath) throw new Error("usage: bun tools/build-worker.ts <pocket.json> [outdir] [--project-root <dir>]");
+  if (!manifestPath) throw new Error("usage: bun tools/build-worker.ts <pocket.app.json> [outdir] [--project-root <dir>]");
   const path = resolve(manifestPath), manifest = await Bun.file(path).json();
   if (!manifest.domains?.worker) throw new Error("Manifest has no domains.worker entry");
   const diagnostics: ContractDiagnostic[] = [];

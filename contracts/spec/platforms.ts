@@ -4,10 +4,10 @@ import {
   type TargetId,
 } from "./platform-types.ts";
 
-import { POCKET_PROFILES } from "../../profiles/index.ts";
-import { targetProfile } from "../../profiles/contract.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
+import { targetProfile } from "../../hosts/contract.ts";
 
-/** Compatibility inventory; software facts are owned by profiles/*.ts. */
+/** Compatibility inventory; software facts are owned by hosts/<id>/pocket.host.json. */
 export const POCKET_TARGETS = defineTargetRegistry({
   psp: targetProfile(POCKET_PROFILES.psp),
   vita: targetProfile(POCKET_PROFILES.vita),

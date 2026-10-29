@@ -1,0 +1,28 @@
+{
+  "format": "pocket-host/2",
+  "id": "psp",
+  "platform": "psp",
+  "form": "takeover",
+  "cadences": [60, 30, 20],
+  "display": {
+    "logicalViewports": [[480, 272]],
+    "presentations": ["native", "integer-fit"],
+    "rasterDensity": 1,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [480, 272]
+  },
+  "capabilities": [
+    "audio.pcm",
+    "input.analog.left",
+    "input.buttons",
+    "input.cursor",
+    "io.offload",
+    "link.companion",
+    "media.playback",
+    "text.glyphs.baked",
+    "text.glyphs.streamed",
+    "text.layout.offload"
+  ]
+}

@@ -1,4 +1,4 @@
-// Screen sizes available to the UI preview. Presets come from app.viewport.fixed.logical in pocketjs apps/*/pocket.json.
+// Screen sizes available to the UI preview. Presets come from app.viewport.fixed.logical in pocketjs apps/*/pocket.app.json.
 
 export interface Viewport {
   width: number;

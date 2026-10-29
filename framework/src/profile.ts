@@ -8,14 +8,14 @@ import { DYNAMIC_FORMS, type Viewport } from "../../contracts/spec/platform-type
 import { WORKER_RESOURCES, type WorkerResourceKind } from "../../contracts/spec/worker.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { validateSchema, type ContractDiagnostic, type ValidationResult } from "./manifest/schema.ts";
-import { BUILTIN_PROFILE_IDS, PROFILE_COMMAND_WORDS } from "../../profiles/ids.ts";
+import { BUILTIN_PROFILE_IDS, PROFILE_COMMAND_WORDS } from "../../hosts/ids.ts";
 
 export {
   canonicalProfileJson, profileHashProjection, POCKET_PROFILE_FILE, POCKET_PROFILE_FORMAT, pocketProfileSchema,
   type PocketProfile, type ProfileHashProjection,
 } from "../../contracts/spec/profile.ts";
 
-/** Check a pocket-profile/2 document: its data shape, then the relations
+/** Check a pocket-host/2 document: its data shape, then the relations
  * between fields. Capability names the framework does not register are
  * allowed; an application cannot require them. */
 export function validatePocketProfile(input: unknown, options: { builtin?: boolean } = {}): ValidationResult<PocketProfile> {
@@ -106,7 +106,7 @@ export function parsePocketProfile(value: unknown, options: { builtin?: boolean;
   return freezeProfile(structuredClone(result.value) as PocketProfile);
 }
 
-/** Read and check a pocket-profile/2 file. */
+/** Read and check a pocket-host/2 file. */
 export function readPocketProfile(path: string, options: { builtin?: boolean } = {}): PocketProfile {
   let value: unknown;
   try { value = JSON.parse(readFileSync(path, "utf8")); }

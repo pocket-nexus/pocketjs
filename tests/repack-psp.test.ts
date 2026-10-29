@@ -8,7 +8,7 @@ type PocketPackageVariant,
 } from "../contracts/spec/pocket-package.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { PSP_ICON0, pbpParts, pbpWrite, pspFolder, repackPsp } from "../tools/repack/psp.ts";

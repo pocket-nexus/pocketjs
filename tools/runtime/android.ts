@@ -32,7 +32,7 @@ import { RUNTIME_MANIFEST, type RuntimeManifest } from "../../tools/repack/share
 import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "../moto-g-play-profile.ts";
 import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "../redmi-1s-profile.ts";
 import { writeRuntimeManifest } from "../../tools/runtime/manifest.ts";
-import { POCKET_PROFILES } from "../../profiles/index.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 import type { PocketProfile } from "../../framework/src/profile.ts";
 const redmiProfile = POCKET_PROFILES["redmi-1s-dev"];
 const motoProfile = POCKET_PROFILES["moto-g-play-dev"];

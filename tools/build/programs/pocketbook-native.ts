@@ -1,7 +1,7 @@
 import { STABLE_RUST_TOOLCHAIN } from "../../../tools/build/toolchains/rust.ts";
 import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { requireApplication } from "./application.ts";
 
 export async function buildPocketBook(context: RuntimeBuildContext): Promise<void> {

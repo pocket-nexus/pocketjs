@@ -7,7 +7,7 @@ import { packageIdentity, renderTemplate } from "../tools/native-host-build.ts";
 import { BLACKBERRY_CLASSIC_HOST_ABI, BLACKBERRY_CLASSIC_LOGICAL_VIEWPORT, BLACKBERRY_CLASSIC_PHYSICAL_VIEWPORT, BLACKBERRY_CLASSIC_RASTER_DENSITY, BLACKBERRY_QNX_DEV_TARGET_ID, resolveBlackBerryClassicBuildPlan } from "../tools/blackberry-classic-profile.ts";
 
 const repository = join(import.meta.dir, "..");
-const manifestPath = join(repository, "apps/blackberry-classic-demo/pocket.json");
+const manifestPath = join(repository, "apps/blackberry-classic-demo/pocket.app.json");
 const targets = [BLACKBERRY_QNX_DEV_TARGET_ID] as const;
 
 function manifest(): Record<string, any> {

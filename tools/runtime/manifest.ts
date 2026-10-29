@@ -20,14 +20,14 @@ export function pocketjsCommit(): string {
   return head.stdout.toString().trim() + (dirty.stdout.toString().trim() ? "-dirty" : "");
 }
 
-/** Write runtime.json and the stamped profile document beside the runtime's
+/** Write runtime.json and the stamped host contract beside the runtime's
  * files. Repack admits packages against that document. */
 export async function writeRuntimeManifest(
   directory: string,
   fields: {
     target: string;
     hostAbi: number;
-    /** The profile document the runtime was built for. */
+    /** The host contract the runtime was built for. */
     profile: PocketProfile;
     files: readonly string[];
     /** Target-specific fields written beside the common ones (an Android runtime's viewport and SDK levels). */

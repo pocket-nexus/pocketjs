@@ -11,7 +11,7 @@ function fixture(files: Record<string, string>, aot = true) {
   const root = resolve(".pocket-build/validation/solid-aot/browser", `${Date.now()}-${sequence++}`);
   mkdirSync(root, { recursive: true });
   for (const [name, source] of Object.entries(files)) writeFileSync(resolve(root, name), source);
-  writeFileSync(resolve(root, "pocket.json"), JSON.stringify({ app: { framework: "solid", aot, entry: "main.tsx" } }));
+  writeFileSync(resolve(root, "pocket.app.json"), JSON.stringify({ app: { framework: "solid", aot, entry: "main.tsx" } }));
   return root;
 }
 const imports = 'import { Text, View } from "@pocketjs/framework/solid/components";';

@@ -2,10 +2,10 @@
 
 // `.pocket` packaging (docs/PLATFORM.md L2; format in contracts/spec/pocket-package.ts).
 //
-//   bun tools/pocket-pack.ts build --manifest apps/hero/pocket.json \
+//   bun tools/pocket-pack.ts build --manifest apps/hero/pocket.app.json \
 //       --target psp --target vita [-o dist/packages/hero.pocket]
 //   bun tools/pocket-pack.ts build --manifest ... --all-targets
-//   bun tools/pocket-pack.ts build --manifest game/pocket.json --project-root game --target psp
+//   bun tools/pocket-pack.ts build --manifest game/pocket.app.json --project-root game --target psp
 //   bun tools/pocket-pack.ts inspect <file.pocket>
 //   bun tools/pocket-pack.ts thin <file.pocket> --target psp -o out.pocket
 //   bun tools/pocket-pack.ts verify <file.pocket>
@@ -52,7 +52,7 @@ function usage(message?: string): never {
   if (message) console.error(`pocket-pack: ${message}`);
   console.error(
     "usage:\n" +
-      "  bun tools/pocket-pack.ts build --manifest <pocket.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
+      "  bun tools/pocket-pack.ts build --manifest <pocket.app.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
       "  bun tools/pocket-pack.ts inspect <file.pocket>\n" +
       "  bun tools/pocket-pack.ts thin <file.pocket> --target <t> [-o <file>]\n" +
       "  bun tools/pocket-pack.ts verify <file.pocket>",

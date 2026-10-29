@@ -1,5 +1,5 @@
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import { POCKET_CAPABILITIES, definePlatformContractRegistry, defineTargetRegistry } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 const softwareProfile = POCKET_PROFILES["moto-g-play-dev"];

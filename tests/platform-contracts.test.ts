@@ -25,7 +25,7 @@ import { validatePocketSystem } from "../framework/src/manifest/system.ts";
 import { validatePocketManifest, validateSchema, type ContractDiagnostic } from "../framework/src/manifest/validate.ts";
 import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { fileURLToPath } from "node:url";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { cadenceFor } from "../contracts/spec/admission.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 
@@ -103,7 +103,7 @@ const SYNTHETIC_CONTRACTS = definePlatformContractRegistry(
   SYNTHETIC_TARGETS,
 );
 
-describe("pocket.json v2 schema", () => {
+describe("pocket.app.json v2 schema", () => {
   test("uses the schema path deployed by pocketjs.dev", () => {
     expect(POCKET_MANIFEST_SCHEMA_ID).toBe("https://pocketjs.dev/schema/pocket-2.json");
   });
@@ -382,7 +382,7 @@ describe("platform registry", () => {
   test("reports a missing dynamic range instead of throwing during resolution", async () => {
     const invalid = structuredClone(POCKET_PLATFORM_CONTRACTS) as any;
     delete invalid.targets["macos-widget"].display.dynamicViewport;
-    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.json", import.meta.url))).manifest as any;
+    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.app.json", import.meta.url))).manifest as any;
     const result = validateAndResolveBuildPlan(note, { target: "macos-widget" }, invalid);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -398,7 +398,7 @@ describe("platform registry", () => {
 describe("semantic resolution", () => {
   test("the legacy note uses baked text on portable desktop hosts", async () => {
     // Portable hosts never advertise OS text layout. Async text is explicit.
-    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.json", import.meta.url))).manifest as any;
+    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.app.json", import.meta.url))).manifest as any;
     const onApp = validateAndResolveBuildPlan(note, { target: "macos-app" });
     expect(onApp.ok).toBe(true);
     if (!onApp.ok) return;
@@ -418,7 +418,7 @@ describe("semantic resolution", () => {
     // derive size-locking from the plan too.
     expect(onApp.plan.companions).toEqual(["note"]);
     expect(onApp.plan.viewport.policy).toBe("dynamic");
-    const hero = await Bun.file(new URL("../apps/hero/pocket.json", import.meta.url)).json();
+    const hero = await Bun.file(new URL("../apps/hero/pocket.app.json", import.meta.url)).json();
     const heroOnApp = validateAndResolveBuildPlan(hero, { target: "macos-app" });
     expect(heroOnApp.ok).toBe(true);
     if (!heroOnApp.ok) return;
@@ -448,7 +448,7 @@ describe("semantic resolution", () => {
   });
 
   test("one clear manifest resolves the four clear targets to their sizes", () => {
-    const clear = readPocketManifest(fileURLToPath(new URL("../apps/clear/pocket.json", import.meta.url))).manifest;
+    const clear = readPocketManifest(fileURLToPath(new URL("../apps/clear/pocket.app.json", import.meta.url))).manifest;
     const viewport = (target: keyof typeof POCKET_PROFILES) => {
       const result = validateAndResolveBuildPlan(clear, { target }, profileRegistry(POCKET_PROFILES[target]));
       if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
@@ -522,7 +522,7 @@ describe("semantic resolution", () => {
   });
 
   test("resolves the note's dynamic manifest and an explicit fixed variant", async () => {
-    const manifest = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.json", import.meta.url))).manifest as any;
+    const manifest = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.app.json", import.meta.url))).manifest as any;
     const result = validateAndResolveBuildPlan(manifest, { target: "macos-widget" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -551,7 +551,7 @@ describe("semantic resolution", () => {
   });
 
   test("dynamic viewport admits in-range sizes and rejects out-of-range", async () => {
-    const manifest = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.json", import.meta.url))).manifest as any;
+    const manifest = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.app.json", import.meta.url))).manifest as any;
     const tiny = structuredClone(manifest) as any;
     tiny.app.viewport.dynamic.default = [100, 100];
     const rejected = validateAndResolveBuildPlan(tiny, { target: "macos-widget" });
@@ -612,7 +612,7 @@ describe("semantic resolution", () => {
     };
     const targets = ["psp", "vita", "macos-widget", "macos-app"] as const;
     for (const demo of readdirSync(new URL("../apps/", import.meta.url)).sort()) {
-      const url = new URL(`../apps/${demo}/pocket.json`, import.meta.url);
+      const url = new URL(`../apps/${demo}/pocket.app.json`, import.meta.url);
       if (!existsSync(url)) continue;
       // A theme module reference is loaded the way pocket compile loads it.
       const manifest = readPocketManifest(fileURLToPath(url)).manifest;
@@ -633,12 +633,12 @@ describe("semantic resolution", () => {
     ).toBe(true);
     // The demo shelf rule the site build applies: only psp-admissible
     // manifests are shown — the note stays off the landing/playground.
-    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.json", import.meta.url))).manifest as any;
+    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.app.json", import.meta.url))).manifest as any;
     expect(validateAndResolveBuildPlan(note, { target: "psp" }).ok).toBe(false);
   });
 
   test("portable text admission requires its offload transport declaration", async () => {
-    const manifest = await Bun.file(new URL("../apps/text-offload/pocket.json", import.meta.url)).json();
+    const manifest = await Bun.file(new URL("../apps/text-offload/pocket.app.json", import.meta.url)).json();
     manifest.engine.capabilities.requires = manifest.engine.capabilities.requires.filter((cap: string) => cap !== "io.offload");
     for (const target of ["psp", "macos-app"] as const) {
       expect(validateAndResolveBuildPlan(manifest, { target }).ok).toBe(false);
@@ -652,7 +652,7 @@ describe("semantic resolution", () => {
     expect(validateAndResolveBuildPlan(legacy, { target: "psp" }).ok).toBe(true);
 
     // A dynamic-only app is refused by fixed-screen forms…
-    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.json", import.meta.url))).manifest as any;
+    const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.app.json", import.meta.url))).manifest as any;
     const onPsp = validateAndResolveBuildPlan(note, { target: "psp" });
     expect(onPsp.ok).toBe(false);
     if (onPsp.ok) return;

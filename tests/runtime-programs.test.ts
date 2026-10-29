@@ -5,9 +5,9 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
-import type { RuntimeBuildContext } from "../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { build as threeDsBuild } from "../products/3ds/recipe.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { gbaBuild, ipodNanoBuild } from "../tools/build/programs/aot.ts";
 import { deployPsp, deployVita } from "../tools/build/programs/deploy.ts";

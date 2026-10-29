@@ -84,7 +84,7 @@ export const ANIMATION_CLASSES = ["composited", "repaint", "still"] as const;
 export type AnimationClass = (typeof ANIMATION_CLASSES)[number];
 
 /** One output as the resolver reads it: the profile surface with its
- *  physical panel size (`panel` in the profile document). */
+ *  physical panel size (`panel` in the host contract). */
 export interface FixedDisplayProfile {
   readonly physicalViewport: Viewport;
   readonly logicalViewports: readonly Viewport[];
@@ -123,7 +123,7 @@ export interface DisplayProfile extends FixedDisplayProfile {
   readonly animation: AnimationClass;
 }
 
-/** The resolver's view of a profile document (profiles/contract.ts
+/** The resolver's view of a host contract (hosts/contract.ts
  *  `targetProfile`). */
 export interface TargetProfile<C extends string = string> {
   /** Presented frames per second the host can drive. */
@@ -142,7 +142,7 @@ export interface TargetProfile<C extends string = string> {
   readonly roleCapabilities?: {
     readonly systemUI?: readonly C[];
   };
-  /** The profile document this view was made from. A view written directly
+  /** The host contract this view was made from. A view written directly
    *  (a test registry) has none; the resolver then reads the document's
    *  facts back from the view. */
   readonly source?: import("./profile.ts").PocketProfile<C>;
@@ -169,7 +169,7 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // Framework-synthesized pointer for targets without a native one: the
   // analog nub steers a screen cursor, hover applies `focus:`, the press
   // button applies `active:` and clicks on release. Opt-in per app
-  // (enableCursor + pocket.json requires/enhances) — d-pad focus traversal
+  // (enableCursor + pocket.app.json requires/enhances) — d-pad focus traversal
   // remains the portable default interaction.
   "input.cursor",
   // OS text composition: preedit renders inline at the caret with its own

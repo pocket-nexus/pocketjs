@@ -340,7 +340,7 @@ describe("the repack refuses", () => {
 
   test("a runtime for another device", async () => {
     await expect(repackAndroid(input({ runtime: fixtureRuntime({ target: "3ds-dev" }) }), options))
-      .rejects.toThrow(/pocket-profile\.json is not the profile runtime\.json names/);
+      .rejects.toThrow(/pocket\.host\.json is not the host contract runtime\.json names/);
   });
 });
 

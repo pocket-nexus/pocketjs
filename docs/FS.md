@@ -26,7 +26,7 @@ app: notes in files, assets in dirs, config in json               Guest
 op (`FS_OP` codes are the ABI identity, append-only). Capability id
 `data.fs`. Absence does **not** degrade to a no-op — file code
 that silently drops writes is a corruption bug, so the SDK throws where the
-namespace is unmounted, and an app declares `data.fs` in `pocket.json`
+namespace is unmounted, and an app declares `data.fs` in `pocket.app.json`
 `requires` so admission catches the gap before eval does.
 
 **Ops** (guest → core, all synchronous): `read(path, offset, maxBytes)` →
@@ -129,7 +129,7 @@ A key-value need is one JSON file in this tree, not a second module.
 |---|---|---|
 | sim (`platforms/sim/fs.ts`) | in-memory tree behind the op namespace, injected via `bootWorld` `extraGlobals` | ships with the test host; `tests/fs.test.ts` runs the contract, the SDK, and an oracle comparison against Bun's real fs |
 | Nintendo 3DS (`products/3ds`), M5Stack Tab5 (pocket-m5's `pocket_system`) | `engine/host-services/fs.c`: the nine ops over the slot's `data/` directory on the SD card, bound per guest when the plan's `features` hold `data.fs` | ships; `tests/fs-3ds.test.ts` compiles `fs.c` natively against the contract |
-| other consoles / devices | — | a target appends `data.fs` to its profile when its program compiles the module in; the port point is the data root (a POSIX directory, a LittleFS directory on MCU hosts) |
+| other consoles / devices | — | a target appends `data.fs` to its host contract when its program compiles the module in; the port point is the data root (a POSIX directory, a LittleFS directory on MCU hosts) |
 
 ## Adoption path
 
@@ -144,4 +144,4 @@ the spec, the SDK, or any app:
    `features` hold `data.fs` (the 3DS product and the Tab5's
    `pocket_system` do this), or implement the nine ops in the host's own
    language against `contracts/spec/fs.ts`;
-3. append `data.fs` to the target's profile.
+3. append `data.fs` to the target's host contract.

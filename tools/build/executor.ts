@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { canonicalProfileJson } from "../../framework/src/profile.ts";
-import type { RuntimeBuildContext, RuntimeBuildStep, RuntimeSourceContext } from "../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext, RuntimeBuildStep, RuntimeSourceContext } from "../../framework/src/host-config.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { exportProfile } from "../profile-export.ts";
 import { profileRegistry, type ResolvedProfile } from "../profile-resolver.ts";
@@ -89,7 +89,7 @@ function artifactFiles(path: string): Record<string, { bytes: number; sha256: st
 
 async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, options: RuntimeBuildOptions = {}): Promise<RuntimeBuildResult> {
   const config = selected.config;
-  if (!config) throw new Error("pocket build requires pocket.runtime-config.ts");
+  if (!config) throw new Error("pocket build requires pocket.host.config.ts");
   if (selected.hostAbi !== POCKET_BINDING_GENERATION) throw new Error("runtime build requires the current binding generation");
   if (options.pocket && options.aotDirectory) throw new Error("choose either --pocket or --aot-dir");
   outdir = resolve(outdir);
@@ -106,7 +106,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
   if (recipe.input === "package" && !options.pocket) throw new Error("this native program requires --pocket <compiled application.pocket>; run pocket compile first");
   if (recipe.input === "aot" && !options.aotDirectory) throw new Error("this native program requires --aot-dir <generated sources>; run pocket compile --aot first");
   if (recipe.input === "aot" && options.pocket || recipe.input === "package" && options.aotDirectory) throw new Error(`runtime recipe requires ${recipe.input} input`);
-  if (options.deploy && !recipe.deploy) throw new Error("this runtime config has no deploy hook");
+  if (options.deploy && !recipe.deploy) throw new Error("this host config has no deploy hook");
   const application = options.pocket ? prepareApplication(selected, options.pocket, outdir) : undefined;
   const aot = options.aotDirectory ? prepareAot(selected, options.aotDirectory, outdir) : undefined;
   const output = application?.plan.app.output ?? aot?.output ?? (/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(selected.profile.id) ? selected.profile.id : selected.profileHash.slice(7, 23));

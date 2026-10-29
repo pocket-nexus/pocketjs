@@ -43,9 +43,10 @@ generating Rust. The earlier cartridge compiler is maintained in a
 [separate repository](https://github.com/pocket-nexus/pocket-vapor).
 
 An app opts its browser and guest builds into admission with
-`"app": { "framework": "solid", "aot": true }` in `pocket.json`. The checker
-follows imports from the manifest entry before the transform cache is read.
-Ordinary Solid apps use their framework and host contracts without the AOT
+`"app": { "framework": "solid", "aot": true }` in `pocket.app.json`. The checker
+follows imports from the app contract's `app.entry` before the transform cache
+is read.
+Ordinary Solid apps use the framework and host APIs without the AOT
 view and model checks; see [execution modes](/docs/typescript-support/#execution-modes). Add
 `"model": "compiled"` to compile model bodies; without it, AOT checks the
 view contract and leaves the native model implementation to Rust.

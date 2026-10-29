@@ -1,5 +1,5 @@
 // apps/nexus/motion.ts — the baked idle motion of a Pocket Nexus scene, for
-// its pocket.json app.theme.
+// its pocket.app.json app.theme.
 //
 // Resting letters breathe like the homepage's: y = -0.018·FS·p and
 // rotate = 0.8°·p with p = (1 - cos(1.65t + 0.68i)) / 2, a 3.8 s cycle whose

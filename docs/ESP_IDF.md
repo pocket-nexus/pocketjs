@@ -66,41 +66,41 @@ selects an existing prepared archive when source builds are disabled.
 ESP-IDF supplies their symbols through ROM or libgcc under its `ilp32f` ABI.
 The preparation rules participate in receipt identity.
 
-## Package and profile boundaries
+## Package and host contract boundaries
 
-The product owns `pocket.runtime-config.ts` and a `pocket-profile/2` document
+The product owns `pocket.host.config.ts` and the `pocket-host/2` host contract
 it names by path. **The runtime admits a package whose plan the exported facts
-satisfy**; the profile hash records which document the package was compiled
-against. `pocket profile export --config <file> --out <directory>` writes
-`pocket_profile.h`, `pocket_profile.rs` and the stamped `pocket-profile.json`.
+satisfy**; the host contract hash records which host contract the package was
+compiled against. `pocket host export --config <file> --out <directory>` writes
+`pocket_profile.h`, `pocket_profile.rs` and the stamped `pocket.host.json`.
 These are build outputs, not checked-in platform definitions.
 
-`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.json>)`
-compiles the application and exports its program profile.
-`pocketjs_profile_header(TARGET <target> NAME <name>)` exports a profile without
-compiling an application. Both invoke the Pocket CLI and record imported
-configuration modules and profile documents in depfiles. All three CMake helpers accept
-`RUNTIME_CONFIG`; its default is the IDF project root's
-`pocket.runtime-config.ts`.
+`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.app.json>)`
+compiles the application and exports the program's host contract.
+`pocketjs_profile_header(TARGET <target> NAME <name>)` exports the host contract
+without compiling an application. Both invoke the Pocket CLI and record imported
+host config modules and host contracts in depfiles. All three CMake helpers accept
+`HOST_CONFIG`; its default is the IDF project root's
+`pocket.host.config.ts`.
 
 `pocketjs_embed_package(TARGET <target> NAME <name> PACKAGE <file>
 PROFILE_EXPORT_DIR <directory>)` consumes prebuilt artifacts using Python.
 This path requires Python, the package and exported artifacts; it does not
-require Bun, the Pocket CLI or the TypeScript config modules. `PROFILE_EXPORT_DIR`
+require Bun, the Pocket CLI or the TypeScript host config modules. `PROFILE_EXPORT_DIR`
 defaults to `<current-binary-directory>/pocketjs/<name>/profile`; export there
 before configuring an offline build. Missing exports produce a command naming
-the required config and output directory.
+the required host config and output directory.
 
-The Python helper reads the exported `pocket-profile.json`, requires its
+The Python helper reads the exported `pocket.host.json`, requires its
 `hostAbi` stamp to equal the package's binding generation and admits the
 host-input variant by the facts: raster density, animation class, rate against
-the cadences, viewport, presentation and capabilities. A document with another
+the cadences, viewport, presentation and capabilities. A host contract with another
 id and the same facts admits the package. The generated
 `pocketjs_package_<name>.h` supplies package storage and admitted application
 geometry; the program includes `pocket_profile.h` and points
 `pocket_runtime_config.profile` at `pocket_profile.facts`. **The runtime admits
 the package against that `pocket_profile_facts` record and reads no JSON**; the
-exported `pocket-profile.json` is a build input to the Python helper. The CMake helpers add the
+exported `pocket.host.json` is a build input to the Python helper. The CMake helpers add the
 `pocket_runtime` include directory, which holds the `pocket_runtime.h` that
 `pocket_profile.h` includes.
 
@@ -111,9 +111,10 @@ The removed C package parser and UI dispatcher have no independent admission
 or binding path.
 
 `tools/driver-contracts.ts` generates public C/Rust driver/runtime ABI records.
-`tools/packaging/esp-idf/contracts.ts` generates package wire constants and Python profile
-field names. Both generators support `--check`. TS, Rust and Python readers
-consume `tests/fixtures/packages/corpus`.
+`tools/packaging/esp-idf/contracts.ts` generates package wire constants and
+the Python host contract hash field names, `PROFILE_HASH_FIELDS`. Both
+generators support `--check`. TS, Rust and Python readers consume
+`tests/fixtures/packages/corpus`.
 
 ## QuickJS source preparation
 

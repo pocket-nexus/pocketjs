@@ -49,11 +49,11 @@ export function sourceAppContent(entry: string, options: {
   onAppRoot?: (path: string) => void;
 }): Partial<SourceAppContent> & { domains?: PocketManifestV2["domains"] } {
   let directory = dirname(resolve(entry));
-  while (!existsSync(join(directory, "pocket.json"))) {
+  while (!existsSync(join(directory, "pocket.app.json"))) {
     if (dirname(directory) === directory) return {};
     directory = dirname(directory);
   }
-  const candidates = readdirSync(directory).filter(name => /^pocket(?:\.[^.]+)?\.json$/.test(name)).map(name => {
+  const candidates = readdirSync(directory).filter(name => /^pocket\.app(?:\.[^.]+)?\.json$/.test(name)).map(name => {
     const path = join(directory, name);
     options.onRead?.(path);
     const expanded = expandThemeReference(JSON.parse(readFileSync(path, "utf8")), path);
@@ -69,7 +69,7 @@ export function sourceAppContent(entry: string, options: {
   if (new Set(matches.map(({ app, domains }) => JSON.stringify([app.framework, app.theme, domains?.worker]))).size > 1) {
     throw new Error("PocketJS build: manifests disagree on application content; pass a ResolvedBuildPlan");
   }
-  const selected = matches[0] ?? candidates.find(({ path }) => path === join(directory, "pocket.json"));
+  const selected = matches[0] ?? candidates.find(({ path }) => path === join(directory, "pocket.app.json"));
   if (selected) options.onAppRoot?.("base" in selected ? selected.base : directory);
   return selected ? { ...selected.app, ...(selected.domains ? { domains: selected.domains } : {}) } : {};
 }

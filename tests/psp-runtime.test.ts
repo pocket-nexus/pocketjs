@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";

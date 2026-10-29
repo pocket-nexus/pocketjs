@@ -1,0 +1,17 @@
+{
+  "format": "pocket-host/2",
+  "id": "idf-smoke",
+  "platform": "esp-idf",
+  "form": "takeover",
+  "cadences": [60, 30],
+  "display": {
+    "logicalViewports": [[320, 240]],
+    "presentations": ["native"],
+    "rasterDensity": 1,
+    "animation": "repaint"
+  },
+  "panel": {
+    "primary": [320, 240]
+  },
+  "capabilities": ["input.buttons", "text.glyphs.baked"]
+}

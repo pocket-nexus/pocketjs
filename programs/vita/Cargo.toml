@@ -47,7 +47,7 @@ bench = []
 runtime = []
 
 [package.metadata.vita]
-# The Vita backend supplies VITA_DEFAULT_TITLE_ID from pocket.json. Keeping the
+# The Vita backend supplies VITA_DEFAULT_TITLE_ID from pocket.app.json. Keeping the
 # reusable runtime free of a static id prevents separate apps from replacing
 # one another on real hardware and in Vita3K.
 title_name = "PocketJS"

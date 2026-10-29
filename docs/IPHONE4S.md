@@ -1,6 +1,6 @@
 # iPhone 4S
 
-Native build inputs and program configs are listed in [Device native builds](DEVICE_BUILDS.md).
+Native build inputs and host configs are listed in [Device native builds](DEVICE_BUILDS.md).
 
 The private iPhone 4S target runs PocketJS on an exact `iPhone4,1` device with
 iOS 6.1.3 build `10B329`. **The application owns a 320×480-point surface backed

@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, statSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { demoManifestFor } from "../../demo-identity.ts";
 import { withArtifactLock } from "../../targets/lock.ts";
 
 export const repository = resolve(import.meta.dir, "../../..");
 
 /** The manifest of the stock demo apps/<demo>/main.tsx (`hero` or `hero-main`):
- *  its own pocket.json, or the repository template with its identity. */
+ *  its own pocket.app.json, or the repository template with its identity. */
 export function demoManifest(name: string, framework?: string): Record<string, any> {
   const demo = name.replace(/-main$/, "");
   if (!/^[a-z0-9][a-z0-9-]*$/.test(demo) || !["main.tsx", "main.ts"].some(file => existsSync(resolve(repository, "apps", demo, file))))
@@ -26,7 +26,7 @@ export async function compileDemoPackage(target: string, manifest: Record<string
   }
   const directory = resolve(repository, ".pocket", `${target}-low-level`, manifest.app.output);
   mkdirSync(directory, { recursive: true });
-  const manifestPath = resolve(directory, "pocket.json");
+  const manifestPath = resolve(directory, "pocket.app.json");
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   const child = Bun.spawn([process.execPath, resolve(repository, "tools/pocket.ts"), "compile", "--target", target,
     "--manifest", manifestPath, "--project-root", repository, "--outdir", outdir,

@@ -12,7 +12,7 @@ const folder = resolve(import.meta.dir, "fixtures/aot-model/factory-virtual");
 test("private model contract types retain value traits when absent from the view", () => {
   const directory = resolve(".pocket-build/validation/model-aot/private-types");
   mkdirSync(resolve(directory, "src"), { recursive: true });
-  writeFileSync(resolve(directory, "pocket.json"), JSON.stringify({ app: { framework: "solid", aot: true, model: "compiled" } }));
+  writeFileSync(resolve(directory, "pocket.app.json"), JSON.stringify({ app: { framework: "solid", aot: true, model: "compiled" } }));
   writeFileSync(resolve(directory, "App.ts"), `import {createSignal} from "solid-js";import {copy,equals,type i32} from "@pocketjs/framework/solid/std";
 interface Hidden { n:i32; label:string }const[hidden,setHidden]=createSignal<Hidden>({n:1,label:"seed"});export const[count,setCount]=createSignal<i32>(0);
 export function press():void {const old=copy(hidden());if(equals(old,hidden()))setCount(old.n);setHidden({n:old.n+1,label:old.label+"!"});}`);
@@ -29,7 +29,7 @@ test.each(["solid","vue-vapor"])("%s view contracts use model inference before e
   const directory=resolve(".pocket-build/validation/model-aot/inference",framework);
   mkdirSync(directory,{recursive:true});
   const solid=framework==="solid",extension=solid?"tsx":"vue";
-  writeFileSync(resolve(directory,"pocket.json"),JSON.stringify({app:{framework,aot:true,model:"compiled",entry:`App.${extension}`}}));
+  writeFileSync(resolve(directory,"pocket.app.json"),JSON.stringify({app:{framework,aot:true,model:"compiled",entry:`App.${extension}`}}));
   writeFileSync(resolve(directory,"App.ts"),solid?'import {createSignal} from "solid-js";import {createMemo} from "@pocketjs/framework/solid/reactive";export const[n,setN]=createSignal(0);export const[f,setF]=createSignal(1.0);export const twice=createMemo(()=>n()*2);export function read(){return n();}':'import {ref,computed} from "vue";export const n=ref(0);export const f=ref(1.0);export const twice=computed(()=>n.value*2);export function read(){return n.value;}');
   writeFileSync(resolve(directory,`App.${extension}`),solid?'import {View,Text} from "@pocketjs/framework/solid/components";import {n,setN,f,twice,read} from "./App";export default function App(){return <View focusable onPress={()=>setN(read())}><Text>{n()}:{f()}:{twice()}</Text></View>}':'<script setup lang="ts">import {View,Text} from "@pocketjs/framework/vue-vapor/components";import {n,f,twice,read} from "./App";</script><template><View focusable @press="n=read()"><Text>{{n}}:{{f}}:{{twice}}</Text></View></template>');
   const p=analyzeAot(resolve(directory,`App.${extension}`),{strict:true}),root=p.components.find(c=>c.root)!;
@@ -43,7 +43,7 @@ test.each(["solid","vue-vapor"])("%s view contracts use model inference before e
 });
 test("compiled views inline explicitly typed model constants",()=>{
   const directory=resolve(".pocket-build/validation/model-aot/inference/constants");mkdirSync(directory,{recursive:true});
-  writeFileSync(resolve(directory,"pocket.json"),JSON.stringify({app:{framework:"solid",aot:true,model:"compiled",entry:"App.tsx"}}));
+  writeFileSync(resolve(directory,"pocket.app.json"),JSON.stringify({app:{framework:"solid",aot:true,model:"compiled",entry:"App.tsx"}}));
   writeFileSync(resolve(directory,"App.ts"),'import type {i32} from "@pocketjs/framework/solid/std";export const STEP:i32=2;');
   writeFileSync(resolve(directory,"App.tsx"),'import {Text} from "@pocketjs/framework/solid/components";import {STEP} from "./App";export default function App(){return <Text>{STEP}</Text>}');
   const p=analyzeAot(resolve(directory,"App.tsx"),{strict:true});expect(p.components[0]!.constants).toMatchObject([{name:"STEP",value:2,type:{kind:"number",name:"i32"}}]);expect(p.components[0]!.values).toHaveLength(0);

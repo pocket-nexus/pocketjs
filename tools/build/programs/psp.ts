@@ -1,8 +1,8 @@
 import { deployPsp } from "./deploy.ts";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import { POCKET_PROFILES } from "../../../profiles/index.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { buildPsp } from "../../psp.ts";
 import { buildRuntimePsp } from "../../runtime/psp.ts";
 import { repackPsp } from "../../repack/psp.ts";

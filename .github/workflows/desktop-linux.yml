@@ -94,7 +94,7 @@ jobs:
           import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
           import { readPocketManifest } from "./framework/src/manifest/load.ts";
           import { mkdirSync } from "node:fs";
-          const { manifest } = readPocketManifest("apps/note/pocket.json");
+          const { manifest } = readPocketManifest("apps/note/pocket.app.json");
           const result = validateAndResolveBuildPlan(manifest, { target: "linux-app" });
           if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
           mkdirSync(".pocket/linux-app", { recursive: true });
@@ -115,7 +115,7 @@ jobs:
       # one stops at startup.
       - name: Build linux-app release host
         run: |
-          bun tools/pocket.ts profile export --target linux-app --out .pocket-build/linux-app-profile
+          bun tools/pocket.ts host export --target linux-app --out .pocket-build/linux-app-profile
           POCKETJS_PROFILE_RS="$PWD/.pocket-build/linux-app-profile/pocket_profile.rs" cargo build --release --locked --manifest-path Cargo.toml -p pocket-desktop-host
 
       - name: Launch linux-app under X11

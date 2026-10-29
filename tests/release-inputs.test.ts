@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { collectReleaseInputs, RUNTIME_MATRIX } from "../tools/release/inputs.ts";
 import { SDK_MATRIX } from "../tools/release/matrix.ts";
 

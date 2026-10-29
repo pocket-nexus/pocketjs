@@ -9,7 +9,7 @@ import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { decodeHostInputs, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 
 const profile = parsePocketProfile({
-  format: "pocket-profile/2", id: "product-idf-screen-profile", platform: "esp-idf", form: "takeover", cadences: [60, 30],
+  format: "pocket-host/2", id: "product-idf-screen-profile", platform: "esp-idf", form: "takeover", cadences: [60, 30],
   display: { logicalViewports: [[480, 272]], presentations: ["native", "integer-fit"], rasterDensity: 1, animation: "repaint" },
   panel: { primary: [480, 272] },
   capabilities: ["input.analog.left", "input.buttons", "text.glyphs.baked"],

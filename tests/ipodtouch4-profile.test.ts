@@ -11,7 +11,7 @@ const repository = join(import.meta.dir, "..");
 describe("private iPod touch 4 profile", () => {
 
   test("resolves the Pocket Clear build plan", () => {
-    const manifest = JSON.parse(readFileSync(join(repository, "apps/clear/pocket.json"), "utf8"));
+    const manifest = JSON.parse(readFileSync(join(repository, "apps/clear/pocket.app.json"), "utf8"));
     const plan = resolveIPodTouch4BuildPlan(manifest);
     expect(plan.target).toEqual({ id: IPODTOUCH4_DEV_TARGET_ID, hostAbi: IPODTOUCH4_DEV_HOST_ABI });
     expect(plan.viewport).toEqual({
@@ -27,7 +27,7 @@ describe("private iPod touch 4 profile", () => {
   });
 
   test("resolves Pocket Nexus and binds the physics ops it requires", () => {
-    const manifest = readPocketManifest(join(repository, "apps/nexus-touch/pocket.json")).manifest as any;
+    const manifest = readPocketManifest(join(repository, "apps/nexus-touch/pocket.app.json")).manifest as any;
     const plan = resolveIPodTouch4BuildPlan(manifest);
     expect(plan.app.entry).toBe("apps/nexus-touch/main.tsx");
     expect(plan.app.output).toBe("nexus-touch-main");
@@ -43,12 +43,12 @@ describe("private iPod touch 4 profile", () => {
     }
     // the guest runtime binds ops 52..56 for this plan only; Clear keeps its op table
     expect(guestRuntimeDefines(plan.features)).toEqual(["-DPOCKET_PHYSICS"]);
-    const clearPlan = resolveIPodTouch4BuildPlan(JSON.parse(readFileSync(join(repository, "apps/clear/pocket.json"), "utf8")));
+    const clearPlan = resolveIPodTouch4BuildPlan(JSON.parse(readFileSync(join(repository, "apps/clear/pocket.app.json"), "utf8")));
     expect(guestRuntimeDefines(clearPlan.features)).toEqual([]);
   });
 
   test("resolves an external landscape app with independent device identity", () => {
-    const manifest = JSON.parse(readFileSync(join(repository, "apps/clear/pocket.json"), "utf8"));
+    const manifest = JSON.parse(readFileSync(join(repository, "apps/clear/pocket.app.json"), "utf8"));
     manifest.app.entry = "ipod/main.tsx";
     manifest.app.output = "external-shell";
     manifest.app.framework = "solid";
@@ -69,10 +69,10 @@ describe("private iPod touch 4 profile", () => {
     let remote;
     try {
       mkdirSync(join(root, "ipod"));
-      writeFileSync(join(root, "ipod/pocket.json"), JSON.stringify(manifest));
+      writeFileSync(join(root, "ipod/pocket.app.json"), JSON.stringify(manifest));
       const descriptor = join(root, "ipod/ipodtouch4.json");
       writeFileSync(descriptor, JSON.stringify({
-        id: "shell", projectRoot: "..", manifest: "ipod/pocket.json",
+        id: "shell", projectRoot: "..", manifest: "ipod/pocket.app.json",
         bundleId: "dev.pocket-nexus.shell", bundleName: "PocketShell.app",
         executable: "PocketShell", title: "Pocket Shell", scheme: "pocketjs-shell",
         receiptSlug: "pocketjs-shell", actionName: "shell_action", svcWire: true,
@@ -94,9 +94,9 @@ describe("private iPod touch 4 profile", () => {
     const root = mkdtempSync(join(tmpdir(), "pocket-native-ipod-"));
     try {
       const file = join(root, "app.json");
-      for (const name of ["pocket.json", "Cargo.toml", "bridge.c"]) writeFileSync(join(root, name), "");
+      for (const name of ["pocket.app.json", "Cargo.toml", "bridge.c"]) writeFileSync(join(root, name), "");
       const descriptor = {
-        id: "game", manifest: "pocket.json", bundleId: "dev.pocket.game", bundleName: "Game.app",
+        id: "game", manifest: "pocket.app.json", bundleId: "dev.pocket.game", bundleName: "Game.app",
         executable: "Game", title: "Game", scheme: "pocket-game", receiptSlug: "game", actionName: "game_touch",
         nativeCore: { manifest: "Cargo.toml", library: "libgame.a", features: ["native"], sources: ["bridge.c"] },
       };

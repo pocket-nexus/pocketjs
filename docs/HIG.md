@@ -6,7 +6,7 @@ touch 4 has a touch panel, one Home button and nothing else. A Vita and a
 New 3DS have both. **An application is written for a modality, and a
 device is admitted only when its modality meets what the application
 declares** (`contracts/spec/modality.ts`, `app.modality` and
-`app.presentations[].modality` in `pocket.json`). Pocket Clear declares
+`app.presentations[].modality` in `pocket.app.json`). Pocket Clear declares
 `{ "touch": "primary" }` and the PSP refuses it at build time; Pocket
 YouTube declares nothing at the app level and a two-screen presentation on
 top, so every stock device compiles one of its two entries.

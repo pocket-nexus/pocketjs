@@ -1,4 +1,4 @@
-//! Reads a pocket.json from disk and resolves its `app.theme` module
+//! Reads a pocket.app.json from disk and resolves its `app.theme` module
 //! reference, so that resolution, packaging and native build inputs hold
 //! theme content only.
 import { existsSync, readFileSync, statSync } from "node:fs";

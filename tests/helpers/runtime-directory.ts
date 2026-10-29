@@ -1,5 +1,5 @@
 // A runtime directory in memory, as tools/runtime/manifest.ts writes one:
-// the program files, the stamped profile document and runtime.json listing
+// the program files, the stamped host contract and runtime.json listing
 // both.
 
 import { createHash } from "node:crypto";

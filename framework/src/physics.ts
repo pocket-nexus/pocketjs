@@ -52,7 +52,7 @@ export function hasPhysics(): boolean {
 }
 
 function physicsOps(): PhysicsOps {
-  if (!hasPhysics()) throw new Error("PocketJS: host does not implement ui.physics; declare it in pocket.json engine.capabilities.requires");
+  if (!hasPhysics()) throw new Error("PocketJS: host does not implement ui.physics; declare it in pocket.app.json engine.capabilities.requires");
   return getOps() as PhysicsOps;
 }
 

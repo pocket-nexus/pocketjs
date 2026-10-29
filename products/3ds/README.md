@@ -8,15 +8,17 @@ package admission and frame coordination. The C device driver consumes the publi
 DrawList and resource contracts and issues **PICA200 draws through citro3d**.
 
 The app owns the **400x240 top screen** and **320x240 auxiliary bottom screen** at
-raster density 1, under the private `3ds-dev` profile in `tools/3ds-profile.ts`.
-The resistive panel reports contacts through `input.touch.auxiliary`. The profile
-remains outside the production registry pending the complete hardware and golden
-suite; the architecture migration has compiler, linker and host-test coverage.
+raster density 1, under the `3ds-dev` host contract
+(`hosts/3ds-dev/pocket.host.json`); `tools/3ds-profile.ts` resolves its build
+plans. The resistive panel reports contacts through `input.touch.auxiliary`.
+The host contract remains outside the production registry pending the complete
+hardware and golden suite; the architecture migration has compiler, linker and
+host-test coverage.
 
 ```
 core/                 one runtime staticlib plus package recovery inspection ABI
 include/pocket_core.h package inspection and native resource convenience calls
-include/pocket_profile.h generated profile facts, hash and operation identifiers
+include/pocket_profile.h generated host contract facts, hash and operation identifiers
 src/instance.c        runtime, package/input/provider registration
 src/main.c            process boot, reusable guest lifecycle, frame boundary
 src/runtime.c         immutable package storage, active/rollback state
@@ -68,8 +70,8 @@ bun tools/3ds.ts 3ds-demo --pocket-only # rebuild only dist/3ds/<output>.pocket
 ```
 
 Every build writes a target-thinned `.pocket` next to the native artifact.
-**The `.pocket` contains the admitted manifest, resolved plan, compiled JS and
-target-flavoured PAK.** The native runtime embeds the same file as its immutable
+**The `.pocket` contains the admitted app contract, resolved plan, compiled JS
+and target-flavoured PAK.** The native runtime embeds the same file as its immutable
 recovery guest; it no longer embeds independent `app.js` and `app.pak` files.
 
 ## One runtime for every game
@@ -91,15 +93,15 @@ screen and to `sdmc:/pocketjs-error.txt`, and waits for HOME.
 **The generic runtime is a separate program.** `programs/3ds` reads a file
 package and registers the generated guest, input source and two PICA displays.
 It has no product services, development server, camera, launcher or recovery
-state. Its `3ds-runtime` profile accepts only the capabilities implemented by
-that program. The generic program links the default Runtime archive; this
+state. Its `3ds-runtime` host contract accepts only the capabilities
+implemented by that program. The generic program links the default Runtime archive; this
 product links `core/` for its recovery inspection interface.
 
 Use `pocket build --target 3ds --generic` for that runtime and
 `pocket pack --runtime <build-directory> --pocket <application.pocket>` to
 replace its RomFS. See [the minimal program](../../programs/3ds/README.md).
 `pocket build --target 3ds --pocket <application.pocket>` selects this product
-and its `3ds-dev` profile. Existing `tools/3ds.ts` options delegate to
+and its `3ds-dev` host contract. Existing `tools/3ds.ts` options delegate to
 `products/3ds/build.ts`, including capture, CIA and package-only builds.
 
 ## Updating the guest from SD
@@ -130,7 +132,7 @@ running or accepted guest.
 
 **Each embedded application id has its own package, generation and recovery
 state.** The slot is the first 16 hexadecimal digits of SHA-256 over the
-manifest `id`, which the runtime computes at boot from the identity of
+app contract `id`, which the runtime computes at boot from the identity of
 `romfs:/app.pocket`; the fixed length keeps native paths bounded. Contacts, Pocket
 Shell and Pocket Term can therefore live as separate `.3dsx` files on one SD
 card without one app's last-good package booting under another app's icon.
@@ -659,16 +661,16 @@ frames **byte-identical to the `.3dsx` goldens** in `tests/goldens/3ds/`.
 ## Guest metadata and operations
 
 **The generated QuickJS guest publishes all numbered UI operations and metadata.**
-The runtime supplies the profile, admitted viewport, auxiliary root, raster
-density, package bytes and named asset tables. `src/qjs.c` installs the product
+The runtime supplies the host contract, admitted viewport, auxiliary root,
+raster density, package bytes and named asset tables. `src/qjs.c` installs the product
 namespaces (`link`, `net`, `wifi`, camera, media and agent) and private debugging
 hooks around that guest; it has no second UI dispatcher or package registry.
 Service, app-launch and debug-stat operations use the runtime's provider table.
 
 `ui.__viewport` comes from the admitted runtime geometry. The primary and
 auxiliary UI roots belong to the same runtime instance, including for a
-primary-only plan that uses the profile's bottom-screen defaults. No host shim
-creates another retained tree.
+primary-only plan that uses the host contract's bottom-screen defaults. No host
+shim creates another retained tree.
 
 ## 2D bodies
 
@@ -782,7 +784,7 @@ part of it, so a run gets its own config and SD card by getting its own `$HOME`.
 
 ## Not advertised
 
-`input.touch` is deliberately absent from the profile. The touchscreen belongs
+`input.touch` is absent from the host contract. The touchscreen belongs
 to the **bottom auxiliary surface**, so it is exposed only as
 `input.touch.auxiliary`; contacts are never remapped into the top screen's
 coordinate space. `audio.pcm` is not implemented in v1.

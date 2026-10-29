@@ -1,6 +1,6 @@
 {
   "profile": {
-    "format": "pocket-profile/2",
+    "format": "pocket-host/2",
     "id": "psp",
     "platform": "psp",
     "form": "takeover",
@@ -101,5 +101,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:0fe4bee6c10315e35ecb70cf6703c29870a8e18415629fdf8aede0d02f9b1cba"
+  "planHash": "sha256:55fe12b213b20598ea8842480d4775486d58067beaf2948da095d53e8a9a1354"
 }

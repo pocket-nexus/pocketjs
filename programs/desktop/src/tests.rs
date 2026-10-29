@@ -82,7 +82,7 @@ mod tests {
             },
             "systemUI": {
                 "package": "dev.pocket-nexus.shell",
-                "source": "apps/shell/pocket.json",
+                "source": "apps/shell/pocket.app.json",
                 "required": true,
                 "plan": {
                     "app": {

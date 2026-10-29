@@ -6,7 +6,7 @@ The worker runs on engine/worker's C runner (`src/worker.rs`); `build.rs` compil
 
 The keyboard's first layer has Enter (START), Esc, Backspace, Space and Z (CROSS), X (CIRCLE), C (TRIANGLE) and Shift (SQUARE). **The arrows are on the Fn layer.** The panel reports partial refresh: a frame draws and flushes the regions that changed, and an unchanged frame writes nothing to the framebuffer.
 
-The profile (`profile.ts`) is compiled into the binary: `build.rs` copies the file named by `POCKETJS_PROFILE_RS`. Build and install from a Mac or Linux machine with `cargo-zigbuild` and zig:
+The host contract (`pocket.host.json`) is compiled into the binary: `build.rs` copies the file named by `POCKETJS_PROFILE_RS`. Build and install from a Mac or Linux machine with `cargo-zigbuild` and zig:
 
 ```sh
 bun tools/cardputer-zero.ts build                  # .pocket-build/cardputer-zero/
@@ -15,4 +15,4 @@ bun tools/cardputer-zero.ts install root@<address> # build, copy, register with 
 
 `install` writes `/usr/bin/pocket-cardputer-zero`, `/usr/share/pocketjs/companion.pocket`, the launcher entry `/usr/share/APPLaunch/applications/pocket-companion.desktop` with its icon, and `/etc/sudoers.d/pocket-companion`. **The launcher runs as `pi` and starts the program with `sudo -n`, because the companion's `control.json` is root's (mode 600).** The sudoers rule allows the `gpio` group to run the program with no arguments, as the vendor's own root apps are allowed.
 
-`--check` admits the package against the compiled profile without opening devices. `--shot DIR --script "…"` runs the program on any system with a scripted button source and an in-memory framebuffer of the panel's geometry; each `shot` event writes `DIR/<tick>.rgb565` (`src/shot.rs`). `bun tools/cardputer-zero.ts shot --control <control.json> --script "60:shot 64:DOWN 75:shot"` builds the program for the host and converts the frames to PNG.
+`--check` admits the package against the compiled host contract without opening devices. `--shot DIR --script "…"` runs the program on any system with a scripted button source and an in-memory framebuffer of the panel's geometry; each `shot` event writes `DIR/<tick>.rgb565` (`src/shot.rs`). `bun tools/cardputer-zero.ts shot --control <control.json> --script "60:shot 64:DOWN 75:shot"` builds the program for the host and converts the frames to PNG.

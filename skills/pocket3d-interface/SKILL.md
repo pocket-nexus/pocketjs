@@ -33,7 +33,7 @@ overlay on the desktop renderer).
 
 | Part | What it is |
 | --- | --- |
-| `ui/pocket.json` | The app manifest. `app.entry` is the baseline presentation; `app.presentations[]` addresses other entries to a modality. |
+| `ui/pocket.app.json` | The app contract. `app.entry` is the baseline presentation; `app.presentations[]` addresses other entries to a modality. |
 | `ui/app/protocol.ts` | The state the renderer sends and the commands the interface sends. |
 | `ui/app/host.ts` | `connectOverlay` from `@pocketjs/framework/overlay-host`, the state as one signal per member, the numbers that change every turn as a plain array with listeners. |
 | `ui/app/parts.tsx` | Every readout, row, gauge and map once. A presentation places parts; it does not redraw one. |
@@ -44,7 +44,7 @@ overlay on the desktop renderer).
 
 ## One presentation per device shape
 
-`pocket.json` picks the entry at build time from the target's modality
+`pocket.app.json` picks the entry at build time from the target's modality
 (screens, touch, buttons). A game that ships on the four handhelds declares
 three entries:
 
@@ -75,7 +75,7 @@ A device differs by its presentation. A small difference inside one entry
 reads `modality`, `surfaceHasTouch()` and `glyph()` from
 `@pocketjs/framework/modality` (a legend says ○ on a PSP and A on a 3DS from
 one source line). **Do not fork a part per device, and do not write a second
-`pocket.json`.**
+`pocket.app.json`.**
 
 ### One layout for the screens every device has
 
@@ -99,9 +99,10 @@ finger can press stands two abreast in the same rows (six hours as three
 rows of two) before it becomes a grid of buttons.
 
 A device outside PocketJS's public registry (the 3DS development target, an
-iPod drawable that shares the scene's 480 × 320) resolves through a profile
-kept with the game's tool: `resolve3dsBuildPlan` from `tools/3ds-profile.ts`,
-or `validateAndResolveBuildPlan` with a registry of one target.
+iPod drawable that shares the scene's 480 × 320) resolves through a host
+contract kept with the game's tool: `resolve3dsBuildPlan` from
+`tools/3ds-profile.ts`, or `validateAndResolveBuildPlan` with a registry of one
+target.
 
 ### A browser tab shows every presentation
 

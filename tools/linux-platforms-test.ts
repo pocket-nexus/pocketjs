@@ -9,7 +9,7 @@ import { exportProfile } from "./profile-export.ts";
 import { profileRegistry } from "./profile-resolver.ts";
 import { makeVariant } from "./pocket-pack.ts";
 const root = resolve(import.meta.dir, "..");
-const profile = readPocketProfile(resolve(root, "programs/linux-kms/profile.json"));
+const profile = readPocketProfile(resolve(root, "programs/linux-kms/pocket.host.json"));
 /** Export the program's profile and write packages compiled against it, plus
  * one compiled for a profile whose raster density this host does not have.
  * Returns the exported

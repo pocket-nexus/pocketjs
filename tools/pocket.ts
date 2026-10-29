@@ -9,7 +9,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import { readAuthoredManifest } from "../framework/src/manifest/load.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { CATALOG } from "./targets/index.ts";
 import { statusRows, targetCommand } from "./targets/commands.ts";
 import { loadProject } from "./targets/project.ts";
@@ -25,12 +25,12 @@ const argv = Bun.argv.slice(2);
 const command = argv.shift();
 function usage(message?: string): never {
   if (message) console.error(`PocketJS: ${message}`);
-  console.error("usage: pocket check|compile [--manifest pocket.json] [--target <id|profile.json>] [--runtime-config FILE]\n" +
+  console.error("usage: pocket check|compile [--manifest pocket.app.json] [--target <id|pocket.host.json>] [--host-config FILE]\n" +
     "       pocket compile [--output app.pocket] [--depfile FILE] [--aot --out DIR]\n" +
-    "       pocket build [--config pocket.runtime-config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
+    "       pocket build [--config pocket.host.config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
     "       pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]\n" +
-    "       pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]\n" +
-    "       pocket profile fetch --target ID --out FILE [--release-version V] [--manifest-url URL]\n" +
+    "       pocket host export [--config FILE] [--target ID] --out DIR [--depfile FILE]\n" +
+    "       pocket host fetch --target ID --out FILE [--release-version V] [--manifest-url URL]\n" +
     "       pocket doctor --target ID [--config FILE] [--generic] [--build-receipt FILE] [--runtime DIR] [--evidence FILE --identity FILE] [--device KEY] [--json]");
   process.exit(1);
 }
@@ -65,7 +65,7 @@ async function main() {
   if (command === "sdk") process.exit(await sdkCommand(argv));
   if (command === "target") process.exit(await targetCommand(argv));
   if (command === "doctor") {
-    const options = { target: takeOption("target"), config: takeOption("config") ?? takeOption("runtime-config"),
+    const options = { target: takeOption("target"), config: takeOption("config") ?? takeOption("host-config"),
       generic: flag("generic"), buildReceipt: takeOption("build-receipt"), runtime: takeOption("runtime"),
       evidence: takeOption("evidence"), identity: takeOption("identity"), device: takeOption("device") };
     const json = flag("json"); noArguments();
@@ -91,7 +91,7 @@ async function main() {
   }
   if (command === "project" || command === "status") {
     const manifest = takeOption("manifest");
-    const config = takeOption("runtime-config") ?? takeOption("config");
+    const config = takeOption("host-config") ?? takeOption("config");
     flag("json"); noArguments();
     const result = await loadProject(manifest ? dirname(resolve(manifest)) : process.cwd(), config);
     if (command === "project") console.log(JSON.stringify(result, null, 2));
@@ -102,14 +102,14 @@ async function main() {
     if (!result.ok) process.exit(1);
     return;
   }
-  if (command === "profile") {
+  if (command === "host") {
     const subcommand = argv.shift();
     if (subcommand === "fetch") {
       // The document a firmware release publishes; compile with --target FILE.
       const target = takeOption("target"), out = takeOption("out");
       const releaseVersion = takeOption("release-version"), manifestUrl = takeOption("manifest-url");
       noArguments();
-      if (!target || !out) usage("profile fetch requires --target and --out");
+      if (!target || !out) usage("host fetch requires --target and --out");
       const { releasedProfile } = await import("./release/fetch.ts");
       const profile = await releasedProfile(target, { version: releaseVersion, manifestUrl });
       mkdirSync(dirname(resolve(out)), { recursive: true });
@@ -117,14 +117,14 @@ async function main() {
       console.log(`✓ ${resolve(out)} (${profile.id}, binding generation ${profile.hostAbi})`);
       return;
     }
-    if (subcommand !== "export") usage("expected profile export or profile fetch");
+    if (subcommand !== "export") usage("expected host export or host fetch");
     const config = takeOption("config");
     const target = takeOption("target");
     const out = takeOption("out") ?? takeOption("outdir");
     const dependencies = takeOption("depfile");
     noArguments();
-    if (!out) usage("profile export requires --out");
-    const selected = await resolveProfile({ from: process.cwd(), target, runtimeConfig: config, env: process.env });
+    if (!out) usage("host export requires --out");
+    const selected = await resolveProfile({ from: process.cwd(), target, hostConfig: config, env: process.env });
     const inputs = new BuildInputs();
     await inputs.compiler([resolve(frameworkRoot, "tools/profile-export.ts"), resolve(frameworkRoot, "tools/profile-resolver.ts")], frameworkRoot);
     const result = exportProfile({ ...selected, dependencies: [...selected.dependencies, ...inputs.paths()] }, resolve(out), dependencies && resolve(dependencies));
@@ -132,7 +132,7 @@ async function main() {
     return;
   }
   if (command === "pack") {
-    const config = takeOption("config") ?? takeOption("runtime-config");
+    const config = takeOption("config") ?? takeOption("host-config");
     const target = takeOption("target");
     const runtime = takeOption("runtime");
     const releaseVersion = takeOption("release-version"), manifestUrl = takeOption("manifest-url");
@@ -148,7 +148,7 @@ async function main() {
   if (command === "build") {
     const separator = argv.indexOf("--");
     const args = separator < 0 ? [] : argv.splice(separator).slice(1);
-    const config = takeOption("config") ?? takeOption("runtime-config");
+    const config = takeOption("config") ?? takeOption("host-config");
     const target = takeOption("target");
     const out = takeOption("out") ?? takeOption("outdir");
     const pocket = takeOption("pocket");
@@ -156,7 +156,7 @@ async function main() {
     const deploy = flag("deploy");
     const generic = flag("generic");
     noArguments();
-    const selected = await resolveRuntimeProgram({ from: process.cwd(), target, runtimeConfig: config, generic, env: process.env });
+    const selected = await resolveRuntimeProgram({ from: process.cwd(), target, hostConfig: config, generic, env: process.env });
     await buildRuntime(selected, out ? resolve(out) : resolve(dirname(selected.config!.path), selected.config!.value.build ? "dist/runtime" : "dist/profile"), {
       pocket: pocket && resolve(pocket), aotDirectory: aotDirectory && resolve(aotDirectory), deploy, args,
     });
@@ -164,8 +164,8 @@ async function main() {
   }
   if (command !== "check" && command !== "compile") usage(`unknown command ${command ?? "<missing>"}`);
   const target = takeOption("target");
-  const runtimeConfig = takeOption("runtime-config");
-  const manifestPath = resolve(takeOption("manifest") ?? "pocket.json");
+  const hostConfig = takeOption("host-config");
+  const manifestPath = resolve(takeOption("manifest") ?? "pocket.app.json");
   const projectRoot = resolve(takeOption("project-root") ?? dirname(manifestPath));
   const aot = flag("aot");
   const outOption = takeOption("out");
@@ -180,7 +180,7 @@ async function main() {
   if (aot && outputOption) usage("--aot uses --out, not --output");
   if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");
   if (!existsSync(manifestPath)) usage(`manifest not found: ${manifestPath}`);
-  const selected = await resolveProfile({ from: dirname(manifestPath), target, runtimeConfig, env: process.env });
+  const selected = await resolveProfile({ from: dirname(manifestPath), target, hostConfig, env: process.env });
   const loaded = readAuthoredManifest(manifestPath);
   const manifestInput: unknown = loaded.manifest;
   const resolution = validateAndResolveBuildPlan(manifestInput, { target: selected.profile.id, executionClass: aot ? "aot" : "guest" }, profileRegistry(selected.profile));
@@ -205,7 +205,7 @@ async function main() {
     checkedFiles: [...new Set(typeResults.flatMap(result => result.checkedFiles))],
   };
   if (!typeResult.ok) throw new Error(typeResult.diagnostics.filter(item => item.category === "error").map(item => `${item.file ?? "TypeScript"}${item.line ? `:${item.line}:${item.column}` : ""} TS${item.code}: ${item.message}`).join("\n"));
-  console.log(`✓ pocket.json v2\n✓ ${plan.target.id} satisfies pocket.json capabilities\n✓ TypeScript (${typeResult.checkedFiles.length} app module(s))\n✓ ResolvedBuildPlan ${plan.planHash}`);
+  console.log(`✓ pocket.app.json v2\n✓ ${plan.target.id} satisfies pocket.app.json capabilities\n✓ TypeScript (${typeResult.checkedFiles.length} app module(s))\n✓ ResolvedBuildPlan ${plan.planHash}`);
   if (command === "check") return;
   // IDs are UTF-8 protocol strings, not filesystem paths.
   const directoryName = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(plan.target.id) ? plan.target.id : selected.profileHash.slice(7, 23);

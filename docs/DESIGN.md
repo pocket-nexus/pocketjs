@@ -208,17 +208,17 @@ PocketJS/
 
 ## Build pipeline (two-pass — fixes the scan cycle [R])
 
-**`pocket.json` owns the application's framework and animation theme.**
+**`pocket.app.json` owns the application's framework and animation theme.**
 `app.framework` chooses the frontend; `app.theme` supplies keyframes and animation
-shorthands. `pocket compile --target` selects a built-in profile id or an exported
-profile module. `POCKET_TARGET` provides the option's default. With neither,
-compilation searches upward from the manifest for `pocket.runtime-config.ts`.
+shorthands. `pocket compile --target` selects a built-in host id or a `pocket.host.json`
+file. `POCKET_TARGET` provides the option's default. With neither,
+compilation searches upward from the app contract for `pocket.host.config.ts`.
 
-**`pocket.runtime-config.ts` selects the program's profile and native build.**
-`defineRuntimeConfig()` from `@pocketjs/framework/runtime-config` accepts a
-`profile` path or a `profiles` list of `pocket-profile.json` paths, plus an
-optional `build` recipe. A configuration with multiple profiles requires a
-profile ID. The profile supplies capabilities, display geometry and cadences;
+**`pocket.host.config.ts` selects the program's host contract and native build.**
+`defineHostConfig()` from `@pocketjs/framework/host-config` accepts a
+`host` path or a `hosts` list of `pocket.host.json` paths, plus an
+optional `build` recipe. A host config with multiple host contracts requires a
+host id. The host contract supplies capabilities, display geometry and cadences;
 it does not select an application framework. `pocket build` executes the declared native build recipe.
 `pocket compile` produces a `.pocket` application, while `--aot --out <directory>`
 produces generated Rust, baked assets and a dependency manifest without invoking
@@ -252,8 +252,8 @@ memory and math exports. The SDK archives remain unchanged.
 
 `POCKETJS_APP_OUTPUT` and `POCKETJS_EMBED_APP` select the embedded guest;
 `POCKETJS_EMBED_PACKAGE` names the compiled `.pocket` the EBOOT embeds, and
-`POCKETJS_PROFILE_RS` the exported profile module its runtime configuration
-comes from. `tools/psp.ts <demo>` compiles the demo with `pocket compile`
+`POCKETJS_PROFILE_RS` the exported `pocket_profile.rs` that supplies the host
+contract facts to its Runtime. `tools/psp.ts <demo>` compiles the demo with `pocket compile`
 first. Embedded packages, catalog packages and `app.pocket` enter Runtime as
 their original bytes; **the EBOOT encodes no package at boot**. **Runtime
 performs package admission** before guest initialization.
@@ -401,7 +401,7 @@ widths):
 - **motion**: `transition[-transform|colors|opacity|all]`, `duration-N`,
   `ease-linear|in|out|in-out|spring|out-back`, `delay-N`
 - **keyframe animations (baked)**: `animate-<name>` resolves against
-  `app.theme.keyframes` and `app.theme.animation` in `pocket.json` (Tailwind
+  `app.theme.keyframes` and `app.theme.animation` in `pocket.app.json` (Tailwind
   keyframe and animation shape; built-ins `spin|ping|pulse|bounce`). The compiler
   bakes every CSS `animation` shorthand (comma lists, `cubic-bezier(…)`, named easings as
   their canonical beziers, delays, `forwards|backwards|both` fills,
@@ -410,7 +410,7 @@ widths):
   Keyframe values must be build-time absolute (px/deg/colors; percentages,
   `calc()`, `var()` are loud errors **[R]**), and every animated prop must be
   pinned at 0% and 100%. `animate-loop-[4s]` (or `{ value, loop }` in the
-  manifest) replays the node's whole choreography — delays included — every N
+  app contract) replays the node's whole choreography — delays included — every N
   ms: the style-level loop plain CSS can't express without a remount.
 - **variants**: `focus:`, `active:` — variant blocks in the style record,
   switched natively (zero JS on focus change)
@@ -451,7 +451,7 @@ kerning, `hover:`, percentage sizes beyond `-full`, Android hosts,
 `rounded-full` on runtime-sized nodes.
 
 The 3DS left this list with `products/3ds` — a QuickJS guest over a PICA200
-backend. **The CIA boots and renders on a New 3DS LL.** The `3ds-dev` profile
+backend. **The CIA boots and renders on a New 3DS LL.** The `3ds-dev` target
 in `tools/3ds-profile.ts` stays outside the production registry until its
 synthesized-cursor, sprite, streamed-texture and large-atlas paths have direct
 coverage.

@@ -68,7 +68,7 @@ objs = []
 if GetDepend('POCKETJS'):
     profile = os.environ.get('POCKET_PROFILE_EXPORT_DIR', '')
     if not profile or not os.path.isfile(os.path.join(profile, 'pocket_profile.h')):
-        _fail('run `pocket profile export --config <pocket.runtime-config.ts> --out <dir>` '
+        _fail('run `pocket host export --config <pocket.host.config.ts> --out <dir>` '
               'and set POCKET_PROFILE_EXPORT_DIR to <dir>')
 
     archive = os.environ.get('POCKET_RUNTIME_ARCHIVE', '')

@@ -31,7 +31,7 @@ const saved = new Map(GLOBALS.map((key) => [key, (globalThis as any)[key]]));
 
 beforeAll(async () => {
   wasmPath = await ensureHostWasm();
-  const plan = resolveIPodTouch4BuildPlan(readPocketManifest(join(ROOT, "apps/nexus-touch/pocket.json")).manifest);
+  const plan = resolveIPodTouch4BuildPlan(readPocketManifest(join(ROOT, "apps/nexus-touch/pocket.app.json")).manifest);
   writeFileSync(join(OUT, "plan.json"), JSON.stringify(plan));
   const build = Bun.spawnSync(
     [process.execPath, "tools/build.ts", `--plan=${join(OUT, "plan.json")}`, `--outdir=${join(OUT, "guest")}`],

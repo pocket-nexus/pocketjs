@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { availableParallelism, homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { canonicalProfileJson, hashPocketProfile, type PocketProfile } from "../../../framework/src/profile.ts";
 import { RUST_TOOLCHAINS } from "../toolchains/rust.ts";
 import { containerPathFor, ensureQuickJs, runContainer, THREE_DS_CONTAINER_IMAGE, type Mount } from "../toolchains/3ds.ts";

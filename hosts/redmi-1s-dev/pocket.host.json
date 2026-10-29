@@ -1,0 +1,17 @@
+{
+  "format": "pocket-host/2",
+  "id": "redmi-1s-dev",
+  "platform": "android",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[360, 640]],
+    "presentations": ["native"],
+    "rasterDensity": 2,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [720, 1280]
+  },
+  "capabilities": ["input.touch", "io.offload", "text.glyphs.baked"]
+}

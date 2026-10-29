@@ -1,7 +1,7 @@
 // tools/applet-check.ts — the source and bundle rules of a Pocket Applet
 // (docs/APPLETS.md lists them; contracts/spec/applet.ts holds the lists).
 //
-//   bun tools/applet-check.ts <pocket.json> [--project-root=<dir>] [--js=<bundle> --pak=<pak>]
+//   bun tools/applet-check.ts <pocket.app.json> [--project-root=<dir>] [--js=<bundle> --pak=<pak>]
 //
 // It walks the import graph from the entry (comments and types removed by
 // Bun's transpiler), checks every module the applet ships, and checks the
@@ -187,7 +187,7 @@ if (import.meta.main) {
   const manifestPath = args.find((arg) => !arg.startsWith("--"));
   const flag = (name: string) => args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
   if (!manifestPath) {
-    console.error("usage: bun tools/applet-check.ts <pocket.json> [--project-root=<dir>] [--js=<bundle> --pak=<pak>]");
+    console.error("usage: bun tools/applet-check.ts <pocket.app.json> [--project-root=<dir>] [--js=<bundle> --pak=<pak>]");
     process.exit(2);
   }
   const diagnostics = checkApplet({

@@ -1,7 +1,7 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { planProfileDocument } from "../framework/src/manifest/plan.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 // bun run widget [app] [flags…] — build + launch a Pocket Stage desktop widget
 // (the first bundled stage is the PSP asset; docs/WIDGET.md).
 //
@@ -248,7 +248,7 @@ async function main(): Promise<void> {
   const { stage, app, proof, pass } = parsed;
   const stageConfig = widgetStageConfig(stage);
 
-  // Stock demos own their committed pocket.json. Legacy demos without one
+  // Stock demos own their committed pocket.app.json. Legacy demos without one
   // inherit the root template through demoManifestFor; either way the build
   // is admitted once against the embedded Stage profile and every later
   // compiler input comes from the serialized plan.

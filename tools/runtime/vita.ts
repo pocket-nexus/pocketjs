@@ -13,14 +13,14 @@
 // tools/repack/vita.ts gives it a game: param.sfo, icon and the game's .pocket.
 
 import { buildVita } from "../vita.ts";
-import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../framework/src/host-config.ts";
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { POCKET_TARGETS } from "../../contracts/spec/platforms.ts";
 import { VITA_ICON, VITA_LIVEAREA, VITA_RUNTIME_FILE, VITA_RUNTIME_TARGET } from "../repack/vita.ts";
 import { DEFAULT_VITA_PACKAGE_ASSETS } from "../vita-package.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
-import { POCKET_PROFILES } from "../../profiles/index.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 const profile = POCKET_PROFILES["vita"];
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);

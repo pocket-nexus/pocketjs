@@ -5,10 +5,10 @@ links one Rust archive and registers its own runtime instances and drivers.**
 Kconfig adds the hooks, display, input or generated QuickJS unit. The application
 owns devicetree, `prj.conf`, scheduling and hardware setup.
 
-Export the program profile before Zephyr configuration:
+Export the program's host contract before Zephyr configuration:
 
 ```sh
-pocket profile export --config pocket.runtime-config.ts --out build/profile
+pocket host export --config pocket.host.config.ts --out build/profile
 pocket sdk export --triple thumbv7em-none-eabihf --out build/pocket-sdk
 west build -b <board> -- -DPOCKET_SDK=$PWD/build/pocket-sdk \
   -DPOCKET_PROFILE_EXPORT_DIR=$PWD/build/profile
@@ -32,8 +32,8 @@ CONFIG_POCKETJS_INPUT=y
 ```
 
 The hooks allocate from a dedicated `k_heap`, panic through `k_panic`, and expose
-a microsecond clock backed by `k_uptime_ticks`. The hook unit checks exported
-profile dimensions against the chosen display node's width and height.
+a microsecond clock backed by `k_uptime_ticks`. The hook unit checks the exported
+host contract's dimensions against the chosen display node's width and height.
 
 `pocket_zephyr_display_create` accepts RGB565 or ARGB8888 from the display's
 `current_pixel_format`. The product sets format and orientation before creation.
@@ -62,6 +62,6 @@ The maintained contract project under `tests/fixtures/zephyr/native_sim` uses
 the real Zephyr kernel, display/input subsystems and Rust rasterizer. Its display
 device records bytes in memory; it does not stand in for panel timing or DMA.
 `tools/packaging/zephyr/test-native.ts` runs the project on Linux and checks that a
-profile/devicetree mismatch fails compilation. CI pins Zephyr 4.4.0, including
+host contract/devicetree mismatch fails compilation. CI pins Zephyr 4.4.0, including
 its ARM64 native simulator support. Fast C boundary tests run through
 `tests/zephyr-contract.test.ts`.

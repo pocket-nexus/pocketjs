@@ -644,7 +644,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// The facts the runtime admits packages against, exported by pocket profile export from the program's profile document. id is the host's profile id; admission does not compare it. tick_hz is the highest cadence. cadences lists cadence_count presented frames per second; a record without them has the one cadence tick_hz. capabilities and presentations are names, each terminated by NUL, in capabilities_length and presentations_length bytes; a record without capabilities provides none, and one without presentations or animation is not compared on them. input_classes are the POCKET_INPUT_CLASS_* bits the profile's capabilities require. Null auxiliary and dynamic_viewport mean absent.
+    /// The facts the runtime admits packages against, exported by pocket host export from the program's host contract. id is the host's profile id; admission does not compare it. tick_hz is the highest cadence. cadences lists cadence_count presented frames per second; a record without them has the one cadence tick_hz. capabilities and presentations are names, each terminated by NUL, in capabilities_length and presentations_length bytes; a record without capabilities provides none, and one without presentations or animation is not compared on them. input_classes are the POCKET_INPUT_CLASS_* bits the profile's capabilities require. Null auxiliary and dynamic_viewport mean absent.
     pub struct PocketProfileFacts {
         pub struct_size: usize,
         pub id: *const u8,

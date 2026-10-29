@@ -37,13 +37,13 @@ starts NativeScript. `--rebuild-native` rebuilds the framework before staging.
 NativeScript build files, installed dependencies, staged assets and framework
 copies are ignored by Git.
 
-Build a simulator application without launching it through the program config:
+Build a simulator application without launching it through the host config:
 
 ```sh
-bun tools/pocket.ts compile --manifest apps/nsengine/pocket.json \
-  --project-root . --runtime-config programs/ios-simulator/pocket.runtime-config.ts \
+bun tools/pocket.ts compile --manifest apps/nsengine/pocket.app.json \
+  --project-root . --host-config programs/ios-simulator/pocket.host.config.ts \
   --output dist/ios/application.pocket
-bun tools/pocket.ts build --config programs/ios-simulator/pocket.runtime-config.ts \
+bun tools/pocket.ts build --config programs/ios-simulator/pocket.host.config.ts \
   --pocket dist/ios/application.pocket --out dist/ios/native
 ```
 
@@ -54,7 +54,7 @@ The native recipe writes `PocketShell.app` and `PocketApple.xcframework` under
 The raw JS/pak entry points remain for existing UIKit consumers. The Apple
 adapter wraps those inputs in the current `.pocket` format with
 `pocket-package::embedded`, then passes the result through the standard
-package reader. The wrapper derives its profile hash from the configured
+package reader. The wrapper derives its host contract hash from the configured
 host identity, viewport, density, tick rate and service capabilities.
 
 ## Guest modes
@@ -86,15 +86,15 @@ runtime tick; a synchronous host reply enters the next frame's service
 queue. A disposal request from a guest or effect callback stops the timer
 and destroys the instance after the active call returns.
 
-## Profile and shell
+## Host contract and shell
 
-`profiles/ios-dev.json` declares the private `ios-dev` profile: a 480×272
+`hosts/ios-dev/pocket.host.json` declares the private `ios-dev` host contract: a 480×272
 logical viewport, `input.touch` and `text.glyphs.baked`. The build and view
 must agree on **identity, viewport, raster density and tick rate**. Set
 `tickRate` before evaluating the bundle; later changes are rejected.
-**The maintained `ios-dev` profile uses raster density 3.** Glyph atlases
+**The maintained `ios-dev` host contract uses raster density 3.** Glyph atlases
 bake at that density and the view uses the same raster scale. Staging rejects
-a `--density` or `--hz` value that differs from the selected runtime config.
+a `--density` or `--hz` value that differs from the selected host config.
 `programs/ipodtouch6` uses the same UIKit consumer with its own identity and
 viewport.
 

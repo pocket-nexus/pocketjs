@@ -23,7 +23,7 @@
     "target": "tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json"
   },
   "app": {
-    "manifest": "apps/blackberry-classic-demo/pocket.json",
+    "manifest": "apps/blackberry-classic-demo/pocket.app.json",
     "binary": "pocketjs-classic",
     "bar": "dist/blackberry-qnx/pocketjs-blackberry-classic-hero.bar"
   }

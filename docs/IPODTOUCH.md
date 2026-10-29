@@ -1,6 +1,6 @@
 # iPod touch 6 connected-device host
 
-Native build inputs and program configs are listed in [Device native builds](DEVICE_BUILDS.md).
+Native build inputs and host configs are listed in [Device native builds](DEVICE_BUILDS.md).
 
 PocketJS runs on the sixth-generation iPod touch as a native UIKit
 application. **The tested device is `iPod7,1` on iOS 12.5.8 (`16H88`) with an

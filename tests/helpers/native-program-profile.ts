@@ -1,7 +1,7 @@
 import { parsePocketProfile } from "../../framework/src/profile.ts";
 
 export default parsePocketProfile({
-  format: "pocket-profile/2",
+  format: "pocket-host/2",
   id: "native-program-fixture",
   platform: "symbian",
   form: "window",

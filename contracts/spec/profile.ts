@@ -1,4 +1,4 @@
-// Profile documents: what a host program promises, as JSON. The compiler
+// Host contracts: what a host program promises, as JSON. The compiler
 // bakes these facts into a package; a device admits a package when its own
 // facts satisfy the package's (contracts/spec/admission.ts).
 import type { JsonSchema } from "./pocket-manifest.ts";
@@ -13,10 +13,10 @@ import {
 } from "./platform-types.ts";
 import { WORKER_RESOURCES, type WorkerResourceKind } from "./worker.ts";
 
-export const POCKET_PROFILE_FORMAT = "pocket-profile/2" as const;
-export const POCKET_PROFILE_SCHEMA_ID = "https://pocketjs.dev/schema/pocket-profile-2.json";
+export const POCKET_PROFILE_FORMAT = "pocket-host/2" as const;
+export const POCKET_PROFILE_SCHEMA_ID = "https://pocketjs.dev/schema/pocket-host-2.json";
 /** The file a firmware release ships beside its binary. */
-export const POCKET_PROFILE_FILE = "pocket-profile.json";
+export const POCKET_PROFILE_FILE = "pocket.host.json";
 
 /** One UI output's logical sizes, presentations and raster density. */
 export interface ProfileSurface {
@@ -128,7 +128,7 @@ const roleCapabilities = {
   type: "object", additionalProperties: false, properties: { systemUI: names },
 } as const satisfies JsonSchema;
 
-/** The data shape of a pocket-profile/2 document. framework/src/profile.ts
+/** The data shape of a pocket-host/2 document. framework/src/profile.ts
  *  adds the relations between fields. */
 export const pocketProfileSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",

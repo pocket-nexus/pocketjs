@@ -1,6 +1,6 @@
 //! The program's software profile and limits, as exported at build time from
-//! the program's profile document. The runtime reads facts, never JSON:
-//! `pocket profile export` writes them as `pocket_profile.h` for C programs
+//! the program's host contract. The runtime reads facts, never JSON:
+//! `pocket host export` writes them as `pocket_profile.h` for C programs
 //! and `pocket_profile.rs` for Rust programs.
 use crate::RuntimeError;
 use alloc::borrow::Cow;

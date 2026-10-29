@@ -9,7 +9,7 @@ import { prepareRelease } from "../tools/release/publish.ts";
 import { verifySdk, type SdkManifest } from "../tools/release/receipt.ts";
 import { archiveDirectory } from "../tools/release/tar.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 
 const root = resolve(import.meta.dir, ".."), base = join(root, ".pocket-build/validation/release-stage9/tests");
@@ -70,8 +70,8 @@ test("SDK and runtime downloads reuse the cache and reject existing destinations
     expect(first.status).toBe("release"); expect(first.abiFrozen).toBe(false);
     await exportReleasedSdk(triple, join(directory, "export2"), options); expect(downloads).toBe(1);
     expect((await releasedRuntime("fixture", profileHash, options)).get("program.bin")).toEqual(new Uint8Array(Buffer.from("runtime fixture")));
-    // The firmware release publishes its stamped profile document beside the archive.
-    expect(release.runtimes.fixture!.profile!.file).toBe("pocket-profile-fixture.json");
+    // The firmware release publishes its stamped host contract beside the archive.
+    expect(release.runtimes.fixture!.profile!.file).toBe("pocket-host-fixture.json");
     expect(await releasedProfile("fixture", options)).toEqual({ ...fixtureProfile, hostAbi: POCKET_BINDING_GENERATION });
     await expect(exportReleasedSdk(triple, join(directory, "export1"), options)).rejects.toThrow("already exists");
   } finally { server.stop(true); }
@@ -84,10 +84,10 @@ test("release metadata rejects path escapes, stale ABI and invalid artifact size
   value.sdks.host.file = "sdk.tar.gz"; value.sdks.host.bytes = 0;
   expect(() => validateReleaseManifest(value, value.version)).toThrow("invalid release asset");
   value.sdks.host.bytes = 1;
-  // A runtime publishes its profile document beside the archive.
+  // A runtime publishes its host contract beside the archive.
   const runtime = { file: "runtime.tar.gz", bytes: 1, sha256: "b".repeat(64), format: "tar.gz", profileHash: "sha256:" + "c".repeat(64) };
   expect(() => validateReleaseManifest({ ...value, runtimes: { psp: runtime } }, value.version)).toThrow("invalid release asset");
-  expect(validateReleaseManifest({ ...value, runtimes: { psp: { ...runtime, profile: { file: "pocket-profile-psp.json", bytes: 2, sha256: "d".repeat(64) } } } }, value.version).runtimes.psp!.profile!.file).toBe("pocket-profile-psp.json");
+  expect(validateReleaseManifest({ ...value, runtimes: { psp: { ...runtime, profile: { file: "pocket-host-psp.json", bytes: 2, sha256: "d".repeat(64) } } } }, value.version).runtimes.psp!.profile!.file).toBe("pocket-host-psp.json");
   value.hostAbi = 1 as typeof POCKET_BINDING_GENERATION;
   expect(() => validateReleaseManifest(value, value.version)).toThrow("binding generation");
 });

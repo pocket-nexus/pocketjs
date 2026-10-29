@@ -4,7 +4,7 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import { deriveModality } from "../contracts/spec/modality.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import {
 symbianDataBaseForEmbeddedBytes,
 symbianExecutableName,

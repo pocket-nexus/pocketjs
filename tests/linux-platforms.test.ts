@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { runLinuxPlatformsTests } from "../tools/linux-platforms-test.ts";
-import { loadRuntimeConfig } from "../tools/profile-resolver.ts";
-import { linuxProgramProfile } from "../programs/linux-kms/pocket.runtime-config.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
+import { linuxProgramProfile } from "../programs/linux-kms/pocket.host.config.ts";
 import { readPocketProfile } from "../framework/src/profile.ts";
 const root = resolve(import.meta.dir, "..");
-const profile = readPocketProfile(resolve(root, "programs/linux-kms/profile.json"));
+const profile = readPocketProfile(resolve(root, "programs/linux-kms/pocket.host.json"));
 test("Linux program composition declares an external product profile and native Cargo artifact", async () => {
-  const config = await loadRuntimeConfig(resolve(root, "programs/linux-kms/pocket.runtime-config.ts"));
+  const config = await loadHostConfig(resolve(root, "programs/linux-kms/pocket.host.config.ts"));
   expect(config.profiles[0]!.id).toBe("product-linux-kms");
   expect(config.profiles[0]!.capabilities).not.toContain("audio.pcm");
   expect(config.value.build!.hosts).toEqual(["linux-arm64", "linux-x64"]);

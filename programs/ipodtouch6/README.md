@@ -9,7 +9,7 @@ input, networking, or device SDK objects to application code.
 The executable statically links `engine/ios` and uses the shared
 `PocketSurfaceView`. Its target identity is `ipodtouch-dev` with host ABI 7.
 The NativeScript simulator shell retains the default `ios-dev` identity; the
-new identity-aware initializer prevents the two build profiles from being
+new identity-aware initializer prevents the two host contracts from being
 interchangeable. This host selects the view's explicit 60 Hz run-loop timer
 because the tested jailbroken iOS 12 runtime does not deliver
 `CADisplayLink` callbacks; other Apple hosts keep the display-link clock.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { dirname, join, resolve } from "node:path";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";

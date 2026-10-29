@@ -18,7 +18,7 @@ import { linkAndroidApk } from "../../tools/android-link.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
 export const ANDROID_FIXTURE_TARGET = "test-android-product";
 export const ANDROID_FIXTURE_PROFILE = parsePocketProfile({
-  format: "pocket-profile/2", id: ANDROID_FIXTURE_TARGET, platform: "android", form: "takeover", cadences: [60, 30],
+  format: "pocket-host/2", id: ANDROID_FIXTURE_TARGET, platform: "android", form: "takeover", cadences: [60, 30],
   display: { logicalViewports: [[360, 640]], presentations: ["native"], rasterDensity: 2, animation: "composited" },
   panel: { primary: [720, 1280] },
   capabilities: ["input.touch", "text.glyphs.baked", "io.offload"],

@@ -18,20 +18,20 @@ The tool verifies the source archive's byte count and SHA-256 against the releas
 
 ## Configure a product
 
-Before the firmware build, product CI exports the profile and compiles the application:
+Before the firmware build, product CI exports the host contract and compiles the application:
 
 ```sh
-pocket profile export --config /product/pocket.runtime-config.ts --out /product/generated
-pocket compile --manifest /product/app/pocket.json --runtime-config /product/pocket.runtime-config.ts --output /product/generated/app.pocket
+pocket host export --config /product/pocket.host.config.ts --out /product/generated
+pocket compile --manifest /product/app/pocket.app.json --host-config /product/pocket.host.config.ts --output /product/generated/app.pocket
 make -C /src/buildroot BR2_EXTERNAL=/product/pocketjs-external menuconfig
 ```
 
-Select `BR2_PACKAGE_POCKETJS`, set `BR2_PACKAGE_POCKETJS_PROFILE` to the export directory (`/product/generated` above), and select `BR2_PACKAGE_POCKETJS_APP` with `BR2_PACKAGE_POCKETJS_APP_FILE` pointing to the compiled package. Before native compilation, `validate_profile.py` checks `pocket-profile.json` against the release's binding generation and checks that `pocket_profile.rs` carries the same hash; the cargo build then compiles `pocket_profile.rs` into the program through `POCKETJS_PROFILE_RS`, and the runtime admits `app.pocket` against those compiled-in facts. **No profile file is installed on the target.** `S90pocketjs` starts the program only when the application file exists.
+Select `BR2_PACKAGE_POCKETJS`, set `BR2_PACKAGE_POCKETJS_PROFILE` to the export directory (`/product/generated` above), and select `BR2_PACKAGE_POCKETJS_APP` with `BR2_PACKAGE_POCKETJS_APP_FILE` pointing to the compiled package. Before native compilation, `validate_profile.py` checks `pocket.host.json` against the release's binding generation and checks that `pocket_profile.rs` carries the same hash; the cargo build then compiles `pocket_profile.rs` into the program through `POCKETJS_PROFILE_RS`, and the runtime admits `app.pocket` against those compiled-in facts. **No host contract file is installed on the target.** `S90pocketjs` starts the program only when the application file exists.
 
-`BR2_PACKAGE_POCKETJS_ALSA` adds the ALSA dependency and the program's `alsa` Cargo feature. It does not choose a renderer, change the product profile or promise a guest audio namespace. A product source archive may set `BR2_PACKAGE_POCKETJS_PROGRAM` to another workspace binary crate; its name must match its package name, its `build.rs` must call `pocket_profile_build::emit`, and its command line must accept the installed package path, or the product must replace the init script.
+`BR2_PACKAGE_POCKETJS_ALSA` adds the ALSA dependency and the program's `alsa` Cargo feature. It does not choose a renderer, change the product's host contract or promise a guest audio namespace. A product source archive may set `BR2_PACKAGE_POCKETJS_PROGRAM` to another workspace binary crate; its name must match its package name, its `build.rs` must call `pocket_profile_build::emit`, and its command line must accept the installed package path, or the product must replace the init script.
 
 For development, Buildroot's `POCKETJS_OVERRIDE_SRCDIR` may point to a working source tree with the same layout. This bypasses release download/hash validation and must be identified as a development override in build evidence.
 
 ## Verification scope
 
-`tests/buildroot.test.ts` checks release preparation, corrupted input rejection, profile identity and package wiring. `tests/recipe.mk` executes the actual Buildroot `cargo-package` build macro and this external tree's install/init macros against a source tree. It then runs the installed binary with a file package and the ALSA null plugin. Set `BUILDROOT_SOURCE`, `SOURCE`, `TARGET_DIR`, `BR2_EXTERNAL_POCKETJS_PATH`, `BR_CARGO_HOME`, the export directory and the package path when invoking it. This integration harness uses a native AArch64 Linux compiler; it does not build or boot a firmware image and does not validate a board's cross toolchain, display, input or audio devices.
+`tests/buildroot.test.ts` checks release preparation, corrupted input rejection, host contract identity and package wiring. `tests/recipe.mk` executes the actual Buildroot `cargo-package` build macro and this external tree's install/init macros against a source tree. It then runs the installed binary with a file package and the ALSA null plugin. Set `BUILDROOT_SOURCE`, `SOURCE`, `TARGET_DIR`, `BR2_EXTERNAL_POCKETJS_PATH`, `BR_CARGO_HOME`, the export directory and the package path when invoking it. This integration harness uses a native AArch64 Linux compiler; it does not build or boot a firmware image and does not validate a board's cross toolchain, display, input or audio devices.

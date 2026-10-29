@@ -1,7 +1,7 @@
 // The inputs every `tools/repack/<target>.ts` takes, and the checks they all
 // make before writing a package: the runtime directory is complete and is the
 // one its runtime.json describes, and the `.pocket` holds an intact variant
-// the runtime's profile document admits (contracts/spec/admission.ts) whose
+// the runtime's host contract admits (contracts/spec/admission.ts) whose
 // app id is the identity's.
 //
 // Bytes in, bytes out: no file system and no network, so a Cloudflare Worker
@@ -51,7 +51,7 @@ export interface RuntimeManifest {
   /** PocketJS commit the runtime was built from ("-dirty" when the tree had changes). */
   readonly pocketjs: string;
   /** The id of the profile the runtime was built for; its document ships
-   *  beside it as pocket-profile.json. */
+   *  beside it as pocket.host.json. */
   readonly profile: string;
   /** The provenance hash of that document. */
   readonly profileHash: string;
@@ -73,7 +73,7 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * Read runtime.json, check it names `target`, and check every file it lists
  * is present with the size and SHA-256 it records.
  */
-/** A checked runtime directory and the profile document it ships. */
+/** A checked runtime directory and the host contract it ships. */
 export interface RuntimeDirectory extends RuntimeManifest {
   readonly document: PocketProfile;
 }
@@ -132,7 +132,7 @@ export async function readRuntime(
   validateSchema(document, pocketProfileSchema, "", diagnostics);
   if (diagnostics.length || document.format !== POCKET_PROFILE_FORMAT || document.id !== manifest.profile || document.id !== manifest.target ||
       document.hostAbi !== manifest.hostAbi || (await documentHash(document)) !== manifest.profileHash) {
-    throw new Error(`repack: the runtime's ${POCKET_PROFILE_FILE} is not the profile ${RUNTIME_MANIFEST} names`);
+    throw new Error(`repack: the runtime's ${POCKET_PROFILE_FILE} is not the host contract ${RUNTIME_MANIFEST} names`);
   }
   return { ...manifest, document };
 }

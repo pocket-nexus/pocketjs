@@ -1,8 +1,8 @@
 import { deployVita } from "./deploy.ts";
 import { copyFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import { POCKET_PROFILES } from "../../../profiles/index.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { buildVita } from "../../vita.ts";
 import { buildRuntimeVita } from "../../runtime/vita.ts";
 import { repackVita } from "../../repack/vita.ts";

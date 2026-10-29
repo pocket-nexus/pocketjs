@@ -69,7 +69,7 @@ describe("guest runtime packages", () => {
     symlinkSync(root, join(project, "node_modules/@pocketjs/framework"), "dir");
     fakePackage(project, "solid-js", "0.0.1");
     writeFileSync(join(project, "main.tsx"), 'import { mount } from "@pocketjs/framework/solid";\n');
-    writeFileSync(join(project, "pocket.json"), JSON.stringify({
+    writeFileSync(join(project, "pocket.app.json"), JSON.stringify({
       $schema: "https://pocketjs.dev/schema/pocket-2.json",
       pocket: 2,
       id: "dev.example.runtime.mismatch",

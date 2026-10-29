@@ -165,7 +165,7 @@ export default function Note(): ReturnType<typeof View> {
   const [menuOpen, setMenuOpenRaw] = createSignal(false);
   const [caret, setCaret] = createSignal(0);
   /** Browser caret discipline: SOLID while typing or moving, and a crisp
-   *  square-wave blink (animate-caret, pocket.json app.theme) after a 0.6 s
+   *  square-wave blink (animate-caret, pocket.app.json app.theme) after a 0.6 s
    *  rest. The <Show> swap remounts the blinking node, restarting the wave
    *  at its ON phase — exactly a browser's reset-on-input. */
   const [caretResting, setCaretResting] = createSignal(true);

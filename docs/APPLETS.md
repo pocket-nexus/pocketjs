@@ -2,7 +2,7 @@
 
 A **Pocket Applet** is a Pocket app that a launcher runs on behalf of the
 system: Pocket Shell on the 3DS runs Hacker News, YouTube, X, Discord and
-Pocket Nexus as applets. An applet declares the manifest section `applet` and
+Pocket Nexus as applets. An applet declares the app contract section `applet` and
 accepts rules a general app does not, so that one package runs on every
 launcher host, the system agent can read and operate it, and a generated
 (user- or model-written) applet can be admitted by checks alone. The launcher
@@ -10,18 +10,18 @@ itself is an app, not an applet: it pairs, installs and switches.
 
 The contract is `contracts/spec/applet.ts`. The rules run in two places:
 
-- **Plan resolution** (`framework/src/manifest/resolve.ts`): the manifest
-  rules. A manifest that breaks one does not resolve on any target, so no
+- **Plan resolution** (`framework/src/manifest/resolve.ts`): the app contract
+  rules. An app contract that breaks one does not resolve on any target, so no
   backend builds it.
 - **The build** (`tools/build.ts` → `tools/applet-check.ts`): the source rules
   over the applet's import graph and the bundle budgets. A violation fails the
   build after pass 2.
 
-`bun tools/applet-check.ts <pocket.json> [--project-root=<dir>] [--js=<bundle>
+`bun tools/applet-check.ts <pocket.app.json> [--project-root=<dir>] [--js=<bundle>
 --pak=<pak>]` runs every rule outside a build; `checkApplet` is the same check
 as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 
-## The manifest section
+## The app contract section
 
 ```json
 "applet": {
@@ -38,7 +38,7 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | `services` | Companion services the applet's worker fetches at `https://companion.pocket/<name>/…` through `io.http`. At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service the app does not declare. |
 | `store` | Persistent state: required for `data.fs`; `maxBytes` at most **4 MiB**. |
 
-## Manifest rules
+## App contract rules
 
 | Rule | Reason |
 | --- | --- |

@@ -3,7 +3,7 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import { decodePocketPackage, encodeIdentity, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { bundleBaseName, bundleVersion, IPOD_RUNTIME_EXECUTABLE, repackIPod } from "../tools/repack/ipod.ts";

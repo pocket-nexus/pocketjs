@@ -1,7 +1,7 @@
 import { copyFileSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
-import { cargo, type RuntimeBuild, type RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
-import { POCKET_PROFILES } from "../../../profiles/index.ts";
+import { cargo, type RuntimeBuild, type RuntimeBuildContext } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { requireApplication, requireProgramProfile } from "./application.ts";
 import { repository, nativeSources } from "./handheld-common.ts";
 const macosProfile = POCKET_PROFILES["macos-app"];

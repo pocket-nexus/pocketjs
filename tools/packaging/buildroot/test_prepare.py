@@ -58,13 +58,13 @@ class PreparationTests(unittest.TestCase):
         self.assertFalse((self.path / "external").exists())
 
     def test_profile_is_independent_of_application_and_bound_to_generation(self):
-        value = {"format": "pocket-profile/2", "hostAbi": 12, "id": "board", "platform": "linux", "form": "embedded",
+        value = {"format": "pocket-host/2", "hostAbi": 12, "id": "board", "platform": "linux", "form": "embedded",
                  "cadences": [30, 60], "display": {"logicalViewports": [[8, 6]], "presentations": ["native"], "rasterDensity": 1, "animation": "repaint"},
                  "panel": {"primary": [8, 6]}, "capabilities": ["text.glyphs.baked", "input.buttons"]}
         canonical = '{"cadences":[30,60],"capabilities":["input.buttons","text.glyphs.baked"],"display":{"animation":"repaint","logicalViewports":[[8,6]],"presentations":["native"],"rasterDensity":1},"form":"embedded","id":"board","platform":"linux"}'
         digest = hashlib.sha256(canonical.encode()).digest()
         self.assertEqual(profile.profile_hash(value), digest.hex())
-        path = self.path / "pocket-profile.json"
+        path = self.path / "pocket.host.json"
         path.write_text(json.dumps(value))
         module = self.path / "pocket_profile.rs"
         def write_module(generation, hash_bytes):
@@ -80,7 +80,7 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "binding generation"):
             profile.validate(path, 12)
         write_module(12, bytes(32))
-        with self.assertRaisesRegex(ValueError, "does not match pocket-profile.json"):
+        with self.assertRaisesRegex(ValueError, "does not match pocket.host.json"):
             profile.validate(path, 12)
 
 if __name__ == "__main__":

@@ -69,40 +69,41 @@ pocketjs_embed_package(
     PROFILE_EXPORT_DIR "../profile-export")
 ```
 
-The firmware root contains `pocket.runtime-config.ts`, which names the
-program's `pocket-profile.json` document. Export the profile before an offline
-build:
+The firmware root contains `pocket.host.config.ts`, the host config that
+names the program's host contract, `pocket.host.json`. Export the host contract
+before an offline build:
 
 ```sh
-pocket profile export --config pocket.runtime-config.ts --out profile-export
+pocket host export --config pocket.host.config.ts --out profile-export
 ```
 
 **The embed step uses Python and prebuilt artifacts; it does not invoke Bun.**
-It reads the exported `pocket-profile.json`, requires its `hostAbi` stamp to
+It reads the exported `pocket.host.json`, requires its `hostAbi` stamp to
 equal the package's binding generation, and admits the package's host-input
 variant by the [admission](/docs/platform-contracts/#admission) rules: raster
 density, animation class, rate against the cadences, viewport, presentation
 and capabilities. The generated `pocketjs_package_dashboard.h` exports package
 storage and admitted application geometry. `pocket_profile.h` supplies the
-independent program configuration.
+program's host contract facts, independent of the package.
 
-`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <file>)` compiles an
-application and exports the profile. `pocketjs_profile_header(TARGET <target>
-NAME <name>)` exports the profile without an application. These two helpers
-require the Pocket CLI. Their dependency files track application imports and
-profile/configuration imports, including new modules learned on a rebuild.
+`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.app.json>)`
+compiles an application and exports the host contract.
+`pocketjs_profile_header(TARGET <target> NAME <name>)` exports the host contract
+without an application. These two helpers require the Pocket CLI. Their
+dependency files track application imports, host contracts and host config
+imports, including new modules learned on a rebuild.
 
-All three helpers accept `RUNTIME_CONFIG`, defaulting to the project root's
-`pocket.runtime-config.ts`. `PROFILE_EXPORT_DIR` defaults to
+All three helpers accept `HOST_CONFIG`, defaulting to the project root's
+`pocket.host.config.ts`. `PROFILE_EXPORT_DIR` defaults to
 `<current-binary-directory>/pocketjs/<name>/profile`. Offline embedding requires
-`pocket-profile.json` and `pocket_profile.h` to exist there before configuration.
+`pocket.host.json` and `pocket_profile.h` to exist there before configuration.
 
 ## Register a runtime
 
 **`pocket_runtime_config.profile` points at `pocket_profile.facts`**, the
 `pocket_profile_facts` record in the exported `pocket_profile.h`: variant id,
 cadences, panel sizes, logical viewports, presentations, raster density,
-animation class, capability names and the input classes the profile requires.
+animation class, capability names and the input classes the host contract requires.
 The runtime copies the record at creation and reads no JSON.
 `pocket_runtime_create` returns `NULL` when the configuration's `tick_hz`
 differs from the facts' `tick_hz`, the highest cadence. After boot,
@@ -158,7 +159,7 @@ pocket_runtime_add_display(runtime, pocket_display_esp_lcd_vtable(), display,
 
 Register each input device with `pocket_runtime_add_input_source`. Its
 `pocket_input_source_v1` declares input classes and contributes device facts
-during polling. Every input class required by the profile must be present.
+during polling. Every input class required by the host contract must be present.
 The runtime resolves contact hits and encodes the guest frame arguments.
 
 `pocket_runtime_boot` validates the package, installs its assets, evaluates the

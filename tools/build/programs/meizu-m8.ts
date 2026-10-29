@@ -1,7 +1,7 @@
 import { nativeSources } from "./native-sources.ts";
 import "../toolchains/meizu-m8/armv6-wince-asm.json";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import { POCKET_PROFILES } from "../../../profiles/index.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { requireProgramProfile, requireApplication } from "./application.ts";
 const profile = POCKET_PROFILES["meizu-m8-dev"];
 

@@ -2,7 +2,7 @@ import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-gener
 import { cadenceFor } from "../../../contracts/spec/admission.ts";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
+import { type RuntimeBuild } from "../../../framework/src/host-config.ts";
 import { wasmStep } from "./web.ts";
 import { repository, buildHosts, nativeSources, programFiles } from "./handheld-common.ts";
 import { requireApplication } from "./application.ts";

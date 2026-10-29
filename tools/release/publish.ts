@@ -47,10 +47,10 @@ export async function prepareRelease(inputs: ReleaseInputs, output: string): Pro
       const copy = join(staging, "runtime"); cpSync(directory, copy, { recursive: true });
       const receipt = await readRuntime(readRuntimeDirectory(copy), target);
       if (receipt.pocketjs !== inputs.revision) throw new Error("runtime release requires a clean matching revision: " + target);
-      // The firmware release: the program archive, its stamped profile
-      // document and the binding generation the manifest records.
+      // The firmware release: the program archive, its stamped host
+      // contract and the binding generation the manifest records.
       const document = readFileSync(join(copy, POCKET_PROFILE_FILE));
-      const profileFile = "pocket-profile-" + target + ".json";
+      const profileFile = "pocket-host-" + target + ".json";
       writeFileSync(join(staging, profileFile), document);
       runtimes[target] = { ...archive(copy, "pocket-runtime-" + target + ".tar.gz"), profileHash: receipt.profileHash,
         profile: { file: profileFile, bytes: document.length, sha256: createHash("sha256").update(document).digest("hex") } };

@@ -32,8 +32,8 @@ The following `graphics::present()` call is accepted as a compatibility no-op.
 
 `eval_package` admits a compiled `.pocket` through the package reader and does
 not submit GPU work. The program embeds no raw JS/pak pair and encodes no
-package at startup; its profile is the `pocket_profile.rs` the build tool
-exports. `frame_with_input` samples input, calls the guest and ticks the core
+package at startup; its host contract is the `pocket_profile.rs` the build
+tool exports. `frame_with_input` samples input, calls the guest and ticks the core
 once. The retained `tick()` compatibility method has no effect. `ui()` returns
 a scoped guard; release it before calling the runtime or recording an overlay.
 
@@ -44,7 +44,7 @@ Vita-specific entry point, but their package is compiled from the resolved
 Vita plan so density and host-contract constants are target-correct.
 
 The PocketJS logical viewport remains 480x272, so PSP applications keep the
-same layout. The resolved Vita profile separately sets a 960x544 physical
+same layout. The Vita host contract separately sets a 960x544 physical
 viewport and raster density 2: geometry is sampled at physical resolution,
 font coverage/SVG/core masks are baked at 2x, and `@2x` image or raw-pak
 siblings are selected when present. There is no letterboxing or aspect-ratio
@@ -114,11 +114,12 @@ VitaShell; Vita Toolbox is not required:
    install prompt.
 4. Return to LiveArea and launch the demo's named bubble.
 
-Each manifest's stable reverse-DNS `id` is encoded by the Vita backend as `P`
-plus the first eight uppercase hexadecimal digits of its SHA-256 digest. This
+Each app contract's stable reverse-DNS `id` is encoded by the Vita backend as
+`P` plus the first eight uppercase hexadecimal digits of its SHA-256 digest. This
 produces a valid nine-character Vita title id without a per-demo table, so
 Hero, Gallery, and other demos coexist instead of replacing one another. Keep
-the manifest `id` unchanged across releases to preserve installation identity.
+the app contract `id` unchanged across releases to preserve installation
+identity.
 Every VPK also includes PocketJS's black 128x128 bubble icon and complete
 LiveArea artwork (840x500 background, 280x158 startup image, and template), so
 a new app never installs as a blank white bubble or generic launch gate. Custom

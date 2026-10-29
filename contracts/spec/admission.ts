@@ -50,7 +50,7 @@ export interface AdmissionHost {
   readonly auxiliaryLogical?: readonly Viewport[];
 }
 
-/** The facts a device with this profile document admits packages against. */
+/** The facts a device with this host contract admits packages against. */
 export function admissionHost(profile: PocketProfile, profileHash: string, bindingGeneration: number = POCKET_BINDING_GENERATION): AdmissionHost {
   const { display } = profile;
   return {

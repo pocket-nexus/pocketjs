@@ -13,13 +13,13 @@
 // The runtime has no io.offload slot; the repack refuses a plan that asks for it.
 
 import { buildPsp } from "../psp.ts";
-import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../framework/src/host-config.ts";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { POCKET_TARGETS } from "../../contracts/spec/platforms.ts";
 import { PSP_RUNTIME_FILE, PSP_RUNTIME_TARGET } from "../repack/psp.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
-import { POCKET_PROFILES } from "../../profiles/index.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 const profile = POCKET_PROFILES["psp-runtime"];
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);

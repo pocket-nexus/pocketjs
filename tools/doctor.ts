@@ -43,7 +43,7 @@ export function verifyBuildReceipt(path: string, selected: Pick<ResolvedProfile,
 /** Read-only inspection: building, installing, deployment and measurements remain explicit actions. */
 export async function inspectProgram(options: DoctorOptions) {
   const selected = await resolveRuntimeProgram({ from: options.from ?? process.cwd(), target: options.target,
-    runtimeConfig: options.config, generic: options.generic, env: process.env });
+    hostConfig: options.config, generic: options.generic, env: process.env });
   const checks: Check[] = [];
   const check = async (name: string, run: () => string | Promise<string>) => {
     try { checks.push({ name, status: "ok", detail: await run() }); }

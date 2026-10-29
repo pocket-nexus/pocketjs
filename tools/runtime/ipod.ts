@@ -38,7 +38,7 @@ import { IPODTOUCH4_DEV_HOST_ABI, IPODTOUCH4_DEV_TARGET_ID, IPODTOUCH4_RASTER_DE
 import { IPODTOUCH4_TOOLCHAIN } from "../build/toolchains/ipodtouch4.ts";
 import { IPOD_RUNTIME_EXECUTABLE, IPOD_RUNTIME_FILES } from "../repack/ipod.ts";
 import { writeRuntimeManifest } from "../../tools/runtime/manifest.ts";
-import { POCKET_PROFILES } from "../../profiles/index.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 import { writeHostProfileHeader } from "../../tools/host-profile.ts";
 const profile = POCKET_PROFILES["ipodtouch4-dev"];
 

@@ -16,7 +16,8 @@ on every `main` push (`deploy.yml`).
 ## Standard workflow
 
 1. **Version bumps (in the feature PR, before merge).** Set the same version
-   in `package.json`, `tools/cli/package.json`, AND `apps/hero/pocket.json` — the release
+   in `package.json`, `tools/cli/package.json`, AND `apps/hero/pocket.app.json`
+   (hero's app contract) — the release
    gate (`tools/release-check.ts`) verifies all three authorities agree
    with the tag. Semver within 0.x: breaking changes (e.g. a bin rename)
    and feature sets bump the minor; docs-only fixes ride the next release

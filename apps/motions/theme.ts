@@ -1,4 +1,4 @@
-// apps/motions — the animation theme pocket.json names in `app.theme`.
+// apps/motions — the animation theme pocket.app.json names in `app.theme`.
 //
 // Keyframes ported 1:1 from yui540's motion studies (motions/53, /56, /30 and
 // /64): durations, delays, easings and keyframe percentages match the

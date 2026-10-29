@@ -1,7 +1,7 @@
 import type { PocketCapabilityId } from "../../contracts/spec/platform-types.ts";
 
 // Replaced by tools/build.ts for manifest-driven bundles. `typeof` keeps
-// legacy and test builds valid until they opt into pocket.json.
+// legacy and test builds valid until they opt into pocket.app.json.
 declare const __POCKET_TARGET__: string;
 declare const __POCKET_FEATURES__: Readonly<Partial<Record<PocketCapabilityId, boolean>>>;
 declare const __POCKET_PIXEL_RATIO__: number;
@@ -10,7 +10,7 @@ export interface PocketPlatform {
   readonly target: string;
   /** Target raster samples per logical pixel. Use for dynamic texture producers. */
   readonly pixelRatio: number;
-  /** Availability of APIs declared under engine.capabilities in pocket.json. */
+  /** Availability of APIs declared under engine.capabilities in pocket.app.json. */
   readonly features: Readonly<Partial<Record<PocketCapabilityId, boolean>>>;
 }
 

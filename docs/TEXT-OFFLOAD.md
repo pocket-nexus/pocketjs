@@ -1,8 +1,8 @@
 # Experimental portable text service
 
 `text.layout.offload` executes text capabilities in a provider worker through
-`io.offload`. Declare both capabilities in a Pocket v2 manifest. A supported
-host profile admits this transport path; execution additionally requires a
+`io.offload`. Declare both capabilities in the app contract. A supported
+host contract admits this transport path; execution requires a
 positive session and provider-supplied fonts. An absent companion is a visible
 unavailable state, with no synchronous layout fallback.
 
@@ -67,7 +67,7 @@ coverage compatible with optional `offload.uploadCoverage`.
 
 ```sh
 bun tools/text-wasm.ts
-bun tools/pocket.ts build --target psp --manifest apps/text-offload/pocket.json --project-root . -- --release
+bun tools/pocket.ts build --target psp --manifest apps/text-offload/pocket.app.json --project-root . -- --release
 bun tools/text-provider.ts --usb /path/to/psplink-host0-root \
   --app dev.pocket-nexus.text-offload --pak dist/text-offload-main.pak
 ```

@@ -1,4 +1,4 @@
-// The records this screen and its worker exchange over pocket.json's
+// The records this screen and its worker exchange over pocket.app.json's
 // channels. A `request` record is a call's id (u32) and the `io.http`
 // options as UTF-8 JSON. A `response` record is the call's id (u32), a kind
 // (u8) and the kind's payload: HEAD the HTTP status (u16), BODY the next

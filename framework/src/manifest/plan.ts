@@ -15,7 +15,7 @@ export type PlanProfile = CompiledProfile & {
   readonly tickHz: number;
 };
 
-/** The profile document a plan records, without the package rate. */
+/** The host contract a plan records, without the package rate. */
 export function planProfileDocument(profile: PlanProfile): PocketProfile {
   const { tickHz: _tickHz, ...document } = profile;
   return document;

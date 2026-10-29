@@ -6,7 +6,7 @@ import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
 import { buildGuestBundleFromPlan } from "../tools/native-host-build.ts";
 import { REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "../tools/redmi-1s-profile.ts";
 
-const clear = () => JSON.parse(readFileSync("apps/clear/pocket.json", "utf8"));
+const clear = () => JSON.parse(readFileSync("apps/clear/pocket.app.json", "utf8"));
 
 test("Clear resolves the Redmi 1S panel: 360x640 logical at density 2", () => {
   const plan = resolveRedmi1sBuildPlan(clear());
@@ -25,7 +25,7 @@ test("the Redmi 1S has no game keys: an app that requires input.buttons does not
 });
 
 test("a plan resolved for another target is refused before the compiler runs", () => {
-  const moto = resolveMotoGPlayBuildPlan(JSON.parse(readFileSync("apps/clear/pocket.json", "utf8")));
+  const moto = resolveMotoGPlayBuildPlan(JSON.parse(readFileSync("apps/clear/pocket.app.json", "utf8")));
   const directory = `${process.env.TMPDIR ?? "/tmp"}/pocketjs-redmi-1s-test-${process.pid}`;
   const planPath = `${directory}/plan.json`;
   mkdirSync(directory, { recursive: true });

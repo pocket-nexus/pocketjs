@@ -9,7 +9,7 @@ use pocket_runtime::{
 use std::{cell::RefCell, rc::Rc};
 use support::{Device, Event, Fault, Resources, Shared, HEIGHT, WIDTH};
 
-/// The canonical profile JSON `pocket profile export` hashes; the runtime
+/// The canonical profile JSON `pocket host export` hashes; the runtime
 /// receives the hash and the facts below, never this text.
 const PROFILE: &[u8] = br#"{"capabilities":["input.buttons","input.analog.left","input.touch"],"display":{"logicalViewports":[[8,6]],"physicalViewport":[8,6],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"consumer","platform":"external-test","tickHz":60}"#;
 fn config() -> RuntimeConfig {

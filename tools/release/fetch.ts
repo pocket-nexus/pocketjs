@@ -65,14 +65,14 @@ export async function releasedRuntime(target: string, profileHash: string, optio
   });
 }
 
-/** The profile document a release publishes for a runtime target, checked
+/** The host contract a release publishes for a runtime target, checked
  *  against the release's file hash, profileHash and binding generation. An
  *  application compiles against it with `pocket compile --target FILE.json`. */
 export async function releasedProfile(target: string, options: ReleaseFetchOptions = {}): Promise<PocketProfile> {
   const version = releaseVersion(options.version);
   const { manifest, url } = await readRelease(version, options.manifestUrl);
   const asset = manifest.runtimes[target];
-  if (!asset?.profile) throw new Error("release " + version + " publishes no profile document for " + target);
+  if (!asset?.profile) throw new Error("release " + version + " publishes no host contract for " + target);
   const response = await fetch(new URL(asset.profile.file, url));
   if (!response.ok) throw new Error("release profile unavailable: " + asset.profile.file + " (HTTP " + response.status + ")");
   const bytes = new Uint8Array(await response.arrayBuffer());

@@ -118,14 +118,14 @@ def escaped(path: Path) -> str:
 
 def read_profile(profile_path: Path) -> dict:
     document = json.loads(profile_path.read_text(encoding="utf-8"))
-    if not isinstance(document, dict) or document.get("format") != "pocket-profile/2":
-        raise ValueError("unsupported pocket-profile.json format")
+    if not isinstance(document, dict) or document.get("format") != "pocket-host/2":
+        raise ValueError("unsupported pocket.host.json format")
     abi = document.get("hostAbi")
     if type(abi) is not int or not 1 <= abi <= 0xFFFFFFFF:
-        raise ValueError("profile export carries no hostAbi stamp")
+        raise ValueError("host export carries no hostAbi stamp")
     display = document.get("display")
     if not isinstance(display, dict) or not isinstance(document.get("cadences"), list) or not isinstance(document.get("panel"), dict):
-        raise ValueError("profile export lacks display, cadences or panel")
+        raise ValueError("host export lacks display, cadences or panel")
     return document
 
 
@@ -184,7 +184,7 @@ def validate_profile(profile_path: Path, fields: tuple[int, ...], plan: dict) ->
     if missing:
         problems.append("capability " + missing[0])
     if problems:
-        raise ValueError("package host inputs are not admitted by profile export: " + ", ".join(problems))
+        raise ValueError("package host inputs are not admitted by host export: " + ", ".join(problems))
     panel = document["panel"].get("primary", [])
     physical = [fields[6], fields[7]]
     if isinstance(dynamic, dict):
@@ -254,7 +254,7 @@ def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path, required=True)
-    parser.add_argument("--profile", type=Path, required=True, help="exported pocket-profile.json")
+    parser.add_argument("--profile", type=Path, required=True, help="exported pocket.host.json")
     parser.add_argument("--name", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()

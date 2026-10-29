@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 
 function verifiedCopy(source: string, destination: string): string {
   const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");

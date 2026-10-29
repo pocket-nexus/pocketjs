@@ -13,13 +13,13 @@ import { PROP } from "../contracts/spec/spec.ts";
 import { installHost, type HostOps } from "../framework/src/host.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { parsePocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import { THREE_DS_DEV_CONTRACTS, THREE_DS_DEV_TARGET_ID } from "../tools/3ds-profile.ts";
 
 /** An ESP-IDF program's profile: a CPU rasterizer, a repaint target. */
 const tab5 = parsePocketProfile({
-  format: "pocket-profile/2",
+  format: "pocket-host/2",
   id: "tab5-test",
   platform: "esp-idf",
   form: "takeover",

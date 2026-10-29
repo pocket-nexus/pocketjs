@@ -37,7 +37,7 @@ import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "./
 import { ANDROID_DEFAULT_ICON, bakeAndroidLauncherIcons } from "../tools/android-icon.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import type { PocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 const redmiProfile = POCKET_PROFILES["redmi-1s-dev"];
 const motoProfile = POCKET_PROFILES["moto-g-play-dev"];

@@ -380,11 +380,11 @@ rate (`--hz=N`, 1–240, default 60).
 ## Native text layout
 
 Baked atlases are the portable path. An app that lists `text.layout.native` in
-the `enhances` block of its `pocket.json` gets host measurement and shaping
-instead, on any target whose profile registers that capability in
-`contracts/spec/platforms.ts` — read the registry, not a list of hosts. The host
-installs a core text measurer before the guest mounts (`Ui::set_text_measure`),
-and one provider then feeds taffy leaf sizes, the `measureText` op and the
+the `enhances` block of its `pocket.app.json` gets host measurement and shaping
+instead, on any target whose host contract declares that capability
+(`hosts/<id>/pocket.host.json` for the built-in hosts) — read the contracts,
+not a list of hosts. The host installs a core text measurer before the guest
+mounts (`Ui::set_text_measure`), and one provider then feeds taffy leaf sizes, the `measureText` op and the
 painted glyphs. What changes for your classes:
 
 - Text-size, `font-bold` and `font-mono` still pick the slot; the host resolves

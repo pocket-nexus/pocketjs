@@ -69,8 +69,9 @@ instance, including a failed call.
 The old UI and ESP-IDF library names delegate to compatibility implementations
 in `engine/runtime-cabi/src/compat`. Existing QuickJS C, rquickjs `UiSurface`,
 and Wasm entry paths remain available. **Applications use package format 2
-and binding generation 12.** Profile identity, binding generation, C record
-prefixes and DrawList versions are checked as separate contracts.
+and binding generation 12.** Host contract identity (`profileHash`), binding
+generation, C record prefixes and DrawList versions are checked as separate
+contracts.
 
 **`pocket sdk export --triple <rust-target> --out <directory>` downloads a verified
 release C SDK.** Its no_std archive disables legacy features and uses
@@ -137,29 +138,29 @@ The migration keeps four compatibility rules separate:
 | Rust API | Cargo SemVer; new trait methods need defaults, and extensible descriptors use constructors with `non_exhaustive`. Existing core view types retain their construction syntax. |
 | C ABI | Records begin with `struct_size`. A consumer reads fields within the supplied prefix; missing callbacks mean unsupported. A producer cannot assume a consumer reads appended fields. |
 | DrawList | The operation set has no unknown-operation skip encoding. Drivers and the runtime archive use the same DrawList version. |
-| Guest bindings | `hostAbi` equals `POCKET_BINDING_GENERATION`, generated from `contracts/spec/binding-generation.ts`. Every profile uses generation 12; legacy target-specific values 1–11 are rejected. |
+| Guest bindings | `hostAbi` equals `POCKET_BINDING_GENERATION`, generated from `contracts/spec/binding-generation.ts`. Every host contract uses generation 12; legacy target-specific values 1–11 are rejected. |
 
-`contracts/spec/profile.ts` defines the profile hash projection: `id`,
-`platform`, `form`, `cadences`, `display`, `capabilities`, and optional
-`roleCapabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
+`contracts/spec/profile.ts` defines the host contract projection that
+`profileHash` covers: `id`, `platform`, `form`, `cadences`, `display`,
+`capabilities`, and optional `roleCapabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
 newline. Keys use UTF-16 code-unit order; capabilities, cadences and role
 capabilities sort as sets; other arrays keep their order; absent optional
 fields stay absent. The canonicalizer rejects non-JSON data and unpaired
 surrogates. **`panel`, `worker`, `limits`, `input`, `hostExtension` and the
 `hostAbi` stamp are excluded from the hash.** The format 2 variant table
-carries this hash as 32 bytes; it names the document a package was compiled
-against.
+carries this hash as 32 bytes; it names the host contract a package was
+compiled against.
 
 ### Package and driver compatibility
 
-**The program supplies its profile facts, profile hash and binding generation
-before reading an application.** The profile reaches the runtime as
-`pocket_profile_facts`: the variant id, cadences, panel sizes, logical
-viewports, presentations, raster density, animation class, capability names
+**The program supplies its host contract facts, `profileHash` and binding
+generation before reading an application.** The host contract reaches the
+runtime as `pocket_profile_facts`: the variant id, cadences, panel sizes,
+logical viewports, presentations, raster density, animation class, capability names
 and the input classes its capabilities require. Records follow the
 `struct_size` prefix rule: a record without cadences has the one cadence
 `tick_hz`, and one without presentations or an animation class is not compared
-on them. `pocket profile export` writes the record as `pocket_profile.h` for C
+on them. `pocket host export` writes the record as `pocket_profile.h` for C
 programs and `pocket_profile.rs` for Rust programs, beside the hash; the
 runtime reads no JSON. The C package-open entry points take the same record. `Runtime::new` rejects a configuration whose
 `host_abi` differs from the generated constant. Guest adapters reject an
@@ -169,13 +170,13 @@ unsupported generation before mounting `ui` or evaluating application code.
 | --- | --- | --- |
 | Format 1 | Current format 2, generation 12 | Reject the package version before guest initialization |
 | Format 2, legacy generation 1–11 | Generation 12 | Reject the binding generation |
-| Format 2, generation 12, plan the facts satisfy | Generation 12 | Admit if format, assets and driver checks pass, with any profile id or hash |
+| Format 2, generation 12, plan the facts satisfy | Generation 12 | Admit if format, assets and driver checks pass, with any host id or `profileHash` |
 | Format 2, generation 12, plan the facts do not satisfy | Generation 12 | Reject and name the first failing [admission item](/docs/platform-contracts/#admission) |
 | Format 2, generation 12 | Old format 1 runtime | Reject the package version |
 | Format 2, generation 12 | Format 2 runtime built with a legacy generation | Reject the binding generation |
 
 Rebuild the program and application together when changing binding generation.
-The compiler, profile exporter and repacker require the current generation;
+The compiler, host contract exporter and repacker require the current generation;
 they do not convert a legacy plan, runtime or package. The package codec can
 read historical generation values for inspection and compatibility tests.
 
@@ -336,7 +337,8 @@ A namespace marks itself native with `__host` plus `__hostAbi`, or with the
 legacy `__textures` marker. **Every native mount requires the current binding
 generation**, including raw bundles with no target restriction. A namespace
 with only `__textures` is rejected because it lacks `__hostAbi`; rebuild its
-guest adapter. A manifest-built bundle also checks its expected target.
+guest adapter. A bundle built from an app contract also checks its expected
+target.
 `assertNativeHostContract` compares the bundle's baked tick rate against
 the host's `ui.__tickHz` on every native mount. Injected `HostOps` adapters
 have no native metadata requirement.

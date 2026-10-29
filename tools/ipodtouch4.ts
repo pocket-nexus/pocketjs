@@ -1,6 +1,6 @@
-import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { planProfileDocument } from "../framework/src/manifest/plan.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { createCanvas } from "@napi-rs/canvas";
@@ -74,7 +74,7 @@ const ACTION_NAME = "clear_gesture";
  */
 export interface IPodTouch4App {
   readonly id: string;
-  /** pocket.json, relative to `root`. */
+  /** pocket.app.json, relative to `root`. */
   readonly manifest: string;
   /**
    * The project the app's sources live in. Absent for an app inside this
@@ -126,7 +126,7 @@ const EXTERNAL_FIELDS = [
 export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   clear: {
     id: "clear",
-    manifest: "apps/clear/pocket.json",
+    manifest: "apps/clear/pocket.app.json",
     bundleId: "dev.pocket-nexus.clear",
     bundleName: "PocketJSiPodTouch4.app",
     executable: "PocketJSiPodTouch4",
@@ -139,7 +139,7 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   },
   "nexus-touch": {
     id: "nexus-touch",
-    manifest: "apps/nexus-touch/pocket.json",
+    manifest: "apps/nexus-touch/pocket.app.json",
     bundleId: "dev.pocket-nexus.nexus-touch",
     bundleName: "PocketNexus.app",
     executable: "PocketNexus",

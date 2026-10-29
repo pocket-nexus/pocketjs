@@ -124,7 +124,7 @@ environment.
 **catalog.** The companion offers every `.pocket` file in its apps directories
 that has a variant for the console's `target` from `hello` (`3ds-dev` by
 default). A row carries the identity section's id, title and output, the
-manifest's `version` and `summary` (or `description`), the file size and the
+app contract's `version` and `summary` (or `description`), the file size and the
 file's **footer hash** (FNV-1a64, 16 hex digits). The footer is verified when
 the file is scanned; a file that fails it is skipped. At most **64** rows; one
 row per app id, the first directory winning. The companion watches the
@@ -261,7 +261,7 @@ HTTP on `127.0.0.1`, a random port, `Authorization: Bearer <token>`:
 `status.apps` lists every app the catalog offers once, for the default
 target (`3ds-dev`) and for the other targets its packages carry: on a
 CardputerZero the PSP applets. Entries carry each applet's `summary` and the
-`services` its manifest declares.
+`services` its app contract declares.
 
 ## Pocket Companion.app
 

@@ -5,7 +5,7 @@
 //! (`pocket-mod`), drives the same `pocketjs-core`, and renders through wgpu
 //! (`pocket-ui-wgpu`) — 2D and 3D on one foundation.
 //!
-//!   bun tools/pocket.ts profile export --target macos-embedded --out target/uihost-profile
+//!   bun tools/pocket.ts host export --target macos-embedded --out target/uihost-profile
 //!   export POCKETJS_PROFILE_RS=$PWD/target/uihost-profile/pocket_profile.rs
 //!   cargo run -p uihost -- --app hero                # window, 2x scale
 //!   cargo run -p uihost -- --app music --scale 3
@@ -142,7 +142,7 @@ fn resolve_asset(explicit: Option<PathBuf>, app: &str, ext: &str) -> Result<Path
 fn exported_profile() -> Result<Profile> {
     profile::profile().ok_or_else(|| {
         anyhow!(
-            "uihost was built without an exported profile; run `bun tools/pocket.ts profile export --target macos-embedded --out DIR` and build with POCKETJS_PROFILE_RS=DIR/pocket_profile.rs"
+            "uihost was built without an exported profile; run `bun tools/pocket.ts host export --target macos-embedded --out DIR` and build with POCKETJS_PROFILE_RS=DIR/pocket_profile.rs"
         )
     })
 }

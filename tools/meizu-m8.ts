@@ -1,6 +1,6 @@
 import { repositoryPath } from "./repository.ts";
 import nativeToolchain from "./build/toolchains/meizu-m8.ts";
-import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { createHash, randomBytes } from "node:crypto";
@@ -41,7 +41,7 @@ const toolchain = nativeToolchain as {
   readonly rapi: { readonly repository: string; readonly revision: string };
 };
 const cache = join(homedir(), ".cache/pocket-nexus", toolchain.cachePath);
-const manifestPath = join(repository, "apps/meizu-m8-demo/pocket.json");
+const manifestPath = join(repository, "apps/meizu-m8-demo/pocket.app.json");
 // 80x80 M8 Shell derivative of the shipped iPhone 2G PocketJS Icon.png.
 const shellIcon = join(repository, "apps/meizu-m8-demo/icon80.png");
 const planPath = join(repository, ".pocket/meizu-m8/meizu-m8-demo.plan.json");

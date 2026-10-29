@@ -30,8 +30,8 @@ import {
 } from "../framework/src/manifest/plan.ts";
 import { packageVitaVpk } from "./vita-package.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/runtime-config.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { RUST_TOOLCHAINS } from "./build/toolchains/rust.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
@@ -71,7 +71,7 @@ for (const a of argv) {
   } else if (a.startsWith("--framework=")) {
     frameworkFlag = a.slice("--framework=".length);
   } else if (a.startsWith("--config=") || a === "--no-config") {
-    throw new Error("pocket.config.ts was removed; use pocket.json app.framework and app.theme");
+    throw new Error("pocket.config.ts was removed; use pocket.app.json app.framework and app.theme");
   } else if (a.startsWith("--plan=")) {
     planPath = resolvePath(a.slice("--plan=".length));
   } else if (a.startsWith("--project-root=")) {

@@ -2,7 +2,7 @@ import { WORKER_LIMITS, workerCapabilities, type WorkerResourceKind } from "../.
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { hashPocketProfile } from "../profile.ts";
 import { compiledProfile } from "../../../contracts/spec/profile.ts";
-import { profileDocument } from "../../../profiles/contract.ts";
+import { profileDocument } from "../../../hosts/contract.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
 import { deriveModality, modalityMisses } from "../../../contracts/spec/modality.ts";
 import type {

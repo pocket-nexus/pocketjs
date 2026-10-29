@@ -22,7 +22,7 @@ on:
       - "tests/helpers/runtime-directory.ts"
       - "contracts/spec/admission.ts"
       - "contracts/spec/profile.ts"
-      - "profiles/**"
+      - "hosts/**"
       - "tools/android-link.ts"
       - "tools/community-key.ts"
       - "tests/fixtures/packages/**"

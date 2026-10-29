@@ -1,7 +1,7 @@
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";

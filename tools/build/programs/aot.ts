@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import { POCKET_PROFILES } from "../../../profiles/index.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { buildGba } from "../gba/build.ts";
 import { buildIpodNano } from "../ipodnano/build.ts";
 import { buildHosts, repository, nativeSources } from "./handheld-common.ts";

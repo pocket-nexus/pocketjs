@@ -76,7 +76,7 @@ export function getSolidAotProgram(filename: string, source?: string, buildEntry
   filename = resolve(filename);
   let directory = dirname(filename);
   while (true) {
-    const manifest = resolve(directory, "pocket.json");
+    const manifest = resolve(directory, "pocket.app.json");
     if (existsSync(manifest)) {
       const app = JSON.parse(readFileSync(manifest, "utf8")).app;
       if (app?.framework !== "solid" || app.aot !== true) return;

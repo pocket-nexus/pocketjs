@@ -6,10 +6,10 @@ application workflow.
 
 This is the fastest path from an empty checkout to JSX running on screen. You'll
 write a component, mount it, build it, and see it in the browser dev host — the
-same source and `pocket.json` can also be compiled into target-specific packages
+same source and `pocket.app.json` can also be compiled into target-specific packages
 for PSP, PS Vita, and the other registered targets. Your app declares one
-logical viewport in `pocket.json` and the target profile decides whether that
-size is admissible: PSP and Vita are fixed at 480×272, while window and widget
+logical viewport in `pocket.app.json` and the target's host contract decides
+whether that size is admissible: PSP and Vita are fixed at 480×272, while window and widget
 targets carry a default size and resize the core live. Each target owns its
 native renderer, raster density, and HostOps ABI.
 
@@ -62,19 +62,19 @@ bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
 The [CLI reference](/docs/cli/) lists every command, the target toolchains
 `pocket target add` installs, and the cache they live in.
 
-Create an app and validate it against both stock profiles:
+Create an app and validate it against both stock host contracts:
 
 ```sh
 pocket create my-app
-pocket check --target psp --manifest apps/my-app/pocket.json
-pocket check --target vita --manifest apps/my-app/pocket.json
+pocket check --target psp --manifest apps/my-app/pocket.app.json
+pocket check --target vita --manifest apps/my-app/pocket.app.json
 ```
 
 Outside a checkout, `pocket create` writes a standalone project with its own
 `package.json`; see [create](/docs/cli/#create).
 
-The generated `pocket.json` is strict application intent; the
-[application manifest](/docs/manifest/) page lists every field:
+The generated `pocket.app.json` is the app contract, strict application
+intent; the [App contract](/docs/app-contract/) page lists every field:
 
 ```json
 {
@@ -112,8 +112,8 @@ style with `class` — a **build-time subset of Tailwind**, not runtime CSS.
 State comes directly from the selected framework: `createSignal` in Solid,
 `ref` in Vue Vapor, `useState` in Octane.
 
-Solid is the default low-level framework. Manifest builds select Solid, Vue
-Vapor, or Octane with `app.framework` in `pocket.json`; see
+Solid is the default low-level framework. App contract builds select Solid,
+Vue Vapor, or Octane with `app.framework` in `pocket.app.json`; see
 [Frameworks](/docs/frameworks/) for the full selection model.
 
 `pocket create` writes an `app.tsx` that counts CROSS presses through
@@ -259,7 +259,7 @@ mount(App);
 :::
 
 The Octane entry imports `mount` from the generic root: the build resolves
-`@pocketjs/framework` to the framework named in `pocket.json`, and the root's
+`@pocketjs/framework` to the framework named in `pocket.app.json`, and the root's
 `mount` type accepts a JSX component. `@pocketjs/framework/octane` types `mount`
 for compiled universal components, which `pocket check` does not see in app
 sources.
@@ -278,13 +278,13 @@ The runtime program owns native linking and device packaging. The checkout
 provides PSP and Vita commands for building a demo program:
 
 ```sh
-pocket compile --target psp --manifest apps/my-app/pocket.json
+pocket compile --target psp --manifest apps/my-app/pocket.app.json
 pocket psp my-app --release
 # programs/psp/target/mipsel-sony-psp/release/EBOOT.PBP
 
 export VITASDK="$HOME/vitasdk"
 export PATH="$VITASDK/bin:$HOME/.cargo/bin:$PATH"
-pocket compile --target vita --manifest apps/my-app/pocket.json
+pocket compile --target vita --manifest apps/my-app/pocket.app.json
 pocket vita my-app --release
 # dist/vita/my-app-main.vpk
 ```
@@ -375,8 +375,8 @@ subsequent runs are fast.
 
 ### In Vita3K
 
-For stock demos, one command builds a manifest-driven VPK, installs it under a
-stable per-demo Title ID, and launches it:
+For stock demos, one command builds a VPK from the demo's app contract,
+installs it under a stable per-demo Title ID, and launches it:
 
 ```sh
 pocket play vita hero
@@ -384,8 +384,8 @@ pocket play vita gallery --fullscreen
 ```
 
 Vita3K is interactive here; `--fullscreen` controls the emulator window. The
-application still uses the profile's 480×272 logical viewport rendered at
-960×544 density 2. See the [Vita host guide](https://github.com/pocket-nexus/pocketjs/blob/main/programs/vita/README.md)
+application still uses the `vita` host contract's 480×272 logical viewport
+rendered at 960×544 density 2. See the [Vita host guide](https://github.com/pocket-nexus/pocketjs/blob/main/programs/vita/README.md)
 for toolchain setup, key mappings, real-device installation, and the golden E2E.
 
 ## Next steps

@@ -9,11 +9,11 @@
 //
 // Prereqs (run from the repo root):
 //   # 1. cross-compile the host against the exported pocketbook profile
-//   bun tools/pocket.ts profile export --config programs/pocketbook/pocket.runtime-config.ts --out target/pocketbook-profile
+//   bun tools/pocket.ts host export --config programs/pocketbook/pocket.host.config.ts --out target/pocketbook-profile
 //   (cd programs/pocketbook && POCKETJS_PROFILE_RS=$PWD/../../target/pocketbook-profile/pocket_profile.rs \
 //     cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.23)
 //   # 2. build the app bundle for the pocketbook target
-//   bun run pocket compile --runtime-config programs/pocketbook/pocket.runtime-config.ts --manifest apps/hero/pocket.json --project-root . --outdir dist
+//   bun run pocket compile --host-config programs/pocketbook/pocket.host.config.ts --manifest apps/hero/pocket.app.json --project-root . --outdir dist
 //
 // The host reads app.js + app.pak from its working directory (override with
 // POCKET_JS / POCKET_PAK), so we install them next to the binary.

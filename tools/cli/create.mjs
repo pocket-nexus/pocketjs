@@ -1,10 +1,10 @@
-// tools/cli/create.mjs — `pocket create`: scaffold a pocket.json v2 application.
+// tools/cli/create.mjs — `pocket create`: scaffold a pocket.app.json v2 application.
 //
 // Inside a PocketJS checkout the app lands in apps/<name> and resolves the
 // framework from the checkout. Anywhere else the result is a standalone
 // project: its package.json depends on @pocketjs/framework and pins
 // @pocketjs/cli, so `bun install && bun run build` is the whole flow.
-// `--target esp-idf` creates a product-owned profile and runtime configuration,
+// `--target esp-idf` creates a product-owned profile and host configuration,
 // with application sources in app/. Native firmware builds consume those inputs.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -164,7 +164,7 @@ mount(App);
 `,
   octane: (title) => `// @title PocketJS: ${title}
 import App from "./app.tsx";
-// The generic root resolves to the framework named in pocket.json at build
+// The generic root resolves to the framework named in pocket.app.json at build
 // time; its mount accepts a JSX component. The /octane subpath types mount
 // for compiled universal components, which app sources are not yet.
 import { mount } from "@pocketjs/framework";
@@ -191,8 +191,8 @@ function manifest({ name, title, framework, viewport, requires }) {
 // presented by a CPU rasterizer at 60 or 30 frames per second.
 function defaultProfile(name) {
   return {
-    $schema: "https://pocketjs.dev/schema/pocket-profile-2.json",
-    format: "pocket-profile/2",
+    $schema: "https://pocketjs.dev/schema/pocket-host-2.json",
+    format: "pocket-host/2",
     id: `product-${name}`,
     platform: "esp-idf",
     form: "takeover",
@@ -211,7 +211,7 @@ function defaultProfile(name) {
 /** Application scripts select their profile; native build configuration belongs to the program. */
 export function pocketCommands({ name, target, manifest: manifestPath }) {
   const embedded = target === "esp-idf";
-  const manifest = manifestPath ?? (embedded ? "app/pocket.json" : "pocket.json");
+  const manifest = manifestPath ?? (embedded ? "app/pocket.app.json" : "pocket.app.json");
   const projectRoot = embedded ? posix.dirname(posix.dirname(manifest)) : posix.dirname(manifest);
   const selection = embedded ? "" : ` --target ${target}`;
   const input = ` --manifest ${manifest} --project-root ${projectRoot}`;
@@ -230,7 +230,7 @@ function packageJson({ name, framework, target, cliVersion }) {
     type: "module",
     scripts: {
       ...pocketCommands({ name, target }),
-      ...(target === "esp-idf" ? { profile: "pocket profile export --out dist/profile" } : {}),
+      ...(target === "esp-idf" ? { "host:export": "pocket host export --out dist/profile" } : {}),
     },
     dependencies: {
       "@pocketjs/framework": `^${cliVersion}`,
@@ -249,7 +249,7 @@ function tsconfig(framework, embedded) {
       jsx: "preserve", strict: true, noEmit: true, allowImportingTsExtensions: true,
       verbatimModuleSyntax: true, skipLibCheck: true,
     },
-    include: embedded ? ["app/**/*.ts", "app/**/*.tsx", "pocket.runtime-config.ts", ...declarations]
+    include: embedded ? ["app/**/*.ts", "app/**/*.tsx", "pocket.host.config.ts", ...declarations]
       : ["*.ts", "*.tsx", ...declarations],
   };
 }
@@ -257,7 +257,7 @@ function tsconfig(framework, embedded) {
 function readme({ name, title, target }) {
   let text = `# ${title}
 
-\`pocket.json\` declares the application entry, framework, viewport and capabilities.
+\`pocket.app.json\` declares the application entry, framework, viewport and capabilities.
 **Application compilation produces \`dist/${name}.pocket\`.** The program's native
 build consumes that package or installs it beside a compatible runtime.
 
@@ -272,8 +272,8 @@ bun run compile
     text += `
 ## Firmware integration
 
-\`profiles/${name}.json\` is the program's profile document (\`pocket-profile/2\`).
-\`pocket.runtime-config.ts\` selects it. The application lives in \`app/\`.
+\`pocket.host.json\` is the product's host contract (\`pocket-host/2\`), and
+\`pocket.host.config.ts\` names it. The application contract is \`app/pocket.app.json\`.
 **Native firmware compilation belongs to ESP-IDF.**
 
 Run after \`idf_component_register\` in the consuming component:
@@ -282,17 +282,17 @@ Run after \`idf_component_register\` in the consuming component:
 pocketjs_compile_app(
     TARGET \${COMPONENT_LIB}
     NAME ${cmakeName}
-    MANIFEST "\${PROJECT_DIR}/app/pocket.json"
+    MANIFEST "\${PROJECT_DIR}/app/pocket.app.json"
     PROJECT_ROOT "\${PROJECT_DIR}"
-    RUNTIME_CONFIG "\${PROJECT_DIR}/pocket.runtime-config.ts"
+    HOST_CONFIG "\${PROJECT_DIR}/pocket.host.config.ts"
 )
 \`\`\`
 
-To embed without Bun during the firmware build, export the profile and compile
-once before invoking ESP-IDF:
+To embed without Bun during the firmware build, export the host contract and
+compile once before invoking ESP-IDF:
 
 \`\`\`sh
-bun run profile
+bun run host:export
 bun run compile
 \`\`\`
 
@@ -301,7 +301,7 @@ pocketjs_embed_package(
     TARGET \${COMPONENT_LIB}
     NAME ${cmakeName}
     PACKAGE "\${PROJECT_DIR}/dist/${name}.pocket"
-    RUNTIME_CONFIG "\${PROJECT_DIR}/pocket.runtime-config.ts"
+    HOST_CONFIG "\${PROJECT_DIR}/pocket.host.config.ts"
     PROFILE_EXPORT_DIR "\${PROJECT_DIR}/dist/profile"
 )
 \`\`\`
@@ -326,13 +326,13 @@ export function create(argv, { checkoutRoot, cliVersion, cwd = process.cwd() }) 
   const files = {
     [`${appDirectory}app.tsx`]: APP[framework]({ title, buttons: true }),
     [`${appDirectory}main.tsx`]: MAIN[framework](title),
-    [`${appDirectory}pocket.json`]: json(application),
+    [`${appDirectory}pocket.app.json`]: json(application),
   };
   if (embedded) {
-    files[`profiles/${name}.json`] = json(defaultProfile(name));
-    files["pocket.runtime-config.ts"] = `import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
+    files["pocket.host.json"] = json(defaultProfile(name));
+    files["pocket.host.config.ts"] = `import { defineHostConfig } from "@pocketjs/framework/host-config";
 
-export default defineRuntimeConfig({ profile: "./profiles/${name}.json" });
+export default defineHostConfig({ host: "./pocket.host.json" });
 `;
   }
   if (standalone) {
@@ -348,7 +348,7 @@ export default defineRuntimeConfig({ profile: "./profiles/${name}.json" });
   }
   return {
     name, directory, standalone, target, framework,
-    runtimeConfigPath: embedded ? "pocket.runtime-config.ts" : undefined,
-    manifestPath: `${appDirectory}pocket.json`, files: Object.keys(files),
+    hostConfigPath: embedded ? "pocket.host.config.ts" : undefined,
+    manifestPath: `${appDirectory}pocket.app.json`, files: Object.keys(files),
   };
 }

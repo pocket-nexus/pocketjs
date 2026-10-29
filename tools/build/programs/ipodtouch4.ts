@@ -1,7 +1,7 @@
 import { nativeSources } from "./native-sources.ts";
 import "../toolchains/ios/armv7-apple-ios.json";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import { POCKET_PROFILES } from "../../../profiles/index.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { requireProgramProfile } from "./application.ts";
 import { repackIPod } from "../../repack/ipod.ts";
 const profile = POCKET_PROFILES["ipodtouch4-dev"];

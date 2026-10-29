@@ -24,7 +24,7 @@
   },
   "rust": {},
   "app": {
-    "manifest": "apps/clear/pocket.json",
+    "manifest": "apps/clear/pocket.app.json",
     "output": "dist/moto-g-play/pocket-clear.apk"
   }
 }

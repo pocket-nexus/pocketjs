@@ -1,6 +1,6 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,

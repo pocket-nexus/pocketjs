@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 
 export function modelConfiguration(file: string): { mode: "rust" | "compiled"; recursionLimit: number; aot?: boolean; directory?: string; framework?: string; entry?: string } {
   for (let directory = dirname(resolve(file)); ; directory = dirname(directory)) {
-    const path = resolve(directory, "pocket.json");
+    const path = resolve(directory, "pocket.app.json");
     if (existsSync(path)) {
       const app = JSON.parse(readFileSync(path, "utf8")).app ?? {};
       const mode = app.model ?? "rust", recursionLimit = app.recursionLimit ?? 256;

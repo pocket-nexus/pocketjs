@@ -29,7 +29,7 @@ const OLD_RUNTIME_REF = "refs/pull/603/head";
 const ROOT = resolve(import.meta.dir, "..");
 const HEADER_NAMES = ["runtime", "drivers", "spec"] as const;
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
-const fixtureProfile: PocketProfile = { format: "pocket-profile/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
+const fixtureProfile: PocketProfile = { format: "pocket-host/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
 const profile = canonicalProfileJson(fixtureProfile);
 const PASS = "cross-version C ABI: common entry points and lifecycle passed";
 

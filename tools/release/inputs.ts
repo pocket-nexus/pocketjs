@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { hashPocketProfile } from "../../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../../profiles/index.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 import { SDK_MATRIX } from "./matrix.ts";
 import type { ReleaseInputs } from "./publish.ts";
 

@@ -13,7 +13,7 @@ const repository = join(import.meta.dir, "..");
 describe("private iPhone 4S profile", () => {
 
   test("resolves the iPhone 4S Hero build plan", () => {
-    const manifest = JSON.parse(readFileSync(join(repository, "apps/iphone4s-demo/pocket.json"), "utf8"));
+    const manifest = JSON.parse(readFileSync(join(repository, "apps/iphone4s-demo/pocket.app.json"), "utf8"));
     const plan = resolveIPhone4SBuildPlan(manifest);
     expect(plan.target).toEqual({ id: IPHONE4S_DEV_TARGET_ID, hostAbi: IPHONE4S_DEV_HOST_ABI });
     expect(plan.viewport).toEqual({

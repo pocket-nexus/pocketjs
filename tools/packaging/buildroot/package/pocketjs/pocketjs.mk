@@ -18,7 +18,7 @@ POCKETJS_DEPENDENCIES += alsa-lib
 POCKETJS_CARGO_BUILD_OPTS += --features alsa
 endif
 POCKETJS_DEPENDENCIES += host-python3
-# The directory `pocket profile export --out` wrote: pocket-profile.json is
+# The directory `pocket host export --out` wrote: pocket.host.json is
 # checked before the build and pocket_profile.rs is compiled into the program
 # by its build.rs (pocket_profile_build::emit reads POCKETJS_PROFILE_RS).
 POCKETJS_PROFILE_DIR = $(call qstrip,$(BR2_PACKAGE_POCKETJS_PROFILE))
@@ -26,7 +26,7 @@ POCKETJS_CARGO_ENV = POCKETJS_PROFILE_RS=$(POCKETJS_PROFILE_DIR)/pocket_profile.
 
 # Buildroot's cargo-package sets offline/locked mode and the cross linker.
 define POCKETJS_CHECK_INPUTS
-	$(HOST_DIR)/bin/python3 $(BR2_EXTERNAL_POCKETJS_PATH)/validate_profile.py "$(POCKETJS_PROFILE_DIR)/pocket-profile.json" $(POCKETJS_BINDING_GENERATION)
+	$(HOST_DIR)/bin/python3 $(BR2_EXTERNAL_POCKETJS_PATH)/validate_profile.py "$(POCKETJS_PROFILE_DIR)/pocket.host.json" $(POCKETJS_BINDING_GENERATION)
 endef
 POCKETJS_PRE_BUILD_HOOKS += POCKETJS_CHECK_INPUTS
 

@@ -44,7 +44,7 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" => {
-                println!("pocket-linux-kms [--package app.pocket] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nProfile {} is compiled in from the build's profile export. Default package: /usr/share/pocketjs/app.pocket. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.", profile::ID);
+                println!("pocket-linux-kms [--package app.pocket] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nHost contract {} is compiled in from the build's host export. Default package: /usr/share/pocketjs/app.pocket. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.", profile::ID);
                 return Ok(None);
             }
             "--headless" => output.headless = true,
@@ -66,7 +66,7 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     Ok(Some(output))
 }
 /// Reject display and input facts these drivers cannot honor: one fixed
-/// display and the evdev input classes. The runtime config rejects promised
+/// display and the evdev input classes. The host config rejects promised
 /// services this program does not compose before the build.
 fn supported(profile: Profile) -> Result<Profile, Box<dyn Error>> {
     if profile.dynamic_viewport.is_some()

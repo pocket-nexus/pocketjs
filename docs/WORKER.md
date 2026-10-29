@@ -5,11 +5,11 @@ receive frames. Resource completions, received bytes, channel records and timer
 deadlines wake the worker. The owner waits on a notification or the next deadline
 when there is no work. **A `domains.worker` declaration requires
 `runtime.worker` and the capability of each node kind**; the build resolver
-refuses it when the target profile lacks one.
+refuses it when the target's host contract lacks one.
 
 ## Application entry
 
-The manifest's `domains.worker` declares the worker entry and its node names.
+The app contract's `domains.worker` declares the worker entry and its node names.
 Paths have the same project root as `app.entry`.
 
 ```json
@@ -30,11 +30,11 @@ Paths have the same project root as `app.entry`.
 }
 ```
 
-This fragment extends the application's `pocket.json`; the identity, framework
+This fragment extends the application's `pocket.app.json`; the identity, framework
 and viewport fields remain required. The resource table in
 `contracts/spec/worker.ts` names the capability each node kind implies:
-`io.i2c`, `io.uart` and `net.http`. The manifest does not list them again.
-**Node and channel counts are host facts**: a profile's `worker.nodes` table
+`io.i2c`, `io.uart` and `net.http`. The app contract does not list them again.
+**Node and channel counts are host facts**: a host contract's `worker.nodes` table
 bounds each kind, and the worker protocol bounds a worker to **8** nodes and
 **8** channels.
 **HTTP exists only as a worker resource**: no UI realm has a network module.
@@ -48,7 +48,7 @@ avoids a retained whole-bundle function source copy in QuickJS.
 **Package section 8 contains the NUL-terminated worker bundle.** The host
 evaluates this section in the worker runtime. **The scheduler module
 `@pocketjs/framework/worker` evaluates before the entry**: it declares the
-manifest's channels to the host and installs the turn entry the host calls.
+app contract's channels to the host and installs the turn entry the host calls.
 The application entry exports nothing. Its top-level code opens resources and
 starts async functions; the first `await` returns control to the host.
 **Each bundle carries its execution domain as the compile-time constant
@@ -202,7 +202,7 @@ job queue drains, a stream reader 64 records behind, or heap and stack
 exhaustion; the runner then holds the core until stop so the UI bridge can
 detach, and reports the cause through `pocket_worker_runner_error`.
 
-Channels use manifest order to assign IDs. Snapshot channels retain the newest
+Channels take IDs in the order the app contract lists them. Snapshot channels retain the newest
 record; rings reject a publish when full. The v1 host copies channel records
 under a lock, which prevents writes during a reader's copy. Channels have one
 direction and a maximum record length. The worker side is

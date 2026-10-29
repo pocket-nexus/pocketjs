@@ -7,7 +7,7 @@ on:
       - ".bun-version"
       - ".github/workflows/generated-contracts.yml"
       - "contracts/**"
-      - "profiles/**"
+      - "hosts/**"
       - "tools/driver-contracts.ts"
       - "tools/ui-bindings.ts"
       - "tools/guest-web-bindings.ts"

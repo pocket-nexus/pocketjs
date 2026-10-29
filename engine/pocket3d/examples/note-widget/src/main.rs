@@ -11,7 +11,7 @@
 //!   bun run note -- --file ~/notes/todo.md --width 380 --height 520
 //!
 //! `bun run note` exports the macos-widget profile and builds the binary
-//! against it; `pocket build --config programs/macos-widget/pocket.runtime-config.ts`
+//! against it; `pocket build --config programs/macos-widget/pocket.host.config.ts`
 //! does the same for a packaged widget.
 //!
 //! The host is the guest's companion process over the spec svc channel

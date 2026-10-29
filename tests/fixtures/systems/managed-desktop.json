@@ -22,13 +22,13 @@
       },
       {
         "package": "dev.pocket-nexus.hero",
-        "manifest": "apps/hero/pocket.json",
+        "manifest": "apps/hero/pocket.app.json",
         "required": false,
         "presentation": { "title": "Hero", "viewport": [640, 360] }
       },
       {
         "package": "dev.pocket-nexus.settings",
-        "manifest": "apps/settings/pocket.json",
+        "manifest": "apps/settings/pocket.app.json",
         "required": false,
         "presentation": { "title": "Settings", "viewport": [480, 272] }
       }

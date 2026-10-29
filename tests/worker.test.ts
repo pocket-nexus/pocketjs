@@ -12,7 +12,7 @@ import { POCKET_CAPABILITIES, POCKET_TARGETS } from "../contracts/spec/platforms
 import { POCKET_SECTION, decodePocketPackage, encodePocketPackage, findSection } from "../contracts/spec/pocket-package.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { parsePocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 
 const global = globalThis as any;
@@ -271,7 +271,7 @@ test("pocket check includes the independent worker entry", () => {
   writeFileSync(resolve(output, "invalid.ts"), "const value: number = 'incorrect';\nvoid value;\n");
   // The UI entry's imports map through the UI domain: a worker subpath is unresolvable there.
   writeFileSync(resolve(output, "ui.tsx"), 'import { io } from "@pocketjs/framework/io";\nvoid io;\n');
-  const path = resolve(output, "pocket.json");
+  const path = resolve(output, "pocket.app.json");
   writeFileSync(path, JSON.stringify(manifest));
   const checked = Bun.spawnSync([process.execPath, resolve("tools/pocket.ts"), "check", "--manifest", path, "--project-root", resolve("."), "--target", "3ds-dev"], { cwd: resolve("."), stdout: "pipe", stderr: "pipe" });
   expect(checked.exitCode).not.toBe(0);

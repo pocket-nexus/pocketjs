@@ -23,7 +23,7 @@ function selected(arg: string, projectRoot = root, frameworkFlag?: string) {
   const mounted = mountedSourceApp(arg, root);
   const entry = resolveSourceEntry(mounted, root, projectRoot);
   const app = sourceAppContent(entry, { frameworkRoot: root, projectRoot });
-  const framework = parseFramework(frameworkFlag ?? app.framework, frameworkFlag ? "--framework" : "pocket.json");
+  const framework = parseFramework(frameworkFlag ?? app.framework, frameworkFlag ? "--framework" : "pocket.app.json");
   return { mounted, entry, app, framework, output: sourceOutputName(entry, root) + FRAMEWORKS[framework].outputSuffix };
 }
 
@@ -38,7 +38,7 @@ test("the Vue stock demo selects its .ts mount and manifest framework", () => {
 
 test("external source paths preserve the project framework and compiler artifact basename", () => {
   const directory = project("custom", {
-    "pocket.json": { app: { entry: "src/main.ts", framework: "octane" } },
+    "pocket.app.json": { app: { entry: "src/main.ts", framework: "octane" } },
     "src/main.ts": "export const answer = 42;\n",
   });
   const selection = selected("src/main.ts", directory);
@@ -55,8 +55,9 @@ test("external source paths preserve the project framework and compiler artifact
 test("entry matching chooses variant content and tracks every examined manifest", () => {
   const theme = { animation: { pulse: "pulse 1s infinite" } };
   const directory = project("variants", {
-    "pocket.json": { app: { entry: "main.ts", framework: "solid" } },
-    "pocket.handheld.json": { app: { entry: "handheld/main.ts", framework: "vue-vapor", theme } },
+    "pocket.app.json": { app: { entry: "main.ts", framework: "solid" } },
+    "pocket.app.handheld.json": { app: { entry: "handheld/main.ts", framework: "vue-vapor", theme } },
+    "pocket.host.json": { format: "pocket-host/2" },
     "main.ts": "export {};\n",
     "handheld/main.ts": "export {};\n",
   });
@@ -65,8 +66,8 @@ test("entry matching chooses variant content and tracks every examined manifest"
     frameworkRoot: root, projectRoot: directory, onRead: path => reads.push(path),
   });
   expect(app).toMatchObject({ framework: "vue-vapor", theme });
-  expect(reads.sort()).toEqual([join(directory, "pocket.handheld.json"), join(directory, "pocket.json")]);
-  writeFileSync(join(directory, "pocket.other.json"), JSON.stringify({ app: { entry: "handheld/main.ts", framework: "solid" } }));
+  expect(reads.sort()).toEqual([join(directory, "pocket.app.handheld.json"), join(directory, "pocket.app.json")]);
+  writeFileSync(join(directory, "pocket.app.other.json"), JSON.stringify({ app: { entry: "handheld/main.ts", framework: "solid" } }));
   expect(() => sourceAppContent(join(directory, "handheld/main.ts"), { frameworkRoot: root, projectRoot: directory }))
     .toThrow("manifests disagree on application content");
 });
@@ -76,12 +77,12 @@ test("a source without a manifest keeps the explicit Solid default", () => {
   expect(existsSync(dirname(entry))).toBe(false);
   const app = sourceAppContent(entry, { frameworkRoot: root, projectRoot: dirname(entry) });
   expect(app).toEqual({});
-  expect(parseFramework(app.framework, "pocket.json")).toBe("solid");
+  expect(parseFramework(app.framework, "pocket.app.json")).toBe("solid");
 });
 
 test("low-level worker builds use the entry's matched manifest root", () => {
   const directory = project("worker-relative", {
-    "pocket.json": { app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "worker.ts", nodes: [] } } },
+    "pocket.app.json": { app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "worker.ts", nodes: [] } } },
     "src/main.ts": "globalThis.sourceAppWorker = true;\n",
     "worker.ts": "export function turn() {}\n",
   });
@@ -94,13 +95,13 @@ test("low-level worker builds use the entry's matched manifest root", () => {
   const refused = Bun.spawnSync([process.execPath, join(root, "tools/build.ts"), join(directory, "src/main.ts"), `--outdir=${join(directory, "refused")}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
   expect(refused.success).toBe(false);
   expect(refused.stdout.toString() + refused.stderr.toString()).toContain("UI domain cannot import @pocketjs/framework/io");
-  writeFileSync(join(directory, "pocket.other.json"), JSON.stringify({ app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "other.ts", nodes: [] } } }));
+  writeFileSync(join(directory, "pocket.app.other.json"), JSON.stringify({ app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "other.ts", nodes: [] } } }));
   expect(() => sourceAppContent(join(directory, "src/main.ts"), { frameworkRoot: root, projectRoot: root })).toThrow(/manifests disagree/);
 }, 120_000);
 
 test("compiler outputs match the wrapper selection for Vue and custom projects", () => {
   const directory = project("compile-custom", {
-    "pocket.json": { app: { entry: "src/main.ts", framework: "octane" } },
+    "pocket.app.json": { app: { entry: "src/main.ts", framework: "octane" } },
     "src/main.ts": "globalThis.customSourceApp = 42;\n",
   });
   for (const [argument, projectRoot] of [["vue-sfc-lab", root], ["src/main.ts", directory]] as const) {
@@ -117,6 +118,6 @@ test("compiler outputs match the wrapper selection for Vue and custom projects",
     expect(existsSync(join(output, selection.output + ".pak"))).toBe(true);
     const readInputs = JSON.parse(readFileSync(inputs, "utf8")) as string[];
     expect(readInputs).toContain(join(root, "tools/source-app.ts"));
-    expect(readInputs).toContain(join(projectRoot === root ? join(root, "apps/vue-sfc-lab") : directory, "pocket.json"));
+    expect(readInputs).toContain(join(projectRoot === root ? join(root, "apps/vue-sfc-lab") : directory, "pocket.app.json"));
   }
 }, 120_000);

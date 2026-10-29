@@ -5,7 +5,7 @@
 // on one icon costs. A repaint target (a CPU rasterizer) pays for the pixels
 // a change touches; its host moves the pixels of a translated opaque region
 // and repaints the rest. A still target (electronic paper) shows one change
-// per refresh. Every profile document states its class in
+// per refresh. Every host contract states its class in
 // `display.animation`; the compiler copies it into the plan, and a device
 // admits only packages compiled for its own class.
 //

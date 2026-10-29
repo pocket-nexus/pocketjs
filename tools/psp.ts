@@ -10,7 +10,7 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 // pinned Rust, cargo-psp, SDK and prebuilt QuickJS. The EBOOT embeds the
 // package bytes and the exported profile; it encodes nothing at boot.
 //
-// A demo builds from its apps/<demo>/pocket.json (or the repository template);
+// A demo builds from its apps/<demo>/pocket.app.json (or the repository template);
 // --framework=<id> replaces the manifest's framework, as the PPSSPP goldens do.
 //
 // --capture builds the E2E frame-dump EBOOT (cargo psp --features capture)
@@ -35,8 +35,8 @@ import {
 } from "../framework/src/manifest/host-build-inputs.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/runtime-config.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
 import { compileDemoPackage, demoManifest } from "./build/programs/handheld-common.ts";
@@ -112,7 +112,7 @@ for (let index = 0; index < argv.length; index++) {
   }
   else if (a.startsWith("--framework=")) frameworkFlag = a.slice("--framework=".length);
   else if (a.startsWith("--config=") || a === "--no-config") {
-    throw new Error("pocket.config.ts was removed; use pocket.json app.framework and app.theme");
+    throw new Error("pocket.config.ts was removed; use pocket.app.json app.framework and app.theme");
   } else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
   else if (a === "--pocket" || a.startsWith("--pocket=")) {
     const value = a === "--pocket" ? argv[++index] : a.slice("--pocket=".length);

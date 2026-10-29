@@ -11,7 +11,7 @@ export interface ReleaseFile {
 export interface ReleaseAsset extends ReleaseFile {
   readonly format: "tar.gz";
   readonly profileHash?: string;
-  /** A runtime's stamped pocket-profile.json, published as its own file so
+  /** A runtime's stamped pocket.host.json, published as its own file so
    *  an application compiles against it without the runtime archive. */
   readonly profile?: ReleaseFile;
 }

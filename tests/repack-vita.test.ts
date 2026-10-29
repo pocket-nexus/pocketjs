@@ -7,7 +7,7 @@ import { decodePocketPackage, encodePocketPackage, type PocketPackageVariant } f
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
 import type { RepackInput } from "../tools/repack/shared/runtime.ts";

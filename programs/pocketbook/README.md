@@ -34,7 +34,7 @@ API findings. Its manual guest/raster examples predate the Runtime composition.
 
 **The framebuffer and input unit tests pass against the shared Runtime.** The
 program targets an ARM ELF with glibc 2.23 and loads `libinkview.so` at runtime.
-The `pocketbook` profile and native build recipe are registered in this
+The `pocketbook` host contract and native build recipe are registered in this
 repository. Earlier device validation covered boot, render, scale-to-fit
 centering and animated partial updates on a PocketBook Verse (grayscale).
 That device run predates the current Runtime composition; the checklist below
@@ -53,7 +53,7 @@ cargo install cargo-zigbuild
 Cross-compile the host (from this directory):
 
 ```sh
-bun ../../tools/pocket.ts profile export --config pocket.runtime-config.ts --out ../../target/pocketbook-profile
+bun ../../tools/pocket.ts host export --config pocket.host.config.ts --out ../../target/pocketbook-profile
 POCKETJS_PROFILE_RS=$PWD/../../target/pocketbook-profile/pocket_profile.rs \
   cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.23
 # → <repository>/target/armv7-unknown-linux-gnueabi/release/pocketbook-host
@@ -61,11 +61,11 @@ POCKETJS_PROFILE_RS=$PWD/../../target/pocketbook-profile/pocket_profile.rs \
 
 Notes:
 
-- The host compiles in the exported pocketbook profile: `build.rs` copies the
-  `pocket_profile.rs` that `POCKETJS_PROFILE_RS` names, and the logical
+- The host compiles in the exported `pocketbook` host contract: `build.rs`
+  copies the `pocket_profile.rs` that `POCKETJS_PROFILE_RS` names, and the logical
   viewport, raster density, tick rate and profile hash come from it. A build
   without the variable starts and exits with an error.
-  `bun tools/pocket.ts build --config programs/pocketbook/pocket.runtime-config.ts`
+  `bun tools/pocket.ts build --config programs/pocketbook/pocket.host.config.ts`
   sets the variable.
 
 - `libinkview.so` is `dlopen`'d at runtime (`inkview::load`) — no SDK at build
@@ -85,7 +85,7 @@ Notes:
 From the repo root:
 
 ```sh
-bun pocket compile --target pocketbook --manifest apps/hero/pocket.json --project-root .
+bun pocket compile --target pocketbook --manifest apps/hero/pocket.app.json --project-root .
 # → dist/hero-main.js + dist/hero-main.pak
 ```
 

@@ -1,4 +1,4 @@
-// Profile selection: CLI, POCKET_TARGET, then the nearest runtime config.
+// Profile selection: CLI, POCKET_TARGET, then the nearest host config.
 export function takeExplicitSelection(args, leading) {
   const separator = args.indexOf("--");
   const before = separator >= 0 ? args.slice(0, separator) : [...args];
@@ -32,4 +32,4 @@ export function select({ explicit, env = process.env, project }) {
   if (project?.profiles?.length === 1) return { id: project.profiles[0].id, source: "project", origin: project.config };
   return null;
 }
-export const NO_SELECTION = "no profile selected; use --target, POCKET_TARGET, or a single-profile pocket.runtime-config.ts";
+export const NO_SELECTION = "no host selected; use --target, POCKET_TARGET, or a single-host pocket.host.config.ts";

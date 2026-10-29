@@ -209,6 +209,6 @@ describe("budgets and the shipped applets", () => {
   });
 
   test("Pocket Nexus is an applet and passes", () => {
-    expect(checkApplet({ manifestPath: join(ROOT, "apps/nexus/pocket.json"), projectRoot: ROOT })).toEqual([]);
+    expect(checkApplet({ manifestPath: join(ROOT, "apps/nexus/pocket.app.json"), projectRoot: ROOT })).toEqual([]);
   });
 });

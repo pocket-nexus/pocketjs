@@ -15,7 +15,7 @@ import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { profileRegistry } from "./profile-resolver.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import type { LayerDeclarations } from "../microts/compiler/aot-paint-plan.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -82,7 +82,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   const { plan } = options;
   if (!verifyPlanHash(plan) || !verifyPlanProfile(plan)) throw new Error("AOT: invalid plan/profile hash");
   if (plan.target.hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`AOT: unsupported plan binding generation ${plan.target.hostAbi}`);
-  if (plan.app.aot !== true) throw new Error("AOT: app.aot must be true in pocket.json");
+  if (plan.app.aot !== true) throw new Error("AOT: app.aot must be true in pocket.app.json");
   const projectRoot = resolve(options.projectRoot), outdir = resolve(options.outdir);
   const inputs = new BuildInputs();
   inputs.add(options.manifestPath);
@@ -167,9 +167,9 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
 
 /** In-tree firmware scripts use the same application generator as pocket compile. */
 export async function compileBuiltinAot(target: "gba" | "ipodnano", outdir: string): Promise<AotCompileResult> {
-  const manifestPath = resolve(ROOT, `apps/${target}-hero/pocket.json`);
+  const manifestPath = resolve(ROOT, `apps/${target}-hero/pocket.app.json`);
   const loaded = readPocketManifest(manifestPath);
   const resolved = validateAndResolveBuildPlan(loaded.manifest, { target, executionClass: "aot" }, profileRegistry(POCKET_PROFILES[target]));
   if (!resolved.ok) throw new Error(resolved.diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
-  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `profiles/${target}.json`), ...loaded.inputs] });
+  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `hosts/${target}/pocket.host.json`), ...loaded.inputs] });
 }

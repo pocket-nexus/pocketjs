@@ -50,7 +50,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "typescript-support", title: "TypeScript support" },
       { slug: "api", title: "API reference" },
       { slug: "cli", title: "CLI" },
-      { slug: "manifest", title: "Application manifest" },
+      { slug: "app-contract", title: "App contract" },
       { slug: "build-pipeline", title: "Build pipeline" },
       { slug: "native-contract", title: "Native contract" },
       { slug: "platform-contracts", title: "Platform contracts" },
@@ -172,7 +172,7 @@ export const BLOG_POSTS: BlogPost[] = [
     title: "Twice the Pixels, Zero Forks: PocketJS on PS Vita",
     date: "2026-07-13",
     description:
-      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
+      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.app.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
     author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
   },
   {

@@ -8,7 +8,7 @@ test("compiled mount completes before first input without advancing frames or vi
   const run=resolve(".pocket-build/validation/model-aot/startup",String(Date.now())),fixture=resolve(run,"app");
   await mkdir(fixture,{recursive:true});await mkdir(resolve(run,"src"));
   const files={
-    "pocket.json":JSON.stringify({app:{framework:"solid",aot:true,model:"compiled",entry:"App.tsx"}}),
+    "pocket.app.json":JSON.stringify({app:{framework:"solid",aot:true,model:"compiled",entry:"App.tsx"}}),
     "App.ts":`import {createSignal} from "solid-js";import {createEffect} from "@pocketjs/framework/solid/reactive";import {frames,after,type i32} from "@pocketjs/framework/solid/std";
 export const[count,setCount]=createSignal(0);export const[seen,setSeen]=createSignal(0);export const[framed,setFramed]=createSignal(0);export const[timed,setTimed]=createSignal(0);export const[visible,setVisible]=createSignal(true);
 createEffect(()=>{setCount(5);setVisible(false);});async function byFrame():Promise<void>{await frames(1);setFramed(1);}async function byTime():Promise<void>{await after(16);setTimed(1);}createEffect(()=>{byFrame();byTime();});export function press():void{setSeen(count());}`,

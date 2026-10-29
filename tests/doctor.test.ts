@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { DeviceEvidence, fileSha256 } from "../tools/device-evidence.ts";
 import { inspectDeviceLease, withDeviceLease } from "../tools/device-lease.ts";

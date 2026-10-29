@@ -2,11 +2,11 @@
 // `status` query `pocket show` reads.
 //
 //   target add [<id> …]       install the toolchains; with no id, the targets of
-//                             the program's runtime-config build.toolchain
+//                             the program's host config build.toolchain
 //   target list [--check] [--json]
 //                             every catalog target with its install state;
 //                             --check exits 1 unless every target of
-//                             runtime-config is ready to build
+//                             host config is ready to build
 //   target remove <id> …      delete the install records, prune the store
 //   status --json             the rows of `target list` as JSON
 
@@ -89,7 +89,7 @@ async function add(ids: string[]): Promise<number> {
   const requested = ids.length ? ids : declared ? [declared.id] : [];
   if (!requested.length) {
     if (project.config && !project.build) { console.log("Native compilation is owned by the external build system; no toolchain is declared."); return 0; }
-    throw new InstallError("name toolchain ids, or declare build.toolchain in pocket.runtime-config.ts");
+    throw new InstallError("name toolchain ids, or declare build.toolchain in pocket.host.config.ts");
   }
   let failed = 0;
   for (const id of requested) {
@@ -127,7 +127,7 @@ async function list(flags: string[]): Promise<number> {
   if (flags.includes("--json")) console.log(JSON.stringify(rows, null, 2));
   else for (const item of rows) console.log(`${item.id.padEnd(20)} ${item.state.padEnd(18)} ${item.detail}`);
   if (!flags.includes("--check")) return 0;
-  if (!project.config) { console.error("--check requires pocket.runtime-config.ts"); return 1; }
+  if (!project.config) { console.error("--check requires pocket.host.config.ts"); return 1; }
   const declared = projectDescriptor(project);
   if (!declared) return 0;
   const notReady = rows.filter(item => item.id === declared.id && !ready(item));

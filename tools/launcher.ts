@@ -8,7 +8,7 @@ import { resizeBilinear } from "./image-resize.ts";
 //   bun tools/launcher.ts covers [--target ...]       + render target-neutral covers
 //   bun tools/launcher.ts build [--target ...]        + multi-app console package
 //
-// The embedded set is COMPUTED, never curated: every apps/*/pocket.json
+// The embedded set is COMPUTED, never curated: every apps/*/pocket.app.json
 // that resolves against the selected target profile (the same admission gate
 // `pocket build` runs) is in, minus explicit --exclude. Covers are rendered by
 // the deterministic PSP-flavored sim host, so they remain target-neutral and
@@ -57,7 +57,7 @@ const LAUNCHER_DIR = join(APPS_DIR, "launcher");
 const COVERS_DIR = join(LAUNCHER_DIR, "covers");
 const IMAGES_JSON = join(LAUNCHER_DIR, "images.json");
 const REGISTRY_TS = join(LAUNCHER_DIR, "registry.generated.ts");
-const LAUNCHER_MANIFEST = join(LAUNCHER_DIR, "pocket.json");
+const LAUNCHER_MANIFEST = join(LAUNCHER_DIR, "pocket.app.json");
 const LAUNCHER_APP = join(LAUNCHER_DIR, "app.tsx");
 const LAUNCHER_PSP_DIR = join(LAUNCHER_DIR, "psp");
 
@@ -210,7 +210,7 @@ class LauncherUsageError extends Error {}
 function usage(message?: string): never {
   if (message) console.error(`launcher: ${message}`);
   console.error(
-    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita|symbian] [--exclude <output>]... [--include-manifest <external/pocket.json>]... [--force] [-- backend args]",
+    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita|symbian] [--exclude <output>]... [--include-manifest <external/pocket.app.json>]... [--force] [-- backend args]",
   );
   throw new LauncherUsageError(message);
 }
@@ -275,7 +275,7 @@ function launcherBuildEntry(
   const generatedManifest = join(
     paths.output,
     ".manifests",
-    "launcher.symbian.pocket.json",
+    "launcher.symbian.pocket.app.json",
   );
   mkdirSync(dirname(generatedManifest), { recursive: true });
   writeFileSync(
@@ -350,7 +350,7 @@ export function prepareIsolatedLauncherSource(
     copyFileSync(sourceAsset, join(covers, asset));
   }
 
-  const manifestPath = join(source, "pocket.json");
+  const manifestPath = join(source, "pocket.app.json");
   writeFileSync(
     manifestPath,
     JSON.stringify(
@@ -418,7 +418,7 @@ function scanRegistryForTarget(
   for (const dir of readdirSync(APPS_DIR).sort()) {
     // The launcher never lists itself, nor the development container.
     if (dir === "launcher" || dir === "devkit") continue;
-    const manifestPath = join(APPS_DIR, dir, "pocket.json");
+    const manifestPath = join(APPS_DIR, dir, "pocket.app.json");
     if (!existsSync(manifestPath)) continue;
     const manifest: unknown = readPocketManifest(manifestPath).manifest;
     const resolution = resolveForTarget(manifest, target);
@@ -454,7 +454,7 @@ function scanRegistryForTarget(
   return { apps };
 }
 
-/** Admission sweep: every app pocket.json that resolves for the target. */
+/** Admission sweep: every app pocket.app.json that resolves for the target. */
 export function scanRegistry(
   exclude: ReadonlySet<string>,
   target: LauncherTarget = "psp",
@@ -1182,11 +1182,11 @@ async function main(): Promise<void> {
       exclude.add(value);
     } else if (arg === "--include-manifest") {
       const value = argv.shift();
-      if (!value) usage("--include-manifest requires a pocket.json path");
+      if (!value) usage("--include-manifest requires a pocket.app.json path");
       externalManifests.push(value);
     } else if (arg.startsWith("--include-manifest=")) {
       const value = arg.slice("--include-manifest=".length);
-      if (!value) usage("--include-manifest requires a pocket.json path");
+      if (!value) usage("--include-manifest requires a pocket.app.json path");
       externalManifests.push(value);
     } else if (arg === "--target") {
       const value = argv.shift();
@@ -1233,7 +1233,7 @@ async function main(): Promise<void> {
   ): Promise<void> => {
     let launcher = launcherBuildEntry(target, paths);
     console.log(
-      `launcher: scanning apps/*/pocket.json against target ${target}`,
+      `launcher: scanning apps/*/pocket.app.json against target ${target}`,
     );
     const registry = includeExternalManifests(
       scanRegistry(exclude, target),

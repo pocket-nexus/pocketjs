@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { compilerOnly, type RuntimeBuild } from "../../framework/src/runtime-config.ts";
-import { POCKET_PROFILES } from "../../profiles/index.ts";
+import { compilerOnly, type RuntimeBuild } from "../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 import { build3ds } from "./build.ts";
 import { requireApplication, requireProgramProfile } from "../../tools/build/programs/application.ts";
 import { repository, nativeSources, programFiles, buildHosts, handheldLock, nativeArguments } from "../../tools/build/programs/handheld-common.ts";

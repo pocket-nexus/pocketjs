@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // The published JSON schemas: contracts/schema/pocket-2.json (application
-// manifests) and contracts/schema/pocket-profile-2.json (profile documents).
+// manifests) and contracts/schema/pocket-host-2.json (host contracts).
 //   bun tools/schemas.ts           # write
 //   bun tools/schemas.ts --check   # fail when a committed schema is stale
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -11,7 +11,7 @@ import { generatePocketProfileSchema } from "../contracts/spec/profile.ts";
 const root = resolve(import.meta.dir, "..");
 export const SCHEMAS: ReadonlyMap<string, () => string> = new Map([
   ["contracts/schema/pocket-2.json", generatePocketManifestV2Schema],
-  ["contracts/schema/pocket-profile-2.json", generatePocketProfileSchema],
+  ["contracts/schema/pocket-host-2.json", generatePocketProfileSchema],
 ]);
 
 if (import.meta.main) {

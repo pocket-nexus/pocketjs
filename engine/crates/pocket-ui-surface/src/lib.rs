@@ -2,7 +2,7 @@
 //!
 //! [`UiProgram`] owns a `pocket_runtime::Runtime`, package admission, a device
 //! input source and the adapter for a host-owned QuickJS realm. It runs under
-//! the profile `pocket profile export` compiled into the program; a library
+//! the profile `pocket host export` compiled into the program; a library
 //! embedding without an export uses [`embedded_profile`]. A program
 //! registers its renderer and display before boot. [`UiSurface`] exposes the
 //! same operation context for services, compositor metadata and inspection.

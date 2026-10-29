@@ -51,7 +51,7 @@ window thread has not consumed the previous output. Surface loss/outdated errors
 exit with an error. Production presentation performs no framebuffer readback.
 
 The WASM host retains `engine/present/src/compositor.rs` and the software rasterizer.
-Vita/GXM and 3DS/PICA retain their own DrawList adapters and capability profiles;
+Vita/GXM and 3DS/PICA retain their own DrawList adapters and host contracts;
 wgpu is not added to their dependency graph. Desktop composition support does
 not admit that capability on handheld targets.
 `text.layout.offload` wraps, shapes and rasterizes text using explicit package
@@ -135,10 +135,10 @@ note does (pure-math unit tests over an injected measurer, sim traces,
 
 ## Native desktop targets
 
-`profiles/macos-app.json` and `profiles/linux-app.json` declare `form: "window"`,
+`hosts/macos-app/pocket.host.json` and `hosts/linux-app/pocket.host.json` declare `form: "window"`,
 a dynamic viewport and `acceptsFixed`. **Both use the shared binding
 generation 12.**
-Both profiles use the same generic host. macOS resolves density 2; Linux
+Both targets use the same generic host. macOS resolves density 2; Linux
 resolves density 1. Fixed-viewport console apps run size-locked and
 letterboxed with their baked glyph pipeline intact.
 
@@ -148,7 +148,7 @@ bun run macos hero        # fixed 480x272, size-locked, baked glyphs
 bun run macos note --proof
 ```
 
-`tools/macos.ts` resolves the manifest against `macos-app`, writes the
+`tools/macos.ts` resolves the app contract against `macos-app`, writes the
 plan, builds the bundle + pak, and derives the capability-shaped host flags
 (`--fixed`, `--companions`) from the resolved plan. If the
 selected app directory also contains `pocket.system.json`, the tool
@@ -156,7 +156,7 @@ resolves every installed package and starts the host with one complete
 `ResolvedSystemPlan`; it does not project child plans into command-line
 viewport or title fields.
 `--editor` is NOT a capability: it enables the note's companion svc adapter
-(an app protocol — the profile deliberately registers no
+(an app protocol — the `macos-app` host contract registers no
 pointer/text/IME/clipboard ids, see contracts/spec/platforms.ts). The host renders only when the DrawList or retained raster revision changes.
 
 ## Browser System host

@@ -17,7 +17,7 @@ use crate::UiSurface;
 
 pub struct ProgramConfig {
     /// The profile the program was built for: `profile()` from the module
-    /// `pocket profile export` wrote, or [`embedded_profile`] for a library
+    /// `pocket host export` wrote, or [`embedded_profile`] for a library
     /// embedding. Its id, capabilities and raster density describe the
     /// package [`UiProgram::boot`] encodes.
     pub profile: Profile,
@@ -415,7 +415,7 @@ mod tests {
     }
     #[test]
     fn two_programs_accept_independent_profiles_in_one_binary() {
-        // The shape `pocket profile export` writes into pocket_profile.rs.
+        // The shape `pocket host export` writes into pocket_profile.rs.
         let profile = |id: &'static str| Profile {
             id: Cow::Borrowed(id),
             cadences: Cow::Borrowed(&[60]),

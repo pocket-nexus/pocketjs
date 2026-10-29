@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -8,12 +8,12 @@ import {
 } from "../contracts/spec/profile.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/validate.ts";
 import { hashPocketProfile, parsePocketProfile, readPocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 
 const root = resolve(import.meta.dir, "..");
 const profile: PocketProfile = {
-  format: "pocket-profile/2",
+  format: "pocket-host/2",
   id: "my-board", platform: "esp-idf", form: "takeover", cadences: [60, 30],
   display: {
     logicalViewports: [[480, 320]], presentations: ["native"], rasterDensity: 1, animation: "repaint",
@@ -31,8 +31,8 @@ const messages = (input: unknown, options: { builtin?: boolean } = {}) => {
   return result.ok ? "" : result.diagnostics.map(item => item.message).join("; ");
 };
 
-describe("profile documents", () => {
-  test("the schema is the data shape of pocket-profile/2", () => {
+describe("host contracts", () => {
+  test("the schema is the data shape of pocket-host/2", () => {
     expect(diagnostics(profile)).toEqual([]);
     expect(diagnostics({ ...profile, id: "my-product-board-with-a-long-name" })).toEqual([]);
     expect(diagnostics({ ...profile, toolchain: "nightly" })).not.toEqual([]);
@@ -47,7 +47,7 @@ describe("profile documents", () => {
   });
 
   test("the published JSON schema is the generated one", () => {
-    expect(JSON.parse(readFileSync(join(root, "contracts/schema/pocket-profile-2.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(pocketProfileSchema)));
+    expect(JSON.parse(readFileSync(join(root, "contracts/schema/pocket-host-2.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(pocketProfileSchema)));
   });
 
   test("the hash covers the projection; capability order and extra facts do not change it", () => {
@@ -80,8 +80,8 @@ describe("profile documents", () => {
   });
 
   test("built-in documents validate, carry no stamp and keep command words out", () => {
-    const files = readdirSync(join(root, "profiles")).filter(name => name.endsWith(".json")).sort();
-    expect(files).toEqual(Object.keys(POCKET_PROFILES).map(id => `${id}.json`).sort());
+    const hosts = readdirSync(join(root, "hosts")).filter(name => existsSync(join(root, "hosts", name, "pocket.host.json"))).sort();
+    expect(hosts).toEqual(Object.keys(POCKET_PROFILES).sort());
     for (const builtin of Object.values(POCKET_PROFILES)) {
       expect(validatePocketProfile(builtin, { builtin: true }).ok).toBe(true);
       expect(builtin).not.toHaveProperty("hostAbi");
@@ -92,13 +92,13 @@ describe("profile documents", () => {
   test("a release stamp names the binding generation", () => {
     expect(messages({ ...profile, hostAbi: POCKET_BINDING_GENERATION })).toBe("");
     expect(messages({ ...profile, hostAbi: POCKET_BINDING_GENERATION - 1 })).toContain("binding generation");
-    const directory = mkdtempSync(join(tmpdir(), "pocket-profile-"));
+    const directory = mkdtempSync(join(tmpdir(), "pocket-host-"));
     try {
-      const file = join(directory, "pocket-profile.json");
+      const file = join(directory, "pocket.host.json");
       writeFileSync(file, JSON.stringify({ ...profile, hostAbi: POCKET_BINDING_GENERATION + 1 }));
       expect(() => readPocketProfile(file)).toThrow("binding generation");
       writeFileSync(file, JSON.stringify({ ...profile, format: "pocket-profile/1" }));
-      expect(() => readPocketProfile(file)).toThrow("pocket-profile/2");
+      expect(() => readPocketProfile(file)).toThrow("pocket-host/2");
       writeFileSync(file, JSON.stringify(profile));
       expect(readPocketProfile(file)).toEqual(profile);
     } finally { rmSync(directory, { recursive: true, force: true }); }

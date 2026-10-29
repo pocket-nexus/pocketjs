@@ -1,6 +1,6 @@
 {
   "profile": {
-    "format": "pocket-profile/2",
+    "format": "pocket-host/2",
     "id": "vita",
     "platform": "vita",
     "form": "takeover",
@@ -93,5 +93,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:12dd70f60a239f0edeafa783eada3a621b3998dc29fd9a81ca3153543023b74f"
+  "planHash": "sha256:f7d2533b3d2f6ecaa719b83232c7bdaeb7e0429deeb41094275afc0549602782"
 }

@@ -5,7 +5,7 @@ import { compileAot } from "../tools/aot-compile.ts";
 import { exportAotProfile } from "../tools/build/aot-profile.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/index.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { analyzeAot } from "../microts/compiler/aot-build.ts";
 const gba = POCKET_PROFILES["gba"];
 
@@ -19,8 +19,8 @@ describe("AOT application artifact", () => {
   test("compile --aot admits an AOT manifest and emits input dependencies without a package", async () => {
     const directory = temporary();
     try {
-      const manifest = JSON.parse(readFileSync(resolve(ROOT, "apps/ipodnano-hero/pocket.json"), "utf8"));
-      const source = join(directory, "pocket.json");
+      const manifest = JSON.parse(readFileSync(resolve(ROOT, "apps/ipodnano-hero/pocket.app.json"), "utf8"));
+      const source = join(directory, "pocket.app.json");
       writeFileSync(source, JSON.stringify(manifest));
       const out = join(directory, "generated"), dependencyFile = join(directory, "generated.d");
       const child = Bun.spawn([process.execPath, resolve(ROOT, "tools/pocket.ts"), "compile", "--aot", "--target", "ipodnano", "--manifest", source, "--project-root", ROOT, "--plan-dir", join(directory, "plans"), "--out", out, "--depfile", dependencyFile], { cwd: ROOT, env: { ...process.env, PATH: "" }, stdout: "pipe", stderr: "pipe" });
@@ -31,7 +31,7 @@ describe("AOT application artifact", () => {
       const dependencies = readFileSync(dependencyFile, "utf8");
       expect(dependencies).toContain(source);
       expect(dependencies).toContain(resolve(ROOT, "apps/ipodnano-hero/app.ts"));
-      expect(dependencies).toContain(resolve(ROOT, "profiles/ipodnano.json"));
+      expect(dependencies).toContain(resolve(ROOT, "hosts/ipodnano/pocket.host.json"));
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }, 120_000);
 
@@ -85,7 +85,7 @@ import {label} from './App';
       const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.test.vue-aot", title: "Vue AOT", version: "1.0.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } }, app: {
         entry: "main.ts", framework: "vue-vapor", aot: true, viewport: { fixed: { logical: [240,160], presentation: "native" } },
       } };
-      const manifestPath = join(project, "pocket.json");
+      const manifestPath = join(project, "pocket.app.json");
       writeFileSync(manifestPath, JSON.stringify(manifest));
       const resolved = validateAndResolveBuildPlan(manifest, { target: "gba" }, profileRegistry(gba));
       if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
@@ -100,7 +100,7 @@ import {label} from './App';
   test("custom app theme and application tick rate are isolated across compilations", async () => {
     const project = temporary();
     try {
-      const entry = join(project, "app.tsx"), manifestPath = join(project, "pocket.json");
+      const entry = join(project, "app.tsx"), manifestPath = join(project, "pocket.app.json");
       writeFileSync(entry, `import {View} from '@pocketjs/framework/solid/components';\nexport default function App(){return <View class="w-[20] h-[20] animate-app-fade"/>}`);
       const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.test.aot", title: "AOT", version: "1.0.0", engine: { capabilities: { requires: ["text.glyphs.baked"] } }, app: {
         entry: "app.tsx", framework: "solid", aot: true, tickHz: 30, viewport: { fixed: { logical: [240,160], presentation: "native" } },

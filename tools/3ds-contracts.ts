@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { OP } from "../contracts/spec/spec.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { profileFactsC } from "./profile-export.ts";
 const profile = POCKET_PROFILES["3ds-dev"];
 

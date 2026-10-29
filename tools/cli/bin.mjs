@@ -6,8 +6,8 @@
 //   pocket create <name> [--target T] [--framework F]
 //                            scaffold an app: apps/<name> inside a checkout, a
 //                            standalone project anywhere else
-//   pocket [+<id>] check|compile|build [+<id>] [--target <id|profile.json>] [...args]
-//                            select a target, resolve pocket.json once, build from its plan
+//   pocket [+<id>] check|compile|build [+<id>] [--target <id|pocket.host.json>] [...args]
+//                            select a target, resolve pocket.app.json once, build from its plan
 //   pocket show [--json]     framework, project, selected target and the catalog
 //                            with each target's install state
 //   pocket target add [<id> …] | list [--check] [--json] | remove <id> …
@@ -154,7 +154,7 @@ function frameworkQuery(framework, args) {
 
 /** Ask the framework to find the config above the selected manifest. */
 function projectFor(framework, manifest, config) {
-  const result = frameworkQuery(framework, ["project", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--runtime-config", config] : [])]);
+  const result = frameworkQuery(framework, ["project", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--host-config", config] : [])]);
   if (!result.ok) fail(result.diagnostics.join("\n"));
   return result.project;
 }
@@ -162,7 +162,7 @@ function projectFor(framework, manifest, config) {
 function runVerb(framework, cmd, selection, project, args) {
   if (selection) console.error(C.dim(`pocket: target ${selection.id} · ${selection.origin}`));
   const selected = selection ? ["--target", selection.id] : [];
-  if (selection?.source === "project" && project.config && optionValue(args, "runtime-config") === undefined && optionValue(args, "config") === undefined) selected.push("--runtime-config", project.config);
+  if (selection?.source === "project" && project.config && optionValue(args, "host-config") === undefined && optionValue(args, "config") === undefined) selected.push("--host-config", project.config);
   const result = spawnSync(process.execPath, [join(framework.root, "tools/pocket.ts"), cmd, ...selected,
     "--cli-protocol", String(CLI_PROTOCOL), ...args], { stdio: "inherit", cwd: process.cwd() });
   return result.status ?? 1;
@@ -184,8 +184,8 @@ function verb(cmd, args, leading) {
   const taken = takeExplicitSelection(args, leading);
   if (taken.error) fail(taken.error);
   if (taken.args.includes("--all")) fail("--all is not supported; enumerate profiles in scripts or CI");
-  if (taken.args.some(arg => arg === "--host-profile" || arg.startsWith("--host-profile="))) fail("--host-profile was replaced by profile documents (--target FILE.json) and --runtime-config");
-  const config = optionValue(taken.args, "runtime-config") ?? optionValue(taken.args, "config");
+  if (taken.args.some(arg => arg === "--host-profile" || arg.startsWith("--host-profile="))) fail("--host-profile was replaced by host contracts (--target pocket.host.json) and --host-config");
+  const config = optionValue(taken.args, "host-config") ?? optionValue(taken.args, "config");
   const project = !taken.explicit && !process.env.POCKET_TARGET?.trim()
     ? projectFor(framework, optionValue(taken.args, "manifest"), config)
     : { config: null, profiles: [], build: false };
@@ -205,9 +205,9 @@ function show(args, leading) {
   const problem = resolved.error ?? protocolMismatch(resolved, cliVersion());
   const host = currentHostId();
   const manifest = optionValue(args, "manifest");
-  const config = optionValue(args, "runtime-config");
+  const config = optionValue(args, "host-config");
   const project = problem ? null : projectFor(resolved, manifest, config);
-  const status = problem ? [] : frameworkQuery(resolved, ["status", "--json", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--runtime-config", config] : [])]);
+  const status = problem ? [] : frameworkQuery(resolved, ["status", "--json", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--host-config", config] : [])]);
   const explicit = leading ? { id: leading, origin: `+${leading}` } : null;
   const selection = select({ explicit, project });
   const report = {
@@ -227,8 +227,8 @@ function show(args, leading) {
   row("framework", problem ? C.bad(problem) : `${resolved.name ?? "@pocketjs/framework"} ${resolved.version ?? ""}   ${resolved.origin} ${resolved.root}`);
   row("project", project?.config
     ? `${project.config}${project.profiles.length ? `   (profiles: ${project.profiles.map((target) => target.id).join(", ")})` : "   (no profiles)"}`
-    : "no pocket.runtime-config.ts");
-  row("target", selection ? `${selection.id}   ${selection.origin}` : C.dim("none — --target, POCKET_TARGET or pocket.runtime-config.ts"));
+    : "no pocket.host.config.ts");
+  row("target", selection ? `${selection.id}   ${selection.origin}` : C.dim("none — --target, POCKET_TARGET or pocket.host.config.ts"));
   row("host", report.host);
   if (report.targets.length === 0) return;
   console.log("\ntargets for this framework");
@@ -268,8 +268,8 @@ if (leading !== undefined && !SELECTING.has(cmd)) fail(`+${leading} selects a ta
 const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
 
   pocket create <name> [--target ID]
-  pocket [+id] check|compile [--manifest pocket.json] [--target ID|FILE.json]
-      --runtime-config FILE  choose the program configuration
+  pocket [+id] check|compile [--manifest pocket.app.json] [--target ID|pocket.host.json]
+      --host-config FILE     choose the host config
       --output FILE          compile a .pocket package
       --aot --out DIR        compile native guest sources
       --depfile FILE         emit build dependencies
@@ -279,9 +279,9 @@ const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
       --generic              build a reusable runtime
       --deploy               deploy the resulting artifact
   pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]
-  pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]
-  pocket profile fetch --target ID --out FILE   the profile document a release publishes
-  pocket show [--json]       profile selection and toolchain status
+  pocket host export [--config FILE] [--target ID] --out DIR [--depfile FILE]
+  pocket host fetch --target ID --out FILE   the host contract a release publishes
+  pocket show [--json]       host selection and toolchain status
   pocket target add [ID…] | list [--check] [--json] | remove ID…
   pocket sdk export         export a relocatable C SDK
   pocket doctor --target ID inspect program tools, output receipts and device evidence
@@ -308,8 +308,8 @@ switch (cmd) {
   case "sdk":
     targetCommand(rest, "sdk");
     break;
-  case "profile":
-    targetCommand(rest, "profile");
+  case "host":
+    targetCommand(rest, "host");
     break;
   case "doctor":
     targetCommand(rest, "doctor");

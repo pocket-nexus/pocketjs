@@ -16,11 +16,12 @@ host.**
 
 **Programs under `programs/` compose runtimes and drivers.** `platforms/`
 contains OS and SDK adapters; `devices/` contains GPU mechanisms and renderers.
-`profiles/` defines the built-in software contracts. A consuming product can
-supply its own profile module and runtime configuration without a registry
-entry. Phone, music-player, reader and console programs use these same
-directories in the main repository. **Code dependencies determine placement;
-device age does not determine repository ownership.** See
+`hosts/` holds the built-in host contracts, one `hosts/<id>/pocket.host.json`
+per host id. A consuming product can supply its own host contract and host
+config without a registry entry. Phone, music-player, reader and console
+programs use these same directories in the main repository. **Code
+dependencies determine placement; device age does not determine repository
+ownership.** See
 [Platform contracts](/docs/platform-contracts/).
 
 The application's framework can be Solid, Vue Vapor, or Octane. Solid uses its
@@ -47,7 +48,8 @@ The driver traits and generated C declarations define display, renderer,
 input and package-source boundaries. **C records use `struct_size` prefix
 compatibility; DrawList operations use a closed version.** Deferred-device
 lifecycle tests check ordering, buffer ownership and retirement. Application
-packages use format 2, the profile's SHA-256 identity and binding generation 12.
+packages use format 2, the host contract's SHA-256 identity (`profileHash`) and
+binding generation 12.
 See [Native contract](/docs/native-contract/#package-and-driver-compatibility).
 
 ## Application instances and guests
@@ -175,7 +177,7 @@ Reading it top to bottom:
    and lifecycle APIs come from `@pocketjs/framework/*`, framework primitives
    come from `solid-js`, `vue`, or `octane`, and `class` strings use the
    Tailwind subset.
-2. A product **build** resolves `pocket.json` for one target, then runs the
+2. A product **build** resolves `pocket.app.json` for one target, then runs the
    selected JSX transform, compiles class strings to a binary style table
    (`styles.bin`), bakes target-density glyph atlases/assets, and packs them
    into `app.pak`. The JS is bundled with target/ABI constants. The low-level
@@ -248,9 +250,9 @@ rejected by the compiler — `createResource`, `useTransition`, and
 `startTransition` (`BANNED_SOLID_IMPORTS` in
 `framework/compiler/jsx-plugin.ts`) — so a build fails rather than a device.
 Browser and Bun development builds stay inside the same syntax and scheduler
-subset. Target compatibility is checked separately from the manifest's required
-APIs and viewport contract, so a touch-required Vita app is rejected for PSP
-before compilation.
+subset. Target compatibility is checked separately from the app contract's
+required APIs and viewport contract, so a touch-required Vita app is rejected
+for PSP before compilation.
 
 ### taffy 0.11 for layout
 
@@ -358,9 +360,10 @@ The UI is one module in that shape and the other domains reuse it unchanged. A
 module is an SDK subpath, a spec, and a native core. Its capability id is the
 same string as the spec namespace and the pak prefix: `audio.pcm` means
 `globalThis.audio` is mounted and `audio:wav.` pak entries have meaning, so one
-name covers the manifest, the runtime namespace, and the asset key.
+name covers the app contract, the runtime namespace, and the asset key.
 `contracts/spec/` holds the shipped specs — `audio`, `db`, `fs`, `net`,
-`physics`, `platforms`, `spec`, plus the manifest, package, system and runtime-wire files.
+`physics`, `platforms`, `spec`, plus the app contract (`pocket-manifest.ts`),
+host contract (`profile.ts`), package, system and runtime-wire files.
 They are plain TypeScript data: `gen-rust.ts` generates
 `engine/spec/src/lib.rs`, `gen-c.ts` generates
 `contracts/generated/pocket_spec.h`, and `tests/generated-contracts.test.ts`

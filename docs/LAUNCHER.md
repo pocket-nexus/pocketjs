@@ -44,10 +44,10 @@ system chord, stated here once.
 
 ## Admission
 
-The launcher scans `apps/*/pocket.json` and includes manifests admitted by
+The launcher scans `apps/*/pocket.app.json` and includes app contracts admitted by
 `validateAndResolveBuildPlan` for the selected target. Admission checks
 capabilities and viewport fit, using the same resolver as `pocket compile`.
-**PSP and Vita select separate app sets from their target profiles.** The
+**PSP and Vita select separate app sets from their host contracts.** The
 registry tool prints each skipped app's diagnostics and each admitted app's
 bundle size. `--exclude <output>` removes an app from the selected set for
 RAM budgeting.
@@ -78,7 +78,7 @@ selects admission, bundle variants, packages, and the native backend; `psp`
 is the default for compatibility. The console pipeline below shares scanning
 and cover generation with the [Symbian pipeline](SYMBIAN_LAUNCHER.md):
 
-1. **scan** — resolve every app manifest for the selected target and dedupe
+1. **scan** — resolve every app contract for the selected target and dedupe
    by `app.output`. PSP writes `dist/launcher-registry.{json,tsv}`; Vita writes
    `dist/launcher/vita/launcher-registry.{json,tsv}`. The committed display
    registry is the PSP/Vita/Symbian union, while `appTable()` remains the runtime truth.
@@ -87,9 +87,9 @@ and cover generation with the [Symbian pipeline](SYMBIAN_LAUNCHER.md):
    keep their target artifacts under `dist/`.
 2. **covers** — boot each admitted app in `programs/sim`, settle 90 virtual frames,
    render, box-downscale the full frame to 256×128, write
-   `apps/launcher/covers/cover-<output>.png`. Each app uses the first profile it
-   admits in PSP, Vita, Symbian order. The wasm simulator receives that
-   profile's viewport and density; all launcher targets share the cover files.
+   `apps/launcher/covers/cover-<output>.png`. Each app uses the first host contract
+   it resolves against in PSP, Vita, Symbian order. The wasm simulator receives that
+   host contract's viewport and density; all launcher targets share the cover files.
 3. **pack** — every admitted app + the launcher becomes a `.pocket`
    package (`contracts/spec/pocket-package.ts`) with the selected target variant. PSP uses
    `dist/packages/`; Vita uses `dist/launcher/vita/packages/` so density-2
@@ -212,7 +212,7 @@ Build receipts, logs and captures go under ignored
 
 ## The launcher app
 
-`apps/launcher` — an ordinary manifest app (requires `text.glyphs.baked` +
+`apps/launcher` — an ordinary `pocket.app.json` app (requires `text.glyphs.baked` +
 `input.buttons`). Cover Flow built on the 2D core's perspective pipeline
 (the same TEX_TRI path motions page 4 ships): one `perspective` root, one
 screen-aspect (192×109) cover card per app, center card flat, neighbors angled with `rotateY` ±

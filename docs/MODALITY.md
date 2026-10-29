@@ -5,14 +5,14 @@ is the shape those behaviors take on one device: how many screens, which
 screen takes contacts, whether a d-pad and sticks exist, where text comes
 from, how large the primary screen is. A presentation is an application
 entry module written for one modality. This document states the model, the
-manifest surface, the build mechanism, and the two devices the model was
+app contract surface, the build mechanism, and the two devices the model was
 built against.
 
 ## Modality
 
 `contracts/spec/modality.ts` derives a `Modality` from a `TargetProfile`.
 **Nothing registers a modality; `deriveModality` is a pure function of the
-display facts and capability ids the profile already carries.** The
+display facts and capability ids the host contract already carries.** The
 registry stays an inventory of hosts and the modality stays a view over it.
 
 | Field | Derived from | Values |
@@ -53,7 +53,7 @@ and is what a bundle built without a plan reads.
 
 ## Presentations
 
-`pocket.json` gains `app.presentations`, an ordered list of entry modules
+`pocket.app.json` gains `app.presentations`, an ordered list of entry modules
 each addressed to a modality:
 
 ```json
@@ -109,7 +109,7 @@ The compiler walks the module graph from `plan.app.entry` (pass 1 in
 modules, class literals, glyphs and image assets enter a bundle only when
 that presentation is the chosen entry.** Shared modules (store, protocol,
 drivers) sit beside the presentations and are imported by each entry. This
-is the split the manifest exists for: large differences are separate
+is the split `app.presentations` exists for: large differences are separate
 entries, each distributed to the devices that match it; small differences
 are branches inside one entry.
 

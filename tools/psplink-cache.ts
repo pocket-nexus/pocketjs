@@ -50,7 +50,7 @@ export function psplinkPrxStale(root: string, name: string, prx: string): boolea
     join(root, "programs/psp/build.rs"),
     join(root, "programs/psp/Cargo.toml"),
     join(root, "Cargo.lock"),
-    join(root, "profiles/psp.json"),
+    join(root, "hosts/psp/pocket.host.json"),
   ];
   return inputs.some(input => {
     const newest = existsSync(input) && statSync(input).isFile()
