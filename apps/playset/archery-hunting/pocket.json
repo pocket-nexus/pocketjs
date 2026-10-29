@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.archery-hunting",
   "name": "playset-archery-hunting",
   "title": "Archery Hunting",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

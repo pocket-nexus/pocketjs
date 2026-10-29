@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.jet-dogfight",
   "name": "playset-jet-dogfight",
   "title": "Jet Dogfight",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

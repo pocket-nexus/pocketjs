@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.pirate-seas",
   "name": "playset-pirate-seas",
   "title": "Pirate Seas",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

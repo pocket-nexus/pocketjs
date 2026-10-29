@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.castle-defense",
   "name": "playset-castle-defense",
   "title": "Castle Defense",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

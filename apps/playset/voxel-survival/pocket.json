@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.voxel-survival",
   "name": "playset-voxel-survival",
   "title": "Voxel Survival",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

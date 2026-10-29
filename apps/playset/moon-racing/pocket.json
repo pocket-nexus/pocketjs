@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.moon-racing",
   "name": "playset-moon-racing",
   "title": "Moon Racing",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

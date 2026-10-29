@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.endless-runner",
   "name": "playset-endless-runner",
   "title": "Endless Runner",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

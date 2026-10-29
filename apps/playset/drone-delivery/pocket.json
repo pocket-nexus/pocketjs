@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.drone-delivery",
   "name": "playset-drone-delivery",
   "title": "Drone Delivery",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

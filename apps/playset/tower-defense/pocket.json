@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.tower-defense",
   "name": "playset-tower-defense",
   "title": "Tower Defense",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {
