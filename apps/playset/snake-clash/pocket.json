@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.snake-clash",
   "name": "playset-snake-clash",
   "title": "Snake Clash",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

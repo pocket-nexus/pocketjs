@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.marble-puzzle",
   "name": "playset-marble-puzzle",
   "title": "Marble Puzzle",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

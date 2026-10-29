@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2fb3d6"/><stop offset="1" stop-color="#0a3653"/></linearGradient><linearGradient id="hull" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe066"/><stop offset="1" stop-color="#e3a812"/></linearGradient></defs>
+<rect width="128" height="128" fill="url(#sea)"/>
+<path d="M30 0 L52 0 L84 128 L50 128 Z" fill="#ffffff" opacity="0.08"/>
+<g stroke="#1f6a3a" stroke-width="3" stroke-linejoin="round" fill="#3fbf6e">
+<path d="M10 128 C6 112 14 104 10 92 C18 102 20 114 18 128 Z"/>
+<path d="M104 128 C100 114 108 106 106 94 C114 104 116 116 114 128 Z"/>
+</g>
+<g fill="none" stroke="#d6f5ff" stroke-width="2.5"><circle cx="104" cy="30" r="5"/><circle cx="114" cy="16" r="3.5"/><circle cx="96" cy="14" r="2.5"/></g>
+<g stroke="#4a3306" stroke-width="4" stroke-linejoin="round">
+<path d="M58 40 V28 H68" fill="none" stroke-width="4"/>
+<rect x="44" y="38" width="28" height="18" rx="5" fill="url(#hull)"/>
+<path d="M108 58 L120 46 V94 L108 82 Z" fill="#c8901a"/>
+<rect x="10" y="50" width="102" height="40" rx="20" fill="url(#hull)"/>
+</g>
+<g stroke="#4a3306" stroke-width="3" fill="#bfefff"><circle cx="36" cy="70" r="7"/><circle cx="58" cy="70" r="7"/><circle cx="80" cy="70" r="7"/></g>
+<rect x="20" y="56" width="50" height="5" rx="2.5" fill="#fff3b0" opacity="0.9"/>
+</svg>

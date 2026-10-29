@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.submarine-exploration",
   "name": "playset-submarine-exploration",
   "title": "Submarine Exploration",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

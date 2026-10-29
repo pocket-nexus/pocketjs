@@ -4,7 +4,9 @@ Playset is the PocketJS SDK for small 3D games that hold 60 frames per second
 on a Nintendo 3DS, the Old model included. A game is a PocketJS app: its
 content and gameplay are TypeScript in a `.pocket` package, and the work that
 runs every frame belongs to native kernels in the runtime. Pocket Shell
-installs and starts a playset game like any other app.
+installs and starts a playset game like any other app, and shows the icon
+the package carries: each game's `icon.svg`, a picture of the game baked into
+the package's icon set ([`docs/LAUNCHER.md`](LAUNCHER.md)).
 
 | Part | Path |
 | --- | --- |

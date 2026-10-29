@@ -4,6 +4,7 @@
   "id": "dev.pocket-nexus.playset.space-shooter",
   "name": "playset-space-shooter",
   "title": "Space Shooter",
+  "icon": "icon.svg",
   "version": "0.1.0",
   "engine": {
     "capabilities": {

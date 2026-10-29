@@ -27,14 +27,25 @@ player sees and hears.
 ```
 apps/playset/<demo>/
   pocket.json   id dev.pocket-nexus.playset.<demo>, output playset-<demo>,
-                requires game.playset + the touch-screen capabilities (copy
-                space-shooter's)
+                "icon": "icon.svg", requires game.playset + the
+                touch-screen capabilities (copy space-shooter's)
+  icon.svg      the launcher icon (below)
   main.tsx      mount(() => <App />)
   app.tsx       <GameShell game={createGame()} /> and nothing else
   game.ts       createGame(): PlaysetGame; the gameplay class
   visuals.ts    the demo's visual factories on @pocketjs/framework/playset/three
   ai.ts         optional, the autopilot when it is long
 ```
+
+**The icon is a picture of the game, never letters.** One subject the player
+sees in the game (the ship, the vehicle, the board) on the ground of its
+world, in the game's own colours: a 128 x 128 SVG with `width` and
+`height`, opaque to the edges, flat shapes with a dark outline of 3-5 px
+and nothing thinner, so it still reads at 24 px. The launcher cuts the
+corners (radius 0.2 of the side) and adds the gloss, so keep the subject
+inside the middle 104 px and draw no gloss. Review the baked sizes with
+`bun tools/launcher-icon.ts apps/playset/<demo>/pocket.json --sheet
+<file.png>`; `tests/launcher-icon.test.ts` fails for a game without one.
 
 Every file that keeps the demo's code starts with an attribution line:
 `ported from GameBlocks' <demo> (https://gb-<demo>.vercel.app/, MIT, xt4d/GameBlocks)`,

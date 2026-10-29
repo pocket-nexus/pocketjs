@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fd0ff"/><stop offset="1" stop-color="#dff2ff"/></linearGradient><linearGradient id="gem" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c6f6ff"/><stop offset="1" stop-color="#2fb6f0"/></linearGradient></defs>
+<rect width="128" height="128" fill="url(#sky)"/>
+<g stroke="#2e1c0c" stroke-width="4" stroke-linejoin="round">
+<path d="M64 60 L110 84 V112 L64 128 L18 112 V84 Z" fill="#8a5a32"/>
+<path d="M64 60 L110 84 L64 106 L18 84 Z" fill="#6cc04a"/>
+<path d="M64 106 V128" stroke-width="3"/>
+</g>
+<path d="M64 106 L110 84 V112 L64 128 Z" fill="#000000" opacity="0.18"/>
+<path d="M18 84 L64 106 V116 L56 112 V118 L46 108 V114 L36 104 V108 L26 98 V102 L18 96 Z" fill="#5aa83c"/>
+<path d="M110 84 L64 106 V114 L72 110 V116 L82 106 V112 L92 102 V106 L102 96 V100 L110 94 Z" fill="#4c9232"/>
+<g fill="#a8e06c"><rect x="52" y="74" width="8" height="5"/><rect x="74" y="80" width="8" height="5"/><rect x="60" y="88" width="8" height="5"/></g>
+<path d="M64 10 L80 28 L64 58 L48 28 Z" fill="url(#gem)" stroke="#11506e" stroke-width="4" stroke-linejoin="round"/>
+<path d="M48 28 H80 M64 10 L58 28 L64 58 M64 10 L70 28" stroke="#11506e" stroke-width="2" fill="none"/>
+<path d="M96 20 l3 7 l7 3 l-7 3 l-3 7 l-3 -7 l-7 -3 l7 -3 Z" fill="#ffffff"/>
+</svg>
