@@ -18,9 +18,13 @@ use crate::UiSurface;
 pub struct ProgramConfig {
     /// The profile the program was built for: `profile()` from the module
     /// `pocket profile export` wrote, or [`embedded_profile`] for a library
-    /// embedding. Its id, tick rate and raster density describe the package
-    /// [`UiProgram::boot`] encodes.
+    /// embedding. Its id, capabilities and raster density describe the
+    /// package [`UiProgram::boot`] encodes.
     pub profile: Profile,
+    /// The tick rate the raw JavaScript [`UiProgram::boot`] encodes was
+    /// compiled for (its plan's `profile.tickHz`, 60 by default). A package
+    /// booted with [`UiProgram::boot_package`] carries its own.
+    pub tick_hz: u32,
     /// `PROFILE_HASH` from the same export; the encoded package carries it.
     pub profile_hash: [u8; 32],
     pub host_abi: u32,
@@ -31,30 +35,44 @@ pub struct ProgramConfig {
     pub frame_buffer_budget: usize,
 }
 
+/// The capabilities of [`embedded_profile`]: what the encoded package of a
+/// library embedding may use.
+pub const EMBEDDED_CAPABILITIES: &[Cow<'static, str>] = &[
+    Cow::Borrowed("input.analog.left"),
+    Cow::Borrowed("input.buttons"),
+    Cow::Borrowed("input.touch"),
+    Cow::Borrowed("ui.physics"),
+];
+
 /// The profile of a library embedding that has no `pocket build` export, such
 /// as an overlay, a widget screen or a test: id `host`, one `logical` viewport
-/// at raster `density`, no auxiliary display and no required input class. The
-/// returned hash is all zero. Such an embedding has no exported identity: it
-/// runs only the package [`UiProgram::boot`] encodes from the host's own
-/// JavaScript and pak, and no compiled `.pocket` carries that hash.
+/// at raster `density` presented natively, one cadence `cadence_hz`, the
+/// [`EMBEDDED_CAPABILITIES`], no auxiliary display and no required input
+/// class. It states no animation class. The returned hash is all zero. Such
+/// an embedding has no exported identity: it runs only the package
+/// [`UiProgram::boot`] encodes from the host's own JavaScript and pak, and no
+/// compiled `.pocket` carries that hash.
 pub fn embedded_profile(
     host: &str,
     logical: [u32; 2],
     density: u32,
-    tick_hz: u32,
+    cadence_hz: u32,
 ) -> (Profile, [u8; 32]) {
     let profile = Profile {
         id: Cow::Owned(host.to_owned()),
-        tick_hz,
+        cadences: Cow::Owned(vec![cadence_hz]),
         viewport: [
             logical[0].saturating_mul(density),
             logical[1].saturating_mul(density),
         ],
         logical_viewports: Cow::Owned(vec![logical]),
         dynamic_viewport: None,
+        presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
         auxiliary: None,
         auxiliary_logical: Cow::Borrowed(&[]),
         density,
+        animation: Cow::Borrowed(""),
+        capabilities: Cow::Borrowed(EMBEDDED_CAPABILITIES),
         required_inputs: InputClasses::NONE,
     };
     (profile, [0; 32])
@@ -76,6 +94,9 @@ struct OwnedConfig {
     logical: [u32; 2],
     density: u32,
     tick_hz: u32,
+    animation: String,
+    presentation: String,
+    capabilities: Vec<String>,
 }
 impl UiProgram {
     pub fn new(config: ProgramConfig) -> Result<Self> {
@@ -93,7 +114,17 @@ impl UiProgram {
             profile_hash: config.profile_hash,
             logical: config.logical,
             density: profile.density,
-            tick_hz: profile.tick_hz,
+            tick_hz: config.tick_hz,
+            animation: profile.animation.clone().into_owned(),
+            presentation: profile
+                .presentations
+                .first()
+                .map_or_else(|| "native".to_owned(), |name| name.clone().into_owned()),
+            capabilities: profile
+                .capabilities
+                .iter()
+                .map(|name| name.clone().into_owned())
+                .collect(),
         };
         let mut runtime = Runtime::new(RuntimeConfig {
             profile_hash: config.profile_hash,
@@ -145,14 +176,25 @@ impl UiProgram {
     {
         self.runtime.add_renderer(renderer).host()
     }
+    /// Encode raw JavaScript and pak as a package compiled for this program's
+    /// profile at `ProgramConfig::tick_hz`, admit it and evaluate it.
     pub fn boot(&mut self, guest: Rc<Guest>, label: &str, source: &str, pak: &[u8]) -> Result<()> {
         let config = &self.config;
-        let plan = serde_json::to_vec(&json!({
+        let features: serde_json::Map<String, serde_json::Value> = config
+            .capabilities
+            .iter()
+            .map(|name| (name.clone(), serde_json::Value::Bool(true)))
+            .collect();
+        let mut plan = json!({
             "target":{"id":config.host,"hostAbi":config.host_abi},
-            "viewport":{"logical":config.logical,"rasterDensity":config.density},
-            "tickHz":config.tick_hz,
-            "features":{"input.buttons":true,"input.analog.left":true,"input.touch":true,"text.layout.baked":true,"ui.physics":true}
-        }))?;
+            "profile":{"id":config.host,"tickHz":config.tick_hz},
+            "viewport":{"logical":config.logical,"presentation":config.presentation,"rasterDensity":config.density},
+            "features":features
+        });
+        if !config.animation.is_empty() {
+            plan["animation"] = json!(config.animation);
+        }
+        let plan = serde_json::to_vec(&plan)?;
         let identity = pocket_package::embedded::identity(label, label, label)
             .map_err(|error| anyhow!("package identity: {error:?}"))?;
         let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
@@ -165,6 +207,12 @@ impl UiProgram {
             pak,
         })
         .map_err(|error| anyhow!("embedded package: {error:?}"))?;
+        self.boot_package(guest, bytes)
+    }
+    /// Admit a compiled `.pocket` against this program's profile facts and
+    /// evaluate it. The package's rate and the profile cadence it runs at are
+    /// [`UiProgram::timing`] afterwards.
+    pub fn boot_package(&mut self, guest: Rc<Guest>, bytes: Vec<u8>) -> Result<()> {
         self.runtime
             .set_package_source(Box::new(MemorySource(bytes)))
             .host()?;
@@ -178,6 +226,11 @@ impl UiProgram {
         // The program can prepare a GPU scene or e-ink policy before first paint.
         self.runtime.skip_presentation().host()?;
         Ok(())
+    }
+    /// The booted package's tick rate and the cadence the host schedules one
+    /// [`UiProgram::advance`] and [`UiProgram::present`] at.
+    pub fn timing(&self) -> Option<pocket_runtime::Timing> {
+        self.runtime.timing()
     }
     pub fn set_input(&self, facts: InputFrameBuilder) {
         *self.input.borrow_mut() = facts;
@@ -333,6 +386,7 @@ mod tests {
         let mut program = UiProgram::new(ProgramConfig {
             profile,
             profile_hash,
+            tick_hz: 60,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical: [16, 16],
             heap_limit: 4 * 1024 * 1024,
@@ -357,13 +411,16 @@ mod tests {
         // The shape `pocket profile export` writes into pocket_profile.rs.
         let profile = |id: &'static str| Profile {
             id: Cow::Borrowed(id),
-            tick_hz: 60,
+            cadences: Cow::Borrowed(&[60]),
             viewport: [16, 16],
             logical_viewports: Cow::Borrowed(&[[16, 16]]),
             dynamic_viewport: None,
+            presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
             auxiliary: None,
             auxiliary_logical: Cow::Borrowed(&[]),
             density: 1,
+            animation: Cow::Borrowed("composited"),
+            capabilities: Cow::Borrowed(&[Cow::Borrowed("input.buttons")]),
             required_inputs: InputClasses::BUTTONS | InputClasses::CONTACT,
         };
         let (mut first, first_count) = program_with_profile(profile("first-program"), [1; 32]);
@@ -391,6 +448,7 @@ mod tests {
             ProgramConfig {
                 profile,
                 profile_hash,
+                tick_hz: 60,
                 host_abi: pocket_spec::BINDING_GENERATION,
                 logical,
                 heap_limit: 4 * 1024 * 1024,

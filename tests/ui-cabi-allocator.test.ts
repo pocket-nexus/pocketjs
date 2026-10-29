@@ -47,7 +47,7 @@ test("real CAllocator uploads textures through malloc and host callbacks", () =>
     run([
       cc!, "-std=c99", "-Wall", "-Wextra", "-Werror",
       ...(hostAllocator ? ["-DTEST_HOST_ALLOCATOR"] : []),
-      "-I", join(crate, "include"),
+      "-I", join(crate, "include"), "-I", join(repository, "contracts/generated"),
       join(repository, "tests/fixtures/ui-cabi-allocator/texture_upload.c"),
       join(build, "target/release/libpocketjs_symbian_core.a"),
       "-lm", "-o", binary,

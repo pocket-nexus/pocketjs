@@ -10,6 +10,8 @@
 
 use core::str;
 
+use crate::admission::{admit_plan, HostFacts, Mismatch, Timing};
+
 use crate::package_format::{
     OFFSET_HEADER_STRING_TABLE_OFFSET, OFFSET_HEADER_STRING_TABLE_SIZE, OFFSET_SECTION_OFFSET,
     OFFSET_SECTION_SIZE, OFFSET_VARIANT_HASH, OFFSET_VARIANT_HOST_ABI, OFFSET_VARIANT_PROFILE_HASH,
@@ -43,11 +45,12 @@ pub enum PackageError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuestError {
     Package(PackageError),
+    /// The package carries no variant.
     MissingVariant,
-    HostAbiMismatch,
-    ProfileHashMismatch,
+    /// No variant is admitted by the host's facts; the closest one and the
+    /// items it fails (`crate::admission`).
+    NotAdmitted(Mismatch),
     MissingIdentity,
-    MissingPlan,
     MissingJavaScript,
     JavaScriptNotTerminated,
     /// The plan's `domains.worker` and section 8 disagree: a declaration without
@@ -91,8 +94,12 @@ pub struct Identity<'a> {
 /// A filesystem package admitted for one native host. The package allocation
 /// must outlive these slices; native runtimes keep it until guest teardown.
 pub struct Guest<'a> {
+    /// The admitted variant's target name, as compiled.
+    pub target: &'a str,
     /// The variant identity's application id (`app.id` of its plan).
     pub id: &'a str,
+    /// The package rate and the host cadence it runs at.
+    pub timing: Timing,
     pub js: &'a [u8],
     /// Section 8, the NUL-terminated worker bundle of a plan with
     /// `domains.worker`; empty for a plan without one.
@@ -314,32 +321,49 @@ impl<'a> Package<'a> {
     }
 }
 
-/// Parse a package and admit its guest payload for an exact target, host ABI
-/// and independently supplied program profile hash.
-/// This is the shared boundary filesystem-loading hosts use before exposing
-/// any package bytes to QuickJS or the retained UI core.
-pub fn select_guest<'a>(
+/// Parse a package and admit the guest payload of the first variant the
+/// host's facts satisfy (`crate::admission`). Variants whose profile hash
+/// equals the host's are tried first. This is the shared boundary
+/// filesystem-loading hosts use before exposing any package bytes to
+/// QuickJS or the retained UI core.
+pub fn select_guest<'a, S: AsRef<str>>(
     bytes: &'a [u8],
-    target: &str,
-    host_abi: u32,
-    expected_profile_hash: &[u8; 32],
+    host: &HostFacts<'_, S>,
     skip_hash: bool,
 ) -> Result<Guest<'a>, GuestError> {
     let package = Package::parse(bytes, skip_hash)?;
-    let variant = package
-        .find_variant(target)?
-        .ok_or(GuestError::MissingVariant)?;
-    if variant.host_abi != host_abi {
-        return Err(GuestError::HostAbiMismatch);
+    if package.variant_count() == 0 {
+        return Err(GuestError::MissingVariant);
     }
-    if variant.profile_hash != *expected_profile_hash {
-        return Err(GuestError::ProfileHashMismatch);
+    let mut closest: Option<Mismatch> = None;
+    for preferred in [true, false] {
+        for index in 0..package.variant_count() {
+            let variant = package.variant(index)?;
+            if (variant.profile_hash == host.profile_hash) != preferred {
+                continue;
+            }
+            let plan = variant.section(section::PLAN)?;
+            match admit_plan(host, variant.host_abi, plan) {
+                Ok(timing) => return admitted(&package, variant, timing),
+                Err((items, capability)) => {
+                    if closest.is_none_or(|best| items.count_ones() < best.items.count_ones()) {
+                        closest = Some(Mismatch { variant: index as u32, items, capability });
+                    }
+                }
+            }
+        }
     }
+    Err(GuestError::NotAdmitted(closest.expect("a package with variants reports one")))
+}
+
+fn admitted<'a>(
+    package: &Package<'a>,
+    variant: Variant<'a>,
+    timing: Timing,
+) -> Result<Guest<'a>, GuestError> {
     let identity = variant.identity()?.ok_or(GuestError::MissingIdentity)?;
-    let plan = variant
-        .section(section::PLAN)?
-        .filter(|value| !value.is_empty())
-        .ok_or(GuestError::MissingPlan)?;
+    // Admission read this section; it is present and non-empty.
+    let plan = variant.section(section::PLAN)?.unwrap_or(&[]);
     let js = variant
         .section(section::JS)?
         .filter(|value| !value.is_empty())
@@ -350,7 +374,9 @@ pub fn select_guest<'a>(
     let worker_js = worker_payload(plan, variant.section(section::WORKER_JS)?)?;
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
     Ok(Guest {
+        target: variant.target,
         id: identity.id,
+        timing,
         js,
         worker_js,
         pak,
@@ -491,25 +517,50 @@ mod tests {
         );
     }
 
-    #[test]
-    fn admits_a_complete_guest_for_an_exact_host() {
-        let guest = select_guest(FIXTURE, "psp", 1, &[0x11; 32], false).unwrap();
-        assert_eq!(guest.js.last(), Some(&0));
-        assert!(!guest.id.is_empty());
-        assert!(!guest.plan.is_empty());
-        assert!(guest.worker_js.is_empty());
+    use crate::admission::testing::host;
+    use crate::admission::{HostFacts, Timing};
+
+    const PLAN: &[u8] = br#"{"animation":"composited","features":{"input.buttons":true},"profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1}}"#;
+
+    fn package(target: &str, generation: u32, hash: [u8; 32], plan: &[u8]) -> std::vec::Vec<u8> {
+        let identity = crate::embedded::identity("app", "test.app", "App").unwrap();
+        crate::embedded::encode(crate::embedded::EmbeddedPackage {
+            target, host_abi: generation, profile_hash: hash, identity: &identity,
+            plan, code: b"globalThis.frame=()=>{}", pak: &[],
+        }).unwrap()
     }
 
     #[test]
-    fn rejects_target_and_host_abi_drift() {
-        assert!(matches!(
-            select_guest(FIXTURE, "3ds-dev", 8, &[0x11; 32], false),
-            Err(GuestError::MissingVariant)
-        ));
-        assert!(matches!(
-            select_guest(FIXTURE, "psp", 8, &[0x11; 32], false),
-            Err(GuestError::HostAbiMismatch)
-        ));
+    fn admits_a_complete_guest_for_a_satisfying_host() {
+        let bytes = package("compiled-for", 12, [0x22; 32], PLAN);
+        let guest = select_guest(&bytes, &host(12, [0x11; 32]), false).unwrap();
+        assert_eq!(guest.js.last(), Some(&0));
+        assert_eq!(guest.id, "test.app");
+        assert_eq!(guest.plan, PLAN);
+        assert!(guest.worker_js.is_empty());
+        assert_eq!(guest.target, "compiled-for");
+        assert_eq!(guest.timing, Timing { tick_hz: 60, cadence_hz: 60 });
+    }
+
+    #[test]
+    fn reports_binding_generation_drift() {
+        let bytes = package("compiled-for", 11, [0x11; 32], PLAN);
+        match select_guest(&bytes, &host(12, [0x11; 32]), false) {
+            Err(GuestError::NotAdmitted(mismatch)) => {
+                assert_eq!(mismatch.items, crate::admission::item::BINDING_GENERATION)
+            }
+            other => panic!("{:?}", other.err()),
+        }
+    }
+
+    #[test]
+    fn plans_without_admission_facts_are_not_admitted() {
+        match select_guest(FIXTURE, &host(1, [0x11; 32]), false) {
+            Err(GuestError::NotAdmitted(mismatch)) => {
+                assert_eq!(mismatch.items, crate::admission::item::PLAN)
+            }
+            other => panic!("{:?}", other.err()),
+        }
     }
 
     #[test]
@@ -532,10 +583,11 @@ mod tests {
         let bytes = crate::embedded::encode(crate::embedded::EmbeddedPackage {
             target: "test-worker", host_abi: 7, profile_hash: [0x55; 32],
             identity: &identity,
-            plan: br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#,
+            plan: br#"{"animation":"composited","domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true},"profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1}}"#,
             code: b"globalThis.frame=()=>{}", pak: &[],
         }).unwrap();
-        assert_eq!(select_guest(&bytes, "test-worker", 7, &[0x55; 32], false).err(),
+        let facts = HostFacts { capabilities: &["runtime.worker"], ..host(7, [0x55; 32]) };
+        assert_eq!(select_guest(&bytes, &facts, false).err(),
             Some(GuestError::WorkerSectionMismatch));
     }
 }

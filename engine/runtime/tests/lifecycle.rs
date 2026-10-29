@@ -11,13 +11,16 @@ fn config() -> RuntimeConfig {
         frame_buffer_budget: 64,
         profile: Profile {
             id: Cow::Borrowed("fixture"),
-            tick_hz: 60,
+            cadences: Cow::Borrowed(&[60, 30]),
             viewport: [4, 4],
             logical_viewports: Cow::Borrowed(&[[4, 4]]),
             dynamic_viewport: None,
+            presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
             auxiliary: None,
             auxiliary_logical: Cow::Borrowed(&[]),
             density: 1,
+            animation: Cow::Borrowed("composited"),
+            capabilities: Cow::Borrowed(&[]),
             required_inputs: InputClasses::NONE,
         },
     }
@@ -35,7 +38,7 @@ fn package_for_generation(profile_hash: [u8; 32], generation: u32) -> Vec<u8> {
         host_abi: generation,
         profile_hash,
         identity: &identity,
-        plan: br#"{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}"#,
+        plan: br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}"#,
         code: b"test",
         pak: &[],
     })
@@ -197,9 +200,9 @@ fn runtime_evaluates_owned_and_static_packages_without_relocating_their_bytes() 
     }
     for owned in [true, false] {
         let bytes = package().into_boxed_slice();
-        let code = pocket_package::select_guest(
-            &bytes, "fixture", pocket_spec::BINDING_GENERATION, &config().profile_hash, false,
-        ).unwrap().js.as_ptr();
+        let config = config();
+        let host = config.profile.host_facts(config.host_abi, config.profile_hash);
+        let code = pocket_package::select_guest(&bytes, &host, false).unwrap().js.as_ptr();
         let source: Box<dyn PackageSource> = if owned {
             Box::new(pocket_package::source::OwnedMemorySource::new(bytes))
         } else {
@@ -647,7 +650,7 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
             host_abi: pocket_spec::BINDING_GENERATION,
             profile_hash: cfg.profile_hash,
             identity: &identity,
-            plan: br#"{"viewport":{"logical":[4,4],"rasterDensity":2},"features":{}}"#,
+            plan: br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":2},"features":{}}"#,
             code: b"test",
             pak: &[],
         })
@@ -768,7 +771,7 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
         cfg.frame_buffer_budget = 1024;
         let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
         let plan = format!(
-            r#"{{"viewport":{{"logical":[{},{}],"rasterDensity":2}},"features":{{}}}}"#,
+            r#"{{"animation":"composited","profile":{{"tickHz":60}},"viewport":{{"logical":[{},{}],"presentation":"native","rasterDensity":2}},"features":{{}}}}"#,
             logical[0], logical[1]
         )
         .into_bytes();
@@ -801,7 +804,16 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
             result.unwrap();
             assert_eq!(*observed.borrow(), vec![logical]);
         } else {
-            assert_eq!(result, Err(RuntimeError::ProfileMismatch));
+            assert!(
+                matches!(
+                    result,
+                    Err(RuntimeError::ProfileMismatch)
+                        | Err(RuntimeError::Package(pocket_package::source::LoadError::Admission(
+                            pocket_package::GuestError::NotAdmitted(_)
+                        )))
+                ),
+                "{result:?}"
+            );
             assert!(observed.borrow().is_empty());
         }
     }
@@ -833,7 +845,11 @@ fn old_packages_are_rejected_before_guest_initialization_and_can_be_replaced() {
     rejected.extend((1..pocket_spec::BINDING_GENERATION).map(|generation| {
         (
             package_for_generation(config().profile_hash, generation),
-            GuestError::HostAbiMismatch,
+            GuestError::NotAdmitted(pocket_package::Mismatch {
+                variant: 0,
+                items: pocket_package::admission::item::BINDING_GENERATION,
+                capability: pocket_package::admission::Name::EMPTY,
+            }),
         )
     }));
     for (bytes, expected) in rejected {
@@ -861,16 +877,13 @@ fn old_packages_are_rejected_before_guest_initialization_and_can_be_replaced() {
 
 #[test]
 fn current_package_does_not_admit_under_a_legacy_expected_generation() {
+    let config = config();
     for expected in 1..pocket_spec::BINDING_GENERATION {
+        let host = config.profile.host_facts(expected, config.profile_hash);
         assert!(matches!(
-            pocket_package::select_guest(
-                &package(),
-                "fixture",
-                expected,
-                &config().profile_hash,
-                false
-            ),
-            Err(pocket_package::GuestError::HostAbiMismatch)
+            pocket_package::select_guest(&package(), &host, false),
+            Err(pocket_package::GuestError::NotAdmitted(mismatch))
+                if mismatch.items == pocket_package::admission::item::BINDING_GENERATION
         ));
     }
 }
@@ -1039,4 +1052,74 @@ fn deferred_frames_release_the_core_and_keep_borrowed_textures_until_retired() {
         ["render:4", "wait:4", "flush", "retire:4"]
     );
     assert_eq!(facts.borrow().shutdowns, 1);
+}
+
+#[test]
+fn boot_runs_the_package_rate_at_the_fastest_dividing_cadence() {
+    struct Rates(Rc<RefCell<Vec<(u32, u32)>>>);
+    impl Guest for Rates {
+        fn initialize(&mut self, _: OpContext, env: &GuestEnvironment<'_>) -> Result<(), RuntimeError> {
+            self.0.borrow_mut().push((env.tick_hz, env.sim_hz));
+            Ok(())
+        }
+        fn evaluate(&mut self, _: &[u8]) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn frame(&mut self, _: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+    // (package rate, host cadences, admitted timing)
+    let cases: [(u32, &'static [u32], Option<(u32, u32)>); 5] = [
+        (60, &[60, 30], Some((60, 60))),
+        (30, &[60, 30], Some((30, 30))),
+        (60, &[30], Some((60, 30))),
+        (60, &[20, 15], Some((60, 20))),
+        (30, &[25], None),
+    ];
+    for (rate, cadences, expected) in cases {
+        let mut cfg = config();
+        cfg.profile.cadences = Cow::Borrowed(cadences);
+        let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+        let plan = format!(
+            r#"{{"animation":"composited","profile":{{"tickHz":{rate}}},"viewport":{{"logical":[4,4],"presentation":"native","rasterDensity":1}},"features":{{}}}}"#
+        )
+        .into_bytes();
+        let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "compiled-elsewhere",
+            host_abi: pocket_spec::BINDING_GENERATION,
+            profile_hash: [0x99; 32],
+            identity: &identity,
+            plan: &plan,
+            code: b"test",
+            pak: &[],
+        })
+        .unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let mut runtime = Runtime::new(cfg).unwrap();
+        runtime.set_guest(Box::new(Rates(seen.clone()))).unwrap();
+        runtime.set_package_source(Box::new(MemorySource(bytes))).unwrap();
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        runtime
+            .add_display(Display { pixels: [0; 64], facts, fail_once: false }, RendererId::SOFTWARE)
+            .unwrap();
+        match expected {
+            Some((tick_hz, cadence_hz)) => {
+                runtime.boot().unwrap();
+                assert_eq!(runtime.timing(), Some(Timing { tick_hz, cadence_hz }));
+                assert_eq!(*seen.borrow(), vec![(tick_hz, cadence_hz)]);
+                assert_eq!(runtime.op_context().core().unwrap().tick_rate(), tick_hz);
+                runtime.tick().unwrap();
+            }
+            None => {
+                assert!(matches!(
+                    runtime.boot(),
+                    Err(RuntimeError::Package(pocket_package::source::LoadError::Admission(
+                        pocket_package::GuestError::NotAdmitted(mismatch)
+                    ))) if mismatch.items == pocket_package::admission::item::RATE
+                ));
+                assert_eq!(runtime.timing(), None);
+            }
+        }
+    }
 }

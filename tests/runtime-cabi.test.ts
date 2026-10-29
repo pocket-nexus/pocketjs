@@ -18,7 +18,7 @@ function packageFixture(): Uint8Array {
     target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + createHash("sha256").update(profile).digest("hex"),
     sections: [
       {kind:1,bytes:encodeIdentity({output:"app",id:"test.app",title:"App"})},
-      {kind:2,bytes:text.encode('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}')},
+      {kind:2,bytes:text.encode('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}')},
       {kind:3,bytes:text.encode("test\0")}
     ]
   }]});

@@ -247,8 +247,7 @@ PocketRuntimePackage *runtime_package_load(
   int32_t result = pocket_package_open(
     package->bytes,
     package->length,
-    (const uint8_t *)POCKETJS_TARGET_ID,
-    sizeof POCKETJS_TARGET_ID - 1,
+    &pocket_3ds_profile,
     POCKETJS_HOST_ABI,
     pocket_3ds_profile_hash,
     &package->guest

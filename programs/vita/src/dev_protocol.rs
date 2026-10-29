@@ -158,20 +158,24 @@ pub fn admit(bytes: &[u8], plan: &Value) -> Result<Bundle, String> {
     if bytes.len() > MAX_PACKAGE {
         return Err("package exceeds 32 MiB".into());
     }
-    let guest = package::select_guest(bytes, "vita", pocketjs_core::spec::BINDING_GENERATION, &crate::profile::PROFILE_HASH, false)
-        .map_err(|e| format!("package: {e:?}"))?;
+    let profile = crate::profile::profile().ok_or("missing exported profile")?;
+    let host = profile.host_facts(
+        pocketjs_core::spec::BINDING_GENERATION,
+        crate::profile::PROFILE_HASH,
+    );
+    let guest = package::select_guest(bytes, &host, false).map_err(|e| format!("package: {e:?}"))?;
     let package = Package::parse(bytes, true).map_err(|e| format!("package: {e:?}"))?;
     let identity = package
-        .find_variant("vita")
-        .unwrap()
-        .unwrap()
+        .find_variant(guest.target)
+        .map_err(|e| format!("package: {e:?}"))?
+        .ok_or("missing variant")?
         .identity()
         .map_err(|e| format!("identity: {e:?}"))?
         .ok_or("missing identity")?;
     let next: Value = serde_json::from_slice(guest.plan).map_err(|e| format!("plan: {e}"))?;
     // The generic runtime (feature `runtime`) was built without an app, so a
-    // push is held to the target, host ABI and footer that select_guest
-    // checked, as app0:app.pocket is (package_file.rs).
+    // push is held to the admission and footer that select_guest checked, as
+    // app0:app.pocket is (package_file.rs).
     if !cfg!(feature = "runtime")
         && (plan.get("app").is_none()
             || identity.id != plan["app"]["id"].as_str().unwrap_or("")

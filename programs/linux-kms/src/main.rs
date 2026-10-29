@@ -140,15 +140,19 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "/usr/share/pocketjs/app.pocket".into());
     let mut source = FileSource::open(&path)?;
     if options.check {
-        let _package = LoadedPackage::load(
+        let package = LoadedPackage::load(
             &mut source,
-            profile::ID,
-            profile::HOST_ABI,
-            &profile::PROFILE_HASH,
+            &profile.host_facts(profile::HOST_ABI, profile::PROFILE_HASH),
             PACKAGE_LIMIT,
         )
         .map_err(error)?;
-        println!("package admitted: {} ({})", path.display(), profile.id);
+        println!(
+            "package admitted: {} ({}, {} Hz at {} Hz)",
+            path.display(),
+            profile.id,
+            package.timing.tick_hz,
+            package.timing.cadence_hz
+        );
         return Ok(());
     }
     // Guard resource allocation before the runtime copies the file.
@@ -248,7 +252,13 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
     }
     let mut clock = MonotonicClock::default();
-    let mut schedule = TickSchedule::new(profile.tick_hz, clock.now(), 1).map_err(error)?;
+    // One frame per cadence period; each advances the package rate divided by
+    // the cadence in core ticks.
+    let cadence_hz = runtime
+        .timing()
+        .ok_or_else(|| error("the package did not boot"))?
+        .cadence_hz;
+    let mut schedule = TickSchedule::new(cadence_hz, clock.now(), 1).map_err(error)?;
     let mut frames = 0u64;
     while !STOP.load(Ordering::Relaxed) && options.frames.is_none_or(|limit| frames < limit) {
         schedule.wait_next(&mut clock).map_err(error)?;

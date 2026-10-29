@@ -46,15 +46,16 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
     "programs/3ds/package_source.c", "platforms/3ds/input_source.c", "engine/guest-quickjs/src/guest.c",
     ...objects, join(target, "release/libpocket_runtime_cabi.a"), "-lm", "-lpthread", "-o", binary]);
   if (packagePath) return run([binary, "--smoke", resolve(packagePath)]);
-  const makePackage = (profileHash: string) => encodePocketPackage({ manifest: new Uint8Array(), variants: [{
+  const makePackage = (profileHash: string, rasterDensity = 1) => encodePocketPackage({ manifest: new Uint8Array(), variants: [{
     target: profile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash, sections: [
       { kind: 1, bytes: encodeIdentity({ output: "minimal", id: "test.3ds.minimal", title: "Minimal file source" }) },
-      { kind: 2, bytes: new TextEncoder().encode('{"viewport":{"logical":[400,240],"rasterDensity":1},"features":{}}') },
+      { kind: 2, bytes: new TextEncoder().encode(`{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[400,240],"presentation":"native","rasterDensity":${rasterDensity}},"features":{}}`) },
       { kind: 3, bytes: new TextEncoder().encode(`if(ui.__host!=="3ds-runtime"||ui.__hostAbi!==${POCKET_BINDING_GENERATION}||ui.__auxiliarySurface.root<=0)throw new Error("metadata");if(ui.svcOpen||ui.appTable)throw new Error("product provider");globalThis.__turns=0;globalThis.frame=(buttons,analog,touches,hits,surfaces,right)=>{if(buttons!==8192||analog!==255||right!==65280)throw new Error("input");const n=ui.createNode(0);if(n<=0)throw new Error("core op");ui.destroyNode(n);__turns++};\0`) },
     ] }] });
   const valid = makePackage(hashPocketProfile(profile));
   writeFileSync(join(out, "valid.pocket"), valid);
-  writeFileSync(join(out, "mismatch.pocket"), makePackage(`sha256:${"11".repeat(32)}`));
+  // Another profile hash with the same facts is admitted; another density is not.
+  writeFileSync(join(out, "mismatch.pocket"), makePackage(`sha256:${"11".repeat(32)}`, 2));
   writeFileSync(join(out, "truncated.pocket"), valid.subarray(0, valid.length - 8));
   const result = run([binary, join(out, "valid.pocket"), join(out, "mismatch.pocket"), join(out, "truncated.pocket")]);
   writeFileSync(join(out, "receipt.json"), JSON.stringify({ status: "passed", kind: "host contract; not hardware rendering", profileHash: hashPocketProfile(profile), canonicalProfileJson: canonicalProfileJson(profile), result }, null, 2) + "\n");

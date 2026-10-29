@@ -57,7 +57,7 @@ void app_main(void) {
   runner_config.user_data = guest;
   pocket_runner_t *runner = NULL;
   ESP_ERROR_CHECK(
-      pocket_runner_start(runtime, host->tick_hz, &runner_config, &runner));
+      pocket_runner_start(runtime, &runner_config, &runner));
   vTaskDelay(pdMS_TO_TICKS(1000));
   pocket_runner_stats_t stats = {.struct_size = sizeof(stats)};
   ESP_ERROR_CHECK(pocket_runner_stats(runner, &stats));

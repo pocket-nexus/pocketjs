@@ -845,6 +845,8 @@ fn boot(args: &Args) -> Result<(UiProgram, String, Vec<u8>)> {
     let mut program = UiProgram::new(ProgramConfig {
         profile,
         profile_hash: profile::PROFILE_HASH,
+        // The bundle's baked rate; its plan's profile.tickHz.
+        tick_hz: 60,
         host_abi: profile::HOST_ABI,
         logical: [args.size.0, args.size.1],
         heap_limit: 64 * 1024 * 1024,

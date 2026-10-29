@@ -116,7 +116,8 @@ struct Runtime {
     supervisor: AppSupervisor,
     offload: OffloadWorker,
     viewport: (u32, u32),
-    tick_hz: u32,
+    /// Presented frames per second: the booted package's host cadence.
+    cadence_hz: u32,
     ticks: u64,
     buttons: u32,
     script: Vec<ScriptEvent>,
@@ -141,12 +142,33 @@ impl Runtime {
                 profile.profile.density
             ));
         }
-        let pak = std::fs::read(resolve_asset(args.pak.clone(), &args.app, "pak")?)?;
-        let source = std::fs::read_to_string(resolve_asset(args.js.clone(), &args.app, "js")?)?;
-        let tick_hz = profile.profile.tick_hz;
+        // A package carries its own pak; raw --js/--pak are encoded at boot.
+        let (package, pak, source) = match &args.package {
+            Some(path) => {
+                let bytes = std::fs::read(path)
+                    .with_context(|| format!("reading package {}", path.display()))?;
+                let host = profile.profile.host_facts(HOST_ABI, profile.hash);
+                let pak = pocket_runtime::pocket_package::select_guest(&bytes, &host, false)
+                    .map_err(|error| match error {
+                        pocket_runtime::pocket_package::GuestError::NotAdmitted(mismatch) => {
+                            anyhow!("{}: {mismatch}", path.display())
+                        }
+                        other => anyhow!("{}: {other:?}", path.display()),
+                    })?
+                    .pak
+                    .to_vec();
+                (Some(bytes), pak, String::new())
+            }
+            None => (
+                None,
+                std::fs::read(resolve_asset(args.pak.clone(), &args.app, "pak")?)?,
+                std::fs::read_to_string(resolve_asset(args.js.clone(), &args.app, "js")?)?,
+            ),
+        };
         let mut program = UiProgram::new(ProgramConfig {
             profile: profile.profile.clone(),
             profile_hash: profile.hash,
+            tick_hz: args.tick_hz,
             host_abi: HOST_ABI,
             logical: [args.viewport.0, args.viewport.1],
             heap_limit: 128 * 1024 * 1024,
@@ -167,7 +189,16 @@ impl Runtime {
             args.density as f32,
         )?;
         output.register(&mut program)?;
-        program.boot(guest.clone(), &args.app, &source, &pak)?;
+        match package {
+            Some(bytes) => program.boot_package(guest.clone(), bytes)?,
+            None => program.boot(guest.clone(), &args.app, &source, &pak)?,
+        }
+        // One guest frame per cadence period; the runtime advances the core
+        // by the package rate divided by the cadence each frame.
+        let cadence_hz = program
+            .timing()
+            .ok_or_else(|| anyhow!("the package did not boot"))?
+            .cadence_hz;
         surface.svc_push(
             json!({"t":"hello","w":args.viewport.0,"h":args.viewport.1,"epoch":epoch_ms()})
                 .to_string(),
@@ -183,7 +214,7 @@ impl Runtime {
             .map(|addr| net::SvcWire::spawn(addr, args.app.clone()));
         Ok(Self {
             viewport: args.viewport,
-            tick_hz,
+            cadence_hz,
             script: args.script.clone(),
             args,
             surface,
@@ -271,7 +302,7 @@ impl Runtime {
             && self.ticks < start + dur
         {
             let i = self.ticks - start;
-            let hz = self.tick_hz as u64;
+            let hz = self.cadence_hz as u64;
             let n = ((i + 1) * cps as u64) / hz - (i * cps as u64) / hz;
             if n > 0 {
                 self.svc(json!({"t":"ch","s":"x".repeat(n.min(512) as usize)}));
@@ -396,7 +427,7 @@ fn run_runtime(
     let mut hash = None;
     let mut intents = Vec::new();
     let started = Instant::now();
-    let mut schedule = pocket_runtime::timing::TickSchedule::new(runtime.tick_hz, 0, 1)
+    let mut schedule = pocket_runtime::timing::TickSchedule::new(runtime.cadence_hz, 0, 1)
         .map_err(|error| anyhow!("tick schedule: {error:?}"))?;
     loop {
         let deadline = schedule

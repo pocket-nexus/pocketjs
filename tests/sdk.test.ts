@@ -72,7 +72,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     const bytes = (source: string) => new TextEncoder().encode(source);
     const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
-      { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
+      { kind: POCKET_SECTION.plan, bytes: bytes('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: bytes("globalThis.frameCount=0;globalThis.frame=()=>{globalThis.frameCount++;ui.createNode(1)};\0") },
     ] }] });
     writeFileSync(join(external, "program/profile.h"), profileFactsC(fixtureProfile, "profile_facts") + `static const unsigned char profile_hash[32] = {${[...createHash("sha256").update(profile).digest()].join(",")}};\nstatic const unsigned char package_bytes[] = {${[...pkg].join(",")}};\n`);

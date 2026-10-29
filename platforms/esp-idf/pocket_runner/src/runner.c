@@ -96,7 +96,7 @@ static void runner_task(void *opaque) {
     vTaskDelete(NULL);
 }
 
-esp_err_t pocket_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
+esp_err_t pocket_runner_start(pocket_runtime *runtime,
                               const pocket_runner_config_t *config,
                               pocket_runner_t **out_runner) {
   if (runtime == NULL || config == NULL || out_runner == NULL ||
@@ -106,13 +106,17 @@ esp_err_t pocket_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
     return ESP_ERR_INVALID_ARG;
   }
   *out_runner = NULL;
+  /* The booted package's rate presented at the profile cadence. */
+  pocket_runtime_timing timing = {.struct_size = sizeof(timing)};
+  if (pocket_runtime_get_timing(runtime, &timing) != POCKET_STATUS_OK)
+    return ESP_ERR_INVALID_STATE;
   pocket_runner_t *runner = calloc(1, sizeof(*runner));
   if (runner == NULL)
     return ESP_ERR_NO_MEM;
   runner->runtime = runtime;
   runner->config = *config;
   runner->schedule = pocket_tick_schedule_create(
-      tick_hz, (uint64_t)esp_timer_get_time(), config->max_lag_us);
+      timing.cadence_hz, (uint64_t)esp_timer_get_time(), config->max_lag_us);
   if (!runner->schedule) {
     free(runner);
     return ESP_ERR_INVALID_ARG;

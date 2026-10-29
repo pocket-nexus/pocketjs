@@ -31,7 +31,7 @@ describe("portable QuickJS C canonical composition", () => {
       run([cc!, "-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"', "-I", quickjs, "-c", join(quickjs, `${name}.c`), "-o", object]);
       return object;
     });
-    const profileHeader = writeHostProfileHeader(build, defineProfile({id:"harness-test",platform:"fixture",form:"embedded",tickHz:60,display:{physicalViewport:[32,24],logicalViewports:[[32,24]],rasterDensity:1,presentations:["native"]},capabilities:["input.buttons","input.touch"],roleCapabilities:{}}));
+    const profileHeader = writeHostProfileHeader(build, defineProfile({id:"harness-test",platform:"fixture",form:"embedded",tickHz:60,display:{physicalViewport:[32,24],logicalViewports:[[32,24]],rasterDensity:1,presentations:["native"]},capabilities:["input.buttons","input.touch","ui.physics"],roleCapabilities:{}}));
     const common = ["-include", profileHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", '-DPOCKETJS_TARGET_ID="harness-test"', `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
       ...["programs/native/quickjs", "programs/native/cabi/include", "engine/guest-quickjs/include", "contracts/generated", "platforms/posix/svc-wire/include"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
     const stale = Bun.spawnSync([cc!, ...common.map(arg => arg.startsWith("-DPOCKETJS_HOST_ABI=")

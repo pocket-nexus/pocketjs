@@ -72,6 +72,7 @@ const SUITE: readonly Stage[] = [
       "tests/out-of-tree-rust.test.ts",
       "tests/applet.test.ts",
       "tests/pocket-package.test.ts",
+      "tests/package-admission.test.ts",
       "tests/idf-host-profile.test.ts",
       "tests/idf-embed.test.ts",
       "tests/idf-incremental.test.ts",

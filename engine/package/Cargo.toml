@@ -11,3 +11,6 @@ license.workspace = true
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

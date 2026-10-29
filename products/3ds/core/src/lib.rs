@@ -3,7 +3,7 @@
 #![no_std]
 extern crate alloc;
 use pocket_package::sha256::sha256_hex_prefix;
-use pocket_package::{plan_facts, select_guest, GuestError, PackageError, PlanFactsError};
+use pocket_package::{plan_facts, PlanFactsError};
 pub use pocket_runtime_cabi::*;
 
 unsafe fn bytes<'a>(pointer: *const u8, length: usize) -> &'a [u8] {
@@ -55,61 +55,29 @@ pub const POCKET_GUEST_FEATURE_CAMERA_QR: u32 = 16;
 /// the photo store.
 pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
 
-fn package_error_code(error: GuestError) -> i32 {
-    match error {
-        GuestError::Package(PackageError::Truncated) => 1,
-        GuestError::Package(PackageError::BadMagic) => 2,
-        GuestError::Package(PackageError::BadVersion) => 3,
-        GuestError::Package(PackageError::HashMismatch) => 4,
-        GuestError::Package(PackageError::BadUtf8) => 5,
-        GuestError::Package(PackageError::BadLayout) => 17,
-        GuestError::ProfileHashMismatch => 16,
-        GuestError::MissingVariant => 6,
-        GuestError::HostAbiMismatch => 7,
-        GuestError::MissingIdentity => 8,
-        GuestError::MissingPlan => 9,
-        GuestError::MissingJavaScript => 10,
-        GuestError::JavaScriptNotTerminated => 11,
-        GuestError::WorkerSectionMismatch => 18,
-    }
-}
-
-/// Verify a complete `.pocket` for an independent target/ABI/profile identity.
-/// Returns 0 on success; non-zero codes are stable for the C runtime's status
-/// and recovery files (12 is a bad pointer or non-UTF-8 target argument;
-/// 13-15 a plan whose JSON, viewport or auxiliary surface cannot be read;
-/// 16 a profile mismatch; 17 a malformed layout; 18 a worker declaration and
-/// section that disagree).
+/// Verify a complete `.pocket` and admit the first variant the exported
+/// profile facts satisfy (`pocket_package::admission`). Returns 0 on success;
+/// non-zero codes are stable for the C runtime's status and recovery files
+/// (`pocket_runtime_cabi::package_open::guest_error_code`: 12 is a bad
+/// pointer, 13-15 a plan whose JSON, viewport or auxiliary surface cannot be
+/// read, 17 a malformed layout, 18 a worker declaration and section that
+/// disagree, 19-25 the first failed admission item). The profile hash only
+/// orders variants.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_package_open(
     ptr: *const u8,
     len: usize,
-    target_ptr: *const u8,
-    target_len: usize,
+    facts: *const abi::PocketProfileFacts,
     host_abi: u32,
-    expected_profile_hash: *const u8,
+    profile_hash: *const u8,
     out: *mut PocketGuestPackage,
 ) -> i32 {
-    if ptr.is_null()
-        || len == 0
-        || len > isize::MAX as usize
-        || target_ptr.is_null()
-        || target_len == 0
-        || target_len > isize::MAX as usize
-        || expected_profile_hash.is_null()
-        || out.is_null()
-    {
+    if ptr.is_null() || len == 0 || len > isize::MAX as usize || facts.is_null() || out.is_null() {
         return 12;
     }
-    let target = match core::str::from_utf8(bytes(target_ptr, target_len)) {
-        Ok(value) if !value.is_empty() => value,
-        _ => return 12,
-    };
-    let mut profile_hash = [0; 32];
-    profile_hash.copy_from_slice(bytes(expected_profile_hash, 32));
-    let guest = match select_guest(bytes(ptr, len), target, host_abi, &profile_hash, false) {
+    let guest = match package_open::admit(bytes(ptr, len), facts, host_abi, profile_hash) {
         Ok(guest) => guest,
-        Err(error) => return package_error_code(error),
+        Err(code) => return code,
     };
     if guest.id.is_empty() {
         return 8;

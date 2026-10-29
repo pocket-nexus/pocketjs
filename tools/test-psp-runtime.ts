@@ -6,8 +6,10 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import { exportProfile } from "./profile-export.ts";
 const root = resolve(import.meta.dir, "..");
 const validation = join(root, ".pocket-build/validation/psp-runtime");
-// The fixture embeds the profile module the PSP program embeds.
-const exported = exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(validation, "profile"));
+// The fixture embeds the profile module the PSP program embeds, plus
+// ui.physics so a plan can enable the feature-gated physics namespace.
+const fixtureProfile = { ...profile, capabilities: [...profile.capabilities, "ui.physics"] };
+const exported = exportProfile({ profile: fixtureProfile, profileHash: hashPocketProfile(fixtureProfile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(validation, "profile"));
 const metadata = Bun.spawnSync(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", join(root, "programs/psp/Cargo.toml")], { cwd: root, stdout: "pipe", stderr: "pipe" });
 if (!metadata.success) throw new Error(metadata.stderr.toString());
 const packages = JSON.parse(metadata.stdout.toString()).packages as {name:string;manifest_path:string;source:string|null;dependencies:{name:string;source:string|null}[]}[];

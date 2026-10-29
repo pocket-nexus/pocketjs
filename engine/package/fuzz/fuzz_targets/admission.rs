@@ -4,6 +4,20 @@ use pocket_drivers::{PackageSource, SourceError};
 use pocket_package::{
     package::{select_guest, Package},
     source::{LoadedPackage, MemorySource},
+    HostFacts,
+};
+
+const HOST: HostFacts<'static, &'static str> = HostFacts {
+    binding_generation: 1,
+    profile_hash: [0x11; 32],
+    raster_density: 1,
+    animation: Some("composited"),
+    cadences: &[60, 30],
+    logical_viewports: &[[480, 272]],
+    dynamic_viewport: None,
+    presentations: Some(&["native"]),
+    capabilities: &["input.buttons", "text.glyphs.baked"],
+    auxiliary_logical: &[],
 };
 
 struct Chunks<'a>(&'a [u8]);
@@ -25,19 +39,14 @@ fuzz_target!(|data: &[u8]| {
             for i in 0..package.variant_count() {
                 if let Ok(variant) = package.variant(i) {
                     let _ = variant.identity();
-                    let _ = select_guest(
-                        data,
-                        variant.target,
-                        variant.host_abi,
-                        &[0x11; 32],
-                        skip_hash,
-                    );
+                    let host = HostFacts { binding_generation: variant.host_abi, ..HOST };
+                    let _ = select_guest(data, &host, skip_hash);
                 }
             }
         }
     }
-    let memory = LoadedPackage::load(&mut MemorySource(data), "psp", 1, &[0x11; 32], 8192);
-    let range = LoadedPackage::load(&mut Chunks(data), "psp", 1, &[0x11; 32], 8192);
+    let memory = LoadedPackage::load(&mut MemorySource(data), &HOST, 8192);
+    let range = LoadedPackage::load(&mut Chunks(data), &HOST, 8192);
     assert_eq!(memory.is_ok(), range.is_ok());
     if let (Ok(memory), Ok(range)) = (memory, range) {
         assert_eq!(memory.bytes(), range.bytes());

@@ -151,7 +151,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
     write(file, image.rgba, [source, resolve(options.manifestPath), ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
     imageCode.push(`{ let id = ui.core_mut().upload_texture(include_bytes!(${JSON.stringify(file)}), ${image.width}, ${image.height}, microts::pocketjs_core::spec::psm::PSM_8888); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
   }
-  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n#[allow(dead_code)]\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(ui: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
+  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(ui: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
   write("layers.json", JSON.stringify({ viewport: plan.viewport.logical, tickRate: tickHz, settleFrames: 40, layers: result.layout.regions.flatMap(region => region.layers) }, null, 2) + "\n");
   await inputs.compiler([resolve(ROOT, "tools/aot-compile.ts")], ROOT);
   const allInputs = inputs.paths();

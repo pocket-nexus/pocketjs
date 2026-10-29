@@ -9,21 +9,27 @@ fn package_sources_share_canonical_acceptance_and_rejection() {
         host_abi: pocket_spec::BINDING_GENERATION,
         profile_hash: [42; 32],
         identity: &identity,
-        plan: b"{}",
+        plan: br#"{"animation":"composited","features":{},"profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1}}"#,
         code: b"application",
         pak: &[],
     })
     .unwrap();
     for source_bytes in [&bytes[..], &bytes[..bytes.len() - 1]] {
         for hash in [[42; 32], [99; 32]] {
-            check_package_admission(
-                &mut MemorySource(source_bytes),
-                source_bytes,
-                "external-test",
-                pocket_spec::BINDING_GENERATION,
-                &hash,
-            )
-            .unwrap();
+            let host = pocket_package::HostFacts::<&str> {
+                binding_generation: pocket_spec::BINDING_GENERATION,
+                profile_hash: hash,
+                raster_density: 1,
+                animation: Some("composited"),
+                cadences: &[60],
+                logical_viewports: &[[4, 4]],
+                dynamic_viewport: None,
+                presentations: Some(&["native"]),
+                capabilities: &[],
+                auxiliary_logical: &[],
+            };
+            check_package_admission(&mut MemorySource(source_bytes), source_bytes, &host)
+                .unwrap();
         }
     }
 }

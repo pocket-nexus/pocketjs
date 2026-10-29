@@ -148,6 +148,7 @@ impl AppSupervisor {
         let mut program = UiProgram::new(ProgramConfig {
             profile: self.profile.profile.clone(),
             profile_hash: self.profile.hash,
+            tick_hz: plan.profile.tick_hz,
             host_abi: plan.target.host_abi,
             logical: plan.viewport.logical,
             heap_limit: 128 * 1024 * 1024,

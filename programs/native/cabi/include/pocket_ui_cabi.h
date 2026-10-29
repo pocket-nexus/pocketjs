@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "pocket_runtime.h"
 
 /* One `.pocket` variant admitted for a runtime that serves every game.
  * Pointers borrow the caller's package buffer; javascript_length includes
@@ -25,17 +26,20 @@ typedef struct {
 #define POCKET_UI_PACKAGE_OFFLOAD 2u    /* features["io.offload"] */
 #define POCKET_UI_PACKAGE_COMPANIONS 4u /* companions is not empty */
 
-/* 0 = admitted: footer hash, exact target and host ABI, identity, plan and
- * NUL-terminated JS. 1-11 package errors, 12 bad arguments, 13 plan JSON,
- * 14 plan viewport, 16 profile hash, 17 section layout. profile_hash is the
- * independent host build profile SHA-256 (32 readable bytes). */
+/* 0 = admitted: footer hash, the first variant the exported profile facts
+ * admit (binding generation, raster density, animation, rate, viewport,
+ * presentation, capabilities, auxiliary surface), identity, plan and
+ * NUL-terminated JS. 1-11 package errors (7 binding generation, 9 plan),
+ * 12 bad arguments, 13 plan JSON, 14 plan viewport, 17 section layout,
+ * 18 worker section, 19-25 the first failed admission item. profile_hash is
+ * null or the host profile SHA-256 (32 readable bytes); it only orders
+ * variants. */
 int32_t pocket_ui_package_open(
   const uint8_t *bytes,
   size_t length,
-  const uint8_t *target,
-  size_t target_length,
+  const pocket_profile_facts *facts,
   uint32_t host_abi,
-  const uint8_t profile_hash[32],
+  const uint8_t *profile_hash,
   PocketUiPackage *out
 );
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include "pocket_runtime.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -27,15 +28,20 @@ typedef struct {
 #define POCKET_IDF_FEATURE_CAMERA_QR 2U
 #define POCKET_IDF_FEATURE_CAMERA_PHOTO 4U
 #define POCKET_IDF_FEATURE_MEDIA 8U
-/* 0 = admitted for target, host_abi and the expected profile hash (32
- * bytes). Non-zero codes: 1..5 a damaged file, 6 no variant for the target,
- * 7 another binding generation, 8..11 a variant missing its identity, plan
- * or JavaScript, 12 a bad argument, 13..15 an unreadable plan, 16 another
- * profile, 17 a malformed layout. Initialize out->struct_size. */
+/* 0 = admitted: the first variant the exported profile facts satisfy
+ * (binding generation, raster density, animation, rate, viewport,
+ * presentation, capabilities, auxiliary surface). profile_hash is null or
+ * 32 bytes and only orders variants. Non-zero codes: 1..5 a damaged file,
+ * 6 no variant, 7 another binding generation, 8 no identity, 9 an unreadable
+ * plan, 10..11 missing or unterminated JavaScript, 12 a bad argument,
+ * 13..15 an unreadable plan fact, 17 a malformed layout, 18 a worker section
+ * mismatch, 19..25 the first failed admission item (raster density,
+ * animation, rate, viewport, presentation, capability, auxiliary).
+ * Initialize out->struct_size. */
 int32_t pocket_idf_package_open(const uint8_t *bytes, size_t length,
-                                const uint8_t *target, size_t target_length,
+                                const pocket_profile_facts *facts,
                                 uint32_t host_abi,
-                                const uint8_t *expected_profile_hash,
+                                const uint8_t *profile_hash,
                                 pocket_idf_package_facts *out);
 #ifdef __cplusplus
 }

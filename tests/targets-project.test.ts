@@ -148,16 +148,21 @@ describe("runtime configuration", () => {
 #include <stdio.h>
 #include <string.h>
 _Static_assert(POCKET_PROFILE_WIDTH == 8 && POCKET_PROFILE_HEIGHT == 4, "physical size");
-_Static_assert(POCKET_PROFILE_TICK_HZ == 60, "tick rate");
+static const char capabilities[] = "display.auxiliary\\0display.viewport.live\\0input.buttons\\0text.glyphs.baked";
 int main(void) {
     assert(pocket_profile.struct_size == sizeof(pocket_profile));
     assert(pocket_profile.tick_hz == 60 && pocket_profile.host_abi == ${POCKET_BINDING_GENERATION});
     assert(strcmp(pocket_profile.id, ${idLiteral}) == 0 && strcmp(pocket_profile.platform, "test") == 0 && strcmp(pocket_profile.form, "window") == 0);
-    assert(pocket_profile.presentations == (POCKET_PROFILE_PRESENTATION_NATIVE | POCKET_PROFILE_PRESENTATION_FIT));
+    assert(pocket_profile.presentation_count == 2 && strcmp(pocket_profile.presentations[0], "native") == 0 && strcmp(pocket_profile.presentations[1], "fit") == 0);
+    assert(pocket_profile.cadence_count == 1 && pocket_profile.cadences[0] == 60 && strcmp(pocket_profile.animation, "repaint") == 0);
     const pocket_profile_facts *facts = pocket_profile.facts;
     assert(facts->struct_size == sizeof(*facts));
     assert(facts->id_length == ${idBytes.length} && memcmp(facts->id, ${idLiteral}, ${idBytes.length}) == 0);
     assert(facts->tick_hz == 60 && facts->input_classes == POCKET_INPUT_CLASS_BUTTONS);
+    assert(facts->cadence_count == 1 && facts->cadences[0] == 60);
+    assert(facts->capabilities_length == sizeof capabilities && memcmp(facts->capabilities, capabilities, sizeof capabilities) == 0);
+    assert(facts->presentations_length == 11 && memcmp(facts->presentations, "native\\0fit", 11) == 0);
+    assert(facts->animation_length == 7 && memcmp(facts->animation, "repaint", 7) == 0);
     const pocket_profile_display *display = facts->display;
     assert(display->struct_size == sizeof(*display));
     assert(display->physical[0] == 8 && display->physical[1] == 4);
@@ -167,8 +172,8 @@ int main(void) {
     assert(facts->auxiliary->physical[0] == 4 && facts->auxiliary->logical_count == 1 && facts->auxiliary->logical[1] == 1);
     assert(facts->dynamic_viewport->struct_size == sizeof(*facts->dynamic_viewport));
     assert(facts->dynamic_viewport->min[0] == 1 && facts->dynamic_viewport->max[1] == 8);
-    assert(pocket_profile.capabilities == (POCKET_PROFILE_CAP_INPUT_BUTTONS | POCKET_PROFILE_CAP_TEXT_GLYPHS_BAKED | POCKET_PROFILE_CAP_DISPLAY_VIEWPORT_LIVE | POCKET_PROFILE_CAP_DISPLAY_AUXILIARY));
-    assert(pocket_profile.system_ui_capabilities == POCKET_PROFILE_CAP_UI_COMPOSITOR_SURFACES);
+    assert(pocket_profile.capability_count == 4 && strcmp(pocket_profile.capabilities[0], "display.auxiliary") == 0 && strcmp(pocket_profile.capabilities[3], "text.glyphs.baked") == 0);
+    assert(pocket_profile.system_ui_capability_count == 1 && strcmp(pocket_profile.system_ui_capabilities[0], "ui.compositor-surfaces") == 0);
     fwrite(facts->id, 1, facts->id_length, stdout);
     putchar(10);
     return 0;

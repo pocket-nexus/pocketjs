@@ -63,7 +63,7 @@ function compileAndRun(profile: "release" | "debug") {
   expectOk(
     run([
       cc!, "-std=c99", "-Wall", "-Wextra", "-Werror",
-      "-I", join(crate, "include"),
+      "-I", join(crate, "include"), "-I", join(repository, "contracts/generated"),
       join(repository, "tests/fixtures/ui-cabi-psm-draw/psm_draw.c"),
       archive, "-lm", "-o", binary,
     ]),

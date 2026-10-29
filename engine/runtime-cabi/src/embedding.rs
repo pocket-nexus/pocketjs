@@ -208,13 +208,16 @@ mod tests {
             frame_buffer_budget: 64,
             profile: Profile {
                 id: Cow::Borrowed("fixture"),
-                tick_hz: 30,
+                cadences: Cow::Borrowed(&[30]),
                 viewport: [960, 544],
                 logical_viewports: Cow::Borrowed(&[[480, 272], [320, 240]]),
                 dynamic_viewport: None,
+                presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
                 auxiliary: Some([320, 240]),
                 auxiliary_logical: Cow::Borrowed(&[[160, 120]]),
                 density: 2,
+                animation: Cow::Borrowed("composited"),
+                capabilities: Cow::Borrowed(&[]),
                 required_inputs: InputClasses::BUTTONS,
             },
         }
@@ -228,7 +231,8 @@ mod tests {
             {
                 let state = ops.core().unwrap();
                 assert_eq!(state.ui.viewport(), (480.0, 272.0));
-                assert_eq!(state.ui.tick_rate(), 30);
+                // The core keeps its default rate until a package boots.
+                assert_eq!(state.ui.tick_rate(), 60);
                 assert_eq!(state.ui.raster_density(), 2);
                 assert_eq!(state.ui.auxiliary_viewport(), Some((160.0, 120.0)));
             }

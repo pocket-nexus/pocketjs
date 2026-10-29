@@ -52,7 +52,7 @@ function packageBytes(): Uint8Array {
   return encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "external-idf", hostAbi: POCKET_BINDING_GENERATION,
     profileHash: `sha256:${sha256(profile)}`, sections: [
     { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
-    { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[32,24],"rasterDensity":1},"features":{}}') },
+    { kind: POCKET_SECTION.plan, bytes: bytes('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[32,24],"presentation":"native","rasterDensity":1},"features":{}}') },
     { kind: POCKET_SECTION.js, bytes: bytes(script + "\0") },
   ] }] });
 }

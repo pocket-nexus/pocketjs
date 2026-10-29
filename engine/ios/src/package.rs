@@ -8,18 +8,28 @@ use pocket_runtime::{Cow, InputClasses, Profile};
 /// runtime share the all-zero hash.
 pub(crate) const PROFILE_HASH: [u8; 32] = [0; 32];
 
-/// The configured identity and tick rate with the bridge's one viewport.
+/// The capabilities the synthesized plan enables.
+const CAPABILITIES: &[Cow<'static, str>] = &[
+    Cow::Borrowed("input.touch"),
+    Cow::Borrowed("text.glyphs.baked"),
+];
+
+/// The configured identity with the bridge's one viewport, presented at the
+/// configured rate. The host states no animation class.
 pub(crate) fn profile(config: &Configuration, bridge: &Bridge) -> Profile {
     let [width, height] = bridge.logical;
     Profile {
         id: Cow::Owned(config.host.clone()),
-        tick_hz: config.hz,
+        cadences: Cow::Owned(vec![config.hz]),
         viewport: [width * bridge.density, height * bridge.density],
         logical_viewports: Cow::Owned(vec![[width, height]]),
         dynamic_viewport: None,
+        presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
         auxiliary: None,
         auxiliary_logical: Cow::Borrowed(&[]),
         density: bridge.density,
+        animation: Cow::Borrowed(""),
+        capabilities: Cow::Borrowed(CAPABILITIES),
         required_inputs: InputClasses::CONTACT,
     }
 }
@@ -31,8 +41,8 @@ pub(crate) fn encode(
 ) -> Result<Vec<u8>, String> {
     let [width, height] = bridge.logical;
     let plan = format!(
-        r#"{{"features":{{"input.touch":true,"text.glyphs.baked":true}},"viewport":{{"logical":[{width},{height}],"rasterDensity":{}}}}}"#,
-        bridge.density
+        r#"{{"features":{{"input.touch":true,"text.glyphs.baked":true}},"profile":{{"tickHz":{}}},"viewport":{{"logical":[{width},{height}],"presentation":"native","rasterDensity":{}}}}}"#,
+        config.hz, bridge.density
     );
     let identity = embedded::identity(
         "embedded",

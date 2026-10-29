@@ -106,6 +106,7 @@ impl Guest for CGuest {
             sprites: sprites.as_ptr(),
             sprite_count: sprites.len(),
             assets_present: u32::from(env.assets.is_some()),
+            sim_hz: env.sim_hz,
             ..PocketGuestEnvironment::empty()
         };
         result(unsafe { callback(self.context, self.runtime, &environment) })

@@ -141,7 +141,7 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     const utf8 = (text: string) => new TextEncoder().encode(text);
     const sections = [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
-      { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
+      { kind: POCKET_SECTION.plan, bytes: utf8('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
     ];
     const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: fixtureProfile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + hash(profile), sections }] });

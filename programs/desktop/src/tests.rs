@@ -93,6 +93,7 @@ mod tests {
                         "entry": "apps/shell/main.tsx",
                         "framework": "solid"
                     },
+                    "profile": { "id": HOST_ID, "tickHz": 60 },
                     "target": { "id": HOST_ID, "hostAbi": pocket_spec::BINDING_GENERATION },
                     "viewport": {
                         "logical": [800, 600],

@@ -23,7 +23,8 @@ pub struct FrameTiming {
 struct PacedDevice {
     device: NativeDevice,
     clock: Rc<Cell<u32>>,
-    ticks: u32,
+    /// 60 Hz vblanks per presented frame, set at boot from the cadence.
+    vblanks: Rc<Cell<u32>>,
     timing: Rc<Cell<FrameTiming>>,
 }
 // Delegates the driver's pointer lifetime contract to NativeDevice. Pacing
@@ -79,7 +80,7 @@ unsafe impl pocket_psp_render::Device for PacedDevice {
         unsafe {
             loop {
                 let elapsed = psp::sys::sceDisplayGetVcount().wrapping_sub(self.clock.get());
-                if elapsed >= self.ticks && psp::sys::sceDisplayIsVblank() != 0 {
+                if elapsed >= self.vblanks.get() && psp::sys::sceDisplayIsVblank() != 0 {
                     break;
                 }
                 psp::sys::sceDisplayWaitVblankStart();
@@ -120,6 +121,7 @@ pub struct Runtime {
     input: Rc<RefCell<instance::Input>>,
     renderer: SharedRenderer<PacedDevice>,
     timing: Rc<Cell<FrameTiming>>,
+    vblanks: Rc<Cell<u32>>,
 }
 impl Runtime {
     /// # Safety
@@ -127,7 +129,7 @@ impl Runtime {
     /// Drop the prior Runtime before booting another guest or opening native lists.
     pub unsafe fn new(
         source: Box<dyn pocket_drivers::PackageSource>,
-        sim_hz: u32,
+        fixed_cadence: Option<u32>,
         clock: Rc<Cell<u32>>,
     ) -> Result<Self, String> {
         let _fpu = crate::host::FpuGuard::masked();
@@ -146,22 +148,19 @@ impl Runtime {
                 return Err(format!("{e:?}"));
             }
         };
-        let guest = match instance::Guest::new(ops.clone(), sim_hz) {
+        let guest = match instance::Guest::new(ops.clone(), fixed_cadence) {
             Ok(v) => v,
             Err(e) => {
                 pocket_runtime_cabi::pocket_runtime_destroy(handle);
                 return Err(e);
             }
         };
-        if sim_hz == 0 || 60 % sim_hz != 0 {
-            pocket_runtime_cabi::pocket_runtime_destroy(handle);
-            return Err("invalid PSP simulation rate".into());
-        }
         let timing = Rc::new(Cell::new(FrameTiming::default()));
+        let vblanks = Rc::new(Cell::new(1));
         let device = PacedDevice {
             device: NativeDevice::new(crate::host::list_ptr()),
             clock,
-            ticks: 60 / sim_hz,
+            vblanks: vblanks.clone(),
             timing: timing.clone(),
         };
         let renderer = match GeRenderer::new(device, Config::psp()) {
@@ -182,6 +181,7 @@ impl Runtime {
             input,
             renderer,
             timing,
+            vblanks,
         };
         runtime
             .ops
@@ -251,7 +251,21 @@ impl Runtime {
     pub unsafe fn boot(&mut self) -> Result<(), String> {
         let _fpu = crate::host::FpuGuard::masked();
         self.check(embed::boot_deferred(self.handle))?;
+        // The guest recorded the admitted rate and the cadence it published.
+        let sim_hz = self.guest.sim_hz.get();
+        if sim_hz == 0 || 60 % sim_hz != 0 {
+            return Err(alloc::format!("PSP cannot present at {sim_hz} Hz"));
+        }
+        self.vblanks.set(60 / sim_hz);
         self.check(embed::skip_presentation(self.handle))
+    }
+    /// Guest frames per second after boot (__simHz).
+    pub fn sim_hz(&self) -> u32 {
+        self.guest.sim_hz.get()
+    }
+    /// Core ticks each guest frame advances after boot.
+    pub fn core_ticks(&self) -> u32 {
+        self.guest.tick_hz.get() / self.guest.sim_hz.get().max(1)
     }
     /// # Safety
     /// No core borrow or native GE submission is active. One guest turn, N ticks.

@@ -2,7 +2,8 @@
 //! it: the variant's sections, its hash and the facts of its plan. The
 //! runtime admits the package again at boot; this call shares its reader.
 use pocket_package::sha256::sha256_hex_prefix;
-use pocket_package::{plan_facts, select_guest, GuestError, PackageError, PlanFactsError};
+use pocket_package::{plan_facts, PlanFactsError};
+use pocket_runtime_cabi::{abi::PocketProfileFacts, package_open};
 
 /// Borrowed sections of one verified `.pocket`; the caller keeps the bytes
 /// alive while it reads them.
@@ -38,68 +39,41 @@ pub const POCKET_IDF_FEATURE_CAMERA_PHOTO: u32 = 4;
 /// `features.media.playback` is true in the plan.
 pub const POCKET_IDF_FEATURE_MEDIA: u32 = 8;
 
-fn package_error_code(error: GuestError) -> i32 {
-    match error {
-        GuestError::Package(PackageError::Truncated) => 1,
-        GuestError::Package(PackageError::BadMagic) => 2,
-        GuestError::Package(PackageError::BadVersion) => 3,
-        GuestError::Package(PackageError::HashMismatch) => 4,
-        GuestError::Package(PackageError::BadUtf8) => 5,
-        GuestError::Package(PackageError::BadLayout) => 17,
-        GuestError::ProfileHashMismatch => 16,
-        GuestError::MissingVariant => 6,
-        GuestError::HostAbiMismatch => 7,
-        GuestError::MissingIdentity => 8,
-        GuestError::MissingPlan => 9,
-        GuestError::MissingJavaScript => 10,
-        GuestError::JavaScriptNotTerminated => 11,
-        GuestError::WorkerSectionMismatch => 18,
-    }
-}
-
-/// Verify a complete `.pocket` for `target`, `host_abi` and the expected
-/// profile identity, and read its facts. Returns 0 on success; the non-zero
-/// codes are those of the 3DS product's `pocket_package_open` (12 is a bad
-/// pointer, a short record or a non-UTF-8 target; 13 to 15 a plan whose
-/// JSON, viewport or auxiliary surface cannot be read; 16 a profile
-/// mismatch; 17 a malformed layout; 18 a worker declaration and section
-/// that disagree).
+/// Verify a complete `.pocket` and admit the first variant the exported
+/// profile facts satisfy (`pocket_package::admission`), then read its facts.
+/// Returns 0 on success; the non-zero codes are those of the 3DS product's
+/// `pocket_package_open` (`package_open::guest_error_code`: 12 is a bad
+/// pointer or a short record, 13 to 15 a plan whose JSON, viewport or
+/// auxiliary surface cannot be read, 17 a malformed layout, 18 a worker
+/// declaration and section that disagree, 19 to 25 the first failed
+/// admission item). The profile hash only orders variants.
 ///
 /// # Safety
-/// `bytes`, `target` and `expected_profile_hash` are readable for their
-/// lengths (32 bytes for the hash) and `out` is writable for `struct_size`.
+/// `bytes` is readable for `length`, `facts` follows `pocket_runtime_create`'s
+/// profile contract, `profile_hash` is null or readable for 32 bytes, and
+/// `out` is writable for `struct_size`.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_idf_package_open(
     bytes: *const u8,
     length: usize,
-    target: *const u8,
-    target_length: usize,
+    facts: *const PocketProfileFacts,
     host_abi: u32,
-    expected_profile_hash: *const u8,
+    profile_hash: *const u8,
     out: *mut PocketIdfPackageFacts,
 ) -> i32 {
     if bytes.is_null()
         || length == 0
         || length > isize::MAX as usize
-        || target.is_null()
-        || target_length == 0
-        || target_length > isize::MAX as usize
-        || expected_profile_hash.is_null()
+        || facts.is_null()
         || out.is_null()
         || unsafe { (*out).struct_size } < core::mem::size_of::<PocketIdfPackageFacts>()
     {
         return 12;
     }
-    let target = match core::str::from_utf8(unsafe { core::slice::from_raw_parts(target, target_length) }) {
-        Ok(value) if !value.is_empty() => value,
-        _ => return 12,
-    };
-    let mut profile_hash = [0; 32];
-    profile_hash.copy_from_slice(unsafe { core::slice::from_raw_parts(expected_profile_hash, 32) });
     let package = unsafe { core::slice::from_raw_parts(bytes, length) };
-    let guest = match select_guest(package, target, host_abi, &profile_hash, false) {
+    let guest = match unsafe { package_open::admit(package, facts, host_abi, profile_hash) } {
         Ok(guest) => guest,
-        Err(error) => return package_error_code(error),
+        Err(code) => return code,
     };
     if guest.id.is_empty() {
         return 8;

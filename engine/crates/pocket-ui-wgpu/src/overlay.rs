@@ -48,6 +48,7 @@ impl UiOverlay {
         let mut program = UiProgram::new(ProgramConfig {
             profile,
             profile_hash,
+            tick_hz: 60,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical,
             heap_limit: 64 * 1024 * 1024,
