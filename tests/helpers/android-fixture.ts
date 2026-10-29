@@ -1,9 +1,9 @@
-import { defineProfile } from "../../framework/src/profile.ts";
+import { parsePocketProfile } from "../../framework/src/profile.ts";
 import { profileRegistry } from "../../tools/profile-resolver.ts";
 import { validateAndResolveBuildPlan } from "../../framework/src/manifest/resolve.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import type { ResolvedBuildPlan } from "../../framework/src/manifest/plan.ts";
-import { hashPocketProfile } from "../../framework/src/profile.ts";
+import { runtimeDirectory } from "./runtime-directory.ts";
 // The Android repack's test fixture: a runtime directory around
 // tests/fixtures/repack-android/template.apk and a `.pocket` of Clear's
 // external Android profile under a test id. Shared by tests/repack-android.test.ts and
@@ -17,13 +17,14 @@ import { canonicalJson } from "../../framework/src/manifest/plan.ts";
 import { linkAndroidApk } from "../../tools/android-link.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
 export const ANDROID_FIXTURE_TARGET = "test-android-product";
-export const ANDROID_FIXTURE_PROFILE = defineProfile({
-  id: ANDROID_FIXTURE_TARGET, platform: "android", form: "takeover",
-  display: { physicalViewport: [720, 1280], logicalViewports: [[360, 640]], presentations: ["native"], rasterDensity: 2 },
-  capabilities: ["input.touch", "text.glyphs.baked", "io.offload"], tickHz: 60,
+export const ANDROID_FIXTURE_PROFILE = parsePocketProfile({
+  format: "pocket-profile/2", id: ANDROID_FIXTURE_TARGET, platform: "android", form: "takeover", cadences: [60, 30],
+  display: { logicalViewports: [[360, 640]], presentations: ["native"], rasterDensity: 2, animation: "composited" },
+  panel: { primary: [720, 1280] },
+  capabilities: ["input.touch", "text.glyphs.baked", "io.offload"],
 });
 export function resolveAndroidFixturePlan(manifest: unknown, target = ANDROID_FIXTURE_TARGET): ResolvedBuildPlan {
-  const profile = defineProfile({ ...ANDROID_FIXTURE_PROFILE, id: target });
+  const profile = parsePocketProfile({ ...ANDROID_FIXTURE_PROFILE, id: target });
   const result = validateAndResolveBuildPlan(manifest, { target }, profileRegistry(profile));
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
   return result.plan;
@@ -80,18 +81,12 @@ export function fixtureRuntime(overrides: Record<string, unknown> = {}, template
     ["AndroidManifest.xml", new Uint8Array(readFileSync(join(HOST, "AndroidManifest.xml")))],
     ["res/values/strings.xml", new Uint8Array(readFileSync(join(HOST, "res/values/strings.xml")))],
   ]);
-  const manifest = {
-    target: ANDROID_FIXTURE_TARGET,
-    hostAbi: HOST_ABI,
-    pocketjs: "0".repeat(40),
-    profile: ANDROID_FIXTURE_TARGET, profileHash: hashPocketProfile(ANDROID_FIXTURE_PROFILE),
-    viewport: { logical: [360, 640], rasterDensity: 2 },
-    android: { ...SDK_LEVELS, abis: [...ABIS] },
-    files: Object.fromEntries([...files].map(([path, bytes]) => [path, { bytes: bytes.length, sha256: sha256(bytes) }])),
-    ...overrides,
-  };
-  files.set("runtime.json", bytesOf(JSON.stringify(manifest)));
-  return files;
+  const runtime = runtimeDirectory(ANDROID_FIXTURE_PROFILE, files, {
+    hostAbi: HOST_ABI, extra: { viewport: { logical: [360, 640], rasterDensity: 2 }, android: { ...SDK_LEVELS, abis: [...ABIS] } },
+  });
+  const manifest = { ...JSON.parse(new TextDecoder().decode(runtime.get("runtime.json"))), ...overrides };
+  runtime.set("runtime.json", bytesOf(JSON.stringify(manifest)));
+  return runtime;
 }
 
 export const IDENTITY = { id: "dev.pocket-nexus.studio.test-game", title: "Tom's \"Test\" & <Game>", author: "A Creator", version: "1.2.3" };

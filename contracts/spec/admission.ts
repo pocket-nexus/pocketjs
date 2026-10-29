@@ -23,6 +23,8 @@
 // variant with the fewest failed items is reported.
 import type { Viewport } from "./platform-types.ts";
 import { POCKET_SECTION, type PocketPackage, type PocketPackageVariant } from "./pocket-package.ts";
+import type { PocketProfile } from "./profile.ts";
+import { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
 
 export const ADMISSION_ITEMS = [
   "bindingGeneration", "plan", "rasterDensity", "animation", "rate", "viewport", "presentation", "capability", "auxiliary",
@@ -46,6 +48,18 @@ export interface AdmissionHost {
   readonly presentations?: readonly string[];
   readonly capabilities: readonly string[];
   readonly auxiliaryLogical?: readonly Viewport[];
+}
+
+/** The facts a device with this profile document admits packages against. */
+export function admissionHost(profile: PocketProfile, profileHash: string, bindingGeneration: number = POCKET_BINDING_GENERATION): AdmissionHost {
+  const { display } = profile;
+  return {
+    bindingGeneration, profileHash, rasterDensity: display.rasterDensity, animation: display.animation,
+    cadences: profile.cadences, logicalViewports: display.logicalViewports,
+    ...(display.dynamicViewport ? { dynamicViewport: { min: display.dynamicViewport.min, max: display.dynamicViewport.max } } : {}),
+    presentations: display.presentations, capabilities: profile.capabilities,
+    auxiliaryLogical: display.auxiliary?.logicalViewports ?? [],
+  };
 }
 
 export interface AdmissionTiming {
@@ -122,12 +136,12 @@ export function admitPlan(host: AdmissionHost, variantHostAbi: number, plan: Uin
 
 export type VariantSelection =
   | { readonly ok: true; readonly index: number; readonly variant: PocketPackageVariant; readonly timing: AdmissionTiming }
-  | { readonly ok: false; readonly index: number; readonly items: readonly AdmissionItem[]; readonly capability?: string };
+  | { readonly ok: false; readonly index: number; readonly target: string; readonly items: readonly AdmissionItem[]; readonly capability?: string };
 
 /** Select the variant a host admits, or report the closest one. */
 export function selectVariant(pkg: PocketPackage, host: AdmissionHost): VariantSelection {
   if (!pkg.variants.length) throw new Error("pocket package: no variants");
-  let closest: { index: number; items: readonly AdmissionItem[]; capability?: string } | undefined;
+  let closest: { index: number; target: string; items: readonly AdmissionItem[]; capability?: string } | undefined;
   for (const preferred of [true, false]) {
     for (const [index, variant] of pkg.variants.entries()) {
       if ((variant.profileHash === host.profileHash) !== preferred) continue;
@@ -135,7 +149,7 @@ export function selectVariant(pkg: PocketPackage, host: AdmissionHost): VariantS
       const result = admitPlan(host, variant.hostAbi, plan);
       if (result.ok) return { ok: true, index, variant, timing: result.timing };
       if (!closest || result.items.length < closest.items.length) {
-        closest = { index, items: result.items, ...(result.capability === undefined ? {} : { capability: result.capability }) };
+        closest = { index, target: variant.target, items: result.items, ...(result.capability === undefined ? {} : { capability: result.capability }) };
       }
     }
   }
@@ -144,6 +158,6 @@ export function selectVariant(pkg: PocketPackage, host: AdmissionHost): VariantS
 
 /** One line naming what the closest variant lacks. */
 export function describeRejection(selection: Extract<VariantSelection, { ok: false }>): string {
-  return `variant ${selection.index} is not admitted: ` +
+  return `variant ${selection.index} (${selection.target}) is not admitted: ` +
     selection.items.map(item => item === "capability" && selection.capability ? `capability ${selection.capability}` : item).join(", ");
 }

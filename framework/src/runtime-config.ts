@@ -85,12 +85,14 @@ export interface RuntimeBuild {
   readonly genericRuntime?: { readonly repack: (input: RepackInput) => Promise<Uint8Array>; readonly extension?: string; readonly signed?: boolean };
   readonly deploy?: (context: RuntimeBuildContext) => void | Promise<void>;
 }
+/** `profile` names one pocket-profile/2 document, `profiles` several; paths
+ * are relative to the config file. */
 export type PocketRuntimeConfig = (
-  | { readonly profile: PocketProfile; readonly profiles?: never }
-  | { readonly profiles: readonly PocketProfile[]; readonly profile?: never }
+  | { readonly profile: string; readonly profiles?: never }
+  | { readonly profiles: readonly string[]; readonly profile?: never }
 ) & { readonly build?: RuntimeBuild };
 
-/** A program's software promises and optional native build recipe. */
+/** A program's profile documents and optional native build recipe. */
 export function defineRuntimeConfig<const C extends PocketRuntimeConfig>(config: C): C {
   if (!config || typeof config !== "object" || ("profile" in config) === ("profiles" in config)) {
     throw new TypeError("runtime config requires exactly one of profile or profiles");
@@ -99,11 +101,11 @@ export function defineRuntimeConfig<const C extends PocketRuntimeConfig>(config:
     throw new TypeError("runtime config accepts profile/profiles and build only");
   }
   const profiles = config.profiles ?? [config.profile];
-  if (!profiles.length || profiles.some(profile => !profile || typeof profile !== "object")) {
-    throw new TypeError("runtime config requires at least one profile");
+  if (!profiles.length || profiles.some(profile => typeof profile !== "string" || !profile.endsWith(".json"))) {
+    throw new TypeError("runtime config profiles are paths of pocket-profile.json documents");
   }
-  if (new Set(profiles.map(profile => profile.id)).size !== profiles.length) {
-    throw new TypeError("runtime config profile ids must be unique");
+  if (new Set(profiles).size !== profiles.length) {
+    throw new TypeError("runtime config profile paths must be unique");
   }
   if (config.build !== undefined) {
     const build = config.build;

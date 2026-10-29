@@ -36,4 +36,4 @@ OFFSET_SECTION_SIZE = 12
 OFFSET_HOST_INPUTS_PROFILE_HASH = 40
 OFFSET_HOST_INPUTS_PLAN_HASH = 72
 HOST_PRESENTATIONS = ["fill","fit","integer-fit","native","stretch"]
-PROFILE_HASH_FIELDS = ["id","platform","form","tickHz","display","capabilities","roleCapabilities"]
+PROFILE_HASH_FIELDS = ["id","platform","form","cadences","display","capabilities","roleCapabilities"]

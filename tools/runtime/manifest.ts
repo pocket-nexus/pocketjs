@@ -5,6 +5,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { RUNTIME_MANIFEST, sha256Hex, type RuntimeManifest } from "../repack/shared/runtime.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
+import { POCKET_PROFILE_FILE, type PocketProfile } from "../../contracts/spec/profile.ts";
+import { hashPocketProfile } from "../../framework/src/profile.ts";
+import { releasedProfileDocument } from "../profile-export.ts";
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 
@@ -17,13 +20,15 @@ export function pocketjsCommit(): string {
   return head.stdout.toString().trim() + (dirty.stdout.toString().trim() ? "-dirty" : "");
 }
 
+/** Write runtime.json and the stamped profile document beside the runtime's
+ * files. Repack admits packages against that document. */
 export async function writeRuntimeManifest(
   directory: string,
   fields: {
     target: string;
     hostAbi: number;
-    profile: string;
-    profileHash: string;
+    /** The profile document the runtime was built for. */
+    profile: PocketProfile;
     files: readonly string[];
     /** Target-specific fields written beside the common ones (an Android runtime's viewport and SDK levels). */
     extra?: Readonly<Record<string, unknown>>;
@@ -32,11 +37,9 @@ export async function writeRuntimeManifest(
   if (fields.hostAbi !== POCKET_BINDING_GENERATION) {
     throw new TypeError(`runtime manifest: binding generation ${fields.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
   }
-  if (!/^sha256:[0-9a-f]{64}$/.test(fields.profileHash)) {
-    throw new TypeError("runtime manifest requires an explicit software profileHash");
-  }
+  writeFileSync(join(directory, POCKET_PROFILE_FILE), JSON.stringify(releasedProfileDocument(fields.profile, fields.hostAbi), null, 2) + "\n");
   const files: Record<string, { bytes: number; sha256: string }> = {};
-  for (const name of fields.files) {
+  for (const name of [...fields.files, POCKET_PROFILE_FILE]) {
     const bytes = new Uint8Array(readFileSync(join(directory, name)));
     files[name] = { bytes: bytes.length, sha256: await sha256Hex(bytes) };
   }
@@ -45,8 +48,8 @@ export async function writeRuntimeManifest(
     target: fields.target,
     hostAbi: fields.hostAbi,
     pocketjs: pocketjsCommit(),
-    profile: fields.profile,
-    profileHash: fields.profileHash,
+    profile: fields.profile.id,
+    profileHash: hashPocketProfile(fields.profile),
     files,
   };
   writeFileSync(join(directory, RUNTIME_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);

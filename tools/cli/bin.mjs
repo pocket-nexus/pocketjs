@@ -184,7 +184,7 @@ function verb(cmd, args, leading) {
   const taken = takeExplicitSelection(args, leading);
   if (taken.error) fail(taken.error);
   if (taken.args.includes("--all")) fail("--all is not supported; enumerate profiles in scripts or CI");
-  if (taken.args.some(arg => arg === "--host-profile" || arg.startsWith("--host-profile="))) fail("--host-profile was replaced by profile modules and --runtime-config");
+  if (taken.args.some(arg => arg === "--host-profile" || arg.startsWith("--host-profile="))) fail("--host-profile was replaced by profile documents (--target FILE.json) and --runtime-config");
   const config = optionValue(taken.args, "runtime-config") ?? optionValue(taken.args, "config");
   const project = !taken.explicit && !process.env.POCKET_TARGET?.trim()
     ? projectFor(framework, optionValue(taken.args, "manifest"), config)

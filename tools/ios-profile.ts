@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/ios-dev.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["ios-dev"];
 
 /**
  * Transitional modern-iOS profile used only by `pocket ios`.
@@ -47,11 +48,8 @@ export function iosDevContracts(rasterDensity: number = IOS_DEV_DEFAULT_DENSITY)
     defineTargetRegistry({
       [IOS_DEV_TARGET_ID]: targetProfile({
         ...softwareProfile,
-        display: {
-          ...softwareProfile.display,
-          physicalViewport: [width * rasterDensity, height * rasterDensity],
-          rasterDensity,
-        },
+        display: { ...softwareProfile.display, rasterDensity },
+        panel: { primary: [width * rasterDensity, height * rasterDensity] },
       }),
     }),
   );

@@ -20,8 +20,8 @@ import { POCKET_TARGETS } from "../../contracts/spec/platforms.ts";
 import { VITA_ICON, VITA_LIVEAREA, VITA_RUNTIME_FILE, VITA_RUNTIME_TARGET } from "../repack/vita.ts";
 import { DEFAULT_VITA_PACKAGE_ASSETS } from "../vita-package.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
-import profile from "../../profiles/vita.ts";
-import { hashPocketProfile } from "../../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../../profiles/index.ts";
+const profile = POCKET_PROFILES["vita"];
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 
@@ -49,8 +49,7 @@ export async function buildRuntimeVita(argv: readonly string[] = [], context?: R
   const manifest = await writeRuntimeManifest(out, {
     target: VITA_RUNTIME_TARGET,
     hostAbi: POCKET_TARGETS.vita.hostAbi,
-    profile: "vita",
-    profileHash: hashPocketProfile(profile),
+    profile,
     files: [VITA_RUNTIME_FILE, ...assets],
   });
   console.log(`output: ${join(out, VITA_RUNTIME_FILE)} (${manifest.files[VITA_RUNTIME_FILE]!.bytes} bytes, PocketJS ${manifest.pocketjs})`);

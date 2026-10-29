@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/iphone2g-dev.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["iphone2g-dev"];
 
 /**
  * Transitional iPhone 2G profile used only by the private device toolchain.

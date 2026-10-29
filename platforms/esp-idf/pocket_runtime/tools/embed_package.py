@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import struct
@@ -118,62 +117,81 @@ def escaped(path: Path) -> str:
 
 
 def read_profile(profile_path: Path) -> dict:
-    sidecar = json.loads(profile_path.read_text(encoding="utf-8"))
-    if not isinstance(sidecar, dict) or sidecar.get("format") != "pocket-profile/1":
+    document = json.loads(profile_path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or document.get("format") != "pocket-profile/2":
         raise ValueError("unsupported pocket-profile.json format")
-    canonical = sidecar.get("canonicalProfileJson")
-    profile = sidecar.get("profile")
-    if not isinstance(canonical, str) or not isinstance(profile, dict):
-        raise ValueError("profile export is missing canonicalProfileJson/profile")
-    # Hash the exporter's exact UTF-8 bytes. Python must not invent a second
-    # canonical serializer (number and Unicode spellings belong to the exporter).
-    if json.loads(canonical) != profile:
-        raise ValueError("profile export JSON differs from canonicalProfileJson")
-    expected_hash = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    if sidecar.get("profileHash") != expected_hash:
-        raise ValueError("profile export hash does not match canonicalProfileJson")
-    abi = sidecar.get("hostAbi")
+    abi = document.get("hostAbi")
     if type(abi) is not int or not 1 <= abi <= 0xFFFFFFFF:
-        raise ValueError("profile export hostAbi is invalid")
-    return sidecar
+        raise ValueError("profile export carries no hostAbi stamp")
+    display = document.get("display")
+    if not isinstance(display, dict) or not isinstance(document.get("cadences"), list) or not isinstance(document.get("panel"), dict):
+        raise ValueError("profile export lacks display, cadences or panel")
+    return document
 
 
-def validate_profile(
-    profile_path: Path,
-    target: str,
-    fields: tuple[int, ...],
-    profile_hash: bytes,
-) -> None:
-    sidecar = read_profile(profile_path)
-    if sidecar["profileHash"] != "sha256:" + profile_hash.hex():
-        raise ValueError("package profile hash does not match profile export")
-    if sidecar["hostAbi"] != fields[2]:
-        raise ValueError("package host ABI does not match profile export")
-    profile = sidecar["profile"]
-    display = profile.get("display", {})
+def cadence_for(tick_hz: int, cadences: list) -> int | None:
+    """The largest cadence tick_hz is a whole multiple of, at most 60
+    (contracts/spec/admission.ts cadenceFor)."""
+    if type(tick_hz) is not int or not 1 <= tick_hz <= 240:
+        return None
+    admitted = [cadence for cadence in cadences
+                if type(cadence) is int and cadence > 0 and tick_hz % cadence == 0 and tick_hz // cadence <= 60]
+    return max(admitted) if admitted else None
+
+
+def plan_section(data: bytes, target: str) -> dict:
+    for variant_target, _abi, _hash, sections in variants(data):
+        if variant_target != target:
+            continue
+        for kind, payload in sections:
+            if kind == fmt.SECTION_PLAN:
+                plan = json.loads(payload.decode("utf-8"))
+                if isinstance(plan, dict):
+                    return plan
+    raise ValueError("embedded package variant has no plan")
+
+
+def validate_profile(profile_path: Path, fields: tuple[int, ...], plan: dict) -> list[int]:
+    """Admit the hostInputs variant by the exported facts (the device rules
+    of contracts/spec/admission.ts) and return the physical panel size the
+    program presents it on."""
+    document = read_profile(profile_path)
+    display = document["display"]
+    problems = []
+    if document["hostAbi"] != fields[2]:
+        problems.append("binding generation")
+    if display.get("rasterDensity") != fields[8]:
+        problems.append("raster density")
+    if plan.get("animation") != display.get("animation"):
+        problems.append("animation")
+    if cadence_for(fields[3], document["cadences"]) is None:
+        problems.append(f"rate {fields[3]} Hz")
     logical = [fields[4], fields[5]]
     dynamic = display.get("dynamicViewport")
-    admitted = logical in display.get("logicalViewports", [])
     if isinstance(dynamic, dict):
         low, high = dynamic.get("min", []), dynamic.get("max", [])
-        admitted = admitted or (len(low) == len(high) == 2 and
-            all(low[index] <= logical[index] <= high[index] for index in range(2)))
-    physical = display.get("physicalViewport", [])
-    physical_options = [physical, list(reversed(physical))]
-    if dynamic:
-        physical_options.append([n * display.get("rasterDensity", 0) for n in logical])
+        admitted = len(low) == len(high) == 2 and all(low[index] <= logical[index] <= high[index] for index in range(2))
+    else:
+        admitted = logical in display.get("logicalViewports", [])
+    if not admitted:
+        problems.append("viewport")
     presentations = fmt.HOST_PRESENTATIONS
-    if (
-        profile.get("id") != target
-        or profile.get("platform") != "esp-idf"
-        or profile.get("tickHz") != fields[3]
-        or not admitted
-        or [fields[6], fields[7]] not in physical_options
-        or display.get("rasterDensity") != fields[8]
-        or fields[9] >= len(presentations)
-        or presentations[fields[9]] not in display.get("presentations", [])
-    ):
-        raise ValueError("package host inputs are not admitted by profile export")
+    if fields[9] >= len(presentations) or presentations[fields[9]] not in display.get("presentations", []):
+        problems.append("presentation")
+    capabilities = set(document.get("capabilities", []))
+    features = plan.get("features") if isinstance(plan.get("features"), dict) else {}
+    missing = [name for name, value in features.items() if value is True and name not in capabilities]
+    if missing:
+        problems.append("capability " + missing[0])
+    if problems:
+        raise ValueError("package host inputs are not admitted by profile export: " + ", ".join(problems))
+    panel = document["panel"].get("primary", [])
+    physical = [fields[6], fields[7]]
+    if isinstance(dynamic, dict):
+        return [n * display["rasterDensity"] for n in logical]
+    # The package records the panel it was compiled for; this program
+    # presents on its own panel, in the package's orientation when it fits.
+    return physical if physical in (panel, list(reversed(panel))) else panel
 
 
 def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
@@ -183,7 +201,7 @@ def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
     data = package.read_bytes()
     validate(data)
     target, host_fields, profile_hash = host_contract(data)
-    validate_profile(profile.resolve(), target, host_fields, profile_hash)
+    physical = validate_profile(profile.resolve(), host_fields, plan_section(data, target))
     output_dir.mkdir(parents=True, exist_ok=True)
     symbol = f"pocketjs_package_{name}"
     (output_dir / f"{symbol}.h").write_text(
@@ -209,8 +227,8 @@ def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
         f"    .tick_hz = {host_fields[3]}U,\n"
         f"    .logical_width = {host_fields[4]}U,\n"
         f"    .logical_height = {host_fields[5]}U,\n"
-        f"    .physical_width = {host_fields[6]}U,\n"
-        f"    .physical_height = {host_fields[7]}U,\n"
+        f"    .physical_width = {physical[0]}U,\n"
+        f"    .physical_height = {physical[1]}U,\n"
         f"    .raster_density = {host_fields[8]}U,\n"
         f"    .presentation = (pocketjs_presentation_t){host_fields[9]}U,\n"
         "    .profile_hash = { "

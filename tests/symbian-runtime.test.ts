@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { compiledProfile } from "../contracts/spec/profile.ts";
 import {
 existsSync,
 mkdtempSync,
@@ -11,7 +12,7 @@ import { join } from "node:path";
 import { deriveModality } from "../contracts/spec/modality.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import profile from "../profiles/symbian-e7-dev.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import {
 encodeSymbianCatalog,
 includeExternalManifests,
@@ -28,6 +29,7 @@ SYMBIAN_E7_DEV_TARGET_ID,
 resolveSymbianE7BuildPlan,
 symbianE7Orientation,
 } from "../tools/symbian-profile.ts";
+const profile = POCKET_PROFILES["symbian-e7-dev"];
 
 const repository = new URL("..", import.meta.url).pathname;
 
@@ -156,7 +158,7 @@ describe("experimental Nokia E7 runtime profile", () => {
         animation: "repaint",
         features: {},
         companions: [],
-        profile,
+        profile: { ...compiledProfile(profile), tickHz: 60 },
     profileHash: hashPocketProfile(profile),
     planHash: `sha256:${"0".repeat(64)}`,
       },

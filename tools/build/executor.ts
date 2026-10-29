@@ -191,7 +191,6 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
       .map(component => join(component.path!, "bin")).filter(existsSync);
     const env = {
       POCKETJS_TARGET: selected.profile.id, POCKETJS_HOST_ABI: String(selected.hostAbi),
-      POCKETJS_TICK_HZ: String(selected.profile.tickHz),
       POCKETJS_PROFILE_JSON: canonicalProfileJson(selected.profile), POCKETJS_PROFILE_HASH: selected.profileHash,
       POCKETJS_PROFILE_EXPORT_DIR: outdir, POCKETJS_PROFILE_RS: join(outdir, "pocket_profile.rs"),
       POCKETJS_CONTRACTS_INCLUDE: CONTRACTS_INCLUDE,

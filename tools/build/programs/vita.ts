@@ -2,12 +2,13 @@ import { deployVita } from "./deploy.ts";
 import { copyFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/vita.ts";
+import { POCKET_PROFILES } from "../../../profiles/index.ts";
 import { buildVita } from "../../vita.ts";
 import { buildRuntimeVita } from "../../runtime/vita.ts";
 import { repackVita } from "../../repack/vita.ts";
 import { requireApplication, requireProgramProfile } from "./application.ts";
 import { nativeSources, buildHosts, handheldLock, nativeArguments } from "./handheld-common.ts";
+const profile = POCKET_PROFILES["vita"];
 
 export const build: RuntimeBuild = {
   deploy: deployVita,

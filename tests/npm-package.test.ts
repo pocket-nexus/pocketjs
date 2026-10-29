@@ -32,11 +32,12 @@ describe("published npm artifacts", () => {
       const directory = join(scratch, "package");
       symlinkSync(join(root, "node_modules"), join(directory, "node_modules"), "dir");
       writeFileSync(join(directory, "consumer.ts"), `
-import { defineProfile } from "@pocketjs/framework/profile";
-import psp from "@pocketjs/framework/profiles/psp";
+import { parsePocketProfile } from "@pocketjs/framework/profile";
+import psp from "@pocketjs/framework/profiles/psp" with { type: "json" };
 import { resolveRuntimeProgram } from "./tools/build/programs.ts";
 import { sdkCommand } from "./tools/sdk.ts";
-const external = defineProfile({ ...psp, id: "external-product-with-a-long-id" });
+const external = parsePocketProfile({ ...psp, id: "external-product-with-a-long-id" });
+if (external.id !== "external-product-with-a-long-id") throw Error("profile document not parsed");
 const selected = await resolveRuntimeProgram({ from: ${JSON.stringify(scratch)}, target: "psp", generic: true });
 if (!selected.config.value.build.genericRuntime.repack) throw Error("missing repack adapter");
 if (await sdkCommand(["export", "--cargo", "--out", ${JSON.stringify(join(scratch, "program"))}])) throw Error("template failed");

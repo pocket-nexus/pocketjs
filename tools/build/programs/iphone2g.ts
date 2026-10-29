@@ -1,8 +1,9 @@
 import { nativeSources } from "./native-sources.ts";
 import "../toolchains/iphone2g/armv6-apple-ios.json";
 import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/iphone2g-dev.ts";
+import { POCKET_PROFILES } from "../../../profiles/index.ts";
 import { requireProgramProfile, requireApplication } from "./application.ts";
+const profile = POCKET_PROFILES["iphone2g-dev"];
 
 export const build: RuntimeBuild = {
   hosts: ["darwin-arm64", "darwin-x64"],

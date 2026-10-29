@@ -16,8 +16,8 @@ function scratch() { const path = mkdtempSync(join(base, "run-")); temporary.pus
 
 async function fixture(directory: string, build: Omit<RuntimeBuild, "hosts">): Promise<ResolvedProfile> {
   const selected = await resolveProfile({ from: root, target: "symbian-e7-dev" });
-  return { ...selected, config: { path: join(directory, "pocket.runtime-config.ts"), profiles: [selected.profile], dependencies: [],
-    value: defineRuntimeConfig({ profile: selected.profile,
+  return { ...selected, config: { path: join(directory, "pocket.runtime-config.ts"), profiles: [selected.profile], profilePaths: [selected.path!], dependencies: [],
+    value: defineRuntimeConfig({ profile: selected.path!,
       build: { hosts: [`${process.platform}-${process.arch}` as "darwin-arm64"], ...build } }) } };
 }
 

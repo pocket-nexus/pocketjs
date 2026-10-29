@@ -1,0 +1,17 @@
+{
+  "format": "pocket-profile/2",
+  "id": "iphone2g-dev",
+  "platform": "ios",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[320, 480]],
+    "presentations": ["native"],
+    "rasterDensity": 1,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [320, 480]
+  },
+  "capabilities": ["input.touch", "text.glyphs.baked"]
+}

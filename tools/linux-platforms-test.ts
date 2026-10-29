@@ -4,14 +4,15 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import type { PocketProfile } from "../contracts/spec/profile.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { hashPocketProfile } from "../framework/src/profile.ts";
-import profile from "../programs/linux-kms/profile.ts";
+import { hashPocketProfile, readPocketProfile } from "../framework/src/profile.ts";
 import { exportProfile } from "./profile-export.ts";
 import { profileRegistry } from "./profile-resolver.ts";
 import { makeVariant } from "./pocket-pack.ts";
 const root = resolve(import.meta.dir, "..");
+const profile = readPocketProfile(resolve(root, "programs/linux-kms/profile.json"));
 /** Export the program's profile and write packages compiled against it, plus
- * one compiled for another profile under the same id. Returns the exported
+ * one compiled for a profile whose raster density this host does not have.
+ * Returns the exported
  * Rust module the program build names in POCKETJS_PROFILE_RS. */
 export function linuxFixture(directory: string): string {
   mkdirSync(directory, { recursive: true });
@@ -28,7 +29,8 @@ export function linuxFixture(directory: string): string {
   const app = `const node=ui.createNode(0);ui.insertBefore(0,node,0);ui.setProp(node,1,120);ui.setProp(node,2,80);globalThis.frame=()=>{ui.setProp(node,64,0xff204060);};`;
   writeFileSync(resolve(directory, "app.pocket"), make(app));
   writeFileSync(resolve(directory, "guest-error.pocket"), make("globalThis.frame=()=>{throw new Error('intentional guest failure')};"));
-  writeFileSync(resolve(directory, "wrong-profile.pocket"), make(app, { ...profile, tickHz: profile.tickHz / 2 }));
+  writeFileSync(resolve(directory, "wrong-profile.pocket"), make(app,
+    { ...profile, display: { ...profile.display, rasterDensity: 2 }, panel: { primary: [1600, 1200] } }));
   return module;
 }
 export function runLinuxPlatformsTests(directory: string) {

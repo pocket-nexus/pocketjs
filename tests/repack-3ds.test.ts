@@ -12,7 +12,7 @@ type PocketPackageVariant,
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import softwareProfile from "../profiles/3ds-runtime.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import {
@@ -23,7 +23,9 @@ write3dsx,
 writeRomfs
 } from "../tools/repack/3ds.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
-import { sha256Hex, type RepackInput } from "../tools/repack/shared/runtime.ts";
+import type { RepackInput } from "../tools/repack/shared/runtime.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
+const softwareProfile = POCKET_PROFILES["3ds-runtime"];
 
 const ROOT = join(import.meta.dir, "..");
 const FIXTURES = join(ROOT, "tests/fixtures/repack-3ds");
@@ -94,18 +96,11 @@ function runtimeProgram(): Uint8Array {
 }
 
 async function runtimeFiles(overrides: { target?: string; hostAbi?: number; program?: Uint8Array } = {}) {
-  const program = runtimeProgram();
-  const manifest = {
-    target: overrides.target ?? "3ds-runtime",
-    hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
-    pocketjs: "0000000000000000000000000000000000000000",
-    profile: "3ds-runtime", profileHash: hashPocketProfile(softwareProfile),
-    files: { "runtime.3dsx": { bytes: program.length, sha256: await sha256Hex(program) } },
-  };
-  return new Map<string, Uint8Array>([
-    ["runtime.json", new TextEncoder().encode(JSON.stringify(manifest))],
-    ["runtime.3dsx", overrides.program ?? program],
-  ]);
+  const files = runtimeDirectory(softwareProfile, new Map([["runtime.3dsx", runtimeProgram()]]), {
+    target: overrides.target ?? "3ds-runtime", hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
+  });
+  if (overrides.program) files.set("runtime.3dsx", overrides.program);
+  return files;
 }
 
 async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput> {
@@ -223,7 +218,7 @@ describe("repack3ds", () => {
       manifest: new TextEncoder().encode("{}"),
       variants: [{ target: "psp", hostAbi: 1, profileHash: hashPocketProfile(softwareProfile), sections: [{ kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) }] }],
     });
-    await expect(repack3ds(await input({ pocket: pspOnly }))).rejects.toThrow(/no 3ds-runtime variant \(it has psp\)/);
+    await expect(repack3ds(await input({ pocket: pspOnly }))).rejects.toThrow("variant 0 (psp) is not admitted: bindingGeneration, plan");
     expect(() => pocketFor(manifest({ requires: ["io.offload"] }))).toThrow("io.offload");
     for (const capability of ["media.playback", "net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const)
       expect(() => pocketFor(manifest({ requires: [capability] }))).toThrow(capability);

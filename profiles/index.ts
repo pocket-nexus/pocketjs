@@ -1,76 +1,55 @@
-import profilePspRuntime from "./psp-runtime.ts";
-import profile3dsRuntime from "./3ds-runtime.ts";
-import profilePsp from "./psp.ts";
-import profileVita from "./vita.ts";
-import profile3dsDev from "./3ds-dev.ts";
-import profileWebApp from "./web-app.ts";
-import profileMacosApp from "./macos-app.ts";
-import profileLinuxApp from "./linux-app.ts";
-import profileMacosWidget from "./macos-widget.ts";
-import profileMacosEmbedded from "./macos-embedded.ts";
-import profileGba from "./gba.ts";
-import profileIpodnano from "./ipodnano.ts";
-import profilePocketbook from "./pocketbook.ts";
-import profileMotoGPlayDev from "./moto-g-play-dev.ts";
-import profileRedmi1sDev from "./redmi-1s-dev.ts";
-import profileBlackberryQnxDev from "./blackberry-qnx-dev.ts";
-import profileMeizuM8Dev from "./meizu-m8-dev.ts";
-import profileSymbianE7Dev from "./symbian-e7-dev.ts";
-import profileIosDev from "./ios-dev.ts";
-import profileIphone2gDev from "./iphone2g-dev.ts";
-import profileIphone4sDev from "./iphone4s-dev.ts";
-import profileIpodtouchDev from "./ipodtouch-dev.ts";
-import profileIpodtouch4Dev from "./ipodtouch4-dev.ts";
+// The built-in profile documents (profiles/*.json), checked and frozen.
+import { builtinProfile, type PocketProfile } from "../framework/src/profile.ts";
+import profilePspDocument from "./psp.json" with { type: "json" };
+import profilePspRuntimeDocument from "./psp-runtime.json" with { type: "json" };
+import profileP3dsRuntimeDocument from "./3ds-runtime.json" with { type: "json" };
+import profileVitaDocument from "./vita.json" with { type: "json" };
+import profileP3dsDevDocument from "./3ds-dev.json" with { type: "json" };
+import profileWebAppDocument from "./web-app.json" with { type: "json" };
+import profileMacosAppDocument from "./macos-app.json" with { type: "json" };
+import profileLinuxAppDocument from "./linux-app.json" with { type: "json" };
+import profileMacosWidgetDocument from "./macos-widget.json" with { type: "json" };
+import profileMacosEmbeddedDocument from "./macos-embedded.json" with { type: "json" };
+import profileGbaDocument from "./gba.json" with { type: "json" };
+import profileIpodnanoDocument from "./ipodnano.json" with { type: "json" };
+import profilePocketbookDocument from "./pocketbook.json" with { type: "json" };
+import profileMotoGPlayDevDocument from "./moto-g-play-dev.json" with { type: "json" };
+import profileRedmi1sDevDocument from "./redmi-1s-dev.json" with { type: "json" };
+import profileBlackberryQnxDevDocument from "./blackberry-qnx-dev.json" with { type: "json" };
+import profileMeizuM8DevDocument from "./meizu-m8-dev.json" with { type: "json" };
+import profileSymbianE7DevDocument from "./symbian-e7-dev.json" with { type: "json" };
+import profileIosDevDocument from "./ios-dev.json" with { type: "json" };
+import profileIphone2gDevDocument from "./iphone2g-dev.json" with { type: "json" };
+import profileIphone4sDevDocument from "./iphone4s-dev.json" with { type: "json" };
+import profileIpodtouchDevDocument from "./ipodtouch-dev.json" with { type: "json" };
+import profileIpodtouch4DevDocument from "./ipodtouch4-dev.json" with { type: "json" };
 
 export const POCKET_PROFILES = {
-  "psp": profilePsp,
-  "psp-runtime": profilePspRuntime,
-  "3ds-runtime": profile3dsRuntime,
-  "vita": profileVita,
-  "3ds-dev": profile3dsDev,
-  "web-app": profileWebApp,
-  "macos-app": profileMacosApp,
-  "linux-app": profileLinuxApp,
-  "macos-widget": profileMacosWidget,
-  "macos-embedded": profileMacosEmbedded,
-  "gba": profileGba,
-  "ipodnano": profileIpodnano,
-  "pocketbook": profilePocketbook,
-  "moto-g-play-dev": profileMotoGPlayDev,
-  "redmi-1s-dev": profileRedmi1sDev,
-  "blackberry-qnx-dev": profileBlackberryQnxDev,
-  "meizu-m8-dev": profileMeizuM8Dev,
-  "symbian-e7-dev": profileSymbianE7Dev,
-  "ios-dev": profileIosDev,
-  "iphone2g-dev": profileIphone2gDev,
-  "iphone4s-dev": profileIphone4sDev,
-  "ipodtouch-dev": profileIpodtouchDev,
-  "ipodtouch4-dev": profileIpodtouch4Dev,
-} as const;
+  "psp": builtinProfile(profilePspDocument),
+  "psp-runtime": builtinProfile(profilePspRuntimeDocument),
+  "3ds-runtime": builtinProfile(profileP3dsRuntimeDocument),
+  "vita": builtinProfile(profileVitaDocument),
+  "3ds-dev": builtinProfile(profileP3dsDevDocument),
+  "web-app": builtinProfile(profileWebAppDocument),
+  "macos-app": builtinProfile(profileMacosAppDocument),
+  "linux-app": builtinProfile(profileLinuxAppDocument),
+  "macos-widget": builtinProfile(profileMacosWidgetDocument),
+  "macos-embedded": builtinProfile(profileMacosEmbeddedDocument),
+  "gba": builtinProfile(profileGbaDocument),
+  "ipodnano": builtinProfile(profileIpodnanoDocument),
+  "pocketbook": builtinProfile(profilePocketbookDocument),
+  "moto-g-play-dev": builtinProfile(profileMotoGPlayDevDocument),
+  "redmi-1s-dev": builtinProfile(profileRedmi1sDevDocument),
+  "blackberry-qnx-dev": builtinProfile(profileBlackberryQnxDevDocument),
+  "meizu-m8-dev": builtinProfile(profileMeizuM8DevDocument),
+  "symbian-e7-dev": builtinProfile(profileSymbianE7DevDocument),
+  "ios-dev": builtinProfile(profileIosDevDocument),
+  "iphone2g-dev": builtinProfile(profileIphone2gDevDocument),
+  "iphone4s-dev": builtinProfile(profileIphone4sDevDocument),
+  "ipodtouch-dev": builtinProfile(profileIpodtouchDevDocument),
+  "ipodtouch4-dev": builtinProfile(profileIpodtouch4DevDocument),
+} as const satisfies Readonly<Record<string, PocketProfile>>;
 
 export type BuiltinProfileId = keyof typeof POCKET_PROFILES;
-export {
-  profilePspRuntime,
-  profile3dsRuntime,
-  profilePsp,
-  profileVita,
-  profile3dsDev,
-  profileWebApp,
-  profileMacosApp,
-  profileLinuxApp,
-  profileMacosWidget,
-  profileMacosEmbedded,
-  profileGba,
-  profileIpodnano,
-  profilePocketbook,
-  profileMotoGPlayDev,
-  profileRedmi1sDev,
-  profileBlackberryQnxDev,
-  profileMeizuM8Dev,
-  profileSymbianE7Dev,
-  profileIosDev,
-  profileIphone2gDev,
-  profileIphone4sDev,
-  profileIpodtouchDev,
-  profileIpodtouch4Dev,
-};
+/** The file of a built-in profile, relative to this directory. */
+export const builtinProfileFile = (id: BuiltinProfileId): string => `${id}.json`;

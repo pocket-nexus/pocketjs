@@ -1,8 +1,9 @@
 import { WORKER_RESOURCES } from "../../../contracts/spec/worker.ts";
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
-import { hashPocketProfile, profileHashProjection } from "../profile.ts";
+import { hashPocketProfile } from "../profile.ts";
+import { compiledProfile } from "../../../contracts/spec/profile.ts";
+import { profileDocument } from "../../../profiles/contract.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
-import { deriveAnimationClass } from "../../../contracts/spec/animation.ts";
 import { deriveModality, modalityMisses } from "../../../contracts/spec/modality.ts";
 import type {
   ManifestViewport,
@@ -337,9 +338,9 @@ export function validatePlatformContractRegistry(
       diagnostics.push({ code: "registry.bindingGeneration", path: `/targets/${targetId}/hostAbi`,
         message: `target must use binding generation ${POCKET_BINDING_GENERATION}` });
     }
-    if (target.tickHz !== undefined && (!Number.isInteger(target.tickHz) || target.tickHz < 1 || target.tickHz > 240)) {
-      diagnostics.push({ code: "registry.invalidTickHz", path: `/targets/${targetId}/tickHz`,
-        message: "target tickHz must be an integer from 1 through 240" });
+    if (!target.cadences.length || target.cadences.some(cadence => !Number.isInteger(cadence) || cadence < 1 || cadence > 240)) {
+      diagnostics.push({ code: "registry.invalidCadences", path: `/targets/${targetId}/cadences`,
+        message: "target cadences must be integers from 1 through 240" });
     }
     if (
       !Number.isInteger(target.display.rasterDensity) ||
@@ -733,12 +734,13 @@ export function resolveBuildPlan(
     [...featureAvailability.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
   );
 
-  // The old registry's absent rate has always meant 60 Hz. This one-way
-  // adapter preserves that contract while every emitted plan names its rate.
-  const softwareProfile = profileHashProjection({ id: request.target, ...profile, tickHz: profile.tickHz ?? 60 });
+  // The plan records the profile with the rate the package is compiled at:
+  // the profile's highest cadence.
+  const tickHz = Math.max(...profile.cadences);
+  const document = profileDocument(request.target, profile);
   const content: ResolvedBuildPlanContent = {
-    profile: softwareProfile,
-    profileHash: hashPocketProfile(softwareProfile),
+    profile: { ...compiledProfile(document), tickHz },
+    profileHash: hashPocketProfile(document),
     app: {
       id: manifest.id,
       title: manifest.title,
@@ -766,7 +768,7 @@ export function resolveBuildPlan(
     },
     ...(resolvedAuxiliary ? { surfaces: { auxiliary: resolvedAuxiliary } } : {}),
     modality,
-    animation: deriveAnimationClass(profile),
+    animation: profile.display.animation,
     features,
     companions: manifest.app.companions ?? [],
     ...(request.hostExtension ? { hostExtension: request.hostExtension } : {}),

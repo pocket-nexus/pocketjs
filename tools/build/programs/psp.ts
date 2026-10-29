@@ -2,8 +2,7 @@ import { deployPsp } from "./deploy.ts";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/psp.ts";
-import genericProfile from "../../../profiles/psp-runtime.ts";
+import { POCKET_PROFILES } from "../../../profiles/index.ts";
 import { buildPsp } from "../../psp.ts";
 import { buildRuntimePsp } from "../../runtime/psp.ts";
 import { repackPsp } from "../../repack/psp.ts";
@@ -11,6 +10,8 @@ import { pspToolchain } from "../toolchains/psp.ts";
 import { requireApplication, requireProgramProfile } from "./application.ts";
 import { nativeSources, buildHosts, handheldLock, nativeArguments } from "./handheld-common.ts";
 import { launcherSourceInputs } from "../psp/launcher.ts";
+const profile = POCKET_PROFILES["psp"];
+const genericProfile = POCKET_PROFILES["psp-runtime"];
 
 export const build: RuntimeBuild = {
   deploy: deployPsp,

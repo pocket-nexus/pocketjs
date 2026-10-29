@@ -1,5 +1,4 @@
 import { defineRuntimeConfig } from "../../framework/src/runtime-config.ts";
-import profile from "../../profiles/blackberry-qnx-dev.ts";
 import { build } from "../../tools/build/programs/blackberry-classic.ts";
 
-export default defineRuntimeConfig({ profile, build });
+export default defineRuntimeConfig({ profile: "../../profiles/blackberry-qnx-dev.json", build });

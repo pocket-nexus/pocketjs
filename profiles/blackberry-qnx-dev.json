@@ -1,0 +1,17 @@
+{
+  "format": "pocket-profile/2",
+  "id": "blackberry-qnx-dev",
+  "platform": "blackberry10-qnx",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[360, 360]],
+    "presentations": ["native"],
+    "rasterDensity": 2,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [720, 720]
+  },
+  "capabilities": ["input.buttons", "input.touch", "text.glyphs.baked"]
+}

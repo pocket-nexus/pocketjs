@@ -29,8 +29,7 @@ import {
 } from "../../contracts/spec/agent.ts";
 import { LINK_MAX_DATA } from "../../contracts/spec/link.ts";
 import { POCKET_SECTION, decodePocketPackage, findSection } from "../../contracts/spec/pocket-package.ts";
-import { selectVariant } from "../../contracts/spec/admission.ts";
-import { admissionHost } from "../profile-export.ts";
+import { admissionHost, selectVariant } from "../../contracts/spec/admission.ts";
 import { POCKET_PROFILES, type BuiltinProfileId } from "../../profiles/index.ts";
 import { hashPocketProfile } from "../../framework/src/profile.ts";
 import { encodePNG } from "../png.ts";

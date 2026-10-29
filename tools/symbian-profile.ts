@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/symbian-e7-dev.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["symbian-e7-dev"];
 
 /**
  * Transitional Nokia E7 profile used only by `pocket symbian`.
@@ -22,8 +23,8 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 export const SYMBIAN_E7_DEV_TARGET_ID = softwareProfile.id;
 export const SYMBIAN_E7_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const SYMBIAN_E7_DEFAULT_VIEWPORT = softwareProfile.display.logicalViewports[0];
-export const SYMBIAN_E7_MIN_VIEWPORT = softwareProfile.display.dynamicViewport.min;
-export const SYMBIAN_E7_MAX_VIEWPORT = softwareProfile.display.dynamicViewport.max;
+export const SYMBIAN_E7_MIN_VIEWPORT = softwareProfile.display.dynamicViewport!.min;
+export const SYMBIAN_E7_MAX_VIEWPORT = softwareProfile.display.dynamicViewport!.max;
 
 export const SYMBIAN_E7_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,

@@ -1,4 +1,3 @@
 import { defineRuntimeConfig } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/vita.ts";
 import { genericBuild as build } from "../../../tools/build/programs/vita.ts";
-export default defineRuntimeConfig({ profile, build });
+export default defineRuntimeConfig({ profile: "../../../profiles/vita.json", build });

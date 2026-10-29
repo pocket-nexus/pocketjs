@@ -22,7 +22,7 @@ test("tool admission matches every corpus case", () => {
       expect(selection, item.name).toEqual({ ok: true, index: item.admitted.variant, variant: pkg.variants[item.admitted.variant]!, timing: item.admitted.timing });
     } else {
       const { variant, ...rest } = item.rejected!;
-      expect(selection, item.name).toEqual({ ok: false, index: variant, ...rest });
+      expect(selection, item.name).toEqual({ ok: false, index: variant, target: pkg.variants[variant]!.target, ...rest });
     }
   }
 });
@@ -40,7 +40,7 @@ test("superset hosts admit; missing items are named", () => {
   const pkg = decodePocketPackage(admissionCorpus().package);
   const rejected = selectVariant(pkg, cases.find(item => item.name === "missing-capability")!.host);
   if (rejected.ok) throw new Error("admitted");
-  expect(describeRejection(rejected)).toBe("variant 0 is not admitted: capability text.glyphs.baked");
+  expect(describeRejection(rejected)).toBe("variant 0 (a) is not admitted: capability text.glyphs.baked");
 });
 
 test("rates need a dividing cadence within sixty core ticks per frame", () => {

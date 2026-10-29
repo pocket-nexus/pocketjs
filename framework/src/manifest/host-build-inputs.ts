@@ -6,13 +6,14 @@ import {
   type PresentationMode,
   type Viewport,
 } from "../../../contracts/spec/platforms.ts";
-import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "./plan.ts";
-import { canonicalProfileJson, hashPocketProfile, type PocketProfile } from "../profile.ts";
+import { verifyPlanHash, verifyPlanProfile, type PlanProfile, type ResolvedBuildPlan } from "./plan.ts";
+import { canonicalProfileJson, hashPocketProfile } from "../profile.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 
 /** Stable subset of the internal build plan consumed by custom native hosts. */
 export interface HostBuildInputs {
-  readonly profile: Omit<PocketProfile, "hostExtension">;
+  /** The profile's provenance projection and the package rate (`tickHz`). */
+  readonly profile: PlanProfile;
   readonly profileHash: string;
   readonly appOutput: string;
   /** Package identity from the manifest, as the plan resolved it. Hosts map

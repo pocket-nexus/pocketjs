@@ -5,9 +5,10 @@ import { resolve, join } from "node:path";
 import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
-import profile from "../profiles/3ds-runtime.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { exportProfile } from "./profile-export.ts";
 import { ensureQuickJsSources } from "./build/toolchains/3ds.ts";
+const profile = POCKET_PROFILES["3ds-runtime"];
 const root = resolve(import.meta.dir, "..");
 export function test3dsMinimal(out: string, packagePath?: string): string {
   mkdirSync(out, { recursive: true });

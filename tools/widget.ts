@@ -1,5 +1,6 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/macos-embedded.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { targetProfile } from "../profiles/contract.ts";
 // bun run widget [app] [flags…] — build + launch a Pocket Stage desktop widget
 // (the first bundled stage is the PSP asset; docs/WIDGET.md).
@@ -29,6 +30,7 @@ import {
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { exportProfile } from "./profile-export.ts";
+const softwareProfile = POCKET_PROFILES["macos-embedded"];
 
 const root = new URL("..", import.meta.url).pathname;
 
@@ -123,10 +125,10 @@ export function stagePlatformContracts(display: StageDisplayFacts) {
         ...softwareProfile,
         display: {
           ...softwareProfile.display,
-          physicalViewport: [width * density, height * density],
           logicalViewports: [[width, height]],
           rasterDensity: density,
         },
+        panel: { primary: [width * density, height * density] },
       }),
     }),
   );
@@ -265,7 +267,7 @@ async function main(): Promise<void> {
   await $`bun tools/build.ts --plan=${planPath} --project-root=${root} --outdir=${stageDist}`.cwd(root);
   // The binary compiles in this stage's profile; switching stages rebuilds it.
   const exported = exportProfile(
-    { profile: plan.profile, profileHash: plan.profileHash, hostAbi: STAGE_HOST_ABI, dependencies: [] },
+    { profile: planProfileDocument(plan.profile), profileHash: plan.profileHash, hostAbi: STAGE_HOST_ABI, dependencies: [] },
     resolvePath(root, ".pocket", STAGE_TARGET_ID, `${stage}-profile`),
   );
   await $`cargo build --locked --release -p pocket-stage`

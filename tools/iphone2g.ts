@@ -1,4 +1,5 @@
 import { repositoryPath } from "./repository.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import {
@@ -474,7 +475,7 @@ export function buildIPhone2GNative(application: RuntimeApplication, outdir: str
     join(build, "runtime.o"),
     [
       ...firstPartyWarnings,
-      "-include", writeHostProfileHeader(build, hostInputs.profile),
+      "-include", writeHostProfileHeader(build, planProfileDocument(hostInputs.profile)),
       `-DPOCKET_BUILD_ID="${buildId}"`,
       `-DPOCKET_LOGICAL_WIDTH=${hostInputs.viewport.logical[0]}`,
       `-DPOCKET_LOGICAL_HEIGHT=${hostInputs.viewport.logical[1]}`,
@@ -488,7 +489,7 @@ export function buildIPhone2GNative(application: RuntimeApplication, outdir: str
     join(build, "pocket_runtime.o"),
     [
       ...firstPartyWarnings,
-      "-include", writeHostProfileHeader(build, hostInputs.profile),
+      "-include", writeHostProfileHeader(build, planProfileDocument(hostInputs.profile)),
       `-DPOCKETJS_TARGET_ID="${hostInputs.target}"`,
       `-DPOCKETJS_HOST_ABI=${hostInputs.hostAbi}`,
       "-I",

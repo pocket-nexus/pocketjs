@@ -188,19 +188,23 @@ function manifest({ name, title, framework, viewport, requires }) {
   };
 }
 
-// A new product starts with a 320x240 display, buttons and baked glyphs.
+// A new product starts with a 320x240 display, buttons and baked glyphs,
+// presented by a CPU rasterizer at 60 or 30 frames per second.
 function defaultProfile(name) {
   return {
+    $schema: "https://pocketjs.dev/schema/pocket-profile-2.json",
+    format: "pocket-profile/2",
     id: `product-${name}`,
     platform: "esp-idf",
     form: "takeover",
-    tickHz: 60,
+    cadences: [60, 30],
     display: {
-      physicalViewport: [320, 240],
       logicalViewports: [[320, 240]],
       presentations: ["native"],
       rasterDensity: 1,
+      animation: "repaint",
     },
+    panel: { primary: [320, 240] },
     capabilities: ["input.buttons", "text.glyphs.baked"],
   };
 }
@@ -246,7 +250,7 @@ function tsconfig(framework, embedded) {
       jsx: "preserve", strict: true, noEmit: true, allowImportingTsExtensions: true,
       verbatimModuleSyntax: true, skipLibCheck: true,
     },
-    include: embedded ? ["app/**/*.ts", "app/**/*.tsx", "profiles/*.ts", "pocket.runtime-config.ts", ...declarations]
+    include: embedded ? ["app/**/*.ts", "app/**/*.tsx", "pocket.runtime-config.ts", ...declarations]
       : ["*.ts", "*.tsx", ...declarations],
   };
 }
@@ -269,7 +273,7 @@ bun run compile
     text += `
 ## Firmware integration
 
-\`profiles/${name}.ts\` declares the program's software profile.
+\`profiles/${name}.json\` is the program's profile document (\`pocket-profile/2\`).
 \`pocket.runtime-config.ts\` selects it. The application lives in \`app/\`.
 **Native firmware compilation belongs to ESP-IDF.**
 
@@ -326,14 +330,10 @@ export function create(argv, { checkoutRoot, cliVersion, cwd = process.cwd() }) 
     [`${appDirectory}pocket.json`]: json(application),
   };
   if (embedded) {
-    files[`profiles/${name}.ts`] = `import { defineProfile } from "@pocketjs/framework/profile";
-
-export default defineProfile(${json(defaultProfile(name)).trim()});
-`;
+    files[`profiles/${name}.json`] = json(defaultProfile(name));
     files["pocket.runtime-config.ts"] = `import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
-import profile from "./profiles/${name}.ts";
 
-export default defineRuntimeConfig({ profile });
+export default defineRuntimeConfig({ profile: "./profiles/${name}.json" });
 `;
   }
   if (standalone) {

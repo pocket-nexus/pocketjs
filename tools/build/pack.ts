@@ -4,7 +4,9 @@ import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generati
 import { readCommunitySigner } from "../community-key.ts";
 import { readRuntimeDirectory } from "../repack.ts";
 import { admitPocket, readRuntime, type RepackIdentity } from "../repack/shared/runtime.ts";
-import { admitApplication } from "./inputs.ts";
+import { admissionHost, describeRejection, selectVariant } from "../../contracts/spec/admission.ts";
+import { decodePocketPackage, findSection, POCKET_SECTION } from "../../contracts/spec/pocket-package.ts";
+import type { ResolvedBuildPlan } from "../../framework/src/manifest/plan.ts";
 import { releasedRuntime } from "../release/fetch.ts";
 import { resolveRuntimeProgram } from "./programs.ts";
 
@@ -20,7 +22,6 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
   const adapter = recipe?.genericRuntime;
   if (!adapter) throw new Error("this runtime config has no genericRuntime.repack adapter");
   const pocket = new Uint8Array(readFileSync(resolve(cwd, options.pocket)));
-  const { plan } = admitApplication(selected, pocket);
   let runtimeDirectory = options.runtime ? resolve(cwd, options.runtime) : undefined;
   // A build output root may hold its runtime artifact in a named subdirectory.
   if (runtimeDirectory && !existsSync(resolve(runtimeDirectory, "runtime.json")) && existsSync(resolve(runtimeDirectory, "build-receipt.json"))) {
@@ -37,6 +38,11 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
     await releasedRuntime(selected.profile.id, selected.profileHash, { version: options.releaseVersion, manifestUrl: options.manifestUrl });
   const metadata = await readRuntime(runtime, selected.profile.id);
   if (metadata.profileHash !== selected.profileHash) throw new Error("runtime profileHash differs from the runtime config");
+  // The runtime's profile document admits the package by its facts; the
+  // admitted variant's plan supplies the default identity.
+  const selection = selectVariant(decodePocketPackage(pocket), admissionHost(metadata.document, metadata.profileHash, metadata.hostAbi));
+  if (!selection.ok) throw new Error(`this runtime does not admit the application: ${describeRejection(selection)}`);
+  const plan = JSON.parse(new TextDecoder().decode(findSection(selection.variant, POCKET_SECTION.plan)!)) as ResolvedBuildPlan;
   const identity: RepackIdentity = {
     id: options.id ?? plan.app.id, title: options.title ?? plan.app.title,
     author: options.author ?? "Unspecified", version: options.version ?? plan.app.version,

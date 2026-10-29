@@ -13,7 +13,13 @@ const root = realpathSync(new URL("..", import.meta.url).pathname);
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function scratch() { const path = realpathSync(mkdtempSync(join(tmpdir(), "pocketjs-project-"))); temporary.push(path); return path; }
-const profile = (id = "board", hz = 60) => ({ id, platform: "test", form: "takeover", tickHz: hz, display: { physicalViewport: [4, 4], logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1 }, capabilities: [] });
+const profile = (id = "board", cadences = [60]) => ({ format: "pocket-profile/2", id, platform: "test", form: "takeover", cadences,
+  display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] as string[] });
+/** Write a profile document and return its file name. */
+function writeProfile(directory: string, value: object, name = `${(value as { id: string }).id.replace(/[^\w-]/g, "_")}.json`) {
+  writeFileSync(join(directory, name), JSON.stringify(value));
+  return name;
+}
 const config = (body: string) => `import {defineRuntimeConfig} from '@pocketjs/framework/runtime-config'; export default defineRuntimeConfig(${body});`;
 function command(cwd: string, args: string[]) {
   return Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket.ts"), ...args], cwd, env: { ...process.env, POCKET_TARGET: "" }, stdout: "pipe", stderr: "pipe" });
@@ -22,9 +28,9 @@ function command(cwd: string, args: string[]) {
 describe("runtime configuration", () => {
   test("nearest config is found from the manifest directory and does not merge ancestors", async () => {
     const directory = scratch(); const app = join(directory, "app"); mkdirSync(app);
-    writeFileSync(join(directory, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify(profile())}}`));
+    writeFileSync(join(directory, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify("./" + writeProfile(directory, profile()))}}`));
     expect(findProjectConfig(app)).toBe(join(directory, "pocket.runtime-config.ts"));
-    writeFileSync(join(app, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify(profile("nested"))}}`));
+    writeFileSync(join(app, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify("./" + writeProfile(app, profile("nested")))}}`));
     const result = await loadProject(app);
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.diagnostics.join("\n"));
@@ -35,37 +41,40 @@ describe("runtime configuration", () => {
 
   test("multiple profiles require selection and duplicate ids fail", async () => {
     const directory = scratch(); const file = join(directory, "pocket.runtime-config.ts");
-    writeFileSync(file, config(`{profiles:[${JSON.stringify(profile("first"))},${JSON.stringify(profile("second"))}]}`));
+    const first = writeProfile(directory, profile("first")), second = writeProfile(directory, profile("second"));
+    writeFileSync(file, config(`{profiles:${JSON.stringify([first, second])}}`));
     await expect(resolveProfile({ from: directory })).rejects.toThrow("multiple profiles");
     expect((await resolveProfile({ from: directory, runtimeConfig: file, target: "second" })).profile.id).toBe("second");
     await expect(resolveProfile({ from: directory, runtimeConfig: file, target: "psp" })).rejects.toThrow("does not implement");
-    writeFileSync(file, config(`{profiles:[${JSON.stringify(profile())},${JSON.stringify(profile())}]}`));
+    writeFileSync(file, config(`{profiles:${JSON.stringify([first, writeProfile(directory, profile("first"), "copy.json")])}}`));
+    expect((await loadProject(directory)).ok).toBe(false);
+    writeFileSync(file, config(`{profile:"./first.ts"}`));
     expect((await loadProject(directory)).ok).toBe(false);
   });
 
-  test("CLI and environment override discovery; an explicit program config constrains selection", async () => {
+  test("CLI and environment override discovery; --target takes a built-in id or a JSON document", async () => {
     const directory = scratch();
     writeFileSync(join(directory, "pocket.runtime-config.ts"), "throw new Error('not selected')");
     expect((await resolveProfile({ from: directory, target: "psp", env: { POCKET_TARGET: "vita" } })).profile.id).toBe("psp");
     expect((await resolveProfile({ from: directory, env: { POCKET_TARGET: "vita" } })).profile.id).toBe("vita");
-    expect((await resolveProfile({ from: directory, target: "@pocketjs/framework/profiles/psp" })).profile.id).toBe("psp");
+    const document = join(directory, writeProfile(directory, profile("board-from-json")));
+    const selected = await resolveProfile({ from: directory, target: document });
+    expect(selected.profile.id).toBe("board-from-json");
+    expect(selected.path).toBe(document);
+    expect(selected.dependencies).toEqual([document]);
     await expect(resolveProfile({ from: directory })).rejects.toThrow("not selected");
     await expect(resolveProfile({ from: directory, target: "missing-module" })).rejects.toThrow("unknown profile");
+    await expect(resolveProfile({ from: directory, target: "@pocketjs/framework/profiles/psp" })).rejects.toThrow("not found");
+    writeFileSync(join(directory, "module.ts"), `export default ${JSON.stringify(profile("module"))}`);
+    await expect(resolveProfile({ from: directory, target: join(directory, "module.ts") })).rejects.toThrow();
   });
 
-  test("npm profile modules, imports and import.meta retain their source locations", async () => {
-    const directory = scratch(); const pkg = join(directory, "node_modules/custom-profile"); mkdirSync(pkg, { recursive: true });
-    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "custom-profile", type: "module", exports: "./index.ts" }));
-    writeFileSync(join(pkg, "value.ts"), `export const value=${JSON.stringify(profile("external/npm"))};`);
-    writeFileSync(join(pkg, "index.ts"), "import {value} from './value.ts'; export default {...value,hostExtension:{directory:import.meta.dir}};");
-    const selected = await resolveProfile({ from: directory, target: "custom-profile" });
-    expect(selected.profile.id).toBe("external/npm");
-    expect(selected.profile.hostExtension?.directory).toBe(pkg);
-    expect(selected.hostAbi).toBe(POCKET_BINDING_GENERATION);
-    expect(selected.dependencies).toContain(join(pkg, "index.ts"));
-    expect(selected.dependencies).toContain(join(pkg, "value.ts"));
-    expect(selected.dependencies).toContain(join(pkg, "package.json"));
-    expect(selected.dependencies).not.toContain("/");
+  test("a stamped document is refused under another binding generation", async () => {
+    const directory = scratch();
+    const stamped = join(directory, writeProfile(directory, { ...profile("stamped"), hostAbi: POCKET_BINDING_GENERATION }));
+    expect((await resolveProfile({ from: directory, target: stamped })).profile.hostAbi).toBe(POCKET_BINDING_GENERATION);
+    const stale = join(directory, writeProfile(directory, { ...profile("stale"), hostAbi: POCKET_BINDING_GENERATION - 1 }));
+    await expect(resolveProfile({ from: directory, target: stale })).rejects.toThrow("binding generation");
   });
 
   test("runtime config keeps native npm loading and captures the installed native dependency", async () => {
@@ -74,11 +83,14 @@ describe("runtime configuration", () => {
     symlinkSync(join(root, "node_modules/@napi-rs/canvas"), join(directory, "node_modules/@napi-rs/canvas"), "dir");
     writeFileSync(join(directory, "package.json"), JSON.stringify({ dependencies: { "@napi-rs/canvas": "1.0.2" } }));
     writeFileSync(join(directory, "bun.lock"), "native-dependency-lock-fixture\n");
+    const file = writeProfile(directory, profile());
     writeFileSync(join(directory, "pocket.runtime-config.ts"), `import {createCanvas} from '@napi-rs/canvas';
       const canvas=createCanvas(1,1); const ctx=canvas.getContext('2d');ctx.fillStyle='#172b3f';ctx.fillRect(0,0,1,1);
-      export default {profile:{...${JSON.stringify(profile())},hostExtension:{pixel:Array.from(ctx.getImageData(0,0,1,1).data)}}};`);
+      if(ctx.getImageData(0,0,1,1).data[0]!==23)throw new Error('canvas');
+      export default {profile:${JSON.stringify("./" + file)}};`);
     const selected = await resolveProfile({ from: directory });
-    expect(selected.profile.hostExtension?.pixel).toEqual([23, 43, 63, 255]);
+    expect(selected.profile.id).toBe("board");
+    expect(selected.dependencies).toContain(join(directory, file));
     expect(selected.dependencies).toContain(join(directory, "package.json"));
     expect(selected.dependencies).toContain(join(directory, "bun.lock"));
     expect(selected.dependencies).toContain(realpathSync(join(root, "node_modules/@napi-rs/canvas/js-binding.js")));
@@ -86,36 +98,16 @@ describe("runtime configuration", () => {
     expect(selected.dependencies.some(path => /canvas-[^/]+\/package\.json$/.test(path))).toBe(true);
   });
 
-  test("external npm dependencies resolve from each source importer with their local CJS files", async () => {
+  test("a document cannot replace a built-in profile under the same identity", async () => {
     const directory = scratch();
-    for (const [name, hz] of [["first", 30], ["second", 60]] as const) {
-      const importer = join(directory, name); const pkg = join(importer, "node_modules/config-native-helper");
-      mkdirSync(pkg, { recursive: true });
-      writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "config-native-helper", main: "index.cjs" }));
-      writeFileSync(join(pkg, "value.json"), JSON.stringify(hz));
-      writeFileSync(join(pkg, "index.cjs"), "module.exports=require('node:fs').readFileSync(require('node:path').join(__dirname,'value.json'),'utf8');");
-      writeFileSync(join(importer, "profile.ts"), `import hz from 'config-native-helper';export default {...${JSON.stringify(profile(name))},tickHz:Number(hz)};`);
-    }
-    const file = join(directory, "pocket.runtime-config.ts");
-    writeFileSync(file, "import first from './first/profile.ts';import second from './second/profile.ts';export default {profiles:[first,second]};");
-    for (const [name, hz] of [["first", 30], ["second", 60]] as const) {
-      const selected = await resolveProfile({ from: directory, runtimeConfig: file, target: name });
-      expect(selected.profile.tickHz).toBe(hz);
-      expect(selected.dependencies).toContain(join(directory, name, "node_modules/config-native-helper/value.json"));
-      expect(selected.dependencies).toContain(join(directory, name, "node_modules/config-native-helper/package.json"));
-    }
-  });
-
-  test("a module cannot replace a built-in profile under the same identity", async () => {
-    const directory = scratch(); const file = join(directory, "profile.ts");
-    writeFileSync(file, `export default ${JSON.stringify(profile("psp"))}`);
+    const file = join(directory, writeProfile(directory, profile("psp")));
     await expect(resolveProfile({ from: directory, target: file })).rejects.toThrow("belongs to a built-in");
   });
 
   test("external UTF-8 ids are not interpreted as object prototype properties", async () => {
-    const directory = scratch(); const file = join(directory, "profile.ts");
+    const directory = scratch();
     for (const id of ["constructor", "__proto__", "toString"]) {
-      writeFileSync(file, `export default ${JSON.stringify(profile(id))}`);
+      const file = join(directory, writeProfile(directory, profile(id), "profile.json"));
       const selected = await resolveProfile({ from: directory, target: file });
       expect(selected.profile.id).toBe(id); expect(selected.hostAbi).toBe(POCKET_BINDING_GENERATION);
     }
@@ -123,24 +115,26 @@ describe("runtime configuration", () => {
 
   test("profile export supplies canonical UTF-8 and typed records to a C11 consumer", async () => {
     const directory = scratch(); const file = join(directory, "pocket.runtime-config.ts");
-    writeFileSync(join(directory, "profile.ts"), `export default ${JSON.stringify({
+    writeProfile(directory, {
       ...profile("板子??/"), form: "window", capabilities: ["input.buttons", "text.glyphs.baked", "display.viewport.live", "display.auxiliary"],
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
       display: {
-        physicalViewport: [8, 4], logicalViewports: [[4, 2], [2, 1]], presentations: ["native", "fit"], rasterDensity: 2,
+        logicalViewports: [[4, 2], [2, 1]], presentations: ["native", "fit"], rasterDensity: 2, animation: "repaint",
         dynamicViewport: { min: [1, 1], max: [16, 8], acceptsFixed: true },
-        auxiliary: { physicalViewport: [4, 2], logicalViewports: [[2, 1]], presentations: ["native"], rasterDensity: 2 },
+        auxiliary: { logicalViewports: [[2, 1]], presentations: ["native"], rasterDensity: 2 },
       },
-    })}`);
-    writeFileSync(file, "import profile from './profile.ts'; export default {profile};");
+      panel: { primary: [8, 4], auxiliary: [4, 2] },
+    }, "profile.json");
+    writeFileSync(file, "export default {profile:'./profile.json'};");
     const selected = await resolveProfile({ from: directory });
     const out = join(directory, "export"); const dependencyFile = join(directory, "profile.d");
     exportProfile(selected, out, dependencyFile);
     expect(() => exportProfile({ ...selected, hostAbi: POCKET_BINDING_GENERATION - 1 }, out)).toThrow("binding generation");
     const sidecar = JSON.parse(readFileSync(join(out, "pocket-profile.json"), "utf8"));
-    expect(sidecar).toMatchObject({ format: "pocket-profile/1", canonicalProfileJson: canonicalProfileJson(selected.profile), hostAbi: POCKET_BINDING_GENERATION });
+    expect(sidecar).toEqual({ ...selected.profile, hostAbi: POCKET_BINDING_GENERATION });
+    expect(canonicalProfileJson(sidecar)).toBe(canonicalProfileJson(selected.profile));
     expect(readFileSync(dependencyFile, "utf8")).toContain(file);
-    expect(readFileSync(dependencyFile, "utf8")).toContain(join(directory, "profile.ts"));
+    expect(readFileSync(dependencyFile, "utf8")).toContain(join(directory, "profile.json"));
     const idBytes = [...new TextEncoder().encode(selected.profile.id)];
     const idLiteral = `"${idBytes.map(byte => `\\x${byte.toString(16).padStart(2, "0")}`).join("")}"`;
     writeFileSync(join(out, "consumer.c"), `#include "pocket_profile.h"
@@ -194,20 +188,22 @@ int main(void) {
 
   test("no-build programs export profiles without an app or node_modules", () => {
     const directory = scratch();
-    writeFileSync(join(directory, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify(profile())}}`));
+    writeFileSync(join(directory, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify("./" + writeProfile(directory, profile()))}}`));
     const result = command(directory, ["build", "--out", "export"]);
     expect(result.success, result.stderr.toString()).toBe(true);
     expect(result.stdout.toString()).toContain("external build system");
-    expect(JSON.parse(readFileSync(join(directory, "export/pocket-profile.json"), "utf8")).profile.id).toBe("board");
+    const exported = JSON.parse(readFileSync(join(directory, "export/pocket-profile.json"), "utf8"));
+    expect(exported.id).toBe("board");
+    expect(exported.hostAbi).toBe(POCKET_BINDING_GENERATION);
   });
 
   test("compile emits a package for each selected external profile and tracks imported profile sources", () => {
     const directory = scratch(); const app = join(directory, "app"); mkdirSync(app);
     mkdirSync(join(directory, "node_modules/@pocketjs"), { recursive: true });
     symlinkSync(root, join(directory, "node_modules/@pocketjs/framework"), "dir");
-    writeFileSync(join(directory, "profiles.ts"), `export const profiles=${JSON.stringify([profile("external-a"), profile("external-b", 30)].map(p => ({...p,capabilities:["input.buttons"]})))};`);
+    const documents = [profile("external-a"), profile("external-b", [30])].map(p => writeProfile(directory, { ...p, capabilities: ["input.buttons"] }));
     const runtime = join(directory, "pocket.runtime-config.ts");
-    writeFileSync(runtime, "import {profiles} from './profiles.ts';export default {profiles};");
+    writeFileSync(runtime, `export default {profiles:${JSON.stringify(documents)}};`);
     writeFileSync(join(app, "main.tsx"), 'import {mount} from "@pocketjs/framework";import {View} from "@pocketjs/framework/components";mount(()=><View class="w-full h-full bg-red-500"/>);');
     writeFileSync(join(app, "pocket.json"), JSON.stringify({ $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "example.compile", name: "compile", title: "Compile", version: "1.0.0", engine: { capabilities: { requires: ["input.buttons"] } }, app: { entry: "main.tsx", output: "app", framework: "solid", viewport: { logical: [4, 4], presentation: "native" } } }));
     for (const target of ["external-a", "external-b"]) {
@@ -222,7 +218,7 @@ int main(void) {
       expect(variant.hostAbi).toBe(POCKET_BINDING_GENERATION);
       const plan = JSON.parse(new TextDecoder().decode(findSection(variant, POCKET_SECTION.plan)!));
       expect(plan.profile.tickHz).toBe(target === "external-a" ? 60 : 30);
-      expect(readFileSync(dependency, "utf8")).toContain(join(directory, "profiles.ts"));
+      expect(readFileSync(dependency, "utf8")).toContain(join(directory, `${target}.json`));
       expect(readFileSync(dependency, "utf8")).toContain(runtime);
       expect(existsSync(join(directory, target, "app.js"))).toBe(true);
       const verified = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket-pack.ts"), "verify", output], stdout: "pipe", stderr: "pipe" });
@@ -240,7 +236,7 @@ int main(void) {
   test("runtime hooks receive the selected trusted profile and source-relative context", () => {
     const directory = scratch();
     const host = `${process.platform}-${process.arch}`;
-    writeFileSync(join(directory, "pocket.runtime-config.ts"), `import {defineRuntimeConfig,compilerOnly} from '@pocketjs/framework/runtime-config';export default defineRuntimeConfig({profile:${JSON.stringify(profile())},build:{hosts:[${JSON.stringify(host)}],steps:compilerOnly(),async run(ctx){await Bun.write(ctx.outdir+'/observed.json',JSON.stringify({dir:import.meta.dir,cwd:ctx.configDirectory}));}}});`);
+    writeFileSync(join(directory, "pocket.runtime-config.ts"), `import {defineRuntimeConfig,compilerOnly} from '@pocketjs/framework/runtime-config';export default defineRuntimeConfig({profile:${JSON.stringify("./" + writeProfile(directory, profile()))},build:{hosts:[${JSON.stringify(host)}],steps:compilerOnly(),async run(ctx){await Bun.write(ctx.outdir+'/observed.json',JSON.stringify({dir:import.meta.dir,cwd:ctx.configDirectory}));}}});`);
     const result = command(directory, ["build", "--out", "export"]);
     expect(result.success, result.stderr.toString()).toBe(true);
     const observed = JSON.parse(readFileSync(join(directory, "export/observed.json"), "utf8"));
@@ -249,7 +245,7 @@ int main(void) {
 
   test("toolchain status and implicit installation follow the program recipe rather than profile ids", () => {
     const directory = scratch();
-    writeFileSync(join(directory, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify(profile())},build:{hosts:[${JSON.stringify(`${process.platform}-${process.arch}`)}],toolchain:{schema:'pocket-toolchain/2',target:'custom-toolchain',components:[]},steps:{kind:'compilerOnly'}}}`));
+    writeFileSync(join(directory, "pocket.runtime-config.ts"), config(`{profile:${JSON.stringify("./" + writeProfile(directory, profile()))},build:{hosts:[${JSON.stringify(`${process.platform}-${process.arch}`)}],toolchain:{schema:'pocket-toolchain/2',target:'custom-toolchain',components:[]},steps:{kind:'compilerOnly'}}}`));
     const listing = command(directory, ["target", "list", "--json", "--check"]);
     expect(listing.success, listing.stderr.toString()).toBe(true);
     expect(JSON.parse(listing.stdout.toString()).find((row: { id: string }) => row.id === "custom-toolchain").state).toBe("nothing to install");

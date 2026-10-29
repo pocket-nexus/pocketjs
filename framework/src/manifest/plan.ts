@@ -5,14 +5,28 @@ import type { AnimationClass } from "../../../contracts/spec/animation.ts";
 import type { Modality } from "../../../contracts/spec/modality.ts";
 import type { AnimationTheme, PocketManifestV2 } from "../../../contracts/spec/pocket-manifest.ts";
 import type { PresentationMode, Viewport } from "../../../contracts/spec/platforms.ts";
-import { pocketProfileSchema, type PocketProfile } from "../../../contracts/spec/profile.ts";
+import type { CompiledProfile, PocketProfile } from "../../../contracts/spec/profile.ts";
 import type { WorkerDeclaration } from "../../../contracts/spec/worker.ts";
-import { canonicalProfileJson, hashPocketProfile } from "../profile.ts";
-import { validateSchema, type ContractDiagnostic } from "./schema.ts";
+import { hashPocketProfile, validatePocketProfile } from "../profile.ts";
+
+/** The profile the package was compiled against and the package rate. */
+export type PlanProfile = CompiledProfile & {
+  /** Core ticks per virtual second the package is compiled at. */
+  readonly tickHz: number;
+};
+
+/** The profile document a plan records, without the package rate. */
+export function planProfileDocument(profile: PlanProfile): PocketProfile {
+  const { tickHz: _tickHz, ...document } = profile;
+  return document;
+}
 
 export interface ResolvedBuildPlanContent {
-  /** Complete software identity used at build time, without host metadata. */
-  readonly profile: Omit<PocketProfile, "hostExtension">;
+  /** The profile the package was compiled against and the package rate
+   *  devices run it at (`profile.tickHz`). */
+  readonly profile: PlanProfile;
+  /** Provenance: the hash of the projection. Devices prefer variants with
+   *  their own hash; admission compares facts. */
   readonly profileHash: string;
   /** Package identity travels with the plan: native hosts derive their
    *  platform package id and version from here, never from a second copy. */
@@ -116,17 +130,18 @@ export function verifyPlanHash(plan: ResolvedBuildPlan): boolean {
   return planHash === hashBuildPlanContent(content);
 }
 
-/** A plan checksum alone cannot establish a profile's independent identity. */
+/** A plan checksum alone cannot establish the profile it records: the
+ *  document must validate and hash to `profileHash`. */
 export function verifyPlanProfile(plan: ResolvedBuildPlan): boolean {
   try {
-    const diagnostics: ContractDiagnostic[] = [];
-    validateSchema(plan.profile, pocketProfileSchema, "/profile", diagnostics);
-    if (diagnostics.length) return false;
-    return /^sha256:[0-9a-f]{64}$/.test(plan.profileHash) &&
-      plan.profile.id === plan.target.id &&
-      !Object.hasOwn(plan.profile, "hostExtension") &&
-      canonicalJson(plan.profile) === canonicalProfileJson(plan.profile) &&
-      hashPocketProfile(plan.profile) === plan.profileHash;
+    const { tickHz } = plan.profile;
+    if (!Number.isInteger(tickHz) || tickHz < 1 || tickHz > 240) return false;
+    const document = planProfileDocument(plan.profile);
+    if (["$schema", "hostAbi", "hostExtension"].some(key => Object.hasOwn(document, key))) return false;
+    return validatePocketProfile(document, { builtin: true }).ok &&
+      /^sha256:[0-9a-f]{64}$/.test(plan.profileHash) &&
+      document.id === plan.target.id &&
+      hashPocketProfile(document) === plan.profileHash;
   } catch {
     return false;
   }

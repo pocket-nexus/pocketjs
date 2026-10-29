@@ -1,14 +1,15 @@
 {
   "profile": {
+    "format": "pocket-profile/2",
     "id": "psp",
     "platform": "psp",
     "form": "takeover",
-    "tickHz": 60,
+    "cadences": [
+      60,
+      30,
+      20
+    ],
     "display": {
-      "physicalViewport": [
-        480,
-        272
-      ],
       "logicalViewports": [
         [
           480,
@@ -19,20 +20,30 @@
         "native",
         "integer-fit"
       ],
-      "rasterDensity": 1
+      "rasterDensity": 1,
+      "animation": "composited"
+    },
+    "panel": {
+      "primary": [
+        480,
+        272
+      ]
     },
     "capabilities": [
+      "audio.pcm",
       "input.analog.left",
       "input.buttons",
-      "io.offload",
-      "text.layout.offload",
       "input.cursor",
-      "audio.pcm",
+      "io.offload",
+      "link.companion",
+      "media.playback",
       "text.glyphs.baked",
-      "text.glyphs.streamed"
-    ]
+      "text.glyphs.streamed",
+      "text.layout.offload"
+    ],
+    "tickHz": 60
   },
-  "profileHash": "sha256:28c6c88ea190093dbb2b991b21e2b1f46aa48a3546dfa4943e4f6f4b2e40f67e",
+  "profileHash": "sha256:82fa34d859caab840c6bb6fbb047d8ebe25fa129f1060d50108bb422c9cb0b13",
   "app": {
     "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
@@ -90,5 +101,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:331c2fad48df6185fd20884e9301e135cdc4cabb593f19aee9bbcea9fee35a23"
+  "planHash": "sha256:0fe4bee6c10315e35ecb70cf6703c29870a8e18415629fdf8aede0d02f9b1cba"
 }

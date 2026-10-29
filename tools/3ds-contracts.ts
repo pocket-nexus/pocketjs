@@ -2,8 +2,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { OP } from "../contracts/spec/spec.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
-import profile from "../profiles/3ds-dev.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { profileFactsC } from "./profile-export.ts";
+const profile = POCKET_PROFILES["3ds-dev"];
 
 /** The product's profile facts, hash and operation numbers as one header. */
 export function threeDsProfileHeader(selected: PocketProfile = profile): string {

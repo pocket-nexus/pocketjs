@@ -18,6 +18,7 @@
 // own manifest disowns.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -261,7 +262,7 @@ function verifyCommand(file: string): void {
       plan.target.hostAbi !== v.hostAbi || plan.profileHash !== v.profileHash) {
       throw new Error(`verify: variant ${v.target} has inconsistent plan identity`);
     }
-    const resolution = validateAndResolveBuildPlan(manifest, { target: v.target, hostExtension: plan.hostExtension }, profileRegistry(plan.profile));
+    const resolution = validateAndResolveBuildPlan(manifest, { target: v.target, hostExtension: plan.hostExtension }, profileRegistry(planProfileDocument(plan.profile)));
     if (!resolution.ok) throw new Error(`verify: variant ${v.target} is no longer admitted by its own manifest`);
     if (canonicalJson(plan) !== canonicalJson(resolution.plan)) {
       throw new Error(`verify: variant ${v.target} resolved plan drifted from its manifest`);

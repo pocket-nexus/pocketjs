@@ -1,8 +1,9 @@
 import { nativeSources } from "./native-sources.ts";
 import "../toolchains/blackberry-qnx/armv7-qnx-eabi.json";
 import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/blackberry-qnx-dev.ts";
+import { POCKET_PROFILES } from "../../../profiles/index.ts";
 import { requireProgramProfile, requireApplication } from "./application.ts";
+const profile = POCKET_PROFILES["blackberry-qnx-dev"];
 
 export const build: RuntimeBuild = {
   hosts: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"],

@@ -1,0 +1,32 @@
+{
+  "format": "pocket-profile/2",
+  "id": "3ds-runtime",
+  "platform": "3ds",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[400, 240]],
+    "presentations": ["native"],
+    "rasterDensity": 1,
+    "animation": "composited",
+    "auxiliary": {
+      "logicalViewports": [[320, 240]],
+      "presentations": ["native"],
+      "rasterDensity": 1
+    }
+  },
+  "panel": {
+    "primary": [400, 240],
+    "auxiliary": [320, 240]
+  },
+  "capabilities": [
+    "display.auxiliary",
+    "input.analog.left",
+    "input.analog.right",
+    "input.buttons",
+    "input.cursor",
+    "input.touch.auxiliary",
+    "text.glyphs.baked",
+    "ui.physics"
+  ]
+}

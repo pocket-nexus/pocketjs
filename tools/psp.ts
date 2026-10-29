@@ -35,13 +35,14 @@ import {
 } from "../framework/src/manifest/host-build-inputs.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
-import softwareProfile from "../profiles/psp.ts";
-import runtimeProfile from "../profiles/psp-runtime.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/runtime-config.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
 import { compileDemoPackage, demoManifest } from "./build/programs/handheld-common.ts";
 import { exportProfile } from "./profile-export.ts";
+const softwareProfile = POCKET_PROFILES["psp"];
+const runtimeProfile = POCKET_PROFILES["psp-runtime"];
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
 const nativeDir = pspUiDir + "programs/psp/";

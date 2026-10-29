@@ -28,8 +28,8 @@ function plan() {
 }
 async function program(directory: string, build: Omit<RuntimeBuild, "hosts">): Promise<ResolvedProfile> {
   const selected = await resolveProfile({ from: directory, target: "psp" });
-  return { ...selected, config: { path: join(directory, "pocket.runtime-config.ts"), profiles: [selected.profile], dependencies: [],
-    value: defineRuntimeConfig({ profile: selected.profile, build: { hosts: [`${process.platform}-${process.arch}` as "darwin-arm64"], ...build } }) } };
+  return { ...selected, config: { path: join(directory, "pocket.runtime-config.ts"), profiles: [selected.profile], profilePaths: [selected.path!], dependencies: [],
+    value: defineRuntimeConfig({ profile: selected.path!, build: { hosts: [`${process.platform}-${process.arch}` as "darwin-arm64"], ...build } }) } };
 }
 function application(directory: string, generation = POCKET_BINDING_GENERATION as number, profileHash?: string): string {
   const resolved = plan();
@@ -235,12 +235,11 @@ test("pack uses the program's repack adapter after matching runtime, package and
   const dir = scratch(); const runtime = join(dir, "runtime"); mkdirSync(runtime);
   const config = join(dir, "pocket.runtime-config.ts");
   writeFileSync(config, `import {defineRuntimeConfig,compilerOnly} from '@pocketjs/framework/runtime-config';
-    import profile from '@pocketjs/framework/profiles/psp';
-    export default defineRuntimeConfig({profile,build:{hosts:['darwin-arm64','darwin-x64','linux-x64','linux-arm64'],steps:compilerOnly(),
+    export default defineRuntimeConfig({profile:${JSON.stringify(join(import.meta.dir, "../profiles/psp.json"))},build:{hosts:['darwin-arm64','darwin-x64','linux-x64','linux-arm64'],steps:compilerOnly(),
       genericRuntime:{extension:'.fixture',async repack(input){return new Uint8Array([...input.runtime.get('native.bin'),...new TextEncoder().encode(input.identity.id)]);}}}});`);
   const selected = await resolveProfile({ from: dir });
   writeFileSync(join(runtime, "native.bin"), new Uint8Array([7, 8, 9]));
-  await writeRuntimeManifest(runtime, { target: "psp", hostAbi: POCKET_BINDING_GENERATION, profile: "psp", profileHash: selected.profileHash, files: ["native.bin"] });
+  await writeRuntimeManifest(runtime, { target: "psp", hostAbi: POCKET_BINDING_GENERATION, profile: selected.profile, files: ["native.bin"] });
   const pocket = application(dir);
   const packed = await packRuntime({ config, runtime, pocket, output: join(dir, "app.fixture") }, dir);
   expect([...readFileSync(packed).subarray(0, 3)]).toEqual([7, 8, 9]);
@@ -269,9 +268,8 @@ test("config resolution directories exclude generated native outputs but retain 
       : `fs.writeFileSync(import.meta.dir + ${JSON.stringify(mutation === "package" ? "/package.json" : mutation === "lock" ? "/bun.lock" : "/choice.ts")}, ${JSON.stringify(mutation === "package" ? '{"type":"module"}' : mutation === "lock" ? '{}' : 'export default 2;')});`;
     writeFileSync(join(dir, "pocket.runtime-config.ts"), `
       import fs from 'node:fs';
-      import profile from ${JSON.stringify(join(root, "profiles/psp.ts"))};
       import choice from './choice';
-      export default { profile, build: {
+      export default { profile: ${JSON.stringify(join(root, "profiles/psp.json"))}, build: {
         hosts: [${JSON.stringify(`${process.platform}-${process.arch}`)}],
         steps: [{kind:'compilerOnly'}], artifact: '{outdir}/native.bin',
         run(ctx) { if(choice !== 1) throw Error('unexpected original choice'); ${change} fs.writeFileSync(ctx.outdir + '/native.bin', 'native'); }

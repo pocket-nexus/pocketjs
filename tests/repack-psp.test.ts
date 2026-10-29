@@ -8,15 +8,16 @@ type PocketPackageVariant,
 } from "../contracts/spec/pocket-package.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { hashPocketProfile } from "../framework/src/profile.ts";
-import softwareProfile from "../profiles/psp-runtime.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { PSP_ICON0, pbpParts, pbpWrite, pspFolder, repackPsp } from "../tools/repack/psp.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
-import { sha256Hex, type RepackInput } from "../tools/repack/shared/runtime.ts";
+import type { RepackInput } from "../tools/repack/shared/runtime.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 import { readSfo, writeSfo } from "../tools/repack/shared/sfo.ts";
 import { readZip as readEntries, unzipEntry } from "../tools/repack/shared/zip.ts";
+const softwareProfile = POCKET_PROFILES["psp-runtime"];
 
 /** Each entry of a zip with its unix mode and uncompressed data. */
 async function readZip(bytes: Uint8Array) {
@@ -79,17 +80,11 @@ async function runtime(overrides: { target?: string; hostAbi?: number; eboot?: U
   ]);
   const empty = new Uint8Array(0);
   const eboot = pbpWrite([sfo, empty, empty, empty, empty, empty, DATA_PSP, empty]);
-  const manifest = {
-    target: overrides.target ?? "psp-runtime",
-    hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
-    pocketjs: "0".repeat(40),
-    profile: "psp-runtime", profileHash: hashPocketProfile(softwareProfile),
-    files: { "EBOOT.PBP": { bytes: eboot.length, sha256: await sha256Hex(eboot) } },
-  };
-  return new Map([
-    ["EBOOT.PBP", overrides.eboot ?? eboot],
-    ["runtime.json", new TextEncoder().encode(JSON.stringify(manifest))],
-  ]);
+  const files = runtimeDirectory(softwareProfile, new Map([["EBOOT.PBP", eboot]]), {
+    target: overrides.target ?? "psp-runtime", hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
+  });
+  if (overrides.eboot) files.set("EBOOT.PBP", overrides.eboot);
+  return files;
 }
 
 /** A 64 x 64 icon: an opaque square on a transparent ground. */
@@ -174,7 +169,7 @@ describe("PSP repack", () => {
   });
 
   test("refuses a package without a psp variant", async () => {
-    await expect(repackPsp(await input({ pocket: pocketFor(["vita"]) }))).rejects.toThrow("the .pocket has no psp-runtime variant (it has vita)");
+    await expect(repackPsp(await input({ pocket: pocketFor(["vita"]) }))).rejects.toThrow("this psp-runtime runtime does not admit the .pocket: variant 0 (vita) is not admitted: rasterDensity");
   });
 
   test("refuses a runtime whose EBOOT is not the one runtime.json describes", async () => {

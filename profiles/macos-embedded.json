@@ -1,0 +1,17 @@
+{
+  "format": "pocket-profile/2",
+  "id": "macos-embedded",
+  "platform": "macos",
+  "form": "embedded",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[480, 272]],
+    "presentations": ["native", "integer-fit"],
+    "rasterDensity": 1,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [480, 272]
+  },
+  "capabilities": ["input.analog.left", "input.buttons", "input.cursor", "text.glyphs.baked"]
+}

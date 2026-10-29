@@ -33,9 +33,9 @@ if (sdk) cpSync(sdk, join(external, "sdk-idf"), { recursive: true });
 cpSync(quickjs, join(external, "quickjs"), { recursive: true,
   filter: path => !path.split(/[\\/]/).some(name => name === ".git" || name === "build" || name === "node_modules") });
 const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
-const fixtureProfile: PocketProfile = { id: "external-idf", platform: "esp-idf", form: "takeover", tickHz: 60, display: {
-  physicalViewport: [32, 24], logicalViewports: [[32, 24]], presentations: ["native"], rasterDensity: 1,
-}, capabilities: ["input.buttons"] };
+const fixtureProfile: PocketProfile = { format: "pocket-profile/2", id: "external-idf", platform: "esp-idf", form: "takeover", cadences: [60], display: {
+  logicalViewports: [[32, 24]], presentations: ["native"], rasterDensity: 1, animation: "repaint",
+}, panel: { primary: [32, 24] }, capabilities: ["input.buttons"] };
 const profile = canonicalProfileJson(fixtureProfile);
 const script = `
 const root=ui.createNode(${NODE_TYPE.view});ui.insertBefore(${ROOT_ID},root,0);

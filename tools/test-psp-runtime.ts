@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { dirname, join, resolve } from "node:path";
-import profile from "../profiles/psp.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { exportProfile } from "./profile-export.ts";
+const profile = POCKET_PROFILES["psp"];
 const root = resolve(import.meta.dir, "..");
 const validation = join(root, ".pocket-build/validation/psp-runtime");
 // The fixture embeds the profile module the PSP program embeds, plus

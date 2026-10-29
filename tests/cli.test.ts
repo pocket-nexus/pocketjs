@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { validatePocketProfile } from "../framework/src/profile.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -227,7 +228,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     const result = runCli(cwd, ["create", name, "--target", "esp-idf"]);
     expect(result.success, result.stderr.toString()).toBe(true);
     const app = join(cwd, name);
-    for (const file of ["pocket.runtime-config.ts", "profiles/" + name + ".ts", "app/pocket.json", "app/main.tsx", "app/app.tsx"]) {
+    for (const file of ["pocket.runtime-config.ts", "profiles/" + name + ".json", "app/pocket.json", "app/main.tsx", "app/app.tsx"]) {
       expect(existsSync(join(app, file)), file).toBe(true);
     }
     expect(existsSync(join(app, "pocket.config.ts"))).toBe(false);
@@ -235,11 +236,12 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     const exported = runCli(app, ["profile", "export", "--out", "exported"], { POCKETJS_FRAMEWORK_ROOT: root });
     expect(exported.success, exported.stderr.toString()).toBe(true);
     const sidecar = readJson(join(app, "exported/pocket-profile.json"));
-    expect(sidecar.profile.id).toBe(`product-${name}`);
+    expect(sidecar.id).toBe(`product-${name}`);
+    expect(sidecar.hostAbi).toBe(POCKET_BINDING_GENERATION);
     const manifest = readJson(join(app, "app/pocket.json"));
     expect(manifest.app.entry).toBe("app/main.tsx");
     expect(manifest.app.viewport).toEqual({ logical: [320, 240], presentation: "native" });
-    expect(resolveAgainstProfile(manifest, sidecar.profile).ok).toBe(true);
+    expect(resolveAgainstProfile(manifest, sidecar).ok).toBe(true);
     const pkg = readJson(join(app, "package.json"));
     expect(pkg.scripts.check).toBe("pocket check --manifest app/pocket.json --project-root .");
     expect(pkg.scripts.compile).toBe("pocket compile --manifest app/pocket.json --project-root . --output dist/" + name + ".pocket");
@@ -260,7 +262,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
       const app = join(cwd, name);
       const exported = runCli(app, ["profile", "export", "--out", "exported"], { POCKETJS_FRAMEWORK_ROOT: root });
       expect(exported.success, exported.stderr.toString()).toBe(true);
-      expect(readJson(join(app, "exported/pocket-profile.json")).profile.id).toBe(`product-${name}`);
+      expect(readJson(join(app, "exported/pocket-profile.json")).id).toBe(`product-${name}`);
     }
   });
 
@@ -361,7 +363,7 @@ await Bun.write(log,JSON.stringify([...previous,Bun.argv.slice(2)]));`);
   test("retired matrix and JSON host-profile options fail before execution",()=>{
     const framework=fakeFramework();
     expect(pocket(framework,["build","--all"]).err).toContain("enumerate profiles in scripts or CI");
-    expect(pocket(framework,["check","--host-profile","old.json"]).err).toContain("replaced by profile modules");
+    expect(pocket(framework,["check","--host-profile","old.json"]).err).toContain("replaced by profile documents");
     expect(pocket(framework,["default","psp"]).code).toBe(1);
     expect(pocket(framework,["override","set","psp"]).code).toBe(1);
   });

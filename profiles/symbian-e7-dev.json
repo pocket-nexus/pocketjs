@@ -1,0 +1,27 @@
+{
+  "format": "pocket-profile/2",
+  "id": "symbian-e7-dev",
+  "platform": "symbian",
+  "form": "window",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[640, 360]],
+    "dynamicViewport": {
+      "min": [360, 360],
+      "max": [640, 640]
+    },
+    "presentations": ["native"],
+    "rasterDensity": 1,
+    "animation": "repaint"
+  },
+  "panel": {
+    "primary": [640, 360]
+  },
+  "capabilities": [
+    "display.viewport.live",
+    "input.buttons",
+    "input.touch",
+    "text.glyphs.baked",
+    "ui.physics"
+  ]
+}

@@ -1,4 +1,5 @@
 import { repositoryPath } from "./repository.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
@@ -658,7 +659,7 @@ export async function buildIPhone4SNative(application: RuntimeApplication, outdi
 
   const firstParty = [
     ...warnings,
-    "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
+    "-include", writeHostProfileHeader(nativeBuild, planProfileDocument(inputs.profile)),
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -677,7 +678,7 @@ export async function buildIPhone4SNative(application: RuntimeApplication, outdi
   ]);
   compile(join(REPOSITORY, "programs/native/quickjs/pocket_runtime.c"), pocketRuntimeObject, [
     ...warnings,
-    "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
+    "-include", writeHostProfileHeader(nativeBuild, planProfileDocument(inputs.profile)),
     `-DPOCKETJS_TARGET_ID=\"${inputs.target}\"`,
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,

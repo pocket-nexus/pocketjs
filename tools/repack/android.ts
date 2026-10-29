@@ -51,6 +51,7 @@ import {
   admitPocket,
   checkIdentity,
   readRuntime,
+  type RuntimeDirectory,
   RUNTIME_MANIFEST,
   sha256Hex,
   type RepackIdentity,
@@ -90,7 +91,7 @@ export const ANDROID_TEMPLATE_IDENTITY: RepackIdentity = {
 export const ANDROID_TEMPLATE_SOURCES = ["AndroidManifest.xml", "res/values/strings.xml"] as const;
 
 /** runtime.json of an Android runtime. */
-export interface AndroidRuntimeManifest extends RuntimeManifest {
+export interface AndroidRuntimeManifest extends RuntimeDirectory {
   readonly viewport: { readonly logical: readonly [number, number]; readonly rasterDensity: number };
   readonly android: {
     readonly apiLevel: number;

@@ -159,8 +159,8 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       expect(readFileSync(output).equals(firstPackage)).toBe(false);
       const exportedProfile = join(build, "pocketjs/app/profile/pocket-profile.json");
       const beforeProfile = readFileSync(exportedProfile, "utf8");
-      const profileSource = join(app, "profiles/idf-smoke.ts");
-      writeFileSync(profileSource, readFileSync(profileSource, "utf8").replace('"tickHz": 60', '"tickHz": 30'));
+      const profileSource = join(app, "profiles/idf-smoke.json");
+      writeFileSync(profileSource, JSON.stringify({ ...JSON.parse(readFileSync(profileSource, "utf8")), cadences: [30] }, null, 2) + "\n");
       const profileBuild = ninja();
       expect(profileBuild).toContain("pocket_profile.h");
       expect(profileBuild).toContain("app.pocket");

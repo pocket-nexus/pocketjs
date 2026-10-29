@@ -3,7 +3,8 @@
 //! `pocket build` exports the selected profile as `pocket_profile.rs` and
 //! names it in `POCKETJS_PROFILE_RS`. A program's `build.rs` calls [`emit`],
 //! then includes `OUT_DIR/pocket_profile.rs` as a module. The module always
-//! defines `EXPORTED`, `ID`, `HOST_ABI`, `CADENCES`, `PROFILE_HASH` and
+//! defines `EXPORTED`, `ID`, `HOST_ABI`, `CADENCES`, `PROFILE_HASH`,
+//! `HEAP_BYTES`, `PACKAGE_BYTES` and
 //! `profile() -> Option<pocket_runtime::Profile>`; `profile()` is `Some` when a
 //! profile was exported for the build.
 use std::{env, fs, path::PathBuf};
@@ -24,6 +25,8 @@ pub const ID: &str = \"\";
 pub const HOST_ABI: u32 = 0;
 pub const CADENCES: &[u32] = &[];
 pub const PROFILE_HASH: [u8; 32] = [0; 32];
+pub const HEAP_BYTES: Option<usize> = None;
+pub const PACKAGE_BYTES: Option<usize> = None;
 pub fn profile() -> Option<::pocket_runtime::Profile> {
     None
 }

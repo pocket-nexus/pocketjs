@@ -24,6 +24,7 @@ import { validatePocketSystem } from "../framework/src/manifest/system.ts";
 import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { fileURLToPath } from "node:url";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 
 const fixtureUrl = (name: string) => new URL(`./fixtures/manifests/${name}.json`, import.meta.url);
 const portableInput: unknown = await Bun.file(fixtureUrl("portable-psp")).json();
@@ -43,6 +44,7 @@ type SyntheticCapabilityId = CapabilityId<typeof SYNTHETIC_CAPABILITIES>;
 const syntheticTargetDefinitions = {
   psp: POCKET_TARGETS.psp,
   "vita-test": {
+    cadences: [60],
     hostAbi: POCKET_BINDING_GENERATION,
     platform: "vita",
     form: "takeover",
@@ -51,6 +53,7 @@ const syntheticTargetDefinitions = {
       logicalViewports: [[480, 272]],
       presentations: ["integer-fit"],
       rasterDensity: 2,
+      animation: "composited",
     },
     capabilities: [
       "input.analog.left",
@@ -60,6 +63,7 @@ const syntheticTargetDefinitions = {
     ],
   },
   "dual-test": {
+    cadences: [60],
     hostAbi: POCKET_BINDING_GENERATION,
     platform: "dual-test",
     form: "takeover",
@@ -68,6 +72,7 @@ const syntheticTargetDefinitions = {
       logicalViewports: [[400, 240]],
       presentations: ["native"],
       rasterDensity: 1,
+      animation: "repaint",
       auxiliary: {
         physicalViewport: [320, 240],
         logicalViewports: [[320, 240]],
@@ -82,10 +87,10 @@ const syntheticTargetDefinitions = {
       "text.glyphs.baked",
     ],
   },
-} as const satisfies Readonly<Record<string, TargetProfile<SyntheticCapabilityId>>>;
+} as const satisfies Readonly<Record<string, TargetProfile>>;
 
 const SYNTHETIC_TARGETS = defineTargetRegistry<
-  SyntheticCapabilityId,
+  string,
   typeof syntheticTargetDefinitions
 >(syntheticTargetDefinitions);
 
@@ -210,16 +215,16 @@ describe("platform registry", () => {
     ]);
     expect(validatePlatformContractRegistry(POCKET_PLATFORM_CONTRACTS)).toEqual([]);
     expect(POCKET_TARGETS.psp.capabilities).toEqual([
+      "audio.pcm",
       "input.analog.left",
       "input.buttons",
-      "io.offload",
-      "text.layout.offload",
-      "link.companion",
       "input.cursor",
-      "audio.pcm",
+      "io.offload",
+      "link.companion",
       "media.playback",
       "text.glyphs.baked",
       "text.glyphs.streamed",
+      "text.layout.offload",
     ]);
     expect(POCKET_TARGETS.vita.capabilities).toEqual([
       "input.analog.left",
@@ -233,6 +238,7 @@ describe("platform registry", () => {
       logicalViewports: [[480, 272]],
       presentations: ["integer-fit"],
       rasterDensity: 2,
+      animation: "composited",
     });
     // The PocketBook e-reader target: real touch, no nub/cursor, and the
     // same nominal 960×544 @2x surface as vita (the host integer-fits it
@@ -247,16 +253,17 @@ describe("platform registry", () => {
       logicalViewports: [[480, 272]],
       presentations: ["integer-fit"],
       rasterDensity: 2,
+      animation: "still",
     });
     // The desktop widget target: dynamic viewport, real pointer/text/IME,
     // runtime glyph baking — and honestly NO nub or synthesized cursor.
     expect(POCKET_TARGETS["macos-widget"].capabilities).toEqual([
+      "display.viewport.live",
+      "host.clipboard",
       "input.buttons",
       "input.ime",
       "input.pointer",
       "input.text",
-      "host.clipboard",
-      "display.viewport.live",
       "text.glyphs.baked",
       "text.glyphs.runtime",
     ]);
@@ -273,10 +280,10 @@ describe("platform registry", () => {
     expect(POCKET_TARGETS["macos-app"].hostAbi).toBe(POCKET_BINDING_GENERATION);
     expect(POCKET_TARGETS["macos-app"].form).toBe("window");
     expect(POCKET_TARGETS["macos-app"].capabilities).toEqual([
-      "input.buttons",
       "display.viewport.live",
-      "text.glyphs.baked",
+      "input.buttons",
       "io.offload",
+      "text.glyphs.baked",
       "text.layout.offload",
     ]);
     expect(POCKET_TARGETS["macos-app"].roleCapabilities).toEqual({
@@ -288,7 +295,7 @@ describe("platform registry", () => {
       acceptsFixed: true,
     });
     expect(POCKET_TARGETS["linux-app"]).toEqual({
-      tickHz: 60,
+      cadences: [60, 30],
       hostAbi: POCKET_BINDING_GENERATION,
       platform: "linux",
       form: "window",
@@ -302,18 +309,20 @@ describe("platform registry", () => {
         },
         presentations: ["native"],
         rasterDensity: 1,
+        animation: "composited",
       },
       capabilities: [
-        "input.buttons",
         "display.viewport.live",
-        "text.glyphs.baked",
+        "input.buttons",
         "io.offload",
-      "text.layout.offload",
+        "text.glyphs.baked",
+        "text.layout.offload",
       ],
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
+      source: POCKET_PROFILES["linux-app"],
     });
     expect(POCKET_TARGETS["web-app"]).toEqual({
-      tickHz: 60,
+      cadences: [60],
       hostAbi: POCKET_BINDING_GENERATION,
       platform: "web",
       form: "window",
@@ -327,16 +336,18 @@ describe("platform registry", () => {
         },
         presentations: ["native"],
         rasterDensity: 1,
+        animation: "composited",
       },
       capabilities: [
-        "input.buttons",
         "display.viewport.live",
+        "input.buttons",
+        "io.offload",
         "text.glyphs.baked",
         "text.glyphs.runtime",
-        "io.offload",
         "text.layout.offload",
       ],
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
+      source: POCKET_PROFILES["web-app"],
     });
   });
 
@@ -834,6 +845,7 @@ describe("semantic resolution", () => {
             logicalViewports: [[400, 240]],
             presentations: ["native"],
             rasterDensity: 1,
+            animation: "repaint",
           },
         },
       }),

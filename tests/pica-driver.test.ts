@@ -1,11 +1,12 @@
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import profile from "../profiles/3ds-dev.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+const profile = POCKET_PROFILES["3ds-dev"];
 
 const root = resolve(import.meta.dir, "..");
 const cc = Bun.which(process.env.CC || "cc");

@@ -5,8 +5,9 @@ import { compileAot } from "../tools/aot-compile.ts";
 import { exportAotProfile } from "../tools/build/aot-profile.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/index.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
-import gba from "../profiles/gba.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { analyzeAot } from "../microts/compiler/aot-build.ts";
+const gba = POCKET_PROFILES["gba"];
 
 const ROOT = resolve(import.meta.dir, "..");
 const RUNS = resolve(ROOT, ".pocket-build/validation/aot-compile");
@@ -31,7 +32,7 @@ describe("AOT application artifact", () => {
       const dependencies = readFileSync(dependencyFile, "utf8");
       expect(dependencies).toContain(source);
       expect(dependencies).toContain(resolve(ROOT, "apps/ipodnano-hero/app.ts"));
-      expect(dependencies).toContain(resolve(ROOT, "profiles/ipodnano.ts"));
+      expect(dependencies).toContain(resolve(ROOT, "profiles/ipodnano.json"));
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }, 120_000);
 

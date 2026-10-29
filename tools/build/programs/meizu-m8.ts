@@ -1,8 +1,9 @@
 import { nativeSources } from "./native-sources.ts";
 import "../toolchains/meizu-m8/armv6-wince-asm.json";
 import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/meizu-m8-dev.ts";
+import { POCKET_PROFILES } from "../../../profiles/index.ts";
 import { requireProgramProfile, requireApplication } from "./application.ts";
+const profile = POCKET_PROFILES["meizu-m8-dev"];
 
 export const build: RuntimeBuild = {
   hosts: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"],

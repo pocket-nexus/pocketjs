@@ -3,8 +3,9 @@ import { resolve } from "node:path";
 import { runLinuxPlatformsTests } from "../tools/linux-platforms-test.ts";
 import { loadRuntimeConfig } from "../tools/profile-resolver.ts";
 import { linuxProgramProfile } from "../programs/linux-kms/pocket.runtime-config.ts";
-import profile from "../programs/linux-kms/profile.ts";
+import { readPocketProfile } from "../framework/src/profile.ts";
 const root = resolve(import.meta.dir, "..");
+const profile = readPocketProfile(resolve(root, "programs/linux-kms/profile.json"));
 test("Linux program composition declares an external product profile and native Cargo artifact", async () => {
   const config = await loadRuntimeConfig(resolve(root, "programs/linux-kms/pocket.runtime-config.ts"));
   expect(config.profiles[0]!.id).toBe("product-linux-kms");

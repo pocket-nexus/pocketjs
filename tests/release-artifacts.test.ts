@@ -8,13 +8,17 @@ import { validateReleaseManifest } from "../tools/release/manifest.ts";
 import { prepareRelease } from "../tools/release/publish.ts";
 import { verifySdk, type SdkManifest } from "../tools/release/receipt.ts";
 import { archiveDirectory } from "../tools/release/tar.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 
 const root = resolve(import.meta.dir, ".."), base = join(root, ".pocket-build/validation/release-stage9/tests");
 mkdirSync(base, { recursive: true });
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
-const revision = "a".repeat(40), triple = "x86_64-unknown-linux-gnu", profileHash = "sha256:" + "b".repeat(64);
+const fixtureProfile = { ...POCKET_PROFILES["psp-runtime"], id: "fixture" };
+const revision = "a".repeat(40), triple = "x86_64-unknown-linux-gnu", profileHash = hashPocketProfile(fixtureProfile);
 function scratch() { const path = mkdtempSync(join(base, "release-")); temporary.push(path); return path; }
 function fixture(directory: string) {
   const sdk = join(directory, "sdk"), runtime = join(directory, "runtime");
@@ -32,9 +36,9 @@ function fixture(directory: string) {
       cargo: "fixture", compiler: "fixture", toolchain: "fixture", profile: "release", defaultFeatures: false, features: [],
       rustflags: ["-C", "panic=abort"], cargoArgs: [], archive, nativeStaticLibs: [] }, preparation: null, files };
   writeFileSync(join(sdk, "sdk-manifest.json"), JSON.stringify(manifest));
-  mkdirSync(runtime); writeFileSync(join(runtime, "program.bin"), "runtime fixture");
-  writeFileSync(join(runtime, "runtime.json"), JSON.stringify({ target: "fixture", hostAbi: POCKET_BINDING_GENERATION,
-    pocketjs: revision, profile: "fixture", profileHash, files: { "program.bin": { bytes: 15, sha256: hash("runtime fixture") } } }));
+  mkdirSync(runtime);
+  const runtimeFiles = runtimeDirectory(fixtureProfile, new Map([["program.bin", new TextEncoder().encode("runtime fixture")]]), { pocketjs: revision });
+  for (const [name, bytes] of runtimeFiles) writeFileSync(join(runtime, name), bytes);
   return { sdk, runtime, manifest, inputs: { version: "0.15.0", revision, sdks: { [triple]: sdk }, runtimes: { fixture: runtime } } };
 }
 

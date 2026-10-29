@@ -7,15 +7,16 @@ import { decodePocketPackage, encodePocketPackage, type PocketPackageVariant } f
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
-import { hashPocketProfile } from "../framework/src/profile.ts";
-import softwareProfile from "../profiles/vita.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
-import { sha256Hex, type RepackInput } from "../tools/repack/shared/runtime.ts";
+import type { RepackInput } from "../tools/repack/shared/runtime.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 import { readSfo } from "../tools/repack/shared/sfo.ts";
 import { readZip as readEntries, unzipEntry } from "../tools/repack/shared/zip.ts";
 import { repackVita, VITA_ICON, VITA_LIVEAREA, vitaSfo, vitaTitleIdFor } from "../tools/repack/vita.ts";
 import { DEFAULT_VITA_PACKAGE_ASSETS, resolveVitaPackageAssets } from "../tools/vita-package.ts";
+const softwareProfile = POCKET_PROFILES["vita"];
 
 /** Each entry of a zip with its uncompressed data. */
 async function readZip(bytes: Uint8Array) {
@@ -61,11 +62,7 @@ const RUNTIME_ASSETS = [VITA_ICON, ...VITA_LIVEAREA];
 async function runtime(overrides: { target?: string; hostAbi?: number } = {}): Promise<Map<string, Uint8Array>> {
   const files = new Map<string, Uint8Array>([["eboot.bin", EBOOT]]);
   for (const name of RUNTIME_ASSETS) files.set(name, new Uint8Array(readFileSync(join(DEFAULT_VITA_PACKAGE_ASSETS, name))));
-  const listed: Record<string, { bytes: number; sha256: string }> = {};
-  for (const [name, bytes] of files) listed[name] = { bytes: bytes.length, sha256: await sha256Hex(bytes) };
-  const manifest = { target: overrides.target ?? "vita", hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION, pocketjs: "0".repeat(40), profile: "vita", profileHash: hashPocketProfile(softwareProfile), files: listed };
-  files.set("runtime.json", new TextEncoder().encode(JSON.stringify(manifest)));
-  return files;
+  return runtimeDirectory(softwareProfile, files, { target: overrides.target ?? "vita", hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION });
 }
 
 /** A 96 x 96 icon: a gradient square on a transparent ground. */
@@ -151,8 +148,8 @@ describe("PS Vita repack", () => {
     );
   });
 
-  test("refuses a package without a vita variant, and another app's package", async () => {
-    await expect(repackVita(await input({ pocket: pocketFor(["psp"]) }))).rejects.toThrow("the .pocket has no vita variant (it has psp)");
+  test("refuses a package the runtime does not admit, and another app's package", async () => {
+    await expect(repackVita(await input({ pocket: pocketFor(["psp"]) }))).rejects.toThrow("this vita runtime does not admit the .pocket: variant 0 (psp) is not admitted: rasterDensity");
     await expect(repackVita(await input({ pocket: pocketFor(["vita"], "dev.pocket-nexus.studio.other") }))).rejects.toThrow(
       'the .pocket is app "dev.pocket-nexus.studio.other"',
     );

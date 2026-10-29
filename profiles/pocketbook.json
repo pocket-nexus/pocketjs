@@ -1,0 +1,17 @@
+{
+  "format": "pocket-profile/2",
+  "id": "pocketbook",
+  "platform": "pocketbook",
+  "form": "takeover",
+  "cadences": [30],
+  "display": {
+    "logicalViewports": [[480, 272]],
+    "presentations": ["integer-fit"],
+    "rasterDensity": 2,
+    "animation": "still"
+  },
+  "panel": {
+    "primary": [960, 544]
+  },
+  "capabilities": ["input.buttons", "input.touch", "text.glyphs.baked"]
+}

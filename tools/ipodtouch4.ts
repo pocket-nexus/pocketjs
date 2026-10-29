@@ -1,5 +1,6 @@
 import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
-import ipodTouch4Profile from "../profiles/ipodtouch4-dev.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { createCanvas } from "@napi-rs/canvas";
@@ -46,6 +47,7 @@ import {
 import {
   IPOD_INSTALLER, ipodAppReceiptPaths, parseInstalledIPodApp, shellQuote, userDeploymentScript,
 } from "./ipodtouch4-installation.ts";
+const ipodTouch4Profile = POCKET_PROFILES["ipodtouch4-dev"];
 
 const REPOSITORY = fileURLToPath(new URL("..", import.meta.url));
 const DEVICE_TYPE = IPODTOUCH4_DEVICE.productType;
@@ -907,7 +909,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
   }
   const firstParty = [
     ...IPOD_WARNINGS,
-    "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
+    "-include", writeHostProfileHeader(nativeBuild, planProfileDocument(inputs.profile)),
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -917,7 +919,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
     ...(APP.svcWire ? ["-DPOCKET_SVC_WIRE"] : []),
   ];
   const host = compileIPodHost(native, {
-    profile: inputs.profile,
+    profile: planProfileDocument(inputs.profile),
     target: inputs.target,
     hostAbi: inputs.hostAbi,
     rasterDensity: inputs.viewport.rasterDensity,

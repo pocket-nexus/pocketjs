@@ -1,8 +1,9 @@
 import { copyFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { PocketProfile } from "../../contracts/spec/profile.ts";
+import { parsePocketProfile } from "../../framework/src/profile.ts";
 import { cargo, defineRuntimeConfig } from "../../framework/src/runtime-config.ts";
-import profile from "./profile.ts";
+import profile from "./profile.json" with { type: "json" };
 
 /** Services this program composes: evdev buttons, pointer and touch, and baked
  * glyphs on one fixed display. */
@@ -20,12 +21,14 @@ export function linuxProgramProfile<const P extends PocketProfile>(selected: P):
   return selected;
 }
 
+linuxProgramProfile(parsePocketProfile(profile));
+
 export default defineRuntimeConfig({
-  profile: linuxProgramProfile(profile),
+  profile: "./profile.json",
   build: {
     hosts: ["linux-arm64", "linux-x64"],
     steps: cargo({ manifest: "../../Cargo.toml", package: "pocket-linux-kms", targetDirectory: "{outdir}/cargo", release: true }),
-    sourceInputs: ["Cargo.toml", "build.rs", "src", "profile.ts", "../../Cargo.toml", "../../Cargo.lock", "../../rust-toolchain.toml",
+    sourceInputs: ["Cargo.toml", "build.rs", "src", "profile.json", "../../Cargo.toml", "../../Cargo.lock", "../../rust-toolchain.toml",
       ...["hooks", "drm", "fbdev", "evdev"].flatMap(name => [`../../platforms/linux/${name}/Cargo.toml`, `../../platforms/linux/${name}/src`]),
       ...["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime", "guest-rquickjs", "profile-build", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
     ],

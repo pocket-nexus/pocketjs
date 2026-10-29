@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 import { dirname, join, resolve } from "node:path";
-import profile from "../profiles/vita.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 import { exportProfile } from "./profile-export.ts";
+const profile = POCKET_PROFILES["vita"];
 const root = resolve(import.meta.dir, "..");
 const validation = join(root, ".pocket-build/validation/vita-runtime");
 // The fixture embeds the profile module the Vita program embeds, plus

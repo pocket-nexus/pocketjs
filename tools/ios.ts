@@ -393,13 +393,14 @@ async function play(args: readonly string[]): Promise<void> {
   const { inputs } = applicationBundle(application, IOS_DEV_TARGET_ID);
   const requestedHz = tickRateFlag(args);
   const requestedDensity = flagValue(args, "--density");
-  if ((requestedHz !== undefined && requestedHz !== selected.profile.tickHz) ||
+  // The surface runs the package's rate; the package carries it.
+  if ((requestedHz !== undefined && requestedHz !== application.plan.profile.tickHz) ||
       (requestedDensity !== undefined && Number(requestedDensity) !== selected.profile.display.rasterDensity)) {
     throw new Error("iOS staging timing and density must match the compiled package's runtime config");
   }
   const options: StageOptions = {
     shellDir: resolve(flagValue(args, "--shell-dir") ?? DEFAULT_SHELL),
-    externalGuest: args.includes("--external-guest"), tickHz: selected.profile.tickHz,
+    externalGuest: args.includes("--external-guest"), tickHz: application.plan.profile.tickHz,
     pluginPath: flagValue(args, "--plugin-path"), runtimeTgz: flagValue(args, "--runtime-tgz"),
   };
   if (args.includes("--rebuild-native")) await buildNative(true);

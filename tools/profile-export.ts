@@ -1,14 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { canonicalProfileJson, profileHashProjection } from "../framework/src/profile.ts";
 import { depfile } from "../framework/compiler/build-inputs.ts";
 import type { ResolvedProfile } from "./profile-resolver.ts";
-import type { PocketProfile } from "../contracts/spec/profile.ts";
+import { POCKET_PROFILE_FILE, type PocketProfile, type ProfileSurface } from "../contracts/spec/profile.ts";
 import { inputClassesForCapabilities } from "../contracts/spec/input.ts";
-import { deriveAnimationClass } from "../contracts/spec/animation.ts";
-import type { FixedDisplayProfile, PocketCapabilityId, Viewport } from "../contracts/spec/platform-types.ts";
-import { targetProfile } from "../profiles/contract.ts";
-import type { AdmissionHost } from "../contracts/spec/admission.ts";
+import type { Viewport } from "../contracts/spec/platform-types.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 
 const cBytes = (text: string) => `"${[...new TextEncoder().encode(text)].map(byte => `\\x${byte.toString(16).padStart(2, "0")}`).join("")}"`;
@@ -37,23 +33,11 @@ export interface ExportedFacts {
 const sorted = (names: readonly string[]) => [...new Set(names)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
 export function exportedFacts(profile: PocketProfile): ExportedFacts {
   return {
-    cadences: [profile.tickHz],
-    animation: deriveAnimationClass(targetProfile(profile as PocketProfile<PocketCapabilityId>)),
+    cadences: [...profile.cadences].sort((left, right) => right - left),
+    animation: profile.display.animation,
     presentations: [...profile.display.presentations],
     capabilities: sorted(profile.capabilities),
     systemUICapabilities: sorted(profile.roleCapabilities?.systemUI ?? []),
-  };
-}
-/** The facts a device with this profile admits packages against
- * (contracts/spec/admission.ts). */
-export function admissionHost(profile: PocketProfile, profileHash: string, hostAbi = POCKET_BINDING_GENERATION): AdmissionHost {
-  const facts = exportedFacts(profile);
-  return {
-    bindingGeneration: hostAbi, profileHash, rasterDensity: profile.display.rasterDensity, animation: facts.animation,
-    cadences: facts.cadences, logicalViewports: profile.display.logicalViewports,
-    ...(profile.display.dynamicViewport ? { dynamicViewport: { min: profile.display.dynamicViewport.min, max: profile.display.dynamicViewport.max } } : {}),
-    presentations: facts.presentations, capabilities: facts.capabilities,
-    auxiliaryLogical: profile.display.auxiliary?.logicalViewports ?? [],
   };
 }
 /** A C string literal: printable ASCII as written, other bytes escaped. */
@@ -72,12 +56,12 @@ export function profileFactsC(profile: PocketProfile, symbol: string): string {
   const { display } = profile;
   const facts = exportedFacts(profile);
   const flat = (viewports: readonly Viewport[]) => viewports.flatMap(value => [`${value[0]}u`, `${value[1]}u`]).join(", ");
-  const panel = (name: string, panel: FixedDisplayProfile) =>
-    `static const uint32_t ${name}_logical[] = {${flat(panel.logicalViewports)}};\n` +
+  const panel = (name: string, surface: ProfileSurface, physical: Viewport) =>
+    `static const uint32_t ${name}_logical[] = {${flat(surface.logicalViewports)}};\n` +
     `/* struct_size, physical, logical, logical_count, raster_density */\n` +
-    `static const pocket_profile_display ${name} = {sizeof(pocket_profile_display), ${pair(panel.physicalViewport)}, ${name}_logical, ${panel.logicalViewports.length}u, ${panel.rasterDensity}u};\n`;
-  let out = panel(`${symbol}_display`, display);
-  if (display.auxiliary) out += panel(`${symbol}_auxiliary`, display.auxiliary);
+    `static const pocket_profile_display ${name} = {sizeof(pocket_profile_display), ${pair(physical)}, ${name}_logical, ${surface.logicalViewports.length}u, ${surface.rasterDensity}u};\n`;
+  let out = panel(`${symbol}_display`, display, profile.panel.primary);
+  if (display.auxiliary) out += panel(`${symbol}_auxiliary`, display.auxiliary, profile.panel.auxiliary!);
   const dynamic = display.dynamicViewport;
   if (dynamic) out += `static const pocket_profile_range ${symbol}_dynamic = {sizeof(pocket_profile_range), ${pair(dynamic.min)}, ${pair(dynamic.max)}};\n`;
   const capabilities = nameList(facts.capabilities), presentations = nameList(facts.presentations);
@@ -106,6 +90,9 @@ pub const HOST_ABI: u32 = ${hostAbi};
 /// Presented frames per second this program can drive.
 pub const CADENCES: &[u32] = &[${facts.cadences.join(", ")}];
 pub const PROFILE_HASH: [u8; 32] = [${hashBytes(profileHash).join(", ")}];
+/// The guest heap and the largest package the profile budgets, when stated.
+pub const HEAP_BYTES: Option<usize> = ${profile.limits?.heapBytes === undefined ? "None" : `Some(${profile.limits.heapBytes})`};
+pub const PACKAGE_BYTES: Option<usize> = ${profile.limits?.packageBytes === undefined ? "None" : `Some(${profile.limits.packageBytes})`};
 static PRESENTATIONS: [::pocket_runtime::Cow<'static, str>; ${facts.presentations.length}] = ${names(facts.presentations)};
 static CAPABILITIES: [::pocket_runtime::Cow<'static, str>; ${facts.capabilities.length}] = ${names(facts.capabilities)};
 /// The facts the runtime admits packages against.
@@ -113,11 +100,11 @@ pub fn profile() -> Option<::pocket_runtime::Profile> {
     Some(::pocket_runtime::Profile {
         id: ::pocket_runtime::Cow::Borrowed(ID),
         cadences: ::pocket_runtime::Cow::Borrowed(CADENCES),
-        viewport: [${display.physicalViewport[0]}, ${display.physicalViewport[1]}],
+        viewport: [${profile.panel.primary[0]}, ${profile.panel.primary[1]}],
         logical_viewports: ::pocket_runtime::Cow::Borrowed(${pairs(display.logicalViewports)}),
         dynamic_viewport: ${dynamic ? `Some([[${dynamic.min[0]}, ${dynamic.min[1]}], [${dynamic.max[0]}, ${dynamic.max[1]}]])` : "None"},
         presentations: ::pocket_runtime::Cow::Borrowed(&PRESENTATIONS),
-        auxiliary: ${auxiliary ? `Some([${auxiliary.physicalViewport[0]}, ${auxiliary.physicalViewport[1]}])` : "None"},
+        auxiliary: ${auxiliary && profile.panel.auxiliary ? `Some([${profile.panel.auxiliary[0]}, ${profile.panel.auxiliary[1]}])` : "None"},
         auxiliary_logical: ::pocket_runtime::Cow::Borrowed(${auxiliary ? pairs(auxiliary.logicalViewports) : "&[]"}),
         density: ${display.rasterDensity},
         animation: ::pocket_runtime::Cow::Borrowed(${rustString(facts.animation)}),
@@ -143,9 +130,10 @@ export function compiledProfileHeader(profile: PocketProfile, profileHash: strin
 #include <stddef.h>
 #include <stdint.h>
 #include "pocket_runtime.h"
-/* Physical primary dimensions; logicalViewports may offer several sizes. */
-#define POCKET_PROFILE_WIDTH ${display.physicalViewport[0]}u
-#define POCKET_PROFILE_HEIGHT ${display.physicalViewport[1]}u
+/* Physical primary panel; logicalViewports may offer several sizes. */
+#define POCKET_PROFILE_WIDTH ${profile.panel.primary[0]}u
+#define POCKET_PROFILE_HEIGHT ${profile.panel.primary[1]}u
+${profile.limits?.heapBytes === undefined ? "" : `#define POCKET_PROFILE_HEAP_BYTES ${profile.limits.heapBytes}u\n`}${profile.limits?.packageBytes === undefined ? "" : `#define POCKET_PROFILE_PACKAGE_BYTES ${profile.limits.packageBytes}u\n`}
 /* The facts pocket_runtime_config.profile points at, with the hash and the
  * metadata a program passes beside them. tick_hz is the highest cadence. */
 typedef struct pocket_compiled_profile {
@@ -185,21 +173,26 @@ ${strings("pocket_profile_presentation_names", facts.presentations)}${strings("p
 `;
 }
 
-/** Export the program's trusted identity before any application is loaded. */
+/** The document a release ships beside its firmware: the profile as read,
+ * stamped with the binding generation it was built for. Consumers compute
+ * the canonical text and hash themselves. */
+export function releasedProfileDocument(profile: PocketProfile, hostAbi: number): PocketProfile {
+  return { ...profile, hostAbi };
+}
+
+/** Export the program's profile before any application is loaded:
+ * pocket_profile.h (the facts record and the hash), pocket_profile.rs (the
+ * same for Rust programs) and pocket-profile.json (the stamped document). */
 export function exportProfile(resolved: ResolvedProfile, outdir: string, dependencyFile?: string) {
   const { profile, profileHash, hostAbi } = resolved;
   if (hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`profile export: unsupported binding generation ${hostAbi}`);
   mkdirSync(outdir, { recursive: true });
-  const canonical = canonicalProfileJson(profile);
   const header = join(outdir, "pocket_profile.h");
   const module = join(outdir, "pocket_profile.rs");
-  const sidecar = join(outdir, "pocket-profile.json");
+  const sidecar = join(outdir, POCKET_PROFILE_FILE);
   writeChanged(header, compiledProfileHeader(profile, profileHash, hostAbi));
   writeChanged(module, profileFactsRust(profile, profileHash, hostAbi));
-  writeChanged(sidecar, JSON.stringify({
-    format: "pocket-profile/1", profile: profileHashProjection(profile),
-    canonicalProfileJson: canonical, profileHash, hostAbi,
-  }, null, 2) + "\n");
+  writeChanged(sidecar, JSON.stringify(releasedProfileDocument(profile, hostAbi), null, 2) + "\n");
   if (dependencyFile) {
     mkdirSync(dirname(dependencyFile), { recursive: true });
     writeFileSync(dependencyFile, depfile(header, resolved.dependencies) + depfile(module, resolved.dependencies) + depfile(sidecar, resolved.dependencies));

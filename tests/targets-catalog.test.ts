@@ -135,6 +135,6 @@ describe("tools/pocket.ts and the catalog", () => {
 
     const contract = pocket(["check", "--target", "3ds", "--manifest", "apps/3ds-demo/pocket.json", "--project-root", "."]);
     expect(contract.code).toBe(1);
-    expect(contract.err).toContain("unknown profile or module 3ds");
+    expect(contract.err).toContain("unknown profile 3ds; name a built-in profile id or a pocket-profile.json file");
   });
 });

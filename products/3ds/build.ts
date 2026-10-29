@@ -74,7 +74,7 @@ import { capture, prepareNative3ds, runNative3dsMake } from "../../tools/build/3
 
 import { $ } from "bun";
 import { ensureThreeDsProfileHeader } from "../../tools/3ds-contracts.ts";
-import softwareProfile from "../../profiles/3ds-dev.ts";
+import { POCKET_PROFILES } from "../../profiles/index.ts";
 import type { PocketProfile } from "../../framework/src/profile.ts";
 import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
 import { threeDsProfileHeader } from "../../tools/3ds-contracts.ts";
@@ -106,6 +106,7 @@ import {
   resolve3dsBuildPlan,
 } from "../../tools/3ds-profile.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
+const softwareProfile = POCKET_PROFILES["3ds-dev"];
 
 const repository = new URL("../..", import.meta.url).pathname; // PocketJS/
 const hostDirectory = `${repository}products/3ds/`;

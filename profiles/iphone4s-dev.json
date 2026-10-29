@@ -1,0 +1,17 @@
+{
+  "format": "pocket-profile/2",
+  "id": "iphone4s-dev",
+  "platform": "ios",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[320, 480]],
+    "presentations": ["native"],
+    "rasterDensity": 2,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [640, 960]
+  },
+  "capabilities": ["input.touch", "text.glyphs.baked"]
+}

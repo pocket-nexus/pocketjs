@@ -1,0 +1,17 @@
+{
+  "format": "pocket-profile/2",
+  "id": "moto-g-play-dev",
+  "platform": "android",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[360, 800]],
+    "presentations": ["native"],
+    "rasterDensity": 2,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [720, 1600]
+  },
+  "capabilities": ["input.buttons", "input.touch", "io.offload", "text.glyphs.baked"]
+}

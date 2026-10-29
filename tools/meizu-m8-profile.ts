@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/meizu-m8-dev.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["meizu-m8-dev"];
 
 /**
  * Development profile for the original Windows CE 6 Meizu M8/M8SE.
@@ -19,7 +20,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 export const MEIZU_M8_DEV_TARGET_ID = softwareProfile.id;
 export const MEIZU_M8_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const MEIZU_M8_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
-export const MEIZU_M8_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
+export const MEIZU_M8_PHYSICAL_VIEWPORT = softwareProfile.panel.primary;
 
 export const MEIZU_M8_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
