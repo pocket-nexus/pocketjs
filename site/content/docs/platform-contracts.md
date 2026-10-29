@@ -35,7 +35,8 @@ profile hash records which document the package was compiled against. See
 
 ## Application manifest
 
-Format 2 is strict JSON data. A PSP-shaped portable app can say:
+Format 2 is strict JSON data; the [application manifest](/docs/manifest/)
+page lists every field. A PSP-shaped portable app can say:
 
 ```json
 {

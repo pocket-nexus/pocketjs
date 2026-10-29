@@ -141,7 +141,7 @@ pocket compile --manifest pocket.json --target ./profiles/my-board.json \
 | --- | --- | --- |
 | `--target <id-or-file>` | profile selection above | the profile to compile against |
 | `--runtime-config <file>` | nearest configuration when no target is supplied | a configuration containing the selected profile |
-| `--manifest <file>` | `pocket.json` | the application manifest |
+| `--manifest <file>` | `pocket.json` | the [application manifest](/docs/manifest/) |
 | `--project-root <directory>` | the manifest's directory | base directory for the entry, TypeScript configuration and output paths |
 | `--outdir <directory>` | `dist` | compiler intermediates and the default package directory |
 | `--plan-dir <directory>` | `.pocket` | resolved build plans |

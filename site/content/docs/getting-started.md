@@ -73,7 +73,8 @@ pocket check --target vita --manifest apps/my-app/pocket.json
 Outside a checkout, `pocket create` writes a standalone project with its own
 `package.json`; see [create](/docs/cli/#create).
 
-The generated `pocket.json` is strict application intent:
+The generated `pocket.json` is strict application intent; the
+[application manifest](/docs/manifest/) page lists every field:
 
 ```json
 {
