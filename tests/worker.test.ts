@@ -226,11 +226,25 @@ test("worker compiler emits an independently executable realm whose entry starts
 test("pocket check includes the independent worker entry", () => {
   const output = resolve(".pocket-build/validation/worker/sdk/typecheck-worker");
   mkdirSync(output, { recursive: true });
-  const manifest = JSON.parse(readFileSync(resolve("apps/worker-http/pocket.json"), "utf8"));
-  manifest.domains.worker.entry = ".pocket-build/validation/worker/sdk/typecheck-worker/invalid.ts";
+  const manifest = {
+    $schema: "https://pocketjs.dev/schema/pocket-2.json",
+    pocket: 2,
+    id: "dev.pocket-nexus.worker-check",
+    name: "pocket-worker-check",
+    title: "Worker Check",
+    version: "0.1.0",
+    engine: { capabilities: { requires: ["runtime.worker"] } },
+    app: {
+      entry: ".pocket-build/validation/worker/sdk/typecheck-worker/ui.tsx",
+      framework: "solid",
+      viewport: { fixed: { logical: [400, 240], presentation: "native" } },
+    },
+    domains: {
+      worker: { entry: ".pocket-build/validation/worker/sdk/typecheck-worker/invalid.ts", nodes: [] },
+    },
+  };
   writeFileSync(resolve(output, "invalid.ts"), "const value: number = 'incorrect';\nvoid value;\n");
   // The UI entry's imports map through the UI domain: a worker subpath is unresolvable there.
-  manifest.app.entry = ".pocket-build/validation/worker/sdk/typecheck-worker/ui.tsx";
   writeFileSync(resolve(output, "ui.tsx"), 'import { io } from "@pocketjs/framework/io";\nvoid io;\n');
   const path = resolve(output, "pocket.json");
   writeFileSync(path, JSON.stringify(manifest));

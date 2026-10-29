@@ -151,9 +151,8 @@ servicing retains the system's service-loop cadence; worker JS execution has an
 independent task. Cancellation can report an unknown request outcome before
 native access ends. The stream's end fact remains the boundary of the retained
 prefix; a consumer that needs that prefix reads to the end fact before closing
-the resource. `apps/worker-http/worker.ts` and `apps/companion-zero/worker.ts`
-close the resource from the completion, which ends the stream loop whether or
-not an end fact arrived.
+the resource. `apps/companion-zero/worker.ts` closes the resource from the
+completion, which ends the stream loop whether or not an end fact arrived.
 
 `close()` stops admission and ends the resource's stream. Native drivers stop
 production and acknowledge the end of native buffer access before storage is
