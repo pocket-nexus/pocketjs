@@ -14,7 +14,12 @@
 // 6 around; shadows are dropped.
 
 import * as THREE from "@pocketjs/framework/playset/three";
-import type { MarbleLevel } from "@pocketjs/framework/playset/marble";
+import type { TiltPlate } from "@pocketjs/framework/playset/tilt";
+
+/** A level as game.js writes it: a tilt plate whose pickups are its stars. */
+export interface MarbleLevel extends Omit<TiltPlate, "pickups"> {
+  stars: TiltPlate["pickups"];
+}
 
 export const MARBLE_RADIUS = 0.42;
 export const STAR_UP = 0.72;

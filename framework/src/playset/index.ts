@@ -767,7 +767,7 @@ export class Playset {
     return n;
   }
 
-  /** A genre module's call (PLAYSET_MODULE); module wrappers name the ops. */
+  /** A module's call (PLAYSET_MODULE); module wrappers name the ops. */
   call(module: number, op: number, args?: Float32Array, out?: Float32Array): number {
     return this.native.call(module, op, args, out);
   }

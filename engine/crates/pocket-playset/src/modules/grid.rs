@@ -1,15 +1,16 @@
-//! The snake module: grid snakes on one board, their segments as slots,
-//! food, growth, wall/self/snake collisions, and a flood-fill + BFS planner
-//! that steers AI snakes (GameBlocks' SnakeMotionController, SnakePlay and
-//! PlayerAi with GridPathPlanner, xt4d/GameBlocks, MIT).
+//! The grid module: chains that step one cell per tick on one board, their
+//! segments as slots, pickups that lengthen the chain that takes them,
+//! wall/self/chain collisions, and a flood-fill + BFS planner that steers
+//! planner chains (from GameBlocks' snake-clash: SnakeMotionController,
+//! SnakePlay and PlayerAi with GridPathPlanner, xt4d/GameBlocks, MIT).
 //!
-//! The board moves every snake once per tick: each planner snake decides
-//! against every body as it stands before the tick, every snake steps (a
-//! guest snake takes its latched TURN, a planner snake its decision), then
-//! the referee checks each snake that was alive at the start of the tick in
-//! order: off the board, into itself, into another snake, onto food. Food
-//! is picked from the free cells (forward outer, right inner) with a seeded
-//! Mulberry32, as the demo picks its apple.
+//! The board moves every chain once per tick: each planner chain decides
+//! against every body as it stands before the tick, every chain steps (a
+//! guest chain takes its latched TURN, a planner chain its decision), then
+//! the referee checks each chain that was alive at the start of the tick in
+//! order: off the board, into itself, into another chain, onto a pickup. A
+//! new pickup takes a free cell (forward outer, right inner) picked with a
+//! seeded Mulberry32, in the demo's order.
 //!
 //! Every step the module writes each segment slot's position (cell centre,
 //! the demo's idle bob, an optional glide between cells), the head's yaw and
@@ -29,39 +30,40 @@ use crate::world::{World, KILL_EFFECTS, KILL_SILENT};
 use alloc::vec;
 use alloc::vec::Vec;
 
-/// A snake ate: a = head slot, b = food slot, DATA = snake, VALUE = length.
-pub const EAT: u32 = super::event(crate::schema::module::SNAKE, 0);
-/// A snake died: a = head slot, b = the slot it hit or -1, DATA = snake,
-/// VALUE = the reason (WALL, SELF, SNAKE).
-pub const CRASH: u32 = super::event(crate::schema::module::SNAKE, 1);
+/// A chain took a pickup: a = head slot, b = pickup slot, DATA = chain,
+/// VALUE = its length with the growth still to come.
+pub const PICKUP: u32 = super::event(crate::schema::module::GRID, 0);
+/// A chain died: a = head slot, b = the slot it hit or -1, DATA = chain,
+/// VALUE = the reason (WALL, SELF, CHAIN).
+pub const CRASH: u32 = super::event(crate::schema::module::GRID, 1);
 
-/// Call ops (framework/src/playset/snake.ts names them).
+/// Call ops (framework/src/playset/grid.ts names them).
 pub mod op {
     /// cols, rows, cell, ox, oy, oz, tick seconds, seed, glide: a new board
-    /// (removes every snake and food slot the module owns)
+    /// (removes every chain and pickup slot the module owns)
     pub const BOARD: u32 = 1;
     /// right, forward, dir, length, head arch, body arch, planner, wSpace,
-    /// wFood, wTail, wStraight, up: a snake; returns its index
+    /// wPickup, wTail, wStraight, up: a chain; returns its index
     pub const ADD: u32 = 2;
-    /// snake, dir: latch the guest's next direction
+    /// chain, dir: latch the guest's next direction
     pub const TURN: u32 = 3;
-    /// snake, planner (0 = the guest steers, 1 = the planner)
+    /// chain, planner (0 = the guest steers, 1 = the planner)
     pub const CONTROL: u32 = 4;
-    /// arch, count, growth, up: keep `count` food items on the board
-    pub const FOOD: u32 = 5;
-    /// snake, effects: back to its start cell (old segments die with effects)
+    /// arch, count, growth, up: keep `count` pickups on the board
+    pub const PICKUPS: u32 = 5;
+    /// chain, effects: back to its start cell (old segments die with effects)
     pub const RESPAWN: u32 = 6;
     /// running (0 freezes the board; the idle bob still plays)
     pub const RUN: u32 = 7;
     /// seconds per tick
     pub const TICK: u32 = 8;
-    /// snake: STATE fields into `out`; returns the length
+    /// chain: STATE fields into `out`; returns the length
     pub const STATE: u32 = 9;
-    /// snake, wSpace, wFood, wTail, wStraight
+    /// chain, wSpace, wPickup, wTail, wStraight
     pub const WEIGHTS: u32 = 10;
-    /// slot, snake, lerp: the module keeps `slot` at lerp(head, board centre)
+    /// slot, chain, lerp: the module keeps `slot` at lerp(head, board centre)
     pub const FOCUS: u32 = 11;
-    /// snake, effects: remove its segments and leave it dead
+    /// chain, effects: remove its segments and leave it dead
     pub const REMOVE: u32 = 12;
 }
 
@@ -82,10 +84,10 @@ pub mod state {
 pub mod crash {
     pub const WALL: f32 = 0.0;
     pub const SELF: f32 = 1.0;
-    pub const SNAKE: f32 = 2.0;
+    pub const CHAIN: f32 = 2.0;
 }
 
-const MAX_SNAKES: usize = 8;
+const MAX_CHAINS: usize = 8;
 const NO_SLOT: u16 = u16::MAX;
 
 const DIRS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
@@ -116,7 +118,7 @@ fn manhattan(a: Cell, b: Cell) -> i32 {
     (a.r - b.r).abs() + (a.f - b.f).abs()
 }
 
-struct Snake {
+struct Chain {
     cells: Vec<Cell>,
     /// a slot per segment, head first
     slots: Vec<u16>,
@@ -138,7 +140,7 @@ struct Snake {
 }
 
 #[derive(Clone, Copy)]
-struct Food {
+struct Pickup {
     cell: Cell,
     slot: i32,
     growth: i32,
@@ -260,7 +262,7 @@ impl Grid {
 }
 
 #[derive(Default)]
-pub struct Snakes {
+pub struct Chains {
     cols: i32,
     rows: i32,
     cell: f32,
@@ -271,21 +273,21 @@ pub struct Snakes {
     running: bool,
     time: f32,
     ticks: u32,
-    snakes: Vec<Snake>,
-    food: Vec<Food>,
-    food_arch: i32,
-    food_count: usize,
-    food_growth: i32,
-    food_up: f32,
+    chains: Vec<Chain>,
+    pickup: Vec<Pickup>,
+    pickup_arch: i32,
+    pickup_count: usize,
+    pickup_growth: i32,
+    pickup_up: f32,
     rng: u32,
     grid: Grid,
     scratch: Vec<Cell>,
     focus_slot: i32,
-    focus_snake: i32,
+    focus_chain: i32,
     focus_lerp: f32,
 }
 
-impl Snakes {
+impl Chains {
     /// The world position of a cell's centre at `up` above the board.
     #[inline]
     fn world(&self, c: Cell, up: f32) -> Vec3 {
@@ -327,26 +329,26 @@ impl Snakes {
     }
 
     fn reset_board(&mut self, w: &mut World) {
-        let mut snakes = core::mem::take(&mut self.snakes);
-        for s in snakes.iter_mut() {
+        let mut chains = core::mem::take(&mut self.chains);
+        for s in chains.iter_mut() {
             Self::release(w, &mut s.slots, s.head_arch, s.body_arch, KILL_SILENT);
         }
-        for f in self.food.iter() {
-            if f.slot >= 0 && Self::owns(w, f.slot as u16, self.food_arch as usize) {
+        for f in self.pickup.iter() {
+            if f.slot >= 0 && Self::owns(w, f.slot as u16, self.pickup_arch as usize) {
                 w.kill_mode(f.slot as usize, -1, KILL_SILENT);
             }
         }
-        self.food.clear();
-        self.food_arch = -1;
-        self.food_count = 0;
+        self.pickup.clear();
+        self.pickup_arch = -1;
+        self.pickup_count = 0;
         self.focus_slot = -1;
         self.ticks = 0;
         self.acc = 0.0;
     }
 
-    /// The snake's segments back at its start, with fresh slots.
+    /// The chain's segments back at its start, with fresh slots.
     fn place(&mut self, w: &mut World, scene: &Scene, i: usize) {
-        let s = &mut self.snakes[i];
+        let s = &mut self.chains[i];
         s.cells.clear();
         s.prev.clear();
         let mut c = s.start;
@@ -365,27 +367,27 @@ impl Snakes {
         s.alive = true;
         let (head, body, up, n) = (s.head_arch, s.body_arch, s.up, s.cells.len());
         for k in 0..n {
-            let p = self.world(self.snakes[i].cells[k], up);
-            let yaw = if k == 0 { HEAD_YAW[self.snakes[i].dir] } else { 0.0 };
+            let p = self.world(self.chains[i].cells[k], up);
+            let yaw = if k == 0 { HEAD_YAW[self.chains[i].dir] } else { 0.0 };
             let slot = w.spawn(scene, if k == 0 { head } else { body }, p, yaw);
-            self.snakes[i].slots.push(if slot >= 0 { slot as u16 } else { NO_SLOT });
+            self.chains[i].slots.push(if slot >= 0 { slot as u16 } else { NO_SLOT });
         }
     }
 
-    fn spawn_food(&mut self, w: &mut World, scene: &Scene) {
-        if self.food_arch < 0 {
+    fn spawn_pickup(&mut self, w: &mut World, scene: &Scene) {
+        if self.pickup_arch < 0 {
             return;
         }
-        while self.food.len() < self.food_count {
+        while self.pickup.len() < self.pickup_count {
             self.grid.clear();
-            for si in 0..self.snakes.len() {
-                for k in 0..self.snakes[si].cells.len() {
-                    let c = self.snakes[si].cells[k];
+            for si in 0..self.chains.len() {
+                for k in 0..self.chains[si].cells.len() {
+                    let c = self.chains[si].cells[k];
                     self.grid.mark(c);
                 }
             }
-            for fi in 0..self.food.len() {
-                let c = self.food[fi].cell;
+            for fi in 0..self.pickup.len() {
+                let c = self.pickup[fi].cell;
                 self.grid.mark(c);
             }
             let free = self.grid.blocked.iter().filter(|b| !**b).count();
@@ -408,23 +410,23 @@ impl Snakes {
                 }
             }
             let Some(cell) = at else { return };
-            let p = self.world(cell, self.food_up);
-            let slot = w.spawn(scene, self.food_arch as usize, p, 0.0);
-            self.food.push(Food { cell, slot, growth: self.food_growth });
+            let p = self.world(cell, self.pickup_up);
+            let slot = w.spawn(scene, self.pickup_arch as usize, p, 0.0);
+            self.pickup.push(Pickup { cell, slot, growth: self.pickup_growth });
         }
     }
 
     /// PlayerAi.choose: the best of the three non-reversing moves by
-    /// reachable space, distance to the nearest food, whether the tail stays
+    /// reachable space, distance to the nearest pickup, whether the tail stays
     /// reachable, and a bias for going straight.
     fn choose(&mut self, i: usize) -> usize {
-        let s = &self.snakes[i];
+        let s = &self.chains[i];
         let head = s.cells[0];
         let cur = s.dir;
         let (pending, wt) = (s.pending, s.w);
         let mut target = None;
         let mut nearest = i32::MAX;
-        for f in self.food.iter() {
+        for f in self.pickup.iter() {
             let d = manhattan(head, f.cell);
             if d < nearest {
                 nearest = d;
@@ -454,12 +456,12 @@ impl Snakes {
             return None;
         }
         // into a body that is still there after this tick
-        let own = &self.snakes[i].cells;
+        let own = &self.chains[i].cells;
         let stop = if pending > 0 { own.len() } else { own.len().saturating_sub(1) };
         if own[..stop].contains(&next) {
             return None;
         }
-        for (j, o) in self.snakes.iter().enumerate() {
+        for (j, o) in self.chains.iter().enumerate() {
             if j != i && o.cells.contains(&next) {
                 return None;
             }
@@ -473,12 +475,12 @@ impl Snakes {
         }
         let after = if pending > 0 { pending - 1 } else { 0 };
         self.grid.clear();
-        for j in 0..self.snakes.len() {
+        for j in 0..self.chains.len() {
             if j == i {
                 continue;
             }
-            for k in 0..self.snakes[j].cells.len() {
-                let c = self.snakes[j].cells[k];
+            for k in 0..self.chains[j].cells.len() {
+                let c = self.chains[j].cells[k];
                 self.grid.mark(c);
             }
         }
@@ -488,52 +490,52 @@ impl Snakes {
             self.grid.mark(c);
         }
         let flood = self.grid.flood(next) as f32;
-        let food_cost = match target.and_then(|t| self.grid.path(next, t)) {
+        let pickup_cost = match target.and_then(|t| self.grid.path(next, t)) {
             Some(d) => d as f32 * wt[1],
             None => (self.cols * self.rows) as f32,
         };
         let tail = *self.scratch.last().unwrap_or(&next);
         let tail_ok = self.grid.path(next, tail).is_some();
-        Some(flood * wt[0] - food_cost + if tail_ok { wt[2] } else { 0.0 } + if dir == cur { wt[3] } else { 0.0 })
+        Some(flood * wt[0] - pickup_cost + if tail_ok { wt[2] } else { 0.0 } + if dir == cur { wt[3] } else { 0.0 })
     }
 
     fn crash(&mut self, w: &mut World, i: usize, hit: i32, reason: f32) {
-        let s = &mut self.snakes[i];
+        let s = &mut self.chains[i];
         s.alive = false;
         let head = s.slots.first().copied().unwrap_or(NO_SLOT);
-        let p = self.world(self.snakes[i].cells[0], self.snakes[i].up);
+        let p = self.world(self.chains[i].cells[0], self.chains[i].up);
         w.emit_event(CRASH, if head == NO_SLOT { -1 } else { head as i32 }, hit, i as f32, p, reason);
     }
 
     fn grid_tick(&mut self, w: &mut World, scene: &Scene) {
-        let n = self.snakes.len().min(MAX_SNAKES);
-        let mut was = [false; MAX_SNAKES];
+        let n = self.chains.len().min(MAX_CHAINS);
+        let mut was = [false; MAX_CHAINS];
         for i in 0..n {
-            was[i] = self.snakes[i].alive && !self.snakes[i].cells.is_empty();
+            was[i] = self.chains[i].alive && !self.chains[i].cells.is_empty();
         }
         // every decision sees the bodies as they stand before the tick
         for i in 0..n {
             if !was[i] {
                 continue;
             }
-            let d = if self.snakes[i].planner {
+            let d = if self.chains[i].planner {
                 self.choose(i)
             } else {
-                let t = self.snakes[i].turn;
+                let t = self.chains[i].turn;
                 if t >= 0 {
                     t as usize & 3
                 } else {
-                    self.snakes[i].dir
+                    self.chains[i].dir
                 }
             };
-            self.snakes[i].next = d;
-            self.snakes[i].turn = -1;
+            self.chains[i].next = d;
+            self.chains[i].turn = -1;
         }
         for i in 0..n {
             if !was[i] {
                 continue;
             }
-            let s = &mut self.snakes[i];
+            let s = &mut self.chains[i];
             // cardinal turns only: a reversal keeps the heading
             let want = s.next;
             if want != opposite(s.dir) {
@@ -554,25 +556,25 @@ impl Snakes {
             s.cells.insert(0, head);
             if grew {
                 let (arch, up) = (s.body_arch, s.up);
-                let tail = *self.snakes[i].cells.last().unwrap();
+                let tail = *self.chains[i].cells.last().unwrap();
                 let p = self.world(tail, up);
                 let slot = w.spawn(scene, arch, p, 0.0);
-                self.snakes[i].slots.push(if slot >= 0 { slot as u16 } else { NO_SLOT });
+                self.chains[i].slots.push(if slot >= 0 { slot as u16 } else { NO_SLOT });
             }
         }
-        // the referee, in snake order
+        // the referee, in chain order
         for i in 0..n {
             if !was[i] {
                 continue;
             }
-            let head = self.snakes[i].cells[0];
+            let head = self.chains[i].cells[0];
             if !self.grid.inside(head) {
                 self.crash(w, i, -1, crash::WALL);
                 continue;
             }
-            if self.snakes[i].cells[1..].contains(&head) {
-                let k = self.snakes[i].cells[1..].iter().position(|c| *c == head).unwrap() + 1;
-                let hit = self.snakes[i].slots.get(k).copied().unwrap_or(NO_SLOT);
+            if self.chains[i].cells[1..].contains(&head) {
+                let k = self.chains[i].cells[1..].iter().position(|c| *c == head).unwrap() + 1;
+                let hit = self.chains[i].slots.get(k).copied().unwrap_or(NO_SLOT);
                 self.crash(w, i, if hit == NO_SLOT { -1 } else { hit as i32 }, crash::SELF);
                 continue;
             }
@@ -581,38 +583,38 @@ impl Snakes {
                 if j == i || !was[j] {
                     continue;
                 }
-                if let Some(k) = self.snakes[j].cells.iter().position(|c| *c == head) {
-                    hit = Some(self.snakes[j].slots.get(k).copied().unwrap_or(NO_SLOT));
+                if let Some(k) = self.chains[j].cells.iter().position(|c| *c == head) {
+                    hit = Some(self.chains[j].slots.get(k).copied().unwrap_or(NO_SLOT));
                     break;
                 }
             }
             if let Some(h) = hit {
-                self.crash(w, i, if h == NO_SLOT { -1 } else { h as i32 }, crash::SNAKE);
+                self.crash(w, i, if h == NO_SLOT { -1 } else { h as i32 }, crash::CHAIN);
                 continue;
             }
-            if let Some(fi) = self.food.iter().position(|f| f.cell == head) {
-                let f = self.food.remove(fi);
-                let s = &mut self.snakes[i];
+            if let Some(fi) = self.pickup.iter().position(|f| f.cell == head) {
+                let f = self.pickup.remove(fi);
+                let s = &mut self.chains[i];
                 s.pending += f.growth.max(1);
                 let len = (s.cells.len() as i32 + s.pending) as f32;
                 let hs = s.slots.first().copied().unwrap_or(NO_SLOT);
-                if f.slot >= 0 && Self::owns(w, f.slot as u16, self.food_arch as usize) {
+                if f.slot >= 0 && Self::owns(w, f.slot as u16, self.pickup_arch as usize) {
                     w.kill_mode(f.slot as usize, if hs == NO_SLOT { -1 } else { hs as i32 }, KILL_EFFECTS);
                 }
-                let p = self.world(head, self.food_up);
-                w.emit_event(EAT, if hs == NO_SLOT { -1 } else { hs as i32 }, f.slot, i as f32, p, len);
+                let p = self.world(head, self.pickup_up);
+                w.emit_event(PICKUP, if hs == NO_SLOT { -1 } else { hs as i32 }, f.slot, i as f32, p, len);
             }
         }
-        self.spawn_food(w, scene);
+        self.spawn_pickup(w, scene);
         self.ticks += 1;
     }
 
-    /// Segment, food and focus poses for this frame.
+    /// Segment, pickup and focus poses for this frame.
     fn pose(&mut self, w: &mut World) {
         let t = self.time;
         let glide = if self.glide > 0.0 && self.running { clampf(self.acc / maxf(self.tick * self.glide, 1e-3), 0.0, 1.0) } else { 1.0 };
-        for i in 0..self.snakes.len() {
-            let s = &self.snakes[i];
+        for i in 0..self.chains.len() {
+            let s = &self.chains[i];
             let (head, body, up, dir) = (s.head_arch, s.body_arch, s.up, s.dir);
             for k in 0..s.slots.len().min(s.cells.len()) {
                 let slot = s.slots[k];
@@ -632,19 +634,19 @@ impl Snakes {
                 }
             }
         }
-        if self.food_arch >= 0 {
-            for (fi, f) in self.food.iter().enumerate() {
-                if f.slot < 0 || !Self::owns(w, f.slot as u16, self.food_arch as usize) {
+        if self.pickup_arch >= 0 {
+            for (fi, f) in self.pickup.iter().enumerate() {
+                if f.slot < 0 || !Self::owns(w, f.slot as u16, self.pickup_arch as usize) {
                     continue;
                 }
-                let p = self.world(f.cell, self.food_up + sinf(t * 5.0 + fi as f32) * 0.08);
+                let p = self.world(f.cell, self.pickup_up + sinf(t * 5.0 + fi as f32) * 0.08);
                 w.set_pos(f.slot as usize, p);
                 w.set(f.slot as usize, E::YAW, wrap_angle(t * 1.2 + fi as f32 * 0.4));
             }
         }
         if self.focus_slot >= 0 && w.alive(self.focus_slot as usize) {
             let c = self.center();
-            let p = match self.snakes.get(self.focus_snake.max(0) as usize) {
+            let p = match self.chains.get(self.focus_chain.max(0) as usize) {
                 Some(s) if !s.cells.is_empty() => self.world(s.cells[0], s.up).lerp(c, self.focus_lerp),
                 _ => c,
             };
@@ -671,9 +673,9 @@ impl Snakes {
 
     pub fn call(&mut self, w: &mut World, scene: &mut Scene, op: u32, args: &[f32], out: &mut [f32]) -> f32 {
         let a = |i: usize| args.get(i).copied().unwrap_or(0.0);
-        let snake = |s: &Snakes, i: f32| -> Option<usize> {
+        let chain = |s: &Chains, i: f32| -> Option<usize> {
             let i = i as i32;
-            if i >= 0 && (i as usize) < s.snakes.len() {
+            if i >= 0 && (i as usize) < s.chains.len() {
                 Some(i as usize)
             } else {
                 None
@@ -696,7 +698,7 @@ impl Snakes {
                 0.0
             }
             op::ADD => {
-                if self.cols <= 0 || self.snakes.len() >= MAX_SNAKES {
+                if self.cols <= 0 || self.chains.len() >= MAX_CHAINS {
                     return -1.0;
                 }
                 let (head, body) = (a(4) as i32, a(5) as i32);
@@ -704,7 +706,7 @@ impl Snakes {
                     return -1.0;
                 }
                 let cap = (self.cols * self.rows) as usize + 2;
-                self.snakes.push(Snake {
+                self.chains.push(Chain {
                     cells: Vec::with_capacity(cap),
                     slots: Vec::with_capacity(cap),
                     prev: Vec::with_capacity(cap),
@@ -722,47 +724,47 @@ impl Snakes {
                     body_arch: body as usize,
                     up: a(11),
                 });
-                let i = self.snakes.len() - 1;
+                let i = self.chains.len() - 1;
                 self.place(w, scene, i);
                 i as f32
             }
             op::TURN => {
-                if let Some(i) = snake(self, a(0)) {
+                if let Some(i) = chain(self, a(0)) {
                     let d = a(1) as i32;
                     if (0..4).contains(&d) {
-                        self.snakes[i].turn = d;
+                        self.chains[i].turn = d;
                     }
                 }
                 0.0
             }
             op::CONTROL => {
-                if let Some(i) = snake(self, a(0)) {
-                    self.snakes[i].planner = a(1) > 0.5;
-                    self.snakes[i].turn = -1;
+                if let Some(i) = chain(self, a(0)) {
+                    self.chains[i].planner = a(1) > 0.5;
+                    self.chains[i].turn = -1;
                 }
                 0.0
             }
-            op::FOOD => {
+            op::PICKUPS => {
                 let arch = a(0) as i32;
                 if arch < 0 || arch as usize >= w.archs.len() {
                     return -1.0;
                 }
-                self.food_arch = arch;
-                self.food_count = (a(1) as usize).min(32);
-                self.food_growth = (a(2) as i32).max(1);
-                self.food_up = a(3);
-                self.spawn_food(w, scene);
-                self.food.len() as f32
+                self.pickup_arch = arch;
+                self.pickup_count = (a(1) as usize).min(32);
+                self.pickup_growth = (a(2) as i32).max(1);
+                self.pickup_up = a(3);
+                self.spawn_pickup(w, scene);
+                self.pickup.len() as f32
             }
             op::RESPAWN | op::REMOVE => {
-                let Some(i) = snake(self, a(0)) else { return -1.0 };
+                let Some(i) = chain(self, a(0)) else { return -1.0 };
                 let mode = if a(1) > 0.5 { KILL_EFFECTS } else { KILL_SILENT };
-                let s = &mut self.snakes[i];
+                let s = &mut self.chains[i];
                 Self::release(w, &mut s.slots, s.head_arch, s.body_arch, mode);
                 if op == op::RESPAWN {
                     self.place(w, scene, i);
                 } else {
-                    let s = &mut self.snakes[i];
+                    let s = &mut self.chains[i];
                     s.cells.clear();
                     s.prev.clear();
                     s.alive = false;
@@ -781,8 +783,8 @@ impl Snakes {
                 0.0
             }
             op::STATE => {
-                let Some(i) = snake(self, a(0)) else { return -1.0 };
-                let s = &self.snakes[i];
+                let Some(i) = chain(self, a(0)) else { return -1.0 };
+                let s = &self.chains[i];
                 let head = s.cells.first().copied().unwrap_or_default();
                 let vals = [
                     if s.alive { 1.0 } else { 0.0 },
@@ -803,14 +805,14 @@ impl Snakes {
                 s.cells.len() as f32
             }
             op::WEIGHTS => {
-                if let Some(i) = snake(self, a(0)) {
-                    self.snakes[i].w = [a(1), a(2), a(3), a(4)];
+                if let Some(i) = chain(self, a(0)) {
+                    self.chains[i].w = [a(1), a(2), a(3), a(4)];
                 }
                 0.0
             }
             op::FOCUS => {
                 self.focus_slot = a(0) as i32;
-                self.focus_snake = a(1) as i32;
+                self.focus_chain = a(1) as i32;
                 self.focus_lerp = clampf(a(2), 0.0, 1.0);
                 0.0
             }
@@ -830,11 +832,11 @@ mod tests {
         ps: Box<Playset>,
         head: f32,
         body: f32,
-        food: f32,
+        pickup: f32,
     }
 
     fn call(ps: &mut Playset, op: u32, args: &[f32], out: &mut [f32]) -> f32 {
-        ps.modules.snake.call(&mut ps.world, &mut ps.scene, op, args, out)
+        ps.modules.grid.call(&mut ps.world, &mut ps.scene, op, args, out)
     }
 
     /// A 16x16 board at the origin with three bare archetypes; one tick per step.
@@ -844,9 +846,9 @@ mod tests {
         d[A::SCALE] = 1.0;
         let head = ps.world.add_arch(&d) as f32;
         let body = ps.world.add_arch(&d) as f32;
-        let food = ps.world.add_arch(&d) as f32;
+        let pickup = ps.world.add_arch(&d) as f32;
         call(&mut ps, op::BOARD, &[16.0, 16.0, 1.0, 0.0, 0.0, 0.0, 1.0 / 60.0, 1337.0, 0.0], &mut []);
-        Board { ps, head, body, food }
+        Board { ps, head, body, pickup }
     }
 
     fn events(ps: &Playset, n: usize, ty: u32) -> Vec<[f32; 8]> {
@@ -887,36 +889,36 @@ mod tests {
         // turn up: the body bends behind it
         call(&mut b.ps, op::TURN, &[0.0, 0.0], &mut []);
         b.ps.step(1.0 / 60.0);
-        let snake = &b.ps.modules.snake.snakes[0];
-        assert_eq!(snake.cells[0], Cell { r: 4, f: 9 });
-        assert_eq!(snake.cells[1], Cell { r: 4, f: 8 });
-        assert_eq!(snake.cells[2], Cell { r: 3, f: 8 });
-        let tail = snake.slots[3] as usize;
+        let chain = &b.ps.modules.grid.chains[0];
+        assert_eq!(chain.cells[0], Cell { r: 4, f: 9 });
+        assert_eq!(chain.cells[1], Cell { r: 4, f: 8 });
+        assert_eq!(chain.cells[2], Cell { r: 3, f: 8 });
+        let tail = chain.slots[3] as usize;
         let p = b.ps.world.pos(tail);
         assert!((p.x - 2.0).abs() < 1e-4 && (p.z + 8.0).abs() < 1e-4);
         // a reversal is ignored
         call(&mut b.ps, op::TURN, &[0.0, 2.0], &mut []);
         b.ps.step(1.0 / 60.0);
-        assert_eq!(b.ps.modules.snake.snakes[0].cells[0], Cell { r: 4, f: 10 });
+        assert_eq!(b.ps.modules.grid.chains[0].cells[0], Cell { r: 4, f: 10 });
     }
 
     #[test]
-    fn eating_grows_reports_and_respawns_food() {
+    fn a_pickup_grows_reports_and_respawns() {
         let mut b = board();
         call(&mut b.ps, op::ADD, &[3.0, 8.0, 1.0, 4.0, b.head, b.body, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &mut []);
-        call(&mut b.ps, op::FOOD, &[b.food, 1.0, 1.0, 0.25], &mut []);
-        // put the food two cells ahead of the head
-        let fslot = b.ps.modules.snake.food[0].slot;
-        b.ps.modules.snake.food[0].cell = Cell { r: 5, f: 8 };
+        call(&mut b.ps, op::PICKUPS, &[b.pickup, 1.0, 1.0, 0.25], &mut []);
+        // put the pickup two cells ahead of the head
+        let fslot = b.ps.modules.grid.pickup[0].slot;
+        b.ps.modules.grid.pickup[0].cell = Cell { r: 5, f: 8 };
         call(&mut b.ps, op::RUN, &[1.0], &mut []);
         b.ps.step(1.0 / 60.0);
         let n = b.ps.step(1.0 / 60.0);
-        let eats = events(&b.ps, n, EAT);
-        assert_eq!(eats.len(), 1);
-        assert_eq!(eats[0][EF::B] as i32, fslot);
-        assert_eq!(eats[0][EF::VALUE], 5.0);
-        assert!(!b.ps.world.alive(fslot as usize) || b.ps.modules.snake.food[0].slot == fslot);
-        assert_eq!(b.ps.modules.snake.food.len(), 1, "a new apple appears");
+        let takes = events(&b.ps, n, PICKUP);
+        assert_eq!(takes.len(), 1);
+        assert_eq!(takes[0][EF::B] as i32, fslot);
+        assert_eq!(takes[0][EF::VALUE], 5.0);
+        assert!(!b.ps.world.alive(fslot as usize) || b.ps.modules.grid.pickup[0].slot == fslot);
+        assert_eq!(b.ps.modules.grid.pickup.len(), 1, "a new apple appears");
         let before = b.ps.world.live.len();
         b.ps.step(1.0 / 60.0);
         assert_eq!(state(&mut b.ps, 0.0)[state::LENGTH], 5.0);
@@ -924,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    fn walls_self_and_other_snakes_crash() {
+    fn walls_self_and_other_chains_crash() {
         let mut b = board();
         // into the right wall
         call(&mut b.ps, op::ADD, &[14.0, 2.0, 1.0, 3.0, b.head, b.body, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &mut []);
@@ -935,15 +937,15 @@ mod tests {
         assert_eq!(c.len(), 1);
         assert_eq!(c[0][EF::VALUE], crash::WALL);
         assert_eq!(state(&mut b.ps, 0.0)[state::ALIVE], 0.0);
-        // a dead snake stops
+        // a dead chain stops
         b.ps.step(1.0 / 60.0);
-        assert_eq!(b.ps.modules.snake.snakes[0].cells[0], Cell { r: 16, f: 2 });
+        assert_eq!(b.ps.modules.grid.chains[0].cells[0], Cell { r: 16, f: 2 });
         // respawn puts it back
         call(&mut b.ps, op::RESPAWN, &[0.0, 1.0], &mut []);
         assert_eq!(state(&mut b.ps, 0.0)[state::ALIVE], 1.0);
-        assert_eq!(b.ps.modules.snake.snakes[0].cells[0], Cell { r: 14, f: 2 });
+        assert_eq!(b.ps.modules.grid.chains[0].cells[0], Cell { r: 14, f: 2 });
 
-        // into itself: a long snake turning in a tight square
+        // into itself: a long chain turning in a tight square
         let mut b = board();
         call(&mut b.ps, op::ADD, &[8.0, 8.0, 1.0, 6.0, b.head, b.body, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &mut []);
         call(&mut b.ps, op::RUN, &[1.0], &mut []);
@@ -965,52 +967,52 @@ mod tests {
         let n = b.ps.step(1.0 / 60.0);
         let c = events(&b.ps, n, CRASH);
         assert_eq!(c.len(), 2);
-        assert!(c.iter().all(|e| e[EF::VALUE] == crash::SNAKE));
+        assert!(c.iter().all(|e| e[EF::VALUE] == crash::CHAIN));
     }
 
     #[test]
-    fn the_planner_eats_and_survives() {
+    fn the_planner_picks_up_and_survives() {
         let mut b = board();
-        // the demo's two snakes, both on the planner with the demo's weights
+        // the demo's two chains, both on the planner with the demo's weights
         call(&mut b.ps, op::ADD, &[3.0, 8.0, 1.0, 4.0, b.head, b.body, 1.0, 2.4, 3.2, 3.5, 0.35, 0.12], &mut []);
         call(&mut b.ps, op::ADD, &[12.0, 3.0, 3.0, 4.0, b.head, b.body, 1.0, 2.0, 3.0, 3.5, 0.5, 0.12], &mut []);
-        call(&mut b.ps, op::FOOD, &[b.food, 1.0, 1.0, 0.25], &mut []);
+        call(&mut b.ps, op::PICKUPS, &[b.pickup, 1.0, 1.0, 0.25], &mut []);
         call(&mut b.ps, op::RUN, &[1.0], &mut []);
-        let mut eaten = 0;
+        let mut taken = 0;
         let mut crashes = 0;
         for _ in 0..600 {
             let n = b.ps.step(1.0 / 60.0);
-            eaten += events(&b.ps, n, EAT).len();
+            taken += events(&b.ps, n, PICKUP).len();
             for c in events(&b.ps, n, CRASH) {
                 crashes += 1;
                 call(&mut b.ps, op::RESPAWN, &[c[EF::DATA], 0.0], &mut []);
             }
         }
-        assert!(eaten >= 20, "ate {eaten}");
+        assert!(taken >= 20, "took {taken}");
         assert!(crashes <= 4, "crashed {crashes} times in 600 ticks");
         // slots match the bodies
-        for s in b.ps.modules.snake.snakes.iter() {
+        for s in b.ps.modules.grid.chains.iter() {
             assert_eq!(s.slots.len(), s.cells.len());
         }
     }
 
     #[test]
-    fn the_planner_steers_toward_food_and_away_from_walls() {
+    fn the_planner_steers_toward_pickups_and_away_from_walls() {
         let mut b = board();
         call(&mut b.ps, op::ADD, &[15.0, 8.0, 1.0, 3.0, b.head, b.body, 1.0, 2.4, 3.2, 3.5, 0.35, 0.0], &mut []);
-        call(&mut b.ps, op::FOOD, &[b.food, 1.0, 1.0, 0.25], &mut []);
-        b.ps.modules.snake.food[0].cell = Cell { r: 15, f: 2 };
-        // heading right at the wall with food below: it turns down
-        assert_eq!(b.ps.modules.snake.choose(0), 2);
+        call(&mut b.ps, op::PICKUPS, &[b.pickup, 1.0, 1.0, 0.25], &mut []);
+        b.ps.modules.grid.pickup[0].cell = Cell { r: 15, f: 2 };
+        // heading right at the wall with pickup below: it turns down
+        assert_eq!(b.ps.modules.grid.choose(0), 2);
     }
 
     #[test]
     fn mulberry_pick_matches_the_float_floor() {
-        let mut s = Snakes { rng: 1337, ..Snakes::default() };
+        let mut s = Chains { rng: 1337, ..Chains::default() };
         let mut r = 1337u32;
         for _ in 0..2000 {
             for n in [1usize, 7, 100, 255, 256] {
-                let mut copy = Snakes { rng: r, ..Snakes::default() };
+                let mut copy = Chains { rng: r, ..Chains::default() };
                 let raw = copy.next_u32();
                 r = copy.rng;
                 let want = ((raw as f64 / 4294967296.0) * n as f64).floor() as usize;
@@ -1045,8 +1047,8 @@ mod tests {
     fn board_resets_release_slots_and_focus_follows() {
         let mut b = board();
         call(&mut b.ps, op::ADD, &[3.0, 8.0, 1.0, 4.0, b.head, b.body, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &mut []);
-        call(&mut b.ps, op::FOOD, &[b.food, 1.0, 1.0, 0.25], &mut []);
-        let focus = b.ps.world.spawn(&b.ps.scene, b.food as usize, Vec3::ZERO, 0.0);
+        call(&mut b.ps, op::PICKUPS, &[b.pickup, 1.0, 1.0, 0.25], &mut []);
+        let focus = b.ps.world.spawn(&b.ps.scene, b.pickup as usize, Vec3::ZERO, 0.0);
         call(&mut b.ps, op::FOCUS, &[focus as f32, 0.0, 0.5], &mut []);
         b.ps.step(1.0 / 60.0);
         let p = b.ps.world.pos(focus as usize);
@@ -1072,11 +1074,11 @@ mod bench {
         let mut d = [0.0f32; crate::schema::ARCH_LENGTH];
         d[A::SCALE] = 1.0;
         let a = ps.world.add_arch(&d) as f32;
-        let call = |ps: &mut Playset, op: u32, x: &[f32]| ps.modules.snake.call(&mut ps.world, &mut ps.scene, op, x, &mut []);
+        let call = |ps: &mut Playset, op: u32, x: &[f32]| ps.modules.grid.call(&mut ps.world, &mut ps.scene, op, x, &mut []);
         call(&mut ps, op::BOARD, &[16.0, 16.0, 1.0, 0.0, 0.0, 0.0, 1.0 / 60.0, 1337.0, 0.0]);
         call(&mut ps, op::ADD, &[3.0, 8.0, 1.0, 4.0, a, a, 1.0, 2.4, 3.2, 3.5, 0.35, 0.0]);
         call(&mut ps, op::ADD, &[12.0, 3.0, 3.0, 4.0, a, a, 1.0, 2.0, 3.0, 3.5, 0.5, 0.0]);
-        call(&mut ps, op::FOOD, &[a, 1.0, 1.0, 0.0]);
+        call(&mut ps, op::PICKUPS, &[a, 1.0, 1.0, 0.0]);
         call(&mut ps, op::RUN, &[1.0]);
         let t = std::time::Instant::now();
         let mut ticks = 0;
@@ -1090,8 +1092,8 @@ mod bench {
                 }
             }
         }
-        let lens: Vec<usize> = ps.modules.snake.snakes.iter().map(|s| s.cells.len()).collect();
-        std::println!("{:?} per tick with both snakes planning (lengths {lens:?})", t.elapsed() / ticks);
+        let lens: Vec<usize> = ps.modules.grid.chains.iter().map(|s| s.cells.len()).collect();
+        std::println!("{:?} per tick with both chains planning (lengths {lens:?})", t.elapsed() / ticks);
     }
 }
 

@@ -1,13 +1,14 @@
-// @pocketjs/framework/playset/snake — grid snakes over the native snake
-// module (engine/crates/pocket-playset/src/modules/snake.rs).
+// @pocketjs/framework/playset/grid — chains that step cell by cell on a
+// board, over the native grid module (engine/crates/pocket-playset/src/
+// modules/grid.rs).
 //
-// The module owns the board: every snake's cells, a slot per segment (a head
-// archetype and a body archetype), food slots, the tick, collisions and the
-// flood-fill + BFS planner that steers AI snakes. It runs after the world's
-// step and reports SNAKE_EVENT.EAT (a = head slot, b = food slot, DATA =
-// snake, VALUE = length with the growth still to come) and SNAKE_EVENT.CRASH
-// (a = head slot, b = the slot it ran into or -1, DATA = snake, VALUE =
-// SNAKE_CRASH).
+// The module owns the board: every chain's cells, a slot per segment (a head
+// archetype and a body archetype), pickup slots, the tick, collisions and the
+// flood-fill + BFS planner that steers planner chains. It runs after the
+// world's step and reports GRID_EVENT.PICKUP (a = head slot, b = pickup slot,
+// DATA = chain, VALUE = length with the growth still to come) and
+// GRID_EVENT.CRASH (a = head slot, b = the slot it ran into or -1, DATA =
+// chain, VALUE = GRID_CRASH).
 //
 // Cell (right, forward) sits at origin + (right * cell, up, -forward * cell).
 // Every call below writes a preallocated argument array: none allocates.
@@ -16,14 +17,14 @@ import { playsetModuleEvent } from "../../../contracts/spec/playset.ts";
 import { MODULE, type Archetype, type Playset } from "./index.ts";
 
 /** The module's events, for Playset.on(). */
-export const SNAKE_EVENT = { EAT: playsetModuleEvent(MODULE.SNAKE, 0), CRASH: playsetModuleEvent(MODULE.SNAKE, 1) } as const;
+export const GRID_EVENT = { PICKUP: playsetModuleEvent(MODULE.GRID, 0), CRASH: playsetModuleEvent(MODULE.GRID, 1) } as const;
 
-export const SNAKE_OP = {
+export const GRID_OP = {
   BOARD: 1,
   ADD: 2,
   TURN: 3,
   CONTROL: 4,
-  FOOD: 5,
+  PICKUPS: 5,
   RESPAWN: 6,
   RUN: 7,
   TICK: 8,
@@ -34,13 +35,13 @@ export const SNAKE_OP = {
 } as const;
 
 /** 0 up (+forward), 1 right, 2 down, 3 left. */
-export const SNAKE_DIR = { UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3 } as const;
+export const GRID_DIR = { UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3 } as const;
 
-/** SNAKE_EVENT.CRASH VALUE. */
-export const SNAKE_CRASH = { WALL: 0, SELF: 1, SNAKE: 2 } as const;
+/** GRID_EVENT.CRASH VALUE. */
+export const GRID_CRASH = { WALL: 0, SELF: 1, CHAIN: 2 } as const;
 
-/** `SnakeBoard.state()` fields. */
-export const SNAKE_STATE = {
+/** `GridBoard.state()` fields. */
+export const GRID_STATE = {
   ALIVE: 0,
   LENGTH: 1,
   DIR: 2,
@@ -52,19 +53,19 @@ export const SNAKE_STATE = {
   TICKS: 8,
 } as const;
 
-/** The planner's weights (GameBlocks' PlayerAi). */
-export interface SnakeWeights {
+/** The planner's weights (from GameBlocks' snake-clash PlayerAi). */
+export interface GridWeights {
   /** per reachable cell after the move */
   space?: number;
-  /** per step to the nearest food */
-  food?: number;
+  /** per step to the nearest pickup */
+  pickup?: number;
   /** when the tail stays reachable */
   tail?: number;
   /** for keeping the heading */
   straight?: number;
 }
 
-export interface SnakeSpec extends SnakeWeights {
+export interface ChainSpec extends GridWeights {
   start: readonly [number, number];
   dir: number;
   length?: number;
@@ -76,7 +77,7 @@ export interface SnakeSpec extends SnakeWeights {
   up?: number;
 }
 
-export class SnakeBoard {
+export class GridBoard {
   private readonly args = new Float32Array(16);
   /** the last `state()` result */
   readonly out = new Float32Array(16);
@@ -85,10 +86,10 @@ export class SnakeBoard {
 
   /** The module reads the first `n` floats; the rest of `args` is ignored. */
   private call(op: number, _n: number): number {
-    return this.play.call(MODULE.SNAKE, op, this.args, this.out);
+    return this.play.call(MODULE.GRID, op, this.args, this.out);
   }
 
-  /** A new board; removes every snake and food slot the module placed.
+  /** A new board; removes every chain and pickup slot the module placed.
    *  Call it again after `Playset.clear()`. `glide` 0 snaps segments to
    *  their cells at each tick (the demo); up to 1 carries them from the
    *  previous cell over that fraction of a tick, one tick behind. */
@@ -104,11 +105,11 @@ export class SnakeBoard {
     a[6] = o.tick;
     a[7] = o.seed ?? 1;
     a[8] = o.glide ?? 0;
-    this.call(SNAKE_OP.BOARD, 9);
+    this.call(GRID_OP.BOARD, 9);
   }
 
-  /** A snake at its start cell; its index, -1 when the board is full. */
-  add(s: SnakeSpec): number {
+  /** A chain at its start cell; its index, -1 when the board is full. */
+  add(s: ChainSpec): number {
     const a = this.args;
     a[0] = s.start[0];
     a[1] = s.start[1];
@@ -118,87 +119,88 @@ export class SnakeBoard {
     a[5] = s.body.id;
     a[6] = s.planner ? 1 : 0;
     a[7] = s.space ?? 2.4;
-    a[8] = s.food ?? 1;
+    a[8] = s.pickup ?? 1;
     a[9] = s.tail ?? 3.5;
     a[10] = s.straight ?? 0.15;
     a[11] = s.up ?? 0;
-    return this.call(SNAKE_OP.ADD, 12);
+    return this.call(GRID_OP.ADD, 12);
   }
 
-  /** The guest's next direction for a snake (taken at the next tick; a
+  /** The guest's next direction for a chain (taken at the next tick; a
    *  reversal keeps the heading). */
-  turn(snake: number, dir: number): void {
-    this.args[0] = snake;
+  turn(chain: number, dir: number): void {
+    this.args[0] = chain;
     this.args[1] = dir;
-    this.call(SNAKE_OP.TURN, 2);
+    this.call(GRID_OP.TURN, 2);
   }
 
-  /** Hand a snake to the planner (the demo autopilot) or back to `turn()`. */
-  control(snake: number, planner: boolean): void {
-    this.args[0] = snake;
+  /** Hand a chain to the planner or back to `turn()`. */
+  control(chain: number, planner: boolean): void {
+    this.args[0] = chain;
     this.args[1] = planner ? 1 : 0;
-    this.call(SNAKE_OP.CONTROL, 2);
+    this.call(GRID_OP.CONTROL, 2);
   }
 
-  weights(snake: number, w: SnakeWeights): void {
+  weights(chain: number, w: GridWeights): void {
     const a = this.args;
-    a[0] = snake;
+    a[0] = chain;
     a[1] = w.space ?? 2.4;
-    a[2] = w.food ?? 1;
+    a[2] = w.pickup ?? 1;
     a[3] = w.tail ?? 3.5;
     a[4] = w.straight ?? 0.15;
-    this.call(SNAKE_OP.WEIGHTS, 5);
+    this.call(GRID_OP.WEIGHTS, 5);
   }
 
-  /** Keep `count` food items of `arch` on free cells; eating one adds `growth`. */
-  food(arch: Archetype, o: { count?: number; growth?: number; up?: number } = {}): void {
+  /** Keep `count` pickups of `arch` on free cells; the chain that takes one
+   *  grows by `growth`. */
+  pickups(arch: Archetype, o: { count?: number; growth?: number; up?: number } = {}): void {
     const a = this.args;
     a[0] = arch.id;
     a[1] = o.count ?? 1;
     a[2] = o.growth ?? 1;
     a[3] = o.up ?? 0;
-    this.call(SNAKE_OP.FOOD, 4);
+    this.call(GRID_OP.PICKUPS, 4);
   }
 
   /** Back to its start; with `effects` the old segments die with their emitters. */
-  respawn(snake: number, effects = false): void {
-    this.args[0] = snake;
+  respawn(chain: number, effects = false): void {
+    this.args[0] = chain;
     this.args[1] = effects ? 1 : 0;
-    this.call(SNAKE_OP.RESPAWN, 2);
+    this.call(GRID_OP.RESPAWN, 2);
   }
 
-  /** Remove a snake's segments and leave it dead. */
-  remove(snake: number, effects = false): void {
-    this.args[0] = snake;
+  /** Remove a chain's segments and leave it dead. */
+  remove(chain: number, effects = false): void {
+    this.args[0] = chain;
     this.args[1] = effects ? 1 : 0;
-    this.call(SNAKE_OP.REMOVE, 2);
+    this.call(GRID_OP.REMOVE, 2);
   }
 
   /** Ticks run (true) or the board holds still (the idle bob still plays). */
   run(on: boolean): void {
     this.args[0] = on ? 1 : 0;
-    this.call(SNAKE_OP.RUN, 1);
+    this.call(GRID_OP.RUN, 1);
   }
 
   /** Seconds per tick. */
   tick(seconds: number): void {
     this.args[0] = seconds;
-    this.call(SNAKE_OP.TICK, 1);
+    this.call(GRID_OP.TICK, 1);
   }
 
-  /** A snake's state into `out` (SNAKE_STATE); returns `out`. */
-  state(snake: number): Float32Array {
-    this.args[0] = snake;
-    this.call(SNAKE_OP.STATE, 1);
+  /** A chain's state into `out` (GRID_STATE); returns `out`. */
+  state(chain: number): Float32Array {
+    this.args[0] = chain;
+    this.call(GRID_OP.STATE, 1);
     return this.out;
   }
 
-  /** Keep `slot` (a camera target) between a snake's head and the board
+  /** Keep `slot` (a camera target) between a chain's head and the board
    *  centre: 0 on the head, 1 on the centre. */
-  focus(slot: number, snake: number, lerp: number): void {
+  focus(slot: number, chain: number, lerp: number): void {
     this.args[0] = slot;
-    this.args[1] = snake;
+    this.args[1] = chain;
     this.args[2] = lerp;
-    this.call(SNAKE_OP.FOCUS, 3);
+    this.call(GRID_OP.FOCUS, 3);
   }
 }

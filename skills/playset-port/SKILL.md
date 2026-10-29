@@ -74,7 +74,11 @@ brain, a rule, a `play.script(arch, fn, every)` over a few dozen slots, then
 plain TypeScript at event rate. A new kernel or module (Rust) is last, and
 only for work that touches many slots every frame; if you add one, it goes in
 its own file under `engine/crates/pocket-playset/src/modules/` behind
-`Playset.call`, with a unit test.
+`Playset.call`, with a unit test. **Name a kernel or module, its ops, events
+and wrapper for the mechanism it computes, never for the game you are
+porting** (`grid` with chains and pickups, not snake with food; `tilt` with
+a ball and pickups, not marble with stars; `lanes`, not runner). The game's
+nouns, its scoring and what a pickup means stay in `apps/playset/<demo>/`.
 
 ## 4. Budgets (Old 3DS)
 

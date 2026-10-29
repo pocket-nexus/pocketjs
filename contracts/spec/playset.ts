@@ -87,7 +87,7 @@ export const PLAYSET_EVENT = {
   ARRIVE: 8,
 } as const;
 
-/** Event types from MODULE_EVENT up belong to the genre modules: module m's
+/** Event types from MODULE_EVENT up belong to the modules: module m's
  *  event n is MODULE_EVENT + m * 16 + n (playsetModuleEvent), and each
  *  module's TS wrapper names its own. */
 export const PLAYSET_MODULE_EVENT = 64;
@@ -229,13 +229,12 @@ export const PLAYSET_MOTION = {
   BOAT: 6,
   PLANE: 7,
   HOVER: 8,
-  SNAKE: 9,
-  MARBLE: 10,
-  PATH: 11,
-  TURRET: 12,
-  RUNNER: 13,
+  PATH: 9,
+  TURRET: 10,
+  /** lane changes along -Z, jumps and slides */
+  LANES: 11,
   /** parented to another slot at a fixed offset (turrets on hulls, riders) */
-  ATTACHED: 14,
+  ATTACHED: 12,
 } as const;
 
 /** BRAIN_P 0..8 choose the target (brains.rs); STEER evaluates the
@@ -507,13 +506,17 @@ export const PLAYSET_QUERY = {
   HEIGHT: 4,
 } as const;
 
-/** Genre modules reached through playset.call(module, op, args, out): each
- *  keeps its own state and drives its own slots after the world's step
+/** Mechanism modules reached through playset.call(module, op, args, out):
+ *  each keeps its own state and drives its own slots after the world's step
  *  (engine/crates/pocket-playset/src/modules). Their ops are listed in the
- *  module's TS wrapper. */
+ *  module's TS wrapper. A module is named for what it computes; the game
+ *  that uses it keeps its own nouns. */
 export const PLAYSET_MODULE = {
-  SNAKE: 1,
-  MARBLE: 2,
+  /** chains stepping cell by cell on a board, pickups, a path planner */
+  GRID: 1,
+  /** a ball on a tilting plate with walls, moving blocks, holes and zones */
+  TILT: 2,
+  /** a chunked block volume, its meshes and its raycasts */
   VOXEL: 3,
 } as const;
 

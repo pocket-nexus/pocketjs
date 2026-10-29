@@ -1,4 +1,4 @@
-//! Genre engines that plug into a playset: each owns its state, a call table
+//! Mechanism modules that plug into a playset: each owns its state, a call table
 //! the guest reaches through `playset.call(module, op, args, out)`
 //! (`pps_call`), and a per-step hook that runs after the world's step.
 //!
@@ -14,21 +14,21 @@ pub const fn event(module: u32, n: u32) -> u32 {
     crate::schema::MODULE_EVENT as u32 + module * 16 + n
 }
 
-pub mod marble;
-pub mod snake;
+pub mod grid;
+pub mod tilt;
 pub mod voxel;
 
 #[derive(Default)]
 pub struct Modules {
-    pub snake: snake::Snakes,
-    pub marble: marble::Marble,
+    pub grid: grid::Chains,
+    pub tilt: tilt::Tilt,
     pub voxel: voxel::Voxels,
 }
 
 impl Modules {
     pub fn step(&mut self, w: &mut World, scene: &mut Scene, dt: f32) {
-        self.snake.step(w, scene, dt);
-        self.marble.step(w, scene, dt);
+        self.grid.step(w, scene, dt);
+        self.tilt.step(w, scene, dt);
         self.voxel.step(w, scene, dt);
     }
 
@@ -37,8 +37,8 @@ impl Modules {
     pub fn call(&mut self, w: &mut World, scene: &mut Scene, module: u32, op: u32, args: &[f32], out: &mut [f32]) -> f32 {
         use crate::schema::module as M;
         match module {
-            M::SNAKE => self.snake.call(w, scene, op, args, out),
-            M::MARBLE => self.marble.call(w, scene, op, args, out),
+            M::GRID => self.grid.call(w, scene, op, args, out),
+            M::TILT => self.tilt.call(w, scene, op, args, out),
             M::VOXEL => self.voxel.call(w, scene, op, args, out),
             _ => -1.0,
         }
