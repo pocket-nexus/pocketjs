@@ -59,6 +59,13 @@ export interface PocketManifestV2 {
   readonly title: string;
   readonly version: string;
   /**
+   * The launcher icon: a square, opaque SVG (with width and height) or PNG,
+   * relative to this file. Packing bakes it into each variant's icon set
+   * (contracts/spec/pocket-package.ts section 9) at the variant's raster
+   * density; the launcher cuts the corners and adds its finish.
+   */
+  readonly icon?: string;
+  /**
    * Execution classes this package ships as; omitted means ["guest"].
    * Declaring "aot" states that the entry compiles under an AOT family
    * whose admission is compile-time derived demands
@@ -348,6 +355,7 @@ export const pocketManifestV2Schema = {
       pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
     },
     title: { type: "string", minLength: 1, maxLength: 128 },
+    icon: { type: "string", minLength: 1, pattern: "\\.(svg|png)$" },
     version: {
       type: "string",
       pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",

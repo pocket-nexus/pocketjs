@@ -29,6 +29,8 @@ LauncherPackage launcher_package(const PocketRuntimePackage *package) {
   return (LauncherPackage){
     .plan = (const char *)package->guest.plan,
     .plan_length = package->guest.plan_length,
+    .icon = package->guest.icon,
+    .icon_length = package->guest.icon_length,
     .hash = package->guest.package_hash,
     .bytes = package->length,
   };

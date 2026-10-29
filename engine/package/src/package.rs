@@ -25,8 +25,8 @@ pub use crate::package_format::{POCKET_MAGIC as MAGIC, POCKET_VERSION as VERSION
 /// Section kinds (append-only; skip what you do not know).
 pub mod section {
     pub use crate::package_format::{
-        SECTION_COVER as COVER, SECTION_IDENTITY as IDENTITY, SECTION_JS as JS, SECTION_PAK as PAK,
-        SECTION_PLAN as PLAN, SECTION_WORKER_JS as WORKER_JS,
+        SECTION_COVER as COVER, SECTION_ICON as ICON, SECTION_IDENTITY as IDENTITY, SECTION_JS as JS,
+        SECTION_PAK as PAK, SECTION_PLAN as PLAN, SECTION_WORKER_JS as WORKER_JS,
     };
 }
 
@@ -99,6 +99,8 @@ pub struct Guest<'a> {
     pub worker_js: &'a [u8],
     pub pak: &'a [u8],
     pub plan: &'a [u8],
+    /// Section 9, the launcher icon set; empty for a package without one.
+    pub icon: &'a [u8],
     pub package_hash: u64,
     pub variant_hash: u64,
 }
@@ -349,12 +351,14 @@ pub fn select_guest<'a>(
     }
     let worker_js = worker_payload(plan, variant.section(section::WORKER_JS)?)?;
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
+    let icon = variant.section(section::ICON)?.unwrap_or(&[]);
     Ok(Guest {
         id: identity.id,
         js,
         worker_js,
         pak,
         plan,
+        icon,
         package_hash: package.package_hash()?,
         variant_hash: variant.variant_hash,
     })

@@ -73,4 +73,5 @@ static const uint8_t pocket_3ds_profile_hash[32] = {98,227,61,178,93,207,200,31,
 #define POCKET_3DS_OP_fontStreamBatch 59u
 #define POCKET_3DS_OP_captureTexts 60u
 #define POCKET_3DS_OP_capturedTexts 61u
+#define POCKET_3DS_OP_appIcon 62u
 #endif

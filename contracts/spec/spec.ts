@@ -308,6 +308,11 @@ export const OP = {
   fontStreamBatch: 59,
   captureTexts: 60,
   capturedTexts: 61,
+  appIcon: 62, //       (output: string) -> bytes | undefined. The installed
+  //                    app's launcher icon set (package section 9, layout at
+  //                    contracts/spec/pocket-package.ts encodeIconSet);
+  //                    undefined when its package ships none. Hosts without
+  //                    installed apps omit the op.
 } as const;
 
 // ---------------------------------------------------------------------------

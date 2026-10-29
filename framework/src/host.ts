@@ -257,6 +257,9 @@ export interface HostOps {
   appShot?(): number;
   /** Native navigation: request graceful closure of a configured child app. */
   appClose?(output: string): number;
+  /** OP.appIcon — the installed app's icon set (package section 9), or
+   *  undefined when its package ships none. */
+  appIcon?(output: string): ArrayBuffer | undefined;
   /**
    * Optional host-owned acceptance sink. Applications report a completed,
    * user-visible action; hosts that do not collect hardware receipts omit it.

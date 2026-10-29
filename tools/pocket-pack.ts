@@ -29,6 +29,7 @@ import {
   type ResolvedBuildPlan,
 } from "../framework/src/manifest/plan.ts";
 import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
+import { bakeIconSet } from "./launcher-icon.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
   POCKET_SECTION,
@@ -69,6 +70,8 @@ export function makeVariant(input: {
   workerJs?: Uint8Array;
   pak: Uint8Array;
   cover?: Uint8Array;
+  /** The launcher icon set (tools/launcher-icon.ts bakeIconSet). */
+  icon?: Uint8Array;
 }): PocketPackageVariant {
   if (input.hostAbi !== POCKET_BINDING_GENERATION) {
     throw new Error(`pocket-pack: binding generation ${input.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
@@ -89,6 +92,7 @@ export function makeVariant(input: {
     { kind: POCKET_SECTION.pak, bytes: input.pak },
   ];
   if (input.cover) sections.push({ kind: POCKET_SECTION.cover, bytes: input.cover });
+  if (input.icon) sections.push({ kind: POCKET_SECTION.icon, bytes: input.icon });
   if (!!plan.domains?.worker !== !!input.workerJs) throw new Error("pocket-pack: worker declaration and worker bundle must both be present");
   if (input.workerJs) {
     if (!input.workerJs.length) throw new Error("pocket-pack: worker bundle is empty");
@@ -185,6 +189,7 @@ async function buildCommand(argv: string[]): Promise<void> {
         ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
         pak,
         cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
+        icon: await bakeIconSet(manifestPath, manifest, plan.viewport.rasterDensity),
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
@@ -219,6 +224,8 @@ function inspectCommand(file: string): void {
       4: "pak",
       5: "cover",
       7: "hostInputs",
+      8: "workerJs",
+      9: "icon",
     };
     for (const s of v.sections) {
       console.log(`    ${(names[s.kind] ?? `kind${s.kind}`).padEnd(8)} ${s.bytes.length}B`);

@@ -21,6 +21,9 @@ pub struct PocketGuestPackage {
     pub pak_length: usize,
     pub plan: *const u8,
     pub plan_length: usize,
+    /// The launcher icon set (section 9); length 0 when the package has none.
+    pub icon: *const u8,
+    pub icon_length: usize,
     pub package_hash: u64,
     pub variant_hash: u64,
     /// What the runtime takes from the variant's plan at boot instead of
@@ -138,6 +141,8 @@ pub unsafe extern "C" fn pocket_package_open(
         pak_length: guest.pak.len(),
         plan: guest.plan.as_ptr(),
         plan_length: guest.plan.len(),
+        icon: guest.icon.as_ptr(),
+        icon_length: guest.icon.len(),
         package_hash: guest.package_hash,
         variant_hash: guest.variant_hash,
         view_width: facts.viewport.width,

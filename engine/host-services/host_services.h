@@ -30,11 +30,14 @@ void services_host_random(uint8_t *out, size_t length);
 // packages (launcher.c, link.c)
 // ---------------------------------------------------------------------------
 
-/* The facts the launcher reads from one package: its plan JSON, the hash
- * that names it (the .pocket footer) and its size in bytes. */
+/* The facts the launcher reads from one package: its plan JSON, its icon
+ * set (section 9; length 0 without one), the hash that names it (the
+ * .pocket footer) and its size in bytes. */
 typedef struct {
   const char *plan;
   size_t plan_length;
+  const uint8_t *icon;
+  size_t icon_length;
   uint64_t hash;
   uint64_t bytes;
 } LauncherPackage;

@@ -75,6 +75,7 @@ pub const OP_DESCRIPTORS: &[OpDescriptor] = &[
     OpDescriptor { id: 59, name: "fontStreamBatch", args: &[ArgDescriptor { name: "descriptor", kind: ArgKind::Bytes, optional: false }], result: ResultKind::Integer, provider: "core", capability: None },
     OpDescriptor { id: 60, name: "captureTexts", args: &[ArgDescriptor { name: "surface", kind: ArgKind::U32, optional: false }, ArgDescriptor { name: "root", kind: ArgKind::I32, optional: false }], result: ResultKind::Boolean, provider: "core", capability: None },
     OpDescriptor { id: 61, name: "capturedTexts", args: &[ArgDescriptor { name: "surface", kind: ArgKind::U32, optional: false }], result: ResultKind::String, provider: "core", capability: None },
+    OpDescriptor { id: 62, name: "appIcon", args: &[ArgDescriptor { name: "output", kind: ArgKind::String, optional: false }], result: ResultKind::OptionalBytes, provider: "applications", capability: None },
 ];
 pub const LEGACY_C_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,24,25,26,27,28,29,42,57,58];
 pub const IDF_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,39,40,41,42,43];
