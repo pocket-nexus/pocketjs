@@ -239,6 +239,9 @@ pub struct GlesRenderer<P: Pipeline, C: ContextAccess> {
     glyph_cache: TextureCache<GlyphTexture>,
     glyph_keys: Vec<TextureKey>,
     images: Vec<ImageTexture>,
+    /// GL textures drawn in place of core textures: a native compositor's
+    /// child output rendered on this context (`set_external_texture`).
+    external: Vec<(i32, GLuint)>,
     fonts: Vec<Option<FontTexture>>,
     vertices: Vec<Vertex>,
     commands: Vec<Command>,
@@ -286,6 +289,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
                 glyph_cache: TextureCache::new(limits.glyph_pages, limits.glyph_bytes),
                 glyph_keys: Vec::new(),
                 images: Vec::new(),
+                external: Vec::new(),
                 fonts: Vec::new(),
                 vertices: Vec::new(),
                 commands: Vec::new(),
@@ -352,6 +356,18 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
             Rect::new(0, 0, target.window_width, target.window_height),
             target.format,
         ))
+    }
+    /// Draws the GL texture `name` (made on this renderer's context) wherever
+    /// the frame draws core texture `handle`, instead of uploading the core's
+    /// pixels; None ends it. A native compositor binds a child app's rendered
+    /// output this way, with no copy. The host keeps the texture alive while
+    /// it is bound and owns its deletion; it is sampled as uploaded, its first
+    /// row at the quad's top.
+    pub fn set_external_texture(&mut self, handle: i32, name: Option<u32>) {
+        self.external.retain(|(bound, _)| *bound != handle);
+        if let Some(name) = name {
+            self.external.push((handle, name as GLuint));
+        }
     }
     pub fn cache_usage(&self) -> CacheUsage {
         CacheUsage {
@@ -434,6 +450,10 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
         submission: u64,
     ) -> Result<(), RenderError> {
         if self.images.iter().any(|image| image.handle == handle) {
+            return Ok(());
+        }
+        if let Some(&(_, name)) = self.external.iter().find(|(bound, _)| *bound == handle) {
+            self.images.push(ImageTexture { handle, name, white_uv: None });
             return Ok(());
         }
         let Some(view) = resources.texture(handle) else {
