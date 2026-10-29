@@ -442,6 +442,27 @@ impl Runtime {
         self.profile.viewport = physical;
         Ok(())
     }
+    /// Resize a GPU embedding's auxiliary surface, keeping the primary
+    /// display: a window manager that shows the surface in a tile of its own
+    /// size. The program prepares the auxiliary display's descriptor for
+    /// `physical` first and restores it on failure. The core's auxiliary root
+    /// takes `logical`; the guest's layers under it follow when the guest
+    /// calls `resizeAuxiliarySurface` (@pocketjs/framework/display).
+    pub fn resize_auxiliary(&mut self, logical: [u32; 2], physical: [u32; 2]) -> Result<(), RuntimeError> {
+        self.validate_embedded_gpu_resize(physical)?;
+        if self.profile.auxiliary.is_none() || logical.contains(&0) || logical.iter().any(|v| *v > 32000) {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        let mut core = self.ops.core_mut()?;
+        let refreshed = self.presenter.refresh_displays(self.presenter.scale(), self.profile.viewport);
+        track_textures(&self.presenter, &mut core.ui);
+        refreshed?;
+        core.ui.create_auxiliary_surface(logical[0] as f32, logical[1] as f32);
+        core.mutated();
+        self.profile.auxiliary = Some(physical);
+        self.profile.auxiliary_logical.to_mut()[0] = logical;
+        Ok(())
+    }
     fn validate_embedded_gpu_resize(&self, physical: [u32; 2]) -> Result<(), RuntimeError> {
         if self.state != State::Running || !self.embedded_viewport {
             return Err(RuntimeError::InvalidState);
