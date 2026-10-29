@@ -57,12 +57,12 @@ The software profile is selected by the caller:
 
 ```sh
 pocket compile --manifest pocket.json --target psp
-pocket compile --manifest pocket.json --target ./profiles/my-board.ts
+pocket compile --manifest pocket.json --target ./profiles/my-board.json
 pocket compile --manifest pocket.json
 ```
 
-`--target` accepts a built-in profile id or an exported profile module, including
-an npm package. `POCKET_TARGET` provides the default for that option. Without a
+`--target` accepts a built-in profile id or the path of a `pocket-profile.json`
+document. `POCKET_TARGET` provides the default for that option. Without a
 target, the compiler searches upward from the manifest directory for
 `pocket.runtime-config.ts` and uses its single profile. A configuration with
 multiple profiles requires a profile ID.
@@ -72,12 +72,12 @@ A program can declare its profile without assigning a native build to PocketJS:
 ```ts
 // pocket.runtime-config.ts
 import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
-import psp from "@pocketjs/framework/profiles/psp";
 
-export default defineRuntimeConfig({ profile: psp });
+export default defineRuntimeConfig({ profile: "./profiles/my-board.json" });
 ```
 
-The profile supplies display geometry, capabilities and `tickHz`.
+The profile supplies display geometry, cadences and capabilities; the manifest
+supplies `app.tickHz`.
 **`pocket build` consumes the runtime configuration's `build` recipe** to build
 the native program. The recipe uses `cargo()`, `cmake()`, `make()` or
 `compilerOnly()` from `@pocketjs/framework/runtime-config`; application framework

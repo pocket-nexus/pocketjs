@@ -80,7 +80,6 @@ The generated `pocket.json` is strict application intent:
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.example.my-app",
-  "name": "my-app",
   "title": "My App",
   "version": "0.1.0",
   "engine": {

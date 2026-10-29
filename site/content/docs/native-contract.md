@@ -139,34 +139,38 @@ The migration keeps four compatibility rules separate:
 | DrawList | The operation set has no unknown-operation skip encoding. Drivers and the runtime archive use the same DrawList version. |
 | Guest bindings | `hostAbi` equals `POCKET_BINDING_GENERATION`, generated from `contracts/spec/binding-generation.ts`. Every profile uses generation 12; legacy target-specific values 1–11 are rejected. |
 
-`contracts/spec/profile.ts` defines the profile identity projection:
-`id`, `platform`, `form`, `tickHz`, `display`, `capabilities`, and optional
+`contracts/spec/profile.ts` defines the profile hash projection: `id`,
+`platform`, `form`, `cadences`, `display`, `capabilities`, and optional
 `roleCapabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
-newline. Keys use UTF-16 code-unit order; arrays keep their order; absent
-optional fields stay absent. The canonicalizer rejects non-JSON data and
-unpaired surrogates. **`hostExtension` is excluded from profile identity**
-and may contain only metadata that does not change the application contract.
-Profile rename, capability addition, or viewport change creates a different
-identity. The format 2 variant table carries this hash as 32 bytes.
+newline. Keys use UTF-16 code-unit order; capabilities, cadences and role
+capabilities sort as sets; other arrays keep their order; absent optional
+fields stay absent. The canonicalizer rejects non-JSON data and unpaired
+surrogates. **`panel`, `worker`, `limits`, `input`, `hostExtension` and the
+`hostAbi` stamp are excluded from the hash.** The format 2 variant table
+carries this hash as 32 bytes; it names the document a package was compiled
+against.
 
 ### Package and driver compatibility
 
-**The program supplies its expected profile hash and binding generation before
-reading an application.** The profile reaches the runtime as exported facts,
-`pocket_profile_facts`: the variant id, tick rate, panel sizes, logical
-viewports, raster density and the input classes its capabilities require.
-`pocket profile export` writes them as `pocket_profile.h` for C programs and
-`pocket_profile.rs` for Rust programs, beside the hash; the runtime reads no
-JSON. `Runtime::new` rejects a configuration whose
+**The program supplies its profile facts, profile hash and binding generation
+before reading an application.** The profile reaches the runtime as
+`pocket_profile_facts`: the variant id, cadences, panel sizes, logical
+viewports, presentations, raster density, animation class, capability names
+and the input classes its capabilities require. Records follow the
+`struct_size` prefix rule: a record without cadences has the one cadence
+`tick_hz`, and one without presentations or an animation class is not compared
+on them. `pocket profile export` writes the record as `pocket_profile.h` for C
+programs and `pocket_profile.rs` for Rust programs, beside the hash; the
+runtime reads no JSON. The C package-open entry points take the same record. `Runtime::new` rejects a configuration whose
 `host_abi` differs from the generated constant. Guest adapters reject an
 unsupported generation before mounting `ui` or evaluating application code.
 
 | Package | Runtime | Result |
 | --- | --- | --- |
 | Format 1 | Current format 2, generation 12 | Reject the package version before guest initialization |
-| Format 2, legacy generation 1–11, matching profile hash | Generation 12 | Reject the binding generation |
-| Format 2, generation 12, wrong profile hash | Generation 12 | Reject the profile hash |
-| Format 2, generation 12, matching target and profile hash | Generation 12 | Admit if format, assets, viewport and driver checks pass |
+| Format 2, legacy generation 1–11 | Generation 12 | Reject the binding generation |
+| Format 2, generation 12, plan the facts satisfy | Generation 12 | Admit if format, assets and driver checks pass, with any profile id or hash |
+| Format 2, generation 12, plan the facts do not satisfy | Generation 12 | Reject and name the first failing [admission item](/docs/platform-contracts/#admission) |
 | Format 2, generation 12 | Old format 1 runtime | Reject the package version |
 | Format 2, generation 12 | Format 2 runtime built with a legacy generation | Reject the binding generation |
 

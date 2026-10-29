@@ -96,16 +96,18 @@ pocket profile export --config pocket.runtime-config.ts --out profile-export
 ```
 
 The package carries its profile hash, JSON plan and a fixed-width binary
-`hostInputs` section. The Python embedding tool checks those inputs against
-`profile-export/pocket-profile.json`; the program compiles
+`hostInputs` section. The Python embedding tool admits those inputs against
+the facts in `profile-export/pocket-profile.json`; the program compiles
 `profile-export/pocket_profile.h`. **The package and program must have the
-same profile hash and binding generation.**
+same binding generation, and the program's facts must satisfy the package's
+plan.**
 
 IDF's `pocketjs_compile_app` and `pocketjs_profile_header` invoke these CLI
 operations and track imported modules in depfiles. Their `RUNTIME_CONFIG`
 parameter defaults to the firmware root's `pocket.runtime-config.ts`.
 `pocketjs_embed_package(... PROFILE_EXPORT_DIR <directory>)` consumes an
-existing package, header and sidecar with Python; it requires no Bun or CLI.
+existing package, header and exported `pocket-profile.json` with Python; it
+requires no Bun or CLI.
 See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 
 | Flag | Effect |

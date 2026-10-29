@@ -47,7 +47,7 @@ unknown options fail before build metadata is written.
 ## Admission and source ownership
 
 The scanner reads `apps/*/pocket.json` and resolves each manifest against
-`profiles/symbian-e7-dev.ts` using the framework's package resolver. Diagnostics
+`profiles/symbian-e7-dev.json` using the framework's package resolver. Diagnostics
 identify skipped applications. Admission requires the E7 live-viewport
 contract; a manifest limited to a fixed console viewport is rejected.
 
@@ -88,7 +88,8 @@ serializes the shared native output tree.
 
 **The catalog embeds the exact target-thinned `.pocket` bytes.** Its index has
 eight fields per entry and its blob aligns packages to 16 bytes. The host
-checks package identity, profile hash and binding generation before boot.
+checks package identity and admits the package by the E7 profile's facts
+before boot.
 The native builder derives a 1 MiB-aligned GCCE writable-data base from the
 embedded byte count so catalog rodata cannot overlap writable data.
 

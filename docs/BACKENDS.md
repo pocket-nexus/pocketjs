@@ -135,7 +135,7 @@ note does (pure-math unit tests over an injected measurer, sim traces,
 
 ## Native desktop targets
 
-`profiles/macos-app.ts` and `profiles/linux-app.ts` declare `form: "window"`,
+`profiles/macos-app.json` and `profiles/linux-app.json` declare `form: "window"`,
 a dynamic viewport and `acceptsFixed`. **Both use the shared binding
 generation 12.**
 Both profiles use the same generic host. macOS resolves density 2; Linux

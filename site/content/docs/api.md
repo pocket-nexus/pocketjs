@@ -1160,9 +1160,11 @@ Use these instead of wall-clock timers for deterministic app behavior: the
 same elapsed virtual time produces the same trajectory at every rate.
 
 **The tick rate is declared per realm and baked per bundle, not fixed at 60.**
-`tools/build.ts` writes it in from `--hz=N` — an integer from 1 through 240,
-default 60 — and the core takes it through `set_tick_rate` before the first
-tick (`MAX_TICK_HZ` is 240 in `engine/core/src/lib.rs`). `simulationHz()` is
+An application states it as `app.tickHz` (1 through 60, default 60) and the
+plan carries it as `profile.tickHz`; `tools/build.ts` writes it in from the plan
+or from `--hz=N` — an integer from 1 through 240, default 60 — and the core
+takes it through `set_tick_rate` before the first tick (`MAX_TICK_HZ` is 240 in
+`engine/core/src/lib.rs`). A device publishes its cadence as `__simHz`. `simulationHz()` is
 the host-selected virtual-frame rate and is a divisor of the baked rate, which
 is what makes `ticksPerFrame()` a whole number. A native mount whose
 `ui.__tickHz` disagrees with the baked rate throws before anything renders

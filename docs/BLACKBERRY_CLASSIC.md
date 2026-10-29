@@ -26,7 +26,7 @@ delivery are all recorded.
 ## Device contract
 
 `apps/blackberry-classic-demo` is the Hero wrapper the host builds.
-`profiles/blackberry-qnx-dev.ts` defines **`blackberry-qnx-dev`**; the
+`profiles/blackberry-qnx-dev.json` defines **`blackberry-qnx-dev`**; the
 program uses the current generated binding. The target id is compiled into the guest and native host and
 checked at boot.
 

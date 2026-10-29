@@ -3,8 +3,9 @@
 **A worker has its own QuickJS runtime and owner task.** The UI continues to
 receive frames. Resource completions, received bytes, channel records and timer
 deadlines wake the worker. The owner waits on a notification or the next deadline
-when there is no work. The build resolver refuses a package that requires
-`runtime.worker` when the target profile lacks that capability.
+when there is no work. **A `domains.worker` declaration requires
+`runtime.worker` and the capability of each node kind**; the build resolver
+refuses it when the target profile lacks one.
 
 ## Application entry
 
@@ -13,9 +14,6 @@ Paths have the same project root as `app.entry`.
 
 ```json
 {
-  "engine": {
-    "capabilities": { "requires": ["runtime.worker", "io.i2c"] }
-  },
   "domains": {
     "worker": {
       "entry": "apps/sensors/worker.ts",
@@ -34,8 +32,11 @@ Paths have the same project root as `app.entry`.
 
 This fragment extends the application's `pocket.json`; the identity, framework
 and viewport fields remain required. The resource table in
-`contracts/spec/worker.ts` names the capability each node kind requires:
-`io.i2c`, `io.uart` and `net.http`.
+`contracts/spec/worker.ts` names the capability each node kind implies:
+`io.i2c`, `io.uart` and `net.http`. The manifest does not list them again.
+**Node and channel counts are host facts**: a profile's `worker.nodes` table
+bounds each kind, and the worker protocol bounds a worker to **8** nodes and
+**8** channels.
 **HTTP exists only as a worker resource**: no UI realm has a network module.
 The current resolver requires the worker. An `enhances` declaration with a UI
 fallback ownership table is not implemented.

@@ -28,9 +28,8 @@ branch. The launcher followed it (ops 39..41) and stayed testable on every
 host; distribution must follow it too.
 
 This document covers the **guest execution class**: one portable bundle
-with runtime admission against the target registry. The manifest also reserves
-`aot` in `execution.classes`; guest hosts reject packages without a guest
-artifact.
+with runtime admission against the host's facts. `app.aot` admits the entry to
+AOT compilation; guest hosts reject packages without a guest artifact.
 
 ## The switch veil (system transition)
 
@@ -62,20 +61,24 @@ qjsc bytecode (below) shrinks the hold the veil is papering over.
 
 ## Profiles and `.pocket` format 2
 
-`@pocketjs/framework/profile` provides `defineProfile()`. A profile declares
-`id`, `platform`, `form`, `tickHz`, `display`, `capabilities` and
-`roleCapabilities`. Built-in values live in `profiles/<id>.ts` and are exported
-from `@pocketjs/framework/profiles`.
+A profile is a `pocket-profile/2` JSON document: `id`, `platform`, `form`,
+`cadences`, `display`, `panel`, `capabilities` and optional
+`roleCapabilities`, `worker`, `limits` and `input`. Built-in documents live in
+`profiles/<id>.json` and are exported from `@pocketjs/framework/profiles`.
+`validatePocketProfile` in `@pocketjs/framework/profile` checks the schema,
+reserved names, dynamic viewports, auxiliary screens, worker kinds and contact
+coordinate limits.
 
-**Profile identity is SHA-256 over seven fields.**
-`contracts/spec/profile.ts` defines their canonical JSON encoding. Object keys
-sort by UTF-16 code units; array order remains part of identity. `hostExtension`
-is metadata and is excluded. Renaming a profile, adding a capability, or
-changing its timing or geometry changes the hash and requires rebuilding the
-application. `defineProfile()` checks reserved names, capability vocabulary,
-dynamic viewports, auxiliary screens and contact coordinate limits.
+**The profile hash is SHA-256 over seven fields.** `contracts/spec/profile.ts`
+defines their canonical JSON encoding. Object keys sort by UTF-16 code units;
+capabilities, cadences and role capabilities sort as sets. The panel, worker
+table, limits, input parameters, `hostExtension` and the `hostAbi` stamp are
+excluded. **The hash is provenance: a device admits a package by its facts**
+(see [admission](../site/content/docs/platform-contracts.md#admission)), so a
+renamed profile or an added capability keeps installed packages running.
 
-The resolved build plan carries this full projection and `profileHash`.
+The resolved build plan carries the compiled document with the package rate
+(`profile.tickHz`) and `profileHash`.
 `hostBuildEnvironment()` exports `POCKETJS_PROFILE_JSON` and
 `POCKETJS_PROFILE_HASH` for the program build. **The program's expected hash
 comes from its build input.** A package cannot supply its own expected value.
@@ -107,12 +110,13 @@ the payload hash and the profile hash.
 
 **Format 1 packages are rejected by format 2 runtimes.**
 **Every current program uses binding generation 12.** Values 1–11 from the
-former per-target numbering are rejected even when the profile hash matches.
+former per-target numbering are rejected.
 See the [compatibility matrix](../site/content/docs/native-contract.md#package-and-driver-compatibility). Rebuild the application
-to produce a format 2 package. Admission compares the selected variant's target,
-binding generation and profile hash before guest initialization, then checks its
-plan and resources. ESP-IDF also checks the binary host-input record's timing,
-viewport, density and presentation against the program's profile.
+to produce a format 2 package. Admission selects the first variant the host's
+facts satisfy (binding generation, raster density, animation class, rate,
+viewport, presentation, capabilities and auxiliary surface), preferring a
+variant whose profile hash equals the host's, then checks its resources.
+ESP-IDF's embed step applies the same rules to the binary host-input record.
 
 The launcher embeds original package bytes or supplies them through a file
 source. A JavaScript/asset-pair embedding adapter creates a format 2 package with
@@ -122,9 +126,9 @@ admission.
 ## Generic runtimes and the repack step
 
 A generic runtime is one prebuilt host per device with no app in it. It
-reads `app.pocket` at boot, checks the footer hash, takes the variant for
-its own target and refuses a variant whose binding generation or profile hash
-differs from its own.
+reads `app.pocket` at boot, checks the footer hash and takes the first variant
+its facts admit; a package with none is refused with the items the closest
+variant lacks.
 A runtime that finds no file, or a file it refuses, shows one line on screen
 that names the fault. The embedded-app build stays: the built-in games and
 the dev loops use it.
@@ -140,14 +144,15 @@ bun tools/repack.ts --target psp --runtime dist/runtime/psp --pocket game.pocket
 ```
 
 `runtime.json` records `target`, `hostAbi`, `profileHash`, the PocketJS commit,
-the profile label and each file's size and SHA-256. `tools/repack/<target>.ts` exports
+the profile id and each file's size and SHA-256; the files include the stamped
+`pocket-profile.json`. `tools/repack/<target>.ts` exports
 `repack<Target>({ runtime, pocket, identity })`: the runtime's files as bytes
 by path, the `.pocket` bytes and the identity (id, title, author, version, a
 square PNG icon). `tools/repack/shared/runtime.ts` refuses a runtime for
-another target or with a file that differs from `runtime.json`, a `.pocket`
-whose footer does not verify, one with no variant for the target, a binding
-generation that differs from the current compiler or `runtime.json`, mismatched profile hashes in the variant,
-plan or runtime, and an app id other than the identity's.
+another target, with a file that differs from `runtime.json` or without its
+profile document, a `.pocket` whose footer does not verify, one with no
+variant the runtime's document admits, a variant whose plan does not record
+its own profile hash, and an app id other than the identity's.
 The package carries the `.pocket` thinned to the target's variant. The other
 shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`
 (1980-01-01 dates, entries in the given order, `CompressionStream` deflate),

@@ -16,7 +16,8 @@ Rust core owns every frame from there.**
 ## How native animation works
 
 Tweens and springs tick in the Rust core, one step per `tick()`. **The step is
-`dt = 1 / tickHz`, with `tickHz` declared by the selected profile.** Application
+`dt = 1 / tickHz`, with `tickHz` declared by the application as
+`app.tickHz`** (1 through 60, default 60). Application
 compilation bakes that rate into the animation tables; the runtime uses the same
 rate to advance them. The core accepts 1 through 240 Hz and refuses
 `Ui::set_tick_rate` after the first tick, so the step stays constant for a run.
@@ -218,10 +219,10 @@ compile` loads the module before it resolves the build plan**, embeds the
 loaded object in the package's manifest, and lists the module and its
 relative imports in the depfile. A `.json` path is read the same way.
 
-The theme belongs to the application manifest. The selected profile supplies
-`tickHz`; `pocket.runtime-config.ts` selects that profile and can declare the
-program's native build. Both guest compilation and `pocket compile --aot` bake
-the theme at the profile's tick rate. See [Frameworks](/docs/frameworks/#manifest-selection)
+The theme belongs to the application manifest, and so does `app.tickHz`.
+`pocket.runtime-config.ts` selects the profile and can declare the program's
+native build. Both guest compilation and `pocket compile --aot` bake the theme
+at the application's tick rate. See [Frameworks](/docs/frameworks/#manifest-selection)
 for profile selection.
 
 ```tsx

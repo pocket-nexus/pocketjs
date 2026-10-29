@@ -240,9 +240,10 @@ PocketJS commit, the files' sizes and SHA-256, and under `host` the build id,
 the executable name and the deployment target). **The executable has no
 `__pocket_js` or `__pocket_pak` section and is compiled with
 `POCKET_PACKAGE_RUNTIME`: before `UIApplicationMain` it reads `app.pocket`
-beside itself, admits its `ipodtouch4-dev` variant through
-`pocket_ui_package_open` (footer hash, profile hash, binding generation, identity, plan, NUL-ended
-JavaScript), and takes the logical surface and raster density from that
+beside itself, admits a variant through `pocket_ui_package_open` with the
+exported `pocket_profile_facts` (footer hash, binding generation, the
+[admission](../site/content/docs/platform-contracts.md#admission) facts,
+identity, plan, NUL-ended JavaScript), and takes the logical surface and raster density from that
 variant's plan.** The plan must ask for 320×480 or 480×320 at density 2. A
 bundle without `app.pocket`, or with one that is refused, opens a
 software-drawn window that shows the reason (for example `this app carries no

@@ -1,13 +1,14 @@
 # Platform contracts
 
-**A profile describes the software behavior a program provides.** An
-application declares requirements in `pocket.json`; a program selects its
-profile in `pocket.runtime-config.ts`. The resolver combines the manifest and
-profile into a `ResolvedBuildPlan` for application compilation.
+**A profile document describes the software behavior a program provides.** An
+application declares requirements in `pocket.json`; a program describes its
+host in a `pocket-profile/2` JSON document and names it from
+`pocket.runtime-config.ts`. The resolver combines the manifest and profile into
+a `ResolvedBuildPlan` for application compilation.
 
 ```text
-  pocket.json           profile module
-  (application)         (program behavior)
+  pocket.json           pocket-profile.json
+  (application)         (program facts)
        └──────── resolve ────────┘
                     │
                     ▼
@@ -17,17 +18,18 @@ profile into a `ResolvedBuildPlan` for application compilation.
           compiler → .pocket package
 ```
 
-The program exports the same profile as a C header or build environment.
-Runtime package admission compares the package's profile hash and binding
-generation with the program's compiled values.
+The program exports the same profile as a C header or Rust module. **A device
+admits a package when its exported facts satisfy the package's plan**; the
+profile hash records which document the package was compiled against. See
+[Admission](#admission).
 
 ## Ownership
 
 | Data                 | Owner                     | Meaning                                                           |
 | -------------------- | ------------------------- | ----------------------------------------------------------------- |
-| `pocket.json`        | App                       | Entry, framework, logical viewport, required and optional APIs    |
+| `pocket.json`        | App                       | Entry, framework, logical viewport, tick rate, required and optional APIs |
 | Capability registry  | PocketJS                  | Names of framework APIs that can be requested                     |
-| Software profile     | Program                   | Display facts, tick rate and implemented APIs                      |
+| Profile document     | Program                   | Display facts, cadences and implemented APIs                       |
 | `ResolvedBuildPlan`  | Resolver                  | One build's target-specific inputs                                |
 | Runtime config       | Program                   | Profile selection and an optional native build recipe              |
 
@@ -40,7 +42,6 @@ Format 2 is strict JSON data. A PSP-shaped portable app can say:
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.pocket-nexus.telemetry",
-  "name": "pocket-telemetry",
   "title": "Pocket Telemetry",
   "version": "1.0.0",
   "engine": {
@@ -60,6 +61,14 @@ Format 2 is strict JSON data. A PSP-shaped portable app can say:
 
 The manifest contains no physical resolution, scale factor, Vita flag, native
 crate path, or binding generation. The program owns those inputs.
+
+`app.tickHz` is the package rate: core ticks per virtual second, **1 through
+60, default 60**. Resolution refuses a rate that is not a whole multiple of one
+of the target's cadences. `author` and `icon` (a path to a square PNG) are the
+identity a repacked program records: `pocket compile` stores the icon as each
+variant's cover section, and `pocket pack` uses both when `--author` and
+`--icon` are absent. `app.theme` names a module or JSON file; an authored
+manifest does not carry theme content.
 
 `requires` is the compatibility floor. Resolution fails before compilation if
 the selected host does not provide one of those APIs. `enhances` declares an
@@ -184,15 +193,14 @@ folded `hasFeature()` calls and the runtime `modality` object from
 
 ## Animation classes
 
-An **animation class** is what a changed frame costs a target.
-`deriveAnimationClass` in `contracts/spec/animation.ts` reads it off the
-profile: the display's own `animation` field when the profile declares one,
-the platform's stock renderer otherwise. **Nothing registers a class.**
+An **animation class** is what a changed frame costs a target. **The profile
+document states it as `display.animation`**; no platform table derives it, and
+admission requires the package's class to equal the host's.
 
-| Class | Frame cost | Platforms |
+| Class | Frame cost | Built-in profiles |
 | --- | --- | --- |
-| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds`, `ios`, `macos`, `web`, `android`, `linux`, `blackberry10-qnx` |
-| `repaint` | A CPU repaints the pixels a change touched, so a frame costs in proportion to that area; the host moves the pixels of a translated opaque region instead of repainting them. | `esp-idf`, `symbian`, `wince`, and any platform the table does not list |
+| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds-dev`, the iOS, macOS, web, Android, Linux and BlackBerry profiles |
+| `repaint` | A CPU repaints the pixels a change touched, so a frame costs in proportion to that area; the host moves the pixels of a translated opaque region instead of repainting them. | `gba`, `ipodnano`, `meizu-m8-dev`, `symbian-e7-dev` |
 | `still` | The display shows one change per refresh. `animate()` and `spring()` set the end value and return no animation. | `pocketbook` |
 
 The plan records `animation`, `tools/build.ts` folds it into the bundle,
@@ -207,7 +215,8 @@ wiggle, a pulse) repaints its area every frame for no input.
 On the M5Stack Tab5 (ESP32-P4 at 360 MHz, 592×360 logical pixels), a
 full-surface repaint takes **25 to 60 ms per core** by content, a
 translated opaque page moves through DMA in **under 20 ms**, and an
-icon-sized region repaints in **under 10 ms**; the tick is 33 ms.
+icon-sized region repaints in **under 10 ms**; the cadence is 30 Hz, 33 ms per
+frame.
 
 ## Viewport policy and companion adapters
 
@@ -230,8 +239,13 @@ An app declares viewport intent per policy rather than per target:
 ```
 
 The bare `{logical, presentation}` spelling remains valid as shorthand for
-`fixed`. `resolveViewport` in `framework/src/manifest/resolve.ts` then picks
-one variant:
+`fixed`. `fixed.logical` is one size, a list of sizes in preference order, or a
+`{min, max}` range. **The resolver takes the first listed size the target's
+`logicalViewports` contains**; for a range it takes the first target size
+inside the range. `apps/clear/pocket.json` lists 320×480, 360×800 and 360×640
+and declares a 360×640 dynamic range, which resolves on iPod touch 4, Moto G
+Play, Redmi 1S and Nokia E7 from one manifest. `resolveViewport` in
+`framework/src/manifest/resolve.ts` then picks one variant:
 
 - On a dynamic-form target it takes `dynamic.default`, which must fall inside
   the profile's range; presentation resolves to `native` and physical size to
@@ -288,10 +302,26 @@ keep the d-pad focus walk unchanged.
 
 ## Target profiles
 
-Built-in software records live in `profiles/<id>.ts` and are exported by
-`profiles/index.ts`. **Every profile uses the same binding generation, 12.**
-`hostAbi` is defined in `contracts/spec/binding-generation.ts` and is excluded
-from profile identity. The profile supplies the software facts below.
+Built-in profile documents live in `profiles/<id>.json`, and
+`profiles/index.ts` loads them. **A document holds facts: no code, no hash
+and no field derived from a label.** `contracts/schema/pocket-profile-2.json`
+validates it; `validatePocketProfile` in `framework/src/profile.ts` adds the
+checks a schema cannot state (dynamic forms, auxiliary surfaces, worker kinds,
+contact coordinate limits). **Every profile uses the same binding generation,
+12.**
+
+| Field | Meaning |
+| --- | --- |
+| `format` | `"pocket-profile/2"` |
+| `id`, `platform`, `form` | Labels and the window or takeover form |
+| `cadences` | Presented frames per second the host drives |
+| `display` | `logicalViewports`, `presentations`, `rasterDensity`, `animation`, and optional `dynamicViewport` and `auxiliary` |
+| `panel` | Physical panel sizes in pixels; the compiler reads them, admission does not |
+| `capabilities` | Capability names, compared as a set |
+| `roleCapabilities.systemUI` | Names a package in the System UI role also receives |
+| `worker.nodes` | The most worker nodes of each kind one package may declare |
+| `limits`, `input` | Package and heap bytes; touch contacts and coordinate bits |
+| `hostAbi` | The binding generation a release stamps; another value is rejected |
 
 | Target         | platform / form   | Logical viewport                         | Density | Capabilities |
 | -------------- | ----------------- | ---------------------------------------- | ------- | ------------ |
@@ -302,54 +332,57 @@ from profile identity. The profile supplies the software facts below.
 | `macos-app`    | macos / window    | 720×480 default, 240×180…4096×4096, accepts fixed | 2 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.layout.native`; systemUI role adds `ui.compositor-surfaces` |
 | `linux-app`    | linux / window    | 800×600 default, 240×180…4096×4096, accepts fixed | 1 | same as `macos-app` |
 | `web-app`      | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime`; systemUI role adds `ui.compositor-surfaces` |
+
 `roleCapabilities.systemUI` is the one conditional column: those APIs reach a
 package only when it resolves in the System-UI role. `ui.compositor-surfaces`
 is the API a shell uses to place other installed packages into native
 compositor surfaces, so an ordinary application requiring it against the same
 target fails resolution.
 
-Read software facts from the profile module. The id is a label; tooling reads
-`platform`, `form`, `display` and `capabilities` as fields. A profile module has
-this shape:
+A product writes its own document:
 
-```ts
-import { defineProfile } from "@pocketjs/framework/profile";
-
-export default defineProfile({
-  id: "reader-panel",
-  platform: "pocketbook",
-  form: "takeover",
-  display: {
-    physicalViewport: [960, 544],
-    logicalViewports: [[480, 272]],
-    presentations: ["integer-fit"],
-    rasterDensity: 2,
+```json
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-profile-2.json",
+  "format": "pocket-profile/2",
+  "id": "reader-panel",
+  "platform": "pocketbook",
+  "form": "takeover",
+  "cadences": [30],
+  "display": {
+    "logicalViewports": [[480, 272]],
+    "presentations": ["integer-fit"],
+    "rasterDensity": 2,
+    "animation": "still"
   },
-  capabilities: ["input.buttons", "input.touch", "text.glyphs.baked"],
-  tickHz: 60,
-});
+  "panel": { "primary": [960, 544] },
+  "capabilities": ["input.buttons", "input.touch", "text.glyphs.baked"]
+}
 ```
 
-An ESP-IDF firmware project defines its software promises in a profile module
-and imports that module from `pocket.runtime-config.ts`:
+**`profileHash` is the SHA-256 of the canonical projection of `id`,
+`platform`, `form`, `cadences`, `display`, `capabilities` and
+`roleCapabilities`.** Capabilities, cadences and role capabilities hash as
+sorted sets. The hash names the document a package was compiled against.
+Admission tries hash-equal variants first and does not require a match.
+
+`pocket.runtime-config.ts` names the document by a path relative to the
+configuration:
 
 ```ts
 import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
-import profile from "./profiles/panel.ts";
 
-export default defineRuntimeConfig({ profile });
+export default defineRuntimeConfig({ profile: "./profiles/panel.json" });
 ```
 
 `pocket compile --manifest app/pocket.json --runtime-config
-pocket.runtime-config.ts` resolves the application against that profile.
-`pocket profile export --config pocket.runtime-config.ts --out profile-export`
-writes `pocket_profile.h` for the program and `pocket-profile.json` for offline
-package embedding. The sidecar preserves the exact canonical JSON bytes and
-SHA-256; the Python embedding tool checks the package against that independent
-identity. **The runtime rejects a package whose profile hash or binding
-generation differs from the compiled program.** IDF CMake helpers accept
-`RUNTIME_CONFIG` and default to the firmware root's config. See
-[ESP-IDF](/docs/esp-idf/#embed-an-application).
+pocket.runtime-config.ts` resolves the application against that document;
+`pocket compile --target ./profiles/panel.json` does the same without a
+configuration. `pocket profile export --config pocket.runtime-config.ts --out
+profile-export` writes `pocket_profile.h` and `pocket_profile.rs` (the hash
+and the facts record) and `pocket-profile.json` (the document with its
+`hostAbi` stamp). IDF CMake helpers accept `RUNTIME_CONFIG` and default to the
+firmware root's config. See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 
 DrawList is absent from the registry. It is PocketJS's internal core-to-backend
 IR, not behavior an application can observe or request. GE, GXM, WGPU, and
@@ -367,8 +400,8 @@ logical pixel. Dynamic texture producers receive the same resolved value as
 Device programs also have profiles under `profiles/`. Existing
 `tools/*-profile.ts` exports adapt those records for the target-specific build
 wrappers; they do not define another copy of the display or capability data.
-`pocket catalog` lists built-in profile ids. A product may supply its own
-profile module without adding a built-in id.
+`pocket catalog` lists built-in profile ids. A product supplies its own
+document without adding a built-in id.
 
 ## Resolution and PSP-to-Vita compatibility
 
@@ -435,10 +468,10 @@ requirement is true by construction, an enhancement reflects target
 availability — and the keys are sorted by codepoint so the pretty plan matches
 the canonical JSON the hash is taken over.
 
-The full plan also carries `profile` and `profileHash`. **`profileHash` is the
-SHA-256 of the canonical software profile.** The `.pocket` variant stores that
-hash for runtime admission. `.pocket/<profile-id>/plan.json` records the
-compiler inputs for inspection and reuse.
+The full plan also carries `profile` and `profileHash`. **`plan.profile` is the
+compiled document plus `tickHz`, the package rate.** The `.pocket` variant
+stores `profileHash` as provenance. `.pocket/<profile-id>/plan.json` records
+the compiler inputs for inspection and reuse.
 
 `planHash` is only a checksum of this generated build IR. It detects an edited
 or partially copied plan and can support build caching. It is not a runtime
@@ -449,23 +482,86 @@ in the plan merely to make its hash look comprehensive. The Vita backend
 derives a nine-character title id from the portable reverse-DNS app id instead
 of keeping a per-demo target table.
 
+## Admission
+
+**A device admits a package when its exported facts satisfy every item of the
+variant's plan.** The rules live in `engine/package/src/admission.rs` for
+devices, `contracts/spec/admission.ts` for tools, and the ESP-IDF embed script;
+`engine/package/tests/fixtures/admission` is the corpus all three read.
+
+| Item | Package | Host | Relation |
+| --- | --- | --- | --- |
+| Binding generation | variant `hostAbi` | `POCKET_BINDING_GENERATION` | equal |
+| Raster density | `plan.viewport.rasterDensity` | `display.rasterDensity` | equal |
+| Animation | `plan.animation` | `display.animation` | equal |
+| Rate | `plan.profile.tickHz` | `cadences` | a whole multiple of a cadence, at most 60 core ticks per frame |
+| Logical viewport | `plan.viewport.logical` | `logicalViewports` or `dynamicViewport` | member |
+| Presentation | `plan.viewport.presentation` | `display.presentations` | member |
+| Capabilities | names `true` in `plan.features` | `capabilities` | subset |
+| Auxiliary | `plan.surfaces.auxiliary` | auxiliary viewports and density | member and equal; skipped when the plan has none |
+
+The id, platform, form, capability order, capabilities the host adds,
+`hostExtension` and the panel size take no part. **A host with added
+capabilities, added viewports, another id or another capability order admits a
+package compiled for the original profile.**
+
+A device takes the first variant whose profile hash equals its own and that it
+admits, then the first other variant it admits. When none qualifies it rejects
+the package and names the items the closest variant lacks, for example
+`variant 0 (psp) is not admitted: rasterDensity`. The C package-open entry
+points return the first failing item as a code: **7** binding generation,
+**9** plan, **19** raster density, **20** animation, **21** rate, **22**
+viewport, **23** presentation, **24** capability, **25** auxiliary
+(`engine/runtime-cabi/src/package_open.rs`). Repack, `pocket pack` and the
+companion agent read a runtime's `pocket-profile.json` and apply the same
+rules.
+
+### Rate and cadence
+
+**`app.tickHz` is the package rate; the cadences are the host's.** A host
+presents a package at the largest cadence its rate is a whole multiple of,
+advances the core by rate ÷ cadence ticks per frame and publishes the cadence
+as `__simHz`. A desktop with cadences [60, 30] presents a 30 Hz package at
+30 Hz and a 60 Hz package at 60 Hz; a panel with cadence 30 presents a 60 Hz
+package at 30 Hz with two core ticks per frame. `after(1.5)` fires 1.5 wall
+seconds after the first frame in each case. `pocket_runtime_get_timing`
+reports the rate, the cadence and the ticks per frame after boot.
+
 ## Application and program builds
 
 `pocket compile` consumes the resolved plan and emits a `.pocket` application.
-It accepts a built-in profile id, a profile module path or a package subpath as
-`--target`; without that option, it reads the nearest runtime config.
+It accepts a built-in profile id or a `pocket-profile.json` path as `--target`;
+without that option, it reads the nearest runtime config.
 
 `pocket build` reads `pocket.runtime-config.ts`. Its optional `build` field
 contains `cargo`, `cmake`, `make` or `compilerOnly` steps and an optional
 `run(context)` hook. Each step receives the selected profile's canonical JSON,
-hash, binding generation and tick rate through `POCKETJS_*` environment
-variables. Build tools and drivers are program dependencies; the software
-profile contains neither a compiler selection nor a renderer selection.
+hash and binding generation through `POCKETJS_*` environment variables. Build
+tools and drivers are program dependencies; the profile document contains
+neither a compiler selection nor a renderer selection.
 
 A config without `build` exports the profile for an external build system.
 `pocket profile export --config <file> --out <directory>` performs that export
 without running a build recipe. C programs include `pocket_profile.h`; tools
 that do not execute TypeScript consume `pocket-profile.json`.
+
+## Distribution
+
+**A firmware release is three things: the program binary, its stamped
+`pocket-profile.json` and the binding generation.** A runtime directory lists
+`pocket-profile.json` in `runtime.json`, and a PocketJS release publishes each
+runtime's document beside its archive. `pocket profile fetch --target <id>
+--out <file>` downloads that document and checks it against the release's
+file hash, profile hash and binding generation; `pocket compile --target
+<file>` then compiles a package the runtime admits.
+
+| Tier | Program | Profile | Checks |
+| --- | --- | --- | --- |
+| 1 | In-tree catalog | `profiles/<id>.json` | Goldens and release runtimes |
+| 2 | Out-of-tree program | A published `pocket-profile.json` and build receipt | The program's own |
+| 3 | Any document | A local `pocket-profile.json` | The schema and `validatePocketProfile` |
+
+All three tiers compile with the same `pocket compile`.
 
 The complete `ResolvedBuildPlan` is internal and may evolve. Custom hosts use
 the smaller stable boundary instead:
@@ -483,18 +579,19 @@ const env = hostBuildEnvironment(inputs, {
 });
 ```
 
-This verifies the plan checksum and profile hash, extracts host build inputs,
-and produces the Cargo environment used by existing program wrappers.
+This verifies the plan checksum and the plan's profile hash, extracts host
+build inputs, and produces the Cargo environment used by existing program
+wrappers.
 
 ## Runtime and TypeScript checks
 
 At startup, `assertNativeHostContract` compares the baked tick rate against the
-rate the host declares in `ui.__tickHz`, then the native target id, then the
-HostOps ABI. **The tick-rate check runs for every native mount, plan or no
-plan**: a bundle without an explicit `--hz` bakes 60, and a host that declares
-no `__tickHz` is read as 60, so a mismatch means the bundle's virtual time and
-the host's frame loop disagree. The target and ABI checks run only for a bundle
-that embedded a build contract. Stock builds embed the JS and native host
+rate the host declares in `ui.__tickHz`, then the HostOps ABI. **The tick-rate
+check runs for every native mount, plan or no plan**: a bundle without an
+explicit `--hz` bakes 60, and a host that declares no `__tickHz` is read as 60,
+so a mismatch means the bundle's virtual time and the host's core disagree. The
+ABI check runs for a bundle that embedded a build contract; device admission
+decides which hosts run a package, so the host id is not compared. Stock builds embed the JS and native host
 together, so repeating the whole build plan as a runtime hash would make
 unrelated build metadata part of the wire contract.
 

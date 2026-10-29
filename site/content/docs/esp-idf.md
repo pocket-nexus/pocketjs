@@ -69,17 +69,20 @@ pocketjs_embed_package(
     PROFILE_EXPORT_DIR "../profile-export")
 ```
 
-The firmware root contains `pocket.runtime-config.ts`, which imports the
-program's `defineProfile()` module. Generate the trusted profile before an
-offline build:
+The firmware root contains `pocket.runtime-config.ts`, which names the
+program's `pocket-profile.json` document. Export the profile before an offline
+build:
 
 ```sh
 pocket profile export --config pocket.runtime-config.ts --out profile-export
 ```
 
 **The embed step uses Python and prebuilt artifacts; it does not invoke Bun.**
-The sidecar's exact canonical JSON, binding generation and profile hash must
-match the package. The generated `pocketjs_package_dashboard.h` exports package
+It reads the exported `pocket-profile.json`, requires its `hostAbi` stamp to
+equal the package's binding generation, and admits the package's host-input
+variant by the [admission](/docs/platform-contracts/#admission) rules: raster
+density, animation class, rate against the cadences, viewport, presentation
+and capabilities. The generated `pocketjs_package_dashboard.h` exports package
 storage and admitted application geometry. `pocket_profile.h` supplies the
 independent program configuration.
 
@@ -98,10 +101,13 @@ All three helpers accept `RUNTIME_CONFIG`, defaulting to the project root's
 
 **`pocket_runtime_config.profile` points at `pocket_profile.facts`**, the
 `pocket_profile_facts` record in the exported `pocket_profile.h`: variant id,
-tick rate, panel sizes, logical viewports, raster density and the input classes
-the profile requires. The runtime copies the record at creation and reads no
-JSON. `pocket_runtime_create` returns `NULL` when `tick_hz` differs from the
-facts' tick rate. The CMake helpers add the `pocket_runtime` include directory,
+cadences, panel sizes, logical viewports, presentations, raster density,
+animation class, capability names and the input classes the profile requires.
+The runtime copies the record at creation and reads no JSON.
+`pocket_runtime_create` returns `NULL` when the configuration's `tick_hz`
+differs from the facts' `tick_hz`, the highest cadence. After boot,
+`pocket_runtime_get_timing` reports the package rate, the cadence to schedule
+`pocket_runtime_tick` at, and the core ticks each call advances. The CMake helpers add the `pocket_runtime` include directory,
 which holds the `pocket_runtime.h` that `pocket_profile.h` includes.
 
 The following setup uses an initialized display adapter. Error handling must
@@ -157,7 +163,7 @@ The runtime resolves contact hits and encodes the guest frame arguments.
 
 `pocket_runtime_boot` validates the package, installs its assets, evaluates the
 guest and presents the initial tree. `pocket_runtime_tick` runs one guest frame,
-advances the core and presents. A returned display or renderer failure has
+advances the core by the package rate divided by the cadence, and presents. A returned display or renderer failure has
 terminated all device access for that frame. A guest failure stops further
 turns; read `pocket_guest_idf_error` for engine diagnostics.
 
@@ -195,9 +201,10 @@ separate from display pixel storage.
 
 ## Scheduling and destruction
 
-A product can call `pocket_runtime_tick` from its owner task. The optional
-`pocket_runner_start` takes the booted runtime, tick rate and task configuration.
-It uses the shared rational-microsecond schedule. Falling behind can skip wall
+A product can call `pocket_runtime_tick` from its owner task at the cadence
+`pocket_runtime_get_timing` reports. The optional `pocket_runner_start` takes
+the booted runtime, the task configuration and an output pointer; it schedules
+ticks at that cadence with the shared rational-microsecond schedule. Falling behind can skip wall
 clock slots without inventing guest frames.
 
 Set the runner's interrupt callback to `pocket_guest_idf_interrupt` through a

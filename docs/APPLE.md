@@ -88,7 +88,7 @@ and destroys the instance after the active call returns.
 
 ## Profile and shell
 
-`profiles/ios-dev.ts` declares the private `ios-dev` profile: a 480×272
+`profiles/ios-dev.json` declares the private `ios-dev` profile: a 480×272
 logical viewport, `input.touch` and `text.glyphs.baked`. The build and view
 must agree on **identity, viewport, raster density and tick rate**. Set
 `tickRate` before evaluating the bundle; later changes are rejected.

@@ -76,7 +76,8 @@ recovery guest; it no longer embeds independent `app.js` and `app.pak` files.
 
 **Nothing in the program depends on the game.** At boot `main.c` reads
 `romfs:/app.pocket` before it creates a render target: `pocket_package_open`
-admits the package and returns the plan's `viewport` and
+admits the package against the program's exported facts
+(`pocket_3ds_profile`) and returns the plan's `viewport` and
 `surfaces.auxiliary` (logical size and raster density), its `io.offload` and
 `media.playback` features, and the first 16 hex digits of SHA-256 over the
 variant identity's app id. The surfaces must be the 400x240 top screen and the

@@ -216,13 +216,13 @@ compilation searches upward from the manifest for `pocket.runtime-config.ts`.
 
 **`pocket.runtime-config.ts` selects the program's profile and native build.**
 `defineRuntimeConfig()` from `@pocketjs/framework/runtime-config` accepts a
-`profile` or a `profiles` list, plus an optional `build` recipe. A configuration
-with multiple profiles requires a profile ID. The profile supplies capabilities,
-display geometry and `tickHz`; it does not select an
-application framework. `pocket build` executes the declared native build recipe.
+`profile` path or a `profiles` list of `pocket-profile.json` paths, plus an
+optional `build` recipe. A configuration with multiple profiles requires a
+profile ID. The profile supplies capabilities, display geometry and cadences;
+it does not select an application framework. `pocket build` executes the declared native build recipe.
 `pocket compile` produces a `.pocket` application, while `--aot --out <directory>`
 produces generated Rust, baked assets and a dependency manifest without invoking
-Cargo. Both compiler paths bake `app.theme` at the selected profile's tick rate.
+Cargo. Both compiler paths bake `app.theme` at the application's `app.tickHz`.
 
 `tools/build.ts <app>`:
 

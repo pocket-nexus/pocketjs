@@ -18,7 +18,10 @@ Hidden instances follow the System plan's suspend/continue policy. Idle hashes
 and output-channel backpressure defer presentation through Runtime's pending
 frame API without adding guest turns.
 
-The program thread uses `pocket_runtime::timing::TickSchedule` at 60 Hz. Native
+The program thread uses `pocket_runtime::timing::TickSchedule` at the cadence
+the booted package presents at: `macos-app` and `linux-app` offer 60 and 30 Hz,
+and a package runs at the largest cadence its `app.tickHz` is a whole multiple
+of. Native
 window, clipboard, service and offload adapters retain their existing roles.
 
 Run `cargo +stable test --locked --manifest-path programs/desktop/Cargo.toml` for

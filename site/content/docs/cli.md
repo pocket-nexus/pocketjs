@@ -20,7 +20,8 @@ bunx @pocketjs/cli show
 | `pocket compile [options]` | a version 2 `.pocket` application package |
 | `pocket compile --aot --out <directory> [options]` | MicroTS Rust sources, fonts, images and dependency metadata |
 | `pocket build [--config <file>] [--target <id>]` | the program's runtime build recipe |
-| `pocket profile export --out <directory> [options]` | the selected profile's C header and JSON sidecar |
+| `pocket profile export --out <directory> [options]` | the selected profile's C header, Rust module and stamped `pocket-profile.json` |
+| `pocket profile fetch --target <id> --out <file>` | the profile document a PocketJS release publishes for a runtime |
 | `pocket show [--json]` | framework resolution, runtime configuration, profile selection and toolchain states |
 | `pocket target add`, `list`, `remove` | native toolchain installation and status |
 | `pocket sdk export`, `build`, `verify` | download, build or verify a C runtime SDK |
@@ -57,15 +58,18 @@ Host-development commands require a checkout or a framework selected by
 
 ## Profile selection
 
-**`--target` selects a software profile.** For application compilation and
-profile export it accepts a built-in profile ID, a file exporting a profile,
-or an installed module exporting a profile:
+**`--target` selects a profile.** For application compilation and profile
+export it accepts a built-in profile ID or the path of a `pocket-profile.json`
+document, including the one a firmware release publishes:
 
 ```sh
 pocket check --manifest pocket.json --target psp
-pocket compile --manifest pocket.json --target ./profiles/my-board.ts
-pocket compile --manifest pocket.json --target @example/device/profile
+pocket compile --manifest pocket.json --target ./profiles/my-board.json
+pocket compile --manifest pocket.json --target ./vendor/pocket-profile.json
 ```
+
+A path ends in `.json`. A document that carries a `hostAbi` stamp other than
+the current binding generation is rejected.
 
 Selection follows this order:
 
@@ -86,9 +90,9 @@ The configuration lookup starts at the manifest's directory for `check` and
 An explicit target or `POCKET_TARGET` bypasses the implicit
 configuration lookup for application compilation and profile export.
 
-Profile file paths beginning with `.` or `/` resolve against the current
-directory. Package module names resolve from the manifest's directory for
-application compilation and from the current directory for profile export.
+Profile document paths resolve against the current directory. A runtime
+configuration names its documents by paths relative to the configuration
+file.
 
 ### Runtime configuration
 
@@ -97,16 +101,15 @@ The program declares its profile and optional native build recipe:
 ```ts
 // pocket.runtime-config.ts
 import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
-import profile from "./profiles/my-board.ts";
 
-export default defineRuntimeConfig({ profile });
+export default defineRuntimeConfig({ profile: "./profiles/my-board.json" });
 ```
 
-Use `profiles: [first, second]` when one program implements several profiles.
-`profile` and `profiles` are alternatives. The application manifest owns
-`app.entry`, `app.framework`, `app.viewport`, `app.theme` (content or a module
-path) and requirements;
-the profile supplies display geometry, capabilities and `tickHz`.
+Use `profiles: ["./a.json", "./b.json"]` when one program implements several
+profiles. `profile` and `profiles` are alternatives. The application manifest
+owns `app.entry`, `app.framework`, `app.viewport`, `app.tickHz`, `app.theme` (a
+module or JSON path) and requirements; the profile supplies display geometry,
+cadences and capabilities.
 
 `pocket show --json` reports the selected framework, runtime configuration,
 profile selection, host and toolchain states. `--manifest <file>` changes the
@@ -123,20 +126,20 @@ examples include `moto-g-play-dev` versus
 
 In a framework checkout, `bun tools/pocket.ts catalog --json` lists the
 built-in profiles. `pocket target list` lists toolchain IDs and install states.
-Product-owned profile modules do not require a catalog entry.
+Product-owned profile documents do not require a catalog entry.
 
 ## check and compile
 
 ```sh
 pocket check --manifest pocket.json --target psp
 pocket compile --manifest pocket.json --target psp --output dist/app.pocket
-pocket compile --manifest pocket.json --target ./profiles/my-board.ts \
+pocket compile --manifest pocket.json --target ./profiles/my-board.json \
   --output dist/app.pocket --depfile dist/app.d
 ```
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--target <id-or-module>` | profile selection above | the profile to compile against |
+| `--target <id-or-file>` | profile selection above | the profile to compile against |
 | `--runtime-config <file>` | nearest configuration when no target is supplied | a configuration containing the selected profile |
 | `--manifest <file>` | `pocket.json` | the application manifest |
 | `--project-root <directory>` | the manifest's directory | base directory for the entry, TypeScript configuration and output paths |
@@ -151,7 +154,8 @@ pocket compile --manifest pocket.json --target ./profiles/my-board.ts \
 resolve against the current directory. Output, plan and depfile paths resolve
 against the project root. Unknown options are errors.
 
-**`check` writes no output.** It validates the manifest, profile capabilities,
+**`check` writes no output.** It validates the manifest against the published
+schema, profile capabilities,
 viewport and entry module's TypeScript import graph. It uses the project's
 `tsconfig.json` when present and prints the resolved plan hash.
 
@@ -159,9 +163,10 @@ viewport and entry module's TypeScript import graph. It uses the project's
 validation, writes `<plan-dir>/<profile-id>/plan.json`, and compiles JavaScript
 and pak intermediates. The package contains the manifest and a variant with
 the profile ID, profile hash, binding generation, plan, JavaScript and assets.
-Profile IDs unsuitable for directory names use a hash-derived plan directory.
-The optional depfile includes application imports, assets, compiler inputs
-and the profile/configuration modules.
+A manifest `icon` becomes the variant's cover section. Profile IDs unsuitable
+for directory names use a hash-derived plan directory. The optional depfile
+includes application imports, assets, compiler inputs, the icon, and the
+profile documents and configuration modules.
 
 ### AOT source generation
 
@@ -172,8 +177,7 @@ pocket compile --manifest apps/ipodnano-hero/pocket.json --project-root . \
   --target ipodnano --aot --out dist/ipod-sources
 ```
 
-An AOT manifest sets `app.aot` to `true`. If it declares `execution.classes`,
-that list must include `aot`. **`--aot` generates sources and assets without
+An AOT manifest sets `app.aot` to `true`. **`--aot` generates sources and assets without
 running Cargo or producing JavaScript or a `.pocket` package.** The output
 includes Rust modules, `include.rs`, styles, font and image assets, layer
 metadata, and `dependencies.json` with a depfile. Relative includes let the
@@ -182,8 +186,8 @@ program builds use this source-generation path before their native build.
 
 The compiler requires its prebuilt Wasm layout oracle; a missing oracle is an
 error. `--aot` is a `compile` option and cannot be combined with `--output`.
-The selected profile's `tickHz` and the manifest's `app.theme` apply to the
-generated animation data.
+The manifest's `app.tickHz` and `app.theme` apply to the generated animation
+data.
 
 ## build
 
@@ -196,10 +200,9 @@ required input with `input: "package"` or `input: "aot"`.
 ```ts
 // pocket.runtime-config.ts in a native program repository
 import { cargo, defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
-import profile from "./profiles/my-board.ts";
 
 export default defineRuntimeConfig({
-  profile,
+  profile: "./profiles/my-board.json",
   build: {
     hosts: ["darwin-arm64", "linux-x64"],
     steps: cargo({ manifest: "native/Cargo.toml", package: "my-runtime" }),
@@ -230,14 +233,15 @@ Steps accept `cwd`, `env` and `args`. A recipe can declare a pinned
 `toolchain`, an expected `artifact`, and a `run(context)` callback after the
 steps. Step working directories and artifact paths are relative to the
 configuration directory. `context.run` supplies the selected profile's
-canonical JSON, hash, ID, binding generation, tick rate and export directory
-to native build commands. `context.toolchainPaths` exposes installed component
+canonical JSON, hash, ID, binding generation and export directory to native
+build commands. `context.toolchainPaths` exposes installed component
 paths when the recipe declares a toolchain. Cargo steps use the recorded
 `rustup` executable and pinned compiler. Installed toolchain `bin` directories
 precede the command's `PATH`.
 
-**The executor checks the package's profile hash and binding generation before
-native compilation.** AOT inputs also verify every generated file's checksum.
+**The executor checks that the package was compiled for the selected profile
+and binding generation before native compilation**, because the native build
+reads its inputs from the plan. AOT inputs also verify every generated file's checksum.
 Admitted bytes are copied into the output directory. `context.application`
 contains the extracted plan, JavaScript and resource pack;
 `context.aot` contains the source directory and include file. Paths in steps
@@ -263,7 +267,9 @@ native compilation.
 
 **`pocket pack` combines a verified generic runtime with a compiled package.**
 The selected configuration supplies the repack function and output extension.
-The runtime and application must have matching profiles and binding generations.
+The runtime ships its `pocket-profile.json`; **pack admits the package by that
+document's facts** ([admission](/docs/platform-contracts/#admission)), so a
+package compiled for another profile with the same facts packs.
 
 ```sh
 pocket compile --manifest apps/hero/pocket.json --project-root . --target psp-runtime \
@@ -278,8 +284,9 @@ output directory with a successful matching receipt. Without it, `pack` download
 the runtime for the installed framework release. `--release-version` selects
 an exact release version; `--manifest-url` selects a release index mirror. Native compilation and application
 compilation are separate commands. `--id`, `--title`, `--version`, `--author`
-and `--icon` supply package identity; omitted application fields come from the
-compiled plan, and an omitted author is recorded as `Unspecified`.
+and `--icon` supply package identity. Omitted fields come from the compiled
+plan and the manifest's `author` and `icon`; with neither, the author is
+recorded as `Unspecified`.
 
 ## Profile export
 
@@ -287,6 +294,7 @@ compiled plan, and an omitted author is recorded as `Unspecified`.
 pocket profile export --config pocket.runtime-config.ts \
   --out dist/profile --depfile dist/profile.d
 pocket profile export --target psp --out dist/psp-profile
+pocket profile fetch --target psp-runtime --out vendor/pocket-profile.json
 ```
 
 `--out` is required. `--config`, `--out` and `--depfile` resolve against the
@@ -294,19 +302,25 @@ current directory. Selection follows the profile rules above.
 
 | Output | Contents |
 | --- | --- |
-| `pocket_profile.h` | C/C++ declarations and a `pocket_profile` value containing canonical JSON, a 32-byte hash, identity, tick rate, binding generation, display geometry and capability masks |
-| `pocket-profile.json` | `pocket-profile/1` sidecar with the profile projection, canonical JSON, `profileHash` and `hostAbi` |
-| optional depfile | dependencies for both outputs, including imported profile/configuration modules and the exporter |
+| `pocket_profile.h` | The `pocket_profile_facts` record the runtime admits packages against, and a `pocket_profile` value holding the 32-byte hash, binding generation, cadences, animation class, and presentation and capability names |
+| `pocket_profile.rs` | The same facts and hash for Rust programs |
+| `pocket-profile.json` | The profile document with its `hostAbi` stamp |
+| optional depfile | dependencies for the outputs, including the profile documents, configuration modules and the exporter |
 
-**The program obtains its expected profile hash from these build inputs.**
-Package admission compares the package variant against that trusted identity.
-Exported files are rewritten when their contents change.
+**The header carries the hash and the facts, not the document.** The runtime
+reads no JSON; it admits a package against the facts record. Exported files are
+rewritten when their contents change.
 
-C programs can read primary physical dimensions and logical viewport choices,
-auxiliary display geometry, dynamic viewport bounds, presentation masks and
-capability masks from typed fields. The header also defines
-`POCKET_PROFILE_WIDTH`, `POCKET_PROFILE_HEIGHT`, `POCKET_PROFILE_TICK_HZ` and
-named mask constants; reading these values requires no JSON parser.
+C programs read primary physical dimensions and logical viewport choices,
+auxiliary display geometry, dynamic viewport bounds, cadences and names from
+typed fields. The header also defines `POCKET_PROFILE_WIDTH` and
+`POCKET_PROFILE_HEIGHT`, and `POCKET_PROFILE_HEAP_BYTES` and
+`POCKET_PROFILE_PACKAGE_BYTES` when the document states limits.
+
+**`profile fetch` downloads the document a PocketJS release publishes for a
+runtime target** and checks it against the release's file hash, profile hash
+and binding generation. `--release-version` and `--manifest-url` select the
+release as for `pack`.
 
 ## Target toolchains
 
@@ -402,16 +416,17 @@ package script is an alias for `pocket compile`** and produces
 
 ```text
 my-product/
-  profiles/my-product.ts
+  profiles/my-product.json
   pocket.runtime-config.ts
   app/pocket.json
   app/main.tsx
   app/app.tsx
 ```
 
-The profile ID is `product-my-product`; its module declares `takeover` form,
-60 Hz, a 320×240 physical and logical viewport, `native` presentation, density
-1, buttons and baked glyphs. The runtime configuration selects that profile
+The profile ID is `product-my-product`; its document declares `takeover` form,
+cadences 60 and 30, a 320×240 panel and logical viewport, `native`
+presentation, density 1, the `repaint` animation class, buttons and baked
+glyphs. The runtime configuration selects that profile
 without a build recipe. The application entry is relative to the product
 root.
 

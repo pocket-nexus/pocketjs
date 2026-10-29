@@ -49,7 +49,7 @@ bun tools/pocket.ts pack --config programs/redmi-1s/pocket.runtime-config.ts \
   --out dist/clear-redmi.apk
 ```
 
-**The runtime directory records its profile hash and hashes of the native files.** `pack` verifies those records and the selected package variant. Android packaging uses the configured APK signer; iPod packaging preserves the runtime's native signature and adds the application payload.
+**The runtime directory records its profile hash, its stamped `pocket-profile.json` and hashes of the native files.** `pack` verifies those records and admits the package variant by the document's facts. Android packaging uses the configured APK signer; iPod packaging preserves the runtime's native signature and adds the application payload.
 
 ## Toolchains and deployment
 

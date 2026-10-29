@@ -68,17 +68,18 @@ The preparation rules participate in receipt identity.
 
 ## Package and profile boundaries
 
-The product owns `pocket.runtime-config.ts` and imports a `defineProfile()`
-module. **One profile hash identifies both the program and its application
-package.** `pocket profile export --config <file> --out <directory>` writes
-`pocket_profile.h`, `pocket_profile.rs` and `pocket-profile.json`. These are
-build outputs, not checked-in platform definitions.
+The product owns `pocket.runtime-config.ts` and a `pocket-profile/2` document
+it names by path. **The runtime admits a package whose plan the exported facts
+satisfy**; the profile hash records which document the package was compiled
+against. `pocket profile export --config <file> --out <directory>` writes
+`pocket_profile.h`, `pocket_profile.rs` and the stamped `pocket-profile.json`.
+These are build outputs, not checked-in platform definitions.
 
 `pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.json>)`
 compiles the application and exports its program profile.
 `pocketjs_profile_header(TARGET <target> NAME <name>)` exports a profile without
 compiling an application. Both invoke the Pocket CLI and record imported
-configuration/profile modules in depfiles. All three CMake helpers accept
+configuration modules and profile documents in depfiles. All three CMake helpers accept
 `RUNTIME_CONFIG`; its default is the IDF project root's
 `pocket.runtime-config.ts`.
 
@@ -90,14 +91,16 @@ defaults to `<current-binary-directory>/pocketjs/<name>/profile`; export there
 before configuring an offline build. Missing exports produce a command naming
 the required config and output directory.
 
-The Python helper verifies the sidecar format, exact canonical JSON bytes,
-independent binding generation and profile hash before admitting the package.
-It does not serialize another copy of the profile identity. The generated
+The Python helper reads the exported `pocket-profile.json`, requires its
+`hostAbi` stamp to equal the package's binding generation and admits the
+host-input variant by the facts: raster density, animation class, rate against
+the cadences, viewport, presentation and capabilities. A document with another
+id and the same facts admits the package. The generated
 `pocketjs_package_<name>.h` supplies package storage and admitted application
 geometry; the program includes `pocket_profile.h` and points
 `pocket_runtime_config.profile` at `pocket_profile.facts`. **The runtime admits
 the package against that `pocket_profile_facts` record and reads no JSON**; the
-sidecar JSON is a build input to the Python helper. The CMake helpers add the
+exported `pocket-profile.json` is a build input to the Python helper. The CMake helpers add the
 `pocket_runtime` include directory, which holds the `pocket_runtime.h` that
 `pocket_profile.h` includes.
 

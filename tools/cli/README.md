@@ -39,30 +39,29 @@ scaffold's `build` package script is an alias for `pocket compile`.
 ```sh
 pocket check --manifest pocket.json --target psp
 pocket compile --manifest pocket.json --target psp --output dist/app.pocket
-pocket compile --manifest pocket.json --target ./profiles/my-board.ts \
+pocket compile --manifest pocket.json --target ./profiles/my-board.json \
   --output dist/app.pocket --depfile dist/app.d
 ```
 
 For an application with `app.aot: true`, `pocket compile --aot --out dist/aot`
 generates MicroTS Rust modules, fonts, images, an include file and dependency
 metadata. It runs no Cargo build and emits neither JavaScript nor a `.pocket`
-package. A declared `execution.classes` list must include `aot`.
+package.
 
 ## Profiles and program builds
 
-**`--target` means a profile ID or profile module.** A module can be a file or
-an installed package and must default-export a profile. Selection uses an
-explicit target, then `POCKET_TARGET`, then the single profile in the nearest
-`pocket.runtime-config.ts`. A configuration with multiple profiles requires a
+**`--target` means a profile ID or the path of a `pocket-profile.json`
+document.** A document stamped with another binding generation is rejected.
+Selection uses an explicit target, then `POCKET_TARGET`, then the single
+profile in the nearest `pocket.runtime-config.ts`. A configuration with multiple profiles requires a
 profile ID.
 
 ```ts
 // pocket.runtime-config.ts
 import { defineRuntimeConfig, cargo } from "@pocketjs/framework/runtime-config";
-import profile from "./profiles/my-board.ts";
 
 export default defineRuntimeConfig({
-  profile,
+  profile: "./profiles/my-board.json",
   build: {
     hosts: ["darwin-arm64", "linux-x64"],
     steps: cargo({ manifest: "native/Cargo.toml", package: "my-runtime" }),
@@ -77,8 +76,8 @@ pocket profile export --config pocket.runtime-config.ts --out dist/profile
 
 **`build` executes the program's native recipe and accepts compiled inputs.**
 `--pocket` supplies a package; `--aot-dir` supplies generated Rust sources.
-The executor verifies the profile hash, binding generation and input checksums
-before invoking native tools. It copies the admitted inputs into the output
+The executor verifies that the input was compiled for the selected profile and
+binding generation, and the input checksums, before invoking native tools. It copies the admitted inputs into the output
 directory so a source edit cannot change an active build.
 
 The command reads a runtime configuration; `--target` selects an ID
@@ -86,10 +85,14 @@ implemented by that configuration. Recipes use `cargo`, `cmake`, `make` or
 `compilerOnly` helpers. A configuration containing only `{ profile }` exports
 the profile and leaves native compilation to the external build system.
 
-`profile export` writes `pocket_profile.h` and `pocket-profile.json`, containing
-the canonical profile and its hash for the program's package admission check.
+`profile export` writes `pocket_profile.h` and `pocket_profile.rs`, holding the
+facts the program admits packages against and the profile hash, and
+`pocket-profile.json`, the document with its `hostAbi` stamp. `profile fetch
+--target <id> --out <file>` downloads the document a PocketJS release publishes
+for a runtime.
 The C header exposes typed display geometry, logical viewport choices,
-auxiliary and dynamic viewport data, presentation masks and capability masks.
+auxiliary and dynamic viewport data, cadences, and presentation and capability
+names.
 `--depfile` records imported configuration, profile and exporter inputs.
 
 Application settings, including `app.framework` and `app.theme`, belong in
@@ -124,10 +127,11 @@ input identity, toolchain digest, native commands and artifact checksums.
 A failed command writes a failed receipt. `--deploy` invokes a configuration's
 deploy hook after the artifact check; an absent hook is an error.
 `pack` uses `build.genericRuntime.repack` and checks the runtime's own
-`runtime.json` before writing the installation package. The default runtime comes
-from the framework release; `--runtime` supplies a local build. Identity defaults to
-the compiled application's id, title and version. `--author` supplies package
-authorship; its default is `Unspecified`.
+`runtime.json` before writing the installation package, then admits the package
+by the runtime's `pocket-profile.json`. The default runtime comes from the
+framework release; `--runtime` supplies a local build. Identity defaults to the
+compiled application's id, title and version and the manifest's `author` and
+`icon`; without a manifest author the default is `Unspecified`.
 
 The toolchain definitions live under `tools/build/toolchains/`.
 `pocket-toolchain/2` installs only declared components. Targets that require
@@ -148,15 +152,15 @@ bun run profile
 The generated product contains:
 
 ```text
-profiles/my-product.ts     profile ID product-my-product
+profiles/my-product.json   profile ID product-my-product
 pocket.runtime-config.ts  selects the profile; native build belongs to ESP-IDF
 app/pocket.json            application manifest
 app/main.tsx              mount entry
 app/app.tsx               component
 ```
 
-The starting profile declares a 320×240 native viewport, 60 Hz, buttons and
-baked glyphs. Standalone scripts compile `dist/my-product.pocket` and export
+The starting profile declares a 320×240 native viewport, cadences 60 and 30,
+buttons and baked glyphs. Standalone scripts compile `dist/my-product.pocket` and export
 the profile to `dist/profile/`. The README contains `pocketjs_compile_app`
 with `RUNTIME_CONFIG`, and `pocketjs_embed_package` with
 `PROFILE_EXPORT_DIR` for builds that consume a prebuilt package without Bun.
