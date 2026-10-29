@@ -627,6 +627,7 @@ mod tests {
             raster_density: 1,
             heap_limit: 0,
             pak: &[],
+            worker_javascript: &[],
             assets,
         }
     }
