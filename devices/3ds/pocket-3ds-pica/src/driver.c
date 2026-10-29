@@ -332,6 +332,7 @@ static void cache_delete(pocket_pica_renderer *r, Cache **slot) {
   pocket_pica_texture_destroy(&entry->texture);
   free(entry);
 }
+static void drop_cached(pocket_pica_renderer *r, pocket_pica_display *d);
 static bool reserve_cache(pocket_pica_renderer *r, size_t bytes) {
   if (bytes > r->config.texture_budget)
     return false;
@@ -340,8 +341,18 @@ static bool reserve_cache(pocket_pica_renderer *r, size_t bytes) {
     for (Cache **p = &r->cache; *p; p = &(*p)->next)
       if (!(*p)->refs && (!oldest || (*p)->stamp < (*oldest)->stamp))
         oldest = p;
-    if (!oldest)
+    if (!oldest) {
+      /* A retained build pins its entries only for a redraw: the displays
+       * give theirs up before the budget fails a frame. */
+      bool dropped = false;
+      for (pocket_pica_display *d = r->displays; d; d = d->next) {
+        dropped |= d->cached != NULL;
+        drop_cached(r, d);
+      }
+      if (dropped)
+        continue;
       return false;
+    }
     cache_delete(r, oldest);
   }
   return true;
