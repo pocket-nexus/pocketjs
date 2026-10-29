@@ -1,17 +1,19 @@
 // Pocket Companion's control API as this screen reads it
-// (tools/companion/control.ts). No request reaches it yet: a UI realm has no
-// network namespace, and the worker domain that will carry these calls is
-// not on the Zero's program (programs/cardputer-zero). Every request answers
-// NO_NETWORK, so the pages show the companion as unreachable.
+// (tools/companion/control.ts). The worker (worker.ts) performs each call:
+// the program's `http` node sends `http://companion/...` to the companion on
+// this machine with its token (programs/cardputer-zero/src/http.rs);
+// `http://zero/...` is the program.
 
 import { batch, createSignal } from "solid-js";
 import { after } from "@pocketjs/framework/clock";
+import { onFrame } from "@pocketjs/framework/lifecycle";
+import { worker } from "@pocketjs/framework/worker/channels";
 import { toAscii } from "./text.ts";
+import { Answer, HEADER_BYTES, encodeCall, text } from "./wire.ts";
 
 type NetMethod = "GET" | "POST" | "DELETE";
 
 const COMPANION = "http://companion";
-const NO_NETWORK = "No network on this screen yet: the companion's state and commands arrive with the worker port.";
 const STATUS_SECONDS = 2;
 const SERVICES_SECONDS = 5;
 
@@ -68,10 +70,65 @@ export interface Services {
   agent: { on: boolean; enabled: boolean; codex?: string | null; signedIn: boolean };
 }
 
-/** The control API call the worker port will make: `method url` with a JSON
- *  body, at most `timeoutMs`. Until then every call fails with NO_NETWORK. */
-function request<T>(_url: string, _method: NetMethod = "GET", _body?: unknown, _timeoutMs = 8000): Promise<T> {
-  return Promise.reject(new Error(NO_NETWORK));
+/** `request(url, method, body, timeoutMs)`: one call through the worker,
+ *  answered with the JSON the server returned. Records go out and come back
+ *  once per frame. */
+function createRequests() {
+  const calls = worker.channel("request");
+  const answers = worker.channel("response");
+  const pending = new Map<number, { status: number; body: Uint8Array[]; resolve(value: unknown): void; reject(error: Error): void }>();
+  const unsent: Uint8Array[] = [];
+  let next = 1;
+  const send = () => {
+    while (unsent.length && calls.publish(unsent[0]!)) unsent.shift();
+  };
+  const settle = (id: number, failure: string) => {
+    const call = pending.get(id)!;
+    pending.delete(id);
+    if (failure) return call.reject(new Error(failure));
+    const length = call.body.reduce((sum, block) => sum + block.length, 0);
+    const bytes = new Uint8Array(length);
+    let at = 0;
+    for (const block of call.body) {
+      bytes.set(block, at);
+      at += block.length;
+    }
+    const answer = text(bytes);
+    let value: { error?: string } = {};
+    try {
+      value = answer ? JSON.parse(answer) : {};
+    } catch {
+      if (call.status < 300) return call.reject(new Error("Pocket Companion sent something that is not JSON."));
+    }
+    if (call.status >= 300) return call.reject(new Error(value.error ?? (answer || `HTTP ${call.status}`)));
+    call.resolve(value);
+  };
+  onFrame(() => {
+    send();
+    for (const record of answers.observe()) {
+      const id = record.u32(0);
+      const call = pending.get(id);
+      if (!call) continue;
+      const kind = record.u8(4);
+      if (kind === Answer.head) call.status = record.u16le(HEADER_BYTES);
+      else if (kind === Answer.body) call.body.push(record.copy().subarray(HEADER_BYTES));
+      else if (kind === Answer.end) settle(id, text(record.copy().subarray(HEADER_BYTES)));
+    }
+  });
+  return <T>(url: string, method: NetMethod = "GET", body?: unknown, timeoutMs = 8000): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const id = next++;
+      unsent.push(encodeCall(id, {
+        url,
+        method,
+        headers: body === undefined ? {} : { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        timeoutMs,
+        maxBytes: 256 * 1024,
+      }));
+      pending.set(id, { status: 0, body: [], resolve: resolve as (value: unknown) => void, reject });
+      send();
+    });
 }
 
 const message = (error: unknown) => toAscii(error instanceof Error ? error.message : String(error));
@@ -111,6 +168,7 @@ export type Companion = ReturnType<typeof createCompanion>;
  *  commands. `status()` is null until the first answer and while the
  *  companion does not answer; `down()` then says why. */
 export function createCompanion() {
+  const request = createRequests();
   const [status, setStatus] = createSignal<Status | null>(null);
   const [services, setServices] = createSignal<Services | null>(null);
   const [down, setDown] = createSignal("");
@@ -184,8 +242,8 @@ export function createCompanion() {
     note,
     clearNote: () => setNote(null),
     start() {
-      // No poll runs: nothing answers until the worker port lands.
-      setDown(toAscii(NO_NETWORK));
+      void pollStatus();
+      void pollServices();
     },
     openPairing: () => run("Opening a pairing code", () => request(`${COMPANION}/pair`, "POST").then(() => {})),
     closePairing: () => run("Closing the pairing code", () => request(`${COMPANION}/pair`, "DELETE").then(() => {})),

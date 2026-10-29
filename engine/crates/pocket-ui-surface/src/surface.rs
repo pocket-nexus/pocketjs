@@ -281,6 +281,7 @@ impl UiSurface {
             raster_density: core.ui.raster_density(),
             heap_limit: 0,
             pak: &inner.pak,
+            worker_javascript: &[],
             assets: Some(&inner.assets),
         };
         drop(core);

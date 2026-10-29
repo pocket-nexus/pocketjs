@@ -1,7 +1,7 @@
 [package]
 name = "pocket-cardputer-zero"
 edition = "2021"
-description = "PocketJS program for the M5Stack CardputerZero: its panel, its keyboard and a local HTTP transport"
+description = "PocketJS program for the M5Stack CardputerZero: its panel, its keyboard and a worker whose HTTP reaches this machine"
 
 version.workspace = true
 repository.workspace = true
@@ -25,3 +25,5 @@ libc = "0.2.191"
 
 [build-dependencies]
 pocket-profile-build.workspace = true
+cc = "1"
+serde_json = { workspace = true }
