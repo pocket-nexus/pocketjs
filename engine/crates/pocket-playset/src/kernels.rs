@@ -52,7 +52,7 @@ pub fn on_spawn(w: &mut World, scene: &Scene, slot: usize, arch: usize) {
             w.s[slot].k[2] = w.rng.signed() * jitter;
             w.set(slot, E::SPEED, p(w, arch, 0));
         }
-        M::RUNNER => {
+        M::LANES => {
             let lanes = maxf(p(w, arch, 4), 1.0);
             w.s[slot].k[0] = floorf((lanes - 1.0) * 0.5 + 0.5);
             w.s[slot].k[1] = w.pos(slot).x;
@@ -87,9 +87,7 @@ pub fn step(w: &mut World, scene: &Scene, slot: usize, dt: f32) {
         M::PATH => path(w, slot, arch, dt),
         M::TURRET => turret(w, slot, arch, dt),
         M::ATTACHED => attached(w, slot, dt),
-        M::RUNNER => runner(w, scene, slot, arch, dt),
-        // driven by their modules after the world's step (modules/)
-        M::SNAKE | M::MARBLE => {}
+        M::LANES => lanes(w, scene, slot, arch, dt),
         _ => {
             // NONE: velocity integrates, nothing steers
             let v = w.vel(slot);
@@ -676,7 +674,7 @@ fn attached(w: &mut World, slot: usize, _dt: f32) {
     }
 }
 
-fn runner(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
+fn lanes(w: &mut World, scene: &Scene, slot: usize, arch: usize, dt: f32) {
     let (accel, max, lane_w, lanes, lane_rate, jump, gs, slide_time) =
         (p(w, arch, 1), p(w, arch, 2), p(w, arch, 3), maxf(p(w, arch, 4), 1.0), p(w, arch, 5), p(w, arch, 6), p(w, arch, 7), p(w, arch, 8));
     let mut speed = w.e(slot, E::SPEED);

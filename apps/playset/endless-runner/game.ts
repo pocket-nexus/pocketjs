@@ -3,7 +3,7 @@
 // xt4d/GameBlocks).
 //
 // What runs where:
-//   native, every step — the runner (motion.runner: forward at the slot's
+//   native, every step — the runner (motion.lanes: forward at the slot's
 //     SPEED, the lane glide, the jump under gravity, the ground), the coins'
 //     spin and the runner's bob (joint drivers), the chase camera, the
 //     snowfall (a trail emitter on a slot riding ahead of the runner), the
@@ -163,7 +163,7 @@ export class EndlessRunner implements RunnerView {
     const bob = joint.bob("body", 0.035);
     this.runnerArch = play.archetype({
       model: play.model(V.runner()),
-      motion: motion.runner({ speed: 11, accel: 0, maxSpeed: 1000, laneWidth: 3.2, lanes: 3, laneRate: 20, jump: 11.5, gravity: 1, slide: 0 }),
+      motion: motion.lanes({ speed: 11, accel: 0, maxSpeed: 1000, laneWidth: 3.2, lanes: 3, laneRate: 20, jump: 11.5, gravity: 1, slide: 0 }),
       ground: "gravity",
       joints: [bob],
       shadow: 0.75,

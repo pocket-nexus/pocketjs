@@ -290,8 +290,8 @@ pub mod model {
 }
 
 pub mod module {
-    pub const SNAKE: u32 = 1;
-    pub const MARBLE: u32 = 2;
+    pub const GRID: u32 = 1;
+    pub const TILT: u32 = 2;
     pub const VOXEL: u32 = 3;
 }
 
@@ -307,12 +307,10 @@ pub mod motion {
     pub const BOAT: u32 = 6;
     pub const PLANE: u32 = 7;
     pub const HOVER: u32 = 8;
-    pub const SNAKE: u32 = 9;
-    pub const MARBLE: u32 = 10;
-    pub const PATH: u32 = 11;
-    pub const TURRET: u32 = 12;
-    pub const RUNNER: u32 = 13;
-    pub const ATTACHED: u32 = 14;
+    pub const PATH: u32 = 9;
+    pub const TURRET: u32 = 10;
+    pub const LANES: u32 = 11;
+    pub const ATTACHED: u32 = 12;
 }
 
 pub mod node {

@@ -1,9 +1,9 @@
-// Snake Clash's gameplay over the playset snake module, ported from
+// Snake Clash's gameplay over the playset grid module, ported from
 // GameBlocks' snake-clash demo (https://gb-snake-clash.vercel.app/, MIT,
 // xt4d/GameBlocks).
 //
 // What runs where:
-//   native, every step — the board (modules/snake.rs): both snakes' cells
+//   native, every step — the board (modules/grid.rs): both snakes' cells
 //     and segment slots, the tick, collisions, the apple, the flood-fill +
 //     BFS planner (GameBlocks' PlayerAi) that steers the rival and, in the
 //     demo, the player; the camera focus between the head and the centre;
@@ -19,7 +19,7 @@
 // into particles before it respawns.
 
 import { createPlayset, motion, sfx, type Archetype, type Playset, type Sound } from "@pocketjs/framework/playset";
-import { SNAKE_DIR, SNAKE_EVENT, SnakeBoard } from "@pocketjs/framework/playset/snake";
+import { GRID_DIR, GRID_EVENT, GridBoard } from "@pocketjs/framework/playset/grid";
 import * as V from "./visuals.ts";
 import type { GameStatus, Pad, PlaysetGame } from "../kit/game.ts";
 
@@ -37,7 +37,7 @@ const APPLE_UP = 0.25;
 
 export class SnakeClash {
   readonly play: Playset;
-  readonly board: SnakeBoard;
+  readonly board: GridBoard;
   readonly hud = { status: "title" as Status, demo: true, score: 0, rival: 0, best: 0, length: INITIAL_LENGTH };
   private readonly playerHead: Archetype;
   private readonly playerBody: Archetype;
@@ -60,7 +60,7 @@ export class SnakeClash {
   constructor() {
     const play = createPlayset({ capacity: 320, particles: 600, seed: 20260521 });
     this.play = play;
-    this.board = new SnakeBoard(play);
+    this.board = new GridBoard(play);
     const P = V.PALETTE;
     play.sky(P.background, P.background, P.background);
     play.fog(P.background, 14, 34, 1);
@@ -89,8 +89,8 @@ export class SnakeClash {
     this.apple = play.archetype({ model: play.model(V.apple()), motion: still, shadow: 0.45, death: burst(P.leaf, 16, 3.5), sounds: { death: bite } });
     this.focusArch = play.archetype({ motion: still, hidden: true });
 
-    play.on(SNAKE_EVENT.EAT, (_head, _food, snake) => this.onEat(snake));
-    play.on(SNAKE_EVENT.CRASH, (_head, _hit, snake, x, y, z) => this.onCrash(snake, x, y, z));
+    play.on(GRID_EVENT.PICKUP, (_head, _apple, snake) => this.onEat(snake));
+    play.on(GRID_EVENT.CRASH, (_head, _hit, snake, x, y, z) => this.onCrash(snake, x, y, z));
     this.reset(true);
   }
 
@@ -109,14 +109,14 @@ export class SnakeClash {
     // game.js: the player at (3, rows / 2) heading right, the rival at
     // (columns - 4, 3) heading left; PlayerAi's weights for each
     b.add({
-      start: [3, Math.floor(V.ROWS * 0.5)], dir: SNAKE_DIR.RIGHT, length: INITIAL_LENGTH, head: this.playerHead, body: this.playerBody,
-      planner: demo, space: 2.4, food: 3.2, tail: 3.5, straight: 0.35, up: SEGMENT_UP,
+      start: [3, Math.floor(V.ROWS * 0.5)], dir: GRID_DIR.RIGHT, length: INITIAL_LENGTH, head: this.playerHead, body: this.playerBody,
+      planner: demo, space: 2.4, pickup: 3.2, tail: 3.5, straight: 0.35, up: SEGMENT_UP,
     });
     b.add({
-      start: [V.COLS - 4, 3], dir: SNAKE_DIR.LEFT, length: INITIAL_LENGTH, head: this.rivalHead, body: this.rivalBody,
-      planner: true, space: 2, food: 3, tail: 3.5, straight: 0.5, up: SEGMENT_UP,
+      start: [V.COLS - 4, 3], dir: GRID_DIR.LEFT, length: INITIAL_LENGTH, head: this.rivalHead, body: this.rivalBody,
+      planner: true, space: 2, pickup: 3, tail: 3.5, straight: 0.5, up: SEGMENT_UP,
     });
-    b.food(this.apple, { count: 1, growth: 1, up: APPLE_UP });
+    b.pickups(this.apple, { count: 1, growth: 1, up: APPLE_UP });
     this.focus = play.spawn(this.focusArch, 0, 0, 0);
     b.focus(this.focus, PLAYER, 0.16);
     // PositionFollowCameraRig: distance 12.4, height 15.5, lags 0.17 / 0.10 s
@@ -167,7 +167,7 @@ export class SnakeClash {
       const ax = x < 0 ? -x : x;
       const ay = y < 0 ? -y : y;
       let dir = -1;
-      if (ax > 0.5 || ay > 0.5) dir = ax >= ay ? (x > 0 ? SNAKE_DIR.RIGHT : SNAKE_DIR.LEFT) : y > 0 ? SNAKE_DIR.UP : SNAKE_DIR.DOWN;
+      if (ax > 0.5 || ay > 0.5) dir = ax >= ay ? (x > 0 ? GRID_DIR.RIGHT : GRID_DIR.LEFT) : y > 0 ? GRID_DIR.UP : GRID_DIR.DOWN;
       if (dir !== this.stickDir) {
         this.stickDir = dir;
         if (dir >= 0) {

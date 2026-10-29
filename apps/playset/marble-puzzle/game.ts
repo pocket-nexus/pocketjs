@@ -1,4 +1,4 @@
-// Marble Puzzle's gameplay over the playset marble module, ported from
+// Marble Puzzle's gameplay over the playset tilt module, ported from
 // GameBlocks' marble-puzzle demo (https://gb-marble-puzzle.vercel.app/,
 // MIT, xt4d/GameBlocks).
 //
@@ -6,7 +6,7 @@
 //   native, every step — the plate's tilt toward the stick, the ball's
 //     rolling physics, walls, moving blocks, holes, stars and the goal, and
 //     the matrices that tilt the level node, the block nodes, the marble and
-//     the stars together (modules/marble.rs); the follow camera; the star
+//     the stars together (modules/tilt.rs); the follow camera; the star
 //     bursts and chimes (the star archetype's death emitter and sound);
 //   here, at event rate — the level sequence, scoring, failing, the cues,
 //     the route the autopilot asks for every 1.2 s (planned natively, from
@@ -20,8 +20,9 @@
 // (the demo has none); the moving blocks' clock starts with each level.
 
 import { EVENT, ENT, createPlayset, joint, motion, sfx, type Archetype, type Playset, type Sound } from "@pocketjs/framework/playset";
-import { MARBLE_EVENT, MARBLE_PHASE, MARBLE_STATE, MarbleBoard, type MarbleLevel } from "@pocketjs/framework/playset/marble";
+import { TILT_EVENT, TILT_PHASE, TILT_STATE, TiltTable } from "@pocketjs/framework/playset/tilt";
 import * as V from "./visuals.ts";
+import type { MarbleLevel } from "./visuals.ts";
 import type { GameStatus, Pad, PlaysetGame } from "../kit/game.ts";
 
 /** game.js LEVELS (ramps and traps are empty in every level). */
@@ -133,7 +134,7 @@ interface LevelView {
 
 export class MarblePuzzle {
   readonly play: Playset;
-  readonly board: MarbleBoard;
+  readonly board: TiltTable;
   readonly hud = { status: "title" as "title" | "playing" | "gameover", demo: true, phase: "playing" as Phase, level: 0, score: 0, collected: 0, elapsed: 0, complete: false };
   private readonly views: LevelView[] = [];
   private readonly marbleArch: Archetype;
@@ -158,7 +159,7 @@ export class MarblePuzzle {
   constructor() {
     const play = createPlayset({ capacity: 64, particles: 300, seed: 20260702 });
     this.play = play;
-    this.board = new MarbleBoard(play);
+    this.board = new TiltTable(play);
     play.sky(0x000000, 0x000000, 0x000000);
     play.fog(0x000000, 60, 140, 0);
     // HemisphereLight 0xf4fbff / 0x28343b 1.4, the sun 0xfff3d4 2.55 from
@@ -191,7 +192,7 @@ export class MarblePuzzle {
     this.levelCue = play.sound(sfx.wave());
     this.roll = play.sound({ ...sfx.roll(), volume: 0.5 });
 
-    play.on(MARBLE_EVENT.END, (_m, _b, data, _x, _y, _z, elapsed) => this.onMarble(data, elapsed));
+    play.on(TILT_EVENT.END, (_m, _b, data, _x, _y, _z, elapsed) => this.onMarble(data, elapsed));
     play.on(EVENT.PICKUP, (_m, _s, _i, _x, _y, _z, collected) => {
       this.hud.collected = collected;
     });
@@ -227,11 +228,11 @@ export class MarblePuzzle {
     }
     const lv = LEVELS[index];
     const view = this.views[index];
-    const marble = this.board.load(lv, {
-      node: view.node, blockNodes: view.blocks, marble: this.marbleArch, star: this.starArch,
-      radius: V.MARBLE_RADIUS, starUp: V.STAR_UP, blockUp: V.BLOCK_UP,
+    const marble = this.board.load({ ...lv, pickups: lv.stars }, {
+      node: view.node, blockNodes: view.blocks, ball: this.marbleArch, pickup: this.starArch,
+      radius: V.MARBLE_RADIUS, pickupUp: V.STAR_UP, blockUp: V.BLOCK_UP,
     });
-    this.board.phase(MARBLE_PHASE.PLAYING);
+    this.board.phase(TILT_PHASE.ROLLING);
     // configureCameraForLevel: distance 0.5 and height 0.58 of the extent
     const extent = Math.max(lv.size.right, lv.size.forward);
     const d = extent * 0.5;
@@ -275,7 +276,7 @@ export class MarblePuzzle {
     const play = this.play;
     const hud = this.hud;
     const dt = 1 / 60;
-    const marble = this.board.marble;
+    const marble = this.board.ball;
     if (hud.phase === "playing") {
       if (hud.demo) {
         if ((this.tick & 1) === 0) this.autopilot(2 * dt);
@@ -317,10 +318,10 @@ export class MarblePuzzle {
     const board = this.board;
     const lv = LEVELS[this.hud.level];
     const st = board.state();
-    const mr = st[MARBLE_STATE.RIGHT];
-    const mf = st[MARBLE_STATE.FORWARD];
-    const vr = st[MARBLE_STATE.VR];
-    const vf = st[MARBLE_STATE.VF];
+    const mr = st[TILT_STATE.RIGHT];
+    const mf = st[TILT_STATE.FORWARD];
+    const vr = st[TILT_STATE.VR];
+    const vf = st[TILT_STATE.VF];
     const gr = lv.goal.right;
     const gf = lv.goal.forward;
     this.planCooldown -= dt;
@@ -364,10 +365,10 @@ export class MarblePuzzle {
       }
     }
     const sizes = this.views[this.hud.level].blockSize;
-    const blocks = st[MARBLE_STATE.BLOCK_COUNT];
+    const blocks = st[TILT_STATE.BLOCK_COUNT];
     for (let i = 0; i < blocks; i++) {
-      const cr = st[MARBLE_STATE.BLOCKS + i * 2];
-      const cf = st[MARBLE_STATE.BLOCKS + i * 2 + 1];
+      const cr = st[TILT_STATE.BLOCKS + i * 2];
+      const cf = st[TILT_STATE.BLOCKS + i * 2 + 1];
       const hw = sizes[i * 2] * 0.5;
       const hd = sizes[i * 2 + 1] * 0.5;
       const reach = Math.max(hw, hd) + radius + 0.95;

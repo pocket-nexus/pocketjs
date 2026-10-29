@@ -1,22 +1,22 @@
-//! The marble module: a plate that tilts under the stick, a ball rolling on
+//! The tilt module: a plate that tilts under the stick, a ball rolling on
 //! it under the projected gravity with friction, walls and moving blocks as
-//! boxes on the plate, holes, stars and a goal (GameBlocks' marble-puzzle
-//! Game.updatePhysics and PlateTiltController, xt4d/GameBlocks, MIT), plus
-//! the grid A* route its PlayerAi plans.
+//! boxes on the plate, holes, pickups and a goal zone (from GameBlocks'
+//! marble-puzzle: Game.updatePhysics and PlateTiltController,
+//! xt4d/GameBlocks, MIT), plus the grid A* route its PlayerAi plans.
 //!
 //! Gameplay runs in the plate's own frame, (right, forward) with up out of
 //! the plate, as the demo's does; the plate's tilt only reaches the world
-//! through matrices. Every step the module writes the level node's matrix
+//! through matrices. Every step the module writes the plate node's matrix
 //! (the plate with its walls, holes and goal, one dynamic scene node), each
-//! moving block node's, and the world positions of the marble and star
-//! slots, so the whole level tilts together.
+//! moving block node's, and the world positions of the ball and pickup
+//! slots, so the whole plate tilts together.
 //!
 //! Plate-local (right, up, forward) is playset (x, y, -z) before the tilt.
 //! The tilt is R = Rz(rightTilt) * Rx(forwardTilt): the demo's
 //! boardGroup.quaternion (about the basis forward axis by -rightTilt, then
 //! the right axis by forwardTilt) carried into the playset's axes.
 //!
-//! The marble slot's intents steer it: X right (+) / left (-), FWD forward
+//! The ball slot's intents steer it: X right (+) / left (-), FWD forward
 //! (+) / backward (-), each 0..1 as the demo's key or autopilot signals.
 
 use crate::fmath::*;
@@ -27,16 +27,16 @@ use crate::world::{World, KILL_EFFECTS, KILL_SILENT};
 use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
 
-/// The ball's run ended: a = marble, DATA = the hole it fell through or -1
-/// at the goal, VALUE = seconds on the level.
-pub const END: u32 = super::event(crate::schema::module::MARBLE, 0);
+/// The ball's run ended: a = ball, DATA = the hole it fell through or -1
+/// at the goal, VALUE = seconds on the plate.
+pub const END: u32 = super::event(crate::schema::module::TILT, 0);
 
-/// Call ops (framework/src/playset/marble.ts names them).
+/// Call ops (framework/src/playset/tilt.ts names them).
 pub mod op {
     /// sizeR, sizeF, startR, startF, goalR, goalF, goalRadius, radius, cx,
-    /// cy, cz, level node, marble arch, star arch, star up: a new level
-    /// (frozen); returns the marble slot
-    pub const LEVEL: u32 = 1;
+    /// cy, cz, plate node, ball arch, pickup arch, pickup up: a new plate
+    /// (frozen); returns the ball slot
+    pub const PLATE: u32 = 1;
     /// r, f, width, depth
     pub const WALL: u32 = 2;
     /// r, f, width, depth, axis (0 right, 1 forward), distance, speed,
@@ -44,8 +44,8 @@ pub mod op {
     pub const BLOCK: u32 = 3;
     /// r, f, radius
     pub const HOLE: u32 = 4;
-    /// r, f: a star slot; returns it
-    pub const STAR: u32 = 5;
+    /// r, f: a pickup slot; returns it
+    pub const PICKUP: u32 = 5;
     /// PHASE value
     pub const PHASE: u32 = 6;
     /// maxTilt, tiltLag, gravity, friction, maxSpeed
@@ -53,7 +53,7 @@ pub mod op {
     /// STATE fields into `out`; returns the phase
     pub const STATE: u32 = 8;
     /// toR, toF, cell, boardMargin, wallPad, holePad, blockPad: the
-    /// autopilot's route from the marble into `out` as (r, f) pairs;
+    /// autopilot's route from the ball into `out` as (r, f) pairs;
     /// returns the waypoint count
     pub const ROUTE: u32 = 9;
 }
@@ -62,11 +62,11 @@ pub mod op {
 pub mod phase {
     /// nothing moves (the title before a run)
     pub const FROZEN: u32 = 0;
-    pub const PLAYING: u32 = 1;
+    pub const ROLLING: u32 = 1;
     /// fell through a hole: sinking, the plate still tilts
-    pub const FAILED: u32 = 2;
-    /// reached the goal: the marble settles, the plate still tilts
-    pub const DONE: u32 = 3;
+    pub const FELL: u32 = 2;
+    /// reached the goal: the ball settles, the plate still tilts
+    pub const ARRIVED: u32 = 3;
 }
 
 /// STATE output fields; moving blocks follow as (r, f) pairs from BLOCKS.
@@ -151,14 +151,14 @@ struct Hole {
 }
 
 #[derive(Clone, Copy, Default)]
-struct Star {
+struct Pickup {
     r: f32,
     f: f32,
     slot: i32,
     collected: bool,
 }
 
-pub struct Marble {
+pub struct Tilt {
     active: bool,
     phase: u32,
     half_r: f32,
@@ -168,12 +168,12 @@ pub struct Marble {
     walls: Vec<Rect>,
     blocks: Vec<Block>,
     holes: Vec<Hole>,
-    stars: Vec<Star>,
+    pickups: Vec<Pickup>,
     center: Vec3,
-    level_node: i32,
-    marble_arch: i32,
-    star_arch: i32,
-    star_up: f32,
+    plate_node: i32,
+    ball_arch: i32,
+    pickup_arch: i32,
+    pickup_up: f32,
     slot: i32,
     radius: f32,
     r: f32,
@@ -195,7 +195,7 @@ pub struct Marble {
     collected: u32,
     bump_cool: f32,
     plate: Mat34,
-    // the planner's reused buffers; `walk` holds for one level and padding
+    // the planner's reused buffers; `walk` holds for one plate and padding
     walk: Vec<bool>,
     walk_key: [f32; 6],
     geometry: u32,
@@ -207,9 +207,9 @@ pub struct Marble {
     pts: Vec<(f32, f32)>,
 }
 
-impl Default for Marble {
+impl Default for Tilt {
     fn default() -> Self {
-        Marble {
+        Tilt {
             active: false,
             phase: phase::FROZEN,
             half_r: 9.0,
@@ -219,12 +219,12 @@ impl Default for Marble {
             walls: Vec::new(),
             blocks: Vec::new(),
             holes: Vec::new(),
-            stars: Vec::new(),
+            pickups: Vec::new(),
             center: Vec3::ZERO,
-            level_node: -1,
-            marble_arch: -1,
-            star_arch: -1,
-            star_up: 0.72,
+            plate_node: -1,
+            ball_arch: -1,
+            pickup_arch: -1,
+            pickup_up: 0.72,
             slot: -1,
             radius: 0.42,
             r: 0.0,
@@ -260,7 +260,7 @@ impl Default for Marble {
 
 const BUMP_SPEED: f32 = 1.2;
 
-impl Marble {
+impl Tilt {
     /// The plate's world matrix: the tilt about the plate centre, then the centre.
     fn plate_matrix(&self) -> Mat34 {
         let (sa, ca) = (sinf(self.tilt_r), cosf(self.tilt_r));
@@ -280,16 +280,16 @@ impl Marble {
     }
 
     fn release(&mut self, w: &mut World) {
-        if Self::owns(w, self.slot, self.marble_arch) {
+        if Self::owns(w, self.slot, self.ball_arch) {
             w.kill_mode(self.slot as usize, -1, KILL_SILENT);
         }
-        for s in self.stars.iter() {
-            if !s.collected && Self::owns(w, s.slot, self.star_arch) {
+        for s in self.pickups.iter() {
+            if !s.collected && Self::owns(w, s.slot, self.pickup_arch) {
                 w.kill_mode(s.slot as usize, -1, KILL_SILENT);
             }
         }
         self.slot = -1;
-        self.stars.clear();
+        self.pickups.clear();
         self.walls.clear();
         self.blocks.clear();
         self.holes.clear();
@@ -441,33 +441,33 @@ impl Marble {
             let h = self.holes[i];
             let (dr, df) = (self.r - h.r, self.f - h.f);
             if dr * dr + df * df < (h.radius * 0.78) * (h.radius * 0.78) {
-                self.phase = phase::FAILED;
+                self.phase = phase::FELL;
                 self.fall_speed = 3.8;
                 let p = self.world(self.r, self.up, self.f);
                 w.emit_event(END, self.slot, -1, i as f32, p, self.elapsed);
                 return;
             }
         }
-        for i in 0..self.stars.len() {
-            let s = self.stars[i];
+        for i in 0..self.pickups.len() {
+            let s = self.pickups[i];
             if s.collected {
                 continue;
             }
             let (dr, df) = (self.r - s.r, self.f - s.f);
             if dr * dr + df * df < 0.82 * 0.82 {
-                self.stars[i].collected = true;
+                self.pickups[i].collected = true;
                 self.collected += 1;
-                if Self::owns(w, s.slot, self.star_arch) {
+                if Self::owns(w, s.slot, self.pickup_arch) {
                     w.kill_mode(s.slot as usize, self.slot, KILL_EFFECTS);
                 }
-                let p = self.world(s.r, self.star_up, s.f);
+                let p = self.world(s.r, self.pickup_up, s.f);
                 w.emit_event(EV::PICKUP, self.slot, s.slot, i as f32, p, self.collected as f32);
             }
         }
         let g = self.goal;
         let (dr, df) = (self.r - g.r, self.f - g.f);
         if dr * dr + df * df < (g.radius * 0.5) * (g.radius * 0.5) && sqrtf(self.vr * self.vr + self.vf * self.vf) < 5.5 {
-            self.phase = phase::DONE;
+            self.phase = phase::ARRIVED;
             let p = self.world(self.r, self.up, self.f);
             w.emit_event(END, self.slot, -1, -1.0, p, self.elapsed);
         }
@@ -494,7 +494,7 @@ impl Marble {
             let k = if self.tilt_lag > 0.0 { 1.0 - expf(-dt / self.tilt_lag) } else { 1.0 };
             self.tilt_r += (-ix * self.max_tilt - self.tilt_r) * k;
             self.tilt_f += (-iz * self.max_tilt - self.tilt_f) * k;
-            if self.phase == phase::PLAYING {
+            if self.phase == phase::ROLLING {
                 self.elapsed += dt;
                 let (r0, f0) = (self.r, self.f);
                 self.physics(w, dt);
@@ -510,17 +510,17 @@ impl Marble {
                 let d = expf(-1.8 * dt);
                 self.vr *= d;
                 self.vf *= d;
-                self.up = if self.phase == phase::FAILED { self.up - self.fall_speed * dt } else { self.radius };
+                self.up = if self.phase == phase::FELL { self.up - self.fall_speed * dt } else { self.radius };
             }
         }
         self.pose(w, scene);
     }
 
-    /// The level node, block nodes, marble and stars, tilted together.
+    /// The plate node, block nodes, ball and pickups, tilted together.
     fn pose(&mut self, w: &mut World, scene: &mut Scene) {
         self.plate = self.plate_matrix();
-        if self.level_node >= 0 {
-            scene.set_node(self.level_node as usize, self.plate, 0);
+        if self.plate_node >= 0 {
+            scene.set_node(self.plate_node as usize, self.plate, 0);
         }
         for b in self.blocks.iter() {
             if b.node >= 0 {
@@ -528,7 +528,7 @@ impl Marble {
                 scene.set_node(b.node as usize, m, 0);
             }
         }
-        if Self::owns(w, self.slot, self.marble_arch) {
+        if Self::owns(w, self.slot, self.ball_arch) {
             let o = self.slot as usize;
             let p = self.world(self.r, self.up, self.f);
             w.set_pos(o, p);
@@ -540,12 +540,12 @@ impl Marble {
             w.set(o, E::PITCH, pitch);
             w.set(o, E::ROLL, roll);
         }
-        for s in self.stars.iter() {
-            if s.collected || !Self::owns(w, s.slot, self.star_arch) {
+        for s in self.pickups.iter() {
+            if s.collected || !Self::owns(w, s.slot, self.pickup_arch) {
                 continue;
             }
             let bob = sinf(self.elapsed * 3.0 + s.r) * 0.08;
-            let p = self.world(s.r, self.star_up + bob, s.f);
+            let p = self.world(s.r, self.pickup_up + bob, s.f);
             w.set_pos(s.slot as usize, p);
         }
     }
@@ -553,9 +553,9 @@ impl Marble {
     /// PlayerAi.planRoute: a shortest route over a grid of the plate (8
     /// neighbours, no corner cutting) around padded walls, holes and the
     /// moving blocks' swept lanes, then the path pulled straight where a
-    /// line stays clear. The demo runs A* from the marble on every replan;
-    /// here the cost to the goal is computed once per level and goal, and a
-    /// replan follows it down from the marble (a route of the same length).
+    /// line stays clear. The demo runs A* from the ball on every replan;
+    /// here the cost to the goal is computed once per plate and goal, and a
+    /// replan follows it down from the ball (a route of the same length).
     /// Waypoints after the start into `out` as (r, f); the count.
     #[allow(clippy::too_many_arguments)]
     fn route(&mut self, to: (f32, f32), cell: f32, margin: f32, wall_pad: f32, hole_pad: f32, block_pad: f32, out: &mut [f32]) -> f32 {
@@ -568,7 +568,7 @@ impl Marble {
         if n > 20_000 {
             return 0.0;
         }
-        let blocked = |m: &Marble, r: f32, f: f32| -> bool {
+        let blocked = |m: &Tilt, r: f32, f: f32| -> bool {
             if absf(r) > m.half_r - margin || absf(f) > m.half_f - margin {
                 return true;
             }
@@ -591,7 +591,7 @@ impl Marble {
                 swept.contains(r, f, block_pad)
             })
         };
-        // the walkable grid holds while the level and the padding do
+        // the walkable grid holds while the plate and the padding do
         let key = [cell, margin, wall_pad, hole_pad, block_pad, self.geometry as f32];
         let mut walk = core::mem::take(&mut self.walk);
         if key != self.walk_key || walk.len() != n {
@@ -657,7 +657,7 @@ impl Marble {
         ];
         // a move to a neighbour, diagonals only past two open sides
         let step = |c: i32, r: i32, dc: i32, dr: i32| -> bool { ok(c + dc, r + dr) && (dc == 0 || dr == 0 || (ok(c + dc, r) && ok(c, r + dr))) };
-        // The cost to the goal from every cell, once per level and goal: the
+        // The cost to the goal from every cell, once per plate and goal: the
         // grid and the goal hold, so each replan only walks it downhill.
         // Moves are symmetric (a diagonal's two side cells are the same both
         // ways), so the field from the goal is the planner's cost to it.
@@ -723,7 +723,7 @@ impl Marble {
             let last = self.pts.len() - 1;
             self.pts[last] = to;
             // smoothPath: from each anchor, the farthest point in clear sight
-            let clear = |m: &Marble, a: (f32, f32), b: (f32, f32)| -> bool {
+            let clear = |m: &Tilt, a: (f32, f32), b: (f32, f32)| -> bool {
                 let (dr, df) = (b.0 - a.0, b.1 - a.1);
                 let steps = (ceilf(sqrtf(dr * dr + df * df) / 0.28) as i32).max(1);
                 for i in 1..=steps {
@@ -762,7 +762,7 @@ impl Marble {
     pub fn call(&mut self, w: &mut World, scene: &mut Scene, op: u32, args: &[f32], out: &mut [f32]) -> f32 {
         let a = |i: usize| args.get(i).copied().unwrap_or(0.0);
         match op {
-            op::LEVEL => {
+            op::PLATE => {
                 self.release(w);
                 self.geometry = self.geometry.wrapping_add(1);
                 self.active = true;
@@ -773,10 +773,10 @@ impl Marble {
                 self.goal = Hole { r: a(4), f: a(5), radius: a(6) };
                 self.radius = if a(7) > 0.0 { a(7) } else { 0.42 };
                 self.center = v3(a(8), a(9), a(10));
-                self.level_node = a(11) as i32;
-                self.marble_arch = a(12) as i32;
-                self.star_arch = a(13) as i32;
-                self.star_up = a(14);
+                self.plate_node = a(11) as i32;
+                self.ball_arch = a(12) as i32;
+                self.pickup_arch = a(13) as i32;
+                self.pickup_up = a(14);
                 self.r = self.start.0;
                 self.f = self.start.1;
                 self.up = self.radius;
@@ -790,9 +790,9 @@ impl Marble {
                 self.collected = 0;
                 self.spin = Quat::IDENTITY;
                 self.plate = self.plate_matrix();
-                if self.marble_arch >= 0 && (self.marble_arch as usize) < w.archs.len() {
+                if self.ball_arch >= 0 && (self.ball_arch as usize) < w.archs.len() {
                     let p = self.world(self.r, self.up, self.f);
-                    self.slot = w.spawn(scene, self.marble_arch as usize, p, 0.0);
+                    self.slot = w.spawn(scene, self.ball_arch as usize, p, 0.0);
                 }
                 self.pose(w, scene);
                 self.slot as f32
@@ -816,18 +816,18 @@ impl Marble {
                 self.holes.push(Hole { r: a(0), f: a(1), radius: a(2) });
                 self.holes.len() as f32 - 1.0
             }
-            op::STAR => {
-                if self.star_arch < 0 || self.star_arch as usize >= w.archs.len() {
+            op::PICKUP => {
+                if self.pickup_arch < 0 || self.pickup_arch as usize >= w.archs.len() {
                     return -1.0;
                 }
-                let p = self.world(a(0), self.star_up, a(1));
-                let slot = w.spawn(scene, self.star_arch as usize, p, 0.0);
-                self.stars.push(Star { r: a(0), f: a(1), slot, collected: false });
+                let p = self.world(a(0), self.pickup_up, a(1));
+                let slot = w.spawn(scene, self.pickup_arch as usize, p, 0.0);
+                self.pickups.push(Pickup { r: a(0), f: a(1), slot, collected: false });
                 slot as f32
             }
             op::PHASE => {
-                self.phase = (a(0) as u32).min(phase::DONE);
-                if self.phase == phase::FAILED && self.fall_speed <= 0.0 {
+                self.phase = (a(0) as u32).min(phase::ARRIVED);
+                if self.phase == phase::FELL && self.fall_speed <= 0.0 {
                     self.fall_speed = 3.8;
                 }
                 self.phase as f32
@@ -900,17 +900,17 @@ mod tests {
     use alloc::boxed::Box;
 
     fn call(ps: &mut Playset, op: u32, args: &[f32], out: &mut [f32]) -> f32 {
-        ps.modules.marble.call(&mut ps.world, &mut ps.scene, op, args, out)
+        ps.modules.tilt.call(&mut ps.world, &mut ps.scene, op, args, out)
     }
 
-    /// The demo's first level, "Sky Table", with bare archetypes.
+    /// The demo's first plate, "Sky Table", with bare archetypes.
     pub(super) fn sky_table() -> (Box<Playset>, usize) {
         let mut ps = Playset::new(64, 16);
         let mut d = [0.0f32; crate::schema::ARCH_LENGTH];
         d[A::SCALE] = 1.0;
-        let marble = ps.world.add_arch(&d) as f32;
-        let star = ps.world.add_arch(&d) as f32;
-        let slot = call(&mut ps, op::LEVEL, &[18.0, 14.0, -7.2, -4.8, 7.1, 4.6, 1.0, 0.42, 0.0, 0.0, 0.0, -1.0, marble, star, 0.72], &mut []);
+        let ball = ps.world.add_arch(&d) as f32;
+        let pickup = ps.world.add_arch(&d) as f32;
+        let slot = call(&mut ps, op::PLATE, &[18.0, 14.0, -7.2, -4.8, 7.1, 4.6, 1.0, 0.42, 0.0, 0.0, 0.0, -1.0, ball, pickup, 0.72], &mut []);
         for wall in [
             [0.0, -6.95, 18.0, 0.45],
             [0.0, 6.95, 18.0, 0.45],
@@ -925,7 +925,7 @@ mod tests {
         call(&mut ps, op::HOLE, &[-3.8, 1.3, 0.85], &mut []);
         call(&mut ps, op::HOLE, &[2.1, -2.7, 0.95], &mut []);
         for s in [[-5.7, 4.7], [0.8, -4.7], [6.6, 0.9]] {
-            call(&mut ps, op::STAR, &s, &mut []);
+            call(&mut ps, op::PICKUP, &s, &mut []);
         }
         (ps, slot as usize)
     }
@@ -939,7 +939,7 @@ mod tests {
     #[test]
     fn tilting_right_rolls_right_and_the_plate_tilts_with_it() {
         let (mut ps, slot) = sky_table();
-        call(&mut ps, op::PHASE, &[phase::PLAYING as f32], &mut []);
+        call(&mut ps, op::PHASE, &[phase::ROLLING as f32], &mut []);
         ps.world.set_intent(slot, I::X, 1.0);
         for _ in 0..30 {
             ps.step(1.0 / 60.0);
@@ -947,11 +947,11 @@ mod tests {
         let s = st(&mut ps);
         assert!(s[state::VR] > 1.0, "rolling right: {}", s[state::VR]);
         assert!(s[state::TILT_RIGHT] < -0.15, "the plate leans: {}", s[state::TILT_RIGHT]);
-        // the marble sits on the tilted plate: its right edge is lower
+        // the ball sits on the tilted plate: its right edge is lower
         let p = ps.world.pos(slot);
-        let expect = ps.modules.marble.world(s[state::RIGHT], 0.42, s[state::FORWARD]);
+        let expect = ps.modules.tilt.world(s[state::RIGHT], 0.42, s[state::FORWARD]);
         assert!((p - expect).len() < 1e-4);
-        let edge = ps.modules.marble.world(9.0, 0.0, 0.0);
+        let edge = ps.modules.tilt.world(9.0, 0.0, 0.0);
         assert!(edge.y < -1.0, "right edge down: {edge:?}");
         // forward tilt lowers the far side (-Z)
         ps.world.set_intent(slot, I::X, 0.0);
@@ -959,15 +959,15 @@ mod tests {
         for _ in 0..60 {
             ps.step(1.0 / 60.0);
         }
-        let far = ps.modules.marble.world(0.0, 0.0, 7.0);
+        let far = ps.modules.tilt.world(0.0, 0.0, 7.0);
         assert!(far.y < -1.0 && far.z < 0.0, "far side down: {far:?}");
         assert!(st(&mut ps)[state::VF] > 0.5);
     }
 
     #[test]
-    fn walls_stop_the_marble_and_report_the_bump() {
+    fn walls_stop_the_ball_and_report_the_bump() {
         let (mut ps, slot) = sky_table();
-        call(&mut ps, op::PHASE, &[phase::PLAYING as f32], &mut []);
+        call(&mut ps, op::PHASE, &[phase::ROLLING as f32], &mut []);
         // the left wall: roll left from the start
         ps.world.set_intent(slot, I::X, -1.0);
         let mut bumps = 0;
@@ -985,12 +985,12 @@ mod tests {
     }
 
     #[test]
-    fn holes_fail_stars_collect_and_the_goal_completes() {
+    fn holes_sink_pickups_collect_and_the_goal_arrives() {
         let (mut ps, _slot) = sky_table();
-        call(&mut ps, op::PHASE, &[phase::PLAYING as f32], &mut []);
-        // put the marble on a star, then into a hole
-        ps.modules.marble.r = 0.8;
-        ps.modules.marble.f = -4.7;
+        call(&mut ps, op::PHASE, &[phase::ROLLING as f32], &mut []);
+        // put the ball on a pickup, then into a hole
+        ps.modules.tilt.r = 0.8;
+        ps.modules.tilt.f = -4.7;
         let n = ps.step(1.0 / 60.0);
         let mut pick = None;
         for e in 0..n {
@@ -1000,27 +1000,27 @@ mod tests {
             }
         }
         assert_eq!(pick, Some((1.0, 1.0)));
-        ps.modules.marble.r = 2.1;
-        ps.modules.marble.f = -2.7;
-        ps.modules.marble.vr = 0.0;
-        ps.modules.marble.vf = 0.0;
+        ps.modules.tilt.r = 2.1;
+        ps.modules.tilt.f = -2.7;
+        ps.modules.tilt.vr = 0.0;
+        ps.modules.tilt.vf = 0.0;
         let n = ps.step(1.0 / 60.0);
         let fell = (0..n).any(|e| ps.world.events[e * 8 + EF::TYPE] as u32 == END && ps.world.events[e * 8 + EF::DATA] == 1.0);
         assert!(fell);
-        assert_eq!(st(&mut ps)[state::PHASE], phase::FAILED as f32);
+        assert_eq!(st(&mut ps)[state::PHASE], phase::FELL as f32);
         let up0 = st(&mut ps)[state::UP];
         ps.step(0.1);
         assert!(st(&mut ps)[state::UP] < up0, "sinking");
         // the goal, slowly
-        call(&mut ps, op::PHASE, &[phase::PLAYING as f32], &mut []);
-        ps.modules.marble.r = 7.1;
-        ps.modules.marble.f = 4.6;
-        ps.modules.marble.vr = 0.0;
-        ps.modules.marble.vf = 0.0;
+        call(&mut ps, op::PHASE, &[phase::ROLLING as f32], &mut []);
+        ps.modules.tilt.r = 7.1;
+        ps.modules.tilt.f = 4.6;
+        ps.modules.tilt.vr = 0.0;
+        ps.modules.tilt.vf = 0.0;
         let n = ps.step(1.0 / 60.0);
         let done = (0..n).any(|e| ps.world.events[e * 8 + EF::TYPE] as u32 == END && ps.world.events[e * 8 + EF::DATA] == -1.0);
         assert!(done);
-        assert_eq!(st(&mut ps)[state::PHASE], phase::DONE as f32);
+        assert_eq!(st(&mut ps)[state::PHASE], phase::ARRIVED as f32);
     }
 
     #[test]
@@ -1028,12 +1028,12 @@ mod tests {
         let (mut ps, _slot) = sky_table();
         // Sky Table's block: forward travel 2.9 at f = 0.1 between walls at
         // f = 2.3 (the 5.2-wide wall, r 1.0..6.2) and the plate edge
-        let b = ps.modules.marble.blocks[0];
+        let b = ps.modules.tilt.blocks[0];
         assert!(b.travel > 0.0 && b.travel <= 2.9);
         // the block (r 0.875..2.125) overlaps the wall's lane (r 1.0..6.2):
         // its top face 0.725 must stop 0.12 short of the wall at 2.05
         assert!((b.travel - (2.05 - 0.725 - 0.12)).abs() < 1e-3, "{}", b.travel);
-        call(&mut ps, op::PHASE, &[phase::PLAYING as f32], &mut []);
+        call(&mut ps, op::PHASE, &[phase::ROLLING as f32], &mut []);
         for _ in 0..40 {
             ps.step(1.0 / 60.0);
         }
@@ -1051,7 +1051,7 @@ mod tests {
         assert!(n >= 2, "a bent route: {n}");
         assert_eq!((out[(n - 1) * 2], out[(n - 1) * 2 + 1]), (7.1, 4.6));
         // every leg stays clear of the walls and holes
-        let m = &ps.modules.marble;
+        let m = &ps.modules.tilt;
         let mut from = (m.r, m.f);
         for k in 0..n {
             let to = (out[k * 2], out[k * 2 + 1]);
@@ -1085,8 +1085,8 @@ mod bench {
         let mut d = [0.0f32; crate::schema::ARCH_LENGTH];
         d[A::SCALE] = 1.0;
         let m = ps.world.add_arch(&d) as f32;
-        let call = |ps: &mut Playset, op: u32, a: &[f32], o: &mut [f32]| ps.modules.marble.call(&mut ps.world, &mut ps.scene, op, a, o);
-        call(&mut ps, op::LEVEL, &[22.0, 18.0, -9.0, -6.6, 9.1, 6.9, 1.0, 0.42, 0.0, 0.0, 0.0, -1.0, m, m, 0.72], &mut []);
+        let call = |ps: &mut Playset, op: u32, a: &[f32], o: &mut [f32]| ps.modules.tilt.call(&mut ps.world, &mut ps.scene, op, a, o);
+        call(&mut ps, op::PLATE, &[22.0, 18.0, -9.0, -6.6, 9.1, 6.9, 1.0, 0.42, 0.0, 0.0, 0.0, -1.0, m, m, 0.72], &mut []);
         for w in [[0.0, -8.95, 22.0, 0.45], [0.0, 8.95, 22.0, 0.45], [-10.95, 0.0, 0.45, 18.0], [10.95, 0.0, 0.45, 18.0], [-5.9, -2.1, 0.5, 6.4], [-0.8, 2.4, 6.8, 0.5], [4.7, -3.4, 0.5, 6.6], [6.8, 3.8, 5.6, 0.5]] {
             call(&mut ps, op::WALL, &w, &mut []);
         }
@@ -1107,15 +1107,15 @@ mod bench {
         let (mut ps, _) = super::tests::sky_table();
         let t = std::time::Instant::now();
         for _ in 0..100 {
-            n = ps.modules.marble.call(&mut ps.world, &mut ps.scene, op::ROUTE, &[7.1, 4.6, 0.55, 0.54, 0.58, 0.78, 0.64], &mut out);
+            n = ps.modules.tilt.call(&mut ps.world, &mut ps.scene, op::ROUTE, &[7.1, 4.6, 0.55, 0.54, 0.58, 0.78, 0.64], &mut out);
         }
         std::println!("sky table: {n} waypoints, {:?} per call", t.elapsed() / 100);
-        // a new level: the walkable grid and the cost field are rebuilt
+        // a new plate: the walkable grid and the cost field are rebuilt
         let t = std::time::Instant::now();
         for _ in 0..100 {
-            ps.modules.marble.geometry += 1;
-            n = ps.modules.marble.call(&mut ps.world, &mut ps.scene, op::ROUTE, &[7.1, 4.6, 0.55, 0.54, 0.58, 0.78, 0.64], &mut out);
+            ps.modules.tilt.geometry += 1;
+            n = ps.modules.tilt.call(&mut ps.world, &mut ps.scene, op::ROUTE, &[7.1, 4.6, 0.55, 0.54, 0.58, 0.78, 0.64], &mut out);
         }
-        std::println!("sky table, first route of a level: {n} waypoints, {:?} per call", t.elapsed() / 100);
+        std::println!("sky table, first route of a plate: {n} waypoints, {:?} per call", t.elapsed() / 100);
     }
 }

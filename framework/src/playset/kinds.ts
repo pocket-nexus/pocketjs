@@ -157,7 +157,7 @@ export const motion = {
     }
     return { kind: PLAYSET_MOTION.PLANE, p };
   },
-  /** A drone or a submarine: heading-relative X/FWD, TURN yaw, RISE vertical. */
+  /** Hovering flight: heading-relative X/FWD, TURN yaw, RISE vertical. */
   hover(o: {
     accel?: number;
     maxSpeed?: number;
@@ -190,26 +190,18 @@ export const motion = {
     return { kind: PLAYSET_MOTION.TURRET, p: [o.yawRate ?? 3, o.pitchRate ?? 2, o.minPitch ?? -0.3, o.maxPitch ?? 1] };
   },
   /** Lanes toward -Z: X changes lane on the press, JUMP/RISE jumps, RISE < 0 slides. */
-  runner(o: { speed?: number; accel?: number; maxSpeed?: number; laneWidth?: number; lanes?: number; laneRate?: number; jump?: number; gravity?: number; slide?: number; slideLean?: number } = {}): Motion {
+  lanes(o: { speed?: number; accel?: number; maxSpeed?: number; laneWidth?: number; lanes?: number; laneRate?: number; jump?: number; gravity?: number; slide?: number; slideLean?: number } = {}): Motion {
     return {
-      kind: PLAYSET_MOTION.RUNNER,
+      kind: PLAYSET_MOTION.LANES,
       p: [o.speed ?? 12, o.accel ?? 0.25, o.maxSpeed ?? 30, o.laneWidth ?? 2.5, o.lanes ?? 3, o.laneRate ?? 14, o.jump ?? 9, o.gravity ?? 1.4, o.slide ?? 0.7, o.slideLean ?? 1.1],
     };
   },
   /** Rides another slot (Playset.attach sets the parent and offset). */
   attached: (): Motion => ({ kind: PLAYSET_MOTION.ATTACHED, p: [] }),
-  /** A grid snake head (see Playset.board). */
-  snake(o: { speed?: number; cell?: number; turns?: "relative" | "absolute"; length?: number; segment?: number; grow?: number } = {}): Motion {
-    return { kind: PLAYSET_MOTION.SNAKE, p: [o.speed ?? 6, o.cell ?? 1, o.turns === "absolute" ? 1 : 0, o.length ?? 4, o.segment ?? -1, o.grow ?? 1] };
-  },
-  /** A ball on the tilting board (see Playset.board). */
-  marble(o: { tilt?: number; tiltRate?: number; gravity?: number; friction?: number; bounce?: number; radius?: number } = {}): Motion {
-    return { kind: PLAYSET_MOTION.MARBLE, p: [o.tilt ?? 0.3, o.tiltRate ?? 2, o.gravity ?? 1, o.friction ?? 0.6, o.bounce ?? 0.4, o.radius ?? 0.5] };
-  },
 };
 
 /** What a brain looks at: the nearest slot on some layers, the one on some
- *  layers furthest along its path kernel's path (tower defense), the
+ *  layers furthest along its path kernel's path, the
  *  slot's own TARGET, or a point. */
 export type Target =
   | { readonly nearest: number; readonly sight?: number; readonly every?: number }

@@ -15,7 +15,7 @@ the package's icon set ([`docs/LAUNCHER.md`](LAUNCHER.md)).
 | PICA200 scene renderer | [`devices/3ds/pocket-3ds-playset`](../devices/3ds/pocket-3ds-playset) |
 | QuickJS binding and DSP mixer | [`products/3ds/src/playset.c`](../products/3ds/src/playset.c), [`playset_audio.c`](../products/3ds/src/playset_audio.c) |
 | Desktop binding (headless) | [`platforms/sim/playset.ts`](../platforms/sim/playset.ts) |
-| TypeScript SDK | `@pocketjs/framework/playset`, `@pocketjs/framework/playset/three` |
+| TypeScript SDK | `@pocketjs/framework/playset`, `/three`, and the modules `/grid`, `/tilt`, `/voxel` |
 | Games | [`apps/playset/`](../apps/playset) |
 | Porting procedure | [`skills/playset-port`](../skills/playset-port/SKILL.md) |
 
@@ -77,10 +77,10 @@ the new values on the next step.
 | `car` | arcade car with grip, drift and slopes | FWD, TURN, JUMP (handbrake), AUX (boost) |
 | `boat` | hull on the water surface with roll and pitch | FWD, TURN |
 | `plane` | aircraft attitude with banked turns; with `banked`, GameBlocks' AirplaneMotionController: TURN holds a bank angle that turns the heading, FWD moves a throttle, a floor over the terrain | RISE (pitch), TURN (roll, or bank), X (rudder), FWD, AUX (boost when banked) |
-| `hover` | drone or submarine | X, FWD, TURN, RISE |
+| `hover` | hovering flight, heading-relative | X, FWD, TURN, RISE |
 | `path` | along a path at its slot's SPEED | none |
 | `turret` | yaw and pitch toward its target | TURN, RISE without a target |
-| `runner` | lanes toward -Z with jumps and slides | X, JUMP, RISE |
+| `lanes` | lanes toward -Z with jumps and slides | X, JUMP, RISE |
 | `attached` | rides another slot at an offset | none |
 
 A brain picks a target and writes the same intents a player's stick writes.
@@ -116,19 +116,26 @@ damage either side, kill either side, push apart, bounce, collect (PICKUP),
 and report (HIT). Contacts are found on a uniform grid; projectiles skip
 their shooter and its team.
 
-Genre engines beyond the kernels are modules reached through
-`Playset.call(module, op, args, out)`: the snake board, the marble plate and
-the voxel world (`PLAYSET_MODULE`). Each drives its own slots after the
-world's step and reports its own events, numbered from `PLAYSET_MODULE_EVENT`
-(`SNAKE_EVENT.EAT`, `SNAKE_EVENT.CRASH`, `MARBLE_EVENT.END`); the global
-`EVENT` table holds HIT, DEATH, EXPIRE, FIRE, GROUND, BOUNDS, PICKUP and
-ARRIVE. `@pocketjs/framework/playset/snake` (`SnakeBoard`: grid snakes
-with a slot per segment, food, collisions and a flood-fill + BFS planner) and
-`@pocketjs/framework/playset/marble` (`MarbleBoard`: a tilting plate with
-walls, moving blocks, holes, stars and a goal, the ball's physics, and a
+Mechanisms beyond the kernels are modules reached through
+`Playset.call(module, op, args, out)`: the grid board, the tilt plate and
+the voxel volume (`PLAYSET_MODULE`). **A module is named for what it
+computes, never for a game**: the game that uses it keeps its own nouns, so
+Snake Clash's snakes and apples are a grid's chains and pickups, and Marble
+Puzzle's marble and stars are a tilt plate's ball and pickups. Each module
+drives its own slots after the world's step and reports its own events,
+numbered from `PLAYSET_MODULE_EVENT` (`GRID_EVENT.PICKUP`,
+`GRID_EVENT.CRASH`, `TILT_EVENT.END`); the global `EVENT` table holds HIT,
+DEATH, EXPIRE, FIRE, GROUND, BOUNDS, PICKUP and ARRIVE.
+`@pocketjs/framework/playset/grid` (`GridBoard`: chains that step one cell
+per tick with a slot per segment, pickups that lengthen the chain that takes
+them, collisions and a flood-fill + BFS planner) and
+`@pocketjs/framework/playset/tilt` (`TiltTable`: a tilting plate with walls,
+moving blocks, holes, pickups and a goal zone, the ball's physics, and a
 route planner) name their ops; **the calls a game makes while it plays
 (`turn`, `state`, `route`) write a preallocated argument array and allocate
-nothing**.
+nothing**. Game code cannot ship native code in a `.pocket`, so a loop too
+hot for QuickJS on the Old 3DS becomes a module; what the game decides
+(score, levels, what a pickup means) stays in its TypeScript.
 
 ## Sound
 
