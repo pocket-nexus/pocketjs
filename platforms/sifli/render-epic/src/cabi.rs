@@ -10,7 +10,7 @@ use alloc::{boxed::Box, vec::Vec};
 use core::{
     cell::RefCell,
     ffi::c_void,
-    mem::{align_of, size_of},
+    mem::{align_of, offset_of, size_of, MaybeUninit},
     ptr, slice,
 };
 use pocket_drivers::{abi::*, DeviceTarget, PixelFormat, Rect as Region, RenderError, Renderer};
@@ -25,6 +25,7 @@ pub const POCKET_EPIC_BLIT_QUAD: u32 = 1 << 5;
 pub const POCKET_EPIC_BLIT_MODULATE: u32 = 1 << 6;
 pub const POCKET_EPIC_PORTABLE_TEXTURES: u32 = 1 << 7;
 pub const POCKET_EPIC_BLIT_MIRROR_Y: u32 = 1 << 8;
+pub const POCKET_EPIC_BLIT_ROTATE: u32 = 1 << 9;
 
 const OP_FILL: u32 = 1;
 const OP_FILL_ALPHA: u32 = 2;
@@ -35,6 +36,7 @@ const OP_BLIT_QUAD: u32 = 6;
 const OP_TILE_OUT: u32 = 7;
 const OP_TILE_IN: u32 = 8;
 const OP_FENCE: u32 = 9;
+const OP_BLIT_ROTATE: u32 = 10;
 const MIRROR_X: u32 = 1 << 0;
 const MIRROR_Y: u32 = 1 << 1;
 const LINEAR: u32 = 1 << 2;
@@ -128,6 +130,7 @@ pub struct EpicOpsV1 {
     pub tile: Option<EpicTileFn>,
     pub register_texture: Option<EpicRegisterFn>,
     pub release_texture: Option<EpicReleaseFn>,
+    pub can_blit_rotate: Option<unsafe extern "C" fn(*mut c_void, *const EpicCmd) -> i32>,
 }
 
 #[derive(Clone, Copy)]
@@ -240,8 +243,20 @@ fn encode(cmd: &Cmd) -> EpicCmd {
             clip,
             modulate,
             filter,
+        }
+        | Cmd::BlitRotate {
+            src,
+            src_rect,
+            quad,
+            clip,
+            modulate,
+            filter,
         } => {
-            out.op = OP_BLIT_QUAD;
+            out.op = if matches!(cmd, Cmd::BlitRotate { .. }) {
+                OP_BLIT_ROTATE
+            } else {
+                OP_BLIT_QUAD
+            };
             out.clip = epic_rect(clip);
             out.src = epic_rect(src_rect);
             out.quad = quad.map(epic_point);
@@ -297,6 +312,9 @@ impl COps {
             blit: registers && flag(POCKET_EPIC_BLIT),
             blit_mirror_y: flag(POCKET_EPIC_BLIT_MIRROR_Y),
             blit_quad: flag(POCKET_EPIC_BLIT_QUAD),
+            blit_rotate: registers
+                && flag(POCKET_EPIC_BLIT_ROTATE)
+                && ops.can_blit_rotate.is_some(),
             blit_modulate: flag(POCKET_EPIC_BLIT_MODULATE),
             portable_textures: registers && flag(POCKET_EPIC_PORTABLE_TEXTURES),
             coordinate_limit: raw.coordinate_limit,
@@ -320,6 +338,13 @@ impl COps {
 impl Executor for COps {
     fn caps(&self) -> Capabilities {
         self.caps
+    }
+
+    fn can_blit_rotate(&self, cmd: &Cmd) -> bool {
+        self.caps.blit_rotate
+            && self.ops.can_blit_rotate.is_some_and(|check| unsafe {
+                check(self.ops.context, &encode(cmd)) == POCKET_STATUS_OK
+            })
     }
 
     fn begin(&mut self, target: u64, width: u32, height: u32) -> Result<(), ExecError> {
@@ -421,12 +446,35 @@ unsafe fn full_prefix<T: Copy>(pointer: *const T) -> Option<T> {
     Some(unsafe { pointer.read_unaligned() })
 }
 
+unsafe fn ops_prefix(pointer: *const EpicOpsV1) -> Option<EpicOpsV1> {
+    if pointer.is_null() {
+        return None;
+    }
+    let size = unsafe { pointer.cast::<usize>().read_unaligned() };
+    let legacy_size = offset_of!(EpicOpsV1, can_blit_rotate);
+    if size < legacy_size || size > isize::MAX as usize {
+        return None;
+    }
+    // All fields are integers, raw pointers or nullable function pointers.
+    // Older executors omit the tail callback and retain CPU rotation.
+    let mut ops = MaybeUninit::<EpicOpsV1>::zeroed();
+    let bytes = if size >= size_of::<EpicOpsV1>() {
+        size_of::<EpicOpsV1>()
+    } else {
+        legacy_size
+    };
+    unsafe {
+        ptr::copy_nonoverlapping(pointer.cast::<u8>(), ops.as_mut_ptr().cast::<u8>(), bytes);
+        Some(ops.assume_init())
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pocket_render_sifli_epic_create(
     config: *const EpicConfig,
     ops: *const EpicOpsV1,
 ) -> *mut NativeEpicRenderer {
-    let (Some(config), Some(ops)) = (unsafe { full_prefix(config) }, unsafe { full_prefix(ops) })
+    let (Some(config), Some(ops)) = (unsafe { full_prefix(config) }, unsafe { ops_prefix(ops) })
     else {
         return ptr::null_mut();
     };
@@ -638,4 +686,37 @@ static VTABLE: PocketRendererV1 = PocketRendererV1 {
 #[no_mangle]
 pub extern "C" fn pocket_render_sifli_epic_vtable() -> *const PocketRendererV1 {
     &VTABLE
+}
+
+#[cfg(test)]
+mod rotation_abi_tests {
+    use super::*;
+
+    unsafe extern "C" fn check(_: *mut c_void, _: *const EpicCmd) -> i32 {
+        POCKET_STATUS_OK
+    }
+
+    #[test]
+    fn old_ops_table_omits_rotation_without_reading_past_its_prefix() {
+        let legacy_size = offset_of!(EpicOpsV1, can_blit_rotate);
+        let mut bytes = alloc::vec![0u8; legacy_size];
+        bytes[..size_of::<usize>()].copy_from_slice(&legacy_size.to_ne_bytes());
+        let ops = unsafe { ops_prefix(bytes.as_ptr().cast()) }.unwrap();
+        assert!(ops.can_blit_rotate.is_none());
+        bytes[..size_of::<usize>()].copy_from_slice(&(legacy_size - 1).to_ne_bytes());
+        assert!(unsafe { ops_prefix(bytes.as_ptr().cast()) }.is_none());
+    }
+
+    #[test]
+    fn new_ops_table_keeps_rotation_preflight() {
+        let mut ops = unsafe { MaybeUninit::<EpicOpsV1>::zeroed().assume_init() };
+        ops.struct_size = size_of::<EpicOpsV1>();
+        ops.can_blit_rotate = Some(check);
+        let copied = unsafe { ops_prefix(&ops) }.unwrap();
+        assert!(copied.can_blit_rotate.is_some());
+        assert_eq!(
+            unsafe { copied.can_blit_rotate.unwrap()(ptr::null_mut(), ptr::null()) },
+            POCKET_STATUS_OK
+        );
+    }
 }

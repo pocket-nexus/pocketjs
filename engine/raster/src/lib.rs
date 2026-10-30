@@ -51,6 +51,8 @@ use pocket_drivers::TexView;
 use pocket_spec::{self as spec, draw_op};
 
 mod surface;
+#[cfg(test)]
+mod triangle_tests;
 pub use surface::{
     render_operation, render_surface, render_surface_regions, OperationResources, RasterRenderer,
 };
@@ -930,6 +932,80 @@ fn orient(ax: i64, ay: i64, bx: i64, by: i64, px: i64, py: i64) -> i64 {
     (bx - ax) * (py - ay) - (by - ay) * (px - ax)
 }
 
+/// Exact covered interval on one pixel row of a counter-clockwise triangle.
+/// Each doubled-coordinate edge is linear in x. Intersect its nonnegative
+/// half-line with the clip, then advance the original integer weights by
+/// addition. Thin rotated images no longer scan their whole bounding box.
+struct TriangleRow {
+    x: i32,
+    end: i32,
+    weights: [i64; 3],
+    step: [i64; 3],
+}
+
+impl TriangleRow {
+    fn new(a: (i64, i64), b: (i64, i64), c: (i64, i64), y: i32, min_x: i32, max_x: i32) -> Self {
+        let sx = 2 * min_x as i64 + 1;
+        let sy = 2 * y as i64 + 1;
+        let mut weights = [
+            orient(b.0, b.1, c.0, c.1, sx, sy),
+            orient(c.0, c.1, a.0, a.1, sx, sy),
+            orient(a.0, a.1, b.0, b.1, sx, sy),
+        ];
+        let step = [-2 * (c.1 - b.1), -2 * (a.1 - c.1), -2 * (b.1 - a.1)];
+        let mut first = 0i64;
+        let mut end = (max_x as i64 - min_x as i64).max(0);
+        for (&w, &dx) in weights.iter().zip(&step) {
+            if dx > 0 {
+                if w < 0 {
+                    first = first.max((-w + dx - 1) / dx);
+                }
+            } else if dx < 0 {
+                if w < 0 {
+                    end = 0;
+                } else {
+                    end = end.min(w / -dx + 1);
+                }
+            } else if w < 0 {
+                end = 0;
+            }
+        }
+        if first >= end {
+            return Self {
+                x: min_x,
+                end: min_x,
+                weights,
+                step,
+            };
+        }
+        for (w, &dx) in weights.iter_mut().zip(&step) {
+            *w += first * dx;
+        }
+        Self {
+            x: min_x + first as i32,
+            end: min_x + end as i32,
+            weights,
+            step,
+        }
+    }
+}
+
+impl Iterator for TriangleRow {
+    type Item = (i32, [i64; 3]);
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.x >= self.end {
+            return None;
+        }
+        let item = (self.x, self.weights);
+        self.x += 1;
+        for (w, &dx) in self.weights.iter_mut().zip(&self.step) {
+            *w += dx;
+        }
+        Some(item)
+    }
+}
+
 fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: &[u32]) {
     let (x0, y0) = xy(p[0], scale);
     let (x1, y1) = xy(p[1], scale);
@@ -962,16 +1038,7 @@ fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: 
     let flat_opaque = flat && a0 >= 255;
     let half = area / 2;
     for py in min_y..max_y {
-        let sy = 2 * py as i64 + 1;
-        for px in min_x..max_x {
-            let sx = 2 * px as i64 + 1;
-            // Barycentric weights of the OPPOSITE vertices.
-            let w0 = orient(bx, by, cx, cy, sx, sy);
-            let w1 = orient(cx, cy, ax, ay, sx, sy);
-            let w2 = orient(ax, ay, bx, by, sx, sy);
-            if w0 < 0 || w1 < 0 || w2 < 0 {
-                continue;
-            }
+        for (px, [w0, w1, w2]) in TriangleRow::new((ax, ay), (bx, by), (cx, cy), py, min_x, max_x) {
             if flat_opaque {
                 target.fill_opaque((py * stride + px) as usize, 1, r0, g0, b0);
             } else if flat {
@@ -1231,21 +1298,24 @@ fn tex_tri<T: RenderTarget>(
     let (twf, thf) = (view.w as f32, view.h as f32);
     let (tw_max, th_max) = (view.w as i32 - 1, view.h as i32 - 1);
     let inv_area = 1.0f32 / area as f32;
+    // Covered weights are in 0..=area. The narrow conversion has the same
+    // IEEE-754 result and avoids software i64-to-f32 helpers on Cortex-M.
+    let narrow = area <= i32::MAX as i64;
     for py in min_y..max_y {
-        let sy = 2 * py as i64 + 1;
-        for px in min_x..max_x {
-            let sx = 2 * px as i64 + 1;
-            let w0 = orient(bx, by, cx, cy, sx, sy);
-            let w1 = orient(cx, cy, ax, ay, sx, sy);
-            let w2 = orient(ax, ay, bx, by, sx, sy);
-            if w0 < 0 || w1 < 0 || w2 < 0 {
-                continue;
-            }
-            let (f0, f1, f2) = (
-                w0 as f32 * inv_area,
-                w1 as f32 * inv_area,
-                w2 as f32 * inv_area,
-            );
+        for (px, [w0, w1, w2]) in TriangleRow::new((ax, ay), (bx, by), (cx, cy), py, min_x, max_x) {
+            let (f0, f1, f2) = if narrow {
+                (
+                    w0 as i32 as f32 * inv_area,
+                    w1 as i32 as f32 * inv_area,
+                    w2 as i32 as f32 * inv_area,
+                )
+            } else {
+                (
+                    w0 as f32 * inv_area,
+                    w1 as f32 * inv_area,
+                    w2 as f32 * inv_area,
+                )
+            };
             let u = u0 * f0 + u1 * f1 + u2 * f2;
             let v = v0 * f0 + v1 * f1 + v2 * f2;
             // Nearest is the golden-pinned default path; linear is opt-in
