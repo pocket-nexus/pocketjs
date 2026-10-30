@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { ANDROID_LAUNCHER_DENSITIES } from "../tools/android-icon.ts";
 import { buildTool, linkAndroidApk, localAndroidSdk, runTool } from "../tools/android-link.ts";
 import { readRuntimeDirectory } from "../tools/repack.ts";
@@ -117,6 +117,12 @@ describe("Android identity", () => {
 
   test("an external product profile is admitted without a device whitelist", async () => {
     const job = await androidLinkJob(input());
+    expect(job.assets.get("app.js")).toEqual(GAME_JS);
+  });
+
+  test("a .pocket compiled for another product with the same facts is admitted", async () => {
+    const pocket = fixturePocket(IDENTITY.id, [variantFor(resolveAndroidFixturePlan(clear(), "test-other-product"))]);
+    const job = await androidLinkJob(input({ pocket }));
     expect(job.assets.get("app.js")).toEqual(GAME_JS);
   });
 
@@ -297,16 +303,19 @@ describe("the repack refuses", () => {
     await expect(repackAndroid(input({ runtime: fixtureRuntime({}, signed) }), options)).rejects.toThrow(/template\.apk is signed/);
   });
 
-  test("a .pocket without the runtime's target", async () => {
+  test("a .pocket whose variant lacks a runtime capability", async () => {
     const other = resolveAndroidFixturePlan(clear(), "test-other-product");
-    const pocket = fixturePocket(IDENTITY.id, [variantFor(other)]);
-    await expect(repackAndroid(input({ pocket }), options)).rejects.toThrow(/no test-android-product variant \(it has test-other-product\)/);
+    const variant = variantFor(other);
+    const plan = new TextEncoder().encode(JSON.stringify({ ...other, features: { ...other.features, "net.http": true } }));
+    const pocket = fixturePocket(IDENTITY.id, [{ ...variant, sections: variant.sections.map(section =>
+      section.kind === POCKET_SECTION.plan ? { ...section, bytes: plan } : section) }]);
+    await expect(repackAndroid(input({ pocket }), options)).rejects.toThrow(/variant 0 \(test-other-product\) is not admitted: capability net\.http/);
   });
 
   test("a variant for another host ABI", async () => {
     const variant = variantFor(resolveAndroidFixturePlan(clear()));
     const pocket = fixturePocket(IDENTITY.id, [{ ...variant, hostAbi: HOST_ABI - 1 }]);
-    await expect(repackAndroid(input({ pocket }), options)).rejects.toThrow(new RegExp(`host ABI ${HOST_ABI - 1}; this runtime is ABI ${HOST_ABI}`));
+    await expect(repackAndroid(input({ pocket }), options)).rejects.toThrow(/variant 0 \(test-android-product\) is not admitted: bindingGeneration/);
   });
 
   test("a runtime for another host ABI", async () => {
@@ -331,7 +340,7 @@ describe("the repack refuses", () => {
 
   test("a runtime for another device", async () => {
     await expect(repackAndroid(input({ runtime: fixtureRuntime({ target: "3ds-dev" }) }), options))
-      .rejects.toThrow(/no 3ds-dev variant/);
+      .rejects.toThrow(/pocket\.host\.json is not the host contract runtime\.json names/);
   });
 });
 

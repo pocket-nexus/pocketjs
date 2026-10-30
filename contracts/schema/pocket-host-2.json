@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pocketjs.dev/schema/pocket-host-2.json",
+  "title": "Pocket profile, format 2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "id",
+    "platform",
+    "form",
+    "cadences",
+    "display",
+    "panel",
+    "capabilities"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "const": "pocket-host/2"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "form": {
+      "enum": [
+        "takeover",
+        "window",
+        "widget",
+        "kiosk",
+        "embedded"
+      ]
+    },
+    "cadences": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 240
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logicalViewports",
+        "presentations",
+        "rasterDensity",
+        "animation"
+      ],
+      "properties": {
+        "logicalViewports": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "presentations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "fill",
+              "fit",
+              "integer-fit",
+              "native",
+              "stretch"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "rasterDensity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
+        "animation": {
+          "enum": [
+            "composited",
+            "repaint",
+            "still"
+          ]
+        },
+        "dynamicViewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "max": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "acceptsFixed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "auxiliary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "logicalViewports",
+            "presentations",
+            "rasterDensity"
+          ],
+          "properties": {
+            "logicalViewports": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "presentations": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "fill",
+                  "fit",
+                  "integer-fit",
+                  "native",
+                  "stretch"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "rasterDensity": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            }
+          }
+        }
+      }
+    },
+    "panel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary"
+      ],
+      "properties": {
+        "primary": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "auxiliary": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "roleCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "systemUI": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "i2c": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "uart": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "http": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            }
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packageBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "heapBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "touchContacts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "coordinateBits": {
+          "enum": [
+            9,
+            10
+          ]
+        }
+      }
+    },
+    "hostExtension": {
+      "type": "object"
+    },
+    "hostAbi": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    }
+  }
+}

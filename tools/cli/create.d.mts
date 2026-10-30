@@ -37,7 +37,7 @@ export interface CreateResult {
   readonly standalone: boolean;
   readonly target: CreateTarget;
   readonly framework: CreateFramework;
-  readonly runtimeConfigPath: string | undefined;
+  readonly hostConfigPath: string | undefined;
   readonly manifestPath: string;
   readonly files: readonly string[];
 }

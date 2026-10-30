@@ -20,7 +20,7 @@ across the application, generated Rust and host.
 ## Choose where the model executes
 
 The [execution-mode comparison](/docs/typescript-support/#execution-modes)
-defines what each manifest setting checks and emits. Ordinary applications
+defines what each app contract setting checks and emits. Ordinary applications
 execute an engine bundle. A native AOT application uses the generated view
 with either a handwritten Rust model or a compiled TypeScript model.
 

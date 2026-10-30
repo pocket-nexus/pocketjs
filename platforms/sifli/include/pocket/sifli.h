@@ -163,10 +163,13 @@ typedef struct {
 } pocket_sifli_runner_stats;
 typedef struct pocket_sifli_runner pocket_sifli_runner;
 void pocket_sifli_runner_config_defaults(pocket_sifli_runner_config *config);
-int32_t pocket_sifli_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
+/* The runtime is booted. The runner ticks at the cadence
+ * pocket_runtime_get_timing reports; each tick advances its core_ticks. */
+int32_t pocket_sifli_runner_start(pocket_runtime *runtime,
                                   const pocket_sifli_runner_config *config,
                                   pocket_sifli_runner **out);
-/* Replaces the runtime between ticks; call from before_tick. */
+/* Replaces the runtime between ticks; call from before_tick. A booted
+ * replacement with another cadence restarts the schedule at it. */
 void pocket_sifli_runner_set_runtime(pocket_sifli_runner *runner, pocket_runtime *runtime);
 int32_t pocket_sifli_runner_stats_get(pocket_sifli_runner *runner, pocket_sifli_runner_stats *out);
 /* Interrupts the guest, wakes the thread and joins it. POCKET_STATUS_FAILED

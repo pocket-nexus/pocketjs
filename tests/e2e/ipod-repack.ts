@@ -1,7 +1,7 @@
 // A game repacked onto the generic iPod touch 4 runtime, installed, started
 // and captured.
 //
-//   bun tests/e2e/ipod-repack.ts --manifest <pocket.json> --id <id> --title <title>
+//   bun tests/e2e/ipod-repack.ts --manifest <pocket.app.json> --id <id> --title <title>
 //     --author <author> --version <version> [--icon <png>] [--out <dir>] [--device]
 //
 // Builds the game's ipodtouch4-dev variant into a `.pocket` (the manifest's
@@ -33,7 +33,7 @@ const option = (name: string) => {
 const manifestPath = option("manifest");
 const identity = { id: option("id") ?? "", title: option("title") ?? "", author: option("author") ?? "", version: option("version") ?? "" };
 if (!manifestPath || Object.values(identity).some((value) => !value)) {
-  throw new Error("usage: bun tests/e2e/ipod-repack.ts --manifest <pocket.json> --id … --title … --author … --version … [--icon png] [--out dir] [--device]");
+  throw new Error("usage: bun tests/e2e/ipod-repack.ts --manifest <pocket.app.json> --id … --title … --author … --version … [--icon png] [--out dir] [--device]");
 }
 const run = new Date().toISOString().replace(/[:.]/g, "-");
 const OUT = resolve(option("out") ?? join(ROOT, ".pocket-build/validation/runtime-ipod", run));

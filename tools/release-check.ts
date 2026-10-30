@@ -7,7 +7,7 @@ const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A
 export const RELEASE_VERSION_FILES = [
   "package.json",
   "tools/cli/package.json",
-  "pocket.json",
+  "apps/hero/pocket.app.json",
 ] as const;
 
 export interface ReleaseVersionCheck {

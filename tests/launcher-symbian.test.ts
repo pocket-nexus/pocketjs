@@ -47,15 +47,14 @@ describe("Symbian launcher", () => {
     const output = "launcher-throw-probe";
     try {
       const manifest = JSON.parse(
-        readFileSync(join(repository, "apps/hero/pocket.json"), "utf8"),
+        readFileSync(join(repository, "apps/hero/pocket.app.json"), "utf8"),
       );
       manifest.id = "dev.pocket-nexus.launcher.throw-probe";
-      manifest.name = output;
       manifest.title = "AAAA Launcher Throw Probe";
       manifest.app.entry = "app.tsx";
       manifest.app.output = output;
       delete manifest.app.viewport.fixed;
-      const externalManifest = join(external, "pocket.json");
+      const externalManifest = join(external, "pocket.app.json");
       writeFileSync(externalManifest, JSON.stringify(manifest, null, 2));
       writeFileSync(
         join(external, "app.tsx"),

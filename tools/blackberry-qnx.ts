@@ -1,6 +1,6 @@
 import { repositoryPath } from "./repository.ts";
 import nativeToolchain from "./build/toolchains/blackberry-qnx.ts";
-import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { createHash, randomBytes } from "node:crypto";

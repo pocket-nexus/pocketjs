@@ -1,6 +1,6 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/3ds-dev.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["3ds-dev"];
 
 /**
  * Transitional Nintendo 3DS profile used only by `bun run 3ds`.
@@ -23,7 +24,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 export const THREE_DS_DEV_TARGET_ID = softwareProfile.id;
 export const THREE_DS_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const THREE_DS_VIEWPORT = softwareProfile.display.logicalViewports[0];
-export const THREE_DS_AUXILIARY_VIEWPORT = softwareProfile.display.auxiliary.logicalViewports[0];
+export const THREE_DS_AUXILIARY_VIEWPORT = softwareProfile.display.auxiliary!.logicalViewports[0];
 
 export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,

@@ -32,9 +32,10 @@ import { RUNTIME_MANIFEST, type RuntimeManifest } from "../../tools/repack/share
 import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "../moto-g-play-profile.ts";
 import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "../redmi-1s-profile.ts";
 import { writeRuntimeManifest } from "../../tools/runtime/manifest.ts";
-import redmiProfile from "../../profiles/redmi-1s-dev.ts";
-import motoProfile from "../../profiles/moto-g-play-dev.ts";
-import { hashPocketProfile, type PocketProfile } from "../../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
+import type { PocketProfile } from "../../framework/src/profile.ts";
+const redmiProfile = POCKET_PROFILES["redmi-1s-dev"];
+const motoProfile = POCKET_PROFILES["moto-g-play-dev"];
 
 const repository = REPOSITORY_ROOT;
 
@@ -104,8 +105,7 @@ export async function buildRuntimeAndroid(argv: readonly string[] = []): Promise
     manifest = await writeRuntimeManifest(out, {
       target: chosen.target,
       hostAbi: chosen.contract.hostAbi,
-      profile,
-      profileHash: hashPocketProfile(chosen.profile),
+      profile: chosen.profile,
       files: [ANDROID_TEMPLATE, ...ANDROID_TEMPLATE_SOURCES].sort(),
       extra: {
         viewport: { logical: chosen.contract.display.logicalViewports[0], rasterDensity: chosen.contract.display.rasterDensity },

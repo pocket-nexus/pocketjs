@@ -1,15 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { decodePocketPackage, encodeIdentity, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import softwareProfile from "../profiles/ipodtouch4-dev.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { bundleBaseName, bundleVersion, IPOD_RUNTIME_EXECUTABLE, repackIPod } from "../tools/repack/ipod.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
-import { sha256Hex, type RepackInput } from "../tools/repack/shared/runtime.ts";
+import type { RepackInput } from "../tools/repack/shared/runtime.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 import { readZip, unzipEntry } from "../tools/repack/shared/zip.ts";
+const softwareProfile = POCKET_PROFILES["ipodtouch4-dev"];
 
 const ID = "dev.pocket-nexus.studio.twenty48";
 
@@ -18,7 +20,6 @@ function manifest(viewport: [number, number] = [320, 480], companions: string[] 
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: ID,
-    name: "twenty48",
     title: "Twenty48",
     version: "0.1.0",
     engine: { capabilities: { requires: ["text.glyphs.baked"], enhances: ["input.touch"] } },
@@ -61,17 +62,10 @@ async function runtimeFiles(overrides: { target?: string; hostAbi?: number; host
     ["Default-568h@2x.png", await square(8, [0, 0, 0, 255])],
     ["PkgInfo", new TextEncoder().encode("APPL????")],
   ]);
-  const listed: Record<string, { bytes: number; sha256: string }> = {};
-  for (const [name, bytes] of files) listed[name] = { bytes: bytes.length, sha256: await sha256Hex(bytes) };
-  files.set("runtime.json", new TextEncoder().encode(JSON.stringify({
-    target: overrides.target ?? "ipodtouch4-dev",
-    hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
-    pocketjs: "0".repeat(40),
-    profile: "ipodtouch4-dev", profileHash: hashPocketProfile(softwareProfile),
-    files: listed,
-    host: overrides.host ?? { buildId: "0123456789abcdef0123456789abcdef", executable: IPOD_RUNTIME_EXECUTABLE, deploymentTarget: "6.0" },
-  })));
-  return files;
+  return runtimeDirectory(softwareProfile, files, {
+    target: overrides.target ?? "ipodtouch4-dev", hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
+    extra: { host: overrides.host ?? { buildId: "0123456789abcdef0123456789abcdef", executable: IPOD_RUNTIME_EXECUTABLE, deploymentTarget: "6.0" } },
+  });
 }
 
 async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput> {
@@ -145,15 +139,17 @@ describe("repackIPod", () => {
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ target: "3ds-dev" }) }))).rejects.toThrow(/not "ipodtouch4-dev"/);
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ hostAbi: 9 }) }))).rejects.toThrow(/runtime binding generation 9 is unsupported/);
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ host: {} }) }))).rejects.toThrow(/no host build id/);
-    const other = encodePocketPackage({
+    const plan = findSection(decodePocketPackage(pocketFor()).variants[0]!, POCKET_SECTION.plan)!;
+    const other = (planBytes: Uint8Array) => encodePocketPackage({
       manifest: new TextEncoder().encode("{}"),
       variants: [{ target: "ipodtouch4-dev", hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(softwareProfile), sections: [
         { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "x", id: "dev.other.game", title: "X" }) },
-        { kind: POCKET_SECTION.plan, bytes: new TextEncoder().encode("{}") },
+        { kind: POCKET_SECTION.plan, bytes: planBytes },
         { kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) },
       ] }],
     });
-    await expect(repackIPod(await input({ pocket: other }))).rejects.toThrow(/identity says/);
+    await expect(repackIPod(await input({ pocket: other(new TextEncoder().encode("{}")) }))).rejects.toThrow(/variant 0 \(ipodtouch4-dev\) is not admitted: plan/);
+    await expect(repackIPod(await input({ pocket: other(plan) }))).rejects.toThrow(/identity says/);
     await expect(repackIPod(await input({ pocket: pocketFor(manifest([320, 480], ["shell"])) }))).rejects.toThrow(/companion services/);
   });
 

@@ -1,6 +1,6 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/ipodtouch-dev.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["ipodtouch-dev"];
 
 /**
  * Private connected-device profile for the iPod touch (6th generation).
@@ -21,7 +22,7 @@ export const IPODTOUCH_DEV_TARGET_ID = softwareProfile.id;
 export const IPODTOUCH_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const IPODTOUCH_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
 export const IPODTOUCH_RASTER_DENSITY = softwareProfile.display.rasterDensity;
-export const IPODTOUCH_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
+export const IPODTOUCH_PHYSICAL_VIEWPORT = softwareProfile.panel.primary;
 
 export const IPODTOUCH_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,

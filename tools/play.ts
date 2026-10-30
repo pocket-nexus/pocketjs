@@ -138,7 +138,7 @@ if (platform === "ios") {
   const pocket = `${output}/application.pocket`;
   if (!args.includes("--no-build")) {
     mkdirSync(output, { recursive: true });
-    const manifest = `${output}/pocket.json`;
+    const manifest = `${output}/pocket.app.json`;
     writeFileSync(manifest, JSON.stringify(demoManifestFor(ROOT, demo, framework), null, 2) + "\n");
     await run([process.execPath, "tools/pocket.ts", "compile", "--target", "ios-dev",
       "--manifest", manifest, "--project-root", ROOT, "--outdir", `${output}/compiler`, "--output", pocket],

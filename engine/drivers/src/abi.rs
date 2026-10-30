@@ -644,7 +644,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// The software facts the runtime admits packages against, exported by pocket profile export from the profile the application was compiled for. id is the package variant name; input_classes are the POCKET_INPUT_CLASS_* bits the profile's capabilities require. Null auxiliary and dynamic_viewport mean absent.
+    /// The facts the runtime admits packages against, exported by pocket host export from the program's host contract. id is the host's profile id; admission does not compare it. tick_hz is the highest cadence. cadences lists cadence_count presented frames per second; a record without them has the one cadence tick_hz. capabilities and presentations are names, each terminated by NUL, in capabilities_length and presentations_length bytes; a record without capabilities provides none, and one without presentations or animation is not compared on them. input_classes are the POCKET_INPUT_CLASS_* bits the profile's capabilities require. Null auxiliary and dynamic_viewport mean absent.
     pub struct PocketProfileFacts {
         pub struct_size: usize,
         pub id: *const u8,
@@ -654,6 +654,14 @@ abi_record! {
         pub display: *const PocketProfileDisplay,
         pub auxiliary: *const PocketProfileDisplay,
         pub dynamic_viewport: *const PocketProfileRange,
+        pub cadences: *const u32,
+        pub cadence_count: usize,
+        pub capabilities: *const u8,
+        pub capabilities_length: usize,
+        pub presentations: *const u8,
+        pub presentations_length: usize,
+        pub animation: *const u8,
+        pub animation_length: usize,
     }
 }
 
@@ -704,7 +712,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// Metadata borrows last through initialize; pak storage remains unchanged through guest shutdown. Zero auxiliary dimensions mean no auxiliary viewport.
+    /// Metadata borrows last through initialize; pak storage remains unchanged through guest shutdown. Zero auxiliary dimensions mean no auxiliary viewport. tick_hz is the admitted package's rate; sim_hz is the host cadence, guest frames per second, published to the guest as globalThis.__simHz.
     pub struct PocketGuestEnvironment {
         pub struct_size: usize,
         pub host: *const u8,
@@ -725,6 +733,17 @@ abi_record! {
         pub sprites: *const PocketNamedSprite,
         pub sprite_count: usize,
         pub assets_present: u32,
+        pub sim_hz: u32,
+    }
+}
+
+abi_record! {
+    /// The booted package's rate, the host cadence it is presented at, and the core ticks each pocket_runtime_tick advances (tick_hz / cadence_hz).
+    pub struct PocketRuntimeTiming {
+        pub struct_size: usize,
+        pub tick_hz: u32,
+        pub cadence_hz: u32,
+        pub core_ticks: u32,
     }
 }
 
@@ -802,7 +821,10 @@ pub fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32;
 pub fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32;
     /// Complete in-flight DEFERRED frames: renderer wait, flush or display wait, retire. Returns zero when none is pending. A failed completion returns its error once and invalidates that display's damage history. Call before reading a presented buffer or releasing state a pending submission reads.
 pub fn pocket_runtime_complete_presentation(runtime: *mut PocketRuntime) -> i32;
-    pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
+    /// Sample inputs, run the guest frame once, advance the core by the booted package's core_ticks, and present.
+pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
+    /// After boot, the package rate and the cadence the program schedules pocket_runtime_tick at. INVALID before boot.
+pub fn pocket_runtime_get_timing(runtime: *const PocketRuntime, out: *mut PocketRuntimeTiming) -> i32;
     /// Returns 0 or 1 without executing the operation. Does not invalidate borrowed results.
 pub fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32;
     /// Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime.

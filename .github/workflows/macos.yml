@@ -108,8 +108,9 @@ jobs:
         run: |
           bun -e '
           import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
+          import { readPocketManifest } from "./framework/src/manifest/load.ts";
           import { mkdirSync } from "node:fs";
-          const m = await Bun.file("apps/note/pocket.json").json();
+          const { manifest: m } = readPocketManifest("apps/note/pocket.app.json");
           const r = validateAndResolveBuildPlan(m, { target: "macos-app" });
           if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
           mkdirSync(".pocket/macos-app", { recursive: true });

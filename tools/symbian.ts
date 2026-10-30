@@ -1,5 +1,6 @@
 import { repositoryPath } from "./repository.ts";
-import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { encodeSymbianNavigation } from "./symbian-navigation.ts";
@@ -505,7 +506,7 @@ export async function buildApp(
   const transaction = async () => {
     rmSync(payload, { recursive: true, force: true });
     mkdirSync(payload, { recursive: true });
-    writeHostProfileHeader(payload, plan.profile);
+    writeHostProfileHeader(payload, planProfileDocument(plan.profile));
     if (massStorageDataRoot !== undefined) {
       stageSymbianMassStorageData(massStorageDataRoot, payload);
     }

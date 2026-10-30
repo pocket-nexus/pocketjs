@@ -15,7 +15,6 @@ for (const target of ["psp", "vita"] as const) {
     mkdirSync(directory, { recursive: true });
     const manifest = demoManifestFor(`${root}/`, "hero") as Record<string, any>;
     manifest.id = `dev.pocket-nexus.e2e.${target}.hero`;
-    manifest.name = "pocketjs-e2e-hero";
     manifest.title = "PocketJS E2E hero";
     manifest.app.output = "e2e-hero-main";
     const manifestPath = join(directory, "hero.json");

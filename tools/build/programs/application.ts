@@ -3,7 +3,7 @@ import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-gener
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { extractHostBuildInputs } from "../../../framework/src/manifest/host-build-inputs.ts";
-import type { RuntimeApplication, RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import type { RuntimeApplication, RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { hashPocketProfile, type PocketProfile } from "../../../framework/src/profile.ts";
 
 /** Native inputs come from the package admitted by the build executor. */
@@ -30,7 +30,7 @@ export async function runProgramBuild(id: string, args: readonly string[]): Prom
   const root = resolve(import.meta.dir, "../../..");
   const legacyDirectories: Record<string, string> = { "blackberry-classic": "blackberry-qnx", "nokia-e7": "symbian", "ipodtouch6": "ipodtouch", "ios-simulator": "ios" };
   const output = args.some(arg => arg === "--out" || arg === "--outdir" || arg.startsWith("--out=") || arg.startsWith("--outdir=")) ? [] : ["--out", resolve(root, "dist", legacyDirectories[id] ?? id)];
-  const child = Bun.spawn([process.execPath, resolve(root, "tools/pocket.ts"), "build", "--config", resolve(root, `programs/${id}/pocket.runtime-config.ts`), ...output, ...args], {
+  const child = Bun.spawn([process.execPath, resolve(root, "tools/pocket.ts"), "build", "--config", resolve(root, `programs/${id}/pocket.host.config.ts`), ...output, ...args], {
     cwd: process.cwd(), stdout: "inherit", stderr: "inherit",
   });
   const code = await child.exited;

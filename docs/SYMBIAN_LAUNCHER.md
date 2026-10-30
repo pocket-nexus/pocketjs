@@ -1,7 +1,7 @@
 # Symbian app launcher
 
 **The Symbian launcher builds one Nokia E7 SIS containing a Cover Flow picker
-and a catalog of `.pocket` applications.** Its program, profile and build tools
+and a catalog of `.pocket` applications.** Its program, host contract and build tools
 live in the main PocketJS repository alongside the PSP, Vita and 3DS programs.
 
 **One guest is alive at a time.** The Qt host presents the outgoing frame,
@@ -28,7 +28,7 @@ rendering builds the repository's wasm core, so it requires the fixed Rust
 toolchain and `wasm32-unknown-unknown` target.
 
 Each command performs the preceding steps except that **only `scan` without
-external manifests updates the committed display metadata**. Build-like
+external app contracts updates the committed display metadata**. Build-like
 commands leave `apps/launcher/registry.generated.ts` and `images.json`
 unchanged. The committed metadata includes the PSP, Vita and Symbian app
 sets; each program exposes its admitted subset through `appTable()`.
@@ -36,7 +36,7 @@ sets; each program exposes its admitted subset through `appTable()`.
 ```sh
 bun tools/launcher.ts pack --target symbian --exclude note-main
 bun tools/launcher.ts build --target symbian \
-  --include-manifest /absolute/project/pocket.json \
+  --include-manifest /absolute/project/pocket.app.json \
   -- --sis-version 0.1.0 --uid 0xE0001234
 ```
 
@@ -46,12 +46,12 @@ unknown options fail before build metadata is written.
 
 ## Admission and source ownership
 
-The scanner reads `apps/*/pocket.json` and resolves each manifest against
-`profiles/symbian-e7-dev.ts` using the framework's package resolver. Diagnostics
+The scanner reads `apps/*/pocket.app.json` and resolves each app contract against
+`hosts/symbian-e7-dev/pocket.host.json` using the framework's package resolver. Diagnostics
 identify skipped applications. Admission requires the E7 live-viewport
-contract; a manifest limited to a fixed console viewport is rejected.
+contract; an app contract limited to a fixed console viewport is rejected.
 
-External manifests use the same admission checks. Their entry paths resolve
+External app contracts use the same admission checks. Their entry paths resolve
 from the project containing those entries. Duplicate app IDs or output names
 fail before compilation. External project paths stay in build state and do
 not enter the committed display registry.
@@ -71,8 +71,8 @@ The output directory is `dist/launcher/symbian/`:
 | `pack` | Recompiled guest JS/pak files, selected variants under `packages/`, `catalog.tsv` and `catalog.bin` |
 | `build` | The native SIS containing the catalog and E7 runtime |
 
-The cover renderer uses the first profile an application admits in PSP, Vita,
-Symbian order. It boots the wasm host with that profile's viewport and
+The cover renderer uses the first host contract the application resolves against
+in PSP, Vita, Symbian order. It boots the wasm host with that host contract's viewport and
 density, settles 90 frames, then downsamples to 256×128 pixels. A boot failure uses a
 color gradient derived from the output name. Each cover has a separate
 reflection image with an alpha ramp. Cover pixels are generated assets, not
@@ -88,7 +88,8 @@ serializes the shared native output tree.
 
 **The catalog embeds the exact target-thinned `.pocket` bytes.** Its index has
 eight fields per entry and its blob aligns packages to 16 bytes. The host
-checks package identity, profile hash and binding generation before boot.
+checks package identity and admits the package by the E7 host contract's facts
+before boot.
 The native builder derives a 1 MiB-aligned GCCE writable-data base from the
 embedded byte count so catalog rodata cannot overlap writable data.
 

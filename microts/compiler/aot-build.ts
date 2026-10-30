@@ -46,7 +46,7 @@ export function resolveAotEntry(app: string): string {
       const entry = join(path, name);
       if (existsSync(entry)) return entry;
     }
-    const manifest = join(path, "pocket.json");
+    const manifest = join(path, "pocket.app.json");
     if (existsSync(manifest)) {
       const entry = JSON.parse(readFileSync(manifest, "utf8")).app?.entry;
       if (typeof entry === "string" && /\.(vue|tsx)$/.test(entry)) {

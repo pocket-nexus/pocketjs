@@ -2,9 +2,10 @@ import { nativeSources } from "./native-sources.ts";
 import { lstatSync } from "node:fs";
 import { resolve } from "node:path";
 import "../toolchains/symbian/armv6-symbian-eabi.json";
-import { compilerOnly, type RuntimeBuild, type RuntimeSourceContext } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/symbian-e7-dev.ts";
+import { compilerOnly, type RuntimeBuild, type RuntimeSourceContext } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { nativeOption, requireProgramProfile, requireApplication } from "./application.ts";
+const profile = POCKET_PROFILES["symbian-e7-dev"];
 
 /** Match buildApp's invocation-relative optional file arguments. Generated
  * payloads beside these files are outputs, so their parent is not an input. */

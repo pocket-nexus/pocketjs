@@ -3,6 +3,7 @@
 use pocket_package::{
     embedded::{encode, identity, EmbeddedPackage},
     source::{LoadedPackage, OwnedMemorySource, StaticMemorySource},
+    HostFacts,
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -51,6 +52,20 @@ fn count<T>(operation: impl FnOnce() -> T) -> (T, usize) {
     (result, LARGE_ALLOCATIONS.load(Ordering::Relaxed))
 }
 
+const PLAN: &[u8] = br#"{"animation":"composited","features":{},"profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1}}"#;
+const HOST: HostFacts<'static, &'static str> = HostFacts {
+    binding_generation: 12,
+    profile_hash: [0x11; 32],
+    raster_density: 1,
+    animation: Some("composited"),
+    cadences: &[60],
+    logical_viewports: &[[480, 272]],
+    dynamic_viewport: None,
+    presentations: Some(&["native"]),
+    capabilities: &[],
+    auxiliary_logical: &[],
+};
+
 #[test]
 fn large_embedded_package_uses_one_container_and_transfers_it_without_copying() {
     let identity = identity("large", "test.large", "Large package").unwrap();
@@ -62,7 +77,7 @@ fn large_embedded_package_uses_one_container_and_transfers_it_without_copying() 
             host_abi: 12,
             profile_hash: [0x11; 32],
             identity: &identity,
-            plan: b"{}",
+            plan: PLAN,
             code: &code,
             pak: &pak,
         })
@@ -76,9 +91,7 @@ fn large_embedded_package_uses_one_container_and_transfers_it_without_copying() 
     let (loaded, allocations) = count(|| {
         LoadedPackage::load(
             &mut OwnedMemorySource::new(bytes),
-            "fixture",
-            12,
-            &[0x11; 32],
+            &HOST,
             usize::MAX,
         )
         .unwrap()
@@ -98,9 +111,7 @@ fn large_embedded_package_uses_one_container_and_transfers_it_without_copying() 
     let (loaded, allocations) = count(|| {
         LoadedPackage::load(
             &mut StaticMemorySource(bytes),
-            "fixture",
-            12,
-            &[0x11; 32],
+            &HOST,
             usize::MAX,
         )
         .unwrap()

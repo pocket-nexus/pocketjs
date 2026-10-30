@@ -1095,7 +1095,7 @@ describe("host detection (host.ts)", () => {
     );
   });
 
-  test("resolved build contract rejects the wrong native target or ABI", () => {
+  test("resolved build contract admits another host id and rejects another ABI", () => {
     const ops = makeMockHost().ops;
     ops.__host = "vita";
     ops.__hostAbi = POCKET_BINDING_GENERATION;
@@ -1106,12 +1106,13 @@ describe("host detection (host.ts)", () => {
         hostAbi: POCKET_BINDING_GENERATION,
       }),
     ).not.toThrow();
+    // Admission compared the device's facts; the id is provenance.
     expect(() =>
       assertNativeHostContract(ops, {
         target: "psp",
         hostAbi: POCKET_BINDING_GENERATION,
       }),
-    ).toThrow(/target mismatch/);
+    ).not.toThrow();
     expect(() =>
       assertNativeHostContract(ops, {
         target: "vita",

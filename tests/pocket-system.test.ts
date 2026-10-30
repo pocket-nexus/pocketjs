@@ -71,7 +71,7 @@ describe("Pocket System resolution", () => {
 
   test("rejects duplicate artifact outputs before building", async () => {
     const packages = await packageInputs();
-    const hero = packages.find((entry) => entry.source === "apps/hero/pocket.json")!;
+    const hero = packages.find((entry) => entry.source === "apps/hero/pocket.app.json")!;
     hero.manifest.app.output = "settings-main";
     const result = validateAndResolveSystemPlan(systemInput, {
       target: "macos-app",
@@ -90,7 +90,7 @@ describe("Pocket System resolution", () => {
     system.installation.installedPackages =
       system.installation.installedPackages.filter((id) => id !== HERO);
     const packages = (await packageInputs()).filter(
-      (entry) => entry.source !== "apps/hero/pocket.json",
+      (entry) => entry.source !== "apps/hero/pocket.app.json",
     );
     const result = validateAndResolveSystemPlan(system, {
       target: "macos-app",
@@ -143,7 +143,7 @@ describe("Pocket System resolution", () => {
   test("grants compositor surfaces only to the System UI role", async () => {
     const required = await packageInputs();
     const requiredHero = required.find(
-      (entry) => entry.source === "apps/hero/pocket.json",
+      (entry) => entry.source === "apps/hero/pocket.app.json",
     )!;
     requiredHero.manifest.engine.capabilities.requires.push(
       "ui.compositor-surfaces",
@@ -161,7 +161,7 @@ describe("Pocket System resolution", () => {
 
     const enhanced = await packageInputs();
     const enhancedHero = enhanced.find(
-      (entry) => entry.source === "apps/hero/pocket.json",
+      (entry) => entry.source === "apps/hero/pocket.app.json",
     )!;
     enhancedHero.manifest.engine.capabilities.enhances.push(
       "ui.compositor-surfaces",
@@ -203,7 +203,7 @@ describe("Pocket System resolution", () => {
 
   test("rejects child companions until an AppInstance adapter exists", async () => {
     const packages = await packageInputs();
-    const hero = packages.find((entry) => entry.source === "apps/hero/pocket.json")!;
+    const hero = packages.find((entry) => entry.source === "apps/hero/pocket.app.json")!;
     hero.manifest.app.companions = ["note"];
     const result = validateAndResolveSystemPlan(systemInput, {
       target: "macos-app",

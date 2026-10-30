@@ -223,28 +223,29 @@ fn real_sources_share_canonical_admission_and_reject_overreported_reads() {
         host_abi: pocket_spec::BINDING_GENERATION,
         profile_hash: [7; 32],
         identity: &identity,
-        plan: b"{}",
+        plan: br#"{"animation":"composited","features":{},"profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1}}"#,
         code: b"test",
         pak: &[],
     })
     .unwrap();
-    for payload in [&bytes[..], &bytes[..bytes.len() - 1]] {
-        check_package_admission(
-            &mut MemorySource(payload),
-            payload,
-            "kit",
-            pocket_spec::BINDING_GENERATION,
-            &[7; 32],
-        )
-        .unwrap();
-        check_package_admission(
-            &mut Short(payload),
-            payload,
-            "kit",
-            pocket_spec::BINDING_GENERATION,
-            &[7; 32],
-        )
-        .unwrap();
+    let host = pocket_package::HostFacts {
+        binding_generation: pocket_spec::BINDING_GENERATION,
+        profile_hash: [7; 32],
+        raster_density: 1,
+        animation: Some("composited"),
+        cadences: &[60],
+        logical_viewports: &[[4, 4]],
+        dynamic_viewport: None,
+        presentations: Some(&["native"]),
+        capabilities: &[],
+        auxiliary_logical: &[],
+    };
+    // An admitted package, a truncated one, and a host that admits neither.
+    for host in [host, pocket_package::HostFacts { raster_density: 2, ..host }] {
+        for payload in [&bytes[..], &bytes[..bytes.len() - 1]] {
+            check_package_admission(&mut MemorySource(payload), payload, &host).unwrap();
+            check_package_admission(&mut Short(payload), payload, &host).unwrap();
+        }
     }
     struct Bad;
     impl PackageSource for Bad {

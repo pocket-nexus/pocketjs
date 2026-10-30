@@ -5,7 +5,7 @@
 //! (`pocket-mod`), drives the same `pocketjs-core`, and renders through wgpu
 //! (`pocket-ui-wgpu`) — 2D and 3D on one foundation.
 //!
-//!   bun tools/pocket.ts profile export --target macos-embedded --out target/uihost-profile
+//!   bun tools/pocket.ts host export --target macos-embedded --out target/uihost-profile
 //!   export POCKETJS_PROFILE_RS=$PWD/target/uihost-profile/pocket_profile.rs
 //!   cargo run -p uihost -- --app hero                # window, 2x scale
 //!   cargo run -p uihost -- --app music --scale 3
@@ -142,7 +142,7 @@ fn resolve_asset(explicit: Option<PathBuf>, app: &str, ext: &str) -> Result<Path
 fn exported_profile() -> Result<Profile> {
     profile::profile().ok_or_else(|| {
         anyhow!(
-            "uihost was built without an exported profile; run `bun tools/pocket.ts profile export --target macos-embedded --out DIR` and build with POCKETJS_PROFILE_RS=DIR/pocket_profile.rs"
+            "uihost was built without an exported profile; run `bun tools/pocket.ts host export --target macos-embedded --out DIR` and build with POCKETJS_PROFILE_RS=DIR/pocket_profile.rs"
         )
     })
 }
@@ -159,6 +159,8 @@ fn boot(args: &Args, profile: Profile, gpu: &Gpu) -> Result<(UiProgram, ProgramO
     let mut program = UiProgram::new(ProgramConfig {
         profile,
         profile_hash: profile::PROFILE_HASH,
+        // The bundle's baked rate; its plan's profile.tickHz.
+        tick_hz: 60,
         host_abi: profile::HOST_ABI,
         logical: [UI_W, UI_H],
         heap_limit: 64 * 1024 * 1024,
@@ -302,6 +304,11 @@ impl App {
         surface.configure(&gpu.device, &surface_config);
 
         let (program, output) = boot(&self.args, self.profile.clone(), &gpu)?;
+        // The booted package's rate presented at the profile cadence.
+        let cadence = program
+            .timing()
+            .ok_or_else(|| anyhow!("uihost: the package did not boot"))?
+            .cadence_hz;
         let target = output
             .first()
             .ok_or_else(|| anyhow!("missing output target"))?;
@@ -323,7 +330,7 @@ impl App {
             buttons: 0,
             nub: Nub::default(),
             clock: Instant::now(),
-            schedule: TickSchedule::new(self.profile.tick_hz, 0, 1)
+            schedule: TickSchedule::new(cadence, 0, 1)
                 .map_err(|error| anyhow!("uihost timing: {error:?}"))?,
         })
     }

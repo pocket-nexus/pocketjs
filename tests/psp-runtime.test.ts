@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import profile from "../profiles/psp.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
@@ -16,6 +16,7 @@ test("PSP production guest uses canonical runtime, providers, input and shutdown
 }, 180_000);
 
 import { pspLinkArguments, responseWords } from "../tools/psp-linker.ts";
+const profile = POCKET_PROFILES["psp"];
 
 test("PSP SDK fallback libraries follow Rust symbol owners without masking duplicates", () => {
   const args = ["-flavor", "gnu", "main.o", "-Bstatic", "quickjs.rlib", "-lc", "-lm", "-lpthread-psp", "-lcglue", "psp.rlib", "core.rlib", "-Bdynamic", "--gc-sections", "-o", "app.elf"];
@@ -50,7 +51,7 @@ test("PSP writer emits real static tables with exact package bytes and explicit 
 test("PSP --pocket captures admitted original bytes without requiring or compiling application sources", () => {
   const directory = embedDirectory();
   const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2,
-    id: "dev.pocket.psp-embed", name: "example", title: "Original package", version: "1.0.0",
+    id: "dev.pocket.psp-embed", title: "Original package", version: "1.0.0",
     engine: { capabilities: { requires: ["text.glyphs.baked"] } },
     app: { entry: "does-not-exist.tsx", framework: "solid", output: "original",
       viewport: { fixed: { logical: [480, 272], presentation: "native" } } } };

@@ -1,15 +1,16 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { compilerOnly, type RuntimeBuild, type RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import { compilerOnly, type RuntimeBuild, type RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { canonicalProfileJson, hashPocketProfile } from "../../../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
-import profile from "../../../profiles/3ds-runtime.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { prepareNative3ds, runNative3dsMake, containerPathFor } from "../3ds/native.ts";
 import { repack3ds, THREE_DS_RUNTIME_FILE } from "../../repack/3ds.ts";
 import { writeRuntimeManifest } from "../../runtime/manifest.ts";
 import { exportProfile } from "../../profile-export.ts";
 import { requireProgramProfile } from "./application.ts";
 import { repository, nativeSources, programFiles, buildHosts, handheldLock } from "./handheld-common.ts";
+const profile = POCKET_PROFILES["3ds-runtime"];
 
 /** Build the file-loaded program, with no product sources or package parser. */
 export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext): Promise<string> {
@@ -32,7 +33,7 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
       POCKETJS_OUT_3DSX: containerPathFor(program, native.mounts),
     } });
   await writeRuntimeManifest(outdir, { target: profile.id, hostAbi: POCKET_BINDING_GENERATION,
-    profile: profile.id, profileHash: hashPocketProfile(profile), files: [THREE_DS_RUNTIME_FILE] });
+    profile, files: [THREE_DS_RUNTIME_FILE] });
   return outdir;
 }
 export const build: RuntimeBuild = {

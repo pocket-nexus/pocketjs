@@ -1,6 +1,6 @@
 # Meizu M8 / M8SE
 
-Native build inputs and program configs are listed in [Device native builds](DEVICE_BUILDS.md).
+Native build inputs and host configs are listed in [Device native builds](DEVICE_BUILDS.md).
 
 PocketJS runs on the original Meizu M8 as a Windows CE 6 ARM application. **The host embeds QuickJS and the Rust software renderer in one `PocketJS.exe`, then copies its native 480×720 BGRA framebuffer to the 480×720 LCD with GDI without stretching.** The generated binding uses wide touch words for the full native coordinate range.
 

@@ -174,66 +174,37 @@ pub const POCKET_UI_PACKAGE_OFFLOAD: u32 = 2;
 /// The plan names companion services (`companions` is not empty).
 pub const POCKET_UI_PACKAGE_COMPANIONS: u32 = 4;
 
-/// Verify a complete `.pocket` (footer hash included) and select the exact
-/// target/ABI variant. 0 = admitted; 1-11 are the package errors the 3DS host
-/// numbers the same way (truncated, magic, version, footer hash, UTF-8,
-/// no variant, host ABI, identity, plan, JavaScript, NUL terminator), 12 a bad
-/// argument, 13-14 a plan whose JSON or viewport cannot be read, 16 a profile
-/// mismatch, 17 an invalid section layout, and 18 a plan whose `domains.worker`
-/// and section 8 disagree. The expected profile hash comes from the
-/// independent host build (32 readable bytes).
+/// Verify a complete `.pocket` (footer hash included) and select the first
+/// variant the exported profile facts admit (`pocket_package::admission`).
+/// 0 = admitted; the other codes are `package_open::guest_error_code`'s: 1-5
+/// a damaged file, 6 no variant, 7 another binding generation, 8 a missing
+/// identity, 9 an unreadable plan, 10-11 missing or unterminated JavaScript,
+/// 12 a bad argument, 13-14 a plan whose JSON or viewport cannot be read, 17
+/// an invalid section layout, 18 a plan whose `domains.worker` and section 8
+/// disagree, and 19-25 the first failed admission item (raster density,
+/// animation, rate, viewport, presentation, capability, auxiliary). The
+/// profile hash, null or 32 readable bytes, only orders variants.
 ///
 /// # Safety
-/// `ptr` and `target_ptr` are readable for `len` and `target_len` bytes,
-/// `profile_hash` for 32 bytes, and `out` is writable.
+/// `ptr` is readable for `len` bytes, `facts` follows
+/// `pocket_runtime_create`'s profile contract, `profile_hash` is null or
+/// readable for 32 bytes, and `out` is writable.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_ui_package_open(
     ptr: *const u8,
     len: usize,
-    target_ptr: *const u8,
-    target_len: usize,
+    facts: *const crate::abi::PocketProfileFacts,
     host_abi: u32,
     profile_hash: *const u8,
     out: *mut PocketUiPackage,
 ) -> i32 {
-    use pocketjs_core::package::{select_guest, GuestError, PackageError};
     use pocketjs_core::plan_facts::{plan_facts, PlanFactsError};
-    if ptr.is_null()
-        || len == 0
-        || target_ptr.is_null()
-        || target_len == 0
-        || profile_hash.is_null()
-        || out.is_null()
-    {
+    if ptr.is_null() || len == 0 || facts.is_null() || out.is_null() {
         return 12;
     }
-    let target = match core::str::from_utf8(bytes(target_ptr, target_len)) {
-        Ok(value) if !value.is_empty() => value,
-        _ => return 12,
-    };
-    let expected_hash: [u8; 32] = core::slice::from_raw_parts(profile_hash, 32)
-        .try_into()
-        .unwrap();
-    let guest = match select_guest(bytes(ptr, len), target, host_abi, &expected_hash, false) {
+    let guest = match crate::package_open::admit(bytes(ptr, len), facts, host_abi, profile_hash) {
         Ok(guest) => guest,
-        Err(error) => {
-            return match error {
-                GuestError::Package(PackageError::Truncated) => 1,
-                GuestError::Package(PackageError::BadMagic) => 2,
-                GuestError::Package(PackageError::BadVersion) => 3,
-                GuestError::Package(PackageError::HashMismatch) => 4,
-                GuestError::Package(PackageError::BadUtf8) => 5,
-                GuestError::MissingVariant => 6,
-                GuestError::HostAbiMismatch => 7,
-                GuestError::ProfileHashMismatch => 16,
-                GuestError::Package(PackageError::BadLayout) => 17,
-                GuestError::MissingIdentity => 8,
-                GuestError::MissingPlan => 9,
-                GuestError::MissingJavaScript => 10,
-                GuestError::JavaScriptNotTerminated => 11,
-                GuestError::WorkerSectionMismatch => 18,
-            }
-        }
+        Err(code) => return code,
     };
     let facts = match plan_facts(guest.plan) {
         Ok(facts) => facts,
@@ -950,6 +921,37 @@ mod tests {
     use super::*;
     use pocketjs_core::spec;
 
+    /// Exported facts for one fixed 480x320 panel at density 2.
+    struct Facts {
+        logical: [u32; 2],
+        display: crate::abi::PocketProfileDisplay,
+        facts: crate::abi::PocketProfileFacts,
+    }
+    fn facts(capabilities: &'static [u8], density: u32) -> Box<Facts> {
+        static CADENCES: [u32; 1] = [60];
+        let mut value = Box::new(Facts {
+            logical: [480, 320],
+            display: crate::abi::PocketProfileDisplay::empty(),
+            facts: crate::abi::PocketProfileFacts::empty(),
+        });
+        value.display.physical = [960, 640];
+        value.display.logical = value.logical.as_ptr();
+        value.display.logical_count = 1;
+        value.display.raster_density = density;
+        value.facts.id = b"host".as_ptr();
+        value.facts.id_length = 4;
+        value.facts.tick_hz = 60;
+        value.facts.display = &value.display;
+        value.facts.cadences = CADENCES.as_ptr();
+        value.facts.cadence_count = 1;
+        value.facts.capabilities = capabilities.as_ptr();
+        value.facts.capabilities_length = capabilities.len();
+        value.facts.presentations = b"native\0".as_ptr();
+        value.facts.presentations_length = 7;
+        value
+    }
+    const PHYSICS: &[u8] = b"input.touch\0text.glyphs.baked\0ui.physics\0";
+
     #[test]
     fn package_open_reports_why_a_package_is_refused() {
         let fixture = std::fs::read(
@@ -957,31 +959,28 @@ mod tests {
                 .join("tests/fixtures/synthetic.pocket"),
         )
         .unwrap();
-        let open_profile = |bytes: &[u8], target: &str, abi: u32, profile_hash: &[u8; 32]| unsafe {
+        let host = facts(PHYSICS, 2);
+        let open = |bytes: &[u8], abi: u32| unsafe {
             let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
             pocket_ui_package_open(
                 bytes.as_ptr(),
                 bytes.len(),
-                target.as_ptr(),
-                target.len(),
+                &host.facts,
                 abi,
-                profile_hash.as_ptr(),
+                core::ptr::null(),
                 out.as_mut_ptr(),
             )
         };
-        let open =
-            |bytes: &[u8], target: &str, abi: u32| open_profile(bytes, target, abi, &[0x11; 32]);
-        // The fixture's plans carry a target but no viewport.
-        assert_eq!(open(&fixture, "psp", 1), 14);
-        assert_eq!(open(&fixture, "psp", 2), 7);
-        assert_eq!(open(&fixture, "ipodtouch4-dev", 8), 6);
+        // The fixture's plans carry a target but no viewport: no variant is
+        // admitted, and the closest fails its plan or binding generation.
+        assert_eq!(open(&fixture, 1), 9);
+        assert_eq!(open(&fixture, 2), 7);
         assert_eq!(
             unsafe {
                 pocket_ui_package_open(
                     core::ptr::null(),
                     0,
-                    b"psp".as_ptr(),
-                    3,
+                    &host.facts,
                     1,
                     core::ptr::null(),
                     core::ptr::null_mut(),
@@ -994,30 +993,28 @@ mod tests {
     #[test]
     fn package_open_reads_the_surface_and_features_from_the_plan() {
         // tests/fixtures/repack-ipod/landscape-physics.pocket: a 480x320
-        // ipodtouch4-dev plan at density 2 that requires ui.physics.
+        // ipodtouch4-dev plan at density 2 that requires ui.physics. Its plan
+        // predates the animation fact; these host facts state no class.
         let fixture = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/landscape-physics.pocket"),
         )
         .unwrap();
-        let target = "ipodtouch4-dev";
-        let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
-        let result = unsafe {
-            pocket_ui_package_open(
+        let open = |host: &Facts| unsafe {
+            let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
+            let result = pocket_ui_package_open(
                 fixture.as_ptr(),
                 fixture.len(),
-                target.as_ptr(),
-                target.len(),
+                &host.facts,
                 8,
-                [
-                    0x94, 0x86, 0x68, 0xbc, 0x22, 0x22, 0x47, 0xce, 0x96, 0x2d, 0x0b, 0xad, 0x31,
-                    0x8b, 0x19, 0xba, 0x10, 0x11, 0x25, 0x8a, 0x88, 0xd4, 0x73, 0xc7, 0xdf, 0xb1,
-                    0xbc, 0x22, 0xb3, 0xa9, 0x28, 0xac,
-                ]
-                .as_ptr(),
+                core::ptr::null(),
                 out.as_mut_ptr(),
-            )
+            );
+            (result, out)
         };
+        assert_eq!(open(&facts(b"input.touch\0text.glyphs.baked\0", 2)).0, 24);
+        assert_eq!(open(&facts(PHYSICS, 1)).0, 19);
+        let (result, out) = open(&facts(PHYSICS, 2));
         assert_eq!(result, 0);
         let package = unsafe { out.assume_init() };
         assert_eq!(

@@ -95,7 +95,7 @@ describe("iPhone 2G device transport contract", () => {
 
   test("derives guest artifacts and native identity from one verified build plan", () => {
     const manifest = JSON.parse(
-      readFileSync(join(repository, "apps/iphone2g-demo/pocket.json"), "utf8"),
+      readFileSync(join(repository, "apps/iphone2g-demo/pocket.app.json"), "utf8"),
     );
     manifest.app.output = "renamed-iphone-guest";
     const plan = resolveIPhone2GBuildPlan(manifest);

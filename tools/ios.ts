@@ -1,5 +1,5 @@
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
-import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, prepareCompiledApplication, runProgramBuild } from "./build/programs/application.ts";
 // NativeScript iOS build, staging and deployment. Application JavaScript
 // arrives in a compiled .pocket; this file builds only the native shell.
@@ -388,18 +388,19 @@ async function vendPluginXcframework(options: StageOptions): Promise<void> {
 // play
 
 async function play(args: readonly string[]): Promise<void> {
-  const selected = await resolveProfile({ from: process.cwd(), runtimeConfig: flagValue(args, "--runtime-config") ?? resolve(ROOT, "programs/ios-simulator/pocket.runtime-config.ts"), requireConfig: true });
+  const selected = await resolveProfile({ from: process.cwd(), hostConfig: flagValue(args, "--host-config") ?? resolve(ROOT, "programs/ios-simulator/pocket.host.config.ts"), requireConfig: true });
   const application = prepareCompiledApplication(selected.profile, args, resolve(ROOT, ".pocket-build/ios/stage"));
   const { inputs } = applicationBundle(application, IOS_DEV_TARGET_ID);
   const requestedHz = tickRateFlag(args);
   const requestedDensity = flagValue(args, "--density");
-  if ((requestedHz !== undefined && requestedHz !== selected.profile.tickHz) ||
+  // The surface runs the package's rate; the package carries it.
+  if ((requestedHz !== undefined && requestedHz !== application.plan.profile.tickHz) ||
       (requestedDensity !== undefined && Number(requestedDensity) !== selected.profile.display.rasterDensity)) {
-    throw new Error("iOS staging timing and density must match the compiled package's runtime config");
+    throw new Error("iOS staging timing and density must match the compiled package and its host contract");
   }
   const options: StageOptions = {
     shellDir: resolve(flagValue(args, "--shell-dir") ?? DEFAULT_SHELL),
-    externalGuest: args.includes("--external-guest"), tickHz: selected.profile.tickHz,
+    externalGuest: args.includes("--external-guest"), tickHz: application.plan.profile.tickHz,
     pluginPath: flagValue(args, "--plugin-path"), runtimeTgz: flagValue(args, "--runtime-tgz"),
   };
   if (args.includes("--rebuild-native")) await buildNative(true);
@@ -439,7 +440,7 @@ const HELP = `PocketJS Apple / iOS toolchain
   pocket ios play --pocket <app.pocket>    stage, build and launch the shell
 
 stage/play options:
-  --runtime-config=<file>  program profile (default programs/ios-simulator)
+  --host-config=<file>  program profile (default programs/ios-simulator)
   --external-guest         use the shell's generated guest binding
   --shell-dir=<path>       destination NativeScript shell
   --plugin-path=<path>     @nativescript/pocketjs source override

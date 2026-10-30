@@ -10,7 +10,7 @@ import { profileFactsC } from "../tools/profile-export.ts";
 const root = resolve(import.meta.dir, "..");
 const cc = Bun.which("cc");
 const runDir = resolve(root, `.pocket-build/validation/runtime-cabi/${Date.now()}-${process.pid}`);
-const fixtureProfile: PocketProfile = { id: "fixture", platform: "test", form: "takeover", tickHz: 60, display: { physicalViewport: [4, 4], logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1 }, capabilities: [] };
+const fixtureProfile: PocketProfile = { format: "pocket-host/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
 const profile = canonicalProfileJson(fixtureProfile);
 function packageFixture(): Uint8Array {
   const text = new TextEncoder();
@@ -18,7 +18,7 @@ function packageFixture(): Uint8Array {
     target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + createHash("sha256").update(profile).digest("hex"),
     sections: [
       {kind:1,bytes:encodeIdentity({output:"app",id:"test.app",title:"App"})},
-      {kind:2,bytes:text.encode('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}')},
+      {kind:2,bytes:text.encode('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}')},
       {kind:3,bytes:text.encode("test\0")}
     ]
   }]});

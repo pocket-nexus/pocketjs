@@ -11,6 +11,9 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import { POCKET_CAPABILITIES, POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { POCKET_SECTION, decodePocketPackage, encodePocketPackage, findSection } from "../contracts/spec/pocket-package.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
+import { parsePocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { profileRegistry } from "../tools/profile-resolver.ts";
 
 const global = globalThis as any;
 afterEach(() => { delete global.__pocketWorker; delete global.__pocketWorkerTurn; delete global.__pocketWorkerChannels; delete global.__POCKET_WORKER_DECLARATION__; });
@@ -192,6 +195,29 @@ test("worker manifest admission rejects hosts without a second runtime and dupli
   if (!invalid.ok) expect(invalid.diagnostics.some(d => d.code === "worker.duplicate")).toBe(true);
 });
 
+test("a worker declaration implies runtime.worker and its node capabilities; the host bounds node counts", () => {
+  const manifest = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
+  manifest.domains = { worker: { entry: "worker.ts", nodes: [{ name: "api", kind: "http" }] } };
+  const profile = (nodes?: Record<string, number>) => parsePocketProfile({
+    ...POCKET_PROFILES.psp, id: "worker-host", capabilities: [...POCKET_PROFILES.psp.capabilities, "net.http", "runtime.worker"],
+    ...(nodes ? { worker: { nodes } } : {}),
+  });
+  const resolveOn = (selected: ReturnType<typeof profile>) => validateAndResolveBuildPlan(manifest, { target: "worker-host" }, profileRegistry(selected));
+  const admitted = resolveOn(profile({ http: 1 }));
+  expect(admitted.ok).toBe(true);
+  if (admitted.ok) expect([admitted.plan.features["runtime.worker"], admitted.plan.features["net.http"]]).toEqual([true, true]);
+  // PSP provides neither capability the declaration implies.
+  const psp = validateAndResolveBuildPlan(manifest, { target: "psp" });
+  expect(psp.ok ? [] : psp.diagnostics.filter(item => item.path === "/domains/worker").map(item => item.code)).toEqual(["capability.unavailable", "capability.unavailable"]);
+  manifest.domains.worker.nodes.push({ name: "api2", kind: "http" });
+  const limited = resolveOn(profile({ http: 1 }));
+  expect(limited.ok ? [] : limited.diagnostics.map(item => item.code)).toEqual(["worker.nodeLimit"]);
+  expect(resolveOn(profile()).ok).toBe(true);
+  manifest.domains.worker.nodes = Array.from({ length: 9 }, (_, index) => ({ name: `api${index}`, kind: "http" }));
+  const protocol = resolveOn(profile());
+  expect(protocol.ok ? [] : protocol.diagnostics.map(item => item.code)).toEqual(["worker.nodeLimit"]);
+});
+
 test("worker compiler emits an independently executable realm whose entry starts its tasks", async () => {
   const outdir = resolve(".pocket-build/validation/worker/sdk");
   mkdirSync(outdir, { recursive: true });
@@ -230,7 +256,6 @@ test("pocket check includes the independent worker entry", () => {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: "dev.pocket-nexus.worker-check",
-    name: "pocket-worker-check",
     title: "Worker Check",
     version: "0.1.0",
     engine: { capabilities: { requires: ["runtime.worker"] } },
@@ -246,7 +271,7 @@ test("pocket check includes the independent worker entry", () => {
   writeFileSync(resolve(output, "invalid.ts"), "const value: number = 'incorrect';\nvoid value;\n");
   // The UI entry's imports map through the UI domain: a worker subpath is unresolvable there.
   writeFileSync(resolve(output, "ui.tsx"), 'import { io } from "@pocketjs/framework/io";\nvoid io;\n');
-  const path = resolve(output, "pocket.json");
+  const path = resolve(output, "pocket.app.json");
   writeFileSync(path, JSON.stringify(manifest));
   const checked = Bun.spawnSync([process.execPath, resolve("tools/pocket.ts"), "check", "--manifest", path, "--project-root", resolve("."), "--target", "3ds-dev"], { cwd: resolve("."), stdout: "pipe", stderr: "pipe" });
   expect(checked.exitCode).not.toBe(0);

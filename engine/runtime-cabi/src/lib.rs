@@ -6,6 +6,7 @@ pub mod adapters;
 pub mod compat;
 mod guest;
 mod hooks;
+pub mod package_open;
 mod provider;
 mod runtime;
 pub mod embedding;

@@ -1,13 +1,13 @@
 # iPod touch 4
 
-The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, program configs and artifact paths. Dated device validation records retain their recorded commands.
+The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
 
 The private iPod touch 4 target runs PocketJS on an exact `iPod4,1` device
 with iOS 6.1.6 build `10B500`. **The application owns a 320×480-point surface
 backed by the device's 640×960 Retina display, rendered through the required
 OpenGL ES 1.1 path of the shared legacy UIKit runtime.** The target id is
 `ipodtouch4-dev`; it uses the same generated guest binding as `iphone4s-dev`.
-Each profile retains its own content hash, and package admission checks both
+Each host contract retains its own content hash, and package admission checks both
 that hash and the binding generation. The target remains outside the public `POCKET_TARGETS` registry.
 
 The target builds two applications from this repository, selected with
@@ -56,7 +56,7 @@ spill, the toys, and letters that hop, talk, and go back to the pocket's
 mouth. It shares its bodies, toys and bake with the 3DS scene in
 `apps/nexus` (`homepage.ts`, `toys.ts`, `bake.ts`).
 
-**The profile advertises `ui.physics`. For an app whose plan resolves it,
+**The host contract advertises `ui.physics`. For an app whose plan resolves it,
 the build compiles `programs/native/quickjs/pocket_runtime.c` with
 `POCKET_PHYSICS`, which binds ops 52..56 to the `ui_physics_*` exports of
 the UI C ABI (`programs/native/cabi`).** Other apps, and the other hosts that
@@ -136,7 +136,7 @@ bun ipodtouch4 capture
 bun ipodtouch4 uninstall         # removes the app and its data
 ```
 
-`build --pocket` consumes an application package admitted to the `ipodtouch4-dev` profile and compiles the shared legacy
+`build --pocket` consumes an application package admitted to the `ipodtouch4-dev` host contract and compiles the shared legacy
 runtime for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
 embedded as `__pocket_js` / `__pocket_pak` sections. The build id hashes the
 plan, the guest artifacts, every native object, the sysroot stubs, and the
@@ -240,9 +240,10 @@ PocketJS commit, the files' sizes and SHA-256, and under `host` the build id,
 the executable name and the deployment target). **The executable has no
 `__pocket_js` or `__pocket_pak` section and is compiled with
 `POCKET_PACKAGE_RUNTIME`: before `UIApplicationMain` it reads `app.pocket`
-beside itself, admits its `ipodtouch4-dev` variant through
-`pocket_ui_package_open` (footer hash, profile hash, binding generation, identity, plan, NUL-ended
-JavaScript), and takes the logical surface and raster density from that
+beside itself, admits a variant through `pocket_ui_package_open` with the
+exported `pocket_profile_facts` (footer hash, binding generation, the
+[admission](../site/content/docs/platform-contracts.md#admission) facts,
+identity, plan, NUL-ended JavaScript), and takes the logical surface and raster density from that
 variant's plan.** The plan must ask for 320×480 or 480×320 at density 2. A
 bundle without `app.pocket`, or with one that is refused, opens a
 software-drawn window that shows the reason (for example `this app carries no

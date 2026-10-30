@@ -35,7 +35,7 @@
   },
   "rust": {},
   "app": {
-    "manifest": "apps/clear/pocket.redmi-1s.json",
+    "manifest": "apps/clear/pocket.app.json",
     "output": "dist/redmi-1s/pocket-clear.apk"
   }
 }

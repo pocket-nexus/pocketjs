@@ -6,6 +6,7 @@ import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generati
 import { readRuntimeDirectory } from "../repack.ts";
 import { readRuntime } from "../repack/shared/runtime.ts";
 import { releaseVersion, validateReleaseManifest, type ReleaseAsset, type ReleaseManifest } from "./manifest.ts";
+import { POCKET_PROFILE_FILE } from "../../contracts/spec/profile.ts";
 import { verifySdk } from "./receipt.ts";
 import { archiveDirectory } from "./tar.ts";
 
@@ -46,7 +47,13 @@ export async function prepareRelease(inputs: ReleaseInputs, output: string): Pro
       const copy = join(staging, "runtime"); cpSync(directory, copy, { recursive: true });
       const receipt = await readRuntime(readRuntimeDirectory(copy), target);
       if (receipt.pocketjs !== inputs.revision) throw new Error("runtime release requires a clean matching revision: " + target);
-      runtimes[target] = { ...archive(copy, "pocket-runtime-" + target + ".tar.gz"), profileHash: receipt.profileHash };
+      // The firmware release: the program archive, its stamped host
+      // contract and the binding generation the manifest records.
+      const document = readFileSync(join(copy, POCKET_PROFILE_FILE));
+      const profileFile = "pocket-host-" + target + ".json";
+      writeFileSync(join(staging, profileFile), document);
+      runtimes[target] = { ...archive(copy, "pocket-runtime-" + target + ".tar.gz"), profileHash: receipt.profileHash,
+        profile: { file: profileFile, bytes: document.length, sha256: createHash("sha256").update(document).digest("hex") } };
       rmSync(copy, { recursive: true });
     }
     let source: ReleaseAsset | undefined;

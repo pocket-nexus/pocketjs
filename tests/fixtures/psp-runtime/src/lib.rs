@@ -156,7 +156,7 @@ fn package(code: &[u8], plan: &[u8]) -> Vec<u8> {
     })
     .unwrap()
 }
-const PLAN: &[u8] = br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{}}"#;
+const PLAN: &[u8] = br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1},"features":{}}"#;
 impl Program {
     unsafe fn new(code: &[u8]) -> Self {
         let p = Self::unbooted();
@@ -190,7 +190,7 @@ impl Program {
         .unwrap();
         let ops = embed::op_context(runtime).unwrap();
         ops.add_provider(Box::new(instance::Services)).unwrap();
-        let guest = instance::Guest::new(ops, 20).unwrap();
+        let guest = instance::Guest::new(ops, Some(20)).unwrap();
         let input = Rc::new(RefCell::new(instance::Input {
             analog: 0x8080,
             ..Default::default()
@@ -444,7 +444,7 @@ fn original_package_facts_are_admitted_before_guest_initialization() {
         let mut p = Program::unbooted();
         let package = package(
             br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan lost');"#,
-            br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#,
+            br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1},"features":{"ui.physics":true}}"#,
         );
         assert_eq!(
             embed::set_package_source(
@@ -484,7 +484,7 @@ fn malformed_package_never_runs_guest_or_submits_gpu() {
 }
 
 #[test]
-fn packages_for_another_profile_are_refused_before_the_guest_runs() {
+fn packages_the_profile_facts_do_not_satisfy_are_refused_before_the_guest_runs() {
     unsafe {
         let p = Program::unbooted();
         let identity =
@@ -496,7 +496,7 @@ fn packages_for_another_profile_are_refused_before_the_guest_runs() {
             host_abi: profile::HOST_ABI,
             profile_hash: other,
             identity: &identity,
-            plan: PLAN,
+            plan: br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1},"features":{"net.http":true}}"#,
             code: b"globalThis.started=true;globalThis.frame=function(){}",
             pak: &[],
         })

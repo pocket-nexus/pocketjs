@@ -1,0 +1,20 @@
+{
+  "format": "pocket-host/2",
+  "id": "cardputer-zero",
+  "platform": "linux",
+  "form": "embedded",
+  "cadences": [30],
+  "display": {
+    "logicalViewports": [[320, 170]],
+    "presentations": ["native"],
+    "rasterDensity": 1,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [320, 170]
+  },
+  "capabilities": ["input.buttons", "net.http", "runtime.worker", "text.glyphs.baked"],
+  "worker": {
+    "nodes": { "http": 1 }
+  }
+}

@@ -2,7 +2,7 @@
 
 `media.playback` provides one native playback plane per guest realm. **The
 capability names playback behavior; codec hardware is reported by live status.**
-Declare the capability in the manifest, then import `mediaPlayer` from
+Declare the capability in the app contract, then import `mediaPlayer` from
 `@pocketjs/framework/media`. A provider returns a `MediaSource` containing an
 IPv4 address, port and one-use ticket. `open` submits that source to a worker.
 `pause`, `volume` and `close` update bounded command state. `texture` returns a
@@ -94,7 +94,7 @@ can press L + D-pad Down + SELECT, choose Miscellaneous options → Dump DSP
 firmware in Rosalina, then reopen the media source. The dump reads firmware
 from the console; the application does not distribute firmware. See the
 [devkitPro audio setup](https://github.com/devkitPro/3ds-examples/blob/master/audio/README.md).
-The 3DS profile remains
+The 3DS host contract remains
 private and its host ABI is 10; ABI 8 launchers require a native replacement.
 The CIA declares `mvd:STD` service access and the MVD system-module dependency
 listed in [3dbrew's title table](https://www.3dbrew.org/wiki/Title_list#00040130_-_System_Modules).

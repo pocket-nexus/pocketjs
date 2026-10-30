@@ -263,7 +263,7 @@ const bindings: { solid: string; vue?: string; rust: string }[] = [
       <SectionHead
         title="Pick a model"
         :start="1"
-        lede="Write the app logic in Rust, or write it in TypeScript and compile it to Rust as well. <code>app.model</code> in <code>pocket.json</code> selects the mode; the view stays the same."
+        lede="Write the app logic in Rust, or write it in TypeScript and compile it to Rust as well. <code>app.model</code> in <code>pocket.app.json</code> selects the mode; the view stays the same."
       />
       <div class="grid gap-6 md:grid-cols-2">
         <div class="shell hue-yellow px-6 pt-5 pb-6">

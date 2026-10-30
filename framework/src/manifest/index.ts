@@ -33,6 +33,7 @@ export {
 } from "./host-build-inputs.ts";
 export {
   expandThemeReference,
+  readAuthoredManifest,
   readPocketManifest,
   type LoadedManifest,
 } from "./load.ts";

@@ -107,7 +107,7 @@ impl AotApp for Box<App> {
     #[inline(never)]
     fn mount(mut ui: Ui, environment: &GuestEnvironment<'_>) -> Result<Self, RuntimeError> {
         assert_eq!(environment.viewport, [240, 160]);
-        assert_eq!(environment.tick_hz, 30);
+        assert_eq!(environment.tick_hz, TICK_HZ);
         assert!(ui.load_styles(include_bytes!(concat!(
             env!("GBA_GENERATED"),
             "/styles.bin"
@@ -186,7 +186,7 @@ pub unsafe extern "C" fn gba_main() -> ! {
         .add_display(presentation::Lcd(frame.clone()), renderer)
         .unwrap();
     runtime
-        .boot_aot_deferred(profile::PROFILE_HASH, [240, 160], false)
+        .boot_aot_deferred(profile::PROFILE_HASH, [240, 160], false, TICK_HZ)
         .unwrap();
     runtime.skip_presentation().unwrap();
     let mut scene = Box::new(scene::Scene::new(

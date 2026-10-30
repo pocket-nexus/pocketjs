@@ -1,0 +1,17 @@
+{
+  "format": "pocket-host/2",
+  "id": "meizu-m8-dev",
+  "platform": "wince",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[480, 720]],
+    "presentations": ["native"],
+    "rasterDensity": 1,
+    "animation": "repaint"
+  },
+  "panel": {
+    "primary": [480, 720]
+  },
+  "capabilities": ["input.touch", "text.glyphs.baked"]
+}

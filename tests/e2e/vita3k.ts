@@ -110,7 +110,6 @@ function writeDemoManifest(name: string): { readonly path: string; readonly titl
   const applicationId = `dev.pocket-nexus.e2e.${demo.replace(/-/g, ".")}`;
   const manifest = demoManifestFor(ROOT, demo) as Record<string, any>;
   manifest.id = applicationId;
-  manifest.name = `pocketjs-e2e-${demo}`;
   manifest.title = `PocketJS E2E ${demo}`;
   manifest.app.entry = `apps/${demo}/main.tsx`;
   manifest.app.output = name;

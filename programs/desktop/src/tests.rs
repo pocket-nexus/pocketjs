@@ -82,7 +82,7 @@ mod tests {
             },
             "systemUI": {
                 "package": "dev.pocket-nexus.shell",
-                "source": "apps/shell/pocket.json",
+                "source": "apps/shell/pocket.app.json",
                 "required": true,
                 "plan": {
                     "app": {
@@ -93,6 +93,7 @@ mod tests {
                         "entry": "apps/shell/main.tsx",
                         "framework": "solid"
                     },
+                    "profile": { "id": HOST_ID, "tickHz": 60 },
                     "target": { "id": HOST_ID, "hostAbi": pocket_spec::BINDING_GENERATION },
                     "viewport": {
                         "logical": [800, 600],

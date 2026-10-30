@@ -1082,7 +1082,7 @@ PocketJS apps are compiled into a **pak** — a bundle containing:
 | `font-atlas-*.bin` | Baked Inter glyph atlases (exactly the app's codepoints) |
 | `images/` | PNG/JPEG textures referenced by the app |
 | `sprites/` | Sprite sheet definitions |
-| `pocket.json` | App manifest (name, entry, target, framework) |
+| `pocket.app.json` | App contract (name, entry, target, framework) |
 
 ### On the Host Side
 

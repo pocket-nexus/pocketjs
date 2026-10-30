@@ -5,14 +5,9 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
-import type { RuntimeBuildContext } from "../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { build as threeDsBuild } from "../products/3ds/recipe.ts";
-import threeDs from "../profiles/3ds-dev.ts";
-import gba from "../profiles/gba.ts";
-import nano from "../profiles/ipodnano.ts";
-import psp from "../profiles/psp.ts";
-import vita from "../profiles/vita.ts";
-import web from "../profiles/web-app.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { gbaBuild, ipodNanoBuild } from "../tools/build/programs/aot.ts";
 import { deployPsp, deployVita } from "../tools/build/programs/deploy.ts";
@@ -22,6 +17,12 @@ import { build as vitaBuild } from "../tools/build/programs/vita.ts";
 import { build as webBuild } from "../tools/build/programs/web.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
+const threeDs = POCKET_PROFILES["3ds-dev"];
+const gba = POCKET_PROFILES["gba"];
+const nano = POCKET_PROFILES["ipodnano"];
+const psp = POCKET_PROFILES["psp"];
+const vita = POCKET_PROFILES["vita"];
+const web = POCKET_PROFILES["web-app"];
 
 const root = resolve(import.meta.dir, "..");
 const base = resolve(root, ".pocket-build/validation/runtime-build/program-tests");
@@ -55,7 +56,7 @@ test("native launcher inputs are explicit existing paths while recipe-owned comp
 
 test("web assembly stages admitted bytes and the complete runtime/text provider modules", async () => {
   const ctx = context(web);
-  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocket.program", name: "example", title: "Example", version: "1.0.0",
+  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocket.program", title: "Example", version: "1.0.0",
     engine: { capabilities: { requires: ["text.glyphs.baked"] } },
     app: { entry: "missing-source.tsx", framework: "solid", output: "example", viewport: { fixed: { logical: [800, 600], presentation: "native" } } } };
   const resolved = validateAndResolveBuildPlan(manifest, { target: web.id }, profileRegistry(web));

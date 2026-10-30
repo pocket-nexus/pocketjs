@@ -188,15 +188,19 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let path = options.package.unwrap_or_else(|| DEFAULT_PACKAGE.into());
     let mut source = FileSource::open(&path)?;
     if options.check {
-        LoadedPackage::load(
+        let package = LoadedPackage::load(
             &mut source,
-            profile::ID,
-            profile::HOST_ABI,
-            &profile::PROFILE_HASH,
+            &profile.host_facts(profile::HOST_ABI, profile::PROFILE_HASH),
             PACKAGE_LIMIT,
         )
         .map_err(error)?;
-        println!("package admitted: {} ({})", path.display(), profile.id);
+        println!(
+            "package admitted: {} ({}, {} Hz at {} Hz)",
+            path.display(),
+            profile.id,
+            package.timing.tick_hz,
+            package.timing.cadence_hz
+        );
         return Ok(());
     }
     if pocket_drivers::PackageSource::length(&source).map_err(error)? > PACKAGE_LIMIT {
@@ -250,7 +254,13 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
     }
     let mut clock = MonotonicClock::default();
-    let mut schedule = TickSchedule::new(profile.tick_hz, clock.now(), 1).map_err(error)?;
+    // One frame per cadence period; each advances the package rate divided by
+    // the cadence in core ticks.
+    let cadence_hz = runtime
+        .timing()
+        .ok_or_else(|| error("the package did not boot"))?
+        .cadence_hz;
+    let mut schedule = TickSchedule::new(cadence_hz, clock.now(), 1).map_err(error)?;
     while !STOP.load(Ordering::Relaxed) && !http::QUIT.load(Ordering::Relaxed) {
         schedule.wait_next(&mut clock).map_err(error)?;
         if let Some(shot) = shot.as_mut() {

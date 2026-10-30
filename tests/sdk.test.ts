@@ -67,12 +67,12 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     renameSync(options.out, `${options.out}-hidden`);
     cpSync(join(root, "tests/fixtures/sdk"), join(external, "program"), { recursive: true });
     cpSync(quickjs, join(external, "program/quickjs"), { recursive: true });
-    const fixtureProfile: PocketProfile = { id: "fixture", platform: "test", form: "takeover", tickHz: 60, display: { physicalViewport: [4, 4], logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1 }, capabilities: [] };
+    const fixtureProfile: PocketProfile = { format: "pocket-host/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
     const profile = canonicalProfileJson(fixtureProfile);
     const bytes = (source: string) => new TextEncoder().encode(source);
     const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
-      { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
+      { kind: POCKET_SECTION.plan, bytes: bytes('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: bytes("globalThis.frameCount=0;globalThis.frame=()=>{globalThis.frameCount++;ui.createNode(1)};\0") },
     ] }] });
     writeFileSync(join(external, "program/profile.h"), profileFactsC(fixtureProfile, "profile_facts") + `static const unsigned char profile_hash[32] = {${[...createHash("sha256").update(profile).digest()].join(",")}};\nstatic const unsigned char package_bytes[] = {${[...pkg].join(",")}};\n`);

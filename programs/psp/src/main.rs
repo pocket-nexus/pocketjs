@@ -36,13 +36,15 @@ psp::module!("pocketjs", 1, 1);
 #[used]
 static RTC_CLOCK: unsafe extern "C" fn(*mut host::Timeval, *mut c_void) -> i32 = host::_gettimeofday;
 
-const CORE_TICKS_PER_SECOND: u32 = pocketjs_psp::profile::TICK_HZ;
 // The full launcher originally consumed about 42 ms of CPU work on real PSP
 // hardware. Batching cuts that to about 12 ms, but the texture-heavy GE pass
 // still completes across the third vblank. A multi-app package therefore
-// publishes an honest 20 Hz host policy and advances three fixed core ticks
-// per transaction. Standalone apps retain the 60 Hz policy.
+// presents at an honest 20 Hz and advances the package rate divided by 20
+// core ticks per transaction. Standalone apps present at the cadence the
+// runtime selects from the profile for the package rate.
 const MULTI_APP_SIM_HZ: u32 = 20;
+#[cfg(feature = "bench")]
+static mut BENCH_SIM_HZ: u32 = 0;
 
 // App bundles live in switch::APPS (build.rs generates the table; entry 0 is
 // the app POCKETJS_APP selected, multi-app builds append the registry). Each
@@ -313,7 +315,7 @@ unsafe fn bench_maybe_flush(frame_count: u32, source_lengths: (usize, usize)) {
     let line = alloc::format!(
         "{{\"app\":\"{}\",\"sim_hz\":{},\"frames\":{},\"window_start\":{},\"window_n\":{},\"eval_us\":{},\"boot_to_eval_begin_us\":{},\"boot_to_frame0_us\":{},\"avg_frame_interval_us\":{},\"max_frame_interval_us\":{},\"avg_js_us\":{},\"avg_jobs_us\":{},\"avg_tick_us\":{},\"avg_draw_us\":{},\"avg_render_us\":{},\"avg_work_us\":{},\"max_work_us\":{},\"avg_gpu_us\":{},\"max_gpu_us\":{},\"stack_free_bytes\":{},\"bundle_bytes\":{},\"pak_bytes\":{},\"arena_capacity_bytes\":{},\"arena_bump_bytes\":{},\"arena_tail_free_bytes\":{},\"arena_init_free_bytes\":{},\"arena_configured_bytes\":{}}}\n",
         POCKETJS_APP_NAME,
-        if switch::multi() { MULTI_APP_SIM_HZ } else { CORE_TICKS_PER_SECOND },
+        BENCH_SIM_HZ,
         BENCH.frames,
         start,
         n,
@@ -379,14 +381,10 @@ unsafe fn run() {
     pocket_psp_input::initialize();
     trace("run: controller initialized");
 
-    // A single rate spans the whole process. In particular, switching guests
-    // never changes the meaning of GLOBAL_FRAME or of a captured input tape.
-    let sim_hz = if switch::multi() {
-        MULTI_APP_SIM_HZ
-    } else {
-        CORE_TICKS_PER_SECOND
-    };
-    let ticks_per_virtual_frame = CORE_TICKS_PER_SECOND / sim_hz;
+    // A multi-app build presents every guest at one cadence, so switching
+    // guests never changes the meaning of GLOBAL_FRAME or of a captured input
+    // tape. Each package's rate comes from its plan.
+    let fixed_cadence = switch::multi().then_some(MULTI_APP_SIM_HZ);
     let last_present_vcount = Rc::new(Cell::new(sys::sceDisplayGetVcount()));
 
     // ---- Guest lifecycle (docs/LAUNCHER.md): one guest alive at a time; a
@@ -394,12 +392,7 @@ unsafe fn run() {
     // Single-app builds have a table of one and never leave the first call.
     let mut boot_index: usize = 0;
     loop {
-        boot_index = run_guest(
-            boot_index,
-            sim_hz,
-            ticks_per_virtual_frame,
-            &last_present_vcount,
-        );
+        boot_index = run_guest(boot_index, fixed_cadence, &last_present_vcount);
         trace("run: guest swap");
         // The system transition (docs/PLATFORM.md): host-drawn shot-dim + mark
         // sweep, then the next guest's eval holds on its settled last frame.
@@ -428,8 +421,7 @@ unsafe fn guest_fail(app_index: usize, msg: &str) -> usize {
 /// guest down, and return the next app index to boot.
 unsafe fn run_guest(
     app_index: usize,
-    sim_hz: u32,
-    ticks_per_virtual_frame: u32,
+    fixed_cadence: Option<u32>,
     last_present_vcount: &Rc<Cell<u32>>,
 ) -> usize {
     switch::set_current(app_index);
@@ -438,7 +430,7 @@ unsafe fn run_guest(
         Err(error) => return guest_fail(app_index, &error),
     };
     trace("run: runtime create begin");
-    let mut runtime = match Runtime::new(source, sim_hz, last_present_vcount.clone()) {
+    let mut runtime = match Runtime::new(source, fixed_cadence, last_present_vcount.clone()) {
         Ok(runtime) => runtime,
         Err(error) => return guest_fail(app_index, &error),
     };
@@ -454,6 +446,11 @@ unsafe fn run_guest(
     if let Err(error) = runtime.boot() {
         drop(runtime);
         return guest_fail(app_index, &error);
+    }
+    let ticks_per_virtual_frame = runtime.core_ticks();
+    #[cfg(feature = "bench")]
+    {
+        BENCH_SIM_HZ = runtime.sim_hz();
     }
     #[cfg(feature = "bench")]
     {

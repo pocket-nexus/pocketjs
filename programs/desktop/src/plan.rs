@@ -71,8 +71,16 @@ struct ResolvedViewportPlan {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ResolvedProfilePlan {
+    /// The package's baked core ticks per virtual second.
+    tick_hz: u32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ResolvedPackagePlan {
     app: ResolvedAppPlan,
+    profile: ResolvedProfilePlan,
     target: ResolvedTargetPlan,
     viewport: ResolvedViewportPlan,
     features: HashMap<String, bool>,
@@ -220,8 +228,13 @@ impl ResolvedSystemPlan {
 
 struct Args {
     app: String,
+    /// A compiled `.pocket`, admitted against the exported profile. Without
+    /// it the host encodes --js and --pak as a package at --tick-hz.
+    package: Option<PathBuf>,
     js: Option<PathBuf>,
     pak: Option<PathBuf>,
+    /// The rate --js was compiled for (its plan's profile.tickHz).
+    tick_hz: u32,
     /// Editor-protocol document file (note-widget's --file).
     file: Option<PathBuf>,
     title: String,
@@ -256,8 +269,10 @@ struct Args {
 fn parse_args() -> Result<Args> {
     let mut args = Args {
         app: "note-main".into(),
+        package: None,
         js: None,
         pak: None,
+        tick_hz: 60,
         file: None,
         title: "PocketJS".into(),
         viewport: (720, 480),
@@ -282,6 +297,8 @@ fn parse_args() -> Result<Args> {
         };
         match a.as_str() {
             "--app" => args.app = val("--app")?,
+            "--package" => args.package = Some(PathBuf::from(val("--package")?)),
+            "--tick-hz" => args.tick_hz = val("--tick-hz")?.parse()?,
             "--js" => args.js = Some(PathBuf::from(val("--js")?)),
             "--pak" => args.pak = Some(PathBuf::from(val("--pak")?)),
             "--file" => args.file = Some(PathBuf::from(val("--file")?)),
@@ -433,8 +450,10 @@ fn parse_args() -> Result<Args> {
         args.density = shell.plan.viewport.raster_density.clamp(1, 4);
         // System package assets are selected only by their resolved outputs;
         // command-line bundle overrides cannot replace the System UI shell.
+        args.package = None;
         args.js = None;
         args.pak = None;
+        args.tick_hz = shell.plan.profile.tick_hz;
         args.system = Some(system);
     }
     Ok(args)

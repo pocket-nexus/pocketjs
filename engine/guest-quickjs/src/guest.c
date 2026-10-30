@@ -235,7 +235,9 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
   }
   if(env->auxiliary_width&&env->auxiliary_height) {JSValue auxiliary=viewport(ctx,env->auxiliary_width,env->auxiliary_height);if(set(ctx,auxiliary,"root",JS_NewInt32(ctx,env->auxiliary_root))<0){JS_FreeValue(ctx,auxiliary);goto failed;}if(set(ctx,ui,"__auxiliarySurface",auxiliary)<0)goto failed;}
   if(env->pak_length) {JSValue pak=package_buffer(ctx,guest,env);if(JS_IsException(pak))goto failed;guest->pak=JS_DupValue(ctx,pak);if(set(ctx,global,"__pak",pak)<0)goto failed;guest->mounted_pak=1;}
-  if(guest->profile==POCKET_QJS_LEGACY_C&&set(ctx,global,"__simHz",JS_NewInt32(ctx,60))<0)goto failed;
+  /* Guest frames per second: the host cadence the framework clock latches. */
+  {uint32_t sim=HAS_FIELD(env,pocket_guest_environment,sim_hz)?env->sim_hz:0;if(!sim&&guest->profile==POCKET_QJS_LEGACY_C)sim=60;
+   if(sim&&set(ctx,global,"__simHz",JS_NewUint32(ctx,sim))<0)goto failed;}
   if(set(ctx,global,"ui",ui)<0){ui=JS_UNDEFINED;goto failed;}ui=JS_UNDEFINED;guest->mounted=1;JS_FreeValue(ctx,global);return 0;
 failed:
   JS_FreeValue(ctx,ui);JS_FreeValue(ctx,global);int32_t status=fail(guest);shutdown(guest);return status;

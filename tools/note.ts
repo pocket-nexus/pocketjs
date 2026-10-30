@@ -28,7 +28,7 @@ const pass = args.filter((f) => f !== "--proof");
 // The note builds through its manifest against the macos-widget
 // target profile — density, viewport and capability features all come from
 // the platform contract, not flags.
-const manifest = readPocketManifest(`${root}apps/note/pocket.json`).manifest;
+const manifest = readPocketManifest(`${root}apps/note/pocket.app.json`).manifest;
 const resolution = validateAndResolveBuildPlan(manifest, { target: "macos-widget" });
 if (!resolution.ok) {
   throw new Error(

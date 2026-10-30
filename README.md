@@ -108,9 +108,9 @@ fixed Tailwind subset, enumerated in
 ### One bundle, many screens
 
 One bundle serves machines of different densities. An application declares its
-viewport and required APIs in `pocket.json`, and a target profile must satisfy
-that declaration before compilation and packaging proceed. Run from the
-application directory:
+viewport and required APIs in its app contract, `pocket.app.json`, and a host
+contract must satisfy that declaration before compilation and packaging
+proceed. Run from the application directory:
 
 ```sh
 pocket create my-app
@@ -277,8 +277,8 @@ See also: [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) ·
 
 PocketJS has booted on every operating system below, on the real machine. What
 changes between them is one native host, never the application, and each row
-links to the post or pull request that brought it up. Device programs, profiles
-and build tools are maintained in this repository; see
+links to the post or pull request that brought it up. Device programs, host
+contracts and build tools are maintained in this repository; see
 [Device native builds](./docs/DEVICE_BUILDS.md).
 
 | Operating system | Native host | Receipt |
@@ -415,9 +415,9 @@ repository or the Rust AOT build.
 | [`devices/`](./devices/) | Pocket3D device kernels for GXM, GE and PICA200 |
 | [`pocket3d/`](./pocket3d/) | The Pocket3D entry point: its design and a map of where its code lives |
 | [`microts/`](./microts/) | The MicroTS ahead-of-time compiler |
-| [`contracts/`](./contracts/) | Generated wire specs, capability registry, manifests, build plans and package formats |
+| [`contracts/`](./contracts/) | Generated wire specs, capability registry, app and host contract schemas, build plans and package formats |
 | [`programs/`](./programs/) | Runtime composition, entry points and native build recipes |
-| [`profiles/`](./profiles/) | Software contracts identified by content hashes |
+| [`hosts/`](./hosts/) | Built-in host contracts (`hosts/<id>/pocket.host.json`) identified by content hashes |
 | [`platforms/`](./platforms/) | Operating-system, SDK and fixed-console drivers |
 | [`platforms/esp-idf/`](./platforms/esp-idf/) | Runtime, QuickJS, display, PPA, input and runner components |
 | [`platforms/sifli/`](./platforms/sifli/) | SiFli SF32LB5x hooks, EPIC/VG Lite executor and renderer, display, input, guest and runner |

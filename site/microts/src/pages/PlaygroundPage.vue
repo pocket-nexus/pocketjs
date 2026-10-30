@@ -870,7 +870,7 @@ onBeforeUnmount(() => {
               v-model="screenModel"
               class="screen-select"
               aria-label="Screen size"
-              title="Device and screen size (app.viewport in pocket.json)"
+              title="Device and screen size (app.viewport in pocket.app.json)"
             >
               <option v-for="sc in SCREENS" :key="sc.id" :value="sc.id">{{ sc.label }} · {{ sc.width }} × {{ sc.height }}</option>
               <option v-if="screenChoice === 'current'" value="current">Custom · {{ ws.viewport.width }} × {{ ws.viewport.height }}</option>

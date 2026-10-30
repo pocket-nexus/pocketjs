@@ -115,6 +115,8 @@ fn run(
     let mut program = UiProgram::new(ProgramConfig {
         profile,
         profile_hash: profile::PROFILE_HASH,
+        // The bundle's baked rate; its plan's profile.tickHz.
+        tick_hz: 60,
         host_abi: profile::HOST_ABI,
         logical: [geo.logical_w as u32, geo.logical_h as u32],
         heap_limit: 64 * 1024 * 1024,

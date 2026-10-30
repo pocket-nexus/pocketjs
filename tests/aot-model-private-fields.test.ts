@@ -7,7 +7,7 @@ import { executeModelView } from "../microts/compiler/model-view-harness.ts";
 
 function fixture(name:string,framework:"solid"|"vue-vapor",body:string){
   const directory=resolve(".pocket-build/validation/model-aot/private-fields",`${process.pid}-${name}-${framework}`);mkdirSync(directory,{recursive:true});
-  writeFileSync(resolve(directory,"pocket.json"),JSON.stringify({app:{framework,aot:true,model:"compiled",entry:framework==="solid"?"App.tsx":"App.vue"}}));
+  writeFileSync(resolve(directory,"pocket.app.json"),JSON.stringify({app:{framework,aot:true,model:"compiled",entry:framework==="solid"?"App.tsx":"App.vue"}}));
   writeFileSync(resolve(directory,"App.ts"),'import type {i32} from "@pocketjs/framework/solid/std";\n'+body);
   writeFileSync(resolve(directory,framework==="solid"?"App.tsx":"App.vue"),framework==="solid"?'import {View,Text,ActionHandler} from "@pocketjs/framework/solid/components";import {BTN} from "@pocketjs/framework/input";import {read,press} from "./App";export default function App(){return <View><ActionHandler button={BTN.CROSS} onPress={press}/><Text>{read()}</Text></View>}':'<script setup lang="ts">import {View,Text,ActionHandler} from "@pocketjs/framework/vue-vapor/components";import {BTN} from "@pocketjs/framework/vue-vapor/input";import {read,press} from "./App";</script><template><View><ActionHandler :button="BTN.CROSS" @press="press()"/><Text>{{read()}}</Text></View></template>');
   return directory;

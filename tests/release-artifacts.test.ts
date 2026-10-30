@@ -3,18 +3,22 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { exportReleasedSdk, releasedRuntime } from "../tools/release/fetch.ts";
+import { exportReleasedSdk, releasedProfile, releasedRuntime } from "../tools/release/fetch.ts";
 import { validateReleaseManifest } from "../tools/release/manifest.ts";
 import { prepareRelease } from "../tools/release/publish.ts";
 import { verifySdk, type SdkManifest } from "../tools/release/receipt.ts";
 import { archiveDirectory } from "../tools/release/tar.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 
 const root = resolve(import.meta.dir, ".."), base = join(root, ".pocket-build/validation/release-stage9/tests");
 mkdirSync(base, { recursive: true });
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
-const revision = "a".repeat(40), triple = "x86_64-unknown-linux-gnu", profileHash = "sha256:" + "b".repeat(64);
+const fixtureProfile = { ...POCKET_PROFILES["psp-runtime"], id: "fixture" };
+const revision = "a".repeat(40), triple = "x86_64-unknown-linux-gnu", profileHash = hashPocketProfile(fixtureProfile);
 function scratch() { const path = mkdtempSync(join(base, "release-")); temporary.push(path); return path; }
 function fixture(directory: string) {
   const sdk = join(directory, "sdk"), runtime = join(directory, "runtime");
@@ -32,9 +36,9 @@ function fixture(directory: string) {
       cargo: "fixture", compiler: "fixture", toolchain: "fixture", profile: "release", defaultFeatures: false, features: [],
       rustflags: ["-C", "panic=abort"], cargoArgs: [], archive, nativeStaticLibs: [] }, preparation: null, files };
   writeFileSync(join(sdk, "sdk-manifest.json"), JSON.stringify(manifest));
-  mkdirSync(runtime); writeFileSync(join(runtime, "program.bin"), "runtime fixture");
-  writeFileSync(join(runtime, "runtime.json"), JSON.stringify({ target: "fixture", hostAbi: POCKET_BINDING_GENERATION,
-    pocketjs: revision, profile: "fixture", profileHash, files: { "program.bin": { bytes: 15, sha256: hash("runtime fixture") } } }));
+  mkdirSync(runtime);
+  const runtimeFiles = runtimeDirectory(fixtureProfile, new Map([["program.bin", new TextEncoder().encode("runtime fixture")]]), { pocketjs: revision });
+  for (const [name, bytes] of runtimeFiles) writeFileSync(join(runtime, name), bytes);
   return { sdk, runtime, manifest, inputs: { version: "0.15.0", revision, sdks: { [triple]: sdk }, runtimes: { fixture: runtime } } };
 }
 
@@ -55,6 +59,7 @@ test("SDK and runtime downloads reuse the cache and reject existing destinations
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const file = new URL(request.url).pathname.slice(1);
     if (file === "pocket-release.json") return Response.json(release);
+    if (file === release.runtimes.fixture?.profile?.file) return new Response(readFileSync(join(output, file)));
     if (!Object.values({ ...release.sdks, ...release.runtimes }).some(asset => asset.file === file)) return new Response("missing", { status: 404 });
     downloads++;
     return new Response(readFileSync(join(output, file)));
@@ -65,6 +70,9 @@ test("SDK and runtime downloads reuse the cache and reject existing destinations
     expect(first.status).toBe("release"); expect(first.abiFrozen).toBe(false);
     await exportReleasedSdk(triple, join(directory, "export2"), options); expect(downloads).toBe(1);
     expect((await releasedRuntime("fixture", profileHash, options)).get("program.bin")).toEqual(new Uint8Array(Buffer.from("runtime fixture")));
+    // The firmware release publishes its stamped host contract beside the archive.
+    expect(release.runtimes.fixture!.profile!.file).toBe("pocket-host-fixture.json");
+    expect(await releasedProfile("fixture", options)).toEqual({ ...fixtureProfile, hostAbi: POCKET_BINDING_GENERATION });
     await expect(exportReleasedSdk(triple, join(directory, "export1"), options)).rejects.toThrow("already exists");
   } finally { server.stop(true); }
 }, 30_000);
@@ -75,7 +83,12 @@ test("release metadata rejects path escapes, stale ABI and invalid artifact size
   expect(() => validateReleaseManifest(value, value.version)).toThrow("invalid release asset");
   value.sdks.host.file = "sdk.tar.gz"; value.sdks.host.bytes = 0;
   expect(() => validateReleaseManifest(value, value.version)).toThrow("invalid release asset");
-  value.sdks.host.bytes = 1; value.hostAbi = 1 as typeof POCKET_BINDING_GENERATION;
+  value.sdks.host.bytes = 1;
+  // A runtime publishes its host contract beside the archive.
+  const runtime = { file: "runtime.tar.gz", bytes: 1, sha256: "b".repeat(64), format: "tar.gz", profileHash: "sha256:" + "c".repeat(64) };
+  expect(() => validateReleaseManifest({ ...value, runtimes: { psp: runtime } }, value.version)).toThrow("invalid release asset");
+  expect(validateReleaseManifest({ ...value, runtimes: { psp: { ...runtime, profile: { file: "pocket-host-psp.json", bytes: 2, sha256: "d".repeat(64) } } } }, value.version).runtimes.psp!.profile!.file).toBe("pocket-host-psp.json");
+  value.hostAbi = 1 as typeof POCKET_BINDING_GENERATION;
   expect(() => validateReleaseManifest(value, value.version)).toThrow("binding generation");
 });
 

@@ -9,7 +9,7 @@
 // registry stays an inventory of hosts and this file stays a view over it.
 //
 // Applications consume the modality in two places:
-//   - pocket.json `app.presentations[].modality` is a REQUIREMENT the
+//   - pocket.app.json `app.presentations[].modality` is a REQUIREMENT the
 //     resolver tests against the target's derived modality to pick which
 //     presentation (entry module) a build compiles;
 //   - `@pocketjs/framework/modality` exposes the resolved description to the

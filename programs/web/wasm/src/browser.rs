@@ -3,6 +3,19 @@ use pocket_package::embedded::{self, EmbeddedPackage};
 use pocket_package::source::MemorySource;
 use pocket_runtime::{Cow, Guest, GuestEnvironment, GuestFrame, Profile, RuntimeConfig};
 
+/// Capabilities the synthesized browser plan enables.
+const BROWSER_CAPABILITIES: &[Cow<'static, str>] = &[
+    Cow::Borrowed("display.auxiliary"),
+    Cow::Borrowed("input.analog.left"),
+    Cow::Borrowed("input.analog.right"),
+    Cow::Borrowed("input.axis.relative"),
+    Cow::Borrowed("input.buttons"),
+    Cow::Borrowed("input.touch"),
+    Cow::Borrowed("input.touch.auxiliary"),
+    Cow::Borrowed("text.glyphs.baked"),
+    Cow::Borrowed("ui.physics"),
+];
+
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "pocket_web")]
 unsafe extern "C" {
@@ -236,19 +249,22 @@ pub unsafe extern "C" fn web_boot(
             let profile_hash = [0; 32];
             let mut profile = Profile {
                 id: Cow::Owned(host.clone()),
-                tick_hz: hz,
+                cadences: Cow::Owned(vec![hz]),
                 viewport: [w * scale, height * scale],
                 logical_viewports: Cow::Owned(vec![[w, height]]),
                 dynamic_viewport: None,
+                presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
                 auxiliary: None,
                 auxiliary_logical: Cow::Borrowed(&[]),
                 density,
+                animation: Cow::Borrowed(""),
+                capabilities: Cow::Borrowed(BROWSER_CAPABILITIES),
                 required_inputs: InputClasses::BUTTONS
                     | InputClasses::AXIS_ABSOLUTE
                     | InputClasses::AXIS_RELATIVE
                     | InputClasses::CONTACT,
             };
-            let mut plan = json!({"viewport":{"logical":[w,height],"rasterDensity":density},"features":{"input.buttons":true,"input.analog.left":true,"input.analog.right":true,"input.touch":true,"input.axis.relative":true,"text.glyphs.baked":true,"ui.physics":true}});
+            let mut plan = json!({"profile":{"tickHz":hz},"viewport":{"logical":[w,height],"presentation":"native","rasterDensity":density},"features":{"input.buttons":true,"input.analog.left":true,"input.analog.right":true,"input.touch":true,"input.axis.relative":true,"text.glyphs.baked":true,"ui.physics":true}});
             if let Some([aw, ah]) = h.auxiliary.get() {
                 checked_size([aw, ah], scale).ok_or(RuntimeError::InvalidArgument)?;
                 profile.auxiliary = Some([aw * scale, ah * scale]);

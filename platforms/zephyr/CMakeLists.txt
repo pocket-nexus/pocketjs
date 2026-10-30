@@ -1,7 +1,7 @@
 if(CONFIG_POCKETJS)
   get_filename_component(POCKET_CHECKOUT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
   set(POCKET_SDK "" CACHE PATH "Exported PocketJS SDK")
-  set(POCKET_PROFILE_EXPORT_DIR "" CACHE PATH "Directory from pocket profile export")
+  set(POCKET_PROFILE_EXPORT_DIR "" CACHE PATH "Directory from pocket host export")
   set(POCKET_RUNTIME_ARCHIVE "" CACHE FILEPATH "Product's single PocketJS Rust archive")
   if(NOT EXISTS "${POCKET_PROFILE_EXPORT_DIR}/pocket_profile.h")
     message(FATAL_ERROR "Export the product profile and set POCKET_PROFILE_EXPORT_DIR")

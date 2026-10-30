@@ -6,7 +6,7 @@ import { MEIZU_M8_DEV_HOST_ABI, MEIZU_M8_DEV_TARGET_ID, MEIZU_M8_LOGICAL_VIEWPOR
 import { validateMeizuM8FramebufferBmp } from "../tools/meizu-m8/validation.ts";
 
 const repository = join(import.meta.dir, "..");
-const manifestPath = join(repository, "apps/meizu-m8-demo/pocket.json");
+const manifestPath = join(repository, "apps/meizu-m8-demo/pocket.app.json");
 
 function manifest(): Record<string, any> {
   return JSON.parse(readFileSync(manifestPath, "utf8"));

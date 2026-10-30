@@ -1,11 +1,11 @@
 # BlackBerry Classic
 
-Native build inputs and program configs are listed in [Device native builds](DEVICE_BUILDS.md).
+Native build inputs and host configs are listed in [Device native builds](DEVICE_BUILDS.md).
 
 PocketJS runs on the BlackBerry Classic (SQC100, BlackBerry 10.3) through
 **the native QNX host in `programs/blackberry-classic`**. It mounts the
 no-std Rust UI core, GLES2 DrawList backend, and QuickJS bridge
-(`programs/native/quickjs/pocket_runtime.c`) against one private device profile:
+(`programs/native/quickjs/pocket_runtime.c`) against one private host contract:
 **720×720 physical, 360×360 logical at raster density 2, 60 Hz fixed
 simulation time, `input.buttons`, `input.touch`, and `text.glyphs.baked`.**
 
@@ -26,14 +26,14 @@ delivery are all recorded.
 ## Device contract
 
 `apps/blackberry-classic-demo` is the Hero wrapper the host builds.
-`profiles/blackberry-qnx-dev.ts` defines **`blackberry-qnx-dev`**; the
+`hosts/blackberry-qnx-dev/pocket.host.json` defines **`blackberry-qnx-dev`**; the
 program uses the current generated binding. The target id is compiled into the guest and native host and
 checked at boot.
 
 **Package identity comes from the resolved plan.** `plan.app` carries the
-manifest's `id`, `title`, and `version`; `extractHostBuildInputs` hands them to
+app contract's `id`, `title`, and `version`; `extractHostBuildInputs` hands them to
 the host tool, and `packageIdentity` (`tools/native-host-build.ts`) maps them
-onto the BAR: the package id is the manifest id with `-` replaced by `_`
+onto the BAR: the package id is the app id with `-` replaced by `_`
 (`dev.pocket_nexus.blackberry_classic_demo`), the version string is used
 verbatim, and `buildId` is `major·1 000 000 + minor·1 000 + patch`
 (0.1.1 → 1001). `bar-descriptor.xml` contains `@POCKET_…@` placeholders

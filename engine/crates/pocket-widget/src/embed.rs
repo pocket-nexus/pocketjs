@@ -123,6 +123,7 @@ mod tests {
         let program = UiProgram::new(ProgramConfig {
             profile,
             profile_hash,
+            tick_hz: 60,
             host_abi: pocket_spec::BINDING_GENERATION,
             logical: [8, 4],
             heap_limit: 4 * 1024 * 1024,

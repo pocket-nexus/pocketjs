@@ -1,7 +1,7 @@
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import type { PocketProfile } from "../../contracts/spec/profile.ts";
 import { hashPocketProfile } from "../../framework/src/profile.ts";
-import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../framework/src/host-config.ts";
 import { exportProfile } from "../profile-export.ts";
 
 /** The fields an AOT program build reads from `pocket compile --aot`'s dependencies.json. */

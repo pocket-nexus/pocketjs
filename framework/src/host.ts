@@ -310,9 +310,11 @@ export function embeddedBuildHostContract(): BuildHostContract | null {
   return target ? { target, hostAbi } : null;
 }
 
-/** Fail before mounting when a bundle was packaged with the wrong native
- *  host, or baked for a tick rate the host does not drive. The rate check
- *  runs for every native mount — plan-less bundles bake a rate too. */
+/** Fail before mounting when a bundle was packaged for another binding
+ *  generation, or baked for a tick rate the host does not drive. The rate
+ *  check runs for every native mount — plan-less bundles bake a rate too.
+ *  The host's profile id is not compared: device admission decides which
+ *  hosts run a package (contracts/spec/admission.ts). */
 export function assertNativeHostContract(
   ops: HostOps,
   expected: BuildHostContract | null = embeddedBuildHostContract(),
@@ -345,11 +347,8 @@ export function assertNativeHostContract(
         "contracts — add __host/__hostAbi to its ui namespace (see framework/src/host.ts HostOps)",
     );
   }
-  if (ops.__host !== expected.target) {
-    throw new Error(
-      `PocketJS: native target mismatch (bundle=${expected.target}, host=${ops.__host})`,
-    );
-  }
+  // The device admitted this package against its profile facts; the host's
+  // profile id is provenance and need not equal the compiled one.
 }
 
 /**

@@ -15,6 +15,7 @@ test("raw-JavaScript embedding uses the compiler's exact package encoding", () =
   writeFileSync(resolve(out, "main.rs"), `extern crate alloc;
 ${module("package_format", "engine/package/src/package_format.rs")}
 ${module("plan_facts", "engine/package/src/plan_facts.rs")}
+${module("admission", "engine/package/src/admission.rs")}
 ${module("package", "engine/package/src/package.rs")}
 ${module("embedded", "engine/package/src/embedded.rs")}
 fn main() {

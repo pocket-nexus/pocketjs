@@ -281,7 +281,7 @@ parabolas. It reads one pose per frame for each speech bubble riding a toy,
 at most two, which it keeps upright and on screen.
 
 The maintained demo lives in `apps/nexus-touch`. **The iPod touch and Symbian
-programs use the device profiles and native recipes in this repository.**
-Compile the demo against the selected program's runtime configuration, then
+programs use the host contracts and native recipes in this repository.**
+Compile the demo against the selected program's host config, then
 pass its `.pocket` package to the native build. Artwork can be regenerated
 with `bun apps/nexus-touch/gen-art.ts`.

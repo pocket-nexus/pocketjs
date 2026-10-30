@@ -5050,6 +5050,7 @@ version = "0.1.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
+ "serde_json",
 ]
 
 [[package]]

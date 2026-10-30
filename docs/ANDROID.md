@@ -19,9 +19,9 @@ device commands.
 ## The Redmi 1S profile
 
 The measured device is the Redmi 1S (`armani`): Android 4.3, four Cortex-A7
-cores, an Adreno 305, a 720×1280 panel. `tools/redmi-1s-profile.ts` declares
+cores, an Adreno 305, a 720×1280 panel. `hosts/redmi-1s-dev/pocket.host.json` declares
 `redmi-1s-dev` with `input.touch`, `text.glyphs.baked` and `io.offload`.
-**`input.buttons` is absent, as it is for `ipodtouch4-dev`: a manifest that
+**`input.buttons` is absent, as it is for `ipodtouch4-dev`: an app contract that
 requires it does not resolve.** `ui.physics` is absent because the host does
 not bind ops 52..56.
 
@@ -51,19 +51,19 @@ The [Device native build recipes](DEVICE_BUILDS.md) separate application compila
 ```sh
 bun redmi-1s setup
 bun redmi-1s doctor
-bun tools/pocket.ts compile --manifest apps/clear/pocket.redmi-1s.json \
-  --project-root . --runtime-config programs/redmi-1s/pocket.runtime-config.ts \
+bun tools/pocket.ts compile --manifest apps/clear/pocket.app.json \
+  --project-root . --host-config programs/redmi-1s/pocket.host.config.ts \
   --output dist/clear-redmi.pocket
 bun tools/android.ts --profile=redmi-1s build-app \
   --pocket=dist/clear-redmi.pocket --out=dist/clear-redmi.apk
 ```
 
 `POCKETJS_ANDROID_SDK_ROOT` selects the SDK and `JAVA_HOME` selects Java 17.
-**`build-app` consumes a current `.pocket` file without compiling its JavaScript.** `--plan` is no longer a native build input. The package's admitted plan supplies the application id, label, version, viewport and profile.
+**`build-app` consumes a current `.pocket` file without compiling its JavaScript.** `--plan` is no longer a native build input. The package's admitted plan supplies the application id, label, version, viewport and host contract.
 
 - `--out` names the APK; `--icon` selects its artwork and `--release` selects release signing.
 - The native build directory is `.pocket-build/<profile>`, so builds of one profile run one at a time.
-- The program config builds a reusable template under its output directory's `runtime/` subdirectory; `pocket pack` combines it with a compiled application.
+- The host config builds a reusable template under its output directory's `runtime/` subdirectory; `pocket pack` combines it with a compiled application.
 
 ## The launcher icon
 
@@ -122,16 +122,16 @@ output.
 
 ## A game without a compile: the runtime and the repack
 
-**The native library takes four values from the profile and none from the
+**The native library takes four values from the host contract and none from the
 app** (target id, host ABI, logical viewport, raster density), so every app
-of a profile links the same `libpocketjs.so` and `classes.dex`. The runtime
+built for one host contract links the same `libpocketjs.so` and `classes.dex`. The runtime
 build compiles them with no guest and links them into one template APK;
 the repack adds a game to it in TypeScript, with no SDK tool.
 
 ```sh
 bun tools/runtime.ts android        # dist/runtime/android/ with runtime.json
 bun tools/community-key.ts          # the community key as two DER files
-bun tools/pocket-pack.ts build --manifest <pocket.json> --project-root <dir> \
+bun tools/pocket-pack.ts build --manifest <pocket.app.json> --project-root <dir> \
   --target redmi-1s-dev -o game.pocket
 bun tools/repack.ts --target android --runtime dist/runtime/android --pocket game.pocket \
   --id <id> --title <title> --author <author> --version <x.y.z> [--icon <square.png>] -o game.apk

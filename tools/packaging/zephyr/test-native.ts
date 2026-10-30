@@ -21,7 +21,7 @@ function run(command:string[],name:string,expectedFailure=false) {
  if(expectedFailure ? child.success || !!child.signalCode : !child.success)throw new Error(`${name} unexpected outcome; see ${log}`);
  return child.stdout.toString()+child.stderr.toString();
 }
-run([process.execPath,join(root,"tools/pocket.ts"),"profile","export","--config",join(root,"tests/fixtures/zephyr/native_sim/pocket.runtime-config.ts"),"--out",join(out,"profile")],"profile");
+run([process.execPath,join(root,"tools/pocket.ts"),"host","export","--config",join(root,"tests/fixtures/zephyr/native_sim/pocket.host.config.ts"),"--out",join(out,"profile")],"profile");
 const sdkManifest=sdk?verifySdk(resolve(sdk)):undefined;
 const configure=(build:string,profile:string)=>["cmake","-S",join(root,"tests/fixtures/zephyr/native_sim"),"-B",build,"-G","Ninja","-DBOARD=native_sim/native/64",`-DPOCKET_PROFILE_EXPORT_DIR=${profile}`,...(quickjs?["-DCONFIG_POCKETJS_GUEST_QUICKJS=y",`-DPOCKET_TEST_QUICKJS=${resolve(quickjs)}`]:[]),...(sdk?[`-DPOCKET_SDK=${resolve(sdk)}`]:[`-DPOCKET_RUNTIME_ARCHIVE=${resolve(archive!)}`])];
 run(configure(join(out,"build"),join(out,"profile")),"configure");
@@ -34,5 +34,5 @@ run(configure(join(out,"wrong-build"),join(out,"wrong-profile")),"wrong-configur
 const rejected=run(["cmake","--build",join(out,"wrong-build"),"-j","4"],"wrong-build",true);
 if(!rejected.includes("Profile width disagrees"))throw new Error("wrong profile failed for an unrelated reason");
 const sha256=(path:string)=>createHash("sha256").update(readFileSync(path)).digest("hex");
-writeFileSync(join(out,"receipt.json"),JSON.stringify({kind:"zephyr-native-driver-contract",zephyrRevision:run(["git","-C",zephyr,"rev-parse","HEAD"],"zephyr-revision").trim(),executableSha256:sha256(executable),archiveSha256:sha256(sdk?join(resolve(sdk),sdkManifest!.build.archive):resolve(archive!)),quickjsSourceSha256:quickjs?sha256(join(resolve(quickjs),"quickjs.c")):null,profileSha256:sha256(join(out,"profile/pocket-profile.json")),commands},null,2)+"\n");
+writeFileSync(join(out,"receipt.json"),JSON.stringify({kind:"zephyr-native-driver-contract",zephyrRevision:run(["git","-C",zephyr,"rev-parse","HEAD"],"zephyr-revision").trim(),executableSha256:sha256(executable),archiveSha256:sha256(sdk?join(resolve(sdk),sdkManifest!.build.archive):resolve(archive!)),quickjsSourceSha256:quickjs?sha256(join(resolve(quickjs),"quickjs.c")):null,profileSha256:sha256(join(out,"profile/pocket.host.json")),commands},null,2)+"\n");
 console.log(`Zephyr native_sim contracts passed: ${out}`);

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import type { RuntimeBuildContext } from "../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { applicationBundle, prepareCompiledApplication } from "../tools/build/programs/application.ts";
 import { buildPocketBook } from "../tools/build/programs/pocketbook-native.ts";
@@ -22,10 +22,10 @@ afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursi
 function scratch() { const path = mkdtempSync(join(base, "run-")); temporary.push(path); return path; }
 const programs = ["pocketbook", "moto-g-play", "redmi-1s", "blackberry-classic", "meizu-m8", "nokia-e7", "ios-simulator", "iphone2g", "iphone4s", "ipodtouch6", "ipodtouch4"];
 const generic = new Set(["moto-g-play", "redmi-1s", "ipodtouch4"]);
-function select(id: string) { return resolveProfile({ from: root, runtimeConfig: join(root, `programs/${id}/pocket.runtime-config.ts`), requireConfig: true }); }
+function select(id: string) { return resolveProfile({ from: root, hostConfig: join(root, `programs/${id}/pocket.host.config.ts`), requireConfig: true }); }
 function packageFixture(selected: ResolvedProfile, directory: string) {
   const manifest = {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocketjs.native-input", name: "current-package", title: "Current package", version: "1.2.3",
+    $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocketjs.native-input", title: "Current package", version: "1.2.3",
     engine: { capabilities: { requires: ["text.glyphs.baked"] } },
     app: { entry: "source-does-not-exist.tsx", output: "current-package", framework: "solid", viewport: { fixed: {
       logical: selected.profile.display.logicalViewports[0], presentation: selected.profile.display.presentations[0],

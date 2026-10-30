@@ -35,7 +35,7 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/launcher` | `launcherActive`, `appTable`, `launchApp`, `frozenShot` |
 | `@pocketjs/framework/devtools` | `initDevtools`, `wrapFrameHandler`, tape expanders — see [DevTools](/docs/devtools/) |
 | `@pocketjs/framework/hot` | `text`, `prop` |
-| `@pocketjs/framework/manifest` | app and Pocket System schema/types/resolvers, `extractHostBuildInputs`, `hostBuildEnvironment`, `vitaTitleId` |
+| `@pocketjs/framework/manifest` | app contract and Pocket System schema/types/resolvers, `extractHostBuildInputs`, `hostBuildEnvironment`, `vitaTitleId` |
 
 `framework/compiler/subpaths.ts` is the registry these paths are declared in —
 one row per module, and a build resolves nothing that has no row. The rows it
@@ -91,7 +91,7 @@ function getOps(): HostOps
 `detectHost` resolves the active host — injected ops win, otherwise
 `globalThis.ui` (PSP/Vita QuickJS); throws when neither exists. `installHost`
 sets the active host (called by `render`). `getOps` returns the installed op
-surface. Manifest-built native bundles validate `ui.__host` and
+surface. Native bundles built from an app contract validate `ui.__host` and
 `ui.__hostAbi` before mounting. See [Native contract](/docs/native-contract/)
 for the full `HostOps` surface.
 
@@ -222,7 +222,7 @@ The host primitives, wrapped React Native-style. `View` is the flex container/bo
 **`SpriteProps`** — `class`, `sprite` (`string` — a `ui:sprite.<name>` atlas key), `frameStep` (`number`), `style`, `ref`, `debugName`.
 **`CompositorSurfaceProps`** — `class`, `style`, `package` (installed reverse-DNS package id), `focused`, `ref`, `debugName`.
 
-`Sprite` is a native animated primitive: its atlas (a pow2 texture holding a grid of frames) is baked into the pak, and the Rust core advances the frame cell from its own tick counter — deterministic and with **zero per-frame JS**. It auto-plays from the first frame the moment it is displayed, so a sprite revealed by paging or a `Show`/`Lazy` starts animating on its own. Bake atlases by listing them in a demo's `sprites.json` (`{ "<atlas>.png": { cols, rows, frames, step } }`); `step` is core ticks per frame, so the sprite runs at `tick rate / step` fps (`step: 2` is 30 fps on a 60 Hz bundle). **`frameStep` overrides the manifest's `step` at runtime** and is clamped to the core's 1–65535 tick range. See `apps/gallery` (its covers are shader-baked animated sprites).
+`Sprite` is a native animated primitive: its atlas (a pow2 texture holding a grid of frames) is baked into the pak, and the Rust core advances the frame cell from its own tick counter — deterministic and with **zero per-frame JS**. It auto-plays from the first frame the moment it is displayed, so a sprite revealed by paging or a `Show`/`Lazy` starts animating on its own. Bake atlases by listing them in a demo's `sprites.json` (`{ "<atlas>.png": { cols, rows, frames, step } }`); `step` is core ticks per frame, so the sprite runs at `tick rate / step` fps (`step: 2` is 30 fps on a 60 Hz bundle). **`frameStep` overrides the `sprites.json` `step` at runtime** and is clamped to the core's 1–65535 tick range. See `apps/gallery` (its covers are shader-baked animated sprites).
 
 ### `Screen`
 
@@ -1063,9 +1063,9 @@ const platform: {
 function hasFeature(feature: PocketCapabilityId): boolean
 ```
 
-The manifest compiler defines the target-specific constants consumed by this
-module. `pixelRatio` is
-physical raster samples per logical pixel (`1` on PSP, `2` on Vita), useful for
+For a bundle built from an app contract, `tools/build.ts` defines the
+target-specific constants consumed by this module from the build plan.
+`pixelRatio` is physical raster samples per logical pixel (`1` on PSP, `2` on Vita), useful for
 runtime-created textures; it never changes layout coordinates. Literal
 `hasFeature("…")` calls are folded to booleans during the PocketJS compile, so
 an unavailable enhancement branch can leave the bundle. Computed ids use the
@@ -1085,11 +1085,11 @@ function glyph(button: "circle" | "cross" | "triangle" | "square" | "start" | "s
 `modality` is the target's interaction structure the plan resolved
 (`screens`, `touch`, `pointer`, `buttons`, `analog`, `text`, `glyphs`,
 `form`; see [Platform contracts](/docs/platform-contracts/#presentations-and-modality)),
-frozen. `presentation` is the manifest presentation id this bundle compiles,
+frozen. `presentation` is the app contract presentation id this bundle compiles,
 `"default"` for the baseline entry. `screen("auxiliary")` is `undefined` on a
-single-screen target. `supports()` evaluates a manifest-shaped requirement
-against `modality`. `glyph("circle")` is `"○"` on a PSP or Vita and `"A"` on a
-3DS, so hint text names the button the shell prints. A bundle built without a
+single-screen target. `supports()` evaluates a requirement shaped like the app
+contract's `modality` field against `modality`. `glyph("circle")` is `"○"` on a
+PSP or Vita and `"A"` on a 3DS, so hint text names the button the shell prints. A bundle built without a
 plan reads the portable PSP modality.
 
 ## `@pocketjs/framework/actions`
@@ -1160,9 +1160,11 @@ Use these instead of wall-clock timers for deterministic app behavior: the
 same elapsed virtual time produces the same trajectory at every rate.
 
 **The tick rate is declared per realm and baked per bundle, not fixed at 60.**
-`tools/build.ts` writes it in from `--hz=N` — an integer from 1 through 240,
-default 60 — and the core takes it through `set_tick_rate` before the first
-tick (`MAX_TICK_HZ` is 240 in `engine/core/src/lib.rs`). `simulationHz()` is
+An application states it as `app.tickHz` (1 through 60, default 60) and the
+plan carries it as `profile.tickHz`; `tools/build.ts` writes it in from the plan
+or from `--hz=N` — an integer from 1 through 240, default 60 — and the core
+takes it through `set_tick_rate` before the first tick (`MAX_TICK_HZ` is 240 in
+`engine/core/src/lib.rs`). A device publishes its cadence as `__simHz`. `simulationHz()` is
 the host-selected virtual-frame rate and is a divisor of the baked rate, which
 is what makes `ticksPerFrame()` a whole number. A native mount whose
 `ui.__tickHz` disagrees with the baked rate throws before anything renders
@@ -1222,8 +1224,8 @@ than by the marshaling ceiling.
 ## `@pocketjs/framework/audio`
 
 Streams s16 PCM to the host's `audio` namespace on a credit budget. Declare
-`audio.pcm` in the manifest. Where no host mounts the module every player call
-is a no-op and the app's tick-driven UI stays byte-identical, so an audio
+`audio.pcm` in the app contract. Where no host mounts the module every player
+call is a no-op and the app's tick-driven UI stays byte-identical, so an audio
 enhancement needs no branch around it.
 
 ```ts
@@ -1284,12 +1286,13 @@ layout properties and keep hot text inside a fixed-size cell.
 
 ## `@pocketjs/framework/manifest`
 
-This is the stable build/custom-host boundary:
+This subpath holds the app contract schema and the stable build/custom-host
+boundary:
 
 | Export | Purpose |
 | --- | --- |
-| `POCKET_MANIFEST_SCHEMA_ID` / `POCKET_MANIFEST_VERSION` | Canonical format-2 identity. |
-| `pocketManifestV2Schema` / `validatePocketManifest` | Strict schema and structured diagnostics. |
+| `POCKET_MANIFEST_SCHEMA_ID` / `POCKET_MANIFEST_VERSION` | Canonical app contract format-2 identity. |
+| `pocketManifestV2Schema` / `validatePocketManifest` | Strict app contract schema and structured diagnostics. |
 | `extractHostBuildInputs(plan, options?)` | Verify a plan checksum and project it onto stable native-host inputs. |
 | `hostBuildEnvironment(inputs, options)` | Produce the target-neutral Cargo environment for a custom host. |
 | `vitaTitleId(applicationId)` | Deterministically derive a stable Vita Title ID. |

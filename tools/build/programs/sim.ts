@@ -1,7 +1,8 @@
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
+import { cadenceFor } from "../../../contracts/spec/admission.ts";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
+import { type RuntimeBuild } from "../../../framework/src/host-config.ts";
 import { wasmStep } from "./web.ts";
 import { repository, buildHosts, nativeSources, programFiles } from "./handheld-common.ts";
 import { requireApplication } from "./application.ts";
@@ -17,7 +18,7 @@ export const build: RuntimeBuild = {
     copyFileSync(app.jsPath, resolve(out, "app.js")); copyFileSync(app.pakPath, resolve(out, "app.pak"));
     copyFileSync(app.packagePath, resolve(out, "app.pocket"));
     const viewport = app.plan.viewport;
-    writeFileSync(resolve(out, "program.json"), JSON.stringify({ js: "app.js", pak: "app.pak", app: context.output, hz: context.profile.tickHz,
+    writeFileSync(resolve(out, "program.json"), JSON.stringify({ js: "app.js", pak: "app.pak", app: context.output, hz: cadenceFor(app.plan.profile.tickHz, context.profile.cadences) ?? app.plan.profile.tickHz,
       viewport: { host: context.profile.id, hostAbi: POCKET_BINDING_GENERATION, width: viewport.logical[0], height: viewport.logical[1], rasterDensity: viewport.rasterDensity, ...(app.plan.surfaces?.auxiliary ? { auxiliary: app.plan.surfaces?.auxiliary.logical } : {}) } }));
   },
 };

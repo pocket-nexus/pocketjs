@@ -74,8 +74,8 @@ purpose — a bundle that plays anywhere plays everywhere.
 
 Consoles adopt the module by implementing the namespace in their FFI table
 (`programs/psp/src/service_bindings.rs` registration pattern), reusing their existing audio
-threads, then appending `audio.pcm` to their target profile in
-`contracts/spec/platforms.ts`. No spec change, no framework change, no app
+threads, then appending `audio.pcm` to the capabilities of their host contract,
+`hosts/<id>/pocket.host.json`. No spec change, no framework change, no app
 change.
 
 ## Assets

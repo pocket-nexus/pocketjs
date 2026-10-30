@@ -106,7 +106,7 @@ for (const a of args) {
   else if (a.startsWith("--font-bold=")) boldFontPath = resolvePath(a.slice("--font-bold=".length));
   else if (a.startsWith("--framework=")) frameworkFlag = a.slice("--framework=".length);
   else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
-    throw new Error("PocketJS build: application configuration belongs in pocket.json; --config and --no-config were removed");
+    throw new Error("PocketJS build: application configuration belongs in pocket.app.json; --config and --no-config were removed");
   }
   else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
   else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
@@ -134,7 +134,7 @@ if (planPath) {
   // Model lowering reads the application's manifest before transform caching.
   // A frozen plan must reject a later change to that compiler configuration.
   const model = modelConfiguration(appArg);
-  const currentApp = model.directory ? (await Bun.file(join(model.directory, "pocket.json")).json()).app ?? {} : {};
+  const currentApp = model.directory ? (await Bun.file(join(model.directory, "pocket.app.json")).json()).app ?? {} : {};
   if ((currentApp.aot === true) !== (buildPlan.app.aot === true)
     || model.mode !== (buildPlan.app.model ?? "rust")
     || model.recursionLimit !== (buildPlan.app.recursionLimit ?? 256)
@@ -168,7 +168,7 @@ if (appContent.theme !== undefined) {
 }
 const framework: PocketFramework = frameworkFlag
   ? parseFramework(frameworkFlag, "--framework")
-  : parseFramework(appContent.framework, buildPlan ? "ResolvedBuildPlan" : "pocket.json");
+  : parseFramework(appContent.framework, buildPlan ? "ResolvedBuildPlan" : "pocket.app.json");
 const frameworkConfig = FRAMEWORKS[framework];
 const entry = frameworkVariantPath(requestedEntry, framework);
 const appName = buildPlan?.app.output ?? sourceOutputName(requestedEntry, ROOT);

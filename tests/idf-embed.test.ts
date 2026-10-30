@@ -5,7 +5,7 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const tool = join(root, "platforms/esp-idf/pocket_runtime/tools/embed_package.py");
 const pkg = join(root, "tests/esp-idf/examples/prebuilt/idf-smoke.pocket");
-const runtimeConfig = join(root, "tests/esp-idf/examples/smoke/pocket.runtime-config.ts");
+const hostConfig = join(root, "tests/esp-idf/examples/smoke/pocket.host.config.ts");
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function directory() {
@@ -16,13 +16,13 @@ function run(profile: string, output: string) {
   return Bun.spawnSync(["python3", tool, "--package", pkg, "--profile", profile, "--name", "smoke", "--output-dir", output], { stdout: "pipe", stderr: "pipe" });
 }
 function exportProfile(path: string) {
-  const result = Bun.spawnSync([process.execPath, join(root, "tools/pocket.ts"), "profile", "export", "--config", runtimeConfig, "--out", path], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync([process.execPath, join(root, "tools/pocket.ts"), "host", "export", "--config", hostConfig, "--out", path], { cwd: root, stdout: "pipe", stderr: "pipe" });
   expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
-  return join(path, "pocket-profile.json");
+  return join(path, "pocket.host.json");
 }
 
 describe("ESP-IDF package embedding", () => {
-  test("requires the independent exported identity, ABI and exact canonical JSON", () => {
+  test("admits the package by the exported facts and binding generation", () => {
     const path = directory();
     const profilePath = exportProfile(join(path, "profile"));
     const accepted = run(profilePath, join(path, "accepted"));
@@ -35,9 +35,17 @@ describe("ESP-IDF package embedding", () => {
       const result = run(file, join(path, "rejected"));
       expect(result.success).toBe(false); expect(result.stderr.toString()).toContain(expected);
     };
-    reject({ ...sidecar, hostAbi: sidecar.hostAbi + 1 }, "host ABI does not match");
-    reject({ ...sidecar, profile: { ...sidecar.profile, tickHz: 61 } }, "differs from canonicalProfileJson");
+    reject({ ...sidecar, hostAbi: sidecar.hostAbi + 1 }, "not admitted by host export: binding generation");
+    reject({ ...sidecar, cadences: [25] }, "not admitted by host export: rate 60 Hz");
+    reject({ ...sidecar, capabilities: [] }, "not admitted by host export: capability");
+    reject({ ...sidecar, display: { ...sidecar.display, rasterDensity: 2 } }, "not admitted by host export: raster density");
     reject({ ...sidecar, format: "pocket-profile/999" }, "unsupported");
+    const { hostAbi: _stamp, ...unstamped } = sidecar;
+    reject(unstamped, "no hostAbi stamp");
+    // Another product id with the same facts admits the package.
+    const renamed = join(path, "renamed.json"); writeFileSync(renamed, JSON.stringify({ ...sidecar, id: "another-product", capabilities: [...sidecar.capabilities, "audio.pcm"] }));
+    const admitted = run(renamed, join(path, "renamed"));
+    expect(admitted.success, admitted.stderr.toString()).toBe(true);
   });
 
   test("CMake embeds a prebuilt package without invoking Pocket or Bun", () => {

@@ -15,6 +15,7 @@
 
 import { stageWebAssets } from "../tools/build/web-assets.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -52,9 +53,10 @@ import {
 import { emitSingleLodStagePackage } from "./stage-package.ts";
 import { renderHomeShowcase } from "./home-showcase.ts";
 import { SHOWCASE_APPS } from "./showcase.ts";
-import pspProfile from "../profiles/psp.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { decodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
+const pspProfile = POCKET_PROFILES["psp"];
 
 const ROOT = new URL("..", import.meta.url).pathname; // repo root
 const SITE = ROOT + "site/";
@@ -365,9 +367,9 @@ function demoManifest() {
     // PSP-admissible demos: a committed manifest that does not resolve
     // against the psp target (desktop-only capabilities, non-console
     // viewport) keeps its demo off the site.
-    const manifestPath = dir + name + "/pocket.json";
+    const manifestPath = dir + name + "/pocket.app.json";
     if (existsSync(manifestPath)) {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const manifest = readPocketManifest(manifestPath).manifest;
       if (!validateAndResolveBuildPlan(manifest, { target: "psp" }).ok) continue;
     }
     const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"));
@@ -577,6 +579,7 @@ async function main() {
   // validator. The deployed path is POCKET_MANIFEST_SCHEMA_ID —
   // /schema/pocket-2.json, independent of where the repo keeps the file.
   copy(ROOT + "contracts/schema/pocket-2.json", "schema/pocket-2.json");
+  copy(ROOT + "contracts/schema/pocket-host-2.json", "schema/pocket-host-2.json");
   copy(ROOT + "platforms/web/pocketjs.wasm", "pg/pocketjs.wasm");
   // Preserve program/provider module and worker URLs under the deployed root.
   stageWebAssets(OUT + "pg", {

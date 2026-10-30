@@ -1,39 +1,36 @@
-// tests/animation-class.test.ts — the animation class a target profile
-// derives to, the plan that records it, and animate() on a still display.
+// tests/animation-class.test.ts — the animation class a profile states, the
+// plan that records it, and animate() on a still display.
 
 import { describe, expect, test } from "bun:test";
-import {
-  ANIMATION_CLASS_BY_PLATFORM,
-  ANIMATION_CLASSES,
-  DEFAULT_ANIMATION_CLASS,
-  deriveAnimationClass,
-} from "../contracts/spec/animation.ts";
+import { ANIMATION_CLASSES } from "../contracts/spec/animation.ts";
 import {
   POCKET_CAPABILITIES,
   POCKET_TARGETS,
   definePlatformContractRegistry,
   defineTargetRegistry,
-  type TargetProfile,
 } from "../contracts/spec/platforms.ts";
 import { PROP } from "../contracts/spec/spec.ts";
 import { installHost, type HostOps } from "../framework/src/host.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { defineProfile, validatePocketProfile } from "../framework/src/profile.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { parsePocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import { THREE_DS_DEV_CONTRACTS, THREE_DS_DEV_TARGET_ID } from "../tools/3ds-profile.ts";
 
-/** An ESP-IDF program's profile: its platform's class, a repaint target. */
-const tab5 = defineProfile({
+/** An ESP-IDF program's profile: a CPU rasterizer, a repaint target. */
+const tab5 = parsePocketProfile({
+  format: "pocket-host/2",
   id: "tab5-test",
   platform: "esp-idf",
   form: "takeover",
-  tickHz: 30,
+  cadences: [30],
   display: {
-    physicalViewport: [480, 272],
     logicalViewports: [[480, 272]],
     presentations: ["native", "integer-fit"],
     rasterDensity: 1,
+    animation: "repaint",
   },
+  panel: { primary: [480, 272] },
   capabilities: ["input.analog.left", "input.buttons", "text.glyphs.baked"],
 });
 const TAB5_CONTRACTS = definePlatformContractRegistry(
@@ -43,45 +40,38 @@ const TAB5_CONTRACTS = definePlatformContractRegistry(
 
 const manifest = () => Bun.file(new URL("./fixtures/manifests/portable-psp.json", import.meta.url)).json();
 
-describe("deriveAnimationClass", () => {
-  test("every class a platform lists is a class", () => {
-    for (const value of Object.values(ANIMATION_CLASS_BY_PLATFORM)) expect(ANIMATION_CLASSES).toContain(value);
-    expect(ANIMATION_CLASSES).toContain(DEFAULT_ANIMATION_CLASS);
+describe("profile animation classes", () => {
+  test("every built-in profile states a class", () => {
+    for (const profile of Object.values(POCKET_PROFILES)) expect(ANIMATION_CLASSES).toContain(profile.display.animation);
   });
 
-  test("GPU consoles composite, the ESP-IDF rasterizer repaints, electronic paper is still", () => {
-    expect(deriveAnimationClass(POCKET_TARGETS.psp)).toBe("composited");
-    expect(deriveAnimationClass(POCKET_TARGETS.vita)).toBe("composited");
-    expect(deriveAnimationClass(THREE_DS_DEV_CONTRACTS.targets[THREE_DS_DEV_TARGET_ID])).toBe("composited");
-    expect(deriveAnimationClass(POCKET_TARGETS.pocketbook)).toBe("still");
-    expect(deriveAnimationClass(TAB5_CONTRACTS.targets["tab5-test"]!)).toBe("repaint");
+  test("GPU consoles composite, a CPU rasterizer repaints, electronic paper is still", () => {
+    expect(POCKET_TARGETS.psp.display.animation).toBe("composited");
+    expect(POCKET_TARGETS.vita.display.animation).toBe("composited");
+    expect(THREE_DS_DEV_CONTRACTS.targets[THREE_DS_DEV_TARGET_ID]!.display.animation).toBe("composited");
+    expect(POCKET_TARGETS.pocketbook.display.animation).toBe("still");
+    expect(TAB5_CONTRACTS.targets["tab5-test"]!.display.animation).toBe("repaint");
   });
 
-  test("a profile declares its display's class; an unknown class is refused", () => {
-    const composited = defineProfile({ ...tab5, id: "tab5-gpu", display: { ...tab5.display, animation: "composited" } });
-    expect(deriveAnimationClass(targetProfile(composited))).toBe("composited");
-    const result = validatePocketProfile({ ...tab5, display: { ...tab5.display, animation: "sometimes" } });
-    expect(result.ok).toBe(false);
-  });
-
-  test("a display's own class wins over its platform's", () => {
-    const profile: TargetProfile = { ...POCKET_TARGETS.psp, display: { ...POCKET_TARGETS.psp.display, animation: "repaint" } };
-    expect(deriveAnimationClass(profile)).toBe("repaint");
-  });
-
-  test("a platform the table does not list repaints", () => {
-    expect(deriveAnimationClass({ ...POCKET_TARGETS.psp, platform: "calculator" })).toBe(DEFAULT_ANIMATION_CLASS);
+  test("a profile without a class or with an unknown one is refused", () => {
+    const { animation: _animation, ...display } = tab5.display;
+    expect(validatePocketProfile({ ...tab5, display }).ok).toBe(false);
+    expect(validatePocketProfile({ ...tab5, display: { ...tab5.display, animation: "sometimes" } }).ok).toBe(false);
   });
 });
 
 describe("the plan", () => {
-  test("records the class of the target it resolved", async () => {
+  test("records the class of the profile it resolved", async () => {
     const psp = validateAndResolveBuildPlan(await manifest(), { target: "psp" });
     expect(psp.ok).toBe(true);
     if (psp.ok) expect(psp.plan.animation).toBe("composited");
     const idf = validateAndResolveBuildPlan(await manifest(), { target: tab5.id }, TAB5_CONTRACTS);
     expect(idf.ok).toBe(true);
     if (idf.ok) expect(idf.plan.animation).toBe("repaint");
+    const gpu = parsePocketProfile({ ...tab5, id: "tab5-gpu", display: { ...tab5.display, animation: "composited" } });
+    const composited = validateAndResolveBuildPlan(await manifest(), { target: gpu.id },
+      definePlatformContractRegistry(POCKET_CAPABILITIES, defineTargetRegistry({ [gpu.id]: targetProfile(gpu) })));
+    expect(composited.ok && composited.plan.animation).toBe("composited");
   });
 });
 

@@ -1,6 +1,6 @@
 # iPhone 2G / iPhone OS 3.1.3 development
 
-The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, program configs and artifact paths. Dated device validation records retain their recorded commands.
+The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
 
 This document tracks the experimental PocketJS target for an original iPhone
 (`iPhone1,1`). The current device target is iPhone OS **3.1.3** (`7E18`). The
@@ -257,7 +257,7 @@ Every required line must report `[ok]`. `ldid` is required to sign the current
 
 ## Build the 3.1.3 bundle with the 1.1.4 ABI sysroot
 
-After compiling the application with the iPhone 2G runtime config, build the
+After compiling the application with the iPhone 2G host config, build the
 native bundle from its **`.pocket` package**:
 
 ```sh

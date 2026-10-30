@@ -1,6 +1,6 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/redmi-1s-dev.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["redmi-1s-dev"];
 
 /**
  * Exact-device profile for the Redmi 1S (HM 1S, `armani`): a 4.7 inch
@@ -25,7 +26,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 export const REDMI_1S_TARGET = softwareProfile.id;
 export const REDMI_1S_HOST_ABI = POCKET_BINDING_GENERATION;
 export const REDMI_1S_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
-export const REDMI_1S_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
+export const REDMI_1S_PHYSICAL_VIEWPORT = softwareProfile.panel.primary;
 export const REDMI_1S_RASTER_DENSITY = softwareProfile.display.rasterDensity;
 
 export const REDMI_1S_CONTRACTS = definePlatformContractRegistry(

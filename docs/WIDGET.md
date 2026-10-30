@@ -128,16 +128,16 @@ one `render_words_scaled` pass on dirty frames. It exercises everything the
   keyboard/mouse/wheel/resize go to the guest as JSON lines
   (`{t:"ch"|"key"|"mouse"|"scroll"|"resize"|"load"}`), save/quit intents
   come back (`{t:"save"|"quit"}`). The app source retains a svc-less
-  read-only fallback, but the current Note manifest is dynamic-only; it must
+  read-only fallback, but the current Note app contract is dynamic-only; it must
   add a fixed viewport variant before a PSP or embedded host can admit that
   fallback. The §7 `widget` surface stays unbuilt.
-- **The desktop profile declares six input and display capabilities.** Six
+- **The desktop host contract declares six input and display capabilities.** Six
   registered capability ids name it (`input.text`, `input.pointer`,
   `input.ime`, `host.clipboard`, `display.viewport.live`,
   `text.glyphs.runtime` — each a distinct observable guarantee; a real
-  pointer is NOT `input.cursor`), and a `macos-widget` target
-  profile (binding generation 12, density 2, `dynamicViewport` range) provides them.
-  Target semantics live in queryable profile FIELDS (`platform`,
+  pointer is NOT `input.cursor`), and a `macos-widget` host
+  contract (binding generation 12, density 2, `dynamicViewport` range) provides them.
+  Target semantics live in queryable host contract FIELDS (`platform`,
   `form` — takeover/window/widget/kiosk/embedded); ids are labels
   (convention `<platform>-<form>`, future: `macos-app`, `linux-kiosk`),
   and apps declare viewport intent per policy (`fixed`/`dynamic`
@@ -147,8 +147,8 @@ one `render_words_scaled` pass on dirty frames. It exercises everything the
   `enhances`; if the app later adds a fixed variant, the same source can
   degrade to a read-only note on hosts without those features. Native hosts
   assert identity (`__host`/`__hostAbi` vs the plan's target), and
-  `bun run note` builds through the manifest — density and features come from
-  the profile, not flags.
+  `bun run note` builds through the app contract — density and features come from
+  the host contract, not flags.
 - **Clicks are CIRCLE.** The host synthesizes the spec press button while
   the mouse is down; the app resolves hover → focus (`hitFocusable` +
   `focusNode`) from svc mouse moves, and the framework's stock onPress
@@ -324,23 +324,23 @@ Terms are deliberately separate:
 | instance | Runtime state such as current LOD, orbit, focus, and app bindings. |
 | scene | Internal `pocket3d::scene::Scene`; not a second product or process name. |
 
-The stage manifest follows `pocket.json` conventions: JSON Schema 2020-12, a
+The stage manifest follows `pocket.app.json` conventions: JSON Schema 2020-12, a
 `$schema` URI, one integer major discriminator (`pocketStage`), reverse-DNS
 IDs, SemVer, `additionalProperties: false`, and package-relative paths that
-cannot escape the package root. It does **not** replace the app manifest. The
+cannot escape the package root. It does **not** replace the app contract. The
 authority boundary introduced by the platform contracts remains intact:
 
 | Input | Owns |
 | --- | --- |
-| app `pocket.json` | App intent: entry, framework, capabilities, fixed/dynamic viewport variants. |
+| app `pocket.app.json` | App intent: entry, framework, capabilities, fixed/dynamic viewport variants. |
 | `pocket-stage.json` | Package facts: visual artifacts, semantic screen slots, display facts, views, interaction adapters, notices. |
-| Stage host profile | Runtime facts: actual platform, `form: "embedded"`, host ABI, implemented capabilities. |
+| Stage host contract | Runtime facts: actual platform, `form: "embedded"`, host ABI, implemented capabilities. |
 | `ResolvedBuildPlan` | The one admitted app variant and its resolved viewport/features. |
 | `ResolvedStageLaunchPlan` | The verified app plan + package digest + chosen LOD/surface binding used by the binary. |
 
 The outer desktop process still uses the `pocket-widget` window mechanism;
 that does not make the guest a `macos-widget` target. A guest drawn into a
-screen mesh resolves against an `embedded` profile derived from the selected
+screen mesh resolves against an `embedded` host contract derived from the selected
 surface. Target ids are labels and must never be parsed to recover these
 facts.
 
@@ -426,15 +426,15 @@ rejection, and contract fixtures. Unsupported adapters, missing or multiply
 matched surfaces, invalid full-span UVs, cross-LOD bound drift, package path
 escape, and every declared-but-unconsumed field fail before GPU startup.
 
-The bundled PSP launcher is now manifest-first on the **app** side: it resolves
-the selected demo's `pocket.json` against a transitional
-`macos-embedded` profile, writes a `ResolvedBuildPlan`, compiles from that
+The bundled PSP launcher now starts from the app contract on the **app** side: it resolves
+the selected demo's `pocket.app.json` against a transitional
+`macos-embedded` host contract, writes a `ResolvedBuildPlan`, compiles from that
 plan, and publishes the same target id/ABI through `UiProgram`. The raw JS/pak
 adapter enters Runtime package admission. Full stage-package launch should
 extend that path without adding a second resolver:
 
 ```text
-pocket.json + pocket-stage.json + actual Stage host facts
+pocket.app.json + pocket-stage.json + actual Stage host facts
                     │ resolve once
                     ▼
        ResolvedBuildPlan + ResolvedStageLaunchPlan

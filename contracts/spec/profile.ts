@@ -1,151 +1,221 @@
-// Profile identity contract, shared by application compilation and Runtime admission.
+// Host contracts: what a host program promises, as JSON. The compiler
+// bakes these facts into a package; a device admits a package when its own
+// facts satisfy the package's (contracts/spec/admission.ts).
 import type { JsonSchema } from "./pocket-manifest.ts";
 import {
   ANIMATION_CLASSES,
   PRESENTATION_MODES,
   TARGET_FORMS,
-  type DisplayProfile,
-  type PocketCapabilityId,
+  type AnimationClass,
   type PresentationMode,
   type TargetForm,
+  type Viewport,
 } from "./platform-types.ts";
+import { WORKER_RESOURCES, type WorkerResourceKind } from "./worker.ts";
 
-/** Software facts promised by a program; no compiler, SDK, or build steps. */
+export const POCKET_PROFILE_FORMAT = "pocket-host/2" as const;
+export const POCKET_PROFILE_SCHEMA_ID = "https://pocketjs.dev/schema/pocket-host-2.json";
+/** The file a firmware release ships beside its binary. */
+export const POCKET_PROFILE_FILE = "pocket.host.json";
+
+/** One UI output's logical sizes, presentations and raster density. */
+export interface ProfileSurface {
+  readonly logicalViewports: readonly Viewport[];
+  readonly presentations: readonly PresentationMode[];
+  /** Raster samples per logical pixel for baked text, vectors and images. */
+  readonly rasterDensity: number;
+}
+
+export interface ProfileDisplay extends ProfileSurface {
+  /** What a changed frame costs this host (contracts/spec/animation.ts). */
+  readonly animation: AnimationClass;
+  /** Window and widget forms: any logical size in [min, max]; the logical
+   *  viewports list the default size. `acceptsFixed` hosts fixed-viewport
+   *  applications in a size-locked window. */
+  readonly dynamicViewport?: {
+    readonly min: Viewport;
+    readonly max: Viewport;
+    readonly acceptsFixed?: boolean;
+  };
+  /** A second fixed UI output presented with the primary one. */
+  readonly auxiliary?: ProfileSurface;
+}
+
+/** A host program's facts. Admission compares the display, cadences and
+ *  capabilities; the panel, worker table, limits and input parameters are
+ *  runtime facts the exporter hands to the program. */
 export interface PocketProfile<C extends string = string> {
+  readonly $schema?: string;
+  readonly format: typeof POCKET_PROFILE_FORMAT;
   readonly id: string;
   readonly platform: string;
   readonly form: TargetForm;
-  readonly tickHz: number;
-  readonly display: DisplayProfile;
+  /** Presented frames per second the host can drive. A package runs at the
+   *  largest cadence its tick rate is a whole multiple of. */
+  readonly cadences: readonly number[];
+  readonly display: ProfileDisplay;
+  /** Physical panel sizes in pixels. */
+  readonly panel: {
+    readonly primary: Viewport;
+    readonly auxiliary?: Viewport;
+  };
+  /** Capability names; a set. */
   readonly capabilities: readonly C[];
   readonly roleCapabilities?: { readonly systemUI?: readonly C[] };
-  /** Metadata only. Anything that changes app compilation or behavior belongs
-   * in the hashed contract or requires separate versioned validation. */
+  /** Worker nodes the host provides, by kind: the most nodes of that kind
+   *  one package may declare. */
+  readonly worker?: { readonly nodes: Readonly<Partial<Record<WorkerResourceKind, number>>> };
+  readonly limits?: {
+    /** The largest `.pocket` the host loads. */
+    readonly packageBytes?: number;
+    /** The guest heap the host gives a package. */
+    readonly heapBytes?: number;
+  };
+  readonly input?: {
+    /** Simultaneous touch contacts the host reports. */
+    readonly touchContacts?: number;
+    /** Bits of a touch coordinate on the input wire (9 or 10). */
+    readonly coordinateBits?: number;
+  };
+  /** Metadata only; nothing reads it for compilation or admission. */
   readonly hostExtension?: Readonly<Record<string, unknown>>;
+  /** The binding generation a release stamped; another one is refused. */
+  readonly hostAbi?: number;
 }
 
 export const PROFILE_HASH_ALGORITHM = "sha256" as const;
 export const PROFILE_HASH_BYTES = 32;
+/** The fields the provenance hash covers. Admission does not compare it. */
 export const PROFILE_HASH_FIELDS = [
-  "id", "platform", "form", "tickHz", "display", "capabilities", "roleCapabilities",
+  "id", "platform", "form", "cadences", "display", "capabilities", "roleCapabilities",
 ] as const;
 
-/** Native profile export masks. Assignments are append-only and do not follow
- * the capability registry's display order. These masks are derived convenience
- * data; canonical JSON remains the profile identity and admission contract. */
-export const PROFILE_CAPABILITY_BITS = {
-  "runtime.worker": 0x40000000n,
-  "io.i2c": 0x80000000n,
-  "io.uart": 0x100000000n,
-  "input.analog.left": 0x00000001n,
-  "input.analog.right": 0x00000002n,
-  "input.buttons": 0x00000004n,
-  "input.cursor": 0x00000008n,
-  "input.ime": 0x00000010n,
-  "input.pointer": 0x00000020n,
-  "input.text": 0x00000040n,
-  "input.touch": 0x00000080n,
-  "input.touch.auxiliary": 0x00000100n,
-  "ui.compositor-surfaces": 0x00000200n,
-  "ui.physics": 0x00000400n,
-  "audio.pcm": 0x00000800n,
-  "media.playback": 0x00001000n,
-  "io.offload": 0x00002000n,
-  "net.http": 0x00004000n,
-  "link.companion": 0x00008000n,
-  "system.wifi": 0x00010000n,
-  "camera.qr": 0x00020000n,
-  "system.agent": 0x00040000n,
-  // 0x00080000n was data.sqlite, retired in October 2026; the bit stays unassigned.
-  "data.fs": 0x00100000n,
-  "host.clipboard": 0x00200000n,
-  "display.viewport.live": 0x00400000n,
-  "display.auxiliary": 0x00800000n,
-  "text.glyphs.baked": 0x01000000n,
-  "text.glyphs.streamed": 0x02000000n,
-  "text.glyphs.runtime": 0x04000000n,
-  "text.layout.native": 0x08000000n,
-  "text.layout.offload": 0x10000000n,
-  "camera.photo": 0x20000000n,
-} as const satisfies Readonly<Record<PocketCapabilityId, bigint>>;
-
-/** Append-only native presentation mask assignments. */
-export const PROFILE_PRESENTATION_BITS = {
-  fill: 0x01, fit: 0x02, "integer-fit": 0x04, native: 0x08, stretch: 0x10,
-} as const satisfies Readonly<Record<PresentationMode, number>>;
+export type ProfileHashProjection = Pick<PocketProfile, (typeof PROFILE_HASH_FIELDS)[number]>;
 
 const viewport = {
   type: "array", items: { type: "integer", minimum: 1, maximum: 65535 },
   minItems: 2, maxItems: 2,
 } as const satisfies JsonSchema;
-const capabilities = {
+const names = {
   type: "array", items: { type: "string", minLength: 1 }, uniqueItems: true,
 } as const satisfies JsonSchema;
-const fixedDisplay = {
+const surface = {
   type: "object", additionalProperties: false,
-  required: ["physicalViewport", "logicalViewports", "presentations", "rasterDensity"],
+  required: ["logicalViewports", "presentations", "rasterDensity"],
   properties: {
-    physicalViewport: viewport,
     logicalViewports: { type: "array", items: viewport, minItems: 1, uniqueItems: true },
-    presentations: {
-      type: "array", items: { enum: PRESENTATION_MODES }, minItems: 1, uniqueItems: true,
-    },
+    presentations: { type: "array", items: { enum: PRESENTATION_MODES }, minItems: 1, uniqueItems: true },
     rasterDensity: { type: "integer", minimum: 1, maximum: 255 },
   },
 } as const satisfies JsonSchema;
-
-/** This schema covers the data shape. The profile definition API also checks
- * capability/viewport relations and reserved command and built-in profile ids. */
-export const pocketProfileSchema = {
-  type: "object", additionalProperties: false,
-  required: ["id", "platform", "form", "tickHz", "display", "capabilities"],
+const display = {
+  ...surface,
+  required: [...surface.required, "animation"],
   properties: {
+    ...surface.properties,
+    animation: { enum: ANIMATION_CLASSES },
+    dynamicViewport: {
+      type: "object", additionalProperties: false, required: ["min", "max"],
+      properties: { min: viewport, max: viewport, acceptsFixed: { type: "boolean" } },
+    },
+    auxiliary: surface,
+  },
+} as const satisfies JsonSchema;
+const cadences = {
+  type: "array", items: { type: "integer", minimum: 1, maximum: 240 }, minItems: 1, uniqueItems: true,
+} as const satisfies JsonSchema;
+const roleCapabilities = {
+  type: "object", additionalProperties: false, properties: { systemUI: names },
+} as const satisfies JsonSchema;
+
+/** The data shape of a pocket-host/2 document. framework/src/profile.ts
+ *  adds the relations between fields. */
+export const pocketProfileSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: POCKET_PROFILE_SCHEMA_ID,
+  title: "Pocket profile, format 2",
+  type: "object", additionalProperties: false,
+  required: ["format", "id", "platform", "form", "cadences", "display", "panel", "capabilities"],
+  properties: {
+    $schema: { type: "string" },
+    format: { const: POCKET_PROFILE_FORMAT },
     id: { type: "string", minLength: 1 },
     platform: { type: "string", minLength: 1 },
     form: { enum: TARGET_FORMS },
-    tickHz: { type: "integer", minimum: 1, maximum: 240 },
-    display: {
-      ...fixedDisplay,
+    cadences,
+    display,
+    panel: {
+      type: "object", additionalProperties: false, required: ["primary"],
+      properties: { primary: viewport, auxiliary: viewport },
+    },
+    capabilities: names,
+    roleCapabilities,
+    worker: {
+      type: "object", additionalProperties: false, required: ["nodes"],
       properties: {
-        ...fixedDisplay.properties,
-        dynamicViewport: {
-          type: "object", additionalProperties: false, required: ["min", "max"],
-          properties: { min: viewport, max: viewport, acceptsFixed: { type: "boolean" } },
+        nodes: {
+          type: "object", additionalProperties: false,
+          properties: Object.fromEntries(Object.keys(WORKER_RESOURCES).map(kind => [kind, { type: "integer", minimum: 0, maximum: 255 }])),
         },
-        auxiliary: fixedDisplay,
-        animation: { enum: ANIMATION_CLASSES },
       },
     },
-    capabilities,
-    roleCapabilities: {
-      type: "object", additionalProperties: false, properties: { systemUI: capabilities },
+    limits: {
+      type: "object", additionalProperties: false,
+      properties: {
+        packageBytes: { type: "integer", minimum: 1 },
+        heapBytes: { type: "integer", minimum: 1 },
+      },
+    },
+    input: {
+      type: "object", additionalProperties: false,
+      properties: {
+        touchContacts: { type: "integer", minimum: 1, maximum: 16 },
+        coordinateBits: { enum: [9, 10] },
+      },
     },
     hostExtension: { type: "object" },
+    hostAbi: { type: "integer", minimum: 1, maximum: 0xffff_ffff },
   },
 } as const satisfies JsonSchema;
 
-/** Projection is exact identity, not a compatibility relation. Missing optional
- * fields stay absent. Arrays retain order, including capability lists. */
-export function profileHashProjection(profile: PocketProfile): Omit<PocketProfile, "hostExtension"> {
+/** The profile a plan records: the document without its release stamp,
+ * schema reference and metadata. */
+export type CompiledProfile = Omit<PocketProfile, "$schema" | "hostAbi" | "hostExtension">;
+
+/** Drop the fields that do not describe the host. */
+export function compiledProfile(profile: PocketProfile): CompiledProfile {
+  const { $schema: _schema, hostAbi: _hostAbi, hostExtension: _extension, ...compiled } = profile;
+  return compiled;
+}
+
+export function generatePocketProfileSchema(): string {
+  return JSON.stringify(pocketProfileSchema, null, 2) + "\n";
+}
+
+const byCodeUnit = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+
+/** The hashed fields. Capability lists and cadences are sets: sorted here.
+ *  Missing optional fields stay absent; viewport lists keep their order. */
+export function profileHashProjection(profile: ProfileHashProjection): ProfileHashProjection {
+  const systemUI = profile.roleCapabilities?.systemUI;
   return {
     id: profile.id,
     platform: profile.platform,
     form: profile.form,
-    tickHz: profile.tickHz,
+    cadences: [...profile.cadences].sort((left, right) => left - right),
     display: profile.display,
-    capabilities: profile.capabilities,
-    ...(profile.roleCapabilities === undefined ? {} : { roleCapabilities: profile.roleCapabilities }),
+    capabilities: [...profile.capabilities].sort(byCodeUnit),
+    ...(profile.roleCapabilities === undefined ? {} : {
+      roleCapabilities: systemUI === undefined ? {} : { systemUI: [...systemUI].sort(byCodeUnit) },
+    }),
   };
 }
 
-/** SHA-256 consumes the UTF-8 bytes of this string without a BOM or newline.
- * Object keys use UTF-16 code-unit order; arrays keep declaration order. Numbers
- * use ECMAScript JSON serialization (-0 becomes 0); NaN/Infinity, sparse arrays,
- * undefined, non-JSON objects, cycles, and lone surrogates are rejected. Strings
- * have no Unicode normalization. These rules also govern future Rust/C/Python
- * consumers; the conformance vectors in tests/profile-contract.test.ts pin them.
- */
-export function canonicalProfileJson(profile: PocketProfile): string {
+/** Canonical JSON text: object keys in UTF-16 code-unit order, arrays in
+ * order, ECMAScript number serialization (-0 becomes 0). NaN/Infinity, sparse
+ * arrays, undefined, non-JSON objects, cycles and lone surrogates are
+ * rejected; strings have no Unicode normalization. */
+export function canonicalJsonText(input: unknown): string {
   const ancestors = new Set<object>();
   const quote = (value: string): string => {
     if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)) {
@@ -175,5 +245,13 @@ export function canonicalProfileJson(profile: PocketProfile): string {
     ancestors.delete(value);
     return result;
   };
-  return encode(profileHashProjection(profile));
+  return encode(input);
+}
+
+/** The text the provenance hash covers: canonical JSON of the projection.
+ * SHA-256 consumes its UTF-8 bytes without a BOM or newline.
+ * tests/profile-contract.test.ts pins the rules for other consumers; the
+ * hash is provenance, so each consumer computes it when it needs it. */
+export function canonicalProfileJson(profile: ProfileHashProjection): string {
+  return canonicalJsonText(profileHashProjection(profile));
 }

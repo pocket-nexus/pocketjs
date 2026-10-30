@@ -79,6 +79,28 @@ unsafe fn pairs(pointer: *const u32, count: usize) -> Option<Cow<'static, [[u32;
     let words = unsafe { core::slice::from_raw_parts(pointer, count * 2) };
     Some(Cow::Owned(words.as_chunks::<2>().0.to_vec()))
 }
+/// Split a NUL-terminated name list into runtime-owned names.
+/// # Safety
+/// A nonnull pointer provides `length` readable bytes.
+unsafe fn names(pointer: *const u8, length: usize) -> Option<Cow<'static, [Cow<'static, str>]>> {
+    if length == 0 {
+        return Some(Cow::Borrowed(&[]));
+    }
+    let bytes = unsafe { borrowed(pointer, length) }.ok()?;
+    let (last, list) = bytes.split_last()?;
+    if *last != 0 {
+        return None;
+    }
+    let mut names = Vec::new();
+    for name in list.split(|byte| *byte == 0) {
+        let name = core::str::from_utf8(name).ok()?;
+        if name.is_empty() || names.len() >= 256 {
+            return None;
+        }
+        names.push(Cow::Owned(String::from(name)));
+    }
+    Some(Cow::Owned(names))
+}
 /// One exported panel: physical size, logical viewports and raster density.
 type Panel = ([u32; 2], Cow<'static, [[u32; 2]]>, u32);
 /// # Safety
@@ -115,27 +137,46 @@ pub(crate) unsafe fn profile(facts: *const PocketProfileFacts) -> Option<Profile
         }
         None => (None, Cow::Borrowed(&[][..])),
     };
+    // A record without cadences presents at its one rate, tick_hz.
+    let cadences = if facts.cadence_count == 0 {
+        Cow::Owned(alloc::vec![facts.tick_hz])
+    } else if facts.cadence_count > 64 {
+        return None;
+    } else {
+        Cow::Owned(unsafe { borrowed(facts.cadences, facts.cadence_count) }.ok()?.to_vec())
+    };
+    let animation = if facts.animation_length == 0 {
+        Cow::Borrowed("")
+    } else {
+        let bytes = unsafe { borrowed(facts.animation, facts.animation_length) }.ok()?;
+        Cow::Owned(String::from(core::str::from_utf8(bytes).ok()?))
+    };
     Some(Profile {
         id: Cow::Owned(id),
-        tick_hz: facts.tick_hz,
+        cadences,
         viewport,
         logical_viewports,
         dynamic_viewport,
+        presentations: unsafe { names(facts.presentations, facts.presentations_length) }?,
         auxiliary,
         auxiliary_logical,
         density,
+        animation,
+        capabilities: unsafe { names(facts.capabilities, facts.capabilities_length) }?,
         required_inputs: InputClasses::from_bits(facts.input_classes),
     })
 }
 /// Copy the exported profile facts into runtime-owned storage. The config's
-/// tick_hz must repeat the facts' rate: a program that passes a literal rate
-/// for a profile with another one is refused here, before any package loads.
+/// tick_hz must repeat the facts' tick_hz: a program that passes a literal
+/// rate for a profile with another one is refused here, before any package
+/// loads.
 /// # Safety
 /// config and the facts it points to provide their announced readable bytes.
 unsafe fn configuration(config: *const PocketRuntimeConfig) -> Option<RuntimeConfig> {
     let config = unsafe { PocketRuntimeConfig::read_prefix(config) }?;
     let profile = unsafe { profile(config.profile) }?;
-    if config.tick_hz != profile.tick_hz {
+    let facts = unsafe { PocketProfileFacts::read_prefix(config.profile) }?;
+    if config.tick_hz != facts.tick_hz {
         return None;
     }
     Some(RuntimeConfig {
@@ -327,6 +368,35 @@ pub unsafe extern "C" fn pocket_runtime_complete_presentation(runtime: *mut Pock
 #[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32 {
     unsafe { modify(runtime, Runtime::tick) }
+}
+/// # Safety
+/// runtime is a live instance on its owning thread; out provides its
+/// announced writable prefix.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_get_timing(
+    runtime: *const PocketRuntime,
+    out: *mut PocketRuntimeTiming,
+) -> i32 {
+    let Some(handle) = (unsafe { handle(runtime) }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    let Ok(runtime) = handle.runtime.try_borrow() else {
+        return POCKET_STATUS_FAILED;
+    };
+    let Some(timing) = runtime.timing() else {
+        return POCKET_STATUS_INVALID;
+    };
+    let value = PocketRuntimeTiming {
+        tick_hz: timing.tick_hz,
+        cadence_hz: timing.cadence_hz,
+        core_ticks: timing.core_ticks(),
+        ..PocketRuntimeTiming::empty()
+    };
+    if unsafe { value.write_prefix(out) } {
+        POCKET_STATUS_OK
+    } else {
+        POCKET_STATUS_INVALID
+    }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.

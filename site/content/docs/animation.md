@@ -3,7 +3,7 @@
 PocketJS has three ways to move things:
 
 - **Baked keyframe timelines** — `keyframes` and `animation` declared in
-  `pocket.json` under `app.theme` and applied with `animate-<name>` classes.
+  `pocket.app.json` under `app.theme` and applied with `animate-<name>` classes.
   The compiler turns them into binary timelines at build time.
 - **Transition utilities** — Tailwind-subset classes (`transition`, `duration-N`,
   `ease-*`, `delay-N`) that tween a node whenever its style is swapped.
@@ -16,7 +16,8 @@ Rust core owns every frame from there.**
 ## How native animation works
 
 Tweens and springs tick in the Rust core, one step per `tick()`. **The step is
-`dt = 1 / tickHz`, with `tickHz` declared by the selected profile.** Application
+`dt = 1 / tickHz`, with `tickHz` declared by the application as
+`app.tickHz`** (1 through 60, default 60). Application
 compilation bakes that rate into the animation tables; the runtime uses the same
 rate to advance them. The core accepts 1 through 240 Hz and refuses
 `Ui::set_tick_rate` after the first tick, so the step stays constant for a run.
@@ -184,7 +185,7 @@ for how focus moves between nodes.
 ## Baked keyframe timelines
 
 For multi-stop animations, staggered sequences and loops, declare `keyframes`
-and `animation` in **`pocket.json` → `app.theme`**. The fields use the Tailwind
+and `animation` in **`pocket.app.json` → `app.theme`**. The fields use the Tailwind
 keyframe and animation shape:
 
 ```json
@@ -206,7 +207,7 @@ keyframe and animation shape:
 }
 ```
 
-`app.theme` may instead name a module, relative to `pocket.json`:
+`app.theme` may instead name a module, relative to `pocket.app.json`:
 
 ```json
 { "app": { "theme": "./theme.ts" } }
@@ -215,14 +216,14 @@ keyframe and animation shape:
 The module's default export is the same object, so easing constants, loop
 periods and helpers that derive keyframes stay in TypeScript. **`pocket
 compile` loads the module before it resolves the build plan**, embeds the
-loaded object in the package's manifest, and lists the module and its
-relative imports in the depfile. A `.json` path is read the same way.
+loaded object in the package's copy of the app contract, and lists the module
+and its relative imports in the depfile. A `.json` path is read the same way.
 
-The theme belongs to the application manifest. The selected profile supplies
-`tickHz`; `pocket.runtime-config.ts` selects that profile and can declare the
+The theme belongs to the app contract, and so does `app.tickHz`.
+`pocket.host.config.ts` selects the host contract and can declare the
 program's native build. Both guest compilation and `pocket compile --aot` bake
-the theme at the profile's tick rate. See [Frameworks](/docs/frameworks/#manifest-selection)
-for profile selection.
+the theme at the application's tick rate. See
+[Frameworks](/docs/frameworks/#contract-selection) for host contract selection.
 
 ```tsx
 <View class="w-[38] h-[38] rounded-[19px] bg-white overflow-hidden animate-menu-pill" />
@@ -344,7 +345,7 @@ A GPU composes a frame from retained geometry, so a tween costs the same
 whatever it moves. A CPU rasterizer repaints the pixels a tween changes,
 so a `scale` over the whole page costs the whole page every frame, while a
 `translateX` of an opaque page is a pixel move. `animationClass` names
-which of the two this bundle runs on, from the target profile the plan
+which of the two this bundle runs on, from the host contract the plan
 resolved (see [Platform contracts](/docs/platform-contracts/#animation-classes)):
 
 ```ts

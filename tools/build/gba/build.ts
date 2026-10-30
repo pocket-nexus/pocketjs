@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { RUST_TOOLCHAINS, STABLE_RUST_TOOLCHAIN } from "../toolchains/rust.ts";
-import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { exportAotProfile } from "../aot-profile.ts";
 import { packLayers } from "./assets.ts";
 

@@ -1,8 +1,9 @@
 import { nativeSources } from "./native-sources.ts";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/pocketbook.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { requireProgramProfile, requireApplication } from "./application.ts";
 import { buildPocketBook } from "./pocketbook-native.ts";
+const profile = POCKET_PROFILES["pocketbook"];
 
 export const build: RuntimeBuild = {
   hosts: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"],

@@ -84,13 +84,16 @@ mod tests {
             frame_buffer_budget,
             profile: Profile {
                 id: Cow::Borrowed("aot"),
-                tick_hz: 60,
+                cadences: Cow::Borrowed(&[60]),
                 viewport: [4, 4],
                 logical_viewports: Cow::Borrowed(&[[4, 4]]),
                 dynamic_viewport: None,
+                presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
                 auxiliary: None,
                 auxiliary_logical: Cow::Borrowed(&[]),
                 density: 1,
+                animation: Cow::Borrowed("composited"),
+                capabilities: Cow::Borrowed(&[]),
                 required_inputs: InputClasses::NONE,
             },
         }
@@ -157,11 +160,15 @@ mod tests {
             .add_display(Display([0; 64]), RendererId::SOFTWARE)
             .unwrap();
         assert_eq!(
-            runtime.boot_aot_deferred([0; 32], [4, 4], false),
+            runtime.boot_aot_deferred([0; 32], [4, 4], false, 60),
+            Err(RuntimeError::ProfileMismatch)
+        );
+        assert_eq!(
+            runtime.boot_aot_deferred(PROFILE_HASH, [4, 4], false, 45),
             Err(RuntimeError::ProfileMismatch)
         );
         runtime
-            .boot_aot_deferred(PROFILE_HASH, [4, 4], false)
+            .boot_aot_deferred(PROFILE_HASH, [4, 4], false, 60)
             .unwrap();
         assert_eq!(app.borrow().as_ref().unwrap().frames, 0);
         let ops = runtime.op_context();

@@ -9,7 +9,7 @@ use pocket_runtime::{
 use std::{cell::RefCell, rc::Rc};
 use support::{Device, Event, Fault, Resources, Shared, HEIGHT, WIDTH};
 
-/// The canonical profile JSON `pocket profile export` hashes; the runtime
+/// The canonical profile JSON `pocket host export` hashes; the runtime
 /// receives the hash and the facts below, never this text.
 const PROFILE: &[u8] = br#"{"capabilities":["input.buttons","input.analog.left","input.touch"],"display":{"logicalViewports":[[8,6]],"physicalViewport":[8,6],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"consumer","platform":"external-test","tickHz":60}"#;
 fn config() -> RuntimeConfig {
@@ -20,13 +20,20 @@ fn config() -> RuntimeConfig {
         frame_buffer_budget: (WIDTH * HEIGHT * 4) as usize,
         profile: Profile {
             id: Cow::Borrowed("consumer"),
-            tick_hz: 60,
+            cadences: Cow::Borrowed(&[60]),
             viewport: [WIDTH, HEIGHT],
             logical_viewports: Cow::Borrowed(&[[WIDTH, HEIGHT]]),
             dynamic_viewport: None,
+            presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
             auxiliary: None,
             auxiliary_logical: Cow::Borrowed(&[]),
             density: 1,
+            animation: Cow::Borrowed("repaint"),
+            capabilities: Cow::Borrowed(&[
+                Cow::Borrowed("input.analog.left"),
+                Cow::Borrowed("input.buttons"),
+                Cow::Borrowed("input.touch"),
+            ]),
             required_inputs: InputClasses::BUTTONS
                 | InputClasses::AXIS_ABSOLUTE
                 | InputClasses::CONTACT,
@@ -41,7 +48,7 @@ fn package() -> Vec<u8> {
         host_abi: pocket_spec::BINDING_GENERATION,
         profile_hash: config().profile_hash,
         identity: &identity,
-        plan: br#"{"viewport":{"logical":[8,6],"rasterDensity":1},"features":{}}"#,
+        plan: br#"{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[8,6],"presentation":"native","rasterDensity":1},"features":{}}"#,
         code: b"public-api-fixture",
         pak: &[],
     })
@@ -482,22 +489,19 @@ fn all_and_short_range_sources_share_package_corpus_admission() {
         let summary = |result: Result<LoadedPackage, _>| {
             result.map(|p| p.javascript().to_vec())
         };
-        let memory = summary(LoadedPackage::load(
-            &mut MemorySource(&bytes),
-            "psp",
-            1,
-            &[0x11; 32],
-            bytes.len(),
-        ));
+        let config = config();
+        let host = pocket_package::HostFacts {
+            binding_generation: 1,
+            ..config.profile.host_facts(1, [0x11; 32])
+        };
+        let memory = summary(LoadedPackage::load(&mut MemorySource(&bytes), &host, bytes.len()));
         let reads = Rc::new(RefCell::new(0));
         let range = summary(LoadedPackage::load(
             &mut RangeSource {
                 bytes: bytes.clone(),
                 reads: reads.clone(),
             },
-            "psp",
-            1,
-            &[0x11; 32],
+            &host,
             bytes.len(),
         ));
         assert_eq!(memory, range, "{}", path.display());

@@ -11,7 +11,7 @@
 //!   bun run note -- --file ~/notes/todo.md --width 380 --height 520
 //!
 //! `bun run note` exports the macos-widget profile and builds the binary
-//! against it; `pocket build --config programs/macos-widget/pocket.runtime-config.ts`
+//! against it; `pocket build --config programs/macos-widget/pocket.host.config.ts`
 //! does the same for a packaged widget.
 //!
 //! The host is the guest's companion process over the spec svc channel
@@ -845,6 +845,8 @@ fn boot(args: &Args) -> Result<(UiProgram, String, Vec<u8>)> {
     let mut program = UiProgram::new(ProgramConfig {
         profile,
         profile_hash: profile::PROFILE_HASH,
+        // The bundle's baked rate; its plan's profile.tickHz.
+        tick_hz: 60,
         host_abi: profile::HOST_ABI,
         logical: [args.size.0, args.size.1],
         heap_limit: 64 * 1024 * 1024,

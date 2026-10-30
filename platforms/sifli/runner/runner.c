@@ -1,6 +1,7 @@
-/* The thread that ticks a runtime at the profile rate. Deadlines come from
- * pocket_tick_schedule over a microsecond clock built from the RT-Thread
- * tick, so a tick lands within one OS tick of its deadline. */
+/* The thread that ticks a runtime at the cadence the booted package runs at
+ * (pocket_runtime_get_timing). Deadlines come from pocket_tick_schedule over
+ * a microsecond clock built from the RT-Thread tick, so a tick lands within
+ * one OS tick of its deadline. */
 #include <rtthread.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 struct pocket_sifli_runner {
   pocket_runtime *runtime;
   pocket_tick_schedule *schedule;
+  uint32_t cadence_hz;
   pocket_sifli_runner_config config;
   rt_thread_t thread;
   struct rt_semaphore wake, exited;
@@ -93,7 +95,7 @@ static void runner_thread(void *opaque) {
   rt_sem_release(&runner->exited);
 }
 
-int32_t pocket_sifli_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
+int32_t pocket_sifli_runner_start(pocket_runtime *runtime,
                                   const pocket_sifli_runner_config *config,
                                   pocket_sifli_runner **out) {
   if (runtime == NULL || config == NULL || out == NULL || config->struct_size < sizeof(*config) ||
@@ -101,6 +103,10 @@ int32_t pocket_sifli_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
       config->tick_slice == 0U || config->max_lag_us == 0U || config->stop_timeout_ms == 0U)
     return POCKET_STATUS_INVALID;
   *out = NULL;
+  /* The booted package's rate presented at the profile cadence. */
+  pocket_runtime_timing timing = {.struct_size = sizeof(timing)};
+  if (pocket_runtime_get_timing(runtime, &timing) != POCKET_STATUS_OK)
+    return POCKET_STATUS_INVALID;
   pocket_sifli_runner *runner = rt_calloc(1, sizeof(*runner));
   if (runner == NULL)
     return POCKET_STATUS_FAILED;
@@ -109,7 +115,8 @@ int32_t pocket_sifli_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
   runner->stats.struct_size = sizeof(runner->stats);
   atomic_init(&runner->stopping, false);
   runner->last_tick = rt_tick_get();
-  runner->schedule = pocket_tick_schedule_create(tick_hz, 0, config->max_lag_us);
+  runner->cadence_hz = timing.cadence_hz;
+  runner->schedule = pocket_tick_schedule_create(timing.cadence_hz, 0, config->max_lag_us);
   if (runner->schedule == NULL) {
     rt_free(runner);
     return POCKET_STATUS_INVALID;
@@ -135,8 +142,22 @@ int32_t pocket_sifli_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
 }
 
 void pocket_sifli_runner_set_runtime(pocket_sifli_runner *runner, pocket_runtime *runtime) {
-  if (runner != NULL && runtime != NULL)
-    runner->runtime = runtime;
+  if (runner == NULL || runtime == NULL)
+    return;
+  runner->runtime = runtime;
+  /* A replacement package may run at another cadence; restart the schedule
+   * from now at that cadence. */
+  pocket_runtime_timing timing = {.struct_size = sizeof(timing)};
+  if (pocket_runtime_get_timing(runtime, &timing) != POCKET_STATUS_OK ||
+      timing.cadence_hz == runner->cadence_hz)
+    return;
+  pocket_tick_schedule *schedule =
+      pocket_tick_schedule_create(timing.cadence_hz, now_us(runner), runner->config.max_lag_us);
+  if (schedule == NULL)
+    return;
+  pocket_tick_schedule_destroy(runner->schedule);
+  runner->schedule = schedule;
+  runner->cadence_hz = timing.cadence_hz;
 }
 
 int32_t pocket_sifli_runner_stats_get(pocket_sifli_runner *runner,

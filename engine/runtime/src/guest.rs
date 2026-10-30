@@ -26,7 +26,11 @@ pub struct AssetRegistry {
 pub struct GuestEnvironment<'a> {
     pub host: &'a str,
     pub host_abi: u32,
+    /// Core ticks per virtual second: the admitted package's rate.
     pub tick_hz: u32,
+    /// Guest frames per second: the host cadence. Guests publish it as
+    /// `globalThis.__simHz`; each frame advances `tick_hz / sim_hz` ticks.
+    pub sim_hz: u32,
     pub viewport: [u32; 2],
     pub auxiliary_viewport: Option<[u32; 2]>,
     pub auxiliary_root: i32,

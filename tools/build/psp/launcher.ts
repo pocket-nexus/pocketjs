@@ -1,7 +1,7 @@
 // PSP launcher inputs are explicit registry entries, never an entire dist tree.
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { RuntimeSourceContext } from "../../../framework/src/runtime-config.ts";
+import type { RuntimeSourceContext } from "../../../framework/src/host-config.ts";
 
 /** Resolve the same flags and registry order consumed by the PSP build script.
  * Paths in CLI flags follow the invocation directory, as nativeArguments does. */

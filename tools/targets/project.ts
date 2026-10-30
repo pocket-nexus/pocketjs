@@ -1,4 +1,4 @@
-import { findRuntimeConfig, loadRuntimeConfig } from "../profile-resolver.ts";
+import { findHostConfig, loadHostConfig } from "../profile-resolver.ts";
 import type { PocketProfile } from "../../framework/src/profile.ts";
 import type { ToolchainManifest } from "./toolchain.ts";
 
@@ -13,14 +13,14 @@ export type ProjectResult =
   | { readonly ok: true; readonly project: ProjectConfiguration }
   | { readonly ok: false; readonly diagnostics: readonly string[] };
 
-export const findProjectConfig = findRuntimeConfig;
+export const findProjectConfig = findHostConfig;
 
 /** Resolve the program config nearest to the application's manifest. */
 export async function loadProject(manifestDirectory: string, explicitConfig?: string): Promise<ProjectResult> {
-  const path = explicitConfig ?? findRuntimeConfig(manifestDirectory);
+  const path = explicitConfig ?? findHostConfig(manifestDirectory);
   if (!path) return { ok: true, project: { config: null, profiles: [], build: false } };
   try {
-    const loaded = await loadRuntimeConfig(path);
+    const loaded = await loadHostConfig(path);
     return { ok: true, project: {
       config: loaded.path, profiles: loaded.profiles,
       build: Boolean(loaded.value.build),

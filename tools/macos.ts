@@ -43,9 +43,9 @@ const rest = argv.filter((f) => f !== "--proof" && f !== "--build-only");
 const appArg = rest[0] && !rest[0].startsWith("--") ? rest.shift()! : "note";
 const appDir = appArg.replace(/-main$/, "");
 
-const manifestPath = `${root}apps/${appDir}/pocket.json`;
+const manifestPath = `${root}apps/${appDir}/pocket.app.json`;
 if (!existsSync(manifestPath)) {
-  throw new Error(`pocket-desktop-host: no manifest at apps/${appDir}/pocket.json`);
+  throw new Error(`pocket-desktop-host: no manifest at apps/${appDir}/pocket.app.json`);
 }
 const systemPath = `${root}apps/${appDir}/pocket.system.json`;
 let systemPlan: ResolvedSystemPlan | undefined;

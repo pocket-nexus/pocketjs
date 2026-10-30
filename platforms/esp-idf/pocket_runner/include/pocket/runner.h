@@ -23,8 +23,10 @@ typedef struct {
   uint32_t frames, frames_skipped, frame_errors, max_frame_us;
 } pocket_runner_stats_t;
 void pocket_runner_config_defaults(pocket_runner_config_t *config);
-/* Runtime must be booted and remain alive until stop joins the task. */
-esp_err_t pocket_runner_start(pocket_runtime *runtime, uint32_t tick_hz,
+/* Runtime must be booted and remain alive until stop joins the task. The
+ * runner ticks at the cadence pocket_runtime_get_timing reports for the
+ * booted package; each tick advances its core_ticks. */
+esp_err_t pocket_runner_start(pocket_runtime *runtime,
                               const pocket_runner_config_t *config,
                               pocket_runner_t **out);
 esp_err_t pocket_runner_stats(pocket_runner_t *runner,

@@ -67,25 +67,25 @@ mod tests {
         let bytes = fixture("good.pocket");
         let bundle = admit(&bytes, &plan()).unwrap();
         assert_eq!(bundle.package.as_ref(), bytes);
-        let guest = pocketjs_core::package::select_guest(
-            &bundle.package,
-            "vita",
+        let profile = crate::profile::profile().unwrap();
+        let host = profile.host_facts(
             pocketjs_core::spec::BINDING_GENERATION,
-            &crate::profile::PROFILE_HASH,
-            false,
-        )
-        .unwrap();
+            crate::profile::PROFILE_HASH,
+        );
+        let guest = pocketjs_core::package::select_guest(&bundle.package, &host, false).unwrap();
         assert_eq!(guest.js, b"globalThis.frame = () => {};\0");
         assert_eq!(serde_json::from_slice::<Value>(guest.plan).unwrap(), plan());
+        // The variant name and profile hash are provenance; the facts admit.
+        for name in ["wrong-profile.pocket", "wrong-target.pocket"] {
+            assert!(admit(&fixture(name), &plan()).is_ok(), "refused {name}");
+        }
     }
     #[test]
     fn rejects_corruption_wrong_application_target_and_native_contract() {
         for name in [
             "wrong-app.pocket",
-            "wrong-profile.pocket",
             "wrong-abi.pocket",
             "wrong-native.pocket",
-            "wrong-target.pocket",
             "no-nul.pocket",
         ] {
             assert!(admit(&fixture(name), &plan()).is_err(), "admitted {name}");

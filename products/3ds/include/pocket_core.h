@@ -38,19 +38,21 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_CAMERA_QR 16u    /* features["camera.qr"] */
 #define POCKET_GUEST_FEATURE_CAMERA_PHOTO 32u /* features["camera.photo"] */
 
-/* 0 = admitted. The package footer, target, host ABI, identity, plan and
- * NUL-terminated JS section are all checked before success; 13, 14 and 15
- * name a plan whose JSON, viewport or auxiliary surface cannot be read.
- * 16 = profile mismatch; 17 = malformed layout; 18 = worker declaration and
- * section disagree. The expected profile hash is compiled into the program,
- * never read from the package. */
+/* 0 = admitted. The package footer, the first variant the exported profile
+ * facts admit, its identity, plan and NUL-terminated JS section are all
+ * checked before success; 7 = another binding generation; 9 = an unreadable
+ * plan; 13, 14 and 15 name a plan whose JSON, viewport or auxiliary surface
+ * cannot be read; 17 = malformed layout; 18 = worker declaration and section
+ * disagree; 19-25 = the first failed admission item (raster density,
+ * animation, rate, viewport, presentation, capability, auxiliary). The facts
+ * and profile hash are compiled into the program, never read from the
+ * package; the hash only orders variants. */
 int32_t pocket_package_open(
   const uint8_t *bytes,
   size_t length,
-  const uint8_t *target,
-  size_t target_length,
+  const pocket_profile_facts *facts,
   uint32_t host_abi,
-  const uint8_t expected_profile_hash[32],
+  const uint8_t *profile_hash,
   PocketGuestPackage *out
 );
 

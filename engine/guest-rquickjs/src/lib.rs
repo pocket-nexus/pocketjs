@@ -333,7 +333,11 @@ pub fn mount_ui<'js>(
         }
         globals.set("__pak", pak)?;
     }
-    if profile == BindingProfile::LegacyC {
+    // Guest frames per second: the host cadence. The framework clock latches
+    // it, so `after(seconds)` counts frames at this rate.
+    if environment.sim_hz != 0 {
+        globals.set("__simHz", environment.sim_hz)?;
+    } else if profile == BindingProfile::LegacyC {
         globals.set("__simHz", 60)?;
     }
     globals.set("ui", ui)
@@ -621,6 +625,7 @@ mod tests {
             host: "binding-test",
             host_abi: BINDING_GENERATION,
             tick_hz: 60,
+            sim_hz: 30,
             viewport: [480, 272],
             auxiliary_viewport: None,
             auxiliary_root: 0,
@@ -789,7 +794,7 @@ mod tests {
         let (legacy, _) = guest(BindingProfile::LegacyC);
         assert!(evaluate::<bool>(
             &legacy,
-            "!('wrapText' in ui) && !('__tickHz' in ui) && __simHz===60"
+            "!('wrapText' in ui) && !('__tickHz' in ui) && __simHz===30"
         ));
     }
     #[test]

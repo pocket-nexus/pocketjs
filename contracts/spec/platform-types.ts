@@ -77,12 +77,14 @@ export const DYNAMIC_FORMS: readonly TargetForm[] = ["window", "widget"];
  * - "still":      the display shows one change per refresh (electronic
  *                 paper); a tween is its end value.
  *
- * `deriveAnimationClass` (contracts/spec/animation.ts) reads it from the
- * profile: by platform when the display leaves it out.
+ * Every profile states its class (`display.animation`); the compiler bakes
+ * it into the plan and devices admit packages compiled for their own class.
  */
 export const ANIMATION_CLASSES = ["composited", "repaint", "still"] as const;
 export type AnimationClass = (typeof ANIMATION_CLASSES)[number];
 
+/** One output as the resolver reads it: the profile surface with its
+ *  physical panel size (`panel` in the host contract). */
 export interface FixedDisplayProfile {
   readonly physicalViewport: Viewport;
   readonly logicalViewports: readonly Viewport[];
@@ -117,14 +119,15 @@ export interface DisplayProfile extends FixedDisplayProfile {
    * per-surface raster asset variants.
    */
   readonly auxiliary?: FixedDisplayProfile;
-  /** The target's animation class when it differs from its platform's
-   *  (contracts/spec/animation.ts). */
-  readonly animation?: AnimationClass;
+  /** What a changed frame costs the target (contracts/spec/animation.ts). */
+  readonly animation: AnimationClass;
 }
 
+/** The resolver's view of a host contract (hosts/contract.ts
+ *  `targetProfile`). */
 export interface TargetProfile<C extends string = string> {
-  /** Legacy registry adapter: omitted rates retain its 60 Hz contract. */
-  readonly tickHz?: number;
+  /** Presented frames per second the host can drive. */
+  readonly cadences: readonly number[];
   /** Generated UI binding generation; all profiles use the shared constant. */
   readonly hostAbi: number;
   /** Device/OS substrate ("psp", "vita", "macos", …). Queryable data — the
@@ -139,6 +142,10 @@ export interface TargetProfile<C extends string = string> {
   readonly roleCapabilities?: {
     readonly systemUI?: readonly C[];
   };
+  /** The host contract this view was made from. A view written directly
+   *  (a test registry) has none; the resolver then reads the document's
+   *  facts back from the view. */
+  readonly source?: import("./profile.ts").PocketProfile<C>;
 }
 
 export type TargetRegistry<C extends string = string> = Readonly<Record<string, TargetProfile<C>>>;
@@ -162,7 +169,7 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // Framework-synthesized pointer for targets without a native one: the
   // analog nub steers a screen cursor, hover applies `focus:`, the press
   // button applies `active:` and clicks on release. Opt-in per app
-  // (enableCursor + pocket.json requires/enhances) — d-pad focus traversal
+  // (enableCursor + pocket.app.json requires/enhances) — d-pad focus traversal
   // remains the portable default interaction.
   "input.cursor",
   // OS text composition: preedit renders inline at the caret with its own
@@ -274,9 +281,12 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
 
 export type PocketCapabilityId = CapabilityId<typeof POCKET_CAPABILITIES>;
 
+/** Registered capability ids and the targets resolution reads. A target
+ * may list names the registry does not know; applications cannot require
+ * them. */
 export interface PlatformContractRegistry<
   C extends CapabilityRegistry = CapabilityRegistry,
-  T extends TargetRegistry<CapabilityId<C>> = TargetRegistry<CapabilityId<C>>,
+  T extends TargetRegistry = TargetRegistry,
 > {
   readonly capabilities: C;
   readonly targets: T;
@@ -284,7 +294,7 @@ export interface PlatformContractRegistry<
 
 export function definePlatformContractRegistry<
   const C extends CapabilityRegistry,
-  const T extends TargetRegistry<CapabilityId<C>>,
+  const T extends TargetRegistry,
 >(capabilities: C, targets: T): PlatformContractRegistry<C, T> {
   return { capabilities, targets };
 }

@@ -6,9 +6,9 @@ const root = resolve(import.meta.dir, "..");
 test("3DS aliases select independent product and minimal configurations", async () => {
   const product = await resolveRuntimeProgram({ from: root, target: "3ds" });
   const minimal = await resolveRuntimeProgram({ from: root, target: "3ds", generic: true });
-  expect(product.config?.path).toBe(resolve(root, "products/3ds/pocket.runtime-config.ts"));
+  expect(product.config?.path).toBe(resolve(root, "products/3ds/pocket.host.config.ts"));
   expect(product.profile.id).toBe("3ds-dev");
-  expect(minimal.config?.path).toBe(resolve(root, "programs/3ds/pocket.runtime-config.ts"));
+  expect(minimal.config?.path).toBe(resolve(root, "programs/3ds/pocket.host.config.ts"));
   expect(minimal.config?.dependencies.some(path => path.startsWith(resolve(root, "products") + "/"))).toBe(false);
   const declared = minimal.config?.value.build?.sourceInputs;
   const sources = typeof declared === "function" ? declared({ profile: minimal.profile,

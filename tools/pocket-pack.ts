@@ -2,10 +2,10 @@
 
 // `.pocket` packaging (docs/PLATFORM.md L2; format in contracts/spec/pocket-package.ts).
 //
-//   bun tools/pocket-pack.ts build --manifest apps/hero/pocket.json \
+//   bun tools/pocket-pack.ts build --manifest apps/hero/pocket.app.json \
 //       --target psp --target vita [-o dist/packages/hero.pocket]
 //   bun tools/pocket-pack.ts build --manifest ... --all-targets
-//   bun tools/pocket-pack.ts build --manifest game/pocket.json --project-root game --target psp
+//   bun tools/pocket-pack.ts build --manifest game/pocket.app.json --project-root game --target psp
 //   bun tools/pocket-pack.ts inspect <file.pocket>
 //   bun tools/pocket-pack.ts thin <file.pocket> --target psp -o out.pocket
 //   bun tools/pocket-pack.ts verify <file.pocket>
@@ -18,10 +18,11 @@
 // own manifest disowns.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { readAuthoredManifest } from "../framework/src/manifest/load.ts";
 import {
   canonicalJson,
   verifyPlanHash,
@@ -34,6 +35,7 @@ import {
   POCKET_SECTION,
   decodePocketPackage,
   decodeHostInputs,
+  decodeIdentity,
   encodeHostInputs,
   encodeIdentity,
   encodePocketPackage,
@@ -50,7 +52,7 @@ function usage(message?: string): never {
   if (message) console.error(`pocket-pack: ${message}`);
   console.error(
     "usage:\n" +
-      "  bun tools/pocket-pack.ts build --manifest <pocket.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
+      "  bun tools/pocket-pack.ts build --manifest <pocket.app.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
       "  bun tools/pocket-pack.ts inspect <file.pocket>\n" +
       "  bun tools/pocket-pack.ts thin <file.pocket> --target <t> [-o <file>]\n" +
       "  bun tools/pocket-pack.ts verify <file.pocket>",
@@ -154,7 +156,7 @@ async function buildCommand(argv: string[]): Promise<void> {
   }
   if (!manifestPath) usage("--manifest is required");
   if (!allTargets && targets.length === 0) usage("give --target (repeatable) or --all-targets");
-  const loaded = readPocketManifest(manifestPath);
+  const loaded = readAuthoredManifest(manifestPath);
   const manifest: unknown = loaded.manifest;
 
   const requested = allTargets ? Object.keys(POCKET_TARGETS) : targets;
@@ -184,14 +186,14 @@ async function buildCommand(argv: string[]): Promise<void> {
         js,
         ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
         pak,
-        cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
+        cover: loaded.icon ?? (existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined),
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
   }
   if (variants.length === 0) throw new Error("pocket-pack: no variant admitted — nothing to pack");
 
-  const id = (manifest as { name?: string }).name ?? "app";
+  const id = variants.length ? decodeIdentity(findSection(variants[0]!, POCKET_SECTION.identity)!).output : "app";
   const file = output || join(ROOT, "dist/packages", `${id}.pocket`);
   mkdirSync(dirname(file), { recursive: true });
   const bytes = encodePocketPackage({ manifest: loaded.embedded, variants });
@@ -261,7 +263,7 @@ function verifyCommand(file: string): void {
       plan.target.hostAbi !== v.hostAbi || plan.profileHash !== v.profileHash) {
       throw new Error(`verify: variant ${v.target} has inconsistent plan identity`);
     }
-    const resolution = validateAndResolveBuildPlan(manifest, { target: v.target, hostExtension: plan.hostExtension }, profileRegistry(plan.profile));
+    const resolution = validateAndResolveBuildPlan(manifest, { target: v.target, hostExtension: plan.hostExtension }, profileRegistry(planProfileDocument(plan.profile)));
     if (!resolution.ok) throw new Error(`verify: variant ${v.target} is no longer admitted by its own manifest`);
     if (canonicalJson(plan) !== canonicalJson(resolution.plan)) {
       throw new Error(`verify: variant ${v.target} resolved plan drifted from its manifest`);

@@ -1,10 +1,10 @@
 # Device native builds
 
-**`pocket compile` produces an application package; `pocket build` consumes that package or builds a reusable native runtime.** Phone, music-player, reader and console programs share the main repository. Each program selects its drivers and profile.
+**`pocket compile` produces an application package; `pocket build` consumes that package or builds a reusable native runtime.** Phone, music-player, reader and console programs share the main repository. Each program selects its drivers and host contract.
 
-The native recipes live in `tools/build/programs/`. Their runtime configs live in `programs/<id>/pocket.runtime-config.ts`; native entry points and shell source live under `programs/`.
+The native recipes live in `tools/build/programs/`. Their host configs live in `programs/<id>/pocket.host.config.ts`; native entry points and shell source live under `programs/`.
 
-| Program | Profile | Native artifact | Application input |
+| Program | Host contract | Native artifact | Application input |
 |---|---|---|---|
 | `pocketbook` | `pocketbook` | ARM Linux executable, payload directory and `.app` launcher | `--pocket` |
 | `moto-g-play` | `moto-g-play-dev` | `runtime/template.apk` and `runtime.json` | supplied to `pack` |
@@ -20,36 +20,36 @@ The native recipes live in `tools/build/programs/`. Their runtime configs live i
 
 ## Programs that embed an application
 
-Compile against the same runtime config used for the native build:
+Compile against the same host config used for the native build:
 
 ```sh
-bun tools/pocket.ts compile --manifest apps/iphone2g-demo/pocket.json \
-  --project-root . --runtime-config programs/iphone2g/pocket.runtime-config.ts \
+bun tools/pocket.ts compile --manifest apps/iphone2g-demo/pocket.app.json \
+  --project-root . --host-config programs/iphone2g/pocket.host.config.ts \
   --output dist/iphone2g/application.pocket
-bun tools/pocket.ts build --config programs/iphone2g/pocket.runtime-config.ts \
+bun tools/pocket.ts build --config programs/iphone2g/pocket.host.config.ts \
   --pocket dist/iphone2g/application.pocket --out dist/iphone2g
 ```
 
-**The build executor checks the package generation, profile hash, manifest and resolved plan before starting a native tool.** Native recipes use the admitted JavaScript and resource bytes. Application source files are not needed for this step. A missing package is an error; the recipe does not select a demo.
+**The build executor checks the package generation, host contract hash, app contract and resolved plan before starting a native tool.** Native recipes use the admitted JavaScript and resource bytes. Application source files are not needed for this step. A missing package is an error; the recipe does not select a demo.
 
 The Nokia E7 recipe retains its native extension and presentation options. Pass those after `--`, for example `-- --frame-rate 60 --core-library /absolute/path/lib.a`. The iPod touch 4 compatibility command retains application-specific native cores and artwork selected by its descriptor; it takes `build --pocket <file>` and uses the same package admission checks.
 
 ## Reusable runtimes
 
-Android and the default iPod touch 4 config build without application code. Packaging combines a runtime with an application:
+Android and the default iPod touch 4 host config build without application code. Packaging combines a runtime with an application:
 
 ```sh
-bun tools/pocket.ts build --config programs/redmi-1s/pocket.runtime-config.ts \
+bun tools/pocket.ts build --config programs/redmi-1s/pocket.host.config.ts \
   --out dist/redmi-runtime
-bun tools/pocket.ts compile --manifest apps/clear/pocket.redmi-1s.json \
-  --project-root . --runtime-config programs/redmi-1s/pocket.runtime-config.ts \
+bun tools/pocket.ts compile --manifest apps/clear/pocket.app.json \
+  --project-root . --host-config programs/redmi-1s/pocket.host.config.ts \
   --output dist/clear-redmi.pocket
-bun tools/pocket.ts pack --config programs/redmi-1s/pocket.runtime-config.ts \
+bun tools/pocket.ts pack --config programs/redmi-1s/pocket.host.config.ts \
   --runtime dist/redmi-runtime/runtime --pocket dist/clear-redmi.pocket \
   --out dist/clear-redmi.apk
 ```
 
-**The runtime directory records its profile hash and hashes of the native files.** `pack` verifies those records and the selected package variant. Android packaging uses the configured APK signer; iPod packaging preserves the runtime's native signature and adds the application payload.
+**The runtime directory records its host contract hash, its stamped `pocket.host.json` and hashes of the native files.** `pack` verifies those records and admits the package variant by the host contract's facts. Android packaging uses the configured APK signer; iPod packaging preserves the runtime's native signature and adds the application payload.
 
 ## Toolchains and deployment
 

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.note",
+  "title": "Pocket Note",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons"
+      ],
+      "enhances": [
+        "input.text",
+        "input.pointer",
+        "input.ime",
+        "host.clipboard",
+        "display.viewport.live",
+        "text.glyphs.runtime",
+        "text.layout.native"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/note/main.tsx",
+    "output": "note-main",
+    "framework": "solid",
+    "companions": [
+      "note"
+    ],
+    "viewport": {
+      "dynamic": {
+        "default": [
+          420,
+          560
+        ],
+        "min": [
+          240,
+          180
+        ]
+      }
+    },
+    "theme": "./theme.json"
+  }
+}

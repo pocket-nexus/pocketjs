@@ -25,7 +25,7 @@ function(_pocketjs_profile_paths name runtime_config export_dir config_out direc
         message(FATAL_ERROR "PocketJS NAME must match [a-z][a-z0-9_]*")
     endif()
     if(NOT runtime_config)
-        set(runtime_config "${CMAKE_SOURCE_DIR}/pocket.runtime-config.ts")
+        set(runtime_config "${CMAKE_SOURCE_DIR}/pocket.host.config.ts")
     endif()
     get_filename_component(config "${runtime_config}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     if(NOT export_dir)
@@ -43,7 +43,7 @@ function(_pocketjs_require_target target)
 endfunction()
 
 function(pocketjs_profile_header)
-    cmake_parse_arguments(APP "" "TARGET;NAME;RUNTIME_CONFIG;PROFILE_EXPORT_DIR" "DEPENDS" ${ARGN})
+    cmake_parse_arguments(APP "" "TARGET;NAME;HOST_CONFIG;PROFILE_EXPORT_DIR" "DEPENDS" ${ARGN})
     if(APP_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "Unknown pocketjs_profile_header arguments: ${APP_UNPARSED_ARGUMENTS}")
     endif()
@@ -53,28 +53,28 @@ function(pocketjs_profile_header)
         endif()
     endforeach()
     _pocketjs_require_target("${APP_TARGET}")
-    _pocketjs_profile_paths("${APP_NAME}" "${APP_RUNTIME_CONFIG}" "${APP_PROFILE_EXPORT_DIR}" config directory)
+    _pocketjs_profile_paths("${APP_NAME}" "${APP_HOST_CONFIG}" "${APP_PROFILE_EXPORT_DIR}" config directory)
     if(NOT EXISTS "${config}")
-        message(FATAL_ERROR "PocketJS runtime config does not exist: ${config}")
+        message(FATAL_ERROR "PocketJS host config does not exist: ${config}")
     endif()
     find_program(POCKETJS_CLI NAMES pocket REQUIRED)
     # One export command per output directory, even when several targets use it.
     string(SHA256 export_id "${directory}")
     get_property(previous_config GLOBAL PROPERTY "POCKETJS_PROFILE_${export_id}")
     if(previous_config AND NOT "${previous_config}" STREQUAL "${config}")
-        message(FATAL_ERROR "PocketJS profile export directory is shared by different runtime configs: ${directory}")
+        message(FATAL_ERROR "PocketJS host export directory is shared by different host configs: ${directory}")
     endif()
     if(NOT previous_config)
         add_custom_command(
-            OUTPUT "${directory}/pocket_profile.h" "${directory}/pocket-profile.json"
+            OUTPUT "${directory}/pocket_profile.h" "${directory}/pocket.host.json"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${directory}"
-            COMMAND "${POCKETJS_CLI}" profile export --config "${config}"
+            COMMAND "${POCKETJS_CLI}" host export --config "${config}"
                 --out "${directory}" --depfile "${directory}/pocket-profile.d"
             DEPFILE "${directory}/pocket-profile.d"
             DEPENDS "${config}" "${POCKETJS_CLI}" ${APP_DEPENDS}
             VERBATIM)
         add_custom_target("pocketjs_profile_${export_id}"
-            DEPENDS "${directory}/pocket_profile.h" "${directory}/pocket-profile.json")
+            DEPENDS "${directory}/pocket_profile.h" "${directory}/pocket.host.json")
         set_property(GLOBAL PROPERTY "POCKETJS_PROFILE_${export_id}" "${config}")
     endif()
     add_dependencies("${APP_TARGET}" "pocketjs_profile_${export_id}")
@@ -89,9 +89,9 @@ function(_pocketjs_package_attach target name package profile_directory)
     add_custom_command(
         OUTPUT "${generated}/${stem}.h" "${generated}/${stem}.c" "${generated}/${stem}.S"
         COMMAND "${python}" "${POCKETJS_PACKAGE_EMBED_TOOL}"
-            "--package=${package}" "--profile=${profile_directory}/pocket-profile.json"
+            "--package=${package}" "--profile=${profile_directory}/pocket.host.json"
             "--name=${name}" "--output-dir=${generated}"
-        DEPENDS "${package}" "${profile_directory}/pocket-profile.json"
+        DEPENDS "${package}" "${profile_directory}/pocket.host.json"
             "${profile_directory}/pocket_profile.h" "${POCKETJS_PACKAGE_EMBED_TOOL}"
             "${POCKETJS_PACKAGE_COMPONENT_DIR}/tools/package_format.py"
         VERBATIM)
@@ -104,7 +104,7 @@ function(_pocketjs_package_attach target name package profile_directory)
 endfunction()
 
 function(pocketjs_embed_package)
-    cmake_parse_arguments(APP "" "TARGET;NAME;PACKAGE;RUNTIME_CONFIG;PROFILE_EXPORT_DIR" "" ${ARGN})
+    cmake_parse_arguments(APP "" "TARGET;NAME;PACKAGE;HOST_CONFIG;PROFILE_EXPORT_DIR" "" ${ARGN})
     if(APP_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "Unknown pocketjs_embed_package arguments: ${APP_UNPARSED_ARGUMENTS}")
     endif()
@@ -114,26 +114,26 @@ function(pocketjs_embed_package)
         endif()
     endforeach()
     get_filename_component(package "${APP_PACKAGE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    _pocketjs_profile_paths("${APP_NAME}" "${APP_RUNTIME_CONFIG}" "${APP_PROFILE_EXPORT_DIR}" config directory)
+    _pocketjs_profile_paths("${APP_NAME}" "${APP_HOST_CONFIG}" "${APP_PROFILE_EXPORT_DIR}" config directory)
     if(NOT EXISTS "${package}")
         message(FATAL_ERROR "PocketJS package does not exist: ${package}")
     endif()
     # A checkout with the CLI on PATH exports a missing profile here, at
     # configure time; an offline build brings the export.
-    if(NOT EXISTS "${directory}/pocket_profile.h" OR NOT EXISTS "${directory}/pocket-profile.json")
+    if(NOT EXISTS "${directory}/pocket_profile.h" OR NOT EXISTS "${directory}/pocket.host.json")
         find_program(POCKETJS_CLI NAMES pocket)
         if(POCKETJS_CLI AND EXISTS "${config}")
-            execute_process(COMMAND "${POCKETJS_CLI}" profile export --config "${config}" --out "${directory}"
+            execute_process(COMMAND "${POCKETJS_CLI}" host export --config "${config}" --out "${directory}"
                 RESULT_VARIABLE export_result OUTPUT_QUIET ERROR_VARIABLE export_error)
             if(NOT export_result EQUAL 0)
-                message(FATAL_ERROR "PocketJS profile export failed: ${export_error}")
+                message(FATAL_ERROR "PocketJS host export failed: ${export_error}")
             endif()
             set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${config}")
         endif()
     endif()
-    foreach(file pocket_profile.h pocket-profile.json)
+    foreach(file pocket_profile.h pocket.host.json)
         if(NOT EXISTS "${directory}/${file}")
-            message(FATAL_ERROR "Missing ${directory}/${file}. Export it before this offline build: pocket profile export --config \"${config}\" --out \"${directory}\"")
+            message(FATAL_ERROR "Missing ${directory}/${file}. Export it before this offline build: pocket host export --config \"${config}\" --out \"${directory}\"")
         endif()
     endforeach()
     # Offline path: no CLI lookup or TypeScript evaluation, only exported artifacts.
@@ -141,7 +141,7 @@ function(pocketjs_embed_package)
 endfunction()
 
 function(pocketjs_compile_app)
-    cmake_parse_arguments(APP "" "TARGET;NAME;MANIFEST;RUNTIME_CONFIG;PROFILE_EXPORT_DIR;PROJECT_ROOT;COMPILER_RECEIPT" "DEPENDS" ${ARGN})
+    cmake_parse_arguments(APP "" "TARGET;NAME;MANIFEST;HOST_CONFIG;PROFILE_EXPORT_DIR;PROJECT_ROOT;COMPILER_RECEIPT" "DEPENDS" ${ARGN})
     if(APP_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "Unknown pocketjs_compile_app arguments: ${APP_UNPARSED_ARGUMENTS}")
     endif()
@@ -150,9 +150,9 @@ function(pocketjs_compile_app)
             message(FATAL_ERROR "pocketjs_compile_app requires ${required}")
         endif()
     endforeach()
-    _pocketjs_profile_paths("${APP_NAME}" "${APP_RUNTIME_CONFIG}" "${APP_PROFILE_EXPORT_DIR}" config directory)
+    _pocketjs_profile_paths("${APP_NAME}" "${APP_HOST_CONFIG}" "${APP_PROFILE_EXPORT_DIR}" config directory)
     pocketjs_profile_header(TARGET "${APP_TARGET}" NAME "${APP_NAME}"
-        RUNTIME_CONFIG "${config}" PROFILE_EXPORT_DIR "${directory}" DEPENDS ${APP_DEPENDS})
+        HOST_CONFIG "${config}" PROFILE_EXPORT_DIR "${directory}" DEPENDS ${APP_DEPENDS})
     find_program(POCKETJS_CLI NAMES pocket REQUIRED)
     get_filename_component(manifest "${APP_MANIFEST}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     if(APP_PROJECT_ROOT)
@@ -173,7 +173,7 @@ function(pocketjs_compile_app)
         OUTPUT "${package}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${generated}"
         COMMAND "${POCKETJS_CLI}" compile
-            --manifest "${manifest}" --runtime-config "${config}"
+            --manifest "${manifest}" --host-config "${config}"
             --project-root "${project_root}" --outdir "${generated}"
             --plan-dir "${generated}/plans" --output "${package}" --depfile "${dependencies}"
             ${compiler_args}

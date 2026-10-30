@@ -6,7 +6,7 @@ import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { IOS_DEV_DEFAULT_DENSITY, IOS_DEV_HOST_ABI, IOS_DEV_TARGET_ID, iosDevContracts, resolveIOSDevBuildPlan } from "../tools/ios-profile.ts";
 
 const REPOSITORY = fileURLToPath(new URL("../", import.meta.url));
-const MANIFEST_PATH = join(REPOSITORY, "apps/nsengine/pocket.json");
+const MANIFEST_PATH = join(REPOSITORY, "apps/nsengine/pocket.app.json");
 const ENTRY_PATH = join(REPOSITORY, "apps/nsengine/main.tsx");
 const ROOT_TSCONFIG = join(REPOSITORY, "tsconfig.json");
 const JSX_DECLARATIONS = join(REPOSITORY, "framework/src/jsx.d.ts");

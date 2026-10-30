@@ -26,7 +26,7 @@ import { encodePNG } from "./png.ts";
 
 const root = resolve(import.meta.dir, "..");
 const out = join(root, ".pocket-build", "cardputer-zero");
-const config = "programs/cardputer-zero/pocket.runtime-config.ts";
+const config = "programs/cardputer-zero/pocket.host.config.ts";
 const profileRs = join(out, "profile", "pocket_profile.rs");
 const pocket = join(out, "companion.pocket");
 const TARGET = "aarch64-unknown-linux-gnu";
@@ -51,8 +51,8 @@ const option = (name: string) => {
 };
 
 async function compile(): Promise<void> {
-  await $`bun tools/pocket.ts profile export --config ${config} --out ${join(out, "profile")}`.cwd(root);
-  await $`bun tools/pocket.ts compile --manifest apps/companion-zero/pocket.json --project-root . --runtime-config ${config} --plan-dir ${join(out, "plan")} --output ${pocket}`.cwd(root);
+  await $`bun tools/pocket.ts host export --config ${config} --out ${join(out, "profile")}`.cwd(root);
+  await $`bun tools/pocket.ts compile --manifest apps/companion-zero/pocket.app.json --project-root . --host-config ${config} --plan-dir ${join(out, "plan")} --output ${pocket}`.cwd(root);
 }
 
 async function build(): Promise<void> {

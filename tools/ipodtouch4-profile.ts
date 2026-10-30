@@ -1,6 +1,6 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/ipodtouch4-dev.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -8,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["ipodtouch4-dev"];
 
 /**
  * Private exact-device profile for the iPod touch 4 running iOS 6.1.6.
@@ -26,7 +27,7 @@ export const IPODTOUCH4_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewpo
 /** The same panel a quarter turn over: the host rotates its content view and
  *  presents 480x320 logical on the 960x640 drawable (programs/shared/ios-legacy/runtime.c). */
 export const IPODTOUCH4_LANDSCAPE_VIEWPORT = softwareProfile.display.logicalViewports[1];
-export const IPODTOUCH4_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
+export const IPODTOUCH4_PHYSICAL_VIEWPORT = softwareProfile.panel.primary;
 export const IPODTOUCH4_RASTER_DENSITY = softwareProfile.display.rasterDensity;
 
 export const IPODTOUCH4_DEV_CONTRACTS = definePlatformContractRegistry(

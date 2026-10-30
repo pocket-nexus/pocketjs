@@ -8,10 +8,12 @@ and Vue SFC generation into Rust, including compiled TypeScript models, see
 application code, AOT views and compiled model bodies; the rules for one mode
 do not define the source subset for another.
 
-This page describes the low-level bundle/style/font/pak compiler. Application builds resolve `pocket.json` and a software profile through
-`pocket check` or `pocket compile` ([CLI](/docs/cli/#check-and-compile))
-before this pipeline runs. The resulting plan contains the selected viewport,
-capabilities, profile hash and application options. See
+This page describes the low-level bundle/style/font/pak compiler. Application
+builds resolve the app contract `pocket.app.json` against a host contract
+`pocket.host.json` through `pocket check` or `pocket compile`
+([CLI](/docs/cli/#check-and-compile)) before this pipeline runs. The resulting
+build plan contains the selected viewport, capabilities, `profileHash` and
+application options. See
 [Platform contracts](/docs/platform-contracts/) for the plan fields.
 
 With `app.aot: true` and `app.model: "compiled"`, model admission and lowering
@@ -30,18 +32,20 @@ Admission and generation commands for both paths are listed in
 [Checking an application](/docs/typescript-support/#checking-an-application).
 
 **Application compilation and program compilation have separate commands.**
-`pocket compile --target <id-or-module> --output <file>` resolves the profile,
-writes `.pocket/<profile-id>/plan.json`, then packages the JS and assets in a
-`.pocket` file. Without `--target`, it uses the nearest
-`pocket.runtime-config.ts`. `--runtime-config <file>` selects another config.
+`pocket compile --target <id|pocket.host.json> --output <file>` resolves the
+app contract against that host contract, writes `.pocket/<target>/plan.json`,
+then packages the JS and assets in a `.pocket` file. Without `--target`, it
+uses the host contract named by the nearest host config,
+`pocket.host.config.ts`. `--host-config <file>` selects another host config.
 
-**`pocket build` consumes compiled application inputs and the program's
-`pocket.runtime-config.ts`.** `--pocket` provides a format 2 package;
+**`pocket build` consumes compiled application inputs and the program's host
+config, `pocket.host.config.ts`.** `--pocket` provides a format 2 package;
 `--aot-dir` provides the generated source directory. The executor verifies
-profile identity and binding generation, snapshots the admitted files, then
-runs Cargo, CMake, Make or the program's native hook. `build-receipt.json`
-records the input and artifact hashes. A profile-only configuration exports
-`pocket_profile.h` and leaves native compilation to its external build system.
+the host contract's `profileHash` and binding generation, snapshots the
+admitted files, then runs Cargo, CMake, Make or the program's native hook.
+`build-receipt.json` records the input and artifact hashes. A host config
+without `build` exports `pocket_profile.h` and leaves native compilation to
+its external build system.
 
 The lower-level compiler can still turn one entry into two files directly:
 
@@ -51,8 +55,8 @@ bun tools/build.ts hero
 
 produces `dist/hero.js` (the bundle) and `dist/hero.pak` (styles, font
 atlases, and images packed into a single binary container). This direct command
-uses the default density-1 development contract. A manifest build is
-target-specific: PSP and Vita compile from the same source and logical layout,
+uses the default density-1 development contract. A build from an app contract
+is target-specific: PSP and Vita compile from the same source and logical layout,
 but Vita receives density-2 atlases/assets plus an embedded target/HostOps-ABI
 handshake. Do not copy one target's pair into another target's native package.
 
@@ -85,32 +89,34 @@ bun tools/build.ts hero-main               # the mounted entry (apps/hero/main.t
 A bare name resolves against `apps/`: `hero` finds `apps/hero/app.tsx`, and a
 name ending in `-main` finds `apps/hero/main.tsx`.
 
-An ESP-IDF product imports its profile in the firmware's
-`pocket.runtime-config.ts`. Compile the application and export the program's
-trusted profile from that configuration:
+An ESP-IDF product names its host contract in the firmware's host config,
+`pocket.host.config.ts`. Compile the application and export the program's
+trusted host contract from that host config:
 
 ```sh
-pocket compile --manifest app/pocket.json \
-  --runtime-config pocket.runtime-config.ts --output dist/app.pocket
-pocket profile export --config pocket.runtime-config.ts --out profile-export
+pocket compile --manifest app/pocket.app.json \
+  --host-config pocket.host.config.ts --output dist/app.pocket
+pocket host export --config pocket.host.config.ts --out profile-export
 ```
 
-The package carries its profile hash, JSON plan and a fixed-width binary
-`hostInputs` section. The Python embedding tool checks those inputs against
-`profile-export/pocket-profile.json`; the program compiles
+The package carries its `profileHash`, JSON plan and a fixed-width binary
+`hostInputs` section. The Python embedding tool admits those inputs against
+the facts in `profile-export/pocket.host.json`; the program compiles
 `profile-export/pocket_profile.h`. **The package and program must have the
-same profile hash and binding generation.**
+same binding generation, and the program's facts must satisfy the package's
+plan.**
 
 IDF's `pocketjs_compile_app` and `pocketjs_profile_header` invoke these CLI
-operations and track imported modules in depfiles. Their `RUNTIME_CONFIG`
-parameter defaults to the firmware root's `pocket.runtime-config.ts`.
+operations and track imported modules in depfiles. Their `HOST_CONFIG`
+parameter defaults to the firmware root's `pocket.host.config.ts`.
 `pocketjs_embed_package(... PROFILE_EXPORT_DIR <directory>)` consumes an
-existing package, header and sidecar with Python; it requires no Bun or CLI.
+existing package, header and exported `pocket.host.json` with Python; it
+requires no Bun or CLI.
 See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 
 | Flag | Effect |
 |---|---|
-| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build; the default is Solid. Manifest builds use `app.framework` from `pocket.json`. |
+| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build; the default is Solid. App contract builds use `app.framework` from `pocket.app.json`. |
 | `--extra-chars=<string>` | Force these codepoints into **every** baked atlas, on top of the collected charset and ASCII. |
 | `--density=N` | Raster samples per logical pixel for this build — an integer 1 through 255, default 1. A resolved plan owns the density, so passing both is an error. |
 | `--hz=N` | Bake this virtual tick rate into the bundle — an integer 1 through 240, default 60. The host must drive the surface at the same rate; a bundle whose baked rate differs from the host's `ui.__tickHz` throws before it mounts. |
@@ -309,7 +315,7 @@ The charset baked into every slot is the union of:
 - anything passed via **`--extra-chars`**.
 
 Codepoints the font does not map are left out of the atlas. **On a target whose
-profile carries only `text.glyphs.baked`, a codepoint missing from the atlas
+host contract carries only `text.glyphs.baked`, a codepoint missing from the atlas
 resolves to glyph 0 — a drawn hollow "tofu" box, also mapped from U+FFFD so it
 has an advance.** A target that also advertises `text.glyphs.runtime`
 (`macos-widget`, and `web-app` and every page that runs a package through
@@ -473,9 +479,9 @@ The [Playground](/playground/) runs the same compiler stages **live in the
 browser**: it transforms and collects, compiles the Tailwind subset, bakes
 atlases, packs a pak, and bundles — then loads the result into the WebAssembly
 core and renders to a canvas. It exercises the same logical UI and pak formats,
-but its density-1 browser development pair is not interchangeable with a
-manifest-built PSP or Vita artifact carrying target-specific density and ABI
-constants.
+but its density-1 browser development pair is not interchangeable with a PSP
+or Vita artifact built from an app contract, which carries target-specific
+density and ABI constants.
 
 ## Related
 

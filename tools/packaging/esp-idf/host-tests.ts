@@ -13,8 +13,8 @@ function run(cmd:string[],env:Record<string,string|undefined>=process.env){
  if(!result.success)throw new Error(`command failed (${result.signalCode ?? result.exitCode}): ${cmd.join(" ")}`);
 }
 const pkg=join(root,"tests/esp-idf/examples/prebuilt/idf-smoke.pocket");
-run([process.execPath,"tools/pocket.ts","profile","export","--config","tests/esp-idf/examples/smoke/pocket.runtime-config.ts","--out",output]);
-run(["python3","platforms/esp-idf/pocket_runtime/tools/embed_package.py","--package",pkg,"--profile",join(output,"pocket-profile.json"),"--name","host","--output-dir",output]);
+run([process.execPath,"tools/pocket.ts","host","export","--config","tests/esp-idf/examples/smoke/pocket.host.config.ts","--out",output]);
+run(["python3","platforms/esp-idf/pocket_runtime/tools/embed_package.py","--package",pkg,"--profile",join(output,"pocket.host.json"),"--name","host","--output-dir",output]);
 const embedded=join(output,"pocketjs_package_host.c");
 writeFileSync(embedded,readFileSync(embedded,"utf8").replace("extern const uint8_t pocketjs_package_host_start[];",`const uint8_t pocketjs_package_host_start[] = {${[...readFileSync(pkg)].join(",")}};`));
 run(["cargo",`+${STABLE_RUST_TOOLCHAIN}`,"build","--locked","--release","--no-default-features","--manifest-path","programs/esp-idf/archive/Cargo.toml"],

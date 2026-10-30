@@ -999,8 +999,8 @@ static uint8_t *g_package_bytes;
 static char g_package_error[192] = "app.pocket was not read";
 
 /*
- * Read app.pocket beside the executable, admit its variant for this target
- * and host ABI (footer hash included), and take the surface from its plan:
+ * Read app.pocket beside the executable, admit the variant this program's
+ * profile facts satisfy (footer hash included), and take the surface from its plan:
  * 320x480 or 480x320 logical at density 2, the panels the profile admits.
  * Every failure leaves one line in g_package_error for the screen and the
  * acceptance record.
@@ -1038,8 +1038,7 @@ static void load_bundle_package(const char *executable) {
   result = pocket_ui_package_open(
     g_package_bytes,
     (size_t)size,
-    (const uint8_t *)POCKETJS_TARGET_ID,
-    strlen(POCKETJS_TARGET_ID),
+    pocket_profile.facts,
     POCKETJS_HOST_ABI,
     pocket_profile.profile_hash,
     &g_package

@@ -28,7 +28,7 @@ fn nul(path: &str) -> Vec<u8> {
     p
 }
 
-/// App names keep to the pocket.json id-segment alphabet — anything else
+/// App names keep to the pocket.app.json id-segment alphabet — anything else
 /// could splice the probe path.
 fn valid_app(app: &str) -> bool {
     !app.is_empty()

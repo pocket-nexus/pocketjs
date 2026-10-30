@@ -45,7 +45,9 @@ goldens and tapes all run the default.
 
 Hosts publish the policy as `globalThis.__simHz` before the bundle evals
 (web host: `?hz=2`; sim host: scenario option; PSP: standalone packages at
-60, multi-app packages at 20). Apps read time through the clock API and stay
+60, multi-app packages at 20). A device publishes the cadence it presents the
+package at: the largest of its cadences that the package's `app.tickHz` is a
+whole multiple of, with rate ÷ cadence core ticks per frame. Apps read time through the clock API and stay
 hz-portable by expressing time in seconds, never raw frame counts:
 
 ```ts

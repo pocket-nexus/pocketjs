@@ -544,7 +544,7 @@ export async function transformFile(
   if (isVueSfc && framework !== "vue-vapor") {
     throw new Error(
       `PocketJS: ${path} is a Vue SFC and requires framework \"vue-vapor\" ` +
-        `(set app.framework in pocket.json or pass --framework=vue-vapor)`,
+        `(set app.framework in pocket.app.json or pass --framework=vue-vapor)`,
     );
   }
   // Contract dependencies can change without changing the SFC's transform

@@ -1,11 +1,12 @@
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import profile from "../profiles/3ds-dev.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+const profile = POCKET_PROFILES["3ds-dev"];
 
 const root = resolve(import.meta.dir, "..");
 const cc = Bun.which(process.env.CC || "cc");
@@ -29,7 +30,7 @@ test.skipIf(!cc)("PICA driver retains independent screen submissions and exact r
   const encoder = new TextEncoder();
   const packageBytes = encodePocketPackage({manifest: new Uint8Array(), variants: [{target: "3ds-dev", hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(profile), sections: [
     {kind: 1, bytes: encodeIdentity({output: "fixture", id: "test.3ds", title: "3DS composition"})},
-    {kind: 2, bytes: encoder.encode('{"viewport":{"logical":[400,240],"rasterDensity":1},"features":{}}')},
+    {kind: 2, bytes: encoder.encode('{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[400,240],"presentation":"native","rasterDensity":1},"features":{}}')},
     {kind: 3, bytes: encoder.encode("test\0")},
   ]}]});
   writeFileSync(resolve(runDir, "package_fixture.h"), `static const uint8_t package_bytes[] = {${[...packageBytes].join(",")}};\n`);

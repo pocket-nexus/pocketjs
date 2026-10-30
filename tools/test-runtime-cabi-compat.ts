@@ -29,7 +29,7 @@ const OLD_RUNTIME_REF = "refs/pull/603/head";
 const ROOT = resolve(import.meta.dir, "..");
 const HEADER_NAMES = ["runtime", "drivers", "spec"] as const;
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
-const fixtureProfile: PocketProfile = { id: "fixture", platform: "test", form: "takeover", tickHz: 60, display: { physicalViewport: [4, 4], logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1 }, capabilities: [] };
+const fixtureProfile: PocketProfile = { format: "pocket-host/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
 const profile = canonicalProfileJson(fixtureProfile);
 const PASS = "cross-version C ABI: common entry points and lifecycle passed";
 
@@ -69,9 +69,9 @@ function fixtureHeader(generation: number, packageBytes: Uint8Array): string {
   const array = (name: string, bytes: Uint8Array) => `static const uint8_t ${name}[] = {${[...bytes].join(",")}};\n`;
   const { display } = fixtureProfile;
   return `static const uint32_t fixture_binding_generation = ${generation};\n`
-    + `#define FIXTURE_ID ${JSON.stringify(fixtureProfile.id)}\n#define FIXTURE_TICK_HZ ${fixtureProfile.tickHz}u\n`
+    + `#define FIXTURE_ID ${JSON.stringify(fixtureProfile.id)}\n#define FIXTURE_TICK_HZ ${Math.max(...fixtureProfile.cadences)}u\n`
     + `#define FIXTURE_INPUT_CLASSES ${inputClassesForCapabilities(fixtureProfile.capabilities)}u\n`
-    + `#define FIXTURE_WIDTH ${display.physicalViewport[0]}u\n#define FIXTURE_HEIGHT ${display.physicalViewport[1]}u\n`
+    + `#define FIXTURE_WIDTH ${fixtureProfile.panel.primary[0]}u\n#define FIXTURE_HEIGHT ${fixtureProfile.panel.primary[1]}u\n`
     + `#define FIXTURE_RASTER_DENSITY ${display.rasterDensity}u\n`
     + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", packageBytes);
 }
@@ -141,7 +141,7 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     const utf8 = (text: string) => new TextEncoder().encode(text);
     const sections = [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
-      { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
+      { kind: POCKET_SECTION.plan, bytes: utf8('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
     ];
     const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: fixtureProfile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + hash(profile), sections }] });

@@ -5,7 +5,9 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { crc32 } from "../tools/repack/shared/crc32.ts";
 import { decodePng, deflateZlib, encodePng } from "../tools/repack/shared/png.ts";
-import { admitPocket, readRuntime, sha256Hex, type RuntimeManifest } from "../tools/repack/shared/runtime.ts";
+import { admitPocket, readRuntime, type RuntimeDirectory } from "../tools/repack/shared/runtime.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 import { flattenRgba, scaleRgba } from "../tools/repack/shared/scale.ts";
 import { writeRuntimeManifest } from "../tools/runtime/manifest.ts";
 
@@ -118,15 +120,24 @@ describe("repack shared helpers", () => {
     expect(Array.from(flattenRgba(half, [0, 0, 255]).rgba)).toEqual([128, 0, 127, 255]);
   });
 
-  test("a runtime directory must match its runtime.json", async () => {
+  test("a runtime directory must match its runtime.json and ship its host contract", async () => {
     const program = new Uint8Array([1, 2, 3]);
-    const manifest = (files: object) => new TextEncoder().encode(JSON.stringify({ target: "3ds-dev", hostAbi: POCKET_BINDING_GENERATION, pocketjs: "x", profile: "3ds-dev", profileHash: `sha256:${"12".repeat(32)}`, files }));
-    const good = new Map([["runtime.json", manifest({ "a.bin": { bytes: 3, sha256: await sha256Hex(program) } })], ["a.bin", program]]);
-    expect((await readRuntime(good, "3ds-dev")).hostAbi).toBe(POCKET_BINDING_GENERATION);
+    const profile = POCKET_PROFILES["3ds-dev"];
+    const good = runtimeDirectory(profile, new Map([["a.bin", program]]));
+    const read = await readRuntime(good, "3ds-dev");
+    expect(read.hostAbi).toBe(POCKET_BINDING_GENERATION);
+    expect(read.document).toEqual({ ...profile, hostAbi: POCKET_BINDING_GENERATION });
     await expect(readRuntime(new Map(), "3ds-dev")).rejects.toThrow(/no runtime.json/);
     await expect(readRuntime(good, "psp")).rejects.toThrow(/for "3ds-dev", not "psp"/);
-    const missing = new Map([["runtime.json", manifest({ "a.bin": { bytes: 3, sha256: "00" } })]]);
+    const missing = new Map(good); missing.delete("a.bin");
     await expect(readRuntime(missing, "3ds-dev")).rejects.toThrow(/missing a.bin/);
+    const noDocument = runtimeDirectory(profile, new Map([["a.bin", program]]));
+    const listed = JSON.parse(new TextDecoder().decode(noDocument.get("runtime.json")));
+    delete listed.files["pocket.host.json"]; noDocument.delete("pocket.host.json");
+    noDocument.set("runtime.json", new TextEncoder().encode(JSON.stringify(listed)));
+    await expect(readRuntime(noDocument, "3ds-dev")).rejects.toThrow(/ships no pocket\.host\.json/);
+    const otherDocument = runtimeDirectory(POCKET_PROFILES["3ds-runtime"], new Map([["a.bin", program]]), { target: "3ds-dev" });
+    await expect(readRuntime(otherDocument, "3ds-dev")).rejects.toThrow(/pocket\.host\.json is not the host contract runtime\.json names/);
 
   });
 
@@ -138,8 +149,8 @@ describe("repack shared helpers", () => {
     const variant = makeVariant({ target: "psp", hostAbi: plan.target.hostAbi, planJson: JSON.stringify(plan),
       identity: { id: plan.app.id, title: plan.app.title, output: plan.app.output }, js: new TextEncoder().encode("test"), pak: new Uint8Array() });
     const encode = () => encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [variant] });
-    const runtime: RuntimeManifest = { target: "psp", hostAbi: plan.target.hostAbi, profile: "psp",
-      profileHash: plan.profileHash, pocketjs: "test", files: {} };
+    const runtime: RuntimeDirectory = { target: "psp", hostAbi: plan.target.hostAbi, profile: "psp",
+      profileHash: plan.profileHash, pocketjs: "test", files: {}, document: { ...POCKET_PROFILES.psp, hostAbi: plan.target.hostAbi } };
     const identity = { id: plan.app.id, title: plan.app.title, author: "Test", version: plan.app.version };
     await admitPocket(encode(), runtime, identity);
     for (let generation = 1; generation < POCKET_BINDING_GENERATION; generation++) {
@@ -147,11 +158,11 @@ describe("repack shared helpers", () => {
       const legacy = encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [oldVariant] });
       // No implicit conversion: matching profile and legacy runtime do not
       // make an old binding eligible for the current producer/repack tools.
-      await expect(admitPocket(legacy, runtime, identity)).rejects.toThrow(`host ABI ${generation}; this runtime is ABI ${POCKET_BINDING_GENERATION}`);
+      await expect(admitPocket(legacy, runtime, identity)).rejects.toThrow("variant 0 (psp) is not admitted: bindingGeneration");
       await expect(admitPocket(legacy, { ...runtime, hostAbi: generation }, identity)).rejects.toThrow("runtime binding generation");
       const files = new Map([["runtime.json", new TextEncoder().encode(JSON.stringify({ ...runtime, hostAbi: generation }))]]);
       await expect(readRuntime(files, "psp")).rejects.toThrow("runtime binding generation");
-      await expect(writeRuntimeManifest("/unused", { target: "psp", hostAbi: generation, profile: "psp", profileHash: plan.profileHash, files: [] })).rejects.toThrow("binding generation");
+      await expect(writeRuntimeManifest("/unused", { target: "psp", hostAbi: generation, profile: POCKET_PROFILES.psp, files: [] })).rejects.toThrow("binding generation");
       expect(() => makeVariant({ target: "psp", hostAbi: generation, planJson: JSON.stringify(plan),
         identity: { id: plan.app.id, title: plan.app.title, output: plan.app.output }, js: new Uint8Array(), pak: new Uint8Array() })).toThrow("binding generation");
     }

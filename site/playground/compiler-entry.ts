@@ -17,11 +17,11 @@ import { parse as parseFont, type Font } from "opentype.js";
 
 import { compileClasses, fontSlotInfo } from "../../framework/compiler/tailwind.ts";
 import { registerAnimationTheme } from "../../framework/compiler/animation.ts";
-import motionsManifest from "../../apps/motions/pocket.json";
-import musicManifest from "../../apps/music/pocket.json";
+import motionsManifest from "../../apps/motions/pocket.app.json";
+import musicManifest from "../../apps/music/pocket.app.json";
 
 // The playground compiles single-file demos without their app-dir
-// pocket.json, so install the demo themes that define keyframes —
+// pocket.app.json, so install the demo themes that define keyframes —
 // motions (the homepage/blog motion studies) and music (the Octane
 // equalizer's baked bar timelines) — merged as the playground-wide default.
 // Namespaces are disjoint; a collision would mean a demo rename, not magic.

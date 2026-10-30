@@ -82,7 +82,7 @@ a bottom-screen touch panel does not imply that the primary display is touchable
 Targets that provide `input.cursor` can replace the d-pad focus walk with a
 **pointer**: the analog nub steers a cursor sprite, hovering applies the
 `focus:` variant, and a press button clicks whatever is under the arrow. It is
-opt-in — declare the capability in `pocket.json` (`requires` or `enhances`)
+opt-in — declare the capability in `pocket.app.json` (`requires` or `enhances`)
 and enable it at runtime:
 
 ```ts
@@ -361,7 +361,7 @@ import { BTN } from "@pocketjs/framework/input";
 
 ## Keyboard text
 
-A host whose profile declares `input.text` has a keyboard that types: the
+A target whose host contract declares `input.text` has a keyboard that types: the
 M5Stack Tab5 with its keyboard on Ext.Port1, a desktop widget. Each frame
 carries the keyboard's events, and `onTextEvent` receives them before the
 frame's button handlers run.

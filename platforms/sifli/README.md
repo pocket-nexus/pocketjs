@@ -3,7 +3,7 @@
 **A SiFli program links one Rust archive, the drivers in this directory and
 its own composition.** The archive (`programs/sifli/archive`) contains the
 canonical runtime and the EPIC renderer's C factory. The program creates a
-runtime from its exported profile, registers the generated QuickJS guest, a
+runtime from its exported host contract, registers the generated QuickJS guest, a
 package source, the renderer, the framebuffer display and input sources, and
 starts the runner thread. It owns board files, the partition table,
 `proj.conf`, framebuffer storage and any switching between applications.
@@ -41,15 +41,15 @@ source "$POCKETJS_ROOT/platforms/sifli/Kconfig"
 ```
 
 ```sh
-bun tools/pocket.ts profile export --config pocket.runtime-config.ts --out build/profile
-bun tools/pocket.ts compile --manifest pocket.json --project-root . \
-  --runtime-config pocket.runtime-config.ts --output build/app.pocket
+bun tools/pocket.ts host export --config pocket.host.config.ts --out build/profile
+bun tools/pocket.ts compile --manifest pocket.app.json --project-root . \
+  --host-config pocket.host.config.ts --output build/app.pocket
 bun tools/build/sifli/epic.ts --pocket build/app.pocket --out build/app.epic
 POCKET_PROFILE_EXPORT_DIR=$PWD/build/profile scons --board=<board> -j8
 ```
 
 **Viewport, render scale, raster density and tick rate come from the exported
-profile**, not from Kconfig; the SConscript stops when
+host contract**, not from Kconfig; the SConscript stops when
 `POCKET_PROFILE_EXPORT_DIR` holds no `pocket_profile.h`. `PocketjsEmbed(name,
 path)`, exported by the SConscript, links a file in `.rodata` at **64-byte
 alignment** as `pocketjs_<name>_data` with its length in the 32-bit

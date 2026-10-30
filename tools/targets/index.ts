@@ -76,7 +76,7 @@ export const CATALOG: readonly TargetDescriptor[] = [
   registered("macos-widget", "macOS widget", MACOS, compilerOnly("macos-widget")),
 ];
 
-export { PROFILE_COMMAND_WORDS as COMMAND_WORDS } from "../../profiles/ids.ts";
+export { PROFILE_COMMAND_WORDS as COMMAND_WORDS } from "../../hosts/ids.ts";
 
 export function catalogEntry(id: string): TargetDescriptor | undefined {
   return CATALOG.find((descriptor) => descriptor.id === id);

@@ -6,7 +6,7 @@ import { decodeIdentity, decodePocketPackage, findSection, findVariant, POCKET_S
 import { extractHostBuildInputs } from "../../framework/src/manifest/host-build-inputs.ts";
 import type { ResolvedBuildPlan } from "../../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../../framework/src/manifest/resolve.ts";
-import type { RuntimeAotInput, RuntimeApplication } from "../../framework/src/runtime-config.ts";
+import type { RuntimeAotInput, RuntimeApplication } from "../../framework/src/host-config.ts";
 import { profileRegistry, type ResolvedProfile } from "../profile-resolver.ts";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -44,7 +44,7 @@ export function prepareApplication(selected: ResolvedProfile, packagePath: strin
   const { decoded, variant, plan, planBytes, js, output } = admitApplication(selected, bytes);
   const directory = resolve(outdir, ".inputs", sha256(bytes));
   mkdirSync(directory, { recursive: true });
-  const planPath = resolve(directory, "plan.json"), manifestPath = resolve(directory, "pocket.json");
+  const planPath = resolve(directory, "plan.json"), manifestPath = resolve(directory, "pocket.app.json");
   const jsPath = resolve(directory, `${output}.js`), pakPath = resolve(directory, `${output}.pak`);
   const snapshotPath = resolve(directory, ".input.pocket");
   writeFileSync(snapshotPath, bytes);

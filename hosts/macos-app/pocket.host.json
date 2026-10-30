@@ -1,0 +1,31 @@
+{
+  "format": "pocket-host/2",
+  "id": "macos-app",
+  "platform": "macos",
+  "form": "window",
+  "cadences": [60, 30],
+  "display": {
+    "logicalViewports": [[720, 480]],
+    "dynamicViewport": {
+      "min": [240, 180],
+      "max": [4096, 4096],
+      "acceptsFixed": true
+    },
+    "presentations": ["native"],
+    "rasterDensity": 2,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [1440, 960]
+  },
+  "capabilities": [
+    "display.viewport.live",
+    "input.buttons",
+    "io.offload",
+    "text.glyphs.baked",
+    "text.layout.offload"
+  ],
+  "roleCapabilities": {
+    "systemUI": ["ui.compositor-surfaces"]
+  }
+}

@@ -44,7 +44,7 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" => {
-                println!("pocket-linux-kms [--package app.pocket] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nProfile {} is compiled in from the build's profile export. Default package: /usr/share/pocketjs/app.pocket. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.", profile::ID);
+                println!("pocket-linux-kms [--package app.pocket] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nHost contract {} is compiled in from the build's host export. Default package: /usr/share/pocketjs/app.pocket. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.", profile::ID);
                 return Ok(None);
             }
             "--headless" => output.headless = true,
@@ -66,7 +66,7 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     Ok(Some(output))
 }
 /// Reject display and input facts these drivers cannot honor: one fixed
-/// display and the evdev input classes. The runtime config rejects promised
+/// display and the evdev input classes. The host config rejects promised
 /// services this program does not compose before the build.
 fn supported(profile: Profile) -> Result<Profile, Box<dyn Error>> {
     if profile.dynamic_viewport.is_some()
@@ -140,15 +140,19 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "/usr/share/pocketjs/app.pocket".into());
     let mut source = FileSource::open(&path)?;
     if options.check {
-        let _package = LoadedPackage::load(
+        let package = LoadedPackage::load(
             &mut source,
-            profile::ID,
-            profile::HOST_ABI,
-            &profile::PROFILE_HASH,
+            &profile.host_facts(profile::HOST_ABI, profile::PROFILE_HASH),
             PACKAGE_LIMIT,
         )
         .map_err(error)?;
-        println!("package admitted: {} ({})", path.display(), profile.id);
+        println!(
+            "package admitted: {} ({}, {} Hz at {} Hz)",
+            path.display(),
+            profile.id,
+            package.timing.tick_hz,
+            package.timing.cadence_hz
+        );
         return Ok(());
     }
     // Guard resource allocation before the runtime copies the file.
@@ -248,7 +252,13 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
     }
     let mut clock = MonotonicClock::default();
-    let mut schedule = TickSchedule::new(profile.tick_hz, clock.now(), 1).map_err(error)?;
+    // One frame per cadence period; each advances the package rate divided by
+    // the cadence in core ticks.
+    let cadence_hz = runtime
+        .timing()
+        .ok_or_else(|| error("the package did not boot"))?
+        .cadence_hz;
+    let mut schedule = TickSchedule::new(cadence_hz, clock.now(), 1).map_err(error)?;
     let mut frames = 0u64;
     while !STOP.load(Ordering::Relaxed) && options.frames.is_none_or(|limit| frames < limit) {
         schedule.wait_next(&mut clock).map_err(error)?;

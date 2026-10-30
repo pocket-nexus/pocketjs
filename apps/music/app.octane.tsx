@@ -54,7 +54,7 @@ player.play(); // playing starts true
 
 // Continuous motion rides the native animation system, never per-frame JS:
 // an Octane state tick replays the whole root — cheap nowhere, ruinous on
-// the PSP. The equalizer is four baked keyframe timelines (pocket.json app.theme
+// the PSP. The equalizer is four baked keyframe timelines (pocket.app.json app.theme
 // bakes the bars' |sin| curve, phase included, into styles.bin); play/pause
 // just switches the animate-eq* classes on and off.
 

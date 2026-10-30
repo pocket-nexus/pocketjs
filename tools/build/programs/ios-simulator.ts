@@ -1,7 +1,8 @@
 import { nativeSources } from "./native-sources.ts";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import profile from "../../../profiles/ios-dev.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { requireProgramProfile, requireApplication } from "./application.ts";
+const profile = POCKET_PROFILES["ios-dev"];
 
 export const build: RuntimeBuild = {
   hosts: ["darwin-arm64"],

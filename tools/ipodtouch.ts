@@ -1,5 +1,5 @@
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
-import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -140,7 +140,7 @@ function check(label: string, ok: boolean, detail: string): boolean {
 }
 
 function manifestPath(): string {
-  return join(REPOSITORY, "apps/ipodtouch-demo/pocket.json");
+  return join(REPOSITORY, "apps/ipodtouch-demo/pocket.app.json");
 }
 
 function planPath(): string {

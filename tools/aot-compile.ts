@@ -15,7 +15,7 @@ import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { profileRegistry } from "./profile-resolver.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import type { LayerDeclarations } from "../microts/compiler/aot-paint-plan.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -82,7 +82,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   const { plan } = options;
   if (!verifyPlanHash(plan) || !verifyPlanProfile(plan)) throw new Error("AOT: invalid plan/profile hash");
   if (plan.target.hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`AOT: unsupported plan binding generation ${plan.target.hostAbi}`);
-  if (plan.app.aot !== true) throw new Error("AOT: app.aot must be true in pocket.json");
+  if (plan.app.aot !== true) throw new Error("AOT: app.aot must be true in pocket.app.json");
   const projectRoot = resolve(options.projectRoot), outdir = resolve(options.outdir);
   const inputs = new BuildInputs();
   inputs.add(options.manifestPath);
@@ -151,7 +151,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
     write(file, image.rgba, [source, resolve(options.manifestPath), ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
     imageCode.push(`{ let id = ui.core_mut().upload_texture(include_bytes!(${JSON.stringify(file)}), ${image.width}, ${image.height}, microts::pocketjs_core::spec::psm::PSM_8888); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
   }
-  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n#[allow(dead_code)]\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(ui: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
+  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(ui: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
   write("layers.json", JSON.stringify({ viewport: plan.viewport.logical, tickRate: tickHz, settleFrames: 40, layers: result.layout.regions.flatMap(region => region.layers) }, null, 2) + "\n");
   await inputs.compiler([resolve(ROOT, "tools/aot-compile.ts")], ROOT);
   const allInputs = inputs.paths();
@@ -167,9 +167,9 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
 
 /** In-tree firmware scripts use the same application generator as pocket compile. */
 export async function compileBuiltinAot(target: "gba" | "ipodnano", outdir: string): Promise<AotCompileResult> {
-  const manifestPath = resolve(ROOT, `apps/${target}-hero/pocket.json`);
+  const manifestPath = resolve(ROOT, `apps/${target}-hero/pocket.app.json`);
   const loaded = readPocketManifest(manifestPath);
   const resolved = validateAndResolveBuildPlan(loaded.manifest, { target, executionClass: "aot" }, profileRegistry(POCKET_PROFILES[target]));
   if (!resolved.ok) throw new Error(resolved.diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
-  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `profiles/${target}.ts`), ...loaded.inputs] });
+  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `hosts/${target}/pocket.host.json`), ...loaded.inputs] });
 }

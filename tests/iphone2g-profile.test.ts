@@ -6,7 +6,7 @@ import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { IPHONE2G_DEV_HOST_ABI, IPHONE2G_DEV_TARGET_ID, IPHONE2G_VIEWPORT, resolveIPhone2GBuildPlan } from "../tools/iphone2g-profile.ts";
 
 const REPOSITORY = fileURLToPath(new URL("../", import.meta.url));
-const MANIFEST_PATH = join(REPOSITORY, "apps/iphone2g-demo/pocket.json");
+const MANIFEST_PATH = join(REPOSITORY, "apps/iphone2g-demo/pocket.app.json");
 const ENTRY_PATH = join(REPOSITORY, "apps/iphone2g-demo/main.tsx");
 const ROOT_TSCONFIG = join(REPOSITORY, "tsconfig.json");
 const JSX_DECLARATIONS = join(REPOSITORY, "framework/src/jsx.d.ts");

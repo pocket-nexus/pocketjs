@@ -31,7 +31,6 @@ use generated::AppViewModel;
 
 pub const WIDTH: usize = 176;
 pub const HEIGHT: usize = 132;
-pub const TICK_HZ: u32 = profile::TICK_HZ;
 pub const MAX_REGIONS: usize = 8;
 
 pub use pocket_rockbox_input::{button, buttons};
@@ -185,7 +184,7 @@ impl Hero {
             )
             .unwrap();
         runtime
-            .boot_aot_deferred(profile::PROFILE_HASH, [WIDTH as u32, HEIGHT as u32], false)
+            .boot_aot_deferred(profile::PROFILE_HASH, [WIDTH as u32, HEIGHT as u32], false, TICK_HZ)
             .unwrap();
         runtime.skip_presentation().unwrap();
         Self {

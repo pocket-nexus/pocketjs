@@ -5,18 +5,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { BunPlugin } from "bun";
 import ts from "typescript";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
-import { defineRuntimeConfig, type PocketRuntimeConfig } from "../framework/src/runtime-config.ts";
-import { canonicalProfileJson, hashPocketProfile, validatePocketProfile, type PocketProfile } from "../framework/src/profile.ts";
+import { defineHostConfig, type PocketHostConfig } from "../framework/src/host-config.ts";
+import { canonicalProfileJson, hashPocketProfile, readPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { POCKET_CAPABILITIES, definePlatformContractRegistry, defineTargetRegistry, type PocketCapabilityId } from "../contracts/spec/platform-types.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import { targetProfile } from "../profiles/contract.ts";
+import { POCKET_PROFILES, builtinProfileFile, type BuiltinProfileId } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import { validateToolchain } from "./targets/toolchain.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const builtinProfile = (id: string): PocketProfile | undefined => Object.hasOwn(POCKET_PROFILES, id)
-  ? POCKET_PROFILES[id as keyof typeof POCKET_PROFILES] : undefined;
-export const RUNTIME_CONFIG_FILE = "pocket.runtime-config.ts";
+  ? POCKET_PROFILES[id as BuiltinProfileId] : undefined;
+const builtinProfilePath = (id: string) => resolve(ROOT, "hosts", builtinProfileFile(id as BuiltinProfileId));
+export const HOST_CONFIG_FILE = "pocket.host.config.ts";
 export interface ResolutionInputs {
   /** Directories are depfile watches; native output is not a module input. */
   readonly resolutionDirectories?: readonly string[];
@@ -24,10 +25,12 @@ export interface ResolutionInputs {
   readonly resolutionFiles?: readonly string[];
   readonly moduleResolutions?: readonly { specifier: string; from: string; resolved: string | null }[];
 }
-export interface LoadedRuntimeConfig extends ResolutionInputs {
+export interface LoadedHostConfig extends ResolutionInputs {
   readonly path: string;
-  readonly value: PocketRuntimeConfig;
+  readonly value: PocketHostConfig;
   readonly profiles: readonly PocketProfile[];
+  /** The host contract of each entry of `profiles`. */
+  readonly profilePaths: readonly string[];
   readonly dependencies: readonly string[];
 }
 export interface ResolvedProfile extends ResolutionInputs {
@@ -35,12 +38,14 @@ export interface ResolvedProfile extends ResolutionInputs {
   readonly profileHash: string;
   readonly hostAbi: number;
   readonly dependencies: readonly string[];
-  readonly config?: LoadedRuntimeConfig;
+  /** The document the profile was read from. */
+  readonly path?: string;
+  readonly config?: LoadedHostConfig;
 }
 
-export function findRuntimeConfig(from: string): string | null {
+export function findHostConfig(from: string): string | null {
   for (let directory = resolve(from); ; directory = dirname(directory)) {
-    const file = join(directory, RUNTIME_CONFIG_FILE);
+    const file = join(directory, HOST_CONFIG_FILE);
     if (existsSync(file)) return file;
     if (dirname(directory) === directory) return null;
   }
@@ -180,33 +185,40 @@ async function evaluateModule(path: string): Promise<{ value: unknown; dependenc
     resolutionFiles: [...tracking.files].sort(), moduleResolutions: tracking.modules };
 }
 
-function checkedProfile(value: unknown): PocketProfile {
-  const id = value && typeof value === "object" && "id" in value ? String(value.id) : "";
-  const builtin = builtinProfile(id);
-  const result = validatePocketProfile(value, { builtin: Boolean(builtin) });
-  if (!result.ok) throw new TypeError(result.diagnostics.map(item => `${item.path || "/"}: ${item.message}`).join("; "));
-  if (builtin && canonicalProfileJson(builtin) !== canonicalProfileJson(result.value)) {
-    throw new TypeError(`profile id ${id} belongs to a built-in profile; use a different id`);
+/** Read a host contract. A document may carry a built-in id only with
+ * the built-in profile's facts. */
+export function loadProfileDocument(path: string): PocketProfile {
+  const profile = readPocketProfile(path, { builtin: true });
+  const builtin = builtinProfile(profile.id);
+  if (builtin && canonicalProfileJson(builtin) !== canonicalProfileJson(profile)) {
+    throw new TypeError(`${path}: profile id ${profile.id} belongs to a built-in profile; use a different id`);
   }
-  return result.value;
+  return profile;
 }
 
-export async function loadRuntimeConfig(path: string): Promise<LoadedRuntimeConfig> {
+/** A `--target` that names a file rather than a built-in host id. */
+export const isProfilePath = (target: string) => target.endsWith(".json") || target.includes("/") || target.includes("\\");
+
+export async function loadHostConfig(path: string): Promise<LoadedHostConfig> {
   path = resolve(path);
-  if (!existsSync(path)) throw new Error(`runtime config not found: ${path}`);
+  if (!existsSync(path)) throw new Error(`host config not found: ${path}`);
   const module = await evaluateModule(path);
-  const value = defineRuntimeConfig(module.value as PocketRuntimeConfig);
+  const value = defineHostConfig(module.value as PocketHostConfig);
   if (value.build?.toolchain) {
     const problems = validateToolchain(value.build.toolchain, value.build.toolchain.target);
     if (problems.length) throw new TypeError(`invalid runtime toolchain: ${problems.join("; ")}`);
   }
-  const profiles = (value.profiles ?? [value.profile]).map(checkedProfile);
-  return { path, value, profiles, dependencies: module.dependencies,
+  // Host contracts are JSON files named relative to the config.
+  const paths = (value.hosts ?? [value.host]).map(file => resolve(dirname(path), file));
+  const profiles = paths.map(loadProfileDocument);
+  if (new Set(profiles.map(profile => profile.id)).size !== profiles.length) throw new TypeError(`${path}: profile ids must be unique`);
+  return { path, value, profiles, profilePaths: paths, dependencies: [...module.dependencies, ...paths],
     resolutionDirectories: module.resolutionDirectories, resolutionFiles: module.resolutionFiles, moduleResolutions: module.moduleResolutions };
 }
 
+/** One profile as the resolver's registry. The document must validate. */
 export function profileRegistry(profile: PocketProfile) {
-  const checked = checkedProfile(profile) as PocketProfile<PocketCapabilityId>;
+  const checked = profile as PocketProfile<PocketCapabilityId>;
   return definePlatformContractRegistry(POCKET_CAPABILITIES, defineTargetRegistry({
     [checked.id]: targetProfile(checked),
   }));
@@ -215,51 +227,49 @@ export function profileRegistry(profile: PocketProfile) {
 export async function resolveProfile(options: {
   readonly target?: string;
   readonly from: string;
-  readonly runtimeConfig?: string;
+  readonly hostConfig?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Runtime builds select only profiles implemented by their config. */
   readonly requireConfig?: boolean;
 }): Promise<ResolvedProfile> {
   const from = resolve(options.from);
   const target = options.target ?? options.env?.POCKET_TARGET?.trim();
-  const configPath = options.runtimeConfig ? resolve(options.runtimeConfig) : findRuntimeConfig(from);
-  const config = configPath && (options.requireConfig || options.runtimeConfig || !target)
-    ? await loadRuntimeConfig(configPath) : undefined;
-  if (options.requireConfig && !config) throw new Error(`no ${RUNTIME_CONFIG_FILE} found above ${from}`);
+  const configPath = options.hostConfig ? resolve(options.hostConfig) : findHostConfig(from);
+  const config = configPath && (options.requireConfig || options.hostConfig || !target)
+    ? await loadHostConfig(configPath) : undefined;
+  if (options.requireConfig && !config) throw new Error(`no ${HOST_CONFIG_FILE} found above ${from}`);
   let profile: PocketProfile;
   let dependencies: readonly string[] = config?.dependencies ?? [];
   let resolution: ResolutionInputs = config ?? {};
+  let path: string | undefined;
   if (config) {
+    let index = 0;
     if (target) {
-      const selected = config.profiles.find(profile => profile.id === target);
-      if (!selected) throw new Error(`${config.path} does not implement profile ${target}; choose ${config.profiles.map(p => p.id).join(", ")}`);
-      profile = selected;
-    } else {
-      if (config.profiles.length !== 1) throw new Error(`${config.path} implements multiple profiles; select one with --target: ${config.profiles.map(p => p.id).join(", ")}`);
-      profile = config.profiles[0]!;
+      index = config.profiles.findIndex(profile => profile.id === target);
+      if (index < 0) throw new Error(`${config.path} does not implement host ${target}; choose ${config.profiles.map(p => p.id).join(", ")}`);
+    } else if (config.profiles.length !== 1) {
+      throw new Error(`${config.path} implements multiple hosts; select one with --target: ${config.profiles.map(p => p.id).join(", ")}`);
     }
+    profile = config.profiles[index]!;
+    path = config.profilePaths[index];
   } else if (target) {
-    const builtin = builtinProfile(target);
+    const builtin = isProfilePath(target) ? undefined : builtinProfile(target);
     if (builtin) {
       profile = builtin;
-      dependencies = [resolve(ROOT, `profiles/${target}.ts`), resolve(ROOT, "profiles/contract.ts"), resolve(ROOT, "contracts/spec/binding-generation.ts")];
+      path = builtinProfilePath(target);
+      dependencies = [path, resolve(ROOT, "contracts/spec/binding-generation.ts")];
+    } else if (isProfilePath(target)) {
+      path = resolve(process.cwd(), target);
+      if (!existsSync(path)) throw new Error(`host contract not found: ${path}`);
+      profile = loadProfileDocument(path);
+      dependencies = [path];
     } else {
-      let path: string;
-      if (target.startsWith(".") || target.startsWith("/")) path = resolve(process.cwd(), target);
-      else {
-        try { path = frameworkModulePath(target) ?? Bun.resolveSync(target, from); }
-        catch { throw new Error(`unknown profile or module ${target}`); }
-      }
-      if (!existsSync(path)) throw new Error(`profile module not found: ${path}`);
-      const module = await evaluateModule(path);
-      profile = checkedProfile(module.value);
-      dependencies = module.dependencies;
-      resolution = module;
+      throw new Error(`unknown host ${target}; name a built-in host id or a pocket.host.json file`);
     }
   } else {
-    throw new Error(`no profile selected; use --target, POCKET_TARGET, or ${RUNTIME_CONFIG_FILE} above ${from}`);
+    throw new Error(`no host selected; use --target, POCKET_TARGET, or ${HOST_CONFIG_FILE} above ${from}`);
   }
-  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies,
+  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies, ...(path ? { path } : {}),
     resolutionDirectories: resolution.resolutionDirectories, resolutionFiles: resolution.resolutionFiles,
     moduleResolutions: resolution.moduleResolutions, ...(config ? { config } : {}) };
 }

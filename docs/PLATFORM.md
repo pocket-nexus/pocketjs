@@ -17,7 +17,7 @@ review as a pure function, not a queue of humans.
 
 | layer | contents | status |
 |---|---|---|
-| L0 contract | spec.ts ISA, append-only ops, capability registry, manifest admission | SHIPPED — the platform's constitution |
+| L0 contract | spec.ts ISA, append-only ops, capability registry, app contract admission | SHIPPED — the platform's constitution |
 | L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown/switch) | switching shipped on psp + vita + sim + web |
 | L2 distribution | `.pocket` package, on-device install, host-relay push | format 2 (below); install + push next |
 | L3 experience | launcher-as-Home, switch veil, DevTools time travel | launcher shipped; veil below |
@@ -28,9 +28,8 @@ branch. The launcher followed it (ops 39..41) and stayed testable on every
 host; distribution must follow it too.
 
 This document covers the **guest execution class**: one portable bundle
-with runtime admission against the target registry. The manifest also reserves
-`aot` in `execution.classes`; guest hosts reject packages without a guest
-artifact.
+with runtime admission against the host's facts. `app.aot` admits the entry to
+AOT compilation; guest hosts reject packages without a guest artifact.
 
 ## The switch veil (system transition)
 
@@ -60,22 +59,26 @@ Two refinements stack on top later, both cheap: the launcher can play a
 200 ms card-zoom before calling `appLaunch` (pure JS, no host change), and
 qjsc bytecode (below) shrinks the hold the veil is papering over.
 
-## Profiles and `.pocket` format 2
+## Host contracts and `.pocket` format 2
 
-`@pocketjs/framework/profile` provides `defineProfile()`. A profile declares
-`id`, `platform`, `form`, `tickHz`, `display`, `capabilities` and
-`roleCapabilities`. Built-in values live in `profiles/<id>.ts` and are exported
-from `@pocketjs/framework/profiles`.
+A host contract is a `pocket-host/2` JSON document: `id`, `platform`, `form`,
+`cadences`, `display`, `panel`, `capabilities` and optional
+`roleCapabilities`, `worker`, `limits` and `input`. Built-in host contracts live in
+`hosts/<id>/pocket.host.json` and are exported from `@pocketjs/framework/hosts`.
+`validatePocketProfile` in `@pocketjs/framework/profile` checks the schema,
+reserved names, dynamic viewports, auxiliary screens, worker kinds and contact
+coordinate limits.
 
-**Profile identity is SHA-256 over seven fields.**
-`contracts/spec/profile.ts` defines their canonical JSON encoding. Object keys
-sort by UTF-16 code units; array order remains part of identity. `hostExtension`
-is metadata and is excluded. Renaming a profile, adding a capability, or
-changing its timing or geometry changes the hash and requires rebuilding the
-application. `defineProfile()` checks reserved names, capability vocabulary,
-dynamic viewports, auxiliary screens and contact coordinate limits.
+**The host contract hash (`profileHash`) is SHA-256 over seven fields.** `contracts/spec/profile.ts`
+defines their canonical JSON encoding. Object keys sort by UTF-16 code units;
+capabilities, cadences and role capabilities sort as sets. The panel, worker
+table, limits, input parameters, `hostExtension` and the `hostAbi` stamp are
+excluded. **The hash is provenance: a device admits a package by its facts**
+(see [admission](../site/content/docs/platform-contracts.md#admission)), so a
+renamed host contract or an added capability keeps installed packages running.
 
-The resolved build plan carries this full projection and `profileHash`.
+The resolved build plan carries the compiled host contract with the package rate
+(`profile.tickHz`) and `profileHash`.
 `hostBuildEnvironment()` exports `POCKETJS_PROFILE_JSON` and
 `POCKETJS_PROFILE_HASH` for the program build. **The program's expected hash
 comes from its build input.** A package cannot supply its own expected value.
@@ -91,8 +94,8 @@ Rust and Python readers share maintained valid and malformed fixtures.
 | Region | Contents |
 | --- | --- |
 | Header, 32 bytes | `PCKT`, version 2, manifest length, variant count, string table offset and size, two zero reserved words |
-| Manifest | Original `pocket.json` bytes, padded to 16 bytes |
-| Variant, 64 bytes | Target string offset and size, binding generation, section count and table offset, zero reserved word, FNV-1a64 payload hash, 32-byte profile hash |
+| Manifest | Original `pocket.app.json` bytes, padded to 16 bytes |
+| Variant, 64 bytes | Target string offset and size, binding generation, section count and table offset, zero reserved word, FNV-1a64 payload hash, 32-byte host contract hash |
 | String table | UTF-8 target IDs, 1–65535 bytes each, without NUL terminators |
 | Section entry, 16 bytes | Kind, zero reserved word, payload offset and length |
 | Payloads | Identity, plan, NUL-terminated JavaScript, asset pack, cover, or other declared sections, each padded to 16 bytes |
@@ -103,28 +106,29 @@ Strings, section tables and payloads occupy contiguous regions in that order.
 Readers reject overlap, duplicate IDs or kinds, invalid UTF-8, nonzero reserved
 words, trailing data and out-of-range offsets. Unknown section kinds retain
 their payloads. Empty payloads may share an offset. Thinning preserves both
-the payload hash and the profile hash.
+the payload hash and the host contract hash.
 
 **Format 1 packages are rejected by format 2 runtimes.**
 **Every current program uses binding generation 12.** Values 1–11 from the
-former per-target numbering are rejected even when the profile hash matches.
+former per-target numbering are rejected.
 See the [compatibility matrix](../site/content/docs/native-contract.md#package-and-driver-compatibility). Rebuild the application
-to produce a format 2 package. Admission compares the selected variant's target,
-binding generation and profile hash before guest initialization, then checks its
-plan and resources. ESP-IDF also checks the binary host-input record's timing,
-viewport, density and presentation against the program's profile.
+to produce a format 2 package. Admission selects the first variant the host's
+facts satisfy (binding generation, raster density, animation class, rate,
+viewport, presentation, capabilities and auxiliary surface), preferring a
+variant whose host contract hash equals the host's, then checks its resources.
+ESP-IDF's embed step applies the same rules to the binary host-input record.
 
 The launcher embeds original package bytes or supplies them through a file
 source. A JavaScript/asset-pair embedding adapter creates a format 2 package with
-its explicit program profile; it does not convert an existing package to bypass
+its program's host contract; it does not convert an existing package to bypass
 admission.
 
 ## Generic runtimes and the repack step
 
 A generic runtime is one prebuilt host per device with no app in it. It
-reads `app.pocket` at boot, checks the footer hash, takes the variant for
-its own target and refuses a variant whose binding generation or profile hash
-differs from its own.
+reads `app.pocket` at boot, checks the footer hash and takes the first variant
+its facts admit; a package with none is refused with the items the closest
+variant lacks.
 A runtime that finds no file, or a file it refuses, shows one line on screen
 that names the fault. The embedded-app build stays: the built-in games and
 the dev loops use it.
@@ -140,14 +144,15 @@ bun tools/repack.ts --target psp --runtime dist/runtime/psp --pocket game.pocket
 ```
 
 `runtime.json` records `target`, `hostAbi`, `profileHash`, the PocketJS commit,
-the profile label and each file's size and SHA-256. `tools/repack/<target>.ts` exports
+the host id and each file's size and SHA-256; the files include the stamped
+`pocket.host.json`. `tools/repack/<target>.ts` exports
 `repack<Target>({ runtime, pocket, identity })`: the runtime's files as bytes
 by path, the `.pocket` bytes and the identity (id, title, author, version, a
 square PNG icon). `tools/repack/shared/runtime.ts` refuses a runtime for
-another target or with a file that differs from `runtime.json`, a `.pocket`
-whose footer does not verify, one with no variant for the target, a binding
-generation that differs from the current compiler or `runtime.json`, mismatched profile hashes in the variant,
-plan or runtime, and an app id other than the identity's.
+another target, with a file that differs from `runtime.json` or without its
+host contract, a `.pocket` whose footer does not verify, one with no
+variant the runtime's host contract admits, a variant whose plan does not record
+its own host contract hash, and an app id other than the identity's.
 The package carries the `.pocket` thinned to the target's variant. The other
 shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`
 (1980-01-01 dates, entries in the given order, `CompressionStream` deflate),
@@ -195,7 +200,7 @@ PPSSPP. `MEMSIZE = 1` gives a PSP-2000 or 3000 started from the XMB the
   decision — either a minimal Rust port of the capability-superset +
   viewport check, or (simpler first step) the pack tool embeds the
   resolved plan and the device verifies plan.target/abi/viewport against
-  its own profile. Either way: no capability, no boot — same rule as the
+  its own host contract. Either way: no capability, no boot — same rule as the
   build.
 - **Channels, honestly ordered**: (1) copy to the memory stick — works
   today, zero code; (2) `pocket push` over the existing USB svc relay —
@@ -253,4 +258,4 @@ in a second → one command to the handheld."
 - No on-device code signing theater — the hash footer is integrity, not
   security; the PSP's threat model is a memory stick.
 - No host branches for "special" apps — the launcher itself is an
-  ordinary manifest app and must stay one.
+  ordinary `pocket.app.json` app and must stay one.

@@ -9,9 +9,9 @@ pocketjs/
 ├─ Cargo.toml, Cargo.lock    shared dependency graph and lockfile
 ├─ rust-toolchain.toml      fixed stable compiler for portable libraries
 ├─ contracts/
-│  ├─ spec/                 formats, operations, driver ABI and profile schema
+│  ├─ spec/                 formats, operations, driver ABI and host contract schema
 │  ├─ generated/            generated C headers and package readers
-│  └─ schema/               application manifest JSON schema
+│  └─ schema/               app contract, host contract and system JSON schemas
 ├─ engine/
 │  ├─ spec/                 generated no_std constants and ABI records
 │  ├─ drivers/              resource views and device-class contracts
@@ -20,7 +20,7 @@ pocketjs/
 │  ├─ render/               operation decoding, glyph pages, batches and caches
 │  ├─ raster/               software rendering
 │  ├─ present/              damage history and presentation transactions
-│  ├─ profile-build/        build-script support that embeds the exported profile
+│  ├─ profile-build/        build-script support that embeds the exported host contract
 │  ├─ package/              package, asset and font archive readers and hashing
 │  ├─ runtime/              instance lifecycle, admission, input and scheduling
 │  ├─ runtime-cabi/         instance C ABI and retained compatibility adapters
@@ -45,20 +45,20 @@ pocketjs/
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
 │  ├─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
 │  └─ sifli/                RT-Thread drivers, EPIC executor and renderer
-├─ profiles/                software contracts identified by content hashes
+├─ hosts/                   built-in host contracts identified by content hashes
 ├─ programs/
-│  ├─ psp/ vita/ 3ds/       console entries and runtime configurations
+│  ├─ psp/ vita/ 3ds/       console entries and host configs
 │  ├─ gba/ ipodnano/        fixed-console programs
 │  ├─ web/ sim/ desktop/    reference programs and their composition
-│  ├─ iphone2g/ iphone4s/   phone entries and runtime configurations
+│  ├─ iphone2g/ iphone4s/   phone entries and host configs
 │  ├─ ipodtouch4/ ipodtouch6/ music-player programs
 │  ├─ ios-simulator/        NativeScript shell and UIKit integration
 │  ├─ android/             shared Android application shell
-│  ├─ moto-g-play/ redmi-1s/ Android device runtime configurations
+│  ├─ moto-g-play/ redmi-1s/ Android device host configs
 │  ├─ meizu-m8/ nokia-e7/   Windows CE and Symbian programs
 │  ├─ blackberry-classic/   QNX program
 │  ├─ pocketbook/           reader program and InkView integration
-│  ├─ linux-kms/            Linux program with its own profile
+│  ├─ linux-kms/            Linux program with its own host contract
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
 │  ├─ sifli/archive/        one Rust archive for the SiFli composition
 │  └─ native/               compatibility C-shell composition and QuickJS glue
@@ -76,7 +76,7 @@ pocketjs/
 ├─ zephyr/module.yml        west module entry
 ├─ tests/                   contracts, fixtures, integration and E2E tests
 │  └─ esp-idf/              IDF sample programs and test harnesses
-├─ apps/                    applications with pocket.json manifests
+├─ apps/                    applications with pocket.app.json app contracts
 ├─ assets/                  maintained fonts, artwork and branding
 ├─ docs/ site/              reference documentation and website
 └─ .pocket-build/           ignored build and validation output
@@ -85,13 +85,14 @@ pocketjs/
 **Phone, music-player, reader and console programs live in this repository.**
 Shared mechanisms belong in `engine/`, OS and SDK adapters in `platforms/`,
 and GPU mechanisms in `devices/`. Programs own their entries and driver
-composition; profiles describe the software contract. Device age and product
-category do not determine directory or repository ownership. See
+composition; host contracts state the capabilities, display and cadences a
+program provides. Device age and product category do not determine directory
+or repository ownership. See
 [Device native builds](DEVICE_BUILDS.md).
 
 **The M5Stack Tab5 program lives in pocket-nexus/pocket-m5.** It pins this
 repository as a submodule and composes the `platforms/esp-idf` components,
-`engine/host-services` and the IDF archive; its profiles (`tab5-hero`,
+`engine/host-services` and the IDF archive; its host contracts (`tab5-hero`,
 `tab5-clear`, `tab5-home`) live with the program.
 
 **The 3DS product lives in `products/3ds`.**
@@ -122,7 +123,7 @@ and orders render completion, display transfer and resource retirement.
 **`contracts/spec/ui-ops.ts` defines 61 public operations and six private guest
 hooks.** `tools/ui-bindings.ts` generates the runtime dispatcher and guest
 operation descriptors. Missing service providers leave their guest methods
-absent. Package format 2 records profile hashes; binding generation 12 identifies
+absent. Package format 2 records host contract hashes; binding generation 12 identifies
 the generated script interface. Driver and runtime C tables use `struct_size`
 prefix compatibility.
 
@@ -135,9 +136,9 @@ with isolated dependency graphs retain their own lockfiles. Stable is fixed in
 `rust-toolchain.toml`; `tools/build/toolchains/rust.ts` supplies one build-std
 nightly, and `esp.ts` pins the Xtensa compiler.
 
-**Application compilation and native builds have separate inputs.** `pocket.json`
-describes an application. A program's `pocket.runtime-config.ts` imports its
-profile and declares native build steps. The executor verifies application
+**Application compilation and native builds have separate inputs.** `pocket.app.json`
+describes an application. A program's `pocket.host.config.ts` selects its
+host contract and declares native build steps. The executor verifies application
 inputs, compiler identity and source hashes before writing a build receipt.
 IDF, Zephyr, the SiFli SDK and Buildroot retain ownership of their firmware
 configuration.
@@ -147,7 +148,7 @@ verified release; `pocket sdk build` creates a local candidate. Canonical header
 C guest sources and a hash manifest accompany the archive. CMake consumers use
 `Pocket::runtime` and `Pocket::guest_quickjs`; see [SDK.md](SDK.md).
 
-The npm package contains the framework, compiler, profiles, command tools,
+The npm package contains the framework, compiler, built-in host contracts, command tools,
 generated contracts and browser assets. **Native source is distributed through
 Cargo and source releases.** Web assets preserve `programs/web` and
 `platforms/web` paths so module imports and worker URLs resolve in deployed
@@ -158,11 +159,11 @@ and Pocket3D consumers.
 
 - Add a shared mechanism under `engine/` and expose the types it needs.
 - Add an OS or SDK driver under `platforms/`; add GPU code under `devices/`.
-- Put composition and entry points under `programs/`, with a runtime config.
-- Keep product-specific profiles with the product; tree-owned profiles live in
-  `profiles/`.
+- Put composition and entry points under `programs/`, with a host config.
+- Keep product-specific host contracts with the product; built-in host contracts
+  live in `hosts/<id>/pocket.host.json`.
 - Put compilation, packaging and release orchestration under `tools/`.
-- Put application demos under `apps/`, with a `pocket.json` manifest.
+- Put application demos under `apps/`, with a `pocket.app.json` app contract.
 - Define contracts in `contracts/spec/` and generate language bindings.
 - Keep run logs, screenshots and receipts under ignored
   `.pocket-build/validation/<task>/<run>/`. Maintained fixtures belong in `tests/`.

@@ -1,5 +1,6 @@
-import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
-import ipodTouch4Profile from "../profiles/ipodtouch4-dev.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { createCanvas } from "@napi-rs/canvas";
@@ -46,6 +47,7 @@ import {
 import {
   IPOD_INSTALLER, ipodAppReceiptPaths, parseInstalledIPodApp, shellQuote, userDeploymentScript,
 } from "./ipodtouch4-installation.ts";
+const ipodTouch4Profile = POCKET_PROFILES["ipodtouch4-dev"];
 
 const REPOSITORY = fileURLToPath(new URL("..", import.meta.url));
 const DEVICE_TYPE = IPODTOUCH4_DEVICE.productType;
@@ -72,7 +74,7 @@ const ACTION_NAME = "clear_gesture";
  */
 export interface IPodTouch4App {
   readonly id: string;
-  /** pocket.json, relative to `root`. */
+  /** pocket.app.json, relative to `root`. */
   readonly manifest: string;
   /**
    * The project the app's sources live in. Absent for an app inside this
@@ -124,7 +126,7 @@ const EXTERNAL_FIELDS = [
 export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   clear: {
     id: "clear",
-    manifest: "apps/clear/pocket.json",
+    manifest: "apps/clear/pocket.app.json",
     bundleId: "dev.pocket-nexus.clear",
     bundleName: "PocketJSiPodTouch4.app",
     executable: "PocketJSiPodTouch4",
@@ -137,7 +139,7 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   },
   "nexus-touch": {
     id: "nexus-touch",
-    manifest: "apps/nexus-touch/pocket.json",
+    manifest: "apps/nexus-touch/pocket.app.json",
     bundleId: "dev.pocket-nexus.nexus-touch",
     bundleName: "PocketNexus.app",
     executable: "PocketNexus",
@@ -907,7 +909,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
   }
   const firstParty = [
     ...IPOD_WARNINGS,
-    "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
+    "-include", writeHostProfileHeader(nativeBuild, planProfileDocument(inputs.profile)),
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -917,7 +919,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
     ...(APP.svcWire ? ["-DPOCKET_SVC_WIRE"] : []),
   ];
   const host = compileIPodHost(native, {
-    profile: inputs.profile,
+    profile: planProfileDocument(inputs.profile),
     target: inputs.target,
     hostAbi: inputs.hostAbi,
     rasterDensity: inputs.viewport.rasterDensity,

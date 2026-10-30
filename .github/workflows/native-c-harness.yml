@@ -202,7 +202,7 @@ jobs:
       - name: AOT guest and compiled native presentation
         run: |
           cargo +stable test --locked --manifest-path Cargo.toml -p microts --features runtime
-          bun tools/pocket.ts profile export --target gba --out .pocket-build/gba-profile
+          bun tools/pocket.ts host export --target gba --out .pocket-build/gba-profile
           POCKETJS_PROFILE_RS="$PWD/.pocket-build/gba-profile/pocket_profile.rs" cargo +stable test --locked --manifest-path programs/gba/Cargo.toml --lib
       - name: Generated C guest against QuickJS-NG
         run: bun tools/test-quickjs-guest.ts

@@ -15,7 +15,7 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "contracts/**"
-      - "profiles/psp-runtime.ts"
+      - "hosts/psp-runtime/pocket.host.json"
       - "engine/render/tex-cache/**"
       - "engine/render/tri-batch/**"
       - "framework/compiler/**"
@@ -26,7 +26,7 @@ on:
       - "tools/psp.ts"
       - "tools/build/**"
       - "platforms/psp/**"
-      - "profiles/psp.ts"
+      - "hosts/psp/pocket.host.json"
       - "tools/psp-linker.ts"
       - "engine/guest-quickjs/**"
       - "engine/runtime/**"
@@ -99,6 +99,6 @@ jobs:
           CC_mipsel_sony_psp: /usr/bin/false
           AR_mipsel_sony_psp: /usr/bin/false
         run: |
-          bun tools/pocket.ts compile --target psp --manifest apps/hero/pocket.json --project-root . --output .pocket-build/validation/psp-ci/hero.pocket
+          bun tools/pocket.ts compile --target psp --manifest apps/hero/pocket.app.json --project-root . --output .pocket-build/validation/psp-ci/hero.pocket
           bun tools/pocket.ts build --target psp --pocket .pocket-build/validation/psp-ci/hero.pocket --out .pocket-build/validation/psp-ci/native
           bun -e 'import { statSync } from "node:fs"; const r = await Bun.file(".pocket-build/validation/psp-ci/native/build-receipt.json").json(); if (!r.success || !r.artifact || statSync(r.artifact).size === 0) process.exit(1);'

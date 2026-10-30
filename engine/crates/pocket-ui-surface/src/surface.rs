@@ -272,6 +272,7 @@ impl UiSurface {
             host: &inner.host_id,
             host_abi: inner.host_abi.unwrap_or(pocket_spec::BINDING_GENERATION),
             tick_hz: core.ui.tick_rate(),
+            sim_hz: core.ui.tick_rate(),
             viewport: [viewport.0 as u32, viewport.1 as u32],
             auxiliary_viewport: core
                 .ui

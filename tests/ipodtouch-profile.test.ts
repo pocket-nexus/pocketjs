@@ -10,7 +10,7 @@ import { IPODTOUCH_ICON_OUTPUTS, bakeIPodTouchArtwork } from "../tools/ipodtouch
 import { deploymentInstallCommand, ipodTouchDeploymentPaths } from "../tools/ipodtouch.ts";
 
 const REPOSITORY = fileURLToPath(new URL("../", import.meta.url));
-const MANIFEST = join(REPOSITORY, "apps/ipodtouch-demo/pocket.json");
+const MANIFEST = join(REPOSITORY, "apps/ipodtouch-demo/pocket.app.json");
 const ENTRY = join(REPOSITORY, "apps/ipodtouch-demo/main.tsx");
 const OUTPUT = mkdtempSync(join(tmpdir(), "pocketjs-ipodtouch-icon-"));
 

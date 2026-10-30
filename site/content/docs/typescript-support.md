@@ -30,8 +30,8 @@ ownership and host integration.
 Native AOT commands check their input views. In guest builds, `app.aot: true`
 enables Solid graph admission. A Vue SFC also enables its AOT checks when it
 imports a value from its basename model or imports
-`@pocketjs/framework/vue-vapor/std`. Omitting the manifest flag does not bypass
-those Vue contract checks. Compiled model selection still requires both
+`@pocketjs/framework/vue-vapor/std`. Omitting `app.aot` from the app contract
+does not bypass those Vue contract checks. Compiled model selection still requires both
 `app.aot: true` and `app.model: "compiled"`.
 
 **Model AOT restrictions apply to compiled model modules, not all TypeScript

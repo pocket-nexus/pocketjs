@@ -8,6 +8,7 @@ import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contract
 import { canonicalProfileJson } from "../contracts/spec/profile.ts";
 import { atomicWrite, VitaUsbClient } from "../tools/vita-dev-client.ts";
 import { exportProfile } from "../tools/profile-export.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -175,9 +176,10 @@ test("device Rust admission consumes the TypeScript package format", async () =>
   const directory = resolve(".pocket-build/validation/vita-usb-contract/fixtures");
   mkdirSync(directory, { recursive: true });
   const plan = JSON.parse(readFileSync("tests/fixtures/plans/portable-vita.plan.json", "utf8"));
-  const profileJson = canonicalProfileJson(plan.profile);
-  const profileHash = "sha256:" + createHash("sha256").update(profileJson).digest("hex");
-  const exported = exportProfile({ profile: plan.profile, profileHash, hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(directory, "profile"));
+  const profile = planProfileDocument(plan.profile);
+  const profileHash = "sha256:" + createHash("sha256").update(canonicalProfileJson(profile)).digest("hex");
+  expect(profileHash).toBe(plan.profileHash);
+  const exported = exportProfile({ profile, profileHash, hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(directory, "profile"));
   writeFileSync(join(directory, "plan.json"), JSON.stringify(plan));
   function pkg(overrides: { id?: string; abi?: number; target?: string; profileHash?: string; plan?: unknown; js?: string } = {}) {
     return encodePocketPackage({ manifest: Buffer.from("{}"), variants: [{ target: overrides.target ?? "vita", hostAbi: overrides.abi ?? POCKET_BINDING_GENERATION, profileHash: overrides.profileHash ?? profileHash,

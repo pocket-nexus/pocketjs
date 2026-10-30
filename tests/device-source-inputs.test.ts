@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { compilerOnly, defineRuntimeConfig, type RuntimeBuild } from "../framework/src/runtime-config.ts";
+import { compilerOnly, defineHostConfig, type RuntimeBuild } from "../framework/src/host-config.ts";
 import { buildRuntime } from "../tools/build/executor.ts";
 import { nativeOption } from "../tools/build/programs/application.ts";
 import { nokiaSourceInputs } from "../tools/build/programs/nokia-e7.ts";
@@ -16,8 +16,8 @@ function scratch() { const path = mkdtempSync(join(base, "run-")); temporary.pus
 
 async function fixture(directory: string, build: Omit<RuntimeBuild, "hosts">): Promise<ResolvedProfile> {
   const selected = await resolveProfile({ from: root, target: "symbian-e7-dev" });
-  return { ...selected, config: { path: join(directory, "pocket.runtime-config.ts"), profiles: [selected.profile], dependencies: [],
-    value: defineRuntimeConfig({ profile: selected.profile,
+  return { ...selected, config: { path: join(directory, "pocket.host.config.ts"), profiles: [selected.profile], profilePaths: [selected.path!], dependencies: [],
+    value: defineHostConfig({ host: selected.path!,
       build: { hosts: [`${process.platform}-${process.arch}` as "darwin-arm64"], ...build } }) } };
 }
 

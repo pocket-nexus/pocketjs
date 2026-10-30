@@ -309,13 +309,20 @@ unsafe fn create(
         None => (
             Profile {
                 id: Cow::Owned(String::from(target)),
-                tick_hz: 60,
+                cadences: Cow::Borrowed(&[60]),
                 viewport: [width, height],
                 logical_viewports: Cow::Owned(alloc::vec![[width, height]]),
                 dynamic_viewport: None,
+                presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
                 auxiliary: None,
                 auxiliary_logical: Cow::Borrowed(&[]),
                 density,
+                animation: Cow::Borrowed(""),
+                capabilities: if physics != 0 {
+                    Cow::Borrowed(&[Cow::Borrowed("ui.physics")])
+                } else {
+                    Cow::Borrowed(&[])
+                },
                 required_inputs: InputClasses::BUTTONS
                     | InputClasses::AXIS_ABSOLUTE
                     | InputClasses::CONTACT,
@@ -326,8 +333,20 @@ unsafe fn create(
     if profile.id != target || profile.density != density {
         return Err(POCKET_STATUS_INVALID);
     }
+    // The synthesized plan states the facts the raw code was compiled for:
+    // the profile's animation class and presentation, at the 60 Hz rate.
+    let presentation = if profile.presentations.iter().any(|name| name == "native") {
+        "native"
+    } else {
+        profile.presentations.first().map_or("native", |name| name.as_ref())
+    };
+    let animation = if profile.animation.is_empty() {
+        String::new()
+    } else {
+        format!(r#""animation":"{}","#, profile.animation)
+    };
     let plan = format!(
-        r#"{{"features":{{"ui.physics":{}}},"viewport":{{"logical":[{width},{height}],"rasterDensity":{density}}}}}"#,
+        r#"{{{animation}"features":{{"ui.physics":{}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[{width},{height}],"presentation":"{presentation}","rasterDensity":{density}}}}}"#,
         physics != 0
     );
     let identity = pocket_package::embedded::identity(
@@ -548,13 +567,18 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
         let target_name = string(target)?;
         let bytes = unsafe { pocket_runtime_cabi::adapters::borrowed(bytes, length) }
             .map_err(|error| error.status())?;
+        if profile.0.id != target_name {
+            return Err(POCKET_STATUS_INVALID);
+        }
+        let guest =
+            pocket_package::select_guest(bytes, &profile.0.host_facts(host_abi, profile.1), false)
+                .map_err(|_| POCKET_STATUS_INVALID)?;
         let package =
             pocket_package::Package::parse(bytes, false).map_err(|_| POCKET_STATUS_INVALID)?;
-        let variant = package
-            .find_variant(target_name)
+        let identity = package
+            .find_variant(guest.target)
             .map_err(|_| POCKET_STATUS_INVALID)?
-            .ok_or(POCKET_STATUS_INVALID)?;
-        let identity = variant
+            .ok_or(POCKET_STATUS_INVALID)?
             .identity()
             .map_err(|_| POCKET_STATUS_INVALID)?
             .ok_or(POCKET_STATUS_INVALID)?;
@@ -564,8 +588,6 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
         {
             return Err(POCKET_STATUS_INVALID);
         }
-        let guest = pocket_package::select_guest(bytes, target_name, host_abi, &profile.1, false)
-            .map_err(|_| POCKET_STATUS_INVALID)?;
         let facts = pocket_package::plan_facts(guest.plan).map_err(|_| POCKET_STATUS_INVALID)?;
         if [facts.viewport.width, facts.viewport.height] != [width, height]
             || facts.viewport.raster_density != density
@@ -1184,7 +1206,7 @@ mod tests {
             let identity =
                 pocket_package::embedded::identity("fixture", "dev.fixture", "Fixture").unwrap();
             let plan = format!(
-                r#"{{"features":{{"ui.physics":{physics}}},"viewport":{{"logical":[32,24],"rasterDensity":1}}}}"#
+                r#"{{"features":{{"ui.physics":{physics}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[32,24],"presentation":"native","rasterDensity":1}}}}"#
             );
             pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
                 target: "qnx",
@@ -1217,9 +1239,12 @@ mod tests {
                     )
                 };
             let bytes = package(false);
-            // Admission needs the host build's facts, its hash, and a facts id equal to the target.
+            // Admission needs the host build's facts, its hash, and a facts id
+            // equal to the target. Another profile hash is provenance only.
             assert!(create_with(&bytes, ptr::null(), &profile_hash).is_null());
-            assert!(create_with(&bytes, &profile, &[0x52; 32]).is_null());
+            let other_hash = create_with(&bytes, &profile, &[0x52; 32]);
+            assert!(!other_hash.is_null());
+            pocket_native_program_destroy(other_hash);
             let other = PocketProfileFacts {
                 id: b"qnx-2".as_ptr(),
                 id_length: 5,

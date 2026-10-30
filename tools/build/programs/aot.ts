@@ -1,11 +1,12 @@
 import { resolve } from "node:path";
-import { compilerOnly, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
-import gbaProfile from "../../../profiles/gba.ts";
-import nanoProfile from "../../../profiles/ipodnano.ts";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { buildGba } from "../gba/build.ts";
 import { buildIpodNano } from "../ipodnano/build.ts";
 import { buildHosts, repository, nativeSources } from "./handheld-common.ts";
 import { requireProgramProfile } from "./application.ts";
+const gbaProfile = POCKET_PROFILES["gba"];
+const nanoProfile = POCKET_PROFILES["ipodnano"];
 
 const runtimeSources = ["engine/core", "engine/spec", "engine/drivers", "engine/package", "engine/runtime", "engine/present", "engine/raster", "engine/modules/media", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/tri-batch", "engine/crates/microts", "engine/profile-build"];
 

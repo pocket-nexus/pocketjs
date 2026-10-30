@@ -1,14 +1,17 @@
 #!/usr/bin/env bun
 import { dirname, join, resolve } from "node:path";
-import profile from "../profiles/vita.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 import { exportProfile } from "./profile-export.ts";
+const profile = POCKET_PROFILES["vita"];
 const root = resolve(import.meta.dir, "..");
 const validation = join(root, ".pocket-build/validation/vita-runtime");
-// The fixture embeds the profile module the Vita program embeds.
-const exported = exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(validation, "profile"));
+// The fixture embeds the profile module the Vita program embeds, plus
+// ui.physics so a plan can enable the feature-gated physics namespace.
+const fixtureProfile = { ...profile, capabilities: [...profile.capabilities, "ui.physics"] };
+const exported = exportProfile({ profile: fixtureProfile, profileHash: hashPocketProfile(fixtureProfile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(validation, "profile"));
 type Package = {name:string;manifest_path:string;source:string|null;dependencies:{name:string;source:string|null}[]};
 function metadata(manifest: string, noDeps = false): Package[] {
   const result = Bun.spawnSync(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "metadata", "--locked", "--format-version=1", "--manifest-path", join(root, manifest), ...(noDeps ? ["--no-deps"] : [])], { cwd: root, stdout: "pipe", stderr: "pipe" });

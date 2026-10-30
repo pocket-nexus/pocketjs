@@ -240,9 +240,9 @@ fn original_package(target: &str, abi: u32, plan: &[u8]) -> Vec<u8> {
     package(target, abi, plan, br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#)
 }
 
-const PLAN: &[u8] = br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{}}"#;
+const PLAN: &[u8] = br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{}}"#;
 const ORIGINAL_PLAN: &[u8] =
-    br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{"ui.physics":true}}"#;
+    br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{"ui.physics":true}}"#;
 
 #[test]
 fn original_package_plan_controls_generated_capability_namespaces() {
@@ -266,13 +266,12 @@ fn original_package_plan_controls_generated_capability_namespaces() {
 fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
     for (reason, package) in [
         ("ABI", original_package("vita", 99, ORIGINAL_PLAN)),
-        ("target", original_package("psp", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN)),
         (
             "viewport",
             original_package(
                 "vita",
                 pocket_spec::BINDING_GENERATION,
-                br#"{"viewport":{"logical":[240,136],"rasterDensity":2}}"#,
+                br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[240,136],"presentation":"integer-fit","rasterDensity":2}}"#,
             ),
         ),
         (
@@ -280,7 +279,15 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
             original_package(
                 "vita",
                 pocket_spec::BINDING_GENERATION,
-                br#"{"viewport":{"logical":[480,272],"rasterDensity":1}}"#,
+                br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":1}}"#,
+            ),
+        ),
+        (
+            "capability",
+            original_package(
+                "vita",
+                pocket_spec::BINDING_GENERATION,
+                br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{"net.http":true}}"#,
             ),
         ),
         ("plan", original_package("vita", pocket_spec::BINDING_GENERATION, b"{}")),

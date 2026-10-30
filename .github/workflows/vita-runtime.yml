@@ -9,7 +9,7 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "platforms/vita/**"
-      - "profiles/vita.ts"
+      - "hosts/vita/pocket.host.json"
       - "tools/build/**"
       - "tools/profile-export.ts"
       - "tools/profile-resolver.ts"

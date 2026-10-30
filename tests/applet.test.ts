@@ -23,7 +23,6 @@ function manifest(overrides: Record<string, unknown> = {}, capabilities?: { requ
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
     id: "dev.example.notes",
-    name: "notes",
     title: "Notes",
     version: "0.1.0",
     applet: { version: 1 },
@@ -210,6 +209,6 @@ describe("budgets and the shipped applets", () => {
   });
 
   test("Pocket Nexus is an applet and passes", () => {
-    expect(checkApplet({ manifestPath: join(ROOT, "apps/nexus/pocket.json"), projectRoot: ROOT })).toEqual([]);
+    expect(checkApplet({ manifestPath: join(ROOT, "apps/nexus/pocket.app.json"), projectRoot: ROOT })).toEqual([]);
   });
 });

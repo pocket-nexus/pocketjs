@@ -1,0 +1,32 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.cursor",
+  "title": "PocketJS: Cursor",
+  "version": "0.6.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons"
+      ],
+      "enhances": [
+        "input.cursor"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/cursor/main.tsx",
+    "output": "cursor-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          480,
+          272
+        ],
+        "presentation": "integer-fit"
+      }
+    }
+  }
+}

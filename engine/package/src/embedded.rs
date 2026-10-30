@@ -144,6 +144,7 @@ pub fn encode(package: EmbeddedPackage<'_>) -> Result<Vec<u8>, EncodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::admission::testing::{host, PLAN};
     use crate::source::{LoadedPackage, MemorySource};
     #[test]
     fn embedded_input_uses_normal_admission_and_keeps_one_terminator() {
@@ -154,7 +155,7 @@ mod tests {
                 host_abi: 1,
                 profile_hash: [0x11; 32],
                 identity: &identity,
-                plan: b"{}",
+                plan: PLAN,
                 code,
                 pak: &[],
             })
@@ -162,30 +163,19 @@ mod tests {
         let bytes = make(b"hello").unwrap();
         assert_eq!(bytes, make(b"hello\0").unwrap());
         assert_eq!(make(b"hello\0\0"), Err(EncodeError::InvalidJavaScript));
-        let package = LoadedPackage::load(
-            &mut MemorySource(&bytes),
-            "web",
-            1,
-            &[0x11; 32],
-            bytes.len(),
-        )
-        .unwrap();
+        let package =
+            LoadedPackage::load(&mut MemorySource(&bytes), &host(1, [0x11; 32]), bytes.len())
+                .unwrap();
         assert_eq!(package.javascript(), b"hello\0");
-        assert!(LoadedPackage::load(
-            &mut MemorySource(&bytes),
-            "web",
-            2,
-            &[0x11; 32],
-            bytes.len()
-        )
-        .is_err());
+        assert!(
+            LoadedPackage::load(&mut MemorySource(&bytes), &host(2, [0x11; 32]), bytes.len())
+                .is_err()
+        );
         let mut damaged = bytes;
         damaged[0] ^= 1;
         assert!(LoadedPackage::load(
             &mut MemorySource(&damaged),
-            "web",
-            1,
-            &[0x11; 32],
+            &host(1, [0x11; 32]),
             damaged.len()
         )
         .is_err());
@@ -203,7 +193,7 @@ mod tests {
                 host_abi: 7,
                 profile_hash: [0x55; 32],
                 identity: &identity,
-                plan: b"{}",
+                plan: PLAN,
                 code: b"test",
                 pak: &[],
             })
@@ -211,7 +201,8 @@ mod tests {
             let parsed = crate::Package::parse(&bytes, false).unwrap();
             assert_eq!(parsed.variant(0).unwrap().target, target);
             assert_eq!(parsed.variant(0).unwrap().profile_hash, [0x55; 32]);
-            crate::select_guest(&bytes, target, 7, &[0x55; 32], false).unwrap();
+            let guest = crate::select_guest(&bytes, &host(7, [0x55; 32]), false).unwrap();
+            assert_eq!(guest.target, target);
         }
         for target in ["", "nul\0id", &"a".repeat(65536)] {
             assert_eq!(

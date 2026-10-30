@@ -3,7 +3,7 @@
 // the wasm core with the 3DS geometry and a fake `globalThis.agent`
 // (platforms/sim/agent.ts) in place of the host and the companion.
 //
-// The overlay is added by the build because the fixture's pocket.json
+// The overlay is added by the build because the fixture's pocket.app.json
 // declares "system.agent"; nothing in the fixture imports it.
 //
 // POCKET_AGENT_SHOTS=<dir> writes bottom-screen PNGs of each state.
@@ -28,7 +28,7 @@ const GLOBALS = ["ui", "__pak", "__simHz", "frame", "link", "wifi", "camera", "a
 const saved = new Map(GLOBALS.map((key) => [key, (globalThis as Record<string, unknown>)[key]]));
 
 beforeAll(() => {
-  const manifest = JSON.parse(readFileSync(join(ROOT, "tests/fixtures/agent-app/pocket.json"), "utf8"));
+  const manifest = JSON.parse(readFileSync(join(ROOT, "tests/fixtures/agent-app/pocket.app.json"), "utf8"));
   const plan = join(OUT, "plan.json");
   writeFileSync(plan, JSON.stringify(resolve3dsBuildPlan(manifest)));
   const build = Bun.spawnSync(

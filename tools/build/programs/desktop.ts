@@ -1,11 +1,12 @@
 import { copyFileSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
-import { cargo, type RuntimeBuild, type RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
-import macosProfile from "../../../profiles/macos-app.ts";
-import linuxProfile from "../../../profiles/linux-app.ts";
-import widgetProfile from "../../../profiles/macos-widget.ts";
+import { cargo, type RuntimeBuild, type RuntimeBuildContext } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
 import { requireApplication, requireProgramProfile } from "./application.ts";
 import { repository, nativeSources } from "./handheld-common.ts";
+const macosProfile = POCKET_PROFILES["macos-app"];
+const linuxProfile = POCKET_PROFILES["linux-app"];
+const widgetProfile = POCKET_PROFILES["macos-widget"];
 
 function stageApplication(context: RuntimeBuildContext, directory = resolve(context.outdir, "application")): void {
   const app = requireApplication(context);

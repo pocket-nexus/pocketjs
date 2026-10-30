@@ -1,3 +1,4 @@
+import { readPocketManifest } from "../../framework/src/manifest/load.ts";
 import { capture, prepareNative3ds, runNative3dsMake } from "../../tools/build/3ds/native.ts";
 // tools/3ds.ts <app> [cargo args…] — build the app JS+pak (tools/build.ts), the
 // Rust core staticlib, QuickJS, and the .3dsx for the out-of-registry "3ds-dev"
@@ -74,9 +75,9 @@ import { capture, prepareNative3ds, runNative3dsMake } from "../../tools/build/3
 
 import { $ } from "bun";
 import { ensureThreeDsProfileHeader } from "../../tools/3ds-contracts.ts";
-import softwareProfile from "../../profiles/3ds-dev.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 import type { PocketProfile } from "../../framework/src/profile.ts";
-import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext } from "../../framework/src/host-config.ts";
 import { threeDsProfileHeader } from "../../tools/3ds-contracts.ts";
 import { canonicalProfileJson, hashPocketProfile } from "../../framework/src/profile.ts";
 import { containerPathFor, ensureQuickJs, runContainer, THREE_DS_CONTAINER_IMAGE, type Mount } from "../../tools/3ds-toolchain.ts";
@@ -106,6 +107,7 @@ import {
   resolve3dsBuildPlan,
 } from "../../tools/3ds-profile.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
+const softwareProfile = POCKET_PROFILES["3ds-dev"];
 
 const repository = new URL("../..", import.meta.url).pathname; // PocketJS/
 const hostDirectory = `${repository}products/3ds/`;
@@ -132,7 +134,7 @@ export const MAKEROM_REVISION = "e8f5f529c54ff9b22a2491a480ffa69206bf7b19";
 // ---------------------------------------------------------------------------
 
 export interface ThreeDsArguments {
-  /** Bare app name (apps/<app>/pocket.json); empty when --plan is given. */
+  /** Bare app name (apps/<app>/pocket.app.json); empty when --plan is given. */
   readonly app: string;
   readonly planPath?: string;
   readonly manifestPath?: string;
@@ -185,7 +187,7 @@ export function parse3dsArguments(
     else if (a.startsWith("--outdir=")) outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
     else if (a.startsWith("--package-outdir=")) packageDir = resolvePath(a.slice("--package-outdir=".length));
     else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
-      throw new Error("PocketJS 3ds: application configuration belongs in pocket.json");
+      throw new Error("PocketJS 3ds: application configuration belongs in pocket.app.json");
     } else if (!planPath && !app && !a.startsWith("-")) app = a;
     else cargoArgs.push(a);
   }
@@ -458,7 +460,7 @@ async function loadBuildPlan(
     let manifestPath = args.manifestPath ?? "";
     const boundary = resolvePath(args.projectRoot);
     while (!manifestPath) {
-      const candidate = join(directory, "pocket.json");
+      const candidate = join(directory, "pocket.app.json");
       if (existsSync(candidate)) {
         manifestPath = candidate;
         break;
@@ -468,11 +470,11 @@ async function loadBuildPlan(
     }
     if (!manifestPath) {
       throw new Error(
-        `PocketJS 3ds: ${args.planPath} needs its source pocket.json between ${dirname(entry)} and ${boundary}; ` +
+        `PocketJS 3ds: ${args.planPath} needs its source pocket.app.json between ${dirname(entry)} and ${boundary}; ` +
           "the runtime package carries the admitted manifest verbatim",
       );
     }
-    const manifestPlan = resolve3dsBuildPlan(JSON.parse(readFileSync(manifestPath, "utf8")));
+    const manifestPlan = resolve3dsBuildPlan(readPocketManifest(manifestPath).manifest);
     if (canonicalJson(manifestPlan) !== canonicalJson(checked)) {
       throw new Error(
         `PocketJS 3ds: ${args.planPath} has drifted from ${manifestPath}; regenerate the resolved plan before packaging`,
@@ -483,8 +485,8 @@ async function loadBuildPlan(
   // An app outside this repository is named relative to --project-root.
   const candidates = [
     ...new Set([
-      join(args.projectRoot, "apps", args.app, "pocket.json"),
-      `${repository}apps/${args.app}/pocket.json`,
+      join(args.projectRoot, "apps", args.app, "pocket.app.json"),
+      `${repository}apps/${args.app}/pocket.app.json`,
     ]),
   ];
   const manifest = candidates.find((path) => existsSync(path));
@@ -496,7 +498,7 @@ async function loadBuildPlan(
     );
   }
   const plan = assert3dsPlan(
-    resolve3dsBuildPlan(JSON.parse(readFileSync(manifest, "utf8"))),
+    resolve3dsBuildPlan(readPocketManifest(manifest).manifest),
     manifest,
   );
   const planPath = `${repository}.pocket/3ds/${plan.app.output}.plan.json`;

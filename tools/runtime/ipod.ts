@@ -38,9 +38,9 @@ import { IPODTOUCH4_DEV_HOST_ABI, IPODTOUCH4_DEV_TARGET_ID, IPODTOUCH4_RASTER_DE
 import { IPODTOUCH4_TOOLCHAIN } from "../build/toolchains/ipodtouch4.ts";
 import { IPOD_RUNTIME_EXECUTABLE, IPOD_RUNTIME_FILES } from "../repack/ipod.ts";
 import { writeRuntimeManifest } from "../../tools/runtime/manifest.ts";
-import profile from "../../profiles/ipodtouch4-dev.ts";
-import { hashPocketProfile } from "../../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 import { writeHostProfileHeader } from "../../tools/host-profile.ts";
+const profile = POCKET_PROFILES["ipodtouch4-dev"];
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 const BUILD_ID_PLACEHOLDER = "00000000000000000000000000000000";
@@ -129,8 +129,7 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
   const manifest = await writeRuntimeManifest(out, {
     target: IPODTOUCH4_DEV_TARGET_ID,
     hostAbi: IPODTOUCH4_DEV_HOST_ABI,
-    profile: IPODTOUCH4_DEV_TARGET_ID,
-    profileHash: hashPocketProfile(profile),
+    profile,
     files: IPOD_RUNTIME_FILES,
     extra: {
       host: {
