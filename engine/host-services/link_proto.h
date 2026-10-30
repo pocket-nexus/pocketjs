@@ -42,6 +42,8 @@
 #define LINK_CATALOG_MAX_APPS 64u
 #define LINK_INSTALL_MAX_BYTES (24u * 1024u * 1024u)
 #define LINK_MAX_REQUESTS 4u
+#define LINK_INSTALL_URI_MAX 400u
+#define LINK_INSTALL_URL_MAX 200u
 
 #define LINK_LABEL_COMPANION "pocket-link/1/companion"
 #define LINK_LABEL_CONSOLE "pocket-link/1/console"
@@ -60,6 +62,17 @@ typedef struct {
 
 /* pocketlink://pair?v=1&c=<id16>&h=<ipv4>[,<ipv4>…]&p=<port>&s=<hex32>&n=<name> */
 bool link_parse_pair_uri(const char *uri, size_t length, LinkPairUri *out);
+
+typedef struct {
+  char app[128];
+  uint8_t sha256[32];
+  char title[LINK_NAME_BYTES];
+  char url[LINK_INSTALL_URL_MAX + 1];
+} LinkInstallUri;
+
+/* pocketlink://install?v=1&a=<app id>&s=<sha256 hex64>[&n=<title>]&u=<url>,
+ * `u` last and verbatim to the end. */
+bool link_parse_install_uri(const char *uri, size_t length, LinkInstallUri *out);
 
 typedef struct {
   uint8_t flags;

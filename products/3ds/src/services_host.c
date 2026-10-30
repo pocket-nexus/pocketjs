@@ -217,6 +217,34 @@ bool link_host_install(
   return true;
 }
 
+/* The 3DS has no HTTP client of its own: installs come from the companion. */
+int32_t link_host_fetch_start(const char *url, const char *path, uint32_t max_bytes) {
+  (void)url;
+  (void)path;
+  (void)max_bytes;
+  return -1;
+}
+
+int32_t link_host_fetch_poll(
+  int32_t handle,
+  uint32_t *received,
+  uint32_t *total,
+  uint8_t sha256[32],
+  char *error,
+  size_t error_capacity
+) {
+  (void)handle;
+  (void)received;
+  (void)total;
+  (void)sha256;
+  snprintf(error, error_capacity, "this console cannot download");
+  return LINK_FETCH_FAILED;
+}
+
+void link_host_fetch_end(int32_t handle) {
+  (void)handle;
+}
+
 bool link_host_remove(const char *slot) {
   char root[96];
   struct stat info;

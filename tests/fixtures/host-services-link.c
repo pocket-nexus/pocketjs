@@ -3,14 +3,17 @@
  * temporary store, driving the shared Pocket Link client against an
  * in-process companion.
  *
- *   host-services-link <store> <pair-uri> <app-id> <url>
+ *   host-services-link <store> <pair-uri> <app-id> <url> <install-uri> <bad-install-uri>
  *
  * pairs, requests the catalog, installs <app-id>, fetches <url> through the
- * companion and prints one line per step:
+ * companion, installs from each install URI (the fetch below reads the path
+ * of an http://fixture.invalid address from disk) and prints one line per
+ * step:
  *
  *   linked <0|1>              status <state>
  *   catalog <events json>     installed <slot> <bytes> <footer match 0|1>
- *   install <events json>     net <status> <body> */
+ *   install <events json>     net <status> <body>
+ *   uri <events json>         bad-uri <events json> */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +27,7 @@
 #include "launcher.h"
 #include "link.h"
 #include "link_http.h"
+#include "sha256.h"
 
 static char apps[512];
 static char link_directory[512];
@@ -118,8 +122,8 @@ bool link_host_install(const char *slot, const char *path, uint64_t hash, Launch
   }
   uint64_t stored = 0;
   for (int i = 7; i >= 0; i -= 1) stored = (stored << 8) | footer[i];
-  printf("installed %s %ld %d\n", slot, size, stored == hash);
-  if (stored != hash) {
+  printf("installed %s %ld %d\n", slot, size, hash == 0 || stored == hash);
+  if (hash != 0 && stored != hash) {
     snprintf(error, error_capacity, "footer mismatch");
     return false;
   }
@@ -127,6 +131,59 @@ bool link_host_install(const char *slot, const char *path, uint64_t hash, Launch
   *out = (LauncherPackage){ .plan = plan, .plan_length = sizeof plan - 1, .hash = hash, .bytes = (uint64_t)size };
   *held = NULL;
   return true;
+}
+
+/* One fetch at a time. It reads the path after FIXTURE_ORIGIN from disk on
+ * its second poll, so link.c sees it running first. */
+#define FIXTURE_ORIGIN "http://fixture.invalid"
+static struct {
+  bool open;
+  int polls;
+  char source[512];
+  char path[512];
+} fetch;
+
+int32_t link_host_fetch_start(const char *url, const char *path, uint32_t max_bytes) {
+  (void)max_bytes;
+  if (fetch.open || strncmp(url, FIXTURE_ORIGIN, strlen(FIXTURE_ORIGIN)) != 0) return -1;
+  fetch.open = true;
+  fetch.polls = 0;
+  snprintf(fetch.source, sizeof fetch.source, "%s", url + strlen(FIXTURE_ORIGIN));
+  snprintf(fetch.path, sizeof fetch.path, "%s", path);
+  return 7;
+}
+
+int32_t link_host_fetch_poll(int32_t handle, uint32_t *received, uint32_t *total, uint8_t sha256_out[32], char *error,
+                             size_t error_capacity) {
+  if (handle != 7 || !fetch.open) return LINK_FETCH_FAILED;
+  if (fetch.polls++ == 0) return LINK_FETCH_RUNNING;
+  FILE *in = fopen(fetch.source, "rb");
+  FILE *out = fopen(fetch.path, "wb");
+  if (in == NULL || out == NULL) {
+    if (in != NULL) fclose(in);
+    if (out != NULL) fclose(out);
+    snprintf(error, error_capacity, "install: 404 from the server");
+    return LINK_FETCH_FAILED;
+  }
+  Sha256 context;
+  sha256_init(&context);
+  uint8_t chunk[4096];
+  size_t count = 0;
+  *received = 0;
+  while ((count = fread(chunk, 1, sizeof chunk, in)) > 0) {
+    fwrite(chunk, 1, count, out);
+    sha256_update(&context, chunk, count);
+    *received += (uint32_t)count;
+  }
+  fclose(in);
+  fclose(out);
+  sha256_final(&context, sha256_out);
+  *total = *received;
+  return LINK_FETCH_DONE;
+}
+
+void link_host_fetch_end(int32_t handle) {
+  if (handle == 7) fetch.open = false;
 }
 
 bool link_host_remove(const char *slot) {
@@ -164,7 +221,7 @@ static const char *await_event(const char *(*poll)(void), const char *needle) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 5) return 2;
+  if (argc != 7) return 2;
   mkdir(argv[1], 0777);
   snprintf(apps, sizeof apps, "%s/apps", argv[1]);
   snprintf(link_directory, sizeof link_directory, "%s/link", argv[1]);
@@ -214,6 +271,14 @@ int main(int argc, char **argv) {
   }
   printf("stream %zu %d\n",streamed,ended);
   if (!ended || streamed!=24000) return 11;
+  if (link_install_uri(argv[5], strlen(argv[5])) < 0) return 12;
+  /* One install per app at a time. */
+  if (link_install_uri(argv[5], strlen(argv[5])) >= 0) return 13;
+  const char *uri = await_event(link_poll, "install.done");
+  printf("uri %s\n", uri != NULL ? uri : "none");
+  if (link_install_uri(argv[6], strlen(argv[6])) < 0) return 14;
+  const char *bad = await_event(link_poll, "\"error\"");
+  printf("bad-uri %s\n", bad != NULL ? bad : "none");
   link_shutdown();
   return 0;
 }

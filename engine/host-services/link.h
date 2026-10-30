@@ -3,7 +3,7 @@
  * authenticated TCP connection to a paired companion computer, the guest
  * namespace that rides it and the worker's HTTP stream:
  *
- *   globalThis.link   status/pair/forget/catalog/install/remove/poll
+ *   globalThis.link   status/pair/forget/catalog/install/installUri/remove/poll
  *   link_http.h       the worker's HTTP resource as a bounded byte-credit
  *                     stream; the worker task exchanges commands and facts
  *                     with this module through its host mailbox
@@ -47,6 +47,10 @@ bool link_pair(const char *uri, size_t length);
 bool link_forget(const char *companion);
 int32_t link_catalog(void);
 int32_t link_install(const char *app_id, size_t length);
+/* Fetch and install the package an install URI names (link.ts "Install
+ * URI"); no companion is needed. -1 when the URI does not parse, the host
+ * has no HTTP client, or an install of that app is running. */
+int32_t link_install_uri(const char *uri, size_t length);
 bool link_remove(const char *app_id, size_t length);
 /* NULL when no event is waiting. */
 const char *link_poll(void);

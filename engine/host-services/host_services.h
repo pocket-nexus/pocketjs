@@ -70,7 +70,8 @@ void link_host_address(char *out, size_t capacity);
  * directory. */
 bool link_host_staging_path(const char *slot, char *out, size_t capacity);
 /* Admit the completed staging file as the slot's package (`hash` is the
- * footer the companion declared) and commit it. On success `out`/`held` are
+ * footer the companion declared, 0 for none) and commit it. A package whose
+ * identity names an app of another slot is refused. On success `out`/`held` are
  * the installed package's facts, as from launcher_host_load. */
 bool link_host_install(
   const char *slot,
@@ -81,6 +82,31 @@ bool link_host_install(
   char *error,
   size_t error_capacity
 );
+/* Installs from an address (link.installUri). The host fetches `url` with
+ * its own HTTP client into `path` (the slot's staging file) on a task of its
+ * own, follows redirects, refuses a body over `max_bytes`, and hashes the
+ * bytes it writes with SHA-256. link.c polls the fetch once per pump and
+ * ends it once. A host without an HTTP client returns -1 from start. */
+#define LINK_FETCH_RUNNING 0
+#define LINK_FETCH_DONE 1
+#define LINK_FETCH_FAILED (-1)
+/* A handle >= 0, or -1 (no client, busy, or the address is refused). */
+int32_t link_host_fetch_start(const char *url, const char *path, uint32_t max_bytes);
+/* LINK_FETCH_RUNNING, LINK_FETCH_DONE (the file is closed and `sha256` holds
+ * its hash) or LINK_FETCH_FAILED (`error` says why). `total` is the declared
+ * length, 0 while unknown. */
+int32_t link_host_fetch_poll(
+  int32_t handle,
+  uint32_t *received,
+  uint32_t *total,
+  uint8_t sha256[32],
+  char *error,
+  size_t error_capacity
+);
+/* Stop a running fetch or release a finished one; returns once the host no
+ * longer writes the file. Removes no file. */
+void link_host_fetch_end(int32_t handle);
+
 /* Delete an installed slot (its package and data); false when it is absent
  * or cannot be removed. The launcher has refused the running and home
  * slots before this is called. */

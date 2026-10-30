@@ -189,6 +189,102 @@ export const LINK_PAIR_URI_MAX = 160;
 export const LINK_PAIR_WINDOW_MS = 10 * 60_000;
 
 // ---------------------------------------------------------------------------
+// Install URI (the QR code a web page shows for one package)
+// ---------------------------------------------------------------------------
+//
+//   pocketlink://install?v=1&a=<app id>&s=<sha256 hex64>[&n=<title>]&u=<url>
+//
+// `a` is the manifest id the package carries; the console installs into that
+// app's slot and refuses a package whose identity names another app. `s` is
+// the SHA-256 of the whole .pocket file, lowercase hex. `n` is an optional
+// percent-encoded title for the console to show before the package is read.
+// `u` is the package's http:// or https:// address. It comes LAST and runs to
+// the end of the URI, taken as written (no percent-decoding), so an address
+// keeps its own `&` and `%`; it holds no `#` and no whitespace.
+//
+// The console fetches `u` with its own HTTP client: no companion is involved.
+// The hash binds the code to one file, so a plain http:// address cannot be
+// altered on the way. A URI is at most LINK_INSTALL_URI_MAX bytes and its
+// address at most LINK_INSTALL_URL_MAX: with the 64-digit hash, a code at ECC
+// level L needs at most version 13 (pairing stays at 9).
+
+export const LINK_INSTALL_SCHEME = "pocketlink://install";
+export const LINK_INSTALL_URI_MAX = 400;
+export const LINK_INSTALL_URL_MAX = 200;
+
+export interface LinkInstallUri {
+  app: string;
+  /** SHA-256 of the package file, 64 lowercase hex digits. */
+  sha256: string;
+  /** Title to show before the package is read; may be empty. */
+  title: string;
+  url: string;
+}
+
+const INSTALL_APP_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,126}$/;
+const INSTALL_SHA_RE = /^[0-9a-f]{64}$/;
+const INSTALL_URL_RE = /^https?:\/\/[^\s#]+$/;
+
+/** UTF-8 length without TextEncoder, which a guest realm may lack. */
+function installUriBytes(text: string): number {
+  let bytes = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0)!;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/** Build an install URI. The title is shortened (on a code point boundary)
+ *  until the URI fits LINK_INSTALL_URI_MAX. */
+export function buildInstallUri(input: LinkInstallUri): string {
+  if (!INSTALL_APP_RE.test(input.app)) throw new Error("install uri: invalid app id");
+  if (!INSTALL_SHA_RE.test(input.sha256)) throw new Error("install uri: sha256 must be 64 lowercase hex digits");
+  if (!INSTALL_URL_RE.test(input.url) || installUriBytes(input.url) > LINK_INSTALL_URL_MAX) {
+    throw new Error("install uri: the address must be http(s), without # or whitespace, at most 200 bytes");
+  }
+  const head = `${LINK_INSTALL_SCHEME}?v=1&a=${input.app}&s=${input.sha256}`;
+  const chars = [...input.title];
+  for (let n = chars.length; n >= 0; n--) {
+    const title = n === 0 ? "" : `&n=${encodeURIComponent(chars.slice(0, n).join(""))}`;
+    const uri = `${head}${title}&u=${input.url}`;
+    if (installUriBytes(uri) <= LINK_INSTALL_URI_MAX) return uri;
+  }
+  throw new Error("install uri: too long even without a title");
+}
+
+/** Read an install URI; null when it is not one. Trailing whitespace from a
+ *  scanner is ignored. */
+export function parseInstallUri(text: string): LinkInstallUri | null {
+  if (typeof text !== "string") return null;
+  const uri = text.replace(/[\r\n ]+$/, "");
+  const prefix = `${LINK_INSTALL_SCHEME}?`;
+  if (installUriBytes(uri) > LINK_INSTALL_URI_MAX || !uri.startsWith(prefix)) return null;
+  const at = uri.indexOf("&u=");
+  if (at < 0) return null;
+  const url = uri.slice(at + 3);
+  if (!INSTALL_URL_RE.test(url) || installUriBytes(url) > LINK_INSTALL_URL_MAX) return null;
+  let version = "", app = "", sha256 = "", title = "";
+  for (const part of uri.slice(prefix.length, at).split("&")) {
+    const eq = part.indexOf("=");
+    if (eq !== 1) continue;
+    const value = part.slice(2);
+    if (part[0] === "v") version = value;
+    else if (part[0] === "a") app = value;
+    else if (part[0] === "s") sha256 = value;
+    else if (part[0] === "n") {
+      try {
+        title = decodeURIComponent(value.replace(/\+/g, " "));
+      } catch {
+        title = ""; /* the title is only shown; a malformed one is dropped */
+      }
+    }
+  }
+  if (version !== "1" || !INSTALL_APP_RE.test(app) || !INSTALL_SHA_RE.test(sha256)) return null;
+  return { app, sha256, title, url };
+}
+
+// ---------------------------------------------------------------------------
 // Requests (ctrl frames after ready)
 // ---------------------------------------------------------------------------
 //
@@ -256,6 +352,13 @@ export interface LinkCatalogApp {
 //   forget(companion) -> bool remove a paired companion and its key
 //   catalog() -> id | -1      ask the linked companion for its catalog
 //   install(appId) -> id | -1 stream one app from the linked companion
+//   installUri(uri) -> id | -1
+//                             fetch and install the package an install URI
+//                             names, with the console's own HTTP client; no
+//                             companion is needed. -1 when the URI does not
+//                             parse, the console has no HTTP client, or a
+//                             fetch is already running. Optional: a console
+//                             without one has no such function
 //   remove(appId) -> bool     delete an installed app's runtime storage;
 //                             refused for the running app and the launcher
 //   poll() -> string | undefined
@@ -314,7 +417,11 @@ export type LinkEvent =
   | { t: "install.done"; id: number; app: string; output: string; hash: string }
   | { t: "error"; id: number; message: string };
 
-/** Pending `catalog`/`install` requests per console. */
+// installUri reports through the same events as install: install.progress
+// (`bytes` is 0 while the server has not said the length), then install.done
+// or error. A fetch that receives nothing for 30 s fails.
+
+/** Pending `catalog`/`install`/`installUri` requests per console. */
 export const LINK_MAX_REQUESTS = 4;
 
 // ---------------------------------------------------------------------------

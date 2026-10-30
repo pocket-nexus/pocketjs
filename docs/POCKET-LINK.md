@@ -138,6 +138,23 @@ and hash come from the open file descriptor, so a file replaced mid-install
 streams one consistent version. At most **4 installs** run per connection;
 files above **24 MiB** are not offered.
 
+**Installs from a code.** A web page that offers one package shows an
+install URI as a QR code:
+`pocketlink://install?v=1&a=<app id>&s=<sha256>[&n=<title>]&u=<url>`, with
+`u` last and taken verbatim to the end (contracts/spec/link.ts, "Install
+URI"). The launcher reads it with the camera and calls
+`link.installUri(uri)`. No companion takes part: the host fetches `u` with its
+own HTTP client into the app's staging file on a task of its own
+(`link_host_fetch_start`, `_poll`, `_end` in `host_services.h`) and hashes the
+bytes as it writes them. `link.c` polls the fetch once per pump in every link
+phase, refuses a file whose **SHA-256** differs from `s`, then admits and
+commits it like a companion install, with the same `install.progress`,
+`install.done` and `error` events. The host refuses a package whose identity
+names another app than `a`. A fetch that receives nothing for **30 s** fails;
+one install per app runs at a time, and a host may run one fetch at a time.
+`installUri` is absent where the host has no HTTP client (the 3DS and the PSP);
+the M5Stack Tab5 launcher fetches over Wi-Fi with HTTPS.
+
 **agent.** A companion that runs the console agent lists the feature `agent`
 in `ready`. Its messages are ctrl frames whose `t` starts with `agent.`, and
 its streams carry microphone audio and touch-screen shots from the console,
@@ -359,3 +376,9 @@ variant, `catalog.changed`, the frame-size guard, beacons and the control API.
 The QR encoder is read back by an independent decoder in the test (format and
 version words, Reed–Solomon syndromes, payload) for versions 1–10 and all eight
 masks, and on macOS by CoreImage's `CIDetector`.
+
+`tests/3ds-link.test.ts` reads install URIs built by the TypeScript contract
+with `link_proto.c` and refuses the malformed ones in both parsers.
+`tests/host-services-link.test.ts` installs from an install URI through
+`link.c` with a fetch the harness serves from disk, and refuses a code whose
+hash does not match the file.

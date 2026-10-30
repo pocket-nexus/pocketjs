@@ -24,6 +24,12 @@
  * while the process lives. Install streams go straight to the target slot's
  * staging file. A closed connection fails every open request; nothing is
  * replayed.
+ *
+ * Installs from an address (link_install_uri) need no companion: the host
+ * fetches the package into the slot's staging file with its own HTTP client
+ * (link_host_fetch_*), link.c polls the fetch once per pump in every phase,
+ * checks the SHA-256 the install URI declared, and commits it like a
+ * companion install. A dropped connection does not end them.
  */
 
 #include "link.h"
@@ -90,7 +96,7 @@ typedef enum {
   PHASE_BACKOFF,
 } LinkPhase;
 
-typedef enum { REQUEST_FREE, REQUEST_CATALOG, REQUEST_INSTALL } RequestKind;
+typedef enum { REQUEST_FREE, REQUEST_CATALOG, REQUEST_INSTALL, REQUEST_FETCH } RequestKind;
 
 typedef struct {
   RequestKind kind;
@@ -108,6 +114,9 @@ typedef struct {
   uint64_t progress_ms;
   /* A request the companion stopped answering fails at this time. */
   uint64_t deadline_ms;
+  /* REQUEST_FETCH: the host's fetch and the SHA-256 the URI declared. */
+  int32_t fetch;
+  uint8_t sha256[32];
 } LinkRequest;
 
 static bool initialized;
@@ -429,17 +438,19 @@ static LinkRequest *find_request(uint32_t id) {
 
 static void request_free(LinkRequest *request, bool remove_staging) {
   if (request->file != NULL) fclose(request->file);
+  if (request->kind == REQUEST_FETCH && request->fetch >= 0) link_host_fetch_end(request->fetch);
   if (remove_staging && request->path[0] != '\0') remove(request->path);
   memset(request, 0, sizeof *request);
 }
 
-/* Every open request fails with the connection. */
-static void fail_requests(const char *message) {
+/* Every open request fails with the connection; fetches from an address
+ * only when `fetches` (the console is shutting down). */
+static void fail_requests(const char *message, bool fetches) {
 #ifdef POCKETJS_WORKER_HTTP
   link_http_disconnected();
 #endif
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
-    if (requests[i].kind == REQUEST_FREE) continue;
+    if (requests[i].kind == REQUEST_FREE || (requests[i].kind == REQUEST_FETCH && !fetches)) continue;
     request_error_event(&requests[i], message);
     request_free(&requests[i], true);
   }
@@ -471,7 +482,7 @@ static void drop(const char *reason) {
   bool was_up = phase == PHASE_UP;
   close_connection();
   if (was_up) link_host_linked(false);
-  if (was_up || phase == PHASE_AUTH || phase == PHASE_CHALLENGE) fail_requests(reason);
+  if (was_up || phase == PHASE_AUTH || phase == PHASE_CHALLENGE) fail_requests(reason, false);
   set_error(reason);
   if (attempt.pair && pair_active) {
     pair_host += 1;
@@ -827,6 +838,8 @@ static void install_progress(LinkRequest *request, bool force) {
 /* The last byte arrived: flush, admit, commit, refresh the app table. This is
  * the one step that reads the whole package back (link_host_install verifies
  * its footer and admits it), so it costs one frame per install. */
+static void commit_install(LinkRequest *request);
+
 static void finish_install(LinkRequest *request) {
   bool written = fflush(request->file) == 0 && fsync(fileno(request->file)) == 0;
   if (fclose(request->file) != 0) written = false;
@@ -837,6 +850,11 @@ static void finish_install(LinkRequest *request) {
     return;
   }
   install_progress(request, true);
+  commit_install(request);
+}
+
+/* Admit the staging file, commit it as the slot's package and report it. */
+static void commit_install(LinkRequest *request) {
   char error[256] = {0};
   LauncherPackage package;
   void *held = NULL;
@@ -851,7 +869,7 @@ static void finish_install(LinkRequest *request) {
   services_host_release(held);
   if (request->guest) {
     char hash[17];
-    snprintf(hash, sizeof hash, "%016llx", (unsigned long long)request->hash);
+    snprintf(hash, sizeof hash, "%016llx", (unsigned long long)(request->hash != 0 ? request->hash : package.hash));
     size_t mark = link_events.length;
     event_begin(&link_events);
     jbuf_text(&link_events, "{\"t\":\"install.done\",\"id\":");
@@ -1042,7 +1060,7 @@ static void expire_requests(void) {
   uint64_t now = services_host_ms();
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
     LinkRequest *request = &requests[i];
-    if (request->kind != REQUEST_FREE && now > request->deadline_ms) {
+    if (request->kind != REQUEST_FREE && request->kind != REQUEST_FETCH && now > request->deadline_ms) {
       request_error_event(request, "the companion stopped answering");
       request_free(request, true);
     }
@@ -1129,8 +1147,48 @@ void link_init(void) {
 
 static void pump(void);
 
+/* Fetches from an address run in every phase, linked or not. */
+static void pump_fetches(void) {
+  for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
+    LinkRequest *request = &requests[i];
+    if (request->kind != REQUEST_FETCH) continue;
+    uint32_t received = 0, total = 0;
+    uint8_t sha256[32];
+    char error[160] = {0};
+    int32_t state = link_host_fetch_poll(request->fetch, &received, &total, sha256, error, sizeof error);
+    if (received != request->received) request->deadline_ms = services_host_ms() + LINK_REQUEST_STALL_MS;
+    request->received = received;
+    request->expected = total;
+    if (state == LINK_FETCH_RUNNING) {
+      if (services_host_ms() > request->deadline_ms) {
+        request_error_event(request, "install: the server stopped sending");
+        request_free(request, true);
+      } else {
+        install_progress(request, false);
+      }
+      continue;
+    }
+    link_host_fetch_end(request->fetch);
+    request->fetch = -1;
+    if (state != LINK_FETCH_DONE) {
+      request_error_event(request, error[0] != '\0' ? error : "install: the download failed");
+      request_free(request, true);
+      continue;
+    }
+    if (!constant_time_equal(sha256, request->sha256, sizeof sha256)) {
+      request_error_event(request, "install: the package does not match its code");
+      request_free(request, true);
+      continue;
+    }
+    request->expected = received;
+    install_progress(request, true);
+    commit_install(request);
+  }
+}
+
 void link_pump(void) {
   uint64_t started = services_host_us();
+  if (initialized) pump_fetches();
   pump();
 #ifdef POCKETJS_WORKER_HTTP
   link_http_pump();
@@ -1208,7 +1266,7 @@ void link_shutdown(void) {
 #endif
   if (!initialized) return;
   close_connection();
-  fail_requests("the console is shutting down");
+  fail_requests("the console is shutting down", true);
   if (beacon_fd >= 0) close(beacon_fd);
   beacon_fd = -1;
   jbuf_free(&link_events);
@@ -1227,7 +1285,7 @@ void link_reset_guest(void) {
     LinkRequest *request = &requests[i];
     if (request->kind == REQUEST_CATALOG) request_free(request, false);
     /* An install keeps streaming into storage; only its events stop. */
-    else if (request->kind == REQUEST_INSTALL) request->guest = false;
+    else if (request->kind == REQUEST_INSTALL || request->kind == REQUEST_FETCH) request->guest = false;
   }
   jbuf_reset(&link_events);
 }
@@ -1327,7 +1385,7 @@ bool link_pair(const char *uri, size_t length) {
   /* One link at a time: the pairing replaces whatever was up. */
   if (tcp_fd >= 0) {
     close_connection();
-    fail_requests("the link was replaced by a pairing");
+    fail_requests("the link was replaced by a pairing", false);
   }
   pair_uri = parsed;
   pair_active = true;
@@ -1352,7 +1410,7 @@ bool link_forget(const char *companion) {
     companion_count -= 1;
     if (engaged) {
       close_connection();
-      fail_requests("the companion was forgotten");
+      fail_requests("the companion was forgotten", false);
       enter(companion_count == 0 && !pair_active ? PHASE_IDLE : PHASE_BACKOFF);
     }
     return true;
@@ -1360,8 +1418,7 @@ bool link_forget(const char *companion) {
   return false;
 }
 
-static LinkRequest *open_request(RequestKind kind) {
-  if (phase != PHASE_UP) return NULL;
+static LinkRequest *take_request(RequestKind kind) {
   for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
     if (requests[i].kind != REQUEST_FREE) continue;
     LinkRequest *request = &requests[i];
@@ -1373,6 +1430,20 @@ static LinkRequest *open_request(RequestKind kind) {
     return request;
   }
   return NULL;
+}
+
+static LinkRequest *open_request(RequestKind kind) {
+  return phase == PHASE_UP ? take_request(kind) : NULL;
+}
+
+/* An install into `slot` is streaming or fetching. */
+static bool installing(const char *slot) {
+  for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
+    if ((requests[i].kind == REQUEST_INSTALL || requests[i].kind == REQUEST_FETCH) && strcmp(requests[i].slot, slot) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 int32_t link_catalog(void) {
@@ -1394,9 +1465,7 @@ int32_t link_install(const char *app_id, size_t length) {
   if (app_id == NULL || length == 0 || length >= LAUNCHER_ID_BYTES || !has_feature("install")) return -1;
   char slot[17];
   sha256_slot(app_id, length, slot);
-  for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
-    if (requests[i].kind == REQUEST_INSTALL && strcmp(requests[i].slot, slot) == 0) return -1;
-  }
+  if (installing(slot)) return -1;
   LinkRequest *request = open_request(REQUEST_INSTALL);
   if (request == NULL) return -1;
   memcpy(request->app, app_id, length);
@@ -1415,14 +1484,36 @@ int32_t link_install(const char *app_id, size_t length) {
   return (int32_t)request->id;
 }
 
+int32_t link_install_uri(const char *uri, size_t length) {
+  LinkInstallUri parsed;
+  if (!initialized || !link_parse_install_uri(uri, length, &parsed)) return -1;
+  char slot[17];
+  sha256_slot(parsed.app, strlen(parsed.app), slot);
+  if (installing(slot)) return -1;
+  LinkRequest *request = take_request(REQUEST_FETCH);
+  if (request == NULL) return -1;
+  request->fetch = -1;
+  snprintf(request->app, sizeof request->app, "%s", parsed.app);
+  memcpy(request->slot, slot, sizeof request->slot);
+  memcpy(request->sha256, parsed.sha256, sizeof request->sha256);
+  if (!link_host_staging_path(slot, request->path, sizeof request->path)) {
+    request_free(request, false);
+    return -1;
+  }
+  request->fetch = link_host_fetch_start(parsed.url, request->path, LINK_INSTALL_MAX_BYTES);
+  if (request->fetch < 0) {
+    request_free(request, false);
+    return -1;
+  }
+  return (int32_t)request->id;
+}
+
 bool link_remove(const char *app_id, size_t length) {
   if (app_id == NULL || length == 0 || length >= LAUNCHER_ID_BYTES) return false;
   char slot[17];
   sha256_slot(app_id, length, slot);
   if (strcmp(slot, launcher_current_slot()) == 0 || strcmp(slot, launcher_home_slot()) == 0) return false;
-  for (size_t i = 0; i < LINK_MAX_REQUESTS; i += 1) {
-    if (requests[i].kind == REQUEST_INSTALL && strcmp(requests[i].slot, slot) == 0) return false;
-  }
+  if (installing(slot)) return false;
   bool removed = link_host_remove(slot);
   launcher_invalidate();
   return removed;
@@ -1506,6 +1597,12 @@ int32_t link_catalog(void) { return -1; }
 
 int32_t link_install(const char *app_id, size_t length) {
   (void)app_id;
+  (void)length;
+  return -1;
+}
+
+int32_t link_install_uri(const char *uri, size_t length) {
+  (void)uri;
   (void)length;
   return -1;
 }

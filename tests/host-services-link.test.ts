@@ -3,7 +3,8 @@
 // build machine under ASan/UBSan by tests/fixtures/host-services-link.c with
 // a POSIX host_services.h, against an in-process companion: pairing, the
 // catalog for the console's target, an install streamed into the slot's
-// staging file, and net through the companion.
+// staging file, net through the companion, and installs from an install URI
+// with the host's own fetch.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -11,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { POCKET_SECTION, encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { buildInstallUri } from "../contracts/spec/link.ts";
 import { fnv1a64Hex } from "../tools/companion/catalog.ts";
 import { Companion } from "../tools/companion/server.ts";
 import { CompanionStore } from "../tools/companion/store.ts";
@@ -85,10 +87,16 @@ describe("engine/host-services link client", () => {
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  test("pairs, lists its target's catalog, installs and fetches through the companion", async () => {
+  test("pairs, lists its target's catalog, installs and fetches through the companion, installs from a code", async () => {
     const { uri } = companion.openPairing();
+    const notes = makePackage("dev.pocket-nexus.notes", "3ds-dev", 5000);
+    const notesPath = join(scratch, "notes.pocket");
+    writeFileSync(notesPath, notes);
+    const sha256 = new Bun.CryptoHasher("sha256").update(notes).digest("hex");
+    const code = buildInstallUri({ app: "dev.pocket-nexus.notes", sha256, title: "Notes", url: `http://fixture.invalid${notesPath}` });
+    const altered = buildInstallUri({ app: "dev.pocket-nexus.clock", sha256: "0".repeat(64), title: "", url: `http://fixture.invalid${notesPath}` });
     const run = Bun.spawn(
-      [binary, join(scratch, "console"), uri, "dev.pocket-nexus.hn", `http://127.0.0.1:${web.port}/hello`],
+      [binary, join(scratch, "console"), uri, "dev.pocket-nexus.hn", `http://127.0.0.1:${web.port}/hello`, code, altered],
       { stdout: "pipe", stderr: "pipe" },
     );
     const [stdout, stderr, exitCode] = await Promise.all([
@@ -108,5 +116,11 @@ describe("engine/host-services link client", () => {
     const install = JSON.parse(lines.find((line) => line.startsWith("install "))!.slice("install ".length));
     expect(install.at(-1)).toMatchObject({ t: "install.done", app: "dev.pocket-nexus.hn", output: "hn" });
     expect(lines).toContain("stream 24000 1");
+    expect(lines.filter((line) => line.startsWith("installed ")).at(-1)).toMatch(new RegExp(`^installed [0-9a-f]{16} ${notes.length} 1$`));
+    const fetched = JSON.parse(lines.find((line) => line.startsWith("uri "))!.slice("uri ".length));
+    expect(fetched.at(-1)).toMatchObject({ t: "install.done", app: "dev.pocket-nexus.notes", output: "hn" });
+    expect(fetched.some((event: { t: string; received?: number }) => event.t === "install.progress" && event.received === notes.length)).toBe(true);
+    const refused = JSON.parse(lines.find((line) => line.startsWith("bad-uri "))!.slice("bad-uri ".length));
+    expect(refused.at(-1)).toMatchObject({ t: "error", message: "install: the package does not match its code" });
   }, 60_000);
 });

@@ -3,18 +3,21 @@
 // status() when they draw and subscribe to events with onLinkEvent().
 
 import {
+  LINK_INSTALL_SCHEME,
   LINK_PAIR_SCHEME,
   LINK_PAIRING,
   LINK_STATE,
+  parseInstallUri,
   type LinkCatalogApp,
   type LinkCompanion,
   type LinkEvent,
+  type LinkInstallUri,
   type LinkStatus,
 } from "../../contracts/spec/link.ts";
 import { registerServicePump } from "./services.ts";
 
-export { LINK_PAIR_SCHEME, LINK_PAIRING, LINK_STATE };
-export type { LinkCatalogApp, LinkCompanion, LinkEvent, LinkStatus };
+export { LINK_INSTALL_SCHEME, LINK_PAIR_SCHEME, LINK_PAIRING, LINK_STATE, parseInstallUri };
+export type { LinkCatalogApp, LinkCompanion, LinkEvent, LinkInstallUri, LinkStatus };
 
 export interface LinkOps {
   status(): string;
@@ -22,6 +25,9 @@ export interface LinkOps {
   forget(companion: string): boolean;
   catalog(): number;
   install(appId: string): number;
+  /** Fetch and install the package an install URI names. Absent on a
+   *  console without an HTTP client of its own. */
+  installUri?(uri: string): number;
   remove(appId: string): boolean;
   /** One JSON array with every event visible this tick. */
   poll(): string | undefined;
@@ -83,6 +89,16 @@ export function companionNow(): number {
 /** Whether a scanned code is a Pocket Link pairing URI. */
 export function isPairingUri(text: string): boolean {
   return text.startsWith(`${LINK_PAIR_SCHEME}?`);
+}
+
+/** Whether a scanned code is an install URI (it may still be malformed). */
+export function isInstallUri(text: string): boolean {
+  return text.startsWith(`${LINK_INSTALL_SCHEME}?`);
+}
+
+/** Whether this console installs from an install URI by itself. */
+export function canInstallFromUri(): boolean {
+  return typeof linkHost()?.installUri === "function";
 }
 
 /** Start pairing from a scanned URI. Progress shows in linkStatus().pairing. */
@@ -169,6 +185,24 @@ export function installApp(
   if (!ops) return Promise.reject(new Error("link: unavailable"));
   const id = ops.install(appId);
   if (id < 0) return Promise.reject(new Error("link: not linked"));
+  return awaitInstall(id, onProgress);
+}
+
+/** Download and install the package a scanned install URI names, with the
+ *  console's own HTTP client. Resolves with the app's output name. */
+export function installFromUri(
+  uri: string,
+  onProgress?: (progress: InstallProgress) => void,
+): Promise<string> {
+  const ops = linkHost();
+  if (!ops || typeof ops.installUri !== "function") return Promise.reject(new Error("This console cannot download apps"));
+  if (!parseInstallUri(uri)) return Promise.reject(new Error("That is not an install code"));
+  const id = ops.installUri(uri);
+  if (id < 0) return Promise.reject(new Error("The download could not start"));
+  return awaitInstall(id, onProgress);
+}
+
+function awaitInstall(id: number, onProgress?: (progress: InstallProgress) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     const stop = onLinkEvent((event) => {
       if (event.t === "install.progress" && event.id === id) {

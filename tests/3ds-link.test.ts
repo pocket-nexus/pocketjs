@@ -12,6 +12,7 @@ import { mkdtempSync,rmSync,writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join,resolve } from "node:path";
 import * as LINK from "../contracts/spec/link.ts";
+import { buildInstallUri, parseInstallUri } from "../contracts/spec/link.ts";
 import {
 buildPairUri,
 companionProof,
@@ -72,6 +73,15 @@ int main(int argc, char **argv) {
     printf("%s|%s|%u|%s|%zu", uri.companion, uri.name, (unsigned)uri.port, secret, uri.host_count);
     for (size_t i = 0; i < uri.host_count; i += 1) printf("|%s", uri.hosts[i]);
     puts("");
+  } else if (strcmp(command, "install") == 0) {
+    LinkInstallUri uri;
+    if (!link_parse_install_uri(argv[2], strlen(argv[2]), &uri)) {
+      puts("invalid");
+      return 0;
+    }
+    char sha[65];
+    hex_encode(uri.sha256, sizeof uri.sha256, sha);
+    printf("%s|%s|%s|%s\n", uri.app, sha, uri.title, uri.url);
   } else if (strcmp(command, "beacon") == 0) {
     uint8_t datagram[128];
     size_t length = strlen(argv[2]) / 2;
@@ -199,6 +209,33 @@ describe("3DS Pocket Link wire facts", () => {
     expect(run("uri", uri.replace("192.168.8.159", "192.168.8.999"))).toBe("invalid");
     expect(run("uri", uri.replace("pocketlink://pair?", "https://pair?"))).toBe("invalid");
     expect(run("uri", uri.replace("&p=8628", ""))).toBe("invalid");
+  });
+
+  test("reads an install URI as the TypeScript contract builds it", () => {
+    const sha256 = randomBytes(32).toString("hex");
+    const url = "https://tab5.example.dev/p/0123456789abcdef0123456789abcdef/game.pocket?x=1&y=%41";
+    const uri = buildInstallUri({ app: "dev.pocket-nexus.studio.snake", sha256, title: "Snake & Co", url });
+    expect(new TextEncoder().encode(uri).length).toBeLessThanOrEqual(LINK.LINK_INSTALL_URI_MAX);
+    expect(parseInstallUri(uri)).toEqual({ app: "dev.pocket-nexus.studio.snake", sha256, title: "Snake & Co", url });
+    expect(run("install", uri)).toBe(`dev.pocket-nexus.studio.snake|${sha256}|Snake & Co|${url}`);
+    expect(run("install", `${uri}\n`)).not.toBe("invalid");
+    for (const bad of [
+      uri.replace("v=1", "v=2"),
+      uri.replace(sha256, sha256.slice(2)),
+      uri.replace(sha256, sha256.toUpperCase()),
+      uri.replace("https://", "ftp://"),
+      uri.replace("a=dev.pocket-nexus", "a=.dev"),
+      `${uri}#frag`,
+      uri.replace("&u=", "&url="),
+      uri.replace("pocketlink://install?", "pocketlink://pair?"),
+    ]) {
+      expect(parseInstallUri(bad)).toBeNull();
+      expect(run("install", bad)).toBe("invalid");
+    }
+    const long = buildInstallUri({ app: "dev.pocket-nexus.studio.snake", sha256, title: "的".repeat(200), url });
+    expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(LINK.LINK_INSTALL_URI_MAX);
+    expect("的".repeat(200).startsWith(parseInstallUri(long)!.title)).toBe(true);
+    expect(() => buildInstallUri({ app: "x", sha256, title: "", url: `https://e.dev/${"a".repeat(200)}` })).toThrow();
   });
 
   test("reads the companion's beacon", () => {

@@ -153,6 +153,84 @@ bool link_parse_pair_uri(const char *uri, size_t length, LinkPairUri *out) {
   return have_version && have_secret && out->companion[0] != '\0' && out->host_count > 0 && out->port != 0;
 }
 
+static bool valid_install_app(const char *text, size_t length) {
+  if (length == 0 || length >= sizeof ((LinkInstallUri *)0)->app) return false;
+  for (size_t i = 0; i < length; i += 1) {
+    char c = text[i];
+    bool word = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    if (!word && (i == 0 || (c != '.' && c != '_' && c != '-'))) return false;
+  }
+  return true;
+}
+
+static bool valid_install_url(const char *text, size_t length) {
+  size_t scheme = length >= 8 && memcmp(text, "https://", 8) == 0 ? 8 : length >= 7 && memcmp(text, "http://", 7) == 0 ? 7 : 0;
+  if (scheme == 0 || length == scheme || length > LINK_INSTALL_URL_MAX) return false;
+  for (size_t i = 0; i < length; i += 1) {
+    unsigned char c = (unsigned char)text[i];
+    if (c <= ' ' || c == '#' || c >= 0x7f) return false;
+  }
+  return true;
+}
+
+bool link_parse_install_uri(const char *uri, size_t length, LinkInstallUri *out) {
+  static const char SCHEME[] = "pocketlink://install?";
+  if (uri == NULL || out == NULL) return false;
+  memset(out, 0, sizeof *out);
+  while (length > 0 && (uri[length - 1] == '\n' || uri[length - 1] == '\r' || uri[length - 1] == ' ')) {
+    length -= 1;
+  }
+  if (length > LINK_INSTALL_URI_MAX || length < sizeof SCHEME - 1 || memcmp(uri, SCHEME, sizeof SCHEME - 1) != 0) {
+    return false;
+  }
+  /* `u` runs to the end: the first "&u=" ends the parameters. */
+  size_t start = sizeof SCHEME - 1, end = start;
+  while (end + 3 <= length && memcmp(uri + end, "&u=", 3) != 0) end += 1;
+  if (end + 3 > length) return false;
+  const char *url = uri + end + 3;
+  size_t url_length = length - end - 3;
+  if (!valid_install_url(url, url_length)) return false;
+  memcpy(out->url, url, url_length);
+  out->url[url_length] = '\0';
+  bool have_version = false, have_hash = false;
+  size_t at = start;
+  while (at < end) {
+    size_t stop = at;
+    while (stop < end && uri[stop] != '&') stop += 1;
+    const char *pair = uri + at;
+    size_t pair_length = stop - at;
+    if (pair_length >= 2 && pair[1] == '=') {
+      const char *value = pair + 2;
+      size_t value_length = pair_length - 2;
+      switch (pair[0]) {
+        case 'v':
+          if (value_length != 1 || value[0] != '1') return false;
+          have_version = true;
+          break;
+        case 'a':
+          if (!valid_install_app(value, value_length)) return false;
+          memcpy(out->app, value, value_length);
+          out->app[value_length] = '\0';
+          break;
+        case 's':
+          for (size_t i = 0; i < value_length; i += 1) {
+            if (value[i] >= 'A' && value[i] <= 'F') return false;
+          }
+          if (value_length != 64 || !hex_decode(value, value_length, out->sha256, sizeof out->sha256)) return false;
+          have_hash = true;
+          break;
+        case 'n':
+          if (!percent_decode(value, value_length, out->title, sizeof out->title)) out->title[0] = '\0';
+          break;
+        default:
+          break; /* unknown parameters are ignored */
+      }
+    }
+    at = stop + 1;
+  }
+  return have_version && have_hash && out->app[0] != '\0';
+}
+
 bool link_parse_beacon(const uint8_t *datagram, size_t length, LinkBeacon *out) {
   if (datagram == NULL || out == NULL || length < LINK_BEACON_BYTES) return false;
   if (link_read_u32(datagram) != LINK_BEACON_MAGIC || datagram[4] != LINK_VERSION) return false;
