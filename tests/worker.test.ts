@@ -68,6 +68,24 @@ test("run resolves in the turn that carries the completion, with a retained copy
   await expect(settle(-1)).rejects.toBeInstanceOf(ResourceError);
 });
 
+test("a timer fact ahead of the latched time re-arms the host timer for the same deadline", async () => {
+  const timers: number[][] = [];
+  global.__pocketWorker = host({ timer(id, deadline, period) { timers.push([id, deadline, period]); return 0; } });
+  bindWorker({ entry: "worker.ts", nodes: [] });
+  turn(1, [], 1000);
+  let woke = 0;
+  void sleep(500).then(() => { ++woke; });
+  expect(timers.at(-1)).toEqual([1, 1500, 0]);
+  // The host read its clock after the turn latched 1499: the timer fired and
+  // is gone, while the alarm at 1500 is not due by the latched time.
+  turn(2, [fact({ kind: FactKind.timer, handle: 0, timer: 1, deadline: 1500 })], 1499); await jobs();
+  expect(woke).toBe(0);
+  expect(timers.at(-1)).toEqual([1, 1500, 0]);
+  expect(timers.length).toBe(2);
+  turn(3, [fact({ kind: FactKind.timer, handle: 0, timer: 1, deadline: 1500 })], 1501); await jobs();
+  expect(woke).toBe(1);
+});
+
 test("deadlines fire by the latched turn time through one host timer", async () => {
   const timers: number[][] = [];
   global.__pocketWorker = host({ timer(id, deadline, period) { timers.push([id, deadline, period]); return 0; } });
