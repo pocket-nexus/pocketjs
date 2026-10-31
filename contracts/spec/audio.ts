@@ -68,6 +68,22 @@
 //                                          batch empty. Call at most once per
 //                                          event per tick — events are queued
 //                                          at tick boundaries only]
+//
+// Capture (capability `audio.capture`, the same namespace): the host records
+// one of its inputs into a per-input ring the guest drains each tick.
+//   openInput(sampleRate:u32, channels:u32, source:u32) -> handle | -1
+//                    [rate in AUDIO_RATES, channels 1|2, source an
+//                     AUDIO_INPUT_SOURCE value the host has; -1 = refused
+//                     (bad format, absent source or AUDIO_MAX_INPUTS live
+//                     inputs already). Recording starts at once. A source
+//                     with fewer channels than asked is duplicated; one
+//                     with more is averaged]
+//   readInput(handle, pcm:ArrayBuffer) -> frames:i32
+//                    [copies the oldest captured frames, interleaved s16 LE
+//                     at the input rate, into the BORROWED buffer: at most
+//                     byteLength / (2 * channels) frames, never blocking;
+//                     -1 = unknown handle]
+//   closeInput(handle)                    [stops recording, frees the ring]
 
 export const AUDIO_OP = {
   createStream: 1,
@@ -79,6 +95,9 @@ export const AUDIO_OP = {
   setVolume: 7,
   endStream: 8,
   poll: 9,
+  openInput: 10,
+  readInput: 11,
+  closeInput: 12,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -98,11 +117,16 @@ export const AUDIO_OP = {
 //   { "t": "ended",    "h": <handle> }
 //        endStream() was called and the ring has fully drained. The stream is
 //        auto-paused; it may be destroyed or rewritten-to and replayed.
+//   { "t": "overrun",  "h": <input handle> }
+//        An input's ring filled before the guest read it; frames captured
+//        while it was full were dropped. Emitted once per full episode
+//        (edge-triggered).
 
 export const AUDIO_EVENT = {
   credit: "credit",
   underrun: "underrun",
   ended: "ended",
+  overrun: "overrun",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -133,6 +157,19 @@ export const AUDIO_RING_FRAMES = 16384;
  *  sound layered over it. Deliberately tiny — a mixer with real polyphony is
  *  a future module concern, not a bigger constant. */
 export const AUDIO_MAX_STREAMS = 4;
+
+/** Inputs a host records from (audio.capture). `microphones` is the
+ *  device's own microphones, stereo where it has a pair; `headset` the
+ *  microphone of a plugged headset, mono; `loopback` what the speaker
+ *  plays, mono, taken where the host can tap it. */
+export const AUDIO_INPUT_SOURCE = { microphones: 0, headset: 1, loopback: 2 } as const;
+export type AudioInputSource = keyof typeof AUDIO_INPUT_SOURCE;
+
+/** Per-input ring capacity in sample frames (~370 ms at 22.05 kHz). */
+export const AUDIO_INPUT_RING_FRAMES = 8192;
+
+/** Live inputs per runtime. */
+export const AUDIO_MAX_INPUTS = 3;
 
 /**
  * Frames the audio clock consumes on virtual tick `tick` (0-based, counted
