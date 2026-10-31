@@ -27,6 +27,9 @@ typedef struct {
 #define POCKET_IDF_FEATURE_CAMERA_QR 2U
 #define POCKET_IDF_FEATURE_CAMERA_PHOTO 4U
 #define POCKET_IDF_FEATURE_MEDIA 8U
+#define POCKET_IDF_FEATURE_AUDIO_PCM 16U
+#define POCKET_IDF_FEATURE_AUDIO_CAPTURE 32U
+#define POCKET_IDF_FEATURE_DEVICE 64U
 /* 0 = admitted for target, host_abi and the expected profile hash (32
  * bytes). Non-zero codes: 1..5 a damaged file, 6 no variant for the target,
  * 7 another binding generation, 8..11 a variant missing its identity, plan
