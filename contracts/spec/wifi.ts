@@ -20,6 +20,12 @@
 //                             network) and save it in a slot once connected,
 //                             replacing the least recently used slot
 //   forget(slot) -> bool      clear saved connection `slot`
+//   startAccessPoint(ssid) -> bool
+//                             also serve an open access point named `ssid`
+//                             (1..32 bytes) beside the station connection,
+//                             with an HTTP page at its address; hosts that
+//                             can, the M5Stack Tab5 among them
+//   stopAccessPoint() -> bool stop serving it
 //
 // Turning the radio off closes every connection, the Pocket Link and the dev
 // wire included.
@@ -57,6 +63,18 @@ export interface WifiStatus {
   /** Hosts with scan(): the last scan's networks, strongest first, one entry
    *  per SSID. */
   networks?: WifiNetwork[];
+  /** Hosts with startAccessPoint(): the access point the console serves. */
+  accessPoint?: WifiAccessPoint;
+}
+
+export interface WifiAccessPoint {
+  on: boolean;
+  /** "" while off. */
+  ssid: string;
+  /** The access point's IPv4 address, where its page is served. */
+  address: string;
+  /** Stations associated now. */
+  stations: number;
 }
 
 export interface WifiNetwork {
