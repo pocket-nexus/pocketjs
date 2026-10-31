@@ -120,7 +120,10 @@ script order. Field encodings declare byte widths and endianness. The default
 transaction timeout is 100 ms, with a per-submit override. The v1 descriptor
 supports 8-bit register addresses and 7-bit device addresses. Results are
 bytes; applications select the scalar readers and offsets through `DataView`.
-Layout-derived typed result accessors are not generated.
+Layout-derived typed result accessors are not generated. `I2CDevice.probe()`
+submits opcode 2, an address-only transaction with no register byte whose
+payload is the timeout as two little-endian bytes; it resolves `true` when the
+device acknowledges its address, the check an I2C scan makes.
 
 **`observe()` on a resource is an async iterable of its stream facts**: ready,
 headers, data, end, gap, error, credit and closed, in arrival order, each a
