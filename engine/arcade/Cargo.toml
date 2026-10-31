@@ -1,0 +1,27 @@
+[package]
+name = "pocket-arcade"
+edition = "2021"
+description = "Small 3D games: a Rust core (GLES 3 instanced renderer, fixed-step host, synth) driven by TypeScript in QuickJS"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ab_glyph = { workspace = true }
+anyhow = { workspace = true }
+memmap2 = { workspace = true }
+rquickjs = { workspace = true, features = ["loader"] }
+serde_json = { workspace = true }
+oxc_allocator = "0.156"
+oxc_ast = "0.156"
+oxc_codegen = "0.156"
+oxc_parser = "0.156"
+oxc_semantic = "0.156"
+oxc_span = "0.156"
+oxc_transformer = "0.156"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pocket-linux-alsa = { workspace = true }

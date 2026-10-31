@@ -87,6 +87,8 @@ members = [
     "programs/linux-kms",
     "programs/cardputer-zero",
     "programs/pocketbook",
+    "programs/trimui-smart-pro",
+    "engine/arcade",
 ]
 default-members = [
     "platforms/vita/input",
@@ -185,6 +187,8 @@ pocket-linux-fbdev = { path = "platforms/linux/fbdev", version = "0.1.0", defaul
 pocket-linux-hooks = { path = "platforms/linux/hooks", version = "0.1.0", default-features = false }
 pocket-linux-kms = { path = "programs/linux-kms", version = "0.1.0", default-features = false }
 pocket-cardputer-zero = { path = "programs/cardputer-zero", version = "0.1.0", default-features = false }
+pocket-trimui-smart-pro = { path = "programs/trimui-smart-pro", version = "0.1.0", default-features = false }
+pocket-arcade = { path = "engine/arcade", version = "0.1.0", default-features = false }
 pocketbook-host = { path = "programs/pocketbook", version = "0.1.0", default-features = false }
 pocket-media = { path = "engine/modules/media", version = "0.1.0", default-features = false }
 pocket-mod = { path = "engine/crates/pocket-mod", version = "0.1.0", default-features = false }

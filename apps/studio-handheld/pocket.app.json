@@ -1,0 +1,31 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.studio-handheld",
+  "title": "Pocket Studio",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "text.glyphs.runtime",
+        "input.buttons"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/studio-handheld/main.tsx",
+    "output": "studio-handheld-main",
+    "framework": "solid",
+    "tickHz": 60,
+    "viewport": {
+      "fixed": {
+        "logical": [
+          640,
+          360
+        ],
+        "presentation": "native"
+      }
+    }
+  }
+}

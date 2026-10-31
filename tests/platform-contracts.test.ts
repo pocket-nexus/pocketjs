@@ -606,6 +606,7 @@ describe("semantic resolution", () => {
       settings: [true, true, false, true],
       "solid-aot-lab": [true, true, false, true],
       stats: [true, true, false, true],
+      "studio-handheld": [false, false, false, false], // built against programs/trimui-smart-pro's profile: a fixed 640x360 viewport at density 2 with runtime glyphs
       "text-offload": [true, false, false, true], // requires a supported companion transport
       "vue-sfc-lab": [true, true, false, true],
       zoomlab: [true, true, false, true],
