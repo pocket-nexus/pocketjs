@@ -103,7 +103,7 @@ impl Guest for RquickjsGuest {
     }
     fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
         let context = self.context.as_ref().ok_or(RuntimeError::Guest)?;
-        let result = context.with(|ctx| call_frame(&ctx, frame));
+        let result = context.with(|ctx| call_frame(&ctx, frame).map_err(|error| engine_error(&ctx, error)));
         self.remember(result)?;
         self.collect()
     }
@@ -210,9 +210,18 @@ pub fn call_frame(ctx: &Ctx<'_>, frame: &GuestFrame<'_>) -> rquickjs::Result<()>
     ]),))
 }
 
+/// The text of a guest failure: a thrown Error's message and stack (the
+/// frame function, a job), or the thrown value coerced to a string.
 fn engine_error(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
     if matches!(error, rquickjs::Error::Exception) {
         let value = ctx.catch();
+        if let Some(exception) = value.as_exception() {
+            let message = exception.message().unwrap_or_default();
+            return match exception.stack() {
+                Some(stack) if !stack.is_empty() => format!("{message}\n{stack}"),
+                _ => message,
+            };
+        }
         return Coerced::<String>::from_js(ctx, value)
             .map(|value| value.0)
             .unwrap_or_else(|_| error.to_string());
