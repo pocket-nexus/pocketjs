@@ -1,0 +1,37 @@
+[package]
+name = "pocket-trimui-smart-pro"
+edition = "2021"
+description = "Pocket Studio on the TrimUI Smart Pro: the 3D room, a local agent loop, voice input and Pocket Arcade games"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+pocket-arcade = { workspace = true }
+pocket-runtime = { workspace = true, default-features = true }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+png = { workspace = true }
+rquickjs = { workspace = true, features = ["allocator"] }
+serde_json = { workspace = true }
+libc = "0.2.191"
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ab_glyph = { workspace = true }
+log = { workspace = true }
+memmap2 = { workspace = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-gles = { workspace = true, default-features = true }
+pocket-gles2 = { workspace = true, default-features = true }
+pocket-linux-alsa = { workspace = true }
+pocket-mod = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-ui-surface = { workspace = true, default-features = true }
+
+[build-dependencies]
+pocket-profile-build.workspace = true

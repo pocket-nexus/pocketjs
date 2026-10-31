@@ -245,6 +245,7 @@ pub struct GlesRenderer<P: Pipeline, C: ContextAccess> {
     max_texture_size: u32,
     trace: Option<Trace>,
     lost: bool,
+    swap_synchronized: bool,
     _thread: core::marker::PhantomData<Rc<()>>,
 }
 
@@ -292,6 +293,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
                 max_texture_size: max as u32,
                 trace: None,
                 lost: false,
+                swap_synchronized: false,
                 _thread: core::marker::PhantomData,
             })
         }
@@ -364,6 +366,13 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
     pub fn set_trace(&mut self, trace: Option<Trace>) {
         self.trace = trace;
     }
+    /// The platform presents with a buffer swap right after this renderer, on the
+    /// same context, and keeps no CPU reads of the target. Waiting then needs no
+    /// `glFinish`: the swap orders the frame and GL defers deleting what is in use.
+    /// A `glFinish` before a swap makes the CPU wait out the GPU's whole frame.
+    pub fn set_swap_synchronized(&mut self, enabled: bool) {
+        self.swap_synchronized = enabled;
+    }
     fn trace(&self, stage: u32) {
         if let Some(callback) = self.trace {
             callback(
@@ -400,8 +409,10 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
     }
     fn finish(&mut self) -> Result<(), RenderError> {
         self.activate()?;
-        unsafe {
-            glFinish();
+        if !self.swap_synchronized {
+            unsafe {
+                glFinish();
+            }
         }
         let ok = unsafe { glGetError() == GL_NO_ERROR };
         for pending in &mut self.pending {
