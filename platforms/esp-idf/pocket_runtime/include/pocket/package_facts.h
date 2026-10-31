@@ -28,6 +28,9 @@ typedef struct {
 #define POCKET_IDF_FEATURE_CAMERA_QR 2U
 #define POCKET_IDF_FEATURE_CAMERA_PHOTO 4U
 #define POCKET_IDF_FEATURE_MEDIA 8U
+#define POCKET_IDF_FEATURE_AUDIO_PCM 16U
+#define POCKET_IDF_FEATURE_AUDIO_CAPTURE 32U
+#define POCKET_IDF_FEATURE_DEVICE 64U
 /* 0 = admitted: the first variant the exported profile facts satisfy
  * (binding generation, raster density, animation, rate, viewport,
  * presentation, capabilities, auxiliary surface). profile_hash is null or
