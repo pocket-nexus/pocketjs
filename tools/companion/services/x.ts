@@ -27,6 +27,7 @@
 //   GET /x/timeline?kind=following|foryou&cursor=…   {posts, cursor}
 //   GET /x/post/<id>[?cursor=…]   {post, before, replies, cursor}
 //   GET /x/avatar?u=<image url>   an IMG entry (32x32 RGB565, round on white)
+//   GET /x/media?u=<image url>&w=<pow2>&h=<pow2>   a photo as an IMG entry (RGB565, cropped to fill)
 //   POST /x/like?id=…, /x/unlike?id=…            {ok}  (FavoriteTweet, UnfavoriteTweet)
 //   POST /x/repost?id=…, /x/unrepost?id=…        {ok}  (CreateRetweet, DeleteRetweet)
 //   POST /x/reply {id, text}                     {ok, post?}  (CreateTweet)
@@ -38,8 +39,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PSM } from "../../../contracts/spec/spec.ts";
-import { decodePng, type DecodedImage } from "../../../framework/compiler/pak.ts";
+import { IMG_FLAG_LINEAR, PSM } from "../../../contracts/spec/spec.ts";
+import { decodePng, encodeImageEntry, type DecodedImage } from "../../../framework/compiler/pak.ts";
 import { discImage } from "../images.ts";
 import { bytesResponse, jsonResponse, readJson, ServiceError, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
 import { COMPUTER } from "../computer.ts";
@@ -83,7 +84,8 @@ export interface XPost {
   /** The name of who reposted it into the timeline. */
   repostedBy?: string;
   quote?: { name: string; handle: string; text: string };
-  media?: { count: number; kind: "photo" | "video" | "gif" };
+  /** The photos' urls (pbs.twimg.com), for GET /x/media. */
+  media?: { count: number; kind: "photo" | "video" | "gif"; urls?: string[] };
   avatar?: string;
 }
 
@@ -103,6 +105,9 @@ interface XOptions {
   /** Image bytes (JPEG, PNG) to a square of `size` pixels; null when the
    *  image cannot be read. Default: `sips` and the pak PNG decoder. */
   decodeAvatar?: (bytes: Uint8Array, size: number) => Promise<DecodedImage | null>;
+  /** Image bytes to exactly `width` x `height` pixels, cropped to fill;
+   *  null when the image cannot be read. Without it GET /x/media answers 501. */
+  decodeMedia?: (bytes: Uint8Array, width: number, height: number) => Promise<DecodedImage | null>;
   /** The sign-in helper's command; default: macos/WebSignIn.swift. */
   signInCommand?: () => Promise<string[] | null>;
 }
@@ -252,6 +257,7 @@ class XService implements ServiceProvider {
       const post = path.match(/^\/post\/(\d{1,25})$/);
       if (post) return jsonResponse(200, await this.thread(post[1]!, request.query.get("cursor") ?? undefined, request.signal));
       if (path === "/avatar") return await this.avatar(request.query.get("u") ?? "", request.signal);
+      if (path === "/media") return await this.media(request.query.get("u") ?? "", Number(request.query.get("w")), Number(request.query.get("h")), request.signal);
       const action = path.match(/^\/(like|unlike|repost|unrepost)$/);
       if (action && request.method === "POST") {
         const id = request.query.get("id") ?? "";
@@ -564,6 +570,36 @@ class XService implements ServiceProvider {
     writeFileSync(file, entry);
     return bytesResponse(entry, "application/x-pocket-img");
   }
+
+  /** A post's photo as a `w` x `h` IMG entry (RGB565, bilinear), cropped to
+   *  fill; twimg's `small` rendition is fetched. Cached by url and size. */
+  private async media(url: string, w: number, h: number, signal: AbortSignal) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw failure(400, "bad-request", "media needs an image url");
+    }
+    if (parsed.protocol !== "https:" || !/(^|\.)twimg\.com$/.test(parsed.hostname)) {
+      throw failure(400, "bad-request", "media comes from twimg.com only");
+    }
+    const pow2 = (n: number) => Number.isInteger(n) && n > 0 && (n & (n - 1)) === 0;
+    if (!pow2(w) || !pow2(h) || w > 512 || h > 512) throw failure(400, "bad-request", "media needs pow2 w and h up to 512");
+    if (!this.options.decodeMedia) throw failure(501, "api", "this companion has no image decoder");
+    const dir = join(this.dir, "media");
+    const file = join(dir, `${createHash("sha1").update(`${url} ${w}x${h}`).digest("hex")}.img`);
+    if (existsSync(file)) return bytesResponse(new Uint8Array(readFileSync(file)), "application/x-pocket-img");
+    const source = new URL(url);
+    source.searchParams.set("name", "small");
+    const response = await this.fetcher(source.toString(), { headers: { "user-agent": USER_AGENT }, signal });
+    if (!response.ok) throw failure(502, "api", `the image answered ${response.status}`);
+    const decoded = await this.options.decodeMedia(new Uint8Array(await response.arrayBuffer()), w, h);
+    if (!decoded) throw failure(502, "api", "the image could not be read");
+    const entry = encodeImageEntry(decoded, PSM.PSM_5650, IMG_FLAG_LINEAR);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(file, entry);
+    return bytesResponse(entry, "application/x-pocket-img");
+  }
 }
 
 // ---- webpack chunks ----------------------------------------------------------------
@@ -744,6 +780,8 @@ function normalize(raw: Json): XPost {
   if (media.length > 0) {
     const type = text(media[0]!.type);
     post.media = { count: media.length, kind: type === "video" ? "video" : type === "animated_gif" ? "gif" : "photo" };
+    const urls = media.map((m) => text(m.media_url_https)).filter((u): u is string => !!u);
+    if (urls.length) post.media.urls = urls;
   }
   if (author.avatar) post.avatar = author.avatar.replace("_normal.", "_bigger.");
   return post;
