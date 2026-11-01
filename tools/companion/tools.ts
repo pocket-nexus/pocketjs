@@ -13,7 +13,8 @@ import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } f
 import { join } from "node:path";
 
 const YT_DLP_RELEASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
-const YT_DLP_ASSET = "yt-dlp_macos";
+/** The release's build for this computer: one universal macOS file, or Linux by architecture. */
+const YT_DLP_ASSET = process.platform === "darwin" ? "yt-dlp_macos" : process.arch === "arm64" ? "yt-dlp_linux_aarch64" : "yt-dlp_linux";
 
 /** ffmpeg 9.0.2 static builds (ffmpeg.martin-riedl.de), a zip holding one `ffmpeg`. */
 const FFMPEG: Record<"arm64" | "x64", { url: string; sha256: string }> = {
