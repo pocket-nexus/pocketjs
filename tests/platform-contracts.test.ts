@@ -228,6 +228,8 @@ describe("platform registry", () => {
     expect(validatePlatformContractRegistry(POCKET_PLATFORM_CONTRACTS)).toEqual([]);
     expect(POCKET_TARGETS.psp.capabilities).toEqual([
       "audio.pcm",
+      "data.fs",
+      "data.pack",
       "input.analog.left",
       "input.buttons",
       "input.cursor",
