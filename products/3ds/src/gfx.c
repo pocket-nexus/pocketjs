@@ -7,6 +7,9 @@
 #include "stage.h"
 #include "transition.h"
 #include "vshader_shbin.h"
+#ifdef POCKETJS_EXTENSION
+#include "pocket_extension.h"
+#endif
 #include <pocket_pica_driver.h>
 static pocket_pica_renderer *renderer;
 static pocket_pica_display *primary, *auxiliary;
@@ -34,6 +37,12 @@ static void release_native(void *context, void *lease) {
 static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
                   C3D_RenderTarget *right) {
   (void)context;
+#ifdef POCKETJS_EXTENSION
+  if (role == POCKET_DISPLAY_ROLE_PRIMARY && pocket_extension_enabled()) {
+    pocket_extension_render(target, right);
+    return true;
+  }
+#endif
   C3D_RenderTargetClear(target, C3D_CLEAR_ALL, 0x000000ff, 0);
   if (role == POCKET_DISPLAY_ROLE_PRIMARY && agent_enabled()) {
     /* The top screen is the stage's; in single display mode it stays black

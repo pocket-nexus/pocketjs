@@ -36,6 +36,7 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_AGENT 4u   /* features["system.agent"] */
 #define POCKET_GUEST_FEATURE_FS 8u      /* features["data.fs"] */
 #define POCKET_GUEST_FEATURE_CAMERA_QR 16u    /* features["camera.qr"] */
+#define POCKET_GUEST_FEATURE_EXTENSION 64u  /* features["system.extension"] */
 #define POCKET_GUEST_FEATURE_CAMERA_PHOTO 32u /* features["camera.photo"] */
 
 /* 0 = admitted. The package footer, the first variant the exported profile

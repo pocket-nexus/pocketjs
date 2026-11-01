@@ -50,6 +50,9 @@
 #define DATA_CHUNK (16u * 1024u)
 
 static bool enabled;
+/* The microphone's messages say whose they are: agent.audio, or `<name>.audio` for a
+ * product extension, which keeps the channel without the stage or the chord. */
+static const char *channel_name;
 static JsonBuffer events = {.limit = 64u * 1024u};
 static JsonBuffer poll_out = {.limit = 66u * 1024u};
 static JsonBuffer status_out = {.limit = 512u};
@@ -100,6 +103,14 @@ static uint8_t *own_pixels;
 static uint32_t own_stream;
 static uint32_t own_received;
 static bool own_receiving;
+
+static bool channel_ready(void) {
+  return channel_name != NULL ? link_feature_ready(channel_name) : link_agent_ready();
+}
+
+void agent_use_channel(const char *name) {
+  channel_name = name;
+}
 
 static void event_text(const char *json) {
   if (!enabled) return;
@@ -237,7 +248,7 @@ static void drain_mic(void) {
   }
   if (closing) {
     char end[96];
-    int length = snprintf(end, sizeof end, "{\"t\":\"agent.audio.end\",\"id\":%lu,\"send\":%s}",
+    int length = snprintf(end, sizeof end, "{\"t\":\"%s.audio.end\",\"id\":%lu,\"send\":%s}", channel_name != NULL ? channel_name : "agent",
                           (unsigned long)mic_stream, close_send ? "true" : "false");
     if (link_send_ctrl(end, (size_t)length)) {
       closing = false;
@@ -329,7 +340,7 @@ static void set_backlight(bool on) {
 }
 
 static bool top_dark(void) {
-  return enabled && agent_display_mode() == AGENT_DISPLAY_SINGLE;
+  return enabled && channel_name == NULL && agent_display_mode() == AGENT_DISPLAY_SINGLE;
 }
 
 static void apt_changed(APT_HookType hook, void *param) {
@@ -406,7 +417,7 @@ void agent_set_enabled(bool on) {
     stage_set_screen(0);
   }
   if (on && !enabled) {
-    was_available = link_agent_ready();
+    was_available = channel_ready();
     stage_set_mode(0);
     stage_set_screen(0);
   }
@@ -492,7 +503,7 @@ int32_t agent_filter_buttons(int32_t buttons) {
 
 void agent_pump(void) {
   if (!enabled) return;
-  bool available = link_agent_ready();
+  bool available = channel_ready();
   if (available != was_available) {
     was_available = available;
     event_text(available ? "{\"t\":\"link\",\"available\":true}" : "{\"t\":\"link\",\"available\":false}");
@@ -618,7 +629,7 @@ void agent_stage(int mode, int screen) {
 
 int32_t agent_listen(int32_t command) {
   if (command == 1) {
-    if (!enabled || listening || closing || !link_agent_ready() || !mic_open()) return 0;
+    if (!enabled || listening || closing || !channel_ready() || !mic_open()) return 0;
     uint32_t size = micGetSampleDataSize();
     if (R_FAILED(MICU_StartSampling(MICU_ENCODING_PCM16_SIGNED, MICU_SAMPLE_RATE_16360, 0, size, true))) {
       mic_close();
@@ -626,7 +637,7 @@ int32_t agent_listen(int32_t command) {
     }
     mic_stream = link_new_stream();
     char head[128];
-    int length = snprintf(head, sizeof head, "{\"t\":\"agent.audio\",\"id\":%lu,\"rate\":%u,\"format\":\"s16le\"}",
+    int length = snprintf(head, sizeof head, "{\"t\":\"%s.audio\",\"id\":%lu,\"rate\":%u,\"format\":\"s16le\"}", channel_name != NULL ? channel_name : "agent",
                           (unsigned long)mic_stream, AGENT_MIC_RATE);
     if (!link_send_ctrl(head, (size_t)length)) {
       MICU_StopSampling();

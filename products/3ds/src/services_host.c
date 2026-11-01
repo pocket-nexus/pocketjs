@@ -14,6 +14,9 @@
 #include <unistd.h>
 
 #include "agent.h"
+#ifdef POCKETJS_EXTENSION
+#include "pocket_extension.h"
+#endif
 #include "sha256.h"
 #include "soc.h"
 
@@ -230,6 +233,9 @@ void link_host_linked(bool up) {
 }
 
 bool link_host_ctrl(const char *json, size_t length) {
+#ifdef POCKETJS_EXTENSION
+  if (pocket_extension_link_ctrl(json, length)) return true;
+#endif
   return agent_link_ctrl(json, length);
 }
 

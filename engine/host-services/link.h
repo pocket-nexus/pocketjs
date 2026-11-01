@@ -59,6 +59,8 @@ bool link_http_available(void);
  * link is up and the companion offered the "agent" feature. The send calls
  * queue whole frames or nothing; false means no room (or no link) now. */
 bool link_agent_ready(void);
+/* The link is up and the companion offers this feature. */
+bool link_feature_ready(const char *name);
 bool link_send_ctrl(const char *json, size_t length);
 bool link_send_data(uint32_t stream, const uint8_t *bytes, size_t length);
 /* A stream id from the console's request numbering. */

@@ -23,7 +23,7 @@ import { controlRequest, readControl, startControl, type ControlInfo } from "./c
 import { adoptSystemProxy } from "./companion/fetch.ts";
 import { encodeQr, renderQrTerminal } from "./companion/qr.ts";
 import { OWN_SCREEN_SCRIPT } from "./companion/own-screen.ts";
-import { Companion } from "./companion/server.ts";
+import { Companion, type LinkExtensionFactory } from "./companion/server.ts";
 import { CompanionStore, defaultStoreDir } from "./companion/store.ts";
 
 const USAGE = `usage: bun tools/companion.ts <command>
@@ -108,7 +108,7 @@ function requireDaemon(dir: string): ControlInfo {
   return info;
 }
 
-async function serve(args: Args) {
+async function serve(args: Args, extensions: readonly LinkExtensionFactory[]) {
   const dir = storeDir(args);
   const running = readControl(dir);
   if (running) {
@@ -123,6 +123,7 @@ async function serve(args: Args) {
   const agentModel = args.flags.get("--agent-model");
   const agentEffort = args.flags.get("--agent-effort");
   const companion = new Companion({
+    extensions,
     store,
     name: typeof name === "string" ? name : undefined,
     port: typeof port === "string" ? Number(port) : LINK_PORT,
@@ -222,11 +223,12 @@ async function status(args: Args) {
   for (const a of s.apps) console.log(`  ${a.id}  ${a.title} ${a.version} ${a.bytes}B`);
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+/** The command line. A program built on this companion passes its link extensions. */
+export async function main(argv: readonly string[] = process.argv.slice(2), extensions: readonly LinkExtensionFactory[] = []) {
+  const args = parseArgs([...argv]);
   switch (args.command) {
     case "serve":
-      return serve(args);
+      return serve(args, extensions);
     case "pair":
       return pair(args);
     case "status":
@@ -261,7 +263,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`companion: ${(error as Error).message}`);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(`companion: ${(error as Error).message}`);
+    process.exit(1);
+  });
+}

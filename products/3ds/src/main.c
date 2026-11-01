@@ -66,6 +66,9 @@
 #include "wifi.h"
 #include "transition.h"
 #include "bytecode.h"
+#ifdef POCKETJS_EXTENSION
+#include "pocket_extension.h"
+#endif
 
 /* The guest surfaces come from the plan of the package in the .3dsx's RomFS
  * (pocket_package_open reads them), never from a literal or a compile flag:
@@ -135,6 +138,12 @@ static bool surfaces_admit(
     return false;
   }
 #endif
+#ifndef POCKETJS_EXTENSION
+  if ((guest->features & POCKET_GUEST_FEATURE_EXTENSION) != 0) {
+    snprintf(error, error_length, "plan needs system.extension, which this runtime does not carry");
+    return false;
+  }
+#endif
 #ifndef POCKETJS_OFFLOAD
   if ((guest->features & POCKET_GUEST_FEATURE_OFFLOAD) != 0) {
     snprintf(error, error_length, "plan needs io.offload, which this runtime does not carry");
@@ -165,6 +174,13 @@ static C3D_RenderTarget *auxiliary_target;
 /* The top screen's right eye: only the agent stage draws in stereo. */
 static C3D_RenderTarget *right_target;
 static bool stage_ready;
+/* Names the step of the main loop a stall report would blame. */
+#ifdef POCKETJS_EXTENSION
+#define LOOP_STEP(name) pocket_extension_trace(name)
+#else
+#define LOOP_STEP(name) ((void)0)
+#endif
+
 /* Set around qjs_frame, for the interrupt hook (guest_interrupt). */
 static bool guest_frame_running;
 static u64 guest_frame_started;
@@ -549,6 +565,14 @@ static bool boot_guest(
   /* The guest's capability decides who owns the top screen; it must be set
    * before qjs_boot, which publishes `globalThis.agent` only for it. */
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
+#ifdef POCKETJS_EXTENSION
+  /* Set before qjs_boot, which publishes the extension's global only for it. The
+   * extension takes the microphone and the glyph atlases from the agent's channel. */
+  bool extension = (package->guest.features & POCKET_GUEST_FEATURE_EXTENSION) != 0;
+  pocket_extension_set_enabled(extension);
+  agent_use_channel(extension ? pocket_extension_link_feature() : NULL);
+  agent = agent || extension;
+#endif
   /* Also sets 3D and the top backlight from the console's display mode. */
   agent_set_enabled(agent);
   if (!run_bundle(package, error, error_length)) {
@@ -916,6 +940,9 @@ static bool select_latched = true;
  * hidKeysDown reports (the dev menu chords) to this scan. */
 static bool guest_interrupt(void) {
   static u64 last_scan;
+#ifdef POCKETJS_EXTENSION
+  pocket_extension_script_tick();
+#endif
   if (!guest_frame_running || launcher_home_running() || launcher_pending() || devmenu_visible()) return false;
   u64 now = svcGetSystemTick();
   if (now - guest_frame_started < LONG_FRAME_TICKS || now - last_scan < SELECT_SCAN_TICKS) return false;
@@ -1136,7 +1163,11 @@ int main(void) {
   /* No-op on an Old 3DS; on a New 3DS it unlocks the faster clock and the
    * extra cache, which the QuickJS guest feels directly. */
   osSetSpeedupEnable(true);
+#ifdef POCKETJS_EXTENSION
+  C3D_Init(pocket_extension_command_buffer_bytes());
+#else
   C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
+#endif
 #ifndef POCKETJS_CAPTURE
   /* Debug UI must never make an otherwise admissible guest unbootable. */
   (void)devmenu_init();
@@ -1182,11 +1213,17 @@ int main(void) {
   }
 
   if (!gfx_init(VIEW_W, VIEW_H)) fail("PICA200 backend failed to initialize");
+#ifdef POCKETJS_EXTENSION
+  /* This binary's top screen is the extension's: no mascot. */
+  right_target = C3D_RenderTargetCreate(VIEW_H, VIEW_W, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+  if (!pocket_extension_init()) fail("the product extension failed to initialize");
+#else
   /* A missing stage leaves the top screen to the guest, never a failed boot. */
   right_target = C3D_RenderTargetCreate(VIEW_H, VIEW_W, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
   if (right_target != NULL) {
     stage_ready = stage_init();
   }
+#endif
   if (!gfx_bind_targets(primary_target, auxiliary_target, right_target, VIEW_W, VIEW_H, AUX_VIEW_W, AUX_VIEW_H)) fail("PICA display registration failed");
 
   PocketRuntimeState runtime_state = {0};
@@ -1276,6 +1313,9 @@ int main(void) {
     size_t touch_count = input_touch(&touch);
 #else
     if (input_exit_requested()) break;
+#ifdef POCKETJS_EXTENSION
+    if (pocket_extension_quit_requested()) break;
+#endif
     if (devserver_result == DEVSERVER_ERROR && run_frame % 300 == 299) {
       /* One retry every ~5 s until the transient boot-time failure clears. */
       devserver_result = devserver_init(&runtime_state, runtime_error, sizeof runtime_error);
@@ -1288,12 +1328,19 @@ int main(void) {
         );
       }
     }
+    LOOP_STEP("dev connection");
     devserver_poll();
+    LOOP_STEP("service wire");
     svcwire_pump();
+    LOOP_STEP("worker service");
     pocket_3ds_worker_service();
+    LOOP_STEP("link");
     link_pump();
+    LOOP_STEP("worker service 2");
     pocket_3ds_worker_service();
+    LOOP_STEP("wifi");
     wifi_pump();
+    LOOP_STEP("loop");
     {
       /* An installed or named .3dsx starts when this process exits: the same
        * hand-off the Homebrew Launcher makes, so the loop ends here. */
@@ -1402,6 +1449,15 @@ int main(void) {
     uint32_t touch = 0;
     size_t touch_count = devmenu_blocks_guest ? 0 : input_touch(&touch);
 #endif
+#ifdef POCKETJS_EXTENSION
+    if (pocket_extension_enabled()) {
+      LOOP_STEP("agent pump");
+      agent_pump();
+      LOOP_STEP("extension tick");
+      buttons = pocket_extension_tick(buttons, analog, right_analog);
+      LOOP_STEP("wait for the GPU");
+    } else
+#endif
     if (agent_enabled()) {
       if (buttons != 0 || touch_count > 0) stage_note_activity();
       buttons = agent_filter_buttons(buttons);
@@ -1418,11 +1474,15 @@ int main(void) {
 #endif
     );
     u64 phase_wait_end __attribute__((unused)) = svcGetSystemTick();
+#ifdef POCKETJS_EXTENSION
+    if (pocket_extension_enabled()) pocket_extension_frame_begin();
+    LOOP_STEP("camera");
+#endif
 #ifdef POCKETJS_MEDIA
     media_present();
 #endif
     camera_present();
-    if (agent_enabled()) {
+    if (agent_enabled() && stage_ready) {
       stage_capture_mirror(auxiliary_target);
       agent_capture(auxiliary_target);
     }
@@ -1443,8 +1503,12 @@ int main(void) {
     u64 phase_js __attribute__((unused)) = offload_cpu_start;
     guest_frame_started = svcGetSystemTick();
     guest_frame_running = true;
+    LOOP_STEP("guest frame");
     bool frame_ran = qjs_frame(buttons, analog, &touch, touch_count, right_analog);
     guest_frame_running = false;
+#ifdef POCKETJS_EXTENSION
+    if (frame_ran && pocket_extension_enabled()) pocket_extension_after_frame();
+#endif
     if (!frame_ran) {
 #if defined(POCKETJS_CAPTURE) || defined(POCKETJS_OFFLOAD)
       fail(qjs_last_error());
@@ -1582,6 +1646,9 @@ int main(void) {
   teardown_guest();
   agent_shutdown();
   stage_shutdown();
+#ifdef POCKETJS_EXTENSION
+  pocket_extension_shutdown();
+#endif
   release_choice(&guest, embedded);
   runtime_package_free(embedded);
 #ifndef POCKETJS_CAPTURE

@@ -241,6 +241,9 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // declares it hands the top screen to the host's 3D stage and keeps its
   // whole interface on the auxiliary surface.
   "system.agent",
+  // A product extension linked into the program: it draws the primary display and
+  // publishes its own global, and the guest's interface stays on the auxiliary surface.
+  "system.extension",
   // A per-app file tree behind the fs module's own namespace
   // (`globalThis.fs`, contracts/spec/fs.ts): nine synchronous ops, every
   // path confined to the app's own data root — apps cannot name, let alone

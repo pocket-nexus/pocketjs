@@ -24,6 +24,9 @@
 #include "pocket_core.h"
 #include "quickjs.h"
 #include "svcwire.h"
+#ifdef POCKETJS_EXTENSION
+#include "pocket_extension.h"
+#endif
 
 #ifndef POCKETJS_TARGET_ID
 #error "POCKETJS_TARGET_ID must come from the verified ResolvedBuildPlan"
@@ -703,6 +706,10 @@ static int32_t install_host(void) {
     add_operation(agent, "homeHint", 1, HostAgentHomeHint);
     JS_SetPropertyStr(context, global, "agent", agent);
   }
+#ifdef POCKETJS_EXTENSION
+  /* Only a guest that declared "system.extension" sees its global. */
+  if (pocket_extension_enabled()) pocket_extension_install(context, global);
+#endif
   return 0;
 }
 

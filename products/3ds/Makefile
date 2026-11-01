@@ -16,6 +16,9 @@
 #   POCKETJS_SMDH_TITLE      SMDH metadata
 #   POCKETJS_SMDH_AUTHOR
 #   POCKETJS_SMDH_DESC
+#   POCKETJS_EXTENSION       a directory whose extension.mk adds a product extension
+#                            (include/pocket_extension.h)
+#   POCKETJS_EXTENSION_ROMFS the directory staged as romfs:/extension
 #   POCKETJS_CAPTURE         "1" builds the deterministic e2e binary
 #   POCKETJS_CAPTURE_INPUT   baked input tape, "frame:mask,frame:mask"
 #   POCKETJS_CAPTURE_TOUCH   baked touch tape, "frame:id,x,y@frame:-"
@@ -102,6 +105,10 @@ ifeq ($(POCKETJS_MEDIA),1)
 CFLAGS += -DPOCKETJS_MEDIA
 endif
 
+ifneq ($(POCKETJS_EXTENSION),)
+CFLAGS += -DPOCKETJS_EXTENSION -I$(SOURCE) -I$(POCKETJS_EXTENSION)/src
+endif
+
 ifeq ($(POCKETJS_CAPTURE),1)
 CFLAGS += -DPOCKETJS_CAPTURE \
   -DPOCKETJS_CAPTURE_INPUT='"$(POCKETJS_CAPTURE_INPUT)"' \
@@ -123,6 +130,15 @@ OBJECTS := $(BUILD)/worker.o $(BUILD)/worker_core.o $(BUILD)/worker_quickjs.o $(
   $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
   $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o
+# A product extension's extension.mk adds to OBJECTS and LIBS, sets EXTENSION_HEADERS
+# to what its objects include, and writes its own rules for generated files.
+.DEFAULT_GOAL := all
+EXTENSION_ROMFS_STAMP :=
+EXTENSION_HEADERS :=
+ifneq ($(POCKETJS_EXTENSION),)
+include $(POCKETJS_EXTENSION)/extension.mk
+EXTENSION_ROMFS_STAMP := $(BUILD)/extension-romfs.stamp
+endif
 ELF := $(BUILD)/pocketjs-3ds.elf
 SMDH := $(BUILD)/pocketjs-3ds.smdh
 
@@ -191,8 +207,13 @@ $(BUILD)/worker_runner.o: $(POCKETJS_WORKER)/src/runner.c $(wildcard $(POCKETJS_
 $(BUILD)/canonical_guest.o: $(POCKETJS_GUEST)/src/guest.c $(wildcard $(POCKETJS_GUEST)/src/*.h) $(wildcard $(POCKETJS_GUEST)/include/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(SHARED)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(FLAGS_STAMP) | $(BUILD)
+$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(SHARED)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(EXTENSION_HEADERS) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+ifneq ($(POCKETJS_EXTENSION),)
+$(BUILD)/%.o: $(POCKETJS_EXTENSION)/src/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(POCKETJS_EXTENSION)/src/*.h) $(wildcard $(SHARED)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(EXTENSION_HEADERS) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+endif
 
 # Platform mechanisms compile from their own source tree; product policy stays
 # in SOURCE and supplies the media resource callback.
@@ -252,6 +273,20 @@ $(ROMFS)/app.pocket: $(POCKETJS_APP_POCKET) romfs-inputs $(ROMFS_LAYOUT_STAMP) |
 	@cmp -s "$@.new" "$@" || mv "$@.new" "$@"
 	@rm -f "$@.new"
 
+# romfs:/extension: the extension's files. The stamp changes only when a file changed.
+ifneq ($(EXTENSION_ROMFS_STAMP),)
+.PHONY: $(EXTENSION_ROMFS_STAMP).probe
+$(EXTENSION_ROMFS_STAMP).probe: | $(ROMFS)
+	@mkdir -p $(ROMFS)/extension
+	@changed=0; for file in "$(POCKETJS_EXTENSION_ROMFS)"/*; do \
+	  test -e "$$file" || continue; \
+	  name=$$(basename "$$file"); \
+	  if ! cmp -s "$$file" "$(ROMFS)/extension/$$name"; then cp "$$file" "$(ROMFS)/extension/$$name"; changed=1; fi; \
+	done; \
+	if test $$changed -eq 1 || test ! -e $(EXTENSION_ROMFS_STAMP); then touch $(EXTENSION_ROMFS_STAMP); fi
+$(EXTENSION_ROMFS_STAMP): $(EXTENSION_ROMFS_STAMP).probe ;
+endif
+
 # 3dsxtool refuses to embed a RomFS without SMDH metadata, so one is always
 # built, from the app's own strings over the host's icon. The strings affect
 # the artifact but are not files, so a content stamp invalidates the SMDH when
@@ -271,7 +306,7 @@ $(SMDH): $(ICON) $(SMALL_ICON) $(SMDH_STAMP) | $(BUILD)
 	  "$$POCKETJS_SMDH_AUTHOR" $(ICON) $@ $(SMALL_ICON)
 
 ifneq ($(POCKETJS_APP_POCKET),)
-$(OUT): $(ELF) $(SMDH) $(ROMFS)/app.pocket $(ROMFS_LAYOUT_STAMP)
+$(OUT): $(ELF) $(SMDH) $(ROMFS)/app.pocket $(ROMFS_LAYOUT_STAMP) $(EXTENSION_ROMFS_STAMP)
 	mkdir -p $(dir $(OUT))
 	$(THREEDSXTOOL) $(ELF) $@ --romfs=$(ROMFS) --smdh=$(SMDH)
 else
