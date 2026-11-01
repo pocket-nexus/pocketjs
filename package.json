@@ -163,6 +163,7 @@
     "./model/tasks": "./framework/src/model-tasks.ts",
     "./model/animation": "./framework/src/model-animation.ts",
     "./physics": "./framework/src/physics.ts",
+    "./game2d": "./framework/src/game2d/index.ts",
     "./link": "./framework/src/link.ts",
     "./wifi": "./framework/src/wifi.ts",
     "./camera": "./framework/src/camera.ts",
