@@ -7,7 +7,7 @@
 //   GET /thumb?id=<id>                        an IMG entry (framework/compiler/
 //                                             pak.ts): 128x64 RGB565, the
 //                                             thumbnail cut to 2:1
-//   GET /play?id=<id>&codec=h264|pal8&at=<s>  {source, codec, fps, frameW,
+//   GET /play?id=<id>&codec=h264|pal8|rgb565&at=<s>  {source, codec, fps, frameW,
 //                                             frameH, durationS, position}
 //   GET /stop                                 {stopped}
 //
@@ -73,6 +73,8 @@ const TOPICS: Record<string, { query: string; recent: boolean }> = {
 export const THUMB = { width: 128, height: 64 } as const;
 export const PAL8 = { width: 240, height: 136, fps: 12, maxSkips: 3, skipBehindMs: 500, resetBehindMs: 2000 } as const;
 const H264 = { fps: 30, bitrate: 650_000, maxrate: 750_000 } as const;
+/** Whole RGB565 planes for a host that uploads a texture a frame (the RG DS Plus). */
+const RGB565 = { fps: 24 } as const;
 const RESULTS = 20;
 const CACHE_MS = 10 * 60_000;
 /** How long a yt-dlp resolve may run: under the 90 s the app gives /play. */
@@ -454,6 +456,13 @@ async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: M
           `fps=${PAL8.fps},scale=${PAL8.width}:${PAL8.height}:flags=area:force_original_aspect_ratio=decrease,` +
           `pad=${PAL8.width}:${PAL8.height}:(ow-iw)/2:(oh-ih)/2:black`,
           "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:3"]
+      : codec === "rgb565"
+        ? (() => {
+            const fit = planeFit(video.width, video.height);
+            // bgr565le is the core's PSM_5650: red in the low five bits
+            return ["-vf", `fps=${RGB565.fps},scale=${fit.w}:${fit.h}:flags=area,pad=${MEDIA.width}:${MEDIA.height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`,
+              "-f", "rawvideo", "-pix_fmt", "bgr565le", "pipe:3"];
+          })()
       : (() => {
           const fit = planeFit(video.width, video.height);
           // zerolatency turns on sliced threading, and MVD takes one slice a frame.
@@ -488,6 +497,15 @@ async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: M
       for await (const packet of pal8Packets(fixedChunks(videoOut, PAL8.width * PAL8.height * 3), originMs)) {
         frame++;
         yield packet;
+      }
+    } else if (codec === "rgb565") {
+      const plane = MEDIA.width * MEDIA.height * 2;
+      for await (const pixels of fixedChunks(videoOut, plane)) {
+        const data = new Uint8Array(8 + plane), view = new DataView(data.buffer);
+        view.setUint16(0, MEDIA.width, true);
+        view.setUint16(2, MEDIA.height, true);
+        data.set(pixels, 8);
+        yield { kind: 1, ptsMs: originMs + Math.round((frame++ * 1000) / RGB565.fps), data };
       }
     } else {
       for await (const data of accessUnits(videoOut)) yield { kind: 1, ptsMs: originMs + Math.round((frame++ * 1000) / H264.fps), data };
@@ -641,12 +659,13 @@ export function createYoutubeService(context: ServiceContext, tools?: YoutubeToo
 
   const play = async (request: ServiceRequest) => {
     const id = request.query.get("id") ?? "";
-    const codec: MediaCodec = request.query.get("codec") === "pal8" ? "pal8" : "h264";
+    const asked = request.query.get("codec");
+    const codec: MediaCodec = asked === "pal8" ? "pal8" : asked === "rgb565" ? "rgb565" : "h264";
     if (!VIDEO_ID.test(id)) return jsonResponse(400, { error: "play needs a video id" });
     const video = await resolve(id, request.signal);
     const at = Math.max(0, Math.min(Number(request.query.get("at")) || 0, Math.max(0, video.duration - 1)));
     await stop();
-    const fps = codec === "pal8" ? PAL8.fps : H264.fps;
+    const fps = codec === "pal8" ? PAL8.fps : codec === "rgb565" ? RGB565.fps : H264.fps;
     const toolset = need();
     const source = (await server()).publish(
       mediaHeader(Math.round(at * 1000), Math.max(0, video.duration) * 1000, fps, codec),

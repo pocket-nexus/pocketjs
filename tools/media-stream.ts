@@ -95,7 +95,7 @@ export function createPal8Encoder(width: number, height: number, palette: Uint16
 }
 export function mediaPacket(packet: MediaPacket): Buffer {
   const n=packet.data.byteLength;
-  const valid=packet.kind===1 ? n>=4 && n<=MEDIA.packetBytes
+  const valid=packet.kind===1 ? n>=4 && n<=MEDIA.framePacketBytes
     : packet.kind===2 ? n>=8 && n<=MEDIA.audioFrames+7
     : packet.kind===3 ? n===0 : packet.kind===4 && n>0 && n<=160;
   if (!valid || !Number.isInteger(packet.ptsMs) || packet.ptsMs<0) throw new Error("Invalid media packet");
@@ -185,8 +185,9 @@ export async function createMediaStreamServer(options: { advertiseHost?: string;
             await write(socket,mediaPacket(packet));
           }
           if(!abort.signal.aborted) { await write(socket,mediaPacket({kind:MEDIA_PACKET.end,ptsMs:0,data:new Uint8Array()}));socket.end(); }
-        } catch {
-          options.log?.("Media producer failed; stream closed");
+        } catch (failure) {
+          // the producer scrubbed its own messages of stream URLs
+          options.log?.(`Media producer failed; stream closed: ${failure instanceof Error ? failure.message : String(failure)}`);
           // Detailed source errors belong in the provider log, not stream URLs.
           if(!socket.destroyed) socket.end(mediaPacket({kind:MEDIA_PACKET.error,ptsMs:0,data:new TextEncoder().encode("Media source failed")}));
         }

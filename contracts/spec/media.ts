@@ -3,6 +3,8 @@
 export const MEDIA = Object.freeze({
   version: 1, magic: 0x564d4b50, headerBytes: 32, packetHeaderBytes: 16,
   packetBytes: 128 * 1024, width: 512, height: 256,
+  /** An `rgb565` video packet: one whole plane behind the 8-byte picture header. */
+  framePacketBytes: 512 * 256 * 2 + 8,
   sampleRate: 22050, channels: 2, audioFrames: 1024,
   tokenChars: 64,
   packetCredits: 8,
@@ -12,8 +14,12 @@ export const MEDIA_PACKET = Object.freeze({ video: 1, audio: 2, end: 3, error: 4
  * (`MediaStatus.h264`). `pal8` is a palettized picture any console expands
  * in software; each packet carries the pixels that changed since the last
  * one (engine/host-services/media_wire.h has the layout, tools/media-stream.ts the
- * encoder). The picture sits at the texture's top-left corner. */
-export const MEDIA_CODEC = Object.freeze({ h264: 1, pal8: 2 });
+ * encoder). The picture sits at the texture's top-left corner. `rgb565` is
+ * the whole 512 x 256 plane a packet: u16 width, u16 height, u32 zero, then
+ * the pixels row by row in the core's PSM_5650 layout (u16 LE, red in the low
+ * five bits, blue in the high five), for a host that uploads a texture a
+ * frame (`MediaStatus.rgb565`). */
+export const MEDIA_CODEC = Object.freeze({ h264: 1, pal8: 2, rgb565: 3 });
 export type MediaCodec = keyof typeof MEDIA_CODEC;
 export interface MediaSource {
   /** Numeric IPv4 address of the paired companion's media endpoint. */
@@ -36,6 +42,8 @@ export interface MediaStatus {
   hardware: boolean;
   /** The console has the H.264 decoder (a New 3DS); known before any open. */
   h264?: boolean;
+  /** The host takes whole RGB565 frames (a GPU host); known before any open. */
+  rgb565?: boolean;
   /** False while a stream plays muted because the console's sound could not
    *  start (its SD card has no dump of the DSP firmware). */
   audio?: boolean;
