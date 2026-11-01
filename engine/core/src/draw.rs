@@ -49,11 +49,22 @@ pub struct Affine {
 }
 
 impl Affine {
-    pub const IDENTITY: Affine = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
+    pub const IDENTITY: Affine = Affine {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        tx: 0.0,
+        ty: 0.0,
+    };
 
     #[inline]
     fn translate(tx: f32, ty: f32) -> Affine {
-        Affine { tx, ty, ..Affine::IDENTITY }
+        Affine {
+            tx,
+            ty,
+            ..Affine::IDENTITY
+        }
     }
 
     /// self ∘ other (apply `other` first, then `self`).
@@ -70,7 +81,10 @@ impl Affine {
 
     #[inline]
     fn apply(&self, x: f32, y: f32) -> (f32, f32) {
-        (self.a * x + self.c * y + self.tx, self.b * x + self.d * y + self.ty)
+        (
+            self.a * x + self.c * y + self.tx,
+            self.b * x + self.d * y + self.ty,
+        )
     }
 
     /// True when the transform maps axis-aligned rects to axis-aligned,
@@ -79,7 +93,6 @@ impl Affine {
     fn is_axis_aligned(&self) -> bool {
         self.b == 0.0 && self.c == 0.0 && self.a > 0.0 && self.d > 0.0
     }
-
 }
 
 // ---- 3D transforms (perspective subtrees) ---------------------------------------
@@ -100,7 +113,9 @@ struct Mat34 {
 }
 
 impl Mat34 {
-    const IDENTITY: Mat34 = Mat34 { m: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] };
+    const IDENTITY: Mat34 = Mat34 {
+        m: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+    };
 
     /// self ∘ other (apply `other` first, then `self`).
     fn then(&self, o: &Mat34) -> Mat34 {
@@ -109,7 +124,8 @@ impl Mat34 {
         let mut out = [0.0f32; 12];
         for row in 0..3 {
             for col in 0..4 {
-                let mut v = a[row * 4] * b[col] + a[row * 4 + 1] * b[4 + col] + a[row * 4 + 2] * b[8 + col];
+                let mut v =
+                    a[row * 4] * b[col] + a[row * 4 + 1] * b[4 + col] + a[row * 4 + 2] * b[8 + col];
                 if col == 3 {
                     v += a[row * 4 + 3];
                 }
@@ -130,36 +146,48 @@ impl Mat34 {
     }
 
     fn translate(x: f32, y: f32, z: f32) -> Mat34 {
-        Mat34 { m: [1.0, 0.0, 0.0, x, 0.0, 1.0, 0.0, y, 0.0, 0.0, 1.0, z] }
+        Mat34 {
+            m: [1.0, 0.0, 0.0, x, 0.0, 1.0, 0.0, y, 0.0, 0.0, 1.0, z],
+        }
     }
 
     fn rot_x(deg: f32) -> Mat34 {
         let r = deg * (PI / 180.0);
         let (s, c) = (sinf(r), cosf(r));
         // Screen y grows DOWN: positive rotateX tips the top edge away, like CSS.
-        Mat34 { m: [1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c, 0.0] }
+        Mat34 {
+            m: [1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c, 0.0],
+        }
     }
 
     fn rot_y(deg: f32) -> Mat34 {
         let r = deg * (PI / 180.0);
         let (s, c) = (sinf(r), cosf(r));
-        Mat34 { m: [c, 0.0, s, 0.0, 0.0, 1.0, 0.0, 0.0, -s, 0.0, c, 0.0] }
+        Mat34 {
+            m: [c, 0.0, s, 0.0, 0.0, 1.0, 0.0, 0.0, -s, 0.0, c, 0.0],
+        }
     }
 
     fn rot_z(deg: f32) -> Mat34 {
         let r = deg * (PI / 180.0);
         let (s, c) = (sinf(r), cosf(r));
-        Mat34 { m: [c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] }
+        Mat34 {
+            m: [c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        }
     }
 
     fn scale(sx: f32, sy: f32) -> Mat34 {
-        Mat34 { m: [sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] }
+        Mat34 {
+            m: [sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        }
     }
 
     fn skew_x(deg: f32) -> Mat34 {
         let r = deg * (PI / 180.0);
         let t = tanf(r);
-        Mat34 { m: [1.0, t, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] }
+        Mat34 {
+            m: [1.0, t, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        }
     }
 }
 
@@ -177,9 +205,18 @@ enum Item3 {
     Quad { pts: [(f32, f32); 4], color: u32 },
     /// One image node's projected cells. The mesh is the painter-sort unit so
     /// all TEX_TRIs for its texture remain consecutive for host batching.
-    TexMesh { cell_start: usize, cell_end: usize, tex: u32, modulate: u32 },
+    TexMesh {
+        cell_start: usize,
+        cell_end: usize,
+        tex: u32,
+        modulate: u32,
+    },
     /// A text node's glyph run, anchored at its projected origin.
-    Run { slot: u32, origin: (f32, f32), opacity: f32 },
+    Run {
+        slot: u32,
+        origin: (f32, f32),
+        opacity: f32,
+    },
 }
 
 /// Screen-space clip rect (x0 <= x1, y0 <= y1), f32 but integer-valued.
@@ -195,7 +232,12 @@ impl Clip {
     /// The full-viewport clip (the PSP screen, or whatever `Ui::set_viewport`
     /// established).
     fn viewport(screen: (f32, f32)) -> Clip {
-        Clip { x0: 0.0, y0: 0.0, x1: screen.0, y1: screen.1 }
+        Clip {
+            x0: 0.0,
+            y0: 0.0,
+            x1: screen.0,
+            y1: screen.1,
+        }
     }
 
     fn intersect(&self, o: &Clip) -> Clip {
@@ -284,7 +326,12 @@ enum Fill {
     Flat(u32),
     /// Colors already opacity-scaled; dir = spec::GradDir ordinal. The
     /// optional middle stop is `(color, position)` along from -> to.
-    Grad { from: u32, via: Option<(u32, f32)>, to: u32, dir: u32 },
+    Grad {
+        from: u32,
+        via: Option<(u32, f32)>,
+        to: u32,
+        dir: u32,
+    },
 }
 
 fn gradient_color(from: u32, via: Option<(u32, f32)>, to: u32, f: f32) -> u32 {
@@ -350,34 +397,56 @@ fn pixel_interval_coverage(pixel: i32, start: f32, end: f32) -> u32 {
 
 fn gradient_run_limit(fill: &Fill) -> i32 {
     match *fill {
-        Fill::Grad { dir, .. } if dir == spec::GradDir::ToLeft as u32 || dir == spec::GradDir::ToRight as u32 => 4,
+        Fill::Grad { dir, .. }
+            if dir == spec::GradDir::ToLeft as u32 || dir == spec::GradDir::ToRight as u32 =>
+        {
+            4
+        }
         _ => 1_000_000,
     }
 }
 
 fn vertical_gradient(fill: &Fill) -> bool {
     match *fill {
-        Fill::Grad { dir, .. } => dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToBottom as u32,
+        Fill::Grad { dir, .. } => {
+            dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToBottom as u32
+        }
         _ => false,
     }
 }
 
-fn fill_color_at(fill: &Fill, x0: f32, y0: f32, x1: f32, y1: f32, sx0: i32, sy: i32, sx1: i32, coverage: u32) -> u32 {
+fn fill_color_at(
+    fill: &Fill,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    sx0: i32,
+    sy: i32,
+    sx1: i32,
+    coverage: u32,
+) -> u32 {
     let color = match *fill {
         Fill::Flat(color) => color,
         Fill::Grad { from, via, to, dir } => {
-            let horizontal = dir == spec::GradDir::ToLeft as u32 || dir == spec::GradDir::ToRight as u32;
+            let horizontal =
+                dir == spec::GradDir::ToLeft as u32 || dir == spec::GradDir::ToRight as u32;
             let (p, denom) = if horizontal {
                 (((sx0 + sx1) as f32 * 0.5) - x0, x1 - x0)
             } else {
                 (sy as f32 + 0.5 - y0, y1 - y0)
             };
-            let f = if denom <= 0.0 { 0.0 } else { clampf(p / denom, 0.0, 1.0) };
-            let directed = if dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToLeft as u32 {
-                1.0 - f
+            let f = if denom <= 0.0 {
+                0.0
             } else {
-                f
+                clampf(p / denom, 0.0, 1.0)
             };
+            let directed =
+                if dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToLeft as u32 {
+                    1.0 - f
+                } else {
+                    f
+                };
             gradient_color(from, via, to, directed)
         }
     };
@@ -419,16 +488,26 @@ struct GlyphPage {
 
 impl PaintCache {
     pub const fn new() -> PaintCache {
-        PaintCache { entries: Vec::new(), glyphs: Vec::new(), borders: Vec::new(), layouts: BTreeMap::new() }
+        PaintCache {
+            entries: Vec::new(),
+            glyphs: Vec::new(),
+            borders: Vec::new(),
+            layouts: BTreeMap::new(),
+        }
     }
 
     #[cfg(test)]
-    pub(crate) fn clear_text_layouts(&mut self) { self.layouts.clear(); }
+    pub(crate) fn clear_text_layouts(&mut self) {
+        self.layouts.clear();
+    }
 
     #[cfg(test)]
     pub(crate) fn text_layout_usage(&self) -> (usize, usize, usize) {
-        (self.layouts.len(), self.layouts.values().map(|e| e.glyphs.capacity()).sum(),
-            self.layouts.values().map(|e| e.text.capacity()).sum())
+        (
+            self.layouts.len(),
+            self.layouts.values().map(|e| e.glyphs.capacity()).sum(),
+            self.layouts.values().map(|e| e.text.capacity()).sum(),
+        )
     }
 }
 
@@ -438,7 +517,10 @@ pub use pocket_glyph_pages::GlyphSampler;
 /// Compatibility constructor for core-owned Atlas values.
 pub(crate) struct GlyphPageLayout;
 impl GlyphPageLayout {
-    pub fn new(atlas: &crate::text::Atlas, gid: u16) -> Option<pocket_glyph_pages::GlyphPageLayout> {
+    pub fn new(
+        atlas: &crate::text::Atlas,
+        gid: u16,
+    ) -> Option<pocket_glyph_pages::GlyphPageLayout> {
         pocket_glyph_pages::GlyphPageLayout::new(crate::font_pages::view(atlas), gid)
     }
 }
@@ -464,7 +546,9 @@ pub(crate) fn glyph_page(
     // old generation before allocating its replacement; stale handles cannot
     // alias a new texture even if the free-list reuses the same slot.
     cache.glyphs.retain(|entry| {
-        if entry.slot != atlas.slot || entry.revision == revision { return true; }
+        if entry.slot != atlas.slot || entry.revision == revision {
+            return true;
+        }
         if let Some(index) = crate::tex_resolve(textures, entry.handle) {
             let slot = &mut textures[index as usize];
             slot.vacate();
@@ -473,24 +557,56 @@ pub(crate) fn glyph_page(
         }
         false
     });
-    let cached = cache.glyphs.iter().position(|e| e.slot == atlas.slot && e.page == page);
-    let entry = if let Some(i) = cached.filter(|&i| crate::tex_resolve(textures, cache.glyphs[i].handle).is_some()) {
+    let cached = cache
+        .glyphs
+        .iter()
+        .position(|e| e.slot == atlas.slot && e.page == page);
+    let entry = if let Some(i) =
+        cached.filter(|&i| crate::tex_resolve(textures, cache.glyphs[i].handle).is_some())
+    {
         &cache.glyphs[i]
     } else {
-        if let Some(i) = cached { cache.glyphs.swap_remove(i); }
+        if let Some(i) = cached {
+            cache.glyphs.swap_remove(i);
+        }
         let byte_len = (width * height) as usize;
         let mut data = alloc::vec![0u128; byte_len.div_ceil(16)];
-        let bytes = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, byte_len) };
-        if !layout.expand_a8(crate::font_pages::view(atlas), bytes) { return None; }
+        let bytes =
+            unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, byte_len) };
+        if !layout.expand_a8(crate::font_pages::view(atlas), bytes) {
+            return None;
+        }
         let mut palette = alloc::vec![0u128; 64];
-        let colors = unsafe { core::slice::from_raw_parts_mut(palette.as_mut_ptr() as *mut u32, 256) };
-        for (a, color) in colors.iter_mut().enumerate() { *color = 0x00ff_ffff | ((a as u32) << 24); }
-        let handle = crate::tex_alloc(textures, free, crate::Texture {
-            data, byte_len, w: width, h: height, psm: spec::psm::PSM_T8,
-            palette: Some(palette), linear: true, revision: 0,
+        let colors =
+            unsafe { core::slice::from_raw_parts_mut(palette.as_mut_ptr() as *mut u32, 256) };
+        for (a, color) in colors.iter_mut().enumerate() {
+            *color = 0x00ff_ffff | ((a as u32) << 24);
+        }
+        let handle = crate::tex_alloc(
+            textures,
+            free,
+            crate::Texture {
+                data: core::cell::OnceCell::from(data),
+                source: None,
+                used: core::sync::atomic::AtomicU32::new(0),
+                byte_len,
+                w: width,
+                h: height,
+                psm: spec::psm::PSM_T8,
+                palette: Some(palette),
+                linear: true,
+                revision: 0,
+            },
+        );
+        if handle < 0 {
+            return None;
+        }
+        cache.glyphs.push(GlyphPage {
+            slot: atlas.slot,
+            revision,
+            page,
+            handle,
         });
-        if handle < 0 { return None; }
-        cache.glyphs.push(GlyphPage { slot: atlas.slot, revision, page, handle });
         cache.glyphs.last()?
     };
     Some(layout.sampler(entry.handle as u32))
@@ -570,7 +686,9 @@ fn disc_texture(
         textures,
         tex_free,
         crate::Texture {
-            data: chunks,
+            data: core::cell::OnceCell::from(chunks),
+            source: None,
+            used: core::sync::atomic::AtomicU32::new(0),
             byte_len,
             w: dim,
             h: dim,
@@ -607,7 +725,8 @@ fn pow2_at_least(n: u32) -> u32 {
 /// geometry can never drift from painted geometry.
 fn local_affine(l: &crate::tree::LayoutRect, r: &style::Resolved) -> Affine {
     let mut local = Affine::translate(l.x + r.translate_x, l.y + r.translate_y);
-    if r.rotate != 0.0 || r.skew_x != 0.0 || r.scale != 1.0 || r.scale_x != 1.0 || r.scale_y != 1.0 {
+    if r.rotate != 0.0 || r.skew_x != 0.0 || r.scale != 1.0 || r.scale_x != 1.0 || r.scale_y != 1.0
+    {
         // Transform origin: node center offset by the origin fractions
         // (`origin-*` utilities; e.g. origin-bottom = (0, +0.5)).
         let (cx, cy) = (l.w * (0.5 + r.origin_x), l.h * (0.5 + r.origin_y));
@@ -615,7 +734,11 @@ fn local_affine(l: &crate::tree::LayoutRect, r: &style::Resolved) -> Affine {
         // rotate == 0 keeps EXACT axis alignment (the trig polyfill is a
         // few ulp off at multiples of pi/2, which would silently demote
         // scale-only transforms to the TRI path).
-        let (s, c) = if r.rotate == 0.0 { (0.0, 1.0) } else { (sinf(rad), cosf(rad)) };
+        let (s, c) = if r.rotate == 0.0 {
+            (0.0, 1.0)
+        } else {
+            (sinf(rad), cosf(rad))
+        };
         // skewX == 0 keeps the shear term exactly zero for the same reason.
         let t = if r.skew_x == 0.0 {
             0.0
@@ -649,7 +772,12 @@ fn world_aabb_of(screen: (f32, f32), world: &Affine, w: f32, h: f32) -> Clip {
         world.apply(w, h),
         world.apply(0.0, h),
     ];
-    let mut c = Clip { x0: pts[0].0, y0: pts[0].1, x1: pts[0].0, y1: pts[0].1 };
+    let mut c = Clip {
+        x0: pts[0].0,
+        y0: pts[0].1,
+        x1: pts[0].0,
+        y1: pts[0].1,
+    };
     for &(x, y) in &pts[1..] {
         c.x0 = c.x0.min(x);
         c.y0 = c.y0.min(y);
@@ -673,7 +801,10 @@ fn local_point(world: &Affine, px: f32, py: f32) -> Option<(f32, f32)> {
     }
     let dx = px - world.tx;
     let dy = py - world.ty;
-    Some(((world.d * dx - world.c * dy) / det, (world.a * dy - world.b * dx) / det))
+    Some((
+        (world.d * dx - world.c * dy) / det,
+        (world.a * dy - world.b * dx) / det,
+    ))
 }
 
 /// Visit `slot`'s children in PAINT ORDER: document order, stable-sorted by
@@ -808,7 +939,13 @@ pub fn hit_test_root(
 /// a finger in a list's row gap still resolves to the list — UIKit bounds
 /// semantics. Everything else (paint order, clips, transforms, opacity
 /// culling, 3D contexts) matches `hit_test` exactly.
-pub fn hit_test_bounds(tree: &Tree, styles: &StyleTable, screen: (f32, f32), x: f32, y: f32) -> i32 {
+pub fn hit_test_bounds(
+    tree: &Tree,
+    styles: &StyleTable,
+    screen: (f32, f32),
+    x: f32,
+    y: f32,
+) -> i32 {
     hit_test_bounds_root(tree, styles, spec::ROOT_ID, screen, x, y)
 }
 
@@ -836,16 +973,35 @@ pub(crate) fn hit_point(
     ink: bool,
     snap: bool,
 ) -> i32 {
-    let Some(root_slot) = tree.resolve(root_id) else { return 0 };
+    let Some(root_slot) = tree.resolve(root_id) else {
+        return 0;
+    };
     let mut hit = 0i32;
-    hit_walk(tree, styles, screen, root_slot, Affine::IDENTITY, 1.0, Clip::viewport(screen), x, y, ink, snap, &mut hit);
+    hit_walk(
+        tree,
+        styles,
+        screen,
+        root_slot,
+        Affine::IDENTITY,
+        1.0,
+        Clip::viewport(screen),
+        x,
+        y,
+        ink,
+        snap,
+        &mut hit,
+    );
     hit
 }
 
 /// Round an axis-aligned affine's translation to whole logical pixels.
 fn snap_translation(world: Affine) -> Affine {
     if world.b == 0.0 && world.c == 0.0 {
-        Affine { tx: roundf(world.tx), ty: roundf(world.ty), ..world }
+        Affine {
+            tx: roundf(world.tx),
+            ty: roundf(world.ty),
+            ..world
+        }
     } else {
         world
     }
@@ -915,7 +1071,9 @@ fn hit_walk(
         return;
     }
     for_children_in_paint_order(tree, styles, slot, |cs| {
-        hit_walk(tree, styles, screen, cs, world, op, child_clip, px, py, ink, snap, hit);
+        hit_walk(
+            tree, styles, screen, cs, world, op, child_clip, px, py, ink, snap, hit,
+        );
     });
 }
 
@@ -977,7 +1135,11 @@ pub fn build(
     inspect_id: i32,
     inspect_prev: Option<(f32, f32, f32, f32)>,
     cursor: Option<(u32, f32, f32, f32, f32)>,
-) -> (Option<(f32, f32, f32, f32)>, Option<(f32, f32, f32, f32)>, bool) {
+) -> (
+    Option<(f32, f32, f32, f32)>,
+    Option<(f32, f32, f32, f32)>,
+    bool,
+) {
     build_root(
         tree,
         styles,
@@ -1016,7 +1178,11 @@ pub fn build_root(
     inspect_id: i32,
     inspect_prev: Option<(f32, f32, f32, f32)>,
     cursor: Option<(u32, f32, f32, f32, f32)>,
-) -> (Option<(f32, f32, f32, f32)>, Option<(f32, f32, f32, f32)>, bool) {
+) -> (
+    Option<(f32, f32, f32, f32)>,
+    Option<(f32, f32, f32, f32)>,
+    bool,
+) {
     dl.words.clear();
     // DevTools (docs/DEVTOOLS.md): slot of the inspected node, u32::MAX = none.
     // Nodes inside a perspective subtree take the paint_3d path and are not
@@ -1040,8 +1206,16 @@ pub fn build_root(
         raster_density,
         inspect_slot,
         inspect_hit: None,
-        texts: if dl.capture_texts != 0 { Some(Vec::new()) } else { None },
-        capture_slot: if dl.capture_texts != 0 { tree.resolve(dl.capture_texts).unwrap_or(u32::MAX) } else { u32::MAX },
+        texts: if dl.capture_texts != 0 {
+            Some(Vec::new())
+        } else {
+            None
+        },
+        capture_slot: if dl.capture_texts != 0 {
+            tree.resolve(dl.capture_texts).unwrap_or(u32::MAX)
+        } else {
+            u32::MAX
+        },
         capturing: false,
         in_3d: false,
         provider_stale: false,
@@ -1049,7 +1223,14 @@ pub fn build_root(
     let Some(root_slot) = tree.resolve(root_id) else {
         return (None, None, false);
     };
-    w.paint(root_slot, Affine::IDENTITY, 1.0, Clip::viewport(screen), false, dl);
+    w.paint(
+        root_slot,
+        Affine::IDENTITY,
+        1.0,
+        Clip::viewport(screen),
+        false,
+        dl,
+    );
     let provider_stale = w.provider_stale;
     // A stale provider repaints this list; the capture waits for that pass.
     if let Some(texts) = w.texts.take() {
@@ -1058,7 +1239,9 @@ pub fn build_root(
             dl.capture_texts = 0;
         }
     }
-    let target = w.inspect_hit.map(|c| (c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0));
+    let target = w
+        .inspect_hit
+        .map(|c| (c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0));
     // Highlight glide: the drawn box exponentially approaches the target
     // (~0.35/draw ≈ converged in 6 draws), so switching the inspected node
     // slides the box across the screen instead of teleporting it. draw()
@@ -1083,7 +1266,15 @@ pub fn build_root(
         (None, _) => None,
     };
     if let Some((x, y, bw, bh)) = drawn {
-        w.emit_highlight(dl, &Clip { x0: x, y0: y, x1: x + bw, y1: y + bh });
+        w.emit_highlight(
+            dl,
+            &Clip {
+                x0: x,
+                y0: y,
+                x1: x + bw,
+                y1: y + bh,
+            },
+        );
     }
     // Virtual cursor sprite: appended last so nothing paints over it (even
     // the DevTools highlight sits under the pointer the user is steering).
@@ -1139,11 +1330,20 @@ impl<'a> Walker<'a> {
         // A subtree at effective opacity 0 paints nothing; cull it before
         // resolving the full style and composing its transform. The
         // inspected node still needs its world box, so it takes the full path.
-        if slot != self.inspect_slot && clampf(opacity * style::resolve_opacity(node, self.styles), 0.0, 1.0) <= 0.0 {
+        if slot != self.inspect_slot
+            && clampf(
+                opacity * style::resolve_opacity(node, self.styles),
+                0.0,
+                1.0,
+            ) <= 0.0
+        {
             return;
         }
         let r = style::resolve(node, self.styles, true);
-        debug_assert_eq!(style::resolve_opacity(node, self.styles).to_bits(), r.opacity.to_bits());
+        debug_assert_eq!(
+            style::resolve_opacity(node, self.styles).to_bits(),
+            r.opacity.to_bits()
+        );
         // The provider gate accumulates EXACTLY like layout.rs build() —
         // one shared predicate (Resolved::declares_transform), so the draw
         // walk and the layout record can only diverge when a transform
@@ -1188,16 +1388,41 @@ impl<'a> Walker<'a> {
                 self.emit_arc(dl, &world, l.w, l.h, &r, bg_color, &clip);
             }
         } else if rounded_ring {
-            self.emit_rounded_box(dl, &world, 0.0, 0.0, l.w, l.h, r.radius, Fill::Flat(border_color), &clip);
+            self.emit_rounded_box(
+                dl,
+                &world,
+                0.0,
+                0.0,
+                l.w,
+                l.h,
+                r.radius,
+                Fill::Flat(border_color),
+                &clip,
+            );
             let bw = r.border_width.min(l.w * 0.5).min(l.h * 0.5);
             if has_grad {
                 let fill = Fill::Grad {
                     from: scale_alpha(r.grad_from, op),
-                    via: r.grad_via_pos.is_finite().then(|| (scale_alpha(r.grad_via, op), clampf(r.grad_via_pos, 0.0, 1.0))),
+                    via: r.grad_via_pos.is_finite().then(|| {
+                        (
+                            scale_alpha(r.grad_via, op),
+                            clampf(r.grad_via_pos, 0.0, 1.0),
+                        )
+                    }),
                     to: scale_alpha(r.grad_to, op),
                     dir: r.grad_dir,
                 };
-                self.emit_rounded_box(dl, &world, bw, bw, l.w - bw, l.h - bw, (r.radius - bw).max(0.0), fill, &clip);
+                self.emit_rounded_box(
+                    dl,
+                    &world,
+                    bw,
+                    bw,
+                    l.w - bw,
+                    l.h - bw,
+                    (r.radius - bw).max(0.0),
+                    fill,
+                    &clip,
+                );
             } else {
                 self.emit_rounded_box(
                     dl,
@@ -1214,20 +1439,46 @@ impl<'a> Walker<'a> {
         } else if has_grad {
             let fill = Fill::Grad {
                 from: scale_alpha(r.grad_from, op),
-                via: r.grad_via_pos.is_finite().then(|| (scale_alpha(r.grad_via, op), clampf(r.grad_via_pos, 0.0, 1.0))),
+                via: r.grad_via_pos.is_finite().then(|| {
+                    (
+                        scale_alpha(r.grad_via, op),
+                        clampf(r.grad_via_pos, 0.0, 1.0),
+                    )
+                }),
                 to: scale_alpha(r.grad_to, op),
                 dir: r.grad_dir,
             };
             self.emit_rounded_box(dl, &world, 0.0, 0.0, l.w, l.h, r.radius, fill, &clip);
         } else if alpha(bg_color) > 0 {
-            self.emit_rounded_box(dl, &world, 0.0, 0.0, l.w, l.h, r.radius, Fill::Flat(bg_color), &clip);
+            self.emit_rounded_box(
+                dl,
+                &world,
+                0.0,
+                0.0,
+                l.w,
+                l.h,
+                r.radius,
+                Fill::Flat(bg_color),
+                &clip,
+            );
         }
 
         // -- border: 4 inset strips ------------------------------------------
         let bw = r.border_width;
         if !rounded_ring && bw > 0.0 && alpha(border_color) > 0 {
             if rounded_border {
-                self.emit_rounded_border(dl, &world, 0.0, 0.0, l.w, l.h, r.radius, bw, Fill::Flat(border_color), &clip);
+                self.emit_rounded_border(
+                    dl,
+                    &world,
+                    0.0,
+                    0.0,
+                    l.w,
+                    l.h,
+                    r.radius,
+                    bw,
+                    Fill::Flat(border_color),
+                    &clip,
+                );
             } else {
                 let bc = Fill::Flat(border_color);
                 let bwx = bw.min(l.w * 0.5);
@@ -1235,7 +1486,8 @@ impl<'a> Walker<'a> {
                 self.emit_box(dl, &world, 0.0, 0.0, l.w, bwy, bc, &clip); // top
                 self.emit_box(dl, &world, 0.0, l.h - bwy, l.w, l.h, bc, &clip); // bottom
                 self.emit_box(dl, &world, 0.0, bwy, bwx, l.h - bwy, bc, &clip); // left
-                self.emit_box(dl, &world, l.w - bwx, bwy, l.w, l.h - bwy, bc, &clip); // right
+                self.emit_box(dl, &world, l.w - bwx, bwy, l.w, l.h - bwy, bc, &clip);
+                // right
             }
         }
 
@@ -1306,7 +1558,19 @@ impl<'a> Walker<'a> {
             } else {
                 (0.0, 0.0, 1.0, 1.0)
             };
-            self.emit_tex_quad(dl, &world, l.w, l.h, node.tex as u32, op, &clip, fu0, fv0, fu1, fv1);
+            self.emit_tex_quad(
+                dl,
+                &world,
+                l.w,
+                l.h,
+                node.tex as u32,
+                op,
+                &clip,
+                fu0,
+                fv0,
+                fu1,
+                fv1,
+            );
         }
 
         // -- installed application surface -----------------------------------
@@ -1336,7 +1600,10 @@ impl<'a> Walker<'a> {
             }
             dl.words.push(spec::draw_op::SCISSOR);
             dl.words.push(xy_word(child_clip.x0, child_clip.y0));
-            dl.words.push(wh_word(child_clip.x1 - child_clip.x0, child_clip.y1 - child_clip.y0));
+            dl.words.push(wh_word(
+                child_clip.x1 - child_clip.x0,
+                child_clip.y1 - child_clip.y0,
+            ));
             scissored = true;
         }
 
@@ -1392,8 +1659,15 @@ impl<'a> Walker<'a> {
         for cid in children {
             if let Some(cs) = self.tree.resolve(cid) {
                 self.collect_3d(
-                    cs, &Mat34::IDENTITY, opacity, root_world, distance, cx, cy,
-                    &mut items, &mut tex_cells,
+                    cs,
+                    &Mat34::IDENTITY,
+                    opacity,
+                    root_world,
+                    distance,
+                    cx,
+                    cy,
+                    &mut items,
+                    &mut tex_cells,
                 );
             }
         }
@@ -1403,25 +1677,61 @@ impl<'a> Walker<'a> {
         for (_, item) in items {
             match item {
                 Item3::Quad { pts, color } => {
-                    let poly = pts.map(|(x, y)| ClipVert { x, y, color: unpack(color), u: 0.0, v: 0.0 });
-                    clip_fan(&poly, clip, |a, b, c| emit_tri(dl, a, b, c, clip, self.screen));
+                    let poly = pts.map(|(x, y)| ClipVert {
+                        x,
+                        y,
+                        color: unpack(color),
+                        u: 0.0,
+                        v: 0.0,
+                    });
+                    clip_fan(&poly, clip, |a, b, c| {
+                        emit_tri(dl, a, b, c, clip, self.screen)
+                    });
                 }
-                Item3::TexMesh { cell_start, cell_end, tex, modulate } => {
+                Item3::TexMesh {
+                    cell_start,
+                    cell_end,
+                    tex,
+                    modulate,
+                } => {
+                    crate::touch_texture(&self.textures[..], tex, self.frame);
                     for cell in &tex_cells[cell_start..cell_end] {
                         let poly: [ClipVert; 4] = core::array::from_fn(|i| {
                             let ((x, y), (u, v)) = (cell.pts[i], cell.uv[i]);
-                            ClipVert { x, y, color: [255.0; 4], u, v }
+                            ClipVert {
+                                x,
+                                y,
+                                color: [255.0; 4],
+                                u,
+                                v,
+                            }
                         });
-                        clip_fan(&poly, clip, |a, b, c| emit_tex_tri(dl, tex, modulate, a, b, c, clip, self.screen));
+                        clip_fan(&poly, clip, |a, b, c| {
+                            emit_tex_tri(dl, tex, modulate, a, b, c, clip, self.screen)
+                        });
                     }
                 }
-                Item3::Run { slot, origin, opacity } => {
+                Item3::Run {
+                    slot,
+                    origin,
+                    opacity,
+                } => {
                     // (borrows through the walker's &'a Tree field, so the
                     // node ref is not tied to &mut self)
                     let node = &self.tree.slots[slot as usize];
                     let r = style::resolve(node, self.styles, true);
                     let anchor = Affine::translate(origin.0, origin.1);
-                    self.emit_text(dl, slot, node, &r, &anchor, opacity, clip, node.layout.w, true);
+                    self.emit_text(
+                        dl,
+                        slot,
+                        node,
+                        &r,
+                        &anchor,
+                        opacity,
+                        clip,
+                        node.layout.w,
+                        true,
+                    );
                 }
             }
         }
@@ -1495,7 +1805,9 @@ impl<'a> Walker<'a> {
         let color = if r.grad_dir != NO_GRADIENT && r.grad_dir <= spec::GradDir::ToRight as u32 {
             gradient_color(
                 r.grad_from,
-                r.grad_via_pos.is_finite().then(|| (r.grad_via, clampf(r.grad_via_pos, 0.0, 1.0))),
+                r.grad_via_pos
+                    .is_finite()
+                    .then(|| (r.grad_via, clampf(r.grad_via_pos, 0.0, 1.0))),
                 r.grad_to,
                 0.5,
             )
@@ -1509,9 +1821,16 @@ impl<'a> Walker<'a> {
             let c2 = project(l.w, l.h);
             let c3 = project(0.0, l.h);
             let depth = (c0.1 + c1.1 + c2.1 + c3.1) * 0.25;
-            items.push((depth, Item3::Quad { pts: [c0.0, c1.0, c2.0, c3.0], color }));
+            items.push((
+                depth,
+                Item3::Quad {
+                    pts: [c0.0, c1.0, c2.0, c3.0],
+                    color,
+                },
+            ));
         }
-        if node.node_type == spec::NodeType::Image as u8 && node.tex >= 0 && l.w > 0.0 && l.h > 0.0 {
+        if node.node_type == spec::NodeType::Image as u8 && node.tex >= 0 && l.w > 0.0 && l.h > 0.0
+        {
             let (fu0, fv0, fu1, fv1) = if node.sprite_frames > 0 {
                 let cols = node.sprite_cols.max(1) as u32;
                 let rows = (node.sprite_frames as u32).div_ceil(cols);
@@ -1595,7 +1914,10 @@ impl<'a> Walker<'a> {
             for i in cell_start + 1..cell_end {
                 let mut j = i;
                 while j > cell_start
-                    && tex_cells[j].depth.total_cmp(&tex_cells[j - 1].depth).is_lt()
+                    && tex_cells[j]
+                        .depth
+                        .total_cmp(&tex_cells[j - 1].depth)
+                        .is_lt()
                 {
                     tex_cells.swap(j, j - 1);
                     j -= 1;
@@ -1615,7 +1937,14 @@ impl<'a> Walker<'a> {
             // Glyphs anchor at the projected text origin and stay upright
             // (the 2D rotation contract). Depth = the anchor's z.
             let ((sx, sy), z) = project(0.0, 0.0);
-            items.push((z + 0.01, Item3::Run { slot, origin: (sx, sy), opacity: op }));
+            items.push((
+                z + 0.01,
+                Item3::Run {
+                    slot,
+                    origin: (sx, sy),
+                    opacity: op,
+                },
+            ));
             return; // text children are absorbed into the run
         }
         for &cid in &node.children {
@@ -1656,7 +1985,11 @@ impl<'a> Walker<'a> {
         let ring_out = rmid + half;
         let ring_out2 = ring_out * ring_out;
         let sweep = clampf(r.arc_sweep, -360.0, 360.0);
-        let (a0, asweep) = if sweep < 0.0 { (r.arc_start + sweep, -sweep) } else { (r.arc_start, sweep) };
+        let (a0, asweep) = if sweep < 0.0 {
+            (r.arc_start + sweep, -sweep)
+        } else {
+            (r.arc_start, sweep)
+        };
         let full = asweep >= 360.0;
         let major = asweep > 180.0;
         // 0 deg = 12 o'clock, clockwise positive.
@@ -1684,7 +2017,11 @@ impl<'a> Walker<'a> {
                 let in_angle = full || {
                     let cross_s = svx * dy - svy * dx;
                     let cross_e = evx * dy - evy * dx;
-                    if major { cross_s >= 0.0 || cross_e <= 0.0 } else { cross_s >= 0.0 && cross_e <= 0.0 }
+                    if major {
+                        cross_s >= 0.0 || cross_e <= 0.0
+                    } else {
+                        cross_s >= 0.0 && cross_e <= 0.0
+                    }
                 };
                 if in_angle {
                     return true;
@@ -1718,7 +2055,11 @@ impl<'a> Walker<'a> {
             let half_span = sqrtf((ring_out2 - dy2).max(0.0)) + 1.0;
             let row_x0 = (floorf(cx - half_span) as i32).max(x0);
             let row_x1 = (ceilf(cx + half_span) as i32).min(x1);
-            let hole_span = if dy2 < ring_in2 { sqrtf(ring_in2 - dy2) - 1.0 } else { -1.0 };
+            let hole_span = if dy2 < ring_in2 {
+                sqrtf(ring_in2 - dy2) - 1.0
+            } else {
+                -1.0
+            };
             let (hole_x0, hole_x1) = if hole_span > 1.0 {
                 ((cx - hole_span) as i32, (cx + hole_span) as i32)
             } else {
@@ -1777,7 +2118,17 @@ impl<'a> Walker<'a> {
     /// path (RECT/GRAD_RECT, clipped with color re-interpolation) or the
     /// rotated path (Sutherland-Hodgman -> TRI ops).
     #[allow(clippy::too_many_arguments)]
-    fn emit_box(&self, dl: &mut DrawList, world: &Affine, x0: f32, y0: f32, x1: f32, y1: f32, fill: Fill, clip: &Clip) {
+    fn emit_box(
+        &self,
+        dl: &mut DrawList,
+        world: &Affine,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        fill: Fill,
+        clip: &Clip,
+    ) {
         if x1 <= x0 || y1 <= y0 {
             return;
         }
@@ -1785,11 +2136,27 @@ impl<'a> Walker<'a> {
         // preserves the backend DrawList contract: every backend still sees
         // GRAD_RECT/TRI, while clipping and rotated painter order remain in
         // the core that resolved the Tailwind style.
-        if let Fill::Grad { from, via: Some((middle, position)), to, dir } = fill {
+        if let Fill::Grad {
+            from,
+            via: Some((middle, position)),
+            to,
+            dir,
+        } = fill
+        {
             let position = clampf(position, 0.0, 1.0);
             if position > 0.0 && position < 1.0 {
-                let first = Fill::Grad { from, via: None, to: middle, dir };
-                let second = Fill::Grad { from: middle, via: None, to, dir };
+                let first = Fill::Grad {
+                    from,
+                    via: None,
+                    to: middle,
+                    dir,
+                };
+                let second = Fill::Grad {
+                    from: middle,
+                    via: None,
+                    to,
+                    dir,
+                };
                 if dir == spec::GradDir::ToRight as u32 {
                     let split = x0 + (x1 - x0) * position;
                     self.emit_box(dl, world, x0, y0, split, y1, first, clip);
@@ -1831,8 +2198,8 @@ impl<'a> Walker<'a> {
                         color,
                     ]);
                 }
-                Fill::Grad { from, to, dir, .. } if dl.stable_motion_paint
-                    && clipped_inside_i16(sx0, sy0, sx1, sy1, &c) =>
+                Fill::Grad { from, to, dir, .. }
+                    if dl.stable_motion_paint && clipped_inside_i16(sx0, sy0, sx1, sy1, &c) =>
                 {
                     dl.words.extend_from_slice(&[
                         spec::draw_op::SCISSOR,
@@ -1850,7 +2217,9 @@ impl<'a> Walker<'a> {
                 Fill::Grad { from, to, dir, .. } => {
                     // Re-interpolate the endpoint colors over the clipped
                     // span so the visible slice keeps the exact gradient.
-                    let (f0, f1) = if dir == spec::GradDir::ToLeft as u32 || dir == spec::GradDir::ToRight as u32 {
+                    let (f0, f1) = if dir == spec::GradDir::ToLeft as u32
+                        || dir == spec::GradDir::ToRight as u32
+                    {
                         let w = sx1 - sx0;
                         ((c.x0 - sx0) / w, (c.x1 - sx0) / w)
                     } else {
@@ -1859,13 +2228,17 @@ impl<'a> Walker<'a> {
                     };
                     // ToTop/ToLeft run against the +axis: fraction measured
                     // from the far edge.
-                    let (gf, gt) = if dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToLeft as u32 {
+                    let (gf, gt) = if dir == spec::GradDir::ToTop as u32
+                        || dir == spec::GradDir::ToLeft as u32
+                    {
                         (lerp_color(to, from, f0), lerp_color(to, from, f1))
                     } else {
                         (lerp_color(from, to, f0), lerp_color(from, to, f1))
                     };
                     // Store colors back in "from/to along dir" order.
-                    let (out_from, out_to) = if dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToLeft as u32 {
+                    let (out_from, out_to) = if dir == spec::GradDir::ToTop as u32
+                        || dir == spec::GradDir::ToLeft as u32
+                    {
                         (gt, gf)
                     } else {
                         (gf, gt)
@@ -1886,9 +2259,17 @@ impl<'a> Walker<'a> {
             let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
             let poly: [ClipVert; 4] = core::array::from_fn(|i| {
                 let (sx, sy) = world.apply(corners[i].0, corners[i].1);
-                ClipVert { x: sx, y: sy, color: unpack(corner_color(&fill, i)), u: 0.0, v: 0.0 }
+                ClipVert {
+                    x: sx,
+                    y: sy,
+                    color: unpack(corner_color(&fill, i)),
+                    u: 0.0,
+                    v: 0.0,
+                }
             });
-            clip_fan(&poly, clip, |a, b, c| emit_tri(dl, a, b, c, clip, self.screen));
+            clip_fan(&poly, clip, |a, b, c| {
+                emit_tri(dl, a, b, c, clip, self.screen)
+            });
         }
     }
 
@@ -1901,15 +2282,40 @@ impl<'a> Walker<'a> {
         const EDGE: u32 = 0xFFF5B04B; // #4bb0f5 solid
         const T: f32 = 2.0;
         self.emit_screen_rect(dl, c.x0, c.y0, c.x1, c.y1, Fill::Flat(FILL), &vp);
-        self.emit_screen_rect(dl, c.x0 - T, c.y0 - T, c.x1 + T, c.y0, Fill::Flat(EDGE), &vp);
-        self.emit_screen_rect(dl, c.x0 - T, c.y1, c.x1 + T, c.y1 + T, Fill::Flat(EDGE), &vp);
+        self.emit_screen_rect(
+            dl,
+            c.x0 - T,
+            c.y0 - T,
+            c.x1 + T,
+            c.y0,
+            Fill::Flat(EDGE),
+            &vp,
+        );
+        self.emit_screen_rect(
+            dl,
+            c.x0 - T,
+            c.y1,
+            c.x1 + T,
+            c.y1 + T,
+            Fill::Flat(EDGE),
+            &vp,
+        );
         self.emit_screen_rect(dl, c.x0 - T, c.y0, c.x0, c.y1, Fill::Flat(EDGE), &vp);
         self.emit_screen_rect(dl, c.x1, c.y0, c.x1 + T, c.y1, Fill::Flat(EDGE), &vp);
     }
 
     /// Screen-space flat/grad rect helper (already-transformed coords).
     #[allow(clippy::too_many_arguments)]
-    fn emit_screen_rect(&self, dl: &mut DrawList, x0: f32, y0: f32, x1: f32, y1: f32, fill: Fill, clip: &Clip) {
+    fn emit_screen_rect(
+        &self,
+        dl: &mut DrawList,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        fill: Fill,
+        clip: &Clip,
+    ) {
         if x1 <= x0 || y1 <= y0 {
             return;
         }
@@ -2100,10 +2506,17 @@ impl<'a> Walker<'a> {
             if let Fill::Grad { from, via, to, dir } = *fill {
                 let scaled = Fill::Grad {
                     from: scale_alpha_coverage(from, coverage),
-                    via: via.map(|(color, position)| (scale_alpha_coverage(color, coverage), position)),
-                    to: scale_alpha_coverage(to, coverage), dir,
+                    via: via
+                        .map(|(color, position)| (scale_alpha_coverage(color, coverage), position)),
+                    to: scale_alpha_coverage(to, coverage),
+                    dir,
                 };
-                let clip = Clip { x0: x0 as f32, y0: py as f32, x1: x1 as f32, y1: (py + h) as f32 };
+                let clip = Clip {
+                    x0: x0 as f32,
+                    y0: py as f32,
+                    x1: x1 as f32,
+                    y1: (py + h) as f32,
+                };
                 self.emit_screen_rect(dl, x0 as f32, sy0, x1 as f32, sy1, scaled, &clip);
                 return;
             }
@@ -2123,49 +2536,103 @@ impl<'a> Walker<'a> {
         }
     }
 
-    fn border_texture(&mut self, width: f32, height: f32, radius: f32, border: f32) -> Option<(u32, u32, u32)> {
+    fn border_texture(
+        &mut self,
+        width: f32,
+        height: f32,
+        radius: f32,
+        border: f32,
+    ) -> Option<(u32, u32, u32)> {
         // Cache small, stable local shapes, so a parent scale reuses the same
         // mask. Animated dimensions or stroke widths cannot grow residency
         // past sixteen 128x128 masks (1 MiB); overflow uses analytic spans.
-        if width != roundf(width) || height != roundf(height) ||
-            width < 1.0 || height < 1.0 || width > 64.0 || height > 64.0 { return None; }
+        if width != roundf(width)
+            || height != roundf(height)
+            || width < 1.0
+            || height < 1.0
+            || width > 64.0
+            || height > 64.0
+        {
+            return None;
+        }
         let density = self.raster_density;
         let w = width as u32 * density;
         let h = height as u32 * density;
         let tw = pow2_at_least(w);
         let th = pow2_at_least(h);
-        if tw > 128 || th > 128 { return None; }
-        let key = [width as u32, height as u32, radius.to_bits(), border.to_bits()];
+        if tw > 128 || th > 128 {
+            return None;
+        }
+        let key = [
+            width as u32,
+            height as u32,
+            radius.to_bits(),
+            border.to_bits(),
+        ];
         if let Some(&(_, handle)) = self.paint_cache.borders.iter().find(|(k, _)| *k == key) {
-            if crate::tex_resolve(self.textures, handle).is_some() { return Some((handle as u32, tw, th)); }
+            if crate::tex_resolve(self.textures, handle).is_some() {
+                return Some((handle as u32, tw, th));
+            }
             self.paint_cache.borders.retain(|(k, _)| *k != key);
         }
-        if self.paint_cache.borders.len() >= 16 { return None; }
+        if self.paint_cache.borders.len() >= 16 {
+            return None;
+        }
         let r = radius * density as f32;
         let bw = border * density as f32;
         let mut data = alloc::vec![0u128; ((tw * th * 4) as usize).div_ceil(16)];
-        let pixels = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, (tw * th) as usize) };
+        let pixels = unsafe {
+            core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, (tw * th) as usize)
+        };
         pixels.fill(0x00ff_ffff);
         for y in 0..h {
             let row = y as f32 + 0.5;
-            let Some((left, right)) = self.rounded_interval_at_row(0.0, 0.0, w as f32, h as f32, r, row) else { continue; };
+            let Some((left, right)) =
+                self.rounded_interval_at_row(0.0, 0.0, w as f32, h as f32, r, row)
+            else {
+                continue;
+            };
             let inner = if pixel_interval_coverage(y as i32, bw, h as f32 - bw) > 0 {
-                self.rounded_interval_at_row(bw, bw, w as f32 - bw, h as f32 - bw,
-                    (r - bw).max(0.0), clampf(row, bw, h as f32 - bw))
-            } else { None };
+                self.rounded_interval_at_row(
+                    bw,
+                    bw,
+                    w as f32 - bw,
+                    h as f32 - bw,
+                    (r - bw).max(0.0),
+                    clampf(row, bw, h as f32 - bw),
+                )
+            } else {
+                None
+            };
             for x in 0..w {
                 let alpha = if let Some((il, ir)) = inner {
-                    pixel_interval_coverage(x as i32, left, il.min(right)) +
-                        pixel_interval_coverage(x as i32, ir.max(left), right)
-                } else { pixel_interval_coverage(x as i32, left, right) };
+                    pixel_interval_coverage(x as i32, left, il.min(right))
+                        + pixel_interval_coverage(x as i32, ir.max(left), right)
+                } else {
+                    pixel_interval_coverage(x as i32, left, right)
+                };
                 pixels[(y * tw + x) as usize] |= alpha.min(255) << 24;
             }
         }
-        let handle = crate::tex_alloc(self.textures, self.tex_free, crate::Texture {
-            data, byte_len: (tw * th * 4) as usize, w: tw, h: th,
-            psm: spec::psm::PSM_8888, palette: None, linear: true, revision: 0,
-        });
-        if handle < 0 { return None; }
+        let handle = crate::tex_alloc(
+            self.textures,
+            self.tex_free,
+            crate::Texture {
+                data: core::cell::OnceCell::from(data),
+                source: None,
+                used: core::sync::atomic::AtomicU32::new(0),
+                byte_len: (tw * th * 4) as usize,
+                w: tw,
+                h: th,
+                psm: spec::psm::PSM_8888,
+                palette: None,
+                linear: true,
+                revision: 0,
+            },
+        );
+        if handle < 0 {
+            return None;
+        }
         self.paint_cache.borders.push((key, handle));
         Some((handle as u32, tw, th))
     }
@@ -2201,15 +2668,24 @@ impl<'a> Walker<'a> {
         }
         // Reject covered primitives before mask lookup/allocation. Preserve
         // a pixel for the rounded path's quantized antialiased fringe.
-        if sx1 + 1.0 <= clip.x0 || sx0 - 1.0 >= clip.x1 ||
-            sy1 + 1.0 <= clip.y0 || sy0 - 1.0 >= clip.y1 { return; }
+        if sx1 + 1.0 <= clip.x0
+            || sx0 - 1.0 >= clip.x1
+            || sy1 + 1.0 <= clip.y0
+            || sy0 - 1.0 >= clip.y1
+        {
+            return;
+        }
         let w = sx1 - sx0;
         let h = sy1 - sy0;
         let scale_y = world.d.max(0.0);
         let bw = (border_width * scale_y).min(w * 0.5).min(h * 0.5);
         let r = (radius * scale_y).min(w * 0.5).min(h * 0.5);
         if bw <= 0.0 || r <= 0.5 {
-            let local_bw = if scale_y > 0.0 { bw / scale_y } else { border_width };
+            let local_bw = if scale_y > 0.0 {
+                bw / scale_y
+            } else {
+                border_width
+            };
             let bwx = local_bw.min((x1 - x0) * 0.5);
             let bwy = local_bw.min((y1 - y0) * 0.5);
             self.emit_box(dl, world, x0, y0, x1, y0 + bwy, fill, clip);
@@ -2225,13 +2701,26 @@ impl<'a> Walker<'a> {
                 let local_h = y1 - y0;
                 let local_r = radius.min(local_w * 0.5).min(local_h * 0.5);
                 let local_bw = border_width.min(local_w * 0.5).min(local_h * 0.5);
-                if let Some((texture, tw, th)) = self.border_texture(local_w, local_h, local_r, local_bw) {
+                if let Some((texture, tw, th)) =
+                    self.border_texture(local_w, local_h, local_r, local_bw)
+                {
                     let before = dl.words.len();
-                    self.emit_tex_quad(dl, &world.then(&Affine::translate(x0, y0)), local_w, local_h,
-                        texture, 1.0, clip, 0.0, 0.0,
+                    self.emit_tex_quad(
+                        dl,
+                        &world.then(&Affine::translate(x0, y0)),
+                        local_w,
+                        local_h,
+                        texture,
+                        1.0,
+                        clip,
+                        0.0,
+                        0.0,
                         local_w * self.raster_density as f32 / tw as f32,
-                        local_h * self.raster_density as f32 / th as f32);
-                    if dl.words.len() > before { *dl.words.last_mut().unwrap() = color; }
+                        local_h * self.raster_density as f32 / th as f32,
+                    );
+                    if dl.words.len() > before {
+                        *dl.words.last_mut().unwrap() = color;
+                    }
                     return;
                 }
             }
@@ -2258,13 +2747,22 @@ impl<'a> Walker<'a> {
                 continue;
             }
             let row_y = clampf(py as f32 + 0.5, sy0, sy1);
-            let Some((outer_x0, outer_x1)) = self.rounded_interval_at_row(sx0, sy0, sx1, sy1, r, row_y) else {
+            let Some((outer_x0, outer_x1)) =
+                self.rounded_interval_at_row(sx0, sy0, sx1, sy1, r, row_y)
+            else {
                 continue;
             };
 
             let inner = if has_inner && pixel_interval_coverage(py, inner_sy0, inner_sy1) > 0 {
                 let inner_row_y = clampf(py as f32 + 0.5, inner_sy0, inner_sy1);
-                self.rounded_interval_at_row(inner_sx0, inner_sy0, inner_sx1, inner_sy1, inner_r, inner_row_y)
+                self.rounded_interval_at_row(
+                    inner_sx0,
+                    inner_sy0,
+                    inner_sx1,
+                    inner_sy1,
+                    inner_r,
+                    inner_row_y,
+                )
             } else {
                 None
             };
@@ -2302,19 +2800,7 @@ impl<'a> Walker<'a> {
                 );
             } else {
                 self.emit_fractional_span(
-                    dl,
-                    &fill,
-                    sx0,
-                    sy0,
-                    sx1,
-                    sy1,
-                    py,
-                    1,
-                    outer_x0,
-                    outer_x1,
-                    ix0,
-                    ix1,
-                    y_coverage,
+                    dl, &fill, sx0, sy0, sx1, sy1, py, 1, outer_x0, outer_x1, ix0, ix1, y_coverage,
                 );
             }
         }
@@ -2343,8 +2829,13 @@ impl<'a> Walker<'a> {
             return;
         }
         // Keep a one-pixel fringe for quantized rounded coverage.
-        if sx1 + 1.0 <= clip.x0 || sx0 - 1.0 >= clip.x1 ||
-            sy1 + 1.0 <= clip.y0 || sy0 - 1.0 >= clip.y1 { return; }
+        if sx1 + 1.0 <= clip.x0
+            || sx0 - 1.0 >= clip.x1
+            || sy1 + 1.0 <= clip.y0
+            || sy0 - 1.0 >= clip.y1
+        {
+            return;
+        }
         let w = sx1 - sx0;
         let h = sy1 - sy0;
         let scale_y = world.d.max(0.0);
@@ -2382,17 +2873,15 @@ impl<'a> Walker<'a> {
                     let qy0 = roundf(sy0);
                     let qx1 = roundf(sx1);
                     let qy1 = roundf(sy1);
-                    let rf = (r_px as f32)
-                        .min((qx1 - qx0) * 0.5)
-                        .min((qy1 - qy0) * 0.5);
+                    let rf = (r_px as f32).min((qx1 - qx0) * 0.5).min((qy1 - qy0) * 0.5);
                     let du = (r_px * self.raster_density) as f32 / dim as f32;
                     // One density-scaled corner quadrant in UV space, drawn
                     // into the same logical `rf` destination geometry.
                     let corners = [
-                        (qx0, qy0, 0.0, 0.0),           // TL quadrant
-                        (qx1 - rf, qy0, du, 0.0),       // TR
-                        (qx0, qy1 - rf, 0.0, du),       // BL
-                        (qx1 - rf, qy1 - rf, du, du),   // BR
+                        (qx0, qy0, 0.0, 0.0),         // TL quadrant
+                        (qx1 - rf, qy0, du, 0.0),     // TR
+                        (qx0, qy1 - rf, 0.0, du),     // BL
+                        (qx1 - rf, qy1 - rf, du, du), // BR
                     ];
                     for &(cx, cy, u0, v0) in corners.iter() {
                         self.emit_corner_quad(dl, tex, cx, cy, rf, u0, v0, du, color, clip);
@@ -2417,26 +2906,49 @@ impl<'a> Walker<'a> {
             let qx1 = roundf(sx1);
             let qy1 = roundf(sy1);
             // Integer splits avoid overlapping half-pixel strips on odd sizes.
-            let rf = (r_px as f32).min(floorf((qx1 - qx0) * 0.5)).min(floorf((qy1 - qy0) * 0.5));
+            let rf = (r_px as f32)
+                .min(floorf((qx1 - qx0) * 0.5))
+                .min(floorf((qy1 - qy0) * 0.5));
             if rf >= 1.0 {
-                if let Some((tex, dim)) = disc_texture(self.paint_cache, self.textures, self.tex_free, r_px, self.raster_density) {
+                if let Some((tex, dim)) = disc_texture(
+                    self.paint_cache,
+                    self.textures,
+                    self.tex_free,
+                    r_px,
+                    self.raster_density,
+                ) {
                     let du = (r_px * self.raster_density) as f32 / dim as f32;
                     let vertical = vertical_gradient(&fill);
                     let (a0, a1) = if vertical {
-                        (qy0.max(floorf(clip.y0)).max(0.0), qy1.min(ceilf(clip.y1)).min(self.screen.1))
+                        (
+                            qy0.max(floorf(clip.y0)).max(0.0),
+                            qy1.min(ceilf(clip.y1)).min(self.screen.1),
+                        )
                     } else {
-                        (qx0.max(floorf(clip.x0)).max(0.0), qx1.min(ceilf(clip.x1)).min(self.screen.0))
+                        (
+                            qx0.max(floorf(clip.x0)).max(0.0),
+                            qx1.min(ceilf(clip.x1)).min(self.screen.0),
+                        )
                     };
                     // Group masks into one texture batch. The center uses
                     // clipped full-box gradients: a constant number of quads,
                     // with the same global stops as the corner strips. Only
                     // strips that meet a corner band emit quads, and
                     // neighboring strips of one color share them.
-                    let (band0, band1) = if vertical { (qy0 + rf, qy1 - rf) } else { (qx0 + rf, qx1 - rf) };
+                    let (band0, band1) = if vertical {
+                        (qy0 + rf, qy1 - rf)
+                    } else {
+                        (qx0 + rf, qx1 - rf)
+                    };
                     let mut run: Option<(i32, i32, u32)> = None;
                     let strips = (a0 as i32..a1 as i32)
                         .filter(|&a| (a as f32) < band0 || (a + 1) as f32 > band1)
-                        .map(|a| Some((a, fill_color_at(&fill, sx0, sy0, sx1, sy1, a, a, a + 1, 255))))
+                        .map(|a| {
+                            Some((
+                                a,
+                                fill_color_at(&fill, sx0, sy0, sx1, sy1, a, a, a + 1, 255),
+                            ))
+                        })
                         .chain(core::iter::once(None));
                     for next in strips {
                         if let (Some((start, end, color)), Some((a, next_color))) = (run, next) {
@@ -2447,29 +2959,52 @@ impl<'a> Walker<'a> {
                         }
                         if let Some((start, end, color)) = run {
                             let strip = if vertical {
-                                Clip { x0: clip.x0, y0: clip.y0.max(start as f32), x1: clip.x1, y1: clip.y1.min(end as f32) }
+                                Clip {
+                                    x0: clip.x0,
+                                    y0: clip.y0.max(start as f32),
+                                    x1: clip.x1,
+                                    y1: clip.y1.min(end as f32),
+                                }
                             } else {
-                                Clip { x0: clip.x0.max(start as f32), y0: clip.y0, x1: clip.x1.min(end as f32), y1: clip.y1 }
+                                Clip {
+                                    x0: clip.x0.max(start as f32),
+                                    y0: clip.y0,
+                                    x1: clip.x1.min(end as f32),
+                                    y1: clip.y1,
+                                }
                             };
                             // Corners in painter order TL, TR, BL, BR; a strip
                             // meets the leading pair before band0 and the
                             // trailing pair past band1.
-                            let corners = [(qx0, qy0, 0.0, 0.0), (qx1-rf, qy0, du, 0.0),
-                                (qx0, qy1-rf, 0.0, du), (qx1-rf, qy1-rf, du, du)];
+                            let corners = [
+                                (qx0, qy0, 0.0, 0.0),
+                                (qx1 - rf, qy0, du, 0.0),
+                                (qx0, qy1 - rf, 0.0, du),
+                                (qx1 - rf, qy1 - rf, du, du),
+                            ];
                             let (leading, trailing) = ((start as f32) < band0, end as f32 > band1);
                             for (k, &(cx, cy, u, v)) in corners.iter().enumerate() {
                                 let first = if vertical { k < 2 } else { k % 2 == 0 };
                                 if if first { leading } else { trailing } {
-                                    self.emit_corner_quad(dl, tex, cx, cy, rf, u, v, du, color, &strip);
+                                    self.emit_corner_quad(
+                                        dl, tex, cx, cy, rf, u, v, du, color, &strip,
+                                    );
                                 }
                             }
                         }
                         run = next.map(|(a, color)| (a, a + 1, color));
                     }
-                    for &(x0, y0, x1, y1) in &[(qx0, qy0 + rf, qx1, qy1 - rf),
-                        (qx0 + rf, qy0, qx1 - rf, qy0 + rf), (qx0 + rf, qy1 - rf, qx1 - rf, qy1)] {
-                        let center = Clip { x0: x0.max(clip.x0), y0: y0.max(clip.y0),
-                            x1: x1.min(clip.x1), y1: y1.min(clip.y1) };
+                    for &(x0, y0, x1, y1) in &[
+                        (qx0, qy0 + rf, qx1, qy1 - rf),
+                        (qx0 + rf, qy0, qx1 - rf, qy0 + rf),
+                        (qx0 + rf, qy1 - rf, qx1 - rf, qy1),
+                    ] {
+                        let center = Clip {
+                            x0: x0.max(clip.x0),
+                            y0: y0.max(clip.y0),
+                            x1: x1.min(clip.x1),
+                            y1: y1.min(clip.y1),
+                        };
                         self.emit_screen_rect(dl, sx0, sy0, sx1, sy1, fill, &center);
                     }
                     return;
@@ -2515,7 +3050,9 @@ impl<'a> Walker<'a> {
                 }
                 let inner_x0 = full_start.max(ix0);
                 let inner_x1 = full_end.min(ix1);
-                self.emit_rounded_span(dl, &fill, sx0, sy0, sx1, sy1, mid_y0, h, inner_x0, inner_x1, 255);
+                self.emit_rounded_span(
+                    dl, &fill, sx0, sy0, sx1, sy1, mid_y0, h, inner_x0, inner_x1, 255,
+                );
                 if full_end < right_edge
                     && full_end >= ix0
                     && full_end < ix1
@@ -2589,9 +3126,15 @@ impl<'a> Walker<'a> {
 
             let inner_x0 = full_start.max(ix0);
             let inner_x1 = full_end.min(ix1);
-            self.emit_rounded_span(dl, &fill, sx0, sy0, sx1, sy1, py, 1, inner_x0, inner_x1, y_coverage);
+            self.emit_rounded_span(
+                dl, &fill, sx0, sy0, sx1, sy1, py, 1, inner_x0, inner_x1, y_coverage,
+            );
 
-            if full_end < right_edge && full_end >= ix0 && full_end < ix1 && !(emitted_left_edge && full_end == left_edge) {
+            if full_end < right_edge
+                && full_end >= ix0
+                && full_end < ix1
+                && !(emitted_left_edge && full_end == left_edge)
+            {
                 let x_coverage = pixel_interval_coverage(full_end, span_x0, span_x1);
                 self.emit_rounded_span(
                     dl,
@@ -2610,7 +3153,17 @@ impl<'a> Walker<'a> {
         }
     }
 
-    fn emit_shadow(&mut self, dl: &mut DrawList, world: &Affine, w: f32, h: f32, radius: f32, level: u32, opacity: f32, clip: &Clip) {
+    fn emit_shadow(
+        &mut self,
+        dl: &mut DrawList,
+        world: &Affine,
+        w: f32,
+        h: f32,
+        radius: f32,
+        level: u32,
+        opacity: f32,
+        clip: &Clip,
+    ) {
         if !world.is_axis_aligned() {
             return;
         }
@@ -2652,6 +3205,7 @@ impl<'a> Walker<'a> {
         fu1: f32,
         fv1: f32,
     ) {
+        crate::touch_texture(&self.textures[..], tex, self.frame);
         if !world.is_axis_aligned() {
             // Rotated image: transform corners with their UVs, clip, fan into
             // TEX_TRIs (affine screen-space sampling).
@@ -2664,10 +3218,18 @@ impl<'a> Walker<'a> {
             let poly: [ClipVert; 4] = core::array::from_fn(|i| {
                 let (lx, ly, u, v) = corners[i];
                 let (sx, sy) = world.apply(lx, ly);
-                ClipVert { x: sx, y: sy, color: [255.0; 4], u, v }
+                ClipVert {
+                    x: sx,
+                    y: sy,
+                    color: [255.0; 4],
+                    u,
+                    v,
+                }
             });
             let modulate = scale_alpha(0xffff_ffff, op);
-            clip_fan(&poly, clip, |a, b, c| emit_tex_tri(dl, tex, modulate, a, b, c, clip, self.screen));
+            clip_fan(&poly, clip, |a, b, c| {
+                emit_tex_tri(dl, tex, modulate, a, b, c, clip, self.screen)
+            });
             return;
         }
         let (sx0, sy0) = world.apply(0.0, 0.0);
@@ -2778,7 +3340,13 @@ impl<'a> Walker<'a> {
             b.x1 = b.x1.min(clip.x1);
             b.y1 = b.y1.min(clip.y1);
             if b.x1 > b.x0 && b.y1 > b.y0 {
-                texts.push(TextBox { x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0, text: run.clone() });
+                texts.push(TextBox {
+                    x: b.x0,
+                    y: b.y0,
+                    w: b.x1 - b.x0,
+                    h: b.y1 - b.y0,
+                    text: run.clone(),
+                });
             }
         }
         // The node's measurement provider was RECORDED at layout time
@@ -2790,10 +3358,8 @@ impl<'a> Walker<'a> {
         // flag it, and Ui::draw() relayouts and REPAINTS within this same
         // draw, so the frame that leaves is provider-correct. An animation
         // crossing exact identity re-decides twice per cycle.
-        let desired_native = !self.in_3d
-            && self.fonts.native_active()
-            && r.tracking == 0.0
-            && !in_transform;
+        let desired_native =
+            !self.in_3d && self.fonts.native_active() && r.tracking == 0.0 && !in_transform;
         if desired_native != node.text_native {
             self.provider_stale = true;
         }
@@ -2801,36 +3367,78 @@ impl<'a> Walker<'a> {
             self.emit_text_native(dl, run, r, world, color, clip, box_w);
             return;
         }
-        let Some(atlas) = self.fonts.atlas(slot) else { return };
+        let Some(atlas) = self.fonts.atlas(slot) else {
+            return;
+        };
         let (cell_w, cell_h) = (atlas.cell_w as f32, atlas.cell_h as f32);
         let mut scratch = core::mem::take(&mut self.glyph_scratch);
         // Keep the placement map separate while glyph pages may be allocated.
         let mut layouts = core::mem::take(&mut self.paint_cache.layouts);
-        let key = [slot as u64, self.font_revisions[slot as usize], r.tracking.to_bits() as u64,
-            r.line_height.to_bits() as u64, r.text_align as u64, box_w.to_bits() as u64];
-        let mut cached = atlas.stream.is_none() && layouts.get(&node_slot)
-            .is_some_and(|entry| entry.key == key && entry.text == run);
+        let key = [
+            slot as u64,
+            self.font_revisions[slot as usize],
+            r.tracking.to_bits() as u64,
+            r.line_height.to_bits() as u64,
+            r.text_align as u64,
+            box_w.to_bits() as u64,
+        ];
+        let mut cached = atlas.stream.is_none()
+            && layouts
+                .get(&node_slot)
+                .is_some_and(|entry| entry.key == key && entry.text == run);
         if !cached {
             layouts.remove(&node_slot);
             scratch.clear();
             let misses = self.fonts.misses.get();
-            self.fonts.layout_run(&run, slot, r.tracking, r.line_height, r.text_align, box_w, &mut scratch);
-            if scratch.len() <= 256 && scratch.capacity() > 256 { scratch.shrink_to_fit(); }
-            if atlas.stream.is_none() && self.fonts.misses.get() == misses &&
-                run.capacity() <= 256 && scratch.capacity() <= 256 {
+            self.fonts.layout_run(
+                &run,
+                slot,
+                r.tracking,
+                r.line_height,
+                r.text_align,
+                box_w,
+                &mut scratch,
+            );
+            if scratch.len() <= 256 && scratch.capacity() > 256 {
+                scratch.shrink_to_fit();
+            }
+            if atlas.stream.is_none()
+                && self.fonts.misses.get() == misses
+                && run.capacity() <= 256
+                && scratch.capacity() <= 256
+            {
                 // At most 256 strings (64 KiB) and 16,384 placements (256 KiB),
                 // plus entry metadata. Streamed/missing glyphs bypass caching.
-                while layouts.len() >= 256 || layouts.values().map(|e| e.glyphs.capacity()).sum::<usize>() + scratch.capacity() > 16_384 {
+                while layouts.len() >= 256
+                    || layouts.values().map(|e| e.glyphs.capacity()).sum::<usize>()
+                        + scratch.capacity()
+                        > 16_384
+                {
                     let oldest = *layouts.iter().min_by_key(|(_, e)| e.used).unwrap().0;
                     layouts.remove(&oldest);
                 }
-                let mut bounds = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+                let mut bounds = [
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ];
                 for g in &scratch {
-                    bounds[0] = bounds[0].min(g.x); bounds[1] = bounds[1].min(g.y);
-                    bounds[2] = bounds[2].max(g.x + cell_w); bounds[3] = bounds[3].max(g.y + cell_h);
+                    bounds[0] = bounds[0].min(g.x);
+                    bounds[1] = bounds[1].min(g.y);
+                    bounds[2] = bounds[2].max(g.x + cell_w);
+                    bounds[3] = bounds[3].max(g.y + cell_h);
                 }
-                layouts.insert(node_slot, CachedTextLayout { key, text: run, bounds,
-                    glyphs: core::mem::take(&mut scratch), used: self.frame });
+                layouts.insert(
+                    node_slot,
+                    CachedTextLayout {
+                        key,
+                        text: run,
+                        bounds,
+                        glyphs: core::mem::take(&mut scratch),
+                        used: self.frame,
+                    },
+                );
                 cached = true;
             }
         }
@@ -2841,14 +3449,20 @@ impl<'a> Walker<'a> {
                 let (x0, y0) = world.apply(entry.bounds[0], entry.bounds[1]);
                 let (x1, y1) = world.apply(entry.bounds[2], entry.bounds[3]);
                 // Include a pixel for the unscaled run's anchor rounding.
-                if x1 + 1.0 <= clip.x0 || x0 - 1.0 >= clip.x1 || y1 + 1.0 <= clip.y0 || y0 - 1.0 >= clip.y1 {
+                if x1 + 1.0 <= clip.x0
+                    || x0 - 1.0 >= clip.x1
+                    || y1 + 1.0 <= clip.y0
+                    || y0 - 1.0 >= clip.y1
+                {
                     self.glyph_scratch = scratch;
                     self.paint_cache.layouts = layouts;
                     return;
                 }
             }
             &entry.glyphs
-        } else { &scratch };
+        } else {
+            &scratch
+        };
         if world.is_axis_aligned() && (world.a != 1.0 || world.d != 1.0) {
             let mut page: Option<GlyphSampler> = None;
             // The 2D overflow stack already clips pixels with SCISSOR. Keep
@@ -2859,21 +3473,47 @@ impl<'a> Walker<'a> {
             let glyph_clip = if self.in_3d { clip } else { &viewport };
             for g in glyphs {
                 let (x, y) = world.apply(g.x, g.y);
-                if x + cell_w * world.a <= clip.x0 || x >= clip.x1 ||
-                    y + cell_h * world.d <= clip.y0 || y >= clip.y1 || !atlas.stream_visible(g.codepoint, g.gid) {
+                if x + cell_w * world.a <= clip.x0
+                    || x >= clip.x1
+                    || y + cell_h * world.d <= clip.y0
+                    || y >= clip.y1
+                    || !atlas.stream_visible(g.codepoint, g.gid)
+                {
                     continue;
                 }
                 if !page.as_ref().is_some_and(|page| page.contains(g.gid)) {
-                    page = glyph_page(self.paint_cache, self.textures, self.tex_free,
-                        atlas, self.font_revisions[slot as usize], g.gid);
+                    page = glyph_page(
+                        self.paint_cache,
+                        self.textures,
+                        self.tex_free,
+                        atlas,
+                        self.font_revisions[slot as usize],
+                        g.gid,
+                    );
                 }
-                let Some(page) = page.as_ref() else { continue; };
+                let Some(page) = page.as_ref() else {
+                    continue;
+                };
                 let texture = page.handle;
                 let uv = page.uv(g.gid);
                 let glyph_world = world.then(&Affine::translate(g.x, g.y));
                 let before = dl.words.len();
-                self.emit_tex_quad(dl, &glyph_world, cell_w, cell_h, texture, 1.0, glyph_clip, uv[0], uv[1], uv[2], uv[3]);
-                if dl.words.len() > before { *dl.words.last_mut().unwrap() = color; }
+                self.emit_tex_quad(
+                    dl,
+                    &glyph_world,
+                    cell_w,
+                    cell_h,
+                    texture,
+                    1.0,
+                    glyph_clip,
+                    uv[0],
+                    uv[1],
+                    uv[2],
+                    uv[3],
+                );
+                if dl.words.len() > before {
+                    *dl.words.last_mut().unwrap() = color;
+                }
             }
             self.glyph_scratch = scratch;
             self.paint_cache.layouts = layouts;
@@ -2936,7 +3576,9 @@ impl<'a> Walker<'a> {
         let slot = r.font_slot as u8;
         // Routes to the native measurer (the recorded-provider gate holds
         // tracking at 0 on this path).
-        let (mw, mh) = self.fonts.measure_run(&run, slot, r.tracking, r.line_height);
+        let (mw, mh) = self
+            .fonts
+            .measure_run(&run, slot, r.tracking, r.line_height);
         if mw <= 0.0 || mh <= 0.0 {
             return;
         }
@@ -2947,8 +3589,7 @@ impl<'a> Walker<'a> {
         if ox + ext_w <= clip.x0 || ox >= clip.x1 || oy + mh <= clip.y0 || oy >= clip.y1 {
             return;
         }
-        let clipped =
-            ox < clip.x0 || oy < clip.y0 || ox + ext_w > clip.x1 || oy + mh > clip.y1;
+        let clipped = ox < clip.x0 || oy < clip.y0 || ox + ext_w > clip.x1 || oy + mh > clip.y1;
         if clipped {
             dl.words.push(spec::draw_op::SCISSOR);
             dl.words.push(xy_word(clip.x0, clip.y0));
@@ -3068,7 +3709,13 @@ fn emit_tex_tri(
 /// vertex per clip edge.
 const CLIP_STACK: usize = 8;
 
-const CLIP_VERT_ZERO: ClipVert = ClipVert { x: 0.0, y: 0.0, color: [0.0; 4], u: 0.0, v: 0.0 };
+const CLIP_VERT_ZERO: ClipVert = ClipVert {
+    x: 0.0,
+    y: 0.0,
+    color: [0.0; 4],
+    u: 0.0,
+    v: 0.0,
+};
 
 /// One clip half-plane: keep `coord <= bound` (`keep_leq`) or `coord >= bound`
 /// on `axis` (0 = x, 1 = y).
@@ -3081,8 +3728,17 @@ struct ClipEdge {
 
 impl ClipEdge {
     fn all(clip: &Clip) -> [ClipEdge; 4] {
-        let edge = |axis, bound, keep_leq| ClipEdge { axis, bound, keep_leq };
-        [edge(0, clip.x0, false), edge(0, clip.x1, true), edge(1, clip.y0, false), edge(1, clip.y1, true)]
+        let edge = |axis, bound, keep_leq| ClipEdge {
+            axis,
+            bound,
+            keep_leq,
+        };
+        [
+            edge(0, clip.x0, false),
+            edge(0, clip.x1, true),
+            edge(1, clip.y0, false),
+            edge(1, clip.y1, true),
+        ]
     }
 
     fn coord(&self, v: &ClipVert) -> f32 {
@@ -3174,12 +3830,24 @@ fn clip_fan(poly: &[ClipVert], clip: &Clip, mut tri: impl FnMut(&ClipVert, &Clip
     };
     // Every vertex inside every half-plane: each pass would copy the polygon
     // unchanged.
-    if poly.iter().all(|v| v.x >= clip.x0 && v.x <= clip.x1 && v.y >= clip.y0 && v.y <= clip.y1) {
+    if poly
+        .iter()
+        .all(|v| v.x >= clip.x0 && v.x <= clip.x1 && v.y >= clip.y0 && v.y <= clip.y1)
+    {
         fan(poly);
         return;
     }
     if poly.len() <= CLIP_STACK {
-        let mut bufs = [StackPoly { verts: [CLIP_VERT_ZERO; CLIP_STACK], len: 0 }, StackPoly { verts: [CLIP_VERT_ZERO; CLIP_STACK], len: 0 }];
+        let mut bufs = [
+            StackPoly {
+                verts: [CLIP_VERT_ZERO; CLIP_STACK],
+                len: 0,
+            },
+            StackPoly {
+                verts: [CLIP_VERT_ZERO; CLIP_STACK],
+                len: 0,
+            },
+        ];
         bufs[0].verts[..poly.len()].copy_from_slice(poly);
         bufs[0].len = poly.len();
         let mut from = 0;
@@ -3189,7 +3857,11 @@ fn clip_fan(poly: &[ClipVert], clip: &Clip, mut tri: impl FnMut(&ClipVert, &Clip
                 break;
             }
             let (lo, hi) = bufs.split_at_mut(1);
-            let (src, dst) = if from == 0 { (&lo[0], &mut hi[0]) } else { (&hi[0], &mut lo[0]) };
+            let (src, dst) = if from == 0 {
+                (&lo[0], &mut hi[0])
+            } else {
+                (&hi[0], &mut lo[0])
+            };
             dst.len = 0;
             if !clip_pass(src.verts(), edge, dst) {
                 fits = false;
@@ -3277,7 +3949,16 @@ mod clip_tests {
     }
 
     fn bits(v: &ClipVert) -> [u32; 8] {
-        [v.x.to_bits(), v.y.to_bits(), v.u.to_bits(), v.v.to_bits(), v.color[0].to_bits(), v.color[1].to_bits(), v.color[2].to_bits(), v.color[3].to_bits()]
+        [
+            v.x.to_bits(),
+            v.y.to_bits(),
+            v.u.to_bits(),
+            v.v.to_bits(),
+            v.color[0].to_bits(),
+            v.color[1].to_bits(),
+            v.color[2].to_bits(),
+            v.color[3].to_bits(),
+        ]
     }
 
     fn fan_of(poly: &[ClipVert], clip: &Clip) -> Vec<[[u32; 8]; 3]> {
@@ -3287,18 +3968,31 @@ mod clip_tests {
     }
 
     fn expected_fan(verts: &[ClipVert]) -> Vec<[[u32; 8]; 3]> {
-        (1..verts.len().saturating_sub(1)).map(|i| [bits(&verts[0]), bits(&verts[i]), bits(&verts[i + 1])]).collect()
+        (1..verts.len().saturating_sub(1))
+            .map(|i| [bits(&verts[0]), bits(&verts[i]), bits(&verts[i + 1])])
+            .collect()
     }
 
     fn poly(points: &[(f32, f32)]) -> Vec<ClipVert> {
         points
             .iter()
             .enumerate()
-            .map(|(i, &(x, y))| ClipVert { x, y, color: [i as f32 * 40.0, 255.0, 0.0, 128.0], u: x / 100.0, v: y / 100.0 })
+            .map(|(i, &(x, y))| ClipVert {
+                x,
+                y,
+                color: [i as f32 * 40.0, 255.0, 0.0, 128.0],
+                u: x / 100.0,
+                v: y / 100.0,
+            })
             .collect()
     }
 
-    const CLIP: Clip = Clip { x0: 10.0, y0: 10.0, x1: 90.0, y1: 90.0 };
+    const CLIP: Clip = Clip {
+        x0: 10.0,
+        y0: 10.0,
+        x1: 90.0,
+        y1: 90.0,
+    };
 
     #[test]
     fn inside_quad_fans_the_input_unchanged() {
@@ -3321,15 +4015,31 @@ mod clip_tests {
     #[test]
     fn a_polygon_that_outgrows_the_stack_falls_back_to_the_heap() {
         // Self-intersecting zigzag: each pass can add more than one vertex.
-        let zigzag = poly(&[(0.0, 50.0), (100.0, 0.0), (5.0, 95.0), (95.0, 5.0), (0.0, 100.0), (100.0, 50.0)]);
+        let zigzag = poly(&[
+            (0.0, 50.0),
+            (100.0, 0.0),
+            (5.0, 95.0),
+            (95.0, 5.0),
+            (0.0, 100.0),
+            (100.0, 50.0),
+        ]);
         let expected = reference(&zigzag, &CLIP);
-        assert!(expected.len() > CLIP_STACK, "the fixture must overflow ({} vertices)", expected.len());
+        assert!(
+            expected.len() > CLIP_STACK,
+            "the fixture must overflow ({} vertices)",
+            expected.len()
+        );
         assert_eq!(fan_of(&zigzag, &CLIP), expected_fan(&expected));
     }
 
     #[test]
     fn an_outside_quad_emits_nothing() {
-        let quad = poly(&[(100.0, 100.0), (120.0, 100.0), (120.0, 120.0), (100.0, 120.0)]);
+        let quad = poly(&[
+            (100.0, 100.0),
+            (120.0, 100.0),
+            (120.0, 120.0),
+            (100.0, 120.0),
+        ]);
         assert!(fan_of(&quad, &CLIP).is_empty());
     }
 }

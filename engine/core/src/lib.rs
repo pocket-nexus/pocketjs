@@ -88,8 +88,13 @@ pub const MAX_TICK_HZ: u32 = 240;
 /// the PSP GE can sample them directly (the wasm rasterizer reads them via
 /// `Ui::texture`).
 pub struct Texture {
-    /// 16-byte-aligned backing store (`u128` chunks).
-    data: Vec<u128>,
+    /// 16-byte-aligned backing store (`u128` chunks); empty while a
+    /// package texture is released under `Ui::set_texture_budget`.
+    data: core::cell::OnceCell<Vec<u128>>,
+    /// The pak bytes a released texture is decoded from again.
+    source: Option<TextureSource>,
+    /// `Ui::frame` of the last draw that recorded this texture (`touch`).
+    used: core::sync::atomic::AtomicU32,
     byte_len: usize,
     pub w: u32,
     pub h: u32,
@@ -110,10 +115,62 @@ pub struct Texture {
     revision: u64,
 }
 
+/// Where a package texture's pixels come from: the pak's storage, which the
+/// Ui keeps alive, and the raw pixel stream's position in it.
+pub struct TextureSource {
+    storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+    stream: core::ops::Range<usize>,
+}
+
 impl Texture {
+    /// The pixels. A released package texture is decoded here when nothing
+    /// decoded it first; frames decode the textures they record (`touch`)
+    /// on the recording thread, so a renderer on another thread only reads.
     pub fn pixels(&self) -> &[u8] {
+        let data = self.data.get_or_init(|| self.decode());
         // Safe: the Vec<u128> owns at least byte_len initialized bytes.
-        unsafe { core::slice::from_raw_parts(self.data.as_ptr() as *const u8, self.byte_len) }
+        unsafe { core::slice::from_raw_parts(data.as_ptr() as *const u8, self.byte_len) }
+    }
+
+    /// The pixels from the package, or zeros for a texture without a source
+    /// whose storage is gone.
+    fn decode(&self) -> Vec<u128> {
+        let decoded = self.source.as_ref().and_then(|source| {
+            let bytes = (*source.storage).as_ref().get(source.stream.clone())?;
+            (bytes.len() >= self.byte_len).then(|| copy_aligned(bytes, self.byte_len))
+        });
+        decoded.unwrap_or_else(|| alloc::vec![0u128; self.byte_len.div_ceil(16)])
+    }
+
+    /// The backing store, decoded first when released.
+    fn data_mut(&mut self) -> &mut Vec<u128> {
+        if self.data.get().is_none() {
+            let decoded = self.decode();
+            let _ = self.data.set(decoded);
+        }
+        self.data.get_mut().expect("set above")
+    }
+
+    /// True while the pixels occupy memory.
+    pub fn is_resident(&self) -> bool {
+        self.data.get().is_some()
+    }
+
+    /// A frame at `frame` draws this texture: decode it now, on the thread
+    /// recording the frame, and stamp it as drawn for `Ui::set_texture_budget`.
+    pub(crate) fn touch(&self, frame: u64) {
+        self.used
+            .store(frame as u32, core::sync::atomic::Ordering::Relaxed);
+        let _ = self.data.get_or_init(|| self.decode());
+    }
+
+    /// Drop the pixels of a package texture; the next read decodes them again.
+    fn release(&mut self) -> bool {
+        if self.source.is_none() || self.data.get().is_none() {
+            return false;
+        }
+        self.data.take();
+        true
     }
 
     /// The 1024-byte CLUT (256 x u32 ABGR); Some only when psm == PSM_T8.
@@ -201,6 +258,15 @@ fn make_tex_handle(gen: u16, slot: u32) -> i32 {
 
 /// Resolve a generation-tagged handle to its slot index; None for negative,
 /// stale or freed handles.
+/// `Texture::touch` for the live texture `handle` resolves to, if any.
+pub(crate) fn touch_texture(slots: &[TexSlot], handle: u32, frame: u64) {
+    if let Some(slot) = tex_resolve(slots, handle as i32) {
+        if let Some(texture) = slots[slot as usize].tex.as_ref() {
+            texture.touch(frame);
+        }
+    }
+}
+
 pub(crate) fn tex_resolve(slots: &[TexSlot], handle: i32) -> Option<u32> {
     if handle < 0 {
         return None;
@@ -319,6 +385,10 @@ pub struct Ui {
     tex_free: Vec<u32>,
     /// Latest frame passed to `retain_textures` and not yet released.
     texture_fence: u64,
+    /// Decoded bytes of package textures kept past a draw; zero keeps all.
+    texture_budget: usize,
+    /// `frame` of the previous `draw`: textures it recorded are not released.
+    texture_draw_frame: u64,
     /// Core-owned corner masks and scaled-glyph pages (see draw::PaintCache).
     paint_cache: draw::PaintCache,
     /// Raster pixels baked for each logical UI pixel. Layout and DrawList
@@ -414,6 +484,8 @@ impl Ui {
             textures: Vec::new(),
             tex_free: Vec::new(),
             texture_fence: 0,
+            texture_budget: 0,
+            texture_draw_frame: 0,
             paint_cache: draw::PaintCache::new(),
             raster_density,
             stable_motion_paint: false,
@@ -1122,7 +1194,9 @@ impl Ui {
             copy_aligned(stream, byte_len)
         };
         let tex = Texture {
-            data: chunks,
+            data: core::cell::OnceCell::from(chunks),
+            source: None,
+            used: core::sync::atomic::AtomicU32::new(0),
             byte_len,
             w,
             h,
@@ -1136,6 +1210,154 @@ impl Ui {
             self.bump_raster_revision();
         }
         handle
+    }
+
+    /// `upload_texture_flags` for a pixel stream at `stream` of `storage`,
+    /// which the caller keeps alive. A raw stream is decoded when the texture
+    /// is first drawn and released again under `set_texture_budget`; an RLE
+    /// stream is decoded here and stays.
+    pub fn upload_texture_from(
+        &mut self,
+        storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+        stream: core::ops::Range<usize>,
+        w: u32,
+        h: u32,
+        psm: u32,
+        flags: u8,
+    ) -> i32 {
+        if flags & spec::img::FLAG_RLE != 0 {
+            let Some(data) = (*storage).as_ref().get(stream) else {
+                return -1;
+            };
+            return self.upload_texture_flags(data, w, h, psm, flags);
+        }
+        let bpp = match psm {
+            spec::psm::PSM_5650 | spec::psm::PSM_4444 => 2usize,
+            spec::psm::PSM_8888 => 4usize,
+            spec::psm::PSM_T8 => 1usize,
+            _ => return -1,
+        };
+        let pow2 = |v: u32| v > 0 && v <= spec::TEX_MAX_DIM && v & (v - 1) == 0;
+        if !pow2(w) || !pow2(h) {
+            return -1;
+        }
+        let byte_len = w as usize * h as usize * bpp;
+        let (palette, pixels) = {
+            let Some(data) = (*storage).as_ref().get(stream.clone()) else {
+                return -1;
+            };
+            if psm == spec::psm::PSM_T8 {
+                if data.len() < TEX_PALETTE_BYTES + byte_len {
+                    return -1;
+                }
+                (
+                    Some(copy_aligned(data, TEX_PALETTE_BYTES)),
+                    stream.start + TEX_PALETTE_BYTES..stream.end,
+                )
+            } else {
+                if data.len() < byte_len {
+                    return -1;
+                }
+                (None, stream)
+            }
+        };
+        let tex = Texture {
+            data: core::cell::OnceCell::new(),
+            source: Some(TextureSource {
+                storage,
+                stream: pixels,
+            }),
+            used: core::sync::atomic::AtomicU32::new(0),
+            byte_len,
+            w,
+            h,
+            psm,
+            palette,
+            linear: flags & spec::img::FLAG_LINEAR != 0,
+            revision: 0,
+        };
+        let handle = tex_alloc(&mut self.textures, &mut self.tex_free, tex);
+        if handle >= 0 {
+            self.bump_raster_revision();
+        }
+        handle
+    }
+
+    /// `upload_img_entry` for the IMG entry at `blob` of `storage`; see
+    /// `upload_texture_from`.
+    pub fn upload_img_entry_from(
+        &mut self,
+        storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+        blob: core::ops::Range<usize>,
+    ) -> i32 {
+        let Some((w, h, psm, flags)) = (*storage)
+            .as_ref()
+            .get(blob.clone())
+            .and_then(parse_img_header)
+        else {
+            return -1;
+        };
+        self.upload_texture_from(storage, blob.start + 8..blob.end, w, h, psm, flags)
+    }
+
+    /// Package textures (`upload_texture_from`) beyond `bytes` of decoded
+    /// pixels are released when the next frame is drawn, the least recently
+    /// drawn first, sparing those the previous draw recorded and those a
+    /// deferred submission still reads (`retain_textures`); a released
+    /// texture is decoded again when a draw records it. Zero, the default,
+    /// keeps every texture.
+    pub fn set_texture_budget(&mut self, bytes: usize) {
+        self.texture_budget = bytes;
+    }
+
+    /// Whether a texture's pixels occupy memory now; `None` for a stale
+    /// handle.
+    pub fn texture_resident(&self, handle: i32) -> Option<bool> {
+        let slot = tex_resolve(&self.textures, handle)?;
+        self.textures[slot as usize]
+            .tex
+            .as_ref()
+            .map(Texture::is_resident)
+    }
+
+    /// At the start of a draw: release package textures beyond the budget
+    /// that the previous draw did not record and no submission pins.
+    fn evict_textures(&mut self) {
+        let last_draw = self.texture_draw_frame as u32;
+        self.texture_draw_frame = self.frame;
+        if self.texture_budget == 0 {
+            return;
+        }
+        let now = self.frame as u32;
+        let mut resident = 0usize;
+        let mut candidates: Vec<(u32, usize)> = Vec::new();
+        for (index, slot) in self.textures.iter().enumerate() {
+            let Some(tex) = slot.tex.as_ref() else {
+                continue;
+            };
+            if tex.source.is_none() || !tex.is_resident() {
+                continue;
+            }
+            resident += tex.byte_len;
+            let used = tex.used.load(core::sync::atomic::Ordering::Relaxed);
+            if slot.fence == 0 && used != last_draw {
+                candidates.push((now.wrapping_sub(used), index));
+            }
+        }
+        if resident <= self.texture_budget {
+            return;
+        }
+        candidates.sort_unstable_by(|a, b| b.cmp(a));
+        for (_, index) in candidates {
+            if resident <= self.texture_budget {
+                break;
+            }
+            if let Some(tex) = self.textures[index].tex.as_mut() {
+                if tex.release() {
+                    resident -= tex.byte_len;
+                }
+            }
+        }
     }
 
     /// Upload a self-contained IMG pak entry (spec op uploadImgEntry;
@@ -1214,7 +1436,9 @@ impl Ui {
         }
         if *fence != 0 {
             let replacement = Texture {
-                data: alloc::vec![0u128; tex.data.len()],
+                data: core::cell::OnceCell::from(alloc::vec![0u128; tex.byte_len.div_ceil(16)]),
+                source: None,
+                used: core::sync::atomic::AtomicU32::new(0),
                 palette: Some(alloc::vec![0u128; TEX_PALETTE_BYTES / 16]),
                 byte_len: tex.byte_len,
                 w: tex.w,
@@ -1237,7 +1461,7 @@ impl Ui {
             );
             core::ptr::copy_nonoverlapping(
                 pixels.as_ptr(),
-                tex.data.as_mut_ptr() as *mut u8,
+                tex.data_mut().as_mut_ptr() as *mut u8,
                 tex.byte_len,
             );
         }
@@ -1282,7 +1506,7 @@ impl Ui {
         }
         let row_bytes = w as usize * bpp;
         let stride = tex.w as usize * bpp;
-        let base = tex.data.as_mut_ptr() as *mut u8;
+        let base = tex.data_mut().as_mut_ptr() as *mut u8;
         for row in 0..h as usize {
             let offset = (y as usize + row) * stride + x as usize * bpp;
             // SAFETY: the rectangle lies inside the texture, whose storage
@@ -2157,6 +2381,7 @@ impl Ui {
     /// Walk the tree into the DrawList (spec.ts DRAWLIST format) and return
     /// it. Output is valid until the next mutating call.
     pub fn draw(&mut self) -> &DrawList {
+        self.evict_textures();
         self.draw_list.stable_motion_paint = self.stable_motion_paint;
         self.fonts.stream_begin(self.frame);
         if self.layout.needs() {

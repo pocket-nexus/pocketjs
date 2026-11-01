@@ -244,7 +244,15 @@ reflection feature OOM'd it once — the handler parks on vblank, which in
 PPSSPPHeadless looks like a silent timeout). Platform rule: `pocket pack`
 computes a per-app memory line (js + pak + expected texture heap) and the
 launcher displays it; admission warns when a package cannot fit the
-device's arena. Budgets become data, not folklore.
+device's arena. Budgets become data, not folklore. **A program may also
+bound the decoded textures of a package it reads in place:
+`pocket_runtime_set_texture_budget` keeps that many bytes of package
+textures past a frame, releases the least recently drawn ones beyond it
+when a frame is drawn (never one the previous frame drew or one pinned by
+a deferred submission) and decodes a released texture from the package
+again when a frame draws it. A frame decodes the textures it records on
+the thread that records it, so a renderer on another thread only reads
+them.** Font atlases of such a package are read in place throughout.
 
 ## The DX pipeline (what keeps it silky)
 

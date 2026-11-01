@@ -5190,3 +5190,94 @@ fn shared_font_atlas_reads_its_cells_from_the_storage() {
         ui.font_atlas(0).unwrap().bitmap
     );
 }
+
+#[test]
+fn package_textures_decode_when_drawn_and_release_under_the_budget() {
+    let mut ui = Ui::new();
+    let image = |fill: u8| {
+        let mut blob = alloc::vec![0u8; 8 + 16 * 16 * 4];
+        blob[0] = 16;
+        blob[2] = 16;
+        blob[4] = spec::psm::PSM_8888 as u8;
+        for pixel in &mut blob[8..] {
+            *pixel = fill;
+        }
+        blob
+    };
+    let (first, second) = (image(1), image(2));
+    let mut pak = Vec::new();
+    let first_range = 0..first.len();
+    pak.extend_from_slice(&first);
+    let second_range = pak.len()..pak.len() + second.len();
+    pak.extend_from_slice(&second);
+    let storage: alloc::rc::Rc<dyn AsRef<[u8]>> = alloc::rc::Rc::new(pak);
+    let a = ui.upload_img_entry_from(storage.clone(), first_range.clone());
+    let b = ui.upload_img_entry_from(storage.clone(), second_range);
+    assert!(a >= 0 && b >= 0);
+    assert_eq!(ui.texture_resident(a), Some(false));
+    assert_eq!(
+        ui.upload_img_entry_from(storage.clone(), first_range.start..first_range.end - 1),
+        -1
+    );
+    let node = ui.create_node(spec::NodeType::Image as u8);
+    ui.set_prop(node, spec::prop::WIDTH, 16.0);
+    ui.set_prop(node, spec::prop::HEIGHT, 16.0);
+    ui.set_prop(
+        node,
+        spec::prop::POS_TYPE,
+        spec::PosType::Absolute as u32 as f64,
+    );
+    ui.set_prop(node, spec::prop::INSET_T, 0.0);
+    ui.set_prop(node, spec::prop::INSET_L, 0.0);
+    ui.insert_before(spec::ROOT_ID, node, 0);
+    ui.set_texture_budget(1024);
+    // Recording a frame decodes the textures it draws.
+    ui.set_image(node, a);
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.texture_resident(a), Some(true));
+    assert_eq!(ui.texture(a).unwrap().pixels[0], 1);
+    // b takes a's place: a stays until a draw finds it unrecorded beyond the budget.
+    ui.set_image(node, b);
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.texture_resident(a), Some(true));
+    assert_eq!(ui.texture_resident(b), Some(true));
+    assert_eq!(ui.texture(b).unwrap().pixels[0], 2);
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.texture_resident(a), Some(false));
+    assert_eq!(ui.texture_resident(b), Some(true));
+    // Drawing a again decodes it; a fence spares b while it is not drawn.
+    ui.set_image(node, a);
+    ui.retain_textures(9, &[b]);
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.texture_resident(a), Some(true));
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.texture_resident(b), Some(true));
+    unsafe { ui.release_textures(9) };
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.texture_resident(b), Some(false));
+    assert_eq!(ui.texture_resident(a), Some(true));
+    // A reader outside a frame decodes a released texture itself.
+    assert_eq!(ui.texture(b).unwrap().pixels[0], 2);
+    assert_eq!(ui.texture_resident(b), Some(true));
+    // Without a budget nothing is released.
+    ui.set_texture_budget(0);
+    for _ in 0..3 {
+        ui.tick();
+        ui.draw();
+    }
+    assert_eq!(ui.texture_resident(b), Some(true));
+    // A copied texture has no source and is never released.
+    let copied = ui.upload_img_entry(&first);
+    ui.set_texture_budget(1);
+    for _ in 0..3 {
+        ui.tick();
+        ui.draw();
+    }
+    assert_eq!(ui.texture_resident(copied), Some(true));
+}
