@@ -53,6 +53,8 @@ export const appletSchema = {
     version: { const: APPLET_VERSION },
     summary: { type: "string", minLength: 1, maxLength: APPLET_SUMMARY_MAX },
     services: { type: "array", items: serviceNameSchema, uniqueItems: true, maxItems: 8 },
+    /** Host names the applet fetches: Omarchy Pocket shows them before an install and refuses others. */
+    hosts: { type: "array", items: { type: "string", maxLength: 253 }, uniqueItems: true, maxItems: 16 },
     store: {
       type: "object",
       additionalProperties: false,
