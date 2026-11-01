@@ -21,6 +21,7 @@ pub use pocket_psp_alloc::c_heap;
 pub use pocket_psp_audio::output as audio;
 pub use pocket_psp_audio::streams as audio_mod;
 pub mod dbg;
+pub mod fs_ops;
 pub mod scene;
 pub mod service_bindings;
 pub use scene as ge;

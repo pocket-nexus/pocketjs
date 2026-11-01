@@ -656,6 +656,7 @@ pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     JS_FreeValue(ctx, ui_obj);
     register_audio(ctx, global);
     register_link(ctx, global);
+    crate::fs_ops::register_fs(ctx, global);
 }
 /// Install `globalThis.link` and `globalThis.media`, both carried by the
 /// companion on the USB share (link.rs, media.rs). The link starts here,
