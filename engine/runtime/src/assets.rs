@@ -5,7 +5,13 @@ use pocketjs_core::{
     Ui,
 };
 
-pub(crate) fn install(ui: &mut Ui, pak: &[u8]) -> Result<AssetRegistry, RuntimeError> {
+/// Install the pak's assets. With `storage`, the pak's backing store the
+/// runtime keeps alive, font atlases read their cells from it in place.
+pub(crate) fn install(
+    ui: &mut Ui,
+    pak: &[u8],
+    storage: Option<alloc::rc::Rc<dyn AsRef<[u8]>>>,
+) -> Result<AssetRegistry, RuntimeError> {
     let mut inputs = Vec::new();
     let mut names = Vec::new();
     for entry in
@@ -29,7 +35,7 @@ pub(crate) fn install(ui: &mut Ui, pak: &[u8]) -> Result<AssetRegistry, RuntimeE
         });
     }
     let mut handles = vec![-1; inputs.len()];
-    ui.load_assets(&inputs, &mut handles)
+    ui.load_assets_from(&inputs, &mut handles, storage.as_ref())
         .map_err(|_| RuntimeError::InvalidAssets)?;
     let mut registry = AssetRegistry::default();
     for ((input, key), handle) in inputs.iter().zip(names).zip(handles) {

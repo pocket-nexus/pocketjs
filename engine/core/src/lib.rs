@@ -45,6 +45,7 @@ use alloc::vec::Vec;
 
 pub mod anim;
 pub mod codec;
+pub mod compositor;
 #[cfg(feature = "counters")]
 pub mod counters;
 pub mod damage;
@@ -57,14 +58,13 @@ pub mod physics;
 pub mod plan_facts;
 pub mod raster;
 pub mod sha256;
-pub mod compositor;
 pub use pocket_spec as spec;
+pub mod font_pages;
+pub mod font_stream;
 pub mod stream;
 pub mod stream_rx;
 pub mod style;
 pub mod text;
-pub mod font_pages;
-pub mod font_stream;
 pub use pocket_package::font_archive;
 pub mod touch;
 pub mod tree;
@@ -634,7 +634,10 @@ impl Ui {
         let id = node.id(slot);
         let contained = node.node_type != spec::NodeType::Text as u8
             && style::resolve_contain(node, &self.styles) != spec::Contain::None as u8;
-        if contained == node.region_root || id == spec::ROOT_ID || id == self.auxiliary_surface_root() {
+        if contained == node.region_root
+            || id == spec::ROOT_ID
+            || id == self.auxiliary_surface_root()
+        {
             return;
         }
         self.tree.slots[slot as usize].region_root = contained;
@@ -665,7 +668,8 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        if id == spec::ROOT_ID || id == self.auxiliary_surface_root() || mode > tree::LAYOUT_FORMULA {
+        if id == spec::ROOT_ID || id == self.auxiliary_surface_root() || mode > tree::LAYOUT_FORMULA
+        {
             return;
         }
         let was_live = self.tree.slots[slot as usize].layout_mode == tree::LAYOUT_LIVE;
@@ -700,12 +704,16 @@ impl Ui {
         let (parent_size, origin) = match self.tree.resolve(parent) {
             Some(parent_slot) => {
                 let rect = self.tree.slots[parent_slot as usize].layout;
-                ((rect.w, rect.h), layout::absolute_origin(&self.tree, parent_slot))
+                (
+                    (rect.w, rect.h),
+                    layout::absolute_origin(&self.tree, parent_slot),
+                )
             }
             None => ((0.0, 0.0), (0.0, 0.0)),
         };
         let resolved = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
-        self.tree.slots[slot as usize].layout = layout::formula_rect(&resolved, parent_size, origin);
+        self.tree.slots[slot as usize].layout =
+            layout::formula_rect(&resolved, parent_size, origin);
     }
 
     /// Unrounded solver output of a live node relative to its parent:
@@ -725,7 +733,13 @@ impl Ui {
     #[cfg(feature = "counters")]
     pub fn layout_mismatches(&mut self) -> Vec<(i32, tree::LayoutRect, tree::LayoutRect)> {
         let viewport = self.layout.viewport;
-        layout::reference_mismatches(&mut self.tree, &self.styles, &self.fonts, viewport, spec::ROOT_ID)
+        layout::reference_mismatches(
+            &mut self.tree,
+            &self.styles,
+            &self.fonts,
+            viewport,
+            spec::ROOT_ID,
+        )
     }
 
     /// Create the fixed auxiliary UI root, or resize the existing one. The
@@ -778,7 +792,9 @@ impl Ui {
     }
 
     pub fn auxiliary_viewport(&self) -> Option<(f32, f32)> {
-        self.auxiliary.as_ref().map(|surface| surface.layout.viewport)
+        self.auxiliary
+            .as_ref()
+            .map(|surface| surface.layout.viewport)
     }
 
     // ---- tree ops ---------------------------------------------------------
@@ -795,7 +811,10 @@ impl Ui {
     /// Destroy `id` and its whole subtree; frees anim tracks; clears focus
     /// if the focused node was inside. Stale/unknown ids are no-ops.
     pub fn destroy_node(&mut self, id: i32) {
-        if id == spec::ROOT_ID || id == self.auxiliary_surface_root() || self.tree.resolve(id).is_none() {
+        if id == spec::ROOT_ID
+            || id == self.auxiliary_surface_root()
+            || self.tree.resolve(id).is_none()
+        {
             return;
         }
         if self.focused != 0 && self.tree.is_in_subtree(id, self.focused) {
@@ -886,7 +905,9 @@ impl Ui {
 
     /// Child ids in document order. Stale ids have no children.
     pub fn node_children(&self, id: i32) -> &[i32] {
-        self.tree.get(id).map_or(&[], |node| node.children.as_slice())
+        self.tree
+            .get(id)
+            .map_or(&[], |node| node.children.as_slice())
     }
 
     /// Whether a generation-tagged node id still resolves to a live node.
@@ -1503,11 +1524,37 @@ impl Ui {
         let ok = self.fonts.load(bytes);
         if ok {
             let slot = bytes[12] as usize;
-            self.font_revisions[slot] = self.font_revisions[slot].wrapping_add(1);
-            self.mark_layout_dirty();
-            self.bump_raster_revision();
+            self.font_atlas_loaded(slot);
         }
         ok
+    }
+
+    /// `load_font_atlas` for the blob at `range` of `storage`, which the
+    /// caller keeps alive: the atlas reads its coverage cells from that
+    /// storage in place (`text::Coverage`) instead of copying them.
+    pub fn load_font_atlas_shared(
+        &mut self,
+        storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+        range: core::ops::Range<usize>,
+    ) -> bool {
+        let Some(slot) = (*storage)
+            .as_ref()
+            .get(range.start + 12)
+            .map(|slot| *slot as usize)
+        else {
+            return false;
+        };
+        let ok = self.fonts.load_shared(storage, range);
+        if ok {
+            self.font_atlas_loaded(slot);
+        }
+        ok
+    }
+
+    fn font_atlas_loaded(&mut self, slot: usize) {
+        self.font_revisions[slot] = self.font_revisions[slot].wrapping_add(1);
+        self.mark_layout_dirty();
+        self.bump_raster_revision();
     }
 
     // ---- animation ---------------------------------------------------------
@@ -1532,8 +1579,8 @@ impl Ui {
         };
         let kind = spec::PROP_VALUE_KIND[prop as usize];
         let is_color = kind == spec::value_kind::COLOR;
-        let from =
-            style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true).get_bits(prop);
+        let from = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true)
+            .get_bits(prop);
         let to_bits = prop_bits(kind, to);
         let nid = self.tree.slots[slot as usize].id(slot);
         if !is_color {
@@ -1577,7 +1624,9 @@ impl Ui {
     }
 
     /// Stable ids and reasons of tracks that completed in the latest tick.
-    pub fn animation_completions(&self) -> &[anim::TrackCompletion] { self.anims.completions() }
+    pub fn animation_completions(&self) -> &[anim::TrackCompletion] {
+        self.anims.completions()
+    }
     /// Drain completed tracks, including replacements or removals between ticks.
     pub fn drain_animation_completions(&mut self, receive: impl FnMut(anim::TrackCompletion)) {
         self.anims.drain_completions(receive);
@@ -1674,7 +1723,16 @@ impl Ui {
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
-        draw::hit_point(&self.tree, &self.styles, spec::ROOT_ID, self.layout.viewport, x, y, true, self.stable_motion_paint)
+        draw::hit_point(
+            &self.tree,
+            &self.styles,
+            spec::ROOT_ID,
+            self.layout.viewport,
+            x,
+            y,
+            true,
+            self.stable_motion_paint,
+        )
     }
 
     /// `hit_test`'s bounds-only twin (spec op hitTestBounds): pure layout
@@ -1684,11 +1742,22 @@ impl Ui {
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
-        draw::hit_point(&self.tree, &self.styles, spec::ROOT_ID, self.layout.viewport, x, y, false, self.stable_motion_paint)
+        draw::hit_point(
+            &self.tree,
+            &self.styles,
+            spec::ROOT_ID,
+            self.layout.viewport,
+            x,
+            y,
+            false,
+            self.stable_motion_paint,
+        )
     }
 
     pub fn hit_test_auxiliary(&mut self, x: f32, y: f32) -> i32 {
-        let Some(auxiliary) = self.auxiliary.as_mut() else { return 0 };
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return 0;
+        };
         if auxiliary.layout.needs() {
             layout::relayout_root(
                 &mut self.tree,
@@ -1711,7 +1780,9 @@ impl Ui {
     }
 
     pub fn hit_test_bounds_auxiliary(&mut self, x: f32, y: f32) -> i32 {
-        let Some(auxiliary) = self.auxiliary.as_mut() else { return 0 };
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return 0;
+        };
         if auxiliary.layout.needs() {
             layout::relayout_root(
                 &mut self.tree,
@@ -1753,7 +1824,9 @@ impl Ui {
     }
 
     pub fn touch_hits_auxiliary(&mut self, packed: &[u32], out: &mut [i32; 8]) -> usize {
-        let Some(auxiliary) = self.auxiliary.as_mut() else { return 0 };
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return 0;
+        };
         if auxiliary.layout.needs() {
             layout::relayout_root(
                 &mut self.tree,
@@ -2354,7 +2427,10 @@ impl Ui {
         match surface {
             0 => self.draw_list.capture_texts = if root == 0 { spec::ROOT_ID } else { root },
             1 => match self.auxiliary.as_mut() {
-                Some(auxiliary) => auxiliary.draw_list.capture_texts = if root == 0 { auxiliary.root } else { root },
+                Some(auxiliary) => {
+                    auxiliary.draw_list.capture_texts =
+                        if root == 0 { auxiliary.root } else { root }
+                }
                 None => return false,
             },
             _ => return false,
@@ -2377,9 +2453,20 @@ impl Ui {
         };
         let mut out = alloc::string::String::new();
         for text in &list.texts {
-            let _ = write!(out, "{},{},{},{}\t", text.x as i32, text.y as i32, (text.w + 0.999) as i32, (text.h + 0.999) as i32);
+            let _ = write!(
+                out,
+                "{},{},{},{}\t",
+                text.x as i32,
+                text.y as i32,
+                (text.w + 0.999) as i32,
+                (text.h + 0.999) as i32
+            );
             for ch in text.text.chars() {
-                out.push(if ch == '\t' || ch == '\n' || ch == '\r' { ' ' } else { ch });
+                out.push(if ch == '\t' || ch == '\n' || ch == '\r' {
+                    ' '
+                } else {
+                    ch
+                });
             }
             out.push('\n');
         }
@@ -2494,8 +2581,14 @@ impl Ui {
     /// The returned descriptor must be revalidated after any resource mutation.
     pub fn prepare_glyph_page(&mut self, slot: u8, gid: u16) -> Option<draw::GlyphSampler> {
         let atlas = self.fonts.atlas(slot)?;
-        draw::glyph_page(&mut self.paint_cache, &mut self.textures, &mut self.tex_free,
-            atlas, self.font_revisions[slot as usize], gid)
+        draw::glyph_page(
+            &mut self.paint_cache,
+            &mut self.textures,
+            &mut self.tex_free,
+            atlas,
+            self.font_revisions[slot as usize],
+            gid,
+        )
     }
 
     /// Prepare single-page, baked fonts within a coverage-byte budget before
@@ -2504,13 +2597,25 @@ impl Ui {
     pub fn warm_static_glyph_pages(&mut self, byte_budget: usize) -> usize {
         let mut used = 0;
         for slot in 0..spec::MAX_FONT_SLOTS {
-            let Some(atlas) = self.fonts.atlas(slot as u8) else { continue; };
-            if atlas.stream.is_some() { continue; }
-            let Some(page) = draw::GlyphPageLayout::new(atlas, 0) else { continue; };
-            if page.count() != atlas.glyph_count as u32 { continue; }
+            let Some(atlas) = self.fonts.atlas(slot as u8) else {
+                continue;
+            };
+            if atlas.stream.is_some() {
+                continue;
+            }
+            let Some(page) = draw::GlyphPageLayout::new(atlas, 0) else {
+                continue;
+            };
+            if page.count() != atlas.glyph_count as u32 {
+                continue;
+            }
             let bytes = page.coverage_bytes();
-            if bytes > byte_budget.saturating_sub(used) { continue; }
-            if self.prepare_glyph_page(slot as u8, 0).is_some() { used += bytes; }
+            if bytes > byte_budget.saturating_sub(used) {
+                continue;
+            }
+            if self.prepare_glyph_page(slot as u8, 0).is_some() {
+                used += bytes;
+            }
         }
         used
     }
@@ -2696,11 +2801,19 @@ mod driver_contract_identity {
         let _: &dyn pocket_drivers::RenderResources = &ui;
         let _: &dyn super::resources::RenderResources = &ui;
         let text = super::draw::TextBox {
-            x: 0.0, y: 0.0, w: 1.0, h: 1.0, text: alloc::string::String::new(),
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+            text: alloc::string::String::new(),
         };
         let _: pocket_drivers::TextBox = text;
-        fn texture<'a>(view: super::TexView<'a>) -> pocket_drivers::TexView<'a> { view }
-        fn font<'a>(view: super::resources::FontView<'a>) -> pocket_drivers::FontView<'a> { view }
+        fn texture<'a>(view: super::TexView<'a>) -> pocket_drivers::TexView<'a> {
+            view
+        }
+        fn font<'a>(view: super::resources::FontView<'a>) -> pocket_drivers::FontView<'a> {
+            view
+        }
         let _ = (texture, font);
     }
 }
@@ -2708,5 +2821,8 @@ mod driver_contract_identity {
 /// Little-endian Float64 fields of a physics wire record.
 fn wire_f64s(bytes: &[u8]) -> Vec<f64> {
     let (fields, _) = bytes.as_chunks::<8>();
-    fields.iter().map(|field| f64::from_le_bytes(*field)).collect()
+    fields
+        .iter()
+        .map(|field| f64::from_le_bytes(*field))
+        .collect()
 }
