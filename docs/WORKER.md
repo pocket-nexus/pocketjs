@@ -115,9 +115,17 @@ if (!outcome) {
 }
 ```
 
-I2C scripts contain ordered register reads and writes. The native executor owns
-the entire transaction, including repeated starts. Read results concatenate in
-script order. Field encodings declare byte widths and endianness. The default
+I2C scripts contain ordered steps from `@pocketjs/framework/io/i2c`:
+`read(register, layout)` writes the register byte and reads after a repeated
+start, `write(register, ...bytes)` writes the register byte followed by the
+bytes, and `receive(layout)` reads with no register phase (START, the address
+with the read bit, the bytes). The register byte of a write is the first byte
+on the wire, so `write(0x24, 0x00)` sends the 16-bit command `0x2400`;
+devices that answer such a command on a bare read, such as the SHT3x and the
+RCWL-9620, need `receive`. The native executor owns the entire transaction,
+including repeated starts. Read results concatenate in script order. A host
+rejects a step op it does not implement with `invalid`. Field encodings
+declare byte widths and endianness. The default
 transaction timeout is 100 ms, with a per-submit override. The v1 descriptor
 supports 8-bit register addresses and 7-bit device addresses. Results are
 bytes; applications select the scalar readers and offsets through `DataView`.

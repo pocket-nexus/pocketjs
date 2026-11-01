@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { createContext, Script } from "node:vm";
 import { bindWorker, FactKind, ResourceError, ResourceStatus, settle, sleep, type HostFact, type TimerTick, type WorkerHost } from "../framework/src/worker.ts";
 import { io, utf8 } from "../framework/src/io.ts";
-import { bytes, encodeI2CScript, i16le, read, u8, write } from "../framework/src/io/i2c.ts";
+import { bytes, encodeI2CScript, i16le, read, receive, u8, write } from "../framework/src/io/i2c.ts";
 import { worker } from "../framework/src/worker-channels.ts";
 import { buildWorker } from "../tools/build-worker.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -34,6 +34,17 @@ test("I2C scripts preserve repeated-start order and reserve the exact read capac
   expect(() => encodeI2CScript([read(0, [bytes(1024)]), read(1, [u8])])).toThrow(/limit/);
   expect(() => write(1, 256)).toThrow();
   expect(() => encodeI2CScript([], 1)).toThrow();
+});
+
+test("receive steps encode op 3 with register 0 and reserve their read capacity", () => {
+  const encoded = encodeI2CScript([write(0x2c, 0x06), receive([bytes(6)])], 30);
+  expect(Array.from(encoded.payload)).toEqual([1, 2, 30, 0, 2, 0x2c, 1, 0, 0x06, 3, 0, 6, 0]);
+  expect(encoded.resultBytes).toBe(6);
+  const mixed = encodeI2CScript([read(0x37, [u8]), receive([u8, i16le])]);
+  expect(Array.from(mixed.payload)).toEqual([1, 2, 100, 0, 1, 0x37, 1, 0, 3, 0, 3, 0]);
+  expect(mixed.resultBytes).toBe(4);
+  expect(() => receive([])).toThrow(/layout/);
+  expect(() => encodeI2CScript([receive([bytes(1024)]), receive([u8])])).toThrow(/limit/);
 });
 
 test("resources fail closed without a worker and reject unaccepted submissions", async () => {
