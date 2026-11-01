@@ -267,7 +267,7 @@ describe("link", () => {
   test("pair: the console receives the key the companion stored", async () => {
     const client = await pairOnce();
     expect(client.companionName).toBe("Test Mac");
-    expect(client.features).toEqual(["catalog", "install", "net.stream"]);
+    expect(client.features).toEqual(["catalog", "install", "net.stream", "net"]);
     expect(client.key).toMatch(/^[0-9a-f]{64}$/);
     const stored = store.console(DEVICE.id)!;
     expect(stored.key).toBe(client.key);
@@ -370,6 +370,28 @@ describe("link", () => {
 
       const big = await client.net({ url: `${base}/big`, maxBytes: 128 * 1024 }).done;
       expect(big.body.length).toBe(100_000);
+    } finally {
+      client.close();
+    }
+  });
+
+  test("net: a request without stream gets the whole response, as firmware before the worker domain asks", async () => {
+    const client = await linked();
+    try {
+      const id = client.takeId();
+      const head = new Promise<Record<string, unknown>>((resolve) => client.onMessage((m) => { if (m.id === id) resolve(m); }));
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      const body = new Promise<void>((resolve) => client.onData((stream, bytes) => {
+        if (stream !== id) return;
+        chunks.push(bytes);
+        received += bytes.length;
+        if (received >= 100_000) resolve();
+      }));
+      client.sendCtrl({ t: "net", id, url: `${base}/big`, method: "GET", headers: {}, timeoutMs: 5000, maxBytes: 128 * 1024, bytes: 0 });
+      expect(await head).toMatchObject({ t: "net.head", id, status: 200, bytes: 100_000 });
+      await body;
+      expect(received).toBe(100_000);
     } finally {
       client.close();
     }

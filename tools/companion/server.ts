@@ -57,7 +57,9 @@ function linkClock(): { utc: number; local: number } {
   return { utc, local: utc - new Date(utc).getTimezoneOffset() * 60_000 };
 }
 
-export const LINK_FEATURES = [LINK_FEATURE.catalog, LINK_FEATURE.install, LINK_FEATURE.netStream];
+/** `net` stays for consoles on firmware from before the worker domain; they
+ *  check for it before sending a request and refuse locally without it. */
+export const LINK_FEATURES = [LINK_FEATURE.catalog, LINK_FEATURE.install, LINK_FEATURE.netStream, LINK_FEATURE.net];
 /** Concurrent net requests one connection may hold open. */
 export const LINK_MAX_NET = 8;
 /** Failed pairing proofs before a window closes. */
@@ -431,7 +433,8 @@ interface NetPending {
   received: number;
   abort: AbortController;
   started: boolean;
-  stream: StreamCredit;
+  /** The receiver's byte credit; null for a whole-response request. */
+  stream: StreamCredit | null;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -699,14 +702,15 @@ class LinkConnection {
     }
     const { bytes, ...rest } = meta;
     const app = typeof message.app === "string" ? message.app : "";
-    // Every net request streams its response under the console's byte credit.
-    if (message.stream !== true) return error(NET_ERROR.invalidRequest, "net requests stream: send stream:true with an initial credit");
+    // A streamed request's response goes out under the console's byte
+    // credit; a request without `stream` gets the whole response at once.
+    const streamed = message.stream === true;
     const credit = Number(message.credit);
-    if (!Number.isInteger(credit) || credit < 1 || credit > 8192) return error(NET_ERROR.invalidRequest, "stream credit must be 1..8192");
+    if (streamed && (!Number.isInteger(credit) || credit < 1 || credit > 8192)) return error(NET_ERROR.invalidRequest, "stream credit must be 1..8192");
     const abort = new AbortController();
     const pending: NetPending = {
       meta: rest, app, expected: bytes, chunks: [], received: 0, abort, started: false,
-      stream: new StreamCredit(credit, abort.signal),
+      stream: streamed ? new StreamCredit(credit, abort.signal) : null,
       timer: setTimeout(() => {
         abort.abort(new NetFailure(NET_ERROR.timeout, "stream deadline exceeded"));
         if (!pending.started && this.net.get(id) === pending) {
@@ -729,6 +733,28 @@ class LinkConnection {
     if (pending.received === pending.expected) void this.netRun(stream, pending);
   }
 
+  /** A whole-response request: net.head carries the body's length, then the
+   *  body follows in LINK_MAX_DATA frames and no net.end. */
+  private async netWhole(id: number, pending: NetPending, body: Uint8Array, services: string[], label: string, started: number) {
+    const device = this.device ?? { id: "", name: "", model: "", target: "" };
+    const response =
+      (await this.companion.services.handle(
+        { ...pending.meta, body },
+        { name: device.name, address: this.address, localAddress: this.localAddress },
+        { app: pending.app, services }, pending.abort.signal)) ??
+      (await performNet({ ...pending.meta, body }, {
+        allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal,
+        resolve: this.companion.options.resolve,
+      }));
+    if (this.net.get(id) !== pending) return;
+    this.companion.log(`${label} ${response.status} ${response.body.length}B ${Date.now() - started}ms`);
+    this.send({ t: "net.head", id, status: response.status, url: response.url, headers: response.headers, bytes: response.body.length });
+    for (let at = 0; at < response.body.length; at += LINK_MAX_DATA) {
+      if (this.net.get(id) !== pending) return; // cancelled mid-body: the console dropped the stream
+      if (!(await this.write(encodeData(id, response.body.subarray(at, at + LINK_MAX_DATA)), pending.abort.signal))) return;
+    }
+  }
+
   private async netRun(id: number, pending: NetPending) {
     pending.started = true;
     const body = new Uint8Array(pending.received);
@@ -743,6 +769,8 @@ class LinkConnection {
     try {
       const device = this.device ?? { id: "", name: "", model: "", target: "" };
       const services = this.companion.catalog.find(device.target, pending.app)?.services ?? [];
+      const credit = pending.stream;
+      if (!credit) return await this.netWhole(id, pending, body, services, label, started);
       let offset = 0;
       const sink = {
         head: (head: { status: number; url: string; headers: Record<string, string> }) => {
@@ -750,7 +778,7 @@ class LinkConnection {
         },
         chunk: async (bytes: Uint8Array) => {
           for (let at = 0; at < bytes.length;) {
-            const count = await pending.stream.take(Math.min(1024, bytes.length - at));
+            const count = await credit.take(Math.min(1024, bytes.length - at));
             if (this.net.get(id) !== pending) throw new NetFailure(NET_ERROR.cancelled, "stream cancelled");
             if (!(await this.write(encodeData(id, bytes.subarray(at, at + count)), pending.abort.signal))) throw new NetFailure(NET_ERROR.connect, "link closed");
             at += count;
