@@ -8,6 +8,12 @@ use libquickjs_sys::*;
 use pocket_drivers::{AxisSample, InputClasses, InputFrameBuilder, InputSource};
 use pocket_runtime::{OpArg, OpContext, OpProvider, OpResult, RuntimeError};
 use pocket_runtime_cabi::abi::*;
+
+const JS_STRIP_SOURCE: core::ffi::c_int = 1;
+extern "C" {
+    fn JS_SetStripInfo(rt: *mut libquickjs_sys::JSRuntime, flags: core::ffi::c_int);
+}
+
 extern "C" {
     fn JS_SetContextOpaque(context: *mut JSContext, opaque: *mut c_void);
     fn JS_GetContextOpaque(context: *mut JSContext) -> *mut c_void;
@@ -50,6 +56,9 @@ impl Guest {
         if engine.is_null() {
             return Err("JS_NewRuntime failed".into());
         }
+        // Do not keep each function's source text for toString(): nested functions repeat their parents'
+        // text, so a bundle otherwise costs several times its own size in heap on a 32 MB machine.
+        JS_SetStripInfo(engine, JS_STRIP_SOURCE);
         let context = JS_NewContext(engine);
         if context.is_null() {
             JS_FreeRuntime(engine);

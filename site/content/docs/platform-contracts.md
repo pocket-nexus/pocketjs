@@ -345,7 +345,7 @@ generation, 12.**
 
 | Target         | platform / form   | Logical viewport                         | Density | Capabilities |
 | -------------- | ----------------- | ---------------------------------------- | ------- | ------------ |
-| `psp`          | psp / takeover    | 480×272 (`native`, `integer-fit`)        | 1       | `input.analog.left`, `input.buttons`, `input.cursor`, `audio.pcm`, `text.glyphs.baked` |
+| `psp`          | psp / takeover    | 480×272 (`native`, `integer-fit`)        | 1       | `input.analog.left`, `input.buttons`, `input.cursor`, `audio.pcm`, `data.fs`, `data.pack`, `text.glyphs.baked` |
 | `vita`         | vita / takeover   | 480×272 (`integer-fit`)                  | 2       | `input.analog.left`, `input.buttons`, `input.cursor`, `input.touch`, `text.glyphs.baked` |
 | `pocketbook`   | pocketbook / takeover | 480×272 (`integer-fit`)              | 2       | `input.buttons`, `input.touch`, `text.glyphs.baked` |
 | `macos-widget` | macos / widget    | 420×560 default, 240×180…4096×4096       | 2       | `input.buttons`, `input.ime`, `input.pointer`, `input.text`, `host.clipboard`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime` |

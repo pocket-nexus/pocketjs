@@ -134,6 +134,7 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `audio.pcm` | Credit-based s16 PCM streaming through `globalThis.audio`. |
 | `media.playback` | Native encoded-media playback with audio clock, pause, volume and texture output. |
 | `data.fs` | A per-app file tree behind `globalThis.fs`; paths are confined to the app's own root. |
+| `data.pack` | Read-only files under the game data root behind `globalThis.pack`: chapter textures and streamed PCM kept outside the program image (`docs/PACKS.md`). |
 | `host.clipboard` | Copy, cut and paste with the OS clipboard. |
 | `camera.qr` | Outer-camera preview texture and an on-device QR decoder. |
 | `camera.photo` | Stills kept as JPEG under the storage's DCIM folder: list, decode, delete. |

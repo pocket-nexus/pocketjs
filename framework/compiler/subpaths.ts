@@ -219,6 +219,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "model/tasks": { file: "framework/src/model-tasks.ts" },
   "model/animation": { file: "framework/src/model-animation.ts" },
   physics: { file: "framework/src/physics.ts", aliases: TWINS },
+  game2d: { file: { solid: "framework/src/game2d/index.ts" }, npmFile: "framework/src/game2d/index.ts" },
   link: { file: "framework/src/link.ts" },
   wifi: { file: "framework/src/wifi.ts" },
   device: { file: "framework/src/device.ts" },

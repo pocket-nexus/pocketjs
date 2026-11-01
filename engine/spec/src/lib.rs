@@ -576,6 +576,29 @@ pub mod fs {
     pub const MAX_DIR_ENTRIES: usize = 256;
 }
 
+/// PACK module boundary (contracts/spec/pack.ts — `globalThis.pack`).
+/// Read-only files under the game data root; loadImg decodes an IMG entry
+/// to a texture without passing its bytes through the JS heap.
+pub mod pack {
+    pub const OP_OPEN: u8 = 1;
+    pub const OP_SIZE: u8 = 2;
+    pub const OP_READ: u8 = 3;
+    pub const OP_LOAD_IMG: u8 = 4;
+    pub const OP_CLOSE: u8 = 5;
+    pub const OP_STATS: u8 = 6;
+    /// open() results below zero.
+    pub const OPEN_MISSING: i32 = -1;
+    pub const OPEN_PENDING: i32 = -2;
+    /// Files open at once per guest.
+    pub const MAX_HANDLES: usize = 8;
+    /// Upper bound of one loadImg byte range.
+    pub const MAX_IMG_BYTES: usize = 1114112;
+    /// Path grammar ceilings (UTF-8 bytes; segments).
+    pub const MAX_PATH_BYTES: usize = 200;
+    pub const MAX_SEGMENT_BYTES: usize = 64;
+    pub const MAX_DEPTH: usize = 8;
+}
+
 /// 2D bodies stepped by the UI core (contracts/spec/physics.ts).
 pub mod physics {
     pub const KIND_WORLD: u32 = 1;
