@@ -424,6 +424,13 @@ export function getOps(): HostOps {
   return getHost().ops;
 }
 
+/** The active host's ops, or null before render() installed one: for a
+ *  controller that works without a host (the keyboard session in a unit
+ *  test) and asks the host for an optional service. */
+export function peekOps(): HostOps | null {
+  return current?.ops ?? null;
+}
+
 const APP_ACTION_NAME = /^[a-z][a-z0-9_.-]{0,62}$/;
 
 /**

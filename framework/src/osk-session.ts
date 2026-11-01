@@ -8,6 +8,7 @@
 // a key position on the grid means nothing on the staggered rows.
 
 import type { SurfaceId } from "./display.ts";
+import { peekOps } from "./host.ts";
 import { surfaceHasTouch } from "./modality.ts";
 import { homePos, layoutRows, oskLayer, OSK_HOME_LAYER, type OskLayerName, type OskLayoutKind, type OskPos } from "./osk-layout.ts";
 
@@ -50,4 +51,14 @@ export interface OskModality {
 export function resolveOskModality(surface: SurfaceId, buttons: boolean, layout?: OskLayoutKind): OskModality {
   const contact = surfaceHasTouch(surface);
   return { contact, focus: buttons, layout: layout ?? (contact ? "staggered" : "grid") };
+}
+
+/** The host's keyboard is somewhere else (HostOps.textSession: a handheld's
+ *  lower panel, a system keyboard): it shows that keyboard while a session
+ *  is open and types into the session with input.text events, so the docked
+ *  panel is not drawn and takes no height (osk.tsx). A field shows the
+ *  session's text through `osk.display()`; that echo is the typist's only
+ *  one there. */
+export function keyboardElsewhere(): boolean {
+  return typeof peekOps()?.textSession === "function";
 }
