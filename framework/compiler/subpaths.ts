@@ -222,6 +222,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   game2d: { file: { solid: "framework/src/game2d/index.ts" }, npmFile: "framework/src/game2d/index.ts" },
   link: { file: "framework/src/link.ts" },
   wifi: { file: "framework/src/wifi.ts" },
+  device: { file: "framework/src/device.ts" },
   camera: { file: "framework/src/camera.ts" },
 };
 

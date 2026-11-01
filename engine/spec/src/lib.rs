@@ -531,6 +531,9 @@ pub mod audio {
     pub const OP_SET_VOLUME: u8 = 7;
     pub const OP_END_STREAM: u8 = 8;
     pub const OP_POLL: u8 = 9;
+    pub const OP_OPEN_INPUT: u8 = 10;
+    pub const OP_READ_INPUT: u8 = 11;
+    pub const OP_CLOSE_INPUT: u8 = 12;
     /// Accepted stream rates: integer divisors of the PSP's native 44.1 kHz.
     pub const RATES: [u32; 3] = [44100, 22050, 11025];
     pub const MAX_CHANNELS: u32 = 2;
@@ -540,6 +543,7 @@ pub mod audio {
     pub const EVENT_CREDIT: &str = "credit";
     pub const EVENT_UNDERRUN: &str = "underrun";
     pub const EVENT_ENDED: &str = "ended";
+    pub const EVENT_OVERRUN: &str = "overrun";
 }
 
 /// FS module boundary (contracts/spec/fs.ts — `globalThis.fs`).

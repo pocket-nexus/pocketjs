@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { createContext, Script } from "node:vm";
 import { bindWorker, FactKind, ResourceError, ResourceStatus, settle, sleep, type HostFact, type TimerTick, type WorkerHost } from "../framework/src/worker.ts";
 import { io, utf8 } from "../framework/src/io.ts";
-import { bytes, encodeI2CScript, i16le, read, u8, write } from "../framework/src/io/i2c.ts";
+import { bytes, encodeI2CScript, i16le, read, receive, u8, write } from "../framework/src/io/i2c.ts";
 import { worker } from "../framework/src/worker-channels.ts";
 import { buildWorker } from "../tools/build-worker.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -36,6 +36,17 @@ test("I2C scripts preserve repeated-start order and reserve the exact read capac
   expect(() => encodeI2CScript([], 1)).toThrow();
 });
 
+test("receive steps encode op 3 with register 0 and reserve their read capacity", () => {
+  const encoded = encodeI2CScript([write(0x2c, 0x06), receive([bytes(6)])], 30);
+  expect(Array.from(encoded.payload)).toEqual([1, 2, 30, 0, 2, 0x2c, 1, 0, 0x06, 3, 0, 6, 0]);
+  expect(encoded.resultBytes).toBe(6);
+  const mixed = encodeI2CScript([read(0x37, [u8]), receive([u8, i16le])]);
+  expect(Array.from(mixed.payload)).toEqual([1, 2, 100, 0, 1, 0x37, 1, 0, 3, 0, 3, 0]);
+  expect(mixed.resultBytes).toBe(4);
+  expect(() => receive([])).toThrow(/layout/);
+  expect(() => encodeI2CScript([receive([bytes(1024)]), receive([u8])])).toThrow(/limit/);
+});
+
 test("resources fail closed without a worker and reject unaccepted submissions", async () => {
   expect(() => io.i2c("i2c0").open({ address: 0x32 })).toThrow(/worker runtime/);
   let submits = 0;
@@ -48,6 +59,22 @@ test("resources fail closed without a worker and reject unaccepted submissions",
   expect(submits).toBe(2);
   rtc.close();
   expect(() => rtc.submit([read(0, [u8])])).toThrow(/closed/);
+});
+
+test("probe submits an address-only opcode and resolves the acknowledgement", async () => {
+  const submitted: [number, number[], number][] = [];
+  global.__pocketWorker = host({ submit(_handle, opcode, payload, capacity) { submitted.push([opcode, Array.from(payload), capacity]); return 2; } });
+  bindWorker({ entry: "worker.ts", nodes: [{ name: "i2c0", kind: "i2c" }] });
+  const device = io.i2c("i2c0").open({ address: 0x32, timeoutMillis: 300 });
+  let answered: boolean | undefined;
+  void device.probe().then(value => { answered = value; });
+  expect(submitted).toEqual([[2, [0x2c, 0x01], 0]]);
+  turn(1, [fact({ data: new Uint8Array(0) })]); await jobs();
+  expect(answered).toBe(true);
+  void device.probe({ timeoutMillis: 10 }).then(value => { answered = value; });
+  turn(2, [fact({ status: ResourceStatus.failed, data: new Uint8Array(0) })]); await jobs();
+  expect(answered).toBe(false);
+  await expect(device.probe({ timeoutMillis: 0 })).rejects.toThrow(/timeoutMillis/);
 });
 
 test("run resolves in the turn that carries the completion, with a retained copy", async () => {
@@ -69,6 +96,24 @@ test("run resolves in the turn that carries the completion, with a retained copy
   turn(4, [fact({ request: 7, status: ResourceStatus.cancelled })]);
   expect((await settle(7)).status).toBe(ResourceStatus.cancelled);
   await expect(settle(-1)).rejects.toBeInstanceOf(ResourceError);
+});
+
+test("a timer fact ahead of the latched time re-arms the host timer for the same deadline", async () => {
+  const timers: number[][] = [];
+  global.__pocketWorker = host({ timer(id, deadline, period) { timers.push([id, deadline, period]); return 0; } });
+  bindWorker({ entry: "worker.ts", nodes: [] });
+  turn(1, [], 1000);
+  let woke = 0;
+  void sleep(500).then(() => { ++woke; });
+  expect(timers.at(-1)).toEqual([1, 1500, 0]);
+  // The host read its clock after the turn latched 1499: the timer fired and
+  // is gone, while the alarm at 1500 is not due by the latched time.
+  turn(2, [fact({ kind: FactKind.timer, handle: 0, timer: 1, deadline: 1500 })], 1499); await jobs();
+  expect(woke).toBe(0);
+  expect(timers.at(-1)).toEqual([1, 1500, 0]);
+  expect(timers.length).toBe(2);
+  turn(3, [fact({ kind: FactKind.timer, handle: 0, timer: 1, deadline: 1500 })], 1501); await jobs();
+  expect(woke).toBe(1);
 });
 
 test("deadlines fire by the latched turn time through one host timer", async () => {

@@ -46,6 +46,17 @@ export class I2CDevice extends Resource {
     if (record.status !== ResourceStatus.ok) throw new ResourceError(record.status, request, `${this.node} request ${request} ended with status ${record.status}`);
     return record.data;
   }
+  /** Whether a device acknowledges the address: an address-only
+   *  transaction (opcode 2, the timeout as two little-endian bytes) that
+   *  writes no register byte, so it reads and changes nothing. Rejects with
+   *  a ResourceError when the host accepts nothing. */
+  async probe(options?: { readonly timeoutMillis?: number }): Promise<boolean> {
+    const timeout = options?.timeoutMillis ?? this.timeoutMillis;
+    integer(timeout, 1, 65535, "I2C timeoutMillis");
+    const request = this.host().submit(this.handle, 2, Uint8Array.of(timeout & 0xff, timeout >> 8), 0);
+    if (request < 0) throw new ResourceError(request, -1, `${this.node} did not accept the I2C probe: ${request}`);
+    return (await settle(request)).status === ResourceStatus.ok;
+  }
   private accept(script: readonly I2CStep[], options?: { readonly timeoutMillis?: number }): number {
     const { payload, resultBytes } = encodeI2CScript(script, options?.timeoutMillis ?? this.timeoutMillis);
     return this.host().submit(this.handle, 1, payload, resultBytes);

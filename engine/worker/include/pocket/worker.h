@@ -9,8 +9,10 @@ extern "C" {
 /* All byte descriptors use little endian integers, without native pointers.
  * I2C open: [version=1,address7]; submit opcode 1:
  * [version=1,steps:u8,timeout_ms:u16,
- * (op:u8,register:u8,length:u16,data...)...]. op 1 reads length bytes, op 2
- * writes length bytes following the step header. Reads concatenate into the
+ * (op:u8,register:u8,length:u16,data...)...]. op 1 writes the register byte
+ * and reads length bytes after a repeated start, op 2 writes the register byte
+ * and the length bytes following the step header, op 3 reads length bytes
+ * with no register phase and carries register 0. Reads concatenate into the
  * completion payload. Each script is indivisible. UART open:
  * [version=1,data_bits:u8,stop_bits:u8,parity:u8,baud:u32, flow_control:u8];
  * parity 0/1/2 = none/odd/even; flow 0/1 = none/RTS-CTS. HTTP descriptors are

@@ -166,6 +166,7 @@
     "./game2d": "./framework/src/game2d/index.ts",
     "./link": "./framework/src/link.ts",
     "./wifi": "./framework/src/wifi.ts",
+    "./device": "./framework/src/device.ts",
     "./camera": "./framework/src/camera.ts",
     "./solid": "./framework/src/index.ts",
     "./solid/components": "./framework/src/components.ts",
