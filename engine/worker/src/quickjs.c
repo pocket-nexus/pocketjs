@@ -273,18 +273,13 @@ fail:
 }
 int32_t pocket_worker_quickjs_eval(pocket_worker_quickjs *g, const char *source,
                                    size_t length, const char *filename) {
-  if (!g || g->fault || !source)
+  /* QuickJS reads the terminator beyond length; the bundle carries it, so
+   * the bytes are parsed in place. */
+  if (!g || g->fault || !source || source[length] != 0)
     return -1;
-  /* QuickJS requires a terminator beyond source length. */
-  char *copy = malloc(length + 1);
-  if (!copy)
-    return -1;
-  memcpy(copy, source, length);
-  copy[length] = 0;
   JSValue result =
-      JS_Eval(g->context, copy, length, filename ? filename : "worker.js",
+      JS_Eval(g->context, source, length, filename ? filename : "worker.js",
               JS_EVAL_TYPE_GLOBAL);
-  free(copy);
   if (JS_IsException(result))
     return failed(g);
   JS_FreeValue(g->context, result);

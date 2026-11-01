@@ -30,6 +30,8 @@ typedef struct {
 } pocket_worker_quickjs_config;
 pocket_worker_quickjs *
 pocket_worker_quickjs_create(const pocket_worker_quickjs_config *);
+/* Evaluate the bundle in place: source[length] is 0, as a package's worker
+ * section and a C string are, and the bytes stay valid through the call. */
 int32_t pocket_worker_quickjs_eval(pocket_worker_quickjs *, const char *,
                                    size_t, const char *);
 /* Call only on the owning host task. Returns 1 after a turn, 0 when idle or
