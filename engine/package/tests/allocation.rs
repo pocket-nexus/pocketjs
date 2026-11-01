@@ -89,12 +89,7 @@ fn large_embedded_package_uses_one_container_and_transfers_it_without_copying() 
     );
     let address = bytes.as_ptr();
     let (loaded, allocations) = count(|| {
-        LoadedPackage::load(
-            &mut OwnedMemorySource::new(bytes),
-            &HOST,
-            usize::MAX,
-        )
-        .unwrap()
+        LoadedPackage::load(&mut OwnedMemorySource::new(bytes), &HOST, usize::MAX).unwrap()
     });
     assert_eq!(
         allocations, 0,
@@ -107,15 +102,35 @@ fn large_embedded_package_uses_one_container_and_transfers_it_without_copying() 
 
     // A static image follows the same parser; retaining it cannot allocate a
     // package-sized buffer. The leak is confined to this test process.
-    let bytes = Box::leak(loaded.bytes().to_vec().into_boxed_slice());
-    let (loaded, allocations) = count(|| {
-        LoadedPackage::load(
-            &mut StaticMemorySource(bytes),
-            &HOST,
-            usize::MAX,
-        )
-        .unwrap()
-    });
+    let bytes: &'static [u8] = Box::leak(loaded.bytes().to_vec().into_boxed_slice());
+    let (loaded, allocations) =
+        count(|| LoadedPackage::load(&mut StaticMemorySource(bytes), &HOST, usize::MAX).unwrap());
     assert_eq!(allocations, 0);
+    assert_eq!(loaded.bytes().as_ptr(), bytes.as_ptr());
+
+    // Foreign storage a program keeps alive is read in place as well. The
+    // check shares this test's counting window: the counter is global.
+    use pocket_drivers::{PackageBytes, PackageSource, PackageStorage, SourceError};
+    struct Leased(&'static [u8]);
+    impl PackageStorage for Leased {
+        fn bytes(&self) -> &[u8] {
+            self.0
+        }
+    }
+    struct Source(&'static [u8]);
+    impl PackageSource for Source {
+        fn length(&self) -> Result<usize, SourceError> {
+            Ok(self.0.len())
+        }
+        fn take_bytes(&mut self) -> Result<PackageBytes, SourceError> {
+            Ok(PackageBytes::Foreign(Box::new(Leased(self.0))))
+        }
+        fn range(&mut self, _: usize, _: &mut [u8]) -> Result<usize, SourceError> {
+            panic!("must not fall back after transfer")
+        }
+    }
+    let (loaded, allocations) =
+        count(|| LoadedPackage::load(&mut Source(bytes), &HOST, usize::MAX).unwrap());
+    assert_eq!(allocations, 0, "transferred storage is read in place");
     assert_eq!(loaded.bytes().as_ptr(), bytes.as_ptr());
 }

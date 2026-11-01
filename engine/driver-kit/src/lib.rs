@@ -13,4 +13,7 @@ pub mod test_device;
 
 pub use lifecycle::{Event, Lifecycle, Violation, ViolationKind};
 pub use pixels::{check_cpu_frame, PixelViolation};
-pub use sources::{check_input, check_package_admission, check_package_source, SourceViolation};
+pub use sources::{
+    check_input, check_package_admission, check_package_source, check_package_transfer,
+    SourceViolation,
+};

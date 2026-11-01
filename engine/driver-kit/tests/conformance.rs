@@ -1,6 +1,6 @@
 use pocket_driver_kit::{
-    check_input, check_package_admission, check_package_source, Event::*, Lifecycle,
-    SourceViolation, ViolationKind,
+    check_input, check_package_admission, check_package_source, check_package_transfer, Event::*,
+    Lifecycle, SourceViolation, ViolationKind,
 };
 use pocket_drivers::*;
 use pocket_package::source::MemorySource;
@@ -241,7 +241,13 @@ fn real_sources_share_canonical_admission_and_reject_overreported_reads() {
         auxiliary_logical: &[],
     };
     // An admitted package, a truncated one, and a host that admits neither.
-    for host in [host, pocket_package::HostFacts { raster_density: 2, ..host }] {
+    for host in [
+        host,
+        pocket_package::HostFacts {
+            raster_density: 2,
+            ..host
+        },
+    ] {
         for payload in [&bytes[..], &bytes[..bytes.len() - 1]] {
             check_package_admission(&mut MemorySource(payload), payload, &host).unwrap();
             check_package_admission(&mut Short(payload), payload, &host).unwrap();
@@ -260,6 +266,33 @@ fn real_sources_share_canonical_admission_and_reject_overreported_reads() {
         check_package_source(&mut Bad, b"123"),
         Err(SourceViolation::RangeCount)
     );
+    // A transfer hands over the bytes the reads returned.
+    struct Swapped;
+    impl PackageSource for Swapped {
+        fn length(&self) -> Result<usize, SourceError> {
+            Ok(3)
+        }
+        fn take_bytes(&mut self) -> Result<PackageBytes, SourceError> {
+            Ok(PackageBytes::Static(b"321"))
+        }
+        fn range(&mut self, offset: usize, out: &mut [u8]) -> Result<usize, SourceError> {
+            let rest = b"123".get(offset..).ok_or(SourceError::OutOfBounds)?;
+            let count = rest.len().min(out.len());
+            out[..count].copy_from_slice(&rest[..count]);
+            Ok(count)
+        }
+    }
+    check_package_source(&mut Swapped, b"123").unwrap();
+    assert_eq!(
+        check_package_transfer(&mut Swapped, b"123"),
+        Err(SourceViolation::Transfer)
+    );
+    check_package_transfer(&mut MemorySource(&b"123"[..]), b"123").unwrap();
+    check_package_transfer(
+        &mut pocket_package::source::StaticMemorySource(b"123"),
+        b"123",
+    )
+    .unwrap();
 }
 struct Input {
     tick: usize,

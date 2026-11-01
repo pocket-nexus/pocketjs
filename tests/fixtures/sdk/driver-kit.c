@@ -84,7 +84,7 @@ static int32_t poll(void *ctx, pocket_input_frame_builder *builder) {
 static int inspect(void *ctx, const pocket_input_frame *frame) { (*(int *)ctx)++; return frame->buttons == 8; }
 int main(void) {
     int bad=0, calls=0;
-    pocket_package_source_v1 source = {sizeof(source), length, all, range};
+    pocket_package_source_v1 source = {sizeof(source), length, all, range, NULL};
     pocket_input_source_v1 input = {sizeof(input), classes, poll};
     lifecycle();
     assert(pocket_driver_kit_check_package(&source, &bad, bytes, sizeof(bytes), 3) == POCKET_KIT_OK);

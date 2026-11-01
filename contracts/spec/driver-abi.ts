@@ -44,6 +44,7 @@ export const DRIVER_ABI_CONSTANTS: Readonly<Record<string, number>> = {
   POCKET_DISPLAY_DEVICE_ROTATION: 8, POCKET_DISPLAY_DEVICE_SCALING: 16, POCKET_DISPLAY_PIPELINED_ACQUIRE: 64,
   POCKET_DISPLAY_QUEUED_FLUSH: 128, POCKET_DISPLAY_RETAINED_MOVE: 256,
   POCKET_STATUS_OK: 0, POCKET_STATUS_UNSUPPORTED: -1, POCKET_STATUS_INVALID: -2, POCKET_STATUS_FAILED: -3,
+  POCKET_PACKAGE_STORAGE_VERIFIED: 1,
 };
 
 // Motion members and metadata are derived from the existing fused-motion spec.
@@ -81,7 +82,8 @@ export const DRIVER_ABI_STRUCTS: readonly AbiRecord[] = [
   record("PocketDisplayOutputV1", "pocket_display_output_v1", [f("descriptor", "Option<PocketDisplayDescriptorFn>"), f("acquire", "Option<PocketDisplayAcquireFn>"), f("flush", "Option<PocketDisplayFlushFn>"), f("wait", "Option<PocketDisplayWaitFn>"), f("vsync", "Option<PocketDisplayVsyncFn>"), f("frame_identity", "Option<PocketDisplayFrameIdentityFn>"), f("move_pixels", "Option<PocketDisplayMoveFn>"), f("host_damage", "Option<PocketDisplayHostDamageFn>")]),
   record("PocketRendererV1", "pocket_renderer_v1", [f("descriptor", "Option<PocketRendererDescriptorFn>"), f("render", "Option<PocketRenderFn>"), f("wait", "Option<PocketRenderWaitFn>"), f("retire", "Option<PocketRenderRetireFn>"), f("render_zero_copy", "Option<PocketRenderZeroCopyFn>")]),
   record("PocketInputSourceV1", "pocket_input_source_v1", [f("classes", "Option<PocketInputClassesFn>"), f("poll", "Option<PocketInputPollFn>")]),
-  record("PocketPackageSourceV1", "pocket_package_source_v1", [f("length", "Option<PocketPackageLengthFn>"), f("all", "Option<PocketPackageAllFn>"), f("range", "Option<PocketPackageRangeFn>")], "all is optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source."),
+  record("PocketPackageStorage", "pocket_package_storage", [f("bytes", "*const u8"), f("length", "usize"), f("release", "Option<PocketPackageReleaseFn>"), f("release_context", "*mut c_void"), f("flags", "u32")], "Storage a source transfers through take. bytes stay valid and unchanged until the runtime calls release with release_context, bytes and length; a null release means they outlive the runtime. POCKET_PACKAGE_STORAGE_VERIFIED in flags states that the owner verified the package's FNV-1a64 footer and variant hashes of these exact bytes, so the runtime admits them without its own hash pass."),
+  record("PocketPackageSourceV1", "pocket_package_source_v1", [f("length", "Option<PocketPackageLengthFn>"), f("all", "Option<PocketPackageAllFn>"), f("range", "Option<PocketPackageRangeFn>"), f("take", "Option<PocketPackageTakeFn>")], "all and take are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range."),
   record("PocketClockV1", "pocket_clock_v1", [f("now", "Option<PocketClockNowFn>"), f("sleep_until", "Option<PocketClockSleepUntilFn>")]),
 ];
 
@@ -110,6 +112,8 @@ export const DRIVER_ABI_CALLBACKS: readonly AbiCallback[] = [
   callback("PocketPackageLengthFn", "pocket_package_length_fn", [context, f("out", "*mut usize")]),
   callback("PocketPackageAllFn", "pocket_package_all_fn", [context, f("bytes", "*mut *const u8"), f("length", "*mut usize")]),
   callback("PocketPackageRangeFn", "pocket_package_range_fn", [context, f("offset", "usize"), f("buffer", "*mut u8"), f("capacity", "usize"), f("read", "*mut usize")]),
+  callback("PocketPackageTakeFn", "pocket_package_take_fn", [context, f("out", "*mut PocketPackageStorage")], "i32", "Transfers the whole package: out describes storage of the length the length callback reported. After success the source may refuse all and range. UNSUPPORTED keeps the copying path."),
+  callback("PocketPackageReleaseFn", "pocket_package_release_fn", [context, f("bytes", "*const u8"), f("length", "usize")], "void", "Releases storage a take transferred, after the runtime's last read of it."),
   callback("PocketClockNowFn", "pocket_clock_now_fn", [context], "u64", "Monotonic microseconds."),
   callback("PocketClockSleepUntilFn", "pocket_clock_sleep_until_fn", [context, f("deadline", "u64")], "void"),
 ];

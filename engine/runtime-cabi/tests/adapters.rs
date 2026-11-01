@@ -448,3 +448,76 @@ fn queued_flush_flag_requires_a_device_owned_target() {
     kind = POCKET_TARGET_CPU_VISIBLE;
     assert!(unsafe { CDisplay::new(&table, (&mut kind as *mut u32).cast()) }.is_err());
 }
+
+static TRANSFERRED: [u8; 4] = [1, 2, 3, 4];
+static RELEASED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+unsafe extern "C" fn package_length(_: *mut c_void, out: *mut usize) -> i32 {
+    unsafe { out.write(TRANSFERRED.len()) };
+    POCKET_STATUS_OK
+}
+unsafe extern "C" fn package_range(
+    _: *mut c_void,
+    offset: usize,
+    buffer: *mut u8,
+    capacity: usize,
+    read: *mut usize,
+) -> i32 {
+    let count = capacity.min(TRANSFERRED.len() - offset);
+    unsafe {
+        core::ptr::copy_nonoverlapping(TRANSFERRED.as_ptr().add(offset), buffer, count);
+        read.write(count);
+    }
+    POCKET_STATUS_OK
+}
+unsafe extern "C" fn package_release(context: *mut c_void, bytes: *const u8, length: usize) {
+    assert_eq!(context, 7usize as *mut c_void);
+    assert_eq!(bytes, TRANSFERRED.as_ptr());
+    assert_eq!(length, TRANSFERRED.len());
+    RELEASED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+}
+unsafe extern "C" fn package_take(_: *mut c_void, out: *mut PocketPackageStorage) -> i32 {
+    unsafe {
+        out.write(PocketPackageStorage {
+            bytes: TRANSFERRED.as_ptr(),
+            length: TRANSFERRED.len(),
+            release: Some(package_release),
+            release_context: 7usize as *mut c_void,
+            flags: POCKET_PACKAGE_STORAGE_VERIFIED,
+            ..PocketPackageStorage::empty()
+        })
+    };
+    POCKET_STATUS_OK
+}
+unsafe extern "C" fn package_take_unsupported(_: *mut c_void, _: *mut PocketPackageStorage) -> i32 {
+    POCKET_STATUS_UNSUPPORTED
+}
+
+#[test]
+fn c_package_source_transfers_storage_in_place_and_releases_it_once() {
+    let table = PocketPackageSourceV1 {
+        length: Some(package_length),
+        range: Some(package_range),
+        take: Some(package_take),
+        ..PocketPackageSourceV1::empty()
+    };
+    let mut source = unsafe { CPackageSource::new(&table, core::ptr::null_mut()) }.unwrap();
+    assert!(!source.verified());
+    let bytes = source.take_bytes().unwrap();
+    assert_eq!(bytes.as_ref().as_ptr(), TRANSFERRED.as_ptr());
+    assert_eq!(bytes.as_ref(), &TRANSFERRED);
+    assert!(source.verified());
+    assert_eq!(RELEASED.load(core::sync::atomic::Ordering::Relaxed), 0);
+    drop(bytes);
+    assert_eq!(RELEASED.load(core::sync::atomic::Ordering::Relaxed), 1);
+
+    // A source without the callback, or one that declines, is copied.
+    for take in [None, Some(package_take_unsupported as PocketPackageTakeFn)] {
+        let table = PocketPackageSourceV1 { take, ..table };
+        let mut source = unsafe { CPackageSource::new(&table, core::ptr::null_mut()) }.unwrap();
+        assert!(matches!(source.take_bytes(), Err(SourceError::Unsupported)));
+        assert!(!source.verified());
+        let mut copy = [0u8; 4];
+        assert_eq!(source.range(0, &mut copy), Ok(4));
+        assert_eq!(copy, TRANSFERRED);
+    }
+}

@@ -105,8 +105,14 @@ mod tests {
     #[test]
     fn graphics_tail_preserves_the_v1_prefix() {
         assert_eq!(core::mem::offset_of!(GraphicsExtensionV1, base), 0);
-        assert_eq!(core::mem::offset_of!(GraphicsExtensionV1, release_graphics), core::mem::size_of::<ExtensionV1>());
-        assert_eq!(core::mem::size_of::<GraphicsExtensionV1>(), core::mem::size_of::<ExtensionV1>() + core::mem::size_of::<usize>());
+        assert_eq!(
+            core::mem::offset_of!(GraphicsExtensionV1, release_graphics),
+            core::mem::size_of::<ExtensionV1>()
+        );
+        assert_eq!(
+            core::mem::size_of::<GraphicsExtensionV1>(),
+            core::mem::size_of::<ExtensionV1>() + core::mem::size_of::<usize>()
+        );
     }
 
     #[test]

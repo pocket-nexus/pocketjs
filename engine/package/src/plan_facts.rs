@@ -63,7 +63,10 @@ impl<'a> PlanFacts<'a> {
         let Some(start) = self.features else {
             return false;
         };
-        let mut reader = Reader { bytes: self.plan, at: start };
+        let mut reader = Reader {
+            bytes: self.plan,
+            at: start,
+        };
         matches!(reader.member(name.as_bytes()), Ok(Some((value, _))) if self.plan[value..].starts_with(b"true"))
     }
 
@@ -168,14 +171,20 @@ pub fn plan_facts(plan: &[u8]) -> Result<PlanFacts<'_>, PlanFactsError> {
     };
     let features = find(plan, root, &[b"features"]).filter(|&start| plan[start] == b'{');
     let companions = find(plan, root, &[b"companions"]).is_some_and(|start| {
-        let mut reader = Reader { bytes: plan, at: start + 1 };
+        let mut reader = Reader {
+            bytes: plan,
+            at: start + 1,
+        };
         plan[start] == b'[' && {
             reader.whitespace();
             reader.peek() != Some(b']')
         }
     });
     let tick_hz = find(plan, root, &[b"profile", b"tickHz"]).and_then(|start| {
-        let mut reader = Reader { bytes: plan, at: start };
+        let mut reader = Reader {
+            bytes: plan,
+            at: start,
+        };
         reader.unsigned()
     });
     let animation = find(plan, root, &[b"animation"]).and_then(|start| text(plan, start));
@@ -195,7 +204,10 @@ pub fn plan_facts(plan: &[u8]) -> Result<PlanFacts<'_>, PlanFactsError> {
 
 /// The raw bytes of the string value at `start`.
 fn text(plan: &[u8], start: usize) -> Option<&[u8]> {
-    let mut reader = Reader { bytes: plan, at: start };
+    let mut reader = Reader {
+        bytes: plan,
+        at: start,
+    };
     let (from, to) = reader.string().ok()?;
     Some(&plan[from..to])
 }
@@ -205,7 +217,10 @@ fn find(plan: &[u8], mut object: usize, path: &[&[u8]]) -> Option<usize> {
         if plan.get(object) != Some(&b'{') {
             return None;
         }
-        let mut reader = Reader { bytes: plan, at: object };
+        let mut reader = Reader {
+            bytes: plan,
+            at: object,
+        };
         object = reader.member(key).ok()??.0;
     }
     Some(object)
@@ -214,12 +229,24 @@ fn find(plan: &[u8], mut object: usize, path: &[&[u8]]) -> Option<usize> {
 fn surface(plan: &[u8], object: usize) -> Option<PlanSurface> {
     let logical = find(plan, object, &[b"logical"])?;
     let density = find(plan, object, &[b"rasterDensity"])?;
-    let mut reader = Reader { bytes: plan, at: logical };
+    let mut reader = Reader {
+        bytes: plan,
+        at: logical,
+    };
     let (width, height) = reader.pair()?;
-    let mut reader = Reader { bytes: plan, at: density };
+    let mut reader = Reader {
+        bytes: plan,
+        at: density,
+    };
     let raster_density = reader.unsigned()?;
-    let valid = (1..=4096).contains(&width) && (1..=4096).contains(&height) && (1..=255).contains(&raster_density);
-    valid.then_some(PlanSurface { width, height, raster_density })
+    let valid = (1..=4096).contains(&width)
+        && (1..=4096).contains(&height)
+        && (1..=255).contains(&raster_density);
+    valid.then_some(PlanSurface {
+        width,
+        height,
+        raster_density,
+    })
 }
 
 struct Reader<'a> {
@@ -458,10 +485,21 @@ mod tests {
     #[test]
     fn reads_the_dual_screen_plan() {
         let facts = plan_facts(DUAL.as_bytes()).unwrap();
-        assert_eq!(facts.viewport, PlanSurface { width: 400, height: 240, raster_density: 1 });
+        assert_eq!(
+            facts.viewport,
+            PlanSurface {
+                width: 400,
+                height: 240,
+                raster_density: 1
+            }
+        );
         assert_eq!(
             facts.auxiliary,
-            Some(PlanSurface { width: 320, height: 240, raster_density: 1 })
+            Some(PlanSurface {
+                width: 320,
+                height: 240,
+                raster_density: 1
+            })
         );
         assert!(facts.feature("input.buttons"));
         assert!(facts.feature("text.glyphs.baked"));
@@ -476,7 +514,14 @@ mod tests {
         let plan = br#" { "companions" : [ "shell" ], "features" : { "ui.physics" : true } ,
             "viewport" : { "rasterDensity" : 2 , "logical" : [ 320 , 480 ] } } "#;
         let facts = plan_facts(plan).unwrap();
-        assert_eq!(facts.viewport, PlanSurface { width: 320, height: 480, raster_density: 2 });
+        assert_eq!(
+            facts.viewport,
+            PlanSurface {
+                width: 320,
+                height: 480,
+                raster_density: 2
+            }
+        );
         assert_eq!(facts.auxiliary, None);
         assert!(facts.feature("ui.physics"));
         assert!(facts.companions);
@@ -486,8 +531,14 @@ mod tests {
     fn refuses_what_it_cannot_read() {
         assert_eq!(plan_facts(b"").unwrap_err(), PlanFactsError::Malformed);
         assert_eq!(plan_facts(b"[]").unwrap_err(), PlanFactsError::Malformed);
-        assert_eq!(plan_facts(b"{\"viewport\":{}").unwrap_err(), PlanFactsError::Malformed);
-        assert_eq!(plan_facts(b"{} trailing").unwrap_err(), PlanFactsError::Malformed);
+        assert_eq!(
+            plan_facts(b"{\"viewport\":{}").unwrap_err(),
+            PlanFactsError::Malformed
+        );
+        assert_eq!(
+            plan_facts(b"{} trailing").unwrap_err(),
+            PlanFactsError::Malformed
+        );
         assert_eq!(plan_facts(b"{}").unwrap_err(), PlanFactsError::Viewport);
         assert_eq!(
             plan_facts(br#"{"viewport":{"logical":[400.5,240],"rasterDensity":1}}"#).unwrap_err(),
@@ -519,9 +570,14 @@ mod tests {
         let enabled: std::vec::Vec<&[u8]> = facts.enabled_features().collect();
         assert_eq!(enabled, [&b"a.b"[..], &b"e.f"[..]]);
         let bare = plan_facts(br#"{"viewport":{"logical":[4,4],"rasterDensity":1}}"#).unwrap();
-        assert_eq!((bare.tick_hz, bare.animation, bare.presentation), (None, None, None));
+        assert_eq!(
+            (bare.tick_hz, bare.animation, bare.presentation),
+            (None, None, None)
+        );
         assert_eq!(bare.enabled_features().count(), 0);
-        let empty = plan_facts(br#"{"features":{ },"viewport":{"logical":[4,4],"rasterDensity":1}}"#).unwrap();
+        let empty =
+            plan_facts(br#"{"features":{ },"viewport":{"logical":[4,4],"rasterDensity":1}}"#)
+                .unwrap();
         assert_eq!(empty.enabled_features().count(), 0);
     }
 

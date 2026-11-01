@@ -105,6 +105,7 @@ extern "C" {
 #define POCKET_STATUS_UNSUPPORTED (-1)
 #define POCKET_STATUS_INVALID (-2)
 #define POCKET_STATUS_FAILED (-3)
+#define POCKET_PACKAGE_STORAGE_VERIFIED 1U
 /* Probe member alignment: i386 can align a scalar to 8 but its struct field to 4. */
 typedef struct { char prefix; uint64_t value; } pocket_abi_u64_alignment;
 typedef struct { char prefix; int64_t value; } pocket_abi_i64_alignment;
@@ -143,6 +144,7 @@ typedef struct pocket_input_frame_builder pocket_input_frame_builder;
 typedef struct pocket_display_output_v1 pocket_display_output_v1;
 typedef struct pocket_renderer_v1 pocket_renderer_v1;
 typedef struct pocket_input_source_v1 pocket_input_source_v1;
+typedef struct pocket_package_storage pocket_package_storage;
 typedef struct pocket_package_source_v1 pocket_package_source_v1;
 typedef struct pocket_clock_v1 pocket_clock_v1;
 
@@ -202,6 +204,12 @@ typedef int32_t (*pocket_package_length_fn)(void * context, size_t * out);
 typedef int32_t (*pocket_package_all_fn)(void * context, const uint8_t * * bytes, size_t * length);
 
 typedef int32_t (*pocket_package_range_fn)(void * context, size_t offset, uint8_t * buffer, size_t capacity, size_t * read);
+
+/* Transfers the whole package: out describes storage of the length the length callback reported. After success the source may refuse all and range. UNSUPPORTED keeps the copying path. */
+typedef int32_t (*pocket_package_take_fn)(void * context, pocket_package_storage * out);
+
+/* Releases storage a take transferred, after the runtime's last read of it. */
+typedef void (*pocket_package_release_fn)(void * context, const uint8_t * bytes, size_t length);
 
 /* Monotonic microseconds. */
 typedef uint64_t (*pocket_clock_now_fn)(void * context);
@@ -1285,12 +1293,46 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_source_v1, struct_size) == PO
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_source_v1, classes) == POCKET_LAYOUT_POCKET_INPUT_SOURCE_V1_1_OFFSET, "pocket_input_source_v1.classes");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_source_v1, poll) == POCKET_LAYOUT_POCKET_INPUT_SOURCE_V1_2_OFFSET, "pocket_input_source_v1.poll");
 
-/* all is optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. */
+/* Storage a source transfers through take. bytes stay valid and unchanged until the runtime calls release with release_context, bytes and length; a null release means they outlive the runtime. POCKET_PACKAGE_STORAGE_VERIFIED in flags states that the owner verified the package's FNV-1a64 footer and variant hashes of these exact bytes, so the runtime admits them without its own hash pass. */
+struct pocket_package_storage {
+  size_t struct_size;
+  const uint8_t * bytes;
+  size_t length;
+  pocket_package_release_fn release;
+  void * release_context;
+  uint32_t flags;
+};
+enum {
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_0_ALIGN, POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_1_OFFSET + sizeof(const uint8_t *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_1_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_2_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(pocket_package_release_fn)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_2_ALIGN, POCKET_ABI_ALIGNOF(pocket_package_release_fn)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_3_OFFSET + sizeof(pocket_package_release_fn), POCKET_ABI_ALIGNOF(void *)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_3_ALIGN, POCKET_ABI_ALIGNOF(void *)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_4_OFFSET + sizeof(void *), POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_4_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_OFFSET + 4, POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_package_storage) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_SIZE, "pocket_package_storage size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_package_storage) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_ALIGN, "pocket_package_storage alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, struct_size) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_0_OFFSET, "pocket_package_storage.struct_size");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, bytes) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_1_OFFSET, "pocket_package_storage.bytes");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, length) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_2_OFFSET, "pocket_package_storage.length");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, release) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_3_OFFSET, "pocket_package_storage.release");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, release_context) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_4_OFFSET, "pocket_package_storage.release_context");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, flags) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_OFFSET, "pocket_package_storage.flags");
+
+/* all and take are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. */
 struct pocket_package_source_v1 {
   size_t struct_size;
   pocket_package_length_fn length;
   pocket_package_all_fn all;
   pocket_package_range_fn range;
+  pocket_package_take_fn take;
 };
 enum {
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -1301,14 +1343,17 @@ enum {
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_1_ALIGN, POCKET_ABI_ALIGNOF(pocket_package_all_fn)),
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_2_OFFSET + sizeof(pocket_package_all_fn), POCKET_ABI_ALIGNOF(pocket_package_range_fn)),
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_2_ALIGN, POCKET_ABI_ALIGNOF(pocket_package_range_fn)),
-  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_OFFSET + sizeof(pocket_package_range_fn), POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_ALIGN)
+  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_OFFSET + sizeof(pocket_package_range_fn), POCKET_ABI_ALIGNOF(pocket_package_take_fn)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_ALIGN, POCKET_ABI_ALIGNOF(pocket_package_take_fn)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_OFFSET + sizeof(pocket_package_take_fn), POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_package_source_v1) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_SIZE, "pocket_package_source_v1 size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_package_source_v1) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_ALIGN, "pocket_package_source_v1 alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_package_source_v1) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_ALIGN, "pocket_package_source_v1 alignment");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, struct_size) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_0_OFFSET, "pocket_package_source_v1.struct_size");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, length) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_1_OFFSET, "pocket_package_source_v1.length");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, all) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_2_OFFSET, "pocket_package_source_v1.all");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, range) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_OFFSET, "pocket_package_source_v1.range");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, take) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_OFFSET, "pocket_package_source_v1.take");
 
 struct pocket_clock_v1 {
   size_t struct_size;
