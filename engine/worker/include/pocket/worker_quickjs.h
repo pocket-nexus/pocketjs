@@ -34,6 +34,15 @@ pocket_worker_quickjs_create(const pocket_worker_quickjs_config *);
  * section and a C string are, and the bytes stay valid through the call. */
 int32_t pocket_worker_quickjs_eval(pocket_worker_quickjs *, const char *,
                                    size_t, const char *);
+/* Evaluate a package bytecode section (contracts/spec/quickjs-bytecode.ts):
+ * a 48-byte QJBC envelope with the engine-ABI digest at byte 16, then the
+ * serialized object. 0 after evaluation; 1 before anything ran when
+ * engine_abi is NULL, the digest is another build's or the bytes are no
+ * envelope, so the caller evaluates source; -1 on a fault. */
+int32_t pocket_worker_quickjs_eval_bytecode(pocket_worker_quickjs *,
+                                            const uint8_t *envelope,
+                                            size_t length,
+                                            const uint8_t *engine_abi);
 /* Call only on the owning host task. Returns 1 after a turn, 0 when idle or
  * throttled, -1 on domain fault. The caller blocks on wake or next_deadline.
  * Context time is latched for the entire turn; sequence/generation are filled

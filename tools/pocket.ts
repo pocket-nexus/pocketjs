@@ -246,7 +246,15 @@ async function main() {
     const inputs = await Bun.file(inputsFile).json() as string[];
     await Bun.write(resolve(projectRoot, dependencies), depfile(output, [...inputs, ...extraDependencies]));
   }
-  await Bun.write(output, encodePocketPackage({ manifest: loaded.embedded, variants: [variant] }));
+  let packaged = variant;
+  if (selected.profile.bytecode) {
+    // The host names the QuickJS build it embeds: its bundles ship as bytecode for it.
+    const { withBytecode } = await import("./quickjs-bytecode.ts");
+    const bytecode = selected.profile.bytecode;
+    packaged = withBytecode(variant, { ...bytecode, buildDirectory: resolve(outdir, "quickjs-bytecode") });
+    console.log(`✓ QuickJS bytecode for ${bytecode.engine}${bytecode.source === "drop" ? " (source dropped)" : ""}`);
+  }
+  await Bun.write(output, encodePocketPackage({ manifest: loaded.embedded, variants: [packaged] }));
   console.log(`✓ Package: ${output}`);
 }
 try { await main(); }

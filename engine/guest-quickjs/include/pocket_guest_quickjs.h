@@ -23,6 +23,12 @@ pocket_guest_quickjs *pocket_guest_quickjs_attach(JSContext *context, pocket_qjs
 const pocket_guest_v1 *pocket_guest_quickjs_vtable(void);
 const char *pocket_guest_quickjs_error(const pocket_guest_quickjs *guest);
 JSContext *pocket_guest_quickjs_context(pocket_guest_quickjs *guest);
+/* The engine ABI of this guest's QuickJS build: 32 borrowed bytes from
+ * contracts/generated/pocket_quickjs_abi.h, or NULL. A package's bytecode
+ * section is evaluated when its digest is this one; otherwise
+ * evaluate_bytecode answers UNSUPPORTED and the runtime evaluates source.
+ * Set before the runtime boots. */
+void pocket_guest_quickjs_set_engine_abi(pocket_guest_quickjs *guest, const uint8_t *digest);
 /* Optional per-instance profiling. Hooks observe boundaries only; they must
  * not reenter or destroy the guest. Set before initialize on its owning thread. */
 typedef enum { POCKET_QJS_PHASE_IDLE, POCKET_QJS_PHASE_EVAL, POCKET_QJS_PHASE_FRAME, POCKET_QJS_PHASE_JOBS } pocket_qjs_phase;

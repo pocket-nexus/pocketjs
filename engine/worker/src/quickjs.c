@@ -289,6 +289,48 @@ int32_t pocket_worker_quickjs_eval(pocket_worker_quickjs *g, const char *source,
   }
   return 0;
 }
+/* The envelope of a bytecode section: "QJBC", version 1, a 48-byte header,
+ * zero flags, the engine-ABI digest at 16 (contracts/spec/quickjs-bytecode.ts). */
+#define BYTECODE_MAGIC 0x43424a51u
+#define BYTECODE_VERSION 1u
+#define BYTECODE_HEADER 48u
+#define BYTECODE_FLAGS 0u
+#define BYTECODE_ABI_OFFSET 16u
+#define BYTECODE_ABI_BYTES 32u
+static uint32_t word_at(const uint8_t *bytes, size_t at) {
+  return (uint32_t)bytes[at] | (uint32_t)bytes[at + 1] << 8 |
+         (uint32_t)bytes[at + 2] << 16 | (uint32_t)bytes[at + 3] << 24;
+}
+int32_t pocket_worker_quickjs_eval_bytecode(pocket_worker_quickjs *g,
+                                            const uint8_t *envelope,
+                                            size_t length,
+                                            const uint8_t *engine_abi) {
+  if (!g || g->fault || !envelope)
+    return -1;
+  if (!engine_abi || length <= BYTECODE_HEADER ||
+      word_at(envelope, 0) != BYTECODE_MAGIC ||
+      word_at(envelope, 4) != BYTECODE_VERSION ||
+      word_at(envelope, 8) != BYTECODE_HEADER ||
+      word_at(envelope, 12) != BYTECODE_FLAGS ||
+      memcmp(envelope + BYTECODE_ABI_OFFSET, engine_abi, BYTECODE_ABI_BYTES) !=
+          0)
+    return 1;
+  /* JS_ReadObject copies the object into the realm; JS_EvalFunction
+   * consumes it, an exception included. */
+  JSValue object =
+      JS_ReadObject(g->context, envelope + BYTECODE_HEADER,
+                    length - BYTECODE_HEADER, JS_READ_OBJ_BYTECODE);
+  JSValue result =
+      JS_IsException(object) ? object : JS_EvalFunction(g->context, object);
+  if (JS_IsException(result))
+    return failed(g);
+  JS_FreeValue(g->context, result);
+  if (!g->booted) {
+    g->window_start = now(g);
+    g->spent = 0;
+  }
+  return 0;
+}
 static JSValue context_value(pocket_worker_quickjs *g,
                              const pocket_worker_context *input) {
   JSContext *c = g->context;

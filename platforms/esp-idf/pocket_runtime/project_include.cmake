@@ -169,10 +169,17 @@ function(pocketjs_compile_app)
         get_filename_component(compiler_receipt "${APP_COMPILER_RECEIPT}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
         list(APPEND compiler_args --compiler-receipt "${compiler_receipt}")
     endif()
+    # A host contract that names the QuickJS engine ABI of this program gets
+    # bytecode sections compiled from the engine source the component manager
+    # fetched, the same files the firmware links.
+    if(NOT POCKETJS_QUICKJS_SOURCE)
+        set(POCKETJS_QUICKJS_SOURCE "${CMAKE_SOURCE_DIR}/managed_components/espressif__quickjs-ng/quickjs-ng" CACHE PATH "QuickJS source the bytecode compiler builds from")
+    endif()
     add_custom_command(
         OUTPUT "${package}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${generated}"
-        COMMAND "${POCKETJS_CLI}" compile
+        COMMAND "${CMAKE_COMMAND}" -E env "POCKETJS_QUICKJS_SOURCE=${POCKETJS_QUICKJS_SOURCE}"
+            "${POCKETJS_CLI}" compile
             --manifest "${manifest}" --host-config "${config}"
             --project-root "${project_root}" --outdir "${generated}"
             --plan-dir "${generated}/plans" --output "${package}" --depfile "${dependencies}"

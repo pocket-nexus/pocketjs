@@ -136,7 +136,8 @@ int main(void) {
   assert(runtime && !instance_create(&package));
   pocket_guest_v1 guest_api = {sizeof guest_api, evaluate_guest,
                                frame_guest,      NULL,
-                               shutdown_guest,   initialize_guest};
+                               shutdown_guest,   initialize_guest,
+                               NULL};
   assert(!pocket_runtime_set_guest(runtime, &guest_api, NULL));
   assert(!pocket_runtime_boot(runtime));
   uint32_t contact = (5 << 18) | (87 << 9) | 159;
