@@ -9,7 +9,7 @@
 //   GET /art?url=<image url>&size=128|256  an IMG entry (framework/compiler/
 //                                        pak.ts): size x size RGB565, the
 //                                        picture scaled to cover and cut square
-//   GET /play?url=<audio url>&at=<s>&duration=<s>  {source, position, durationS}
+//   GET /play?url=<audio url>&at=<s>&duration=<s>[&codec=pal8]  {source, position, durationS}
 //   GET /stop                            {stopped}
 //
 // `play` publishes a one-use ticket on the companion's media stream server
@@ -17,7 +17,10 @@
 // stream carries 22,050 Hz stereo IMA ADPCM and no pictures: its header
 // names the rgb565 codec at 24 frames a second, which a GPU host accepts,
 // and no video packet follows, so the host's plane stays black and the app
-// draws the artwork. One ffmpeg decodes the episode's audio from `at` and
+// draws the artwork. `codec=pal8` is for a host whose worker takes H.264 or
+// PAL8 (the 3DS, the Tab5): its speaker starts after the first decoded
+// picture and a stream without one fails 500 ms in, so one black PAL8 frame
+// goes ahead of the audio. One ffmpeg decodes the episode's audio from `at` and
 // writes PCM to a pipe read 4,096 bytes (1,024 stereo frames, one packet)
 // at a time, so ffmpeg runs no further ahead than the console's credits.
 //
@@ -31,7 +34,7 @@ import { MEDIA, type MediaSource } from "../../../contracts/spec/media.ts";
 import { encodeMediaAudio } from "../../../contracts/spec/media-adpcm.ts";
 import { IMG_FLAG_LINEAR, PSM } from "../../../contracts/spec/spec.ts";
 import { encodeImageEntry } from "../../../framework/compiler/pak.ts";
-import { createMediaStreamServer, mediaHeader, type MediaPacket } from "../../media-stream.ts";
+import { createMediaStreamServer, createPal8Encoder, mediaHeader, type MediaPacket } from "../../media-stream.ts";
 import { envProxy } from "../fetch.ts";
 import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
 import { COMPUTER } from "../computer.ts";
@@ -75,6 +78,10 @@ export const ART_SIZES = [128, 256] as const;
 const FEED_MAX_BYTES = 8 * 1024 * 1024;
 /** The stream's header names this picture rate; no picture is sent. */
 const FPS = 24;
+/** A PAL8 stream's rate, and the one small black frame it opens with. */
+const PAL8_FPS = 12;
+const BLANK_SIDE = 16;
+const blankPal8 = () => createPal8Encoder(BLANK_SIDE, BLANK_SIDE).encode(new Uint8Array(BLANK_SIDE * BLANK_SIDE));
 /** Bytes of one audio packet: MEDIA.audioFrames stereo s16 frames. */
 const PACKET_BYTES = MEDIA.audioFrames * 4;
 const SEARCH_URL = "https://itunes.apple.com/search?media=podcast&limit=" + RESULTS + "&term=";
@@ -276,9 +283,10 @@ async function* packetChunks(fd: number): AsyncGenerator<Uint8Array> {
 /** ADPCM packets of the episode's audio from `seconds`: one ffmpeg decodes
  *  it to 22,050 Hz stereo PCM on fd 3. The stream server appends the END
  *  packet when this generator returns. */
-async function* audioPackets(ffmpegPath: string, url: string, seconds: number, signal: AbortSignal): AsyncGenerator<MediaPacket> {
+async function* audioPackets(ffmpegPath: string, url: string, seconds: number, signal: AbortSignal, picture = false): AsyncGenerator<MediaPacket> {
   if (signal.aborted) return;
   const originMs = Math.round(seconds * 1000);
+  if (picture) yield { kind: 1, ptsMs: originMs, data: blankPal8() };
   const ffmpeg = Bun.spawn(
     [ffmpegPath, "-hide_banner", "-loglevel", "error", "-nostdin",
       ...proxyArgs("-http_proxy"), "-user_agent", USER_AGENT,
@@ -428,13 +436,14 @@ export function createPodcastsService(context: ServiceContext): ServiceProvider 
     const url = request.query.get("url") ?? "";
     if (!isHttp(url)) return jsonResponse(400, { error: "play needs an audio url" });
     const ffmpegPath = ffmpeg();
+    const pal8 = request.query.get("codec") === "pal8";
     let durationS = Math.max(0, Math.floor(Number(request.query.get("duration")) || 0));
     if (!durationS) durationS = await probe(url, request.signal);
     const at = Math.max(0, Math.min(Math.floor(Number(request.query.get("at")) || 0), durationS ? Math.max(0, durationS - 1) : Number.MAX_SAFE_INTEGER));
     await stop();
     const source = (await server()).publish(
-      mediaHeader(at * 1000, durationS * 1000, FPS, "rgb565"),
-      (signal) => audioPackets(ffmpegPath, url, at, signal),
+      pal8 ? mediaHeader(at * 1000, durationS * 1000, PAL8_FPS, "pal8") : mediaHeader(at * 1000, durationS * 1000, FPS, "rgb565"),
+      (signal) => audioPackets(ffmpegPath, url, at, signal, pal8),
       request.console.localAddress,
     );
     active = source;
