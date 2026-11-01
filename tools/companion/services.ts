@@ -24,6 +24,7 @@ import { LINK_SERVICES_HOST } from "../../contracts/spec/link.ts";
 import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { NetFailure, type NetRequest, type NetResponse } from "./fetch.ts";
 import { createDiscordService } from "./services/discord.ts";
+import { createStoreService } from "./services/store.ts";
 import { createGlyphsService } from "./services/glyphs.ts";
 import { createXService } from "./services/x.ts";
 import { createYoutubeService } from "./services/youtube.ts";
@@ -122,6 +123,7 @@ export const SERVICE_FACTORIES: Record<string, (context: ServiceContext) => Serv
   x: createXService,
   discord: createDiscordService,
   glyphs: createGlyphsService,
+  store: createStoreService,
 };
 
 export class ServiceHost {
