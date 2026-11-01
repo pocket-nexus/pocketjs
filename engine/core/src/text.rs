@@ -9,10 +9,116 @@
 //! breaks only on explicit '\n'. Measurement is the max line width (sum of
 //! advances + tracking per glyph) by lines x line height.
 
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::Cell;
+use core::ops::{Deref, DerefMut, Range};
 
 use crate::spec;
+
+/// The coverage cells of an atlas: the package's own bytes, read in place
+/// while the storage they came from lives, or a copy. A write (a streaming
+/// font taking over a baked slot) copies shared cells first.
+pub enum Coverage {
+    Owned(Vec<u8>),
+    Shared {
+        storage: Rc<dyn AsRef<[u8]>>,
+        range: Range<usize>,
+    },
+}
+
+impl Coverage {
+    /// Cells at `range` of `storage`; `None` when the range is outside it.
+    pub fn shared(storage: Rc<dyn AsRef<[u8]>>, range: Range<usize>) -> Option<Self> {
+        let length = (*storage).as_ref().len();
+        (range.start <= range.end && range.end <= length).then_some(Self::Shared { storage, range })
+    }
+
+    /// True while the cells are the package's bytes.
+    pub fn is_shared(&self) -> bool {
+        matches!(self, Self::Shared { .. })
+    }
+
+    /// The cells as an owned vector, copied out of shared storage first.
+    pub fn to_mut(&mut self) -> &mut Vec<u8> {
+        if self.is_shared() {
+            *self = Self::Owned(self.as_slice().to_vec());
+        }
+        match self {
+            Self::Owned(cells) => cells,
+            Self::Shared { .. } => unreachable!("copied above"),
+        }
+    }
+
+    /// Bytes an owned copy holds beyond its cells; zero for shared cells.
+    pub fn capacity(&self) -> usize {
+        match self {
+            Self::Owned(cells) => cells.capacity(),
+            Self::Shared { .. } => 0,
+        }
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Owned(cells) => cells,
+            Self::Shared { storage, range } => &(**storage).as_ref()[range.clone()],
+        }
+    }
+}
+
+impl Default for Coverage {
+    fn default() -> Self {
+        Self::Owned(Vec::new())
+    }
+}
+
+impl From<Vec<u8>> for Coverage {
+    fn from(cells: Vec<u8>) -> Self {
+        Self::Owned(cells)
+    }
+}
+
+impl Deref for Coverage {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl DerefMut for Coverage {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.to_mut().as_mut_slice()
+    }
+}
+
+impl Clone for Coverage {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Owned(cells) => Self::Owned(cells.clone()),
+            Self::Shared { storage, range } => Self::Shared {
+                storage: storage.clone(),
+                range: range.clone(),
+            },
+        }
+    }
+}
+
+impl PartialEq for Coverage {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl core::fmt::Debug for Coverage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "Coverage({} bytes{})",
+            self.len(),
+            if self.is_shared() { ", shared" } else { "" }
+        )
+    }
+}
 
 #[inline]
 fn rd_u16(b: &[u8], off: usize) -> Option<u16> {
@@ -61,14 +167,36 @@ pub struct Atlas {
     pub(crate) cmap: Vec<CmapEntry>,
     pub(crate) stream: Option<crate::font_stream::Stream>,
     /// Coverage cells: glyphCount x (cellH*density) x (cellW*density)
-    /// alpha bytes, left-to-right.
-    pub bitmap: Vec<u8>,
+    /// alpha bytes, left-to-right; the package's bytes in place or a copy.
+    pub bitmap: Coverage,
 }
 
 impl Atlas {
     /// Parse a font-atlas blob (copies the bytes it keeps). `None` on bad
     /// magic/version/slot or truncation.
     pub fn parse(bytes: &[u8]) -> Option<Atlas> {
+        let (mut atlas, cells) = Self::parse_header(bytes)?;
+        let mut bitmap = Vec::with_capacity(cells.len());
+        bitmap.extend_from_slice(&bytes[cells]);
+        atlas.bitmap = Coverage::Owned(bitmap);
+        Some(atlas)
+    }
+
+    /// Parse the blob at `range` of `storage`; its coverage cells are then
+    /// read from that storage in place until a write copies them.
+    pub fn parse_shared(storage: Rc<dyn AsRef<[u8]>>, range: Range<usize>) -> Option<Atlas> {
+        let (mut atlas, cells) = {
+            let bytes = (*storage).as_ref().get(range.clone())?;
+            Self::parse_header(bytes)?
+        };
+        atlas.bitmap =
+            Coverage::shared(storage, range.start + cells.start..range.start + cells.end)?;
+        Some(atlas)
+    }
+
+    /// The header and cmap of a blob and the position of its coverage cells
+    /// in it; the returned atlas has no cells yet.
+    fn parse_header(bytes: &[u8]) -> Option<(Atlas, Range<usize>)> {
         use spec::font_atlas as fa;
         if rd_u32(bytes, 0)? != fa::MAGIC {
             return None;
@@ -124,22 +252,23 @@ impl Atlas {
                 xoff: *bytes.get(o + 7)?,
             });
         }
-        let mut bitmap = Vec::with_capacity(bitmap_len);
-        bitmap.extend_from_slice(&bytes[bitmap_off..bitmap_end]);
-        Some(Atlas {
-            cell_w,
-            cell_h,
-            baseline,
-            line_height,
-            raster_density,
-            slot,
-            flags,
-            glyph_count,
-            cmap,
-            stream: None,
-            texture_cell_w: cell_w,
-            bitmap,
-        })
+        Some((
+            Atlas {
+                cell_w,
+                cell_h,
+                baseline,
+                line_height,
+                raster_density,
+                slot,
+                flags,
+                glyph_count,
+                cmap,
+                stream: None,
+                texture_cell_w: cell_w,
+                bitmap: Coverage::default(),
+            },
+            bitmap_off..bitmap_end,
+        ))
     }
 
     /// GPU cells omit transparent right-hand archive padding. Source coverage
@@ -292,7 +421,16 @@ impl Fonts {
 
     /// Parse + register an atlas at the slot in its header.
     pub fn load(&mut self, bytes: &[u8]) -> bool {
-        match Atlas::parse(bytes) {
+        self.register(Atlas::parse(bytes))
+    }
+
+    /// `load` for a blob at `range` of `storage`, whose cells stay there.
+    pub fn load_shared(&mut self, storage: Rc<dyn AsRef<[u8]>>, range: Range<usize>) -> bool {
+        self.register(Atlas::parse_shared(storage, range))
+    }
+
+    fn register(&mut self, parsed: Option<Atlas>) -> bool {
+        match parsed {
             Some(a) => {
                 let slot = a.slot as usize;
                 self.slots[slot] = Some(a);
@@ -318,7 +456,14 @@ impl Fonts {
             Some(e) => (e.gid, e.advance as f32, e.xoff as f32),
             None => {
                 self.misses.set(self.misses.get().wrapping_add(1));
-                (0, atlas.stream.as_ref().map_or(atlas.cell_w as f32, |s| s.advance as f32), 0.0)
+                (
+                    0,
+                    atlas
+                        .stream
+                        .as_ref()
+                        .map_or(atlas.cell_w as f32, |s| s.advance as f32),
+                    0.0,
+                )
             }
         }
     }
@@ -531,5 +676,28 @@ impl Fonts {
             }
             line_top += lh;
         }
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn shared_cells_are_read_in_place_and_copied_on_write() {
+        let storage: Rc<dyn AsRef<[u8]>> = Rc::new(alloc::vec![1u8, 2, 3, 4, 5, 6]);
+        let base = (*storage).as_ref().as_ptr() as usize;
+        let mut cells = Coverage::shared(storage.clone(), 2..5).unwrap();
+        assert!(cells.is_shared());
+        assert_eq!(&cells[..], &[3, 4, 5]);
+        assert_eq!(cells.as_ptr() as usize, base + 2);
+        assert_eq!(cells.capacity(), 0);
+        assert_eq!(cells.clone(), cells);
+        cells[0] = 9;
+        assert!(!cells.is_shared());
+        assert_eq!(&cells[..], &[9, 4, 5]);
+        assert_eq!((*storage).as_ref()[2], 3);
+        assert!(Coverage::shared(storage.clone(), 4..7).is_none());
+        assert!(Coverage::shared(storage, 5..4).is_none());
     }
 }

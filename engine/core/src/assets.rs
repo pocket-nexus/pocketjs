@@ -36,6 +36,18 @@ impl Ui {
         inputs: &[AssetInput<'_>],
         handles: &mut [i32],
     ) -> Result<(), AssetError> {
+        self.load_assets_from(inputs, handles, None)
+    }
+
+    /// `load_assets` whose inputs are slices of `storage`, which the caller
+    /// keeps alive: font atlases then read their coverage cells from it in
+    /// place instead of copying them. An input outside `storage` is copied.
+    pub fn load_assets_from(
+        &mut self,
+        inputs: &[AssetInput<'_>],
+        handles: &mut [i32],
+        storage: Option<&alloc::rc::Rc<dyn AsRef<[u8]>>>,
+    ) -> Result<(), AssetError> {
         if handles.len() != inputs.len() {
             return Err(AssetError::Invalid);
         }
@@ -57,7 +69,16 @@ impl Ui {
                 }
                 AssetKind::Font => {
                     let slot = *b.get(12).ok_or(AssetError::Invalid)? as usize;
-                    if slot >= fonts.len() || fonts[slot] || !staged.load_font_atlas(b) {
+                    if slot >= fonts.len() || fonts[slot] {
+                        return Err(AssetError::Invalid);
+                    }
+                    let loaded = match storage.and_then(|storage| range_in(storage, b)) {
+                        Some(range) => {
+                            staged.load_font_atlas_shared(storage.unwrap().clone(), range)
+                        }
+                        None => staged.load_font_atlas(b),
+                    };
+                    if !loaded {
                         return Err(AssetError::Invalid);
                     }
                     fonts[slot] = true;
@@ -124,6 +145,17 @@ impl Ui {
         self.bump_raster_revision();
         Ok(())
     }
+}
+
+/// The position of `part` in `storage`, when it lies within it.
+fn range_in(
+    storage: &alloc::rc::Rc<dyn AsRef<[u8]>>,
+    part: &[u8],
+) -> Option<core::ops::Range<usize>> {
+    let base = (**storage).as_ref();
+    let start = (part.as_ptr() as usize).checked_sub(base.as_ptr() as usize)?;
+    let end = start.checked_add(part.len())?;
+    (end <= base.len()).then_some(start..end)
 }
 
 #[cfg(test)]
