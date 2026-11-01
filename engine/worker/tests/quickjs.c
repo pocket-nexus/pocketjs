@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 typedef struct {
@@ -89,6 +90,38 @@ int main(void) {
   q.heap_limit = 1024 * 1024;
   pocket_worker_quickjs *g = pocket_worker_quickjs_create(&q);
   assert(g);
+  /* A package bytecode section runs when its digest is this engine's;
+   * another build's, or none, leaves the realm untouched. */
+  {
+    JSContext *ctx = pocket_worker_quickjs_context(g);
+    const char *source = "globalThis.__bytecode = 6 * 7;";
+    JSValue compiled = JS_Eval(ctx, source, strlen(source), "worker.js",
+                               JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
+    assert(!JS_IsException(compiled));
+    size_t length = 0;
+    uint8_t *object = JS_WriteObject(ctx, &length, compiled, JS_WRITE_OBJ_BYTECODE);
+    assert(object && length);
+    JS_FreeValue(ctx, compiled);
+    uint8_t *section = calloc(1, 48 + length);
+    assert(section);
+    const uint32_t words[4] = {0x43424a51u, 1u, 48u, 0u};
+    for (size_t i = 0; i < 4; i++)
+      for (size_t b = 0; b < 4; b++)
+        section[i * 4 + b] = (uint8_t)(words[i] >> (8 * b));
+    uint8_t digest[32];
+    memset(digest, 0x5a, sizeof digest);
+    memcpy(section + 16, digest, sizeof digest);
+    memcpy(section + 48, object, length);
+    js_free(ctx, object);
+    uint8_t other[32];
+    memset(other, 0xa5, sizeof other);
+    assert(pocket_worker_quickjs_eval_bytecode(g, section, 48 + length, NULL) == 1);
+    assert(pocket_worker_quickjs_eval_bytecode(g, section, 48 + length, other) == 1);
+    eval(g, "if('__bytecode' in globalThis)throw Error('ran before the digest matched')");
+    assert(pocket_worker_quickjs_eval_bytecode(g, section, 48 + length, digest) == 0);
+    eval(g, "if(globalThis.__bytecode!==42)throw Error('bytecode did not run')");
+    free(section);
+  }
   eval(g, "if(typeof ui!=='undefined')throw Error('UI leaked');let "
           "calls=0;__pocketWorker.declareChannel(1,1,16,1,1);__pocketWorker."
           "declareChannel(2,1,16,1,0);globalThis.__pocketWorkerTurn=(c,f)=>{if("

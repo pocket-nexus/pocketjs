@@ -1,4 +1,5 @@
 #include "esp_heap_caps.h"
+#include "pocket_quickjs_abi.h"
 #include "esp_log.h"
 #include "pocket/guest_idf.h"
 #include <stdatomic.h>
@@ -153,6 +154,12 @@ static int32_t report_rejections(pocket_guest_idf *guest) {
   return failed ? POCKET_STATUS_FAILED : POCKET_STATUS_OK;
 }
 
+/* The engine ABI constant describes the component this guest links. */
+_Static_assert(QJS_VERSION_MAJOR == 0 && QJS_VERSION_MINOR == 14 &&
+                   QJS_VERSION_PATCH == 0,
+               "POCKET_QUICKJS_ENGINE_ABI_ESP_IDF_QUICKJS_NG_0_14_0 describes "
+               "quickjs-ng 0.14.0");
+
 pocket_guest_idf *
 pocket_guest_idf_create(const pocket_guest_idf_config *config) {
   if (!config || !config->heap_limit || !config->stack_limit)
@@ -175,6 +182,8 @@ pocket_guest_idf_create(const pocket_guest_idf_config *config) {
   guest->binding = pocket_guest_quickjs_attach(guest->context, POCKET_QJS_IDF);
   if (!guest->binding)
     goto failed;
+  pocket_guest_quickjs_set_engine_abi(
+      guest->binding, POCKET_QUICKJS_ENGINE_ABI_ESP_IDF_QUICKJS_NG_0_14_0);
   return guest;
 failed:
   pocket_guest_idf_destroy(guest);
@@ -197,6 +206,14 @@ static int32_t evaluate(void *opaque, pocket_runtime *runtime,
                                                            runtime, code, size);
   return status == POCKET_STATUS_OK ? report_rejections(guest) : status;
 }
+static int32_t evaluate_bytecode(void *opaque, pocket_runtime *runtime,
+                                 const uint8_t *code, size_t size) {
+  pocket_guest_idf *guest = opaque;
+  JS_UpdateStackTop(guest->runtime);
+  int32_t status = pocket_guest_quickjs_vtable()->evaluate_bytecode(
+      guest->binding, runtime, code, size);
+  return status == POCKET_STATUS_OK ? report_rejections(guest) : status;
+}
 static int32_t frame(void *opaque, const pocket_guest_frame *input) {
   pocket_guest_idf *guest = opaque;
   /* The stack limit counts from the calling task's stack: a frame may run
@@ -214,8 +231,9 @@ static void shutdown(void *opaque) {
   pocket_guest_idf *guest = opaque;
   pocket_guest_quickjs_vtable()->shutdown(guest->binding);
 }
-static const pocket_guest_v1 VTABLE = {sizeof(VTABLE), evaluate, frame,
-                                       collect,        shutdown, initialize};
+static const pocket_guest_v1 VTABLE = {sizeof(VTABLE), evaluate,   frame,
+                                       collect,        shutdown,   initialize,
+                                       evaluate_bytecode};
 const pocket_guest_v1 *pocket_guest_idf_vtable(void) { return &VTABLE; }
 const char *pocket_guest_idf_error(const pocket_guest_idf *guest) {
   return guest ? pocket_guest_quickjs_error(guest->binding) : "invalid guest";

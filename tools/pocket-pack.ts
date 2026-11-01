@@ -33,6 +33,7 @@ import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
   POCKET_SECTION,
+  decodeBytecodeEnvelope,
   decodePocketPackage,
   decodeHostInputs,
   decodeIdentity,
@@ -220,7 +221,10 @@ function inspectCommand(file: string): void {
       3: "js",
       4: "pak",
       5: "cover",
+      6: "bytecode",
       7: "hostInputs",
+      8: "workerJs",
+      9: "workerBc",
     };
     for (const s of v.sections) {
       console.log(`    ${(names[s.kind] ?? `kind${s.kind}`).padEnd(8)} ${s.bytes.length}B`);
@@ -283,8 +287,16 @@ function verifyCommand(file: string): void {
       }
     }
     const js = findSection(v, POCKET_SECTION.js);
-    if (!js || js[js.length - 1] !== 0) {
+    if (js && js[js.length - 1] !== 0) {
       throw new Error(`verify: variant ${v.target} js section is not NUL-terminated`);
+    }
+    const bytecode = findSection(v, POCKET_SECTION.bytecode);
+    if (!js && !bytecode) throw new Error(`verify: variant ${v.target} has neither a js nor a bytecode section`);
+    for (const [kind, name] of [[POCKET_SECTION.bytecode, "bytecode"], [POCKET_SECTION.workerBytecode, "worker bytecode"]] as const) {
+      const section = findSection(v, kind);
+      if (!section) continue;
+      try { decodeBytecodeEnvelope(section); }
+      catch (error) { throw new Error(`verify: variant ${v.target} ${name} section: ${error instanceof Error ? error.message : String(error)}`); }
     }
   }
   console.log(`verify: OK — footer hash, ${pkg.variants.length} variant(s) re-admitted`);

@@ -55,7 +55,7 @@ export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
     f("axis_deltas", "*const PocketAxisDelta"), f("axis_delta_count", "usize"), f("motion", "*const PocketMotionState"),
     f("text", "*const PocketTextEvent"), f("text_count", "usize"),
   ], "Legacy frame argument packet encoded by the runtime, including hit facts. touches/hits/touch_surfaces have touch_count entries; text has text_count entries, the frame's text events in order. Borrowed until the guest frame callback returns."),
-  record("PocketGuestV1", "pocket_guest_v1", [f("evaluate", "Option<PocketGuestEvaluateFn>"), f("frame", "Option<PocketGuestFrameFn>"), f("collect", "Option<PocketGuestCollectFn>"), f("shutdown", "Option<PocketGuestShutdownFn>"), f("initialize", "Option<PocketGuestInitializeFn>")], "Guest callbacks invoke generated bindings through pocket_runtime_op. No guest retains borrowed frame memory after frame returns."),
+  record("PocketGuestV1", "pocket_guest_v1", [f("evaluate", "Option<PocketGuestEvaluateFn>"), f("frame", "Option<PocketGuestFrameFn>"), f("collect", "Option<PocketGuestCollectFn>"), f("shutdown", "Option<PocketGuestShutdownFn>"), f("initialize", "Option<PocketGuestInitializeFn>"), f("evaluate_bytecode", "Option<PocketGuestEvaluateBytecodeFn>")], "Guest callbacks invoke generated bindings through pocket_runtime_op. No guest retains borrowed frame memory after frame returns."),
   record("PocketOpProviderV1", "pocket_op_provider_v1", [f("dispatch", "Option<PocketOpProviderDispatchFn>")], "Provides registered non-core operations. Arguments borrow through callback return; argument_length is the byte span of extensible pocket_op_arg records. Initialize out with its supplied struct_size and return a valid tagged result on success."),
 ];
 
@@ -66,6 +66,7 @@ export const RUNTIME_ABI_CALLBACKS: readonly AbiCallback[] = [
   callback("PocketDrawOpVisitFn", "pocket_draw_op_visit_fn", [context, f("operation", "*const PocketDrawOp")], "i32", "Synchronous visitor. Operation, clip and words borrow until callback return; do not retain them or mutate the DrawList. Return POCKET_STATUS_OK to continue or an error to stop."),
   callback("PocketGuestInitializeFn", "pocket_guest_initialize_fn", [context, runtime, f("environment", "*const PocketGuestEnvironment")]),
   callback("PocketGuestEvaluateFn", "pocket_guest_evaluate_fn", [context, runtime, f("code", "*const u8"), f("length", "usize")]),
+  callback("PocketGuestEvaluateBytecodeFn", "pocket_guest_evaluate_bytecode_fn", [context, runtime, f("code", "*const u8"), f("length", "usize")], "i32", "Optional. code is a package bytecode section: a 48-byte QJBC envelope with the engine-ABI digest at byte 16, then the serialized QuickJS object. UNSUPPORTED when the guest has no engine ABI or the digest is another build's; the runtime then evaluates the source section when the package has one. Any other error is the program's: the realm may have run, and no source is evaluated after it."),
   callback("PocketGuestFrameFn", "pocket_guest_frame_fn", [context, f("frame", "*const PocketGuestFrame")]),
   callback("PocketGuestCollectFn", "pocket_guest_collect_fn", [context]),
   callback("PocketGuestShutdownFn", "pocket_guest_shutdown_fn", [context], "void"),

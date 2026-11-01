@@ -177,7 +177,7 @@ static void guest_shutdown(void *opaque) {
   pocket_guest_quickjs_vtable()->shutdown(guest);
 }
 static const pocket_guest_v1 guest_table = {
-  sizeof(pocket_guest_v1), guest_evaluate, guest_frame, guest_collect, guest_shutdown, guest_initialize
+  sizeof(pocket_guest_v1), guest_evaluate, guest_frame, guest_collect, guest_shutdown, guest_initialize, NULL
 };
 #ifdef POCKET_SVC_WIRE
 static int32_t service_dispatch(void *opaque, uint16_t op, const pocket_op_arg *args, size_t length, pocket_result *out) {

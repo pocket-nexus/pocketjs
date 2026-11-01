@@ -32,6 +32,8 @@ pub struct LoadedPackage {
     worker_js: Range<usize>,
     pak: Range<usize>,
     plan: Range<usize>,
+    bytecode: Option<Range<usize>>,
+    worker_bytecode: Option<Range<usize>>,
     pub package_hash: u64,
     pub variant_hash: u64,
     /// The admitted variant's package rate and host cadence.
@@ -122,6 +124,8 @@ impl LoadedPackage {
             range(guest.pak),
             range(guest.plan),
         );
+        let (bytecode, worker_bytecode) =
+            (guest.bytecode.map(range), guest.worker_bytecode.map(range));
         let (package_hash, variant_hash, timing) =
             (guest.package_hash, guest.variant_hash, guest.timing);
         Ok(Self {
@@ -130,6 +134,8 @@ impl LoadedPackage {
             worker_js,
             pak,
             plan,
+            bytecode,
+            worker_bytecode,
             package_hash,
             variant_hash,
             timing,
@@ -148,6 +154,20 @@ impl LoadedPackage {
     }
     pub fn pak(&self) -> &[u8] {
         &self.bytes.as_ref()[self.pak.clone()]
+    }
+    /// Section 6, the UI bundle as a bytecode envelope (`crate::bytecode`),
+    /// when the variant carries one; `javascript` is then empty when the
+    /// source was dropped in its favour.
+    pub fn bytecode(&self) -> Option<&[u8]> {
+        self.bytecode
+            .clone()
+            .map(|range| &self.bytes.as_ref()[range])
+    }
+    /// Section 9, the worker bundle as a bytecode envelope.
+    pub fn worker_bytecode(&self) -> Option<&[u8]> {
+        self.worker_bytecode
+            .clone()
+            .map(|range| &self.bytes.as_ref()[range])
     }
     pub fn plan(&self) -> &[u8] {
         &self.bytes.as_ref()[self.plan.clone()]

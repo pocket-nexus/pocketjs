@@ -208,6 +208,9 @@ pub type PocketGuestInitializeFn = unsafe extern "C" fn(context: *mut c_void, ru
 
 pub type PocketGuestEvaluateFn = unsafe extern "C" fn(context: *mut c_void, runtime: *mut PocketRuntime, code: *const u8, length: usize) -> i32;
 
+/// Optional. code is a package bytecode section: a 48-byte QJBC envelope with the engine-ABI digest at byte 16, then the serialized QuickJS object. UNSUPPORTED when the guest has no engine ABI or the digest is another build's; the runtime then evaluates the source section when the package has one. Any other error is the program's: the realm may have run, and no source is evaluated after it.
+pub type PocketGuestEvaluateBytecodeFn = unsafe extern "C" fn(context: *mut c_void, runtime: *mut PocketRuntime, code: *const u8, length: usize) -> i32;
+
 pub type PocketGuestFrameFn = unsafe extern "C" fn(context: *mut c_void, frame: *const PocketGuestFrame) -> i32;
 
 pub type PocketGuestCollectFn = unsafe extern "C" fn(context: *mut c_void) -> i32;
@@ -807,6 +810,7 @@ abi_record! {
         pub collect: Option<PocketGuestCollectFn>,
         pub shutdown: Option<PocketGuestShutdownFn>,
         pub initialize: Option<PocketGuestInitializeFn>,
+        pub evaluate_bytecode: Option<PocketGuestEvaluateBytecodeFn>,
     }
 }
 

@@ -288,7 +288,7 @@
     "devtools:psp": "bun tools/devtools-psp.ts",
     "test:tailwind": "bun test tests/tailwind.test.ts",
     "contract": "bun tests/contract.ts",
-    "gen": "bun tools/schemas.ts && bun contracts/spec/gen-rust.ts && bun contracts/spec/gen-c.ts && bun tools/worker-contracts.ts && bun tools/driver-contracts.ts && bun tools/ui-bindings.ts && bun tools/guest-web-bindings.ts && bun tools/3ds-contracts.ts && bun tools/packaging/esp-idf/contracts.ts && bun tools/gen-exports.ts",
+    "gen": "bun tools/schemas.ts && bun contracts/spec/gen-rust.ts && bun contracts/spec/gen-c.ts && bun tools/worker-contracts.ts && bun tools/driver-contracts.ts && bun tools/ui-bindings.ts && bun tools/guest-web-bindings.ts && bun tools/3ds-contracts.ts && bun tools/packaging/esp-idf/contracts.ts && bun tools/quickjs-bytecode-contracts.ts && bun tools/gen-exports.ts",
     "esp-idf:native": "bun tools/packaging/esp-idf/native.ts",
     "esp-idf:release": "bun tools/packaging/esp-idf/stage.ts",
     "android": "bun tools/android.ts",

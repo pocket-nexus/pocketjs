@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "pocket_guest_quickjs.h"
+#include "pocket_quickjs_abi.h"
 #include <sys/mman.h>
 #include <unistd.h>
 #include <assert.h>
@@ -241,4 +242,30 @@ static void evaluation_source_lifetime(void) {
   }
   assert(munmap(source,span+page)==0);
 }
-int main(void){binding_generation();canonical();idf();attached_lifetime();extensible_records();package_storage();package_outside_heap_limit();package_terminal_nul();evaluation_source_lifetime();puts("generated QuickJS bindings: ok");return 0;}
+/* A package bytecode section runs when its envelope names the guest's engine
+ * ABI; another build's, or none, is UNSUPPORTED before anything runs. */
+static void bytecode(void) {
+  pocket_runtime runtime={0};pocket_guest_quickjs *guest=pocket_guest_quickjs_create(POCKET_QJS_CANONICAL);pocket_guest_environment env=environment();
+  assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
+  JSContext *ctx=pocket_guest_quickjs_context(guest);
+  const char *source="globalThis.__bytecode=6*7;";
+  JSValue compiled=JS_Eval(ctx,source,strlen(source),"app.js",JS_EVAL_TYPE_GLOBAL|JS_EVAL_FLAG_COMPILE_ONLY);assert(!JS_IsException(compiled));
+  size_t length=0;uint8_t *object=JS_WriteObject(ctx,&length,compiled,JS_WRITE_OBJ_BYTECODE);assert(object&&length);JS_FreeValue(ctx,compiled);
+  size_t total=POCKET_BYTECODE_HEADER_SIZE+length;uint8_t *section=calloc(1,total);assert(section);
+  const uint32_t words[4]={POCKET_BYTECODE_MAGIC,POCKET_BYTECODE_VERSION,POCKET_BYTECODE_HEADER_SIZE,POCKET_BYTECODE_FLAGS};
+  for(size_t i=0;i<4;i++)for(size_t b=0;b<4;b++)section[i*4+b]=(uint8_t)(words[i]>>(8*b));
+  uint8_t digest[32];memset(digest,0x5a,sizeof digest);memcpy(section+POCKET_BYTECODE_ENGINE_ABI_OFFSET,digest,sizeof digest);memcpy(section+POCKET_BYTECODE_HEADER_SIZE,object,length);js_free(ctx,object);
+  assert(pocket_guest_quickjs_vtable()->evaluate_bytecode(guest,&runtime,section,total)==POCKET_STATUS_UNSUPPORTED);
+  uint8_t other[32];memset(other,0xa5,sizeof other);pocket_guest_quickjs_set_engine_abi(guest,other);
+  assert(pocket_guest_quickjs_vtable()->evaluate_bytecode(guest,&runtime,section,total)==POCKET_STATUS_UNSUPPORTED);
+  eval(guest,&runtime,"if('__bytecode' in globalThis)throw Error('ran before the digest matched')");
+  pocket_guest_quickjs_set_engine_abi(guest,digest);
+  assert(pocket_guest_quickjs_vtable()->evaluate_bytecode(guest,&runtime,section,total)==0);
+  eval(guest,&runtime,"if(globalThis.__bytecode!==42)throw Error('bytecode did not run')");
+  /* A damaged object fails after the digest matched: an error, no fallback. */
+  section[POCKET_BYTECODE_HEADER_SIZE]^=0xff;
+  int32_t damaged=pocket_guest_quickjs_vtable()->evaluate_bytecode(guest,&runtime,section,total);
+  assert(damaged!=0&&damaged!=POCKET_STATUS_UNSUPPORTED);
+  free(section);pocket_guest_quickjs_destroy(guest);
+}
+int main(void){binding_generation();canonical();idf();bytecode();attached_lifetime();extensible_records();package_storage();package_outside_heap_limit();package_terminal_nul();evaluation_source_lifetime();puts("generated QuickJS bindings: ok");return 0;}

@@ -18,7 +18,7 @@ typedef struct {
    * runner sets worker; now_micros and context default to the core's. */
   pocket_worker_quickjs_config realm;
   /* The NUL-terminated worker bundle, borrowed until destroy. source_size
-   * excludes the terminator. */
+   * excludes the terminator. NULL when the bundle is bytecode alone. */
   const char *source;
   size_t source_size;
   void *context;
@@ -32,6 +32,13 @@ typedef struct {
   void (*after_turn)(void *);
   /* Bootstrap, then hold turns until pocket_worker_runner_resume. */
   int start_paused;
+  /* Optional: the worker bundle as a package bytecode section, evaluated
+   * instead of source when its digest is engine_abi, this build's 32-byte
+   * engine ABI (contracts/generated/pocket_quickjs_abi.h); another build's
+   * bytecode falls back to source. Borrowed until destroy. */
+  const uint8_t *bytecode;
+  size_t bytecode_size;
+  const uint8_t *engine_abi;
 } pocket_worker_runner_config;
 
 /* Creates the core and the realm and evaluates the bundle on the calling
