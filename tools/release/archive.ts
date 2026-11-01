@@ -132,7 +132,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   mkdirSync(staging);
   try {
     const copy = (input: string, output: string) => { mkdirSync(dirname(join(staging, output)), { recursive: true }); copyFileSync(join(root, input), join(staging, output)); };
-    for (const name of ["runtime", "drivers", "spec"]) {
+    for (const name of ["runtime", "drivers", "spec", "quickjs_abi"]) {
       copy(`contracts/generated/pocket_${name}.h`, `include/pocket/${name}.h`);
       // Keep one physical definition for pragma-once generated records. The
       // existing C glue and generated nested includes use prefixed names.

@@ -267,6 +267,23 @@ impl OpContext {
     }
 }
 
+/// Evaluate the admitted variant: its bytecode when the guest's engine reads
+/// it, its source otherwise. A guest without the bytecode's engine answers
+/// `UnsupportedOperation` before running anything, so the source is a whole
+/// fallback; any other error stands, as the realm may have run.
+fn evaluate_package(guest: &mut dyn Guest, package: &LoadedPackage) -> Result<(), RuntimeError> {
+    if let Some(envelope) = package.bytecode() {
+        match guest.evaluate_bytecode(envelope) {
+            Err(RuntimeError::UnsupportedOperation) if !package.javascript().is_empty() => {}
+            result => return result,
+        }
+    }
+    if package.javascript().is_empty() {
+        return Err(RuntimeError::UnsupportedOperation);
+    }
+    guest.evaluate(package.javascript())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
     Configuring,
@@ -637,7 +654,10 @@ impl Runtime {
         {
             return Err(RuntimeError::ProfileMismatch);
         }
-        let timing = Timing { tick_hz, cadence_hz: cadence_hz.unwrap() };
+        let timing = Timing {
+            tick_hz,
+            cadence_hz: cadence_hz.unwrap(),
+        };
         let (scale, auxiliary_viewport) = self.presentation_layout(viewport, None)?;
         self.start_clock(timing)?;
         self.presenter.set_scale(scale)?;
@@ -754,7 +774,7 @@ impl Runtime {
         self.guest_initialized = true;
         let started = guest
             .initialize(self.ops.clone(), &env)
-            .and_then(|()| guest.evaluate(package.javascript()));
+            .and_then(|()| evaluate_package(guest.as_mut(), &package));
         if let Err(error) = started {
             self.state = State::Failed;
             guest.shutdown();

@@ -46,7 +46,7 @@ export async function stageEspIdfComponents(root: string, output: string): Promi
     writeFileSync(componentManifest, readFileSync(componentManifest, "utf8").replace(/targets:\n(?:  - [^\n]+\n)+/, `targets:\n${targets.map(target => `  - ${target}\n`).join("")}`));
     // Platform headers remain separate from the generic SDK. The component's
     // public include directory resolves them in both checkout and Registry builds.
-    for (const name of ["pocket_drivers.h", "pocket_runtime.h", "pocket_spec.h"])
+    for (const name of ["pocket_drivers.h", "pocket_quickjs_abi.h", "pocket_runtime.h", "pocket_spec.h"])
       cpSync(join(root, "contracts/generated", name), join(component, "include", name));
   }
   const ppaInclude = join(output, "pocket_render_esp_ppa/include/pocket");

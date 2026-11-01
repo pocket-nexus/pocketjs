@@ -27,8 +27,8 @@ static void fail(pocket_worker_runner *r, const char *message) {
 }
 pocket_worker_runner *
 pocket_worker_runner_create(const pocket_worker_runner_config *c) {
-  if (!c || c->struct_size < sizeof *c || !c->source || !c->wait ||
-      !c->core.now_micros)
+  if (!c || c->struct_size < sizeof *c || (!c->source && !c->bytecode) ||
+      !c->wait || !c->core.now_micros)
     return NULL;
   pocket_worker_runner *r = calloc(1, sizeof *r);
   if (!r)
@@ -56,8 +56,21 @@ pocket_worker_runner_create(const pocket_worker_runner_config *c) {
     fail(r, "worker realm allocation failed");
     return r;
   }
-  if (pocket_worker_quickjs_eval(r->realm, c->source, c->source_size,
-                                 "worker.js") != 0)
+  /* Bytecode for this engine, else the source: 1 means the bytecode was
+   * another build's and nothing ran. */
+  int32_t evaluated = 1;
+  if (c->bytecode && c->bytecode_size)
+    evaluated = pocket_worker_quickjs_eval_bytecode(
+        r->realm, c->bytecode, c->bytecode_size, c->engine_abi);
+  if (evaluated == 1) {
+    if (!c->source) {
+      fail(r, "worker bundle: bytecode for another engine and no source");
+      return r;
+    }
+    evaluated = pocket_worker_quickjs_eval(r->realm, c->source,
+                                           c->source_size, "worker.js");
+  }
+  if (evaluated != 0)
     fail(r, pocket_worker_quickjs_error(r->realm));
   return r;
 }

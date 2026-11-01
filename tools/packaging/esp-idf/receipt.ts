@@ -36,7 +36,8 @@ export async function nativeSourceFiles(root: string, spec: NativeComponent): Pr
     "engine/guest-quickjs/src", "engine/guest-quickjs/include", "platforms/esp-idf/pocket_guest_quickjs"];
   const files = new Set([
     "tools/packaging/esp-idf/native.ts", "tools/packaging/esp-idf/stage.ts", "tools/packaging/esp-idf/vendor.ts",
-    "contracts/generated/pocket_drivers.h", "contracts/generated/pocket_runtime.h", "contracts/generated/pocket_spec.h",
+    "contracts/generated/pocket_drivers.h", "contracts/generated/pocket_quickjs_abi.h", "contracts/generated/pocket_runtime.h",
+    "contracts/generated/pocket_spec.h",
     "platforms/esp-idf/pocket_render_esp_ppa/CMakeLists.txt", "tools/packaging/esp-idf/receipt.ts", "tools/build/toolchains/esp-idf/compiler-pins.json",
     "tools/packaging/esp-idf/contracts.ts", `platforms/esp-idf/${spec.component}/CMakeLists.txt`,
     "platforms/esp-idf/pocket_runtime/native_archive.cmake",

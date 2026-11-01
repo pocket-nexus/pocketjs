@@ -212,13 +212,30 @@ PPSSPP. `MEMSIZE = 1` gives a PSP-2000 or 3000 started from the XMB the
 ## Bytecode (the eval wall)
 
 QuickJS evals ~100 KB of source in ~0.3–0.5 s at 333 MHz; that is the
-whole switch latency. qjsc bytecode loads 5–10× faster and shrinks
-bundles. Plan: `pocket pack --bytecode` emits qjsc output alongside source
-(sim keeps evaling source — the wasm core has no qjsc), the PSP host
-prefers bytecode when the package carries it, and the bundle hash covers
-whichever form is embedded. Risk to manage: bytecode pins the exact
-QuickJS version — the package header gains an engine-abi field, and a
-mismatch falls back to source.
+whole switch latency. Parsing also keeps every function's source text in
+the heap for `Function.prototype.toString`. **A host contract that names
+the QuickJS build its program embeds (`bytecode.engine`, an engine ABI of
+`contracts/spec/quickjs-bytecode.ts`) gets its bundles compiled to that
+build's serialized objects: section 6 for the UI bundle, section 9 for the
+worker bundle.** Each section is a 48-byte `QJBC` envelope (format version,
+header size, flags, the engine ABI's SHA-256 digest at byte 16) followed by
+`JS_WriteObject` output. The compiler is `tools/quickjs-bytecode-compiler.c`
+built on the host from the engine source the target links
+(`POCKETJS_QUICKJS_SOURCE`, or a checkout of the ABI's pinned revision), and
+it reads every object back before writing it; identical bundles give
+identical bytes.
+
+The source sections stay beside the bytecode unless the contract says
+`"source": "drop"`. A guest whose engine ABI is the envelope's evaluates the
+object with `JS_ReadObject` and `JS_EvalFunction`; a guest with another
+build, or none, answers UNSUPPORTED before anything ran and the runtime
+evaluates the source. A failure after the digest matched is the program's:
+no source runs over a realm the object may have changed. QuickJS copies the
+object into its heap, so the saving is the parser's peak and the retained
+source text, not the bytecode's residency; an object is accepted at the
+trust level of native code, after the package footer and variant hashes.
+The ESP-IDF guest and worker carry `esp-idf-quickjs-ng-0.14.0`, whose
+objects are written with `JS_WRITE_OBJ_STRIP_SOURCE`.
 
 ## Memory governance
 

@@ -1,6 +1,7 @@
 /* QuickJS-NG adapter. Signatures and mount tables are generated; this file
  * owns only engine lifetime, coercion policy, and the existing frame wire. */
 #include "pocket_guest_quickjs.h"
+#include "pocket_quickjs_abi.h"
 #include "generated_ops.h"
 #include <math.h>
 #include <stdio.h>
@@ -40,6 +41,7 @@ struct pocket_guest_quickjs {
   JSValue token, pak;
   pocket_qjs_phase_hook phase_hook;
   void *phase_context;
+  const uint8_t *engine_abi;
   char error[256];
 };
 #define HAS_FIELD(value,type,field) ((value)->struct_size >= offsetof(type,field) + sizeof((value)->field))
@@ -324,7 +326,25 @@ static void shutdown(void *opaque) {
   }
   guest->runtime=NULL;guest->mounted=guest->mounted_pak=0;
 }
-static const pocket_guest_v1 vtable={sizeof(pocket_guest_v1),evaluate,frame,collect,shutdown,initialize};
+void pocket_guest_quickjs_set_engine_abi(pocket_guest_quickjs *guest,const uint8_t *digest) {if(guest)guest->engine_abi=digest;}
+#define POCKET_BYTECODE_WORD(bytes,at) ((uint32_t)(bytes)[at]|(uint32_t)(bytes)[(at)+1]<<8|(uint32_t)(bytes)[(at)+2]<<16|(uint32_t)(bytes)[(at)+3]<<24)
+/* A package bytecode section (pocket_quickjs_abi.h): the envelope names the
+ * engine build that serialized the object. Another build's object, or no
+ * engine ABI, is UNSUPPORTED before anything runs; the runtime then
+ * evaluates source. JS_ReadObject copies the object into the realm, so the
+ * section need not outlive this call. */
+static int32_t evaluate_bytecode(void *opaque,pocket_runtime *runtime,const uint8_t *code,size_t length) {
+  pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context||guest->runtime!=runtime||!code)return POCKET_STATUS_INVALID;
+  if(!guest->engine_abi||length<=POCKET_BYTECODE_HEADER_SIZE||POCKET_BYTECODE_WORD(code,0)!=POCKET_BYTECODE_MAGIC||POCKET_BYTECODE_WORD(code,4)!=POCKET_BYTECODE_VERSION||POCKET_BYTECODE_WORD(code,8)!=POCKET_BYTECODE_HEADER_SIZE||POCKET_BYTECODE_WORD(code,12)!=POCKET_BYTECODE_FLAGS||memcmp(code+POCKET_BYTECODE_ENGINE_ABI_OFFSET,guest->engine_abi,POCKET_BYTECODE_ENGINE_ABI_BYTES)!=0)return POCKET_STATUS_UNSUPPORTED;
+  phase(guest,POCKET_QJS_PHASE_EVAL);
+  JSValue object=JS_ReadObject(guest->context,code+POCKET_BYTECODE_HEADER_SIZE,length-POCKET_BYTECODE_HEADER_SIZE,JS_READ_OBJ_BYTECODE);
+  /* JS_EvalFunction consumes the object, an exception included. */
+  JSValue result=JS_IsException(object)?object:JS_EvalFunction(guest->context,object);
+  phase(guest,POCKET_QJS_PHASE_IDLE);int failed=JS_IsException(result);JS_FreeValue(guest->context,result);
+  /* Once the digest matched, a failure is the program's and never UNSUPPORTED: the runtime must not evaluate source over a realm the object may have changed. */
+  int32_t status=failed?fail(guest):collect(guest);return status==0?POCKET_STATUS_OK:POCKET_STATUS_FAILED;
+}
+static const pocket_guest_v1 vtable={sizeof(pocket_guest_v1),evaluate,frame,collect,shutdown,initialize,evaluate_bytecode};
 pocket_guest_quickjs *pocket_guest_quickjs_create(pocket_qjs_profile profile) {if((unsigned)profile>(unsigned)POCKET_QJS_IDF)return NULL;pocket_guest_quickjs *guest=calloc(1,sizeof *guest);if(guest){guest->profile=profile;guest->token=guest->pak=JS_UNDEFINED;}return guest;}
 pocket_guest_quickjs *pocket_guest_quickjs_attach(JSContext *ctx,pocket_qjs_profile profile) {if(!ctx)return NULL;pocket_guest_quickjs *guest=pocket_guest_quickjs_create(profile);if(guest){guest->context=ctx;guest->engine=JS_GetRuntime(ctx);guest->attached=1;}return guest;}
 const pocket_guest_v1 *pocket_guest_quickjs_vtable(void){return &vtable;}

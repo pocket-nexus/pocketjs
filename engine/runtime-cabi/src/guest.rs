@@ -117,6 +117,24 @@ impl Guest for CGuest {
             self.table.evaluate.unwrap()(self.context, self.runtime, code.as_ptr(), code.len())
         })
     }
+    fn evaluate_bytecode(&mut self, envelope: &[u8]) -> Result<(), RuntimeError> {
+        let Some(callback) = self.table.evaluate_bytecode else {
+            return Err(RuntimeError::UnsupportedOperation);
+        };
+        let _active = self.active();
+        match unsafe {
+            callback(
+                self.context,
+                self.runtime,
+                envelope.as_ptr(),
+                envelope.len(),
+            )
+        } {
+            0 => Ok(()),
+            POCKET_STATUS_UNSUPPORTED => Err(RuntimeError::UnsupportedOperation),
+            _ => Err(RuntimeError::Guest),
+        }
+    }
     fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
         let _active = self.active();
         let relative: Vec<_> = frame

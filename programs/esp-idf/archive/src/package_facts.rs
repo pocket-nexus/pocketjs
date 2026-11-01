@@ -52,7 +52,8 @@ pub const POCKET_IDF_FEATURE_DEVICE: u32 = 64;
 /// pointer or a short record, 13 to 15 a plan whose JSON, viewport or
 /// auxiliary surface cannot be read, 17 a malformed layout, 18 a worker
 /// declaration and section that disagree, 19 to 25 the first failed
-/// admission item). The profile hash only orders variants.
+/// admission item, 26 a bytecode section that is no envelope). The profile
+/// hash only orders variants.
 ///
 /// # Safety
 /// `bytes` is readable for `length`, `facts` follows `pocket_runtime_create`'s

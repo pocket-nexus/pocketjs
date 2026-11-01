@@ -790,7 +790,8 @@ static void guest_shutdown(void *self) {
 }
 static const pocket_guest_v1 guest_api = {sizeof guest_api, guest_evaluate,
                                           guest_frame,      guest_collect,
-                                          guest_shutdown,   guest_initialize};
+                                          guest_shutdown,   guest_initialize,
+                                          NULL};
 
 /* QuickJS calls this every few thousand bytecode steps; a true from the hook
  * ends the running code with an uncatchable InternalError. */

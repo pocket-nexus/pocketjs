@@ -45,6 +45,7 @@ export const POCKET_LAYOUT = {
   variant: { targetOffset: 0, targetSize: 4, hostAbi: 8, sectionCount: 12, sectionsOffset: 16, hash: 24, profileHash: 32 },
   section: { kind: 0, offset: 8, size: 12 },
   hostInputs: { profileHash: 40, planHash: 72 },
+  bytecode: { engineAbi: 16, payload: 48 },
 } as const;
 
 export const POCKET_SECTION = {
@@ -63,18 +64,70 @@ export const POCKET_SECTION = {
   pak: 4,
   /** Cover PNG for launcher decks (256×128 full-frame, docs/LAUNCHER.md). */
   cover: 5,
-  // 6 = qjsc bytecode (docs/PLATFORM.md roadmap) — reserved, not yet emitted.
+  /** The UI bundle as a serialized QuickJS object: a QJBC envelope naming
+   *  the engine ABI (quickjs-bytecode.ts), then the object. Section 3 may
+   *  stay beside it as the source a host with another engine evaluates, or
+   *  be dropped. */
+  bytecode: 6,
   /** Fixed-width ESP-IDF host admission data. Device readers validate this
    * without parsing the JSON build plan. */
   hostInputs: 7,
   /** NUL-terminated classic-script worker bundle, with no outer function
    * wrapper; evaluated only in the worker realm. */
   workerJs: 8,
+  /** The worker bundle as a serialized QuickJS object, in the envelope of 6. */
+  workerBytecode: 9,
 } as const;
 
 export const POCKET_HOST_INPUTS_MAGIC = 0x54534850; // "PHST" as LE u32
 export const POCKET_HOST_INPUTS_VERSION = 1;
 export const POCKET_HOST_INPUTS_SIZE = 104;
+
+export const POCKET_BYTECODE_MAGIC = 0x43424a51; // "QJBC" as LE u32
+export const POCKET_BYTECODE_VERSION = 1;
+export const POCKET_BYTECODE_HEADER_SIZE = 48;
+export const POCKET_BYTECODE_FLAGS = 0;
+
+/** A bytecode section: the engine ABI the payload was serialized by and the
+ *  serialized QuickJS object. */
+export interface PocketBytecodeEnvelope {
+  /** SHA-256 of the canonical engine-ABI descriptor (quickjs-bytecode.ts). */
+  readonly engineAbi: string;
+  readonly bytecode: Uint8Array;
+}
+
+/** Encode a bytecode section. The payload must come from the engine build
+ *  `engineAbi` names; this checks the wire shape only. */
+export function encodeBytecodeEnvelope(input: PocketBytecodeEnvelope): Uint8Array {
+  if (input.bytecode.length === 0) throw new Error("pocket package: bytecode payload must not be empty");
+  const bytes = new Uint8Array(POCKET_BYTECODE_HEADER_SIZE + input.bytecode.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, POCKET_BYTECODE_MAGIC, true);
+  view.setUint32(4, POCKET_BYTECODE_VERSION, true);
+  view.setUint32(8, POCKET_BYTECODE_HEADER_SIZE, true);
+  view.setUint32(12, POCKET_BYTECODE_FLAGS, true);
+  bytes.set(hashBytes(input.engineAbi, "bytecode engine ABI"), POCKET_LAYOUT.bytecode.engineAbi);
+  bytes.set(input.bytecode, POCKET_LAYOUT.bytecode.payload);
+  return bytes;
+}
+
+/** Decode a bytecode section without interpreting its payload. A host
+ *  compares `engineAbi` with its own before QuickJS reads `bytecode`. */
+export function decodeBytecodeEnvelope(bytes: Uint8Array): PocketBytecodeEnvelope {
+  if (bytes.length <= POCKET_BYTECODE_HEADER_SIZE) throw new Error("pocket package: truncated bytecode envelope");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== POCKET_BYTECODE_MAGIC) throw new Error("pocket package: invalid bytecode envelope magic");
+  const version = view.getUint32(4, true);
+  if (version !== POCKET_BYTECODE_VERSION) throw new Error(`pocket package: unsupported bytecode envelope version ${version}`);
+  const headerSize = view.getUint32(8, true);
+  if (headerSize !== POCKET_BYTECODE_HEADER_SIZE) throw new Error(`pocket package: invalid bytecode envelope header size ${headerSize}`);
+  const flags = view.getUint32(12, true);
+  if (flags !== POCKET_BYTECODE_FLAGS) throw new Error(`pocket package: unsupported bytecode envelope flags 0x${flags.toString(16)}`);
+  return {
+    engineAbi: readHash(bytes, POCKET_LAYOUT.bytecode.engineAbi),
+    bytecode: bytes.subarray(POCKET_LAYOUT.bytecode.payload),
+  };
+}
 
 export interface PocketHostInputs {
   readonly hostAbi: number;
