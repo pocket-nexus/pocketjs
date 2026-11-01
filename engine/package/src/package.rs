@@ -152,7 +152,8 @@ pub fn fnv1a64(chunks: &[&[u8]]) -> u64 {
 impl<'a> Package<'a> {
     /// Parse the canonical v2 layout and verify its footer and variant hashes.
     /// `skip_hash` skips only FNV checks, for metadata inspection after an
-    /// independent integrity check. Runtime admission always verifies them.
+    /// independent integrity check. Runtime admission verifies them unless
+    /// the owner of transferred storage did (`PackageSource::verified`).
     pub fn parse(bytes: &'a [u8], skip_hash: bool) -> Result<Self, PackageError> {
         if bytes.len() < HEADER_SIZE + 8 {
             return Err(PackageError::Truncated);
@@ -347,13 +348,19 @@ pub fn select_guest<'a, S: AsRef<str>>(
                 Ok(timing) => return admitted(&package, variant, timing),
                 Err((items, capability)) => {
                     if closest.is_none_or(|best| items.count_ones() < best.items.count_ones()) {
-                        closest = Some(Mismatch { variant: index as u32, items, capability });
+                        closest = Some(Mismatch {
+                            variant: index as u32,
+                            items,
+                            capability,
+                        });
                     }
                 }
             }
         }
     }
-    Err(GuestError::NotAdmitted(closest.expect("a package with variants reports one")))
+    Err(GuestError::NotAdmitted(
+        closest.expect("a package with variants reports one"),
+    ))
 }
 
 fn admitted<'a>(
@@ -450,8 +457,8 @@ mod tests {
 
     #[test]
     fn shared_malformed_corpus() {
-        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/corpus");
+        let directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus");
         for entry in std::fs::read_dir(directory).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().and_then(|v| v.to_str()) != Some("pocket") {
@@ -489,7 +496,12 @@ mod tests {
     #[test]
     fn a_changed_payload_byte_trips_the_variant_hash() {
         let package = Package::parse(FIXTURE, false).unwrap();
-        let js = package.variant(0).unwrap().section(section::JS).unwrap().unwrap();
+        let js = package
+            .variant(0)
+            .unwrap()
+            .section(section::JS)
+            .unwrap()
+            .unwrap();
         let offset = js.as_ptr() as usize - FIXTURE.as_ptr() as usize;
         let mut evil = FIXTURE.to_vec();
         evil[offset] ^= 0x01;
@@ -525,9 +537,15 @@ mod tests {
     fn package(target: &str, generation: u32, hash: [u8; 32], plan: &[u8]) -> std::vec::Vec<u8> {
         let identity = crate::embedded::identity("app", "test.app", "App").unwrap();
         crate::embedded::encode(crate::embedded::EmbeddedPackage {
-            target, host_abi: generation, profile_hash: hash, identity: &identity,
-            plan, code: b"globalThis.frame=()=>{}", pak: &[],
-        }).unwrap()
+            target,
+            host_abi: generation,
+            profile_hash: hash,
+            identity: &identity,
+            plan,
+            code: b"globalThis.frame=()=>{}",
+            pak: &[],
+        })
+        .unwrap()
     }
 
     #[test]
@@ -539,7 +557,13 @@ mod tests {
         assert_eq!(guest.plan, PLAN);
         assert!(guest.worker_js.is_empty());
         assert_eq!(guest.target, "compiled-for");
-        assert_eq!(guest.timing, Timing { tick_hz: 60, cadence_hz: 60 });
+        assert_eq!(
+            guest.timing,
+            Timing {
+                tick_hz: 60,
+                cadence_hz: 60
+            }
+        );
     }
 
     #[test]
@@ -565,15 +589,46 @@ mod tests {
 
     #[test]
     fn worker_payload_requires_matching_entry_feature_and_terminated_code() {
-        let plan = br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#;
-        assert_eq!(worker_payload(plan, Some(b"turn();\0")), Ok(&b"turn();\0"[..]));
-        assert_eq!(worker_payload(plan, None), Err(GuestError::WorkerSectionMismatch));
-        assert_eq!(worker_payload(plan, Some(b"\0")), Err(GuestError::JavaScriptNotTerminated));
-        assert_eq!(worker_payload(plan, Some(b"turn();")), Err(GuestError::JavaScriptNotTerminated));
-        assert_eq!(worker_payload(b"{}", Some(b"turn();\0")), Err(GuestError::WorkerSectionMismatch));
-        assert_eq!(worker_payload(br#"{"features":{"runtime.worker":true}}"#, Some(b"turn();\0")), Err(GuestError::WorkerSectionMismatch));
-        assert_eq!(worker_payload(br#"{"features":{"runtime.worker":true}}"#, None), Ok(&[][..]));
-        assert_eq!(worker_payload(br#"{"domains":{"worker":{"entry":"worker.ts"}}}"#, Some(b"turn();\0")), Err(GuestError::Package(PackageError::BadLayout)));
+        let plan =
+            br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#;
+        assert_eq!(
+            worker_payload(plan, Some(b"turn();\0")),
+            Ok(&b"turn();\0"[..])
+        );
+        assert_eq!(
+            worker_payload(plan, None),
+            Err(GuestError::WorkerSectionMismatch)
+        );
+        assert_eq!(
+            worker_payload(plan, Some(b"\0")),
+            Err(GuestError::JavaScriptNotTerminated)
+        );
+        assert_eq!(
+            worker_payload(plan, Some(b"turn();")),
+            Err(GuestError::JavaScriptNotTerminated)
+        );
+        assert_eq!(
+            worker_payload(b"{}", Some(b"turn();\0")),
+            Err(GuestError::WorkerSectionMismatch)
+        );
+        assert_eq!(
+            worker_payload(
+                br#"{"features":{"runtime.worker":true}}"#,
+                Some(b"turn();\0")
+            ),
+            Err(GuestError::WorkerSectionMismatch)
+        );
+        assert_eq!(
+            worker_payload(br#"{"features":{"runtime.worker":true}}"#, None),
+            Ok(&[][..])
+        );
+        assert_eq!(
+            worker_payload(
+                br#"{"domains":{"worker":{"entry":"worker.ts"}}}"#,
+                Some(b"turn();\0")
+            ),
+            Err(GuestError::Package(PackageError::BadLayout))
+        );
         assert_eq!(worker_payload(b"{}", None), Ok(&[][..]));
     }
 
@@ -586,8 +641,13 @@ mod tests {
             plan: br#"{"animation":"composited","domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true},"profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1}}"#,
             code: b"globalThis.frame=()=>{}", pak: &[],
         }).unwrap();
-        let facts = HostFacts { capabilities: &["runtime.worker"], ..host(7, [0x55; 32]) };
-        assert_eq!(select_guest(&bytes, &facts, false).err(),
-            Some(GuestError::WorkerSectionMismatch));
+        let facts = HostFacts {
+            capabilities: &["runtime.worker"],
+            ..host(7, [0x55; 32])
+        };
+        assert_eq!(
+            select_guest(&bytes, &facts, false).err(),
+            Some(GuestError::WorkerSectionMismatch)
+        );
     }
 }

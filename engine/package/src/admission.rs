@@ -121,9 +121,7 @@ pub fn cadence_for(tick_hz: u32, cadences: &[u32]) -> Option<u32> {
         .iter()
         .copied()
         .filter(|&cadence| {
-            cadence != 0
-                && tick_hz % cadence == 0
-                && tick_hz / cadence <= MAX_CORE_TICKS_PER_FRAME
+            cadence != 0 && tick_hz % cadence == 0 && tick_hz / cadence <= MAX_CORE_TICKS_PER_FRAME
         })
         .max()
 }
@@ -136,7 +134,10 @@ pub struct Name {
 }
 
 impl Name {
-    pub const EMPTY: Self = Self { bytes: [0; 48], length: 0 };
+    pub const EMPTY: Self = Self {
+        bytes: [0; 48],
+        length: 0,
+    };
     fn copy(name: &[u8]) -> Self {
         let mut value = Self::EMPTY;
         let length = name.len().min(value.bytes.len());
@@ -224,7 +225,10 @@ pub fn admit_plan<S: AsRef<str>>(
         items |= item::ANIMATION;
     }
     let timing = facts.tick_hz.and_then(|tick_hz| {
-        cadence_for(tick_hz, host.cadences).map(|cadence_hz| Timing { tick_hz, cadence_hz })
+        cadence_for(tick_hz, host.cadences).map(|cadence_hz| Timing {
+            tick_hz,
+            cadence_hz,
+        })
     });
     if timing.is_none() {
         items |= item::RATE;
@@ -264,7 +268,9 @@ pub fn admit_plan<S: AsRef<str>>(
 }
 
 fn contains<S: AsRef<str>>(names: &[S], name: &[u8]) -> bool {
-    names.iter().any(|candidate| candidate.as_ref().as_bytes() == name)
+    names
+        .iter()
+        .any(|candidate| candidate.as_ref().as_bytes() == name)
 }
 
 /// A plan and host that admit each other, for this crate's tests.
@@ -313,28 +319,87 @@ mod tests {
     fn a_satisfying_host_admits_and_picks_the_fastest_cadence() {
         assert_eq!(
             admit_plan(&host(), 12, Some(PLAN)),
-            Ok(Timing { tick_hz: 60, cadence_hz: 60 })
+            Ok(Timing {
+                tick_hz: 60,
+                cadence_hz: 60
+            })
         );
-        let slow = HostFacts { cadences: &[30, 20], ..host() };
+        let slow = HostFacts {
+            cadences: &[30, 20],
+            ..host()
+        };
         let timing = admit_plan(&slow, 12, Some(PLAN)).unwrap();
         assert_eq!((timing.cadence_hz, timing.core_ticks()), (30, 2));
     }
 
     #[test]
     fn each_item_is_reported() {
-        let failed = |host: HostFacts<'static, &'static str>| admit_plan(&host, 12, Some(PLAN)).unwrap_err().0;
-        assert_eq!(admit_plan(&host(), 11, Some(PLAN)).unwrap_err().0, item::BINDING_GENERATION);
-        assert_eq!(failed(HostFacts { raster_density: 2, ..host() }), item::RASTER_DENSITY);
-        assert_eq!(failed(HostFacts { animation: Some("repaint"), ..host() }), item::ANIMATION);
-        assert_eq!(failed(HostFacts { cadences: &[25, 7], ..host() }), item::RATE);
-        assert_eq!(failed(HostFacts { logical_viewports: &[[400, 240]], ..host() }), item::VIEWPORT);
-        assert_eq!(failed(HostFacts { presentations: Some(&["fit"]), ..host() }), item::PRESENTATION);
-        let unstated = HostFacts { animation: None, presentations: None, ..host() };
+        let failed = |host: HostFacts<'static, &'static str>| {
+            admit_plan(&host, 12, Some(PLAN)).unwrap_err().0
+        };
+        assert_eq!(
+            admit_plan(&host(), 11, Some(PLAN)).unwrap_err().0,
+            item::BINDING_GENERATION
+        );
+        assert_eq!(
+            failed(HostFacts {
+                raster_density: 2,
+                ..host()
+            }),
+            item::RASTER_DENSITY
+        );
+        assert_eq!(
+            failed(HostFacts {
+                animation: Some("repaint"),
+                ..host()
+            }),
+            item::ANIMATION
+        );
+        assert_eq!(
+            failed(HostFacts {
+                cadences: &[25, 7],
+                ..host()
+            }),
+            item::RATE
+        );
+        assert_eq!(
+            failed(HostFacts {
+                logical_viewports: &[[400, 240]],
+                ..host()
+            }),
+            item::VIEWPORT
+        );
+        assert_eq!(
+            failed(HostFacts {
+                presentations: Some(&["fit"]),
+                ..host()
+            }),
+            item::PRESENTATION
+        );
+        let unstated = HostFacts {
+            animation: None,
+            presentations: None,
+            ..host()
+        };
         assert!(admit_plan(&unstated, 12, Some(PLAN)).is_ok());
-        let (items, name) = admit_plan(&HostFacts { capabilities: &["input.buttons"], ..host() }, 12, Some(PLAN)).unwrap_err();
-        assert_eq!((items, name.as_str()), (item::CAPABILITY, "text.glyphs.baked"));
+        let (items, name) = admit_plan(
+            &HostFacts {
+                capabilities: &["input.buttons"],
+                ..host()
+            },
+            12,
+            Some(PLAN),
+        )
+        .unwrap_err();
+        assert_eq!(
+            (items, name.as_str()),
+            (item::CAPABILITY, "text.glyphs.baked")
+        );
         assert_eq!(admit_plan(&host(), 12, None).unwrap_err().0, item::PLAN);
-        assert_eq!(admit_plan(&host(), 12, Some(b"")).unwrap_err().0, item::PLAN);
+        assert_eq!(
+            admit_plan(&host(), 12, Some(b"")).unwrap_err().0,
+            item::PLAN
+        );
     }
 
     #[test]
@@ -350,8 +415,14 @@ mod tests {
     #[test]
     fn auxiliary_surfaces_must_be_hosted() {
         let plan = br#"{"animation":"composited","features":{},"profile":{"tickHz":60},"surfaces":{"auxiliary":{"logical":[320,240],"rasterDensity":1}},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1}}"#;
-        assert_eq!(admit_plan(&host(), 12, Some(plan)).unwrap_err().0, item::AUXILIARY);
-        let dual = HostFacts { auxiliary_logical: &[[320, 240]], ..host() };
+        assert_eq!(
+            admit_plan(&host(), 12, Some(plan)).unwrap_err().0,
+            item::AUXILIARY
+        );
+        let dual = HostFacts {
+            auxiliary_logical: &[[320, 240]],
+            ..host()
+        };
         assert!(admit_plan(&dual, 12, Some(plan)).is_ok());
     }
 

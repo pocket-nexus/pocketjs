@@ -2,11 +2,16 @@
 //!
 //! `PackageSource::all` can expire at the next mutable source call. Copying it
 //! once keeps script buffers and asset slices alive through guest shutdown.
-//! Explicitly transferred owned storage and immutable static storage need no
-//! copy. Both use the same parser, hashes, and admission checks.
+//! Explicitly transferred owned storage, immutable static storage and foreign
+//! storage released through the package need no copy. All use the same
+//! parser and admission checks; only transferred storage whose owner verified
+//! it (`PackageSource::verified`) skips the hash pass.
 //! Range sources use the same parser and admission rules as embedded sources.
 
-use crate::{admission::{HostFacts, Timing}, select_guest, GuestError};
+use crate::{
+    admission::{HostFacts, Timing},
+    select_guest, GuestError,
+};
 use alloc::{boxed::Box, vec::Vec};
 use core::ops::Range;
 use pocket_drivers::{PackageBytes, PackageSource, SourceError};
@@ -52,7 +57,7 @@ impl LoadedPackage {
                 if bytes.as_ref().len() != length {
                     return Err(LoadError::Changed);
                 }
-                return Self::from_storage(bytes, host);
+                return Self::from_storage(bytes, host, source.verified());
             }
             Err(SourceError::Unsupported) => {}
             Err(error) => return Err(LoadError::Source(error)),
@@ -86,8 +91,8 @@ impl LoadedPackage {
             }
             Err(error) => return Err(LoadError::Source(error)),
         }
-        // Never trust embedding as a reason to skip the footer check. All
-        // sources pass through the same admission path.
+        // A copy is hashed whatever the source claims: only storage an owner
+        // transfers and vouches for skips the footer check.
         Self::from_bytes(bytes.into_boxed_slice(), host)
     }
 
@@ -95,14 +100,15 @@ impl LoadedPackage {
         bytes: Box<[u8]>,
         host: &HostFacts<'_, S>,
     ) -> Result<Self, LoadError> {
-        Self::from_storage(PackageBytes::Owned(bytes), host)
+        Self::from_storage(PackageBytes::Owned(bytes), host, false)
     }
 
     fn from_storage<S: AsRef<str>>(
         bytes: PackageBytes,
         host: &HostFacts<'_, S>,
+        verified: bool,
     ) -> Result<Self, LoadError> {
-        let guest = select_guest(bytes.as_ref(), host, false).map_err(LoadError::Admission)?;
+        let guest = select_guest(bytes.as_ref(), host, verified).map_err(LoadError::Admission)?;
         let range = |part: &[u8]| {
             if part.is_empty() {
                 return 0..0;
@@ -220,6 +226,7 @@ impl<B: AsRef<[u8]>> PackageSource for MemorySource<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pocket_drivers::PackageStorage;
     use std::sync::LazyLock;
     static FIXTURE_BYTES: LazyLock<std::vec::Vec<u8>> = LazyLock::new(|| {
         let identity = crate::embedded::identity("app", "test.app", "App").unwrap();
@@ -261,7 +268,13 @@ mod tests {
         assert_eq!(memory.bytes(), ranges.bytes());
         assert_eq!(memory.javascript(), ranges.javascript());
         assert_eq!(memory.pak(), ranges.pak());
-        assert_eq!(memory.timing, Timing { tick_hz: 60, cadence_hz: 60 });
+        assert_eq!(
+            memory.timing,
+            Timing {
+                tick_hz: 60,
+                cadence_hz: 60
+            }
+        );
         assert!(matches!(
             LoadedPackage::load(&mut ShortReads, &host(1), fixture().len() - 1),
             Err(LoadError::TooLarge)
@@ -309,7 +322,13 @@ mod tests {
     }
     #[test]
     fn transferred_storage_has_the_same_admission_and_length_checks() {
-        for facts in [host(2), HostFacts { raster_density: 2, ..host(1) }] {
+        for facts in [
+            host(2),
+            HostFacts {
+                raster_density: 2,
+                ..host(1)
+            },
+        ] {
             assert!(matches!(
                 LoadedPackage::load(&mut StaticMemorySource(fixture()), &facts, fixture().len()),
                 Err(LoadError::Admission(_))
@@ -339,5 +358,112 @@ mod tests {
             LoadedPackage::load(&mut Changed, &host(1), fixture().len()),
             Err(LoadError::Changed)
         ));
+    }
+    #[test]
+    fn verified_transfer_skips_the_hash_pass() {
+        // The footer's last byte is wrong, so the hash pass refuses the bytes.
+        static DAMAGED: LazyLock<&'static [u8]> = LazyLock::new(|| {
+            let mut bytes = FIXTURE_BYTES.clone();
+            let last = bytes.len() - 1;
+            bytes[last] ^= 0xff;
+            std::boxed::Box::leak(bytes.into_boxed_slice())
+        });
+        struct Transfer(bool);
+        impl PackageSource for Transfer {
+            fn length(&self) -> Result<usize, SourceError> {
+                Ok(DAMAGED.len())
+            }
+            fn take_bytes(&mut self) -> Result<PackageBytes, SourceError> {
+                Ok(PackageBytes::Static(&DAMAGED))
+            }
+            fn verified(&self) -> bool {
+                self.0
+            }
+            fn range(&mut self, _: usize, _: &mut [u8]) -> Result<usize, SourceError> {
+                panic!("must not fall back after transfer")
+            }
+        }
+        assert!(matches!(
+            LoadedPackage::load(&mut Transfer(false), &host(1), DAMAGED.len()),
+            Err(LoadError::Admission(GuestError::Package(
+                crate::PackageError::HashMismatch
+            )))
+        ));
+        let intact = LoadedPackage::load(
+            &mut StaticMemorySource(fixture()),
+            &host(1),
+            fixture().len(),
+        )
+        .unwrap();
+        let package = LoadedPackage::load(&mut Transfer(true), &host(1), DAMAGED.len()).unwrap();
+        assert_eq!(package.bytes().as_ptr(), DAMAGED.as_ptr());
+        assert_eq!(package.javascript(), intact.javascript());
+        assert_eq!(package.pak(), intact.pak());
+        // A copy is hashed whatever the source claims.
+        struct Copied;
+        impl PackageSource for Copied {
+            fn length(&self) -> Result<usize, SourceError> {
+                Ok(DAMAGED.len())
+            }
+            fn all(&mut self) -> Result<&[u8], SourceError> {
+                Ok(&DAMAGED)
+            }
+            fn verified(&self) -> bool {
+                true
+            }
+            fn range(&mut self, offset: usize, buffer: &mut [u8]) -> Result<usize, SourceError> {
+                copy_range(&DAMAGED, offset, buffer)
+            }
+        }
+        assert!(matches!(
+            LoadedPackage::load(&mut Copied, &host(1), DAMAGED.len()),
+            Err(LoadError::Admission(GuestError::Package(
+                crate::PackageError::HashMismatch
+            )))
+        ));
+    }
+    #[test]
+    fn foreign_storage_is_released_once_when_the_package_drops() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Counted(&'static [u8], Rc<Cell<u32>>);
+        impl PackageStorage for Counted {
+            fn bytes(&self) -> &[u8] {
+                self.0
+            }
+        }
+        impl Drop for Counted {
+            fn drop(&mut self) {
+                self.1.set(self.1.get() + 1);
+            }
+        }
+        struct Foreign(Rc<Cell<u32>>);
+        impl PackageSource for Foreign {
+            fn length(&self) -> Result<usize, SourceError> {
+                Ok(fixture().len())
+            }
+            fn take_bytes(&mut self) -> Result<PackageBytes, SourceError> {
+                Ok(PackageBytes::Foreign(Box::new(Counted(
+                    fixture(),
+                    self.0.clone(),
+                ))))
+            }
+            fn range(&mut self, _: usize, _: &mut [u8]) -> Result<usize, SourceError> {
+                panic!("must not fall back after transfer")
+            }
+        }
+        let released = Rc::new(Cell::new(0));
+        let package =
+            LoadedPackage::load(&mut Foreign(released.clone()), &host(1), fixture().len()).unwrap();
+        assert_eq!(package.bytes().as_ptr(), fixture().as_ptr());
+        assert_eq!(released.get(), 0);
+        drop(package);
+        assert_eq!(released.get(), 1);
+        // Storage transferred for a package that is not admitted is released too.
+        assert!(matches!(
+            LoadedPackage::load(&mut Foreign(released.clone()), &host(2), fixture().len()),
+            Err(LoadError::Admission(_))
+        ));
+        assert_eq!(released.get(), 2);
     }
 }
