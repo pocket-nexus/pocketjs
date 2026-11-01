@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
-// Deterministic codegen: contracts/spec/{spec,audio,db,fs,physics}.ts -> engine/spec/src/lib.rs.
+// Deterministic codegen: contracts/spec/{spec,audio,db,fs,pack,physics}.ts -> engine/spec/src/lib.rs.
 //
 // Run from PocketJS/:  bun contracts/spec/gen-rust.ts
 //
@@ -28,6 +28,16 @@ import {
   FS_WRITE_APPEND,
   FS_WRITE_TRUNCATE,
 } from "./fs.ts";
+import {
+  PACK_MAX_DEPTH,
+  PACK_MAX_HANDLES,
+  PACK_MAX_IMG_BYTES,
+  PACK_MAX_PATH_BYTES,
+  PACK_MAX_SEGMENT_BYTES,
+  PACK_OP,
+  PACK_OPEN_MISSING,
+  PACK_OPEN_PENDING,
+} from "./pack.ts";
 import {
 } from "./net.ts";
 import {
@@ -548,6 +558,31 @@ export function generateRust(): string {
   put(`    pub const MAX_IO_BYTES: usize = ${FS_MAX_IO_BYTES};`);
   put(`    /// Entries per list() call (paged via offset + eof).`);
   put(`    pub const MAX_DIR_ENTRIES: usize = ${FS_MAX_DIR_ENTRIES};`);
+  put("}");
+  put("");
+
+  // --- pack module ---------------------------------------------------------
+  // The pack MODULE's boundary (contracts/spec/pack.ts): read-only files under
+  // the game data root, mounted as `globalThis.pack`. The native
+  // implementation is programs/psp/src/pack_ops.rs.
+  put("/// PACK module boundary (contracts/spec/pack.ts — `globalThis.pack`).");
+  put("/// Read-only files under the game data root; loadImg decodes an IMG entry");
+  put("/// to a texture without passing its bytes through the JS heap.");
+  put("pub mod pack {");
+  for (const [name, v] of Object.entries(PACK_OP)) {
+    put(`    pub const OP_${screaming(name)}: u8 = ${v};`);
+  }
+  put(`    /// open() results below zero.`);
+  put(`    pub const OPEN_MISSING: i32 = ${PACK_OPEN_MISSING};`);
+  put(`    pub const OPEN_PENDING: i32 = ${PACK_OPEN_PENDING};`);
+  put(`    /// Files open at once per guest.`);
+  put(`    pub const MAX_HANDLES: usize = ${PACK_MAX_HANDLES};`);
+  put(`    /// Upper bound of one loadImg byte range.`);
+  put(`    pub const MAX_IMG_BYTES: usize = ${PACK_MAX_IMG_BYTES};`);
+  put(`    /// Path grammar ceilings (UTF-8 bytes; segments).`);
+  put(`    pub const MAX_PATH_BYTES: usize = ${PACK_MAX_PATH_BYTES};`);
+  put(`    pub const MAX_SEGMENT_BYTES: usize = ${PACK_MAX_SEGMENT_BYTES};`);
+  put(`    pub const MAX_DEPTH: usize = ${PACK_MAX_DEPTH};`);
   put("}");
   put("");
 

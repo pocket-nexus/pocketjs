@@ -228,6 +228,8 @@ describe("platform registry", () => {
     expect(validatePlatformContractRegistry(POCKET_PLATFORM_CONTRACTS)).toEqual([]);
     expect(POCKET_TARGETS.psp.capabilities).toEqual([
       "audio.pcm",
+      "data.fs",
+      "data.pack",
       "input.analog.left",
       "input.buttons",
       "input.cursor",
@@ -603,6 +605,7 @@ describe("semantic resolution", () => {
       "text-cjk": [true, false, false, false],
       note: [false, false, true, true],
       notifications: [true, true, false, true],
+      "game2d-pack-demo": [true, true, false, true],
       settings: [true, true, false, true],
       "solid-aot-lab": [true, true, false, true],
       stats: [true, true, false, true],
