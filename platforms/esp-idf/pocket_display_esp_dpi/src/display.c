@@ -191,7 +191,8 @@ pocket_display_esp_dpi_create(const pocket_display_esp_dpi_config *c) {
   d->written = xSemaphoreCreateCounting(2, 0);
   const ppa_client_config_t present = {
       .oper_type = PPA_OPERATION_SRM,
-      .max_pending_trans_num = MAX_PENDING_PRESENTS,
+      /* Both buffers can have a flush on its way. */
+      .max_pending_trans_num = 2U * MAX_PENDING_PRESENTS,
   };
   const ppa_client_config_t mover = {
       .oper_type = PPA_OPERATION_SRM,
