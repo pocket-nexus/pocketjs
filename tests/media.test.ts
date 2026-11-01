@@ -27,7 +27,7 @@ int main(int argc,char **argv) {
     const compile=Bun.spawnSync(["cc","-std=c11","-I",resolve("engine/host-services"),join(directory,"check.c"),"-o",join(directory,"check")]);
     expect(compile.exitCode,compile.stderr.toString()).toBe(0);
     expect(Bun.spawnSync([join(directory,"check"),join(directory,"wire.bin")]).exitCode).toBe(0);
-    expect(()=>mediaPacket({kind:1,ptsMs:0,data:new Uint8Array(MEDIA.packetBytes+1)})).toThrow();
+    expect(()=>mediaPacket({kind:1,ptsMs:0,data:new Uint8Array(MEDIA.framePacketBytes+1)})).toThrow();
     expect(()=>mediaPacket({kind:2,ptsMs:0,data:new Uint8Array(3)})).toThrow();
   } finally { rmSync(directory,{recursive:true,force:true}); }
 });
