@@ -276,6 +276,11 @@ function deliver(fact: HostFact): void {
     unclaimed.set(fact.request, record);
   } else if (fact.kind === FactKind.timer) {
     // The scheduler owns the host timer; due deadlines fire by the latched time.
+    // The fact consumed the host's one-shot timer, so the next arm() programs
+    // it again even for the same deadline: the host checks deadlines against
+    // a clock read after the turn latched its time, and an alarm due between
+    // the two stays queued here.
+    if (fact.timer === SCHEDULER_TIMER) armedAt = 0;
   } else if (fact.kind === FactKind.channel) {
     const bytes = fact.data.slice();
     if (declaration?.channels?.[fact.channel - 1]?.kind === "snapshot") snapshots.set(fact.channel, bytes);

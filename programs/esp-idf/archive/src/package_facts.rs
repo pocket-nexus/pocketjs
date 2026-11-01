@@ -38,6 +38,12 @@ pub const POCKET_IDF_FEATURE_CAMERA_QR: u32 = 2;
 pub const POCKET_IDF_FEATURE_CAMERA_PHOTO: u32 = 4;
 /// `features.media.playback` is true in the plan.
 pub const POCKET_IDF_FEATURE_MEDIA: u32 = 8;
+/// `features.audio.pcm` is true in the plan.
+pub const POCKET_IDF_FEATURE_AUDIO_PCM: u32 = 16;
+/// `features.audio.capture` is true in the plan.
+pub const POCKET_IDF_FEATURE_AUDIO_CAPTURE: u32 = 32;
+/// `features.system.device` is true in the plan.
+pub const POCKET_IDF_FEATURE_DEVICE: u32 = 64;
 
 /// Verify a complete `.pocket` and admit the first variant the exported
 /// profile facts satisfy (`pocket_package::admission`), then read its facts.
@@ -107,7 +113,10 @@ pub unsafe extern "C" fn pocket_idf_package_open(
             features: flag("data.fs", POCKET_IDF_FEATURE_FS)
                 | flag("camera.qr", POCKET_IDF_FEATURE_CAMERA_QR)
                 | flag("camera.photo", POCKET_IDF_FEATURE_CAMERA_PHOTO)
-                | flag("media.playback", POCKET_IDF_FEATURE_MEDIA),
+                | flag("media.playback", POCKET_IDF_FEATURE_MEDIA)
+                | flag("audio.pcm", POCKET_IDF_FEATURE_AUDIO_PCM)
+                | flag("audio.capture", POCKET_IDF_FEATURE_AUDIO_CAPTURE)
+                | flag("system.device", POCKET_IDF_FEATURE_DEVICE),
             slot,
         });
     }

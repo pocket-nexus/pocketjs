@@ -50,6 +50,22 @@ test("resources fail closed without a worker and reject unaccepted submissions",
   expect(() => rtc.submit([read(0, [u8])])).toThrow(/closed/);
 });
 
+test("probe submits an address-only opcode and resolves the acknowledgement", async () => {
+  const submitted: [number, number[], number][] = [];
+  global.__pocketWorker = host({ submit(_handle, opcode, payload, capacity) { submitted.push([opcode, Array.from(payload), capacity]); return 2; } });
+  bindWorker({ entry: "worker.ts", nodes: [{ name: "i2c0", kind: "i2c" }] });
+  const device = io.i2c("i2c0").open({ address: 0x32, timeoutMillis: 300 });
+  let answered: boolean | undefined;
+  void device.probe().then(value => { answered = value; });
+  expect(submitted).toEqual([[2, [0x2c, 0x01], 0]]);
+  turn(1, [fact({ data: new Uint8Array(0) })]); await jobs();
+  expect(answered).toBe(true);
+  void device.probe({ timeoutMillis: 10 }).then(value => { answered = value; });
+  turn(2, [fact({ status: ResourceStatus.failed, data: new Uint8Array(0) })]); await jobs();
+  expect(answered).toBe(false);
+  await expect(device.probe({ timeoutMillis: 0 })).rejects.toThrow(/timeoutMillis/);
+});
+
 test("run resolves in the turn that carries the completion, with a retained copy", async () => {
   global.__pocketWorker = host();
   bindWorker({ entry: "worker.ts", nodes: [{ name: "i2c0", kind: "i2c" }] });
@@ -69,6 +85,24 @@ test("run resolves in the turn that carries the completion, with a retained copy
   turn(4, [fact({ request: 7, status: ResourceStatus.cancelled })]);
   expect((await settle(7)).status).toBe(ResourceStatus.cancelled);
   await expect(settle(-1)).rejects.toBeInstanceOf(ResourceError);
+});
+
+test("a timer fact ahead of the latched time re-arms the host timer for the same deadline", async () => {
+  const timers: number[][] = [];
+  global.__pocketWorker = host({ timer(id, deadline, period) { timers.push([id, deadline, period]); return 0; } });
+  bindWorker({ entry: "worker.ts", nodes: [] });
+  turn(1, [], 1000);
+  let woke = 0;
+  void sleep(500).then(() => { ++woke; });
+  expect(timers.at(-1)).toEqual([1, 1500, 0]);
+  // The host read its clock after the turn latched 1499: the timer fired and
+  // is gone, while the alarm at 1500 is not due by the latched time.
+  turn(2, [fact({ kind: FactKind.timer, handle: 0, timer: 1, deadline: 1500 })], 1499); await jobs();
+  expect(woke).toBe(0);
+  expect(timers.at(-1)).toEqual([1, 1500, 0]);
+  expect(timers.length).toBe(2);
+  turn(3, [fact({ kind: FactKind.timer, handle: 0, timer: 1, deadline: 1500 })], 1501); await jobs();
+  expect(woke).toBe(1);
 });
 
 test("deadlines fire by the latched turn time through one host timer", async () => {

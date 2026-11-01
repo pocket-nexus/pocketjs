@@ -212,6 +212,10 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // appends the id to its profile only when its native host ships the module
   // (the ring/thread discipline to copy is platforms/psp/audio/src/output.rs).
   "audio.pcm",
+  // Microphone input on the audio module's namespace (openInput, readInput,
+  // closeInput in contracts/spec/audio.ts): the host records one of its
+  // inputs into a per-input ring the guest drains each tick.
+  "audio.capture",
   // Native encoded-media playback with bounded worker handoff, audio clock,
   // pause/volume, texture output and observable decoder availability.
   "media.playback",
@@ -229,6 +233,10 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // The console's wireless radio and saved connections (`globalThis.wifi`,
   // contracts/spec/wifi.ts). Reads and selects; never writes a connection.
   "system.wifi",
+  // The board's own controls (`globalThis.device`, contracts/spec/device.ts):
+  // backlight, speaker level, power rails, plug detection, free header pins,
+  // the removable card's directory listing and power off.
+  "system.device",
   // Outer-camera preview texture plus an on-device QR decoder
   // (`globalThis.camera`, contracts/spec/camera.ts).
   "camera.qr",

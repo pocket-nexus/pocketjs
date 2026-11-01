@@ -4,6 +4,7 @@
 import {
   WIFI_SAVED_SLOTS,
   WIFI_STATE,
+  type WifiAccessPoint,
   type WifiNetwork,
   type WifiSavedNetwork,
   type WifiState,
@@ -11,7 +12,7 @@ import {
 } from "../../contracts/spec/wifi.ts";
 
 export { WIFI_SAVED_SLOTS, WIFI_STATE };
-export type { WifiNetwork, WifiSavedNetwork, WifiState, WifiStatus };
+export type { WifiAccessPoint, WifiNetwork, WifiSavedNetwork, WifiState, WifiStatus };
 
 export interface WifiOps {
   status(): string;
@@ -21,6 +22,9 @@ export interface WifiOps {
   scan?(): boolean;
   join?(ssid: string, passphrase: string): boolean;
   forget?(slot: number): boolean;
+  /** Hosts that serve an access point (contracts/spec/wifi.ts). */
+  startAccessPoint?(ssid: string): boolean;
+  stopAccessPoint?(): boolean;
 }
 
 export function wifiHost(): WifiOps | null {
@@ -76,4 +80,21 @@ export function joinNetwork(ssid: string, passphrase: string): boolean {
 export function forgetNetwork(slot: number): boolean {
   if (!Number.isInteger(slot) || slot < 0 || slot >= WIFI_SAVED_SLOTS) return false;
   return wifiHost()?.forget?.(slot) ?? false;
+}
+
+/** The host can serve an access point beside the station connection. */
+export function wifiCanServe(): boolean {
+  const ops = wifiHost();
+  return typeof ops?.startAccessPoint === "function" && typeof ops.stopAccessPoint === "function";
+}
+
+/** Serve an open access point named `ssid`; the state shows in
+ *  `wifiStatus().accessPoint`. */
+export function startAccessPoint(ssid: string): boolean {
+  if (ssid.length === 0 || ssid.length > 32) return false;
+  return wifiHost()?.startAccessPoint?.(ssid) ?? false;
+}
+
+export function stopAccessPoint(): boolean {
+  return wifiHost()?.stopAccessPoint?.() ?? false;
 }
