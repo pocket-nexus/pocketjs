@@ -99,7 +99,11 @@ entry is not bound.** Errors turn the footer text red; nothing else moves.
   1 px rule, selected with `ClassicSelection`.
 - **Footer, 24 px**: the legend (§2.3).
 - **Keyboard**: docks over the footer in the grid layout; the list shrinks
-  by `oskHeight()`. The keyboard owns every button while open.
+  by `oskHeight()`. The keyboard owns every button while open. On a host
+  whose keyboard is somewhere else (`HostOps.textSession`: a handheld's
+  lower panel, a system keyboard) `Osk` draws nothing and `oskHeight()` is
+  0; the host shows its keyboard while the session is open and types into
+  it with `input.text` events, and the field's `osk.display()` is the echo.
 - **Modal**: `ClassicSheet` slides from the bottom over a scrim; × closes.
 
 ## 3. Touch modality (iPod touch 4; Vita and 3DS with the panel)

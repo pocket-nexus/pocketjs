@@ -78,7 +78,9 @@ import {
   type OskMetrics,
   type OskPos,
 } from "./osk-layout.ts";
-import { recallPanel, rememberPanel, resolveOskModality, type OskModality } from "./osk-session.ts";
+import { keyboardElsewhere, recallPanel, rememberPanel, resolveOskModality, type OskModality } from "./osk-session.ts";
+
+export { keyboardElsewhere };
 import type { NodeMirror } from "./renderer.ts";
 
 export { createKeyboardTouch, KEY_HOLD } from "./keyboard-touch.ts";
@@ -168,10 +170,11 @@ export interface OskProps {
 }
 
 /** The docked keyboard panel. Render it at the bottom of the screen column;
- *  it takes its panel height while osk.isOpen() and nothing otherwise. */
+ *  it takes its panel height while osk.isOpen() and nothing otherwise, and
+ *  nothing at all on a host whose keyboard is elsewhere. */
 export function Osk(props: OskProps): SolidJSX.Element {
   return (
-    <Show when={props.osk.isOpen()}>
+    <Show when={props.osk.isOpen() && !keyboardElsewhere()}>
       <OskPanel
         osk={props.osk}
         theme={props.theme ?? "dark"}
@@ -203,8 +206,10 @@ export function oskPanelMetrics(mode: OskModality, theme: OskThemeName, keyHeigh
 }
 
 /** The docked panel height a surface's keyboard takes while open, so a
- *  column can shrink by that amount without mounting the panel. */
+ *  column can shrink by that amount without mounting the panel; 0 on a host
+ *  whose keyboard is elsewhere. */
 export function oskHeight(surface: SurfaceId = "primary", theme: OskThemeName = "dark", layout?: OskLayoutKind, keyHeight?: number): number {
+  if (keyboardElsewhere()) return 0;
   return oskPanelHeight(oskPanelMetrics(resolveOskModality(surface, modality.buttons, layout), theme, keyHeight));
 }
 
