@@ -16,11 +16,24 @@ export interface ReadStep<L extends readonly FieldEncoding[] = readonly FieldEnc
   readonly op: "read"; readonly register: number; readonly layout: L;
 }
 export interface WriteStep { readonly op: "write"; readonly register: number; readonly data: Uint8Array }
-export type I2CStep = ReadStep | WriteStep;
+/** A read without the register phase: START, the address with the read bit,
+ *  then the layout's bytes. Devices that take multibyte commands and return
+ *  their result to a bare read (the SHT3x, the RCWL-9620) need it. */
+export interface ReceiveStep<L extends readonly FieldEncoding[] = readonly FieldEncoding[]> {
+  readonly op: "receive"; readonly layout: L;
+}
+export type I2CStep = ReadStep | WriteStep | ReceiveStep;
+function checkLayout(layout: readonly FieldEncoding[]): void {
+  if (!layout.length || layout.some(item => !Number.isInteger(item.size) || item.size < 1)) throw new RangeError("Invalid I2C read layout");
+}
 export function read<const L extends readonly FieldEncoding[]>(register: number, layout: L): ReadStep<L> {
   integer(register, 0, 255, "register");
-  if (!layout.length || layout.some(item => !Number.isInteger(item.size) || item.size < 1)) throw new RangeError("Invalid I2C read layout");
+  checkLayout(layout);
   return { op: "read", register, layout };
+}
+export function receive<const L extends readonly FieldEncoding[]>(layout: L): ReceiveStep<L> {
+  checkLayout(layout);
+  return { op: "receive", layout };
 }
 export function write(register: number, ...values: (number | Uint8Array | readonly number[])[]): WriteStep {
   integer(register, 0, 255, "register");
@@ -36,24 +49,30 @@ export function write(register: number, ...values: (number | Uint8Array | readon
 export function integer(value: number, min: number, max: number, name: string): void {
   if (!Number.isInteger(value) || value < min || value > max) throw new RangeError(`${name} must be an integer in ${min}..${max}`);
 }
+/** Wire op of each step: 1 read, 2 write, 3 receive. A receive carries
+ *  register byte 0. */
+const STEP_OP = { read: 1, write: 2, receive: 3 } as const;
+function stepLength(step: I2CStep): number {
+  return step.op === "write" ? step.data.length : step.layout.reduce((sum, item) => sum + item.size, 0);
+}
 export function encodeI2CScript(script: readonly I2CStep[], timeoutMillis = 100): { payload: Uint8Array; resultBytes: number } {
   integer(script.length, 1, 255, "I2C step count");
   integer(timeoutMillis, 1, 65535, "I2C timeoutMillis");
   let total = 4, resultBytes = 0;
   for (const step of script) {
-    integer(step.register, 0, 255, "register");
-    const length = step.op === "read" ? step.layout.reduce((sum, item) => sum + item.size, 0) : step.data.length;
-    integer(length, step.op === "read" ? 1 : 0, WORKER_LIMITS.payloadBytes, "I2C transfer length");
+    if (step.op !== "receive") integer(step.register, 0, 255, "register");
+    const length = stepLength(step);
+    integer(length, step.op === "write" ? 0 : 1, WORKER_LIMITS.payloadBytes, "I2C transfer length");
     total += 4 + (step.op === "write" ? length : 0);
-    if (step.op === "read") resultBytes += length;
+    if (step.op !== "write") resultBytes += length;
   }
   if (total > WORKER_LIMITS.payloadBytes || resultBytes > WORKER_LIMITS.payloadBytes) throw new RangeError("I2C script exceeds resource payload limit");
   const payload = new Uint8Array(total), view = new DataView(payload.buffer);
   payload[0] = 1; payload[1] = script.length; view.setUint16(2, timeoutMillis, true);
   let offset = 4;
   for (const step of script) {
-    const length = step.op === "read" ? step.layout.reduce((sum, item) => sum + item.size, 0) : step.data.length;
-    payload[offset] = step.op === "read" ? 1 : 2; payload[offset + 1] = step.register;
+    const length = stepLength(step);
+    payload[offset] = STEP_OP[step.op]; payload[offset + 1] = step.op === "receive" ? 0 : step.register;
     view.setUint16(offset + 2, length, true); offset += 4;
     if (step.op === "write") { payload.set(step.data, offset); offset += length; }
   }
