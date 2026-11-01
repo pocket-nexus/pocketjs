@@ -605,6 +605,7 @@ describe("semantic resolution", () => {
       "text-cjk": [true, false, false, false],
       note: [false, false, true, true],
       notifications: [true, true, false, true],
+      "game2d-pack-demo": [true, true, false, true],
       settings: [true, true, false, true],
       "solid-aot-lab": [true, true, false, true],
       stats: [true, true, false, true],
