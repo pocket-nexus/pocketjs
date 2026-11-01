@@ -173,8 +173,9 @@ impl Atlas {
             self.glyph_count = base;
             self.cmap.retain(|e| e.gid < base);
             self.cmap.shrink_to_fit();
-            self.bitmap.truncate(base as usize * w * h);
-            self.bitmap.shrink_to_fit();
+            let cells = self.bitmap.to_mut();
+            cells.truncate(base as usize * w * h);
+            cells.shrink_to_fit();
             return true;
         }
         let (w, h) = (b[9] as usize, b[10] as usize);
@@ -209,7 +210,7 @@ impl Atlas {
                 );
             }
         }
-        self.bitmap = pixels;
+        self.bitmap = pixels.into();
         self.cell_w = cw as u32;
         self.cell_h = ch as u32;
         self.glyph_count = base + capacity as u16;
