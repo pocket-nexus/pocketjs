@@ -4,6 +4,7 @@
 
 import { createSignal, type Accessor } from "solid-js";
 import { virtualFrame } from "./clock.ts";
+import { getOps } from "./host.ts";
 import { onTextEvent, type TextEvent } from "./text-input.ts";
 
 export interface CreateOskOptions {
@@ -100,12 +101,15 @@ export function createOsk(opts: CreateOskOptions): OskController {
       openController = controller;
       releaseKeyboard?.();
       releaseKeyboard = onTextEvent(typed);
+      // a host with its keyboard elsewhere shows it now
+      getOps().textSession?.(true);
     },
     close() {
       setOpen(false);
       if (openController === controller) openController = null;
       releaseKeyboard?.();
       releaseKeyboard = null;
+      getOps().textSession?.(false);
     },
     isOpen,
     caret,
