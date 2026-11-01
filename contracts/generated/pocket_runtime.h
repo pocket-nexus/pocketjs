@@ -684,6 +684,9 @@ int32_t pocket_runtime_set_package_source(pocket_runtime * runtime, const pocket
 
 int32_t pocket_runtime_set_guest(pocket_runtime * runtime, const pocket_guest_v1 * guest, void * context);
 
+/* Decoded bytes of package textures the runtime keeps past a frame; zero, the default, keeps every texture. Beyond it, when a frame is drawn, textures the previous frame did not draw are released, least recently drawn first, and decoded from the package again by the next frame that draws them. Textures a deferred submission still reads stay. */
+int32_t pocket_runtime_set_texture_budget(pocket_runtime * runtime, size_t bytes);
+
 pocket_renderer_id pocket_runtime_add_renderer(pocket_runtime * runtime, const pocket_renderer_v1 * renderer, void * context);
 
 int32_t pocket_runtime_add_display(pocket_runtime * runtime, const pocket_display_output_v1 * display, void * context, pocket_renderer_id renderer);

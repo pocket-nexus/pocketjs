@@ -81,6 +81,7 @@ export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
   { name: "pocket_runtime_create", args: [f("config", "*const PocketRuntimeConfig")], result: "*mut PocketRuntime" },
   { name: "pocket_runtime_set_package_source", args: [runtime, f("source", "*const PocketPackageSourceV1"), context], result: "i32" },
   { name: "pocket_runtime_set_guest", args: [runtime, f("guest", "*const PocketGuestV1"), context], result: "i32" },
+  { name: "pocket_runtime_set_texture_budget", args: [runtime, f("bytes", "usize")], result: "i32", doc: "Decoded bytes of package textures the runtime keeps past a frame; zero, the default, keeps every texture. Beyond it, when a frame is drawn, textures the previous frame did not draw are released, least recently drawn first, and decoded from the package again by the next frame that draws them. Textures a deferred submission still reads stay." },
   { name: "pocket_runtime_add_renderer", args: [runtime, f("renderer", "*const PocketRendererV1"), context], result: "PocketRendererId" },
   { name: "pocket_runtime_add_display", args: [runtime, f("display", "*const PocketDisplayOutputV1"), context, f("renderer", "PocketRendererId")], result: "i32" },
   { name: "pocket_runtime_add_input_source", args: [runtime, f("source", "*const PocketInputSourceV1"), context], result: "i32" },

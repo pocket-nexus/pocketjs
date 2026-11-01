@@ -410,6 +410,12 @@ impl Runtime {
         self.native_assets = enabled;
         Ok(())
     }
+    /// Decoded bytes of package textures the core keeps past a tick
+    /// (`Ui::set_texture_budget`); zero keeps every texture.
+    pub fn set_texture_budget(&mut self, bytes: usize) -> Result<(), RuntimeError> {
+        self.ops.core_mut()?.ui.set_texture_budget(bytes);
+        Ok(())
+    }
     /// Let an embedding program manage its presentation target dimensions.
     /// This opt-in must precede boot. Package hash and logical viewport admission
     /// still use the compiled profile; CPU targets still require integer scaling.
