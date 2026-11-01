@@ -64,6 +64,23 @@ export const LINK_MAX_NET = 8;
 const PAIR_MAX_FAILURES = 5;
 const DEFAULT_TARGET = "3ds-dev";
 
+/** One console's end of a link extension. */
+export interface LinkExtensionSession {
+  handle(message: LinkCtrl): void;
+  /** True when the data frame was this extension's. */
+  data(stream: number, bytes: Uint8Array): boolean;
+  detach(link: AgentLink): void;
+}
+
+/** A feature a program adds to the link: `<feature>.*` ctrl messages reach its session. */
+export interface LinkExtension {
+  readonly feature: string;
+  attach(link: AgentLink): LinkExtensionSession;
+  stop(): void;
+}
+
+export type LinkExtensionFactory = (context: { readonly storeDir: string; log(line: string): void }) => LinkExtension;
+
 export interface CompanionOptions {
   store: CompanionStore;
   name?: string;
@@ -86,6 +103,8 @@ export interface CompanionOptions {
   log?: (line: string) => void;
   /** The console agent (contracts/spec/agent.ts); absent or false: off. */
   agent?: false | Partial<Omit<AgentServiceOptions, "storeDir" | "catalog" | "log">>;
+  /** Features a program built on this companion adds to the link. */
+  extensions?: readonly LinkExtensionFactory[];
   /** USB shares a tethered console reaches this companion through (the
    *  link.ts USB carrier): each one gets a `pocket-link/` directory. */
   usb?: string[];
@@ -131,6 +150,7 @@ export class Companion {
   readonly name: string;
   readonly catalog: AppCatalog;
   readonly agent: AgentService | null;
+  readonly extensions: readonly LinkExtension[];
   readonly services: ServiceHost;
   private server: Server | undefined;
   private beaconSocket: UdpSocket | undefined;
@@ -150,12 +170,13 @@ export class Companion {
     this.agent = options.agent
       ? new AgentService({ ...options.agent, storeDir: this.store.dir, catalog: this.catalog, log: (line) => this.log(line) })
       : null;
+    this.extensions = (options.extensions ?? []).map((create) => create({ storeDir: this.store.dir, log: (line) => this.log(line) }));
     this.services = new ServiceHost({ storeDir: this.store.dir, log: (line) => this.log(line) });
   }
 
   /** The features a linked console is offered: the agent only when codex is usable. */
   features(): string[] {
-    return this.agent?.available ? [...LINK_FEATURES, AGENT_LINK_FEATURE] : LINK_FEATURES;
+    return [...LINK_FEATURES, ...(this.agent?.available ? [AGENT_LINK_FEATURE] : []), ...this.extensions.map((extension) => extension.feature)];
   }
 
   log(line: string) {
@@ -216,6 +237,7 @@ export class Companion {
     for (const carrier of this.usb) carrier.stop();
     this.usb = [];
     this.agent?.stop();
+    for (const extension of this.extensions) extension.stop();
     this.services.close();
     this.beaconSocket?.close();
     this.beaconSocket = undefined;
@@ -454,6 +476,7 @@ class LinkConnection {
   private drainWaiters: (() => void)[] = [];
   private agentSession: AgentSession | undefined;
   private agentLink: AgentLink | undefined;
+  private extensionSessions: { readonly prefix: string; readonly session: LinkExtensionSession }[] = [];
 
   constructor(
     private readonly companion: Companion,
@@ -536,6 +559,7 @@ class LinkConnection {
     for (const install of this.installs.values()) install.cancelled = true;
     this.installs.clear();
     if (this.agentLink) this.agentSession?.detach(this.agentLink);
+    if (this.agentLink) for (const { session } of this.extensionSessions) session.detach(this.agentLink);
     const waiters = this.drainWaiters;
     this.drainWaiters = [];
     for (const wake of waiters) wake();
@@ -642,6 +666,7 @@ class LinkConnection {
     const link: AgentLink = { device, send: (message) => this.send(message), sendData: (stream, bytes) => this.sendData(stream, bytes) };
     this.agentLink = link;
     this.agentSession = this.companion.agent?.attach(link);
+    this.extensionSessions = this.companion.extensions.map((extension) => ({ prefix: `${extension.feature}.`, session: extension.attach(link) }));
     this.silenceTimer = setInterval(() => {
       if (Date.now() - this.lastRx > LINK_SILENCE_MS) this.close(`silent for ${LINK_SILENCE_MS} ms`);
     }, 1_000);
@@ -682,6 +707,7 @@ class LinkConnection {
         return void this.install(id as number, message.app);
       default:
         if (typeof message.t === "string" && message.t.startsWith("agent.")) this.agentSession?.handle(message);
+        else this.extensionSessions.find(({ prefix }) => typeof message.t === "string" && message.t.startsWith(prefix))?.session.handle(message);
         return; // other unknown ctrl types are ignored
     }
   }
@@ -720,7 +746,7 @@ class LinkConnection {
   }
 
   private data(stream: number, bytes: Uint8Array) {
-    if (!this.net.has(stream) && this.agentSession?.data(stream, bytes)) return;
+    if (!this.net.has(stream) && (this.extensionSessions.some(({ session }) => session.data(stream, bytes)) || this.agentSession?.data(stream, bytes))) return;
     const pending = this.net.get(stream);
     if (!pending || pending.started) return; // a cancelled or unknown stream
     pending.received += bytes.length;

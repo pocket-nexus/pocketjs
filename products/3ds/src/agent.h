@@ -27,6 +27,9 @@
  * microphone and drops undelivered events. */
 void agent_set_enabled(bool enabled);
 bool agent_enabled(void);
+/* A product extension uses the microphone and the glyph atlases under its own link
+ * feature: `<name>.audio`. NULL returns them to the agent. */
+void agent_use_channel(const char *name);
 void agent_shutdown(void);
 
 /* The guest's buttons this frame, with the chord's shoulders held back. */

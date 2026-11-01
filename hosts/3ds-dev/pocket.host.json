@@ -35,6 +35,7 @@
     "net.http",
     "runtime.worker",
     "system.agent",
+    "system.extension",
     "system.wifi",
     "text.glyphs.baked",
     "ui.physics"

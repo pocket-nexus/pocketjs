@@ -1444,6 +1444,10 @@ const char *link_poll(void) {
 
 bool link_http_available(void) { return phase == PHASE_UP && has_feature("net.stream"); }
 
+bool link_feature_ready(const char *name) {
+  return phase == PHASE_UP && has_feature(name);
+}
+
 bool link_agent_ready(void) {
   return phase == PHASE_UP && has_feature("agent");
 }
@@ -1520,6 +1524,10 @@ const char *link_poll(void) { return NULL; }
 
 bool link_http_available(void) { return false; }
 bool link_agent_ready(void) { return false; }
+bool link_feature_ready(const char *name) {
+  (void)name;
+  return false;
+}
 bool link_send_ctrl(const char *json, size_t length) {
   (void)json;
   (void)length;

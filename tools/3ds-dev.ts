@@ -334,6 +334,9 @@ function createClient(target: DeviceTarget): PocketRuntimeClient {
     port: target.port,
     token: target.token,
     timeoutMs: 15_000,
+    // The console answers a ping once its send queue is empty, which a .3dsx upload
+    // can hold off for most of a minute.
+    heartbeatTimeoutMs: 180_000,
   });
 }
 

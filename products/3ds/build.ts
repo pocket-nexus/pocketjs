@@ -147,6 +147,10 @@ export interface ThreeDsArguments {
   /** Build the target-thinned guest package without rebuilding the native runtime. */
   readonly pocketOnly: boolean;
   readonly capture: boolean;
+  /** A product extension's directory (extension.mk), for a plan declaring system.extension. */
+  readonly extensionDir?: string;
+  /** The directory staged as romfs:/extension. */
+  readonly extensionRomfs?: string;
   /** Also package the ELF as an installable CIA title. */
   readonly cia: boolean;
   /** Forwarded to tools/build.ts. */
@@ -174,6 +178,8 @@ export function parse3dsArguments(
   let pocketOnly = false;
   let capture = false;
   let cia = false;
+  let extensionDir: string | undefined;
+  let extensionRomfs: string | undefined;
   const cargoArgs: string[] = [];
 
   for (const a of argv) {
@@ -186,6 +192,8 @@ export function parse3dsArguments(
     else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
     else if (a.startsWith("--outdir=")) outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
     else if (a.startsWith("--package-outdir=")) packageDir = resolvePath(a.slice("--package-outdir=".length));
+    else if (a.startsWith("--extension=")) extensionDir = resolvePath(a.slice("--extension=".length));
+    else if (a.startsWith("--extension-romfs=")) extensionRomfs = resolvePath(a.slice("--extension-romfs=".length));
     else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
       throw new Error("PocketJS 3ds: application configuration belongs in pocket.app.json");
     } else if (!planPath && !app && !a.startsWith("-")) app = a;
@@ -202,6 +210,8 @@ export function parse3dsArguments(
     skipBuild,
     pocketOnly,
     capture,
+    extensionDir,
+    extensionRomfs,
     cia,
     cargoArgs,
   };
@@ -209,7 +219,7 @@ export function parse3dsArguments(
 
 const USAGE =
   "usage: bun tools/3ds.ts <app> [--plan=<resolved-plan.json>] [--project-root=<dir>] " +
-  "[--outdir=<dir>] [--package-outdir=<dir>] [--skip-build] [--pocket-only] [--capture] [--cia] [cargo args…]   " +
+  "[--outdir=<dir>] [--package-outdir=<dir>] [--extension=<dir>] [--extension-romfs=<dir>] [--skip-build] [--pocket-only] [--capture] [--cia] [cargo args…]   " +
   "e.g. bun tools/3ds.ts 3ds-demo --cia";
 
 export interface CaptureDefines {
@@ -600,7 +610,7 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
   const { imageId, coreLibrary, quickJsDirectory, mounts } = await prepare3dsNative({
     context,
     cargoArgs: args.cargoArgs,
-    roots: [args.outputDir, args.packageDir, args.projectRoot],
+    roots: [args.outputDir, args.packageDir, args.projectRoot, ...(args.extensionDir ? [args.extensionDir] : []), ...(args.extensionRomfs ? [args.extensionRomfs] : [])],
   });
 
   // 4. everything else that needs devkitARM
@@ -616,6 +626,10 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
     ? await ensureMakerom(join(distributionRoot, "makerom"), imageId, mounts)
     : "";
 
+  const extension = plan.features["system.extension"] ? args.extensionDir : undefined;
+  if (plan.features["system.extension"] && !extension) {
+    throw new Error("PocketJS 3ds: the plan declares system.extension; pass --extension=<dir>");
+  }
   const output = join(args.packageDir, `${inputs.appOutput}.3dsx`);
   const ciaOutput = join(args.packageDir, `${inputs.appOutput}.cia`);
   const makeEnvironment: Record<string, string> = {
@@ -631,6 +645,8 @@ export async function build3ds(argv: readonly string[], context?: RuntimeBuildCo
     POCKETJS_OUT_3DSX: containerPathFor(output, mounts),
     POCKETJS_OFFLOAD: plan.features["io.offload"] ? "1" : "",
     POCKETJS_MEDIA: plan.features["media.playback"] ? "1" : "",
+    POCKETJS_EXTENSION: extension ? containerPathFor(extension, mounts) : "",
+    POCKETJS_EXTENSION_ROMFS: extension && args.extensionRomfs ? containerPathFor(args.extensionRomfs, mounts) : "",
     POCKETJS_OFFLOAD_SLOT: createHash("sha256").update(plan.app.id).digest("hex").slice(0, 16),
     POCKETJS_SMDH_TITLE: plan.app.title,
     POCKETJS_SMDH_AUTHOR: plan.app.id,

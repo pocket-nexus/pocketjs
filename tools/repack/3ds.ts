@@ -37,7 +37,7 @@ const SMDH_BYTES = 0x36c0;
 const SMDH_ICONS = 0x2040;
 
 /** Features the runtime build leaves out; a plan that asks for one is refused. */
-const UNSUPPORTED_FEATURES = ["io.offload", "media.playback", "net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const;
+const UNSUPPORTED_FEATURES = ["io.offload", "media.playback", "net.http", "link.companion", "system.wifi", "camera.qr", "system.agent", "system.extension"] as const;
 
 // ---------------------------------------------------------------------------
 // .3dsx

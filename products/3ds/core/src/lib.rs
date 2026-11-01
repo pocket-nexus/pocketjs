@@ -46,6 +46,8 @@ pub const POCKET_GUEST_FEATURE_OFFLOAD: u32 = 1;
 pub const POCKET_GUEST_FEATURE_MEDIA: u32 = 2;
 /// `features.system.agent` is true in the plan: the top screen is the agent stage.
 pub const POCKET_GUEST_FEATURE_AGENT: u32 = 4;
+/// `features.system.extension` is true in the plan: a product extension owns the top screen.
+pub const POCKET_GUEST_FEATURE_EXTENSION: u32 = 64;
 /// `features.data.fs` is true in the plan: the guest gets `globalThis.fs`.
 pub const POCKET_GUEST_FEATURE_FS: u32 = 8;
 /// `features.camera.qr` is true in the plan: the outer camera's viewfinder
@@ -118,6 +120,10 @@ pub unsafe extern "C" fn pocket_package_open(
             0
         } | if facts.feature("system.agent") {
             POCKET_GUEST_FEATURE_AGENT
+        } else {
+            0
+        } | if facts.feature("system.extension") {
+            POCKET_GUEST_FEATURE_EXTENSION
         } else {
             0
         } | if facts.feature("data.fs") {
