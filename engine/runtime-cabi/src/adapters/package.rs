@@ -1,8 +1,10 @@
 use super::*;
+use alloc::boxed::Box;
 
 pub struct CPackageSource {
     table: PocketPackageSourceV1,
     context: *mut c_void,
+    verified: bool,
 }
 impl CPackageSource {
     /// # Safety
@@ -16,7 +18,34 @@ impl CPackageSource {
         if table.length.is_none() || table.range.is_none() {
             return Err(AdapterError::Unsupported);
         }
-        Ok(Self { table, context })
+        Ok(Self {
+            table,
+            context,
+            verified: false,
+        })
+    }
+}
+/// Storage a C source transferred: read in place and released through its
+/// callback when the package drops.
+struct ForeignStorage {
+    bytes: *const u8,
+    length: usize,
+    release: Option<PocketPackageReleaseFn>,
+    context: *mut c_void,
+}
+impl PackageStorage for ForeignStorage {
+    fn bytes(&self) -> &[u8] {
+        if self.length == 0 {
+            return &[];
+        }
+        unsafe { slice::from_raw_parts(self.bytes, self.length) }
+    }
+}
+impl Drop for ForeignStorage {
+    fn drop(&mut self) {
+        if let Some(release) = self.release {
+            unsafe { release(self.context, self.bytes, self.length) }
+        }
     }
 }
 fn source_error(error: AdapterError) -> SourceError {
@@ -64,5 +93,24 @@ impl PackageSource for CPackageSource {
             return Err(SourceError::Failed);
         }
         Ok(read)
+    }
+    fn take_bytes(&mut self) -> Result<PackageBytes, SourceError> {
+        let take = self.table.take.ok_or(SourceError::Unsupported)?;
+        let mut storage = PocketPackageStorage::empty();
+        check(unsafe { take(self.context, &mut storage) }).map_err(source_error)?;
+        // The source handed the storage over: dropping it on a bad pointer
+        // still runs its release.
+        let foreign = ForeignStorage {
+            bytes: storage.bytes,
+            length: storage.length,
+            release: storage.release,
+            context: storage.release_context,
+        };
+        unsafe { borrowed::<u8>(storage.bytes, storage.length) }.map_err(source_error)?;
+        self.verified = (storage.flags & POCKET_PACKAGE_STORAGE_VERIFIED) != 0;
+        Ok(PackageBytes::Foreign(Box::new(foreign)))
+    }
+    fn verified(&self) -> bool {
+        self.verified
     }
 }

@@ -13,7 +13,12 @@ fn sizes(value: &Value) -> Vec<[u32; 2]> {
         .map(|items| {
             items
                 .iter()
-                .map(|size| [size[0].as_u64().unwrap() as u32, size[1].as_u64().unwrap() as u32])
+                .map(|size| {
+                    [
+                        size[0].as_u64().unwrap() as u32,
+                        size[1].as_u64().unwrap() as u32,
+                    ]
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -34,7 +39,11 @@ fn engine_admission_matches_the_shared_corpus() {
         let name = case["name"].as_str().unwrap();
         let host = &case["host"];
         let mut profile_hash = [0u8; 32];
-        let hex = host["profileHash"].as_str().unwrap().strip_prefix("sha256:").unwrap();
+        let hex = host["profileHash"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("sha256:")
+            .unwrap();
         for (index, byte) in profile_hash.iter_mut().enumerate() {
             *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap();
         }
@@ -49,7 +58,12 @@ fn engine_admission_matches_the_shared_corpus() {
         let presentations = strings(&host["presentations"]);
         let capabilities = strings(&host["capabilities"]);
         let dynamic = host.get("dynamicViewport").map(|range| {
-            let pair = |value: &Value| [value[0].as_u64().unwrap() as u32, value[1].as_u64().unwrap() as u32];
+            let pair = |value: &Value| {
+                [
+                    value[0].as_u64().unwrap() as u32,
+                    value[1].as_u64().unwrap() as u32,
+                ]
+            };
             [pair(&range["min"]), pair(&range["max"])]
         });
         let facts = HostFacts {
@@ -83,7 +97,11 @@ fn engine_admission_matches_the_shared_corpus() {
             let Err(GuestError::NotAdmitted(mismatch)) = result else {
                 panic!("{name}: admitted");
             };
-            assert_eq!(mismatch.variant as u64, rejected["variant"].as_u64().unwrap(), "{name}");
+            assert_eq!(
+                mismatch.variant as u64,
+                rejected["variant"].as_u64().unwrap(),
+                "{name}"
+            );
             let items: Vec<&str> = ITEMS
                 .iter()
                 .filter(|(bit, _)| mismatch.items & bit != 0)

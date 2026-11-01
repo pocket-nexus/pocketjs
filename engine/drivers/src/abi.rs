@@ -120,6 +120,7 @@ pub const POCKET_STATUS_OK: i32 = 0;
 pub const POCKET_STATUS_UNSUPPORTED: i32 = -1;
 pub const POCKET_STATUS_INVALID: i32 = -2;
 pub const POCKET_STATUS_FAILED: i32 = -3;
+pub const POCKET_PACKAGE_STORAGE_VERIFIED: u32 = 1;
 pub const POCKET_RENDERER_SOFTWARE: u32 = 0;
 pub const POCKET_RENDERER_INVALID: u32 = 4294967295;
 pub const POCKET_ARG_INTEGER: u32 = 1;
@@ -186,6 +187,12 @@ pub type PocketPackageLengthFn = unsafe extern "C" fn(context: *mut c_void, out:
 pub type PocketPackageAllFn = unsafe extern "C" fn(context: *mut c_void, bytes: *mut *const u8, length: *mut usize) -> i32;
 
 pub type PocketPackageRangeFn = unsafe extern "C" fn(context: *mut c_void, offset: usize, buffer: *mut u8, capacity: usize, read: *mut usize) -> i32;
+
+/// Transfers the whole package: out describes storage of the length the length callback reported. After success the source may refuse all and range. UNSUPPORTED keeps the copying path.
+pub type PocketPackageTakeFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketPackageStorage) -> i32;
+
+/// Releases storage a take transferred, after the runtime's last read of it.
+pub type PocketPackageReleaseFn = unsafe extern "C" fn(context: *mut c_void, bytes: *const u8, length: usize) -> ();
 
 /// Monotonic microseconds.
 pub type PocketClockNowFn = unsafe extern "C" fn(context: *mut c_void) -> u64;
@@ -583,12 +590,25 @@ abi_record! {
 }
 
 abi_record! {
-    /// all is optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source.
+    /// Storage a source transfers through take. bytes stay valid and unchanged until the runtime calls release with release_context, bytes and length; a null release means they outlive the runtime. POCKET_PACKAGE_STORAGE_VERIFIED in flags states that the owner verified the package's FNV-1a64 footer and variant hashes of these exact bytes, so the runtime admits them without its own hash pass.
+    pub struct PocketPackageStorage {
+        pub struct_size: usize,
+        pub bytes: *const u8,
+        pub length: usize,
+        pub release: Option<PocketPackageReleaseFn>,
+        pub release_context: *mut c_void,
+        pub flags: u32,
+    }
+}
+
+abi_record! {
+    /// all and take are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range.
     pub struct PocketPackageSourceV1 {
         pub struct_size: usize,
         pub length: Option<PocketPackageLengthFn>,
         pub all: Option<PocketPackageAllFn>,
         pub range: Option<PocketPackageRangeFn>,
+        pub take: Option<PocketPackageTakeFn>,
     }
 }
 

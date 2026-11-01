@@ -73,7 +73,8 @@ unsafe fn pairs(pointer: *const u32, count: usize) -> Option<Cow<'static, [[u32;
         return Some(Cow::Borrowed(&[]));
     }
     // Exported lists hold a handful of sizes; a larger count is a corrupt record.
-    if pointer.is_null() || count > 64 || !(pointer as usize).is_multiple_of(mem::align_of::<u32>()) {
+    if pointer.is_null() || count > 64 || !(pointer as usize).is_multiple_of(mem::align_of::<u32>())
+    {
         return None;
     }
     let words = unsafe { core::slice::from_raw_parts(pointer, count * 2) };
@@ -143,7 +144,11 @@ pub(crate) unsafe fn profile(facts: *const PocketProfileFacts) -> Option<Profile
     } else if facts.cadence_count > 64 {
         return None;
     } else {
-        Cow::Owned(unsafe { borrowed(facts.cadences, facts.cadence_count) }.ok()?.to_vec())
+        Cow::Owned(
+            unsafe { borrowed(facts.cadences, facts.cadence_count) }
+                .ok()?
+                .to_vec(),
+        )
     };
     let animation = if facts.animation_length == 0 {
         Cow::Borrowed("")
@@ -339,7 +344,11 @@ fn report_boot_failure(error: RuntimeError) -> RuntimeError {
 /// runtime is a live instance on its owning thread.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32 {
-    unsafe { modify(runtime, |runtime| runtime.boot().map_err(report_boot_failure)) }
+    unsafe {
+        modify(runtime, |runtime| {
+            runtime.boot().map_err(report_boot_failure)
+        })
+    }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.
@@ -436,7 +445,10 @@ pub unsafe extern "C" fn pocket_runtime_update_texture(
     };
     match handle.ops.core_mut() {
         Ok(mut core) => {
-            if core.ui.update_texture_rect(texture, x, y, width, height, bytes) {
+            if core
+                .ui
+                .update_texture_rect(texture, x, y, width, height, bytes)
+            {
                 POCKET_STATUS_OK
             } else {
                 POCKET_STATUS_INVALID

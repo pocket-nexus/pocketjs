@@ -59,7 +59,8 @@ typedef struct pocket_driver_kit_lifecycle {
 pocket_driver_kit_error pocket_driver_kit_init(pocket_driver_kit_lifecycle *, size_t capacity);
 pocket_driver_kit_error pocket_driver_kit_observe(pocket_driver_kit_lifecycle *, pocket_driver_kit_event);
 pocket_driver_kit_error pocket_driver_kit_finish(const pocket_driver_kit_lifecycle *);
-/* Checks length, optional all, partial ranges, EOF, and zero-length reads.
+/* Checks length, optional all, partial ranges, EOF, zero-length reads and
+ * the optional transfer, whose storage is released again.
  * Expected data is independent test evidence. Source callbacks must obey their
  * C memory contract; use ASan or guarded storage to catch illegal writes. */
 pocket_driver_kit_error pocket_driver_kit_check_package(const pocket_package_source_v1 *, void *context,
