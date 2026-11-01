@@ -97,10 +97,11 @@ export function createStage(cfg: StageConfig): { gfx: Gfx; View: () => JSX.Eleme
     cell(img, x, y, o) {
       if (!img) return;
       const h = cfg.tex.get(img);
-      const a = o?.alpha ?? 1, flip = !!o?.flip;
+      if (h < 0) return;
       const X = round(x + ox), Y = round(y + oy);
-      const left = flip ? X + img.fw - img.ox - img.tw : X + img.ox;
-      pushImage(h, left, Y + img.oy, img.tw * (o?.sx ?? 1), img.th * (o?.sy ?? 1), flip, a);
+      if (o === undefined) { pushImage(h, X + img.ox, Y + img.oy, img.tw, img.th, false, 1); return; }
+      const flip = !!o.flip;
+      pushImage(h, flip ? X + img.fw - img.ox - img.tw : X + img.ox, Y + img.oy, o.sx === undefined ? img.tw : img.tw * o.sx, o.sy === undefined ? img.th : img.th * o.sy, flip, o.alpha === undefined ? 1 : o.alpha);
     },
     sprite(img, x, y, o) {
       if (!img) return;

@@ -18,6 +18,10 @@ export interface PackHost {
   read(fh: number, offset: number, dst: Uint8Array): number;
   loadImg(fh: number, offset: number, length: number): number;
   close(fh: number): void;
+  /** Optional: JSON memory readings (see contracts/spec/pack.ts). */
+  mem?(): string;
+  /** Optional: collect JS cycles now, returns microseconds. */
+  gc?(): number;
 }
 
 /** One image in a pack. tw/th: the power-of-two texture. w/h: used pixels. ox/oy: trim offset
@@ -25,6 +29,8 @@ export interface PackHost {
 export interface PackImage {
   pack: string; name: string; off: number; len: number;
   tw: number; th: number; w: number; h: number; ox: number; oy: number; fw: number; fh: number; ax: number; ay: number;
+  /** Owned by the texture pool: live handle (-1 when not loaded) and the frame it was last drawn on. */
+  handle: number; used: number;
 }
 
 export interface PackManifest {
@@ -34,7 +40,7 @@ export interface PackManifest {
   data?: Record<string, unknown>;
 }
 
-export interface MountedPack { name: string; fh: number; images: Map<string, PackImage>; data: Record<string, unknown> }
+export interface MountedPack { name: string; fh: number; images: Map<string, PackImage>; rows: Int32Array; index: Map<string, number>; data: Record<string, unknown> }
 
 export interface PackStore {
   /** Open and parse a pack. Resolves once ready (on the web that may take several frames). */
@@ -76,19 +82,32 @@ export function createPackStore(host: PackHost | null = packHost()): PackStore {
       const buf = new Uint8Array(n);
       if (host.read(fh, 8, buf) !== n) { host.close(fh); return null; }
       const man = JSON.parse(ascii(buf)) as PackManifest;
-      const images = new Map<string, PackImage>();
-      for (const key in man.images) {
-        const v = man.images[key];
-        images.set(key, { pack: name, name: key, off: v[0] + 8 + n, len: v[1], tw: v[2], th: v[3], w: v[4], h: v[5], ox: v[6], oy: v[7], fw: v[8], fh: v[9], ax: v[10], ay: v[11] });
+      // A long game has thousands of images and most are never drawn in a session: keep one Int32Array
+      // row per image and build the object on first use.
+      const names = Object.keys(man.images), rows = new Int32Array(names.length * 12), index = new Map<string, number>();
+      for (let i = 0; i < names.length; i++) {
+        const v = man.images[names[i]];
+        for (let k = 0; k < 12; k++) rows[i * 12 + k] = v[k];
+        rows[i * 12] += 8 + n;
+        index.set(names[i], i);
       }
-      const m: MountedPack = { name, fh, images, data: man.data ?? {} };
+      man.images = {};
+      const images = new Map<string, PackImage>();
+      const m: MountedPack = { name, fh, images, rows, index, data: man.data ?? {} };
       packs.set(name, m);
       return m;
     },
     unmount(name) { const m = packs.get(name); if (m) { host?.close(m.fh); packs.delete(name); } },
     mounted: (name) => packs.get(name),
     image(name) {
-      for (const m of packs.values()) { const i = m.images.get(name); if (i) return i; }
+      for (const m of packs.values()) {
+        const had = m.images.get(name); if (had) return had;
+        const i = m.index.get(name); if (i === undefined) continue;
+        const r = m.rows, o = i * 12;
+        const img: PackImage = { pack: m.name, name, off: r[o], len: r[o + 1], tw: r[o + 2], th: r[o + 3], w: r[o + 4], h: r[o + 5], ox: r[o + 6], oy: r[o + 7], fw: r[o + 8], fh: r[o + 9], ax: r[o + 10], ay: r[o + 11], handle: -1, used: 0 };
+        m.images.set(name, img);
+        return img;
+      }
       return undefined;
     },
     data(key) {

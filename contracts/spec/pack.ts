@@ -112,6 +112,10 @@ export interface PackOps {
   loadImg(handle: number, offset: number, length: number): number;
   close(handle: number): void;
   stats?(): string;
+  /** JSON: qjsLive, qjsPeak, qjsLargest, qjsFailed, arenaFree, arenaLargest. Walks free lists: call rarely. */
+  mem?(): string;
+  /** Collect JS cycles now; returns microseconds spent. Hosts with their own collector omit it. */
+  gc?(): number;
 }
 
 function utf8Bytes(text: string): number {

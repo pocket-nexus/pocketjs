@@ -9,3 +9,4 @@ export * from "./input.ts";
 export * from "./hud.tsx";
 export * from "./save.ts";
 export * from "./music.ts";
+export * from "./memory.ts";

@@ -26,6 +26,11 @@ use psp::sys::{self, IoOpenFlags, IoWhence, SceUid};
 use crate::service_bindings::{add_fn, arg_f64, arg_i32, buffer_mut};
 
 extern "C" {
+    fn JS_RunGC(rt: *mut JSRuntime);
+    fn JS_GetRuntime(ctx: *mut JSContext) -> *mut JSRuntime;
+}
+
+extern "C" {
     fn JS_NewStringLen(ctx: *mut JSContext, text: *const u8, length: usize) -> JSValue;
 }
 
@@ -345,6 +350,26 @@ unsafe extern "C" fn js_close(ctx: *mut JSContext, _t: JSValue, argc: i32, argv:
     JS_UNDEFINED
 }
 
+/// Collect JS cycles now. QuickJS raises its own trigger to 1.5× the live heap, so a game with a large
+/// heap can pile up megabytes of cycles (framework reactive graphs) before the next automatic pass.
+/// Games call this at a scene change, where the pause cannot be seen.
+unsafe extern "C" fn js_gc(ctx: *mut JSContext, _t: JSValue, _argc: i32, _argv: *mut JSValue) -> JSValue {
+    let start = sys::sceKernelGetSystemTimeLow();
+    JS_RunGC(JS_GetRuntime(ctx));
+    JS_NewInt32(ctx, elapsed_us(start) as i32)
+}
+
+/// Memory readings for a game's own budget checks. Walks the arena free lists, so call it rarely.
+unsafe extern "C" fn js_mem(ctx: *mut JSContext, _t: JSValue, _argc: i32, _argv: *mut JSValue) -> JSValue {
+    let q = crate::qjs_alloc::stats();
+    let (free, largest) = crate::arena::debug_free();
+    let line: String = format!(
+        "{{\"qjsLive\":{},\"qjsPeak\":{},\"qjsLargest\":{},\"qjsFailed\":{},\"arenaFree\":{},\"arenaLargest\":{}}}",
+        q.live_requested, q.peak_requested, q.largest_request, q.last_failed_request, free, largest,
+    );
+    JS_NewStringLen(ctx, line.as_ptr(), line.len())
+}
+
 unsafe extern "C" fn js_stats(ctx: *mut JSContext, _t: JSValue, _argc: i32, _argv: *mut JSValue) -> JSValue {
     let s = STATS;
     let line: String = format!(
@@ -379,6 +404,8 @@ pub unsafe fn register_pack(ctx: *mut JSContext, global: JSValue) {
     add_fn(ctx, pack, b"loadImg\0", js_load_img, 3);
     add_fn(ctx, pack, b"close\0", js_close, 1);
     add_fn(ctx, pack, b"stats\0", js_stats, 0);
+    add_fn(ctx, pack, b"mem\0", js_mem, 0);
+    add_fn(ctx, pack, b"gc\0", js_gc, 0);
     JS_SetPropertyStr(ctx, global, b"pack\0".as_ptr() as *const _, pack);
 }
 

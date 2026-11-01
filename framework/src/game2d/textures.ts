@@ -29,36 +29,37 @@ export interface TextureStats { live: number; bytes: number; peakBytes: number; 
 export const textureBytes = (w: number, h: number) => w * h + 1024 + 32;
 
 export function createTexturePool(store: PackStore, budgetBytes: number): TexturePool {
-  const live = new Map<PackImage, { handle: number; used: number; bytes: number }>();
+  // State lives on the image itself: `get` runs for every sprite every frame, and on a PSP a Map
+  // lookup costs 8 µs while a property read costs 2. Eviction, which is rare, pays for a sort instead.
+  let live: PackImage[] = [];
   const st: TextureStats = { live: 0, bytes: 0, peakBytes: 0, loads: 0, evictions: 0, failures: 0, loadsThisFrame: 0, maxLoadsPerFrame: 0 };
-  let frame = 0;
+  let frame = 1;
   const free = (img: PackImage) => {
-    const e = live.get(img); if (!e) return;
-    (getOps() as unknown as FreeOps).freeTexture?.(e.handle);
-    live.delete(img); st.bytes -= e.bytes; st.live--;
+    if (img.handle < 0) return;
+    (getOps() as unknown as FreeOps).freeTexture?.(img.handle);
+    img.handle = -1; st.bytes -= textureBytes(img.tw, img.th); st.live--;
   };
   const evictFor = (need: number) => {
     if (st.bytes + need <= pool.budget) return;
-    // Map iteration is insertion order and `get` re-inserts on use, so this walks LRU first.
-    for (const [img, e] of live) {
-      if (e.used >= frame) break;
-      free(img); st.evictions++;
-      if (st.bytes + need <= pool.budget) return;
+    // Free a little extra so a scene change does not sort once per image.
+    const target = pool.budget - need - (pool.budget >> 4);
+    live.sort((a, b) => a.used - b.used);
+    let i = 0;
+    for (; i < live.length && st.bytes > target; i++) {
+      if (live[i].used >= frame) break;
+      free(live[i]); st.evictions++;
     }
+    live = live.slice(i);
   };
   const pool: TexturePool = {
     budget: budgetBytes,
     get(img) {
-      const e = live.get(img);
-      if (e) {
-        if (e.used !== frame) { e.used = frame; live.delete(img); live.set(img, e); }
-        return e.handle;
-      }
+      if (img.handle >= 0) { img.used = frame; return img.handle; }
       const bytes = textureBytes(img.tw, img.th);
       evictFor(bytes);
       const handle = store.loadImage(img);
       if (handle < 0) { st.failures++; return -1; }
-      live.set(img, { handle, used: frame, bytes });
+      img.handle = handle; img.used = frame; live.push(img);
       st.bytes += bytes; st.live++; st.loads++; st.loadsThisFrame++;
       if (st.bytes > st.peakBytes) st.peakBytes = st.bytes;
       if (st.loadsThisFrame > st.maxLoadsPerFrame) st.maxLoadsPerFrame = st.loadsThisFrame;
@@ -66,13 +67,17 @@ export function createTexturePool(store: PackStore, budgetBytes: number): Textur
     },
     preload(imgs) {
       for (const img of imgs) {
-        if (live.has(img)) continue;
+        if (img.handle >= 0) continue;
         if (st.bytes + textureBytes(img.tw, img.th) > pool.budget) return;
         pool.get(img);
       }
     },
     beginFrame() { frame++; st.loadsThisFrame = 0; },
-    release(pack) { for (const img of [...live.keys()]) if (!pack || img.pack === pack) free(img); },
+    release(pack) {
+      const keep: PackImage[] = [];
+      for (const img of live) { if (!pack || img.pack === pack) free(img); else keep.push(img); }
+      live = keep;
+    },
     stats: () => st,
   };
   return pool;
