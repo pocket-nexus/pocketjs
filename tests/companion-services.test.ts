@@ -77,3 +77,13 @@ describe("the service host", () => {
     expect((await pending).code).toBe(NET_ERROR.cancelled);
   });
 });
+
+describe("the images service", () => {
+  test("cuts a circle with a soft edge, opaque at the middle and clear at the corners", async () => {
+    const { cutCircle } = await import("../tools/companion/services/images.ts");
+    const rgba = new Uint8Array(32 * 32 * 4).fill(255);
+    cutCircle(rgba, 32);
+    expect(rgba[(16 * 32 + 16) * 4 + 3]).toBe(255);
+    expect(rgba[3]).toBe(0);
+  });
+});
