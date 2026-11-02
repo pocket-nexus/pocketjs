@@ -1,8 +1,9 @@
 name: Test
 
-# The suite on every pull request: `bun run test` (tools/test.ts, every
-# stage), the TypeScript program, the software renderer goldens, and the
-# Rust workspace's default members with the portable device crates. The
+# The suite on every pull request, in three parallel jobs: `bun run test`
+# (tools/test.ts) with its two AOT compiler stages on a runner of their own,
+# the TypeScript program and the software renderer goldens, and the Rust
+# workspace's default members with the portable device crates. The
 # path-filtered workflows beside this one hold what needs another toolchain
 # or machine: cross builds, GPU hosts, the pinned nightly, real JNI headers.
 
@@ -45,11 +46,38 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-turbo8-dev libasound2-dev pkg-config
       - run: bun install --frozen-lockfile
       - run: bun tools/wasm.ts
-      - run: bun run test
-      # The app build at the start of `bun run test` generates the local style
+      # Every stage but the two AOT compiler stages, which the `aot` job runs.
+      - run: bun tools/test.ts --skip=AOT
+      # The app build at the start of the suite generates the local style
       # module that TypeScript imports.
       - run: bunx tsc --noEmit
       - run: bun tests/golden.ts
+
+  aot:
+    name: AOT compiler stages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
+      # .pocket-build/cache holds the generated AOT crates' cargo target.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          cache-directories: .pocket-build/cache
+          cache-on-failure: true
+      - run: bun install --frozen-lockfile
+      - run: bun tools/wasm.ts
+      # "AOT frontends and execution parity" and "Model AOT semantics and
+      # resources": the compiler's semantic tests, each generated crate
+      # compiled against microts.
+      - run: bun tools/test.ts --stage=AOT
 
   rust:
     name: Rust workspace, portable device crates, lint
