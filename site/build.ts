@@ -944,6 +944,7 @@ const PLAYGROUND_IMPORTS: Record<string, string> = {
   "@pocketjs/framework/audio": "/pg/runtime.js",
   "@pocketjs/framework/clock": "/pg/runtime.js",
   "@pocketjs/framework/components": "/pg/runtime.js",
+  "@pocketjs/framework/game2d": "/pg/runtime.js",
   "@pocketjs/framework/host": "/pg/runtime.js",
   "@pocketjs/framework/input": "/pg/runtime.js",
   "@pocketjs/framework/launcher": "/pg/runtime.js",
