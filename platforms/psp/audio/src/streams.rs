@@ -262,22 +262,35 @@ pub unsafe fn destroy_stream(handle: i32) {
 /// Copy interleaved s16 at the SOURCE rate into the slot's ring (borrow
 /// semantics: fully consumed before return). Returns frames accepted.
 pub unsafe fn write_pcm(handle: i32, pcm: &[i16]) -> i32 {
+    write_samples(handle, pcm.len(), |i| pcm[i])
+}
+
+/// `write_pcm` over little-endian bytes in any alignment, ignoring a final odd byte. No allocation:
+/// a streaming guest writes once every few frames, and the arena pays for each temporary.
+pub unsafe fn write_pcm_le(handle: i32, bytes: &[u8]) -> i32 {
+    write_samples(handle, bytes.len() / 2, |i| {
+        i16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]])
+    })
+}
+
+unsafe fn write_samples(handle: i32, samples: usize, sample: impl Fn(usize) -> i16) -> i32 {
     let Some(slot) = slot_of(handle) else {
         return 0;
     };
     let ch = CHANNELS[slot].load(Ordering::Relaxed).max(1);
-    let frames = pcm.len() / ch;
+    let frames = samples / ch;
     let write = WRITE_POS[slot].load(Ordering::Relaxed);
     let queued = write.wrapping_sub(READ_POS[slot].load(Ordering::Acquire));
     let n = frames.min(RING_FRAMES - queued.min(RING_FRAMES));
     for i in 0..n {
         let dst = ((write + i) % RING_FRAMES) * 2;
         if ch == 1 {
-            RINGS[slot][dst] = pcm[i];
-            RINGS[slot][dst + 1] = pcm[i];
+            let mono = sample(i);
+            RINGS[slot][dst] = mono;
+            RINGS[slot][dst + 1] = mono;
         } else {
-            RINGS[slot][dst] = pcm[i * 2];
-            RINGS[slot][dst + 1] = pcm[i * 2 + 1];
+            RINGS[slot][dst] = sample(i * 2);
+            RINGS[slot][dst + 1] = sample(i * 2 + 1);
         }
     }
     WRITE_POS[slot].store(write.wrapping_add(n), Ordering::Release);

@@ -69,7 +69,8 @@ purpose — a bundle that plays anywhere plays everywhere.
 |---|---|---|
 | web (`platforms/web/audio.js` + `audio-worklet.js`) | AudioWorklet ring on the render thread, main-thread credit mirror, gesture-deferred `AudioContext` | audible, ships with the dev host |
 | sim (`platforms/sim/audio.ts`) | virtual-clock sink, `audioFramesForTick` consumption, PCM FNV-1a + op/event log | deterministic tests (`tests/audio.test.ts`, `tests/audio-sim.test.ts`) |
-| psp / vita | not mounted yet — `engine/spec/src/lib.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy already exists in `platforms/psp/audio/src/output.rs` + `platforms/vita/audio/src/lib.rs` (built for the video plane) | seam documented, capability not advertised |
+| psp (`platforms/psp/audio/src/streams.rs`, mounted by `programs/psp/src/service_bindings.rs` `register_audio`) | four rings at the source rate, one mixer thread at priority 16 on one normal 44.1 kHz hardware channel, integer upsample with linear interpolation, facts published as atomics and folded by `poll()` | capability advertised in `hosts/psp/pocket.host.json`; recorded through PPSSPP `DumpAudio`, no real-unit recording yet |
+| vita | not mounted — `engine/spec/src/lib.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy exists in `platforms/vita/audio/src/lib.rs` (built for the video plane) | seam documented, capability not advertised |
 | macos-widget / pocketbook | not mounted | capability not advertised |
 
 Consoles adopt the module by implementing the namespace in their FFI table
@@ -88,6 +89,31 @@ deterministically synthesizes the demo's three original 5-second tracks;
 `tests/audio.test.ts` pins their SHA-256. Raw-PCM entries and codec
 registration are deliberately deferred until a second format needs them.
 
+## Streaming and sound effects
+
+`createWavPlayer` keeps one whole track in the JS heap, and `pakGet` copies it out of the pak first.
+**`framework/src/game2d/music.ts` reads raw s16le mono PCM from a pack file (docs/PACKS.md)** in
+8 KiB blocks through one reused buffer, so a track of any length costs the stream's ring and those
+8 KiB. `createMusicPlayer` holds at least three blocks in the ring: **557 ms of audio at 22 050 Hz,
+278 ms at 44 100 Hz**, the time a slow read has before the output starves. One `pump()` reads at
+most one block, plus one more on the frame a loop wraps.
+
+`createSfxBank` decodes a `audio:wav.<name>` entry on first play into its own `ArrayBuffer` and
+passes that buffer to `writePcm` on every later play. A sound up to `AUDIO_RING_FRAMES` long takes
+one write; a longer one is cut into 8192-frame chunks and fed by credit.
+
+**`poll()` is one queue across streams.** Both use one router that hands each event to the owner of
+its handle. `createWavPlayer` drains the same queue and drops events for other handles, so an app
+uses one or the other.
+
+**`AUDIO_MAX_STREAMS` is 4.** Music takes one, a crossfade one more until the old track reaches gain 0,
+a sounding effect one. The bank releases a stream when its sound ends and defaults to three voices;
+a fourth play stops the oldest. A crossfade that finds no free stream fades the old track out first
+and starts the new one when a stream frees.
+
+Volume applies per mixer block on PSP (1024 output frames, 23 ms) with no ramp inside the block, so
+a fade moves in steps of that length.
+
 ## The demo (and the golden-safety property)
 
 `apps/music` streams a real WAV per track on hosts with the module — all
@@ -103,8 +129,8 @@ with the module mounted and absent and asserting byte-identical pixel hashes
 valid without re-baking. A demo that *reacted* to audio events visually would
 break exactly this; don't.
 
-## Deferred (triggers in the ontology doc)
+## Deferred
 
 Host-level mixing across runtimes, codec registration, raw-PCM pak entries,
-and any runtime capability negotiation are all deferred until their trigger
+and runtime capability negotiation are all deferred until their trigger
 conditions exist. The spec grows append-only when they do.

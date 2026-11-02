@@ -31,6 +31,8 @@
     },
     "capabilities": [
       "audio.pcm",
+      "data.fs",
+      "data.pack",
       "input.analog.left",
       "input.buttons",
       "input.cursor",
@@ -43,7 +45,7 @@
     ],
     "tickHz": 60
   },
-  "profileHash": "sha256:82fa34d859caab840c6bb6fbb047d8ebe25fa129f1060d50108bb422c9cb0b13",
+  "profileHash": "sha256:215116618fb3fceaf04e9c681ed4aa9a1cb6b8c4e775aed4cd88d092d3609514",
   "app": {
     "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
@@ -101,5 +103,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:55fe12b213b20598ea8842480d4775486d58067beaf2948da095d53e8a9a1354"
+  "planHash": "sha256:218f36bdfde4c6a80953f4b83eabe0459e1b2c347f082914d19470ec0ca70d70"
 }

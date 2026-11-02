@@ -29,7 +29,83 @@ use psp::sys::{self, IoOpenFlags};
 use pocketjs_core::spec;
 use pocketjs_psp::{arena, dbg, host, switch, veil, Runtime};
 
-psp::module!("pocketjs", 1, 1);
+// psp::module! spelled out for one change: its main thread uses argv[0] to chdir and drops it, and
+// the current directory does not reach a new thread on PPSSPP (SCE_KERNEL_ERROR_NOCWD for a relative
+// path). main_thread keeps the path so worker_main can enter the same directory.
+#[doc(hidden)]
+mod __psp_module {
+    use core::ffi::c_void;
+    use psp::sys;
+
+    #[no_mangle]
+    #[link_section = ".rodata.sceModuleInfo"]
+    #[used]
+    static MODULE_INFO: psp::Align16<sys::SceModuleInfo> = psp::Align16(sys::SceModuleInfo {
+        mod_attribute: 0,
+        mod_version: [1, 1],
+        mod_name: sys::SceModuleInfo::name("pocketjs"),
+        terminal: 0,
+        gp_value: unsafe { &_gp },
+        stub_top: unsafe { &__lib_stub_top },
+        stub_end: unsafe { &__lib_stub_bottom },
+        ent_top: unsafe { &__lib_ent_top },
+        ent_end: unsafe { &__lib_ent_bottom },
+    });
+
+    extern "C" {
+        static _gp: u8;
+        static __lib_ent_bottom: u8;
+        static __lib_ent_top: u8;
+        static __lib_stub_bottom: u8;
+        static __lib_stub_top: u8;
+    }
+
+    #[no_mangle]
+    #[link_section = ".lib.ent"]
+    #[used]
+    static LIB_ENT: sys::SceLibraryEntry = sys::SceLibraryEntry {
+        name: core::ptr::null(),
+        version: (1, 1),
+        attribute: sys::SceLibAttr::SCE_LIB_IS_SYSLIB,
+        entry_len: 4,
+        var_count: 1,
+        func_count: 1,
+        entry_table: &LIB_ENT_TABLE,
+    };
+
+    #[no_mangle]
+    #[link_section = ".rodata.sceResident"]
+    #[used]
+    static LIB_ENT_TABLE: sys::SceLibraryEntryTable = sys::SceLibraryEntryTable {
+        module_start_nid: 0xd632acdb, // module_start
+        module_info_nid: 0xf01d73a7,  // SceModuleInfo
+        module_start,
+        module_info: &MODULE_INFO.0,
+    };
+
+    #[no_mangle]
+    extern "C" fn module_start(argc_bytes: usize, argv: *mut c_void) -> isize {
+        extern "C" fn main_thread(argc: usize, argv: *mut c_void) -> i32 {
+            if argc > 0 {
+                unsafe { pocketjs_psp::pack_ops::set_program_path(argv as *const u8, argc) };
+            }
+            psp::_start!(super::psp_main, argc, argv)
+        }
+
+        unsafe {
+            let id = sys::sceKernelCreateThread(
+                b"main_thread\0".as_ptr(),
+                main_thread,
+                32,
+                256 * 1024,
+                sys::ThreadAttributes::USER | sys::ThreadAttributes::VFPU,
+                core::ptr::null_mut(),
+            );
+            sys::sceKernelStartThread(id, argc_bytes, argv);
+        }
+        0
+    }
+}
 
 /// Named from this object so the linker takes the RTC clock
 /// (pocket_psp_system::_gettimeofday) before libcglue's.
@@ -353,6 +429,7 @@ unsafe fn boot() {
 
 unsafe extern "C" fn worker_main(_argc: usize, _argv: *mut c_void) -> i32 {
     host::reset_fpu_status();
+    pocketjs_psp::pack_ops::enter_program_dir();
     trace("worker: entered");
     run();
     0

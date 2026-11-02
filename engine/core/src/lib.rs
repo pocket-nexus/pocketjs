@@ -119,7 +119,7 @@ impl Texture {
     /// The 1024-byte CLUT (256 x u32 ABGR); Some only when psm == PSM_T8.
     pub fn palette(&self) -> Option<&[u8]> {
         // Safe: the palette Vec<u128> is always TEX_PALETTE_BYTES/16 chunks
-        // (constructed only by copy_aligned(_, TEX_PALETTE_BYTES)).
+        // (constructed only by try_copy_aligned(_, TEX_PALETTE_BYTES)).
         self.palette.as_ref().map(|p| unsafe {
             core::slice::from_raw_parts(p.as_ptr() as *const u8, TEX_PALETTE_BYTES)
         })
@@ -221,7 +221,7 @@ pub(crate) fn tex_alloc(slots: &mut Vec<TexSlot>, free: &mut Vec<u32>, tex: Text
     let slot = match free.pop() {
         Some(s) => s,
         None => {
-            if slots.len() as u32 > spec::TEX_SLOT_MASK {
+            if slots.len() as u32 > spec::TEX_SLOT_MASK || slots.try_reserve(1).is_err() {
                 return -1;
             }
             slots.push(TexSlot {
@@ -238,14 +238,22 @@ pub(crate) fn tex_alloc(slots: &mut Vec<TexSlot>, free: &mut Vec<u32>, tex: Text
     make_tex_handle(s.gen, slot)
 }
 
-/// Copy `byte_len` bytes of `src` (caller guarantees `src.len() >= byte_len`)
-/// into a fresh 16-byte-aligned `u128` backing store.
-fn copy_aligned(src: &[u8], byte_len: usize) -> Vec<u128> {
-    let mut chunks = alloc::vec![0u128; byte_len.div_ceil(16)];
+/// A zeroed 16-byte-aligned `u128` backing store, or None when the arena has no room: a game can free
+/// other textures and try again next frame, which beats dying over one image.
+fn try_zeroed_aligned(byte_len: usize) -> Option<Vec<u128>> {
+    let n = byte_len.div_ceil(16);
+    let mut chunks = Vec::new();
+    chunks.try_reserve_exact(n).ok()?;
+    chunks.resize(n, 0u128);
+    Some(chunks)
+}
+
+fn try_copy_aligned(src: &[u8], byte_len: usize) -> Option<Vec<u128>> {
+    let mut chunks = try_zeroed_aligned(byte_len)?;
     unsafe {
         core::ptr::copy_nonoverlapping(src.as_ptr(), chunks.as_mut_ptr() as *mut u8, byte_len);
     }
-    chunks
+    Some(chunks)
 }
 
 // ---- unaligned LE readers (asset blob parsing; overflow-proof offsets) ------
@@ -1074,10 +1082,10 @@ impl Ui {
             if data.len() < TEX_PALETTE_BYTES {
                 return -1;
             }
-            (
-                Some(copy_aligned(data, TEX_PALETTE_BYTES)),
-                &data[TEX_PALETTE_BYTES..],
-            )
+            let Some(palette) = try_copy_aligned(data, TEX_PALETTE_BYTES) else {
+                return -1;
+            };
+            (Some(palette), &data[TEX_PALETTE_BYTES..])
         } else {
             (None, data)
         };
@@ -1086,7 +1094,9 @@ impl Ui {
             // Decode straight into the aligned backing store. The stream must
             // decode to EXACTLY byte_len bytes (codec contract) — anything
             // else is a malformed asset.
-            let mut chunks = alloc::vec![0u128; byte_len.div_ceil(16)];
+            let Some(mut chunks) = try_zeroed_aligned(byte_len) else {
+                return -1;
+            };
             let dst = unsafe {
                 core::slice::from_raw_parts_mut(chunks.as_mut_ptr() as *mut u8, byte_len)
             };
@@ -1098,7 +1108,10 @@ impl Ui {
             if stream.len() < byte_len {
                 return -1;
             }
-            copy_aligned(stream, byte_len)
+            let Some(chunks) = try_copy_aligned(stream, byte_len) else {
+                return -1;
+            };
+            chunks
         };
         let tex = Texture {
             data: chunks,

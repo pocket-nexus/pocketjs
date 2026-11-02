@@ -16,7 +16,7 @@ import { buildWorker } from "./build-worker.ts";
 //         placeholder); pak.ts packs it all -> dist/<app>.pak.
 // pass 2  Bun.build (plugin serves the CACHED pass-1 transforms plus this
 //         build's in-memory generated styles, iife, target browser,
-//         minify false) -> dist/<app>.js.
+//         minify off unless POCKETJS_MINIFY=1) -> dist/<app>.js.
 //
 // Flags:
 //   --framework=solid|vue-vapor|octane  select the framework for this build
@@ -547,7 +547,7 @@ const result = await Bun.build({
       ? { document: "globalThis.__pocketDocument" }
       : {}),
   },
-  minify: false,
+  minify: process.env.POCKETJS_MINIFY === "1",
   metafile: true,
   sourcemap: "none",
   plugins: [jsxPlugin(framework, {

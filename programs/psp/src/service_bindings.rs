@@ -1,6 +1,6 @@
 //! PSP private audio, debugger, offload, link and media extensions. Public UI methods are
 //! generated and dispatch to the active Runtime's OpContext.
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 use libquickjs_sys::*;
 extern "C" {
     fn JS_NewStringLen(ctx: *mut JSContext, text: *const u8, length: usize) -> JSValue;
@@ -39,11 +39,6 @@ pub unsafe fn arg_f64(ctx: *mut JSContext, argc: i32, argv: *mut JSValue, i: isi
     out
 }
 
-/// Copy audio bytes before any later JS call. Native typed-array offsets are
-/// read through QuickJS rather than user-controlled properties.
-unsafe fn buffer_bytes(ctx: *mut JSContext, value: JSValue) -> Option<Vec<u8>> {
-    buffer_mut(ctx, value).map(|bytes| bytes.to_vec())
-}
 unsafe extern "C" fn js_dbg_active(
     ctx: *mut JSContext,
     _this: JSValue,
@@ -132,15 +127,11 @@ unsafe extern "C" fn js_audio_write_pcm(
     if argc < 2 {
         return JS_NewInt32(ctx, 0);
     }
-    let Some(bytes) = buffer_bytes(ctx, *argv.offset(1)) else {
+    // The ring copy finishes before any later JS call, so the bytes stay borrowed.
+    let Some(bytes) = buffer_mut(ctx, *argv.offset(1)) else {
         return JS_NewInt32(ctx, 0);
     };
-    // Read unaligned views as little-endian samples, ignoring a final odd byte.
-    let pcm: Vec<i16> = bytes
-        .chunks_exact(2)
-        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
-        .collect();
-    JS_NewInt32(ctx, crate::audio_mod::write_pcm(handle, &pcm))
+    JS_NewInt32(ctx, crate::audio_mod::write_pcm_le(handle, bytes))
 }
 
 unsafe extern "C" fn js_audio_play(
@@ -497,7 +488,7 @@ unsafe extern "C" fn js_offload_upload_indexed(
 }
 /// A typed array or ArrayBuffer argument as the guest's own bytes, for a
 /// native call that fills it before returning to JS.
-unsafe fn buffer_mut<'a>(ctx: *mut JSContext, value: JSValue) -> Option<&'a mut [u8]> {
+pub(crate) unsafe fn buffer_mut<'a>(ctx: *mut JSContext, value: JSValue) -> Option<&'a mut [u8]> {
     let mut length = 0;
     let pointer = JS_GetArrayBuffer(ctx, &mut length, value);
     if !pointer.is_null() {
@@ -656,6 +647,8 @@ pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     JS_FreeValue(ctx, ui_obj);
     register_audio(ctx, global);
     register_link(ctx, global);
+    crate::fs_ops::register_fs(ctx, global);
+    crate::pack_ops::register_pack(ctx, global);
 }
 /// Install `globalThis.link` and `globalThis.media`, both carried by the
 /// companion on the USB share (link.rs, media.rs). The link starts here,

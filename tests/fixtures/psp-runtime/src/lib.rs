@@ -277,6 +277,13 @@ mod audio_mod {
         PCM.with(|out| out.borrow_mut().extend_from_slice(pcm));
         pcm.len() as i32
     }
+    pub unsafe fn write_pcm_le(handle: i32, bytes: &[u8]) -> i32 {
+        let pcm: Vec<i16> = bytes
+            .chunks_exact(2)
+            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        write_pcm(handle, &pcm)
+    }
     pub unsafe fn play(_: i32) {}
     pub unsafe fn pause(_: i32) {}
     pub unsafe fn stop(_: i32) {}
@@ -285,6 +292,12 @@ mod audio_mod {
     pub unsafe fn poll() -> Option<String> {
         None
     }
+}
+mod fs_ops {
+    pub unsafe fn register_fs(_: *mut libquickjs_sys::JSContext, _: libquickjs_sys::JSValue) {}
+}
+mod pack_ops {
+    pub unsafe fn register_pack(_: *mut libquickjs_sys::JSContext, _: libquickjs_sys::JSValue) {}
 }
 mod offload {
     pub fn enabled() -> bool {
