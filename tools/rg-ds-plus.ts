@@ -8,7 +8,7 @@
 //
 // libs   scp's /usr/lib/libmali.so.1.9.0 (stock firmware) or /usr/lib/mali/libmali.so.1.9.0
 //        (Omarchy Pocket) into .pocket-build/rg-ds-plus/gl-libs as libmali.so.
-// build  exports the profile and cross-compiles with cargo-zigbuild against those libraries.
+// build  exports the host contract and cross-compiles with cargo-zigbuild against those libraries.
 // shot   the program built for this computer with the CPU raster renderer: each
 //        `shot` event of the script becomes <out>/<tick>.png, the top panel over the bottom one.
 
@@ -19,7 +19,7 @@ import { encodePNG } from "./png.ts";
 
 const root = resolve(import.meta.dir, "..");
 const out = join(root, ".pocket-build", "rg-ds-plus");
-const config = "programs/rg-ds-plus/pocket.runtime-config.ts";
+const config = "programs/rg-ds-plus/pocket.host.config.ts";
 const profileRs = join(out, "profile", "pocket_profile.rs");
 const libs = join(out, "gl-libs");
 const TARGET = "aarch64-unknown-linux-gnu";
@@ -32,7 +32,7 @@ const option = (name: string) => {
 };
 
 async function profile(): Promise<void> {
-  await $`bun tools/pocket.ts profile export --config ${config} --out ${join(out, "profile")}`.cwd(root);
+  await $`bun tools/pocket.ts host export --config ${config} --out ${join(out, "profile")}`.cwd(root);
 }
 
 async function pullLibs(host: string): Promise<void> {

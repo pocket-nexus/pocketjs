@@ -10,7 +10,7 @@ The gamepad (`ANBERNIC-rk3568-keys`) gets its own key table: A (304) is CIRCLE, 
 
 `--shot DIR --script "…"` runs the package on any system without the panels, for layout work: scripted buttons and taps on the lower panel (`tap@x,y`), the CPU raster renderer and two in-memory panels behind the same KMS display type, written to `DIR/<tick>-top.xrgb` and `DIR/<tick>-bottom.xrgb` at each `shot` event.
 
-The profile (`profile.ts`) is compiled into the binary: `build.rs` copies the file named by `POCKETJS_PROFILE_RS`. Cross-compiling needs `cargo-zigbuild`, zig and the device's `libmali.so.1` for the linker:
+The host contract (`pocket.host.json`) is compiled into the binary: `bun tools/pocket.ts host export --config programs/rg-ds-plus/pocket.host.config.ts --out DIR` writes `pocket_profile.rs`, and `build.rs` copies the file named by `POCKETJS_PROFILE_RS`. Cross-compiling needs `cargo-zigbuild`, zig and the device's `libmali.so.1` for the linker:
 
 ```sh
 bun tools/rg-ds-plus.ts libs root@<address>   # copy libmali from the device into .pocket-build/rg-ds-plus/gl-libs
