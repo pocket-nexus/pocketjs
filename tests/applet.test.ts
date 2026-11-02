@@ -55,7 +55,9 @@ describe("manifest rules", () => {
   test("the schema refuses an unknown key and a version other than 1", () => {
     expect(validatePocketManifest(manifest({ applet: { version: 1, cookies: true } })).ok).toBe(false);
     expect(validatePocketManifest(manifest({ applet: { version: 2 } })).ok).toBe(false);
-    expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["api.example.com"] } })).ok).toBe(false);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["api.example.com"] } })).ok).toBe(true);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["http://api.example.com"] } })).ok).toBe(false);
+    expect(validatePocketManifest(manifest({ applet: { version: 1, hosts: ["localhost"] } })).ok).toBe(false);
     expect(validatePocketManifest(manifest({ applet: { version: 1, services: ["glyphs"] } })).ok).toBe(true);
     expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "The front page and its threads." } })).ok).toBe(true);
     expect(validatePocketManifest(manifest({ applet: { version: 1, summary: "" } })).ok).toBe(false);
