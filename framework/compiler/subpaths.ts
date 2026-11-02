@@ -97,6 +97,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "worker/channels": { file: "framework/src/worker-channels.ts" },
   io: { file: "framework/src/io.ts", domains: ["worker"] },
   "io/i2c": { file: "framework/src/io/i2c.ts", domains: ["worker"] },
+  "io/mqtt": { file: "framework/src/io/mqtt.ts", domains: ["worker"] },
   profile: { file: "framework/src/profile.ts" },
   "host-config": { file: "framework/src/host-config.ts" },
   hosts: { file: "hosts/index.ts" },

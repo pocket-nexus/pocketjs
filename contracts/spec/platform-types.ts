@@ -225,6 +225,11 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // namespace.
   "io.offload",
   "net.http",
+  // MQTT 3.1.1 and 5.0 sessions as a worker resource (`io.mqtt` in
+  // @pocketjs/framework/io, engine/worker): one broker connection per
+  // resource, its messages streamed as records under the limits of
+  // contracts/spec/mqtt.ts.
+  "net.mqtt",
   // The console's system link to a paired companion computer
   // (`globalThis.link`, contracts/spec/link.ts): pairing, link status, the
   // companion's app catalog and app installs. The 3ds-dev host owns the link

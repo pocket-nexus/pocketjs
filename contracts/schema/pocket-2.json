@@ -156,7 +156,8 @@
                     "enum": [
                       "i2c",
                       "uart",
-                      "http"
+                      "http",
+                      "mqtt"
                     ]
                   }
                 }

@@ -10,6 +10,7 @@ export const WORKER_RESOURCES = {
   i2c: { kind: 1, capability: "io.i2c" },
   uart: { kind: 2, capability: "io.uart" },
   http: { kind: 3, capability: "net.http" },
+  mqtt: { kind: 4, capability: "net.mqtt" },
 } as const;
 export type WorkerResourceKind = keyof typeof WORKER_RESOURCES;
 /** The capabilities a worker declaration implies. */

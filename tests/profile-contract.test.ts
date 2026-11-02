@@ -113,6 +113,8 @@ describe("host contracts", () => {
     expect(messages({ ...profile, worker: { nodes: { http: 1 } } })).toContain("runtime.worker");
     expect(messages({ ...profile, capabilities: ["runtime.worker"], worker: { nodes: { http: 1 } } })).toContain("net.http");
     expect(messages({ ...profile, capabilities: ["runtime.worker", "net.http"], worker: { nodes: { http: 1 } } })).toBe("");
+    expect(messages({ ...profile, capabilities: ["runtime.worker"], worker: { nodes: { mqtt: 1 } } })).toContain("net.mqtt");
+    expect(messages({ ...profile, capabilities: ["runtime.worker", "net.mqtt"], worker: { nodes: { mqtt: 1 } } })).toBe("");
     const dynamic = {
       ...profile, form: "window" as const,
       display: { ...profile.display, dynamicViewport: { min: [240, 180] as const, max: [800, 600] as const } },

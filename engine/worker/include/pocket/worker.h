@@ -16,7 +16,10 @@ extern "C" {
  * completion payload. Each script is indivisible. UART open:
  * [version=1,data_bits:u8,stop_bits:u8,parity:u8,baud:u32, flow_control:u8];
  * parity 0/1/2 = none/odd/even; flow 0/1 = none/RTS-CTS. HTTP descriptors are
- * UTF-8 JSON; method/url/headers/body are host validated.
+ * UTF-8 JSON; method/url/headers/body are host validated. MQTT open
+ * descriptors, the publish/subscribe/unsubscribe/disconnect requests
+ * (opcodes 1-4), the CONNACK record of a HEADERS fact and the message records
+ * of DATA facts are laid out in contracts/spec/mqtt.ts.
  */
 #include "pocket/worker_protocol.h"
 
