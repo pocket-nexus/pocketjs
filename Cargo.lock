@@ -5045,6 +5045,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-native-program"
+version = "0.16.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-gles",
+ "pocket-gles1",
+ "pocket-gles2",
+ "pocket-package",
+ "pocket-raster",
+ "pocket-runtime",
+ "pocket-runtime-cabi",
+ "pocket-spec",
+ "pocketjs-core",
+]
+
+[[package]]
 name = "pocket-package"
 version = "0.16.0"
 dependencies = [
@@ -5206,9 +5222,6 @@ version = "0.16.0"
 dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
- "pocket-gles",
- "pocket-gles1",
- "pocket-gles2",
  "pocket-glyph-pages",
  "pocket-raster",
  "pocket-runtime",
@@ -5618,21 +5631,6 @@ dependencies = [
  "pocket-spec",
  "pocketjs-core",
  "psp",
-]
-
-[[package]]
-name = "pocketjs-ui-cabi"
-version = "0.16.0"
-dependencies = [
- "pocket-drivers",
- "pocket-gles",
- "pocket-gles1",
- "pocket-gles2",
- "pocket-package",
- "pocket-raster",
- "pocket-runtime",
- "pocket-runtime-cabi",
- "pocket-spec",
 ]
 
 [[package]]

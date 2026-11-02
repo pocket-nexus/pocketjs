@@ -17,7 +17,7 @@ test("SDK arguments preserve fixed archive policy and permit cross compiler conf
   expect(options.cargoArgs).toEqual(["-Zbuild-std=core,alloc", "--offline"]);
   expect(options.out).toBe(join(runDir, "sdk"));
   expect(options.toolchain).toBe("1.93.0");
-  for (const extra of ["--features=legacy-ui", "--all-features", "--package=other", "--profile=dev"]) {
+  for (const extra of ["--all-features", "--package=other", "--profile=dev"]) {
     expect(() => parseSdkExport(["--triple=host", "--out=sdk", `--cargo-arg=${extra}`])).toThrow("package/features/profile are fixed");
   }
   expect(() => parseSdkExport(["--triple=host", "--out=sdk", "--prepare=esp32p4", "--archiver=ar"])).toThrow("requires riscv32");
@@ -55,7 +55,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     return match ? [match[1]!] : [];
   }));
   for (const symbol of ["pocket_runtime_create", "pocket_runtime_tick", "pocket_runtime_destroy", "pocket_raster_draw_op", "pocket_draw_list_visit"]) expect(symbols.has(symbol), symbol).toBe(true);
-  expect([...symbols].filter(symbol => /^(ui_|pocketjs_native_|pocketjs_idf_|pocket_legacy_runtime_)/.test(symbol))).toEqual([]);
+  expect([...symbols].filter(symbol => /^(ui_|pocketjs_native_|pocketjs_idf_)/.test(symbol))).toEqual([]);
   await expect(exportSdk(options)).rejects.toThrow("already exists");
   const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "Cargo.toml"], root));
   const quickjs = metadata.packages.find((pkg: { name: string }) => pkg.name === "rquickjs-sys").manifest_path.replace(/Cargo.toml$/, "quickjs");

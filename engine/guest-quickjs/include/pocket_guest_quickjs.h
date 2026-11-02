@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 typedef struct pocket_guest_quickjs pocket_guest_quickjs;
-typedef enum { POCKET_QJS_CANONICAL, POCKET_QJS_LEGACY_C, POCKET_QJS_IDF } pocket_qjs_profile;
+typedef enum { POCKET_QJS_CANONICAL, POCKET_QJS_IDF } pocket_qjs_profile;
 /* The owned form creates a realm during initialize. The attached form leaves
  * the caller's context/runtime alive; destroy it only after guest shutdown.
  * Shutdown removes this guest's ui/__pak properties and invalidates callbacks.
@@ -17,7 +17,7 @@ typedef enum { POCKET_QJS_CANONICAL, POCKET_QJS_LEGACY_C, POCKET_QJS_IDF } pocke
  * detaches the buffer so retained views read nothing afterwards. QuickJS-NG
  * marks the buffer immutable, rejecting JS writes and transfer(); without that
  * API a JS write lands in the package bytes and transfer() aliases them past
- * shutdown. The LegacyC profile owns a copy that JS may write. */
+ * shutdown. */
 pocket_guest_quickjs *pocket_guest_quickjs_create(pocket_qjs_profile profile);
 pocket_guest_quickjs *pocket_guest_quickjs_attach(JSContext *context, pocket_qjs_profile profile);
 const pocket_guest_v1 *pocket_guest_quickjs_vtable(void);

@@ -15,9 +15,7 @@ export const PLAYGROUND_SHELLS: Record<string, string> = {
   psp: POCKET3D,
   gba: OWN,
   "3ds": POCKET3D,
-  "iphone-4s": OWN,
   "ipod-touch-5": OWN,
-  "bb-classic": OWN,
   "ipod-nano": OWN,
 };
 

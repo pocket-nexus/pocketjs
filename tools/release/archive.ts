@@ -101,7 +101,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   const status = ownCheckout ? git(root, ["status", "--porcelain", "--untracked-files=normal"]) : null;
   const buildDir = join(root, ".pocket-build/validation/sdk/cargo", hash(JSON.stringify({ target: options.triple, compiler, rustflags, args: options.cargoArgs })).slice(0, 20));
   mkdirSync(buildDir, { recursive: true });
-  console.error(`Pocket SDK: building candidate ${targetName} (${options.toolchain}, no_std, no legacy)`);
+  console.error(`Pocket SDK: building candidate ${targetName} (${options.toolchain}, no_std)`);
   const command = [cargo, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", join(root, existsSync(join(root, "Cargo.toml")) ? "Cargo.toml" : "engine/Cargo.toml"), "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target", options.triple, "--target-dir", buildDir, "--message-format=json-render-diagnostics", ...options.cargoArgs, "--", "--print=native-static-libs"];
   const child = Bun.spawn(command, { cwd: root, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

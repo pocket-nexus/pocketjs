@@ -76,13 +76,9 @@ describe("Cargo program and library graph", () => {
         expect(() => checkFeatureTree(independent), mode).not.toThrow();
         expect(active(independent), mode).toEqual(active(source));
       }
-      // SDK defaults disable legacy. Even passing old adapter parameters alone
-      // must not add a graphics backend to the canonical C interface.
-      for (const parameters of [[], ["--features", "gles1,software-only"]]) {
-        const sdk = command([...treeOptions, "-p", "pocket-runtime-cabi", "--no-default-features", ...parameters]);
-        expect(sdk).not.toMatch(/^pocket-gles[12]? (?:v|feature)/m);
-        expect(() => checkFeatureTree(sdk)).not.toThrow();
-      }
+      const sdk = command([...treeOptions, "-p", "pocket-runtime-cabi", "--no-default-features"]);
+      expect(sdk).not.toMatch(/^pocket-gles[12]? (?:v|feature)/m);
+      expect(() => checkFeatureTree(sdk)).not.toThrow();
     } finally {
       rmSync(consumer, { recursive: true, force: true });
     }
@@ -91,6 +87,6 @@ describe("Cargo program and library graph", () => {
   test("the feature gate rejects selectors and undocumented resolved activation", () => {
     expect(() => checkFeatureTree('pocketjs-core feature "psp"')).toThrow("undocumented public feature");
     expect(() => checkFeatureTree('pocket-runtime v0.1.0 (/external/runtime)|profile-handheld')).toThrow("undocumented public feature");
-    expect(() => checkFeatureTree('pocket-runtime-cabi feature "gles1"')).not.toThrow();
+    expect(() => checkFeatureTree('pocket-runtime-cabi feature "gles1"')).toThrow("undocumented public feature");
   });
 });

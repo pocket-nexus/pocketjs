@@ -1,6 +1,6 @@
 /* iOS 6 MobileInstallation bridge. Runs as root over the pinned USB SSH
  * transport; application binaries remain ordinary, sandboxed User apps.
- * Like the legacy host, this uses runtime messaging to avoid modern ObjC
+ * The installer uses runtime messaging to avoid modern ObjC
  * metadata in the historical ARMv7 linker. No installation cache is edited. */
 #include <dlfcn.h>
 #include <fcntl.h>

@@ -1,21 +1,23 @@
-#include "pocket_legacy_runtime.h"
+#include "pocket_qjs_program.h"
 #include "pocket_spec.h"
 #include "quickjs.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+static PocketQjsProgram *program;
 #ifdef POCKET_RUNTIME_EXTENSION
-#include "pocketjs_symbian_extension.h"
+#include "pocket_native_extension.h"
 static unsigned extension_boots, extension_before, extension_after, extension_stops;
 static JSValue request_shutdown(JSContext *ctx, JSValueConst self, int argc, JSValueConst *argv) {
   (void)ctx; (void)self; (void)argc; (void)argv;
-  pocket_legacy_runtime_shutdown();
+  pocket_qjs_program_shutdown(program);
   return JS_UNDEFINED;
 }
 static int32_t extension_boot(JSContext *ctx, const uint8_t *pak, size_t length, int32_t width, int32_t height) {
   assert(ctx && pak && length == 4 && pak[0] == 12 && width == 32 && height == 24);
   extension_boots++;
+  JS_SetContextOpaque(ctx, &extension_boots);
   JSValue global = JS_GetGlobalObject(ctx);
   int status = JS_SetPropertyStr(ctx, global, "requestShutdown", JS_NewCFunction(ctx, request_shutdown, "requestShutdown", 0));
   JS_FreeValue(ctx, global);
@@ -25,9 +27,9 @@ static int32_t before_guest(JSContext *ctx, uint32_t buttons, uint32_t analog, u
   assert(ctx && analog == 0x8080 && keys == 0); (void)buttons; extension_before++; return 1;
 }
 static int32_t after_guest(JSContext *ctx) { assert(ctx); extension_after++; return 1; }
-static void extension_stop(int32_t current) { assert(!current); extension_stops++; pocket_legacy_runtime_shutdown(); }
-static const PocketJsSymbianExtensionV1 extension = {1, sizeof extension, 0, extension_boot, extension_stop, before_guest, after_guest, NULL, NULL};
-const PocketJsSymbianExtensionV1 *pocketjs_symbian_extension_v1(void) { return &extension; }
+static void extension_stop(int32_t current) { assert(!current); extension_stops++; pocket_qjs_program_shutdown(program); }
+static const PocketNativeExtensionV1 extension = {1, sizeof extension, 0, extension_boot, extension_stop, before_guest, after_guest, NULL, NULL};
+const PocketNativeExtensionV1 *pocket_native_extension_v1(void) { return &extension; }
 #endif
 #ifdef POCKET_RUNTIME_STAGE_HOOKS
 static unsigned stages[5];
@@ -44,16 +46,17 @@ void svcwire_send_line(const char *bytes, size_t length) { assert(length == 4 &&
 #endif
 static int boot(const char *source) {
   uint8_t pak[4] = {12, 34, 56, 78};
-  int result = pocket_legacy_runtime_boot(source, strlen(source), pak, sizeof pak, 32, 24);
+  int result = pocket_qjs_program_boot(program, source, strlen(source), pak, sizeof pak, 32, 24, 1);
   memset(pak, 0xff, sizeof pak);
-  if (!result) fprintf(stderr, "boot: %s\n", pocket_legacy_runtime_error());
+  if (!result) fprintf(stderr, "boot: %s\n", pocket_qjs_program_error(program));
   return result;
 }
 static void expect_action(const char *name, int value) {
-  assert(!strcmp(pocket_legacy_runtime_action_name(), name));
-  assert(pocket_legacy_runtime_action_value() == value);
+  assert(!strcmp(pocket_qjs_program_action_name(program), name));
+  assert(pocket_qjs_program_action_value(program) == value);
 }
 int main(void) {
+  program = pocket_qjs_program_create(); assert(program);
   const char *source =
     "function check(v){if(!v)throw Error('check')}"
     "check(ui.__host==='harness-test'&&__simHz===60);"
@@ -79,32 +82,24 @@ int main(void) {
     "check(new Uint8Array(__pak)[0]===12);"
     "if(buttons===7){if(touches.length!==1||hits[0]!==1||surfaces[0]!==0)throw Error('touch '+JSON.stringify([...arguments]));check((touches[0]&255)===5)}"
     "if(buttons===8){check(touches.length===1&&touches[0]===0x400c0000&&hits[0]===0)}"
-    "count++;Promise.resolve().then(()=>ui.__reportAppAction('frame',count));};"
-    "globalThis.dispatch=function(a,b){if(a===99){Promise.resolve().then(()=>ui.__reportAppAction('jobs',77));return 9;}return a+b;};";
+    "count++;Promise.resolve().then(()=>ui.__reportAppAction('frame',count));};";
   char bundle[4096]; snprintf(bundle, sizeof bundle, "if(ui.__hostAbi!==%u)throw Error('generation');%s%s", (unsigned)POCKET_BINDING_GENERATION, source, frame);
   assert(boot(bundle));
-  assert(pocket_legacy_runtime_width()==32 && pocket_legacy_runtime_height()==24);
-  assert(pocket_legacy_runtime_stride()==128 && pocket_legacy_runtime_length()==3072);
-  assert(pocket_legacy_runtime_render());
-  PocketRuntimeContactsInput input = {0}; input.buttons=7; input.contact_count=1;
-  input.contacts[0]=(PocketRuntimeContact){3,5,6,9999};
-  if (!pocket_legacy_runtime_tick_contacts(&input)) { fprintf(stderr,"frame: %s\n",pocket_legacy_runtime_error()); abort(); } expect_action("frame",1);
-  input.buttons=8; input.contact_count=0; input.cancelled_count=1; input.cancelled[0]=3;
-  assert(pocket_legacy_runtime_frame_contacts(&input, 2)); expect_action("frame",2);
+  assert(pocket_qjs_program_width(program)==32 && pocket_qjs_program_height(program)==24);
+  assert(pocket_qjs_program_stride(program)==128 && pocket_qjs_program_length(program)==3072);
+  assert(pocket_qjs_program_render(program));
+  pocket_contact contact = {sizeof contact, 0, 3, 5, 6, 0};
+  pocket_cancelled_contact cancelled = {sizeof cancelled, 0, 3};
+  pocket_input_frame input = {0}; input.struct_size = sizeof input; input.buttons=7; input.contact_count=1; input.contacts=&contact;
+  input.cancelled=&cancelled;
+  if (!pocket_qjs_program_advance(program, &input, 1)) { fprintf(stderr,"frame: %s\n",pocket_qjs_program_error(program)); abort(); } expect_action("frame",1);
+  input.buttons=8; input.contact_count=0; input.cancelled_count=1;
+  assert(pocket_qjs_program_advance(program, &input, 2)); expect_action("frame",2);
   input.buttons=0; input.cancelled_count=0;
-  assert(pocket_legacy_runtime_frame_contacts(&input,60)); expect_action("frame",3);
-  assert(!pocket_legacy_runtime_frame_contacts(&input,0));
-  assert(!pocket_legacy_runtime_frame_contacts(&input,61));
-  assert(pocket_legacy_runtime_render());
-#if defined(POCKET_RUNTIME_HARNESS)
-  int32_t value=0;
-  assert(!pocket_legacy_runtime_harness_bind("missing"));
-  assert(pocket_legacy_runtime_harness_bind("dispatch"));
-  assert(pocket_legacy_runtime_harness_call(4,5,&value) && value==9);
-  assert(pocket_legacy_runtime_harness_call(99,0,&value) && value==9);
-  expect_action("frame",3);
-  assert(pocket_legacy_runtime_tick_contacts(&input)); expect_action("frame",4);
-#endif
+  assert(pocket_qjs_program_advance(program, &input,60)); expect_action("frame",3);
+  assert(!pocket_qjs_program_advance(program, &input,0));
+  assert(!pocket_qjs_program_advance(program, &input,61));
+  assert(pocket_qjs_program_render(program));
 #ifdef POCKET_RUNTIME_STAGE_HOOKS
   assert(stages[POCKET_BENCH_STAGE_EVAL]==1 && stages[POCKET_BENCH_STAGE_JS]>=3);
   assert(stages[POCKET_BENCH_STAGE_JOBS]>=4 && stages[POCKET_BENCH_STAGE_TICK]>=3);
@@ -113,27 +108,46 @@ int main(void) {
 #ifdef POCKET_RUNTIME_EXTENSION
   assert(extension_boots==1 && extension_before>=3 && extension_after==extension_before);
 #endif
-  pocket_legacy_runtime_shutdown();
-  assert(!pocket_legacy_runtime_render());
-  assert(!pocket_legacy_runtime_tick_contacts(&input));
+  pocket_qjs_program_shutdown(program);
+  assert(!pocket_qjs_program_render(program));
+  assert(!pocket_qjs_program_advance(program, &input, 1));
   assert(!boot("throw Error('eval failure')"));
-  assert(strstr(pocket_legacy_runtime_error(),"eval failure"));
+  assert(strstr(pocket_qjs_program_error(program),"eval failure"));
   assert(!boot("globalThis.frame=42"));
-  assert(strstr(pocket_legacy_runtime_error(),"did not install"));
+  assert(strstr(pocket_qjs_program_error(program),"did not install"));
   assert(boot("globalThis.frame=()=>{throw Error('frame failure')};"));
-  assert(!pocket_legacy_runtime_tick_contacts(&input));
-  assert(strstr(pocket_legacy_runtime_error(),"frame failure"));
-  assert(!pocket_legacy_runtime_tick_contacts(&input));
+  assert(!pocket_qjs_program_advance(program, &input, 1));
+  assert(strstr(pocket_qjs_program_error(program),"frame failure"));
+  assert(!pocket_qjs_program_advance(program, &input, 1));
 #ifdef POCKET_RUNTIME_EXTENSION
   assert(boot("globalThis.frame=()=>{requestShutdown();ui.createNode(0)}"));
-  assert(!pocket_legacy_runtime_tick_contacts(&input));
-  assert(!pocket_legacy_runtime_render());
+  assert(!pocket_qjs_program_advance(program, &input, 1));
+  assert(!pocket_qjs_program_render(program));
   assert(extension_stops==extension_boots);
 #endif
   assert(boot("globalThis.frame=()=>ui.__reportAppAction('reset',1)"));
-  assert(pocket_legacy_runtime_action_sequence()==0);
-  assert(pocket_legacy_runtime_tick_contacts(&input)); expect_action("reset",1);
-  pocket_legacy_runtime_shutdown();
+  assert(pocket_qjs_program_action_sequence(program)==0);
+  assert(pocket_qjs_program_advance(program, &input, 1)); expect_action("reset",1);
+  pocket_qjs_program_shutdown(program);
+  pocket_qjs_program_destroy(program);
+#ifndef POCKET_RUNTIME_EXTENSION
+  /* Both realms and retained trees must survive interleaved calls. */
+  PocketQjsProgram *a = pocket_qjs_program_create(), *b = pocket_qjs_program_create();
+  assert(a && b);
+  const char *isolated = "let n=0;ui.createNode(0);globalThis.frame=()=>ui.__reportAppAction('isolated',++n)";
+  uint8_t pak[] = {12,34,56,78};
+  assert(pocket_qjs_program_boot(a, isolated, strlen(isolated), pak, sizeof pak, 32,24,1));
+  assert(pocket_qjs_program_boot(b, isolated, strlen(isolated), pak, sizeof pak, 32,24,1));
+  assert(pocket_qjs_program_advance(a,&input,1));
+  assert(pocket_qjs_program_advance(b,&input,1));
+  assert(pocket_qjs_program_advance(a,&input,1));
+  assert(pocket_qjs_program_action_value(a)==2 && pocket_qjs_program_action_value(b)==1);
+  assert(pocket_qjs_program_render(a) && pocket_qjs_program_render(b));
+  pocket_qjs_program_destroy(a);
+  assert(pocket_qjs_program_advance(b,&input,1) && pocket_qjs_program_action_value(b)==2);
+  assert(pocket_qjs_program_render(b));
+  pocket_qjs_program_destroy(b);
+#endif
   puts("quickjs-c canonical composition: ok");
   return 0;
 }

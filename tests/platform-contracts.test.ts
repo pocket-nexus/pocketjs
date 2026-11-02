@@ -457,8 +457,6 @@ describe("semantic resolution", () => {
       return [result.plan.viewport.logical, result.plan.viewport.policy];
     };
     expect(viewport("ipodtouch4-dev")).toEqual([[320, 480], "fixed"]);
-    expect(viewport("moto-g-play-dev")).toEqual([[360, 800], "fixed"]);
-    expect(viewport("redmi-1s-dev")).toEqual([[360, 640], "fixed"]);
     expect(viewport("symbian-e7-dev")).toEqual([[360, 640], "dynamic"]);
   });
 
@@ -577,7 +575,6 @@ describe("semantic resolution", () => {
     // purpose.
     const expected: Record<string, [boolean, boolean, boolean, boolean]> = {
       "3ds-demo": [false, false, false, false], // requires the private 3ds-dev profile's auxiliary display and touch contracts
-      "blackberry-classic-demo": [false, false, false, true], // built by the private blackberry-qnx-dev profile; macos-app also admits its fixed 360x360 buttons+glyphs contract
       cafe: [true, true, false, true],
       cards: [true, true, false, true],
       chrome: [true, true, false, true],
@@ -590,10 +587,7 @@ describe("semantic resolution", () => {
       hero: [true, true, true, true],
       im: [true, true, false, true],
       "iphone16-demo": [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
-      "iphone2g-demo": [false, false, false, false], // admitted only by the private iphone2g-dev profile
-      "iphone4s-demo": [false, false, false, false], // admitted only by the private iphone4s-dev profile
       "ipodtouch-demo": [false, false, false, false], // admitted only by the private ipodtouch-dev profile
-      "meizu-m8-demo": [false, false, false, false], // admitted only by the private meizu-m8-dev profile
       nexus: [false, false, false, false], // requires the private 3ds-dev profile's auxiliary display, auxiliary touch and ui.physics
       "nexus-touch": [false, false, false, false], // touch + ui.physics on a fixed 320x480 surface: the private ipodtouch4-dev profile
       nsengine: [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract

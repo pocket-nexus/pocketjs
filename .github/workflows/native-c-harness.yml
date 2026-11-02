@@ -1,9 +1,7 @@
 name: Native C harness
 
-# What the pinned nightly and real JNI headers reach: the UI C ABI's no_std
-# allocator and texture fixtures, the generated C guest against QuickJS-NG,
-# and the Android shell against JNI tables. The portable contracts these
-# programs share run in test.yml.
+# The generated C adapter on both hosts, plus the UIKit ARMv7 compiler check
+# that Linux skips. Portable native-program contracts run in test.yml.
 
 on:
   pull_request:
@@ -12,32 +10,19 @@ on:
       - ".github/workflows/native-c-harness.yml"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "tools/build/toolchains/rust.ts"
-      - "programs/native/quickjs/**"
-      - "programs/native/cabi/**"
+      - "programs/native/**"
+      - "programs/ipodtouch4/**"
       - "engine/guest-quickjs/**"
       - "engine/runtime/**"
       - "engine/runtime-cabi/**"
-      - "engine/core/**"
-      - "engine/spec/**"
-      - "engine/drivers/**"
-      - "engine/raster/**"
-      - "engine/present/**"
-      - "engine/package/**"
-      - "engine/render/**"
       - "contracts/**"
+      - "hosts/ipodtouch4-dev/**"
       - "tools/ui-bindings.ts"
       - "tools/test-quickjs-guest.ts"
-      - "tests/ui-cabi-allocator.test.ts"
-      - "tests/ui-cabi-psm-draw.test.ts"
-      - "tests/fixtures/ui-cabi-allocator/**"
-      - "tests/fixtures/ui-cabi-psm-draw/**"
-      - "platforms/android/**"
-      - "programs/android/**"
-      - "tests/android-platform.test.ts"
-      - "tests/android-platform-integration.test.ts"
-      - "tests/fixtures/android/**"
-      - "tests/fixtures/android-*.c"
+      - "tools/ipodtouch4*.ts"
+      - "tools/ios6-setup.ts"
+      - "tools/build/toolchains/**"
+      - "tests/ipodtouch4-native.test.ts"
   push:
     branches: [main]
     paths: *paths
@@ -52,53 +37,28 @@ concurrency:
 
 jobs:
   harness:
-    name: UI C ABI, generated guest, Android JNI
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    name: Generated guest and native compiler (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
       - name: Install the workspace stable compiler
         run: |
           stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
-          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
-      - run: bun install --frozen-lockfile
-      - name: Install the UI C ABI's pinned nightly
-        run: |
-          toolchain=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).BUILD_STD_NIGHTLY)')
-          rustup toolchain install "$toolchain" --profile minimal
+          rustup toolchain install "$stable" --profile minimal
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
-      - name: Fetch host test dependencies
-        run: |
-          cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
-      - name: Link and execute the C allocator and texture draw fixtures
-        run: bun test tests/ui-cabi-allocator.test.ts tests/ui-cabi-psm-draw.test.ts
+      - run: bun install --frozen-lockfile
       - name: Generated C guest against QuickJS-NG
         run: bun tools/test-quickjs-guest.ts
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Android shell against real JNI tables
-        run: |
-          export POCKET_TEST_JNI_INCLUDE="$JAVA_HOME/include"
-          export POCKET_TEST_JNI_PLATFORM_INCLUDE="$JAVA_HOME/include/linux"
-          export POCKET_TEST_ANDROID_INCLUDE="$PWD/.pocket-build/validation/android-platform/headers"
-          python3 - <<'PY'
-          import base64, hashlib, os, pathlib, urllib.request
-          url = "https://android.googlesource.com/platform/system/logging/+/efbed624fef7eaf28f8bd50686302a5576f544a1/liblog/include/android/log.h?format=TEXT"
-          data = base64.b64decode(urllib.request.urlopen(url, timeout=60).read())
-          expected = "ec7e66a6a6b7342c08ffa7459c15929da0c42e871f0ca5a003cbf1d024c5f597"
-          if hashlib.sha256(data).hexdigest() != expected:
-              raise SystemExit("pinned Android log header checksum mismatch")
-          header = pathlib.Path(os.environ["POCKET_TEST_ANDROID_INCLUDE"]) / "android/log.h"
-          header.parent.mkdir(parents=True, exist_ok=True)
-          header.write_bytes(data)
-          PY
-          bun test tests/android-platform.test.ts tests/android-platform-integration.test.ts
+      - name: Touch4 UIKit and pinned QuickJS ARMv7 compilation
+        if: runner.os == 'macOS'
+        run: bun test tests/ipodtouch4-native.test.ts

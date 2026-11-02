@@ -2,8 +2,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 pub mod adapters;
-#[cfg(feature = "legacy-ui")]
-pub mod compat;
 pub mod embedding;
 mod guest;
 mod hooks;

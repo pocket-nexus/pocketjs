@@ -13,14 +13,8 @@ import profileMacosEmbeddedDocument from "./macos-embedded/pocket.host.json" wit
 import profileGbaDocument from "./gba/pocket.host.json" with { type: "json" };
 import profileIpodnanoDocument from "./ipodnano/pocket.host.json" with { type: "json" };
 import profilePocketbookDocument from "./pocketbook/pocket.host.json" with { type: "json" };
-import profileMotoGPlayDevDocument from "./moto-g-play-dev/pocket.host.json" with { type: "json" };
-import profileRedmi1sDevDocument from "./redmi-1s-dev/pocket.host.json" with { type: "json" };
-import profileBlackberryQnxDevDocument from "./blackberry-qnx-dev/pocket.host.json" with { type: "json" };
-import profileMeizuM8DevDocument from "./meizu-m8-dev/pocket.host.json" with { type: "json" };
 import profileSymbianE7DevDocument from "./symbian-e7-dev/pocket.host.json" with { type: "json" };
 import profileIosDevDocument from "./ios-dev/pocket.host.json" with { type: "json" };
-import profileIphone2gDevDocument from "./iphone2g-dev/pocket.host.json" with { type: "json" };
-import profileIphone4sDevDocument from "./iphone4s-dev/pocket.host.json" with { type: "json" };
 import profileIpodtouchDevDocument from "./ipodtouch-dev/pocket.host.json" with { type: "json" };
 import profileIpodtouch4DevDocument from "./ipodtouch4-dev/pocket.host.json" with { type: "json" };
 
@@ -38,14 +32,8 @@ export const POCKET_PROFILES = {
   "gba": builtinProfile(profileGbaDocument),
   "ipodnano": builtinProfile(profileIpodnanoDocument),
   "pocketbook": builtinProfile(profilePocketbookDocument),
-  "moto-g-play-dev": builtinProfile(profileMotoGPlayDevDocument),
-  "redmi-1s-dev": builtinProfile(profileRedmi1sDevDocument),
-  "blackberry-qnx-dev": builtinProfile(profileBlackberryQnxDevDocument),
-  "meizu-m8-dev": builtinProfile(profileMeizuM8DevDocument),
   "symbian-e7-dev": builtinProfile(profileSymbianE7DevDocument),
   "ios-dev": builtinProfile(profileIosDevDocument),
-  "iphone2g-dev": builtinProfile(profileIphone2gDevDocument),
-  "iphone4s-dev": builtinProfile(profileIphone4sDevDocument),
   "ipodtouch-dev": builtinProfile(profileIpodtouchDevDocument),
   "ipodtouch4-dev": builtinProfile(profileIpodtouch4DevDocument),
 } as const satisfies Readonly<Record<string, PocketProfile>>;

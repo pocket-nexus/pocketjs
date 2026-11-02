@@ -9,7 +9,7 @@ import { createKeyboardTouch } from "../apps/clear/keyboard-touch.ts";
 const directory = mkdtempSync(join(tmpdir(), "pocket-contact-latch-"));
 const binary = join(directory, "test");
 const build = Bun.spawnSync(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
-  "tests/fixtures/contact-latch.c", "-o", binary], { stderr: "pipe" });
+  "-I", "contracts/generated", "tests/fixtures/contact-latch.c", "-o", binary], { stderr: "pipe" });
 if (build.exitCode) throw new Error(build.stderr.toString());
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
 afterEach(() => { resetGestures(); __resetTouches(); });

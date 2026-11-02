@@ -219,8 +219,8 @@ admission requires the package's class to equal the host's.
 
 | Class | Frame cost | Built-in host contracts |
 | --- | --- | --- |
-| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds-dev`, the iOS, macOS, web, Android, Linux and BlackBerry host contracts |
-| `repaint` | A CPU repaints the pixels a change touched, so a frame costs in proportion to that area; the host moves the pixels of a translated opaque region instead of repainting them. | `gba`, `ipodnano`, `meizu-m8-dev`, `symbian-e7-dev` |
+| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds-dev`, the iOS, macOS, web and Linux host contracts |
+| `repaint` | A CPU repaints the pixels a change touched, so a frame costs in proportion to that area; the host moves the pixels of a translated opaque region instead of repainting them. | `gba`, `ipodnano`, `symbian-e7-dev` |
 | `still` | The display shows one change per refresh. `animate()` and `spring()` set the end value and return no animation. | `pocketbook` |
 
 The plan records `animation`, `tools/build.ts` folds it into the bundle,
@@ -264,7 +264,7 @@ The bare `{logical, presentation}` spelling remains valid as shorthand for
 `logicalViewports` contains**; for a range it takes the first target size
 inside the range. `apps/clear/pocket.app.json` lists 320×480, 360×800 and
 360×640 and declares a 360×640 dynamic range, which resolves on iPod touch 4,
-Moto G Play, Redmi 1S and Nokia E7 from one app contract. `resolveViewport` in
+iPod touch 4 and Nokia E7 from one app contract. `resolveViewport` in
 `framework/src/manifest/resolve.ts` then picks one variant:
 
 - On a dynamic-form target it takes `dynamic.default`, which must fall inside

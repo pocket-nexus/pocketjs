@@ -1,24 +1,21 @@
 // Every repack runs where a Cloudflare Worker runs: each target's module and
 // the Studio's entry (tools/repack/index.ts) bundle for the browser with no
 // Node or Bun built-in module, and the bundles name no Bun, process, require
-// or file path API. The Android bundle repacks the same APK as the source.
+// or file path API.
 
 import { describe, expect, test } from "bun:test";
 import { builtinModules } from "node:module";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repackAndroid } from "../tools/repack/android.ts";
 import { THREE_DS_RUNTIME_TARGET } from "../tools/repack/3ds.ts";
 import { REPACK_TARGETS, repackTarget } from "../tools/repack/index.ts";
 import { IPOD_RUNTIME_TARGET } from "../tools/repack/ipod.ts";
 import { PSP_RUNTIME_TARGET } from "../tools/repack/psp.ts";
 import { VITA_RUNTIME_TARGET } from "../tools/repack/vita.ts";
-import { fixturePocket, fixtureRuntime, IDENTITY } from "./helpers/android-fixture.ts";
-import { makeTestSigner } from "./helpers/apk-test-signer.ts";
 
 const ROOT = join(import.meta.dir, "..");
-const ENTRIES = ["index.ts", "psp.ts", "vita.ts", "3ds.ts", "ipod.ts", "android.ts"] as const;
+const ENTRIES = ["index.ts", "psp.ts", "vita.ts", "3ds.ts", "ipod.ts"] as const;
 const escape = (name: string) => name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const BUILTIN = new RegExp(`^(node:.*|bun:.*|bun|${builtinModules.map(escape).join("|")})(/.*)?$`);
 /** What a Worker lacks: Bun's and Node's globals, CommonJS, and the module's own path. */
@@ -78,56 +75,23 @@ describe("every repack bundles for a Worker", () => {
     }
   });
 
-  test("the bundled modules repack what the source modules repack", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "pocketjs-repack-worker-"));
-    try {
-      const load = async (entry: string) => {
-        const path = join(directory, entry.replace(/\.ts$/, ".js"));
-        writeFileSync(path, (await bundle(entry)).text);
-        return import(path);
-      };
-      const index = (await load("index.ts")) as typeof import("../tools/repack/index.ts");
-      const android = (await load("android.ts")) as typeof import("../tools/repack/android.ts");
-      const signer = await makeTestSigner();
-      const input = {
-        runtime: fixtureRuntime(),
-        pocket: fixturePocket(),
-        identity: IDENTITY,
-        signer: { privateKey: signer.privateKey, certificate: signer.certificate },
-      };
-      const options = { certificateSha256: signer.certificateSha256 };
-      expect(await android.repackAndroid(input, options)).toEqual(await repackAndroid(input, options));
-      // The Studio's row signs with the community key alone.
-      await expect(index.REPACK_TARGETS.android.repack(input)).rejects.toThrow(/not the Pocket Studio community certificate/);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
+
 });
 
 describe("the Studio's table", () => {
   test("one row per Studio target, each naming its runtime, variants, file and type", () => {
     const rows = Object.fromEntries(Object.entries(REPACK_TARGETS).map(([name, row]) => [name, { ...row, repack: typeof row.repack }]));
     expect(rows).toEqual({
-      psp: { repack: "function", runtime: "psp", variantTargets: [PSP_RUNTIME_TARGET], extension: ".zip", contentType: "application/zip", signed: false },
-      vita: { repack: "function", runtime: "vita", variantTargets: [VITA_RUNTIME_TARGET], extension: ".vpk", contentType: "application/octet-stream", signed: false },
-      "3ds": { repack: "function", runtime: "3ds", variantTargets: [THREE_DS_RUNTIME_TARGET], extension: ".3dsx", contentType: "application/octet-stream", signed: false },
-      "ipod-touch": { repack: "function", runtime: "ipod", variantTargets: [IPOD_RUNTIME_TARGET], extension: ".ipa", contentType: "application/octet-stream", signed: false },
-      android: {
-        repack: "function",
-        runtime: "android",
-        variantTargets: [],
-        extension: ".apk",
-        contentType: "application/vnd.android.package-archive",
-        signed: true,
-      },
+      psp: { repack: "function", runtime: "psp", variantTargets: [PSP_RUNTIME_TARGET], extension: ".zip", contentType: "application/zip" },
+      vita: { repack: "function", runtime: "vita", variantTargets: [VITA_RUNTIME_TARGET], extension: ".vpk", contentType: "application/octet-stream" },
+      "3ds": { repack: "function", runtime: "3ds", variantTargets: [THREE_DS_RUNTIME_TARGET], extension: ".3dsx", contentType: "application/octet-stream" },
+      "ipod-touch": { repack: "function", runtime: "ipod", variantTargets: [IPOD_RUNTIME_TARGET], extension: ".ipa", contentType: "application/octet-stream" },
     });
   });
 
   test("a row by Studio target or runtime name", () => {
     expect(repackTarget("ipod")).toBe(REPACK_TARGETS["ipod-touch"]);
     expect(repackTarget("ipod-touch")).toBe(REPACK_TARGETS["ipod-touch"]);
-    expect(repackTarget("android")).toBe(REPACK_TARGETS.android);
     expect(repackTarget("toString")).toBeUndefined();
     expect(repackTarget("gba")).toBeUndefined();
   });

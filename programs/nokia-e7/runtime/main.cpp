@@ -47,7 +47,7 @@ extern "C" {
 
 #include "pocket_native_program.h"
 #include "pocket_guest_quickjs.h"
-#include "pocketjs_symbian_extension.h"
+#include "pocket_native_extension.h"
 #include "pocketjs_symbian_keys.h"
 #include "pocketjs_navigation_gesture.h"
 
@@ -99,13 +99,13 @@ void recordGlStage(uint32_t stage, uint32_t batches, uint32_t vertices)
 }
 #endif
 
-const PocketJsSymbianExtensionV1 *pocketJsNativeExtension()
+const PocketNativeExtensionV1 *pocketJsNativeExtension()
 {
-    const PocketJsSymbianExtensionV1 *extension =
-        pocketjs_symbian_extension_v1();
+    const PocketNativeExtensionV1 *extension =
+        pocket_native_extension_v1();
     if (extension == 0 ||
-        extension->abi_version != POCKETJS_SYMBIAN_EXTENSION_ABI_V1 ||
-        extension->struct_size < sizeof(PocketJsSymbianExtensionV1)) {
+        extension->abi_version != POCKET_NATIVE_EXTENSION_ABI_V1 ||
+        extension->struct_size < sizeof(PocketNativeExtensionV1)) {
         return 0;
     }
     return extension;
@@ -122,11 +122,11 @@ QGLFormat pocketJsGlFormat()
     format.setBlueBufferSize(8);
     format.setAlphaBufferSize(0);
     format.setDoubleBuffer(true);
-    const PocketJsSymbianExtensionV1 *extension =
+    const PocketNativeExtensionV1 *extension =
         pocketJsNativeExtension();
     format.setDepth(
         extension != 0 &&
-        (extension->flags & POCKETJS_SYMBIAN_EXTENSION_DEPTH_BUFFER) != 0
+        (extension->flags & POCKET_NATIVE_EXTENSION_DEPTH_BUFFER) != 0
     );
     format.setStencil(false);
     format.setAccum(false);
@@ -225,29 +225,29 @@ uint32_t nativeKeyForKey(int key)
 {
     switch (key) {
     case Qt::Key_W:
-        return POCKETJS_SYMBIAN_KEY_MOVE_FORWARD;
+        return POCKET_NATIVE_KEY_MOVE_FORWARD;
     case Qt::Key_S:
-        return POCKETJS_SYMBIAN_KEY_MOVE_BACK;
+        return POCKET_NATIVE_KEY_MOVE_BACK;
     case Qt::Key_A:
-        return POCKETJS_SYMBIAN_KEY_MOVE_LEFT;
+        return POCKET_NATIVE_KEY_MOVE_LEFT;
     case Qt::Key_D:
-        return POCKETJS_SYMBIAN_KEY_MOVE_RIGHT;
+        return POCKET_NATIVE_KEY_MOVE_RIGHT;
     case Qt::Key_Up:
-        return POCKETJS_SYMBIAN_KEY_LOOK_UP;
+        return POCKET_NATIVE_KEY_LOOK_UP;
     case Qt::Key_Down:
-        return POCKETJS_SYMBIAN_KEY_LOOK_DOWN;
+        return POCKET_NATIVE_KEY_LOOK_DOWN;
     case Qt::Key_Left:
-        return POCKETJS_SYMBIAN_KEY_LOOK_LEFT;
+        return POCKET_NATIVE_KEY_LOOK_LEFT;
     case Qt::Key_Right:
-        return POCKETJS_SYMBIAN_KEY_LOOK_RIGHT;
+        return POCKET_NATIVE_KEY_LOOK_RIGHT;
     case Qt::Key_E:
-        return POCKETJS_SYMBIAN_KEY_FIRE;
+        return POCKET_NATIVE_KEY_FIRE;
     case Qt::Key_Space:
-        return POCKETJS_SYMBIAN_KEY_JUMP;
+        return POCKET_NATIVE_KEY_JUMP;
     case Qt::Key_R:
-        return POCKETJS_SYMBIAN_KEY_RELOAD;
+        return POCKET_NATIVE_KEY_RELOAD;
     case Qt::Key_Shift:
-        return POCKETJS_SYMBIAN_KEY_WALK;
+        return POCKET_NATIVE_KEY_WALK;
     default:
         return 0;
     }
@@ -368,7 +368,7 @@ private:
 #endif
     QVector<EmbeddedApp> apps_;
     QBasicTimer timer_;
-    const PocketJsSymbianExtensionV1 *extension_;
+    const PocketNativeExtensionV1 *extension_;
     QLabel *errorLabel_;
     QVector<uint32_t> touches_;
     QSize viewportSize_;
@@ -802,7 +802,7 @@ bool PocketJsRuntime::bootGuest(
     if (context_ == 0) { fail("QuickJS context allocation failed"); return false; }
     global_ = JS_GetGlobalObject(context_);
     JS_SetContextOpaque(context_, this);
-    guest_ = pocket_guest_quickjs_attach(context_, POCKET_QJS_LEGACY_C);
+    guest_ = pocket_guest_quickjs_attach(context_, POCKET_QJS_CANONICAL);
     if (guest_ == 0) { fail("QuickJS guest allocation failed"); return false; }
     const pocket_guest_v1 guest = { sizeof(pocket_guest_v1), evaluateGuest,
         frameGuest, collectGuest, shutdownGuest, initializeGuest };
@@ -944,7 +944,7 @@ int32_t PocketJsRuntime::collectGuest(void *opaque)
 void PocketJsRuntime::shutdownGuest(void *opaque)
 {
     PocketJsRuntime *self = static_cast<PocketJsRuntime *>(opaque);
-    const PocketJsSymbianExtensionV1 *extension = self->extension_;
+    const PocketNativeExtensionV1 *extension = self->extension_;
     self->extension_ = 0;
     if (extension != 0 && extension->shutdown != 0)
         extension->shutdown(self->glInitialized_ && self->isValid() ? 1 : 0);

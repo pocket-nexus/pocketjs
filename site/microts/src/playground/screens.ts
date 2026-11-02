@@ -14,9 +14,7 @@ export const SCREENS: ScreenPreset[] = [
   { id: "psp", label: "PSP", width: 480, height: 272 },
   { id: "gba", label: "Game Boy Advance", width: 240, height: 160 },
   { id: "3ds", label: "3DS top screen", width: 400, height: 240 },
-  { id: "iphone", label: "iPhone 2G / 4S", width: 320, height: 480 },
   { id: "ipod-touch", label: "iPod touch", width: 320, height: 568 },
-  { id: "bb-classic", label: "BlackBerry Classic", width: 360, height: 360 },
   { id: "ipod-nano", label: "iPod nano", width: 176, height: 132 },
 ];
 

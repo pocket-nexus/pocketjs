@@ -17,7 +17,6 @@ import {
   type PocketPackageIdentity,
   type PocketPackageVariant,
 } from "../../../contracts/spec/pocket-package.ts";
-import type { ApkSigner } from "./apk-sign.ts";
 import { canonicalProfileJson, pocketProfileSchema, POCKET_PROFILE_FILE, POCKET_PROFILE_FORMAT, type PocketProfile } from "../../../contracts/spec/profile.ts";
 import { admissionHost, describeRejection, selectVariant } from "../../../contracts/spec/admission.ts";
 import { validateSchema, type ContractDiagnostic } from "../../../framework/src/manifest/schema.ts";
@@ -39,9 +38,6 @@ export interface RepackInput {
   /** A `.pocket` holding this target's variant. */
   readonly pocket: Uint8Array;
   readonly identity: RepackIdentity;
-  /** The key and certificate an Android APK is signed with: the Pocket Studio
-   *  community key. The other targets take none. */
-  readonly signer?: ApkSigner;
 }
 
 /** dist/runtime/<target>/runtime.json */

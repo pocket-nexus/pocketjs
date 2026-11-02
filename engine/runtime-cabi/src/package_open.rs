@@ -1,4 +1,4 @@
-//! Package admission for the C inspection entry points (`pocket_ui_package_open`,
+//! Package admission for the C inspection entry points (`pocket_native_package_open`,
 //! the 3DS product's `pocket_package_open`, the ESP-IDF launcher's
 //! `pocket_idf_package_open`). They admit against the same exported profile
 //! facts `pocket_runtime_create` copies, and report stable status codes.

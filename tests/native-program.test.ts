@@ -27,7 +27,7 @@ describe("native program composition", () => {
     // The workspace target directory, shared with tests/quickjs-c-harness.test.ts:
     // the two feature sets rebuild only the cabi crate, not its dependencies.
     const target = process.env.CARGO_TARGET_DIR ?? join(repository, "target");
-    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "programs/native/cabi/Cargo.toml", "--no-default-features", "--features", "standalone-extension-provider", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
+    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "programs/native/runtime/Cargo.toml", "--no-default-features", "--features", "standalone-extension-provider", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
     const vendor = quickJsVendorObjects({ cc: cc!, quickjs, units: ["quickjs", "dtoa", "libregexp", "libunicode"],
       flags: ["-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"'], log: (_, output) => writeFileSync(join(build, `${serial++}.log`), output) });
     const profileHeader = writeHostProfileHeader(build, profile);
@@ -41,10 +41,10 @@ describe("native program composition", () => {
     const packageHeader = join(build, "fixture_package.h");
     writeFileSync(packageHeader, `static const unsigned char fixture_package[] = {${[...bytes].join(",")}};\n`);
     const common = ["-include", profileHeader, "-include", packageHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter",
-      ...["programs/native/cabi/include", "engine/guest-quickjs/include", "contracts/generated"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
+      ...["programs/native/runtime/include", "engine/guest-quickjs/include", "contracts/generated"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
     const binary = join(build, "program");
     run([cc!, ...common, "engine/guest-quickjs/src/guest.c", "tests/fixtures/native-program/program.c",
-      ...vendor, join(target, "release/libpocketjs_symbian_core.a"), "-lm", "-lpthread", "-ldl", "-o", binary]);
+      ...vendor, join(target, "release/libpocket_native_program.a"), "-lm", "-lpthread", "-ldl", "-o", binary]);
     expect(run([binary])).toContain("native program GPU/collect/input/lifetime: ok");
   }, 180_000);
 });

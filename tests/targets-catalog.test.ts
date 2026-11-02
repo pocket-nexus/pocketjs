@@ -5,13 +5,7 @@ import { POCKET_TARGETS, type TargetProfile } from "../contracts/spec/platforms.
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
-import { BLACKBERRY_QNX_DEV_TARGET_ID, resolveBlackBerryClassicBuildPlan } from "../tools/blackberry-classic-profile.ts";
-import { resolveIPhone2GBuildPlan } from "../tools/iphone2g-profile.ts";
-import { resolveIPhone4SBuildPlan } from "../tools/iphone4s-profile.ts";
 import { resolveIPodTouchBuildPlan } from "../tools/ipodtouch-profile.ts";
-import { resolveMeizuM8BuildPlan } from "../tools/meizu-m8-profile.ts";
-import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
-import { resolveRedmi1sBuildPlan } from "../tools/redmi-1s-profile.ts";
 import { resolveSymbianE7BuildPlan } from "../tools/symbian-profile.ts";
 import { CATALOG, COMMAND_WORDS, catalogEntry, catalogEntryForContract } from "../tools/targets/index.ts";
 import { HOST_IDS, currentHost } from "../tools/targets/types.ts";
@@ -78,13 +72,7 @@ describe("target catalog", () => {
   test("catalog resolution equals each device profile's own resolver", () => {
     const cases: [string, string, (manifest: unknown) => ReturnType<typeof resolve3dsBuildPlan>][] = [
       ["3ds", "apps/3ds-demo/pocket.app.json", resolve3dsBuildPlan],
-      ["moto-g-play", "apps/clear/pocket.app.json", resolveMotoGPlayBuildPlan],
-      ["redmi-1s", "apps/clear/pocket.app.json", resolveRedmi1sBuildPlan],
-      ["blackberry-classic", "apps/blackberry-classic-demo/pocket.app.json", (m) => resolveBlackBerryClassicBuildPlan(m, BLACKBERRY_QNX_DEV_TARGET_ID)],
-      ["meizu-m8", "apps/meizu-m8-demo/pocket.app.json", resolveMeizuM8BuildPlan],
       ["nokia-e7", "apps/clear/pocket.app.json", resolveSymbianE7BuildPlan],
-      ["iphone2g", "apps/iphone2g-demo/pocket.app.json", resolveIPhone2GBuildPlan],
-      ["iphone4s", "apps/iphone4s-demo/pocket.app.json", resolveIPhone4SBuildPlan],
       ["ipodtouch6", "apps/ipodtouch-demo/pocket.app.json", resolveIPodTouchBuildPlan],
     ];
     for (const [id, manifestPath, resolver] of cases) {

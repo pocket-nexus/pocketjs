@@ -13,8 +13,8 @@ const softwareProfile = POCKET_PROFILES["ipodtouch4-dev"];
 /**
  * Private exact-device profile for the iPod touch 4 running iOS 6.1.6.
  *
- * The display tuple is byte-identical to the iPhone 4S (320x480 logical at
- * density 2 on a 640x960 panel), and the host is the same UIKit runtime.
+ * The UIKit host renders a 320x480 logical display at density 2 on its
+ * 640x960 panel.
  * All profiles use the shared binding generation; the target id names the device.
  * The optional families ride on that table behind their capabilities:
  * io.offload, and ui.physics (ops 52..56), which the build compiles in for
@@ -25,7 +25,7 @@ export const IPODTOUCH4_DEV_TARGET_ID = softwareProfile.id;
 export const IPODTOUCH4_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const IPODTOUCH4_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
 /** The same panel a quarter turn over: the host rotates its content view and
- *  presents 480x320 logical on the 960x640 drawable (programs/shared/ios-legacy/runtime.c). */
+ *  presents 480x320 logical on the 960x640 drawable (programs/ipodtouch4/host.c). */
 export const IPODTOUCH4_LANDSCAPE_VIEWPORT = softwareProfile.display.logicalViewports[1];
 export const IPODTOUCH4_PHYSICAL_VIEWPORT = softwareProfile.panel.primary;
 export const IPODTOUCH4_RASTER_DENSITY = softwareProfile.display.rasterDensity;

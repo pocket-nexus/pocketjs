@@ -30,7 +30,7 @@ export async function writeRuntimeManifest(
     /** The host contract the runtime was built for. */
     profile: PocketProfile;
     files: readonly string[];
-    /** Target-specific fields written beside the common ones (an Android runtime's viewport and SDK levels). */
+    /** Target-specific fields written beside the common runtime identity. */
     extra?: Readonly<Record<string, unknown>>;
   },
 ): Promise<RuntimeManifest> {

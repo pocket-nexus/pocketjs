@@ -28,8 +28,8 @@ export function requireProgramProfile(context: RuntimeBuildContext, profile: Poc
 /** Compatibility commands use the same executor and require explicit inputs. */
 export async function runProgramBuild(id: string, args: readonly string[]): Promise<void> {
   const root = resolve(import.meta.dir, "../../..");
-  const legacyDirectories: Record<string, string> = { "blackberry-classic": "blackberry-qnx", "nokia-e7": "symbian", "ipodtouch6": "ipodtouch", "ios-simulator": "ios" };
-  const output = args.some(arg => arg === "--out" || arg === "--outdir" || arg.startsWith("--out=") || arg.startsWith("--outdir=")) ? [] : ["--out", resolve(root, "dist", legacyDirectories[id] ?? id)];
+  const outputDirectories: Record<string, string> = { "nokia-e7": "symbian", "ipodtouch6": "ipodtouch", "ios-simulator": "ios" };
+  const output = args.some(arg => arg === "--out" || arg === "--outdir" || arg.startsWith("--out=") || arg.startsWith("--outdir=")) ? [] : ["--out", resolve(root, "dist", outputDirectories[id] ?? id)];
   const child = Bun.spawn([process.execPath, resolve(root, "tools/pocket.ts"), "build", "--config", resolve(root, `programs/${id}/pocket.host.config.ts`), ...output, ...args], {
     cwd: process.cwd(), stdout: "inherit", stderr: "inherit",
   });

@@ -126,7 +126,7 @@ function hold(button: string, on: boolean) {
   else held.delete(button);
   emit("press", t, on);
 }
-/** Press and release at once: pulses from the wheel and the trackpad (the preview holds a press between frames until the next frame) */
+/** Press and release at once: pulses from the wheel (the preview holds a press between frames until the next frame) */
 function pulse(button: string) {
   emit("press", button, true);
   emit("press", button, false);
@@ -170,7 +170,7 @@ function padUp() {
   for (const arm of Object.keys(DIRECTIONS)) hold(arm, false);
 }
 
-const GESTURES = new Set(["wheel", "trackpad"]);
+const GESTURES = new Set(["wheel"]);
 /** Every other control: a key under a finger. A key with no part of its own shows its caption when it has one (it is out of sight from the front), and lights up while held */
 const keys = computed(() =>
   (props.device.shell?.controls ?? [])
@@ -217,41 +217,6 @@ function wheelMove(e: PointerEvent) {
 function wheelUp() {
   if (wheel && wheel.travel < 8) pulse(wheel.zone);
   wheel = null;
-}
-
-// ---------- BlackBerry trackpad: drag → direction pulses; tap → its key (CIRCLE) ----------
-
-const trackpad = computed(() => control("trackpad") ?? null);
-let pad2: { x: number; y: number; ax: number; ay: number; moved: boolean; step: number } | null = null;
-function trackDown(e: PointerEvent) {
-  capture(e);
-  // (a step is a quarter of the pad's width on the page)
-  const step = (e.currentTarget as HTMLElement).getBoundingClientRect().width / 4;
-  pad2 = { x: e.clientX, y: e.clientY, ax: 0, ay: 0, moved: false, step };
-  held.add("trackpad");
-}
-function trackMove(e: PointerEvent) {
-  if (!pad2) return;
-  pad2.ax += e.clientX - pad2.x;
-  pad2.ay += e.clientY - pad2.y;
-  pad2.x = e.clientX;
-  pad2.y = e.clientY;
-  if (Math.abs(pad2.ax) >= pad2.step) {
-    pulse(pad2.ax > 0 ? "RIGHT" : "LEFT");
-    pad2.ax = 0;
-    pad2.moved = true;
-  }
-  if (Math.abs(pad2.ay) >= pad2.step) {
-    pulse(pad2.ay > 0 ? "DOWN" : "UP");
-    pad2.ay = 0;
-    pad2.moved = true;
-  }
-}
-function trackUp() {
-  const t = target("trackpad");
-  if (pad2 && !pad2.moved && t) pulse(t);
-  pad2 = null;
-  held.delete("trackpad");
 }
 
 // ---------- Keys the device keeps for itself, and a second screen the preview does not use ----------
@@ -314,20 +279,6 @@ watch(
           @pointermove="wheelMove"
           @pointerup="wheelUp"
           @pointercancel="wheelUp"
-        />
-
-        <!-- BlackBerry trackpad -->
-        <div
-          v-if="trackpad"
-          class="dev-hit dev-trackpad"
-          :style="place(grow(trackpad.rect, 0.15))"
-          role="slider"
-          aria-label="Trackpad: drag to move focus, click to press"
-          @pointerdown="trackDown"
-          @mousedown.prevent
-          @pointermove="trackMove"
-          @pointerup="trackUp"
-          @pointercancel="trackUp"
         />
 
         <div
@@ -437,10 +388,6 @@ watch(
 }
 .dev-wheel:active {
   cursor: grabbing;
-}
-.dev-trackpad {
-  border-radius: 22%;
-  cursor: move;
 }
 /* A key out of sight from the front (the 3DS's L and R, behind the hinge) has no part: its caption stands where a finger reaches it */
 .dev-named {
