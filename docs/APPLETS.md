@@ -51,6 +51,38 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | `services` needs `net.http` | A companion service is an HTTP destination of the applet's worker, and the capability admits the worker's `io.http` resource. |
 | `data.fs` needs `store` | Every persistent byte is declared before the applet runs. |
 
+## The applet's worker
+
+An applet's UI realm has no network. **HTTP is the `io.http` resource of the
+worker its app contract declares** (`domains.worker`, [WORKER.md](WORKER.md)),
+with one `http` node: the worker fetches the applet's services at
+`https://companion.pocket/<name>/…` and returns each answer to the UI over the
+declared channels. The UI publishes and observes those channels with
+`@pocketjs/framework/worker/channels`, which the source rules admit when the
+app contract declares `net.http`.
+
+```json
+"domains": {
+  "worker": {
+    "entry": "hn/worker.ts",
+    "nodes": [{ "name": "http", "kind": "http" }],
+    "channels": [
+      { "name": "request", "kind": "ring", "direction": "ui-to-worker", "recordBytes": 1024, "capacity": 4 },
+      { "name": "response", "kind": "ring", "direction": "worker-to-ui", "recordBytes": 1024, "capacity": 8 }
+    ]
+  }
+}
+```
+
+| Limit | Value |
+| --- | --- |
+| One `io.http` descriptor: URL, method, headers and body as JSON | **1024 bytes** (`WORKER_LIMITS.payloadBytes`) |
+| A channel record | **1024 bytes**; a channel holds at most **8** |
+
+The source rules walk the UI's import graph from `app.entry`. The worker
+bundle (`tools/build-worker.ts`) resolves only the modules whose domain is
+`worker`.
+
 ## Source rules
 
 `tools/applet-check.ts` walks the import graph from `app.entry`. Comments and
@@ -60,7 +92,7 @@ does not count.
 | Rule | Reason |
 | --- | --- |
 | Relative imports stay inside the project root | The applet's code is what the package carries; a shared kit (pocket-shell `shells/3ds/ui/`) lives inside the root. |
-| Bare imports: `solid-js` and `@pocketjs/framework/*` modules on the applet list; `camera`, `fs` and `db` with their capability | The framework surface is the portability layer. `launcher`, `wifi`, `agent`, `devtools`, `offload` and `config` are system or build modules. |
+| Bare imports: `solid-js` and `@pocketjs/framework/*` modules on the applet list; `camera` with a `camera.*` capability, `fs` with `data.fs`, `worker/channels` with `net.http` | The framework surface is the portability layer. `launcher`, `wifi`, `agent`, `devtools`, `offload` and `config` are system or build modules. |
 | No dynamic `import()` | The bundle is the whole program, checked once. |
 | No `eval` and no `Function` constructor | A checked applet runs the code that was checked and nothing else. |
 | No `installApp`, `removeApp`, `pairCompanion`, `forgetCompanion` or `requestCatalog` from `@pocketjs/framework/link` | Installing, removing and pairing belong to the launcher. |
