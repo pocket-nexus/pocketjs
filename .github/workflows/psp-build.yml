@@ -4,7 +4,9 @@ name: PSP build
 # into an empty cache, checks that a second add downloads nothing, and builds
 # the hero EBOOT through compile and the program-owned build recipe. The target C compiler and archiver
 # are `false`: QuickJS arrives as a prebuilt archive. The generated guest uses
-# its explicit LLVM compiler and the pinned SDK headers.
+# its explicit LLVM compiler and the pinned SDK headers. The EBOOT is the same
+# mipsel binary from any host, so one Linux runner builds it; host selection
+# of the toolchain archive is a unit test (tests/targets-catalog.test.ts).
 
 on:
   pull_request:
@@ -61,11 +63,7 @@ concurrency:
 
 jobs:
   eboot:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -73,17 +71,11 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - name: LLVM for the generated PSP guest (Linux)
-        if: runner.os == 'Linux'
+      - name: LLVM for the generated PSP guest
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm
           echo "POCKETJS_LLVM_BIN=/usr/bin" >> "$GITHUB_ENV"
-      - name: LLVM for the generated PSP guest (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install llvm
-          echo "POCKETJS_LLVM_BIN=$(brew --prefix llvm)/bin" >> "$GITHUB_ENV"
       - name: Empty cache
         run: echo "POCKET_NEXUS_CACHE_DIR=$RUNNER_TEMP/pocket-nexus" >> "$GITHUB_ENV"
       - name: pocket target add psp

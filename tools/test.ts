@@ -4,6 +4,7 @@
 //
 //   bun tools/test.ts                 # the full suite (what CI runs)
 //   bun tools/test.ts --stage=sim     # only stages whose name contains "sim"
+//   bun tools/test.ts --skip=AOT      # every stage but those containing "AOT"
 //   bun tools/test.ts --list          # print the stage table and exit
 //
 // Stage anatomy: `prep` commands build the artifacts a stage needs (stdout
@@ -387,8 +388,13 @@ const args = process.argv.slice(2);
 const stageFilter = args
   .find((a) => a.startsWith("--stage="))
   ?.slice("--stage=".length);
+const skipFilter = args
+  .find((a) => a.startsWith("--skip="))
+  ?.slice("--skip=".length);
 const selected = SUITE.filter(
-  (s) => !stageFilter || s.name.includes(stageFilter),
+  (s) =>
+    (!stageFilter || s.name.includes(stageFilter)) &&
+    (!skipFilter || !s.name.includes(skipFilter)),
 );
 
 if (args.includes("--list")) {
@@ -408,6 +414,10 @@ if (args.includes("--list")) {
 }
 if (stageFilter && selected.length === 0) {
   console.error(`test: no stage matches "${stageFilter}" (see --list)`);
+  process.exit(1);
+}
+if (skipFilter && !SUITE.some((s) => s.name.includes(skipFilter))) {
+  console.error(`test: no stage matches --skip="${skipFilter}" (see --list)`);
   process.exit(1);
 }
 

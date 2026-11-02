@@ -1,0 +1,130 @@
+name: Test
+
+# The suite on every pull request, in three parallel jobs: `bun run test`
+# (tools/test.ts) with its two AOT compiler stages on a runner of their own,
+# the TypeScript program and the software renderer goldens, and the Rust
+# workspace's default members with the portable device crates. The
+# path-filtered workflows beside this one hold what needs another toolchain
+# or machine: cross builds, GPU hosts, the pinned nightly, real JNI headers.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js:
+    name: JavaScript suite, typecheck, goldens
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
+      # .pocket-build/cache holds the QuickJS vendor objects and the generated
+      # AOT crates' cargo target; target/ holds the runtime fixtures.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          cache-directories: .pocket-build/cache
+          cache-on-failure: true
+      # Camera fixtures link libjpeg; Linux audio fixtures use ALSA's null device.
+      - name: Install native test dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-turbo8-dev libasound2-dev pkg-config
+      - run: bun install --frozen-lockfile
+      - run: bun tools/wasm.ts
+      # Every stage but the two AOT compiler stages, which the `aot` job runs.
+      - run: bun tools/test.ts --skip=AOT
+      # The app build at the start of the suite generates the local style
+      # module that TypeScript imports.
+      - run: bunx tsc --noEmit
+      - run: bun tests/golden.ts
+
+  aot:
+    name: AOT compiler stages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
+      # .pocket-build/cache holds the generated AOT crates' cargo target.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          cache-directories: .pocket-build/cache
+          cache-on-failure: true
+      - run: bun install --frozen-lockfile
+      - run: bun tools/wasm.ts
+      # "AOT frontends and execution parity" and "Model AOT semantics and
+      # resources": the compiler's semantic tests, each generated crate
+      # compiled against microts.
+      - run: bun tools/test.ts --stage=AOT
+
+  rust:
+    name: Rust workspace, portable device crates, lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          cache-on-failure: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      # wgpu tests render through Mesa's Vulkan driver; audio and camera
+      # fixtures link ALSA and libjpeg.
+      - name: Install headless GPU and media libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libasound2-dev libjpeg-turbo8-dev pkg-config
+      - name: Format
+        run: cargo fmt --manifest-path Cargo.toml -p pocket-text -p pocket-desktop-host -p pocket3d -p pocket3d-world -p pocket3d-anim -p pocket3d-mesh -p pocket-ui-wgpu -p pocket-web-render -p pocket-sim -- --check
+      - name: Test the workspace default members
+        run: cargo test --locked --manifest-path Cargo.toml
+      # Device crates outside default-members that build on a host, and the
+      # feature sets the programs select.
+      - name: Test the portable device crates and feature sets
+        run: |
+          cargo test --locked --manifest-path Cargo.toml -p pocket-psp-ge -p pocket-vita-gxm -p pocket-apple -p pocket3d-title -p pocketjs-wasm -p pocket-web-wgpu
+          cargo test --locked --manifest-path Cargo.toml -p pocketjs-core --features counters
+          cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
+          cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
+          cargo test --locked --manifest-path Cargo.toml -p microts --features runtime
+          cargo check --locked --manifest-path Cargo.toml -p pocket-web-wgpu --target wasm32-unknown-unknown
+      - name: Portable text wasm
+        run: bun tools/text-wasm.ts
+      - name: Compiled GBA presentation against its exported profile
+        run: |
+          bun tools/pocket.ts host export --target gba --out .pocket-build/gba-profile
+          POCKETJS_PROFILE_RS="$PWD/.pocket-build/gba-profile/pocket_profile.rs" cargo test --locked --manifest-path programs/gba/Cargo.toml --lib
+      - name: Clippy
+        run: cargo clippy --locked --manifest-path Cargo.toml -p pocket3d -p pocket3d-world -p pocket3d-anim -p pocket3d-mesh -p pocket-ui-wgpu -p pocket-web-render -p pocket-sim --all-targets --no-deps -- -D warnings
