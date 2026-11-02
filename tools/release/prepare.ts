@@ -44,12 +44,14 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
   }
   if (commits.length === 0) throw new Error(`No unreleased commits after ${previousTag}`);
   const bump = requested === "auto" ? inferBump(commits) : requested;
-  const version = bumpVersion(current, bump);
+  const npmBump = requested === "auto" && current.startsWith("0.") && bump === "major" ? "minor" : bump;
+  const version = bumpVersion(current, npmBump);
   const cargoPath = resolve(cwd, "Cargo.toml");
   const cargoText = await Bun.file(cargoPath).text();
   const manifest = Bun.TOML.parse(cargoText) as { workspace: { package: { version: string } } };
   const previousCargoVersion = manifest.workspace.package.version;
-  const cargoVersion = bumpVersion(previousCargoVersion, bump);
+  const cargoBump = requested === "auto" && previousCargoVersion.startsWith("0.") && bump === "major" ? "minor" : bump;
+  const cargoVersion = bumpVersion(previousCargoVersion, cargoBump);
   const cargo = ["rustup", "run", STABLE_RUST_TOOLCHAIN, "cargo"];
   const metadata = JSON.parse(run([...cargo, "metadata", "--locked", "--no-deps", "--format-version=1"], cwd)) as {
     packages: CargoPackage[]; workspace_members: string[];
@@ -66,9 +68,10 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
 
   for (const file of RELEASE_VERSION_FILES) {
     const path = resolve(cwd, file);
-    const doc = await Bun.file(path).json();
-    doc.version = version;
-    await Bun.write(path, JSON.stringify(doc, null, 2) + "\n");
+    const before = await Bun.file(path).text();
+    const after = before.replace(/(^[\t ]*"version"\s*:\s*)"[^"]*"/m, `$1"${version}"`);
+    if (JSON.parse(after).version !== version) throw new Error(`Cannot update the root version in ${file}`);
+    await Bun.write(path, after);
   }
   // Preserve TOML formatting and external dependency requirements.
   const manifests = run(["git", "ls-files", "Cargo.toml", "**/Cargo.toml"], cwd).split("\n");
@@ -128,7 +131,7 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
   run(["git", "diff", "--check"], cwd);
   const files = run(["git", "diff", "--name-only"], cwd).split("\n").filter(Boolean);
   files.push(MARKER);
-  return { ...marker, bump, files, notes: entry };
+  return { ...marker, bump, npmBump, cargoBump, files, notes: entry };
 }
 
 async function main() {
@@ -155,7 +158,7 @@ async function main() {
   try {
     const plan = await prepareRelease(worktree, bump as Bump | "auto");
     const title = `chore(release): v${plan.version}`;
-    const body = `Release ${plan.version}. Merging this PR into main tags the merge commit and runs the repository release workflow.\n\n- Framework, CLI and Hero: ${plan.previousVersion} → ${plan.version}\n- Cargo workspace: ${plan.previousCargoVersion} → ${plan.cargoVersion}\n- Bump: ${plan.bump}\n- Prepared from: ${plan.baseCommit}\n\nCargo workspace lock update, Bun frozen lockfile check, version consistency, and changelog validation passed.\n\n${plan.notes}`;
+    const body = `Release ${plan.version}. Merging this PR into main tags the merge commit and runs the repository release workflow.\n\n- Framework, CLI and Hero: ${plan.previousVersion} → ${plan.version}\n- Cargo workspace: ${plan.previousCargoVersion} → ${plan.cargoVersion}\n- Bump: npm ${plan.npmBump}, Cargo ${plan.cargoBump} (${bump})\n- Prepared from: ${plan.baseCommit}\n\nCargo workspace lock update, Bun frozen lockfile check, version consistency, and changelog validation passed.\n\n${plan.notes}`;
     const bodyFile = resolve(output, "PR_BODY.md");
     await Bun.write(bodyFile, body);
     console.log(`${title}; Cargo ${plan.cargoVersion}\n${run(["git", "diff", "--stat"], worktree)}`);

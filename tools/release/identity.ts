@@ -10,6 +10,7 @@ function git(args: string[], cwd: string, optional = false): string {
 }
 
 export async function releaseIdentity(cwd: string, event: string, ref: string, input?: string, createTag = false) {
+  if (git(["status", "--porcelain"], cwd)) throw new Error("Release identity requires a clean committed source tree");
   const fromMerge = event === "push" && ref === "refs/heads/main";
   let version: string;
   if (fromMerge) {

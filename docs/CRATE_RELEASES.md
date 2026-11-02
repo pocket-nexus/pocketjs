@@ -12,9 +12,10 @@ tag. The caller's branch and uncommitted files stay in place. GitHub CLI (`gh`)
 must be installed and authenticated for `pocket-nexus/pocketjs`.
 
 The default bump follows Conventional Commits: `BREAKING CHANGE` or `!` selects
-major, `feat` selects minor, and other changes select patch. Override the level
-with `bun run release patch`, `minor`, or `major`. npm and Cargo advance by the
-same level from their own current versions.
+major, `feat` selects minor, and other changes select patch. For a `0.x` version,
+an inferred breaking change selects minor; entering `1.0.0` requires an explicit
+`major`. Override the level with `bun run release patch`, `minor`, or `major`.
+npm and Cargo advance from their own current versions.
 
 The command updates the framework, CLI and Hero versions, the Cargo workspace
 version and internal dependency requirements, crate README install snippets,
