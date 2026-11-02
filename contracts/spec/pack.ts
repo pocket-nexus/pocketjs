@@ -53,6 +53,14 @@
 //   stats() -> string
 //                    [one JSON line of diagnostic counters, shape below. Not
 //                     a timing source for app logic]
+//   mem() -> string  [optional. One JSON line, PackMem below. The guest samples
+//                     it on a timer, so it must not walk the JS heap]
+//   gc() -> number   [optional. Collect JS cycles now and rejoin free memory;
+//                     returns microseconds. A pause only a host running short
+//                     of memory has to offer: the guest calls it where a pause
+//                     cannot be seen. It lives here because this is the one
+//                     module the 2D layer holds on every host that streams
+//                     content. Without it the guest never asks to collect]
 
 export const PACK_OP = {
   open: 1,
@@ -61,6 +69,8 @@ export const PACK_OP = {
   loadImg: 4,
   close: 5,
   stats: 6,
+  mem: 7,
+  gc: 8,
 } as const;
 
 /** open(): not found, invalid path, or no free handle. */
@@ -104,6 +114,20 @@ export interface PackStats {
   root: string;
 }
 
+/**
+ * mem() shape. qjsLive is the JS heap in bytes; the others are 0 on a host that
+ * does not measure them. A host without a shared arena reports a large
+ * arenaLargest, which reads as "no pressure".
+ */
+export interface PackMem {
+  qjsLive: number;
+  qjsPeak?: number;
+  qjsLargest?: number;
+  qjsFailed?: number;
+  arenaFree?: number;
+  arenaLargest?: number;
+}
+
 /** The mounted pack namespace, one method per PACK_OP. */
 export interface PackOps {
   open(path: string): number;
@@ -112,9 +136,9 @@ export interface PackOps {
   loadImg(handle: number, offset: number, length: number): number;
   close(handle: number): void;
   stats?(): string;
-  /** JSON: qjsLive, qjsPeak, qjsLargest, qjsFailed, arenaFree, arenaLargest. Walks free lists: call rarely. */
+  /** JSON, PackMem. */
   mem?(): string;
-  /** Collect JS cycles now; returns microseconds spent. Hosts with their own collector omit it. */
+  /** Collect JS cycles now; returns microseconds spent. */
   gc?(): number;
 }
 

@@ -262,7 +262,7 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // module in.
   "data.fs",
   // Read-only files under the game data root behind the pack module's own
-  // namespace (`globalThis.pack`, contracts/spec/pack.ts): five synchronous
+  // namespace (`globalThis.pack`, contracts/spec/pack.ts): six synchronous
   // ops whose reads land in guest-owned buffers and whose loadImg decodes an
   // IMG entry to a texture without passing through the JS heap. The psp
   // program (programs/psp/src/pack_ops.rs) mounts it; the sim

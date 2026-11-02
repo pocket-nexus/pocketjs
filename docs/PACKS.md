@@ -20,6 +20,10 @@ pack.loadImg(fh: number, offset: number, length: number): number
 pack.close(fh: number): void
 pack.stats(): string
 // one JSON line of diagnostic counters (PackStats in the spec)
+pack.mem?(): string
+// optional: one JSON line, PackMem in the spec. The guest samples it on a timer, so it must not walk the JS heap
+pack.gc?(): number
+// optional: collect JS cycles now and rejoin free memory; returns microseconds
 ```
 
 Only the browser host returns -2. Write the retry on every host:

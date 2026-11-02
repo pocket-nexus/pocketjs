@@ -24,7 +24,7 @@ const IMG_FLAG_LINEAR = 2, PSM_T8 = 5;
 const CIRCLE = new Int16Array(257);
 for (let i = 0; i <= 256; i++) { const t = i / 256; CIRCLE[i] = (Math.sqrt(1 - t * t) * 256) | 0; }
 
-export function createLightMask(o: { screenW: number; screenH: number; texW?: number; texH?: number; levels?: number; every?: number; aspect?: number }): LightMask {
+export function createLightMask(o: { screenW: number; screenH: number; texW?: number; texH?: number; levels?: number; every?: number; aspect?: number; ops?: Ops }): LightMask {
   const W = o.texW ?? 64, H = o.texH ?? 32, L = o.levels ?? 5, every = o.every ?? 4, aspect = o.aspect ?? 1.7;
   const blob = new Uint8Array(HEADER + PAL + W * H);
   const dv = new DataView(blob.buffer);
@@ -41,14 +41,14 @@ export function createLightMask(o: { screenW: number; screenH: number; texW?: nu
   // Screen pixels to texels, as 16.16 fixed point.
   const kx = ((W * 65536) / o.screenW) | 0, ky = ((H * 65536) / o.screenH) | 0, kyA = (ky * 10 / ((aspect * 10) | 0)) | 0;
   let handle = -1, frame = 0, lastSig = -1;
-  const ops = () => getOps() as unknown as Ops;
+  const ops = () => o.ops ?? (getOps() as unknown as Ops);
   const m: LightMask = {
     handle: () => handle,
     update(lights, ambient = 0) {
       if (handle >= 0 && frame++ % every !== 0) return handle;
-      // Nothing moved by a whole texel: keep the texture (standing still costs nothing).
-      let sig = lights.length | 0;
-      for (let n = 0; n < lights.length; n++) { const l = lights[n]; sig = (Math.imul(sig, 31) + (((l.x * kx) >> 16) | 0) * 1024 + (((l.y * ky) >> 16) | 0) + ((l.r | 0) << 20)) | 0; }
+      // Nothing moved by a whole texel and no brightness changed: keep the texture (standing still costs nothing).
+      let sig = (lights.length + (ambient | 0) * 4096) | 0;
+      for (let n = 0; n < lights.length; n++) { const l = lights[n]; sig = (Math.imul(sig, 31) + (((l.x * kx) >> 16) | 0) * 1024 + (((l.y * ky) >> 16) | 0) + ((l.r | 0) << 20) + (l.a === undefined ? 256 : (l.a * 256) | 0) * 131072) | 0; }
       if (handle >= 0 && sig === lastSig) return handle;
       lastSig = sig;
       px.fill(ambient);

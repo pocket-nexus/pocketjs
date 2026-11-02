@@ -54,7 +54,7 @@ export interface Hud {
   veil(o: VeilOptions): Promise<void>;
   veilBusy(): boolean;
   veilOpen(): void;
-  card(title: string, sub?: string, seal?: string, ms?: number): Promise<void>;
+  card(title: string, sub?: string, seal?: string, ms?: number, stayCovered?: boolean): Promise<void>;
   banner(o: BannerOptions): Promise<void>;
   bannerUp(): boolean;
   toast(s: string, ms?: number): void;
@@ -154,7 +154,7 @@ export function createHud(cfg: HudConfig): Hud {
       curWho = who;
       const hasFace = !!who && !!cfg.face?.(who, -999, -999);
       setDlgWho(who); setDlgFace(hasFace);
-      const lines = wrapText(text, 16, hasFace ? 356 : 448);
+      const lines = wrapText(text, 16, W - (hasFace ? 124 : 32));
       pages = [];
       for (let i = 0; i < lines.length; i += PAGE_LINES) pages.push(lines.slice(i, i + PAGE_LINES).join("\n"));
       pageAt = 0; setDlgOn(true); showPage(); sound("line");
@@ -186,7 +186,8 @@ export function createHud(cfg: HudConfig): Hud {
       const gen = clock.generation();
       veil.busy = true; veil.time = ""; veil.sub = "";
       veil.color = kind === "light" ? hex("#fffaf0") : hex(T.ink);
-      await animate(kind === "fade" ? 240 : 420, (k) => { veil.alpha = k; });
+      const from = veil.alpha;
+      await animate(kind === "fade" ? 240 : 420, (k) => { veil.alpha = Math.max(from, k); });
       if (gen !== clock.generation()) return;
       o.swap?.();
       setDlgOn(false);
@@ -198,7 +199,7 @@ export function createHud(cfg: HudConfig): Hud {
     },
     veilBusy: () => veil.busy || veil.alpha > 0,
     veilOpen() { if (!veil.busy) veil.alpha = 0; },
-    async card(title, sub = "", seal = "", ms = 2200) {
+    async card(title, sub = "", seal = "", ms = 2200, stayCovered = false) {
       const gen = clock.generation();
       veil.busy = true; veil.color = hex(T.ink);
       await animate(320, (k) => { veil.alpha = Math.max(veil.alpha, k); });
@@ -210,7 +211,8 @@ export function createHud(cfg: HudConfig): Hud {
       if (gen !== clock.generation()) return;
       await animate(240, (k) => { if (cardS) cardS.a = 1 - k; });
       cardS = null;
-      veil.busy = false; // stays covered: the next veil() or veilOpen() reveals
+      veil.busy = false;
+      if (stayCovered) { veil.alpha = 1; return; } // the next veil() or veilOpen() reveals
       await animate(320, (k) => { veil.alpha = 1 - k; });
     },
     banner(o) {
@@ -222,7 +224,7 @@ export function createHud(cfg: HudConfig): Hud {
     },
     bannerUp: () => !!ban,
     toast(s, ms = 2200) { toastS = s; toastT = ms; },
-    objective(text, label = "新目标") { objS = text; objL = label; objT = 2600; },
+    objective(text, label = "") { objS = text; objL = label; objT = 2600; },
     placeCard(name, sub = "") { placeN = name; placeS = sub; placeT = 2200; sound("place"); },
     tracker(text, sub = "") { setTrackText(text); setTrackSub(sub); },
     progress: setProgress,
@@ -283,7 +285,7 @@ export function createHud(cfg: HudConfig): Hud {
       if (objT > 0) {
         objT -= dt; const a = Math.min(1, objT / 300);
         over.rect(W / 2 - 120, 40, 240, 24, dim, a);
-        over.text(`${objL}  ${objS}`, W / 2, 44, { align: "center", color: hex(T.gold), alpha: a });
+        over.text(objL ? `${objL}  ${objS}` : objS, W / 2, 44, { align: "center", color: hex(T.gold), alpha: a });
       }
       if (toastT > 0) {
         toastT -= dt; const a = Math.min(1, toastT / 300);
@@ -369,7 +371,7 @@ export function createHud(cfg: HudConfig): Hud {
           <Show when={dlgOn()}>
             <View class="absolute" style={{ insetL: 6, insetT: H - 86, width: W - 12, height: 82, ...frame }}>
               <Text class="absolute text-base" style={{ insetL: dlgFace() ? 92 : 8, insetT: 1, textColor: T.gold }}>{dlgWho()}</Text>
-              <Text class="absolute text-base" style={{ insetL: dlgFace() ? 92 : 8, insetT: dlgWho() ? 20 : 8, width: dlgFace() ? 360 : 452, height: 62, textColor: T.paper, lineHeight: LINE_H }} ref={(n: NodeMirror) => { dlgText = n; }}>{" "}</Text>
+              <Text class="absolute text-base" style={{ insetL: dlgFace() ? 92 : 8, insetT: dlgWho() ? 20 : 8, width: W - (dlgFace() ? 120 : 28), height: 62, textColor: T.paper, lineHeight: LINE_H }} ref={(n: NodeMirror) => { dlgText = n; }}>{" "}</Text>
             </View>
           </Show>
 

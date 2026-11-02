@@ -1,6 +1,6 @@
 // @pocketjs/framework/game2d — texture pool with a byte budget.
 //
-// A handheld dies silently when its arena runs out, so nothing here loads without
+// A handheld dies with no message when its arena runs out, so nothing here loads without
 // accounting. Images live in packs (see packs.ts); `get` loads on first use, marks the
 // frame it was used on and evicts least-recently-used images when over budget. An
 // image drawn in the current frame is never evicted.
@@ -25,18 +25,21 @@ export interface TexturePool {
 
 export interface TextureStats { live: number; bytes: number; peakBytes: number; loads: number; evictions: number; failures: number; loadsThisFrame: number; maxLoadsPerFrame: number }
 
+/** Longest wait between tries at an image that keeps failing to load (frames). */
+const RETRY_MAX_FRAMES = 240;
+
 /** Arena cost of one CLUT8 texture: pixels + palette + header. */
 export const textureBytes = (w: number, h: number) => w * h + 1024 + 32;
 
-export function createTexturePool(store: PackStore, budgetBytes: number): TexturePool {
+export function createTexturePool(store: PackStore, budgetBytes: number, freeTexture: (handle: number) => void = (h) => (getOps() as unknown as FreeOps).freeTexture?.(h)): TexturePool {
   // State lives on the image itself: `get` runs for every sprite every frame, and on a PSP a Map
   // lookup costs 8 µs while a property read costs 2. Eviction, which is rare, pays for a sort instead.
   let live: PackImage[] = [];
   const st: TextureStats = { live: 0, bytes: 0, peakBytes: 0, loads: 0, evictions: 0, failures: 0, loadsThisFrame: 0, maxLoadsPerFrame: 0 };
-  let frame = 1;
+  let frame = 1, lastPurge = -1000;
   const free = (img: PackImage) => {
     if (img.handle < 0) return;
-    (getOps() as unknown as FreeOps).freeTexture?.(img.handle);
+    freeTexture(img.handle);
     img.handle = -1; st.bytes -= textureBytes(img.tw, img.th); st.live--;
   };
   const evictFor = (need: number) => {
@@ -55,10 +58,22 @@ export function createTexturePool(store: PackStore, budgetBytes: number): Textur
     budget: budgetBytes,
     get(img) {
       if (img.handle >= 0) { img.used = frame; return img.handle; }
+      if (frame < img.retryAt) return -1;
       const bytes = textureBytes(img.tw, img.th);
       evictFor(bytes);
       const handle = store.loadImage(img);
-      if (handle < 0) { st.failures++; return -1; }
+      if (handle < 0) {
+        // Usually the arena: full, or free only in pieces. Freed storage drains after the GPU is done with
+        // it, so make room now and retry soon. A corrupt image also lands here, and each try reads the whole
+        // entry from storage, so the wait doubles. The purge has its own cooldown: one bad image must not
+        // throw away everything, every frame.
+        st.failures++;
+        img.retryAt = frame + Math.min(RETRY_MAX_FRAMES, 1 << img.fails);
+        if (img.fails < 16) img.fails++;
+        if (frame - lastPurge > 60) { lastPurge = frame; evictFor(pool.budget * 2); }
+        return -1;
+      }
+      img.fails = 0; img.retryAt = 0;
       img.handle = handle; img.used = frame; live.push(img);
       st.bytes += bytes; st.live++; st.loads++; st.loadsThisFrame++;
       if (st.bytes > st.peakBytes) st.peakBytes = st.bytes;

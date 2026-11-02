@@ -75,12 +75,21 @@ export function createInput(): Input {
           if (o.mode === "grid" && (o.cols ?? 1) > 1) {
             const cols = o.cols!;
             const horizontal = d === "left" || d === "right";
-            const delta = horizontal ? step : step * cols;
-            for (let k = h.index + delta, tries = 0; tries < count; k += delta, tries++) {
-              // Down into a shorter last row lands on its last item instead of doing nothing.
-              if (!horizontal && k >= count && Math.floor(k / cols) === Math.floor((count - 1) / cols)) k = count - 1;
-              if (k < 0 || k >= count) return;
-              if (horizontal && Math.floor(k / cols) !== Math.floor(h.index / cols)) return;
+            if (!horizontal) {
+              // Up or down lands on the nearest enabled item of the next row that has one, so a disabled
+              // cell or a shorter last row never blocks the way.
+              const col = h.index % cols, last = Math.floor((count - 1) / cols);
+              for (let row = Math.floor(h.index / cols) + step; row >= 0 && row <= last; row += step) {
+                for (let dist = 0; dist < cols; dist++) {
+                  for (const c of dist ? [col - dist, col + dist] : [col]) {
+                    const k = row * cols + c;
+                    if (c >= 0 && c < cols && on(k)) { h.set(k); return; }
+                  }
+                }
+              }
+              return;
+            }
+            for (let k = h.index + step; k >= 0 && k < count && Math.floor(k / cols) === Math.floor(h.index / cols); k += step) {
               if (on(k)) { h.set(k); return; }
             }
             return;

@@ -24,6 +24,7 @@ import {
   AUDIO_PAK_WAV_PREFIX,
 } from "../../../contracts/spec/audio.ts";
 import { PACK_OPEN_PENDING, type PackOps } from "../../../contracts/spec/pack.ts";
+import { packHost } from "./packs.ts";
 
 /**
  * Bytes per read, the same at every rate. 8 KiB is 4096 mono frames: 186 ms at
@@ -40,12 +41,6 @@ const DEFAULT_RATE = 22050;
  *  chunks of this many frames and fed by credit. */
 const SFX_CHUNK_FRAMES = 8192;
 const SFX_DEFAULT_VOICES = 3;
-
-function packHost(): PackOps | null {
-  const ns = (globalThis as { pack?: unknown }).pack;
-  if (!ns || typeof ns !== "object") return null;
-  return typeof (ns as PackOps).open === "function" ? (ns as PackOps) : null;
-}
 
 function nowMs(): number {
   const perf = (globalThis as { performance?: { now?: () => number } }).performance;

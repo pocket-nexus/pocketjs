@@ -2,7 +2,7 @@
 //
 // Reactive UI graphs are cycles, which reference counting cannot free. Measured on a real PSP: a
 // turn-based battle produced about 1.5 KB of cycles per frame, and the heap went from 4 MB to 15 MB
-// with nothing collecting it, until allocation failed and scripts died silently. One collection of
+// with nothing collecting it, until allocation failed and scripts died with no message. One collection of
 // a 4 MB heap takes about 140 ms, far too long to hide inside a moving scene.
 //
 // So: call `safePoint()` where a pause cannot be seen (screen covered by a transition, the game
@@ -14,6 +14,8 @@ import { packHost } from "./packs.ts";
 export interface MemoryGuard {
   /** A pause is invisible right now: collect if enough garbage has built up. */
   safePoint(): void;
+  /** Collect now, whatever has built up. For a host that is out of room, behind a transition. */
+  collect(): void;
   /** Call once a frame. Samples rarely; collects regardless when over the hard limit. */
   frame(): void;
   stats(): { collections: number; forced: number; maxGcMs: number; lastLive: number; peakLive: number };
@@ -34,6 +36,7 @@ export function createMemoryGuard(o: { softBytes?: number; hardBytes?: number; s
   };
   return {
     safePoint() { if (armed && host?.gc) collect(); },
+    collect() { if (host?.gc) collect(); },
     frame() {
       if (!host?.gc || !host.mem) return;
       if (++tick < every) return;

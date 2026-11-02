@@ -586,6 +586,8 @@ pub mod pack {
     pub const OP_LOAD_IMG: u8 = 4;
     pub const OP_CLOSE: u8 = 5;
     pub const OP_STATS: u8 = 6;
+    pub const OP_MEM: u8 = 7;
+    pub const OP_GC: u8 = 8;
     /// open() results below zero.
     pub const OPEN_MISSING: i32 = -1;
     pub const OPEN_PENDING: i32 = -2;

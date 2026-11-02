@@ -16,7 +16,7 @@ import { createEffect, createSignal, Index } from "solid-js";
 import { getOps, type NodeMirror } from "@pocketjs/framework";
 import { Image, Text, View } from "@pocketjs/framework/components";
 import { onFrame } from "@pocketjs/framework/lifecycle";
-import { createMusicPlayer, createSfxBank } from "../../framework/src/game2d/music.ts";
+import { createMusicPlayer, createSfxBank } from "@pocketjs/framework/game2d";
 
 const TILES = "demo/tiles.pack";
 const TONE = "demo/tone.pcm";
