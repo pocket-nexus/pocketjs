@@ -21,6 +21,7 @@ on:
       - "tools/test-quickjs-guest.ts"
       - "tools/ipodtouch4*.ts"
       - "tools/ios6-setup.ts"
+      - "tools/native-source.ts"
       - "tools/build/toolchains/**"
       - "tests/ipodtouch4-native.test.ts"
   push:

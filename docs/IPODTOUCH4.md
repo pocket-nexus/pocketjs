@@ -98,16 +98,22 @@ The default local files are:
 
 ## Build inputs
 
-**The build uses a pinned iOS 6.1.3 ARMv7 sysroot, Csu bootstrap,
+**The build uses a pinned iPod touch 4 iOS 6.1.6 ARMv7 sysroot, Csu bootstrap,
 QuickJS sources and dyld extractor.** `tools/ios6-setup.ts` prepares these
 inputs; `tools/build/toolchains/ios6/manifest.json` records the firmware and
-source hashes. The sysroot supplies TAPI stubs and Mach-O images extracted
+source hashes. The sysroot contains **seven TAPI symbol files** extracted
 from the firmware shared cache. `POCKETJS_IOS6_ROOT` selects its cache;
 `POCKETJS_IOS6_SYSROOT` selects an extracted sysroot.
+`prepare-sysroot --device` reads the system cache through the verified USB SSH
+tunnel. The cache identity zeroes the writable mapping before hashing; its pointers
+and data can change on a running device. **The remaining cache bytes and the
+seven generated TAPI files must match the pinned SHA-256 values.**
+Extracted Mach-O images are temporary inputs and are not installed in the sysroot.
+`POCKETJS_IOS6_SHARED_CACHE` accepts an existing copy of that cache.
 
 ```sh
 bun ipodtouch4 setup-sources
-bun ipodtouch4 prepare-sysroot   # needs POCKETJS_IOS6_IPSW on a fresh machine
+bun ipodtouch4 prepare-sysroot --device
 bun ipodtouch4 doctor
 ```
 

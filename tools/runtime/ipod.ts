@@ -28,8 +28,8 @@ import {
   buildIPodInstaller,
   checkIPodExecutable,
   compileIPodHost,
+  compileIPodUIKit,
   hashInputs,
-  IPOD_WARNINGS,
   linkIPodExecutable,
   prepareIPodNative,
   sysrootIdentityInputs,
@@ -39,7 +39,6 @@ import { IPODTOUCH4_TOOLCHAIN } from "../build/toolchains/ipodtouch4.ts";
 import { IPOD_RUNTIME_EXECUTABLE, IPOD_RUNTIME_FILES } from "../repack/ipod.ts";
 import { writeRuntimeManifest } from "../../tools/runtime/manifest.ts";
 import { POCKET_PROFILES } from "../../hosts/index.ts";
-import { writeHostProfileHeader } from "../../tools/host-profile.ts";
 const profile = POCKET_PROFILES["ipodtouch4-dev"];
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
@@ -61,23 +60,15 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
     features: { "ui.physics": true },
     svcWire: false,
   });
-  const runtimeDefines = (buildId: string) => [
-    ...IPOD_WARNINGS,
-    "-include", writeHostProfileHeader(nativeBuild, profile),
-    "-DPOCKET_PACKAGE_RUNTIME",
-    // Studio games keep the screen awake: no game has to be touched once a
-    // minute to stay on screen.
-    "-DPOCKET_KEEP_AWAKE",
-    `-DPOCKETJS_TARGET_ID="${IPODTOUCH4_DEV_TARGET_ID}"`,
-    `-DPOCKETJS_HOST_ABI=${IPODTOUCH4_DEV_HOST_ABI}`,
-    `-DPOCKET_BUILD_ID="${buildId}"`,
-    "-I", join(repository, "programs/native/quickjs"),
-    "-I", join(repository, "programs/native/runtime/include"),
-    "-I", join(repository, "contracts/generated"),
-    "-Wno-cast-function-type-mismatch",
-  ];
+  const uiKitOptions = {
+    profile,
+    target: IPODTOUCH4_DEV_TARGET_ID,
+    hostAbi: IPODTOUCH4_DEV_HOST_ABI,
+    keepAwake: true,
+    svcWire: false,
+  };
   const identityObject = join(nativeBuild, "runtime.build-id-input.o");
-  native.compile(join(repository, "programs/ipodtouch4/runtime.c"), identityObject, runtimeDefines(BUILD_ID_PLACEHOLDER));
+  compileIPodUIKit(native, identityObject, { ...uiKitOptions, buildId: BUILD_ID_PLACEHOLDER });
   // The runtime's build id names the program alone: the status record on the
   // device reports it for every game repacked onto this runtime.
   const buildId = hashInputs([
@@ -97,7 +88,7 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
     { label: "native/libpocket_native_program.a", path: native.rustLibrary },
   ]);
   const runtimeObject = join(nativeBuild, "runtime.o");
-  native.compile(join(repository, "programs/ipodtouch4/runtime.c"), runtimeObject, runtimeDefines(buildId));
+  compileIPodUIKit(native, runtimeObject, { ...uiKitOptions, buildId });
 
   // Linked and signed in a directory of its own: ldid finds no Info.plist or
   // resources to bind, so the signature stays valid in any bundle.

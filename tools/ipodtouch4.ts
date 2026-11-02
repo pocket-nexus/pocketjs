@@ -1,4 +1,5 @@
 import { setupSources, prepareSysroot } from "./ios6-setup.ts";
+import { ios6SharedCachePath, ios6SharedCacheLinkIdentity } from "./build/toolchains/ios6.ts";
 import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
@@ -13,6 +14,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -640,7 +642,7 @@ async function withTunnel<T>(
 async function doctor(): Promise<void> {
   let ok = true;
   const usbTools = ["idevice_id", "ideviceinfo", "iproxy"];
-  const required = ["bun", "rustup", "xcrun", "ldid", ...(VIA ? [] : usbTools), "ssh", "scp", "zip", "unzip", "hdiutil"];
+  const required = ["bun", "rustup", "xcrun", "ldid", ...(VIA ? [] : usbTools), "ssh", "scp", "zip", "unzip"];
   for (const name of required) {
     const path = commandPath(name);
     ok = check(name, path !== undefined, path ?? "not found") && ok;
@@ -656,7 +658,7 @@ async function doctor(): Promise<void> {
 
   const toolchain = inspectIPodTouch4Toolchain();
   ok = check(
-    "validated iOS 6.1.3 ARMv7 sysroot",
+    "validated iOS 6.1.6 ARMv7 sysroot",
     toolchain.sysroot,
     ipodtouch4SysrootPath(),
   ) && ok;
@@ -719,7 +721,7 @@ export function prepareIPodNative(
     throw new Error("pocket ipodtouch4: pinned sources are absent; run `bun ipodtouch4 setup-sources`");
   }
   if (!toolchain.sysroot) {
-    throw new Error("pocket ipodtouch4: validated iOS 6.1.3 sysroot is absent; run `bun ipodtouch4 prepare-sysroot`");
+    throw new Error("pocket ipodtouch4: validated iOS 6.1.6 sysroot is absent; run `bun ipodtouch4 prepare-sysroot`");
   }
   const clang = mustRun("xcrun", ["--find", "clang"]);
   const linker = mustRun("xcrun", ["--find", IPODTOUCH4_TOOLCHAIN.compiler.linker]);
@@ -832,7 +834,7 @@ export function compileIPodHost(native: IPodNative, options: {
     quickjs,
   ]);
   compile(join(REPOSITORY, "engine/guest-quickjs/src/guest.c"), guestAdapter, [
-    ...IPOD_WARNINGS, "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
+    ...IPOD_WARNINGS, "-DPOCKET_QJS_BELLARD", "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
     "-I", join(REPOSITORY, "contracts/generated"), "-isystem", quickjs,
   ]);
   if (options.svcWire) {
@@ -845,6 +847,36 @@ export function compileIPodHost(native: IPodNative, options: {
     return object;
   });
   return { offload, crtGlobals, qjsProgram, guestAdapter, svcWire: options.svcWire ? svcWire : null, libc, application };
+}
+
+/** Compile the UIKit entry point with the same instance API in both package modes. */
+export function compileIPodUIKit(native: IPodNative, output: string, options: {
+  readonly profile: PocketProfile;
+  readonly target: string;
+  readonly hostAbi: number;
+  readonly buildId: string;
+  readonly keepAwake: boolean;
+  readonly svcWire: boolean;
+  readonly embedded?: { readonly logical: readonly [number, number]; readonly rasterDensity: number };
+}): void {
+  native.compile(join(REPOSITORY, "programs/ipodtouch4/runtime.c"), output, [
+    ...IPOD_WARNINGS,
+    "-include", writeHostProfileHeader(native.nativeBuild, options.profile),
+    `-DPOCKETJS_TARGET_ID="${options.target}"`,
+    `-DPOCKETJS_HOST_ABI=${options.hostAbi}`,
+    `-DPOCKET_BUILD_ID="${options.buildId}"`,
+    ...(options.keepAwake ? ["-DPOCKET_KEEP_AWAKE"] : []),
+    ...(options.svcWire ? ["-DPOCKET_SVC_WIRE"] : []),
+    ...(options.embedded ? [
+      `-DPOCKET_LOGICAL_WIDTH=${options.embedded.logical[0]}`,
+      `-DPOCKET_LOGICAL_HEIGHT=${options.embedded.logical[1]}`,
+      `-DPOCKET_RASTER_DENSITY=${options.embedded.rasterDensity}`,
+    ] : ["-DPOCKET_PACKAGE_RUNTIME"]),
+    "-I", join(REPOSITORY, "programs/native/quickjs"),
+    "-I", join(REPOSITORY, "programs/native/runtime/include"),
+    "-I", join(REPOSITORY, "contracts/generated"),
+    "-Wno-cast-function-type-mismatch",
+  ]);
 }
 
 /**
@@ -880,7 +912,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
   const { inputs, javaScript: guestJavaScript, pack: guestPak } = applicationBundle(application, IPODTOUCH4_DEV_TARGET_ID);
   const nativeBuild = join(REPOSITORY, `.pocket-build/ipodtouch4/${APP.id}/runtime`);
   const native = prepareIPodNative(nativeBuild, APP.nativeCore, APP_ROOT);
-  const { compile, sysroot, quickJsObjects, rustLibrary } = native;
+  const { sysroot, quickJsObjects, rustLibrary } = native;
 
   const bundle = join(outdir, BUNDLE_NAME);
   rmSync(bundle, { recursive: true, force: true });
@@ -899,17 +931,14 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
       writeFileSync(join(bundle, name), icon.toBuffer("image/png"));
     }
   }
-  const firstParty = [
-    ...IPOD_WARNINGS,
-    "-include", writeHostProfileHeader(nativeBuild, planProfileDocument(inputs.profile)),
-    `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
-    `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
-    `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
-    ...(APP.keepAwake ? ["-DPOCKET_KEEP_AWAKE"] : []),
-    // The wrapper reports the transport's state in the acceptance record,
-    // so it needs the same switch as the guest runtime.
-    ...(APP.svcWire ? ["-DPOCKET_SVC_WIRE"] : []),
-  ];
+  const uiKitOptions = {
+    profile: planProfileDocument(inputs.profile),
+    target: inputs.target,
+    hostAbi: inputs.hostAbi,
+    keepAwake: !!APP.keepAwake,
+    svcWire: !!APP.svcWire,
+    embedded: inputs.viewport,
+  };
   const host = compileIPodHost(native, {
     profile: planProfileDocument(inputs.profile),
     target: inputs.target,
@@ -921,12 +950,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
     appRoot: APP_ROOT,
   });
   const runtimeIdentityObject = join(nativeBuild, "runtime.build-id-input.o");
-  compile(join(REPOSITORY, "programs/ipodtouch4/runtime.c"), runtimeIdentityObject, [
-    ...firstParty,
-    `-DPOCKET_BUILD_ID=\"${BUILD_ID_PLACEHOLDER}\"`,
-    "-I", join(REPOSITORY, "programs/native/quickjs"),
-    "-Wno-cast-function-type-mismatch",
-  ]);
+  compileIPodUIKit(native, runtimeIdentityObject, { ...uiKitOptions, buildId: BUILD_ID_PLACEHOLDER });
 
   const buildId = hashInputs([
     ...ipodBundleFiles(bundle).map(name => ({ label: `bundle/${name}`, path: join(bundle, name) })),
@@ -964,12 +988,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
   ]);
 
   const runtimeObject = join(nativeBuild, "runtime.o");
-  compile(join(REPOSITORY, "programs/ipodtouch4/runtime.c"), runtimeObject, [
-    ...firstParty,
-    `-DPOCKET_BUILD_ID=\"${buildId}\"`,
-    "-I", join(REPOSITORY, "programs/native/quickjs"),
-    "-Wno-cast-function-type-mismatch",
-  ]);
+  compileIPodUIKit(native, runtimeObject, { ...uiKitOptions, buildId });
 
   const embeddedJavaScript = join(nativeBuild, "app.js.bin");
   writeFileSync(embeddedJavaScript, Buffer.concat([readFileSync(guestJavaScript), Buffer.from([0])]));
@@ -1311,7 +1330,7 @@ function usage(): void {
 
   bun ipodtouch4 doctor
   bun ipodtouch4 setup-sources
-  bun ipodtouch4 prepare-sysroot
+  bun ipodtouch4 prepare-sysroot [--device]
   bun ipodtouch4 build
   bun ipodtouch4 deploy
   bun ipodtouch4 uninstall
@@ -1341,7 +1360,30 @@ export async function main(args: readonly string[] = Bun.argv.slice(2)): Promise
       setupSources();
       break;
     case "prepare-sysroot":
-      prepareSysroot();
+      if (args.includes("--device") && !inspectIPodTouch4Toolchain().sysroot) {
+        const cache = ios6SharedCachePath();
+        mkdirSync(dirname(cache), { recursive: true });
+        await withTunnel(async (port) => {
+          const temporary = `${cache}.${randomBytes(8).toString("hex")}.tmp`;
+          try {
+            // Stream the firmware cache to disk instead of buffering it in the CLI.
+            const download = Bun.spawn({
+              cmd: ["ssh", ...sshArgs(port, `cat ${shellQuote("/" + IPODTOUCH4_TOOLCHAIN.firmware.sharedCachePath)}`)],
+              stdin: "ignore", stdout: Bun.file(temporary), stderr: "pipe",
+            });
+            const [exitCode, stderr] = await Promise.all([
+              download.exited, new Response(download.stderr).text(),
+            ]);
+            if (exitCode !== 0) throw new Error(`pocket ipodtouch4: system cache download failed: ${stderr.trim()}`);
+            const digest = ios6SharedCacheLinkIdentity(temporary);
+            if (digest !== IPODTOUCH4_TOOLCHAIN.firmware.sharedCacheLinkIdentitySha256) {
+              throw new Error(`pocket ipodtouch4: device system cache link identity ${digest} does not match the pinned iOS 6.1.6 hash`);
+            }
+            renameSync(temporary, cache);
+          } finally { rmSync(temporary, { force: true }); }
+        });
+        prepareSysroot(cache);
+      } else prepareSysroot();
       break;
     case "build":
       await buildIPodTouch4Native(prepareCompiledApplication(ipodTouch4Profile, args.slice(1), dirname(bundleDirectory())));

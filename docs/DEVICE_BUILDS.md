@@ -34,13 +34,13 @@ The default iPod touch 4 host config builds without application code. Packaging 
 
 ```sh
 bun tools/pocket.ts build --config programs/ipodtouch4/pocket.host.config.ts \
-  --out dist/redmi-runtime
+  --out dist/ipod-runtime
 bun tools/pocket.ts compile --manifest apps/clear/pocket.app.json \
   --project-root . --host-config programs/ipodtouch4/pocket.host.config.ts \
-  --output dist/clear-redmi.pocket
+  --output dist/clear-ipod.pocket
 bun tools/pocket.ts pack --config programs/ipodtouch4/pocket.host.config.ts \
-  --runtime dist/redmi-runtime/runtime --pocket dist/clear-redmi.pocket \
-  --out dist/clear-redmi.apk
+  --runtime dist/ipod-runtime/runtime --pocket dist/clear-ipod.pocket \
+  --out dist/clear-ipod.ipa
 ```
 
 **The runtime directory records its host contract hash, its stamped `pocket.host.json` and hashes of the native files.** `pack` verifies those records and admits the package variant by the host contract's facts. iPod packaging preserves the runtime's native signature and adds the application payload.

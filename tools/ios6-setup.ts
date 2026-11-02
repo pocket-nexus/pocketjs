@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { IOS6_TOOLCHAIN, ios6CacheRoot, ios6CsuPath, ios6DyldPath, ios6QuickJsPath, ios6SysrootPath, inspectIOS6Toolchain, sha256File } from "./build/toolchains/ios6.ts";
+import { IOS6_TOOLCHAIN, ios6CacheRoot, ios6CsuPath, ios6DyldPath, ios6QuickJsPath, ios6SysrootPath, ios6SharedCachePath, ios6SharedCacheLinkIdentity, inspectIOS6Toolchain, sha256File } from "./build/toolchains/ios6.ts";
 const REPOSITORY = resolve(import.meta.dir, "..");
 interface CommandResult { exitCode: number; stdout: string; stderr: string }
 function run(
@@ -64,12 +64,6 @@ export function setupSources(): void {
   const status = inspectIOS6Toolchain();
   if (!status.csu || !status.quickjs || !status.dyld) throw new Error("pocket ios6: downloaded source verification failed");
   console.log(`sources ready in ${ios6CacheRoot()}/sources`);
-}
-
-function customIpswPath(): string {
-  const path = process.env.POCKETJS_IOS6_IPSW?.trim();
-  if (!path) throw new Error("pocket ios6: set POCKETJS_IOS6_IPSW to the validated CustomAJ restore IPSW");
-  return resolve(path);
 }
 
 function walkFiles(root: string): string[] {
@@ -138,34 +132,25 @@ function createLinkerStubs(root: string): void {
   writeTextStub(join(root, "usr/lib/libgcc_s.1.tbd"), "/usr/lib/libgcc_s.1.dylib", [join(root, "usr/lib/libgcc_s.1.dylib")]);
 }
 
-export function prepareSysroot(): void {
+export function prepareSysroot(sharedCache = process.env.POCKETJS_IOS6_SHARED_CACHE?.trim() || ios6SharedCachePath()): void {
   setupSources();
   if (inspectIOS6Toolchain().sysroot) {
     console.log(`validated sysroot already present at ${ios6SysrootPath()}`);
     return;
   }
-  const ipsw = customIpswPath();
-  if (!existsSync(ipsw)) throw new Error(`pocket ios6: restore IPSW does not exist: ${ipsw}`);
+  const cache = resolve(sharedCache);
+  if (!existsSync(cache)) {
+    throw new Error("pocket ios6: run `bun ipodtouch4 prepare-sysroot --device` or set POCKETJS_IOS6_SHARED_CACHE to the pinned iPod touch 4 cache");
+  }
+  if (ios6SharedCacheLinkIdentity(cache) !== IOS6_TOOLCHAIN.firmware.sharedCacheLinkIdentitySha256) {
+    throw new Error("pocket ios6: shared cache link identity does not match iPod4,1 iOS 6.1.6 (10B500)");
+  }
   const transaction = randomBytes(8).toString("hex");
-  const source = join(ios6CacheRoot(), "sysroot-source");
-  const mount = join(ios6CacheRoot(), `mount-${transaction}`);
-  const staging = join(ios6CacheRoot(), `sysroot-6.1.3-stage-${transaction}`);
+  const staging = join(ios6CacheRoot(), `sysroot-stage-${transaction}`);
   const buildDirectory = join(ios6CacheRoot(), `build/dsc-extractor-${transaction}`);
-  mkdirSync(source, { recursive: true });
-  mkdirSync(mount, { recursive: true });
   mkdirSync(staging, { recursive: true });
   mkdirSync(buildDirectory, { recursive: true });
-  const dmg = join(source, IOS6_TOOLCHAIN.firmware.rootFilesystemAsset);
-  mustRun("unzip", ["-j", "-o", ipsw, IOS6_TOOLCHAIN.firmware.rootFilesystemAsset, "-d", source]);
-  let mounted = false;
-  let operationError: unknown;
   try {
-    mustRun("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mount, dmg]);
-    mounted = true;
-    const cache = join(mount, IOS6_TOOLCHAIN.firmware.sharedCachePath);
-    if (sha256File(cache) !== IOS6_TOOLCHAIN.firmware.sharedCacheSha256) {
-      throw new Error("pocket ios6: mounted iOS shared cache hash does not match 10B329");
-    }
     const dyldSource = ios6DyldPath();
     const extractorSource = join(buildDirectory, "dsc_extractor.cpp");
     let extractor = readFileSync(join(dyldSource, "launch-cache/dsc_extractor.cpp"), "utf8");
@@ -177,15 +162,20 @@ export function prepareSysroot(): void {
     const main = join(buildDirectory, "main.cpp");
     writeFileSync(main, `#include <stdio.h>\nextern \"C\" int dyld_shared_cache_extract_dylibs_progress(const char *, const char *, void (^)(unsigned, unsigned));\nint main(int argc, const char **argv) { if (argc != 3) return 64; return dyld_shared_cache_extract_dylibs_progress(argv[1], argv[2], ^(unsigned current, unsigned total) { if (current == total || current % 100 == 0) fprintf(stderr, \"%u/%u\\n\", current, total); }); }\n`);
     const extractorBinary = join(buildDirectory, "dsc-extractor");
-    mustRun("xcrun", ["clang++", "-std=gnu++11", "-fblocks", "-Wno-deprecated-declarations",
+    mustRun("xcrun", ["clang++", "-O2", "-std=gnu++11", "-fblocks", "-Wno-deprecated-declarations",
       "-I", join(dyldSource, "include"), "-I", join(dyldSource, "launch-cache"), extractorSource,
       join(dyldSource, "launch-cache/dsc_iterator.cpp"), main, "-o", extractorBinary]);
-    mustRun(extractorBinary, [cache, staging]);
-    thinExtractedMachO(staging);
-    createLinkerStubs(staging);
+    const extracted = join(buildDirectory, "extracted");
+    mkdirSync(extracted);
+    mustRun(extractorBinary, [cache, extracted]);
+    thinExtractedMachO(extracted);
+    createLinkerStubs(extracted);
     for (const [relative, expected] of Object.entries(IOS6_TOOLCHAIN.compiler.sysrootFiles)) {
-      const path = join(staging, relative);
+      const path = join(extracted, relative);
       if (!existsSync(path) || sha256File(path) !== expected) throw new Error(`pocket ios6: extracted sysroot mismatch for ${relative}`);
+      const output = join(staging, relative);
+      mkdirSync(dirname(output), { recursive: true });
+      cpSync(path, output);
     }
     const destination = ios6SysrootPath();
     const backup = `${destination}.backup-${transaction}`;
@@ -200,22 +190,7 @@ export function prepareSysroot(): void {
       throw error;
     }
     console.log(`prepared validated ARMv7 sysroot at ${destination}`);
-  } catch (error) {
-    operationError = error;
-    throw error;
   } finally {
-    if (mounted) {
-      const detached = run("hdiutil", ["detach", mount]);
-      if (detached.exitCode === 0) {
-        rmSync(mount, { recursive: true, force: true });
-      } else if (operationError === undefined) {
-        throw new Error(`pocket ios6: failed to detach read-only restore image:\n${detached.stderr.trim()}`);
-      } else {
-        console.error(`pocket ios6: warning: restore image remains mounted at ${mount}`);
-      }
-    } else {
-      rmSync(mount, { recursive: true, force: true });
-    }
     rmSync(staging, { recursive: true, force: true });
     rmSync(buildDirectory, { recursive: true, force: true });
   }

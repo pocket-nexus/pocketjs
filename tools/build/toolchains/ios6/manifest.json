@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "toolchainVersion": "iphoneos-6.1.3-armv7-v1",
+  "toolchainVersion": "iphoneos-6.1.6-tapi-v1",
   "cachePath": "ios6",
   "compiler": {
     "target": "armv7-apple-ios",
     "minimumVersion": "6.0",
     "linker": "ld-classic",
     "sysrootFiles": {
-      "usr/lib/libSystem.B.dylib": "3bfabc4ba32c378b8e3ba47df0a5ab4bdfb10eec855bcb30b006b04421e04c04",
-      "usr/lib/libgcc_s.1.dylib": "81ac505082fcfded76b675ae7390f0e52c916a90b78682d1a3cad571a437b3b9",
-      "usr/lib/libobjc.A.dylib": "787d97336f159a1d30b3a9b7b59619afd567bbdfbed96e0bb13a195d8992817d",
-      "System/Library/Frameworks/UIKit.framework/UIKit": "cd504f8146c89bba18adaac50bf816bc8933089d37acd7ae9fa9fa76e65c79c2",
-      "System/Library/Frameworks/Foundation.framework/Foundation": "9532f9a8688675d8d0d54ebcb7c51f8deeb8e755b41556d49b80ae6e6f2854bb",
-      "System/Library/Frameworks/CoreGraphics.framework/CoreGraphics": "4ab13c36336ec87fe683bdf27aa35d43b4d00cc437eea492e6bbd03ebf23a2ee",
-      "System/Library/Frameworks/OpenGLES.framework/OpenGLES": "fb8d91430dde82d1cbd282542f8570832795456a453848c7966f43640adc1ad9"
+      "usr/lib/libSystem.tbd": "ab7c554d6951a425256c7b980b05e7ad8462036f8dae349467dd7584bd100638",
+      "usr/lib/libgcc_s.1.tbd": "6bba50345eda45e7e64c576607f4f8fbce55208d19b418ffc3b8b25c60bdcc8a",
+      "usr/lib/libobjc.tbd": "384146b659e70f93b5d46c08d33a9d637b36ea110cf819a271cb9b46435d6ef8",
+      "System/Library/Frameworks/UIKit.framework/UIKit.tbd": "a8f833f60f1dd84edd9385670a172c3775164bd509f84037279d5d7cc9ca7a52",
+      "System/Library/Frameworks/Foundation.framework/Foundation.tbd": "863d30deeb5468f8e43a194e08a42f6a1e32b23fe44c1ebb3cc8d32be821ca60",
+      "System/Library/Frameworks/CoreGraphics.framework/CoreGraphics.tbd": "e836ebd4e8f30decae6b6bc8fc5e33e7b3fdfd9e1d38bf0cb49a4c8a1f4189eb",
+      "System/Library/Frameworks/OpenGLES.framework/OpenGLES.tbd": "88269efcb42920b8a1e35fe0e21d0be64d7434bcf98c4d52adbd3648f2ad4d0c"
     },
     "csu": {
       "repository": "https://github.com/apple-oss-distributions/Csu.git",
@@ -27,17 +27,14 @@
     "quickJsVersion": "2026-06-04"
   },
   "firmware": {
-    "asset": "iPhone4,1_6.1.3_10B329_Restore.ipsw",
-    "sha1": "7a62ee60b574301a6aafc48dcc9cccf0894ffb27",
-    "rootFilesystemAsset": "048-2613-005.dmg",
     "sharedCachePath": "System/Library/Caches/com.apple.dyld/dyld_shared_cache_armv7",
-    "sharedCacheSha256": "2dd2dbfb451e89092d31b53936edc38acd5d19e010b9c9903e3403fec77b9472",
     "sourceDevice": {
-      "productType": "iPhone4,1",
-      "hardwareModel": "N94AP",
-      "productVersion": "6.1.3",
-      "buildVersion": "10B329"
-    }
+      "productType": "iPod4,1",
+      "hardwareModel": "N81AP",
+      "productVersion": "6.1.6",
+      "buildVersion": "10B500"
+    },
+    "sharedCacheLinkIdentitySha256": "e70b020bc82c1823c551e9359c446dc072940d26e889742db652c4eae3dfa5de"
   },
   "dyld": {
     "repository": "https://github.com/apple-oss-distributions/dyld.git",
