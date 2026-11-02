@@ -834,6 +834,8 @@ pub fn pocket_tick_schedule_poll(schedule: *mut PocketTickSchedule, now: u64, ou
     pub fn pocket_runtime_create(config: *const PocketRuntimeConfig) -> *mut PocketRuntime;
     pub fn pocket_runtime_set_package_source(runtime: *mut PocketRuntime, source: *const PocketPackageSourceV1, context: *mut c_void) -> i32;
     pub fn pocket_runtime_set_guest(runtime: *mut PocketRuntime, guest: *const PocketGuestV1, context: *mut c_void) -> i32;
+    /// Decoded bytes of package textures the runtime keeps past a frame; zero, the default, keeps every texture. Beyond it, when a frame is drawn, textures the previous frame did not draw are released, least recently drawn first, and decoded from the package again by the next frame that draws them. Textures a deferred submission still reads stay.
+pub fn pocket_runtime_set_texture_budget(runtime: *mut PocketRuntime, bytes: usize) -> i32;
     pub fn pocket_runtime_add_renderer(runtime: *mut PocketRuntime, renderer: *const PocketRendererV1, context: *mut c_void) -> PocketRendererId;
     pub fn pocket_runtime_add_display(runtime: *mut PocketRuntime, display: *const PocketDisplayOutputV1, context: *mut c_void, renderer: PocketRendererId) -> i32;
     pub fn pocket_runtime_add_input_source(runtime: *mut PocketRuntime, source: *const PocketInputSourceV1, context: *mut c_void) -> i32;
