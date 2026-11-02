@@ -17,7 +17,7 @@ an inferred breaking change selects minor; entering `1.0.0` requires an explicit
 `major`. Override the level with `bun run release patch`, `minor`, or `major`.
 npm and Cargo advance from their own current versions.
 
-**An exact version sets npm, Hero and Cargo to that version.** Pre-release
+**An exact version sets the npm packages and Cargo workspace to that version.** Pre-release
 versions such as `0.16.0-beta.1` and `0.16.0-rc.1` are supported. Use
 `--cargo-version` to keep Cargo on a different version sequence:
 
@@ -42,7 +42,7 @@ pre-release identifiers. GitHub Releases use `--prerelease --latest=false`.
 Stable releases use `latest`. Cargo uses the selected SemVer in its manifests
 and internal dependencies. Publication channels are derived from the version.
 
-The command updates the framework, CLI and Hero versions, the Cargo workspace
+The command updates the npm package versions, the Cargo workspace
 version and internal dependency requirements, crate README install snippets,
 and Cargo lockfiles including isolated fixtures. It checks the Bun lockfile
 without upgrading dependencies, generates a changelog section from commit
@@ -63,8 +63,8 @@ Changes to dependencies or scripts with the same version skip the build and
 publish jobs. Release versions come from the package manifests; prior versions
 come from Git history. No release state file is generated.
 
-For a version increase, the workflow checks the framework, CLI and Hero
-versions, Cargo version advancement, and changelog. It creates the version tag
+For a version increase, the workflow checks package version consistency,
+Cargo version advancement, and changelog. It creates the version tag
 on the merged commit, then continues through builds, validation, Rust
 publication, npm publication and the GitHub Release. No second command or tag
 push is needed.

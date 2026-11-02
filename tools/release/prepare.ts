@@ -193,7 +193,7 @@ async function main() {
   try {
     const plan = await prepareRelease(worktree, requested, cargoVersion);
     const title = `chore(release): v${plan.version}`;
-    const body = `Release ${plan.version}. Merging this PR into main tags the merge commit and runs the repository release workflow.\n\n- Framework, CLI and Hero: ${plan.previousVersion} → ${plan.version}\n- Cargo workspace: ${plan.previousCargoVersion} → ${plan.cargoVersion}\n- npm channel: ${releaseChannel(plan.version)}\n- Requested: ${requested}${cargoVersion ? `; Cargo ${cargoVersion}` : ""}\n- Prepared from: ${plan.baseCommit}\n\nCargo workspace lock update, Bun frozen lockfile check, version consistency, and changelog validation passed.\n\n${plan.notes}`;
+    const body = `Release ${plan.version}. Merging this PR into main tags the merge commit and runs the repository release workflow.\n\n- npm packages (@pocketjs/framework, @pocketjs/cli): ${plan.previousVersion} → ${plan.version}\n- Cargo workspace: ${plan.previousCargoVersion} → ${plan.cargoVersion}\n- npm channel: ${releaseChannel(plan.version)}\n- Requested: ${requested}${cargoVersion ? `; Cargo ${cargoVersion}` : ""}\n- Prepared from: ${plan.baseCommit}\n\nCargo workspace lock update, Bun frozen lockfile check, version consistency, and changelog validation passed.\n\n${plan.notes}`;
     const bodyFile = resolve(output, "PR_BODY.md");
     await Bun.write(bodyFile, body);
     console.log(`${title}; Cargo ${plan.cargoVersion}\n${run(["git", "diff", "--stat"], worktree)}`);
