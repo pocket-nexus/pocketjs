@@ -139,6 +139,27 @@ impl Evdev {
     pub fn set_keymap(&mut self, keymap: &[(u16, u32)]) {
         self.decoder.set_keymap(keymap);
     }
+    /// Reads these absolute axes as sticks (see Decoder::set_sticks): each
+    /// evdev code and the Pocket axis it reports, with the range the device
+    /// gives for it. A code the device does not report is left out.
+    pub fn set_sticks(&mut self, sticks: &[(u16, u32)]) {
+        let Some(file) = self.file.as_ref() else {
+            return;
+        };
+        let ranged: Vec<_> = sticks
+            .iter()
+            .filter_map(|&(code, axis)| {
+                u8::try_from(code)
+                    .ok()
+                    .and_then(|c| range(file, c))
+                    .map(|r| (code, axis, r))
+            })
+            .collect();
+        if !ranged.is_empty() {
+            self.classes |= InputClasses::AXIS_ABSOLUTE;
+        }
+        self.decoder.set_sticks(&ranged);
+    }
 }
 impl InputSource for Evdev {
     fn classes(&self) -> InputClasses {
