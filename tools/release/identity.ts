@@ -9,26 +9,27 @@ function git(args: string[], cwd: string, optional = false): string {
   return result.success ? result.stdout.toString().trim() : "";
 }
 
-export async function releaseIdentity(cwd: string, event: string, ref: string, input?: string, createTag = false) {
+export async function releaseIdentity(cwd: string, event: string, ref: string, input?: string, createTag = false, before?: string) {
   if (git(["status", "--porcelain"], cwd)) throw new Error("Release identity requires a clean committed source tree");
   const fromMerge = event === "push" && ref === "refs/heads/main";
   let version: string;
   if (fromMerge) {
-    const marker = await Bun.file(resolve(cwd, ".github/release.json")).json();
-    if (marker.schema !== 1 || typeof marker.baseCommit !== "string" || !/^[a-f0-9]{40}$/.test(marker.baseCommit)) {
-      throw new Error("Invalid release PR manifest");
+    if (!before || !/^[a-f0-9]{40}$/.test(before) || /^0+$/.test(before)) {
+      throw new Error("Main push requires the previous commit from the push event");
     }
-    version = normalizeReleaseVersion(marker.version);
+    git(["merge-base", "--is-ancestor", before, "HEAD"], cwd);
+    version = normalizeReleaseVersion((await Bun.file(resolve(cwd, "package.json")).json()).version);
+    const previousVersion = normalizeReleaseVersion(JSON.parse(git(["show", `${before}:package.json`], cwd)).version);
+    if (version === previousVersion) return { release: false as const };
+    if (!Bun.semver.satisfies(version, `>${previousVersion}`)) {
+      throw new Error("Release must advance the package version");
+    }
     const cargo = Bun.TOML.parse(await Bun.file(resolve(cwd, "Cargo.toml")).text()) as { workspace: { package: { version: string } } };
-    if (cargo.workspace.package.version !== marker.cargoVersion) throw new Error("Cargo version differs from the release PR manifest");
-    git(["merge-base", "--is-ancestor", marker.baseCommit, "HEAD"], cwd);
-    const previous = JSON.parse(git(["show", `${marker.baseCommit}:package.json`], cwd));
-    const previousCargo = Bun.TOML.parse(git(["show", `${marker.baseCommit}:Cargo.toml`], cwd)) as { workspace: { package: { version: string } } };
-    if (previous.version !== marker.previousVersion || !Bun.semver.satisfies(version, `>${previous.version}`)) {
-      throw new Error("Release PR does not advance the base version");
-    }
-    if (previousCargo.workspace.package.version !== marker.previousCargoVersion || !Bun.semver.satisfies(marker.cargoVersion, `>${marker.previousCargoVersion}`)) {
-      throw new Error("Release PR does not advance the Cargo workspace version");
+    const previousCargo = Bun.TOML.parse(git(["show", `${before}:Cargo.toml`], cwd)) as typeof cargo;
+    const cargoVersion = normalizeReleaseVersion(cargo.workspace.package.version);
+    const previousCargoVersion = normalizeReleaseVersion(previousCargo.workspace.package.version);
+    if (!Bun.semver.satisfies(cargoVersion, `>${previousCargoVersion}`)) {
+      throw new Error("Release must advance the Cargo workspace version");
     }
   } else {
     version = normalizeReleaseVersion(event === "workflow_dispatch" ? input ?? "" : ref.replace(/^refs\/tags\//, ""));
@@ -44,15 +45,16 @@ export async function releaseIdentity(cwd: string, event: string, ref: string, i
     git(["tag", tag, head], cwd);
     git(["push", "origin", `refs/tags/${tag}`], cwd);
   }
-  return { version, tag, commit: head };
+  return { release: true as const, version, tag, commit: head };
 }
 
 if (import.meta.main) {
   try {
     const args = Bun.argv.slice(2);
     if (args.some(arg => arg !== "--create-tag")) throw new Error("Usage: bun tools/release/identity.ts [--create-tag]");
-    const identity = await releaseIdentity(resolve(import.meta.dir, "../.."), process.env.GITHUB_EVENT_NAME ?? "", process.env.GITHUB_REF ?? "", process.env.RELEASE_INPUT, args.includes("--create-tag"));
-    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${identity.version}\ntag=${identity.tag}\n`);
-    console.log(`Release ${identity.tag} from ${identity.commit}`);
+    const identity = await releaseIdentity(resolve(import.meta.dir, "../.."), process.env.GITHUB_EVENT_NAME ?? "", process.env.GITHUB_REF ?? "", process.env.RELEASE_INPUT, args.includes("--create-tag"), process.env.RELEASE_BEFORE);
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
+      `release=${identity.release}\n` + (identity.release ? `version=${identity.version}\ntag=${identity.tag}\n` : ""));
+    console.log(identity.release ? `Release ${identity.tag} from ${identity.commit}` : "Package version unchanged; skipping release");
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }
 }

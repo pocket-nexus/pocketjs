@@ -31,11 +31,17 @@ bun run release --dry-run
 The preview uses the current committed `HEAD` and leaves its generated files
 under `.pocket-build/validation/release-prepare/`. It does not push or open a PR.
 
-**Merging the release PR into `main` starts publication.** The generated
-`.github/release.json` records the versions and base commit. The existing
-`release.yml` validates that record and the changelog, creates the version tag
-on the merge commit, then continues through builds, validation, Rust publication,
-npm publication and the GitHub Release. No second command or tag push is needed.
+**A version increase in `package.json` on `main` starts publication.** The
+existing `release.yml` compares that version with the commit before the push.
+Changes to dependencies or scripts with the same version skip the build and
+publish jobs. Release versions come from the package manifests; prior versions
+come from Git history. No release state file is generated.
+
+For a version increase, the workflow checks the framework, CLI and Hero
+versions, Cargo version advancement, and changelog. It creates the version tag
+on the merged commit, then continues through builds, validation, Rust
+publication, npm publication and the GitHub Release. No second command or tag
+push is needed.
 
 **The repository release publishes 14 Rust crates** listed in
 `tools/release/publish-crates.ts`. The script reads each version from its Cargo

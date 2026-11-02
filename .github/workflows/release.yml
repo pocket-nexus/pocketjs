@@ -1,6 +1,7 @@
 name: Release
 
-# Merging a release PR updates .github/release.json and starts this workflow.
+# A package.json change on main checks whether its version increased.
+# Changes to dependencies or scripts without a version change skip publication.
 # Existing v* tags and manual dispatch remain available for release retries.
 # Publish Rust crates, @pocketjs/framework and @pocketjs/cli. Both registries use Trusted
 # Publishing (OIDC), configured for this repo and workflow. npm attaches
@@ -9,7 +10,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [".github/release.json"]
+    paths: ["package.json"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -26,6 +27,7 @@ jobs:
   identity:
     runs-on: ubuntu-latest
     outputs:
+      release: ${{ steps.identity.outputs.release }}
       version: ${{ steps.identity.outputs.version }}
     steps:
       - uses: actions/checkout@v7
@@ -38,17 +40,21 @@ jobs:
         id: identity
         env:
           RELEASE_INPUT: ${{ inputs.version }}
+          RELEASE_BEFORE: ${{ github.event.before }}
         # Tags pushed with GITHUB_TOKEN do not trigger another workflow run.
         # Continue this run with the same merge commit after creating its tag.
         run: bun tools/release/identity.ts --create-tag
   sdk-artifacts:
     needs: identity
+    if: needs.identity.outputs.release == 'true'
     uses: ./.github/workflows/sdk-artifacts.yml
   runtime-artifacts:
     needs: identity
+    if: needs.identity.outputs.release == 'true'
     uses: ./.github/workflows/runtime-artifacts.yml
   publish:
     needs: [identity, sdk-artifacts, runtime-artifacts]
+    if: needs.identity.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

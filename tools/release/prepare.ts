@@ -5,7 +5,6 @@ import { releaseNotes } from "../release-notes.ts";
 import { STABLE_RUST_TOOLCHAIN } from "../build/toolchains/rust.ts";
 
 const REPO = "pocket-nexus/pocketjs";
-const MARKER = ".github/release.json";
 const root = resolve(import.meta.dir, "../..");
 type Bump = "patch" | "minor" | "major";
 interface Commit { sha: string; subject: string; body: string }
@@ -122,16 +121,12 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
   if (changelog.includes(`## ${version} `)) throw new Error(`Changelog already contains ${version}`);
   const nextChangelog = changelog.slice(0, first) + entry + changelog.slice(first);
   await Bun.write(changelogPath, nextChangelog);
-  const marker = { schema: 1, version, cargoVersion, previousVersion: current, previousCargoVersion,
-    baseCommit: run(["git", "rev-parse", "HEAD"], cwd) };
-  await mkdir(resolve(cwd, ".github"), { recursive: true });
-  await Bun.write(resolve(cwd, MARKER), JSON.stringify(marker, null, 2) + "\n");
   await checkReleaseVersion(version, cwd);
   releaseNotes(nextChangelog, version);
   run(["git", "diff", "--check"], cwd);
   const files = run(["git", "diff", "--name-only"], cwd).split("\n").filter(Boolean);
-  files.push(MARKER);
-  return { ...marker, bump, npmBump, cargoBump, files, notes: entry };
+  return { version, cargoVersion, previousVersion: current, previousCargoVersion,
+    baseCommit: run(["git", "rev-parse", "HEAD"], cwd), bump, npmBump, cargoBump, files, notes: entry };
 }
 
 async function main() {
