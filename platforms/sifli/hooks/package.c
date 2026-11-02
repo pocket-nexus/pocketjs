@@ -35,6 +35,6 @@ static int32_t read_range(void *context, size_t offset, uint8_t *out, size_t cap
   return POCKET_STATUS_OK;
 }
 
-static const pocket_package_source_v1 VTABLE = {sizeof(VTABLE), length, bytes, read_range};
+static const pocket_package_source_v1 VTABLE = {sizeof(VTABLE), length, bytes, read_range, NULL};
 
 const pocket_package_source_v1 *pocket_sifli_package_vtable(void) { return &VTABLE; }

@@ -147,6 +147,11 @@ pocket_memory_package package = {
 };
 ```
 
+The runtime reads the package in place, so the bytes stay unchanged until the
+runtime is destroyed. A program that verified the package itself, through
+`pocket_idf_package_open`, sets `.flags = POCKET_MEMORY_PACKAGE_VERIFIED` and
+the runtime admits it without a second hash pass.
+
 Check creation results, then check each registration result against
 `POCKET_STATUS_OK`:
 

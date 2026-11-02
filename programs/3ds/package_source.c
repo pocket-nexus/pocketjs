@@ -46,6 +46,6 @@ static int32_t range(void *context, size_t offset, uint8_t *bytes,
   return POCKET_STATUS_OK;
 }
 const pocket_package_source_v1 *pocket_3ds_file_source_vtable(void) {
-  static const pocket_package_source_v1 api = {sizeof api, length, NULL, range};
+  static const pocket_package_source_v1 api = {sizeof api, length, NULL, range, NULL};
   return &api;
 }

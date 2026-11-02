@@ -68,10 +68,7 @@ fn vsync(value: u32) -> Result<VsyncSource, AdapterError> {
 /// # Safety
 /// For nonzero count, pointer must name initialized T values in one live allocation
 /// for the returned lifetime; no writer may access those values during the borrow.
-pub unsafe fn borrowed<'a, T>(
-    pointer: *const T,
-    count: usize,
-) -> Result<&'a [T], AdapterError> {
+pub unsafe fn borrowed<'a, T>(pointer: *const T, count: usize) -> Result<&'a [T], AdapterError> {
     if count == 0 {
         return Ok(&[]);
     }
@@ -89,10 +86,7 @@ pub unsafe fn borrowed<'a, T>(
 /// # Safety
 /// For nonzero count, pointer must name one initialized allocation exclusively
 /// borrowed for the returned lifetime, with no hardware or other concurrent access.
-pub unsafe fn writable<'a>(
-    pointer: *mut u8,
-    count: usize,
-) -> Result<&'a mut [u8], AdapterError> {
+pub unsafe fn writable<'a>(pointer: *mut u8, count: usize) -> Result<&'a mut [u8], AdapterError> {
     if count == 0 {
         return Ok(&mut []);
     }

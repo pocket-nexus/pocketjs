@@ -162,6 +162,22 @@ pocket_driver_kit_error pocket_driver_kit_check_package(const pocket_package_sou
     if (count || buffer[0] != 0xa5) return POCKET_KIT_SOURCE_MISMATCH;
     if (length < SIZE_MAX && s->range(context, length + 1, buffer, 1, &count) != POCKET_STATUS_INVALID) return POCKET_KIT_SOURCE_MISMATCH;
     if (s->length(context, &actual) || actual != length) return POCKET_KIT_SOURCE_MISMATCH;
+    /* A transfer hands over the bytes the reads returned; it runs last because
+     * the source may refuse reads afterwards. */
+    if (s->struct_size >= offsetof(pocket_package_source_v1, take) + sizeof(s->take) && s->take) {
+        pocket_package_storage storage;
+        int mismatch;
+        memset(&storage, 0, sizeof storage);
+        storage.struct_size = sizeof storage;
+        status = s->take(context, &storage);
+        if (status != POCKET_STATUS_OK && status != POCKET_STATUS_UNSUPPORTED) return POCKET_KIT_SOURCE_ERROR;
+        if (!status) {
+            mismatch = storage.length != length || (!storage.bytes && storage.length) ||
+                (storage.length && memcmp(storage.bytes, expected, storage.length));
+            if (storage.release) storage.release(storage.release_context, storage.bytes, storage.length);
+            if (mismatch) return POCKET_KIT_SOURCE_MISMATCH;
+        }
+    }
     return POCKET_KIT_OK;
 }
 

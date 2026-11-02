@@ -217,7 +217,7 @@ int main(void){
   pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=POCKET_BINDING_GENERATION;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile=&profile_facts;
   instance=pocket_runtime_create(&config);assert(instance);
   prefix_and_operation_tests();raster_test();draw_list_test();register_provider();
-  pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};
+  pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range,NULL};
   pocket_guest_v1 guest={sizeof(guest),evaluate,frame,NULL,shutdown_guest,initialize};
   pocket_display_output_v1 display={.struct_size=sizeof(display),.descriptor=descriptor,.acquire=acquire,.flush=flush,.wait=display_wait};
   assert(pocket_runtime_set_package_source(instance,&source,NULL)==0);

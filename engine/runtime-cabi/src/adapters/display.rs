@@ -252,7 +252,10 @@ impl DisplayOutput for CDisplay {
             .unwrap_or(self.descriptor.vsync)
     }
     fn move_pixels(&mut self, destination: Rect, dx: i32, dy: i32) -> Result<(), DisplayError> {
-        let Some(callback) = self.table.move_pixels.filter(|_| self.descriptor.retained_move)
+        let Some(callback) = self
+            .table
+            .move_pixels
+            .filter(|_| self.descriptor.retained_move)
         else {
             return Err(DisplayError::Unsupported);
         };
@@ -268,8 +271,14 @@ impl DisplayOutput for CDisplay {
         };
         let mut raw = [PocketRect::empty(); HOST_DAMAGE_RECTS];
         let mut count = 0usize;
-        if unsafe { callback(self.context, raw.as_mut_ptr(), HOST_DAMAGE_RECTS, &mut count) }
-            != POCKET_STATUS_OK
+        if unsafe {
+            callback(
+                self.context,
+                raw.as_mut_ptr(),
+                HOST_DAMAGE_RECTS,
+                &mut count,
+            )
+        } != POCKET_STATUS_OK
         {
             return 0;
         }

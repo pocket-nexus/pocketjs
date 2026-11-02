@@ -92,7 +92,7 @@ static int32_t source_range(void *opaque, size_t offset, uint8_t *output, size_t
   memcpy(output, fixture_package + offset, *length);
   return POCKET_STATUS_OK;
 }
-static const pocket_package_source_v1 source_table = {sizeof(source_table), source_length, NULL, source_range};
+static const pocket_package_source_v1 source_table = {sizeof(source_table), source_length, NULL, source_range, NULL};
 typedef struct { uint64_t boot, tick; unsigned fills, fallbacks; } run_result;
 
 static run_result run(bool accelerated, bool gram, bool fail_render, bool fail_display, bool reject_budget) {

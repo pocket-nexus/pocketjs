@@ -12,6 +12,7 @@ pub enum SourceViolation {
     RangeBytes,
     EndOfFile,
     OutOfBounds,
+    Transfer,
     Admission,
     InputOverwrite,
     InputClasses,
@@ -64,6 +65,20 @@ pub fn check_package_source(
         return Err(SourceViolation::Length);
     }
     Ok(())
+}
+
+/// A source that transfers storage hands over the bytes its reads returned.
+/// This consumes a source whose transfer moves ownership, so it runs after
+/// every other check on that source.
+pub fn check_package_transfer(
+    source: &mut dyn PackageSource,
+    expected: &[u8],
+) -> Result<(), SourceViolation> {
+    match source.take_bytes() {
+        Ok(bytes) if bytes.as_ref() == expected => Ok(()),
+        Err(SourceError::Unsupported) => Ok(()),
+        _ => Err(SourceViolation::Transfer),
+    }
 }
 
 /// Run a corpus item through the driver's source and compare admission with
