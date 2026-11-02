@@ -2,8 +2,10 @@
 // deterministic sim host (docs/LAUNCHER.md; programs/sim/launcher.ts).
 //
 // Prereq (the `test` script runs it): bun tools/launcher.ts covers
-//   -> dist/launcher-registry.{json,tsv}, apps/launcher/covers/*,
-//      dist/launcher-main.* and every admitted app's dist bundle.
+//   -> dist/launcher-registry.{json,tsv} and apps/launcher/covers/*. Under
+//      POCKET_LAUNCHER_COVERS=placeholder (tools/test.ts) the covers are
+//      gradients and no app compiles up front; bootWorld builds the bundles
+//      these tests launch on demand.
 //
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

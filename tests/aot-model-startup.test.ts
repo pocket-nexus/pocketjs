@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { AOT_CARGO_TARGET_DIR } from "../microts/compiler/cargo-target.ts";
 import { buildAot } from "../microts/compiler/aot-build.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
 
@@ -34,5 +35,5 @@ export function check(){try{const frames=[text(root)];for(const buttons of [1638
 thread_local!{static COMMANDS:RefCell<Vec<String>>=const{RefCell::new(Vec::new())};}struct Native(Ui);impl Host for Native{fn ui(&self)->&Ui{&self.0}fn ui_mut(&mut self)->&mut Ui{&mut self.0}fn into_ui(self)->Ui{self.0}fn model_command(&mut self,c:Cmd){if let Cmd::Log(s)=&c{COMMANDS.with(|v|v.borrow_mut().push(s.clone()));}self.0.model_command(c);}}impl<const B:u32>microts::HasButton<B> for Native{}
 fn text(ui:&Ui,id:i32)->String{let mut s=ui.core().node_text(id).unwrap_or("").to_owned();for c in ui.core().node_children(id){s.push_str(&text(ui,*c));}s}
 fn main(){let mut app=AppApp::new(Native(Ui::new()),AppProps{},AppModel::default());let mut frames=vec![text(app.ui(),1)];for buttons in [16384,0]{app.frame(&Input::buttons(buttons));frames.push(text(app.ui(),1));}app.unmount();let commands=COMMANDS.with(|v|std::mem::take(&mut *v.borrow_mut()));println!("{}",serde_json::json!({"frames":frames,"commands":commands}));}`);
-  const child=Bun.spawn(["cargo","run","--quiet","--manifest-path",resolve(run,"Cargo.toml")],{stdout:"pipe",stderr:"pipe",env:{...process.env,CARGO_TARGET_DIR:resolve(".pocket-build/validation/model-aot/startup/target")}});const [status,stdout,stderr]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);await Bun.write(resolve(run,"native.log"),stderr);expect(status,stderr).toBe(0);expect(JSON.parse(stdout)).toEqual(javascript);
+  const child=Bun.spawn(["cargo","run","--quiet","--manifest-path",resolve(run,"Cargo.toml")],{stdout:"pipe",stderr:"pipe",env:{...process.env,CARGO_TARGET_DIR:AOT_CARGO_TARGET_DIR}});const [status,stdout,stderr]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);await Bun.write(resolve(run,"native.log"),stderr);expect(status,stderr).toBe(0);expect(JSON.parse(stdout)).toEqual(javascript);
 },120_000);

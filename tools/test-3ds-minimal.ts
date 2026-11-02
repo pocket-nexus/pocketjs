@@ -8,6 +8,7 @@ import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-pa
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { exportProfile } from "./profile-export.ts";
 import { ensureQuickJsSources } from "./build/toolchains/3ds.ts";
+import { quickJsVendorObjects } from "./quickjs-vendor.ts";
 const profile = POCKET_PROFILES["3ds-runtime"];
 const root = resolve(import.meta.dir, "..");
 export function test3dsMinimal(out: string, packagePath?: string): string {
@@ -35,12 +36,11 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
   const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
   run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "-p", "pocket-runtime-cabi",
     "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
-  const quickjs = ensureQuickJsSources(), objects: string[] = [];
+  const quickjs = ensureQuickJsSources();
   const flags = ["-DPOCKET_QJS_BELLARD", "-DJS_NO_NAN_BOXING"];
-  for (const name of ["quickjs", "dtoa", "libregexp", "libunicode", "cutils"]) {
-    const object = join(out, `${name}.o`); objects.push(object);
-    run([cc, "-std=gnu11", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"', ...flags, "-O1", "-I", quickjs, "-c", join(quickjs, `${name}.c`), "-o", object]);
-  }
+  const objects = quickJsVendorObjects({ cc, quickjs, units: ["quickjs", "dtoa", "libregexp", "libunicode", "cutils"],
+    flags: ["-std=gnu11", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"', ...flags, "-O1"],
+    log: (command, output) => writeFileSync(join(out, `${++commandIndex}.log`), `${command.join(" ")}\n${output}`) });
   const binary = join(out, "runtime");
   run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", ...flags, ...includes,
     "-I", "engine/guest-quickjs/include", "-isystem", quickjs, "tests/fixtures/3ds-minimal/runtime.c",
