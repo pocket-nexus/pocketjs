@@ -1,13 +1,16 @@
 name: Release
 
-# Publish Rust crates, @pocketjs/framework and @pocketjs/cli when a v* tag is pushed
-# (e.g. `git tag v0.2.0 && git push origin v0.2.0`). Both registries use Trusted
+# Merging a release PR updates .github/release.json and starts this workflow.
+# Existing v* tags and manual dispatch remain available for release retries.
+# Publish Rust crates, @pocketjs/framework and @pocketjs/cli. Both registries use Trusted
 # Publishing (OIDC), configured for this repo and workflow. npm attaches
 # provenance automatically. Publishing is idempotent: versions
 # already on the registry are skipped, so re-running a tag or bumping only
 # one package is safe.
 on:
   push:
+    branches: [main]
+    paths: [".github/release.json"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -23,6 +26,8 @@ permissions:
 jobs:
   identity:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,13 +35,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - name: Require the tagged source revision
+      - name: Validate release and tag the merged release PR
+        id: identity
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-        run: |
-          bun tools/release-check.ts "$RELEASE_VERSION"
-          tag="v${RELEASE_VERSION#v}"
-          test "$(git rev-parse HEAD)" = "$(git rev-parse "$tag^{commit}")"
+          RELEASE_INPUT: ${{ inputs.version }}
+        # Tags pushed with GITHUB_TOKEN do not trigger another workflow run.
+        # Continue this run with the same merge commit after creating its tag.
+        run: bun tools/release/identity.ts --create-tag
   sdk-artifacts:
     needs: identity
     uses: ./.github/workflows/sdk-artifacts.yml
@@ -44,9 +49,11 @@ jobs:
     needs: identity
     uses: ./.github/workflows/runtime-artifacts.yml
   publish:
-    needs: [sdk-artifacts, runtime-artifacts]
+    needs: [identity, sdk-artifacts, runtime-artifacts]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_VERSION: ${{ needs.identity.outputs.version }}
     concurrency:
       group: pocketjs-package-publication
       cancel-in-progress: false
@@ -61,8 +68,6 @@ jobs:
       # manual input can only release the exact version committed in all three
       # public version authorities.
       - name: Verify release version
-        env:
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: bun tools/release-check.ts "$RELEASE_VERSION"
 
       # npm (not bun) does the publishing. Trusted Publishing needs npm >=
@@ -184,7 +189,6 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: |
           tag="v${RELEASE_VERSION#v}"
           if gh release view "$tag" >/dev/null 2>&1; then
@@ -198,7 +202,6 @@ jobs:
       - name: Upload verified SDK, runtime and source artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: |
           tag="v${RELEASE_VERSION#v}"
           mkdir -p "$RUNNER_TEMP/existing-release"

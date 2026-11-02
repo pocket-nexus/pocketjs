@@ -1,9 +1,44 @@
-# Rust crate releases
+# Repository releases
+
+## Prepare a release PR
+
+```sh
+bun run release
+```
+
+**One command prepares and opens the release PR.** It fetches `origin/main`,
+creates an isolated worktree, and reads commits after the current `v*` release
+tag. The caller's branch and uncommitted files stay in place. GitHub CLI (`gh`)
+must be installed and authenticated for `pocket-nexus/pocketjs`.
+
+The default bump follows Conventional Commits: `BREAKING CHANGE` or `!` selects
+major, `feat` selects minor, and other changes select patch. Override the level
+with `bun run release patch`, `minor`, or `major`. npm and Cargo advance by the
+same level from their own current versions.
+
+The command updates the framework, CLI and Hero versions, the Cargo workspace
+version and internal dependency requirements, crate README install snippets,
+and Cargo lockfiles including isolated fixtures. It checks the Bun lockfile
+without upgrading dependencies, generates a changelog section from commit
+subjects, and opens `chore(release): vX.Y.Z`. An existing open release PR is
+returned instead of creating another one.
+
+```sh
+bun run release --dry-run
+```
+
+The preview uses the current committed `HEAD` and leaves its generated files
+under `.pocket-build/validation/release-prepare/`. It does not push or open a PR.
+
+**Merging the release PR into `main` starts publication.** The generated
+`.github/release.json` records the versions and base commit. The existing
+`release.yml` validates that record and the changelog, creates the version tag
+on the merge commit, then continues through builds, validation, Rust publication,
+npm publication and the GitHub Release. No second command or tag push is needed.
 
 **The repository release publishes 14 Rust crates** listed in
 `tools/release/publish-crates.ts`. The script reads each version from its Cargo
-manifest. Rust crate versions and npm package versions are independent.
-Update workspace dependency versions with each Rust version bump.
+manifest. The npm and Rust version numbers can differ.
 
 ## First publication
 
@@ -44,17 +79,16 @@ The workflow exchanges its GitHub OIDC identity for a short-lived crates.io
 token through `rust-lang/crates-io-auth-action`. No Cargo token is stored in
 GitHub secrets. See the [crates.io Trusted Publishing documentation](https://crates.io/docs/trusted-publishing).
 
-## Subsequent releases
+## Retry a release
 
 **Rust publication is a stage in `.github/workflows/release.yml`.** The existing
-`v*` tag trigger and manual release dispatch run the release identity check, SDK
+`v*` tag trigger and manual release dispatch also run the release identity check, SDK
 and runtime builds, and release validation. The publish job then publishes Rust
 crates before npm packages and the GitHub Release.
 
 The Rust stage uses the Cargo versions from that release revision and skips
-versions present on crates.io. A repository release can keep the current Rust
-versions while changing npm versions. To resume a release, rerun the existing
-workflow with the same tag or version input. Package publication jobs are
+versions present on crates.io. To resume a release, rerun the existing workflow
+with the same tag or version input. Package publication jobs are
 serialized and do not cancel a run that is uploading packages.
 
 Cargo verifies packaged sources during publication. The Rust stage adds no

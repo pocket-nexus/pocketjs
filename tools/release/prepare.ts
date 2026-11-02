@@ -1,0 +1,174 @@
+import { mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { checkReleaseVersion, RELEASE_VERSION_FILES } from "../release-check.ts";
+import { releaseNotes } from "../release-notes.ts";
+import { STABLE_RUST_TOOLCHAIN } from "../build/toolchains/rust.ts";
+
+const REPO = "pocket-nexus/pocketjs";
+const MARKER = ".github/release.json";
+const root = resolve(import.meta.dir, "../..");
+type Bump = "patch" | "minor" | "major";
+interface Commit { sha: string; subject: string; body: string }
+interface CargoPackage { id: string; name: string; version: string; manifest_path: string }
+
+function run(args: string[], cwd: string, optional = false): string {
+  const result = Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
+  if (!result.success && !optional) throw new Error(`${args.slice(0, 3).join(" ")} failed:\n${result.stderr}`);
+  return result.success ? result.stdout.toString().trim() : "";
+}
+
+export function bumpVersion(version: string, bump: Bump): string {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+    throw new Error(`Release preparation requires a stable version, received ${version}`);
+  }
+  const [major, minor, patch] = version.split(".").map(Number) as [number, number, number];
+  return bump === "major" ? `${major + 1}.0.0` : bump === "minor" ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`;
+}
+
+export function inferBump(commits: Commit[]): Bump {
+  if (commits.some(c => /^[a-z]+(?:\([^\n)]*\))?!:/.test(c.subject) || /^BREAKING[ -]CHANGE:/m.test(c.body))) return "major";
+  return commits.some(c => /^feat(?:\([^\n)]*\))?:/.test(c.subject)) ? "minor" : "patch";
+}
+
+export async function prepareRelease(cwd: string, requested: Bump | "auto" = "auto") {
+  const current = (await Bun.file(resolve(cwd, "package.json")).json()).version as string;
+  await checkReleaseVersion(current, cwd);
+  const previousTag = `v${current}`;
+  run(["git", "rev-parse", "--verify", `refs/tags/${previousTag}^{commit}`], cwd);
+  run(["git", "merge-base", "--is-ancestor", previousTag, "HEAD"], cwd);
+  const records = run(["git", "log", "--reverse", "--format=%H%x00%s%x00%b%x00", `${previousTag}..HEAD`], cwd).split("\0");
+  const commits: Commit[] = [];
+  for (let i = 0; i + 2 < records.length; i += 3) {
+    const commit = { sha: records[i]!.trim(), subject: records[i + 1]!, body: records[i + 2]! };
+    if (!/^chore\(release\):/.test(commit.subject)) commits.push(commit);
+  }
+  if (commits.length === 0) throw new Error(`No unreleased commits after ${previousTag}`);
+  const bump = requested === "auto" ? inferBump(commits) : requested;
+  const version = bumpVersion(current, bump);
+  const cargoPath = resolve(cwd, "Cargo.toml");
+  const cargoText = await Bun.file(cargoPath).text();
+  const manifest = Bun.TOML.parse(cargoText) as { workspace: { package: { version: string } } };
+  const previousCargoVersion = manifest.workspace.package.version;
+  const cargoVersion = bumpVersion(previousCargoVersion, bump);
+  const cargo = ["rustup", "run", STABLE_RUST_TOOLCHAIN, "cargo"];
+  const metadata = JSON.parse(run([...cargo, "metadata", "--locked", "--no-deps", "--format-version=1"], cwd)) as {
+    packages: CargoPackage[]; workspace_members: string[];
+  };
+  const inherited = new Map<string, string>();
+  for (const pkg of metadata.packages.filter(p => metadata.workspace_members.includes(p.id))) {
+    const doc = Bun.TOML.parse(await Bun.file(pkg.manifest_path).text()) as { package: { version: unknown } };
+    if (typeof doc.package.version === "object" && (doc.package.version as { workspace?: boolean }).workspace) {
+      inherited.set(dirname(pkg.manifest_path), pkg.name);
+    }
+  }
+
+  for (const file of RELEASE_VERSION_FILES) {
+    const path = resolve(cwd, file);
+    const doc = await Bun.file(path).json();
+    doc.version = version;
+    await Bun.write(path, JSON.stringify(doc, null, 2) + "\n");
+  }
+  // Preserve TOML formatting and external dependency requirements.
+  const manifests = run(["git", "ls-files", "Cargo.toml", "**/Cargo.toml"], cwd).split("\n");
+  for (const file of manifests) {
+    const path = resolve(cwd, file);
+    let content = await Bun.file(path).text();
+    if (file === "Cargo.toml") {
+      content = content.replace(/(\[workspace\.package\][\s\S]*?^version\s*=\s*)"[^"]+"/m, `$1"${cargoVersion}"`);
+    }
+    content = content.split("\n").map(line => {
+      const dependency = line.match(/\bpath\s*=\s*"([^"]+)"/);
+      if (!dependency || !inherited.has(resolve(dirname(path), dependency[1]!))) return line;
+      return line.replace(/(\bversion\s*=\s*)"[^"]+"/, `$1"${cargoVersion}"`);
+    }).join("\n");
+    if (content !== await Bun.file(path).text()) await Bun.write(path, content);
+  }
+  const names = new Set(inherited.values());
+  for (const directory of inherited.keys()) {
+    const readme = Bun.file(resolve(directory, "README.md"));
+    if (!await readme.exists()) continue;
+    const before = await readme.text();
+    const after = before.replace(/^([\w-]+)(\s*=\s*)"[^"\n]+"/gm, (line, name: string, equals: string) =>
+      names.has(name) ? `${name}${equals}"${cargoVersion}"` : line);
+    if (after !== before) await Bun.write(readme, after);
+  }
+  // Isolated fixture workspaces also lock dependencies on these path packages.
+  for (const lock of run(["git", "ls-files", "Cargo.lock", "**/Cargo.lock"], cwd).split("\n")) {
+    run([...cargo, "update", "--workspace", "--manifest-path", resolve(cwd, dirname(lock), "Cargo.toml")], cwd);
+  }
+  run([...cargo, "metadata", "--locked", "--no-deps", "--format-version=1"], cwd);
+  run(["bun", "install", "--lockfile-only", "--frozen-lockfile", "--ignore-scripts"], cwd);
+
+  const date = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date());
+  const sections: string[] = [];
+  for (const [title, matches] of [
+    ["Features", (c: Commit) => /^feat(?:\(|!?:)/.test(c.subject)],
+    ["Fixes", (c: Commit) => /^fix(?:\(|!?:)/.test(c.subject)],
+    ["Other changes", (c: Commit) => !/^(feat|fix)(?:\(|!?:)/.test(c.subject)],
+  ] as const) {
+    const rows = commits.filter(matches).map(c => `- ${c.subject} ([${c.sha.slice(0, 8)}](https://github.com/${REPO}/commit/${c.sha}))`);
+    if (rows.length) sections.push(`### ${title}\n\n${rows.join("\n")}`);
+  }
+  const entry = `## ${version} — ${date}\n\n${sections.join("\n\n")}\n\n`;
+  const changelogPath = resolve(cwd, "site/content/changelog.md");
+  const changelog = await Bun.file(changelogPath).text();
+  const first = changelog.search(/^## /m);
+  if (first < 0) throw new Error("The changelog has no release sections");
+  if (changelog.includes(`## ${version} `)) throw new Error(`Changelog already contains ${version}`);
+  const nextChangelog = changelog.slice(0, first) + entry + changelog.slice(first);
+  await Bun.write(changelogPath, nextChangelog);
+  const marker = { schema: 1, version, cargoVersion, previousVersion: current, previousCargoVersion,
+    baseCommit: run(["git", "rev-parse", "HEAD"], cwd) };
+  await mkdir(resolve(cwd, ".github"), { recursive: true });
+  await Bun.write(resolve(cwd, MARKER), JSON.stringify(marker, null, 2) + "\n");
+  await checkReleaseVersion(version, cwd);
+  releaseNotes(nextChangelog, version);
+  run(["git", "diff", "--check"], cwd);
+  const files = run(["git", "diff", "--name-only"], cwd).split("\n").filter(Boolean);
+  files.push(MARKER);
+  return { ...marker, bump, files, notes: entry };
+}
+
+async function main() {
+  const args = Bun.argv.slice(2);
+  if (args.includes("--help")) {
+    console.log("Usage: bun run release [auto|patch|minor|major] [--dry-run]\nCreates a release PR from origin/main. --dry-run prepares a local preview from HEAD.");
+    return;
+  }
+  const dryRun = args.includes("--dry-run");
+  const positional = args.filter(arg => arg !== "--dry-run");
+  const bump = positional[0] ?? "auto";
+  if (positional.length > 1 || !["auto", "patch", "minor", "major"].includes(bump)) throw new Error("Expected auto, patch, minor, or major, with optional --dry-run");
+  if (!dryRun) {
+    const open = JSON.parse(run(["gh", "pr", "list", "--repo", REPO, "--base", "main", "--state", "open", "--json", "headRefName,url"], root)) as { headRefName: string; url: string }[];
+    const existing = open.find(pr => /^release\/v\d+\./.test(pr.headRefName));
+    if (existing) { console.log(`Release PR already open: ${existing.url}`); return; }
+    run(["git", "fetch", "origin", "main", "--tags"], root);
+    run(["git", "cat-file", "-e", "origin/main:tools/release/prepare.ts"], root);
+  }
+  const output = resolve(root, ".pocket-build/validation/release-prepare", new Date().toISOString().replaceAll(":", "-") + `-${process.pid}`);
+  const worktree = resolve(output, "source");
+  await mkdir(output, { recursive: true });
+  run(["git", "worktree", "add", "--detach", worktree, dryRun ? "HEAD" : "origin/main"], root);
+  try {
+    const plan = await prepareRelease(worktree, bump as Bump | "auto");
+    const title = `chore(release): v${plan.version}`;
+    const body = `Release ${plan.version}. Merging this PR into main tags the merge commit and runs the repository release workflow.\n\n- Framework, CLI and Hero: ${plan.previousVersion} → ${plan.version}\n- Cargo workspace: ${plan.previousCargoVersion} → ${plan.cargoVersion}\n- Bump: ${plan.bump}\n- Prepared from: ${plan.baseCommit}\n\nCargo workspace lock update, Bun frozen lockfile check, version consistency, and changelog validation passed.\n\n${plan.notes}`;
+    const bodyFile = resolve(output, "PR_BODY.md");
+    await Bun.write(bodyFile, body);
+    console.log(`${title}; Cargo ${plan.cargoVersion}\n${run(["git", "diff", "--stat"], worktree)}`);
+    if (dryRun) { console.log(`Preview: ${worktree}\nPR body: ${bodyFile}`); return; }
+    const branch = `release/v${plan.version}`;
+    run(["git", "switch", "-c", branch], worktree);
+    run(["git", "add", "--", ...plan.files], worktree);
+    run(["git", "commit", "-m", title], worktree);
+    run(["git", "push", "-u", "origin", branch], worktree);
+    console.log(run(["gh", "pr", "create", "--repo", REPO, "--base", "main", "--head", branch, "--title", title, "--body-file", bodyFile], worktree));
+    run(["git", "worktree", "remove", worktree], root);
+  } catch (error) {
+    console.error(`Release preparation retained at ${worktree}`);
+    throw error;
+  }
+}
+
+if (import.meta.main) await main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
