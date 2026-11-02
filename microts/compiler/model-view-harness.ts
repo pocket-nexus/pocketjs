@@ -2,7 +2,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { AOT_CARGO_TARGET_DIR } from "./cargo-target.ts";
+import { AOT_CARGO_ENV } from "./cargo-target.ts";
 import { buildAot } from "./aot-build.ts";
 import { jsxPlugin } from "../../framework/compiler/jsx-plugin.ts";
 
@@ -43,7 +43,7 @@ fn text(ui:&Ui,id:i32)->Vec<String>{if let Some(style)=ui.core().resolved_style(
 fn commands()->Vec<String>{COMMANDS.with(|v|std::mem::take(&mut *v.borrow_mut()))}
 fn main(){let mut ui=Ui::new();ui.load_styles(include_bytes!("gen/styles.bin"));let mut app=AppApp::new(Native(ui),AppProps{},AppModel::default());let tape:Value=serde_json::from_str(include_str!(${JSON.stringify(resolve(fixture,"tape.json"))})).unwrap();let mut frames=vec![];for frame in tape.as_array().unwrap(){app.frame(&Input::buttons(frame["buttons"].as_u64().unwrap() as u32));frames.push(json!({"text":text(app.ui(),NodeId::ROOT.0),"commands":commands()}));}app.unmount();println!("{}",json!({"frames":frames,"cleanup":commands()}));}
 `);
-  const native=Bun.spawn(["cargo","run","--quiet","--manifest-path",resolve(run,"Cargo.toml")],{stdout:"pipe",stderr:"pipe",env:{...process.env,CARGO_TARGET_DIR:AOT_CARGO_TARGET_DIR}});
+  const native=Bun.spawn(["cargo","run","--quiet","--manifest-path",resolve(run,"Cargo.toml")],{stdout:"pipe",stderr:"pipe",env:{...process.env,...AOT_CARGO_ENV}});
   const [status,stdout,stderr]=await Promise.all([native.exited,new Response(native.stdout).text(),new Response(native.stderr).text()]);await Bun.write(resolve(run,"native.log"),stderr);
   if(status!==0)throw new Error(stderr);const rust=JSON.parse(stdout);await Bun.write(resolve(run,"native.json"),JSON.stringify(rust,null,2));
   if(!isDeepStrictEqual(rust,javascript))throw new Error(`Generated view differs: ${JSON.stringify({javascript,rust,run},null,2)}`);
