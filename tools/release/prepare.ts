@@ -145,7 +145,7 @@ async function main() {
   const bump = positional[0] ?? "auto";
   if (positional.length > 1 || !["auto", "patch", "minor", "major"].includes(bump)) throw new Error("Expected auto, patch, minor, or major, with optional --dry-run");
   if (!dryRun) {
-    const open = JSON.parse(run(["gh", "pr", "list", "--repo", REPO, "--base", "main", "--state", "open", "--json", "headRefName,url"], root)) as { headRefName: string; url: string }[];
+    const open = JSON.parse(run(["gh", "pr", "list", "--repo", REPO, "--base", "main", "--state", "open", "--limit", "100", "--json", "headRefName,url"], root)) as { headRefName: string; url: string }[];
     const existing = open.find(pr => /^release\/v\d+\./.test(pr.headRefName));
     if (existing) { console.log(`Release PR already open: ${existing.url}`); return; }
     run(["git", "fetch", "origin", "main", "--tags"], root);

@@ -4,9 +4,8 @@ name: Release
 # Existing v* tags and manual dispatch remain available for release retries.
 # Publish Rust crates, @pocketjs/framework and @pocketjs/cli. Both registries use Trusted
 # Publishing (OIDC), configured for this repo and workflow. npm attaches
-# provenance automatically. Publishing is idempotent: versions
-# already on the registry are skipped, so re-running a tag or bumping only
-# one package is safe.
+# provenance automatically. Publishing skips versions already on the registry
+# when retrying a release.
 on:
   push:
     branches: [main]
@@ -20,7 +19,7 @@ on:
         type: string
 
 permissions:
-  contents: write # GitHub Release creation
+  contents: write # Release tag and GitHub Release creation
   id-token: write # npm and crates.io Trusted Publishing
 
 jobs:

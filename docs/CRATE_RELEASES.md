@@ -88,9 +88,15 @@ and runtime builds, and release validation. The publish job then publishes Rust
 crates before npm packages and the GitHub Release.
 
 The Rust stage uses the Cargo versions from that release revision and skips
-versions present on crates.io. To resume a release, rerun the existing workflow
-with the same tag or version input. Package publication jobs are
-serialized and do not cancel a run that is uploading packages.
+versions present on crates.io. To resume a release, rerun the failed workflow
+in GitHub Actions. A manual dispatch must select the release tag as its ref:
+
+```sh
+gh workflow run release.yml --ref vX.Y.Z -f version=X.Y.Z
+```
+
+Package publication jobs are serialized and do not cancel a run that is
+uploading packages.
 
 Cargo verifies packaged sources during publication. The Rust stage adds no
 test jobs or separate workflow.
