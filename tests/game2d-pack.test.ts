@@ -152,7 +152,7 @@ describe("browser host", () => {
       urls.push(url);
       const name = decodeURIComponent(url.slice("/root/".length));
       const bytes = files[name];
-      return bytes ? new Response(bytes) : new Response("no", { status: 404 });
+      return bytes ? new Response(new Uint8Array(bytes)) : new Response("no", { status: 404 });
     };
     const host = createPackHost({ baseUrl: "/root", ops, fetch: fetchImpl as unknown as typeof fetch });
     return { host, urls };
