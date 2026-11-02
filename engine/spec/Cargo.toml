@@ -1,5 +1,10 @@
 [package]
 name = "pocket-spec"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-spec"
+keywords = ["pocketjs", "protocol", "embedded"]
+categories = ["no-std", "api-bindings"]
 edition = "2021"
 description = "Generated PocketJS operation codes, data formats, and input constants"
 version.workspace = true

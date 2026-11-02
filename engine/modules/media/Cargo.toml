@@ -1,5 +1,10 @@
 [package]
 name = "pocket-media"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-media"
+keywords = ["pocketjs", "media", "codec"]
+categories = ["no-std", "multimedia"]
 edition = "2021"
 description = "Stream containers, media transport messages, and asset codecs for PocketJS"
 

@@ -1,5 +1,10 @@
 [package]
 name = "pocket-glyph-pages"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-glyph-pages"
+keywords = ["pocketjs", "fonts", "rendering"]
+categories = ["no-std", "rendering"]
 edition = "2021"
 description = "Borrowed font coverage expansion, bounded pages, and A8 masks for PocketJS"
 

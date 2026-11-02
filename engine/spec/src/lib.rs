@@ -379,7 +379,7 @@ pub mod tileset {
     pub const FLAG_LINEAR: u16 = 2;
 }
 
-/// Host service channel limits (spec.ts SVC — pocket-svc/<app>/ mailbox).
+/// Host service channel limits (spec.ts SVC — `pocket-svc/<app>/` mailbox).
 pub mod svc {
     pub const POLL_BUF: usize = 8192;
     pub const IMG_MAX_BYTES: usize = 131072;
@@ -455,7 +455,7 @@ pub mod font_atlas {
     pub const FLAG_BOLD: u8 = 1;
 }
 
-/// DrawList op codes (core -> backend Vec<u32> words; layout in spec.ts).
+/// DrawList op codes (core -> backend `Vec<u32>` words; layout in spec.ts).
 /// Word counts incl. header: RECT 4, GRAD_RECT 6, GLYPH_RUN 3+2n,
 /// TEX_QUAD 9, SCISSOR 3, SCISSOR_POP 1, TRI 7, TEX_TRI 12,
 /// TEXT_RUN 8+ceil(bytes/4), SURFACE_QUAD 9.
@@ -474,7 +474,7 @@ pub mod draw_op {
 }
 
 /// .pak container constants (byte-compatible with dreamcart's format;
-/// copied from framework/bake/pak.ts + docs/pak-format.md).
+/// implemented by framework/compiler/pak.ts and framework/src/pak.ts).
 pub mod pak {
     pub const MAGIC: u32 = 0x4b504344; // 'DCPK' LE
     pub const VERSION: u16 = 1;

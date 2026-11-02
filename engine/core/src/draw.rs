@@ -1,4 +1,4 @@
-//! Tree walk -> DrawList + the CPU CLIP STAGE [R].
+//! Tree walk -> DrawList + the CPU CLIP STAGE `[R]`.
 //!
 //! Word/byte layout is pinned in contracts/spec/spec.ts ("DRAWLIST op format"); op
 //! codes in spec::draw_op. GUARANTEE upheld here: every coordinate emitted is

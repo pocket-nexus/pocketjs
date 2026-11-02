@@ -1,19 +1,40 @@
 # pocket-driver-kit
 
-Reusable checks for a driver's own CI. The Rust crate is `no_std` + `alloc`;
-its dependencies are device contracts, the package parser and renderer tools.
-It does not depend on the core UI or select a platform through Cargo features.
+Reusable PocketJS driver conformance checks for package sources, input, CPU pixels, and deferred-device lifecycle traces.
 
-## Rust consumers
-
-Use a fixed framework Git revision containing this crate, then pass the
-driver's real implementations to the checks. The versioned crates.io form is
-available after the corresponding crate release:
+## Install
 
 ```toml
 [dev-dependencies]
-pocket-driver-kit = { git = "https://github.com/pocket-nexus/pocketjs.git", rev = "<full-commit-sha>" }
+pocket-driver-kit = "0.1.0"
+pocket-package = "0.1.0"
 ```
+
+## Example
+
+```rust
+use pocket_driver_kit::check_package_source;
+use pocket_package::source::MemorySource;
+
+let expected = b"driver source bytes";
+let mut source = MemorySource(expected.as_slice());
+check_package_source(&mut source, expected).unwrap();
+// Replace MemorySource with the driver's real source in its conformance suite.
+```
+
+Run from the PocketJS checkout with `cargo run -p pocket-driver-kit --example package_source`.
+
+## Environment and compatibility
+
+Rust 1.93 or later. `no_std` with `alloc`; use it as a development dependency of a driver project.
+
+Supply real driver implementations and independent device completion observations. Model checks do not establish physical GPU completion or device pixels. Rust conformance helpers and the C SDK are separate distributions.
+
+Use matching PocketJS crate releases and compiler contracts. Application package
+format, binding generation, and DrawList version are checked at their respective
+boundaries; a Cargo version alone does not replace those checks.
+
+## Detailed contract
 
 `check_package_source` compares `all` and range reads against trusted bytes,
 including short reads, EOF, empty output and an offset past EOF.
@@ -78,9 +99,17 @@ for initialization, source checks and the error returned at each boundary.
 
 Positive and deliberately broken traces exercise the checker itself. The
 crate also runs the extracted delayed driver through the real presenter,
-including failure drain and destruction. The external Rust consumer imports
+including failure drain and destruction. The repository integration fixture imports
 this crate at a fixed revision. SDK tests compile an independent C consumer
 and exercise both accepted and rejected implementations.
 
 These checks do not prove the physical stop probe, cache coherency or device
 pixels. Keep software pixel fixtures and device receipts with the driver's CI.
+
+## Documentation and license
+
+- [API reference](https://docs.rs/pocket-driver-kit)
+- [Source](https://github.com/pocket-nexus/pocketjs/tree/main/engine/driver-kit)
+- [PocketJS documentation](https://pocketjs.pocket.nexus/docs/)
+
+MIT. The published crate includes the copyright notice and full license in `LICENSE`.

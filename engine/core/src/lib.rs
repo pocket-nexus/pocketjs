@@ -5,7 +5,7 @@
 //! FFI, wasm extern "C" mirror) call the op surface below; nothing here knows
 //! about sceGu, canvas or QuickJS.
 //!
-//! Invariants upheld (from docs/DESIGN.md, all [R]):
+//! Invariants upheld (from docs/DESIGN.md, all `[R]`):
 //!   - Node ids are generation-tagged: (gen << spec::ID_SLOT_BITS) | slot;
 //!     ops on stale ids are silent no-ops.
 //!   - `insert_before` has DOM move semantics: an attached child is unlinked
