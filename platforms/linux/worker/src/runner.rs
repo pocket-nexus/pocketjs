@@ -29,6 +29,8 @@ pub const KIND_HTTP: u32 = 3;
 pub const FACT_DATA: u32 = 3;
 pub const FACT_HEADERS: u32 = 8;
 pub const MAX_PAYLOAD: usize = 1024;
+/// POCKET_WORKER_MAX_RECORD: the largest channel record.
+pub const MAX_RECORD: usize = 64 * 1024;
 
 /// `pocket_worker`, the resource core.
 #[repr(C)]
@@ -330,7 +332,9 @@ fn own(host: Arc<Host>, source: Vec<u8>, booted: mpsc::SyncSender<Result<RunnerH
             stack_limit: 256 * 1024,
             max_jobs: 0,
             max_facts: 0,
-            max_bytes: 0,
+            // A turn holds the largest UI-to-worker record a host table
+            // allows (WORKER_CHANNEL_MAX in contracts/spec/worker.ts).
+            max_bytes: MAX_RECORD as u32,
             window_micros: 0,
             quota_micros: 0,
             context,
@@ -385,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn the_mirrored_structs_have_the_c_sizes() {
+    fn the_mirrored_structs_and_limits_match_the_c_headers() {
         let sizes = [
             size_of::<RunnerConfig>(),
             size_of::<CoreConfig>(),
@@ -400,5 +404,7 @@ mod tests {
                 "struct {which}"
             );
         }
+        assert_eq!(MAX_PAYLOAD, unsafe { pocket_linux_worker_layout(5) });
+        assert_eq!(MAX_RECORD, unsafe { pocket_linux_worker_layout(6) });
     }
 }

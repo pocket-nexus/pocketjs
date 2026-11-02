@@ -205,14 +205,28 @@
                     ]
                   },
                   "recordBytes": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 1024
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65536
+                      },
+                      {
+                        "const": "host"
+                      }
+                    ]
                   },
                   "capacity": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 8
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 256
+                      },
+                      {
+                        "const": "host"
+                      }
+                    ]
                   }
                 }
               }

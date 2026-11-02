@@ -182,6 +182,33 @@ int main(void) {
   count = observe(w, f, bytes);
   assert(count == 2 && f[0].kind == POCKET_WORKER_CHANNEL && f[1].channel == 2 &&
          f[1].handle == 0);
+  /* A channel past the floor: the host's table may hold larger records and
+   * deeper rings, up to the core's ceilings. */
+  uint32_t record = 0, ring = 0;
+  assert(pocket_worker_channel_size(w, 1, &record, &ring) == 0 &&
+         record == 128 && ring == 1);
+  assert(pocket_worker_channel(w, 3, 0, POCKET_WORKER_MAX_RECORD + 1, 1) ==
+         POCKET_WORKER_INVALID);
+  assert(pocket_worker_channel(w, 3, 0, 4, POCKET_WORKER_MAX_RING + 1) ==
+         POCKET_WORKER_INVALID);
+  assert(pocket_worker_channel(w, 3, 0, 4096, 64) == 0);
+  assert(pocket_worker_channel_size(w, 3, &record, &ring) == 0 &&
+         record == 4096 && ring == 64);
+  assert(pocket_worker_channel_size(w, 9, &record, &ring) ==
+         POCKET_WORKER_INVALID);
+  static uint8_t large[4096], taken[4096];
+  for (unsigned i = 0; i < 64; i++) {
+    memset(large, (int)i, sizeof large);
+    assert(pocket_worker_publish(w, 3, large, sizeof large) == 0);
+  }
+  assert(pocket_worker_publish(w, 3, large, sizeof large) ==
+         POCKET_WORKER_BUSY);
+  for (unsigned i = 0; i < 64; i++) {
+    assert(pocket_worker_channel_take(w, 3, taken, sizeof taken) == 4096);
+    assert(taken[0] == i && taken[4095] == i);
+  }
+  assert(pocket_worker_channel_take(w, 3, taken, sizeof taken) ==
+         POCKET_WORKER_BUSY);
   assert(pocket_worker_destroy(w) == 0);
 
   w = create(&h, &d, &node);

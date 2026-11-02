@@ -11,7 +11,8 @@ import {
   type TargetForm,
   type Viewport,
 } from "./platform-types.ts";
-import { WORKER_RESOURCES, type WorkerResourceKind } from "./worker.ts";
+import { NET_MAX_RESPONSE_BYTES } from "./net.ts";
+import { WORKER_CHANNEL_FLOOR, WORKER_CHANNEL_MAX, WORKER_RESOURCES, type WorkerChannelTable, type WorkerResourceKind } from "./worker.ts";
 
 export const POCKET_PROFILE_FORMAT = "pocket-host/2" as const;
 export const POCKET_PROFILE_SCHEMA_ID = "https://pocketjs.dev/schema/pocket-host-2.json";
@@ -62,9 +63,18 @@ export interface PocketProfile<C extends string = string> {
   /** Capability names; a set. */
   readonly capabilities: readonly C[];
   readonly roleCapabilities?: { readonly systemUI?: readonly C[] };
-  /** Worker nodes the host provides, by kind: the most nodes of that kind
-   *  one package may declare. */
-  readonly worker?: { readonly nodes: Readonly<Partial<Record<WorkerResourceKind, number>>> };
+  readonly worker?: {
+    /** Worker nodes the host provides, by kind: the most nodes of that kind
+     *  one package may declare. */
+    readonly nodes: Readonly<Partial<Record<WorkerResourceKind, number>>>;
+    /** The largest channel one package may declare, and the size of a
+     *  channel declared "host". Absent: WORKER_CHANNEL_FLOOR (1024-byte
+     *  records, rings of 8). */
+    readonly channels?: WorkerChannelTable;
+    /** The largest response body one `http` request may ask for
+     *  (`maxBytes`). Absent: NET_MAX_RESPONSE_BYTES (256 KiB). */
+    readonly http?: { readonly responseBytes: number };
+  };
   readonly limits?: {
     /** The largest `.pocket` the host loads. */
     readonly packageBytes?: number;
@@ -160,6 +170,17 @@ export const pocketProfileSchema = {
         nodes: {
           type: "object", additionalProperties: false,
           properties: Object.fromEntries(Object.keys(WORKER_RESOURCES).map(kind => [kind, { type: "integer", minimum: 0, maximum: 255 }])),
+        },
+        channels: {
+          type: "object", additionalProperties: false, required: ["recordBytes", "capacity"],
+          properties: {
+            recordBytes: { type: "integer", minimum: WORKER_CHANNEL_FLOOR.recordBytes, maximum: WORKER_CHANNEL_MAX.recordBytes },
+            capacity: { type: "integer", minimum: WORKER_CHANNEL_FLOOR.capacity, maximum: WORKER_CHANNEL_MAX.capacity },
+          },
+        },
+        http: {
+          type: "object", additionalProperties: false, required: ["responseBytes"],
+          properties: { responseBytes: { type: "integer", minimum: NET_MAX_RESPONSE_BYTES, maximum: 0x7fff_ffff } },
         },
       },
     },
@@ -262,4 +283,15 @@ export function canonicalJsonText(input: unknown): string {
  * hash is provenance, so each consumer computes it when it needs it. */
 export function canonicalProfileJson(profile: ProfileHashProjection): string {
   return canonicalJsonText(profileHashProjection(profile));
+}
+
+/** The channel a host holds: its profile's table, or the floor every host
+ *  holds. */
+export function profileChannels(profile: Pick<PocketProfile, "worker">): WorkerChannelTable {
+  return profile.worker?.channels ?? WORKER_CHANNEL_FLOOR;
+}
+
+/** The largest response body one `http` request may ask for on a host. */
+export function profileResponseBytes(profile: Pick<PocketProfile, "worker">): number {
+  return profile.worker?.http?.responseBytes ?? NET_MAX_RESPONSE_BYTES;
 }

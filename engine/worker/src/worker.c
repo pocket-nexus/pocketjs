@@ -29,7 +29,7 @@ typedef struct {
 } timer;
 typedef struct {
   uint32_t id, snapshot, size, capacity, head, count, incoming, outgoing;
-  uint32_t lengths[POCKET_WORKER_MAX_EVENTS];
+  uint32_t *lengths;
   uint8_t *bytes;
 } channel;
 struct pocket_worker {
@@ -649,8 +649,8 @@ int pocket_worker_pending(pocket_worker *w) {
 }
 int32_t pocket_worker_channel(pocket_worker *w, uint32_t id, uint32_t snapshot,
                               uint32_t size, uint32_t capacity) {
-  if (!w || !id || !size || size > POCKET_WORKER_MAX_PAYLOAD || !capacity ||
-      capacity > POCKET_WORKER_MAX_EVENTS || snapshot > 1)
+  if (!w || !id || !size || size > POCKET_WORKER_MAX_RECORD || !capacity ||
+      capacity > POCKET_WORKER_MAX_RING || snapshot > 1)
     return POCKET_WORKER_INVALID;
   lock(w);
   channel *c = NULL;
@@ -667,7 +667,12 @@ int32_t pocket_worker_channel(pocket_worker *w, uint32_t id, uint32_t snapshot,
     return POCKET_WORKER_BUSY;
   }
   c->bytes = malloc((size_t)size * (snapshot ? 1 : capacity));
-  if (!c->bytes) {
+  c->lengths = calloc(snapshot ? 1 : capacity, sizeof *c->lengths);
+  if (!c->bytes || !c->lengths) {
+    free(c->bytes);
+    free(c->lengths);
+    c->bytes = NULL;
+    c->lengths = NULL;
     unlock(w);
     return POCKET_WORKER_BUSY;
   }
@@ -771,6 +776,23 @@ int32_t pocket_worker_channel_take(pocket_worker *w, uint32_t id,
   unlock(w);
   return (int32_t)length;
 }
+int32_t pocket_worker_channel_size(pocket_worker *w, uint32_t id,
+                                   uint32_t *record, uint32_t *capacity) {
+  if (!w)
+    return POCKET_WORKER_INVALID;
+  lock(w);
+  for (size_t i = 0; i < POCKET_WORKER_MAX_CHANNELS; i++)
+    if (w->channels[i].id == id) {
+      if (record)
+        *record = w->channels[i].size;
+      if (capacity)
+        *capacity = w->channels[i].capacity;
+      unlock(w);
+      return POCKET_WORKER_OK;
+    }
+  unlock(w);
+  return POCKET_WORKER_INVALID;
+}
 void pocket_worker_shutdown(pocket_worker *w) {
   if (!w)
     return;
@@ -793,8 +815,10 @@ int32_t pocket_worker_destroy(pocket_worker *w) {
       return POCKET_WORKER_BUSY;
     }
   unlock(w);
-  for (size_t i = 0; i < POCKET_WORKER_MAX_CHANNELS; i++)
+  for (size_t i = 0; i < POCKET_WORKER_MAX_CHANNELS; i++) {
     free(w->channels[i].bytes);
+    free(w->channels[i].lengths);
+  }
   free(w);
   return POCKET_WORKER_OK;
 }

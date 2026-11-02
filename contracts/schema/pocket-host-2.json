@@ -262,6 +262,40 @@
               "maximum": 255
             }
           }
+        },
+        "channels": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "recordBytes",
+            "capacity"
+          ],
+          "properties": {
+            "recordBytes": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65536
+            },
+            "capacity": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 256
+            }
+          }
+        },
+        "http": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "responseBytes"
+          ],
+          "properties": {
+            "responseBytes": {
+              "type": "integer",
+              "minimum": 262144,
+              "maximum": 2147483647
+            }
+          }
         }
       }
     },

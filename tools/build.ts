@@ -49,6 +49,8 @@ import { animationThemeSchema } from "../contracts/spec/pocket-manifest.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { profileResponseBytes } from "../contracts/spec/profile.ts";
+import { resolveWorkerChannels } from "../contracts/spec/worker.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
 import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
@@ -159,8 +161,11 @@ const sourceContent = buildPlan ? undefined : sourceAppContent(requestedEntry, {
   onAppRoot: path => { appProjectRoot = path; },
 });
 const appContent = buildPlan ? buildPlan.app : sourceContent!;
-/** The worker domain: the frozen plan's, or the source manifest's. */
-const workerDeclaration = buildPlan ? buildPlan.domains?.worker : sourceContent?.domains?.worker;
+/** The worker domain: the frozen plan's, or the source manifest's with
+ *  "host" channel sizes at the floor every host holds. */
+const workerDeclaration = buildPlan
+  ? buildPlan.domains?.worker
+  : sourceContent?.domains?.worker && resolveWorkerChannels(sourceContent.domains.worker);
 if (appContent.theme !== undefined) {
   const diagnostics: ContractDiagnostic[] = [];
   validateSchema(appContent.theme, animationThemeSchema, "/app/theme", diagnostics);
@@ -542,6 +547,9 @@ const result = await Bun.build({
     // a bundle built without a plan animates as a composited target.
     __POCKET_ANIMATION__: JSON.stringify(buildPlan?.animation ?? "composited"),
     __POCKET_PIXEL_RATIO__: String(rasterDensity),
+    // The largest response body a worker http request may ask for on the
+    // target (contracts/spec/profile.ts worker.http).
+    __POCKET_HTTP_RESPONSE_BYTES__: String(profileResponseBytes(buildPlan?.profile ?? {})),
     __POCKET_TICK_HZ__: String(tickHz),
     ...(framework === "vue-vapor"
       ? { document: "globalThis.__pocketDocument" }

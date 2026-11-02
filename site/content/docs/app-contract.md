@@ -339,13 +339,18 @@ the resources its nodes name. See `docs/WORKER.md` for the runtime model.
 | `nodes[].kind` | `i2c`, `uart` or `http`. Each kind requires its capability: `io.i2c`, `io.uart`, `net.http`. |
 | `channels[].kind` | `snapshot` retains the newest record; `ring` queues records and rejects a publish when full. |
 | `channels[].direction` | `ui-to-worker` or `worker-to-ui`. |
-| `channels[].recordBytes` | 1 to 1024. |
-| `channels[].capacity` | 1 to 8 records. |
+| `channels[].recordBytes` | 1 to 65536 bytes, or `"host"`. |
+| `channels[].capacity` | 1 to 256 records, or `"host"`. |
 
 **A worker declaration adds `runtime.worker` and each node kind's capability
 to `requires`.** A worker owns at most 8 nodes and 8 channels; the target's
 host contract bounds the count of each node kind, and resolution fails with
-`worker.nodeLimit` above it. A worker and `app.aot` do not combine
+`worker.nodeLimit` above it. **Channel sizes are host facts too**: every host
+holds records of 1024 bytes in rings of 8, a host contract's
+`worker.channels` states a larger channel, and a size above the target's
+fails with `worker.channelSize`. `"host"` takes the target's size; the plan
+records the number, and `channel.recordBytes` and `channel.capacity` read it
+at run time in both realms. A worker and `app.aot` do not combine
 (`worker.execution`). Channel ids follow app contract order.
 
 ## applet

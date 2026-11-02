@@ -38,6 +38,15 @@ them again.
 **Node and channel counts are host facts**: a host contract's `worker.nodes` table
 bounds each kind, and the worker protocol bounds a worker to **8** nodes and
 **8** channels.
+**Channel sizes are host facts**: every host holds records of **1024 bytes** in
+rings of **8**; a host contract's `worker.channels` states a larger channel, up
+to **64 KiB** records and rings of **256**. A size the manifest states must fit
+the target's (`worker.channelSize`); `"host"` takes the target's. The plan
+records numbers, the core allocates each channel at its declared size, and the
+UI bridge mirrors that many records of that many bytes each frame. A
+UI-to-worker record arrives as one fact, so a host whose records exceed its
+realm's per-turn bytes (`max_bytes`, 8192 by default) raises them; the Linux
+worker (`platforms/linux/worker`) takes 64 KiB a turn.
 **HTTP and MQTT exist only as worker resources**: no UI realm has a network
 module.
 The current resolver requires the worker. An `enhances` declaration with a UI
@@ -276,7 +285,8 @@ detach, and reports the cause through `pocket_worker_runner_error`.
 Channels take IDs in the order the app contract lists them. Snapshot channels retain the newest
 record; rings reject a publish when full. The v1 host copies channel records
 under a lock, which prevents writes during a reader's copy. Channels have one
-direction and a maximum record length. The worker side is
+direction and a maximum record length; `recordBytes` and `capacity` on a
+channel object read the sizes the plan resolved. The worker side is
 `io.channel(name)`: `publish(bytes)` toward the UI, `observe()` for each
 arriving inbound record and `snapshot()` for the retained newest inbound
 snapshot, which persists across turns until the generation changes. UI
@@ -288,7 +298,7 @@ UI views expire at the next frame.
 
 The core reserves **8 resource slots, 8 request slots, 8 event slots, 8 timers
 and 8 channels**. Each descriptor, result or event carries at most **1024
-bytes**. Terminal state has reserved storage outside the data event queue.
+bytes**; a channel's storage is allocated at its declared size. Terminal state has reserved storage outside the data event queue.
 Node pins, allowed device addresses, UART flow-control wiring, task priority
 and heap limits belong to the host firmware. **A platform can give the realm a
 CPU share** (`quota_micros` per `window_micros` in

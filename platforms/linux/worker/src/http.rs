@@ -4,12 +4,14 @@
 //! Pocket's hands it to its daemon.
 //!
 //! Open parses the descriptor (framework/src/io.ts), bounded as
-//! contracts/spec/net.ts bounds it, and asks the exchange whether the program
-//! can reach the URL; start hands the exchange a [`Call`]. The call is answered
-//! once, from any thread, and its answer becomes facts: HEADERS, DATA in blocks
-//! of at most 1 KiB, END. The worker's owner task emits them into the core when
-//! it waits or finishes a turn (runner.rs). An answer never touches the core,
-//! so close returns at once and a late answer is dropped.
+//! contracts/spec/net.ts bounds it with the node's response limit (the
+//! program's host contract, `worker.http.responseBytes`), and asks the
+//! exchange whether the program can reach the URL; start hands the exchange a
+//! [`Call`]. The call is answered once, from any thread, and its answer
+//! becomes facts: HEADERS, DATA in blocks of at most 1 KiB, END. The worker's
+//! owner task emits them into the core when it waits or finishes a turn
+//! (runner.rs). An answer never touches the core, so close returns at once and
+//! a late answer is dropped.
 use crate::runner::{
     pocket_worker_emit, pocket_worker_finish, Core, Driver, Notify, BUSY, FACT_DATA, FACT_HEADERS,
     FAILED, INVALID, MAX_PAYLOAD, OK, UNKNOWN,
@@ -26,7 +28,19 @@ pub const METHODS: [&str; 7] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE",
 pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 pub const MAX_TIMEOUT_MS: u64 = 120_000;
 pub const DEFAULT_RESPONSE_BYTES: usize = 128 * 1024;
+/// The response limit of a host contract that states none.
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
+
+/// The response limit a host contract (`pocket.host.json`) states in
+/// `worker.http.responseBytes`, or MAX_RESPONSE_BYTES when it states none.
+pub fn contract_response_bytes(contract: &str) -> usize {
+    serde_json::from_str::<serde_json::Value>(contract)
+        .ok()
+        .and_then(|value| value["worker"]["http"]["responseBytes"].as_u64())
+        .map_or(MAX_RESPONSE_BYTES, |bytes| {
+            (bytes as usize).max(MAX_RESPONSE_BYTES)
+        })
+}
 
 /// An opened resource's request, parsed from its descriptor. Header names are
 /// lower case.
@@ -136,14 +150,21 @@ struct State {
 pub struct HttpNode {
     exchange: Box<dyn Exchange>,
     notify: Arc<Notify>,
+    /// The largest `maxBytes` a descriptor may ask for.
+    response_bytes: usize,
     state: Mutex<State>,
 }
 
 impl HttpNode {
-    pub fn new(exchange: Box<dyn Exchange>, notify: Arc<Notify>) -> Arc<Self> {
+    pub fn new(
+        exchange: Box<dyn Exchange>,
+        notify: Arc<Notify>,
+        response_bytes: usize,
+    ) -> Arc<Self> {
         Arc::new(Self {
             exchange,
             notify,
+            response_bytes,
             state: Mutex::default(),
         })
     }
@@ -329,7 +350,9 @@ unsafe extern "C" fn open(
     } else {
         std::slice::from_raw_parts(config, length)
     };
-    let Some(request) = parse(descriptor).filter(|request| node.exchange.admits(request)) else {
+    let Some(request) =
+        parse(descriptor, node.response_bytes).filter(|request| node.exchange.admits(request))
+    else {
         return INVALID;
     };
     node.state.lock().unwrap().resources.insert(
@@ -405,8 +428,9 @@ unsafe extern "C" fn close(context: *mut c_void, _: *mut Core, handle: u32) -> i
 }
 
 /// The descriptor `io.http(...).open` encodes (framework/src/io.ts), bounded
-/// as contracts/spec/net.ts bounds it.
-pub fn parse(descriptor: &[u8]) -> Option<Request> {
+/// as contracts/spec/net.ts bounds it, with `maxBytes` at most
+/// `response_bytes`.
+pub fn parse(descriptor: &[u8], response_bytes: usize) -> Option<Request> {
     let value: serde_json::Value = serde_json::from_slice(descriptor).ok()?;
     let url = value.get("url")?.as_str()?.to_string();
     let method = match value.get("method") {
@@ -439,7 +463,7 @@ pub fn parse(descriptor: &[u8]) -> Option<Request> {
     let max_bytes = match value.get("maxBytes") {
         Some(limit) => limit
             .as_u64()
-            .filter(|bytes| (1..=MAX_RESPONSE_BYTES as u64).contains(bytes))?
+            .filter(|bytes| (1..=response_bytes as u64).contains(bytes))?
             as usize,
         None => DEFAULT_RESPONSE_BYTES,
     };
@@ -480,22 +504,61 @@ mod tests {
 
     #[test]
     fn a_descriptor_parses_within_the_net_bounds() {
-        let request = parse(br#"{"url":"https://a.test/x","method":"POST","headers":{"X-Key":"v"},"body":"hi","timeoutMs":5000,"maxBytes":1024}"#).unwrap();
+        let request = parse(br#"{"url":"https://a.test/x","method":"POST","headers":{"X-Key":"v"},"body":"hi","timeoutMs":5000,"maxBytes":1024}"#, MAX_RESPONSE_BYTES).unwrap();
         assert_eq!(request.method, "POST");
         assert_eq!(request.headers.get("x-key").map(String::as_str), Some("v"));
         assert_eq!(request.body, b"hi");
         assert_eq!(request.timeout, Duration::from_millis(5000));
         assert_eq!(request.max_bytes, 1024);
-        let plain = parse(br#"{"url":"https://a.test/"}"#).unwrap();
+        let plain = parse(br#"{"url":"https://a.test/"}"#, MAX_RESPONSE_BYTES).unwrap();
         assert_eq!(
             (plain.method.as_str(), plain.max_bytes),
             ("GET", DEFAULT_RESPONSE_BYTES)
         );
-        assert!(parse(br#"{"url":"https://a.test/","method":"FETCH"}"#).is_none());
-        assert!(parse(br#"{"url":"https://a.test/","headers":{"a:b":"c"}}"#).is_none());
-        assert!(parse(br#"{"url":"https://a.test/","headers":{"a":"b\nc"}}"#).is_none());
-        assert!(parse(br#"{"url":"https://a.test/","maxBytes":999999999}"#).is_none());
-        assert!(parse(br#"{"url":"https://a.test/","timeoutMs":0}"#).is_none());
-        assert!(parse(b"not json").is_none());
+        assert!(parse(
+            br#"{"url":"https://a.test/","method":"FETCH"}"#,
+            MAX_RESPONSE_BYTES
+        )
+        .is_none());
+        assert!(parse(
+            br#"{"url":"https://a.test/","headers":{"a:b":"c"}}"#,
+            MAX_RESPONSE_BYTES
+        )
+        .is_none());
+        assert!(parse(
+            br#"{"url":"https://a.test/","headers":{"a":"b\nc"}}"#,
+            MAX_RESPONSE_BYTES
+        )
+        .is_none());
+        assert!(parse(
+            br#"{"url":"https://a.test/","maxBytes":999999999}"#,
+            MAX_RESPONSE_BYTES
+        )
+        .is_none());
+        assert!(parse(
+            br#"{"url":"https://a.test/","timeoutMs":0}"#,
+            MAX_RESPONSE_BYTES
+        )
+        .is_none());
+        assert!(parse(b"not json", MAX_RESPONSE_BYTES).is_none());
+        // A host contract's larger limit admits a larger maxBytes.
+        let large = br#"{"url":"https://a.test/","maxBytes":1048576}"#;
+        assert!(parse(large, MAX_RESPONSE_BYTES).is_none());
+        assert_eq!(parse(large, 4 << 20).unwrap().max_bytes, 1 << 20);
+    }
+
+    #[test]
+    fn the_response_limit_is_the_host_contracts() {
+        assert_eq!(
+            contract_response_bytes(
+                r#"{"worker":{"nodes":{"http":1},"http":{"responseBytes":4194304}}}"#
+            ),
+            4 << 20
+        );
+        assert_eq!(
+            contract_response_bytes(r#"{"worker":{"nodes":{"http":1}}}"#),
+            MAX_RESPONSE_BYTES
+        );
+        assert_eq!(contract_response_bytes("{}"), MAX_RESPONSE_BYTES);
     }
 }
