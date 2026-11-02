@@ -190,6 +190,34 @@ describe("source rules", () => {
     expect(withCamera.filter((d) => d.message.includes("camera"))).toEqual([]);
   });
 
+  test("worker/channels, the UI's side of the applet's worker, comes with net.http", () => {
+    const dir = project({
+      ...CLEAN,
+      "notes/net.ts": `import { worker } from "@pocketjs/framework/worker/channels";\nexport const requests = () => worker.channel("request");\n`,
+      "notes/main.tsx": `import "./net.ts";\n${CLEAN["notes/main.tsx"]}`,
+    });
+    const refused = checkAppletSources({ projectRoot: dir, entry: "notes/main.tsx", applet: DECLARED, capabilities: [] });
+    expect(refused.map((d) => [d.code, d.message])).toEqual([["applet.module", "@pocketjs/framework/worker/channels needs the net.http capability"]]);
+    expect(sources(dir, { version: 1, services: ["glyphs"] }, ["net.http"])).toEqual([]);
+    // The build checks with the plan's features: an applet that requires
+    // net.http and declares its worker resolves with the feature on.
+    const plan = resolve3dsBuildPlan(manifest({
+      applet: { version: 1, services: ["glyphs"] },
+      domains: {
+        worker: {
+          entry: "notes/worker.ts",
+          nodes: [{ name: "http", kind: "http" }],
+          channels: [
+            { name: "request", kind: "ring", direction: "ui-to-worker", recordBytes: 1024, capacity: 4 },
+            { name: "response", kind: "ring", direction: "worker-to-ui", recordBytes: 1024, capacity: 8 },
+          ],
+        },
+      },
+    }, { requires: ["text.glyphs.baked", "input.buttons", "display.auxiliary", "input.touch.auxiliary", "net.http"] }));
+    expect(plan.domains?.worker?.nodes).toEqual([{ name: "http", kind: "http" }]);
+    expect(sources(dir, plan.applet, Object.keys(plan.features))).toEqual([]);
+  });
+
   test("a module outside the project root and a UI without AuxiliarySurface are refused", () => {
     const dir = project({
       "notes/main.tsx": `import "../../outside.ts";\nexport const nothing = 1;\n`,

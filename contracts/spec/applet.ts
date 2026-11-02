@@ -134,10 +134,15 @@ export const APPLET_MODULES = [
   "display",
   "platform",
 ] as const;
-/** Modules allowed when the manifest declares the capability that gates them. */
+/** Modules allowed when the manifest declares the capability that gates them.
+ *  `worker/channels` is the UI's side of the applet's own worker
+ *  (`domains.worker`): an applet's network is that worker's `io.http`
+ *  resource, the only node an applet's capabilities admit, so the UI module
+ *  that reads the worker comes with `net.http`. */
 export const APPLET_GATED_MODULES: Readonly<Record<string, readonly string[]>> = {
   camera: APPLET_CAPABILITY_PREFIXES,
   fs: ["data.fs"],
+  "worker/channels": ["net.http"],
 };
 /** Exports of @pocketjs/framework/link that act for the system: installing,
  *  removing and pairing belong to the launcher. */

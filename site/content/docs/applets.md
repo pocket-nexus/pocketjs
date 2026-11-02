@@ -60,13 +60,23 @@ that breaks one does not build on any target.
 | Title | **24** characters |
 | Framework | `solid`, with no native model and no companions of its own |
 | Capabilities | An allowlist: text, buttons, left stick, the surface and touch, `net.http`, `ui.physics`, `audio.pcm`, `media.playback`, `data.fs`, `system.agent`, `camera.*` |
-| Imports | `solid-js` and the applet's list of `@pocketjs/framework/*` modules, with relative imports inside the project root |
+| Imports | `solid-js` and the applet's list of `@pocketjs/framework/*` modules, with relative imports inside the project root; `camera`, `fs` and `worker/channels` only with `camera.*`, `data.fs` and `net.http` |
 | Code | No dynamic `import()`, no `eval`, no `Function` constructor |
 | Launcher APIs | No installing, removing or pairing: those belong to the launcher |
 
 `bun tools/applet-check.ts <pocket.app.json>` runs every rule outside a build.
 The full rules and their reasons are in
 [docs/APPLETS.md](https://github.com/pocket-nexus/pocketjs/blob/main/docs/APPLETS.md).
+
+## Reaching the network
+
+The UI realm has no network. **An applet's HTTP runs in the worker its app
+contract declares** (`domains.worker` with one `http` node): the worker
+fetches the applet's services at `https://companion.pocket/<name>/…` and sends
+each answer back over a channel, and the UI reads it with
+`@pocketjs/framework/worker/channels`, which an applet imports when it
+declares `net.http`. One request (URL, method, headers and body) is at most
+**1024 bytes**, and a channel record at most **1024 bytes**.
 
 ## Drawing on the surface
 
