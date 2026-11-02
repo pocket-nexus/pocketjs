@@ -41,7 +41,7 @@ describe("3DS product extensions", () => {
         return { feature: "a-feature", attach: () => session, stop: () => { stops += 1; } };
       }],
       log() {},
-    } as any);
+    });
     expect(companion.features()).toContain("a-feature");
     await companion.stop();
     expect(stops).toBe(1);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
@@ -57,6 +57,9 @@ describe("Cargo program and library graph", () => {
     try {
       mkdirSync(join(consumer, "src"));
       writeFileSync(join(consumer, "src/lib.rs"), "// Dependency-graph consumer; device SDK compilation is a separate gate.\n");
+      // Keep the registry versions fetched from the workspace lock, including
+      // versions since yanked. The consumer still resolves its own features.
+      copyFileSync(join(root, "Cargo.lock"), join(consumer, "Cargo.lock"));
       for (const mode of ["minimal", "default", "all"] as const) {
         const options = mode === "minimal" ? ["--no-default-features"] : mode === "all" ? ["--all-features"] : [];
         // Fetch locked dependencies on a cold CI host; subsequent independent
@@ -68,7 +71,7 @@ describe("Cargo program and library graph", () => {
           return `${pkg.name} = { path = ${JSON.stringify(resolve(pkg.manifest_path, ".."))}, default-features = ${mode === "default"}, features = ${JSON.stringify(features)} }`;
         }).join("\n");
         writeFileSync(join(consumer, "Cargo.toml"), `[package]\nname="feature-consumer"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\n${dependencies}\n`);
-        command(["generate-lockfile", "--offline"], consumer);
+        command(["update", "--workspace", "--offline"], consumer);
         const independent = command(treeOptions, consumer);
         expect(() => checkFeatureTree(independent), mode).not.toThrow();
         expect(active(independent), mode).toEqual(active(source));
