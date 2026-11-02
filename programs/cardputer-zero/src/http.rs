@@ -1,5 +1,5 @@
-//! The worker's `http` node on the CardputerZero: `io.http` requests over
-//! loopback HTTP/1.1.
+//! The worker's `http` exchange on the CardputerZero: `io.http` requests over
+//! loopback HTTP/1.1 (the node itself is pocket-linux-worker's).
 //!
 //! The screen on this program is Pocket Companion's, so the servers it needs
 //! run on this machine. `http://companion/…` goes to the companion's control
@@ -12,28 +12,16 @@
 //! written. The program's own host answers two requests: `http://zero/quit`
 //! ends the program after the turn (the screen's way back to the Zero's
 //! launcher), and `http://zero/restart` restarts the companion's systemd
-//! unit, answering 204 once `systemctl` returns. Open refuses every other
-//! URL: there is no DNS, TLS or proxy here.
-//!
-//! Each request runs on its own thread and queues its facts: HEADERS, DATA in
-//! blocks of at most 1 KiB, END. The worker's owner task emits them into the
-//! core when it waits or finishes a turn (worker.rs). A request thread never
-//! touches the core, so close returns at once and a late answer is dropped.
-use crate::worker::{
-    pocket_worker_emit, pocket_worker_finish, Core, Driver, Notify, BUSY, FACT_DATA, FACT_HEADERS,
-    FAILED, INVALID, MAX_PAYLOAD, OK, UNKNOWN,
-};
+//! unit, answering 204 once `systemctl` returns. The node refuses every other
+//! URL at open: there is no DNS, TLS or proxy here. Each request runs on its
+//! own thread.
+use pocket_linux_worker::{Call, Exchange, Failure, Request, Response};
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
-    ffi::c_void,
+    collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream},
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
-    time::Duration,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 /// The virtual host that names the companion's control API.
@@ -42,13 +30,6 @@ const CONTROL_HOST: &str = "companion";
 pub const COMPANION_UNIT: &str = "pocket-companion.service";
 /// Set by `http://zero/quit`; the tick loop ends when it is.
 pub static QUIT: AtomicBool = AtomicBool::new(false);
-
-/// contracts/spec/net.ts.
-const METHODS: [&str; 7] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
-const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const MAX_TIMEOUT_MS: u64 = 120_000;
-const DEFAULT_RESPONSE_BYTES: usize = 128 * 1024;
-const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 /// Where a request goes.
 #[derive(Clone)]
@@ -65,310 +46,45 @@ enum Route {
     },
 }
 
-/// An opened resource's request, parsed from its descriptor.
-#[derive(Clone)]
-struct Request {
-    url: String,
-    method: String,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-    timeout: Duration,
-    max_bytes: usize,
-    route: Route,
-}
-
-struct Response {
-    status: u16,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-}
-
-/// Why an exchange produced no response, and whether the request may have
-/// reached its server.
-struct Failure {
-    reached: bool,
-    message: String,
-}
-
-enum Fact {
-    Headers {
-        handle: u32,
-        bytes: Vec<u8>,
-    },
-    Data {
-        handle: u32,
-        offset: u64,
-        bytes: Vec<u8>,
-    },
-    End {
-        handle: u32,
-        request: u32,
-        status: i32,
-        offset: u64,
-    },
-}
-impl Fact {
-    fn handle(&self) -> u32 {
-        match self {
-            Fact::Headers { handle, .. } | Fact::Data { handle, .. } | Fact::End { handle, .. } => {
-                *handle
-            }
-        }
-    }
-}
-
-struct Resource {
-    request: Request,
-    /// The submitted request id; one per resource.
-    started: Option<u32>,
-    /// The worker cancelled the request; its thread's answer is dropped.
-    cancelled: bool,
-    /// Body bytes emitted into the core.
-    delivered: u64,
-}
-
-#[derive(Default)]
-struct State {
-    resources: HashMap<u32, Resource>,
-    facts: VecDeque<Fact>,
-}
-
-pub struct Http {
+/// The program's exchange: the companion's control file and unit.
+pub struct ZeroExchange {
     control: PathBuf,
     unit: String,
-    notify: Arc<Notify>,
-    state: Mutex<State>,
 }
 
-impl Http {
-    pub fn new(control: PathBuf, unit: String, notify: Arc<Notify>) -> Self {
-        Self {
-            control,
-            unit,
-            notify,
-            state: Mutex::default(),
-        }
+impl ZeroExchange {
+    pub fn new(control: PathBuf, unit: String) -> Self {
+        Self { control, unit }
     }
+}
 
-    /// Owner task: emit queued facts until the core's event slots are full.
-    /// True when the core took any.
-    pub fn drain(&self, core: *mut Core) -> bool {
-        let mut state = self.state.lock().unwrap();
-        let mut took = false;
-        while let Some(fact) = state.facts.front() {
-            let status = unsafe {
-                match fact {
-                    Fact::Headers { handle, bytes } => pocket_worker_emit(
-                        core,
-                        *handle,
-                        FACT_HEADERS,
-                        OK,
-                        0,
-                        bytes.as_ptr(),
-                        bytes.len(),
-                    ),
-                    Fact::Data {
-                        handle,
-                        offset,
-                        bytes,
-                    } => pocket_worker_emit(
-                        core,
-                        *handle,
-                        FACT_DATA,
-                        OK,
-                        *offset,
-                        bytes.as_ptr(),
-                        bytes.len(),
-                    ),
-                    Fact::End {
-                        handle,
-                        request,
-                        status,
-                        offset,
-                    } => pocket_worker_finish(core, *handle, *request, *status, *offset),
-                }
-            };
-            if status == BUSY {
-                break;
-            }
-            let delivered = match (status, fact) {
-                (
-                    OK,
-                    Fact::Data {
-                        handle,
-                        offset,
-                        bytes,
-                    },
-                ) => Some((*handle, offset + bytes.len() as u64)),
-                _ => None,
-            };
-            took |= status == OK;
-            state.facts.pop_front();
-            if let Some((handle, end)) = delivered {
-                if let Some(resource) = state.resources.get_mut(&handle) {
-                    resource.delivered = end;
-                }
-            }
-        }
-        took
+impl Exchange for ZeroExchange {
+    fn admits(&self, request: &Request) -> bool {
+        route(&request.url).is_some()
     }
-
-    /// A request thread's answer becomes facts, unless its resource closed
-    /// or cancelled the request meanwhile.
-    fn answer(&self, handle: u32, request: u32, answer: Result<Response, Failure>, url: &str) {
-        let mut state = self.state.lock().unwrap();
-        match state.resources.get(&handle) {
-            Some(resource) if resource.started == Some(request) && !resource.cancelled => {}
-            _ => return,
-        }
-        let end = |status, offset| Fact::End {
-            handle,
-            request,
-            status,
-            offset,
+    fn start(&self, call: Call) {
+        let Some(route) = route(&call.request().url) else {
+            return call.answer(Err(Failure {
+                reached: false,
+                message: "unreachable URL".into(),
+            }));
         };
-        match answer {
-            Ok(response) => {
-                let head = serde_json::json!({
-                    "status": response.status, "url": url, "headers": response.headers,
-                })
-                .to_string()
-                .into_bytes();
-                if head.len() > MAX_PAYLOAD {
-                    state.facts.push_back(end(FAILED, 0));
-                } else {
-                    state.facts.push_back(Fact::Headers {
-                        handle,
-                        bytes: head,
-                    });
-                    for (index, block) in response.body.chunks(MAX_PAYLOAD).enumerate() {
-                        state.facts.push_back(Fact::Data {
-                            handle,
-                            offset: (index * MAX_PAYLOAD) as u64,
-                            bytes: block.to_vec(),
-                        });
-                    }
-                    state.facts.push_back(end(OK, response.body.len() as u64));
-                }
-            }
-            Err(failure) => state
-                .facts
-                .push_back(end(if failure.reached { UNKNOWN } else { FAILED }, 0)),
+        if matches!(route, Route::Quit) {
+            QUIT.store(true, Ordering::Relaxed);
+            return call.answer(Ok(no_content()));
         }
-        drop(state);
-        self.notify.wake();
-    }
-}
-
-/// The node's driver; its context is `http`, which outlives the core.
-pub fn driver(http: &Arc<Http>) -> Driver {
-    Driver {
-        struct_size: size_of::<Driver>() as u32,
-        context: Arc::as_ptr(http) as *mut c_void,
-        open: Some(open),
-        start: Some(start),
-        write: None,
-        cancel: Some(cancel),
-        close: Some(close),
-        validate: None,
-    }
-}
-
-unsafe extern "C" fn open(
-    context: *mut c_void,
-    _: *mut Core,
-    handle: u32,
-    config: *const u8,
-    length: usize,
-) -> i32 {
-    let http = &*(context as *const Http);
-    let descriptor = if length == 0 {
-        &[][..]
-    } else {
-        std::slice::from_raw_parts(config, length)
-    };
-    let Some(request) = parse(descriptor) else {
-        return INVALID;
-    };
-    http.state.lock().unwrap().resources.insert(
-        handle,
-        Resource {
-            request,
-            started: None,
-            cancelled: false,
-            delivered: 0,
-        },
-    );
-    OK
-}
-
-unsafe extern "C" fn start(
-    context: *mut c_void,
-    _: *mut Core,
-    handle: u32,
-    request: u32,
-    opcode: u32,
-    _: *const u8,
-    length: usize,
-    _: usize,
-) -> i32 {
-    let http = &*(context as *const Http);
-    let job = {
-        let mut state = http.state.lock().unwrap();
-        let Some(resource) = state.resources.get_mut(&handle) else {
-            return INVALID;
-        };
-        if opcode != 1 || length != 0 || resource.started.is_some() {
-            return INVALID;
+        let (control, unit) = (self.control.clone(), self.unit.clone());
+        let spawned = std::thread::Builder::new()
+            .name("pocket-http".into())
+            .stack_size(64 * 1024)
+            .spawn(move || {
+                let answer = perform(call.request(), &route, &control, &unit);
+                call.answer(answer);
+            });
+        if let Err(error) = spawned {
+            eprintln!("pocket-cardputer-zero: http thread: {error}");
         }
-        resource.started = Some(request);
-        resource.request.clone()
-    };
-    if matches!(job.route, Route::Quit) {
-        QUIT.store(true, Ordering::Relaxed);
-        http.answer(handle, request, Ok(no_content()), &job.url);
-        return OK;
     }
-    // The context is the Arc driver() was given; each thread holds its own.
-    Arc::increment_strong_count(context as *const Http);
-    let owned = Arc::from_raw(context as *const Http);
-    let spawned = std::thread::Builder::new()
-        .name("pocket-http".into())
-        .stack_size(64 * 1024)
-        .spawn(move || {
-            let answer = perform(&job, &owned.control, &owned.unit);
-            owned.answer(handle, request, answer, &job.url);
-        });
-    if spawned.is_ok() {
-        OK
-    } else {
-        FAILED
-    }
-}
-
-/// The core reports the request UNKNOWN; its stream ends where delivery
-/// stopped, and the thread's answer is dropped.
-unsafe extern "C" fn cancel(context: *mut c_void, core: *mut Core, handle: u32, request: u32) {
-    let http = &*(context as *const Http);
-    let mut state = http.state.lock().unwrap();
-    let Some(resource) = state.resources.get_mut(&handle) else {
-        return;
-    };
-    if resource.started != Some(request) || resource.cancelled {
-        return;
-    }
-    resource.cancelled = true;
-    let delivered = resource.delivered;
-    state.facts.retain(|fact| fact.handle() != handle);
-    pocket_worker_finish(core, handle, request, UNKNOWN, delivered);
-}
-
-unsafe extern "C" fn close(context: *mut c_void, _: *mut Core, handle: u32) -> i32 {
-    let http = &*(context as *const Http);
-    let mut state = http.state.lock().unwrap();
-    state.resources.remove(&handle);
-    state.facts.retain(|fact| fact.handle() != handle);
-    OK
 }
 
 fn no_content() -> Response {
@@ -377,57 +93,6 @@ fn no_content() -> Response {
         headers: BTreeMap::new(),
         body: Vec::new(),
     }
-}
-
-/// The descriptor `io.http(...).open` encodes (framework/src/io.ts), bounded
-/// as contracts/spec/net.ts bounds it, with a URL this program can reach.
-fn parse(descriptor: &[u8]) -> Option<Request> {
-    let value: serde_json::Value = serde_json::from_slice(descriptor).ok()?;
-    let url = value.get("url")?.as_str()?.to_string();
-    let method = match value.get("method") {
-        Some(method) => method.as_str()?.to_string(),
-        None => "GET".into(),
-    };
-    if !METHODS.contains(&method.as_str()) {
-        return None;
-    }
-    let mut headers = BTreeMap::new();
-    if let Some(fields) = value.get("headers") {
-        for (name, value) in fields.as_object()? {
-            let value = value.as_str()?;
-            if name.contains(['\r', '\n', ':']) || value.contains(['\r', '\n']) {
-                return None;
-            }
-            headers.insert(name.to_ascii_lowercase(), value.to_string());
-        }
-    }
-    let body = match value.get("body") {
-        Some(body) => body.as_str()?.as_bytes().to_vec(),
-        None => Vec::new(),
-    };
-    let timeout = match value.get("timeoutMs") {
-        Some(timeout) => timeout
-            .as_u64()
-            .filter(|ms| (1..=MAX_TIMEOUT_MS).contains(ms))?,
-        None => DEFAULT_TIMEOUT_MS,
-    };
-    let max_bytes = match value.get("maxBytes") {
-        Some(limit) => limit
-            .as_u64()
-            .filter(|bytes| (1..=MAX_RESPONSE_BYTES as u64).contains(bytes))?
-            as usize,
-        None => DEFAULT_RESPONSE_BYTES,
-    };
-    let route = route(&url)?;
-    Some(Request {
-        url,
-        method,
-        headers,
-        body,
-        timeout: Duration::from_millis(timeout),
-        max_bytes,
-        route,
-    })
 }
 
 fn route(url: &str) -> Option<Route> {
@@ -458,8 +123,13 @@ fn route(url: &str) -> Option<Route> {
     })
 }
 
-fn perform(request: &Request, control: &PathBuf, unit: &str) -> Result<Response, Failure> {
-    match &request.route {
+fn perform(
+    request: &Request,
+    route: &Route,
+    control: &PathBuf,
+    unit: &str,
+) -> Result<Response, Failure> {
+    match route {
         Route::Quit => Ok(no_content()),
         Route::Restart => Ok(restart(unit)),
         Route::Loopback { port, host, path } => exchange(request, *port, host, path, None),

@@ -4839,13 +4839,13 @@ dependencies = [
 name = "pocket-cardputer-zero"
 version = "0.16.0"
 dependencies = [
- "cc",
  "libc",
  "pocket-drivers",
  "pocket-guest-rquickjs",
  "pocket-linux-evdev",
  "pocket-linux-fbdev",
  "pocket-linux-hooks",
+ "pocket-linux-worker",
  "pocket-package",
  "pocket-profile-build",
  "pocket-raster",
@@ -5028,6 +5028,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-linux-worker"
+version = "0.16.0"
+dependencies = [
+ "cc",
+ "libc",
+ "pocket-guest-rquickjs",
+ "pocket-runtime",
+ "rquickjs",
+ "serde_json",
+]
+
+[[package]]
 name = "pocket-media"
 version = "0.16.0"
 dependencies = [
@@ -5184,7 +5196,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-rg-ds-plus"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "drm",
  "libc",
