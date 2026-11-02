@@ -17,6 +17,31 @@ an inferred breaking change selects minor; entering `1.0.0` requires an explicit
 `major`. Override the level with `bun run release patch`, `minor`, or `major`.
 npm and Cargo advance from their own current versions.
 
+**An exact version sets npm, Hero and Cargo to that version.** Pre-release
+versions such as `0.16.0-beta.1` and `0.16.0-rc.1` are supported. Use
+`--cargo-version` to keep Cargo on a different version sequence:
+
+```sh
+bun run release 0.16.0-beta.1
+bun run release 0.16.0-rc.1 --cargo-version 0.2.0-rc.1
+bun run release 0.16.0 --cargo-version 0.2.0
+```
+
+Every selected version must be greater than its current version in SemVer
+order. An optional `v` prefix is accepted; build metadata (`+...`) is rejected.
+An exact version permits promoting the same source from beta to rc or stable
+without new commits. `auto` requires new commits. When the current version is
+a pre-release, `auto` increments its last numeric identifier or appends `.1`:
+`0.16.0-beta.1` becomes `0.16.0-beta.2`. Use an exact version to change channel
+or promote to stable; `patch`, `minor` and `major` require a stable current
+version. `--cargo-version` overrides Cargo for any selection mode.
+
+**Pre-releases keep the stable npm and GitHub latest releases in place.** npm
+uses the `alpha`, `beta` or `rc` tag for those identifiers, and `next` for other
+pre-release identifiers. GitHub Releases use `--prerelease --latest=false`.
+Stable releases use `latest`. Cargo uses the selected SemVer in its manifests
+and internal dependencies. Publication channels are derived from the version.
+
 The command updates the framework, CLI and Hero versions, the Cargo workspace
 version and internal dependency requirements, crate README install snippets,
 and Cargo lockfiles including isolated fixtures. It checks the Bun lockfile
@@ -26,6 +51,7 @@ returned instead of creating another one.
 
 ```sh
 bun run release --dry-run
+bun run release 0.16.0-beta.1 --cargo-version 0.2.0-beta.1 --dry-run
 ```
 
 The preview uses the current committed `HEAD` and leaves its generated files

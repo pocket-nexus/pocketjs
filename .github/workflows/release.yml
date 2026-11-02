@@ -29,6 +29,8 @@ jobs:
     outputs:
       release: ${{ steps.identity.outputs.release }}
       version: ${{ steps.identity.outputs.version }}
+      npm-tag: ${{ steps.identity.outputs.npm-tag }}
+      prerelease: ${{ steps.identity.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -59,6 +61,8 @@ jobs:
     timeout-minutes: 30
     env:
       RELEASE_VERSION: ${{ needs.identity.outputs.version }}
+      NPM_DIST_TAG: ${{ needs.identity.outputs.npm-tag }}
+      RELEASE_PRERELEASE: ${{ needs.identity.outputs.prerelease }}
     concurrency:
       group: pocketjs-package-publication
       cancel-in-progress: false
@@ -175,7 +179,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            npm publish --access public --provenance
+            npm publish --access public --provenance --tag "$NPM_DIST_TAG"
           fi
 
       - name: Publish @pocketjs/cli
@@ -186,7 +190,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            npm publish --access public --provenance
+            npm publish --access public --provenance --tag "$NPM_DIST_TAG"
           fi
 
       # The GitHub Release mirrors the changelog entry for this version.
@@ -200,7 +204,11 @@ jobs:
             echo "$tag release already exists — skipping"
           else
             bun tools/release-notes.ts "$tag" > "$RUNNER_TEMP/notes.md"
-            gh release create "$tag" --verify-tag --latest \
+            release_flags=(--latest)
+            if [[ "$RELEASE_PRERELEASE" == true ]]; then
+              release_flags=(--prerelease --latest=false)
+            fi
+            gh release create "$tag" --verify-tag "${release_flags[@]}" \
               --title "$(bun tools/release-notes.ts "$tag" --title)" \
               --notes-file "$RUNNER_TEMP/notes.md"
           fi

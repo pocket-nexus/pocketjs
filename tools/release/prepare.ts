@@ -1,12 +1,13 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { checkReleaseVersion, RELEASE_VERSION_FILES } from "../release-check.ts";
+import { checkReleaseVersion, normalizeReleaseVersion, releaseChannel, RELEASE_VERSION_FILES } from "../release-check.ts";
 import { releaseNotes } from "../release-notes.ts";
 import { STABLE_RUST_TOOLCHAIN } from "../build/toolchains/rust.ts";
 
 const REPO = "pocket-nexus/pocketjs";
 const root = resolve(import.meta.dir, "../..");
 type Bump = "patch" | "minor" | "major";
+const BUMPS = ["auto", "patch", "minor", "major"];
 interface Commit { sha: string; subject: string; body: string }
 interface CargoPackage { id: string; name: string; version: string; manifest_path: string }
 
@@ -18,7 +19,7 @@ function run(args: string[], cwd: string, optional = false): string {
 
 export function bumpVersion(version: string, bump: Bump): string {
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
-    throw new Error(`Release preparation requires a stable version, received ${version}`);
+    throw new Error(`patch/minor/major require a stable current version; use auto or an exact version after ${version}`);
   }
   const [major, minor, patch] = version.split(".").map(Number) as [number, number, number];
   return bump === "major" ? `${major + 1}.0.0` : bump === "minor" ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`;
@@ -29,7 +30,50 @@ export function inferBump(commits: Commit[]): Bump {
   return commits.some(c => /^feat(?:\([^\n)]*\))?:/.test(c.subject)) ? "minor" : "patch";
 }
 
-export async function prepareRelease(cwd: string, requested: Bump | "auto" = "auto") {
+function exactVersion(input: string): string {
+  const version = normalizeReleaseVersion(input);
+  if (version.includes("+")) throw new Error("Release versions cannot contain build metadata (+...)");
+  return version;
+}
+
+export function selectVersion(current: string, requested: string, inferred: Bump): string {
+  current = exactVersion(current);
+  let next: string;
+  if (!BUMPS.includes(requested)) next = exactVersion(requested);
+  else if (requested === "auto" && current.includes("-")) {
+    // Stay on the current prerelease line until an exact version is requested.
+    const start = current.indexOf("-") + 1;
+    const identifiers = current.slice(start).split(".");
+    const last = identifiers.length - 1;
+    if (/^\d+$/.test(identifiers[last]!)) identifiers[last] = String(BigInt(identifiers[last]!) + 1n);
+    else identifiers.push("1");
+    next = current.slice(0, start) + identifiers.join(".");
+  } else {
+    const bump = requested === "auto" ? inferred : requested as Bump;
+    next = bumpVersion(current, requested === "auto" && current.startsWith("0.") && bump === "major" ? "minor" : bump);
+  }
+  if (Bun.semver.order(next, current) <= 0) throw new Error(`Release version ${next} must be greater than ${current}`);
+  return next;
+}
+
+export function parseReleaseArgs(args: string[]) {
+  let requested: string | undefined, cargoVersion: string | undefined, dryRun = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--dry-run") dryRun = true;
+    else if (arg === "--cargo-version" || arg.startsWith("--cargo-version=")) {
+      if (cargoVersion !== undefined) throw new Error("--cargo-version can only be specified once");
+      const value = arg === "--cargo-version" ? args[++i] : arg.slice("--cargo-version=".length);
+      if (!value || value.startsWith("--")) throw new Error("--cargo-version requires an exact version");
+      cargoVersion = exactVersion(value);
+    } else if (arg.startsWith("-") || requested !== undefined) {
+      throw new Error(`Unexpected release argument: ${arg}`);
+    } else requested = BUMPS.includes(arg) ? arg : exactVersion(arg);
+  }
+  return { requested: requested ?? "auto", cargoVersion, dryRun };
+}
+
+export async function prepareRelease(cwd: string, requested = "auto", cargoOverride?: string) {
   const current = (await Bun.file(resolve(cwd, "package.json")).json()).version as string;
   await checkReleaseVersion(current, cwd);
   const previousTag = `v${current}`;
@@ -41,16 +85,14 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
     const commit = { sha: records[i]!.trim(), subject: records[i + 1]!, body: records[i + 2]! };
     if (!/^chore\(release\):/.test(commit.subject)) commits.push(commit);
   }
-  if (commits.length === 0) throw new Error(`No unreleased commits after ${previousTag}`);
-  const bump = requested === "auto" ? inferBump(commits) : requested;
-  const npmBump = requested === "auto" && current.startsWith("0.") && bump === "major" ? "minor" : bump;
-  const version = bumpVersion(current, npmBump);
+  if (commits.length === 0 && BUMPS.includes(requested)) throw new Error(`No unreleased commits after ${previousTag}; specify an exact version to promote the same source`);
+  const inferred = inferBump(commits);
+  const version = selectVersion(current, requested, inferred);
   const cargoPath = resolve(cwd, "Cargo.toml");
   const cargoText = await Bun.file(cargoPath).text();
   const manifest = Bun.TOML.parse(cargoText) as { workspace: { package: { version: string } } };
   const previousCargoVersion = manifest.workspace.package.version;
-  const cargoBump = requested === "auto" && previousCargoVersion.startsWith("0.") && bump === "major" ? "minor" : bump;
-  const cargoVersion = bumpVersion(previousCargoVersion, cargoBump);
+  const cargoVersion = selectVersion(previousCargoVersion, cargoOverride ?? requested, inferred);
   const cargo = ["rustup", "run", STABLE_RUST_TOOLCHAIN, "cargo"];
   const metadata = JSON.parse(run([...cargo, "metadata", "--locked", "--no-deps", "--format-version=1"], cwd)) as {
     packages: CargoPackage[]; workspace_members: string[];
@@ -113,6 +155,7 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
     const rows = commits.filter(matches).map(c => `- ${c.subject} ([${c.sha.slice(0, 8)}](https://github.com/${REPO}/commit/${c.sha}))`);
     if (rows.length) sections.push(`### ${title}\n\n${rows.join("\n")}`);
   }
+  if (!sections.length) sections.push(`No source changes since ${previousTag}.`);
   const entry = `## ${version} — ${date}\n\n${sections.join("\n\n")}\n\n`;
   const changelogPath = resolve(cwd, "site/content/changelog.md");
   const changelog = await Bun.file(changelogPath).text();
@@ -126,19 +169,16 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
   run(["git", "diff", "--check"], cwd);
   const files = run(["git", "diff", "--name-only"], cwd).split("\n").filter(Boolean);
   return { version, cargoVersion, previousVersion: current, previousCargoVersion,
-    baseCommit: run(["git", "rev-parse", "HEAD"], cwd), bump, npmBump, cargoBump, files, notes: entry };
+    baseCommit: run(["git", "rev-parse", "HEAD"], cwd), files, notes: entry };
 }
 
 async function main() {
   const args = Bun.argv.slice(2);
   if (args.includes("--help")) {
-    console.log("Usage: bun run release [auto|patch|minor|major] [--dry-run]\nCreates a release PR from origin/main. --dry-run prepares a local preview from HEAD.");
+    console.log("Usage: bun run release [auto|patch|minor|major|VERSION] [--cargo-version VERSION] [--dry-run]\nExact versions (including beta/rc) apply to npm and Cargo unless --cargo-version overrides Cargo.\nAuto continues a prerelease's numeric suffix; use an exact version to change channel or graduate.\nCreates a release PR from origin/main. --dry-run prepares a local preview from HEAD.");
     return;
   }
-  const dryRun = args.includes("--dry-run");
-  const positional = args.filter(arg => arg !== "--dry-run");
-  const bump = positional[0] ?? "auto";
-  if (positional.length > 1 || !["auto", "patch", "minor", "major"].includes(bump)) throw new Error("Expected auto, patch, minor, or major, with optional --dry-run");
+  const { requested, cargoVersion, dryRun } = parseReleaseArgs(args);
   if (!dryRun) {
     const open = JSON.parse(run(["gh", "pr", "list", "--repo", REPO, "--base", "main", "--state", "open", "--limit", "100", "--json", "headRefName,url"], root)) as { headRefName: string; url: string }[];
     const existing = open.find(pr => /^release\/v\d+\./.test(pr.headRefName));
@@ -151,9 +191,9 @@ async function main() {
   await mkdir(output, { recursive: true });
   run(["git", "worktree", "add", "--detach", worktree, dryRun ? "HEAD" : "origin/main"], root);
   try {
-    const plan = await prepareRelease(worktree, bump as Bump | "auto");
+    const plan = await prepareRelease(worktree, requested, cargoVersion);
     const title = `chore(release): v${plan.version}`;
-    const body = `Release ${plan.version}. Merging this PR into main tags the merge commit and runs the repository release workflow.\n\n- Framework, CLI and Hero: ${plan.previousVersion} → ${plan.version}\n- Cargo workspace: ${plan.previousCargoVersion} → ${plan.cargoVersion}\n- Bump: npm ${plan.npmBump}, Cargo ${plan.cargoBump} (${bump})\n- Prepared from: ${plan.baseCommit}\n\nCargo workspace lock update, Bun frozen lockfile check, version consistency, and changelog validation passed.\n\n${plan.notes}`;
+    const body = `Release ${plan.version}. Merging this PR into main tags the merge commit and runs the repository release workflow.\n\n- Framework, CLI and Hero: ${plan.previousVersion} → ${plan.version}\n- Cargo workspace: ${plan.previousCargoVersion} → ${plan.cargoVersion}\n- npm channel: ${releaseChannel(plan.version)}\n- Requested: ${requested}${cargoVersion ? `; Cargo ${cargoVersion}` : ""}\n- Prepared from: ${plan.baseCommit}\n\nCargo workspace lock update, Bun frozen lockfile check, version consistency, and changelog validation passed.\n\n${plan.notes}`;
     const bodyFile = resolve(output, "PR_BODY.md");
     await Bun.write(bodyFile, body);
     console.log(`${title}; Cargo ${plan.cargoVersion}\n${run(["git", "diff", "--stat"], worktree)}`);

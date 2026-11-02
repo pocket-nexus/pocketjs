@@ -1,6 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { checkReleaseVersion, normalizeReleaseVersion } from "../release-check.ts";
+import { checkReleaseVersion, normalizeReleaseVersion, releaseChannel } from "../release-check.ts";
 import { releaseNotes } from "../release-notes.ts";
 
 function git(args: string[], cwd: string, optional = false): string {
@@ -21,14 +21,14 @@ export async function releaseIdentity(cwd: string, event: string, ref: string, i
     version = normalizeReleaseVersion((await Bun.file(resolve(cwd, "package.json")).json()).version);
     const previousVersion = normalizeReleaseVersion(JSON.parse(git(["show", `${before}:package.json`], cwd)).version);
     if (version === previousVersion) return { release: false as const };
-    if (!Bun.semver.satisfies(version, `>${previousVersion}`)) {
+    if (Bun.semver.order(version, previousVersion) <= 0) {
       throw new Error("Release must advance the package version");
     }
     const cargo = Bun.TOML.parse(await Bun.file(resolve(cwd, "Cargo.toml")).text()) as { workspace: { package: { version: string } } };
     const previousCargo = Bun.TOML.parse(git(["show", `${before}:Cargo.toml`], cwd)) as typeof cargo;
     const cargoVersion = normalizeReleaseVersion(cargo.workspace.package.version);
     const previousCargoVersion = normalizeReleaseVersion(previousCargo.workspace.package.version);
-    if (!Bun.semver.satisfies(cargoVersion, `>${previousCargoVersion}`)) {
+    if (Bun.semver.order(cargoVersion, previousCargoVersion) <= 0) {
       throw new Error("Release must advance the Cargo workspace version");
     }
   } else {
@@ -45,7 +45,8 @@ export async function releaseIdentity(cwd: string, event: string, ref: string, i
     git(["tag", tag, head], cwd);
     git(["push", "origin", `refs/tags/${tag}`], cwd);
   }
-  return { release: true as const, version, tag, commit: head };
+  const npmTag = releaseChannel(version);
+  return { release: true as const, version, tag, commit: head, npmTag, prerelease: npmTag !== "latest" };
 }
 
 if (import.meta.main) {
@@ -54,7 +55,7 @@ if (import.meta.main) {
     if (args.some(arg => arg !== "--create-tag")) throw new Error("Usage: bun tools/release/identity.ts [--create-tag]");
     const identity = await releaseIdentity(resolve(import.meta.dir, "../.."), process.env.GITHUB_EVENT_NAME ?? "", process.env.GITHUB_REF ?? "", process.env.RELEASE_INPUT, args.includes("--create-tag"), process.env.RELEASE_BEFORE);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-      `release=${identity.release}\n` + (identity.release ? `version=${identity.version}\ntag=${identity.tag}\n` : ""));
+      `release=${identity.release}\n` + (identity.release ? `version=${identity.version}\ntag=${identity.tag}\nnpm-tag=${identity.npmTag}\nprerelease=${identity.prerelease}\n` : ""));
     console.log(identity.release ? `Release ${identity.tag} from ${identity.commit}` : "Package version unchanged; skipping release");
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }
 }

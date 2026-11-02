@@ -25,6 +25,12 @@ export function normalizeReleaseVersion(input: string): string {
   return version;
 }
 
+export function releaseChannel(input: string): string {
+  const label = normalizeReleaseVersion(input).match(/^\d+\.\d+\.\d+-([^.+]+)/)?.[1];
+  if (!label) return "latest";
+  return ["alpha", "beta", "rc"].includes(label) ? label : "next";
+}
+
 async function readVersion(root: string, path: string): Promise<string> {
   let document: unknown;
   try {
