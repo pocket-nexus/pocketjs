@@ -13,10 +13,9 @@
 //! Handles survive a suspend. Memory stick descriptors go stale across sleep on real units, so a
 //! failed seek or read reopens the resolved path once and retries before reporting -1.
 //!
-//! The loadImg read buffer is retained and grows to the largest entry seen. The arena never coalesces
-//! (platforms/psp/alloc/src/arena.rs: power-of-two classes), so dropping it would not return the
-//! bytes to other classes; one buffer per program is the cheaper shape. Textures decode into their
-//! own storage, and the guest releases them with the ui op freeTexture.
+//! The loadImg read buffer is retained and grows to the largest entry seen: one buffer per program is
+//! cheaper than a new one per load. Textures decode into their own storage, and the guest releases
+//! them with the ui op freeTexture.
 use alloc::{format, string::String, vec::Vec};
 use core::ffi::c_void;
 use libquickjs_sys::*;
@@ -41,7 +40,7 @@ const SLOT_MASK: i32 = (1 << SLOT_BITS) - 1;
 const _: () = assert!(spec::MAX_HANDLES <= 1 << SLOT_BITS);
 /// Reads land 64-byte aligned, the memory stick driver's DMA alignment.
 const READ_ALIGN: usize = 64;
-const READ_BUF_MIN: usize = 64 * 1024;
+const READ_BUF_MIN: usize = 128 * 1024; // a raw 256x256 entry needs more than 64 KB, and a late 128 KB block may not exist
 
 struct PackFile {
     fd: SceUid,
@@ -100,6 +99,15 @@ pub unsafe fn set_program_path(argv: *const u8, length: usize) {
         PROGRAM_DIR[..=slash].copy_from_slice(&path[..=slash]);
         PROGRAM_DIR[slash + 1] = 0;
     }
+}
+
+/// The last segment of the program's directory: `SHENDIAO` for ms0:/PSP/GAME/SHENDIAO/EBOOT.PBP.
+pub unsafe fn program_dir_name() -> Option<&'static str> {
+    let dir = &*core::ptr::addr_of!(PROGRAM_DIR);
+    let end = dir.iter().position(|&b| b == 0)?;
+    let path = core::str::from_utf8(&dir[..end]).ok()?.trim_end_matches('/');
+    let name = path.rsplit(['/', ':']).next()?;
+    (!name.is_empty()).then_some(name)
 }
 
 /// Enter the program's directory on the calling thread.
@@ -249,13 +257,16 @@ fn elapsed_us(start: u32) -> u32 {
     unsafe { sys::sceKernelGetSystemTimeLow() }.wrapping_sub(start)
 }
 
-/// The retained loadImg buffer, READ_ALIGN-aligned, at least `length` bytes.
+/// The retained loadImg buffer, READ_ALIGN-aligned, at least `length` bytes. Null when the arena has
+/// no room: a texture that cannot load is -1 to the guest, which frees others and tries again.
 unsafe fn read_buffer(length: usize) -> *mut u8 {
     let need = length + READ_ALIGN;
     if READ_BUF.capacity() < need {
         // Replace rather than grow: the old contents are dead, so skip realloc's copy.
         READ_BUF = Vec::new();
-        READ_BUF.reserve_exact(need.next_power_of_two().max(READ_BUF_MIN));
+        if READ_BUF.try_reserve_exact(need.next_power_of_two().max(READ_BUF_MIN)).is_err() {
+            return core::ptr::null_mut();
+        }
     }
     let base = READ_BUF.as_mut_ptr();
     base.add(base.align_offset(READ_ALIGN))
@@ -326,7 +337,7 @@ unsafe extern "C" fn js_load_img(ctx: *mut JSContext, _t: JSValue, argc: i32, ar
     let length = length as usize;
     let start = sys::sceKernelGetSystemTimeLow();
     let buffer = read_buffer(length);
-    if read_at(file, offset as i64, buffer, length) != Some(length) {
+    if buffer.is_null() || read_at(file, offset as i64, buffer, length) != Some(length) {
         return JS_NewInt32(ctx, -1);
     }
     let blob = core::slice::from_raw_parts(buffer, length);
@@ -356,6 +367,7 @@ unsafe extern "C" fn js_close(ctx: *mut JSContext, _t: JSValue, argc: i32, argv:
 unsafe extern "C" fn js_gc(ctx: *mut JSContext, _t: JSValue, _argc: i32, _argv: *mut JSValue) -> JSValue {
     let start = sys::sceKernelGetSystemTimeLow();
     JS_RunGC(JS_GetRuntime(ctx));
+    crate::arena::compact(); // the pause is already being hidden: rejoin what the collection freed
     JS_NewInt32(ctx, elapsed_us(start) as i32)
 }
 

@@ -27,6 +27,11 @@
 //! 60 fps). Blocks recycle within their class, so a steady per-frame workload stops
 //! growing the bump and runs entirely from the free lists.
 //!
+//! Script heap and big blocks grow from opposite ends: below 4 KB up from the bottom, 4 KB and above
+//! down from the top. A script heap woven between textures leaves freed texture holes that can never
+//! rejoin, and a game dies with a megabyte free in 32 KB pieces. `Stats::bump_bytes` therefore counts
+//! the script-heap side only, which is what the host's collection trigger is watching.
+//!
 //! Single-threaded (the QuickJS worker), so `static mut` matches the existing style.
 
 use core::ffi::c_void;
@@ -37,11 +42,16 @@ use psp::sys::{self, SceSysMemBlockTypes, SceSysMemPartitionId};
 // 32 power-of-two classes (16 B .. 2 GB) — covers any 32-bit PSP allocation.
 const NCLASS: usize = 32;
 const MIN_SHIFT: usize = 4; // smallest class = 16 bytes (>= a free-list next ptr)
+const COMPACT_MIN_FREED: usize = 32 * 1024; // a routine pass (`compact`) waits for this much to have been freed
+const LARGE_SHIFT: usize = 12; // 4 KB and up: textures, big buffers. Everything smaller is script heap.
 
 static mut FREE: [*mut u8; NCLASS] = [ptr::null_mut(); NCLASS];
 static mut BASE: usize = 0;
 static mut BUMP: usize = 0;
 static mut BUMP_END: usize = 0;
+static mut ARENA_END: usize = 0;
+static mut FREED_SINCE_COMPACT: usize = 0;
+static mut SCRIPT_HEAP_HELD_APART: bool = false; // the last routine pass left script-heap runs unjoined
 static mut INIT_FREE: usize = 0;
 static mut CONFIGURED_SIZE: usize = 0;
 static mut INITED: bool = false;
@@ -106,6 +116,7 @@ unsafe fn ensure_init() {
         BASE = (base + 15) & !15; // 16-align the bump start
         BUMP = BASE;
         BUMP_END = base + size;
+        ARENA_END = BUMP_END;
     }
 }
 
@@ -152,22 +163,56 @@ pub unsafe fn alloc(size: usize, align: usize) -> *mut u8 {
         FREE[c] = *(head as *mut *mut u8); // pop: next-pointer is stored in the block
         return head;
     }
-    // Carve a fresh 2^c block from the bump pointer, aligned to `a` (minimal waste).
-    let p = (BUMP + a - 1) & !(a - 1);
-    let np = p + (1usize << c);
-    if np <= BUMP_END {
-        BUMP = np;
-        return p as *mut u8;
+    if c >= LARGE_SHIFT {
+        let bytes = 1usize << c;
+        if BUMP_END >= bytes {
+            let p = (BUMP_END - bytes) & !(a - 1);
+            if p >= BUMP {
+                BUMP_END = p;
+                return p as *mut u8;
+            }
+        }
+    } else {
+        // Free script heap first, so the region does not grow while it holds free blocks. Compaction
+        // gathers small frees into bigger small classes, and a steady heap must keep running from those.
+        if split_free(c, a, LARGE_SHIFT) {
+            return alloc(size, align);
+        }
+        let p = (BUMP + a - 1) & !(a - 1);
+        let np = p + (1usize << c);
+        if np <= BUMP_END {
+            BUMP = np;
+            return p as *mut u8;
+        }
     }
-    // The bump is spent. Before failing, split a larger free block: classes
-    // strand memory, because a buffer grown geometrically frees each old size
-    // into a class nothing asks for again (a one-shot boot that parses a
-    // megabyte of JSON can strand megabytes this way). Halving a free 2^k
-    // block yields two 2^(k-1) blocks, so any larger class can serve this one.
-    // Deliberately last: until the bump runs dry this allocator behaves exactly
-    // as before, and big blocks stay whole for the callers that want them.
+    // The tail is spent. Before failing, split a larger free block: classes strand memory, because a
+    // buffer grown geometrically frees each old size into a class nothing asks for again (a one-shot
+    // boot that parses a megabyte of JSON can strand megabytes this way). Halving a free 2^k block
+    // yields two 2^(k-1) blocks, so any larger class can serve this one.
+    if split_free(c, a, NCLASS) {
+        return alloc(size, align);
+    }
+    // Still nothing: free blocks are stranded in smaller classes. Rejoin everything that can rejoin
+    // (rare, and much cheaper than dying with a megabyte free in pieces) and try once more.
+    if FREED_SINCE_COMPACT > 0 || SCRIPT_HEAP_HELD_APART {
+        join_free(true);
+        if split_free(c, a, NCLASS) {
+            return alloc(size, align);
+        }
+        let head = FREE[c];
+        if !head.is_null() && (head as usize) & (a - 1) == 0 {
+            FREE[c] = *(head as *mut *mut u8);
+            return head;
+        }
+    }
+    ptr::null_mut()
+}
+
+/// Halve the smallest larger free block below class `limit` down to class `c`. True when class `c` now
+/// has a block whose head satisfies `a`; the caller's retry pops it.
+unsafe fn split_free(c: usize, a: usize, limit: usize) -> bool {
     let mut c2 = c + 1;
-    while c2 < NCLASS {
+    while c2 < limit {
         let big = FREE[c2];
         if big.is_null() {
             c2 += 1;
@@ -182,16 +227,116 @@ pub unsafe fn alloc(size: usize, align: usize) -> *mut u8 {
             *(half as *mut *mut u8) = FREE[k];
             FREE[k] = half;
         }
-        if base & (a - 1) == 0 {
-            return base as *mut u8;
-        }
-        // Alignment miss (only for align > 16): keep the block in its class
-        // rather than leaking it, and report OOM like the pre-split path did.
+        // Alignment miss (only for align > 16): the block stays in its class rather than leaking.
         *(base as *mut *mut u8) = FREE[c];
         FREE[c] = base as *mut u8;
-        break;
+        return base & (a - 1) == 0;
     }
-    ptr::null_mut()
+    false
+}
+
+/// Sort a free list by address: bottom-up merge sort over the next-pointers, no extra memory.
+unsafe fn sort_by_address(mut list: *mut u8) -> *mut u8 {
+    let mut width = 1usize;
+    loop {
+        let (mut rest, mut merges) = (list, 0usize);
+        let mut out: *mut u8 = ptr::null_mut();
+        let mut tail: *mut u8 = ptr::null_mut();
+        while !rest.is_null() {
+            merges += 1;
+            let mut a = rest;
+            let mut b = rest;
+            let mut na = 0usize;
+            while na < width && !b.is_null() {
+                b = *(b as *mut *mut u8);
+                na += 1;
+            }
+            let mut nb = width;
+            while na > 0 || (nb > 0 && !b.is_null()) {
+                let take_a = na > 0 && (nb == 0 || b.is_null() || (a as usize) < (b as usize));
+                let node = if take_a {
+                    let n = a;
+                    a = *(a as *mut *mut u8);
+                    na -= 1;
+                    n
+                } else {
+                    let n = b;
+                    b = *(b as *mut *mut u8);
+                    nb -= 1;
+                    n
+                };
+                if tail.is_null() {
+                    out = node;
+                } else {
+                    *(tail as *mut *mut u8) = node;
+                }
+                tail = node;
+            }
+            rest = b;
+        }
+        if !tail.is_null() {
+            *(tail as *mut *mut u8) = ptr::null_mut();
+        }
+        list = out;
+        if merges <= 1 {
+            return list;
+        }
+        width *= 2;
+    }
+}
+
+/// Rejoin free memory at a moment the host chose (`pack.gc`), when enough has been freed to be worth it.
+/// Free script heap stays in script-heap classes, so the two regions stay apart and the heap keeps
+/// running from its own blocks. An allocation that would otherwise fail joins everything itself.
+///
+/// # Safety
+/// Call on the arena's owning thread, without concurrent allocator access.
+pub unsafe fn compact() {
+    if FREED_SINCE_COMPACT >= COMPACT_MIN_FREED {
+        join_free(false);
+    }
+}
+
+/// Every free block goes through one address-sorted list, whatever its class, and each contiguous run is
+/// cut back into the largest power-of-two blocks that fit. Blocks of different classes must be able to
+/// merge: a freed 8 KB texture next to a freed 16 KB one is what fragmentation looks like here. No block
+/// needs natural alignment (`alloc` re-checks), and a free block has room for its size because the
+/// smallest class is 16 bytes. O(n log n) in free blocks; run rarely.
+///
+/// `whole` also lets script-heap runs become big blocks; without it they stop at the largest small class.
+unsafe fn join_free(whole: bool) {
+    FREED_SINCE_COMPACT = 0;
+    SCRIPT_HEAP_HELD_APART = !whole;
+    let mut all: *mut u8 = ptr::null_mut();
+    for c in MIN_SHIFT..NCLASS {
+        let mut node = FREE[c];
+        FREE[c] = ptr::null_mut();
+        while !node.is_null() {
+            let next = *(node as *mut *mut u8);
+            *(node as *mut usize).add(1) = 1usize << c;
+            *(node as *mut *mut u8) = all;
+            all = node;
+            node = next;
+        }
+    }
+    let mut node = sort_by_address(all);
+    while !node.is_null() {
+        let start = node as usize;
+        let mut end = start + *(node as *mut usize).add(1);
+        node = *(node as *mut *mut u8);
+        while !node.is_null() && node as usize == end {
+            end += *(node as *mut usize).add(1);
+            node = *(node as *mut *mut u8);
+        }
+        let top = if !whole && end <= BUMP { LARGE_SHIFT - 1 } else { NCLASS - 1 };
+        let mut at = start;
+        while at < end {
+            let c = ((usize::BITS - 1 - (end - at).leading_zeros()) as usize).min(top);
+            *(at as *mut *mut u8) = FREE[c];
+            FREE[c] = at as *mut u8;
+            at += 1usize << c;
+        }
+    }
 }
 
 /// Permanently carve an exact-sized block from the arena.
@@ -247,11 +392,12 @@ pub unsafe fn dealloc(p: *mut u8, size: usize, align: usize) {
     }
     *(p as *mut *mut u8) = FREE[c]; // push: store the old head in the freed block
     FREE[c] = p;
+    FREED_SINCE_COMPACT += 1usize << c;
 }
 
 pub unsafe fn stats() -> Stats {
     ensure_init();
-    let capacity = BUMP_END.saturating_sub(BASE);
+    let capacity = ARENA_END.saturating_sub(BASE);
     let bump = BUMP.saturating_sub(BASE);
     Stats {
         capacity_bytes: capacity,

@@ -1,6 +1,7 @@
 //! `globalThis.fs` for the PSP host (contracts/spec/fs.ts, capability data.fs) over sceIo, rooted at
-//! ms0:/PSP/SAVEDATA/POCKETJS/<app>/. Probe-grade: the nine ops and their JSON shapes follow the spec;
-//! quotas are not enforced (usage reports quotaBytes 0). Two PSP facts bend the spec:
+//! ms0:/PSP/SAVEDATA/POCKETJS/<guest>/, bound each time a guest mounts the module: the embedded app's
+//! output name, or on the generic runtime the name of the directory the EBOOT was loaded from. Quotas
+//! are not enforced (usage reports quotaBytes 0). Two PSP facts bend the spec:
 //!  - sceIoRename only renames inside one directory (the target's directory part is ignored), so the
 //!    truncating write stages ".~<name>" next to the target instead of in a host temp directory, and
 //!    rename() between directories copies the file and removes the source;
@@ -17,24 +18,39 @@ extern "C" {
     fn JS_NewStringLen(ctx: *mut JSContext, text: *const u8, length: usize) -> JSValue;
 }
 
-const ROOT: &str = concat!("ms0:/PSP/SAVEDATA/POCKETJS/", env!("POCKETJS_APP"));
-const MAX_IO: usize = 64 * 1024;
-const MAX_ENTRIES: usize = 256;
+use pocket_spec::fs as spec;
+
+const SAVE_ROOT: &str = "ms0:/PSP/SAVEDATA/POCKETJS/";
+const MAX_IO: usize = spec::MAX_IO_BYTES;
+const MAX_ENTRIES: usize = spec::MAX_DIR_ENTRIES;
 static mut LAST: String = String::new();
+/// This guest's root. Written by `register_fs` on the worker thread, before the guest evaluates.
+static mut ROOT: String = String::new();
 
 fn nul(s: &str) -> Vec<u8> { let mut v = Vec::with_capacity(s.len() + 1); v.extend_from_slice(s.as_bytes()); v.push(0); v }
 unsafe fn ok() -> i32 { LAST.clear(); 0 }
 unsafe fn fail(m: &str) -> i32 { LAST = String::from(m); 1 }
 unsafe fn fail_line(m: &str) -> String { LAST = String::from(m); format!("{{\"error\":{}}}", json_str(m)) }
 
-/// Spec path grammar: relative, '/'-separated, no empty / "." / ".." segments, <=8 segments of <=64 bytes.
+/// The directory name this guest's saves live under. Two guests never share one: a multi-app build
+/// names each app, and each generic runtime EBOOT has its own directory under PSP/GAME.
+unsafe fn guest_name() -> String {
+    let app = crate::switch::APPS.get(crate::switch::current()).map_or("", |app| app.output);
+    if !app.is_empty() {
+        return String::from(app);
+    }
+    crate::pack_ops::program_dir_name().map_or_else(|| String::from("runtime"), String::from)
+}
+
+/// Spec path grammar: relative, '/'-separated, no empty / "." / ".." segments, within the spec's ceilings.
 fn valid(path: &str, allow_root: bool) -> bool {
     if path.is_empty() { return allow_root; }
-    if path.len() > 160 || path.contains(':') || path.contains('\\') { return false; }
+    if path.len() > spec::MAX_PATH_BYTES || path.contains(':') || path.contains('\\') { return false; }
     let segs: Vec<&str> = path.split('/').collect();
-    segs.len() <= 8 && segs.iter().all(|s| !s.is_empty() && *s != "." && *s != ".." && s.len() <= 64)
+    segs.len() <= spec::MAX_DEPTH && segs.iter().all(|s| !s.is_empty() && *s != "." && *s != ".." && s.len() <= spec::MAX_SEGMENT_BYTES)
 }
-fn full(path: &str) -> String { if path.is_empty() { String::from(ROOT) } else { format!("{}/{}", ROOT, path) } }
+unsafe fn root() -> &'static str { (*core::ptr::addr_of!(ROOT)).as_str() }
+unsafe fn full(path: &str) -> String { if path.is_empty() { String::from(root()) } else { format!("{}/{}", root(), path) } }
 
 unsafe fn stat_of(p: &str) -> Option<(bool, u64)> {
     let mut st: SceIoStat = core::mem::zeroed();
@@ -122,7 +138,7 @@ unsafe fn op_write(path: &str, payload: &str, mode: i32) -> i32 {
     let target = full(path);
     if let Some((true, _)) = stat_of(&target) { return fail("is a directory"); }
     let dir = parent(&target);
-    if !mkdirs(if dir.is_empty() { ROOT } else { dir }) { return fail("not a directory"); }
+    if !mkdirs(if dir.is_empty() { root() } else { dir }) { return fail("not a directory"); }
     if mode == 1 { return if write_file(&target, &bytes, true) { ok() } else { fail("io error") }; }
     let tmp = format!("{}/.~{}", parent(&target), &target[parent(&target).len() + 1..]);
     if !write_file(&tmp, &bytes, false) { return fail("io error"); }
@@ -165,7 +181,7 @@ unsafe fn entries(dir: &str) -> Option<Vec<(String, bool, u64)>> {
 unsafe fn op_list(path: &str, offset: f64) -> String {
     if !valid(path, true) { return fail_line("invalid path"); }
     let p = full(path);
-    if path.is_empty() { mkdirs(ROOT); }
+    if path.is_empty() { mkdirs(root()); }
     match stat_of(&p) { None => return fail_line("not found"), Some((false, _)) => return fail_line("not a directory"), _ => {} }
     let Some(all) = entries(&p) else { return fail_line("io error") };
     let start = (offset.max(0.0) as usize).min(all.len()); let end = (start + MAX_ENTRIES).min(all.len());
@@ -241,11 +257,12 @@ unsafe extern "C" fn js_list(c: *mut JSContext, _t: JSValue, n: i32, a: *mut JSV
 unsafe extern "C" fn js_stat(c: *mut JSContext, _t: JSValue, n: i32, a: *mut JSValue) -> JSValue { ret(c, op_stat(&arg_str(c, n, a, 0))) }
 unsafe extern "C" fn js_mkdir(c: *mut JSContext, _t: JSValue, n: i32, a: *mut JSValue) -> JSValue { JS_NewInt32(c, op_mkdir(&arg_str(c, n, a, 0))) }
 unsafe extern "C" fn js_rename(c: *mut JSContext, _t: JSValue, n: i32, a: *mut JSValue) -> JSValue { JS_NewInt32(c, op_rename(&arg_str(c, n, a, 0), &arg_str(c, n, a, 1))) }
-unsafe extern "C" fn js_usage(c: *mut JSContext, _t: JSValue, _n: i32, _a: *mut JSValue) -> JSValue { mkdirs(ROOT); ok(); ret(c, format!("{{\"usedBytes\":{},\"quotaBytes\":0}}", used(ROOT, 0))) }
+unsafe extern "C" fn js_usage(c: *mut JSContext, _t: JSValue, _n: i32, _a: *mut JSValue) -> JSValue { mkdirs(root()); ok(); ret(c, format!("{{\"usedBytes\":{},\"quotaBytes\":0}}", used(root(), 0))) }
 unsafe extern "C" fn js_last(c: *mut JSContext, _t: JSValue, _n: i32, _a: *mut JSValue) -> JSValue { ret(c, LAST.clone()) }
 
 /// Install `globalThis.fs`. # Safety: QuickJS context alive, worker thread.
 pub unsafe fn register_fs(ctx: *mut JSContext, global: JSValue) {
+    *core::ptr::addr_of_mut!(ROOT) = format!("{}{}", SAVE_ROOT, guest_name());
     let fs = JS_NewObject(ctx);
     add_fn(ctx, fs, b"read\0", js_read, 3);
     add_fn(ctx, fs, b"write\0", js_write, 3);
