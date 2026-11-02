@@ -282,6 +282,23 @@ function checkedRasterDensity(value: number): number {
   return value;
 }
 
+/** One glyph as bakeSlot rasterized it: its metrics and its coverage at its
+ *  own width (`width` raster columns, the slot's coverage height). */
+export interface RasterGlyph {
+  advance: number;
+  xoff: number;
+  maxX: number;
+  width: number;
+  coverage: Uint8Array;
+}
+
+/** The glyphs a caller keeps between bakes of one font and fallback list, by
+ *  px, raster density and codepoint. A glyph's coverage does not depend on the
+ *  set it is baked with: a wider cell only adds empty columns. A process that
+ *  bakes a growing set again and again (a companion's glyphs service)
+ *  rasterizes each glyph once. */
+export type GlyphRasterCache = Map<string, RasterGlyph>;
+
 /** Bake one slot's atlas blob (see spec.ts FONT ATLAS format). */
 export function bakeSlot(
   font: Font,
@@ -291,6 +308,7 @@ export function bakeSlot(
   chars: number[],
   rasterDensity = 1,
   fallbacks: readonly Font[] = [],
+  cache?: GlyphRasterCache,
 ): BakedAtlas {
   rasterDensity = checkedRasterDensity(rasterDensity);
   const upm = font.unitsPerEm;
@@ -314,10 +332,18 @@ export function bakeSlot(
      *  right by this many px so the cell holds all their ink; renderers place
      *  the cell at penX - xoff. */
     xoff: number;
+    /** The cached raster, when the cache held this glyph. */
+    raster?: RasterGlyph;
   }
+  const key = (cp: number) => `${px}/${rasterDensity}/${cp}`;
   const glyphs: G[] = [];
   for (const cp of chars) {
     if (cp === TOFU_CODEPOINT) continue; // reserved for gid 0
+    const raster = cache?.get(key(cp));
+    if (raster) {
+      glyphs.push({ cp, contours: [], advance: raster.advance, maxX: raster.maxX, xoff: raster.xoff, raster });
+      continue;
+    }
     const ch = String.fromCodePoint(cp);
     // The slot's own face first; a codepoint it does not map comes from the
     // first fallback that does. Metrics scale through the SOURCE face's
@@ -420,7 +446,21 @@ export function bakeSlot(
   const cellBytes = coverageH * coverageW;
   out.set(tofuCoverage, coverageOff); // gid 0
   glyphs.forEach((g, i) => {
-    out.set(rasterize(g.contours, coverageW, coverageH), coverageOff + (i + 1) * cellBytes);
+    const at = coverageOff + (i + 1) * cellBytes;
+    if (!cache) {
+      out.set(rasterize(g.contours, coverageW, coverageH), at);
+      return;
+    }
+    let raster = g.raster;
+    if (!raster) {
+      // The contours end at maxX: columns past it hold no coverage.
+      const width = Math.min(coverageW, Math.max(1, Math.ceil(g.maxX)) * rasterDensity);
+      raster = { advance: g.advance, xoff: g.xoff, maxX: g.maxX, width, coverage: rasterize(g.contours, width, coverageH) };
+      cache.set(key(g.cp), raster);
+    }
+    for (let row = 0; row < coverageH; row++) {
+      out.set(raster.coverage.subarray(row * raster.width, (row + 1) * raster.width), at + row * coverageW);
+    }
   });
 
   return {
