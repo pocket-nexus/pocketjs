@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 //! An application instance owns the UI, package, guest and driver registration.
 //! No platform I/O or script engine is selected by this crate.
 #![no_std]

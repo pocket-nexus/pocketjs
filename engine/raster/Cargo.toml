@@ -1,5 +1,10 @@
 [package]
 name = "pocket-raster"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-raster"
+keywords = ["pocketjs", "rasterizer", "rendering"]
+categories = ["no-std", "rendering"]
 edition = "2021"
 description = "Deterministic DrawList software rasterization for PocketJS"
 

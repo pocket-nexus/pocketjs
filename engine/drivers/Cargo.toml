@@ -1,5 +1,10 @@
 [package]
 name = "pocket-drivers"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-drivers"
+keywords = ["pocketjs", "drivers", "embedded"]
+categories = ["no-std", "embedded"]
 edition = "2021"
 description = "Device contracts and borrowed rendering resources for PocketJS"
 

@@ -1,5 +1,10 @@
 [package]
 name = "pocket-tex-cache"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-tex-cache"
+keywords = ["textures", "cache", "rendering"]
+categories = ["no-std", "rendering"]
 edition = "2021"
 description = "Versioned driver texture storage with submission-scoped retirement"
 version.workspace = true

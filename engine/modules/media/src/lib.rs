@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 //! Media container readers, transport messages, and byte codecs.
 //!
 //! The caller owns file and socket I/O. This crate interprets borrowed bytes

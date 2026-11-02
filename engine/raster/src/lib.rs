@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 //! Deterministic software rasterizer: executes the core DrawList (spec.ts
 //! "DRAWLIST op format") over an RGBA8, BGRA8, or RGB565 framebuffer.
 //! DrawList coordinates remain logical; [`render_scaled`] maps them directly
@@ -382,7 +383,7 @@ fn fill_rect<T: RenderTarget>(target: &mut T, stride: i32, c: Clip, color: u32) 
     }
 }
 
-/// Integer lerp of two packed ABGR colors at f in [0,1] (round-to-nearest;
+/// Integer lerp of two packed ABGR colors at f in `[0,1]` (round-to-nearest;
 /// f itself is a deterministic f32 pixel-center fraction).
 #[inline]
 pub fn lerp_color(from: u32, to: u32, f: f32) -> u32 {

@@ -5,6 +5,11 @@
 #
 [package]
 name = "pocketjs-core"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocketjs-core"
+keywords = ["pocketjs", "ui", "layout"]
+categories = ["no-std", "gui"]
 edition = "2021"
 
 version.workspace = true

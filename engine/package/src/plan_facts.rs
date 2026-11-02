@@ -9,6 +9,7 @@
 //! canonical JSON (`framework/src/manifest/plan.ts` `canonicalJson`); this
 //! reader accepts any well-formed JSON and looks up only the paths it needs:
 //!
+//! ```text
 //!   viewport.logical              [width, height]
 //!   viewport.rasterDensity        integer 1..255
 //!   viewport.presentation         string (absent: None)
@@ -18,6 +19,7 @@
 //!   animation                     string (absent: None)
 //!   features.<name>               boolean (absent: false)
 //!   companions                    array (absent or empty: none)
+//! ```
 //!
 //! Strings are returned as the raw bytes between their quotes; the plan's
 //! names (presentations, animation classes, capability ids) contain no

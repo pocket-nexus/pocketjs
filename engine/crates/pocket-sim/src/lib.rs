@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 //! Simulation history, independent of rendering, transport and a guest heap.
 //! A reducer must depend only on its state, input and immutable configuration.
 //! Deliver network data before predicting a turn. Emit external effects outside

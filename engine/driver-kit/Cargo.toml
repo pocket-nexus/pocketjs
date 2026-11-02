@@ -1,11 +1,16 @@
 [package]
 name = "pocket-driver-kit"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-driver-kit"
+keywords = ["pocketjs", "drivers", "testing"]
+categories = ["no-std", "development-tools::testing"]
 edition = "2021"
 description = "Reusable driver conformance probes and delayed-device fixtures for PocketJS"
 version.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-license-file = "../../LICENSE"
+license.workspace = true
 
 [dependencies]
 pocket-drivers.workspace = true

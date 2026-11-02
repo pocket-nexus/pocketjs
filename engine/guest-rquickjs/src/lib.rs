@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 //! A QuickJS realm whose UI calls dispatch through the runtime's generated contract.
 use pocket_runtime::generated_ops::{
     ArgKind, OpDescriptor, ResultKind, BINDING_GENERATION, IDF_OPS, LEGACY_C_OPS, OP_DESCRIPTORS,

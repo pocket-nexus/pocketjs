@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 #![no_std]
 //! Driver conformance checks for use in a driver's own CI.
 //!

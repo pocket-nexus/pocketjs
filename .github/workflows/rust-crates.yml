@@ -1,0 +1,108 @@
+name: Rust crate publication checks
+on:
+  pull_request:
+    paths: &paths
+      - ".github/workflows/rust-crates.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "LICENSE"
+      - "contracts/spec/gen-rust.ts"
+      - "engine/**"
+  push:
+    branches: [main]
+    paths: *paths
+permissions:
+  contents: read
+concurrency:
+  group: rust-crates-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  POCKET_CRATES: >-
+    pocket-spec pocket-drivers pocket-draw-ops pocket-glyph-pages
+    pocket-tex-cache pocket-media pocket-package pocket-raster pocket-present
+    pocketjs-core pocket-runtime pocket-guest-rquickjs pocket-driver-kit pocket-sim
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ["1.93.0", "pinned"]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Rust toolchain
+        id: rust
+        shell: bash
+        env:
+          SELECTED_TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          version="$SELECTED_TOOLCHAIN"
+          if [[ "$version" == pinned ]]; then
+            version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          key: publication-${{ steps.rust.outputs.version }}
+      - name: Test libraries and README examples
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.rust.outputs.version }}
+        run: |
+          packages=()
+          for crate in $POCKET_CRATES; do packages+=(-p "$crate"); done
+          cargo test --locked "${packages[@]}"
+      - name: Run host examples
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.rust.outputs.version }}
+        run: |
+          cargo run --locked -p pocket-runtime --example configure
+          cargo run --locked -p pocket-guest-rquickjs --example guest_turn
+          cargo run --locked -p pocket-driver-kit --example package_source
+          cargo run --locked -p pocket-sim --example reconcile
+      - name: Build API documentation without warnings
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.rust.outputs.version }}
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          packages=()
+          for crate in $POCKET_CRATES; do packages+=(-p "$crate"); done
+          cargo doc --locked --no-deps "${packages[@]}"
+      - name: Verify publication without uploading
+        if: matrix.toolchain == 'pinned'
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.rust.outputs.version }}
+        run: |
+          packages=()
+          for crate in $POCKET_CRATES; do packages+=(-p "$crate"); done
+          cargo publish --dry-run --registry crates-io "${packages[@]}"
+      - name: Check packaged READMEs and license notices
+        if: matrix.toolchain == 'pinned'
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import tarfile
+          import tomllib
+
+          expected_license = Path("LICENSE").read_bytes()
+          for name in os.environ["POCKET_CRATES"].split():
+              candidates = list(Path("target/package").glob(f"{name}-*.crate"))
+              candidates += list(Path("target/package/tmp-crate").glob(f"{name}-*.crate"))
+              assert candidates, f"No archive for {name}"
+              with tarfile.open(candidates[0]) as archive:
+                  prefix = archive.getnames()[0].split("/")[0]
+                  manifest = tomllib.loads(archive.extractfile(f"{prefix}/Cargo.toml").read().decode())
+                  assert manifest["package"]["license"] == "MIT", name
+                  assert archive.extractfile(f"{prefix}/LICENSE").read() == expected_license, name
+                  assert archive.extractfile(f"{prefix}/README.md").read(), name
+          PY

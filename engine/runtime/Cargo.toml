@@ -1,5 +1,10 @@
 [package]
 name = "pocket-runtime"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-runtime"
+keywords = ["pocketjs", "runtime", "embedded"]
+categories = ["no-std", "gui"]
 edition = "2021"
 description = "PocketJS application instances, profile facts, input encoding, package admission, and frame scheduling"
 

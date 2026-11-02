@@ -8,7 +8,7 @@
 //! Text nodes: a text ELEMENT becomes a taffy measure leaf over its
 //! concatenated inline run; text children of a text element are absorbed into
 //! that run (never flex items). Text nodes whose run is EMPTY (Solid `<Show>`
-//! markers) are excluded from the taffy tree entirely [R].
+//! markers) are excluded from the taffy tree entirely `[R]`.
 //!
 //! Three things narrow what one relayout touches:
 //!
