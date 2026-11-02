@@ -1,0 +1,59 @@
+name: Publish Rust crates
+
+on:
+  push:
+    tags: ["crates-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Rust release tag (for example, crates-v0.1.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-io-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a tagged revision from main
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^crates-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
+          echo "RELEASE_VERSION=${RELEASE_TAG#crates-v}" >> "$GITHUB_ENV"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - name: Select unpublished crate versions
+        id: plan
+        run: bun tools/release/publish-crates.ts plan "$RELEASE_VERSION"
+      - name: Authenticate with crates.io
+        if: steps.plan.outputs.pending != '0'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish selected crates
+        if: steps.plan.outputs.pending != '0'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: bun tools/release/publish-crates.ts publish "$RELEASE_VERSION"
