@@ -23,9 +23,13 @@ application, and a Rust core performs flexbox layout and draws every pixel **in
 one thread inside one process**. There is **no DOM, no CSS engine and no
 WebView**. PocketJS is a [Pocket Nexus](https://pocket.nexus) project.
 
-<a href="https://pocketjs.pocket.nexus">
-  <img src="./site/assets/pocketjs-demo-wall.jpg" alt="A wall of PocketJS software: music, deep-zoom graphics, messaging, a digital character, galleries, DevTools, dashboards, media, and a café app, alongside OpenStrike, Pocket Voxel and Pocket Figma on PSP, including Motion Lab studies credited to yui540" />
+<a href="https://studio.pocket.nexus">
+  <img src="./assets/screenshots/pocket-studio-wall.jpg" alt="Twelve screens from Pocket Studio. Applets: Tokyo Weather, GitHub, Pocket Home, Hacker News, Discord, X and YouTube. Games: Pocket Duty, Pocket Tokyo, Pocket Requiem, Pocket Atlas and Pocket Maneuver." />
 </a>
+
+Applets built with PocketJS and games built with Pocket3D, from
+[Pocket Studio](https://studio.pocket.nexus). Its agent makes a Pocket Applet
+from a request: Tokyo Weather, top left, came from one sentence.
 
 ## In this repository
 
