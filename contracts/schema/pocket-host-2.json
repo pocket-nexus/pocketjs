@@ -255,6 +255,11 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 255
+            },
+            "mqtt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
             }
           }
         }

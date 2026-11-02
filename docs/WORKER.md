@@ -33,11 +33,13 @@ Paths have the same project root as `app.entry`.
 This fragment extends the application's `pocket.app.json`; the identity, framework
 and viewport fields remain required. The resource table in
 `contracts/spec/worker.ts` names the capability each node kind implies:
-`io.i2c`, `io.uart` and `net.http`. The app contract does not list them again.
+`io.i2c`, `io.uart`, `net.http` and `net.mqtt`. The app contract does not list
+them again.
 **Node and channel counts are host facts**: a host contract's `worker.nodes` table
 bounds each kind, and the worker protocol bounds a worker to **8** nodes and
 **8** channels.
-**HTTP exists only as a worker resource**: no UI realm has a network module.
+**HTTP and MQTT exist only as worker resources**: no UI realm has a network
+module.
 The current resolver requires the worker. An `enhances` declaration with a UI
 fallback ownership table is not implemented.
 
@@ -87,8 +89,9 @@ conversion in TypeScript.
 
 ## Resource protocol
 
-`io.i2c(name).open(...)`, `io.uart(name).open(...)` and
-`io.http(name).open(...)` create host-owned resources. The board host validates
+`io.i2c(name).open(...)`, `io.uart(name).open(...)`,
+`io.http(name).open(...)` and `io.mqtt(name).open(...)` create host-owned
+resources. The board host validates
 the node and device ownership. Open rejects an unavailable resource; readiness
 arrives as a stream fact.
 
@@ -171,6 +174,63 @@ production and acknowledge the end of native buffer access before storage is
 freed. Worker shutdown stops resources before destroying QuickJS. A driver that
 remains busy retains its storage.
 
+## MQTT
+
+`io.mqtt(name).open(options)` opens one **MQTT 3.1.1 or 5.0 session** with one
+broker (kind 4, capability `net.mqtt`). The byte layouts are in
+`contracts/spec/mqtt.ts`; `@pocketjs/framework/io/mqtt` holds their encoders
+and decoders. The open descriptor (at most **1024 bytes**) carries the URL
+(`mqtt://`, `mqtts://`, `ws://`, `wss://`), client identifier, credentials,
+keepalive, clean start, will, reconnect delay, network timeout, the largest
+incoming payload and the MQTT 5 connect properties. TLS material (CA, client
+certificate, client key; **at most 16 KiB each**) does not fit the descriptor:
+the descriptor states the byte counts and the SDK writes the bytes with
+`write()` right after open; the host connects once they arrived. Without a CA
+the host verifies the broker against its certificate bundle.
+
+The host keeps the session connected. Each CONNACK arrives as a `headers` fact
+(session present, protocol, the broker's MQTT 5 limits and properties); each
+dropped connection or failed attempt as an `error` fact `code: message`; the
+session reconnects after `reconnectMs` until a refusal that a retry cannot
+change (bad credentials, not authorized, banned and the other non-transient
+CONNACK codes) or a session opened with `reconnectMs: 0` ends it with an `end`
+fact. An incoming PUBLISH is one **message record** (flags, topic, MQTT 5
+properties, payload) carried by `data` facts of at most 1024 bytes whose
+offsets count record bytes. A message larger than `maxMessageBytes` (at most
+**256 KiB**), or one the worker does not take within **2 s** while its event
+slots are full, is dropped and counted by a `gap` fact. Under MQTT 5 the
+session announces a maximum packet size that carries a `maxMessageBytes`
+payload unless `maximumPacketSize` sets one; the broker withholds larger
+messages, and no gap counts them.
+
+Requests are submit opcodes: **1** PUBLISH, **2** SUBSCRIBE, **3**
+UNSUBSCRIBE (at most **8** filters each), **4** the DISCONNECT the host sends
+at close (MQTT 5 reason code, session expiry, user properties). A publish
+settles when the broker acknowledged it (QoS 1 and 2) or the host wrote it
+(QoS 0), with the PUBACK or PUBCOMP reason code; a payload that does not fit
+the 1024-byte request is written to the session's staging buffer first (at
+most **256 KiB**, one staged payload at a time). A subscribe settles with the
+SUBACK codes. QoS 0 publishes, subscribes and unsubscribes fail with
+`unavailable` while the session is disconnected; QoS 1 and 2 publishes wait in
+the host's outbox for the next connection and fail when they expire there.
+
+```ts
+import { io } from "@pocketjs/framework/io";
+import { utf8Text } from "@pocketjs/framework/io/mqtt";
+
+const client = io.mqtt("mqtt").open({ url: "mqtts://broker.example:8883", username: "tab5", password: "secret" });
+for await (const event of client.events()) {
+  if (event.type === "connected" && !event.sessionPresent) await client.subscribe({ filter: "home/+/temperature", qos: 1 });
+  else if (event.type === "message") console.log(`${event.topic} ${utf8Text(event.payload)}`);
+}
+```
+
+`MqttClient` reads its stream itself from open, joins message records and
+queues the events for `events()` (at most **64 events** and **256 KiB** of
+queued messages; a message beyond either bound is dropped and counted in a
+`lost` event), so a loop that awaits a subscribe or a publish loses no stream
+records. `disconnect(options)` sets the DISCONNECT and closes the resource.
+
 ## Turns and the scheduler
 
 **A turn is one iteration of the runner loop.** The owner task waits for a
@@ -237,10 +297,12 @@ host whose worker task outranks the UI task on the same core, where the
 scheduler would give the UI no time. The 3DS host sets 10 ms per 20 ms.
 
 This implementation provides local worker tasks, one-shot I2C scripts, UART
-streams, streaming HTTP, snapshot/ring channels, timer ticks and resource
-shutdown that waits for native access to end. The PRD's triggered sample
+streams, streaming HTTP, the MQTT resource contract and SDK, snapshot/ring
+channels, timer ticks and resource shutdown that waits for native access to
+end. No host in this repository implements an `mqtt` node; pocket-m5 provides
+one on ESP-IDF. The PRD's triggered sample
 executor, GPIO edges, command channels, remote worker replacement for
-`offload`, complete domain tape, TCP/UDP/MQTT, generated board-node accessor
+`offload`, complete domain tape, TCP/UDP, generated board-node accessor
 types and UI fallback ownership tables remain unimplemented. UI-only hosts keep
 their offload module; HTTP is the worker's `io.http` resource. The 3DS routes
 it over Pocket Link; the CardputerZero routes it to its own loopback interface.
@@ -256,7 +318,7 @@ in that domain.
 ## Validation
 
 ```sh
-bun test tests/worker.test.ts tests/worker-http-stream.test.ts tests/host-services-link.test.ts
+bun test tests/worker.test.ts tests/worker-mqtt.test.ts tests/worker-http-stream.test.ts tests/host-services-link.test.ts
 sh engine/worker/tests/run.sh /path/to/quickjs-ng
 bun tools/packaging/esp-idf/contracts.ts --check
 ```

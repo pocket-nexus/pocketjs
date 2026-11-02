@@ -100,6 +100,7 @@
     "./worker/channels": "./framework/src/worker-channels.ts",
     "./io": "./framework/src/io.ts",
     "./io/i2c": "./framework/src/io/i2c.ts",
+    "./io/mqtt": "./framework/src/io/mqtt.ts",
     "./profile": "./framework/src/profile.ts",
     "./host-config": "./framework/src/host-config.ts",
     "./hosts": "./hosts/index.ts",
