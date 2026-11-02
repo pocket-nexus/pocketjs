@@ -82,7 +82,7 @@ export interface RuntimeBuild {
   readonly sourceInputs?: RuntimeSourceInputs;
   readonly artifact?: string;
   readonly run?: (context: RuntimeBuildContext) => void | Promise<void>;
-  readonly genericRuntime?: { readonly repack: (input: RepackInput) => Promise<Uint8Array>; readonly extension?: string; readonly signed?: boolean };
+  readonly genericRuntime?: { readonly repack: (input: RepackInput) => Promise<Uint8Array>; readonly extension?: string };
   readonly deploy?: (context: RuntimeBuildContext) => void | Promise<void>;
 }
 /** `host` names one pocket.host.json host contract, `hosts` several; paths

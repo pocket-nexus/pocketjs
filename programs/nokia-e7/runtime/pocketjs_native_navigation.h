@@ -287,12 +287,12 @@ void PocketJsRuntime::recordNativeEvent(const char *action, int index, int error
 void PocketJsRuntime::suspendNativeGraphics()
 {
     if (nativeGraphicsSuspended_ || !glInitialized_) return;
-    if (extension_ && extension_->struct_size < sizeof(PocketJsSymbianGraphicsExtensionV1)) return;
+    if (extension_ && extension_->struct_size < sizeof(PocketNativeGraphicsExtensionV1)) return;
     setUpdatesEnabled(false);
     makeCurrent();
     if (extension_) {
-        const PocketJsSymbianGraphicsExtensionV1 *graphics =
-            reinterpret_cast<const PocketJsSymbianGraphicsExtensionV1 *>(extension_);
+        const PocketNativeGraphicsExtensionV1 *graphics =
+            reinterpret_cast<const PocketNativeGraphicsExtensionV1 *>(extension_);
         if (graphics->release_graphics) graphics->release_graphics(1);
     }
     pocket_native_program_gl_shutdown(program_);

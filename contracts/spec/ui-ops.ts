@@ -184,11 +184,9 @@ export const UI_BINDING_PROFILES = {
   // New guests use explicit coercion: required scalars, JS ToInt32/ToUint32,
   // nonnegative duration clamping, lossy UTF-8 strings, and byte views.
   canonical: { missingNumbers: "error", nonnegative: "clamp", strings: "lossy", buffers: "arrayBufferOrView" },
-  legacyC: { missingNumbers: "error", nonnegative: "clamp", strings: "emptyOnInvalidUtf8", buffers: "arrayBufferOrView" },
   idf: { missingNumbers: "zero", nonnegative: "uint32", strings: "strict", buffers: "uint8Array" },
 } as const;
 
-export const UI_LEGACY_C_OPS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,24,25,26,27,28,29,42,57,58] as const;
 export const UI_IDF_OPS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,39,40,41,42,43] as const;
 
 export function validateUiOps(): void {

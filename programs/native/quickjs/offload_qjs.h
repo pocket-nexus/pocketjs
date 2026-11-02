@@ -1,11 +1,8 @@
-/* Included by pocket_runtime.c only on hosts with the POSIX worker. */
+/* Per-program JS operations for hosts with the POSIX offload worker. */
 #include "../../../platforms/linux/offload/offload_posix.h"
 #include "../../../engine/modules/offload/include/offload_coverage.h"
 #include <stdio.h>
 #include <stdlib.h>
-static unsigned offload_submissions, offload_deliveries, offload_uploads;
-static char offload_key_path[1024];
-static uint8_t offload_pixels[512 * 16 * 4];
 static int offload_bounded_string(JSContext *ctx, JSValueConst value) {
   if (!JS_IsString(value)) return 0;
   JSValue count = JS_GetPropertyStr(ctx, value, "length");
@@ -14,15 +11,17 @@ static int offload_bounded_string(JSContext *ctx, JSValueConst value) {
   JS_FreeValue(ctx, count);
   return ok;
 }
-void pocket_legacy_runtime_offload_key(const char *path) {
-  if (path && strlen(path) < sizeof offload_key_path) strcpy(offload_key_path, path);
+void pocket_qjs_program_offload_key(PocketQjsProgram *s, const char *path) {
+  if (s && path && strlen(path) < sizeof s->offload_key_path) strcpy(s->offload_key_path, path);
 }
-static JSValue offload_operation(JSContext *ctx, JSValueConst self, int argc, JSValueConst *argv, int op) {
+static JSValue offload_operation(JSContext *ctx, JSValueConst self, int argc, JSValueConst *argv, int op, JSValue *data) {
   (void)self;
+  PocketQjsProgram *s = callback_program(ctx, data);
+  if (!s) return JS_ThrowInternalError(ctx, "missing offload callback state");
   if (op == 0) return JS_NewUint32(ctx, pocket_offload_session());
   if (op == 2) {
     char bytes[4096];
-    if (offload_deliveries++) return JS_UNDEFINED;
+    if (s->offload_deliveries++) return JS_UNDEFINED;
     size_t length = pocket_offload_take(bytes);
     return length ? JS_NewStringLen(ctx, bytes, length) : JS_UNDEFINED;
   }
@@ -31,46 +30,54 @@ static JSValue offload_operation(JSContext *ctx, JSValueConst self, int argc, JS
   const char *text = JS_ToCStringLen(ctx, &length, argv[0]);
   if (!text) return JS_EXCEPTION;
   if (op == 1) {
-    int accepted = offload_submissions < 2 && pocket_offload_submit(text, length);
-    if (accepted) offload_submissions++;
+    int accepted = s->offload_submissions < 2 && pocket_offload_submit(text, length);
+    if (accepted) s->offload_submissions++;
     JS_FreeCString(ctx, text);
     return JS_NewBool(ctx, accepted);
   }
   uint32_t width = 0, height = 0, color = 0;
   int texture = 0;
-  if (argc >= 4 && !offload_uploads && JS_ToUint32(ctx, &width, argv[1]) == 0 &&
+  if (argc >= 4 && !s->offload_uploads && JS_ToUint32(ctx, &width, argv[1]) == 0 &&
       JS_ToUint32(ctx, &height, argv[2]) == 0 && JS_ToUint32(ctx, &color, argv[3]) == 0) {
-    int envelope = coverage_decode(text, length, width, height, color, offload_pixels);
+    int envelope = coverage_decode(text, length, width, height, color, s->offload_pixels);
     if (envelope && argc >= 6 && (!JS_IsUndefined(argv[4]) || !JS_IsUndefined(argv[5]))) {
       size_t cn = 0, pn = 0;
       const char *columns = offload_bounded_string(ctx, argv[4]) ? JS_ToCStringLen(ctx, &cn, argv[4]) : NULL;
       const char *palette = offload_bounded_string(ctx, argv[5]) ? JS_ToCStringLen(ctx, &pn, argv[5]) : NULL;
-      if (!columns || !palette || !coverage_colorize(columns, cn, palette, pn, width, height, (unsigned)envelope, offload_pixels)) envelope = 0;
+      if (!columns || !palette || !coverage_colorize(columns, cn, palette, pn, width, height, (unsigned)envelope, s->offload_pixels)) envelope = 0;
       if (columns) JS_FreeCString(ctx, columns);
       if (palette) JS_FreeCString(ctx, palette);
     }
     if (envelope) {
       unsigned padded_height = coverage_height(height);
-      texture = ui_upload_texture(offload_pixels, (size_t)envelope * padded_height * 4, (unsigned)envelope, padded_height, 3);
-      offload_uploads++;
+      pocket_op_arg args[4] = {0};
+      for (unsigned i = 0; i < 4; i++) { args[i].struct_size = sizeof args[i]; args[i].tag = POCKET_ARG_INTEGER; }
+      args[0].tag = POCKET_ARG_BYTES; args[0].bytes = s->offload_pixels;
+      args[0].byte_length = (size_t)envelope * padded_height * 4;
+      args[1].integer = envelope; args[2].integer = padded_height; args[3].integer = 3;
+      pocket_result result = {0}; result.struct_size = sizeof result;
+      if (pocket_runtime_op(pocket_native_program_runtime(s->program), POCKET_OP_uploadTexture,
+          args, sizeof args, &result) == POCKET_STATUS_OK && result.tag == POCKET_RESULT_I64)
+        texture = (int)result.integer;
+      s->offload_uploads++;
     }
   }
   JS_FreeCString(ctx, text);
   return JS_NewInt32(ctx, texture);
 }
-static int install_offload(JSContext *ctx, JSValue target) {
+static int install_offload(PocketQjsProgram *s, JSContext *ctx, JSValue target) {
   JSValue ops = JS_NewObject(ctx);
   const char *names[] = {"session", "submit", "take", "uploadCoverage"};
   int arities[] = {0, 1, 0, 6};
   for (int i = 0; i < 4; i++) {
-    JSValue fn = JS_NewCFunctionMagic(ctx, offload_operation, names[i], arities[i], JS_CFUNC_generic_magic, i);
+    JSValue fn = program_callback(s, offload_operation, arities[i], i);
     if (JS_SetPropertyStr(ctx, ops, names[i], fn) < 0) { JS_FreeValue(ctx, ops); return 0; }
   }
   if (JS_SetPropertyStr(ctx, target, "offload", ops) < 0) return 0;
-  if (!offload_key_path[0]) {
+  if (!s->offload_key_path[0]) {
     const char *directory = getenv("HOME");
-    if (directory) snprintf(offload_key_path, sizeof offload_key_path, "%s/Documents/offload.key", directory);
+    if (directory) snprintf(s->offload_key_path, sizeof s->offload_key_path, "%s/Documents/offload.key", directory);
   }
-  pocket_offload_start(offload_key_path, 8741);
+  pocket_offload_start(s->offload_key_path, 8741);
   return 1;
 }

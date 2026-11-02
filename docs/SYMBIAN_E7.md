@@ -193,8 +193,8 @@ bun tools/symbian.ts build app \
 Applications that need an app-specific native surface can supply a prebuilt
 archive through `--core-library`. The archive must implement the ordinary
 PocketJS `ui_*` ABI; it may also export the versioned
-`pocketjs_symbian_extension_v1` table from
-`pocketjs_symbian_extension.h`. The table adds synchronous boot, fixed-step
+`pocket_native_extension_v1` table from
+`pocket_native_extension.h`. The table adds synchronous boot, fixed-step
 input, post-guest command draining, resize, render, and shutdown callbacks
 without copying or forking the Qt/QuickJS host:
 
@@ -237,11 +237,11 @@ requests no depth buffer. A custom core disables that default Cargo feature
 and exports the same symbol with a callback table. This explicit null-provider
 shape is intentional: Symbian's historical E32 conversion tools cannot safely
 consume ELF weak relocations. An extension can request a depth attachment,
-render its scene first, and let `ui_gl_render_over` composite the retained
+render its scene first, and let `pocket_native_program_gl_render_rect` composite the retained
 PocketJS HUD without clearing the color buffer. The PAK bytes stay owned by the
-host and may be borrowed only until the matching shutdown call; the JS guest
-receives a separate writable ArrayBuffer, so script code cannot mutate native
-borrowed storage. Shutdown reports whether the owning GL context is current,
+host and may be borrowed only until the matching shutdown call; the generated QuickJS guest
+borrows the package storage until shutdown. QuickJS-NG marks it immutable;
+engines without that API can write the package bytes. Shutdown reports whether the owning GL context is current,
 allowing the extension to delete live resources normally or abandon stale
 handles after context loss. Application-specific cores are intentionally
 single-app only and cannot be combined with a launcher catalog because their
@@ -253,7 +253,7 @@ call the inline value helpers through stable C symbols without carrying a
 second QuickJS build.
 
 Rust application cores should import the matching table, flags, and native-key
-bits from `pocketjs_symbian_core::extension`; that module is the Rust ABI
+bits from `pocket_native_program::extension`; that module is the Rust ABI
 authority paired with the public C header.
 
 **Each guest owns one canonical Runtime through `PocketNativeProgram`.**
@@ -361,8 +361,7 @@ spans. The cache never evicts a mask referenced by the current draw list.
 **Release frames do not query the GL error queue.** `glGetError` can wait for
 queued GPU work on mobile drivers, serializing CPU and GPU execution. Shader,
 texture and renderer initialization retain their error checks. Debug builds
-check each frame; the Rust `gl-frame-validation` feature enables the same
-checks in a release build for diagnosis. Its timing is reported as `error_ms`.
+check each frame.
 The synchronization mechanism is described in Apple's
 [OpenGL ES design guidelines](https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/OpenGLES_ProgrammingGuide/OpenGLESApplicationDesign/OpenGLESApplicationDesign.html).
 
@@ -648,7 +647,7 @@ with the background process. `*-navigation.tsv` records activations alongside
 the frame trace. Release builds do not read replay files.
 
 Native renderers opt into graphics suspension with the optional
-`PocketJsSymbianGraphicsExtensionV1` / `GraphicsExtensionV1` tail. Its V1 prefix
+`PocketNativeGraphicsExtensionV1` / `GraphicsExtensionV1` tail. Its V1 prefix
 and provider symbol remain unchanged; `base.struct_size` covers the full table.
 `release_graphics(gl_context_current)` releases GPU handles and retains CPU
 scene/game data. The next `render` rebuilds GPU resources. A host checks the

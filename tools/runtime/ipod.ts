@@ -1,5 +1,5 @@
 // tools/runtime/ipod.ts [--out=<dir>] — the generic iPod touch 4 runtime: the
-// legacy UIKit host built once, with no game, in dist/runtime/ipod/.
+// iOS 6 UIKit host built once, with no game, in dist/runtime/ipod/.
 //
 //   PocketJSRuntime        the armv7 executable, signed ad hoc by ldid with no
 //                          Info.plist beside it, so the signature covers the
@@ -14,7 +14,7 @@
 // The executable has no __pocket_js / __pocket_pak section. It is compiled with
 // POCKET_PACKAGE_RUNTIME: at launch it reads app.pocket beside itself, admits
 // the ipodtouch4-dev variant with the current binding generation and takes the
-// logical surface (320x480 or 480x320) and raster density from that variant's plan (programs/shared/ios-legacy/
+// logical surface (320x480 or 480x320) and raster density from that variant's plan (programs/ipodtouch4/
 // runtime.c). ui.physics (ops 52..56), io.offload and keep-awake (the idle
 // timer disabled while the game runs, POCKET_KEEP_AWAKE as a first-party app
 // descriptor sets it) are compiled in for every game; the svc wire is not, and
@@ -23,13 +23,13 @@
 
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
-import { bakeClassicIPhoneArtwork, IPHONE_USER_ICON_FILE, IPHONE_USER_RETINA_ICON_FILE } from "../iphone-classic-icon.ts";
+import { bakeIPodArtwork, IPOD_USER_ICON_FILE, IPOD_USER_RETINA_ICON_FILE } from "../ipodtouch4-icon.ts";
 import {
   buildIPodInstaller,
   checkIPodExecutable,
   compileIPodHost,
+  compileIPodUIKit,
   hashInputs,
-  IPOD_WARNINGS,
   linkIPodExecutable,
   prepareIPodNative,
   sysrootIdentityInputs,
@@ -39,7 +39,6 @@ import { IPODTOUCH4_TOOLCHAIN } from "../build/toolchains/ipodtouch4.ts";
 import { IPOD_RUNTIME_EXECUTABLE, IPOD_RUNTIME_FILES } from "../repack/ipod.ts";
 import { writeRuntimeManifest } from "../../tools/runtime/manifest.ts";
 import { POCKET_PROFILES } from "../../hosts/index.ts";
-import { writeHostProfileHeader } from "../../tools/host-profile.ts";
 const profile = POCKET_PROFILES["ipodtouch4-dev"];
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
@@ -61,23 +60,15 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
     features: { "ui.physics": true },
     svcWire: false,
   });
-  const runtimeDefines = (buildId: string) => [
-    ...IPOD_WARNINGS,
-    "-include", writeHostProfileHeader(nativeBuild, profile),
-    "-DPOCKET_PACKAGE_RUNTIME",
-    // Studio games keep the screen awake: no game has to be touched once a
-    // minute to stay on screen.
-    "-DPOCKET_KEEP_AWAKE",
-    `-DPOCKETJS_TARGET_ID="${IPODTOUCH4_DEV_TARGET_ID}"`,
-    `-DPOCKETJS_HOST_ABI=${IPODTOUCH4_DEV_HOST_ABI}`,
-    `-DPOCKET_BUILD_ID="${buildId}"`,
-    "-I", join(repository, "programs/native/quickjs"),
-    "-I", join(repository, "programs/native/cabi/include"),
-    "-I", join(repository, "contracts/generated"),
-    "-Wno-cast-function-type-mismatch",
-  ];
+  const uiKitOptions = {
+    profile,
+    target: IPODTOUCH4_DEV_TARGET_ID,
+    hostAbi: IPODTOUCH4_DEV_HOST_ABI,
+    keepAwake: true,
+    svcWire: false,
+  };
   const identityObject = join(nativeBuild, "runtime.build-id-input.o");
-  native.compile(join(repository, "programs/ipodtouch4/runtime.c"), identityObject, runtimeDefines(BUILD_ID_PLACEHOLDER));
+  compileIPodUIKit(native, identityObject, { ...uiKitOptions, buildId: BUILD_ID_PLACEHOLDER });
   // The runtime's build id names the program alone: the status record on the
   // device reports it for every game repacked onto this runtime.
   const buildId = hashInputs([
@@ -89,15 +80,15 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
     { label: "native/csu-dyld-glue.o", path: native.csuDyldGlue },
     { label: "native/crt_globals.o", path: host.crtGlobals },
     { label: "native/runtime.build-id-input.o", path: identityObject },
-    { label: "native/pocket_runtime.o", path: host.pocketRuntime },
+    { label: "native/pocket_qjs_program.o", path: host.qjsProgram },
     { label: "native/pocket_guest_quickjs.o", path: host.guestAdapter },
     { label: "native/offload_posix.o", path: host.offload },
-    { label: "native/compat.o", path: host.compat },
+    { label: "native/libc.o", path: host.libc },
     ...native.quickJsObjects.map((path) => ({ label: `native/${path.slice(nativeBuild.length + 1)}`, path })),
-    { label: "native/libpocketjs_symbian_core.a", path: native.rustLibrary },
+    { label: "native/libpocket_native_program.a", path: native.rustLibrary },
   ]);
   const runtimeObject = join(nativeBuild, "runtime.o");
-  native.compile(join(repository, "programs/ipodtouch4/runtime.c"), runtimeObject, runtimeDefines(buildId));
+  compileIPodUIKit(native, runtimeObject, { ...uiKitOptions, buildId });
 
   // Linked and signed in a directory of its own: ldid finds no Info.plist or
   // resources to bind, so the signature stays valid in any bundle.
@@ -118,9 +109,9 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
   mkdirSync(out, { recursive: true });
   cpSync(linked, join(out, IPOD_RUNTIME_EXECUTABLE));
   const artwork = join(nativeBuild, "artwork");
-  await bakeClassicIPhoneArtwork(artwork, "User");
-  cpSync(join(artwork, IPHONE_USER_ICON_FILE), join(out, "Icon.png"));
-  cpSync(join(artwork, IPHONE_USER_RETINA_ICON_FILE), join(out, "Icon@2x.png"));
+  await bakeIPodArtwork(artwork);
+  cpSync(join(artwork, IPOD_USER_ICON_FILE), join(out, "Icon.png"));
+  cpSync(join(artwork, IPOD_USER_RETINA_ICON_FILE), join(out, "Icon@2x.png"));
   for (const name of ["Default@2x.png", "Default-568h@2x.png"]) cpSync(join(artwork, name), join(out, name));
   cpSync(join(repository, "programs/ipodtouch4/PkgInfo"), join(out, "PkgInfo"));
   for (const name of IPOD_RUNTIME_FILES) {

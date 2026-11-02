@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { NATIVE_COMPONENTS, NATIVE_POLICY, RUST_TARGETS, nativeSourceFiles, nativeSourceDigest, sha256, verifyNativeReceipt, type NativeReceipt } from "../tools/packaging/esp-idf/receipt.ts";
@@ -84,8 +84,10 @@ describe("ESP-IDF release integrity", () => {
       ], { cwd: join(output, native.component, "vendor"), stdout: "pipe", stderr: "pipe" });
       expect(result.success, result.stderr.toString()).toBe(true);
       const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
-      for (const name of ["pocket-gles", "pocket-gles1", "pocket-gles2"])
-        expect(readFileSync(join(output, native.component, "vendor/packages", name, "Cargo.toml"), "utf8")).not.toContain("../../../engine");
+      for (const name of ["pocket-gles", "pocket-gles1", "pocket-gles2"]) {
+        expect(packages.some(pkg => pkg.name === name)).toBe(false);
+        expect(existsSync(join(output, native.component, "vendor/packages", name))).toBe(false);
+      }
       for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocket-render-esp-ppa"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
       const cargoHome = join(directory, "empty-cargo-home"); mkdirSync(cargoHome, { recursive: true });

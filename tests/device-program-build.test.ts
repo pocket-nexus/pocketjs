@@ -21,8 +21,8 @@ mkdirSync(base, { recursive: true });
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function scratch() { const path = mkdtempSync(join(base, "run-")); temporary.push(path); return path; }
-const programs = ["pocketbook", "moto-g-play", "redmi-1s", "blackberry-classic", "meizu-m8", "nokia-e7", "ios-simulator", "iphone2g", "iphone4s", "ipodtouch6", "ipodtouch4"];
-const generic = new Set(["moto-g-play", "redmi-1s", "ipodtouch4"]);
+const programs = ["pocketbook", "nokia-e7", "ios-simulator", "ipodtouch6", "ipodtouch4"];
+const generic = new Set(["ipodtouch4"]);
 function select(id: string) { return resolveProfile({ from: root, hostConfig: join(root, `programs/${id}/pocket.host.config.ts`), requireConfig: true }); }
 function packageFixture(selected: ResolvedProfile, directory: string) {
   const manifest = {
@@ -55,9 +55,9 @@ test("device recipes reject unsupported hosts or missing packages before generat
   }
 }, 60_000);
 
-test("native compatibility inputs consume the current package without source files or default demos", async () => {
+test("native program inputs consume the current package without source files or default demos", async () => {
   const directory = scratch();
-  const selected = await select("iphone2g");
+  const selected = await select("ipodtouch4");
   const packagePath = packageFixture(selected, directory);
   const application = prepareCompiledApplication(selected.profile, ["--pocket", packagePath], join(directory, "out"));
   const bundle = applicationBundle(application, selected.profile.id);
@@ -65,7 +65,7 @@ test("native compatibility inputs consume the current package without source fil
   expect(readFileSync(bundle.javaScript, "utf8")).toBe("globalThis.currentPackage = 73;");
   expect([...readFileSync(bundle.pack)]).toEqual([7, 3, 1]);
   expect(() => prepareCompiledApplication(selected.profile, [], directory)).toThrow("requires --pocket");
-  expect(() => applicationBundle(application, "iphone4s-dev")).toThrow();
+  expect(() => applicationBundle(application, "other-profile")).toThrow();
 });
 
 test("PocketBook stages the selected package and launcher after the native Cargo step", async () => {

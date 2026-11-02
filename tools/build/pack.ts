@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
-import { readCommunitySigner } from "../community-key.ts";
 import { readRuntimeDirectory } from "../repack.ts";
 import { admitPocket, readRuntime, type RepackIdentity } from "../repack/shared/runtime.ts";
 import { admissionHost, describeRejection, selectVariant } from "../../contracts/spec/admission.ts";
@@ -53,7 +52,7 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
     ...(options.icon ? { icon: new Uint8Array(readFileSync(resolve(cwd, options.icon))) } : cover ? { icon: cover } : {}),
   };
   await admitPocket(pocket, metadata, identity);
-  const result = await adapter.repack({ runtime, pocket, identity, ...(adapter.signed ? { signer: readCommunitySigner() } : {}) });
+  const result = await adapter.repack({ runtime, pocket, identity });
   const output = resolve(cwd, options.output ?? `${plan.app.output}${adapter.extension ?? ".bin"}`);
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, result);

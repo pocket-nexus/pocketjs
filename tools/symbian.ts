@@ -544,15 +544,15 @@ export async function buildApp(
     if (customCoreLibrary !== undefined) {
       copyFileSync(
         customCoreLibrary,
-        resolve(payload, "libpocketjs_symbian_core.a"),
+        resolve(payload, "libpocket_native_program.a"),
       );
     } else {
-      const coreDirectory = resolve(root, "programs/native/cabi");
+      const coreDirectory = resolve(root, "programs/native/runtime");
       const rustBuild = await spawn(rustHost.rustupPath!, [
         "run",
         rustHost.toolchainName!,
         "cargo",
-        "build", "--manifest-path", repositoryPath("programs/native/cabi/Cargo.toml"), "-p", "pocketjs-ui-cabi",
+        "build", "--manifest-path", repositoryPath("programs/native/runtime/Cargo.toml"), "-p", "pocket-native-program",
         "--release",
         "--locked",
         "--no-default-features",
@@ -578,9 +578,9 @@ export async function buildApp(
       copyFileSync(
         resolve(
           rustTarget,
-          "armv6-symbian-eabi/release/libpocketjs_symbian_core.a",
+          "armv6-symbian-eabi/release/libpocket_native_program.a",
         ),
-        resolve(payload, "libpocketjs_symbian_core.a"),
+        resolve(payload, "libpocket_native_program.a"),
       );
     }
 

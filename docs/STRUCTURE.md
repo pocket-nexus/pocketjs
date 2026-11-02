@@ -23,7 +23,7 @@ pocketjs/
 │  ├─ profile-build/        build-script support that embeds the exported host contract
 │  ├─ package/              package, asset and font archive readers and hashing
 │  ├─ runtime/              instance lifecycle, admission, input and scheduling
-│  ├─ runtime-cabi/         instance C ABI and retained compatibility adapters
+│  ├─ runtime-cabi/         instance C ABI and driver adapters
 │  ├─ guest-quickjs/        C guest lifecycle and generated operation bindings
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
@@ -41,7 +41,6 @@ pocketjs/
 │  ├─ psp/ vita/ 3ds/       input, display, audio, I/O and system services
 │  ├─ gba/ rockbox/         display and input adapters
 │  ├─ web/ sim/             browser and deterministic service providers
-│  ├─ android/              JNI helpers, input queue, logging and clock
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
 │  ├─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
 │  └─ sifli/                RT-Thread drivers, EPIC executor and renderer
@@ -50,18 +49,14 @@ pocketjs/
 │  ├─ psp/ vita/ 3ds/       console entries and host configs
 │  ├─ gba/ ipodnano/        fixed-console programs
 │  ├─ web/ sim/ desktop/    reference programs and their composition
-│  ├─ iphone2g/ iphone4s/   phone entries and host configs
 │  ├─ ipodtouch4/ ipodtouch6/ music-player programs
 │  ├─ ios-simulator/        NativeScript shell and UIKit integration
-│  ├─ android/             shared Android application shell
-│  ├─ moto-g-play/ redmi-1s/ Android device host configs
-│  ├─ meizu-m8/ nokia-e7/   Windows CE and Symbian programs
-│  ├─ blackberry-classic/   QNX program
+│  ├─ nokia-e7/             Symbian program
 │  ├─ pocketbook/           reader program and InkView integration
 │  ├─ linux-kms/            Linux program with its own host contract
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
 │  ├─ sifli/archive/        one Rust archive for the SiFli composition
-│  └─ native/               compatibility C-shell composition and QuickJS glue
+│  └─ native/               instance native programs and QuickJS composition
 ├─ products/
 │  └─ 3ds/                  Link, launcher, camera and development product
 ├─ framework/               guest APIs and application compiler
@@ -105,7 +100,7 @@ compose the same Runtime, generated guest and PICA driver.
 **`engine/runtime` owns application instances.** Each instance owns its package,
 guest, input encoding and display/renderer registrations. `engine/runtime-cabi`
 exposes instance handles. Compatibility entry points delegate to this state;
-`programs/native/cabi` supplies the historical archive name and program
+`programs/native/runtime` supplies the historical archive name and program
 composition. `programs/web/wasm` compiles the browser composition against the
 same runtime and C ABI.
 

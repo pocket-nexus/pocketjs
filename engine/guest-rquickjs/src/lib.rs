@@ -1,13 +1,13 @@
 //! A QuickJS realm whose UI calls dispatch through the runtime's generated contract.
-use pocket_runtime::generated_ops::{
-    ArgKind, OpDescriptor, ResultKind, BINDING_GENERATION, IDF_OPS, LEGACY_C_OPS, OP_DESCRIPTORS,
-};
 use pocket_drivers::{
     abi::{
         POCKET_TEXT_COMMIT, POCKET_TEXT_COMPOSITION, POCKET_TEXT_COMPOSITION_END,
         POCKET_TEXT_KEY_DOWN, POCKET_TEXT_KEY_UP,
     },
     TextEvent,
+};
+use pocket_runtime::generated_ops::{
+    ArgKind, OpDescriptor, ResultKind, BINDING_GENERATION, IDF_OPS, OP_DESCRIPTORS,
 };
 use pocket_runtime::{
     Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, RuntimeError,
@@ -19,12 +19,11 @@ use rquickjs::{
 
 /// The canonical profile has required numeric arguments, JS integer coercion,
 /// nonnegative duration clamping, lossy UTF-8, and borrowed ArrayBuffer/views.
-/// Compatibility profiles retain the older namespace and coercion policies.
+/// IDF has its own numeric and buffer coercion contract.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BindingProfile {
     #[default]
     Canonical,
-    LegacyC,
     Idf,
 }
 
@@ -222,9 +221,6 @@ fn engine_error(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
 fn permitted(profile: BindingProfile, op: u16) -> bool {
     match profile {
         BindingProfile::Canonical => true,
-        BindingProfile::LegacyC => {
-            LEGACY_C_OPS.contains(&op) || (30..=32).contains(&op) || (52..=56).contains(&op)
-        }
         BindingProfile::Idf => IDF_OPS.contains(&op),
     }
 }
@@ -259,7 +255,12 @@ pub fn mount_ui<'js>(
                             if !line.is_empty() {
                                 line.push(' ');
                             }
-                            line.push_str(&string_value(&ctx, value, BindingProfile::Canonical)?);
+                            line.push_str(&string_value(
+                                &ctx,
+                                value,
+                                BindingProfile::Canonical,
+                                false,
+                            )?);
                         }
                         eprintln!("{line}");
                         Ok(())
@@ -287,9 +288,7 @@ pub fn mount_ui<'js>(
     }
     ui.set("__host", environment.host)?;
     ui.set("__hostAbi", environment.host_abi)?;
-    if profile != BindingProfile::LegacyC {
-        ui.set("__tickHz", environment.tick_hz)?;
-    }
+    ui.set("__tickHz", environment.tick_hz)?;
     let viewport = Object::new(ctx.clone())?;
     viewport.set("w", environment.viewport[0])?;
     viewport.set("h", environment.viewport[1])?;
@@ -326,10 +325,8 @@ pub fn mount_ui<'js>(
             return Err(Exception::throw_type(ctx, "__pak is already mounted"));
         }
         let pak = ArrayBuffer::new_copy(ctx.clone(), environment.pak)?;
-        if profile != BindingProfile::LegacyC {
-            unsafe {
-                rquickjs::qjs::JS_SetImmutableArrayBuffer(pak.as_value().as_raw(), true);
-            }
+        unsafe {
+            rquickjs::qjs::JS_SetImmutableArrayBuffer(pak.as_value().as_raw(), true);
         }
         globals.set("__pak", pak)?;
     }
@@ -337,8 +334,6 @@ pub fn mount_ui<'js>(
     // it, so `after(seconds)` counts frames at this rate.
     if environment.sim_hz != 0 {
         globals.set("__simHz", environment.sim_hz)?;
-    } else if profile == BindingProfile::LegacyC {
-        globals.set("__simHz", 60)?;
     }
     globals.set("ui", ui)
 }
@@ -416,13 +411,16 @@ fn string_value<'js>(
     ctx: &Ctx<'js>,
     value: Value<'js>,
     profile: BindingProfile,
+    empty_invalid: bool,
 ) -> rquickjs::Result<String> {
     let string = Coerced::<rquickjs::String>::from_js(ctx, value)?.0;
     let raw = string.to_cstring()?;
     let bytes = unsafe { std::slice::from_raw_parts(raw.as_ptr().cast::<u8>(), raw.len()) };
+    if empty_invalid {
+        return Ok(std::str::from_utf8(bytes).unwrap_or("").to_owned());
+    }
     match profile {
         BindingProfile::Canonical => Ok(String::from_utf8_lossy(bytes).into_owned()),
-        BindingProfile::LegacyC => Ok(std::str::from_utf8(bytes).unwrap_or("").to_owned()),
         BindingProfile::Idf => std::str::from_utf8(bytes)
             .map(str::to_owned)
             .map_err(|_| Exception::throw_internal(ctx, "invalid UTF-8")),
@@ -477,11 +475,8 @@ fn invoke<'js>(
                 ArgKind::String => Prepared::String(string_value(
                     ctx,
                     value,
-                    if profile == BindingProfile::Idf && matches!(descriptor.id, 16 | 43) {
-                        BindingProfile::LegacyC
-                    } else {
-                        profile
-                    },
+                    profile,
+                    profile == BindingProfile::Idf && matches!(descriptor.id, 16 | 43),
                 )?),
                 ArgKind::Real => Prepared::Real(if optional || missing {
                     0.0
@@ -679,11 +674,7 @@ mod tests {
     }
     #[test]
     fn binding_generation_is_checked_before_creating_or_replacing_a_guest() {
-        for profile in [
-            BindingProfile::Canonical,
-            BindingProfile::LegacyC,
-            BindingProfile::Idf,
-        ] {
+        for profile in [BindingProfile::Canonical, BindingProfile::Idf] {
             let mut guest = RquickjsGuest::new(profile);
             let ops = OpContext::from_ui(pocketjs_core::Ui::new());
             for generation in (0..12).chain([BINDING_GENERATION + 1, u32::MAX]) {
@@ -715,11 +706,7 @@ mod tests {
     }
     #[test]
     fn host_owned_mount_rejects_other_generations_without_publishing_globals() {
-        for profile in [
-            BindingProfile::Canonical,
-            BindingProfile::LegacyC,
-            BindingProfile::Idf,
-        ] {
+        for profile in [BindingProfile::Canonical, BindingProfile::Idf] {
             let engine = Runtime::new().unwrap();
             let context = Context::full(&engine).unwrap();
             let ops = OpContext::from_ui(pocketjs_core::Ui::new());
@@ -790,11 +777,6 @@ mod tests {
         assert!(evaluate::<bool>(
             &idf,
             "(()=>{try{ui.uploadTexture(new ArrayBuffer(4),1,1,3);return false}catch(e){return e instanceof TypeError}})()"
-        ));
-        let (legacy, _) = guest(BindingProfile::LegacyC);
-        assert!(evaluate::<bool>(
-            &legacy,
-            "!('wrapText' in ui) && !('__tickHz' in ui) && __simHz===30"
         ));
     }
     #[test]

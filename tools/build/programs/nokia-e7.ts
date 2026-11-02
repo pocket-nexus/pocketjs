@@ -10,7 +10,7 @@ const profile = POCKET_PROFILES["symbian-e7-dev"];
 /** Match buildApp's invocation-relative optional file arguments. Generated
  * payloads beside these files are outputs, so their parent is not an input. */
 export function nokiaSourceInputs(context: Pick<RuntimeSourceContext, "args" | "invocationDirectory">): string[] {
-  const inputs = nativeSources("cabi", "programs/nokia-e7/runtime", "tools/symbian/container", "tools/symbian/Dockerfile");
+  const inputs = nativeSources("native", "programs/nokia-e7/runtime", "tools/symbian/container", "tools/symbian/Dockerfile");
   for (const option of ["--catalog-index", "--catalog-blob", "--core-library", "--navigation"]) {
     const value = nativeOption(context.args, option);
     if (value === undefined) continue;

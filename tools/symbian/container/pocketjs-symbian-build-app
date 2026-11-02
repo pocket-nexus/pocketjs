@@ -69,7 +69,7 @@ fi
 toolchain=/toolchain/current
 payload="/out/build/$app_output"
 runtime_source=/workspace/programs/nokia-e7/runtime
-rust_library="$payload/libpocketjs_symbian_core.a"
+rust_library="$payload/libpocket_native_program.a"
 package_json="$payload/package.json"
 quickjs_asset="/downloads/$(jq -r .quickjs.asset "$manifest")"
 quickjs_sha256=$(jq -r .quickjs.sha256 "$manifest")
@@ -350,7 +350,7 @@ qmake \
     "POCKETJS_SYMBIAN_TARGET=$executable" \
     "POCKETJS_SYMBIAN_CAPTION=$package_title" \
     "POCKETJS_QUICKJS_INCLUDE=$quickjs_source" \
-    "POCKETJS_PROGRAM_INCLUDE=/workspace/contracts/generated /workspace/programs/native/cabi/include /workspace/engine/guest-quickjs/include" \
+    "POCKETJS_PROGRAM_INCLUDE=/workspace/contracts/generated /workspace/programs/native/runtime/include /workspace/engine/guest-quickjs/include" \
     "POCKETJS_QUICKJS_LIBRARY=$build/libquickjs.a" \
     "POCKETJS_CORE_LIBRARY=$rust_library" \
     "POCKETJS_FRAME_RATE=$frame_rate" \

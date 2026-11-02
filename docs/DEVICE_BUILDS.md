@@ -7,14 +7,8 @@ The native recipes live in `tools/build/programs/`. Their host configs live in `
 | Program | Host contract | Native artifact | Application input |
 |---|---|---|---|
 | `pocketbook` | `pocketbook` | ARM Linux executable, payload directory and `.app` launcher | `--pocket` |
-| `moto-g-play` | `moto-g-play-dev` | `runtime/template.apk` and `runtime.json` | supplied to `pack` |
-| `redmi-1s` | `redmi-1s-dev` | `runtime/template.apk` and `runtime.json` | supplied to `pack` |
-| `blackberry-classic` | `blackberry-qnx-dev` | `pocketjs-blackberry-classic-hero.bar` | `--pocket` |
-| `meizu-m8` | `meizu-m8-dev` | `PocketJS.exe` and `PocketJSStop.exe` | `--pocket` |
 | `nokia-e7` | `symbian-e7-dev` | `<output>.sis` | `--pocket` |
 | `ios-simulator` | `ios-dev` | `PocketShell.app` and `PocketApple.xcframework` | `--pocket` |
-| `iphone2g` | `iphone2g-dev` | `PocketJSDemo.app` | `--pocket` |
-| `iphone4s` | `iphone4s-dev` | `PocketJSiPhone4S.app` | `--pocket` |
 | `ipodtouch6` | `ipodtouch-dev` | `PocketJSiPod.app` | `--pocket` |
 | `ipodtouch4` | `ipodtouch4-dev` | `runtime/PocketJSRuntime` and `runtime.json` | supplied to `pack` |
 
@@ -23,36 +17,36 @@ The native recipes live in `tools/build/programs/`. Their host configs live in `
 Compile against the same host config used for the native build:
 
 ```sh
-bun tools/pocket.ts compile --manifest apps/iphone2g-demo/pocket.app.json \
-  --project-root . --host-config programs/iphone2g/pocket.host.config.ts \
-  --output dist/iphone2g/application.pocket
-bun tools/pocket.ts build --config programs/iphone2g/pocket.host.config.ts \
-  --pocket dist/iphone2g/application.pocket --out dist/iphone2g
+bun tools/pocket.ts compile --manifest apps/nexus-touch/pocket.app.json \
+  --project-root . --host-config programs/ipodtouch4/pocket.host.config.ts \
+  --output dist/ipodtouch4/application.pocket
+bun tools/pocket.ts build --config programs/ipodtouch4/pocket.host.config.ts \
+  --pocket dist/ipodtouch4/application.pocket --out dist/ipodtouch4
 ```
 
 **The build executor checks the package generation, host contract hash, app contract and resolved plan before starting a native tool.** Native recipes use the admitted JavaScript and resource bytes. Application source files are not needed for this step. A missing package is an error; the recipe does not select a demo.
 
-The Nokia E7 recipe retains its native extension and presentation options. Pass those after `--`, for example `-- --frame-rate 60 --core-library /absolute/path/lib.a`. The iPod touch 4 compatibility command retains application-specific native cores and artwork selected by its descriptor; it takes `build --pocket <file>` and uses the same package admission checks.
+The Nokia E7 recipe retains its native extension and presentation options. Pass those after `--`, for example `-- --frame-rate 60 --core-library /absolute/path/lib.a`. The iPod touch 4 command retains application-specific native cores and artwork selected by its descriptor; it takes `build --pocket <file>` and uses the same package admission checks.
 
 ## Reusable runtimes
 
-Android and the default iPod touch 4 host config build without application code. Packaging combines a runtime with an application:
+The default iPod touch 4 host config builds without application code. Packaging combines a runtime with an application:
 
 ```sh
-bun tools/pocket.ts build --config programs/redmi-1s/pocket.host.config.ts \
-  --out dist/redmi-runtime
+bun tools/pocket.ts build --config programs/ipodtouch4/pocket.host.config.ts \
+  --out dist/ipod-runtime
 bun tools/pocket.ts compile --manifest apps/clear/pocket.app.json \
-  --project-root . --host-config programs/redmi-1s/pocket.host.config.ts \
-  --output dist/clear-redmi.pocket
-bun tools/pocket.ts pack --config programs/redmi-1s/pocket.host.config.ts \
-  --runtime dist/redmi-runtime/runtime --pocket dist/clear-redmi.pocket \
-  --out dist/clear-redmi.apk
+  --project-root . --host-config programs/ipodtouch4/pocket.host.config.ts \
+  --output dist/clear-ipod.pocket
+bun tools/pocket.ts pack --config programs/ipodtouch4/pocket.host.config.ts \
+  --runtime dist/ipod-runtime/runtime --pocket dist/clear-ipod.pocket \
+  --out dist/clear-ipod.ipa
 ```
 
-**The runtime directory records its host contract hash, its stamped `pocket.host.json` and hashes of the native files.** `pack` verifies those records and admits the package variant by the host contract's facts. Android packaging uses the configured APK signer; iPod packaging preserves the runtime's native signature and adds the application payload.
+**The runtime directory records its host contract hash, its stamped `pocket.host.json` and hashes of the native files.** `pack` verifies those records and admits the package variant by the host contract's facts. iPod packaging preserves the runtime's native signature and adds the application payload.
 
 ## Toolchains and deployment
 
 The existing host setup and doctor commands inspect pinned toolchains. Build recipes report missing SDKs, sysroots or compiler images and do not substitute a host executable. iOS simulator builds use `ns build ios --emulator`; they do not boot or launch a simulator.
 
-The existing deployment commands remain separate. Compatibility `build --pocket` commands write their established `dist/` directories; deployment consumes the built artifact and its native receipt. QNX and Meizu receipts use `native-build-receipt.json` beside the artifact, leaving `build-receipt.json` for the common build executor. Apple bundle receipts remain inside their `.app` directories.
+The existing deployment commands remain separate. Compatibility `build --pocket` commands write their established `dist/` directories; deployment consumes the built artifact and its native receipt. Apple bundle receipts remain inside their `.app` directories.

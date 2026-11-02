@@ -9,7 +9,7 @@ const check = process.argv.includes("--check");
 for (const [source, target, size, opaque] of [
   ["products/3ds/icon.svg", "products/3ds/icon.png", 48, true],
   ["products/3ds/icon-small.svg", "products/3ds/icon-small.png", 24, true],
-  ["programs/iphone4s/Icon.svg", "programs/iphone2g/Icon.png", 57, false],
+  ["assets/brand/pocketjs-icon.svg", "assets/brand/pocketjs-icon.png", 57, false],
 ] as const) {
   const svg = readFileSync(resolve(root, source), "utf8");
   const canvas = await rasterizeIconSvg(svg, size, size, opaque);

@@ -119,8 +119,7 @@ static JSValue invoke(JSContext *ctx,JSValueConst self,int argc,JSValueConst *ar
       args[i].tag=POCKET_ARG_BYTES;args[i].bytes=(const uint8_t*)strings[i];args[i].byte_length=length;
       if(!valid_utf8(args[i].bytes,length)) {
         if(guest->profile==POCKET_QJS_IDF) {if(op->op==16||op->op==43){result=op->op==16?JS_NewFloat64(ctx,0):JS_NewArray(ctx);goto done;}JS_ThrowInternalError(ctx,"invalid UTF-8");goto done;}
-        if(guest->profile==POCKET_QJS_LEGACY_C) args[i].byte_length=0;
-        else {replacement[i]=lossy_utf8(args[i].bytes,length,&args[i].byte_length);if(!replacement[i]) {JS_ThrowOutOfMemory(ctx);goto done;}args[i].bytes=(const uint8_t*)replacement[i];}
+        {replacement[i]=lossy_utf8(args[i].bytes,length,&args[i].byte_length);if(!replacement[i]) {JS_ThrowOutOfMemory(ctx);goto done;}args[i].bytes=(const uint8_t*)replacement[i];}
       }
     } else if(kind==PJS_ARG_REAL) {
       args[i].tag=POCKET_ARG_REAL;if(!missing&&!optional&&JS_ToFloat64(ctx,&args[i].real,argv[i])<0) goto done;
@@ -176,12 +175,10 @@ done:
 static int set(JSContext *ctx,JSValueConst object,const char *name,JSValue value) { return JS_DefinePropertyValueStr(ctx,object,name,value,JS_PROP_C_W_E); }
 static JSValue viewport(JSContext *ctx,uint32_t width,uint32_t height) {JSValue value=JS_NewObject(ctx);if(set(ctx,value,"w",JS_NewUint32(ctx,width))<0||set(ctx,value,"h",JS_NewUint32(ctx,height))<0){JS_FreeValue(ctx,value);return JS_EXCEPTION;}return value;}
 static void borrowed_free(JSRuntime *rt,void *opaque,void *ptr) {(void)rt;(void)opaque;(void)ptr;}
-static JSValue package_buffer(JSContext *ctx,pocket_guest_quickjs *guest,const pocket_guest_environment *env) {
+static JSValue package_buffer(JSContext *ctx,const pocket_guest_environment *env) {
   /* Package storage stays valid through shutdown, which detaches this buffer,
    * so canonical/IDF guests borrow the bytes in place. QuickJS-NG refuses JS
-   * writes and transfer() through the immutable flag. Legacy hosts let JS
-   * write __pak, so that profile owns a copy. */
-  if(guest->profile==POCKET_QJS_LEGACY_C) return JS_NewArrayBufferCopy(ctx,env->pak,env->pak_length);
+   * writes and transfer() through the immutable flag. */
   JSValue pak=JS_NewArrayBuffer(ctx,(uint8_t*)env->pak,env->pak_length,borrowed_free,NULL,false);
 #if !defined(POCKET_QJS_BELLARD) && (defined(__GNUC__) || defined(POCKET_QJS_IMMUTABLE_API))
   if(!JS_IsException(pak)&&HAS_IMMUTABLE_API&&JS_SetImmutableArrayBuffer(pak,true)<0){JS_FreeValue(ctx,pak);return JS_ThrowInternalError(ctx,"cannot protect package buffer");}
@@ -219,14 +216,14 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
   if(JS_IsException(guest->token))goto failed;
   for(size_t i=0;i<POCKET_UI_OP_COUNT;i++) {
     const pocket_ui_op_descriptor *op=&pocket_ui_ops[i];
-    if((guest->profile==POCKET_QJS_IDF&&!op->idf)||(guest->profile==POCKET_QJS_LEGACY_C&&!op->legacy_c&&!(op->op>=30&&op->op<=32)&&!(op->op>=52&&op->op<=56))||!pocket_runtime_supports_op(runtime,op->op))continue;
+    if((guest->profile==POCKET_QJS_IDF&&!op->idf)||!pocket_runtime_supports_op(runtime,op->op))continue;
     JSValue function=JS_NewCFunctionData(ctx,invoke,op->argc,(int)i,1,&guest->token);
     if(JS_IsException(function))goto failed;
     if(JS_DefinePropertyValueStr(ctx,function,"name",JS_NewString(ctx,op->name),JS_PROP_CONFIGURABLE)<0){JS_FreeValue(ctx,function);goto failed;}
     if(set(ctx,ui,op->name,function)<0)goto failed;
   }
   if(set(ctx,ui,"__host",JS_NewStringLen(ctx,(const char*)env->host,env->host_length))<0||set(ctx,ui,"__hostAbi",JS_NewUint32(ctx,env->host_abi))<0||set(ctx,ui,"__viewport",viewport(ctx,env->viewport_width,env->viewport_height))<0)goto failed;
-  if(guest->profile!=POCKET_QJS_LEGACY_C&&set(ctx,ui,"__tickHz",JS_NewUint32(ctx,env->tick_hz))<0)goto failed;
+  if(set(ctx,ui,"__tickHz",JS_NewUint32(ctx,env->tick_hz))<0)goto failed;
   if(HAS_FIELD(env,pocket_guest_environment,assets_present)&&env->assets_present) {
     JSValue textures=JS_NewObjectProto(ctx,JS_NULL),sprites=JS_NewObjectProto(ctx,JS_NULL);
     const pocket_named_texture *texture=env->textures;const pocket_named_sprite *sprite_entry=env->sprites;
@@ -236,9 +233,9 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
     if(set(ctx,ui,"__textures",textures)<0){JS_FreeValue(ctx,sprites);goto failed;}if(set(ctx,ui,"__sprites",sprites)<0||set(ctx,ui,"__surfaces",JS_NewObject(ctx))<0)goto failed;
   }
   if(env->auxiliary_width&&env->auxiliary_height) {JSValue auxiliary=viewport(ctx,env->auxiliary_width,env->auxiliary_height);if(set(ctx,auxiliary,"root",JS_NewInt32(ctx,env->auxiliary_root))<0){JS_FreeValue(ctx,auxiliary);goto failed;}if(set(ctx,ui,"__auxiliarySurface",auxiliary)<0)goto failed;}
-  if(env->pak_length) {JSValue pak=package_buffer(ctx,guest,env);if(JS_IsException(pak))goto failed;guest->pak=JS_DupValue(ctx,pak);if(set(ctx,global,"__pak",pak)<0)goto failed;guest->mounted_pak=1;}
+  if(env->pak_length) {JSValue pak=package_buffer(ctx,env);if(JS_IsException(pak))goto failed;guest->pak=JS_DupValue(ctx,pak);if(set(ctx,global,"__pak",pak)<0)goto failed;guest->mounted_pak=1;}
   /* Guest frames per second: the host cadence the framework clock latches. */
-  {uint32_t sim=HAS_FIELD(env,pocket_guest_environment,sim_hz)?env->sim_hz:0;if(!sim&&guest->profile==POCKET_QJS_LEGACY_C)sim=60;
+  {uint32_t sim=HAS_FIELD(env,pocket_guest_environment,sim_hz)?env->sim_hz:0;
    if(sim&&set(ctx,global,"__simHz",JS_NewUint32(ctx,sim))<0)goto failed;}
   if(set(ctx,global,"ui",ui)<0){ui=JS_UNDEFINED;goto failed;}ui=JS_UNDEFINED;guest->mounted=1;JS_FreeValue(ctx,global);return 0;
 failed:

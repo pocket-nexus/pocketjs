@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { shellQuote } from "../ipodtouch4-installation.ts";
 import { superviseCompanion, childRunning } from "./supervisor.ts";
 const target = Bun.argv[2];
-if (!["ipodtouch4", "moto-g-play"].includes(target)) throw new Error("Usage: bun clear:companion <ipodtouch4|moto-g-play> --id=<USB device ID> [--service]");
+if (target !== "ipodtouch4") throw new Error("Usage: bun clear:companion ipodtouch4 --id=<USB device ID> [--service]");
 const option = (key: string) => Bun.argv.find(a => a.startsWith(`--${key}=`))?.slice(key.length + 3);
 const id = option("id");
 if (!id || !/^[A-Za-z0-9-]+$/.test(id)) throw new Error("Select the exact device with --id");
@@ -63,7 +63,7 @@ if (Bun.argv.includes("--service")) {
 }
 let tunnel: ReturnType<typeof Bun.spawn> | undefined, companion: ReturnType<typeof Bun.spawn> | undefined;
 let stopped = false, paired = false, checkedAt = 0;
-const port = target === "ipodtouch4" ? 18741 : 28741;
+const port = 18741;
 // A process-owned lease prevents two providers from evicting each other's
 // authenticated socket. The OS releases it on exit, including a crash.
 const lease = createServer(socket => socket.destroy());
@@ -75,13 +75,12 @@ const cache = resolve(homedir(), ".cache/pocket-nexus/ipodtouch4/ssh");
 const ssh = ["ssh", "-p", "19224", "-i", resolve(cache, "id_rsa"), "-o", `UserKnownHostsFile=${resolve(cache, "known_hosts")}`,
   "-o", "HostKeyAlias=[127.0.0.1]:2224", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=3",
   "-o", "HostKeyAlgorithms=+ssh-rsa", "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa", "-o", "BatchMode=yes", "root@127.0.0.1"];
-const adb = ["adb", "-s", id];
 const stop = () => { if (stopped) return; stopped = true; lease.close(); command?.kill(); companion?.kill(); tunnel?.kill(); };
 process.on("SIGINT", stop); process.on("SIGTERM", stop); process.on("exit", stop);
 await superviseCompanion({ stopped: () => stopped, wait: () => Bun.sleep(2000), status: console.log,
   async reconcile() {
     try {
-      if (target === "ipodtouch4") {
+      {
         if (!(await run(["idevice_id", "-l"])).split(/\s+/).includes(id)) throw new Error("Selected iPod is disconnected");
         if (!paired && await run(["ideviceinfo", "-u", id, "-k", "ProductType"]) !== "iPod4,1") throw new Error("Expected iPod touch 4");
         if (!childRunning(tunnel)) {
@@ -90,19 +89,9 @@ await superviseCompanion({ stopped: () => stopped, wait: () => Bun.sleep(2000), 
           await Bun.sleep(500);
           if (!childRunning(tunnel)) throw new Error("iPod USB ports are already in use");
         }
-      } else {
-        if (await run([...adb, "get-state"]) !== "device") throw new Error("Selected Moto is disconnected");
-        if (!paired && await run([...adb, "shell", "getprop", "ro.product.device"]) !== "fogona") throw new Error("Expected Moto G Play 2024 (fogona)");
-        const forwards = (await run([...adb, "forward", "--list"])).split("\n").map(line => line.trim().split(/\s+/));
-        const binding = forwards.find(row => row[1] === `tcp:${port}`);
-        if (binding && (binding[0] !== id || binding[2] !== "tcp:8741")) throw new Error("Moto companion port belongs to another forward");
-        if (!binding) {
-          paired = false;
-          await run([...adb, "forward", "--no-rebind", `tcp:${port}`, "tcp:8741"]);
-        }
       }
       if (!paired || Date.now() - checkedAt > 30000) {
-        if (target === "ipodtouch4") {
+        {
           if (await run(["ideviceinfo", "-u", id, "-k", "ProductType"]) !== "iPod4,1") throw new Error("Expected iPod touch 4");
           const bundle = await run([...ssh, "/var/root/Library/PocketJS/ipodtouch4-installer user-path dev.pocket-nexus.clear"]);
           if (!/^\/private\/var\/mobile\/Applications\/[A-Fa-f0-9-]+\/PocketJSiPodTouch4.app$/.test(bundle)) throw new Error("Unexpected Clear installation path");
@@ -110,14 +99,6 @@ await superviseCompanion({ stopped: () => stopped, wait: () => Bun.sleep(2000), 
           const read = () => run([...ssh, `cat ${path}`]);
           if (await read().catch(() => "") !== key) {
             await run([...ssh, `umask 077; cat > ${path}; chown mobile:mobile ${path}`], key);
-            if (await read() !== key) throw new Error("Pairing readback mismatch");
-          }
-        } else {
-          if (await run([...adb, "shell", "getprop", "ro.product.device"]) !== "fogona") throw new Error("Expected Moto G Play 2024 (fogona)");
-          const read = () => run([...adb, "shell", "run-as", "dev.pocket_nexus.clear", "cat", "files/offload.key"]);
-          if (await read().catch(() => "") !== key) {
-            await run([...adb, "shell", "run-as", "dev.pocket_nexus.clear", "mkdir", "-p", "files"]);
-            await run([...adb, "shell", "run-as", "dev.pocket_nexus.clear", "sh", "-c", "'umask 077; cat > files/offload.key'"], key);
             if (await read() !== key) throw new Error("Pairing readback mismatch");
           }
         }

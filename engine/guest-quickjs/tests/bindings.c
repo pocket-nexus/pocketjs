@@ -142,36 +142,27 @@ static uint8_t *package_pointer(pocket_guest_quickjs *guest,size_t *length) {
   JSContext *ctx=pocket_guest_quickjs_context(guest);JSValue global=JS_GetGlobalObject(ctx),pak=JS_GetPropertyStr(ctx,global,"__pak");
   uint8_t *bytes=JS_GetArrayBuffer(ctx,length,pak);assert(bytes);JS_FreeValue(ctx,pak);JS_FreeValue(ctx,global);return bytes;
 }
-/* Canonical/IDF guests mount the package storage itself; the legacy profile
- * owns a copy that JS may write. The source page is read-only, so a borrowed
- * write that escapes the engine's immutable checks faults here. */
+/* Package storage is borrowed. The read-only page catches writes that escape immutable checks. */
 static void package_storage(void) {
   size_t page=(size_t)sysconf(_SC_PAGESIZE);uint8_t *source=mmap(NULL,page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(source!=MAP_FAILED);source[0]=1;source[1]=2;source[2]=3;assert(mprotect(source,page,PROT_READ)==0);
   for(int profile=POCKET_QJS_CANONICAL;profile<=POCKET_QJS_IDF;profile++) {
     pocket_runtime runtime={0};pocket_guest_environment env=environment();env.pak=source;env.pak_length=3;pocket_guest_quickjs *guest=pocket_guest_quickjs_create((pocket_qjs_profile)profile);assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
     size_t length=0;uint8_t *bytes=package_pointer(guest,&length);assert(length==3&&memcmp(bytes,source,3)==0);
-    if(profile==POCKET_QJS_LEGACY_C) {
-      assert(bytes!=source);
-      eval(guest,&runtime,"new Uint8Array(__pak)[0]=99;if(new Uint8Array(__pak)[0]!==99)throw Error('legacy copy')");
-    } else {
       assert(bytes==source);
       /* Only an engine that reports the immutable flag rejects writes; without
        * it a write would land in the source page, so none is attempted. */
       eval(guest,&runtime,"if(__pak.immutable===true){try{new Uint8Array(__pak)[0]=99}catch(e){};try{new DataView(__pak).setUint8(1,88)}catch(e){};let moved=false;try{__pak.transfer();moved=true}catch(e){};if(moved)throw Error('transfer')}if(__pak.byteLength!==3||new Uint8Array(__pak)[0]!==1)throw Error('borrowed bytes')");
-    }
     assert(source[0]==1&&source[1]==2&&source[2]==3);pocket_guest_quickjs_destroy(guest);
   }
   assert(munmap(source,page)==0);
 }
-/* Borrowed package bytes stay outside the guest heap limit; the legacy copy
- * must fit inside it. */
+/* Borrowed package bytes stay outside the guest heap limit. */
 static void package_outside_heap_limit(void) {
   size_t span=(size_t)4<<20;uint8_t *source=mmap(NULL,span,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(source!=MAP_FAILED);source[span-1]=7;assert(mprotect(source,span,PROT_READ)==0);
   for(int profile=POCKET_QJS_CANONICAL;profile<=POCKET_QJS_IDF;profile++) {
     pocket_runtime runtime={0};pocket_guest_environment env=environment();env.pak=source;env.pak_length=span;env.heap_limit=span/2;pocket_guest_quickjs *guest=pocket_guest_quickjs_create((pocket_qjs_profile)profile);
     int32_t status=pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env);
-    if(profile==POCKET_QJS_LEGACY_C) assert(status!=0&&strstr(pocket_guest_quickjs_error(guest),"out of memory"));
-    else {assert(status==0);size_t length=0;assert(package_pointer(guest,&length)==source&&length==span);eval(guest,&runtime,"if(__pak.byteLength!==4194304||new Uint8Array(__pak)[4194303]!==7)throw Error('borrowed span')");}
+    {assert(status==0);size_t length=0;assert(package_pointer(guest,&length)==source&&length==span);eval(guest,&runtime,"if(__pak.byteLength!==4194304||new Uint8Array(__pak)[4194303]!==7)throw Error('borrowed span')");}
     pocket_guest_quickjs_destroy(guest);
   }
   assert(munmap(source,span)==0);

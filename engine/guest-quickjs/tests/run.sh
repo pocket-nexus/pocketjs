@@ -34,7 +34,7 @@ build_and_run() {
 }
 build_and_run bindings
 # The adapter's weak immutable API is absent in this link. Canonical guests
-# still borrow package bytes; only the legacy profile owns a writable copy.
+# still borrow package bytes without copying them.
 if [ "$(uname -s)" = Darwin ]; then
   link_flags='-Wl,-U,_pocket_test_missing_immutable_api'
   build_and_run bindings-without-immutable -DJS_SetImmutableArrayBuffer=pocket_test_missing_immutable_api

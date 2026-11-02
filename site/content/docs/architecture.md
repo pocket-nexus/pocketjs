@@ -76,7 +76,7 @@ An empty native table means native loading completed without that asset kind.
 
 **`pocket-runtime-cabi` owns the instance C entry points.** Its compatibility
 adapters retain the old UI and IDF call shapes over runtime-owned state.
-`programs/native/cabi` supplies the historical C-shell archive;
+`programs/native/runtime` supplies the historical C-shell archive;
 `programs/esp-idf/archive` composes one Rust archive for IDF. The GLES renderers
 live in `devices/gles/`. Program scene adapters connect existing embedding
 APIs to these renderers. C guest composition lives in

@@ -8,7 +8,7 @@ export function check3dsSymbols(minimal: string, product: string): void {
     if (small.some(name => name.startsWith(prefix))) throw new Error(`minimal program contains product symbol ${prefix}`);
     if (!full.some(name => name.startsWith(prefix))) throw new Error(`product lost ${prefix} symbols`);
   }
-  for (const symbol of ["pocket_runtime_create", "pocket_runtime_boot", "pocket_runtime_tick", "pocket_runtime_destroy", "pocket_guest_quickjs_create", "pocket_3ds_file_source_open"])
+  for (const symbol of ["pocket_runtime_create", "pocket_runtime_boot", "pocket_runtime_tick", "pocket_runtime_destroy", "pocket_guest_quickjs_attach", "pocket_3ds_file_source_open"])
     if (!small.includes(symbol)) throw new Error(`minimal program lacks ${symbol}`);
   console.log("3DS ELFs: minimal Runtime/file/guest present; eight product symbol groups excluded and retained by product");
 }

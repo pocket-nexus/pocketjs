@@ -65,7 +65,7 @@ members = [
     "engine/runtime",
     "engine/runtime-cabi",
     "engine/spec",
-    "programs/native/cabi",
+    "programs/native/runtime",
     "programs/web/wasm",
     "products/3ds/core",
     "programs/desktop",
@@ -229,7 +229,7 @@ pocketjs-gba-bake = { path = "tools/build/gba/bake", version = "0.16.0", default
 pocketjs-ipodnano = { path = "programs/ipodnano", version = "0.16.0", default-features = false }
 pocketjs-ipodnano-preview = { path = "programs/ipodnano/preview", version = "0.16.0", default-features = false }
 pocketjs-psp = { path = "programs/psp", version = "0.16.0", default-features = false }
-pocketjs-ui-cabi = { path = "programs/native/cabi", version = "0.16.0", default-features = false }
+pocket-native-program = { path = "programs/native/runtime", version = "0.16.0", default-features = false }
 pocketjs-vita = { path = "programs/vita", version = "0.16.0", default-features = false }
 pocketjs-wasm = { path = "programs/web/wasm", version = "0.16.0", default-features = false }
 uihost = { path = "engine/pocket3d/examples/uihost", version = "0.16.0", default-features = false }
@@ -275,7 +275,7 @@ overflow-checks = false
 [profile.release.package."pocket-text"]
 opt-level = "s"
 
-[profile.release.package."pocketjs-ui-cabi"]
+[profile.release.package."pocket-native-program"]
 opt-level = "s"
 codegen-units = 1
 

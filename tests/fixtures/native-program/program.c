@@ -76,7 +76,7 @@ int main(void) {
   assert(program);
   JSRuntime *engine = JS_NewRuntime(); assert(engine);
   context = JS_NewContext(engine); assert(context);
-  guest = pocket_guest_quickjs_attach(context, POCKET_QJS_LEGACY_C); assert(guest);
+  guest = pocket_guest_quickjs_attach(context, POCKET_QJS_CANONICAL); assert(guest);
   const pocket_guest_v1 table = {sizeof table, evaluate, frame, collect, shutdown, initialize, NULL};
   assert(pocket_runtime_set_guest(pocket_native_program_runtime(program), &table, NULL) == 0);
   assert(pocket_native_program_boot(program) == 0);

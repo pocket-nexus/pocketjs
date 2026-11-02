@@ -19,19 +19,9 @@ default = ["std"]
 std = []
 # A no_std Rust program supplies its own allocator, panic and compiler handlers.
 external-runtime = []
-legacy-ui = ["dep:pocket-gles", "dep:pocket-gles1", "dep:pocket-gles2"]
-standalone-extension-provider = []
-gles1 = []
-gl-frame-validation = []
-software-only = []
-harness-access = []
-boot-stage = []
 
 [dependencies]
 pocketjs-core = { workspace = true, default-features = true }
-pocket-gles = { workspace = true, default-features = true, optional = true }
-pocket-gles1 = { workspace = true, default-features = true, optional = true }
-pocket-gles2 = { workspace = true, default-features = true, optional = true }
 pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }

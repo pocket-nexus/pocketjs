@@ -20,7 +20,7 @@ describe("ESP-IDF incremental package build", () => {
       const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "programs/esp-idf/archive");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
       const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi"];
-      const extra = ["platforms/esp-idf/render-ppa", "devices/gles/pocket-gles", "devices/gles/pocket-gles1", "devices/gles/pocket-gles2"]
+      const extra = ["platforms/esp-idf/render-ppa"]
         .map(path => layout === "vendor" ? join(contracts, path.split("/").at(-1)!) : join(temporary, path));
       for (const source of [native, ...crates.map(crate => join(contracts, crate)), ...extra]) {
         mkdirSync(join(source, "src"), { recursive: true });
@@ -37,8 +37,8 @@ describe("ESP-IDF incremental package build", () => {
       const fakeCargo = join(fakeBin, "cargo");
       writeFileSync(fakeCargo, `#!/bin/sh\nprintf '%s' ${quote(JSON.stringify(fakeMetadata))}\n`); chmodSync(fakeCargo, 0o755);
       writeFileSync(join(fakeBin, "rustc"), "#!/bin/sh\nexit 0\n"); chmodSync(join(fakeBin, "rustc"), 0o755);
-      const compatibility = join(extra[0], "src/cabi.rs");
-      writeFileSync(compatibility, "// compatibility source dependency fixture\n");
+      const cabi = join(extra[0], "src/cabi.rs");
+      writeFileSync(cabi, "// C ABI source dependency fixture\n");
       writeFileSync(join(temporary, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
 project(native_dependencies NONE)
 set(IDF_TARGET esp32s3)
@@ -61,7 +61,7 @@ pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARC
         expect(archiveEdge).toContain(join(contracts, crate, file).replaceAll(" ", "$ "));
       for (const source of extra) for (const file of ["Cargo.toml", "src/lib.rs"])
         expect(archiveEdge).toContain(join(source, file).replaceAll(" ", "$ "));
-      expect(archiveEdge).toContain(compatibility.replaceAll(" ", "$ "));
+      expect(archiveEdge).toContain(cabi.replaceAll(" ", "$ "));
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 30_000);
 

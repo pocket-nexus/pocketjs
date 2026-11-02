@@ -5,8 +5,8 @@ The current native build entry takes a compiled `--pocket` input. See [Device na
 The private iPod touch 4 target runs PocketJS on an exact `iPod4,1` device
 with iOS 6.1.6 build `10B500`. **The application owns a 320×480-point surface
 backed by the device's 640×960 Retina display, rendered through the required
-OpenGL ES 1.1 path of the shared legacy UIKit runtime.** The target id is
-`ipodtouch4-dev`; it uses the same generated guest binding as `iphone4s-dev`.
+OpenGL ES 1.1 path of the UIKit host.** The target id is
+`ipodtouch4-dev`; its guest uses the canonical QuickJS binding.
 Each host contract retains its own content hash, and package admission checks both
 that hash and the binding generation. The target remains outside the public `POCKET_TARGETS` registry.
 
@@ -28,25 +28,18 @@ candidates and coverage tiles. See [Clear IME setup and device validation](CLEAR
 
 ## Multi-contact touch
 
-This target is the reason the legacy UIKit runtime tracks a touch slot table
-instead of one contact. **`programs/shared/ios-legacy/runtime.c` keeps eight slots — the
-guest wire cap — with the slot index as the wire contact id, release-latched
-delivery (a sub-frame tap is still delivered for at least one guest frame),
-and a bounds hit fact resolved once at each contact's down edge.** The frame
-entry is `pocket_runtime_frame_contacts`, which packs every contact into the
-`frame()` wire words: `x:9 | y:9 | id:8` below 512 logical pixels, the bit-31
-wide form above. A single id-0 contact produces the same bytes as the old
-single-touch entry points, so existing tapes and hosts decode unchanged. The
-1.x GSEvent fallback has no per-finger identity and owns slot 0 alone.
+**The host retains up to eight touch contacts.** `programs/ipodtouch4/contact_latch.h`
+assigns an ID to each contact lifetime, latches taps between frames and records
+cancellations. The host sends those facts in a `pocket_input_frame` through
+`pocket_qjs_program_advance`. Runtime resolves bounds hits at each down edge
+and encodes the guest frame words.
 
 ## Frame rate
 
 **The display link fires at 60 Hz, the rate of the guest clock (`__simHz`),
 and `programs/ipodtouch4/runtime.c` advances the core one tick per callback.**
 Animations, baked keyframes and physics therefore run at the durations the
-guest authored, in step with its `after()` timers. The shared legacy runtime
-keeps its default of two ticks per callback for the original iPhone, which
-presents at 30 Hz. Before this rate was set in the iPod wrapper, core motion
+guest authored, in step with its `after()` timers. Before this rate was set in the iPod wrapper, core motion
 on this target ran at twice its authored speed.
 
 ## Pocket Nexus and 2D bodies
@@ -56,14 +49,9 @@ spill, the toys, and letters that hop, talk, and go back to the pocket's
 mouth. It shares its bodies, toys and bake with the 3DS scene in
 `apps/nexus` (`homepage.ts`, `toys.ts`, `bake.ts`).
 
-**The host contract advertises `ui.physics`. For an app whose plan resolves it,
-the build compiles `programs/native/quickjs/pocket_runtime.c` with
-`POCKET_PHYSICS`, which binds ops 52..56 to the `ui_physics_*` exports of
-the UI C ABI (`programs/native/cabi`).** Other apps, and the other hosts that
-compile the same runtime (iPhone 2G, iPhone 4S, Meizu M8, BlackBerry
-Classic, Android), keep their op tables byte-identical. The host ABI stays 8:
-the family is optional behind its capability, as `io.offload` is, and the
-guest is embedded in the same binary as the host.
+**The host contract advertises `ui.physics`.** For an app whose plan resolves
+it, the build sets `POCKET_PHYSICS`. The native program registers operations
+52..56 on that runtime. Other apps omit those operations.
 
 Measured on the device (`iPod4,1`, iOS 6.1.6) with the status record's window
 counters: 60 fps at rest with 1.4 ms of guest and core time per frame, and 57
@@ -110,18 +98,22 @@ The default local files are:
 
 ## Build inputs
 
-**The toolchain is the iPhone 4S one, byte for byte: the validated iOS 6.1.3
-ARMv7 sysroot, Apple's pinned Csu bootstrap, the pinned QuickJS sources, and
-the pinned dyld extractor.** The sysroot supplies link-time TAPI stubs and
-Mach-O images extracted from the 6.1.3 shared cache; iOS 6.1.6 is the 6.1.3
-SDK surface plus a TLS fix, so every linked install name resolves identically
-on the device. `bun ipodtouch4 setup-sources` and `bun ipodtouch4
-prepare-sysroot` delegate to the iPhone 4S commands so the provenance stays
-pinned exactly once.
+**The build uses a pinned iPod touch 4 iOS 6.1.6 ARMv7 sysroot, Csu bootstrap,
+QuickJS sources and dyld extractor.** `tools/ios6-setup.ts` prepares these
+inputs; `tools/build/toolchains/ios6/manifest.json` records the firmware and
+source hashes. The sysroot contains **seven TAPI symbol files** extracted
+from the firmware shared cache. `POCKETJS_IOS6_ROOT` selects its cache;
+`POCKETJS_IOS6_SYSROOT` selects an extracted sysroot.
+`prepare-sysroot --device` reads the system cache through the verified USB SSH
+tunnel. The cache identity zeroes the writable mapping before hashing; its pointers
+and data can change on a running device. **The remaining cache bytes and the
+seven generated TAPI files must match the pinned SHA-256 values.**
+Extracted Mach-O images are temporary inputs and are not installed in the sysroot.
+`POCKETJS_IOS6_SHARED_CACHE` accepts an existing copy of that cache.
 
 ```sh
 bun ipodtouch4 setup-sources
-bun ipodtouch4 prepare-sysroot   # needs POCKETJS_IPHONE4S_IPSW on a fresh machine
+bun ipodtouch4 prepare-sysroot --device
 bun ipodtouch4 doctor
 ```
 
@@ -136,8 +128,8 @@ bun ipodtouch4 capture
 bun ipodtouch4 uninstall         # removes the app and its data
 ```
 
-`build --pocket` consumes an application package admitted to the `ipodtouch4-dev` host contract and compiles the shared legacy
-runtime for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
+`build --pocket` consumes an application package admitted to the `ipodtouch4-dev` host contract and compiles the UIKit
+host for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
 embedded as `__pocket_js` / `__pocket_pak` sections. The build id hashes the
 plan, the guest artifacts, every native object, the sysroot stubs, and the
 baked artwork.
@@ -203,15 +195,15 @@ External app descriptors may supply `nativeCore`, `assets`, `icon` and
 }
 ```
 
-**The application archive includes the UI C ABI and exports the existing
-`pocketjs_symbian_extension_v1` provider.** That symbol retains its name for
-ABI compatibility; the portable QuickJS C runtime uses the same V1 table.
+**The application archive includes `pocket-native-program` and exports
+`pocket_native_extension_v1`.** The callback table is declared in
+`programs/native/runtime/include/pocket_native_extension.h`.
 `boot` registers application APIs before evaluating the guest. `before_guest`
 advances native state; `after_guest` drains commands after the guest and its
 pending jobs. The host keeps every callback on its UI/render thread.
 
 A depth flag requests a 16-bit GLES1 depth attachment. `render` draws the
-application world before `ui_gl_render_over` composites the retained UI.
+application world before `pocket_native_program_gl_render` composites the retained UI.
 The optional graphics tail releases GPU resources when the context shuts
 down; it must retain guest and simulation state and recreate GPU resources
 on the next render. Final shutdown runs before QuickJS context destruction.
@@ -228,19 +220,18 @@ below it. Keep the app's bundle identifier, executable, bundle name and URL
 scheme distinct from installed applications.
 
 UIKit touch callbacks carry up to eight contacts. Host receipts include
-`touch_max_contacts`, `uikit_touch_events` and `legacy_touch_events` to
-distinguish multi-contact delivery from a completed single-contact gesture.
+`touch_max_contacts` and `uikit_touch_events` to record contact delivery.
 
 ## One runtime for every game
 
-`bun tools/runtime.ts ipod` builds the legacy UIKit host once, with no game,
+`bun tools/runtime.ts ipod` builds the UIKit host once, with no game,
 into `dist/runtime/ipod/`: the executable `PocketJSRuntime`, the PocketJS
 icons and launch images, `PkgInfo` and `runtime.json` (target, binding generation,
 PocketJS commit, the files' sizes and SHA-256, and under `host` the build id,
 the executable name and the deployment target). **The executable has no
 `__pocket_js` or `__pocket_pak` section and is compiled with
 `POCKET_PACKAGE_RUNTIME`: before `UIApplicationMain` it reads `app.pocket`
-beside itself, admits a variant through `pocket_ui_package_open` with the
+beside itself, admits a variant through `pocket_native_package_open` with the
 exported `pocket_profile_facts` (footer hash, binding generation, the
 [admission](../site/content/docs/platform-contracts.md#admission) facts,
 identity, plan, NUL-ended JavaScript), and takes the logical surface and raster density from that

@@ -289,21 +289,17 @@ contracts and build tools are maintained in this repository; see
 | --- | --- | --- |
 | PSP system software | MIPS, 32 MB | [Introducing PocketJS](https://pocketjs.pocket.nexus/blog/introducing-pocketjs/) |
 | PS Vita system software | ARM, GXM | [Twice the pixels, zero forks](https://pocketjs.pocket.nexus/blog/pocketjs-on-ps-vita/) |
-| iPhone OS 3.1.3 | ARMv6, GL ES 1.1 | [The first iPhone](https://pocketjs.pocket.nexus/blog/pocketjs-on-the-first-iphone/) |
-| iOS 6.1.3 | ARMv7 | [iPhone 4S runbook](./docs/IPHONE4S.md) |
 | iOS 12.5.8 | arm64 | [#278](https://github.com/pocket-nexus/pocketjs/pull/278) |
 | iOS, current | NativeScript host | [#256](https://github.com/pocket-nexus/pocketjs/pull/256) |
 | macOS | Metal window and widget | [#293](https://github.com/pocket-nexus/pocketjs/pull/293) |
 | Symbian Belle | Qt, GLES2 | [Symbian wanted a frame function](https://pocketjs.pocket.nexus/blog/pocketjs-on-symbian/) |
-| Windows CE 6 | GDI framebuffer | [From message pump to multitouch](https://pocketjs.pocket.nexus/blog/pocketjs-on-windows-ce/) |
-| BlackBerry 10.3 | QNX, native ELF | [A Square Screen and a Dead Signing Server](https://pocketjs.pocket.nexus/blog/blackberry-classic/) |
 | PocketBook e-ink | inkview, partial refresh | [#172](https://github.com/pocket-nexus/pocketjs/pull/172) |
 | ESP-IDF 6.0/6.1 | P4 PPA or S3 software RGB565 | [ESP-IDF components](https://pocketjs.pocket.nexus/docs/esp-idf/) |
 | The browser | WebAssembly core | [Playground](https://pocketjs.pocket.nexus/playground/) |
 
 Devices it has booted on: **Sony PSP** (2004), **PS Vita** (2011),
-**iPhone** (2007), **iPhone 4S** (2011), **iPod touch 6** (2015),
-**Nokia E7** (2011), **Meizu M8** (2009), **BlackBerry Classic** (2014),
+**iPod touch 4** (2010), **iPod touch 6** (2015),
+**Nokia E7** (2011),
 **PocketBook reader** (e-ink), **ESP32-P4 devkit** (microcontroller) and
 **Mac** (Apple silicon). The Nintendo 3DS runs several of the applications in
 the next section.

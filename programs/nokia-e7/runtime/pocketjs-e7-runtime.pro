@@ -8,7 +8,7 @@ CONFIG += release
 CONFIG -= debug app_bundle
 
 SOURCES += main.cpp
-HEADERS += pocketjs_native_navigation.h pocketjs_navigation_gesture.h pocketjs_symbian_extension.h pocketjs_symbian_keys.h
+HEADERS += pocketjs_native_navigation.h pocketjs_navigation_gesture.h pocketjs_symbian_keys.h
 RESOURCES += pocketjs-runtime.qrc
 
 isEmpty(POCKETJS_QUICKJS_INCLUDE): error(POCKETJS_QUICKJS_INCLUDE is required)

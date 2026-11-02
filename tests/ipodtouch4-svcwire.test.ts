@@ -8,7 +8,7 @@ test.skipIf(process.platform !== "darwin")("legacy Apple wire yields during bulk
   try {
     const source = join(root, "probe.c");
     writeFileSync(source, `#define POCKET_SVC_WIRE
-#include ${JSON.stringify(resolve(import.meta.dir, "../programs/shared/ios-legacy/svcwire.c"))}
+#include ${JSON.stringify(resolve(import.meta.dir, "../programs/ipodtouch4/svcwire.c"))}
 #include <assert.h>
 #include <signal.h>
 int main(void) {

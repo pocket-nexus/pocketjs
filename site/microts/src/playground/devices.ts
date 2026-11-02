@@ -4,8 +4,7 @@
 //   GBA        programs/gba/src/main.rs           A → CIRCLE, B → CROSS
 //   3DS        platforms/3ds/input.c           A → CIRCLE, B → CROSS, X → TRIANGLE, Y → SQUARE
 //   iPod nano  programs/ipodnano/src/lib.rs       wheel UP/DOWN, center CIRCLE, MENU TRIANGLE, ⏮⏭ LEFT/RIGHT, ⏯ START
-//   BlackBerry docs/BLACKBERRY_CLASSIC.md      trackpad move → direction pulses, press → CIRCLE, Menu → TRIANGLE, Space → START
-//   iPhone / iPod touch                        touch screen only; Home belongs to the system
+//   iPod touch                        touch screen only; Home belongs to the system
 // ui: PSP button names a UI app receives (contracts/spec/spec.ts BTN); retro: Pocket Retro GBA button names.
 import { SHELLS, type Shell } from "microts:shells";
 import type { Viewport } from "./screens";
@@ -31,7 +30,7 @@ export interface DeviceSpec {
   /** The screen in logical pixels: the preview fills the largest box of this shape in the shell's screen */
   screen: Viewport;
   touch: boolean;
-  /** The shell's controls (`button` in its profile) → buttons. The iPod's "wheel" and the BlackBerry's "trackpad" are read by gesture */
+  /** The shell's controls (`button` in its profile) → buttons. The iPod wheel is read by gesture */
   keys: Record<string, KeyMap>;
   /** Why each key the device keeps for itself (`system` in its profile) does nothing, shown on hover */
   system?: Record<string, string>;
@@ -99,16 +98,6 @@ export const N3DS: DeviceSpec = {
 const HOME = { home: "Home belongs to the system; apps do not receive it" };
 const TOUCH_LEGEND = "Click or drag on the screen to touch · the Home button belongs to the system";
 
-export const IPHONE: DeviceSpec = {
-  id: "iphone",
-  name: "iPhone 2G / 4S",
-  shell: SHELLS["iphone-4s"]!,
-  screen: { width: 320, height: 480 },
-  touch: true,
-  keys: {},
-  system: HOME,
-  legend: TOUCH_LEGEND,
-};
 
 export const IPOD_TOUCH: DeviceSpec = {
   id: "ipod-touch",
@@ -121,17 +110,6 @@ export const IPOD_TOUCH: DeviceSpec = {
   legend: TOUCH_LEGEND,
 };
 
-/** BlackBerry Classic: square touch screen, a row of keys about the trackpad, and a keyboard of which space and enter are read */
-export const BLACKBERRY: DeviceSpec = {
-  id: "bb-classic",
-  name: "BlackBerry Classic",
-  shell: SHELLS["bb-classic"]!,
-  screen: { width: 360, height: 360 },
-  touch: true,
-  keys: { menu: { ui: "TRIANGLE", label: "Menu" }, trackpad: { ui: "CIRCLE" }, space: { ui: "START", label: "Space" }, enter: { ui: "CIRCLE", label: "Enter" } },
-  system: { call: "Send belongs to the system", back: "Back belongs to the system", end: "End belongs to the system" },
-  legend: "Click the screen to touch · drag the trackpad to move focus, click it to press · ☰ Menu △ · space START · enter ○",
-};
 
 /** iPod nano (2nd generation): click wheel and center button */
 export const IPOD_NANO: DeviceSpec = {
@@ -148,9 +126,7 @@ const DEVICES: Record<string, DeviceSpec> = {
   psp: PSP,
   gba: GBA,
   "3ds": N3DS,
-  iphone: IPHONE,
   "ipod-touch": IPOD_TOUCH,
-  "bb-classic": BLACKBERRY,
   "ipod-nano": IPOD_NANO,
 };
 

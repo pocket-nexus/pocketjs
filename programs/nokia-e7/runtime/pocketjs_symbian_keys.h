@@ -1,5 +1,5 @@
-#ifndef POCKETJS_SYMBIAN_KEYS_H
-#define POCKETJS_SYMBIAN_KEYS_H
+#ifndef POCKET_NATIVE_KEYS_H
+#define POCKET_NATIVE_KEYS_H
 
 /*
  * Qt 4.7's Symbian backend forwards ordinary character keysyms directly.

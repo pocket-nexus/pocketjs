@@ -73,8 +73,8 @@ home page code panel for each game, highlighted at build time),
 The playground draws each device as a picture of it from the front.
 `bun tools/handheld-shells.ts microts` renders `shells/` in Blender
 (`tools/handheld-models/shells.py`) and writes `shells/profiles.js`; the
-pictures are committed, so the site build does not need Blender. The GBA,
-iPhone, iPod touch and BlackBerry are other authors' models (CC BY 4.0,
+pictures are committed, so the site build does not need Blender. The GBA and
+iPod touch are other authors' models (CC BY 4.0,
 `tools/handheld-models/downloads.json`) that the repository does not carry:
 the tool downloads them from Sketchfab with a token in `SKETCHFAB_TOKEN` or
 `~/.sketchfab-token`.

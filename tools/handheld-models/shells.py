@@ -1,6 +1,6 @@
 """Render the handhelds' front shells for a page, in two passes each.
 
-Run: Blender --background --python tools/handheld-models/shells.py -- [psp|vita|3ds|ipod|android|gba|iphone-4s|ipod-touch-5|bb-classic|ipod-nano|all] [--samples 96]
+Run: Blender --background --python tools/handheld-models/shells.py -- [psp|vita|3ds|ipod|android|gba|ipod-touch-5|ipod-nano|all] [--samples 96]
 
 A shell is the device seen straight from the front by an orthographic camera,
 on a transparent film, at a whole number of pixels a millimetre:
@@ -22,8 +22,8 @@ the d-pad's arrows).
 
 The PS Vita, the 3DS and the iPod nano are this repository's own models. The
 PSP is Dibad's (CC BY 4.0, assets/dibad-psp/ATTRIBUTION.md), split into its
-parts here. The GBA, the iPhone 4S, the iPod touch of the fifth generation (a
-white iPhone 5) and the BlackBerry Classic are other authors' models under
+parts here. The GBA and the iPod touch of the fifth generation (a
+white iPhone 5) are other authors' models under
 CC BY 4.0 that this repository does not carry (downloads.json): the tool
 downloads them into dist/handheld-sources/. The fourth-generation iPod touch
 and the Android phone are drawn in this file.
@@ -178,15 +178,6 @@ GBA = {
     },
 }
 
-IPHONE_4S = {
-    'name': 'iPhone 4S',
-    'download': True,
-    'pixels_per_mm': 16,
-    'hide': [],
-    'screens': {'upper': 'Screen'},
-    'buttons': {},
-    'system': {'home': named('Home button')},
-}
 
 IPOD_TOUCH_5 = {
     'name': 'iPod touch',
@@ -198,18 +189,9 @@ IPOD_TOUCH_5 = {
     'system': {'home': named('Home button')},
 }
 
-# The keys of the row under the screen are printed on the face: their places come from bb_parts (`zones`, `system`).
-BB_CLASSIC = {
-    'name': 'BlackBerry Classic',
-    'download': True,
-    'pixels_per_mm': 14,
-    'hide': [],
-    'screens': {'upper': 'Screen'},
-    'buttons': {'space': named('Space key'), 'enter': named('Enter key')},
-}
 
 DEVICES = {'psp': PSP, 'vita': VITA, '3ds': N3DS, 'ipod': IPOD, 'android': ANDROID, 'ipod-nano': NANO,
-           'gba': GBA, 'iphone-4s': IPHONE_4S, 'ipod-touch-5': IPOD_TOUCH_5, 'bb-classic': BB_CLASSIC}
+           'gba': GBA, 'ipod-touch-5': IPOD_TOUCH_5}
 
 
 def psp_parts(path):
@@ -802,38 +784,6 @@ def gba_parts(path):
     return {'zones': {'l': (-70.0, 21.0, -42.0, 40.0), 'r': (42.0, 21.0, 70.0, 40.0)}}
 
 
-def iphone_parts(path):
-    """EwanLejkowski's iPhone 4S (downloads.json), 115.2 mm tall. The sheet of glass over its face is left out
-    (seen straight on it greys the face) and the black under it is given the glass's polish. The screen's
-    picture (a lock screen) gives way to a dark panel, and the home button's picture to a dark dish with its
-    square, as the drawn iPod touch has."""
-    meshes = glb(path, ('y', 'z', 'x'), 115.2, 1)
-    for o in [o for o in meshes if o.data.materials and o.data.materials[0].name == 'Glass']:
-        if bounds([o])[1][2] > -0.5:
-            bpy.data.objects.remove(o, do_unlink=True)
-    # (the camera's glass is white in the file: dark glass, as the drawn phones' cameras are)
-    for name, colour, rough, coat in [('Black_Frit', (.004, .004, .005), .07, .6), ('black', (.004, .004, .005), .07, .6), ('Black_Plastic', (.004, .004, .005), .07, .6),
-                                      ('Lens', (.01, .012, .02), .05, 1.0), ('Lens_Back', (.006, .008, .02), .2, 0.0), ('material_0', (.01, .012, .02), .05, 1.0)]:
-        shader = next(n for n in bpy.data.materials[name].node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
-        shader.inputs['Base Color'].default_value = (*colour, 1)
-        shader.inputs['Roughness'].default_value = rough
-        shader.inputs['Coat Weight'].default_value = coat
-        shader.inputs['Transmission Weight'].default_value = 0.0
-    by = {o.data.materials[0].name: o for o in alive(meshes) if o.data.materials}
-    screen = by['Screen']
-    lo, hi = bounds([screen])
-    bpy.data.objects.remove(screen, do_unlink=True)
-    panel((lo[0], lo[1], hi[0], hi[1]), hi[2])
-    home = by['Home_Button']
-    home.name = 'Home button'
-    home.data.materials[0] = paint('Home button dish', (.006, .006, .007), .32)
-    lo, hi = bounds([home])
-    r = (hi[0] - lo[0]) / 2
-    at = ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2)
-    ring('Home button square', outline(r * .8, r * .8, r * .19, 8), outline(r * .68, r * .68, r * .13, 8), hi[2] + 0.01, paint('Home button mark', (.075, .075, .08), .5), at=at)
-    studio(bpy.context.scene)
-
-
 def ipod_touch_parts(path):
     """thethieme's white iPhone 5 (downloads.json) as the iPod touch of the fifth generation, which has its
     face: 123.4 mm tall. The earpiece and the sensor beside it, which an iPod touch does not have, are taken
@@ -860,61 +810,9 @@ def ipod_touch_parts(path):
     studio(bpy.context.scene)
 
 
-def bb_parts(path):
-    """Jakub Proszowski's BlackBerry Classic (downloads.json), 131 mm tall. Its face is one picture: the maker's
-    mark on the Menu key is painted over, with three bars in its place, and the screen's part of the picture
-    gives way to a dark panel. Space and Enter are pieces of the mesh, joined into keys. The row under the
-    screen is printed on the face: the places of Menu and the trackpad are returned as zones, those of Call,
-    Back and End as keys the device keeps for itself."""
-    import numpy as np
-    meshes = glb(path, ('x', 'z', '-y'), 131.0, 1)
-    body = meshes[0]
-    face = texture(body.data.materials[0].name)
-    grid = pixels(face)
-    # (the picture lies upside down on the face; the rectangles are in the picture's pixels)
-    grid[320:347, 645:676, :3] = grid[326:340, 630:640, :3].reshape(-1, 3).mean(axis=0)
-    ink = grid[322:342, 810:832, :3].reshape(-1, 3).max(axis=0)
-    for top in (325, 331, 337):
-        grid[top:top + 3, 649:672, :3] = ink
-    repaint(face, grid)
-    front = [body]
-    place = lambda rect: on_front_box(front, face, rect)
-    screen = place((558, 371, 926, 741))
-    zones = {'menu': place((628, 310, 692, 358)), 'trackpad': place((718, 312, 763, 355))}
-    system = {'call': place((548, 310, 612, 358)), 'back': place((788, 310, 852, 358)), 'end': place((868, 310, 932, 358))}
-    panel(screen, 0.0)
-    # A key is its top and the four walls about it: a wall belongs to the top it is nearest.
-    pieces = islands(body)
-    def extent(o):
-        lo, hi = bounds([o])
-        return lo, hi
-    tops = []
-    for o in pieces:
-        lo, hi = extent(o)
-        if 3 < hi[0] - lo[0] < 25 and 3 < hi[1] - lo[1] < 8 and hi[2] - lo[2] < 0.15 and hi[1] < -27:
-            tops.append((o, lo, hi))
-    def gap(point, lo, hi):
-        return math.hypot(max(lo[0] - point[0], 0, point[0] - hi[0]), max(lo[1] - point[1], 0, point[1] - hi[1]))
-    keys = {id(t[0]): [t[0]] for t in tops}
-    for o in pieces:
-        lo, hi = extent(o)
-        if any(o is t[0] for t in tops) or min(hi[0] - lo[0], hi[1] - lo[1]) > 1.0 or hi[1] > -26:
-            continue
-        mid = ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2)
-        top, d = min(((t, gap(mid, t[1], t[2])) for t in tops), key=lambda td: td[1])
-        if d < 1.0:
-            keys[id(top[0])].append(o)
-    def key_at(x, y):
-        return next(t[0] for t in tops if t[1][0] <= x <= t[2][0] and t[1][1] <= y <= t[2][1])
-    joined('Space key', keys[id(key_at(0.0, -54.9))])
-    joined('Enter key', keys[id(key_at(31.2, -47.5))])
-    studio(bpy.context.scene)
-    return {'zones': zones, 'system': system}
-
-
 DRAWN = {'ipod': ipod_parts, 'android': android_parts}
 # Devices read from a file that is not a scene of this script's: each brought to its axes, in millimetres.
-READ = {'psp': psp_parts, 'ipod-nano': nano_parts, 'gba': gba_parts, 'iphone-4s': iphone_parts, 'ipod-touch-5': ipod_touch_parts, 'bb-classic': bb_parts}
+READ = {'psp': psp_parts, 'ipod-nano': nano_parts, 'gba': gba_parts, 'ipod-touch-5': ipod_touch_parts}
 
 
 def centre(o):
