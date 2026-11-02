@@ -1,7 +1,7 @@
-import { WORKER_LIMITS, workerCapabilities, type WorkerResourceKind } from "../../../contracts/spec/worker.ts";
+import { resolveWorkerChannels, WORKER_LIMITS, workerCapabilities, type WorkerResourceKind } from "../../../contracts/spec/worker.ts";
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { hashPocketProfile } from "../profile.ts";
-import { compiledProfile } from "../../../contracts/spec/profile.ts";
+import { compiledProfile, profileChannels } from "../../../contracts/spec/profile.ts";
 import { profileDocument } from "../../../hosts/contract.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
 import { deriveModality, modalityMisses } from "../../../contracts/spec/modality.ts";
@@ -771,6 +771,17 @@ export function resolveBuildPlan(
     if ((worker.channels ?? []).length > WORKER_LIMITS.channels) {
       diagnostics.push({ code: "worker.channelLimit", path: "/domains/worker/channels", message: `a worker has at most ${WORKER_LIMITS.channels} channels; the manifest declares ${worker.channels!.length}` });
     }
+    // A channel's sizes are host facts too: a stated size fits the host's
+    // channel, and "host" takes it (resolveWorkerChannels below).
+    const channelTable = profileChannels(profile.source ?? {});
+    for (const [index, channel] of (worker.channels ?? []).entries()) {
+      for (const field of ["recordBytes", "capacity"] as const) {
+        const size = channel[field];
+        if (size !== "host" && size > channelTable[field]) {
+          diagnostics.push({ code: "worker.channelSize", path: `/domains/worker/channels/${index}/${field}`, message: `target ${request.target} holds channels of at most ${channelTable[field]} ${field === "recordBytes" ? "bytes a record" : "records"}; channel ${channel.name} declares ${size}` });
+        }
+      }
+    }
   }
 
   // The package rate is the application's; the target must present it at a
@@ -811,7 +822,7 @@ export function resolveBuildPlan(
       ...(manifest.app.model !== undefined ? { model: manifest.app.model } : {}),
       ...(manifest.app.recursionLimit !== undefined ? { recursionLimit: manifest.app.recursionLimit } : {}),
     },
-    ...(worker ? { domains: { worker } } : {}),
+    ...(worker ? { domains: { worker: resolveWorkerChannels(worker, profileChannels(profile.source ?? {})) } } : {}),
     presentation,
     target: {
       id: request.target,

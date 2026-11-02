@@ -9,7 +9,7 @@ mod runner;
 
 pub use guest::{WorkerDomain, WorkerGuest};
 pub use http::{
-    parse, Call, Exchange, Failure, HttpNode, Request, Response, DEFAULT_RESPONSE_BYTES,
-    MAX_RESPONSE_BYTES, METHODS,
+    contract_response_bytes, parse, Call, Exchange, Failure, HttpNode, Request, Response,
+    DEFAULT_RESPONSE_BYTES, MAX_RESPONSE_BYTES, METHODS,
 };
 pub use runner::{Notify, Worker};

@@ -3,10 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* A channel's records for the current frame. A mirror holds as many records
+ * of as many bytes as the worker declared the channel with; a channel the
+ * core does not know yet gets the floor (POCKET_WORKER_MAX_EVENTS records of
+ * POCKET_WORKER_MAX_PAYLOAD bytes). */
 typedef struct {
   uint8_t *bytes;
-  uint32_t lengths[POCKET_WORKER_MAX_EVENTS];
-  uint32_t snapshot, count;
+  uint32_t *lengths;
+  uint32_t snapshot, count, size, capacity;
 } ui_mirror;
 struct pocket_worker_ui {
   JSContext *context;
@@ -64,11 +68,23 @@ static JSValue channel_op(JSContext *c, JSValueConst self, int argc,
       return JS_NewInt32(c, mirror->snapshot == snapshot
                                 ? POCKET_WORKER_OK
                                 : POCKET_WORKER_INVALID);
-    mirror->bytes = calloc(snapshot ? 1 : POCKET_WORKER_MAX_EVENTS,
-                           POCKET_WORKER_MAX_PAYLOAD);
-    if (!mirror->bytes)
+    uint32_t size = POCKET_WORKER_MAX_PAYLOAD,
+             capacity = POCKET_WORKER_MAX_EVENTS;
+    pocket_worker_channel_size(bridge->worker, id, &size, &capacity);
+    if (snapshot)
+      capacity = 1;
+    mirror->bytes = calloc(capacity, size);
+    mirror->lengths = calloc(capacity, sizeof *mirror->lengths);
+    if (!mirror->bytes || !mirror->lengths) {
+      free(mirror->bytes);
+      free(mirror->lengths);
+      mirror->bytes = NULL;
+      mirror->lengths = NULL;
       return JS_ThrowOutOfMemory(c);
+    }
     mirror->snapshot = snapshot;
+    mirror->size = size;
+    mirror->capacity = capacity;
     return JS_NewInt32(c, POCKET_WORKER_OK);
   }
   if (!mirror->bytes)
@@ -95,7 +111,7 @@ static JSValue channel_op(JSContext *c, JSValueConst self, int argc,
     return result;
   for (uint32_t i = 0; i < mirror->count; i++) {
     JSValue value =
-        array_copy(c, mirror->bytes + (size_t)i * POCKET_WORKER_MAX_PAYLOAD,
+        array_copy(c, mirror->bytes + (size_t)i * mirror->size,
                    mirror->lengths[i]);
     if (JS_IsException(value)) {
       JS_FreeValue(c, result);
@@ -159,12 +175,10 @@ int32_t pocket_worker_ui_latch(pocket_worker_ui *bridge) {
       continue;
     if (!mirror->snapshot)
       mirror->count = 0;
-    uint32_t limit = mirror->snapshot ? 1 : POCKET_WORKER_MAX_EVENTS;
-    for (uint32_t n = 0; n < limit; n++) {
+    for (uint32_t n = 0; n < mirror->capacity; n++) {
       int32_t length = pocket_worker_channel_take(
-          bridge->worker, i + 1,
-          mirror->bytes + (size_t)n * POCKET_WORKER_MAX_PAYLOAD,
-          POCKET_WORKER_MAX_PAYLOAD);
+          bridge->worker, i + 1, mirror->bytes + (size_t)n * mirror->size,
+          mirror->size);
       if (length < 0)
         break;
       mirror->lengths[n] = (uint32_t)length;
@@ -205,7 +219,9 @@ void pocket_worker_ui_detach(pocket_worker_ui *bridge) {
   JS_FreeValue(c, global);
   JS_FreeValue(c, bridge->namespace);
   JS_FreeValue(c, bridge->token);
-  for (size_t i = 0; i < POCKET_WORKER_MAX_CHANNELS; i++)
+  for (size_t i = 0; i < POCKET_WORKER_MAX_CHANNELS; i++) {
     free(bridge->mirrors[i].bytes);
+    free(bridge->mirrors[i].lengths);
+  }
   free(bridge);
 }

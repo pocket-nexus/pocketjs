@@ -318,6 +318,10 @@ export const io = {
     if (id < 0) throw new Error(`Undeclared worker channel: ${name}`);
     const channel = channels[id]!;
     return {
+      /** The most bytes one record holds on this target. */
+      recordBytes: channel.recordBytes,
+      /** The records a ring holds; 1 for a snapshot. */
+      capacity: channel.kind === "snapshot" ? 1 : channel.capacity,
       /** Worker-to-UI: copies one record toward the UI; false when a ring is full. */
       publish(data: Uint8Array): boolean {
         if (channel.direction !== "worker-to-ui") throw new Error(`Channel ${name} is receive-only in the worker domain; read it with observe()`);

@@ -30,10 +30,24 @@ export const ResourceStatus = {
 export const WORKER_LIMITS = {
   resources: 8, requests: 8, payloadBytes: 1024, events: 8, timers: 8, channels: 8,
 } as const;
+/** The channel every host holds: a record of `recordBytes`, a ring of
+ *  `capacity` records. A host's profile may state a larger one
+ *  (contracts/spec/profile.ts `worker.channels`), up to WORKER_CHANNEL_MAX. */
+export const WORKER_CHANNEL_FLOOR = { recordBytes: WORKER_LIMITS.payloadBytes, capacity: WORKER_LIMITS.events } as const;
+/** The largest channel the worker core (engine/worker) allocates. A
+ *  UI-to-worker record arrives as one fact, so a host whose records exceed
+ *  its realm's per-turn bytes (`max_bytes`, 8192 by default) raises them. */
+export const WORKER_CHANNEL_MAX = { recordBytes: 64 * 1024, capacity: 256 } as const;
 /** The execution domains of one package: the UI realm and the worker realm. */
 export const POCKET_DOMAINS = ["ui", "worker"] as const;
 export type PocketDomain = (typeof POCKET_DOMAINS)[number];
 
+/** A channel's size as a manifest states it: bytes and records, or "host"
+ *  for the host's channel (WorkerChannelTable), read at run time from the
+ *  channel. */
+export type WorkerChannelSize = number | "host";
+
+/** A channel as the package runs it: sizes in bytes and records. */
 export interface WorkerChannelDeclaration {
   readonly name: string;
   readonly kind: "snapshot" | "ring";
@@ -42,14 +56,46 @@ export interface WorkerChannelDeclaration {
   readonly capacity: number;
 }
 
+/** A channel as a manifest declares it. */
+export interface WorkerChannelSource extends Omit<WorkerChannelDeclaration, "recordBytes" | "capacity"> {
+  readonly recordBytes: WorkerChannelSize;
+  readonly capacity: WorkerChannelSize;
+}
+
 /** A worker declaration implies these requirements: the second runtime and
  *  the capability of each node kind it owns. Node and channel counts are
- *  checked at resolution against WORKER_LIMITS and the host's worker table. */
-export interface WorkerDeclaration {
+ *  checked at resolution against WORKER_LIMITS and the host's worker table.
+ *  `C` is the channel form: the manifest's (sizes may be "host") or the
+ *  plan's (resolveWorkerChannels). */
+export interface WorkerDeclaration<C extends WorkerChannelSource = WorkerChannelDeclaration> {
   /** Path relative to the project root, as for app.entry. */
   readonly entry: string;
   readonly nodes: readonly { readonly name: string; readonly kind: WorkerResourceKind }[];
-  readonly channels?: readonly WorkerChannelDeclaration[];
+  readonly channels?: readonly C[];
+}
+export type WorkerDeclarationSource = WorkerDeclaration<WorkerChannelSource>;
+
+/** The largest channel a host holds (profile `worker.channels`). */
+export interface WorkerChannelTable {
+  readonly recordBytes: number;
+  readonly capacity: number;
+}
+
+/** The declaration with each "host" size replaced by the host's channel:
+ *  the plan's form, which both realms read. */
+export function resolveWorkerChannels(
+  declaration: WorkerDeclarationSource,
+  table: WorkerChannelTable = WORKER_CHANNEL_FLOOR,
+): WorkerDeclaration {
+  if (!declaration.channels) return declaration as WorkerDeclaration;
+  return {
+    ...declaration,
+    channels: declaration.channels.map(channel => ({
+      ...channel,
+      recordBytes: channel.recordBytes === "host" ? table.recordBytes : channel.recordBytes,
+      capacity: channel.capacity === "host" ? table.capacity : channel.capacity,
+    })),
+  };
 }
 
 const nodeName = { type: "string", minLength: 1, maxLength: 63, pattern: "^[a-zA-Z][a-zA-Z0-9_.-]*$" } as const;
@@ -67,8 +113,8 @@ export const workerDeclarationSchema = {
       properties: {
         name: nodeName, kind: { enum: ["snapshot", "ring"] },
         direction: { enum: ["ui-to-worker", "worker-to-ui"] },
-        recordBytes: { type: "integer", minimum: 1, maximum: 1024 },
-        capacity: { type: "integer", minimum: 1, maximum: 8 },
+        recordBytes: { anyOf: [{ type: "integer", minimum: 1, maximum: WORKER_CHANNEL_MAX.recordBytes }, { const: "host" }] },
+        capacity: { anyOf: [{ type: "integer", minimum: 1, maximum: WORKER_CHANNEL_MAX.capacity }, { const: "host" }] },
       },
     } },
   },

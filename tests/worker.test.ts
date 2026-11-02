@@ -263,6 +263,29 @@ test("a worker declaration implies runtime.worker and its node capabilities; the
   expect(protocol.ok ? [] : protocol.diagnostics.map(item => item.code)).toEqual(["worker.nodeLimit"]);
 });
 
+test("a channel's sizes are host facts: a stated size fits the host's table, and \"host\" takes it", () => {
+  const manifest = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
+  manifest.domains = { worker: { entry: "worker.ts", nodes: [{ name: "api", kind: "http" }], channels: [
+    { name: "request", kind: "ring", direction: "ui-to-worker", recordBytes: 1024, capacity: 4 },
+    { name: "response", kind: "ring", direction: "worker-to-ui", recordBytes: "host", capacity: "host" },
+  ] } };
+  const profile = (channels?: { recordBytes: number; capacity: number }) => parsePocketProfile({
+    ...POCKET_PROFILES.psp, id: "worker-host", capabilities: [...POCKET_PROFILES.psp.capabilities, "net.http", "runtime.worker"],
+    worker: { nodes: { http: 1 }, ...(channels ? { channels } : {}) },
+  });
+  const resolveOn = (selected: ReturnType<typeof profile>) => validateAndResolveBuildPlan(manifest, { target: "worker-host" }, profileRegistry(selected));
+  const sizes = (result: ReturnType<typeof resolveOn>) => result.ok ? result.plan.domains?.worker.channels?.map(c => [c.recordBytes, c.capacity]) : result.diagnostics.map(d => d.code);
+  // A host that states no table holds the floor.
+  expect(sizes(resolveOn(profile()))).toEqual([[1024, 4], [1024, 8]]);
+  expect(sizes(resolveOn(profile({ recordBytes: 16384, capacity: 64 })))).toEqual([[1024, 4], [16384, 64]]);
+  manifest.domains.worker.channels[0].recordBytes = 4096;
+  expect(sizes(resolveOn(profile()))).toEqual(["worker.channelSize"]);
+  expect(sizes(resolveOn(profile({ recordBytes: 16384, capacity: 64 })))).toEqual([[4096, 4], [16384, 64]]);
+  // The table is at least the floor and at most what the core allocates.
+  expect(() => profile({ recordBytes: 512, capacity: 8 })).toThrow();
+  expect(() => profile({ recordBytes: 1024, capacity: 512 })).toThrow();
+});
+
 test("worker compiler emits an independently executable realm whose entry starts its tasks", async () => {
   const outdir = resolve(".pocket-build/validation/worker/sdk");
   mkdirSync(outdir, { recursive: true });

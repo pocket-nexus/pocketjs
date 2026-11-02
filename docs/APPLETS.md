@@ -69,16 +69,22 @@ app contract declares `net.http`.
     "nodes": [{ "name": "http", "kind": "http" }],
     "channels": [
       { "name": "request", "kind": "ring", "direction": "ui-to-worker", "recordBytes": 1024, "capacity": 4 },
-      { "name": "response", "kind": "ring", "direction": "worker-to-ui", "recordBytes": 1024, "capacity": 8 }
+      { "name": "response", "kind": "ring", "direction": "worker-to-ui", "recordBytes": "host", "capacity": "host" }
     ]
   }
 }
 ```
 
-| Limit | Value |
-| --- | --- |
-| One `io.http` descriptor: URL, method, headers and body as JSON | **1024 bytes** (`WORKER_LIMITS.payloadBytes`) |
-| A channel record | **1024 bytes**; a channel holds at most **8** |
+The UI drains a ring once a frame, so a ring's records times its bytes is what
+reaches the UI per frame. A channel sized `"host"` takes the target's
+(`worker.channels` in its host contract), and the worker reads the size it got
+from `io.channel(name).recordBytes`.
+
+| Limit | Every host | A host contract may state |
+| --- | --- | --- |
+| One `io.http` descriptor: URL, method, headers and body as JSON | **1024 bytes** (`WORKER_LIMITS.payloadBytes`) | |
+| A channel record; records a ring holds | **1024 bytes**; **8** | `worker.channels`, up to **64 KiB** and **256** |
+| One response body | **256 KiB** | `worker.http.responseBytes`; the UI reads it as `platform.httpResponseBytes` |
 
 The source rules walk the UI's import graph from `app.entry`. The worker
 bundle (`tools/build-worker.ts`) resolves only the modules whose domain is

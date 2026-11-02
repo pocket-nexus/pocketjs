@@ -6,7 +6,7 @@
 //! [`WorkerDomain`] is the part a program's own guest wrapper calls (Omarchy
 //! Pocket's windowed apps); [`WorkerGuest`] is a whole guest for a program that
 //! runs one package on the rquickjs guest (the CardputerZero).
-use crate::http::{Exchange, HttpNode};
+use crate::http::{Exchange, HttpNode, MAX_RESPONSE_BYTES};
 use crate::runner::{
     pocket_worker_ui_attach, pocket_worker_ui_detach, pocket_worker_ui_latch, Bridge, Notify,
     Worker,
@@ -23,10 +23,18 @@ pub struct WorkerDomain {
 }
 
 impl WorkerDomain {
+    /// A domain whose http node admits responses of the floor every host
+    /// holds (MAX_RESPONSE_BYTES).
     pub fn new(exchange: Box<dyn Exchange>) -> Self {
+        Self::with_response_bytes(exchange, MAX_RESPONSE_BYTES)
+    }
+
+    /// A domain whose http node admits responses of up to `response_bytes`:
+    /// the program's host contract (`contract_response_bytes`).
+    pub fn with_response_bytes(exchange: Box<dyn Exchange>, response_bytes: usize) -> Self {
         let notify = Arc::new(Notify::default());
         Self {
-            http: HttpNode::new(exchange, notify.clone()),
+            http: HttpNode::new(exchange, notify.clone(), response_bytes),
             notify,
             bridge: ptr::null_mut(),
             worker: None,

@@ -340,6 +340,8 @@ generation, 12.**
 | `capabilities` | Capability names, compared as a set |
 | `roleCapabilities.systemUI` | Names a package in the System UI role also receives |
 | `worker.nodes` | The most worker nodes of each kind one package may declare |
+| `worker.channels` | `recordBytes` and `capacity`: the largest worker channel one package may declare, and the size of a channel declared `"host"`. At least **1024 bytes and 8 records** (the value when absent), at most **64 KiB and 256 records** |
+| `worker.http` | `responseBytes`: the largest response body one `http` request may ask for. At least **256 KiB** (the value when absent) |
 | `limits`, `input` | Package and heap bytes; touch contacts and coordinate bits |
 | `hostAbi` | The binding generation a release stamps; another value is rejected |
 

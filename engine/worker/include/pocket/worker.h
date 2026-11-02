@@ -114,8 +114,10 @@ uint64_t pocket_worker_deadline(pocket_worker *);
 int pocket_worker_pending(pocket_worker *);
 uint32_t pocket_worker_generation(const pocket_worker *);
 
-/* Declared channels have bounded records. snapshot=1 keeps the newest record;
- * ring channels reject new records when full. Both copies occur under lock. */
+/* Declared channels have bounded records: at most POCKET_WORKER_MAX_RECORD
+ * bytes each, rings of at most POCKET_WORKER_MAX_RING. snapshot=1 keeps the
+ * newest record; ring channels reject new records when full. Both copies
+ * occur under lock. */
 int32_t pocket_worker_channel(pocket_worker *, uint32_t, uint32_t, uint32_t,
                               uint32_t);
 int32_t pocket_worker_channel_direction(pocket_worker *, uint32_t, int);
@@ -127,6 +129,9 @@ int32_t pocket_worker_receive(pocket_worker *, uint32_t, const uint8_t *,
                               size_t);
 int32_t pocket_worker_channel_take(pocket_worker *, uint32_t, uint8_t *,
                                    size_t);
+/* A declared channel's record bytes and capacity (1 for a snapshot). */
+int32_t pocket_worker_channel_size(pocket_worker *, uint32_t, uint32_t *,
+                                   uint32_t *);
 
 #ifdef __cplusplus
 }

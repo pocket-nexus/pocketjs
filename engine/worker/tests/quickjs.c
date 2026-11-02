@@ -189,6 +189,17 @@ int main(void) {
               "stale=false;try{readPrevious()}catch{stale=true}if(!stale)throw "
               "Error('missing stale frame "
               "guard');globalThis.savedPublish=channels.publish;");
+  /* A channel past the floor: the mirror holds what the worker declared,
+   * 16 records of 4 KiB, and one latch drains them all. */
+  eval(g, "__pocketWorker.declareChannel(4,0,4096,16,0);for(let i=0;i<16;i++)"
+          "{const r=new Uint8Array(4096);r.fill(i);if(__pocketWorker.publish("
+          "4,r)!==0)throw Error('large publish '+i);}");
+  eval_ui(ui, "channels.configure(4,0);");
+  assert(pocket_worker_ui_latch(bridge) == 0);
+  eval_ui(ui, "const large=channels.observe(4);if(large.length!==16)throw "
+              "Error('large records '+large.length);for(let i=0;i<16;i++)if("
+              "large[i].length!==4096||large[i][0]!==i||large[i][4095]!==i)"
+              "throw Error('large record '+i);");
   pocket_worker_ui_detach(bridge);
   eval_ui(ui, "if(typeof __pocketWorkerChannels!=='undefined')throw "
               "Error('bridge leaked');let dead=false;try{savedPublish(1,new "

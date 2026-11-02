@@ -5,7 +5,7 @@ import {
 } from "./platform-types.ts";
 import { appletSchema, type AppletDeclaration } from "./applet.ts";
 import { modalityRequirementSchema, type ModalityRequirement } from "./modality.ts";
-import { workerDeclarationSchema, type WorkerDeclaration } from "./worker.ts";
+import { workerDeclarationSchema, type WorkerDeclarationSource } from "./worker.ts";
 
 export const POCKET_MANIFEST_VERSION = 2 as const;
 export const POCKET_MANIFEST_SCHEMA_ID = "https://pocketjs.dev/schema/pocket-2.json";
@@ -132,7 +132,7 @@ export interface PocketManifestV2 {
    * second QuickJS runtime owned by the host (contracts/spec/worker.ts).
    */
   readonly domains?: {
-    readonly worker?: WorkerDeclaration;
+    readonly worker?: WorkerDeclarationSource;
   };
 }
 

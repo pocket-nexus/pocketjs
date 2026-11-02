@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Script } from "node:vm";
-import { workerDeclarationSchema, type WorkerDeclaration } from "../contracts/spec/worker.ts";
+import { resolveWorkerChannels, workerDeclarationSchema, type WorkerDeclaration } from "../contracts/spec/worker.ts";
 import { SUBPATHS, resolvesIn } from "../framework/compiler/subpaths.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
 
@@ -76,5 +76,5 @@ if (import.meta.main) {
   const output = manifest.app.output;
   if (typeof output !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(output)) throw new Error("Worker output requires app.output without path separators");
   // Entry paths are relative to the project root; the default matches `pocket check`.
-  await buildWorker({ declaration: manifest.domains.worker, projectRoot: resolve(projectRootOption ?? dirname(path)), outdir: resolve(outdir), output });
+  await buildWorker({ declaration: resolveWorkerChannels(manifest.domains.worker), projectRoot: resolve(projectRootOption ?? dirname(path)), outdir: resolve(outdir), output });
 }

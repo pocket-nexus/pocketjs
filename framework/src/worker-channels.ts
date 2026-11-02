@@ -39,6 +39,10 @@ export const worker = {
     const channel = channels[id];
     if (host().configure(id + 1, channel.kind === "snapshot" ? 1 : 0) !== ResourceStatus.ok) throw new Error(`Cannot configure worker channel ${name}`);
     return {
+      /** The most bytes one record holds on this target. */
+      recordBytes: channel.recordBytes,
+      /** The records a ring holds; 1 for a snapshot. */
+      capacity: channel.kind === "snapshot" ? 1 : channel.capacity,
       publish(data: Uint8Array): boolean {
         if (channel.direction !== "ui-to-worker") throw new Error(`Channel ${name} is receive-only in the UI domain`);
         if (data.length > channel.recordBytes) throw new RangeError(`Channel ${name} record exceeds ${channel.recordBytes} bytes`);

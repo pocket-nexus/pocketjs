@@ -23,7 +23,7 @@ async function bundlePlatform(defines: Record<string, string> = {}) {
   expect(result.success).toBe(true);
   const source = await result.outputs[0]!.text();
   return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`) as Promise<{
-    platform: { target: string; pixelRatio: number; features: Record<string, boolean> };
+    platform: { target: string; pixelRatio: number; features: Record<string, boolean>; httpResponseBytes: number };
     hasFeature: (feature: "input.buttons") => boolean;
   }>;
 }
@@ -39,13 +39,14 @@ describe("platform feature availability", () => {
       target: "psp",
       pixelRatio: 1,
       features: { "input.buttons": true },
+      httpResponseBytes: 256 * 1024,
     });
     expect(runtime.hasFeature("input.buttons")).toBe(true);
   });
 
   test("legacy builds have an unknown target and no feature claims", async () => {
     const runtime = await bundlePlatform();
-    expect(runtime.platform).toEqual({ target: "unknown", pixelRatio: 1, features: {} });
+    expect(runtime.platform).toEqual({ target: "unknown", pixelRatio: 1, features: {}, httpResponseBytes: 256 * 1024 });
     expect(runtime.hasFeature("input.buttons")).toBe(false);
   });
 
@@ -56,6 +57,13 @@ describe("platform feature availability", () => {
       __POCKET_PIXEL_RATIO__: "2",
     });
     expect(runtime.platform.pixelRatio).toBe(2);
+  });
+
+  test("exposes the host's http response limit, never below the floor", async () => {
+    const larger = await bundlePlatform({ __POCKET_HTTP_RESPONSE_BYTES__: String(4 << 20) });
+    expect(larger.platform.httpResponseBytes).toBe(4 << 20);
+    const smaller = await bundlePlatform({ __POCKET_HTTP_RESPONSE_BYTES__: "1024" });
+    expect(smaller.platform.httpResponseBytes).toBe(256 * 1024);
   });
 });
 
