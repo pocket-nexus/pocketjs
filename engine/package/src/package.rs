@@ -27,8 +27,9 @@ pub use crate::package_format::{POCKET_MAGIC as MAGIC, POCKET_VERSION as VERSION
 /// Section kinds (append-only; skip what you do not know).
 pub mod section {
     pub use crate::package_format::{
-        SECTION_COVER as COVER, SECTION_IDENTITY as IDENTITY, SECTION_JS as JS, SECTION_PAK as PAK,
-        SECTION_PLAN as PLAN, SECTION_WORKER_JS as WORKER_JS,
+        SECTION_BYTECODE as BYTECODE, SECTION_COVER as COVER, SECTION_IDENTITY as IDENTITY,
+        SECTION_JS as JS, SECTION_PAK as PAK, SECTION_PLAN as PLAN,
+        SECTION_WORKER_BYTECODE as WORKER_BYTECODE, SECTION_WORKER_JS as WORKER_JS,
     };
 }
 
@@ -53,9 +54,11 @@ pub enum GuestError {
     MissingIdentity,
     MissingJavaScript,
     JavaScriptNotTerminated,
-    /// The plan's `domains.worker` and section 8 disagree: a declaration without
-    /// a worker bundle, or a bundle without a declaration.
+    /// The plan's `domains.worker` and sections 8 and 9 disagree: a declaration
+    /// without a worker bundle, or a bundle without a declaration.
     WorkerSectionMismatch,
+    /// Section 6 or 9 is not a bytecode envelope (`crate::bytecode`).
+    BadBytecode,
 }
 
 impl From<PackageError> for GuestError {
@@ -100,10 +103,18 @@ pub struct Guest<'a> {
     pub id: &'a str,
     /// The package rate and the host cadence it runs at.
     pub timing: Timing,
+    /// Section 3, the NUL-terminated UI bundle; empty when the variant
+    /// carries the bundle as bytecode alone.
     pub js: &'a [u8],
     /// Section 8, the NUL-terminated worker bundle of a plan with
-    /// `domains.worker`; empty for a plan without one.
+    /// `domains.worker`; empty for a plan without one, or one whose worker
+    /// bundle is bytecode alone.
     pub worker_js: &'a [u8],
+    /// Section 6, the UI bundle as a bytecode envelope (`crate::bytecode`),
+    /// when the variant carries one.
+    pub bytecode: Option<&'a [u8]>,
+    /// Section 9, the worker bundle as a bytecode envelope.
+    pub worker_bytecode: Option<&'a [u8]>,
     pub pak: &'a [u8],
     pub plan: &'a [u8],
     pub package_hash: u64,
@@ -371,14 +382,24 @@ fn admitted<'a>(
     let identity = variant.identity()?.ok_or(GuestError::MissingIdentity)?;
     // Admission read this section; it is present and non-empty.
     let plan = variant.section(section::PLAN)?.unwrap_or(&[]);
-    let js = variant
-        .section(section::JS)?
-        .filter(|value| !value.is_empty())
-        .ok_or(GuestError::MissingJavaScript)?;
-    if js.last() != Some(&0) {
-        return Err(GuestError::JavaScriptNotTerminated);
-    }
-    let worker_js = worker_payload(plan, variant.section(section::WORKER_JS)?)?;
+    let bytecode = envelope_section(variant.section(section::BYTECODE)?)?;
+    let js = match (
+        variant
+            .section(section::JS)?
+            .filter(|value| !value.is_empty()),
+        bytecode,
+    ) {
+        (Some(js), _) if js.last() != Some(&0) => return Err(GuestError::JavaScriptNotTerminated),
+        (Some(js), _) => js,
+        (None, Some(_)) => &[],
+        (None, None) => return Err(GuestError::MissingJavaScript),
+    };
+    let worker_bytecode = envelope_section(variant.section(section::WORKER_BYTECODE)?)?;
+    let worker_js = worker_payload(
+        plan,
+        variant.section(section::WORKER_JS)?,
+        worker_bytecode.is_some(),
+    )?;
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
     Ok(Guest {
         target: variant.target,
@@ -386,6 +407,8 @@ fn admitted<'a>(
         timing,
         js,
         worker_js,
+        bytecode,
+        worker_bytecode,
         pak,
         plan,
         package_hash: package.package_hash()?,
@@ -393,15 +416,31 @@ fn admitted<'a>(
     })
 }
 
-/// The worker bundle a plan with `domains.worker` requires, or an empty slice for
-/// a plan without one. The bundle ends with NUL like the UI JavaScript.
-fn worker_payload<'a>(plan: &[u8], worker: Option<&'a [u8]>) -> Result<&'a [u8], GuestError> {
+/// A bytecode section, checked to be an envelope.
+fn envelope_section(bytes: Option<&[u8]>) -> Result<Option<&[u8]>, GuestError> {
+    match bytes {
+        Some(bytes) => crate::bytecode::parse(bytes)
+            .map(|_| Some(bytes))
+            .map_err(|_| GuestError::BadBytecode),
+        None => Ok(None),
+    }
+}
+
+/// The worker bundle a plan with `domains.worker` requires, or an empty slice
+/// for a plan without one, or for one whose bundle is bytecode alone
+/// (`has_bytecode`). The bundle ends with NUL like the UI JavaScript.
+fn worker_payload<'a>(
+    plan: &[u8],
+    worker: Option<&'a [u8]>,
+    has_bytecode: bool,
+) -> Result<&'a [u8], GuestError> {
     let declared = crate::plan_facts::worker_declared(plan)
         .map_err(|_| GuestError::Package(PackageError::BadLayout))?;
     match (declared, worker) {
-        (false, None) => Ok(&[]),
+        (false, None) if !has_bytecode => Ok(&[]),
         (true, Some(source)) if source.len() >= 2 && source.last() == Some(&0) => Ok(source),
         (true, Some(_)) => Err(GuestError::JavaScriptNotTerminated),
+        (true, None) if has_bytecode => Ok(&[]),
         _ => Err(GuestError::WorkerSectionMismatch),
     }
 }
@@ -480,6 +519,73 @@ mod tests {
     }
 
     static FIXTURE: &[u8] = include_bytes!("../tests/fixtures/synthetic.pocket");
+
+    #[test]
+    fn bytecode_sections_admit_beside_or_instead_of_source() {
+        use crate::admission::testing::{host, PLAN};
+        use crate::embedded::{encode_sections, identity};
+        let identity = identity("app", "test.app", "App").unwrap();
+        let envelope = crate::bytecode::encode(&[0x11; 32], &[25, 7, 7]);
+        let js: &[u8] = b"globalThis.frame=()=>{}\0";
+        let encode =
+            |sections: &[(u32, &[u8])]| encode_sections("psp", 1, [0x11; 32], sections).unwrap();
+        let both = encode(&[
+            (section::IDENTITY, &identity),
+            (section::PLAN, PLAN),
+            (section::JS, js),
+            (section::PAK, b""),
+            (section::BYTECODE, &envelope),
+        ]);
+        let guest = select_guest(&both, &host(1, [0x11; 32]), false).unwrap();
+        assert_eq!(guest.js, js);
+        assert_eq!(guest.bytecode, Some(&envelope[..]));
+        assert_eq!(guest.worker_bytecode, None);
+        let alone = encode(&[
+            (section::IDENTITY, &identity),
+            (section::PLAN, PLAN),
+            (section::PAK, b""),
+            (section::BYTECODE, &envelope),
+        ]);
+        let guest = select_guest(&alone, &host(1, [0x11; 32]), false).unwrap();
+        assert!(guest.js.is_empty());
+        assert_eq!(guest.bytecode, Some(&envelope[..]));
+        let neither = encode(&[
+            (section::IDENTITY, &identity),
+            (section::PLAN, PLAN),
+            (section::PAK, b""),
+        ]);
+        assert_eq!(
+            select_guest(&neither, &host(1, [0x11; 32]), false)
+                .err()
+                .unwrap(),
+            GuestError::MissingJavaScript
+        );
+        let damaged = encode(&[
+            (section::IDENTITY, &identity),
+            (section::PLAN, PLAN),
+            (section::JS, js),
+            (section::BYTECODE, &envelope[..crate::bytecode::HEADER_SIZE]),
+        ]);
+        assert_eq!(
+            select_guest(&damaged, &host(1, [0x11; 32]), false)
+                .err()
+                .unwrap(),
+            GuestError::BadBytecode
+        );
+        // A worker bundle as bytecode needs the plan's declaration, as source does.
+        let undeclared = encode(&[
+            (section::IDENTITY, &identity),
+            (section::PLAN, PLAN),
+            (section::JS, js),
+            (section::WORKER_BYTECODE, &envelope),
+        ]);
+        assert_eq!(
+            select_guest(&undeclared, &host(1, [0x11; 32]), false)
+                .err()
+                .unwrap(),
+            GuestError::WorkerSectionMismatch
+        );
+    }
 
     #[test]
     fn tamper_trips_the_footer_hash() {
@@ -592,44 +698,46 @@ mod tests {
         let plan =
             br#"{"domains":{"worker":{"entry":"worker.ts"}},"features":{"runtime.worker":true}}"#;
         assert_eq!(
-            worker_payload(plan, Some(b"turn();\0")),
+            worker_payload(plan, Some(b"turn();\0"), false),
             Ok(&b"turn();\0"[..])
         );
         assert_eq!(
-            worker_payload(plan, None),
+            worker_payload(plan, None, false),
             Err(GuestError::WorkerSectionMismatch)
         );
         assert_eq!(
-            worker_payload(plan, Some(b"\0")),
+            worker_payload(plan, Some(b"\0"), false),
             Err(GuestError::JavaScriptNotTerminated)
         );
         assert_eq!(
-            worker_payload(plan, Some(b"turn();")),
+            worker_payload(plan, Some(b"turn();"), false),
             Err(GuestError::JavaScriptNotTerminated)
         );
         assert_eq!(
-            worker_payload(b"{}", Some(b"turn();\0")),
+            worker_payload(b"{}", Some(b"turn();\0"), false),
             Err(GuestError::WorkerSectionMismatch)
         );
         assert_eq!(
             worker_payload(
                 br#"{"features":{"runtime.worker":true}}"#,
-                Some(b"turn();\0")
+                Some(b"turn();\0"),
+                false
             ),
             Err(GuestError::WorkerSectionMismatch)
         );
         assert_eq!(
-            worker_payload(br#"{"features":{"runtime.worker":true}}"#, None),
+            worker_payload(br#"{"features":{"runtime.worker":true}}"#, None, false),
             Ok(&[][..])
         );
         assert_eq!(
             worker_payload(
                 br#"{"domains":{"worker":{"entry":"worker.ts"}}}"#,
-                Some(b"turn();\0")
+                Some(b"turn();\0"),
+                false
             ),
             Err(GuestError::Package(PackageError::BadLayout))
         );
-        assert_eq!(worker_payload(b"{}", None), Ok(&[][..]));
+        assert_eq!(worker_payload(b"{}", None, false), Ok(&[][..]));
     }
 
     #[test]

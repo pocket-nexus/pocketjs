@@ -144,6 +144,7 @@ pub(crate) const GUEST: PocketGuestV1 = PocketGuestV1 {
     frame: Some(frame),
     collect: Some(collect),
     shutdown: Some(shutdown),
+    evaluate_bytecode: None,
 };
 
 #[derive(Default)]

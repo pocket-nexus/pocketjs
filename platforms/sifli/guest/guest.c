@@ -266,7 +266,8 @@ static void shutdown(void *opaque) {
 }
 
 static const pocket_guest_v1 VTABLE = {sizeof(VTABLE), evaluate, frame,
-                                       collect,        shutdown, initialize};
+                                       collect,        shutdown, initialize,
+                                       NULL};
 
 const pocket_guest_v1 *pocket_sifli_guest_vtable(void) { return &VTABLE; }
 

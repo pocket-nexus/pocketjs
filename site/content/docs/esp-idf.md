@@ -168,7 +168,10 @@ during polling. Every input class required by the host contract must be present.
 The runtime resolves contact hits and encodes the guest frame arguments.
 
 `pocket_runtime_boot` validates the package, installs its assets, evaluates the
-guest and presents the initial tree. `pocket_runtime_tick` runs one guest frame,
+guest and presents the initial tree. A package built for a host contract that
+names `esp-idf-quickjs-ng-0.14.0` under `bytecode.engine` carries its bundles
+as that engine's serialized objects, which the guest reads instead of parsing
+source (docs/PLATFORM.md, "Bytecode"). `pocket_runtime_tick` runs one guest frame,
 advances the core by the package rate divided by the cadence, and presents. A returned display or renderer failure has
 terminated all device access for that frame. A guest failure stops further
 turns; read `pocket_guest_idf_error` for engine diagnostics.

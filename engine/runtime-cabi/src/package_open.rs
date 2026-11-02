@@ -23,6 +23,7 @@ pub fn guest_error_code(error: GuestError) -> i32 {
         GuestError::JavaScriptNotTerminated => 11,
         GuestError::Package(PackageError::BadLayout) => 17,
         GuestError::WorkerSectionMismatch => 18,
+        GuestError::BadBytecode => 26,
         GuestError::NotAdmitted(mismatch) => match mismatch.first() {
             item::BINDING_GENERATION => 7,
             item::PLAN => 9,

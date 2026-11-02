@@ -12,6 +12,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod admission;
+pub mod bytecode;
 pub mod embedded;
 pub mod font_archive;
 pub mod package;

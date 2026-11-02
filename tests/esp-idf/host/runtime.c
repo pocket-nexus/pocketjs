@@ -53,7 +53,8 @@ static void shutdown(void *p) {
   pocket_guest_idf_vtable()->shutdown(((test_guest *)p)->guest);
 }
 static const pocket_guest_v1 GUEST = {sizeof(GUEST), evaluate, frame,
-                                      collect,       shutdown, initialize};
+                                      collect,       shutdown, initialize,
+                                      NULL};
 static void scenario(const char *extra, bool invalid, int32_t first,
                      int32_t second) {
   const pocketjs_package_host_contract_t *host =

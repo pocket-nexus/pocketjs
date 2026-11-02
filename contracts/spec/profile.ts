@@ -77,6 +77,10 @@ export interface PocketProfile<C extends string = string> {
     /** Bits of a touch coordinate on the input wire (9 or 10). */
     readonly coordinateBits?: number;
   };
+  /** The QuickJS engine ABI the program embeds (quickjs-bytecode.ts): the
+   *  compiler then adds bytecode sections for it. `source` keeps the source
+   *  sections beside them (the default) or drops them. */
+  readonly bytecode?: { readonly engine: string; readonly source?: "keep" | "drop" };
   /** Metadata only; nothing reads it for compilation or admission. */
   readonly hostExtension?: Readonly<Record<string, unknown>>;
   /** The binding generation a release stamped; another one is refused. */
@@ -172,6 +176,10 @@ export const pocketProfileSchema = {
         touchContacts: { type: "integer", minimum: 1, maximum: 16 },
         coordinateBits: { enum: [9, 10] },
       },
+    },
+    bytecode: {
+      type: "object", additionalProperties: false, required: ["engine"],
+      properties: { engine: { type: "string", minLength: 1 }, source: { enum: ["keep", "drop"] } },
     },
     hostExtension: { type: "object" },
     hostAbi: { type: "integer", minimum: 1, maximum: 0xffff_ffff },

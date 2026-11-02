@@ -291,6 +291,25 @@
         }
       }
     },
+    "bytecode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine"
+      ],
+      "properties": {
+        "engine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "enum": [
+            "keep",
+            "drop"
+          ]
+        }
+      }
+    },
     "hostExtension": {
       "type": "object"
     },

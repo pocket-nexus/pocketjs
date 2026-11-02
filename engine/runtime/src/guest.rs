@@ -69,6 +69,13 @@ pub trait Guest {
         Ok(())
     }
     fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError>;
+    /// Evaluate the package's bytecode section (`pocket_package::bytecode`):
+    /// the envelope and the serialized object. `UnsupportedOperation` before
+    /// anything ran when the guest has no engine ABI or the digest is another
+    /// build's; the runtime then evaluates the source.
+    fn evaluate_bytecode(&mut self, _envelope: &[u8]) -> Result<(), RuntimeError> {
+        Err(RuntimeError::UnsupportedOperation)
+    }
     /// Run frame once and drain the engine's queued jobs before returning.
     fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError>;
     fn collect(&mut self) -> Result<(), RuntimeError> {

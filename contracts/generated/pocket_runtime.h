@@ -55,6 +55,9 @@ typedef int32_t (*pocket_guest_initialize_fn)(void * context, pocket_runtime * r
 
 typedef int32_t (*pocket_guest_evaluate_fn)(void * context, pocket_runtime * runtime, const uint8_t * code, size_t length);
 
+/* Optional. code is a package bytecode section: a 48-byte QJBC envelope with the engine-ABI digest at byte 16, then the serialized QuickJS object. UNSUPPORTED when the guest has no engine ABI or the digest is another build's; the runtime then evaluates the source section when the package has one. Any other error is the program's: the realm may have run, and no source is evaluated after it. */
+typedef int32_t (*pocket_guest_evaluate_bytecode_fn)(void * context, pocket_runtime * runtime, const uint8_t * code, size_t length);
+
 typedef int32_t (*pocket_guest_frame_fn)(void * context, const pocket_guest_frame * frame);
 
 typedef int32_t (*pocket_guest_collect_fn)(void * context);
@@ -616,6 +619,7 @@ struct pocket_guest_v1 {
   pocket_guest_collect_fn collect;
   pocket_guest_shutdown_fn shutdown;
   pocket_guest_initialize_fn initialize;
+  pocket_guest_evaluate_bytecode_fn evaluate_bytecode;
 };
 enum {
   POCKET_LAYOUT_POCKET_GUEST_V1_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -630,16 +634,19 @@ enum {
   POCKET_LAYOUT_POCKET_GUEST_V1_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_V1_3_ALIGN, POCKET_ABI_ALIGNOF(pocket_guest_shutdown_fn)),
   POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_4_OFFSET + sizeof(pocket_guest_shutdown_fn), POCKET_ABI_ALIGNOF(pocket_guest_initialize_fn)),
   POCKET_LAYOUT_POCKET_GUEST_V1_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_V1_4_ALIGN, POCKET_ABI_ALIGNOF(pocket_guest_initialize_fn)),
-  POCKET_LAYOUT_POCKET_GUEST_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET + sizeof(pocket_guest_initialize_fn), POCKET_LAYOUT_POCKET_GUEST_V1_5_ALIGN)
+  POCKET_LAYOUT_POCKET_GUEST_V1_6_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET + sizeof(pocket_guest_initialize_fn), POCKET_ABI_ALIGNOF(pocket_guest_evaluate_bytecode_fn)),
+  POCKET_LAYOUT_POCKET_GUEST_V1_6_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_V1_5_ALIGN, POCKET_ABI_ALIGNOF(pocket_guest_evaluate_bytecode_fn)),
+  POCKET_LAYOUT_POCKET_GUEST_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_6_OFFSET + sizeof(pocket_guest_evaluate_bytecode_fn), POCKET_LAYOUT_POCKET_GUEST_V1_6_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_guest_v1) == POCKET_LAYOUT_POCKET_GUEST_V1_SIZE, "pocket_guest_v1 size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_guest_v1) == POCKET_LAYOUT_POCKET_GUEST_V1_5_ALIGN, "pocket_guest_v1 alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_guest_v1) == POCKET_LAYOUT_POCKET_GUEST_V1_6_ALIGN, "pocket_guest_v1 alignment");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_v1, struct_size) == POCKET_LAYOUT_POCKET_GUEST_V1_0_OFFSET, "pocket_guest_v1.struct_size");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_v1, evaluate) == POCKET_LAYOUT_POCKET_GUEST_V1_1_OFFSET, "pocket_guest_v1.evaluate");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_v1, frame) == POCKET_LAYOUT_POCKET_GUEST_V1_2_OFFSET, "pocket_guest_v1.frame");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_v1, collect) == POCKET_LAYOUT_POCKET_GUEST_V1_3_OFFSET, "pocket_guest_v1.collect");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_v1, shutdown) == POCKET_LAYOUT_POCKET_GUEST_V1_4_OFFSET, "pocket_guest_v1.shutdown");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_v1, initialize) == POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET, "pocket_guest_v1.initialize");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_v1, evaluate_bytecode) == POCKET_LAYOUT_POCKET_GUEST_V1_6_OFFSET, "pocket_guest_v1.evaluate_bytecode");
 
 /* Provides registered non-core operations. Arguments borrow through callback return; argument_length is the byte span of extensible pocket_op_arg records. Initialize out with its supplied struct_size and return a valid tagged result on success. */
 struct pocket_op_provider_v1 {

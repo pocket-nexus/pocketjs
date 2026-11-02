@@ -12,8 +12,11 @@ evaluates. The worker has no `ui` namespace. A host can mount its worker-owned `
 
 1. Fill `pocket_worker_runner_config`: the core's node table, generation and
    task-context `lock`/`unlock`/`wake`/`now_micros`; the realm's limits,
-   `mount` and optional `allocator`; the NUL-terminated bundle; and `wait`,
-   which blocks the owner task until `wake` or an absolute deadline. ISRs
+   `mount` and optional `allocator`; the NUL-terminated bundle, or its
+   package bytecode section with the engine ABI of this QuickJS build
+   (`contracts/generated/pocket_quickjs_abi.h`), which is evaluated instead
+   of source when its digest matches; and `wait`, which blocks the owner
+   task until `wake` or an absolute deadline. ISRs
    must stage records in an ISR-safe platform queue; the locks are
    task-context operations.
 2. On the owner task, `pocket_worker_runner_create` builds the core and the
