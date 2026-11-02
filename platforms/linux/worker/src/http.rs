@@ -241,9 +241,7 @@ impl HttpNode {
         };
         match answer {
             Ok(response) => {
-                let head = serde_json::json!({ "status": response.status, "url": url, "headers": response.headers })
-                    .to_string()
-                    .into_bytes();
+                let head = head(response.status, url, &response.headers);
                 if head.len() > MAX_PAYLOAD {
                     state.facts.push_back(end(FAILED, 0));
                 } else {
@@ -268,6 +266,54 @@ impl HttpNode {
         drop(state);
         self.notify.wake();
     }
+}
+
+/// Headers an app reads first: the body's type, the cache validators, the
+/// next page, a redirect and the rate limit.
+const KEPT_FIRST: [&str; 10] = [
+    "content-type",
+    "etag",
+    "last-modified",
+    "link",
+    "location",
+    "retry-after",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+    "content-encoding",
+    "cache-control",
+];
+
+/// The headers fact `{status, url, headers}`, within the core's 1 KiB payload:
+/// when every header does not fit, KEPT_FIRST go in first, then the rest from
+/// the shortest, while they fit.
+fn head(status: u16, url: &str, headers: &BTreeMap<String, String>) -> Vec<u8> {
+    let encode = |kept: &BTreeMap<String, String>| {
+        serde_json::json!({ "status": status, "url": url, "headers": kept })
+            .to_string()
+            .into_bytes()
+    };
+    let whole = encode(headers);
+    if whole.len() <= MAX_PAYLOAD {
+        return whole;
+    }
+    let mut order: Vec<(&String, &String)> = headers.iter().collect();
+    order.sort_by_key(|(name, value)| {
+        (
+            KEPT_FIRST
+                .iter()
+                .position(|kept| kept == name)
+                .unwrap_or(KEPT_FIRST.len()),
+            name.len() + value.len(),
+        )
+    });
+    let mut kept = BTreeMap::new();
+    for (name, value) in order {
+        kept.insert(name.clone(), value.clone());
+        if encode(&kept).len() > MAX_PAYLOAD {
+            kept.remove(name);
+        }
+    }
+    encode(&kept)
 }
 
 unsafe extern "C" fn open(
@@ -410,6 +456,27 @@ pub fn parse(descriptor: &[u8]) -> Option<Request> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_head_keeps_what_an_app_reads_first() {
+        let mut headers = BTreeMap::new();
+        headers.insert("content-type".to_string(), "application/json".to_string());
+        headers.insert("etag".to_string(), "W/\"abc\"".to_string());
+        headers.insert(
+            "link".to_string(),
+            "<https://api.test/x?page=2>; rel=\"next\"".to_string(),
+        );
+        for i in 0..40 {
+            headers.insert(format!("x-noise-{i}"), "n".repeat(40));
+        }
+        let bytes = head(200, "https://api.test/x", &headers);
+        assert!(bytes.len() <= MAX_PAYLOAD);
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        for name in ["content-type", "etag", "link"] {
+            assert!(value["headers"].get(name).is_some(), "{name}");
+        }
+        assert_eq!(value["status"], 200);
+    }
 
     #[test]
     fn a_descriptor_parses_within_the_net_bounds() {
