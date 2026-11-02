@@ -13,6 +13,7 @@ import { buildRuntime } from "../tools/build/executor.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { profileRegistry, resolveProfile, type ResolvedProfile } from "../tools/profile-resolver.ts";
 import { mustRunCommand } from "../tools/native-source.ts";
+import { currentHost } from "../tools/targets/types.ts";
 
 const root = resolve(import.meta.dir, "..");
 const base = join(root, ".pocket-build/validation/runtime-build/device-tests");
@@ -41,12 +42,14 @@ function packageFixture(selected: ResolvedProfile, directory: string) {
   return path;
 }
 
-test("device recipes reject missing package inputs before generating native headers", async () => {
+test("device recipes reject unsupported hosts or missing packages before generating native headers", async () => {
   const dir = scratch();
   for (const id of programs) {
     const selected = await select(id);
     if (!generic.has(id)) {
-      await expect(buildRuntime(selected, join(dir, id))).rejects.toThrow("--pocket");
+      const host = currentHost();
+      const supported = host && selected.config!.value.build!.hosts.includes(host);
+      await expect(buildRuntime(selected, join(dir, id))).rejects.toThrow(supported ? "--pocket" : "runtime build supports");
       expect(existsSync(join(dir, id, "pocket_profile.h"))).toBe(false);
     }
   }
@@ -95,5 +98,5 @@ test("PocketBook stages the selected package and launcher after the native Cargo
 });
 
 test("native process failures include signal termination even when Bun reports exit code zero", () => {
-  expect(() => mustRunCommand("native fixture", process.execPath, ["-e", 'process.kill(process.pid, "SIGABRT")'], root)).toThrow("failed");
+  expect(() => mustRunCommand("native fixture", process.execPath, ["-e", 'process.kill(process.pid, "SIGTERM")'], root)).toThrow("failed");
 });

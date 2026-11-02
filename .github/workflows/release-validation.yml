@@ -1,0 +1,43 @@
+name: Release validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release*.yml"
+      - ".bun-version"
+      - "package.json"
+      - "bun.lock"
+      - "tools/test.ts"
+      - "tools/release/**"
+      - "tests/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Install native test dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-turbo8-dev libasound2-dev pkg-config
+      - run: bun install --frozen-lockfile
+      - run: bun tools/wasm.ts
+      - run: bun run test
+      - run: bunx tsc --noEmit
+      - run: bun tests/golden.ts
+      - run: bun run site:build
