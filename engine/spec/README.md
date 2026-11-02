@@ -6,7 +6,7 @@ Generated PocketJS operation codes, data formats, and input constants. Use this 
 
 ```toml
 [dependencies]
-pocket-spec = "0.1.0"
+pocket-spec = "0.16.0"
 ```
 
 ## Example

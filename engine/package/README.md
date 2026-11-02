@@ -6,8 +6,8 @@ Readers and admission checks for PocketJS application packages, asset packs, and
 
 ```toml
 [dependencies]
-pocket-package = "0.1.0"
-pocket-drivers = "0.1.0"
+pocket-package = "0.16.0"
+pocket-drivers = "0.16.0"
 ```
 
 ## Example

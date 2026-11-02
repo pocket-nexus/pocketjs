@@ -71,14 +71,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-drivers"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-package"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-spec"
-version = "0.1.0"
+version = "0.16.0"
 
 [[package]]
 name = "r-efi"

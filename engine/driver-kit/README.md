@@ -6,8 +6,8 @@ Reusable PocketJS driver conformance checks for package sources, input, CPU pixe
 
 ```toml
 [dev-dependencies]
-pocket-driver-kit = "0.1.0"
-pocket-package = "0.1.0"
+pocket-driver-kit = "0.16.0"
+pocket-package = "0.16.0"
 ```
 
 ## Example

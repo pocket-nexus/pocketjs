@@ -6,7 +6,7 @@ Damage tracking, surface composition, and render/display submission coordination
 
 ```toml
 [dependencies]
-pocket-present = "0.1.0"
+pocket-present = "0.16.0"
 ```
 
 ## Example

@@ -6,7 +6,7 @@ PocketJS media containers, transport messages, stream assembly, and byte codecs.
 
 ```toml
 [dependencies]
-pocket-media = "0.1.0"
+pocket-media = "0.16.0"
 ```
 
 ## Example

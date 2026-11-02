@@ -6,8 +6,8 @@ Borrowed DrawList decoding and logical-pixel clipping for PocketJS renderers.
 
 ```toml
 [dependencies]
-pocket-draw-ops = "0.1.0"
-pocket-drivers = "0.1.0"
+pocket-draw-ops = "0.16.0"
+pocket-drivers = "0.16.0"
 ```
 
 ## Example

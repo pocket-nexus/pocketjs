@@ -6,8 +6,8 @@ Application instances that own the PocketJS UI, admitted package, guest, input s
 
 ```toml
 [dependencies]
-pocket-runtime = "0.1.0"
-pocket-drivers = "0.1.0"
+pocket-runtime = "0.16.0"
+pocket-drivers = "0.16.0"
 ```
 
 ## Example

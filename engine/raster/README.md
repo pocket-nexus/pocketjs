@@ -6,8 +6,8 @@ Software rasterization of PocketJS DrawLists into CPU framebuffers.
 
 ```toml
 [dependencies]
-pocket-raster = "0.1.0"
-pocket-drivers = "0.1.0"
+pocket-raster = "0.16.0"
+pocket-drivers = "0.16.0"
 ```
 
 ## Example

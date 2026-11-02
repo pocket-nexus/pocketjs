@@ -6,8 +6,8 @@ Font coverage expansion, guarded glyph pages, and A8 masks for PocketJS renderer
 
 ```toml
 [dependencies]
-pocket-glyph-pages = "0.1.0"
-pocket-drivers = "0.1.0"
+pocket-glyph-pages = "0.16.0"
+pocket-drivers = "0.16.0"
 ```
 
 ## Example

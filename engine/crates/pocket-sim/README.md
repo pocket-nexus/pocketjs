@@ -6,7 +6,7 @@ Bounded prediction, reconciliation, command queues, and snapshot sampling for fi
 
 ```toml
 [dependencies]
-pocket-sim = "0.1.0"
+pocket-sim = "0.16.0"
 ```
 
 ## Example

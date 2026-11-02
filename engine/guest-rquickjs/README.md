@@ -6,10 +6,10 @@ Generated PocketJS UI bindings and guest lifecycle implemented with rquickjs.
 
 ```toml
 [dependencies]
-pocket-guest-rquickjs = "0.1.0"
-pocket-runtime = "0.1.0"
-pocket-drivers = "0.1.0"
-pocketjs-core = "0.1.0"
+pocket-guest-rquickjs = "0.16.0"
+pocket-runtime = "0.16.0"
+pocket-drivers = "0.16.0"
+pocketjs-core = "0.16.0"
 ```
 
 ## Example
