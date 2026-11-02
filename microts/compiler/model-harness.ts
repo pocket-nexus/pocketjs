@@ -1,7 +1,7 @@
 /** Executes compiler output in the JS runtime and one batched native harness. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { AOT_CARGO_TARGET_DIR } from "./cargo-target.ts";
+import { AOT_CARGO_ENV } from "./cargo-target.ts";
 import { generateModelJavaScript } from "./aot-model-js.ts";
 import { rustIdentifier } from "./rust-printer.ts";
 import { generateModelRust } from "./aot-model-codegen.ts";
@@ -126,7 +126,7 @@ export async function executeModelRust(fixtures: readonly ModelHarnessCase[], op
     invocations.push(`for _replay in 0..2 { use case_${index}::*; reset_trace(); let mut m=${root.name}Model::default(); let mut commands=Vec::new(); m.react(true,&mut commands);m.settle();take_trace();microts::model::reset_counts();let mut frames=Vec::<Json>::new(); ${body}\nprintln!("{}",json!({"name":${JSON.stringify(fixture.name)},"frames":frames})); }`);
   });
   writeFileSync(resolve(directory, "src/main.rs"), `#![recursion_limit="512"]\n${modules.join("\n")}\n${rustHarness}\nfn main(){${invocations.join("\n")}}\n`);
-  const child = Bun.spawn(["cargo", "run", "--quiet", ...(options.release ? ["--release"] : []), "--manifest-path", resolve(directory, "Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: AOT_CARGO_TARGET_DIR } });
+  const child = Bun.spawn(["cargo", "run", "--quiet", ...(options.release ? ["--release"] : []), "--manifest-path", resolve(directory, "Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
   const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   writeFileSync(resolve(directory, "build.log"), stderr);
   if (status !== 0) throw new Error(`Model Rust harness failed (${status}):\n${stderr}`);

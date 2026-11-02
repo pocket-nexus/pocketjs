@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { AOT_CARGO_TARGET_DIR } from "../microts/compiler/cargo-target.ts";
+import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 
 const output = resolve(".pocket-build/validation/model-aot/codegen");
 const protocol = resolve("tests/fixtures/aot-model/protocol");
@@ -58,7 +58,7 @@ export function checkModelRust(name: string, source: string, harness: string) {
   writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "model-aot-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/crates/microts"))} }\n`);
   writeFileSync(`${directory}/src/model.rs`, source);
   writeFileSync(`${directory}/src/lib.rs`, `mod model;\nuse model::*;\nuse microts::{Cmd, Ready};\n${harness}`);
-  const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: AOT_CARGO_TARGET_DIR } });
+  const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
   expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
 }
 

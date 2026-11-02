@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { AOT_CARGO_TARGET_DIR } from "../microts/compiler/cargo-target.ts";
+import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 import { buildAot } from "../microts/compiler/aot-build.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
 import { normalizeSolidAotSemantics } from "../microts/compiler/aot-solid-semantics.ts";
@@ -48,7 +48,7 @@ export function check(){const frames=[text(root)];globalThis.frame(16384,0,[],[]
   expect(javascript).toEqual(["-2147483648|1|-2147483647|-2147483648|16777216|0", "2|1|-1|-2147483648|16777216|0"]);
   await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="model-view-numbers"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))}}\nserde_json="1"\n`);
   await Bun.write(resolve(run, "src/main.rs"), `mod gen;use gen::*;use microts::{Host,Ui,Input};struct Native(Ui);impl Host for Native{fn ui(&self)->&Ui{&self.0}fn ui_mut(&mut self)->&mut Ui{&mut self.0}fn into_ui(self)->Ui{self.0}}impl<const B:u32>microts::HasButton<B> for Native{}fn text(ui:&Ui,id:i32)->String{let mut s=ui.core().node_text(id).unwrap_or("").to_owned();for child in ui.core().node_children(id){s.push_str(&text(ui,*child));}s}fn main(){let mut ui=Ui::new();ui.load_styles(include_bytes!("gen/styles.bin"));let mut app=AppApp::new(Native(ui),AppProps{},AppModel::default());let mut frames=vec![text(app.ui(),1)];app.frame(&Input::buttons(16384));frames.push(text(app.ui(),1));app.unmount();println!("{}",serde_json::json!(frames));}`);
-  const child = Bun.spawn(["cargo", "run", "--quiet", "--manifest-path", resolve(run, "Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: AOT_CARGO_TARGET_DIR } });
+  const child = Bun.spawn(["cargo", "run", "--quiet", "--manifest-path", resolve(run, "Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
   const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   await Bun.write(resolve(run, "native.log"), stderr); expect(status, stderr).toBe(0); expect(JSON.parse(stdout)).toEqual(javascript);
 }, 120_000);
