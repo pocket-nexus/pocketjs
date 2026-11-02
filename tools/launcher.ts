@@ -850,17 +850,46 @@ export async function renderCovers(
     await Bun.write(bgPath, encodePNG(stageBackground(), SHOT_W, SHOT_H));
     console.log(`  stage ${relative(ROOT, bgPath)}`);
   }
+  // POCKET_LAUNCHER_COVERS=placeholder (tools/test.ts sets it for the launcher
+  // stage) writes the fallback gradient for every missing cover and compiles
+  // nothing: a cover is 256x128 RGBA either way, and the launcher tests read
+  // the tree's text, not pixels. A placeholder leaves a marker beside its PNG;
+  // a render without the variable treats a marked cover as missing.
+  const placeholder = process.env.POCKET_LAUNCHER_COVERS === "placeholder";
+  const marker = (app: LauncherRegistryEntry) => join(COVERS_DIR, `cover-${app.output}.placeholder`);
+  const pending = registry.apps.filter((app) => {
+    const coverPath = join(COVERS_DIR, `cover-${app.output}.png`);
+    const reflPath = join(COVERS_DIR, `refl-${app.output}.png`);
+    const present = existsSync(coverPath) && existsSync(reflPath) && (placeholder || !existsSync(marker(app)));
+    return force || !present;
+  });
+  const coverTargetOf = (app: LauncherRegistryEntry) => {
+    const manifest = readPocketManifest(manifestPath(app)).manifest;
+    const coverTarget: LauncherTarget = (["psp", "vita", SYMBIAN_E7_DEV_TARGET_ID] as const).find(target => resolveForTarget(manifest, target).ok)!;
+    if (!coverTarget) throw new Error(`cover app no longer admits a launcher target: ${app.output}`);
+    return { manifest, coverTarget };
+  };
+  if (placeholder) {
+    for (const app of pending) {
+      // An explicitly included manifest still compiles: the command's exit
+      // code is how its author learns that the app does not build.
+      if (app.projectRoot) await compileApp(app, coverTargetOf(app).coverTarget, join(ROOT, "dist"));
+      const ringed = transparentRing(fallbackCover(app.output), SHOT_W, SHOT_H);
+      await Bun.write(join(COVERS_DIR, `cover-${app.output}.png`), encodePNG(ringed, SHOT_W, SHOT_H));
+      await Bun.write(join(COVERS_DIR, `refl-${app.output}.png`), encodePNG(reflectionOf(ringed), REFL_W, REFL_H));
+      await Bun.write(marker(app), "");
+      console.log(`  cover ${app.output} -> placeholder gradient (POCKET_LAUNCHER_COVERS)`);
+    }
+    return;
+  }
+  if (pending.length === 0) return;
   // Import lazily: bootWorld pulls the wasm core + build machinery, which
   // `scan` alone must not need.
   const { bootBundle } = await import("../programs/sim/sim.ts");
   const wasm = await ensureHostWasm();
-  for (const app of registry.apps) {
+  for (const app of pending) {
     const coverPath = join(COVERS_DIR, `cover-${app.output}.png`);
-    const reflPath = join(COVERS_DIR, `refl-${app.output}.png`);
-    if (!force && existsSync(coverPath) && existsSync(reflPath)) continue;
-    const manifest = readPocketManifest(manifestPath(app)).manifest;
-    const coverTarget: LauncherTarget = (["psp", "vita", SYMBIAN_E7_DEV_TARGET_ID] as const).find(target => resolveForTarget(manifest, target).ok)!;
-    if (!coverTarget) throw new Error(`cover app no longer admits a launcher target: ${app.output}`);
+    const { manifest, coverTarget } = coverTargetOf(app);
     if (force || !existsSync(join(ROOT, "dist", `${app.output}.js`))) {
       await compileApp(app, coverTarget, join(ROOT, "dist"));
     }
@@ -889,6 +918,7 @@ export async function renderCovers(
       join(COVERS_DIR, `refl-${app.output}.png`),
       encodePNG(reflectionOf(ringed), REFL_W, REFL_H),
     );
+    rmSync(marker(app), { force: true });
   }
 }
 

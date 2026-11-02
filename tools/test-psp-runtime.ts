@@ -17,5 +17,5 @@ const packages = JSON.parse(metadata.stdout.toString()).packages as {name:string
 const source = packages.find(p => p.name === "pocketjs-psp")?.dependencies.find(p => p.name === "libquickjs-sys")?.source;
 const dependency = source ? packages.find(p => p.name === "libquickjs-sys" && p.source?.startsWith(`${source}#`)) : undefined;
 if (!dependency) throw new Error("PSP's pinned QuickJS source is absent");
-const result = Bun.spawnSync(["cargo", "+stable", "test", "--locked", "--manifest-path", join(root, "tests/fixtures/psp-runtime/Cargo.toml"), "--", "--test-threads=1"], { cwd: root, env: { ...process.env, POCKETJS_PROFILE_RS: exported.module, POCKET_QJS_SOURCE: join(dirname(dependency.manifest_path), "embed/quickjs"), CARGO_TARGET_DIR: join(validation, "host-target") }, stdout: "inherit", stderr: "inherit" });
+const result = Bun.spawnSync(["cargo", "+stable", "test", "--locked", "--manifest-path", join(root, "tests/fixtures/psp-runtime/Cargo.toml"), "--", "--test-threads=1"], { cwd: root, env: { ...process.env, POCKETJS_PROFILE_RS: exported.module, POCKET_QJS_SOURCE: join(dirname(dependency.manifest_path), "embed/quickjs"), CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR ?? join(root, "target") }, stdout: "inherit", stderr: "inherit" });
 process.exit(result.success ? 0 : result.exitCode || 1);

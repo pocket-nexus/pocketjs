@@ -15,6 +15,7 @@ test("Vue lab generated Rust compiles against its handwritten model", async () =
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { AOT_CARGO_TARGET_DIR } from "../microts/compiler/cargo-target.ts";
 import type { AotComponent, AotExpr, AotHandler, AotNode, AotProgram, AotType } from "../microts/compiler/aot-ir.ts";
 
 const loc = { file: "backend-fixture.tsx", line: 1, column: 1, offset: 0 };
@@ -32,7 +33,7 @@ function cargoFixture(name: string, generated: string, rust: string) {
   writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "aot-backend-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/crates/microts"))} }\n`);
   writeFileSync(`${directory}/src/generated.rs`, generated);
   writeFileSync(`${directory}/src/lib.rs`, `mod generated;\nuse generated::*;\n${rust}`);
-  const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: resolve(".pocket-build/validation/solid-aot/backend/target") } });
+  const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: AOT_CARGO_TARGET_DIR } });
   expect(result.stderr.toString()).not.toContain("error[");
   expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
 }

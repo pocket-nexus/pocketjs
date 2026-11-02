@@ -3,9 +3,10 @@ import profile from "./helpers/native-program-profile.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { encodePocketPackage, encodeIdentity, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { lockedQuickJsSources, quickJsVendorObjects } from "../tools/quickjs-vendor.ts";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 const repository = resolve(import.meta.dir, "..");
 const build = join(repository, `.pocket-build/validation/native-program/${Date.now()}-${process.pid}`);
@@ -22,17 +23,13 @@ function run(args: readonly string[], env: NodeJS.ProcessEnv = process.env): str
 describe("native program composition", () => {
   test("real guest uses GPU viewports, terminal waits, collect and canonical input", () => {
     const cc = Bun.which("cc"); expect(cc).not.toBeNull();
-    const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "Cargo.toml"]));
-    const dependency = metadata.packages.find((p: { name: string }) => p.name === "rquickjs-sys");
-    expect(dependency).toBeDefined();
-    const quickjs = join(dirname(dependency.manifest_path), "quickjs");
-    const target = join(repository, ".pocket-build/validation/native-program/target");
+    const quickjs = lockedQuickJsSources();
+    // The workspace target directory, shared with tests/quickjs-c-harness.test.ts:
+    // the two feature sets rebuild only the cabi crate, not its dependencies.
+    const target = process.env.CARGO_TARGET_DIR ?? join(repository, "target");
     run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "programs/native/cabi/Cargo.toml", "--no-default-features", "--features", "standalone-extension-provider", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
-    const vendor = ["quickjs", "dtoa", "libregexp", "libunicode"].map(name => {
-      const object = join(build, `${name}.o`);
-      run([cc!, "-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"', "-I", quickjs, "-c", join(quickjs, `${name}.c`), "-o", object]);
-      return object;
-    });
+    const vendor = quickJsVendorObjects({ cc: cc!, quickjs, units: ["quickjs", "dtoa", "libregexp", "libunicode"],
+      flags: ["-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"'], log: (_, output) => writeFileSync(join(build, `${serial++}.log`), output) });
     const profileHeader = writeHostProfileHeader(build, profile);
     const bytes = encodePocketPackage({manifest: new Uint8Array(), variants:[{
       target: profile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(profile), sections: [

@@ -36,9 +36,13 @@ export function linuxFixture(directory: string): string {
 export function runLinuxPlatformsTests(directory: string) {
   directory = resolve(directory);
   const profileModule = linuxFixture(directory);
+  // The workspace target directory: the profile module is a build.rs input
+  // (rerun-if-env-changed), so sharing it with other builds is safe, and a
+  // per-run directory would compile the six crates from scratch every time.
+  const targetDirectory = process.env.CARGO_TARGET_DIR ?? resolve(root, "target");
   const commands: { command: string[]; success: boolean; signal: unknown }[] = [];
   const run = (command: string[], expected = true) => {
-    const result = Bun.spawnSync(command, { cwd: root, env: { ...process.env, CARGO_TARGET_DIR: resolve(directory, "target"), POCKETJS_PROFILE_RS: profileModule }, stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync(command, { cwd: root, env: { ...process.env, CARGO_TARGET_DIR: targetDirectory, POCKETJS_PROFILE_RS: profileModule }, stdout: "pipe", stderr: "pipe" });
     const output = result.stdout.toString() + result.stderr.toString();
     writeFileSync(resolve(directory, `command-${commands.length}.log`), output);
     commands.push({ command, success: result.success, signal: result.signalCode });
@@ -46,7 +50,7 @@ export function runLinuxPlatformsTests(directory: string) {
     return output;
   };
   const cargo = ["cargo", ...(process.env.POCKET_LINUX_CARGO_TOOLCHAIN ? ["+" + process.env.POCKET_LINUX_CARGO_TOOLCHAIN] : [])];
-  const binary = process.env.POCKET_LINUX_TEST_BINARY ?? resolve(directory, "target/debug/pocket-linux-kms");
+  const binary = process.env.POCKET_LINUX_TEST_BINARY ?? resolve(targetDirectory, "debug/pocket-linux-kms");
   if (!process.env.POCKET_LINUX_TEST_BINARY) {
     run([...cargo, "test", "--locked", ...["hooks", "drm", "fbdev", "evdev", "alsa", "kms"].flatMap(name => ["-p", "pocket-linux-" + name])]);
     run([...cargo, "build", "--locked", "-p", "pocket-linux-kms", ...(process.platform === "linux" ? ["--features", "alsa"] : [])]);

@@ -27,5 +27,5 @@ const fixture = "tests/fixtures/vita-runtime/Cargo.toml";
 const packages = metadata(fixture);
 const dependency = packages.find(p => p.name === "libquickjs-sys" && p.source?.startsWith(`${source}#`));
 if (!dependency) throw new Error("Vita's pinned QuickJS dependency is absent");
-const result = Bun.spawnSync(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "test", "--locked", "--offline", "--manifest-path", join(root, fixture), "--", "--test-threads=1"], { cwd: root, env: { ...process.env, POCKETJS_PROFILE_RS: exported.module, POCKET_QJS_SOURCE: join(dirname(dependency.manifest_path), "embed/quickjs"), CARGO_TARGET_DIR: join(validation, "target") }, stdout: "inherit", stderr: "inherit" });
+const result = Bun.spawnSync(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "test", "--locked", "--offline", "--manifest-path", join(root, fixture), "--", "--test-threads=1"], { cwd: root, env: { ...process.env, POCKETJS_PROFILE_RS: exported.module, POCKET_QJS_SOURCE: join(dirname(dependency.manifest_path), "embed/quickjs"), CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR ?? join(root, "target") }, stdout: "inherit", stderr: "inherit" });
 process.exit(result.success ? 0 : result.exitCode || 1);

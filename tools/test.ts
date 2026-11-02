@@ -10,8 +10,9 @@
 // captured, replayed only on failure); `script` runs a self-reporting bun
 // script as-is (tests/contract.ts prints its own ok-lines); `tests` run as
 // ONE `bun test` invocation, with `browser: true` adding
-// `--conditions=browser` (stages that eval wasm-host bundles). On failure
-// the exact repro command is printed before exiting 1.
+// `--conditions=browser` (stages that eval wasm-host bundles); `env` is
+// added to every process of the stage. On failure the exact repro command
+// is printed before exiting 1.
 
 interface Stage {
   readonly name: string;
@@ -23,6 +24,8 @@ interface Stage {
   readonly tests?: readonly string[];
   /** Run `tests` under --conditions=browser (wasm-host module resolution). */
   readonly browser?: boolean;
+  /** Environment added to every prep, script and test process of the stage. */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 const SUITE: readonly Stage[] = [
@@ -354,7 +357,11 @@ const SUITE: readonly Stage[] = [
     tests: ["tests/audio-sim.test.ts"],
   },
   {
+    // The launcher tests read the deck's text and switch protocol, never a
+    // cover's pixels: placeholder covers skip compiling and sim-booting every
+    // registry app (about a minute) and the tests inherit the same mode.
     name: "launcher sim",
+    env: { POCKET_LAUNCHER_COVERS: "placeholder" },
     prep: [["bun", "tools/launcher.ts", "covers"]],
     browser: true,
     tests: ["tests/launcher-sim.test.ts", "tests/launcher-symbian.test.ts", "tests/nexus-touch.test.ts"],
@@ -420,6 +427,7 @@ for (const stage of selected) {
   for (const cmd of stage.prep ?? []) {
     const p = Bun.spawnSync(cmd as string[], {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -430,6 +438,7 @@ for (const stage of selected) {
   if (stage.script) {
     const p = Bun.spawnSync(stage.script as string[], {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "inherit",
       stderr: "inherit",
     });
@@ -444,6 +453,7 @@ for (const stage of selected) {
     ];
     const p = Bun.spawnSync(cmd, {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "inherit",
       stderr: "inherit",
     });
