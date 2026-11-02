@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! pocketjs-core — the platform-agnostic retained UI core.
 //!
 //! One `Ui` instance owns the node tree, style table, taffy layout, font

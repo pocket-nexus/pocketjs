@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! Backend-independent damage, composition, and presentation transactions.
 
 #![no_std]

@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! Driver-owned textures retained by the submissions that read them.
 //!
 //! Handles include the host's generation; revisions identify in-place edits.

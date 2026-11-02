@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! Deterministic software rasterizer: executes the core DrawList (spec.ts
 //! "DRAWLIST op format") over an RGBA8, BGRA8, or RGB565 framebuffer.
 //! DrawList coordinates remain logical; [`render_scaled`] maps them directly

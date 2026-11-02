@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! Borrowed `.pocket` and asset-pack readers, plan facts, and identity hashing.
 //!
 //! Package bytes and platform I/O stay with the caller. This crate preserves

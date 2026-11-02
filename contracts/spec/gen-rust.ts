@@ -202,7 +202,6 @@ export function generateRust(): string {
   const L: string[] = [];
   const put = (s = "") => L.push(s);
 
-  put('#![doc = include_str!("../README.md")]');
   put("//! GENERATED — do not edit; run `bun contracts/spec/gen-rust.ts` (from PocketJS/).");
   put("//!");
   put("//! Source of truth: contracts/spec — every constant here mirrors its TypeScript definition.");

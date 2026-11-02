@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! Decode the closed DrawList operation set without copying its words.
 //!
 //! Scissor records contain absolute logical coordinates, already intersected

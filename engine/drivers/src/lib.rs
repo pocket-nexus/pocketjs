@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! Device contracts shared by the UI core, runtime, and external drivers.
 //!
 //! This crate has no platform or runtime dependency. The `abi` module is

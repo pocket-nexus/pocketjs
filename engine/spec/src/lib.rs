@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! GENERATED — do not edit; run `bun contracts/spec/gen-rust.ts` (from PocketJS/).
 //!
 //! Source of truth: contracts/spec — every constant here mirrors its TypeScript definition.

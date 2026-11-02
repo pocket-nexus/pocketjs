@@ -1,4 +1,3 @@
-#![doc = include_str!("../README.md")]
 //! Font coverage expansion and driver-owned page storage.
 //!
 //! Source views borrow immutable font bytes. A8 output owns its storage; the
