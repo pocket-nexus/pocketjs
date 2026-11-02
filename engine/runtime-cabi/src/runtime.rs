@@ -236,6 +236,15 @@ pub unsafe extern "C" fn pocket_runtime_set_package_source(
     }
 }
 /// # Safety
+/// runtime is live.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_set_texture_budget(
+    runtime: *mut PocketRuntime,
+    bytes: usize,
+) -> i32 {
+    unsafe { modify(runtime, |runtime| runtime.set_texture_budget(bytes)) }
+}
+/// # Safety
 /// runtime is live; guest/context obey the callback and borrowing contracts.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_set_guest(

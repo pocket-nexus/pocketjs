@@ -174,7 +174,10 @@ as that engine's serialized objects, which the guest reads instead of parsing
 source (docs/PLATFORM.md, "Bytecode"). The baked font atlases of a package the
 runtime reads in place stay in the package: their coverage cells are read from
 flash or PSRAM where they are, and a slot is copied only when a streaming font
-writes into it. `pocket_runtime_tick` runs one guest frame,
+writes into it. Its images and sprites are decoded into PSRAM when first drawn;
+`pocket_runtime_set_texture_budget` bounds the decoded bytes kept past a frame,
+releasing the least recently drawn textures beyond it until a frame draws them
+again. `pocket_runtime_tick` runs one guest frame,
 advances the core by the package rate divided by the cadence, and presents. A returned display or renderer failure has
 terminated all device access for that frame. A guest failure stops further
 turns; read `pocket_guest_idf_error` for engine diagnostics.

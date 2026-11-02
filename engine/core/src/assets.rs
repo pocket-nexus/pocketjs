@@ -41,7 +41,9 @@ impl Ui {
 
     /// `load_assets` whose inputs are slices of `storage`, which the caller
     /// keeps alive: font atlases then read their coverage cells from it in
-    /// place instead of copying them. An input outside `storage` is copied.
+    /// place instead of copying them, and images and sprites are decoded
+    /// from it when first drawn (`upload_texture_from`). An input outside
+    /// `storage` is copied.
     pub fn load_assets_from(
         &mut self,
         inputs: &[AssetInput<'_>],
@@ -84,7 +86,12 @@ impl Ui {
                     fonts[slot] = true;
                 }
                 AssetKind::Image => {
-                    let handle = staged.upload_img_entry(b);
+                    let handle = match storage.and_then(|storage| range_in(storage, b)) {
+                        Some(range) => {
+                            staged.upload_img_entry_from(storage.unwrap().clone(), range)
+                        }
+                        None => staged.upload_img_entry(b),
+                    };
                     if handle < 0 {
                         return Err(AssetError::Invalid);
                     }
@@ -107,7 +114,17 @@ impl Ui {
                     {
                         return Err(AssetError::Invalid);
                     }
-                    let handle = staged.upload_texture(&b[16..], w, h, b[4] as u32);
+                    let handle = match storage.and_then(|storage| range_in(storage, b)) {
+                        Some(range) => staged.upload_texture_from(
+                            storage.unwrap().clone(),
+                            range.start + 16..range.end,
+                            w,
+                            h,
+                            b[4] as u32,
+                            0,
+                        ),
+                        None => staged.upload_texture(&b[16..], w, h, b[4] as u32),
+                    };
                     if handle < 0 {
                         return Err(AssetError::Invalid);
                     }
