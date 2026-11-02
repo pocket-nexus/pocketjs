@@ -56,8 +56,10 @@ export async function prepareRelease(cwd: string, requested: Bump | "auto" = "au
   };
   const inherited = new Map<string, string>();
   for (const pkg of metadata.packages.filter(p => metadata.workspace_members.includes(p.id))) {
-    const doc = Bun.TOML.parse(await Bun.file(pkg.manifest_path).text()) as { package: { version: unknown } };
-    if (typeof doc.package.version === "object" && (doc.package.version as { workspace?: boolean }).workspace) {
+    const text = await Bun.file(pkg.manifest_path).text();
+    const section = text.split(/^\[package\]\s*$/m)[1]?.split(/^\[/m)[0] ?? "";
+    const doc = Bun.TOML.parse(section) as { version?: { workspace?: boolean } | string };
+    if (typeof doc.version === "object" && doc.version.workspace) {
       inherited.set(dirname(pkg.manifest_path), pkg.name);
     }
   }
