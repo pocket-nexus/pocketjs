@@ -23,6 +23,9 @@ fn main() {
     for name in ["worker.c", "quickjs.c", "quickjs_ui.c", "runner.c"] {
         build.file(worker.join("src").join(name));
     }
+    // the C sizes of the structs src/runner.rs mirrors
+    build.file("src/layout.c");
+    println!("cargo:rerun-if-changed=src/layout.c");
     build.compile("pocket_worker");
 }
 

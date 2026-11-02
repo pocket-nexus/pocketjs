@@ -112,6 +112,10 @@ struct RunnerConfig {
     wait: Option<unsafe extern "C" fn(*mut c_void, u64)>,
     after_turn: Option<Callback>,
     start_paused: c_int,
+    /// The worker bundle as a package bytecode section; null: the source.
+    bytecode: *const u8,
+    bytecode_size: usize,
+    engine_abi: *const u8,
 }
 
 extern "C" {
@@ -341,6 +345,9 @@ fn own(host: Arc<Host>, source: Vec<u8>, booted: mpsc::SyncSender<Result<RunnerH
         wait: Some(wait),
         after_turn: Some(after_turn),
         start_paused: 0,
+        bytecode: ptr::null(),
+        bytecode_size: 0,
+        engine_abi: ptr::null(),
     };
     let runner = unsafe { pocket_worker_runner_create(&config) };
     if runner.is_null() {
@@ -367,4 +374,31 @@ fn own(host: Arc<Host>, source: Vec<u8>, booted: mpsc::SyncSender<Result<RunnerH
         pocket_worker_runner_destroy(runner);
     }
     host.core.store(ptr::null_mut(), Ordering::Release);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    extern "C" {
+        fn pocket_linux_worker_layout(which: c_int) -> usize;
+    }
+
+    #[test]
+    fn the_mirrored_structs_have_the_c_sizes() {
+        let sizes = [
+            size_of::<RunnerConfig>(),
+            size_of::<CoreConfig>(),
+            size_of::<RealmConfig>(),
+            size_of::<Driver>(),
+            size_of::<Node>(),
+        ];
+        for (which, size) in sizes.into_iter().enumerate() {
+            assert_eq!(
+                size,
+                unsafe { pocket_linux_worker_layout(which as c_int) },
+                "struct {which}"
+            );
+        }
+    }
 }
