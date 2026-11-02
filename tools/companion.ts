@@ -188,7 +188,7 @@ async function pair(args: Args) {
   const qr = encodeQr(uri);
   console.log(renderQrTerminal(qr));
   console.log(uri);
-  console.log(`QR version ${qr.version}-M, ${Buffer.byteLength(uri)} bytes. On the 3DS: Pocket › Settings › Mac › Pair a Mac.`);
+  console.log(`QR version ${qr.version}-M, ${Buffer.byteLength(uri)} bytes. On the Tab5 or the 3DS: Pocket Shell › Settings › Mac › Pair a Mac.`);
   console.log(`window open until ${new Date(expiresAt).toLocaleTimeString()}`);
   if (!args.flags.has("--wait")) return;
   for (;;) {
