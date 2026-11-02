@@ -39,7 +39,7 @@ const SUITE: readonly Stage[] = [
     script: ["bun", "tests/contract.ts"],
   },
   {
-    // Native program and guest composition tests also run in native-c-harness.yml.
+    // Native program and guest composition tests share this unit-test stage.
     name: "unit",
     // wasm-auxiliary.test.ts, wasm-premultiplied.test.ts, pocket3d-web.test.ts and runtime-glyphs.test.ts load platforms/web/pocketjs.wasm.
     prep: [["bun", "tools/wasm.ts"]],
