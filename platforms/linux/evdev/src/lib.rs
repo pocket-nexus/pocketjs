@@ -1,6 +1,6 @@
 //! Bounded evdev packet decoding. State is published at SYN_REPORT; dropped
 //! kernel packets cancel contacts once and require fresh device events.
-use pocket_drivers::{CancelledContact, Contact, InputFrameBuilder, Pointer};
+use pocket_drivers::{AxisSample, CancelledContact, Contact, InputFrameBuilder, Pointer};
 use pocket_spec::btn;
 use std::io;
 #[derive(Clone, Copy, Debug)]
@@ -18,6 +18,20 @@ impl AxisRange {
             .clamp(0.0, 1.0)
             * f64::from(extent.saturating_sub(1))) as f32
     }
+    /// A stick sample on the runtime's 0..=255 scale, 128 at the range's middle.
+    fn stick(self, value: i32) -> f32 {
+        if self.max <= self.min {
+            return 128.0;
+        }
+        ((((i64::from(value) - i64::from(self.min)) as f64
+            / (i64::from(self.max) - i64::from(self.min)) as f64)
+            .clamp(0.0, 1.0)
+            * 255.0)
+            .round()) as f32
+    }
+    fn middle(self) -> i32 {
+        ((i64::from(self.min) + i64::from(self.max)) / 2) as i32
+    }
 }
 #[derive(Clone, Copy, Default)]
 struct Touch {
@@ -34,6 +48,8 @@ struct State {
     pointer_buttons: u32,
     /// ABS_HAT0X/ABS_HAT0Y: a gamepad's D-pad reported as a hat (-1, 0, 1).
     hat: [i32; 2],
+    /// The sticks' raw values, by Pocket axis (left x, left y, right x, right y).
+    sticks: [i32; 4],
 }
 impl Default for State {
     fn default() -> Self {
@@ -43,6 +59,7 @@ impl Default for State {
             pointer: [0.0; 2],
             pointer_buttons: 0,
             hat: [0; 2],
+            sticks: [0; 4],
         }
     }
 }
@@ -63,6 +80,9 @@ pub struct Decoder {
     pointer_enabled: bool,
     /// Key codes and the buttons they press, in place of the default table.
     keymap: Option<Vec<(u16, u32)>>,
+    /// Absolute axes read as sticks: the evdev code, the Pocket axis it
+    /// reports (0..=3) and the code's range.
+    sticks: Vec<(u16, u32, AxisRange)>,
 }
 impl Decoder {
     /// Contact IDs are reserved per device. Distinct devices must use disjoint
@@ -99,6 +119,7 @@ impl Decoder {
             cancelled: Vec::with_capacity(16),
             pointer_enabled: false,
             keymap: None,
+            sticks: Vec::new(),
         })
     }
     fn release(&mut self, slot: usize, cancel: bool) {
@@ -138,6 +159,12 @@ impl Decoder {
                 self.dropping = false;
             }
             return;
+        }
+        if kind == 3 {
+            if let Some(&(_, axis, _)) = self.sticks.iter().find(|s| s.0 == code) {
+                self.current.sticks[axis as usize] = value;
+                return;
+            }
         }
         match (kind, code) {
             (3, 47 | 53 | 54 | 57) if !self.accept_multitouch => {}
@@ -208,6 +235,18 @@ impl Decoder {
     pub fn set_keymap(&mut self, keymap: &[(u16, u32)]) {
         self.keymap = Some(keymap.to_vec());
     }
+    /// Reads these absolute axes as sticks: each evdev code, the Pocket axis it
+    /// reports (0 left x, 1 left y, 2 right x, 3 right y) and its range. Every
+    /// frame then carries those axes, on the runtime's 0..=255 scale with 128 at
+    /// rest. A gamepad whose stick codes would otherwise read as touch
+    /// coordinates (ABS_X, ABS_Y) reports them here instead.
+    pub fn set_sticks(&mut self, sticks: &[(u16, u32, AxisRange)]) {
+        self.sticks = sticks.iter().copied().filter(|s| s.1 < 4).collect();
+        for &(_, axis, range) in &self.sticks {
+            self.current.sticks[axis as usize] = range.middle();
+            self.published.sticks[axis as usize] = range.middle();
+        }
+    }
     /// The surface this device's contacts and pointer land on (0 primary,
     /// 1 auxiliary) and that surface's logical extent.
     pub fn set_surface(&mut self, surface: u32, extent: [u32; 2]) -> io::Result<()> {
@@ -238,6 +277,9 @@ impl Decoder {
         self.current.keys.fill(false);
         self.current.pointer_buttons = 0;
         self.current.hat = [0; 2];
+        for &(_, axis, range) in &self.sticks {
+            self.current.sticks[axis as usize] = range.middle();
+        }
         self.published = self.current.clone();
     }
     fn default_buttons(keys: &[bool; 768], frame: &mut InputFrameBuilder) {
@@ -304,6 +346,12 @@ impl Decoder {
             if on {
                 frame.buttons |= mask;
             }
+        }
+        for &(_, axis, range) in &self.sticks {
+            frame.axes.push(AxisSample {
+                id: axis,
+                value: range.stick(self.published.sticks[axis as usize]),
+            });
         }
         if self.pointer_enabled {
             frame.pointer = Some(Pointer {
@@ -425,6 +473,39 @@ mod tests {
         assert_eq!(report(&mut d).buttons, btn::SELECT);
         d.event(3, 17, -1);
         assert_eq!(report(&mut d).buttons, btn::SELECT | btn::UP);
+    }
+    #[test]
+    fn sticks_report_axes_that_rest_at_128() {
+        let values =
+            |f: &InputFrameBuilder| f.axes.iter().map(|a| (a.id, a.value)).collect::<Vec<_>>();
+        let mut d = decoder();
+        assert!(report(&mut d).axes.is_empty());
+        let range = AxisRange {
+            min: -4096,
+            max: 4096,
+        };
+        d.set_sticks(&[(2, 0, range), (3, 1, range), (0, 2, range), (9, 7, range)]);
+        assert_eq!(
+            values(&report(&mut d)),
+            [(0, 128.0), (1, 128.0), (2, 128.0)]
+        );
+        d.event(3, 2, 4096);
+        d.event(3, 3, -4096);
+        // ABS_X is a stick here, not a single-touch coordinate
+        d.event(3, 0, -2048);
+        let f = report(&mut d);
+        assert_eq!(values(&f), [(0, 255.0), (1, 0.0), (2, 64.0)]);
+        assert!(f.contacts.is_empty());
+        // a partial report stays private until its SYN_REPORT
+        d.event(3, 2, 0);
+        let mut f = InputFrameBuilder::new();
+        d.append(&mut f);
+        assert_eq!(values(&f), [(0, 255.0), (1, 0.0), (2, 64.0)]);
+        d.disconnect();
+        assert_eq!(
+            values(&report(&mut d)),
+            [(0, 128.0), (1, 128.0), (2, 128.0)]
+        );
     }
     #[test]
     fn contacts_land_on_the_surface_the_device_is_routed_to() {
