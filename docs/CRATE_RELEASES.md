@@ -1,9 +1,9 @@
 # Rust crate releases
 
-**The Rust release publishes 14 crates from an explicit list** in
-`tools/release/publish-crates.ts`. `pocket-runtime-cabi` is excluded.
-The workspace version and all 14 package versions must match the requested
-release version. Update the workspace dependency versions with each version bump.
+**The repository release publishes 14 Rust crates** listed in
+`tools/release/publish-crates.ts`. The script reads each version from its Cargo
+manifest. Rust crate versions and npm package versions are independent.
+Update workspace dependency versions with each Rust version bump.
 
 ## First publication
 
@@ -21,6 +21,12 @@ The script uses the repository-pinned Rust toolchain. Cargo builds the packaged
 sources, uploads packages in dependency order, and waits for index availability.
 Registry lookup errors stop the release. A repeat invocation skips versions
 present on crates.io; a yanked version requires a version bump.
+The optional version argument requires all selected packages to match that
+version. Omitting it uses the package versions in the tagged source tree.
+
+crates.io permits an initial burst of five new crates per account, then one new
+crate every ten minutes. Resume at the time reported by the registry when this
+limit is reached. See [publishing rate limits](https://crates.io/docs/rate-limits).
 
 ## Trusted Publishing setup
 
@@ -31,7 +37,7 @@ crates.io **Settings → Trusted Publishing**:
 | --- | --- |
 | Repository owner | `pocket-nexus` |
 | Repository name | `pocketjs` |
-| Workflow filename | `publish-crates.yml` |
+| Workflow filename | `release.yml` |
 | Environment | Leave empty |
 
 The workflow exchanges its GitHub OIDC identity for a short-lived crates.io
@@ -40,20 +46,16 @@ GitHub secrets. See the [crates.io Trusted Publishing documentation](https://cra
 
 ## Subsequent releases
 
-Merge the version changes and release workflow into `main`, then tag the source
-revision with the Cargo workspace version:
+**Rust publication is a stage in `.github/workflows/release.yml`.** The existing
+`v*` tag trigger and manual release dispatch run the release identity check, SDK
+and runtime builds, and release validation. The publish job then publishes Rust
+crates before npm packages and the GitHub Release.
 
-```sh
-git tag crates-v0.1.1 <commit-on-main>
-git push origin crates-v0.1.1
-```
+The Rust stage uses the Cargo versions from that release revision and skips
+versions present on crates.io. A repository release can keep the current Rust
+versions while changing npm versions. To resume a release, rerun the existing
+workflow with the same tag or version input. Package publication jobs are
+serialized and do not cancel a run that is uploading packages.
 
-**Pushing a `crates-v*` tag publishes the selected crate versions.** The workflow
-checks that the tag points to a commit in `main` and that all selected versions
-match the tag. This tag prefix is separate from the npm release's `v*` prefix.
-To resume a release, rerun the workflow or dispatch **Publish Rust crates** with
-the same existing tag. Publication runs are serialized and do not cancel a run
-that is uploading packages.
-
-The workflow runs Cargo's package verification as part of publication. It adds
-no pull-request checks or test jobs.
+Cargo verifies packaged sources during publication. The Rust stage adds no
+test jobs or separate workflow.

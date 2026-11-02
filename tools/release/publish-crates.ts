@@ -47,8 +47,8 @@ async function published(pkg: Package): Promise<boolean> {
 
 async function main() {
   const [mode, version, ...extra] = Bun.argv.slice(2);
-  if (!["plan", "dry-run", "publish"].includes(mode ?? "") || !version || extra.length) {
-    throw new Error("Usage: bun tools/release/publish-crates.ts <plan|dry-run|publish> <version>");
+  if (!["plan", "dry-run", "publish"].includes(mode ?? "") || extra.length) {
+    throw new Error("Usage: bun tools/release/publish-crates.ts <plan|dry-run|publish> [version]");
   }
   const metadata = JSON.parse(output([...cargo, "metadata", "--locked", "--no-deps", "--format-version=1"])) as {
     packages: Package[]; workspace_members: string[];
@@ -58,7 +58,8 @@ async function main() {
     .map(pkg => [pkg.name, pkg]));
   for (const name of CRATES) {
     const pkg = packages.get(name);
-    if (!pkg || pkg.version !== version) throw new Error(`${name} must have version ${version}`);
+    if (!pkg) throw new Error(`Missing workspace crate: ${name}`);
+    if (version !== undefined && pkg.version !== version) throw new Error(`${name} must have version ${version}`);
     if (pkg.publish !== null && !pkg.publish.includes("crates-io")) {
       throw new Error(`${name} does not permit publication to crates.io`);
     }
@@ -106,7 +107,7 @@ async function main() {
     for (const pkg of ordered) {
       if (!await published(pkg)) throw new Error(`${pkg.name}@${pkg.version} is not visible on crates.io`);
     }
-    console.log(`All 14 crates at ${version} are available on crates.io.`);
+    console.log("All 14 selected crate versions are available on crates.io.");
   }
 }
 

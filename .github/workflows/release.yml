@@ -1,10 +1,9 @@
-name: Release to npm
+name: Release
 
-# Publish @pocketjs/framework and @pocketjs/cli when a v* tag is pushed
-# (e.g. `git tag v0.2.0 && git push origin v0.2.0`). Auth is npm Trusted
-# Publishing (OIDC): each package's npm Settings names this repo + workflow
-# file as a trusted publisher, so no token or secret is involved and npm
-# attaches provenance automatically. Publishing is idempotent: versions
+# Publish Rust crates, @pocketjs/framework and @pocketjs/cli when a v* tag is pushed
+# (e.g. `git tag v0.2.0 && git push origin v0.2.0`). Both registries use Trusted
+# Publishing (OIDC), configured for this repo and workflow. npm attaches
+# provenance automatically. Publishing is idempotent: versions
 # already on the registry are skipped, so re-running a tag or bumping only
 # one package is safe.
 on:
@@ -19,7 +18,7 @@ on:
 
 permissions:
   contents: write # GitHub Release creation
-  id-token: write # npm --provenance
+  id-token: write # npm and crates.io Trusted Publishing
 
 jobs:
   identity:
@@ -48,6 +47,9 @@ jobs:
     needs: [sdk-artifacts, runtime-artifacts]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: pocketjs-package-publication
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
@@ -140,6 +142,21 @@ jobs:
           bun tools/release/inputs.ts .pocket-build/validation/release .
           bun tools/release/publish.ts .pocket-build/validation/release/inputs.json .pocket-build/validation/release/assets
           bun tools/release/crates.ts > .pocket-build/validation/release/assets/crate-release-plan.json
+
+      - name: Select unpublished Rust crate versions
+        id: crates-plan
+        run: bun tools/release/publish-crates.ts plan
+
+      - name: Authenticate with crates.io
+        if: steps.crates-plan.outputs.pending != '0'
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish Rust crates
+        if: steps.crates-plan.outputs.pending != '0'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        run: bun tools/release/publish-crates.ts publish
 
       - name: Publish @pocketjs/framework
         run: |
