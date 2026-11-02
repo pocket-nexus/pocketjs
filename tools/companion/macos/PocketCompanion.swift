@@ -5,7 +5,7 @@
 // child process, or attaches to a daemon already running for the same store,
 // and drives it through the local control API named by control.json.
 //
-// The window walks an owner through the setup (Pocket Shell on the 3DS, the
+// The window walks an owner through the setup (Pocket Shell on a Tab5 or a 3DS, the
 // pairing code, the applets) and holds a page for each service the applets
 // use: X, Discord, YouTube and the L+R assistant. It lives in the menu bar;
 // while the window is open the app also shows in the Dock.
@@ -23,7 +23,7 @@ import SwiftUI
 enum Studio {
   static let shell = URL(string: "https://studio.pocket.nexus/apps/shell")!
   static let companion = URL(string: "https://studio.pocket.nexus/apps/companion")!
-  static let installGuide = URL(string: "https://studio.pocket.nexus/docs/install/#3ds")!
+  static let installGuide = URL(string: "https://studio.pocket.nexus/docs/install/")!
   static let discordPortal = URL(string: "https://discord.com/developers/applications")!
   static let codex = URL(string: "https://developers.openai.com/codex/cli")!
 }
@@ -684,7 +684,7 @@ struct PairingCode: View {
           }
           Spacer()
         }
-        Para("On the 3DS, open Settings › Mac › Pair a Mac… and point the outer camera at this code.")
+        Para("On the Tab5 or the 3DS, open Settings › Mac › Pair a Mac… and point the Tab5's camera or the 3DS's outer camera at this code.")
         HStack {
           TimelineView(.periodic(from: .now, by: 1)) { context in
             let left = max(0, Int(expires / 1000 - context.date.timeIntervalSince1970))
@@ -715,16 +715,16 @@ struct StartPage: View {
   var body: some View {
     if let status = daemon.status {
       VStack(alignment: .leading, spacing: 16) {
-        PageTitle(title: "Get Started", line: "Pocket Companion brings applets to Pocket Shell on your Nintendo 3DS and does the work they need on this Mac.")
-        Step(number: 1, title: "Put Pocket Shell on your 3DS", done: !status.paired.isEmpty) {
-          Para("Download pocket-shell.3dsx from Pocket Studio, copy it to the 3ds folder of the 3DS's SD card, and open Pocket Shell from the Homebrew Launcher.")
+        PageTitle(title: "Get Started", line: "Pocket Companion brings applets to Pocket Shell on your M5Stack Tab5 or Nintendo 3DS and does the work they need on this Mac.")
+        Step(number: 1, title: "Put Pocket Shell on your Tab5 or 3DS", done: !status.paired.isEmpty) {
+          Para("Get Pocket Shell from Pocket Studio. On a Tab5, write its firmware with esptool as the install guide shows. On a 3DS, copy pocket-shell.3dsx to the 3ds folder of the SD card and open it from the Homebrew Launcher.")
           HStack {
             Button("Get Pocket Shell") { openURL(Studio.shell) }
             Button("Install Guide") { openURL(Studio.installGuide) }
           }
         }
-        Step(number: 2, title: "Pair your 3DS with this Mac", done: !status.paired.isEmpty) {
-          Para("Connect the 3DS to the same Wi-Fi network as this Mac. Pairing happens once; after it the 3DS finds this Mac by itself.")
+        Step(number: 2, title: "Pair your Tab5 or 3DS with this Mac", done: !status.paired.isEmpty) {
+          Para("Connect the Tab5 or 3DS to the same Wi-Fi network as this Mac. Pairing happens once; after it the device finds this Mac by itself.")
           if status.paired.isEmpty || status.pairing.open {
             PairingCode(status: status)
           } else {
@@ -733,11 +733,11 @@ struct StartPage: View {
           }
         }
         Step(number: 3, title: "Install applets", done: false) {
-          Para("On the 3DS, tap the Mac icon on the Home screen. It lists the \(status.apps.count) applets that come with Pocket Companion; tap GET next to the ones you want.")
+          Para("On the Tab5 or the 3DS, tap the Mac icon on the Home screen. It lists the \(status.apps.count) applets that come with Pocket Companion. GET installs one, OPEN starts it and UPDATE installs a newer version of one you have.")
           Button("See the Applets") { Navigation.shared.page = .applets }
         }
         Step(number: 4, title: "Set up the services you use", done: false) {
-          Para("X, Discord and YouTube work through this Mac. Each has a page here with its setup; the 3DS never holds your passwords or tokens.")
+          Para("X, Discord and YouTube work through this Mac. Each has a page here with its setup; the Tab5 or 3DS never holds your passwords or tokens.")
           HStack {
             Button("X") { Navigation.shared.page = .x }
             Button("Discord") { Navigation.shared.page = .discord }
@@ -813,7 +813,7 @@ struct AppletsPage: View {
   var body: some View {
     if let status = daemon.status {
       VStack(alignment: .leading, spacing: 16) {
-        PageTitle(title: "Applets", line: "Install these on the 3DS from the Mac icon on its Home screen.")
+        PageTitle(title: "Applets", line: "Install these on the Tab5 or the 3DS from the Mac icon on its Home screen.")
         if status.apps.isEmpty {
           Text("No applets are offered.").foregroundStyle(.secondary)
         }
@@ -892,7 +892,7 @@ struct XPage: View {
           Button("Sign Out of X") { Task { await daemon.service("x", ["logout"]) } }
         } else {
           StateLine(on: false, text: x.signingIn ? "Waiting for you to sign in" : "Not signed in")
-          Para("Sign in once in the window that opens. The window closes by itself when you are in. Your session stays in Pocket Companion's folder on this Mac; the 3DS never receives it.")
+          Para("Sign in once in the window that opens. The window closes by itself when you are in. Your session stays in Pocket Companion's folder on this Mac; the Tab5 or 3DS never receives it.")
           Button("Sign In to X…") { Task { await daemon.service("x", ["login"]) } }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -925,7 +925,7 @@ struct DiscordPage: View {
         } else {
           StateLine(on: true, text: "Bot \(discord.bot ?? "") is set up")
           let servers = discord.servers ?? []
-          Text(servers.isEmpty ? "The bot is in no server yet. Invite it to the servers you want to read on the 3DS." : "In \(servers.count == 1 ? "1 server" : "\(servers.count) servers"): \(servers.joined(separator: ", "))")
+          Text(servers.isEmpty ? "The bot is in no server yet. Invite it to the servers you want to read on the Tab5 or 3DS." : "In \(servers.count == 1 ? "1 server" : "\(servers.count) servers"): \(servers.joined(separator: ", "))")
             .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
           if discord.contentIntent == false {
             Text("Messages arrive empty: turn on Message Content Intent under Bot in the Discord Developer Portal.")
@@ -979,7 +979,7 @@ struct YoutubePage: View {
   var body: some View {
     let youtube = daemon.services?.services.youtube
     VStack(alignment: .leading, spacing: 16) {
-      PageTitle(title: "YouTube", line: "The YouTube applet plays videos this Mac converts for the 3DS while you watch.")
+      PageTitle(title: "YouTube", line: "The YouTube applet plays videos this Mac converts for the Tab5 or 3DS while you watch.")
       if let youtube {
         let installing = youtube.install.state == "installing"
         if youtube.ready && !installing {
@@ -1027,7 +1027,7 @@ struct AssistantPage: View {
   var body: some View {
     let agent = daemon.services?.agent
     VStack(alignment: .leading, spacing: 16) {
-      PageTitle(title: "Assistant", line: "Press L and R together on the 3DS to ask Claude about what is on the screen, by voice or by keyboard.")
+      PageTitle(title: "Assistant", line: "Press L and R together on the 3DS to ask Claude about what is on the screen, by voice or by keyboard. The Tab5 has no assistant.")
       Para("The assistant's answers come from Codex on this Mac, signed in with your ChatGPT account. The 3DS sends your question and a picture of its screen to this Mac; Codex uses your plan's usage.")
       if let agent {
         if agent.on {

@@ -85,7 +85,7 @@ function infoPlist(): string {
     ["LSMinimumSystemVersion", "<string>15.0</string>"],
     ["LSUIElement", "<true/>"],
     ["NSHighResolutionCapable", "<true/>"],
-    ["NSLocalNetworkUsageDescription", "<string>Pocket Companion listens for paired game consoles on your local network and announces itself to them.</string>"],
+    ["NSLocalNetworkUsageDescription", "<string>Pocket Companion listens for your paired Tab5 or 3DS on your local network and announces itself to it.</string>"],
     ...(release ? [] : ([["PocketRepoAppsDir", `<string>${join(root, "dist", "3ds")}</string>`]] as [string, string][])),
   ];
   return `<?xml version="1.0" encoding="UTF-8"?>
