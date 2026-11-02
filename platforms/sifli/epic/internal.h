@@ -7,6 +7,11 @@
 #include "chip.h"
 #include "pocket/sifli.h"
 
+/* newlib's sys/types.h defines quad as a legacy typedef alias. */
+#ifdef quad
+#undef quad
+#endif
+
 /* PocketJS portable texture layouts (contracts/spec/spec.ts PSM). */
 #define EPIC_PSM_5650 0u
 #define EPIC_PSM_4444 2u

@@ -1,6 +1,10 @@
 #pragma once
 #include <stdbool.h>
 #include "pocket_drivers.h"
+/* newlib may expose a legacy `quad` macro before this header. */
+#ifdef quad
+#undef quad
+#endif
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,6 +30,8 @@ extern "C" {
 #define POCKET_EPIC_PORTABLE_TEXTURES (1u << 7)
 /* Axis-aligned blits honor POCKET_EPIC_MIRROR_Y. */
 #define POCKET_EPIC_BLIT_MIRROR_Y (1u << 8)
+/* Native rotated/scaled rectangles, subject to can_blit_rotate preflight. */
+#define POCKET_EPIC_BLIT_ROTATE (1u << 9)
 
 typedef struct {
   size_t struct_size;
@@ -48,6 +54,7 @@ typedef struct {
 #define POCKET_EPIC_OP_TILE_OUT 7u
 #define POCKET_EPIC_OP_TILE_IN 8u
 #define POCKET_EPIC_OP_FENCE 9u
+#define POCKET_EPIC_OP_BLIT_ROTATE 10u
 
 #define POCKET_EPIC_MIRROR_X (1u << 0)
 #define POCKET_EPIC_MIRROR_Y (1u << 1)
@@ -74,7 +81,10 @@ typedef struct {
  * right) inside `clip`; the alpha byte of `color` scales both, and its RGB
  * multiplies the texels when the capabilities include
  * POCKET_EPIC_BLIT_MODULATE. TILE_OUT copies target pixels of `clip`
- * into tile `tile`, packed; TILE_IN copies the packed tile back over dst. */
+ * into tile `tile`, packed; TILE_IN copies the packed tile back over dst.
+ * BLIT_ROTATE uses the same fields as BLIT_QUAD, for native textures only.
+ * Its quantized rotation/uniform scale must pass can_blit_rotate before
+ * submission; it is not a general affine/projective quad capability. */
 typedef struct {
   uint32_t op, flags;
   pocket_epic_rect dst, clip, src;
@@ -128,6 +138,9 @@ typedef struct {
   uint16_t *(*tile)(void *, uint32_t tile, size_t *length);
   int32_t (*register_texture)(void *, const pocket_epic_texture *, uint32_t *id);
   void (*release_texture)(void *, uint32_t id);
+  /* Read-only preflight for BLIT_ROTATE. OK means this exact command can
+   * run; UNSUPPORTED means the renderer must replay it on the CPU. */
+  int32_t (*can_blit_rotate)(void *, const pocket_epic_cmd *);
 } pocket_epic_ops;
 
 typedef struct {

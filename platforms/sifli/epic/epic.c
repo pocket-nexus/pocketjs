@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "internal.h"
+#include "rotate.h"
 
 static EPIC_HandleTypeDef g_epic;
 #ifdef HAL_EZIP_MODULE_ENABLED
@@ -216,12 +217,16 @@ int epic_hw_blit(const pocket_epic_cmd *cmd) {
   uint8_t alpha = (uint8_t)(cmd->color >> 24);
   bool mirror_x = (cmd->flags & POCKET_EPIC_MIRROR_X) != 0;
   bool mirror_y = (cmd->flags & POCKET_EPIC_MIRROR_Y) != 0;
+  bool rotating = cmd->op == POCKET_EPIC_OP_BLIT_ROTATE;
+  epic_rotation rotation;
 
   if (!g_ready || cmd->source != POCKET_EPIC_SOURCE_TEXTURE ||
       (cmd->color & 0x00FFFFFFu) != 0x00FFFFFFu || !epic_rect_in_target(&cmd->clip) ||
-      !addressable(&cmd->clip) || cmd->dst.w == 0 || cmd->dst.h == 0 ||
-      !addressable(&cmd->dst) || cmd->dst.x + cmd->dst.w > target->width ||
-      cmd->dst.y + cmd->dst.h > target->height || (mirror_y && !EPIC_HAS_V_MIRROR))
+      !addressable(&cmd->clip) || (mirror_y && !EPIC_HAS_V_MIRROR))
+    return EPIC_EXEC_REJECT;
+  if (rotating ? (!EPIC_HAS_ROTATE || mirror_x || mirror_y ||
+                  !epic_rotation_from_quad(&cmd->src, cmd->quad, EPIC_COORD_MAX, &rotation))
+               : (!epic_rect_in_target(&cmd->dst) || !addressable(&cmd->dst)))
     return EPIC_EXEC_REJECT;
   texture = epic_texture_by_id(cmd->texture);
   if (texture == NULL || texture->kind != POCKET_EPIC_TEXTURE_NATIVE || cmd->src.w == 0 ||
@@ -251,9 +256,9 @@ int epic_hw_blit(const pocket_epic_cmd *cmd) {
   offset = ((uint64_t)cmd->src.y * texture->width + cmd->src.x) * bytes_per_pixel;
   if (offset >= texture->pixel_bytes)
     return EPIC_EXEC_REJECT;
-  scale_x =
+  scale_x = rotating ? rotation.scale :
       (uint32_t)(((uint64_t)cmd->src.w * EPIC_INPUT_SCALE_NONE + cmd->dst.w / 2u) / cmd->dst.w);
-  scale_y =
+  scale_y = rotating ? rotation.scale :
       (uint32_t)(((uint64_t)cmd->src.h * EPIC_INPUT_SCALE_NONE + cmd->dst.h / 2u) / cmd->dst.h);
   if (scale_x == 0 || scale_y == 0)
     return EPIC_EXEC_REJECT;
@@ -280,6 +285,13 @@ int epic_hw_blit(const pocket_epic_cmd *cmd) {
   layers[1].transform_cfg.scale_x = scale_x;
   layers[1].transform_cfg.scale_y = scale_y;
   layers[1].transform_cfg.h_mirror = mirror_x ? 1 : 0;
+  if (rotating) {
+    layers[1].x_offset = (int16_t)(rotation.x_q16 >> 16);
+    layers[1].y_offset = (int16_t)(rotation.y_q16 >> 16);
+    layers[1].x_offset_frac = (uint16_t)rotation.x_q16;
+    layers[1].y_offset_frac = (uint16_t)rotation.y_q16;
+    layers[1].transform_cfg.angle = rotation.angle;
+  }
 #if EPIC_HAS_V_MIRROR
   layers[1].transform_cfg.v_mirror = mirror_y ? 1 : 0;
 #endif

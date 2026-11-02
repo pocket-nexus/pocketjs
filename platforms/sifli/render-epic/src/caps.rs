@@ -33,6 +33,9 @@ pub struct Capabilities {
     /// Four-point (affine or projective) blits of registered textures and
     /// of solid colors.
     pub blit_quad: bool,
+    /// Native rotated rectangles accepted by the executor's read-only
+    /// `can_blit_rotate` preflight. Does not imply arbitrary quad support.
+    pub blit_rotate: bool,
     /// Blits multiply texels by the DrawList's RGB modulate color. When
     /// false only the modulate alpha applies and tinted blits stay on the
     /// CPU.

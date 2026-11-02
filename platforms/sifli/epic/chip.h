@@ -17,6 +17,13 @@
  * every layer to its minimum corner: 1010 on 55x/56x/58x, 505 on 52x/57x. */
 #define EPIC_COORD_MAX ((uint32_t)EPIC_COORDINATES_MAX)
 
+/* Native rotation path validated on 52x; independent of VG Lite. */
+#if defined(SF32LB52X)
+#define EPIC_HAS_ROTATE 1
+#else
+#define EPIC_HAS_ROTATE 0
+#endif
+
 /* A8 coverage layers with a fixed color (everything after 55x). */
 #ifdef EPIC_SUPPORT_A8
 #define EPIC_HAS_A8 1

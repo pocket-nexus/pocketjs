@@ -1,7 +1,7 @@
 /* The EPIC executor behind pocket_epic_ops.
  *
  * Commands arrive in painter order from the renderer. EPIC (epic.c) runs
- * fills, gradients, A8 blends, native axis-aligned blits and tile copies one
+ * fills, gradients, A8 blends, native blits/rotations and tile copies one
  * transaction at a time; VG Lite (vglite.c, SF32LB58) runs four-point quads,
  * tinted blits and blits of textures registered in portable layouts. The two
  * engines share no arbitration, so a command that moves to the other engine
@@ -13,6 +13,7 @@
 #include "mem_section.h"
 
 #include "internal.h"
+#include "rotate.h"
 
 #define MASK_BYTES ((size_t)POCKETJS_EPIC_MASK_TILE_KB * 1024u)
 #define TILE_PIXELS ((size_t)POCKETJS_EPIC_CPU_TILE_KB * 1024u / sizeof(uint16_t))
@@ -128,6 +129,22 @@ static int run_blit(const pocket_epic_cmd *cmd, bool quad) {
   return EPIC_EXEC_REJECT;
 }
 
+static int32_t can_blit_rotate(void *context, const pocket_epic_cmd *cmd) {
+  epic_rotation rotation;
+  if (context != &g_epic || !g_epic.open || !EPIC_HAS_ROTATE || !cmd ||
+      cmd->op != POCKET_EPIC_OP_BLIT_ROTATE || !epic_can_blit(cmd) ||
+      (cmd->flags & (POCKET_EPIC_MIRROR_X | POCKET_EPIC_MIRROR_Y)) ||
+      !epic_rect_in_target(&cmd->clip) || cmd->clip.w > EPIC_COORD_MAX ||
+      cmd->clip.h > EPIC_COORD_MAX)
+    return POCKET_STATUS_UNSUPPORTED;
+  const epic_texture *texture = epic_texture_by_id(cmd->texture);
+  if (cmd->src.x >= texture->width || cmd->src.y >= texture->height ||
+      cmd->src.w > texture->width - cmd->src.x || cmd->src.h > texture->height - cmd->src.y)
+    return POCKET_STATUS_UNSUPPORTED;
+  return epic_rotation_from_quad(&cmd->src, cmd->quad, EPIC_COORD_MAX, &rotation)
+             ? POCKET_STATUS_OK : POCKET_STATUS_UNSUPPORTED;
+}
+
 /* ---- pocket_epic_ops ----------------------------------------------------- */
 
 static int32_t caps(void *context, pocket_epic_caps *out) {
@@ -152,6 +169,7 @@ static int32_t caps(void *context, pocket_epic_caps *out) {
 #if EPIC_HAS_V_MIRROR
   out->flags |= POCKET_EPIC_BLIT_MIRROR_Y;
 #endif
+  if (EPIC_HAS_ROTATE) out->flags |= POCKET_EPIC_BLIT_ROTATE;
   /* VG Lite reads registered textures only: they are 64-byte aligned and
    * cache-clean from registration on. It mirrors through its matrix. */
   if (epic->vglite)
@@ -203,6 +221,11 @@ static int32_t submit(void *context, const pocket_epic_cmd *cmds, size_t count) 
       break;
     case POCKET_EPIC_OP_BLIT_QUAD:
       result = run_blit(cmd, true);
+      break;
+    case POCKET_EPIC_OP_BLIT_ROTATE:
+      switch_engine(ENGINE_EPIC);
+      result = can_blit_rotate(context, cmd) == POCKET_STATUS_OK
+                   ? epic_hw_blit(cmd) : EPIC_EXEC_REJECT;
       break;
     case POCKET_EPIC_OP_TILE_OUT:
       switch_engine(ENGINE_EPIC);
@@ -391,6 +414,7 @@ int32_t pocket_sifli_epic_create(const pocket_sifli_epic_config *config,
       .tile = tile,
       .register_texture = register_texture,
       .release_texture = release_texture,
+      .can_blit_rotate = can_blit_rotate,
   };
   g_epic.open = true;
   *out = &g_epic;

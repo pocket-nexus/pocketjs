@@ -51,6 +51,12 @@ pub trait Executor {
     /// What the planner may issue. Constant for the executor's lifetime.
     fn caps(&self) -> Capabilities;
 
+    /// Read-only preflight of a BlitRotate command. No writes or queued
+    /// operations; false sends the original triangles through the CPU.
+    fn can_blit_rotate(&self, _cmd: &Cmd) -> bool {
+        false
+    }
+
     /// Wait for earlier work and bind the device target `target`, which
     /// must be `width` x `height` RGB565 pixels.
     fn begin(&mut self, target: u64, width: u32, height: u32) -> Result<(), ExecError>;
