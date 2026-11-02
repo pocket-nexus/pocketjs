@@ -125,6 +125,21 @@ enum PackageAssets {
     Admitted(Rc<LoadedPackage>),
     Embedded(Rc<[u8]>),
 }
+/// The admitted package's pak as the storage its font atlases read in place
+/// (`pocketjs_core::text::Coverage`); the package lives while they do.
+struct AdmittedPak(Rc<LoadedPackage>);
+impl AsRef<[u8]> for AdmittedPak {
+    fn as_ref(&self) -> &[u8] {
+        self.0.pak()
+    }
+}
+/// An embedded pack as that storage.
+struct EmbeddedPak(Rc<[u8]>);
+impl AsRef<[u8]> for EmbeddedPak {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
 impl PackageAssets {
     fn pak(&self) -> &[u8] {
         match self {
@@ -162,9 +177,14 @@ impl OpContext {
             return Err(RuntimeError::InvalidState);
         }
         let mut state = self.core_mut()?;
-        let registry = assets::install(&mut state.ui, pak)?;
+        let shared: Rc<[u8]> = Rc::from(pak);
+        let registry = assets::install(
+            &mut state.ui,
+            &shared,
+            Some(Rc::new(EmbeddedPak(shared.clone()))),
+        )?;
         state.mutated();
-        *self.package.borrow_mut() = Some(PackageAssets::Embedded(Rc::from(pak)));
+        *self.package.borrow_mut() = Some(PackageAssets::Embedded(shared));
         Ok(registry)
     }
     /// Declare that the embedding supplies the compositor raster namespace.
@@ -731,7 +751,11 @@ impl Runtime {
         let (registry, auxiliary_root) = {
             let mut state = self.ops.core_mut()?;
             let registry = if self.native_assets {
-                Some(assets::install(&mut state.ui, package.pak())?)
+                Some(assets::install(
+                    &mut state.ui,
+                    package.pak(),
+                    Some(Rc::new(AdmittedPak(package.clone()))),
+                )?)
             } else {
                 None
             };

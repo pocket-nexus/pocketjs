@@ -110,7 +110,7 @@ mod tests {
         let old = core::mem::take(&mut source.bitmap);
         source.cell_w = 40;
         source.texture_cell_w = 16;
-        source.bitmap = alloc::vec![0;512*40*16];
+        source.bitmap = alloc::vec![0;512*40*16].into();
         for gid in 0..512 {
             for y in 0..16 {
                 source.bitmap[gid * 640 + y * 40..gid * 640 + y * 40 + 16]
