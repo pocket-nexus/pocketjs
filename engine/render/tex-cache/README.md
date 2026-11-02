@@ -6,7 +6,7 @@ Versioned texture storage with submission-scoped retention for graphics drivers.
 
 ```toml
 [dependencies]
-pocket-tex-cache = "0.1.0"
+pocket-tex-cache = "0.16.0"
 ```
 
 ## Example

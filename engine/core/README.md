@@ -6,7 +6,7 @@ Retained UI trees, layout, text atlases, animation, and DrawList emission for Po
 
 ```toml
 [dependencies]
-pocketjs-core = "0.1.0"
+pocketjs-core = "0.16.0"
 ```
 
 ## Example

@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-draw-ops"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -59,14 +59,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-drivers"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-glyph-pages"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -74,14 +74,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-media"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-package"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-present"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
@@ -99,7 +99,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-profile-build"
-version = "0.1.0"
+version = "0.16.0"
 
 [[package]]
 name = "pocket-psp-runtime-contract"
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-raster"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-runtime"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
@@ -138,7 +138,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-runtime-cabi"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
@@ -151,11 +151,11 @@ dependencies = [
 
 [[package]]
 name = "pocket-spec"
-version = "0.1.0"
+version = "0.16.0"
 
 [[package]]
 name = "pocketjs-core"
-version = "0.1.0"
+version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-glyph-pages",
