@@ -164,6 +164,10 @@ export const LINK_SERVICES_ORIGIN = `https://${LINK_SERVICES_HOST}`;
 /** Features a companion may list in ready/paired. */
 export const LINK_FEATURE = {
   netStream: "net.stream",
+  /** Whole-response HTTP: `net` without `stream`, answered by one net.head
+   *  carrying the body's length and then the body. Consoles whose firmware
+   *  predates the worker domain (a UI realm `net` module) send only this. */
+  net: "net",
   catalog: "catalog",
   install: "install",
 } as const;

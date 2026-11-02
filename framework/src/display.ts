@@ -25,26 +25,25 @@ export interface AuxiliarySurfaceRoots {
 
 let roots: AuxiliarySurfaceRoots | null = null;
 
+function layerStyle(width: number, height: number, overlay: boolean) {
+  return overlay
+    ? {
+        width,
+        height,
+        posType: ENUMS.PosType.Absolute,
+        insetT: 0,
+        insetR: 0,
+        insetB: 0,
+        insetL: 0,
+        zIndex: 1000,
+        hitPass: 1,
+      }
+    : { width, height, overflow: ENUMS.Overflow.Hidden };
+}
+
 function layer(width: number, height: number, overlay: boolean): NodeMirror {
   const node = createElement("view");
-  setProp(
-    node,
-    "style",
-    overlay
-      ? {
-          width,
-          height,
-          posType: ENUMS.PosType.Absolute,
-          insetT: 0,
-          insetR: 0,
-          insetB: 0,
-          insetL: 0,
-          zIndex: 1000,
-          hitPass: 1,
-        }
-      : { width, height, overflow: ENUMS.Overflow.Hidden },
-    undefined,
-  );
+  setProp(node, "style", layerStyle(width, height, overlay), undefined);
   return node;
 }
 
@@ -86,6 +85,17 @@ export function unmountAuxiliarySurface(ops: HostOps): void {
     ops.destroyNode(child.id);
   }
   releaseNativeRoot(mounted.native);
+}
+
+/** The host resized the auxiliary surface (Runtime::resize_auxiliary): the
+ *  app and overlay layers take the new size, and auxiliaryViewport() reads
+ *  it. Content laid out from the old size lays out again when the app
+ *  remounts it. */
+export function resizeAuxiliarySurface(width: number, height: number): void {
+  if (!roots || !(width > 0) || !(height > 0)) return;
+  setProp(roots.app, "style", layerStyle(width, height, false), undefined);
+  setProp(roots.overlay, "style", layerStyle(width, height, true), undefined);
+  roots = { ...roots, viewport: Object.freeze({ width, height }) };
 }
 
 export function auxiliaryViewport(): AuxiliaryViewport | null {

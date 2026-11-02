@@ -32,6 +32,10 @@ export interface AppletDeclaration {
    *  `https://companion.pocket/<name>/…` (contracts/spec/link.ts
    *  LINK_SERVICES_ORIGIN) through io.http. */
   readonly services?: readonly string[];
+  /** Host names outside the companion that the applet's worker fetches. A
+   *  host that installs applets from a store shows them before an install,
+   *  and its http node refuses other hosts to an app the store installed. */
+  readonly hosts?: readonly string[];
   /** Persistent state: required to declare data.fs; the host
    *  confines the store to the applet and to this many bytes. */
   readonly store?: { readonly maxBytes: number };
@@ -53,6 +57,7 @@ export const appletSchema = {
     version: { const: APPLET_VERSION },
     summary: { type: "string", minLength: 1, maxLength: APPLET_SUMMARY_MAX },
     services: { type: "array", items: serviceNameSchema, uniqueItems: true, maxItems: 8 },
+    hosts: { type: "array", items: { type: "string", pattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", maxLength: 253 }, uniqueItems: true, maxItems: 16 },
     store: {
       type: "object",
       additionalProperties: false,

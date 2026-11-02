@@ -1,13 +1,13 @@
-//! The package's worker domain: engine/worker's C runner on its own thread
-//! (the owner task), with the primitives the runner asks of a platform: a
-//! core lock, a wake notification and a monotonic clock. The worker has one
-//! node, `http` (http.rs); its request threads queue facts that the owner
-//! task emits into the core whenever it waits or finishes a turn.
+//! A package's worker domain: engine/worker's C runner on its own thread (the
+//! owner task), with the primitives the runner asks of a platform: a core
+//! lock, a wake notification and a monotonic clock. The worker has one node,
+//! `http` (http.rs); answers queue facts that the owner task emits into the
+//! core whenever it waits or finishes a turn.
 //!
-//! The guest (main.rs) starts the worker before the UI bundle evaluates,
+//! The guest (guest.rs) starts the worker before the UI bundle evaluates,
 //! attaches the UI realm's channel bridge (`pocket_worker_ui_*`) to the core,
 //! latches it before every frame, and detaches it before the worker stops.
-use crate::http::{self, Http};
+use crate::http::HttpNode;
 use std::{
     cell::UnsafeCell,
     ffi::{c_char, c_int, c_void, CStr},
@@ -112,6 +112,10 @@ struct RunnerConfig {
     wait: Option<unsafe extern "C" fn(*mut c_void, u64)>,
     after_turn: Option<Callback>,
     start_paused: c_int,
+    /// The worker bundle as a package bytecode section; null: the source.
+    bytecode: *const u8,
+    bytecode_size: usize,
+    engine_abi: *const u8,
 }
 
 extern "C" {
@@ -166,7 +170,7 @@ struct Host {
     lock: UnsafeCell<libc::pthread_mutex_t>,
     notify: Arc<Notify>,
     epoch: Instant,
-    http: Arc<Http>,
+    http: Arc<HttpNode>,
     /// Set once bootstrap succeeds; the owner task drains http's facts into it.
     core: AtomicPtr<Core>,
 }
@@ -238,7 +242,7 @@ pub struct Worker {
 impl Worker {
     /// Evaluate `source` (section 8, NUL-terminated) on a new owner thread and
     /// return once its bootstrap declared the channels, or with the cause.
-    pub fn start(source: &[u8], http: Arc<Http>, notify: Arc<Notify>) -> Result<Self, String> {
+    pub fn start(source: &[u8], http: Arc<HttpNode>, notify: Arc<Notify>) -> Result<Self, String> {
         if source.len() < 2 || source.last() != Some(&0) {
             return Err("the worker bundle is not NUL-terminated".into());
         }
@@ -299,7 +303,7 @@ impl Drop for Worker {
 /// node table and the bundle live in this frame until destroy returns.
 fn own(host: Arc<Host>, source: Vec<u8>, booted: mpsc::SyncSender<Result<RunnerHandle, String>>) {
     let context = Arc::as_ptr(&host) as *mut c_void;
-    let driver = http::driver(&host.http);
+    let driver = HttpNode::driver(&host.http);
     let node = Node {
         struct_size: size_of::<Node>() as u32,
         kind: KIND_HTTP,
@@ -341,6 +345,9 @@ fn own(host: Arc<Host>, source: Vec<u8>, booted: mpsc::SyncSender<Result<RunnerH
         wait: Some(wait),
         after_turn: Some(after_turn),
         start_paused: 0,
+        bytecode: ptr::null(),
+        bytecode_size: 0,
+        engine_abi: ptr::null(),
     };
     let runner = unsafe { pocket_worker_runner_create(&config) };
     if runner.is_null() {
@@ -367,4 +374,31 @@ fn own(host: Arc<Host>, source: Vec<u8>, booted: mpsc::SyncSender<Result<RunnerH
         pocket_worker_runner_destroy(runner);
     }
     host.core.store(ptr::null_mut(), Ordering::Release);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    extern "C" {
+        fn pocket_linux_worker_layout(which: c_int) -> usize;
+    }
+
+    #[test]
+    fn the_mirrored_structs_have_the_c_sizes() {
+        let sizes = [
+            size_of::<RunnerConfig>(),
+            size_of::<CoreConfig>(),
+            size_of::<RealmConfig>(),
+            size_of::<Driver>(),
+            size_of::<Node>(),
+        ];
+        for (which, size) in sizes.into_iter().enumerate() {
+            assert_eq!(
+                size,
+                unsafe { pocket_linux_worker_layout(which as c_int) },
+                "struct {which}"
+            );
+        }
+    }
 }

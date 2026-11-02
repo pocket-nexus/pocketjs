@@ -16,7 +16,7 @@ export default defineHostConfig({
     hosts: ["darwin-arm64", "linux-arm64", "linux-x64"],
     steps: cargo({ manifest: "../../Cargo.toml", package: "pocket-cardputer-zero", targetDirectory: "{outdir}/cargo", release: true }),
     sourceInputs: ["Cargo.toml", "build.rs", "src", "pocket.host.json", "../../Cargo.toml", "../../Cargo.lock", "../../rust-toolchain.toml",
-      ...["hooks", "fbdev", "evdev"].flatMap(name => [`../../platforms/linux/${name}/Cargo.toml`, `../../platforms/linux/${name}/src`]),
+      ...["hooks", "fbdev", "evdev", "worker"].flatMap(name => [`../../platforms/linux/${name}/Cargo.toml`, `../../platforms/linux/${name}/src`]),
       "../../engine/worker/include", "../../engine/worker/src",
       ...["spec", "drivers", "core", "raster", "present", "package", "runtime", "guest-rquickjs", "profile-build", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
     ],

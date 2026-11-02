@@ -84,8 +84,10 @@ members = [
     "platforms/linux/evdev",
     "platforms/linux/fbdev",
     "platforms/linux/hooks",
+    "platforms/linux/worker",
     "programs/linux-kms",
     "programs/cardputer-zero",
+    "programs/rg-ds-plus",
     "programs/pocketbook",
 ]
 default-members = [
@@ -183,8 +185,10 @@ pocket-linux-drm = { path = "platforms/linux/drm", version = "0.16.0", default-f
 pocket-linux-evdev = { path = "platforms/linux/evdev", version = "0.16.0", default-features = false }
 pocket-linux-fbdev = { path = "platforms/linux/fbdev", version = "0.16.0", default-features = false }
 pocket-linux-hooks = { path = "platforms/linux/hooks", version = "0.16.0", default-features = false }
+pocket-linux-worker = { path = "platforms/linux/worker", version = "0.16.0", default-features = false }
 pocket-linux-kms = { path = "programs/linux-kms", version = "0.16.0", default-features = false }
 pocket-cardputer-zero = { path = "programs/cardputer-zero", version = "0.16.0", default-features = false }
+pocket-rg-ds-plus = { path = "programs/rg-ds-plus", version = "0.16.0", default-features = false }
 pocketbook-host = { path = "programs/pocketbook", version = "0.16.0", default-features = false }
 pocket-media = { path = "engine/modules/media", version = "0.16.0", default-features = false }
 pocket-mod = { path = "engine/crates/pocket-mod", version = "0.16.0", default-features = false }

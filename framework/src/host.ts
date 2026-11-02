@@ -213,6 +213,13 @@ export interface HostOps {
   /** Stop audio, close the stream, free the plane. */
   videoClose?(): void;
 
+  // -- text sessions. Optional: a host whose keyboard is somewhere else (a
+  //    handheld's lower panel, a system keyboard) shows it while a text
+  //    field's keyboard session is open and sends input.text events; the
+  //    on-screen keyboard's controller calls it (osk-controller.ts). ----
+  /** A text field's keyboard session opened (true) or closed (false). */
+  textSession?(open: boolean): void;
+
   // -- DevTools ops (spec ops 18..22, docs/DEVTOOLS.md). Optional: debug-only,
   //    default-off; hosts that predate them (e.g. pocket-mod) simply lack
   //    them and the shim feature-detects. ---------------------------------
@@ -414,6 +421,13 @@ export function getHost(): Host {
 
 export function getOps(): HostOps {
   return getHost().ops;
+}
+
+/** The active host's ops, or null before render() installed one: for a
+ *  controller that works without a host (the keyboard session in a unit
+ *  test) and asks the host for an optional service. */
+export function peekOps(): HostOps | null {
+  return current?.ops ?? null;
 }
 
 const APP_ACTION_NAME = /^[a-z][a-z0-9_.-]{0,62}$/;

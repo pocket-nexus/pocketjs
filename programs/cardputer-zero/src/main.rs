@@ -1,7 +1,7 @@
 //! The M5Stack CardputerZero program: one package on the 320x170 panel
 //! (fbdev, RGB565), the keyboard as buttons (evdev), and the package's worker
-//! domain (worker.rs), whose `http` node reaches Pocket Companion's control
-//! API on this machine (http.rs). Pocket Companion's own screen
+//! domain (pocket-linux-worker), whose `http` node reaches Pocket Companion's
+//! control API on this machine (http.rs). Pocket Companion's own screen
 //! (apps/companion-zero) runs on it.
 //!
 //! `--shot DIR --script "…"` runs the same program on any system without the
@@ -9,26 +9,19 @@
 //! framebuffer of the panel's geometry, written to DIR/<tick>.rgb565 at each
 //! `shot` event (shot.rs).
 use pocket_drivers::{Clock, InputClasses};
-use pocket_guest_rquickjs::RquickjsGuest;
 use pocket_linux_hooks::{FileSource, MonotonicClock};
+use pocket_linux_worker::WorkerGuest;
 use pocket_package::source::LoadedPackage;
-use pocket_runtime::{
-    timing::TickSchedule, Guest, GuestEnvironment, GuestFrame, OpContext, Runtime, RuntimeConfig,
-    RuntimeError,
-};
+use pocket_runtime::{timing::TickSchedule, Runtime, RuntimeConfig};
 use std::{
     error::Error,
     io,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 mod http;
 mod shot;
-mod worker;
 
 #[allow(dead_code)] // The export defines every fact; the program reads some.
 mod profile {
@@ -85,95 +78,6 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
         }
     }
     Ok(Some(output))
-}
-
-/// The rquickjs guest with the package's worker domain: the worker boots
-/// after the UI realm and before the UI bundle evaluates, so its channels
-/// exist when the bridge attaches; the bridge latches the worker's records
-/// before every frame and detaches before the worker stops.
-struct ZeroGuest {
-    inner: RquickjsGuest,
-    http: Arc<http::Http>,
-    notify: Arc<worker::Notify>,
-    bridge: *mut worker::Bridge,
-    worker: Option<worker::Worker>,
-}
-
-impl ZeroGuest {
-    fn fail(message: impl std::fmt::Display) -> RuntimeError {
-        eprintln!("pocket-cardputer-zero: worker: {message}");
-        RuntimeError::Guest
-    }
-    fn detach(&mut self) {
-        if !self.bridge.is_null() {
-            let bridge = std::mem::replace(&mut self.bridge, std::ptr::null_mut());
-            self.inner
-                .with(|_| unsafe { worker::pocket_worker_ui_detach(bridge) });
-        }
-    }
-}
-
-impl Guest for ZeroGuest {
-    fn initialize(
-        &mut self,
-        ops: OpContext,
-        environment: &GuestEnvironment<'_>,
-    ) -> Result<(), RuntimeError> {
-        self.shutdown();
-        self.inner.initialize(ops, environment)?;
-        if environment.worker_javascript.is_empty() {
-            return Ok(());
-        }
-        let worker = worker::Worker::start(
-            environment.worker_javascript,
-            self.http.clone(),
-            self.notify.clone(),
-        )
-        .map_err(Self::fail)?;
-        let core = worker.core();
-        self.worker = Some(worker);
-        self.bridge = self
-            .inner
-            .with(|ctx| unsafe { worker::pocket_worker_ui_attach(ctx.as_raw().as_ptr(), core) })
-            .unwrap_or(std::ptr::null_mut());
-        if self.bridge.is_null() {
-            return Err(Self::fail("channel bridge attachment failed"));
-        }
-        Ok(())
-    }
-    fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError> {
-        self.inner.evaluate(code)
-    }
-    fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
-        if let Some(fault) = self.worker.as_ref().and_then(worker::Worker::fault) {
-            return Err(Self::fail(fault));
-        }
-        if !self.bridge.is_null() {
-            let bridge = self.bridge;
-            let latched = self.inner.with(|ctx| {
-                if unsafe { worker::pocket_worker_ui_latch(bridge) } >= 0 {
-                    return Ok(());
-                }
-                let thrown = ctx.catch();
-                Err(thrown
-                    .as_exception()
-                    .and_then(|exception| exception.message())
-                    .unwrap_or_else(|| "channel latch failed".into()))
-            });
-            if let Some(Err(message)) = latched {
-                return Err(Self::fail(message));
-            }
-        }
-        self.inner.frame(frame)
-    }
-    fn collect(&mut self) -> Result<(), RuntimeError> {
-        self.inner.collect()
-    }
-    fn shutdown(&mut self) {
-        self.detach();
-        self.worker = None;
-        self.inner.shutdown()
-    }
 }
 
 fn run(options: Options) -> Result<(), Box<dyn Error>> {
@@ -233,20 +137,15 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     runtime
         .set_package_source(Box::new(source))
         .map_err(error)?;
-    let notify = Arc::new(worker::Notify::default());
-    let http = Arc::new(http::Http::new(
+    let exchange = http::ZeroExchange::new(
         options.control.unwrap_or_else(|| DEFAULT_CONTROL.into()),
         options.unit.unwrap_or_else(|| http::COMPANION_UNIT.into()),
-        notify.clone(),
-    ));
+    );
     runtime
-        .set_guest(Box::new(ZeroGuest {
-            inner: RquickjsGuest::default(),
-            http,
-            notify,
-            bridge: std::ptr::null_mut(),
-            worker: None,
-        }))
+        .set_guest(Box::new(WorkerGuest::new(
+            "pocket-cardputer-zero",
+            Box::new(exchange),
+        )))
         .map_err(error)?;
     runtime.boot().map_err(error)?;
     unsafe {

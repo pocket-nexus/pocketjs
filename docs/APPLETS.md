@@ -36,6 +36,7 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | `version` | **1**. A later version adds rules; a host refuses versions it does not know. |
 | `summary` | One sentence on what the applet does, at most **120** characters. The console's store and Pocket Companion's list of applets show it. |
 | `services` | Companion services the applet's worker fetches at `https://companion.pocket/<name>/…` through `io.http`. At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service the app does not declare. |
+| `hosts` | Host names outside the companion that the applet's worker fetches, at most **16**, each a lower-case DNS name. A host that installs applets from a store (Omarchy Pocket) lists them before an install, and its `http` node refuses any other host to an app the store installed. |
 | `store` | Persistent state: required for `data.fs`; `maxBytes` at most **4 MiB**. |
 
 ## App contract rules

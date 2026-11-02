@@ -874,3 +874,24 @@ fn cache_budget_preserves_pending_versions_and_evicts_retired_entries() {
     assert_eq!(renderer.cache_usage().image_entries, 1);
     renderer.retire(second);
 }
+
+#[test]
+fn an_external_texture_draws_in_place_of_the_core_texture() {
+    let mut renderer = fresh();
+    let handle = renderer.register_target(config()).unwrap();
+    let list = image_list();
+    let resources = Resources::new();
+    let white = GL.with(|gl| gl.borrow().uploads.len());
+    renderer.set_external_texture(7, Some(99));
+    let first = submit(&mut renderer, handle, &list, &resources).unwrap();
+    renderer.wait(&first).unwrap();
+    renderer.retire(first);
+    assert_eq!(resources.queried.get(), 0, "a bound handle never reads the core's pixels");
+    assert_eq!(GL.with(|gl| gl.borrow().uploads.len()), white, "and uploads nothing");
+    renderer.set_external_texture(7, None);
+    let second = submit(&mut renderer, handle, &list, &resources).unwrap();
+    renderer.wait(&second).unwrap();
+    renderer.retire(second);
+    assert_eq!(resources.queried.get(), 1, "unbound, the core's texture draws again");
+    assert_eq!(GL.with(|gl| gl.borrow().uploads.len()), white + 1);
+}

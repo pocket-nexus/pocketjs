@@ -7,18 +7,26 @@ use drm::{
     },
     Device,
 };
-use pocket_drivers::Rect;
+use pocket_drivers::{DisplayRole, Rect};
 use std::{
+    cell::RefCell,
     fs::{File, OpenOptions},
     io,
     os::fd::{AsFd, AsRawFd, BorrowedFd},
     path::Path,
+    rc::Rc,
     time::{Duration, Instant},
 };
-struct Card(File);
+/// One opened card. Outputs on the same card share it: DRM master belongs to
+/// the file description, and page-flip events for every CRTC arrive on it.
+struct Card {
+    file: File,
+    /// Flips completed for CRTCs whose output was not the one reading events.
+    completed: RefCell<Vec<crtc::Handle>>,
+}
 impl AsFd for Card {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.0.as_fd()
+        self.file.as_fd()
     }
 }
 impl Device for Card {}
@@ -28,50 +36,91 @@ struct BufferPair {
     fb: framebuffer::Handle,
 }
 pub struct NativeScanout {
-    card: Option<Card>,
+    card: Option<Rc<Card>>,
     buffers: Vec<BufferPair>,
     old: crtc::Info,
     connectors: Vec<connector::Handle>,
     size: [u32; 2],
     pending: bool,
 }
-impl NativeScanout {
-    fn create(card: Card, size: [u32; 2]) -> io::Result<Self> {
-        let resources = card.resource_handles()?;
-        let mut selected = None;
-        for handle in resources.connectors() {
-            let connector = card.get_connector(*handle, true)?;
-            if connector.state() != connector::State::Connected {
-                continue;
-            }
-            let Some(mode) = connector.modes().iter().copied().find(|m| {
-                let (w, h) = m.size();
-                [u32::from(w), u32::from(h)] == size
-            }) else {
-                continue;
-            };
-            for encoder in connector.encoders() {
-                let encoder = card.get_encoder(*encoder)?;
-                if let Some(crtc) = encoder.crtc().or_else(|| {
-                    resources
-                        .filter_crtcs(encoder.possible_crtcs())
-                        .first()
-                        .copied()
-                }) {
-                    selected = Some((*handle, crtc, mode));
-                    break;
-                }
-            }
-            if selected.is_some() {
-                break;
+/// An output to open: the connector's name as the kernel spells it in
+/// /sys/class/drm (`DSI-1`, `HDMI-A-1`), or the first connected connector
+/// with a mode of `size`, and the surface it presents.
+pub struct Output<'a> {
+    pub connector: Option<&'a str>,
+    pub size: [u32; 2],
+    pub role: DisplayRole,
+}
+fn connector_name(info: &connector::Info) -> String {
+    format!("{}-{}", info.interface().as_str(), info.interface_id())
+}
+/// A connector, its CRTC and the mode of the requested size.
+pub struct Selection {
+    pub connector: connector::Handle,
+    pub crtc: crtc::Handle,
+    pub mode: drm::control::Mode,
+}
+/// The connector named `name` (or the first connected one) with a mode of
+/// `size`, driven by its encoder's current CRTC or a possible CRTC that is
+/// not in `taken`.
+pub fn select_output(
+    card: &impl ControlDevice,
+    size: [u32; 2],
+    name: Option<&str>,
+    taken: &[crtc::Handle],
+) -> io::Result<Selection> {
+    let resources = card.resource_handles()?;
+    for handle in resources.connectors() {
+        let connector = card.get_connector(*handle, true)?;
+        if name.is_some_and(|name| connector_name(&connector) != name)
+            || connector.state() != connector::State::Connected
+        {
+            continue;
+        }
+        let Some(mode) = connector.modes().iter().copied().find(|m| {
+            let (w, h) = m.size();
+            [u32::from(w), u32::from(h)] == size
+        }) else {
+            continue;
+        };
+        for encoder in connector.encoders() {
+            let encoder = card.get_encoder(*encoder)?;
+            let free = |crtc: &crtc::Handle| !taken.contains(crtc);
+            if let Some(crtc) = encoder.crtc().filter(free).or_else(|| {
+                resources
+                    .filter_crtcs(encoder.possible_crtcs())
+                    .into_iter()
+                    .find(free)
+            }) {
+                return Ok(Selection {
+                    connector: *handle,
+                    crtc,
+                    mode,
+                });
             }
         }
-        let (connector, crtc, mode) = selected.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "no connected DRM mode matches the profile",
-            )
-        })?;
+    }
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        match name {
+            Some(name) => format!("connector {name} is absent, disconnected, has no mode of the profile's size or no free CRTC"),
+            None => "no connected DRM mode matches the profile".into(),
+        },
+    ))
+}
+impl NativeScanout {
+    fn create(
+        card: Rc<Card>,
+        size: [u32; 2],
+        name: Option<&str>,
+        taken: &[crtc::Handle],
+    ) -> io::Result<Self> {
+        let resources = card.resource_handles()?;
+        let Selection {
+            connector,
+            crtc,
+            mode,
+        } = select_output(&*card, size, name, taken)?;
         let old = card.get_crtc(crtc)?;
         let mut old_connectors = Vec::new();
         for handle in resources.connectors() {
@@ -116,6 +165,17 @@ impl NativeScanout {
         )?;
         Ok(output)
     }
+    /// True once this output's flip completed, whichever output read it.
+    fn take_completed(&self, card: &Card) -> bool {
+        let mut completed = card.completed.borrow_mut();
+        match completed.iter().position(|c| *c == self.old.handle()) {
+            Some(index) => {
+                completed.swap_remove(index);
+                true
+            }
+            None => false,
+        }
+    }
 }
 impl Scanout for NativeScanout {
     fn present(&mut self, slot: usize, pixels: &[u8], damage: &[Rect]) -> io::Result<()> {
@@ -150,13 +210,17 @@ impl Scanout for NativeScanout {
     fn wait(&mut self) -> io::Result<()> {
         let card = self
             .card
-            .as_ref()
+            .clone()
             .ok_or_else(|| io::Error::other("display stopped"))?;
         if !self.pending {
             return Err(io::Error::other("no pending page flip"));
         }
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
+            if self.take_completed(&card) {
+                self.pending = false;
+                return Ok(());
+            }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(io::Error::new(
@@ -165,7 +229,7 @@ impl Scanout for NativeScanout {
                 ));
             }
             let mut descriptor = libc::pollfd {
-                fd: card.0.as_raw_fd(),
+                fd: card.file.as_raw_fd(),
                 events: libc::POLLIN,
                 revents: 0,
             };
@@ -190,9 +254,8 @@ impl Scanout for NativeScanout {
                 return Err(io::Error::other("DRM disconnected"));
             }
             for event in card.receive_events()? {
-                if matches!(event,Event::PageFlip(event) if event.crtc==self.old.handle()) {
-                    self.pending = false;
-                    return Ok(());
+                if let Event::PageFlip(event) = event {
+                    card.completed.borrow_mut().push(event.crtc);
                 }
             }
         }
@@ -220,6 +283,9 @@ impl Scanout for NativeScanout {
             let _ = card.destroy_framebuffer(pair.fb);
             let _ = card.destroy_dumb_buffer(pair.dumb);
         }
+        card.completed
+            .borrow_mut()
+            .retain(|c| *c != self.old.handle());
         self.pending = false;
     }
 }
@@ -228,13 +294,36 @@ impl Drop for NativeScanout {
         self.stop();
     }
 }
-pub fn open(path: impl AsRef<Path>, size: [u32; 2]) -> io::Result<Display<NativeScanout>> {
+fn open_card(path: impl AsRef<Path>) -> io::Result<Rc<Card>> {
     if cfg!(target_endian = "big") {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "ARGB staging requires little-endian scanout",
         ));
     }
-    let card = Card(OpenOptions::new().read(true).write(true).open(path)?);
-    Display::new(NativeScanout::create(card, size)?, size)
+    Ok(Rc::new(Card {
+        file: OpenOptions::new().read(true).write(true).open(path)?,
+        completed: RefCell::new(Vec::new()),
+    }))
+}
+pub fn open(path: impl AsRef<Path>, size: [u32; 2]) -> io::Result<Display<NativeScanout>> {
+    Display::new(
+        NativeScanout::create(open_card(path)?, size, None, &[])?,
+        size,
+    )
+}
+/// Opens several outputs of one card, each on its own CRTC, in order.
+pub fn open_outputs(
+    path: impl AsRef<Path>,
+    outputs: &[Output<'_>],
+) -> io::Result<Vec<Display<NativeScanout>>> {
+    let card = open_card(path)?;
+    let mut taken = Vec::new();
+    let mut displays = Vec::with_capacity(outputs.len());
+    for output in outputs {
+        let scanout = NativeScanout::create(card.clone(), output.size, output.connector, &taken)?;
+        taken.push(scanout.old.handle());
+        displays.push(Display::new(scanout, output.size)?.with_role(output.role));
+    }
+    Ok(displays)
 }
