@@ -34,6 +34,13 @@ void pocket_guest_quickjs_set_engine_abi(pocket_guest_quickjs *guest, const uint
 typedef enum { POCKET_QJS_PHASE_IDLE, POCKET_QJS_PHASE_EVAL, POCKET_QJS_PHASE_FRAME, POCKET_QJS_PHASE_JOBS } pocket_qjs_phase;
 typedef void (*pocket_qjs_phase_hook)(void *context, pocket_qjs_phase phase);
 int pocket_guest_quickjs_set_phase_hook(pocket_guest_quickjs *guest, pocket_qjs_phase_hook hook, void *context);
+/* Optional per-instance console sink. Message bytes are UTF-8 borrowed only
+ * through the callback. Hooks run on the guest's owning thread and must not
+ * reenter or destroy it. Without a hook, console output retains its stderr
+ * behavior. Set before initialize. */
+typedef enum { POCKET_QJS_LOG, POCKET_QJS_INFO, POCKET_QJS_WARN, POCKET_QJS_ERROR, POCKET_QJS_DEBUG } pocket_qjs_log_level;
+typedef void (*pocket_qjs_log_hook)(void *context, pocket_qjs_log_level level, const uint8_t *message, size_t length);
+int pocket_guest_quickjs_set_log_hook(pocket_guest_quickjs *guest, pocket_qjs_log_hook hook, void *context);
 void pocket_guest_quickjs_destroy(pocket_guest_quickjs *guest);
 #ifdef __cplusplus
 }

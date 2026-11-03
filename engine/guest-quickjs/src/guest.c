@@ -34,13 +34,15 @@ struct pocket_guest_quickjs {
   JSContext *context;
   pocket_runtime *runtime;
   pocket_qjs_profile profile;
-  int attached, mounted, mounted_pak;
+  int attached, mounted, mounted_pak, mounted_console;
 #if defined(POCKET_QJS_BELLARD)
   JSClassID buffer_class, uint8_class;
 #endif
   JSValue token, pak;
   pocket_qjs_phase_hook phase_hook;
   void *phase_context;
+  pocket_qjs_log_hook log_hook;
+  void *log_context;
   const uint8_t *engine_abi;
   char error[256];
 };
@@ -185,9 +187,25 @@ static JSValue package_buffer(JSContext *ctx,const pocket_guest_environment *env
 #endif
   return pak;
 }
-static JSValue console_log(JSContext *ctx,JSValueConst self,int argc,JSValueConst *argv) {
+static JSValue console_log(JSContext *ctx,JSValueConst self,int argc,JSValueConst *argv,int magic,JSValue *data) {
   (void)self;
-  for(int i=0;i<argc;i++){const char *text=JS_ToCString(ctx,argv[i]);if(!text)return JS_EXCEPTION;if(i)fputc(' ',stderr);fputs(text,stderr);JS_FreeCString(ctx,text);}fputc('\n',stderr);return JS_UNDEFINED;
+  size_t token_length=0,total=0;uint8_t *token=JS_GetArrayBuffer(ctx,&token_length,data[0]);pocket_guest_quickjs *guest=NULL;
+  if(token&&token_length==sizeof guest)memcpy(&guest,token,sizeof guest);
+  if(!guest||magic<POCKET_QJS_LOG||magic>POCKET_QJS_DEBUG)return JS_ThrowInternalError(ctx,"inactive console binding");
+  const char **texts=argc?calloc((size_t)argc,sizeof *texts):NULL;size_t *lengths=argc?calloc((size_t)argc,sizeof *lengths):NULL;char *line=NULL;
+  if(argc&&(!texts||!lengths))goto oom;
+  for(int i=0;i<argc;i++){texts[i]=JS_ToCStringLen(ctx,&lengths[i],argv[i]);if(!texts[i])goto failed;if(lengths[i]>SIZE_MAX-total-(i?1:0))goto oom;total+=lengths[i]+(i?1:0);}
+  line=malloc(total+1);if(!line)goto oom;
+  {size_t at=0;for(int i=0;i<argc;i++){if(i)line[at++]=' ';if(lengths[i]){memcpy(line+at,texts[i],lengths[i]);at+=lengths[i];}}}line[total]=0;
+  if(guest->log_hook)guest->log_hook(guest->log_context,(pocket_qjs_log_level)magic,(const uint8_t*)line,total);
+  else {if(total)fwrite(line,1,total,stderr);fputc('\n',stderr);}
+  for(int i=0;i<argc;i++)if(texts[i])JS_FreeCString(ctx,texts[i]);
+  free(texts);free(lengths);free(line);return JS_UNDEFINED;
+oom:
+  JS_ThrowOutOfMemory(ctx);
+failed:
+  for(int i=0;i<argc;i++)if(texts&&texts[i])JS_FreeCString(ctx,texts[i]);
+  free(texts);free(lengths);free(line);return JS_EXCEPTION;
 }
 static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_guest_environment *env) {
   pocket_guest_quickjs *guest=opaque;
@@ -199,8 +217,10 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
   JSValue existing=JS_GetPropertyStr(ctx,global,"ui");int occupied=!JS_IsUndefined(existing);JS_FreeValue(ctx,existing);
   if(occupied) {JS_ThrowTypeError(ctx,"ui is already mounted");goto failed;}
   if(env->pak_length) {existing=JS_GetPropertyStr(ctx,global,"__pak");occupied=!JS_IsUndefined(existing);JS_FreeValue(ctx,existing);if(occupied){JS_ThrowTypeError(ctx,"__pak is already mounted");goto failed;}}
+  guest->runtime=runtime;guest->token=JS_NewArrayBufferCopy(ctx,(const uint8_t*)&guest,sizeof guest);
+  if(JS_IsException(guest->token))goto failed;
   existing=JS_GetPropertyStr(ctx,global,"console");
-  if(JS_IsUndefined(existing)) {JSValue console=JS_NewObject(ctx);const char *names[]={"log","info","warn","error","debug"};for(size_t i=0;i<5;i++)if(set(ctx,console,names[i],JS_NewCFunction(ctx,console_log,names[i],1))<0){JS_FreeValue(ctx,console);JS_FreeValue(ctx,existing);goto failed;}if(set(ctx,global,"console",console)<0){JS_FreeValue(ctx,existing);goto failed;}}JS_FreeValue(ctx,existing);
+  if(JS_IsUndefined(existing)) {JSValue console=JS_NewObject(ctx);const char *names[]={"log","info","warn","error","debug"};for(size_t i=0;i<5;i++)if(set(ctx,console,names[i],JS_NewCFunctionData(ctx,console_log,1,(int)i,1,&guest->token))<0){JS_FreeValue(ctx,console);JS_FreeValue(ctx,existing);goto failed;}if(set(ctx,global,"console",console)<0){JS_FreeValue(ctx,existing);goto failed;}guest->mounted_console=1;}JS_FreeValue(ctx,existing);
 #if defined(POCKET_QJS_BELLARD)
   /* Discover native classes without invoking replaceable JS constructors or
    * property getters. Preserve the embedding engine's JSValue ABI. */
@@ -212,8 +232,6 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
   if(JS_IsException(probe))goto failed;
   guest->uint8_class=JS_GetClassID(probe);JS_FreeValue(ctx,probe);
 #endif
-  guest->runtime=runtime;guest->token=JS_NewArrayBufferCopy(ctx,(const uint8_t*)&guest,sizeof guest);
-  if(JS_IsException(guest->token))goto failed;
   for(size_t i=0;i<POCKET_UI_OP_COUNT;i++) {
     const pocket_ui_op_descriptor *op=&pocket_ui_ops[i];
     if((guest->profile==POCKET_QJS_IDF&&!op->idf)||!pocket_runtime_supports_op(runtime,op->op))continue;
@@ -318,10 +336,10 @@ static void shutdown(void *opaque) {
   if(guest->context) {
     if(!JS_IsUndefined(guest->pak)){JS_DetachArrayBuffer(guest->context,guest->pak);JS_FreeValue(guest->context,guest->pak);guest->pak=JS_UNDEFINED;}
     if(!JS_IsUndefined(guest->token)&&!JS_IsException(guest->token)) {size_t length=0;uint8_t *token=JS_GetArrayBuffer(guest->context,&length,guest->token);if(token)memset(token,0,length);JS_FreeValue(guest->context,guest->token);guest->token=JS_UNDEFINED;}
-    if(guest->attached) {JSValue global=JS_GetGlobalObject(guest->context);if(guest->mounted){JSAtom key=JS_NewAtom(guest->context,"ui");JS_DeleteProperty(guest->context,global,key,0);JS_FreeAtom(guest->context,key);}if(guest->mounted_pak){JSAtom key=JS_NewAtom(guest->context,"__pak");JS_DeleteProperty(guest->context,global,key,0);JS_FreeAtom(guest->context,key);}JS_FreeValue(guest->context,global);}
+    if(guest->attached) {JSValue global=JS_GetGlobalObject(guest->context);if(guest->mounted){JSAtom key=JS_NewAtom(guest->context,"ui");JS_DeleteProperty(guest->context,global,key,0);JS_FreeAtom(guest->context,key);}if(guest->mounted_pak){JSAtom key=JS_NewAtom(guest->context,"__pak");JS_DeleteProperty(guest->context,global,key,0);JS_FreeAtom(guest->context,key);}if(guest->mounted_console){JSAtom key=JS_NewAtom(guest->context,"console");JS_DeleteProperty(guest->context,global,key,0);JS_FreeAtom(guest->context,key);}JS_FreeValue(guest->context,global);}
     else {JS_FreeContext(guest->context);guest->context=NULL;JS_FreeRuntime(guest->engine);guest->engine=NULL;}
   }
-  guest->runtime=NULL;guest->mounted=guest->mounted_pak=0;
+  guest->runtime=NULL;guest->mounted=guest->mounted_pak=guest->mounted_console=0;
 }
 void pocket_guest_quickjs_set_engine_abi(pocket_guest_quickjs *guest,const uint8_t *digest) {if(guest)guest->engine_abi=digest;}
 #define POCKET_BYTECODE_WORD(bytes,at) ((uint32_t)(bytes)[at]|(uint32_t)(bytes)[(at)+1]<<8|(uint32_t)(bytes)[(at)+2]<<16|(uint32_t)(bytes)[(at)+3]<<24)
@@ -348,4 +366,5 @@ const pocket_guest_v1 *pocket_guest_quickjs_vtable(void){return &vtable;}
 const char *pocket_guest_quickjs_error(const pocket_guest_quickjs *guest){return guest?guest->error:"invalid guest";}
 JSContext *pocket_guest_quickjs_context(pocket_guest_quickjs *guest){return guest?guest->context:NULL;}
 int pocket_guest_quickjs_set_phase_hook(pocket_guest_quickjs *guest,pocket_qjs_phase_hook hook,void *context){if(!guest||guest->mounted)return -1;guest->phase_hook=hook;guest->phase_context=context;return 0;}
+int pocket_guest_quickjs_set_log_hook(pocket_guest_quickjs *guest,pocket_qjs_log_hook hook,void *context){if(!guest||guest->mounted)return -1;guest->log_hook=hook;guest->log_context=context;return 0;}
 void pocket_guest_quickjs_destroy(pocket_guest_quickjs *guest){if(guest){shutdown(guest);free(guest);}}

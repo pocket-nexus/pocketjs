@@ -84,6 +84,23 @@ static void binding_generation(void) {
     }
   }
 }
+typedef struct {unsigned count;pocket_qjs_log_level levels[6];char messages[6][64];} log_capture;
+static void capture_log(void *context,pocket_qjs_log_level level,const uint8_t *message,size_t length) {
+  log_capture *capture=context;assert(capture->count<6&&length<sizeof capture->messages[0]);
+  capture->levels[capture->count]=level;if(length)memcpy(capture->messages[capture->count],message,length);capture->messages[capture->count][length]=0;capture->count++;
+}
+static void console_sink(void) {
+  pocket_runtime runtime={0};pocket_guest_environment env=environment();log_capture capture={0};
+  pocket_guest_quickjs *guest=pocket_guest_quickjs_create(POCKET_QJS_CANONICAL);
+  assert(pocket_guest_quickjs_set_log_hook(guest,capture_log,&capture)==0);
+  assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
+  assert(pocket_guest_quickjs_set_log_hook(guest,NULL,NULL)!=0);
+  eval(guest,&runtime,"console.log('hello',17);console.info('info');console.warn('warn');console.error('error');console.debug('debug');console.log()");
+  const pocket_qjs_log_level levels[]={POCKET_QJS_LOG,POCKET_QJS_INFO,POCKET_QJS_WARN,POCKET_QJS_ERROR,POCKET_QJS_DEBUG,POCKET_QJS_LOG};
+  const char *messages[]={"hello 17","info","warn","error","debug",""};
+  assert(capture.count==6);for(unsigned i=0;i<6;i++)assert(capture.levels[i]==levels[i]&&!strcmp(capture.messages[i],messages[i]));
+  pocket_guest_quickjs_destroy(guest);
+}
 static void canonical(void) {
   pocket_runtime runtime={0};pocket_guest_quickjs *guest=pocket_guest_quickjs_create(POCKET_QJS_CANONICAL);pocket_guest_environment env=environment();
   assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
@@ -119,7 +136,7 @@ static void attached_lifetime(void) {
     /* Shutdown detached __pak before its storage went away: retained views
      * read nothing instead of the unmapped page. */
     assert(munmap(pak,page)==0);
-    const char *source="let rejected=false;try{saved(0)}catch(e){rejected=true}if(!rejected||savedPak.byteLength!==0||savedPak.detached!==true||savedView.byteLength!==0||savedView[0]!==undefined||'ui' in globalThis||'__pak' in globalThis)throw new Error('lifetime')";
+    const char *source="let rejected=false;try{saved(0)}catch(e){rejected=true}if(!rejected||savedPak.byteLength!==0||savedPak.detached!==true||savedView.byteLength!==0||savedView[0]!==undefined||'ui' in globalThis||'__pak' in globalThis||'console' in globalThis)throw new Error('lifetime')";
     JSValue result=JS_Eval(ctx,source,strlen(source),"test",JS_EVAL_TYPE_GLOBAL);assert(!JS_IsException(result));JS_FreeValue(ctx,result);JS_FreeContext(ctx);JS_FreeRuntime(engine);
   }
 }
@@ -259,4 +276,4 @@ static void bytecode(void) {
   assert(damaged!=0&&damaged!=POCKET_STATUS_UNSUPPORTED);
   free(section);pocket_guest_quickjs_destroy(guest);
 }
-int main(void){binding_generation();canonical();idf();bytecode();attached_lifetime();extensible_records();package_storage();package_outside_heap_limit();package_terminal_nul();evaluation_source_lifetime();puts("generated QuickJS bindings: ok");return 0;}
+int main(void){binding_generation();console_sink();canonical();idf();bytecode();attached_lifetime();extensible_records();package_storage();package_outside_heap_limit();package_terminal_nul();evaluation_source_lifetime();puts("generated QuickJS bindings: ok");return 0;}
