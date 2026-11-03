@@ -5,7 +5,7 @@ use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 use core::cell::RefCell;
 use pocket_drivers::Renderer as RendererTrait;
 use pocket_drivers::*;
-use pocket_tex_cache::{TextureCache, TextureKey};
+use pocket_render::tex_cache::{TextureCache, TextureKey};
 
 pub const WIDTH: u32 = 8;
 pub const HEIGHT: u32 = 6;
@@ -103,7 +103,7 @@ impl pocket_drivers::Renderer for Renderer {
             return Err(RenderError::Unsupported);
         };
         let viewport = frame.resources.viewport();
-        let mut handles = pocket_draw_ops::DrawOps::new(
+        let mut handles = pocket_render::DrawOps::new(
             &frame.list.words,
             DamageRect::new(0, 0, viewport.0 as i32, viewport.1 as i32),
         )

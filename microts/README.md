@@ -18,7 +18,7 @@ implementation limits.
 | Path | Contents |
 | --- | --- |
 | [`microts/compiler/`](./compiler/) | Solid and Vue front ends, the View IR and Model IR, admission checks, Rust code generation, the model fuzzers and the `cli.ts` entry point |
-| [`engine/crates/microts/`](../engine/crates/microts/) | The `microts` crate that generated models and views link against |
+| [`engine/microts-runtime/`](../engine/microts-runtime/) | The `microts` crate that generated models and views link against |
 | [`framework/src/std-microts.ts`](../framework/src/std-microts.ts) | The standard library a compiled model imports as `@pocketjs/framework/solid/std` or `@pocketjs/framework/vue-vapor/std` |
 
 ## Commands

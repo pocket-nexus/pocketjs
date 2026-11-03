@@ -41,35 +41,26 @@
 extern crate alloc;
 
 pub mod assets;
-mod package_format;
 pub mod resources;
 
 use alloc::vec::Vec;
 
 pub mod anim;
-pub mod codec;
 #[cfg(feature = "counters")]
 pub mod counters;
 pub mod draw;
 pub mod fmath;
 pub mod layout;
-pub mod package;
-pub mod pak;
 mod physics;
 pub use physics::Physics;
-pub mod plan_facts;
-pub mod sha256;
 pub use pocket_spec as spec;
 pub mod font_pages;
 pub mod font_stream;
-pub mod stream;
-pub mod stream_rx;
 pub mod style;
 pub mod text;
 pub use pocket_package::font_archive;
 pub mod touch;
 pub mod tree;
-pub mod wire;
 
 pub use pocket_drivers::{DrawList, TexView};
 
@@ -1212,7 +1203,7 @@ impl Ui {
             let dst = unsafe {
                 core::slice::from_raw_parts_mut(chunks.as_mut_ptr() as *mut u8, byte_len)
             };
-            if !codec::packbits_decode(stream, dst) {
+            if !pocket_media::codec::packbits_decode(stream, dst) {
                 return -1;
             }
             chunks

@@ -1,6 +1,6 @@
 //! Borrowed C font views expanded by the independent glyph page tool.
 use pocket_drivers::{abi::*, FontView};
-use pocket_glyph_pages::GlyphPageLayout;
+use pocket_render::glyph_pages::GlyphPageLayout;
 
 /// # Safety
 /// All records and byte spans provide their announced storage until return.

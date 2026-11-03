@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ROOT, SITE } from "./paths.ts";
 
-const POCKET3D = join(ROOT, "devices/web/pocket-web-wgpu/web/shells");
+const POCKET3D = join(ROOT, "engine/pocket3d/crates/pocket-web-wgpu/web/shells");
 const OWN = join(SITE, "shells");
 
 /** Shell id → the directory of the set it is in. */
@@ -51,5 +51,5 @@ export async function copyShells(out: string): Promise<void> {
     for (const file of [profile.art, profile.partsArt]) if (file) copyFileSync(join(dir, file), join(to, file));
   }
   copyFileSync(join(OWN, "ATTRIBUTION.md"), join(to, "ATTRIBUTION.md"));
-  copyFileSync(join(ROOT, "pocket3d/LICENSE"), join(to, "LICENSE-Pocket3D.txt"));
+  copyFileSync(join(ROOT, "engine/pocket3d/LICENSE"), join(to, "LICENSE-Pocket3D.txt"));
 }

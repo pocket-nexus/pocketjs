@@ -2,7 +2,7 @@
 //!
 //! Identical reader semantics to the PSP's file-backed vid.rs — the ring
 //! image IS a `.pkst` file image (stream_rx.rs), parsed by the same
-//! pocketjs_core::stream readers — minus the IO budget: "reads" are memcpys
+//! pocket_media::stream readers — minus the IO budget: "reads" are memcpys
 //! under a short-held mutex, so a whole slot stages in one tick.
 //!
 //! The GXM discipline mirrors the PSP's GE one: videoTick only STAGES a
@@ -12,7 +12,7 @@
 
 use pocketjs_core::spec::stream as st;
 use pocketjs_core::spec::{img, psm};
-use pocketjs_core::stream::{
+use pocket_media::stream::{
     chunk_offset, parse_chunk_header, parse_header_block, parse_slot_header, slot_offset,
     StreamHeaders,
 };

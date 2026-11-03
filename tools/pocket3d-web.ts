@@ -1,5 +1,5 @@
 // tools/pocket3d-web.ts: what a Pocket3D game's browser build takes from this
-// repository beside the Rust kernel it links (devices/web/pocket-web-wgpu).
+// repository beside the Rust kernel it links (engine/pocket3d/crates/pocket-web-wgpu).
 //
 //   bun tools/pocket3d-web.ts stage <directory>
 //       The modules a game's page loads, as files a static server serves:
@@ -23,7 +23,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 /** The kernel: the crate a game links, and the modules of its page. */
 export const POCKET3D_WEB = {
-  crate: join(ROOT, "devices/web/pocket-web-wgpu"),
+  crate: join(ROOT, "engine/pocket3d/crates/pocket-web-wgpu"),
   modules: ["pocket3d-shell.js", "pocket3d-interface.js", "pocket3d-controls.js", "pocket3d-stage.js", "pocket3d-stage.css", "pocket3d-player.js", "pocket3d-player.css", "pocket3d-words.js"],
   /** What the player's modules load beside themselves: the handhelds' shells with their profiles, and the display face. */
   assets: ["shells", "fonts"],

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // tools/build/sifli/epic.ts — bake a package's images into the EPIC native
-// texture table that platforms/sifli/render-epic registers with the executor.
+// texture table that devices/sifli/render-epic registers with the executor.
 //
 //   bun tools/build/sifli/epic.ts --pocket <app.pocket> [--target <variant>] --out <app.epic> [--opaque RRGGBB]
 //   bun tools/build/sifli/epic.ts --pak <assets.pak> --out <app.epic> [--opaque RRGGBB]

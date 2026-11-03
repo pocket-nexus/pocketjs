@@ -2,7 +2,7 @@
 name = "pocket3d-mesh"
 description = "Portable Pocket3D skin bindings and colored mesh assets"
 edition.workspace = true
-license-file = "../../../../pocket3d/LICENSE"
+license-file = "../../LICENSE"
 
 version.workspace = true
 repository.workspace = true

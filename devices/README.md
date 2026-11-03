@@ -9,7 +9,7 @@ These kernels have no dependency on PlaceIR, BSP, materials or game policy.
 | `vita/pocket-vita-gxm` | GXM memory, patching, targets, descriptors | Atlas, OpenStrike |
 | `psp/pocket-psp-ge` | GE frame storage, byte swizzle, cache publication | PocketJS host, Atlas cooker/runtime, OpenStrike |
 | `3ds/pocket-3ds-pica` | PICA texture storage and complete mip publication | PocketJS host used by OpenStrike, Atlas |
-| `web/pocket-web-wgpu` | WebGPU device and screens, the interface overlay pass, 16-bit pictures, ranged pack reads, the page: the player and the handhelds' shells | Pocket Tokyo |
+| [`engine/pocket3d/crates/pocket-web-wgpu`](../engine/pocket3d/crates/pocket-web-wgpu/README.md) | WebGPU device and screens, the interface overlay pass, 16-bit pictures, ranged pack reads, the page: the player and the handhelds' shells | Pocket Tokyo |
 
 Atlas owns PlaceIR, target profiles, recipes, native formats and its renderers.
 OpenStrike owns BSP/PVS/collision, `.p3d`, its cooker and domain renderers in
@@ -18,16 +18,17 @@ PocketJS keeps the desktop widget, animation, mesh, VRM and simulation consumers
 under `engine/`; none requires the BSP compiler. The old `pocket3d::bsp`,
 `pocket3d::collide` and `WorldModel::from_bsp` adapters moved to OpenStrike.
 
-The kernels are under the [Pocket3D License](../pocket3d/LICENSE). The PocketJS
+The kernels are under the [Pocket3D License](../engine/pocket3d/LICENSE). The PocketJS
 hosts that use them are exempt from its title-card condition.
 
-**The browser is a device of its own.** `web/pocket-web-wgpu` gives a game's
+**The browser is a device of its own.** `pocket-web-wgpu` gives a game's
 wgpu renderer a WebGPU device, the screens of the handheld the page shows and
 the pass that lays its PocketJS interface over the scene, and builds the page
 around them: the handheld's shell, its keys as the controls, the way to the
 game in Pocket Studio. The game writes that
 renderer and its pack reader as it does for a console; the kernel's
-[README](web/pocket-web-wgpu/README.md) states the contract.
+[README](../engine/pocket3d/crates/pocket-web-wgpu/README.md) states the contract. It sits in
+the Pocket3D tree: it does not depend on `pocket-drivers`.
 
 Do not normalize GE, PICA and GXM into one GPU API. Compilers must be able to
 see their costs and constraints. Extract another mechanism only after concrete

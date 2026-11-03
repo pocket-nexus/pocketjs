@@ -1,6 +1,6 @@
 # Product runtime archive with private recovery package inspection and the
-# native program the QuickJS facade composes. The minimal program links
-# pocket-archive without this wrapper.
+# native program the QuickJS facade composes. The minimal program
+# (programs/3ds) links the native program without this wrapper.
 [package]
 name = "pocketjs-3ds-core"
 edition = "2021"

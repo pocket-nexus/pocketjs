@@ -12,7 +12,7 @@ on a transparent film, at a whole number of pixels a millimetre:
                                          on the sheet
 
 `bun tools/handheld-shells.ts` runs this and encodes the pictures for the
-Pocket3D player (devices/web/pocket-web-wgpu/web/shells) and the MicroTS
+Pocket3D player (engine/pocket3d/crates/pocket-web-wgpu/web/shells) and the MicroTS
 playground (site/microts/shells). A page lays `parts` over `base`, so a key
 that is held goes down into its socket and a stick's cap slides in its well.
 

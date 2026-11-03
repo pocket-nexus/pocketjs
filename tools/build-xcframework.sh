@@ -1,11 +1,11 @@
 #!/bin/bash
 # Builds PocketApple.xcframework: the pocket-apple Rust staticlib plus the
 # compiled PocketSurfaceView, packaged as a dynamic framework per slice
-# (device arm64 + simulator arm64). Output: engine/ios/dist/.
+# (device arm64 + simulator arm64). Output: .pocket-build/ios/xcframework/.
 set -euo pipefail
 
 REPOSITORY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-IOS_DIR="$REPOSITORY_DIR/engine/ios"
+IOS_DIR="$REPOSITORY_DIR/platforms/apple"
 DIST="$REPOSITORY_DIR/.pocket-build/ios/xcframework"
 CARGO_TARGET_DIR="$REPOSITORY_DIR/.pocket-build/ios/cargo-target"
 export CARGO_TARGET_DIR

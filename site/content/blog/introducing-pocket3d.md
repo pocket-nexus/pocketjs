@@ -123,7 +123,7 @@ Our mission at Pocket Nexus is to let everyone enjoy creating.
 
 The devices on my desk already have good screens, buttons, speakers, and years of personal history attached to them. PocketJS gave us a way to write new interfaces for them. Pocket3D extends that work into worlds and games. Studio gives those creations somewhere to be played and shared.
 
-You can start with [Pocket Tokyo](https://studio.pocket.nexus/games/tokyo), [Atlas](https://studio.pocket.nexus/games/atlas), [Maneuver](https://studio.pocket.nexus/games/maneuver), or [Requiem](https://studio.pocket.nexus/games/requiem) in your browser. The [Pocket3D site](https://3d.pocket.nexus/) walks through the rendering examples, and the [PocketJS repository](https://github.com/pocket-nexus/pocketjs/tree/main/pocket3d) contains the shared code and documentation.
+You can start with [Pocket Tokyo](https://studio.pocket.nexus/games/tokyo), [Atlas](https://studio.pocket.nexus/games/atlas), [Maneuver](https://studio.pocket.nexus/games/maneuver), or [Requiem](https://studio.pocket.nexus/games/requiem) in your browser. The [Pocket3D site](https://3d.pocket.nexus/) walks through the rendering examples, and the [PocketJS repository](https://github.com/pocket-nexus/pocketjs/tree/main/engine/pocket3d) contains the shared code and documentation.
 
 If there is a game you have wanted to make for a machine you still keep around, we want you to be able to make it—and hand that machine to someone else to play.
 

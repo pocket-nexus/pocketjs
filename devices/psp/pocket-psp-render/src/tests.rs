@@ -681,3 +681,67 @@ fn deferred_completion_swaps_before_the_next_kick_and_copies_survive_the_guest_t
     shared.retire(second);
     assert_eq!((state.borrow().waits, state.borrow().presents), (2, 2));
 }
+/// pocket-driver-kit lifecycle audit: the device's wait is the completion
+/// probe; the device stop at destruction is the release probe for the
+/// renderer's retained texture copies. The GE renderer accepts only the
+/// 480x272 viewport, so the frame uses this module's resources.
+#[test]
+fn render_wait_retire_and_destroy_pass_the_driver_kit_lifecycle_audit() {
+    use pocket_driver_kit::{Event, Lifecycle};
+    let (mut renderer, state) = create();
+    let list = list(texture());
+    let damage = [Rect::new(0, 0, 480, 272)];
+    let buffer = 1;
+    let mut audit = Lifecycle::new(8);
+    for frame in 1..=2u64 {
+        let resources = Resources {
+            pixels: vec![frame as u8; 256],
+            revision: frame,
+            ..Resources::default()
+        };
+        audit.observe(Event::Acquire(buffer)).unwrap();
+        let target = renderer.target();
+        let submission = renderer
+            .render(&mut FrameInput::new(
+                &list,
+                &resources,
+                &damage,
+                Target::DeviceOwned(target),
+            ))
+            .unwrap();
+        audit
+            .observe(Event::Render {
+                submission: frame,
+                buffer,
+            })
+            .unwrap();
+        audit
+            .observe(Event::UseResource {
+                submission: frame,
+                resource: frame,
+            })
+            .unwrap();
+        let waits = state.borrow().waits;
+        renderer.wait(&submission).unwrap();
+        if state.borrow().waits > waits {
+            audit.observe(Event::RenderStopped(frame)).unwrap();
+        }
+        audit
+            .observe(Event::RenderWaited {
+                submission: frame,
+                failed: false,
+            })
+            .unwrap();
+        renderer.retire(submission);
+        audit.observe(Event::Retire(frame)).unwrap();
+        audit.observe(Event::FrameEnd { failed: false }).unwrap();
+    }
+    assert_eq!(state.borrow().textures.len(), 2);
+    drop(renderer);
+    assert_eq!(state.borrow().stop, 1);
+    for version in 1..=2 {
+        audit.observe(Event::ReleaseResource(version)).unwrap();
+    }
+    audit.observe(Event::Destroy).unwrap();
+    audit.finish().unwrap();
+}

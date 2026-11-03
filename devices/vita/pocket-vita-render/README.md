@@ -3,7 +3,7 @@
 `GxmRenderer<D>` consumes `FrameInput` and `RenderResources` through
 `pocket-drivers::Renderer`. **The renderer does not depend on `Ui` or a guest
 engine.** It resolves resources referenced by the DrawList and builds vertices
-and painter-ordered batches through the `pocket-draw-ops` walk, supplying
+and painter-ordered batches through the `pocket-render` walk, supplying
 vita2d's quad diagonal and texture zero as the untextured key.
 The target covers the configured physical viewport; partial device targets and
 zero-copy rendering return errors.
@@ -56,7 +56,7 @@ CoreState. Its generated guest uses the pinned Bellard QuickJS context.
 ```sh
 cargo +stable test --locked --manifest-path devices/vita/pocket-vita-render/Cargo.toml
 cargo +stable clippy --locked --manifest-path devices/vita/pocket-vita-render/Cargo.toml --all-targets -- -D warnings
-cargo +stable test --locked --manifest-path engine/Cargo.toml -p pocket-tex-cache
+cargo +stable test --locked -p pocket-render
 cargo +stable test --locked --manifest-path devices/vita/pocket-vita-gxm/Cargo.toml
 bun tools/test-vita-runtime.ts
 bun tools/test-quickjs-guest.ts --bellard

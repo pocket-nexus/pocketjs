@@ -41,7 +41,7 @@ The `.pkst` stream is not re-modeled for the socket. `stream_rx.rs`
 maintains a **byte-exact `.pkst` file image in memory**: `videoSlot` and
 `audioChunk` messages apply payload-first, `latestSeq`-after (the torn-frame
 publication contract, verbatim), `streamMark` carries `bumpEpoch()`/
-`markEnded()`. The same `pocketjs_core::stream` readers that parse the
+`markEnded()`. The same `pocket_media::stream` readers that parse the
 PSP's file parse `RamStream::buf()` — one reader, one golden format, and a
 cargo test that reconstructs the committed TS-written `.pkst` golden
 byte-for-byte from wire messages.

@@ -315,7 +315,7 @@ pub unsafe extern "C" fn web_boot(
             )?;
             runtime.add_display(
                 Display::new(h.physical.clone(), DisplayRole::Primary, h.snapshot.clone()),
-                pocket_present::RendererId::SOFTWARE,
+                pocket_runtime::RendererId::SOFTWARE,
             )?;
             if let Some([aw, ah]) = h.auxiliary.get() {
                 runtime.add_display(
@@ -324,7 +324,7 @@ pub unsafe extern "C" fn web_boot(
                         DisplayRole::Auxiliary,
                         Rc::new(Cell::new(Snapshot::default())),
                     ),
-                    pocket_present::RendererId::SOFTWARE,
+                    pocket_runtime::RendererId::SOFTWARE,
                 )?;
             }
             let ops = runtime.op_context();

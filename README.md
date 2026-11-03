@@ -39,7 +39,7 @@ projects build on:
 | | What it is | Entry point |
 | --- | --- | --- |
 | **PocketJS** | The application runtime: TypeScript components, a QuickJS guest and a Rust core that lays out and draws every pixel | This README · [pocketjs.pocket.nexus](https://pocketjs.pocket.nexus) |
-| **Pocket3D** | A hardware-native 3D stack: device kernels for GXM, GE and PICA200, and the mechanisms that purpose-built 3D engines share | [`pocket3d/`](./pocket3d/README.md) · [3d.pocket.nexus](https://3d.pocket.nexus) |
+| **Pocket3D** | A hardware-native 3D stack: device kernels for GXM, GE and PICA200, and the mechanisms that purpose-built 3D engines share | [`engine/pocket3d/`](./engine/pocket3d/README.md) · [3d.pocket.nexus](https://3d.pocket.nexus) |
 | **MicroTS** | An ahead-of-time compiler from TypeScript views and models to Rust, in development | [`microts/`](./microts/README.md) · [microts.pocket.nexus](https://microts.pocket.nexus) |
 
 ## Contents
@@ -260,7 +260,7 @@ content needs, such as networking, audio or 3D, and the rest never enters the
 build. The JavaScript uses them beside the same UI and input APIs.
 
 The full 3D stack is a project of its own in this repository.
-[Pocket3D](./pocket3d/README.md) gives a game **a renderer for each console's
+[Pocket3D](./engine/pocket3d/README.md) gives a game **a renderer for each console's
 GPU**, and its interface is a PocketJS app drawn over the scene:
 [3d.pocket.nexus](https://3d.pocket.nexus).
 
@@ -275,7 +275,7 @@ TypeScript application → guest bundle, one frame at a time
 
 See also: [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) ·
 [The runtime family](./docs/RUNTIMES.md) ·
-[Pocket3D](./pocket3d/README.md)
+[Pocket3D](./engine/pocket3d/README.md)
 
 ## Choose your screen
 
@@ -413,7 +413,7 @@ repository or the Rust AOT build.
 | [`framework/`](./framework/) | Public framework APIs, renderers, components, input, lifecycle and build-time styling |
 | [`engine/`](./engine/) | `no_std` UI core, render backends, native modules, Pocket3D and platform-native crates |
 | [`devices/`](./devices/) | Pocket3D device kernels for GXM, GE and PICA200 |
-| [`pocket3d/`](./pocket3d/) | The Pocket3D entry point: its design and a map of where its code lives |
+| [`engine/pocket3d/`](./engine/pocket3d/) | The Pocket3D entry point: its design and a map of where its code lives |
 | [`microts/`](./microts/) | The MicroTS ahead-of-time compiler |
 | [`contracts/`](./contracts/) | Generated wire specs, capability registry, app and host contract schemas, build plans and package formats |
 | [`programs/`](./programs/) | Runtime composition, entry points and native build recipes |
@@ -449,7 +449,7 @@ bun run site:preview          # build, then serve the site at http://127.0.0.1:4
 | Runtime internals | [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) · [Native contract](https://pocketjs.pocket.nexus/docs/native-contract/) |
 | Targets and packaging | [Platform contracts](https://pocketjs.pocket.nexus/docs/platform-contracts/) · [The `.pocket` platform](./docs/PLATFORM.md) |
 | Debugging and verification | [DevTools](./docs/DEVTOOLS.md) · [Determinism](./docs/DETERMINISM.md) |
-| Runtimes beyond 2D UI | [The runtime family](./docs/RUNTIMES.md) · [Pocket3D](./pocket3d/README.md) |
+| Runtimes beyond 2D UI | [The runtime family](./docs/RUNTIMES.md) · [Pocket3D](./engine/pocket3d/README.md) |
 | Ahead-of-time compilation | [MicroTS](./microts/README.md) · [TypeScript support](./site/content/docs/typescript-support.md) |
 | Complete examples | [`apps/`](./apps/) · [Blog](https://pocketjs.pocket.nexus/blog/) |
 
@@ -479,9 +479,9 @@ capture-maintenance rules are recorded in
 PocketJS and MicroTS are [MIT licensed](./LICENSE). Inter is vendored under the
 OFL in [`assets/fonts/`](./assets/fonts/).
 
-Pocket3D, the files under [`pocket3d/`](./pocket3d/), [`devices/`](./devices/)
-and [`engine/pocket3d/`](./engine/pocket3d/), is under the
-[Pocket3D License](./pocket3d/LICENSE). It grants what the MIT License grants,
+Pocket3D, the files under [`devices/`](./devices/) and
+[`engine/pocket3d/`](./engine/pocket3d/), is under the
+[Pocket3D License](./engine/pocket3d/LICENSE). It grants what the MIT License grants,
 with one more condition: **a distributed product that draws 3D scenes with
 Pocket3D shows the Pocket3D title card when it starts**. PocketJS's own hosts
 and the applications built on them are exempt. A separate written license

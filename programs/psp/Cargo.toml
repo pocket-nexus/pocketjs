@@ -45,6 +45,7 @@ pocket-runtime = { workspace = true, default-features = true }
 pocket-archive = { workspace = true, features = ["external-runtime"] }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
+pocket-media = { workspace = true, default-features = true }
 
 [build-dependencies]
 pocket-spec = { workspace = true, default-features = true }

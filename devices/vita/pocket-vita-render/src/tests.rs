@@ -717,3 +717,74 @@ mod target_contract {
         assert_eq!(device.0.borrow().events, [] as [&str; 0]);
     }
 }
+/// pocket-driver-kit lifecycle audit: the device's wait is the completion
+/// probe and its texture release the release probe.
+#[test]
+fn render_wait_retire_and_destroy_pass_the_driver_kit_lifecycle_audit() {
+    use pocket_driver_kit::test_device::{scene, Resources, HEIGHT, WIDTH};
+    use pocket_driver_kit::{Event, Lifecycle};
+    let device = Mock::default();
+    let mut renderer = GxmRenderer::new(device.clone(), Config::new(WIDTH, HEIGHT, 1)).unwrap();
+    let count = |event: &str| {
+        device
+            .0
+            .borrow()
+            .events
+            .iter()
+            .filter(|e| **e == event)
+            .count()
+    };
+    let list = scene();
+    let damage = [Rect::new(0, 0, WIDTH, HEIGHT)];
+    let buffer = 1;
+    let mut audit = Lifecycle::new(8);
+    for frame in 1..=2u64 {
+        let resources = Resources::new(frame, frame as u8);
+        audit.observe(Event::Acquire(buffer)).unwrap();
+        let target = renderer.target();
+        let submission = renderer
+            .render(&mut FrameInput::new(
+                &list,
+                &resources,
+                &damage,
+                Target::DeviceOwned(target),
+            ))
+            .unwrap();
+        audit
+            .observe(Event::Render {
+                submission: frame,
+                buffer,
+            })
+            .unwrap();
+        audit
+            .observe(Event::UseResource {
+                submission: frame,
+                resource: frame,
+            })
+            .unwrap();
+        let waits = count("wait");
+        renderer.wait(&submission).unwrap();
+        if count("wait") > waits {
+            audit.observe(Event::RenderStopped(frame)).unwrap();
+        }
+        audit
+            .observe(Event::RenderWaited {
+                submission: frame,
+                failed: false,
+            })
+            .unwrap();
+        renderer.retire(submission);
+        audit.observe(Event::Retire(frame)).unwrap();
+        audit.observe(Event::FrameEnd { failed: false }).unwrap();
+    }
+    drop(renderer);
+    // The idle second version updates the first allocation in place; the
+    // allocation is released once.
+    assert_eq!((count("upload"), count("update")), (1, 1));
+    assert_eq!(count("release"), 1);
+    for version in 1..=2 {
+        audit.observe(Event::ReleaseResource(version)).unwrap();
+    }
+    audit.observe(Event::Destroy).unwrap();
+    audit.finish().unwrap();
+}

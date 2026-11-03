@@ -85,7 +85,7 @@ ffmpeg -y -framerate 6 -i dist/handheld-models/hinge-frames/%03d.png \
 ## Shells for a page
 
 `shells.py` renders a device from the front for a page that shows its screens
-in it: the Pocket3D player (`devices/web/pocket-web-wgpu/web/shells`) and the
+in it: the Pocket3D player (`engine/pocket3d/crates/pocket-web-wgpu/web/shells`) and the
 MicroTS playground (`site/microts/shells`, which also shows the Pocket3D set's
 PSP and 3DS). An orthographic camera on the screen's axis, a transparent film,
 **14 pixels a millimetre** (20 for the iPod touch, 16 for the Android phone and

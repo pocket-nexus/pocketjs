@@ -2,7 +2,7 @@
 
 `pocket-gles1::Renderer<C>` and `pocket-gles2::Renderer<C>` select their pipeline
 by type. `pocket-gles` contains the GLES policies for the DrawList walk in
-`pocket-draw-ops` (fill patches, image and glyph page lookup, GL texture
+`pocket-render` (fill patches, image and glyph page lookup, GL texture
 names as batch keys), texture conversion, driver-owned glyph pages, and
 submission lifetimes. None of these crates depend on `Ui` or generate a
 DrawList.

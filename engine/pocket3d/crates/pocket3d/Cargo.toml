@@ -2,7 +2,7 @@
 name = "pocket3d"
 description = "Pocket3D: desktop rendering mechanisms (wgpu-based)"
 edition.workspace = true
-license-file = "../../../../pocket3d/LICENSE"
+license-file = "../../LICENSE"
 
 version.workspace = true
 repository.workspace = true

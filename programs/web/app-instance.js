@@ -7,7 +7,7 @@
 // `options.text: false` starts the instance without the text worker and its
 // pocket_text.wasm: the guest then has no `offload` global, as on a host
 // with no text provider. A guest whose glyphs are all baked needs neither
-// (a Pocket3D game's interface over its scene, devices/web/pocket-web-wgpu).
+// (a Pocket3D game's interface over its scene, engine/pocket3d/crates/pocket-web-wgpu).
 //
 // Text a guest sets at run time draws in every script the browser has a font
 // for (text.glyphs.runtime, ./runtime-glyphs.js): a codepoint no baked atlas

@@ -4,7 +4,7 @@ Pictures of the playground's devices from the front, served under `/shells/`.
 `bun tools/handheld-shells.ts microts` renders the ones in this directory in
 Blender (`tools/handheld-models/shells.py`) and writes `profiles.js`; the PSP
 and the 3DS are the Pocket3D player's
-(`devices/web/pocket-web-wgpu/web/shells`). No picture carries a wordmark or a
+(`engine/pocket3d/crates/pocket-web-wgpu/web/shells`). No picture carries a wordmark or a
 logo: the pieces that are one are taken out of the model, or painted over in
 its picture.
 

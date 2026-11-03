@@ -141,7 +141,7 @@ without `listening` counts as always attached.
   serializes no tree snapshots: a full-tree snapshot measured about 30 ms of
   JS on an Old 3DS, once per 30 frames.**
 - **Native desktop (macOS et al., `pocket-ui-wgpu`):** the same file mailbox,
-  minus the USB cable — `engine/crates/pocket-ui-wgpu/src/dbg.rs` is the
+  minus the USB cable — `engine/ui-wgpu/src/dbg.rs` is the
   std twin of the PSP transport. Probed once at `UiSurface::mount`: root =
   `$POCKETJS_DBG_DIR`, else the process cwd; active only if
   `pocketjs-dbg/enable` exists. Arm it with `bun run devtools --dir <root>`

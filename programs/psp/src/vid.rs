@@ -1,5 +1,5 @@
 //! The video plane (spec ops 34..37): a host-written .pkst stream file
-//! (spec.ts "STREAM container", parsed by pocketjs_core::stream) presented
+//! (spec.ts "STREAM container", parsed by pocket_media::stream) presented
 //! as ONE core texture updated in place plus the audio ring (audio.rs).
 //!
 //! videoTick is a bounded per-frame IO pump on the JS/main thread — every
@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use pocketjs_core::spec::stream as st;
 use pocketjs_core::spec::{img, psm};
-use pocketjs_core::stream::{
+use pocket_media::stream::{
     chunk_offset, chunk_size, parse_chunk_header, parse_header_block, parse_slot_header,
     slot_offset, StreamHeaders,
 };

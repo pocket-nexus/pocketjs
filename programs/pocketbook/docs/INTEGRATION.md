@@ -325,7 +325,7 @@ pub fn install_ui_namespace(guest: &mut Guest, ui: &mut Ui) {
 ```
 
 > **Note:** The exact `pocket-mod` API (`mount`, `ns.func`, argument accessors)
-> is sketched from the patterns in `engine/crates/pocket-ui-wgpu/src/surface.rs`
+> is sketched from the patterns in `engine/ui-wgpu/src/surface.rs`
 > and `programs/psp/src/service_bindings.rs`. Consult those files for the precise signatures.
 
 ### Approach B: Direct QuickJS (Like the PSP Host)
@@ -1229,7 +1229,7 @@ write_png("frame_001.png", 1024, 758, &fb);
 Run your app on the desktop wgpu host for fast iteration:
 
 ```bash
-cd engine/crates/pocket-ui-wgpu
+cd engine/ui-wgpu
 cargo run --example uihost -- --app ../../../apps/my-app
 ```
 
@@ -1338,8 +1338,8 @@ feature-detects optional HostOps methods.
 | `programs/psp/src/service_bindings.rs` | PSP's HostOps installation (reference implementation) |
 | `programs/psp/src/scene.rs` | PSP's DrawList walker (reference for a GPU backend) |
 | `programs/psp/src/main.rs` | PSP's frame loop ordering |
-| `engine/crates/pocket-mod/src/lib.rs` | QuickJS hosting library |
-| `engine/crates/pocket-ui-wgpu/src/surface.rs` | Desktop host using pocket-mod |
+| `engine/mod/src/lib.rs` | QuickJS hosting library |
+| `engine/ui-wgpu/src/surface.rs` | Desktop host using pocket-mod |
 | `site/content/docs/platform-contracts.md` | Custom host build API |
 
 ### inkview-rs Source Files

@@ -1,0 +1,24 @@
+[package]
+name = "pocket-render-sifli-epic"
+edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS render SiFli EPIC component"
+
+[features]
+default = []
+# The C factory and vtable over pocket_drivers::abi.
+cabi = []
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+
+[dev-dependencies]
+# tests/driver_kit.rs audits the renderer lifecycle and renders its fixture scene.
+pocket-driver-kit = { workspace = true, default-features = true }

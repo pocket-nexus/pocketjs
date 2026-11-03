@@ -61,10 +61,10 @@ BUILD := $(POCKETJS_BUILD_DIR)
 OUT := $(POCKETJS_OUT_3DSX)
 # 3dsxtool reads the recovery guest out of a RomFS directory.
 ROMFS := $(BUILD)/romfs
-ICON ?= $(CURDIR)/icon.png
+ICON ?= $(PLATFORM_SOURCE)/icon.png
 # Custom large icons keep smdhtool's automatic reduction unless their caller
 # also supplies SMALL_ICON. The host default has a separate optical drawing.
-SMALL_ICON ?= $(if $(filter $(CURDIR)/icon.png,$(ICON)),$(CURDIR)/icon-small.png,)
+SMALL_ICON ?= $(if $(filter $(PLATFORM_SOURCE)/icon.png,$(ICON)),$(PLATFORM_SOURCE)/icon-small.png,)
 CIA := $(POCKETJS_OUT_CIA)
 RSF := $(CURDIR)/app.rsf
 

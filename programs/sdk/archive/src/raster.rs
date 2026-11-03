@@ -45,10 +45,10 @@ pub unsafe extern "C" fn pocket_draw_list_visit(
         resources.viewport_height as i32,
     );
     // Reject a malformed tail before a driver has submitted any hardware work.
-    if pocket_draw_ops::validate(words, viewport).is_err() {
+    if pocket_render::validate(words, viewport).is_err() {
         return POCKET_STATUS_INVALID;
     }
-    for operation in pocket_draw_ops::DrawOps::new(words, viewport) {
+    for operation in pocket_render::DrawOps::new(words, viewport) {
         let Ok(operation) = operation else {
             return POCKET_STATUS_INVALID;
         };

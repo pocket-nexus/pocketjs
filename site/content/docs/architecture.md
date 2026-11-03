@@ -125,13 +125,14 @@ resize selects another integer scale. `pocket-runtime` does not depend on
 `pocket-raster`.
 
 **`pocketjs-core` depends on neither `pocket-raster` nor the coordinator.**
-Hosts import `pocket_raster` and `pocket_render::damage`. The core
-keeps compatibility exports at `pocketjs_core::package`, `pak`, `sha256`,
-`plan_facts`, `stream`, `stream_rx`, `wire`, and `codec` while their
-implementations reside in the new crates. The `pocket-present` crate
+Hosts import `pocket_raster` and `pocket_render::damage`. Package support
+(`sha256`, `pak`, `plan_facts`, `package`, `package_format`) is in
+`pocket_package` and media support (`codec`, `stream`, `stream_rx`, `wire`) in
+`pocket_media`; the core re-exports neither. The `pocket-present` crate
 re-exports its former paths from `pocket-render`, `pocket-raster`,
-`pocket-runtime`, and `pocket-drivers`. Package bytes, admission checks, and
-DrawList encoding retain their existing formats.
+`pocket-runtime`, and `pocket-drivers` for one release; no crate in this
+repository depends on it. Package bytes, admission checks, and DrawList
+encoding retain their existing formats.
 
 **`pocketjs-core` defines the `Physics` trait and holds no engine.** `Ui::tick`
 calls the installed engine's `step` once per tick after animation tracks, with
@@ -143,8 +144,8 @@ with `Runtime::set_physics` before boot. Without an engine, admission rejects a
 package or AOT artifact that requests `ui.physics`, `OpContext::set_physics_enabled(true)`
 returns `UnsupportedOperation`, and ops 52..56 are unsupported.
 `programs/sdk/archive` installs the engine in `pocket_runtime_create` when its
-`physics` feature is on: the SDK export and the 3DS reference program enable
-it, the IDF and SiFli archives do not link `pocket-physics`.
+`physics` feature is on: the SDK export enables it, the IDF and SiFli archives
+do not link `pocket-physics`.
 `pocket-native-program`, the wasm program and `pocket-ui-surface` install it in
 their constructors.
 
@@ -161,7 +162,8 @@ their constructors.
 | `damage` | Compares a DrawList with the one whose pixels a persistent target holds and plans disjoint regions to repaint |
 
 `pocket-draw-ops`, `pocket-glyph-pages`, and `pocket-tex-cache` re-export the
-crate root, `glyph_pages`, and `tex_cache` at their former paths.
+crate root, `glyph_pages`, and `tex_cache` at their former paths for one
+release; no crate in this repository depends on them.
 
 `pocket-raster::RasterRenderer` implements the driver trait for RGBA8888,
 ARGB8888, and RGB565 CPU targets. **It writes only the acquired region and
@@ -383,7 +385,7 @@ rotated quads are Sutherland–Hodgman-clipped or culled.
 
 **3. The backend.** Consumes the DrawList and nothing else. PSP uses `sceGu`,
 Vita uses vita2d/GXM, `programs/desktop` uses the gpui backend
-(`engine/backends/gpui`), the debug uihosts use wgpu, and `wasm32` uses a
+(`programs/desktop/gpui`), the debug uihosts use wgpu, and `wasm32` uses a
 scanline rasterizer that handles blending, gradients, and glyph coverage
 deterministically. Backends do not redefine input or styling semantics, and
 they differ from each other in one capability alone: **who measures and

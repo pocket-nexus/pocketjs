@@ -51,7 +51,7 @@ export async function stageEspIdfComponents(root: string, output: string): Promi
   }
   const ppaInclude = join(output, "pocket_render_esp_ppa/include/pocket");
   mkdirSync(ppaInclude, { recursive: true });
-  cpSync(join(root, "platforms/esp-idf/render-ppa/include/pocket/render_esp_ppa.h"), join(ppaInclude, "render_esp_ppa.h"));
+  cpSync(join(root, "devices/esp-idf/render-ppa/include/pocket/render_esp_ppa.h"), join(ppaInclude, "render_esp_ppa.h"));
   const guest = join(output, "pocket_guest_quickjs");
   mkdirSync(join(guest, "generated"), { recursive: true });
   for (const name of ["guest.c", "generated_ops.h"])

@@ -8,9 +8,9 @@ use pocket_drivers::{
     DamageRect, DeviceTarget, FrameInput, PixelFormat, Rect, RenderError, RenderResources,
     Renderer, RendererDescriptor, Synchronization, Target, TargetOwnership,
 };
-use pocket_glyph_pages::{GlyphPageLayout, GlyphSampler};
+use pocket_render::glyph_pages::{GlyphPageLayout, GlyphSampler};
+use pocket_render::tex_cache::{TextureCache, TextureKey};
 use pocket_spec as spec;
-use pocket_tex_cache::{TextureCache, TextureKey};
 pub mod registered;
 mod geometry;
 #[cfg(target_os = "vita")]
@@ -26,7 +26,7 @@ pub struct Vertex {
     pub uv: [f32; 2],
     pub color: u32,
 }
-impl pocket_draw_ops::Vertex for Vertex {
+impl pocket_render::Vertex for Vertex {
     fn from_components(position: [f32; 2], uv: [f32; 2], color: u32) -> Self {
         Self {
             position,
@@ -43,7 +43,7 @@ pub struct Clip {
     pub h: i32,
 }
 /// Texture zero means untextured vertex color. Other ids belong to Device.
-pub type Command = pocket_draw_ops::Batch<u32, Clip>;
+pub type Command = pocket_render::Batch<u32, Clip>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextureFormat {
     Rgba,
@@ -515,7 +515,7 @@ impl<D: Device> GxmRenderer<D> {
     ) -> Result<(), RenderError> {
         self.images.clear();
         self.fonts.clear();
-        for operation in pocket_draw_ops::DrawOps::new(&frame.list.words, logical) {
+        for operation in pocket_render::DrawOps::new(&frame.list.words, logical) {
             let op = operation.map_err(|_| RenderError::InvalidFrame)?;
             match op.opcode {
                 spec::draw_op::TEX_QUAD | spec::draw_op::TEX_TRI => {
@@ -566,7 +566,7 @@ impl<D: Device> GxmRenderer<D> {
             return Err(RenderError::InvalidFrame);
         }
         let logical = DamageRect::new(0, 0, w as i32, h as i32);
-        pocket_draw_ops::validate(&frame.list.words, logical)
+        pocket_render::validate(&frame.list.words, logical)
             .map_err(|_| RenderError::InvalidFrame)?;
         self.prepare(frame, id, logical)?;
         self.build(&frame.list.words, w, h)?;
@@ -591,9 +591,9 @@ impl<D: Device> GxmRenderer<D> {
         )
     }
 }
-fn cache_error(error: pocket_tex_cache::CacheError<RenderError>) -> RenderError {
+fn cache_error(error: pocket_render::tex_cache::CacheError<RenderError>) -> RenderError {
     match error {
-        pocket_tex_cache::CacheError::Upload(error) => error,
+        pocket_render::tex_cache::CacheError::Upload(error) => error,
         _ => RenderError::Failed,
     }
 }

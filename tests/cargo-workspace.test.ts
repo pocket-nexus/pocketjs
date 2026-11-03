@@ -31,6 +31,27 @@ describe("Cargo program and library graph", () => {
     }
   });
 
+  test("engine libraries do not depend on a program", () => {
+    for (const path of workspace.members.filter((path: string) => path.startsWith("engine/"))) {
+      const manifest = toml(`${path}/Cargo.toml`);
+      const groups = [manifest.dependencies, manifest["build-dependencies"], manifest["dev-dependencies"],
+        ...Object.values(manifest.target ?? {}).flatMap((target: any) =>
+          [target.dependencies, target["build-dependencies"], target["dev-dependencies"]])];
+      for (const dependencies of groups) {
+        for (const [name, value] of Object.entries(dependencies ?? {})) {
+          const dependency = value as any;
+          const effective = dependency.workspace ? workspace.dependencies[name] : dependency;
+          if (!effective?.path) continue;
+          const source = resolve(root, dependency.workspace ? "." : path, effective.path);
+          expect(source.startsWith(join(root, "programs") + "/"), `${path} -> ${source}`).toBe(false);
+        }
+      }
+    }
+    // The UI embedding crates that widgets, Pocket3D examples and pocketbook use live in engine/.
+    for (const name of ["pocket-ui-surface", "pocket-ui-wgpu"])
+      expect(workspace.dependencies[name].path, name).toStartWith("engine/");
+  });
+
   test("published features resolve consistently for an independent consumer", () => {
     const output = join(root, ".pocket-build/validation/cargo-features", `${Date.now()}-${process.pid}`);
     mkdirSync(output, { recursive: true });

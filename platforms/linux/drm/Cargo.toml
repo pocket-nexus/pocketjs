@@ -14,3 +14,9 @@ pocket-drivers = { workspace = true, default-features = true }
 libc = "0.2.191"
 [target.'cfg(target_os = "linux")'.dependencies]
 drm = { version = "0.14.1", default-features = false }
+
+[dev-dependencies]
+# The lifecycle audit renders with the software rasterizer.
+pocket-driver-kit = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }

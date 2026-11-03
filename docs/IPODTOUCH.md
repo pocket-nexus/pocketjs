@@ -9,7 +9,7 @@ logical viewport at raster density 2.
 
 ## Execution path
 
-The application statically links `engine/ios`:
+The application statically links `platforms/apple`:
 
 - `pocket-runtime` owns the admitted package, guest lifecycle, input and
   presentation state.

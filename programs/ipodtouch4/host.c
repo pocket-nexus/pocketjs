@@ -175,7 +175,7 @@ static int32_t g_drawable_height;
 
 /*
  * Touch contacts, one slot per finger, mirroring the modern host's slot table
- * (engine/ios/uikit/PocketSurfaceView.m). The slot index is the wire
+ * (platforms/apple/uikit/PocketSurfaceView.m). The slot index is the wire
  * contact id; a released slot stays latched until it has been delivered in at
  * least one guest frame, so a sub-frame tap still produces a down/up pair;
  * and the bounds hit is resolved once at the down edge and carried for the

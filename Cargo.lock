@@ -4840,11 +4840,10 @@ dependencies = [
 name = "pocket-archive"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-physics",
  "pocket-raster",
+ "pocket-render",
  "pocket-runtime",
  "pocket-spec",
 ]
@@ -4886,7 +4885,7 @@ dependencies = [
  "pocket-text",
  "pocket-ui-surface",
  "pocket-ui-wgpu",
- "pocket-web-render",
+ "pocket-wgpu-render",
  "pocket3d",
  "pocketjs-core",
  "serde",
@@ -4908,13 +4907,12 @@ dependencies = [
 name = "pocket-driver-kit"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
  "pocket-drivers",
  "pocket-package",
- "pocket-present",
  "pocket-raster",
+ "pocket-render",
+ "pocket-runtime",
  "pocket-spec",
- "pocket-tex-cache",
 ]
 
 [[package]]
@@ -4932,17 +4930,18 @@ version = "0.16.0"
 name = "pocket-gles"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-driver-kit",
  "pocket-drivers",
- "pocket-glyph-pages",
+ "pocket-render",
  "pocket-spec",
- "pocket-tex-cache",
 ]
 
 [[package]]
 name = "pocket-gles1"
 version = "0.16.0"
 dependencies = [
+ "pocket-driver-kit",
+ "pocket-drivers",
  "pocket-gles",
 ]
 
@@ -4950,6 +4949,8 @@ dependencies = [
 name = "pocket-gles2"
 version = "0.16.0"
 dependencies = [
+ "pocket-driver-kit",
+ "pocket-drivers",
  "pocket-gles",
 ]
 
@@ -4996,7 +4997,10 @@ version = "0.16.0"
 dependencies = [
  "drm",
  "libc",
+ "pocket-driver-kit",
  "pocket-drivers",
+ "pocket-raster",
+ "pocket-spec",
 ]
 
 [[package]]
@@ -5013,7 +5017,10 @@ name = "pocket-linux-fbdev"
 version = "0.16.0"
 dependencies = [
  "libc",
+ "pocket-driver-kit",
  "pocket-drivers",
+ "pocket-raster",
+ "pocket-spec",
 ]
 
 [[package]]
@@ -5021,6 +5028,7 @@ name = "pocket-linux-hooks"
 version = "0.16.0"
 dependencies = [
  "libc",
+ "pocket-driver-kit",
  "pocket-drivers",
 ]
 
@@ -5185,10 +5193,10 @@ dependencies = [
 name = "pocket-psp-render"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-driver-kit",
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-psp-ge",
+ "pocket-render",
  "pocket-spec",
  "psp",
 ]
@@ -5222,10 +5230,10 @@ dependencies = [
 name = "pocket-render-esp-ppa"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-driver-kit",
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-raster",
+ "pocket-render",
  "pocket-spec",
 ]
 
@@ -5233,12 +5241,11 @@ dependencies = [
 name = "pocket-render-sifli-epic"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-driver-kit",
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-raster",
+ "pocket-render",
  "pocket-spec",
- "pocket-tex-cache",
 ]
 
 [[package]]
@@ -5341,6 +5348,7 @@ version = "0.16.0"
 dependencies = [
  "base64 0.22.1",
  "cosmic-text 0.19.0",
+ "pocket-package",
  "pocketjs-core",
  "serde",
  "serde_json",
@@ -5387,7 +5395,7 @@ dependencies = [
  "pocket-runtime",
  "pocket-spec",
  "pocket-ui-surface",
- "pocket-web-render",
+ "pocket-wgpu-render",
  "pocket3d",
  "pocketjs-core",
  "serde_json",
@@ -5421,6 +5429,7 @@ dependencies = [
 name = "pocket-vita-io"
 version = "0.16.0"
 dependencies = [
+ "pocket-driver-kit",
  "pocket-drivers",
 ]
 
@@ -5438,11 +5447,10 @@ dependencies = [
 name = "pocket-vita-render"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-driver-kit",
  "pocket-drivers",
- "pocket-glyph-pages",
+ "pocket-render",
  "pocket-spec",
- "pocket-tex-cache",
  "pocket-vita-gxm",
  "vita2d-sys",
  "vitasdk-sys",
@@ -5475,20 +5483,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-web-render"
-version = "0.16.0"
-dependencies = [
- "bytemuck",
- "pocket-draw-ops",
- "pocket-drivers",
- "pocket-glyph-pages",
- "pocket-spec",
- "pocket-tex-cache",
- "pollster 0.4.0",
- "wgpu",
-]
-
-[[package]]
 name = "pocket-web-wgpu"
 version = "0.16.0"
 dependencies = [
@@ -5498,6 +5492,19 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "wgpu",
+]
+
+[[package]]
+name = "pocket-wgpu-render"
+version = "0.16.0"
+dependencies = [
+ "bytemuck",
+ "pocket-driver-kit",
+ "pocket-drivers",
+ "pocket-render",
+ "pocket-spec",
+ "pollster 0.4.0",
  "wgpu",
 ]
 
@@ -5675,6 +5682,7 @@ dependencies = [
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=a5cac5d8631bdc068b43af93355b9f82d666949e)",
  "pocket-archive",
  "pocket-drivers",
+ "pocket-media",
  "pocket-package",
  "pocket-profile-build",
  "pocket-psp-alloc",
@@ -5700,6 +5708,7 @@ dependencies = [
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b)",
  "pocket-archive",
  "pocket-drivers",
+ "pocket-media",
  "pocket-package",
  "pocket-profile-build",
  "pocket-raster",
@@ -5725,8 +5734,8 @@ dependencies = [
  "pocket-drivers",
  "pocket-package",
  "pocket-physics",
- "pocket-present",
  "pocket-raster",
+ "pocket-render",
  "pocket-runtime",
  "pocketjs-core",
  "serde_json",

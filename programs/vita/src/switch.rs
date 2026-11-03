@@ -9,7 +9,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use pocketjs_core::package::Package;
+use pocket_package::package::Package;
 use pocketjs_core::{spec, Ui};
 
 // $OUT_DIR/apps.rs -- `EmbeddedApp` + `APPS` (programs/vita/build.rs).

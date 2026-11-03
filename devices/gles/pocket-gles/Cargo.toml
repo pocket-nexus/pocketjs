@@ -16,6 +16,8 @@ mock-gl = []
 [dependencies]
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
-pocket-draw-ops = { workspace = true, default-features = true }
-pocket-glyph-pages = { workspace = true, default-features = true }
-pocket-tex-cache = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+
+[dev-dependencies]
+# src/tests.rs audits the renderer lifecycle and renders its fixture scene.
+pocket-driver-kit = { workspace = true, default-features = true }

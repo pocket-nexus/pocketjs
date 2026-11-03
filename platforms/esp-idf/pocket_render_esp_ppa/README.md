@@ -1,7 +1,7 @@
 # pocket_render_esp_ppa
 
 **PPA acceleration implements the public Renderer contract over RGB565 CPU
-surfaces.** The factory in `platforms/esp-idf/render-ppa` registers an instance
+surfaces.** The factory in `devices/esp-idf/render-ppa` registers an instance
 through `pocket_runtime_add_renderer`; no UI pointer or global renderer is used.
 
 The device table supplies blocking opaque FILL, A8 BLEND and PSM5650 SRM.

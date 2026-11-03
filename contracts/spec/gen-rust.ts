@@ -629,7 +629,7 @@ if (import.meta.main) {
   await Bun.write(out, generateRust());
   console.log(`wrote ${out}`);
   for (const [path, source] of [
-    ["../../engine/crates/microts/src/spec.rs", generateMicroTsRust()],
+    ["../../engine/microts-runtime/src/spec.rs", generateMicroTsRust()],
     ["../../framework/src/numeric-microts.ts", generateMicroTsNumericTypes()],
     ["../../framework/src/std-microts.d.ts", generateMicroTsStdDeclarations()],
     ["../../framework/src/component-types-microts.ts", generateMicroTsComponentTypes()],

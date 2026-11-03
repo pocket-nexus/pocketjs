@@ -32,7 +32,6 @@ physics = ["dep:pocket-physics"]
 pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true, optional = true }
-pocket-draw-ops = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
-pocket-glyph-pages = { workspace = true, default-features = true }
 pocket-physics = { workspace = true, default-features = true, optional = true }

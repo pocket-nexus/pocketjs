@@ -30,15 +30,14 @@ pub struct WasmHost {
     provider_ops: RefCell<Vec<u16>>,
     provider_result: RefCell<Option<OpResult>>,
     capture: RefCell<Capture>,
-    surfaces: RefCell<Vec<Option<pocket_present::compositor::CompositorRaster>>>,
+    surfaces: RefCell<Vec<Option<pocket_raster::compositor::CompositorRaster>>>,
 }
 #[derive(Default)]
 struct Capture {
     opaque: Vec<u8>,
     transparent: Vec<u8>,
     auxiliary: Vec<u8>,
-    damage:
-        pocket_present::damage::DamageTracker<{ pocket_present::damage::DEFAULT_DAMAGE_REGIONS }>,
+    damage: pocket_render::damage::DamageTracker<{ pocket_render::damage::DEFAULT_DAMAGE_REGIONS }>,
 }
 fn core_context(size: [u32; 2], density: u32, auxiliary: Option<[u32; 2]>) -> OpContext {
     let mut ui = Ui::new_with_raster_density(density);
@@ -436,16 +435,16 @@ pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 
         resize(&mut capture.opaque, len)?;
         let Capture { opaque, damage, .. } = &mut *capture;
         if mode == 3 {
-            pocket_present::compositor::render(&c.ui, words, opaque, scale, &h.surfaces.borrow());
+            pocket_raster::compositor::render(&c.ui, words, opaque, scale, &h.surfaces.borrow());
             damage.invalidate();
         } else if mode == 1 {
-            if pocket_present::incremental::render_scaled_incremental(
+            if pocket_raster::incremental::render_scaled_incremental(
                 &c.ui,
                 words,
                 opaque,
                 scale,
                 damage,
-                pocket_present::damage::DamagePolicy::default(),
+                pocket_render::damage::DamagePolicy::default(),
             )
             .is_err()
             {
@@ -504,7 +503,7 @@ pub unsafe extern "C" fn web_upload_surface(
     if index >= surfaces.len() {
         surfaces.resize_with(index + 1, || None);
     }
-    surfaces[index] = Some(pocket_present::compositor::CompositorRaster {
+    surfaces[index] = Some(pocket_raster::compositor::CompositorRaster {
         pixels: bytes(p, n).to_vec(),
         width: w,
         height,

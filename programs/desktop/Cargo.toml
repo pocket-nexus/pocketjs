@@ -14,7 +14,7 @@ pocket-posix-svc-wire.workspace = true
 pocket-spec = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
-pocket-web-render = { workspace = true, default-features = true }
+pocket-wgpu-render = { workspace = true, default-features = true }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-mod = { workspace = true, default-features = true }
 pocket-ui-surface = { workspace = true, default-features = true }

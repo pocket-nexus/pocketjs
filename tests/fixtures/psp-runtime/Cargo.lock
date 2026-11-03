@@ -53,18 +53,10 @@ dependencies = [
 name = "pocket-archive"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
  "pocket-drivers",
- "pocket-glyph-pages",
+ "pocket-render",
  "pocket-runtime",
  "pocket-spec",
-]
-
-[[package]]
-name = "pocket-draw-ops"
-version = "0.16.0"
-dependencies = [
- "pocket-render",
 ]
 
 [[package]]
@@ -72,13 +64,6 @@ name = "pocket-drivers"
 version = "0.16.0"
 dependencies = [
  "pocket-spec",
-]
-
-[[package]]
-name = "pocket-glyph-pages"
-version = "0.16.0"
-dependencies = [
- "pocket-render",
 ]
 
 [[package]]

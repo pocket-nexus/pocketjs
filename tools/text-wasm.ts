@@ -2,7 +2,7 @@ import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 import { resolve } from "node:path";
 import { copyFileSync } from "node:fs";
 const root = resolve(import.meta.dir, "..");
-const crate = resolve(root, "engine/crates/pocket-text");
+const crate = resolve(root, "engine/text");
 const child = Bun.spawn(
   [
     "cargo",

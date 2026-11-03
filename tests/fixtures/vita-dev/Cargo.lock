@@ -73,6 +73,7 @@ version = "0.16.0"
 name = "pocket-vita-dev-contract-tests"
 version = "0.0.0"
 dependencies = [
+ "pocket-package",
  "pocket-profile-build",
  "pocket-runtime",
  "pocketjs-core",

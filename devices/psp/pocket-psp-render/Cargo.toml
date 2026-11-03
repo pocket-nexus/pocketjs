@@ -11,9 +11,12 @@ license.workspace = true
 [dependencies]
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
-pocket-draw-ops = { workspace = true, default-features = true }
-pocket-glyph-pages = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
 pocket-psp-ge = { workspace = true, default-features = true }
 
 [target.'cfg(target_os = "psp")'.dependencies]
 psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "880d36aa7d221ccdb120471f8f9d5d1d2bccef30", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
+
+[dev-dependencies]
+# src/tests.rs audits the renderer lifecycle and renders its fixture scene.
+pocket-driver-kit = { workspace = true, default-features = true }

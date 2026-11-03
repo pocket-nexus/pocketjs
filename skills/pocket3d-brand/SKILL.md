@@ -67,7 +67,7 @@ The card plays first at every launch, before the game's renderer starts and
 before input is read. The calls per console and the rules are in the crate's
 README. A development build may skip it behind a flag of its own; a build
 that leaves the developer's machine plays it. The
-[Pocket3D License](../../pocket3d/LICENSE) makes the card a condition of
+[Pocket3D License](../../engine/pocket3d/LICENSE) makes the card a condition of
 distributing a game.
 
 ## The game's own art

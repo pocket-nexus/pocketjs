@@ -8,10 +8,11 @@ import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const DIRECT_CRATES = [
-  "pocket-drivers", "pocket-runtime", "pocket-present", "pocket-package",
-  "pocket-spec", "pocket-draw-ops", "pocket-tex-cache", "pocket-driver-kit",
-  "pocket-raster",
+  "pocket-drivers", "pocket-runtime", "pocket-package", "pocket-spec",
+  "pocket-driver-kit", "pocket-raster",
 ] as const;
+/** Before the coordinator moved into pocket-runtime it was a pocket-present path. */
+const FORMER_COORDINATOR_CRATE = "pocket-present";
 interface CargoPackage {
   id: string;
   name: string;
@@ -105,7 +106,16 @@ export async function runOutOfTreeRust(options: {
       const file = join(consumer, "tests/consumer.rs");
       writeFileSync(file, readFileSync(file, "utf8").replace(/ *\/\/ Renderer 0 is empty[^\n]*\n *runtime\n *\.set_software_renderer\([\s\S]*?\.unwrap\(\);\n/, ""));
     }
-    const directCrates = DIRECT_CRATES.filter(name => (hasKit || name !== "pocket-driver-kit") && (injectsSoftware || name !== "pocket-raster"));
+    const ownsCoordinator = runtimeSource.success && /^pub mod coordinator;/m.test(runtimeSource.stdout.toString());
+    if (!ownsCoordinator) {
+      // Replaying a revision whose coordinator lived in pocket-present names
+      // that crate for the same types.
+      const former = FORMER_COORDINATOR_CRATE.replace("-", "_");
+      const file = join(consumer, "tests/consumer.rs");
+      writeFileSync(file, readFileSync(file, "utf8").replace("pocket_runtime::coordinator::{", former + "::{"));
+    }
+    const directCrates = [...DIRECT_CRATES, ...(ownsCoordinator ? [] : [FORMER_COORDINATOR_CRATE])]
+      .filter(name => (hasKit || name !== "pocket-driver-kit") && (injectsSoftware || name !== "pocket-raster"));
     if (!hasKit) {
       // Historical replay keeps that revision's fixture instead of importing
       // a new test library into an older public dependency graph.
@@ -115,6 +125,7 @@ export async function runOutOfTreeRust(options: {
     const manifest = readFileSync(join(consumer, "Cargo.toml.in"), "utf8")
       .replace(/^pocket-driver-kit = .*\n/m, hasKit ? "$&" : "")
       .replace(/^pocket-raster = .*\n/m, injectsSoftware ? "$&" : "")
+      .replace(/^pocket-runtime = .*\n/m, ownsCoordinator ? "$&" : `$&${FORMER_COORDINATOR_CRATE} = { git = @GIT_URL@, rev = @REVISION@ }\n`)
       .replaceAll("@GIT_URL@", JSON.stringify(gitUrl))
       .replaceAll("@REVISION@", JSON.stringify(revision));
     writeFileSync(join(consumer, "Cargo.toml"), manifest);

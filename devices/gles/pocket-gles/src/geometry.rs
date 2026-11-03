@@ -1,6 +1,6 @@
 //! GLES policies for the shared DrawList walk, and the scissor mapping.
 use super::*;
-use pocket_draw_ops::{Backend, Fill, GlyphCell, Record};
+use pocket_render::{Backend, Fill, GlyphCell, Record};
 
 /// The textures `prepare` resolved for one frame, read by the walk.
 pub(crate) struct Tables<'a> {
@@ -92,7 +92,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
             fonts: &self.fonts,
             white: self.white,
         };
-        pocket_draw_ops::build(
+        pocket_render::build(
             &mut tables,
             words,
             DamageRect::new(0, 0, logical_width as i32, logical_height as i32),

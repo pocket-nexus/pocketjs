@@ -155,7 +155,7 @@ pub trait Renderer {
     /// words, damage, resource object and font atlases are borrowed for this
     /// call only and must be copied before it returns. Presentation calls
     /// this on a Deferred renderer only when its caller made that promise
-    /// (`pocket_present::Coordinator::enable_deferred_zero_copy`).
+    /// (`pocket_runtime::coordinator::Coordinator::enable_deferred_zero_copy`).
     unsafe fn render_zero_copy(
         &mut self,
         frame: &mut FrameInput<'_>,

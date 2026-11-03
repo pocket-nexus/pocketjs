@@ -245,7 +245,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-microts = { path = "../../engine/crates/microts" }
+microts = { path = "../../engine/microts-runtime" }
 
 [profile.dev]
 overflow-checks = false

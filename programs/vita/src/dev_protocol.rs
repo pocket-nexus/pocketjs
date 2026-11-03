@@ -1,5 +1,5 @@
 //! USB mailbox protocol and update admission, independent of Vita services.
-use pocketjs_core::package::{self, Package};
+use pocket_package::package::{self, Package};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -116,12 +116,13 @@ writes `this .3dsx carries no game: romfs:/app.pocket is missing` to the bottom
 screen and to `sdmc:/pocketjs-error.txt`, and waits for HOME.
 
 **The generic runtime is a separate program.** `programs/3ds` reads a file
-package and registers the generated guest, input source and two PICA displays.
-It has no product services, development server, camera, launcher or recovery
-state. Its `3ds-runtime` host contract accepts only the capabilities
-implemented by that program. The generic program links the default Runtime archive; this
-product links `core/` for its recovery inspection interface and the native
-program the facade composes.
+package and registers the generated guest, input source and two PICA displays
+through the same QuickJS facade. It has no product services, development
+server, camera, launcher or recovery state. Its `3ds-runtime` host
+contract accepts only the capabilities implemented by that program. The
+generic program links the native program built without outputs or hooks; this
+product links `core/` for its recovery inspection interface and the same native
+program.
 
 Use `pocket build --target 3ds --generic` for that runtime and
 `pocket pack --runtime <build-directory> --pocket <application.pocket>` to

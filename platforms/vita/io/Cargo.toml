@@ -9,3 +9,7 @@ description = "PocketJS vita io driver"
 
 [dependencies]
 pocket-drivers.workspace = true
+
+[dev-dependencies]
+# tests/driver_kit.rs runs the package source conformance check.
+pocket-driver-kit = { workspace = true, default-features = true }

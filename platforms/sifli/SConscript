@@ -108,7 +108,7 @@ if GetDepend('POCKETJS'):
 
     CPPPATH = [
         os.path.join(cwd, 'include'),
-        os.path.join(cwd, 'render-epic', 'include'),
+        os.path.join(root, 'devices', 'sifli', 'render-epic', 'include'),
         os.path.join(root, 'contracts', 'generated'),
         os.path.join(root, 'engine', 'guest-quickjs', 'include'),
         os.path.abspath(profile),

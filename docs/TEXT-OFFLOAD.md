@@ -31,7 +31,7 @@ starving completed snapshots.
 
 ## Execution and transport ownership
 
-- `engine/crates/pocket-text`: one Rust engine for native and WASM execution.
+- `engine/text`: one Rust engine for native and WASM execution.
   Atlas wrapping uses the same package metrics as the Rust UI renderer.
   COSMIC Text / Harfrust / Swash provide advanced shaping and rasterization.
   The font database starts empty. Hosts explicitly load `ui:font.*` atlases,

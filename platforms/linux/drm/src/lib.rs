@@ -239,6 +239,100 @@ mod tests {
         };
         assert_eq!(s.pixels(), &[7; 16]);
     }
+    /// pocket-driver-kit lifecycle audit of software frames on this display:
+    /// the bytes the scanout copied are the display completion probe.
+    #[test]
+    fn raster_frames_pass_the_driver_kit_lifecycle_audit() {
+        use pocket_driver_kit::{Event, Lifecycle};
+        use pocket_drivers::{DrawList, FontView, FrameInput, RenderResources, Renderer, TexView};
+        struct Resources;
+        impl RenderResources for Resources {
+            fn viewport(&self) -> (f32, f32) {
+                (2.0, 2.0)
+            }
+            fn raster_revision(&self) -> u64 {
+                0
+            }
+            fn texture(&self, _: i32) -> Option<TexView<'_>> {
+                None
+            }
+            fn font_atlas(&self, _: u8) -> Option<FontView<'_>> {
+                None
+            }
+        }
+        let state = Rc::new(RefCell::new(State::default()));
+        let mut display = Display::new(Fake(state.clone()), [2, 2]).unwrap();
+        let mut renderer = pocket_raster::RasterRenderer::new(1).unwrap();
+        let region = Rect::new(0, 0, 2, 2);
+        let mut audit = Lifecycle::new(8);
+        for (frame, color) in [0xff00_00ffu32, 0xffff_0000].into_iter().enumerate() {
+            let frame = frame as u64 + 1;
+            // The display alternates two staging buffers.
+            let buffer = display.frame_identity().unwrap().unwrap().buffer;
+            let mut list = DrawList::new();
+            list.words = vec![pocket_spec::draw_op::RECT, 0, 2 | 2 << 16, color];
+            let mut reference = [0u8; 16];
+            let mut surface =
+                Surface::new(&mut reference, region, 8, PixelFormat::Argb8888).unwrap();
+            pocket_raster::render_surface(&Resources, &list.words, &mut surface, 1).unwrap();
+            audit.observe(Event::Acquire(buffer)).unwrap();
+            let target = display.acquire(region).unwrap();
+            // The rasterizer's submission is `()`.
+            renderer
+                .render(&mut FrameInput::new(&list, &Resources, &[region], target))
+                .unwrap();
+            audit
+                .observe(Event::Render {
+                    submission: frame,
+                    buffer,
+                })
+                .unwrap();
+            // An Immediate renderer has finished writing when render returns.
+            assert_eq!(
+                renderer.descriptor().synchronization(),
+                pocket_drivers::Synchronization::Immediate
+            );
+            audit.observe(Event::RenderStopped(frame)).unwrap();
+            renderer.wait(&()).unwrap();
+            audit
+                .observe(Event::RenderWaited {
+                    submission: frame,
+                    failed: false,
+                })
+                .unwrap();
+            let token = display.flush(&[region]).unwrap();
+            audit
+                .observe(Event::Flush {
+                    transfer: token,
+                    submission: frame,
+                    buffer,
+                })
+                .unwrap();
+            if state
+                .borrow()
+                .slots
+                .last()
+                .map(|(_, bytes)| bytes.as_slice())
+                == Some(&reference[..])
+            {
+                audit.observe(Event::DisplayStopped(token)).unwrap();
+            }
+            display.wait(token).unwrap();
+            audit
+                .observe(Event::DisplayWaited {
+                    transfer: token,
+                    failed: false,
+                })
+                .unwrap();
+            renderer.retire(());
+            audit.observe(Event::Retire(frame)).unwrap();
+            audit.observe(Event::FrameEnd { failed: false }).unwrap();
+        }
+        drop(display);
+        assert!(state.borrow().stopped);
+        audit.observe(Event::Destroy).unwrap();
+        audit.finish().unwrap();
+    }
     #[test]
     fn failed_submit_and_failed_wait_stop_before_return() {
         for fail_wait in [false, true] {

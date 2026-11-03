@@ -7,7 +7,7 @@
 //! program — Pocket Term, whose daemon holds the PTYs — needs those queues fed
 //! from a socket instead. That is this module: the same wire the console
 //! speaks (`products/3ds/src/svcwire.c`), the same codec
-//! (`pocketjs_core::wire`), so one companion serves a 3DS and a desktop
+//! (`pocket_media::wire`), so one companion serves a 3DS and a desktop
 //! window without knowing which is which.
 //!
 //! Threading follows `platforms/vita/net/src/lib.rs`: a supervisor thread owns

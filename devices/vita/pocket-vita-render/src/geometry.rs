@@ -1,6 +1,6 @@
 //! GXM policies for the shared DrawList walk.
 use super::*;
-use pocket_draw_ops::{triangle, Backend, Fill, GlyphCell, Record};
+use pocket_render::{triangle, Backend, Fill, GlyphCell, Record};
 
 /// The textures `prepare` resolved for one frame, read by the walk.
 struct Tables<'a> {
@@ -122,7 +122,7 @@ impl<D: Device> GxmRenderer<D> {
             fonts: &self.fonts,
             white: self.white,
         };
-        pocket_draw_ops::build(
+        pocket_render::build(
             &mut tables,
             words,
             DamageRect::new(0, 0, logical_width as i32, logical_height as i32),

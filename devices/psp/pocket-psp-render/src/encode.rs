@@ -1,10 +1,10 @@
 use crate::{Device, Primitive, TextureBinding, VertC, VertTC, Vertices};
 use alloc::vec::Vec;
 use core::mem::size_of;
-use pocket_draw_ops::{gradient_corners, DrawOps};
 use pocket_drivers::{DamageRect, FontView, RenderError, RenderResources, TexView};
-use pocket_glyph_pages::{FontPages, GlyphSource};
 use pocket_psp_ge::FramePool;
+use pocket_render::glyph_pages::{FontPages, GlyphSource};
+use pocket_render::{gradient_corners, DrawOps};
 use pocket_spec as spec;
 
 /// Storage for an open native GE pass. It owns geometry and font renditions.
@@ -487,14 +487,14 @@ unsafe fn ge_texture_storage(
     (pointer, 16 / pixel_bytes, size)
 }
 fn xy(word: u32) -> (i16, i16) {
-    let (x, y) = pocket_draw_ops::xy(word);
+    let (x, y) = pocket_render::xy(word);
     (x as i16, y as i16)
 }
 fn add(start: i16, amount: u32) -> Result<i16, RenderError> {
     i16::try_from(i64::from(start) + i64::from(amount)).map_err(|_| RenderError::InvalidFrame)
 }
 fn end_xy(x: i16, y: i16, wh: u32) -> Result<(i16, i16), RenderError> {
-    let (width, height) = pocket_draw_ops::wh(wh);
+    let (width, height) = pocket_render::wh(wh);
     Ok((add(x, width as u32)?, add(y, height as u32)?))
 }
 fn uv(word: u32, dimension: u32) -> Result<i16, RenderError> {

@@ -137,14 +137,14 @@ fn embedded_hash(app_index: usize) -> String {
                 #[cfg(feature="runtime")]
                 switch::GuestBytes::File => return None,
                 switch::GuestBytes::Package(bytes) => {
-                    let package = pocketjs_core::package::Package::parse(bytes, false).ok()?;
+                    let package = pocket_package::package::Package::parse(bytes, false).ok()?;
                     let variant = package.find_variant("vita").ok()??;
                     (
                         variant
-                            .section(pocketjs_core::package::section::JS)
+                            .section(pocket_package::package::section::JS)
                             .ok()??,
                         variant
-                            .section(pocketjs_core::package::section::PAK)
+                            .section(pocket_package::package::section::PAK)
                             .ok()?
                             .unwrap_or(&[]),
                     )
@@ -153,7 +153,7 @@ fn embedded_hash(app_index: usize) -> String {
             let js = js.strip_suffix(&[0]).unwrap_or(js);
             Some(format!(
                 "{:016x}",
-                pocketjs_core::package::fnv1a64(&[js, pak])
+                pocket_package::package::fnv1a64(&[js, pak])
             ))
         })
         .unwrap_or_else(|| "unavailable".into())

@@ -1002,3 +1002,71 @@ mod target_contract {
         assert_eq!(port.target(handle).err(), Some(RenderError::Failed));
     }
 }
+/// pocket-driver-kit lifecycle audit over the recording GL: glFinish is the
+/// completion probe and glDeleteTextures the release probe.
+#[test]
+fn render_wait_retire_and_destroy_pass_the_driver_kit_lifecycle_audit() {
+    use pocket_driver_kit::test_device::{scene, Resources, HEIGHT, WIDTH};
+    use pocket_driver_kit::{Event, Lifecycle};
+    let count = |call: &dyn Fn(&Call) -> bool| mock::calls().iter().filter(|c| call(c)).count();
+    let mut renderer = fresh();
+    let buffer = renderer
+        .register_target(TargetConfig::new(
+            (),
+            [WIDTH, HEIGHT],
+            Viewport::new(0, 0, WIDTH, HEIGHT),
+            PixelFormat::Rgba8888,
+        ))
+        .unwrap();
+    let list = scene();
+    let damage = [Rect::new(0, 0, WIDTH, HEIGHT)];
+    let mut audit = Lifecycle::new(8);
+    for frame in 1..=2u64 {
+        let resources = Resources::new(frame, frame as u8);
+        audit.observe(Event::Acquire(buffer)).unwrap();
+        let target = renderer.target(buffer).unwrap();
+        let submission = renderer
+            .render(&mut FrameInput::new(
+                &list,
+                &resources,
+                &damage,
+                Target::DeviceOwned(target),
+            ))
+            .unwrap();
+        audit
+            .observe(Event::Render {
+                submission: frame,
+                buffer,
+            })
+            .unwrap();
+        audit
+            .observe(Event::UseResource {
+                submission: frame,
+                resource: frame,
+            })
+            .unwrap();
+        let finished = count(&|c| *c == Call::Finish);
+        renderer.wait(&submission).unwrap();
+        if count(&|c| *c == Call::Finish) > finished {
+            audit.observe(Event::RenderStopped(frame)).unwrap();
+        }
+        audit
+            .observe(Event::RenderWaited {
+                submission: frame,
+                failed: false,
+            })
+            .unwrap();
+        renderer.retire(submission);
+        audit.observe(Event::Retire(frame)).unwrap();
+        audit.observe(Event::FrameEnd { failed: false }).unwrap();
+    }
+    renderer.unregister_target(buffer).unwrap();
+    drop(renderer);
+    assert!(count(&|c| matches!(c, Call::TexImage2D { .. })) >= 2);
+    assert!(count(&|c| matches!(c, Call::DeleteTextures(_))) > 0);
+    for version in 1..=2 {
+        audit.observe(Event::ReleaseResource(version)).unwrap();
+    }
+    audit.observe(Event::Destroy).unwrap();
+    audit.finish().unwrap();
+}

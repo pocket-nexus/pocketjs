@@ -850,7 +850,7 @@ abi_record! {
 }
 
 unsafe extern "C" {
-    /// Query or expand a bounded guarded A8 page through pocket-glyph-pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap.
+    /// Query or expand a bounded guarded A8 page through pocket_render::glyph_pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap.
 pub fn pocket_glyph_page_a8(font: *const PocketFontView, glyph: u32, max_dimension: u32, pixels: *mut u8, capacity: usize, out: *mut PocketGlyphPage) -> i32;
     /// Create a thread-owned monotonic deadline schedule. Invalid rate, zero lag limit, or overflow returns null. Platform code owns waits and cancellation.
 pub fn pocket_tick_schedule_create(tick_hz: u32, started: u64, max_lag_us: u64) -> *mut PocketTickSchedule;
