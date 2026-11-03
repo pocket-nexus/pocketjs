@@ -189,23 +189,24 @@ static JSValue package_buffer(JSContext *ctx,const pocket_guest_environment *env
 }
 static JSValue console_log(JSContext *ctx,JSValueConst self,int argc,JSValueConst *argv,int magic,JSValue *data) {
   (void)self;
-  size_t token_length=0,total=0;uint8_t *token=JS_GetArrayBuffer(ctx,&token_length,data[0]);pocket_guest_quickjs *guest=NULL;
+  size_t token_length=0;uint8_t *token=JS_GetArrayBuffer(ctx,&token_length,data[0]);pocket_guest_quickjs *guest=NULL;
   if(token&&token_length==sizeof guest)memcpy(&guest,token,sizeof guest);
-  if(!guest||magic<POCKET_QJS_LOG||magic>POCKET_QJS_DEBUG)return JS_ThrowInternalError(ctx,"inactive console binding");
-  const char **texts=argc?calloc((size_t)argc,sizeof *texts):NULL;size_t *lengths=argc?calloc((size_t)argc,sizeof *lengths):NULL;char *line=NULL;
-  if(argc&&(!texts||!lengths))goto oom;
-  for(int i=0;i<argc;i++){texts[i]=JS_ToCStringLen(ctx,&lengths[i],argv[i]);if(!texts[i])goto failed;if(lengths[i]>SIZE_MAX-total-(i?1:0))goto oom;total+=lengths[i]+(i?1:0);}
+  if(magic<POCKET_QJS_DEBUG||magic>POCKET_QJS_ERROR)return JS_ThrowInternalError(ctx,"invalid console level");
+  if(!guest||!guest->log_hook) {
+    for(int i=0;i<argc;i++){const char *text=JS_ToCString(ctx,argv[i]);if(!text)return JS_EXCEPTION;if(i)fputc(' ',stderr);fputs(text,stderr);JS_FreeCString(ctx,text);}fputc('\n',stderr);return JS_UNDEFINED;
+  }
+  size_t total=0;char *line=NULL,*replacement=NULL;JSValue strings=JS_NewArray(ctx);
+  if(JS_IsException(strings))return JS_EXCEPTION;
+  for(int i=0;i<argc;i++){JSValue text=JS_ToString(ctx,argv[i]);if(JS_IsException(text))goto failed;if(JS_DefinePropertyValueUint32(ctx,strings,(uint32_t)i,text,JS_PROP_C_W_E)<0)goto failed;}
+  for(int i=0;i<argc;i++){JSValue text=JS_GetPropertyUint32(ctx,strings,(uint32_t)i);size_t length=0;const char *bytes=JS_ToCStringLen(ctx,&length,text);JS_FreeValue(ctx,text);if(!bytes)goto failed;if(length>SIZE_MAX-total-(i?1:0)){JS_FreeCString(ctx,bytes);goto oom;}total+=length+(i?1:0);JS_FreeCString(ctx,bytes);}
   line=malloc(total+1);if(!line)goto oom;
-  {size_t at=0;for(int i=0;i<argc;i++){if(i)line[at++]=' ';if(lengths[i]){memcpy(line+at,texts[i],lengths[i]);at+=lengths[i];}}}line[total]=0;
-  if(guest->log_hook)guest->log_hook(guest->log_context,(pocket_qjs_log_level)magic,(const uint8_t*)line,total);
-  else {if(total)fwrite(line,1,total,stderr);fputc('\n',stderr);}
-  for(int i=0;i<argc;i++)if(texts[i])JS_FreeCString(ctx,texts[i]);
-  free(texts);free(lengths);free(line);return JS_UNDEFINED;
+  {size_t at=0;for(int i=0;i<argc;i++){JSValue text=JS_GetPropertyUint32(ctx,strings,(uint32_t)i);size_t length=0;const char *bytes=JS_ToCStringLen(ctx,&length,text);JS_FreeValue(ctx,text);if(!bytes)goto failed;if(i)line[at++]=' ';if(length){memcpy(line+at,bytes,length);at+=length;}JS_FreeCString(ctx,bytes);}}line[total]=0;
+  {const uint8_t *message=(const uint8_t*)line;size_t length=total;if(!valid_utf8(message,length)){replacement=lossy_utf8(message,length,&length);if(!replacement)goto oom;message=(const uint8_t*)replacement;}guest->log_hook(guest->log_context,(pocket_qjs_log_level)magic,message,length);}
+  JS_FreeValue(ctx,strings);free(replacement);free(line);return JS_UNDEFINED;
 oom:
   JS_ThrowOutOfMemory(ctx);
 failed:
-  for(int i=0;i<argc;i++)if(texts&&texts[i])JS_FreeCString(ctx,texts[i]);
-  free(texts);free(lengths);free(line);return JS_EXCEPTION;
+  JS_FreeValue(ctx,strings);free(replacement);free(line);return JS_EXCEPTION;
 }
 static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_guest_environment *env) {
   pocket_guest_quickjs *guest=opaque;
@@ -220,7 +221,7 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
   guest->runtime=runtime;guest->token=JS_NewArrayBufferCopy(ctx,(const uint8_t*)&guest,sizeof guest);
   if(JS_IsException(guest->token))goto failed;
   existing=JS_GetPropertyStr(ctx,global,"console");
-  if(JS_IsUndefined(existing)) {JSValue console=JS_NewObject(ctx);const char *names[]={"log","info","warn","error","debug"};for(size_t i=0;i<5;i++)if(set(ctx,console,names[i],JS_NewCFunctionData(ctx,console_log,1,(int)i,1,&guest->token))<0){JS_FreeValue(ctx,console);JS_FreeValue(ctx,existing);goto failed;}if(set(ctx,global,"console",console)<0){JS_FreeValue(ctx,existing);goto failed;}guest->mounted_console=1;}JS_FreeValue(ctx,existing);
+  if(JS_IsUndefined(existing)) {JSValue console=JS_NewObject(ctx);const char *names[]={"log","info","warn","error","debug"};const int levels[]={POCKET_QJS_LOG,POCKET_QJS_INFO,POCKET_QJS_WARN,POCKET_QJS_ERROR,POCKET_QJS_DEBUG};for(size_t i=0;i<5;i++)if(set(ctx,console,names[i],JS_NewCFunctionData(ctx,console_log,1,levels[i],1,&guest->token))<0){JS_FreeValue(ctx,console);JS_FreeValue(ctx,existing);goto failed;}if(set(ctx,global,"console",console)<0){JS_FreeValue(ctx,existing);goto failed;}guest->mounted_console=1;}JS_FreeValue(ctx,existing);
 #if defined(POCKET_QJS_BELLARD)
   /* Discover native classes without invoking replaceable JS constructors or
    * property getters. Preserve the embedding engine's JSValue ABI. */

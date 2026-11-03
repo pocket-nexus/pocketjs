@@ -84,9 +84,9 @@ static void binding_generation(void) {
     }
   }
 }
-typedef struct {unsigned count;pocket_qjs_log_level levels[6];char messages[6][64];} log_capture;
+typedef struct {unsigned count;pocket_qjs_log_level levels[7];char messages[7][64];} log_capture;
 static void capture_log(void *context,pocket_qjs_log_level level,const uint8_t *message,size_t length) {
-  log_capture *capture=context;assert(capture->count<6&&length<sizeof capture->messages[0]);
+  log_capture *capture=context;assert(capture->count<7&&length<sizeof capture->messages[0]);
   capture->levels[capture->count]=level;if(length)memcpy(capture->messages[capture->count],message,length);capture->messages[capture->count][length]=0;capture->count++;
 }
 static void console_sink(void) {
@@ -95,10 +95,13 @@ static void console_sink(void) {
   assert(pocket_guest_quickjs_set_log_hook(guest,capture_log,&capture)==0);
   assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
   assert(pocket_guest_quickjs_set_log_hook(guest,NULL,NULL)!=0);
-  eval(guest,&runtime,"console.log('hello',17);console.info('info');console.warn('warn');console.error('error');console.debug('debug');console.log()");
-  const pocket_qjs_log_level levels[]={POCKET_QJS_LOG,POCKET_QJS_INFO,POCKET_QJS_WARN,POCKET_QJS_ERROR,POCKET_QJS_DEBUG,POCKET_QJS_LOG};
-  const char *messages[]={"hello 17","info","warn","error","debug",""};
-  assert(capture.count==6);for(unsigned i=0;i<6;i++)assert(capture.levels[i]==levels[i]&&!strcmp(capture.messages[i],messages[i]));
+  eval(guest,&runtime,"console.log('hello',17);console.info('info');console.warn('warn');console.error('error');console.debug('debug');console.log();console.log('\\ud800x')");
+  const pocket_qjs_log_level levels[]={POCKET_QJS_LOG,POCKET_QJS_INFO,POCKET_QJS_WARN,POCKET_QJS_ERROR,POCKET_QJS_DEBUG,POCKET_QJS_LOG,POCKET_QJS_LOG};
+  const char *messages[]={"hello 17","info","warn","error","debug","","\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbdx"};
+  assert(POCKET_QJS_DEBUG<POCKET_QJS_LOG&&POCKET_QJS_LOG<POCKET_QJS_INFO&&POCKET_QJS_INFO<POCKET_QJS_WARN&&POCKET_QJS_WARN<POCKET_QJS_ERROR);
+  assert(capture.count==7);for(unsigned i=0;i<7;i++)assert(capture.levels[i]==levels[i]&&!strcmp(capture.messages[i],messages[i]));
+  static const uint8_t rejected[]="console.log('oom')";begin_scratch(1);assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,rejected,sizeof rejected)!=0);end_scratch(1,0,4);
+  eval(guest,&runtime,"globalThis.consoleRecovered=true");assert(capture.count==7);
   pocket_guest_quickjs_destroy(guest);
 }
 static void canonical(void) {
@@ -132,11 +135,11 @@ static void attached_lifetime(void) {
     uint8_t *pak=mmap(NULL,page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(pak!=MAP_FAILED);pak[0]=1;pak[1]=2;pak[2]=3;
     JSRuntime *engine=JS_NewRuntime();JSContext *ctx=JS_NewContext(engine);pocket_runtime runtime={0};pocket_guest_environment env=environment();env.pak=pak;env.pak_length=3;
     pocket_guest_quickjs *guest=pocket_guest_quickjs_attach(ctx,(pocket_qjs_profile)profile);assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
-    eval(guest,&runtime,"globalThis.saved=Object.values(ui).find(v=>typeof v==='function');globalThis.savedPak=__pak;globalThis.savedView=new Uint8Array(__pak);if(!saved||savedView[2]!==3)throw Error('view')");pocket_guest_quickjs_destroy(guest);
+    eval(guest,&runtime,"globalThis.saved=Object.values(ui).find(v=>typeof v==='function');globalThis.savedPak=__pak;globalThis.savedView=new Uint8Array(__pak);globalThis.savedLog=console.log;if(!saved||savedView[2]!==3)throw Error('view')");pocket_guest_quickjs_destroy(guest);
     /* Shutdown detached __pak before its storage went away: retained views
      * read nothing instead of the unmapped page. */
     assert(munmap(pak,page)==0);
-    const char *source="let rejected=false;try{saved(0)}catch(e){rejected=true}if(!rejected||savedPak.byteLength!==0||savedPak.detached!==true||savedView.byteLength!==0||savedView[0]!==undefined||'ui' in globalThis||'__pak' in globalThis||'console' in globalThis)throw new Error('lifetime')";
+    const char *source="let rejected=false;try{saved(0)}catch(e){rejected=true}savedLog('after');if(!rejected||savedPak.byteLength!==0||savedPak.detached!==true||savedView.byteLength!==0||savedView[0]!==undefined||'ui' in globalThis||'__pak' in globalThis||'console' in globalThis)throw new Error('lifetime')";
     JSValue result=JS_Eval(ctx,source,strlen(source),"test",JS_EVAL_TYPE_GLOBAL);assert(!JS_IsException(result));JS_FreeValue(ctx,result);JS_FreeContext(ctx);JS_FreeRuntime(engine);
   }
 }

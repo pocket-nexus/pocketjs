@@ -37,8 +37,9 @@ int pocket_guest_quickjs_set_phase_hook(pocket_guest_quickjs *guest, pocket_qjs_
 /* Optional per-instance console sink. Message bytes are UTF-8 borrowed only
  * through the callback. Hooks run on the guest's owning thread and must not
  * reenter or destroy it. Without a hook, console output retains its stderr
- * behavior. Set before initialize. */
-typedef enum { POCKET_QJS_LOG, POCKET_QJS_INFO, POCKET_QJS_WARN, POCKET_QJS_ERROR, POCKET_QJS_DEBUG } pocket_qjs_log_level;
+ * behavior. An existing global console is preserved and does not use this
+ * hook. Set before initialize. */
+typedef enum { POCKET_QJS_DEBUG = 0, POCKET_QJS_LOG = 1, POCKET_QJS_INFO = 2, POCKET_QJS_WARN = 3, POCKET_QJS_ERROR = 4 } pocket_qjs_log_level;
 typedef void (*pocket_qjs_log_hook)(void *context, pocket_qjs_log_level level, const uint8_t *message, size_t length);
 int pocket_guest_quickjs_set_log_hook(pocket_guest_quickjs *guest, pocket_qjs_log_hook hook, void *context);
 void pocket_guest_quickjs_destroy(pocket_guest_quickjs *guest);
