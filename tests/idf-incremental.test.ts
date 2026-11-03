@@ -19,7 +19,7 @@ describe("ESP-IDF incremental package build", () => {
         cpSync(join(root, "platforms/esp-idf/pocket_runtime", file), join(component, file));
       const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "programs/esp-idf/archive");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
-      const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi"];
+      const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tex-cache", "runtime", "runtime-cabi"];
       const extra = ["platforms/esp-idf/render-ppa"]
         .map(path => layout === "vendor" ? join(contracts, path.split("/").at(-1)!) : join(temporary, path));
       for (const source of [native, ...crates.map(crate => join(contracts, crate)), ...extra]) {

@@ -83,15 +83,14 @@ impl Clip {
 
 #[inline]
 fn xy(word: u32, scale: i32) -> (i32, i32) {
-    (
-        (word & 0xffff) as u16 as i16 as i32 * scale,
-        (word >> 16) as u16 as i16 as i32 * scale,
-    )
+    let (x, y) = pocket_draw_ops::xy(word);
+    (x * scale, y * scale)
 }
 
 #[inline]
 fn wh(word: u32, scale: i32) -> (i32, i32) {
-    ((word & 0xffff) as i32 * scale, (word >> 16) as i32 * scale)
+    let (width, height) = pocket_draw_ops::wh(word);
+    (width * scale, height * scale)
 }
 
 #[inline]

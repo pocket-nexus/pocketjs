@@ -88,7 +88,7 @@ struct UiVertex {
     mode: u32,
     bounds: [f32; 4],
 }
-impl pocket_tri_batch::Vertex for UiVertex {
+impl pocket_draw_ops::Vertex for UiVertex {
     fn from_components(pos: [f32; 2], uv: [f32; 2], color: u32) -> Self {
         Self {
             pos,
@@ -106,7 +106,7 @@ enum TexBind {
     Font(TextureKey),
     Surface(u32),
 }
-type DrawCmd = pocket_tri_batch::Batch<TexBind, (u32, u32, u32, u32)>;
+type DrawCmd = pocket_draw_ops::Batch<TexBind, (u32, u32, u32, u32)>;
 
 /// CPU handles retained alongside an encoded pass. Native wgpu command buffers
 /// also retain these resources, including after this lease is dropped.

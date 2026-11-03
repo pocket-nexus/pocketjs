@@ -469,32 +469,24 @@ impl<'r, E: Executor> Context<'r, E> {
         if from_alpha != 255 || to_alpha != 255 {
             return Some(false);
         }
-        let corners = match direction {
-            value if value == spec::GradDir::ToBottom as u32 => Corners {
-                top_left: from,
-                top_right: from,
-                bottom_left: to,
-                bottom_right: to,
-            },
-            value if value == spec::GradDir::ToTop as u32 => Corners {
-                top_left: to,
-                top_right: to,
-                bottom_left: from,
-                bottom_right: from,
-            },
-            value if value == spec::GradDir::ToRight as u32 => Corners {
-                top_left: from,
-                top_right: to,
-                bottom_left: from,
-                bottom_right: to,
-            },
-            value if value == spec::GradDir::ToLeft as u32 => Corners {
-                top_left: to,
-                top_right: from,
-                bottom_left: to,
-                bottom_right: from,
-            },
-            _ => return Some(false),
+        // A direction outside `GradDir` stays on the software path.
+        if ![
+            spec::GradDir::ToBottom,
+            spec::GradDir::ToTop,
+            spec::GradDir::ToRight,
+            spec::GradDir::ToLeft,
+        ]
+        .iter()
+        .any(|known| *known as u32 == direction)
+        {
+            return Some(false);
+        }
+        let shared = pocket_draw_ops::gradient_corners(from, to, direction);
+        let corners = Corners {
+            top_left: shared.top_left,
+            top_right: shared.top_right,
+            bottom_left: shared.bottom_left,
+            bottom_right: shared.bottom_right,
         };
         let rect = self.local(logical);
         if rect.is_empty()

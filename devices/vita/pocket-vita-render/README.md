@@ -2,8 +2,9 @@
 
 `GxmRenderer<D>` consumes `FrameInput` and `RenderResources` through
 `pocket-drivers::Renderer`. **The renderer does not depend on `Ui` or a guest
-engine.** It resolves resources referenced by the DrawList, decodes commands
-with `pocket-draw-ops`, and preserves painter order with `pocket-tri-batch`.
+engine.** It resolves resources referenced by the DrawList and builds vertices
+and painter-ordered batches through the `pocket-draw-ops` walk, supplying
+vita2d's quad diagonal and texture zero as the untextured key.
 The target covers the configured physical viewport; partial device targets and
 zero-copy rendering return errors.
 

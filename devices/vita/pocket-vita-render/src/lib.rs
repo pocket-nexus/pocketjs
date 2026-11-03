@@ -26,7 +26,7 @@ pub struct Vertex {
     pub uv: [f32; 2],
     pub color: u32,
 }
-impl pocket_tri_batch::Vertex for Vertex {
+impl pocket_draw_ops::Vertex for Vertex {
     fn from_components(position: [f32; 2], uv: [f32; 2], color: u32) -> Self {
         Self {
             position,
@@ -43,7 +43,7 @@ pub struct Clip {
     pub h: i32,
 }
 /// Texture zero means untextured vertex color. Other ids belong to Device.
-pub type Command = pocket_tri_batch::Batch<u32, Clip>;
+pub type Command = pocket_draw_ops::Batch<u32, Clip>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextureFormat {
     Rgba,

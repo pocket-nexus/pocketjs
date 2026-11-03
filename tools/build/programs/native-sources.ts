@@ -8,7 +8,7 @@ const crate = (directory: string) => [`${directory}/Cargo.toml`, `${directory}/s
 const runtime = [
   "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "contracts/generated",
   ...["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime",
-    "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"]
+    "render/draw-ops", "render/glyph-pages", "render/tex-cache"]
     .flatMap(name => crate(`engine/${name}`)),
 ];
 const native = [

@@ -122,8 +122,7 @@ or each other.** Drivers select the utilities they need.
 
 | Crate | Mechanism |
 | --- | --- |
-| `pocket-draw-ops` | Borrows operation words, validates record lengths, and attaches the current absolute clip |
-| `pocket-tri-batch` | Constructs driver-defined vertices and merges adjacent ranges with equal texture and clip keys |
+| `pocket-draw-ops` | Borrows operation words, validates record lengths, attaches the current absolute clip, decodes record fields, constructs driver-defined vertices, merges adjacent ranges with equal texture and clip keys, and walks a DrawList into vertices and batches under a driver's `Backend` policies |
 | `pocket-glyph-pages` | Expands A8 pages and masks, and retains ABGR4444 pages by submission |
 | `pocket-tex-cache` | Keeps device texture versions alive until their last referencing submission retires |
 
@@ -137,7 +136,13 @@ over the existing pixels, after the caller has completed earlier accelerator
 work and made the target cache visible. Native text and surface composition
 remain separate host responsibilities.
 
-The GLES backend uses the shared triangle construction and batching code.
+**The GLES, GXM, and wgpu renderers share one DrawList walk from
+`pocket-draw-ops`; each supplies its vertex type, texture and clip keys, fill
+source, image and glyph lookup, record acceptance, and quad diagonal.** The
+PSP, PPA, EPIC, and software renderers keep their own walks and take XY and
+WH unpacking from the same crate; the PSP and EPIC gradient paths also take
+its corner color mapping, and the software compositor decodes surface records
+through it.
 The core's glyph texture preparation and the RGB565 glyph mask path use
 `pocket-glyph-pages`. Existing host entry points remain available during the
 runtime migration.

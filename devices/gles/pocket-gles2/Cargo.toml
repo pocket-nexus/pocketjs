@@ -10,3 +10,6 @@ license.workspace = true
 
 [dependencies]
 pocket-gles = { workspace = true, default-features = true }
+
+[dev-dependencies]
+pocket-gles = { workspace = true, default-features = true, features = ["mock-gl"] }

@@ -143,10 +143,6 @@ name = "pocket-tex-cache"
 version = "0.16.0"
 
 [[package]]
-name = "pocket-tri-batch"
-version = "0.16.0"
-
-[[package]]
 name = "pocket-vita-gxm"
 version = "0.16.0"
 dependencies = [
@@ -163,7 +159,6 @@ dependencies = [
  "pocket-glyph-pages",
  "pocket-spec",
  "pocket-tex-cache",
- "pocket-tri-batch",
  "pocket-vita-gxm",
  "vita2d-sys",
  "vitasdk-sys",

@@ -1,9 +1,11 @@
 //! Portable Pocket System composition. The same Rust painter runs on native
 //! workers and WASM, preserving scissor and surface painter order.
 
+use alloc::vec::Vec;
+use pocket_draw_ops::record::SurfaceQuad;
+use pocket_draw_ops::Record;
 use pocket_drivers::RenderResources;
 use pocket_raster as raster;
-use alloc::vec::Vec;
 
 /// A host-owned raster, outside the guest texture namespace.
 #[derive(Clone)]
@@ -39,22 +41,20 @@ fn render_segment(
 
 fn blend_surface(
     entry: &CompositorRaster,
-    op: &[u32],
+    quad: &SurfaceQuad,
     framebuffer: &mut [u8],
     viewport_width: u32,
     viewport_height: u32,
     scale: u32,
 ) {
-    let full_x = f32::from_bits(op[2]);
-    let full_y = f32::from_bits(op[3]);
-    let full_w = f32::from_bits(op[4]).min(entry.width as f32).max(0.0);
-    let full_h = f32::from_bits(op[5]).min(entry.height as f32).max(0.0);
-    let clip_xy = op[6];
-    let clip_wh = op[7];
-    let clip_x = clip_xy as u16 as i16 as i32;
-    let clip_y = (clip_xy >> 16) as u16 as i16 as i32;
-    let clip_w = (clip_wh & 0xffff) as i32;
-    let clip_h = (clip_wh >> 16) as i32;
+    let full_x = quad.x;
+    let full_y = quad.y;
+    let full_w = quad.width.min(entry.width as f32).max(0.0);
+    let full_h = quad.height.min(entry.height as f32).max(0.0);
+    let clip_x = quad.clip_x;
+    let clip_y = quad.clip_y;
+    let clip_w = quad.clip_width;
+    let clip_h = quad.clip_height;
     let scale_i = scale as i32;
     let density = entry.density.max(1);
     let source_width = entry.width.saturating_mul(density);
@@ -151,11 +151,13 @@ pub fn render(
                     framebuffer,
                     scale,
                 );
-                let surface = words[at + 1] as usize;
-                if let Some(entry) = surfaces.get(surface).and_then(Option::as_ref) {
+                let Ok(Record::SurfaceQuad(quad)) = pocket_draw_ops::record(&words[at..end]) else {
+                    break;
+                };
+                if let Some(entry) = surfaces.get(quad.surface as usize).and_then(Option::as_ref) {
                     blend_surface(
                         entry,
-                        &words[at..end],
+                        &quad,
                         framebuffer,
                         viewport_width as u32,
                         viewport_height as u32,

@@ -12,7 +12,6 @@ license.workspace = true
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-draw-ops = { workspace = true, default-features = true }
-pocket-tri-batch = { workspace = true, default-features = true }
 pocket-glyph-pages = { workspace = true, default-features = true }
 pocket-tex-cache = { workspace = true, default-features = true }
 wgpu = "25"

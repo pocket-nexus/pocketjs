@@ -16,6 +16,8 @@ use pocket_glyph_pages::{GlyphPageLayout, GlyphSampler};
 use pocket_spec as spec;
 use pocket_tex_cache::{TextureCache, TextureKey};
 mod geometry;
+#[cfg(any(test, feature = "mock-gl"))]
+pub mod mock;
 mod pixels;
 pub mod raw;
 use pixels::*;
@@ -133,7 +135,7 @@ struct Vertex {
     uv: [f32; 2],
     color: u32,
 }
-impl pocket_tri_batch::Vertex for Vertex {
+impl pocket_draw_ops::Vertex for Vertex {
     fn from_components(position: [f32; 2], uv: [f32; 2], color: u32) -> Self {
         Self {
             position,
@@ -149,7 +151,7 @@ struct Clip {
     w: i32,
     h: i32,
 }
-type Command = pocket_tri_batch::Batch<GLuint, Clip>;
+type Command = pocket_draw_ops::Batch<GLuint, Clip>;
 #[derive(Clone, Copy)]
 struct ImageTexture {
     handle: i32,

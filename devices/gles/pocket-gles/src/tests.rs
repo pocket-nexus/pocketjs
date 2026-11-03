@@ -1,4 +1,5 @@
 use super::*;
+use crate::mock::{self, Call};
 use alloc::vec;
 use pocket_drivers::{DrawList, FontView, TexView};
 
@@ -385,31 +386,17 @@ fn logical_scissor_maps_to_bottom_left_physical_coordinates() {
     );
 }
 
-#[derive(Default)]
-struct GlState {
-    next: u32,
-    events: Vec<&'static str>,
-    uploads: Vec<Vec<u8>>,
-    buffers: Vec<Vec<u8>>,
-    error: u32,
-    fail_upload: bool,
-    fail_draw: bool,
-    lost: bool,
-}
-std::thread_local! { static GL: std::cell::RefCell<GlState> = std::cell::RefCell::new(GlState::default()); }
-fn event(value: &'static str) {
-    GL.with(|gl| gl.borrow_mut().events.push(value));
-}
+std::thread_local! { static LOST: core::cell::Cell<bool> = const { core::cell::Cell::new(false) }; }
 struct MockPipeline;
 unsafe impl Pipeline for MockPipeline {
     unsafe fn new() -> Option<Self> {
         Some(Self)
     }
     unsafe fn destroy(&mut self) {
-        event("pipeline-delete");
+        mock::note("pipeline-delete");
     }
     unsafe fn begin_frame(&self, _: f32, _: f32) {
-        event("begin");
+        mock::note("begin");
     }
     unsafe fn set_blend(&self) {}
     unsafe fn bind_vertices(&self, _: i32) {}
@@ -419,117 +406,21 @@ struct MockContext;
 unsafe impl ContextAccess for MockContext {
     type NativeTarget = ();
     fn ensure_current(&mut self) -> Result<(), RenderError> {
-        event("activate");
-        if GL.with(|gl| gl.borrow().lost) {
+        mock::note("activate");
+        if LOST.with(|lost| lost.get()) {
             Err(RenderError::Failed)
         } else {
             Ok(())
         }
     }
     fn bind_target(&mut self, _: &()) -> Result<(), RenderError> {
-        event("bind-target");
+        mock::note("bind-target");
         Ok(())
     }
 }
-#[no_mangle]
-unsafe extern "C" fn glGetError() -> u32 {
-    GL.with(|gl| core::mem::take(&mut gl.borrow_mut().error))
-}
-#[no_mangle]
-unsafe extern "C" fn glGetIntegerv(_: u32, out: *mut i32) {
-    *out = 2048;
-}
-#[no_mangle]
-unsafe extern "C" fn glGenTextures(n: i32, out: *mut u32) {
-    for i in 0..n {
-        *out.add(i as usize) = GL.with(|gl| {
-            let mut gl = gl.borrow_mut();
-            gl.next += 1;
-            gl.next
-        });
-    }
-}
-#[no_mangle]
-unsafe extern "C" fn glGenBuffers(n: i32, out: *mut u32) {
-    glGenTextures(n, out);
-}
-#[no_mangle]
-unsafe extern "C" fn glFinish() {
-    event("finish");
-}
-#[no_mangle]
-unsafe extern "C" fn glDeleteTextures(_: i32, _: *const u32) {
-    event("texture-delete");
-}
-#[no_mangle]
-unsafe extern "C" fn glDeleteBuffers(_: i32, _: *const u32) {
-    event("buffer-delete");
-}
-#[no_mangle]
-unsafe extern "C" fn glBindBuffer(_: u32, _: u32) {}
-#[no_mangle]
-unsafe extern "C" fn glBindTexture(_: u32, _: u32) {}
-#[no_mangle]
-unsafe extern "C" fn glBufferData(_: u32, size: isize, data: *const c_void, _: u32) {
-    GL.with(|gl| {
-        gl.borrow_mut()
-            .buffers
-            .push(core::slice::from_raw_parts(data.cast(), size as usize).to_vec())
-    });
-}
-#[no_mangle]
-unsafe extern "C" fn glClear(_: u32) {
-    event("clear");
-}
-#[no_mangle]
-unsafe extern "C" fn glClearColor(_: f32, _: f32, _: f32, _: f32) {}
-#[no_mangle]
-unsafe extern "C" fn glDisable(_: u32) {}
-#[no_mangle]
-unsafe extern "C" fn glEnable(_: u32) {}
-#[no_mangle]
-unsafe extern "C" fn glDrawArrays(_: u32, _: i32, _: i32) {
-    event("draw");
-    GL.with(|gl| {
-        let mut gl = gl.borrow_mut();
-        if gl.fail_draw {
-            gl.error = 0x0502;
-        }
-    });
-}
-#[no_mangle]
-unsafe extern "C" fn glPixelStorei(_: u32, _: i32) {}
-#[no_mangle]
-unsafe extern "C" fn glScissor(_: i32, _: i32, _: i32, _: i32) {}
-#[no_mangle]
-unsafe extern "C" fn glViewport(_: i32, _: i32, _: i32, _: i32) {}
-#[no_mangle]
-unsafe extern "C" fn glTexParameteri(_: u32, _: u32, _: i32) {}
-#[no_mangle]
-unsafe extern "C" fn glTexImage2D(
-    _: u32,
-    _: i32,
-    _: i32,
-    w: i32,
-    h: i32,
-    _: i32,
-    format: u32,
-    _: u32,
-    pixels: *const c_void,
-) {
-    GL.with(|gl| {
-        let mut gl = gl.borrow_mut();
-        let channels = if format == GL_RGBA { 4 } else { 2 };
-        gl.uploads.push(
-            core::slice::from_raw_parts(pixels.cast(), w as usize * h as usize * channels).to_vec(),
-        );
-        if gl.fail_upload {
-            gl.error = 0x0505;
-        }
-    });
-}
 fn fresh() -> TestRenderer {
-    GL.with(|gl| *gl.borrow_mut() = GlState::default());
+    mock::reset();
+    LOST.with(|lost| lost.set(false));
     TestRenderer::new(MockContext).unwrap()
 }
 fn config() -> TargetConfig<()> {
@@ -636,32 +527,36 @@ fn resources_are_copied_and_versions_live_until_reverse_retirement() {
     resources.pixels.fill(17);
     resources.revision += 1;
     let second = submit(&mut renderer, handle, &list, &resources).unwrap();
-    GL.with(|gl| {
-        let gl = gl.borrow();
+    mock::with(|gl| {
         assert_eq!(gl.uploads[1], [255; 16]);
         assert_eq!(gl.uploads[2], [17; 16]);
         assert_eq!(gl.buffers.len(), 2);
-        assert!(!gl.events.contains(&"texture-delete"));
-        assert!(!gl.events.contains(&"finish"));
+        assert!(!gl
+            .calls
+            .iter()
+            .any(|call| matches!(call, Call::DeleteTextures(_))));
+        assert!(!gl.calls.contains(&Call::Finish));
     });
     drop(resources);
     drop(list);
     renderer.wait(&second).unwrap();
     renderer.retire(second);
-    GL.with(|gl| assert!(!gl.borrow().events.contains(&"texture-delete")));
+    assert!(!mock::calls()
+        .iter()
+        .any(|call| matches!(call, Call::DeleteTextures(_))));
     renderer.wait(&first).unwrap();
     renderer.retire(first);
-    GL.with(|gl| {
-        let gl = gl.borrow();
-        let finish = gl.events.iter().position(|e| *e == "finish").unwrap();
-        let delete = gl
-            .events
-            .iter()
-            .position(|e| *e == "texture-delete")
-            .unwrap();
-        assert!(finish < delete);
-        assert_eq!(gl.events.iter().filter(|e| **e == "finish").count(), 1);
-    });
+    let calls = mock::calls();
+    let finish = calls.iter().position(|call| *call == Call::Finish).unwrap();
+    let delete = calls
+        .iter()
+        .position(|call| matches!(call, Call::DeleteTextures(_)))
+        .unwrap();
+    assert!(finish < delete);
+    assert_eq!(
+        calls.iter().filter(|call| **call == Call::Finish).count(),
+        1
+    );
 }
 #[test]
 fn early_retire_and_drop_finish_before_releasing_gpu_objects() {
@@ -674,24 +569,22 @@ fn early_retire_and_drop_finish_before_releasing_gpu_objects() {
     renderer.retire(first);
     let _second = submit(&mut renderer, handle, &list, &resources).unwrap();
     drop(renderer);
-    GL.with(|gl| {
-        let gl = gl.borrow();
-        let mut finished = false;
-        for event in &gl.events {
-            if *event == "draw" {
-                finished = false;
-            }
-            if *event == "finish" {
-                finished = true;
-            }
-            if matches!(
-                *event,
-                "buffer-delete" | "texture-delete" | "pipeline-delete"
-            ) {
-                assert!(finished, "delete before completion: {:?}", gl.events);
-            }
+    let calls = mock::calls();
+    let mut finished = false;
+    for call in &calls {
+        if matches!(call, Call::DrawArrays(..)) {
+            finished = false;
         }
-    });
+        if *call == Call::Finish {
+            finished = true;
+        }
+        if matches!(
+            call,
+            Call::DeleteBuffers(_) | Call::DeleteTextures(_) | Call::Note("pipeline-delete")
+        ) {
+            assert!(finished, "delete before completion: {calls:?}");
+        }
+    }
 }
 #[test]
 fn foreign_targets_submissions_and_zero_copy_are_rejected() {
@@ -747,25 +640,22 @@ fn validation_and_gpu_failures_drain_existing_work() {
     );
     renderer.wait(&token).unwrap();
     renderer.retire(token);
-    GL.with(|gl| {
-        let mut gl = gl.borrow_mut();
-        gl.events.clear();
+    mock::with(|gl| {
+        gl.calls.clear();
         gl.fail_draw = true;
     });
     assert_eq!(
         submit(&mut renderer, handle, &list, &resources),
         Err(RenderError::Failed)
     );
-    GL.with(|gl| {
-        let gl = gl.borrow();
-        assert!(
-            gl.events.iter().position(|e| *e == "finish").unwrap()
-                < gl.events
-                    .iter()
-                    .position(|e| *e == "buffer-delete")
-                    .unwrap()
-        );
-    });
+    let calls = mock::calls();
+    assert!(
+        calls.iter().position(|call| *call == Call::Finish).unwrap()
+            < calls
+                .iter()
+                .position(|call| matches!(call, Call::DeleteBuffers(_)))
+                .unwrap()
+    );
 }
 #[test]
 fn glyph_pages_preserve_run_order_and_revision_replacement() {
@@ -818,15 +708,12 @@ fn context_loss_is_terminal_and_never_calls_dead_gl() {
     let resources = Resources::new();
     let list = image_list();
     let token = submit(&mut renderer, handle, &list, &resources).unwrap();
-    GL.with(|gl| {
-        let mut gl = gl.borrow_mut();
-        gl.lost = true;
-        gl.events.clear();
-    });
+    LOST.with(|lost| lost.set(true));
+    mock::with(|gl| gl.calls.clear());
     assert_eq!(renderer.wait(&token), Err(RenderError::Failed));
     renderer.retire(token);
     drop(renderer);
-    GL.with(|gl| assert_eq!(gl.borrow().events, ["activate"]));
+    assert_eq!(mock::calls(), [Call::Note("activate")]);
 }
 #[test]
 fn malformed_texture_storage_is_rejected_before_allocation() {
@@ -840,7 +727,7 @@ fn malformed_texture_storage_is_rejected_before_allocation() {
 
 #[test]
 fn cache_budget_preserves_pending_versions_and_evicts_retired_entries() {
-    GL.with(|gl| *gl.borrow_mut() = GlState::default());
+    mock::reset();
     let mut renderer = TestRenderer::with_limits(
         MockContext,
         CacheLimits {
@@ -862,13 +749,7 @@ fn cache_budget_preserves_pending_versions_and_evicts_retired_entries() {
         Err(RenderError::Failed)
     );
     assert_eq!(renderer.cache_usage().image_bytes, 16);
-    GL.with(|gl| {
-        assert_eq!(
-            gl.borrow().uploads.len(),
-            2,
-            "capacity failure precedes upload"
-        )
-    });
+    mock::with(|gl| assert_eq!(gl.uploads.len(), 2, "capacity failure precedes upload"));
     renderer.retire(first);
     let second = submit(&mut renderer, target, &list, &resources).unwrap();
     assert_eq!(renderer.cache_usage().image_entries, 1);
@@ -881,17 +762,29 @@ fn an_external_texture_draws_in_place_of_the_core_texture() {
     let handle = renderer.register_target(config()).unwrap();
     let list = image_list();
     let resources = Resources::new();
-    let white = GL.with(|gl| gl.borrow().uploads.len());
+    let white = mock::with(|gl| gl.uploads.len());
     renderer.set_external_texture(7, Some(99));
     let first = submit(&mut renderer, handle, &list, &resources).unwrap();
     renderer.wait(&first).unwrap();
     renderer.retire(first);
-    assert_eq!(resources.queried.get(), 0, "a bound handle never reads the core's pixels");
-    assert_eq!(GL.with(|gl| gl.borrow().uploads.len()), white, "and uploads nothing");
+    assert_eq!(
+        resources.queried.get(),
+        0,
+        "a bound handle never reads the core's pixels"
+    );
+    assert_eq!(
+        mock::with(|gl| gl.uploads.len()),
+        white,
+        "and uploads nothing"
+    );
     renderer.set_external_texture(7, None);
     let second = submit(&mut renderer, handle, &list, &resources).unwrap();
     renderer.wait(&second).unwrap();
     renderer.retire(second);
-    assert_eq!(resources.queried.get(), 1, "unbound, the core's texture draws again");
-    assert_eq!(GL.with(|gl| gl.borrow().uploads.len()), white + 1);
+    assert_eq!(
+        resources.queried.get(),
+        1,
+        "unbound, the core's texture draws again"
+    );
+    assert_eq!(mock::with(|gl| gl.uploads.len()), white + 1);
 }
