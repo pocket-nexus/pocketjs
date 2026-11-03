@@ -819,7 +819,9 @@ class LinkConnection {
         { name: device.name, address: this.address, localAddress: this.localAddress },
         { app: pending.app, services }, pending.abort.signal);
       if (service) {
-        sink.head(service);
+        // net.head is one ctrl frame (LINK_MAX_CTRL): it carries the status,
+        // url and headers, and the body follows in credited data frames.
+        sink.head({ status: service.status, url: service.url, headers: service.headers });
         await sink.chunk(service.body);
       } else {
         await performNet({ ...pending.meta, body }, {
