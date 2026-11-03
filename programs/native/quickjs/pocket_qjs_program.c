@@ -1,5 +1,7 @@
 /* Portable host composition. UI coercion and numbered operations are owned by
- * guest-quickjs; package, input, core ticks and presentation belong to Runtime. */
+ * guest-quickjs; package, input, core ticks and presentation belong to Runtime.
+ * A host composition (pocket_qjs_program_host) replaces the facade's guest,
+ * profile or outputs; the facade keeps the program's lifetime and error state. */
 #include "pocket_qjs_program.h"
 #include "pocket_guest_quickjs.h"
 #include "pocket_native_program.h"
@@ -22,8 +24,8 @@
 #elif POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
 #error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
-#ifndef POCKET_COMPILED_PROFILE_H
-#error "pocket_host_profile.h must come from the independent host build profile"
+#if !defined(POCKET_COMPILED_PROFILE_H) && !defined(POCKET_QJS_HOST_PROFILE)
+#error "pocket_host_profile.h must come from the independent host build profile, or the host passes its profile in pocket_qjs_program_host (POCKET_QJS_HOST_PROFILE)"
 #endif
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
 #define BENCH_STAGE(stage) pocket_bench_stage(stage)
@@ -36,6 +38,9 @@ static void profile_phase(void *unused, pocket_qjs_phase phase) {
 #endif
 #define POCKETJS_ACTION_NAME_CAPACITY 64
 struct PocketQjsProgram {
+  pocket_qjs_program_host host;
+  /* The host's compose hook ran for the current program; release is owed. */
+  int composed;
   PocketNativeProgram *program;
   pocket_guest_quickjs *guest;
   JSRuntime *runtime;
@@ -76,11 +81,16 @@ static JSValue program_callback(PocketQjsProgram *s, JSCFunctionData *callback, 
 #ifdef POCKET_OFFLOAD_POSIX
 #include "offload_qjs.h"
 #endif
-PocketQjsProgram *pocket_qjs_program_create(void) {
+PocketQjsProgram *pocket_qjs_program_create_host(const pocket_qjs_program_host *host) {
+  if (host && (host->struct_size < sizeof(size_t) || (host->profile && !host->profile_hash))) return NULL;
   PocketQjsProgram *s = calloc(1, sizeof *s);
-  if (s) s->global = JS_UNDEFINED;
+  if (!s) return NULL;
+  s->global = JS_UNDEFINED;
+  if (host) memcpy(&s->host, host, host->struct_size < sizeof s->host ? host->struct_size : sizeof s->host);
+  s->host.struct_size = sizeof s->host;
   return s;
 }
+PocketQjsProgram *pocket_qjs_program_create(void) { return pocket_qjs_program_create_host(NULL); }
 static void set_error(PocketQjsProgram *s, const char *message) {
   snprintf(s->last_error, sizeof s->last_error, "%s", message ? message : "");
 }
@@ -93,11 +103,14 @@ static void take_exception(PocketQjsProgram *s, JSContext *ctx) {
 }
 static void guest_error(PocketQjsProgram *s) {
   if (!s->last_error[0]) {
-    const char *message = pocket_guest_quickjs_error(s->guest);
+    const char *message = s->host.guest
+      ? (s->host.guest_error ? s->host.guest_error(s->host.guest_context) : NULL)
+      : (s->guest ? pocket_guest_quickjs_error(s->guest) : NULL);
     set_error(s, message && message[0] ? message : "PocketJS runtime operation failed");
   }
 }
-static int ready(PocketQjsProgram *s) { return s && s->program && s->context && !s->runtime_failed; }
+/* A program exists only after a successful boot: failures destroy it. */
+static int ready(PocketQjsProgram *s) { return s && s->program && !s->runtime_failed; }
 static int valid_action_name(const char *name, size_t length) {
   if (!length || length >= POCKETJS_ACTION_NAME_CAPACITY || name[0] < 'a' || name[0] > 'z') return 0;
   for (size_t i = 1; i < length; i++) {
@@ -223,6 +236,12 @@ static void shutdown_now(PocketQjsProgram *s) {
 #ifdef POCKET_OFFLOAD_POSIX
   pocket_offload_stop();
 #endif
+  /* The host stops what its compose hook started while the program and its
+   * outputs are still live. */
+  if (s->composed) {
+    s->composed = 0;
+    if (s->host.release) s->host.release(s->host.context);
+  }
   /* Runtime shuts the attached guest down before releasing its package. */
   if (s->program) pocket_native_program_destroy(s->program);
   s->program = NULL;
@@ -249,45 +268,101 @@ void pocket_qjs_program_shutdown(PocketQjsProgram *s) {
   if (s->busy) { s->shutdown_requested = 1; return; }
   s->busy = 1; shutdown_now(s); s->busy = 0;
 }
-int pocket_qjs_program_boot(PocketQjsProgram *s, const char *code, size_t length, const uint8_t *pak, size_t pak_length, int width, int height, uint32_t density) {
+/* What the program's runtime reads at boot: raw code and pak, a complete
+ * package, or the host's package source. */
+typedef struct {
+  enum { PAYLOAD_CODE, PAYLOAD_PACKAGE, PAYLOAD_SOURCE } kind;
+  const uint8_t *code, *pak, *package;
+  size_t code_length, pak_length, package_length;
+  const char *output, *id, *title;
+  const pocket_package_source_v1 *source;
+  void *source_context;
+  size_t heap_limit, frame_buffer_budget;
+} payload;
+static PocketNativeProgram *create_program(PocketQjsProgram *s, const payload *p, uint32_t width, uint32_t height, uint32_t density) {
+  const pocket_profile_facts *facts = s->host.profile;
+  const uint8_t *hash = s->host.profile_hash;
+#ifdef POCKET_COMPILED_PROFILE_H
+  if (!facts) { facts = pocket_profile.facts; hash = pocket_profile.profile_hash; }
+#endif
+  if (!facts || !hash) { set_error(s, "PocketJS host profile is missing"); return NULL; }
+  const uint32_t physics =
+#ifdef POCKET_PHYSICS
+    1;
+#else
+    0;
+#endif
+  if (p->kind == PAYLOAD_SOURCE)
+    return pocket_native_program_create_source(POCKETJS_TARGET_ID, POCKETJS_HOST_ABI, p->source, p->source_context,
+      width, height, density, p->heap_limit, p->frame_buffer_budget, facts, hash);
+  if (p->kind == PAYLOAD_PACKAGE)
+    return pocket_native_program_create_package(POCKETJS_TARGET_ID, POCKETJS_HOST_ABI, p->package, p->package_length,
+      p->output, p->id, p->title, width, height, density, physics, facts, hash);
+  return pocket_native_program_create_profile(POCKETJS_TARGET_ID, POCKETJS_HOST_ABI, p->code, p->code_length, p->pak, p->pak_length,
+    width, height, density, physics, facts, hash);
+}
+static int boot(PocketQjsProgram *s, const payload *p, int width, int height, uint32_t density) {
   if (!s || s->busy) return 0;
   s->busy = 1; shutdown_now(s); s->last_error[0] = 0;
   s->reported_action_name[0] = 0; s->reported_action_value = 0; s->reported_action_sequence = 0; s->last_touch_hit = 0;
   if (width <= 0 || height <= 0) { set_error(s, "invalid viewport"); goto failed; }
-  s->program = pocket_native_program_create_profile(POCKETJS_TARGET_ID, POCKETJS_HOST_ABI, (const uint8_t *)code, length, pak, pak_length,
-    (uint32_t)width, (uint32_t)height, density,
-#ifdef POCKET_PHYSICS
-    1,
-#else
-    0,
-#endif
-    pocket_profile.facts, pocket_profile.profile_hash
-  );
-  if (!s->program) { set_error(s, "PocketJS program allocation or configuration failed"); goto failed; }
-  s->runtime = JS_NewRuntime();
-  if (!s->runtime) { set_error(s, "QuickJS runtime allocation failed"); goto failed; }
-  JS_SetMaxStackSize(s->runtime, 256 * 1024);
-  s->context = JS_NewContext(s->runtime);
-  if (!s->context) { set_error(s, "QuickJS context allocation failed"); goto failed; }
-  s->global = JS_GetGlobalObject(s->context);
-  s->guest = pocket_guest_quickjs_attach(s->context, POCKET_QJS_CANONICAL);
-  if (!s->guest) { set_error(s, "QuickJS adapter allocation failed"); goto failed; }
+  s->program = create_program(s, p, (uint32_t)width, (uint32_t)height, density);
+  if (!s->program) {
+    if (!s->last_error[0]) set_error(s, "PocketJS program allocation or configuration failed");
+    goto failed;
+  }
+  /* A host guest owns its realm; the facade's guest gets one of its own. */
+  if (!s->host.guest) {
+    s->runtime = JS_NewRuntime();
+    if (!s->runtime) { set_error(s, "QuickJS runtime allocation failed"); goto failed; }
+    JS_SetMaxStackSize(s->runtime, 256 * 1024);
+    s->context = JS_NewContext(s->runtime);
+    if (!s->context) { set_error(s, "QuickJS context allocation failed"); goto failed; }
+    s->global = JS_GetGlobalObject(s->context);
+    s->guest = pocket_guest_quickjs_attach(s->context, POCKET_QJS_CANONICAL);
+    if (!s->guest) { set_error(s, "QuickJS adapter allocation failed"); goto failed; }
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
-  if (pocket_guest_quickjs_set_phase_hook(s->guest, profile_phase, NULL)) goto failed;
+    if (pocket_guest_quickjs_set_phase_hook(s->guest, profile_phase, NULL)) goto failed;
 #endif
+  }
   pocket_runtime *handle = pocket_native_program_runtime(s->program);
 #ifdef POCKET_SVC_WIRE
   const uint16_t service_ops[] = {30, 31, 32};
   if (pocket_runtime_add_op_provider(handle, &service_table, s, service_ops, 3)) goto failed;
 #endif
-  if (pocket_runtime_set_guest(handle, &guest_table, s) || pocket_native_program_boot(s->program)) {
+  if (s->host.guest ? pocket_runtime_set_guest(handle, s->host.guest, s->host.guest_context)
+                    : pocket_runtime_set_guest(handle, &guest_table, s)) {
     guest_error(s); goto failed;
   }
+  if (s->host.compose) {
+    s->composed = 1;
+    if (s->host.compose(s->host.context, handle)) { set_error(s, "PocketJS host composition failed"); goto failed; }
+  }
+  if (pocket_native_program_boot(s->program)) { guest_error(s); goto failed; }
   return leave(s, 1);
 failed:
   if (!s->last_error[0]) set_error(s, "PocketJS boot failed");
   shutdown_now(s); BENCH_STAGE(POCKET_BENCH_STAGE_IDLE); return leave(s, 0);
 }
+int pocket_qjs_program_boot(PocketQjsProgram *s, const char *code, size_t length, const uint8_t *pak, size_t pak_length, int width, int height, uint32_t density) {
+  payload p = {0};
+  p.kind = PAYLOAD_CODE;
+  p.code = (const uint8_t *)code; p.code_length = length; p.pak = pak; p.pak_length = pak_length;
+  return boot(s, &p, width, height, density);
+}
+int pocket_qjs_program_boot_package(PocketQjsProgram *s, const uint8_t *package, size_t length, const char *output, const char *id, const char *title, int width, int height, uint32_t density) {
+  payload p = {0};
+  p.kind = PAYLOAD_PACKAGE;
+  p.package = package; p.package_length = length; p.output = output; p.id = id; p.title = title;
+  return boot(s, &p, width, height, density);
+}
+int pocket_qjs_program_boot_source(PocketQjsProgram *s, const pocket_package_source_v1 *source, void *source_context, int width, int height, uint32_t density, size_t heap_limit, size_t frame_buffer_budget) {
+  payload p = {0};
+  p.kind = PAYLOAD_SOURCE;
+  p.source = source; p.source_context = source_context; p.heap_limit = heap_limit; p.frame_buffer_budget = frame_buffer_budget;
+  return boot(s, &p, width, height, density);
+}
+pocket_runtime *pocket_qjs_program_runtime(PocketQjsProgram *s) { return s && s->program ? pocket_native_program_runtime(s->program) : NULL; }
 int pocket_qjs_program_advance(PocketQjsProgram *s, const pocket_input_frame *input, uint32_t ticks) {
   if (!s || s->busy || !ready(s) || !input || !ticks || ticks > 60) return 0;
   s->busy = 1;

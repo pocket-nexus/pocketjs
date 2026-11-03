@@ -205,6 +205,42 @@ the first main-line revision with `pocket_profile_facts`, and
 its own crate name and features. **Both tools fail when the two archives come
 from one source revision or are byte-identical.** CI does not run them.
 
+## Native programs
+
+**`pocket_native_program.h` composes one runtime instance for a C host.**
+`programs/native/runtime` creates the instance from one of four constructors:
+raw JavaScript and PAK (`pocket_native_program_create`, `_create_profile`), a
+complete `.pocket` (`_create_package`), or a host `pocket_package_source_v1`
+(`_create_source`). The first three copy the bytes into a memory source and
+turn native asset loading off; the source form reads the package at boot and
+keeps native asset loading on. Admission against the host profile runs before
+the guest initializes in every form.
+
+The archive's features select the outputs `create` registers:
+
+| Features | Outputs registered at create | Hooks |
+| --- | --- | --- |
+| `std` or `software-only` | CPU ARGB buffer and its renderer | `std`: archive; otherwise `src/host_hooks.rs` |
+| none | GLES 2 renderer and display | `src/host_hooks.rs` |
+| `gles1` | GLES 1.1 renderer and display | `src/host_hooks.rs` |
+| `host-backend` | None: the host registers renderers and displays through `pocket_native_program_runtime()` before boot | `host-hooks`: the C host links the six `pocket_host_*` hooks |
+
+A build with a built-in output has one primary surface: `_create_package`
+rejects a plan with an auxiliary surface, and the built-in outputs enable the
+compositor namespace and embedded viewport changes. A `host-backend` build
+leaves both off, as `pocket_runtime_create` does, and admits auxiliary plans;
+boot then requires a registered auxiliary display when the profile has one.
+
+**`programs/native/quickjs` is the handle-based QuickJS facade over that
+program.** `pocket_qjs_program_create_host` accepts the host's profile facts,
+a `pocket_guest_v1` table with its own context, a `compose` hook that
+registers drivers and starts host services after the guest is attached, and a
+`release` hook that runs before the facade destroys the program. Without a
+host guest the facade creates its own `JSRuntime`, `JSContext` and canonical
+guest. `products/3ds` composes the facade with its own QuickJS realm, the PICA
+renderer, both screens and its package source over a `host-backend,host-hooks`
+archive; the ipodtouch4 host uses the facade's own guest and GLES 1.1 output.
+
 ## The op table
 
 **C programs register non-core UI operations before boot** with

@@ -1,8 +1,13 @@
-//! One canonical runtime archive plus the 3DS package recovery inspection ABI.
-//! The host composes C guest, PICA Renderer, Display and input drivers.
+//! One canonical runtime archive plus the 3DS package recovery inspection ABI
+//! and the native program (`pocket_native_program.h`) built without outputs.
+//! The host composes its C guest, PICA Renderer, Displays and input drivers
+//! through the QuickJS facade.
 #![no_std]
 extern crate alloc;
 pub use pocket_archive::*;
+// The archive member supplies the pocket_native_program_* symbols; nothing
+// here calls it by name.
+use pocket_native_program as _;
 use pocket_drivers::abi;
 use pocket_package::sha256::sha256_hex_prefix;
 use pocket_runtime::abi::open_package;
