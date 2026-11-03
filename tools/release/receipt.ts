@@ -10,9 +10,7 @@ export interface SdkManifest {
   files: Record<string, { sha256: string; bytes: number }>;
 }
 /** The pocket-archive features of every SDK archive, after --no-default-features. */
-export const SDK_FEATURES: readonly string[] = [
-  "software-renderer",
-];
+export const SDK_FEATURES: readonly string[] = ["physics", "software-renderer"];
 const hash = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
 export function filesUnder(path: string): string[] {
   if (!existsSync(path)) return [];

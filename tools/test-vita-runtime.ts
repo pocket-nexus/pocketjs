@@ -9,7 +9,8 @@ const profile = POCKET_PROFILES["vita"];
 const root = resolve(import.meta.dir, "..");
 const validation = join(root, ".pocket-build/validation/vita-runtime");
 // The fixture embeds the profile module the Vita program embeds, plus
-// ui.physics so a plan can enable the feature-gated physics namespace.
+// ui.physics so a plan can enable the feature-gated physics namespace; the
+// fixture installs pocket-physics before boot.
 const fixtureProfile = { ...profile, capabilities: [...profile.capabilities, "ui.physics"] };
 const exported = exportProfile({ profile: fixtureProfile, profileHash: hashPocketProfile(fixtureProfile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(validation, "profile"));
 type Package = {name:string;manifest_path:string;source:string|null;dependencies:{name:string;source:string|null}[]};

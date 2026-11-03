@@ -28,8 +28,8 @@ The application's framework can be Solid, Vue Vapor, or Octane. Solid uses its
 universal renderer; Vue Vapor uses a Vapor renderer adapter and a DOM-shaped
 facade for Vue's helpers; Octane compiles JSX and hooks to static host plans
 plus dynamic slots whose driver (`renderer-octane.ts`) targets the native tree
-with no DOM shim. The layout, styling, animation, 2D physics, and text engine
-live in `pocketjs-core`; software drawing and presentation live in separate
+with no DOM shim. The layout, styling, animation, and text engine live in
+`pocketjs-core`; 2D physics, software drawing and presentation live in separate
 `no_std` Rust crates compiled for each host's target triple. Styling is a
 build-time [Tailwind subset](/docs/styling/); fonts are
 baked into atlases at build time.
@@ -109,6 +109,7 @@ on the UI core.** Their callers supply resource views or borrowed bytes.
 | `pocket-raster` | `engine/raster` | DrawList interpretation, software pixel output, incremental drawing, and surface composition |
 | `pocket-package` | `engine/package` | Package admission, variant selection, pak entries, build facts, and SHA-256 |
 | `pocket-media` | `engine/modules/media` | Stream containers, transport messages, RAM stream assembly, and byte codecs |
+| `pocket-physics` | `engine/physics` | 2D worlds, bodies, contacts, colliders, zones, and particle emitters behind `ui.physics` |
 
 `pocket-raster` decodes operations and plans damage through `pocket-render`.
 Both consume `RenderResources` from `pocket-drivers`; neither requires a `Ui`
@@ -131,6 +132,21 @@ implementations reside in the new crates. The `pocket-present` crate
 re-exports its former paths from `pocket-render`, `pocket-raster`,
 `pocket-runtime`, and `pocket-drivers`. Package bytes, admission checks, and
 DrawList encoding retain their existing formats.
+
+**`pocketjs-core` defines the `Physics` trait and holds no engine.** `Ui::tick`
+calls the installed engine's `step` once per tick after animation tracks, with
+layout current, and skips it while `is_idle` is true; the engine writes only
+the `physics_values` layer of the nodes it poses and clears that layer when it
+releases a view. `pocket-physics` implements the trait with the core's `fmath`
+functions, so poses keep the same bits on every host. A program installs it
+with `Runtime::set_physics` before boot. Without an engine, admission rejects a
+package or AOT artifact that requests `ui.physics`, `OpContext::set_physics_enabled(true)`
+returns `UnsupportedOperation`, and ops 52..56 are unsupported.
+`programs/sdk/archive` installs the engine in `pocket_runtime_create` when its
+`physics` feature is on: the SDK export and the 3DS reference program enable
+it, the IDF and SiFli archives do not link `pocket-physics`.
+`pocket-native-program`, the wasm program and `pocket-ui-surface` install it in
+their constructors.
 
 ## Rendering utilities
 
@@ -213,7 +229,7 @@ Reading it top to bottom:
    engine the host provides — QuickJS on the device hosts, the host engine in
    the browser or Bun — and emits mutation ops (`ui.*`) into `pocketjs-core`.
 4. **`pocketjs-core`** owns the retained UI tree: it runs flexbox layout,
-   ticks animations, steps 2D physics worlds, measures and lays out text, and produces a flat
+   ticks animations, steps the installed 2D physics engine, measures and lays out text, and produces a flat
    **DrawList** each frame.
 5. A **renderer** consumes the DrawList and borrowed resources: sceGu/GE on PSP,
    GXM on Vita, wgpu in the desktop host, and
@@ -293,7 +309,8 @@ subset — is why layout is identical on every host.
 
 `engine/core/` is a platform-agnostic `#![no_std]` + `alloc` library,
 **`pocketjs-core`**. It contains no I/O, no graphics API, and no timing: the
-tree, layout, styling, animation, 2D physics, text, and DrawList generation. Each
+tree, layout, styling, animation, text, and DrawList generation; the 2D physics
+engine in `engine/physics/` plugs into its tick. Each
 program under `programs/` compiles the same crate for its
 target triple and supplies I/O, a JS engine, and a backend. `programs/psp` embeds
 QuickJS and renders through `sceGu`; `programs/web/wasm` wraps the identical core
@@ -359,7 +376,7 @@ no-op.
 (`Vec<Node>` + free list) with a **generation counter**, so a stale handle is a
 safe no-op rather than a dangling reference. Core parses the style table,
 resolves `base` / `focus` / `active` variants, syncs nodes into taffy, measures
-text, ticks animation tracks, steps physics worlds, and walks the tree into a DrawList. A CPU **clip
+text, ticks animation tracks, steps the installed physics engine, and walks the tree into a DrawList. A CPU **clip
 stage** in `draw.rs` guarantees no negative or oversized coordinates ever reach
 a backend — axis-aligned quads are clipped with UV/color re-interpolation,
 rotated quads are Sutherland–Hodgman-clipped or culled.

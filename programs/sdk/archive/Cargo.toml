@@ -23,6 +23,10 @@ external-runtime = []
 # pocket_raster_draw_op draws; without it renderer 0 is empty and the
 # function returns POCKET_STATUS_UNSUPPORTED.
 software-renderer = ["dep:pocket-raster"]
+# pocket_runtime_create installs pocket-physics, so ui.physics plans are
+# admitted where the profile declares the capability. Archives that leave it
+# off do not link pocket-physics and report ops 52..56 unsupported.
+physics = ["dep:pocket-physics"]
 
 [dependencies]
 pocket-runtime = { workspace = true, default-features = true }
@@ -31,3 +35,4 @@ pocket-raster = { workspace = true, default-features = true, optional = true }
 pocket-draw-ops = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-glyph-pages = { workspace = true, default-features = true }
+pocket-physics = { workspace = true, default-features = true, optional = true }

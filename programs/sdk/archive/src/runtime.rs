@@ -35,6 +35,8 @@ pub unsafe extern "C" fn pocket_runtime_create(
         unsafe { abi::pocket_runtime_destroy(runtime) };
         return core::ptr::null_mut();
     }
+    #[cfg(feature = "physics")]
+    let runtime = unsafe { crate::physics::install(runtime) };
     runtime
 }
 /// # Safety

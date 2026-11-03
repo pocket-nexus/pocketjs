@@ -46,7 +46,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
   expect(manifest.abiFrozen).toBe(false);
   expect(manifest.hostAbi).toBe(POCKET_BINDING_GENERATION);
   expect(manifest.source.revision).toMatch(/^[0-9a-f]{40}$/);
-  expect(manifest.build).toMatchObject({ defaultFeatures: false, features: ["software-renderer"], profile: "release" });
+  expect(manifest.build).toMatchObject({ defaultFeatures: false, features: ["physics", "software-renderer"], profile: "release" });
   expect(manifest.build.rustflags.slice(-2)).toEqual(["-C", "panic=abort"]);
   const sysroot = run(["rustup", "run", "stable", "rustc", "--print", "sysroot"], root).trim();
   const llvmNm = [join(sysroot, "lib/rustlib", triple, "bin/llvm-nm"), Bun.which("llvm-nm"), "/opt/homebrew/opt/llvm/bin/llvm-nm"].find(path => path && existsSync(path));

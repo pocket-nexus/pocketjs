@@ -19,10 +19,11 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
   exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION,
     dependencies: [] }, buildDirectory);
   // The contract runner binds both screens to renderer 0, the archive's
-  // software rasterizer.
+  // software rasterizer; the 3ds-runtime profile declares ui.physics, so
+  // create installs pocket-physics.
   const native = await prepareNative3ds({ packageName: "pocket-archive",
     archiveName: "libpocket_archive.a", targetDirectory: join(repository, ".pocket-build/native/3ds/minimal"),
-    cargoArgs: ["--features", "software-renderer"], roots: [outdir], context });
+    cargoArgs: ["--features", "physics,software-renderer"], roots: [outdir], context });
   const program = join(outdir, THREE_DS_RUNTIME_FILE);
   rmSync(program, { force: true });
   await runNative3dsMake({ directory: join(repository, "programs/3ds"), mounts: native.mounts, profile, context,

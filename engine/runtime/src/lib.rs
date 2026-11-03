@@ -199,8 +199,14 @@ impl OpContext {
     }
     /// Enable physics operations for a low-level embedding. Full Runtime boot
     /// replaces this setting with the admitted package's feature declaration.
+    /// Enabling requires a physics engine installed in the core
+    /// (`Ui::set_physics`); without one this returns `UnsupportedOperation`.
     pub fn set_physics_enabled(&self, enabled: bool) -> Result<(), RuntimeError> {
-        self.core_mut()?.physics = enabled;
+        let mut state = self.core_mut()?;
+        if enabled && !state.ui.has_physics() {
+            return Err(RuntimeError::UnsupportedOperation);
+        }
+        state.physics = enabled;
         Ok(())
     }
     /// Register a provider before mounting generated guest bindings. Runtime
@@ -405,6 +411,17 @@ impl Runtime {
     pub fn set_guest(&mut self, guest: Box<dyn Guest>) -> Result<(), RuntimeError> {
         self.configuring()?;
         self.guest = Some(guest);
+        Ok(())
+    }
+    /// Install the physics engine (`pocket-physics`) before boot. A package
+    /// or AOT artifact that requests `ui.physics` is admitted only after this
+    /// call; without it ops 52..56 stay unsupported.
+    pub fn set_physics(
+        &mut self,
+        physics: Box<dyn pocketjs_core::Physics>,
+    ) -> Result<(), RuntimeError> {
+        self.configuring()?;
+        self.ops.core_mut()?.ui.set_physics(physics);
         Ok(())
     }
     pub fn set_native_asset_loading(&mut self, enabled: bool) -> Result<(), RuntimeError> {
@@ -722,6 +739,7 @@ impl Runtime {
             || !self.profile.admits_viewport(viewport)
             || self.source.is_some()
             || cadence_hz.is_none()
+            || (physics && !self.ops.core()?.ui.has_physics())
         {
             return Err(RuntimeError::ProfileMismatch);
         }
@@ -780,10 +798,23 @@ impl Runtime {
     /// This allows a native scene to be established before its UI overlay.
     pub fn boot_deferred(&mut self) -> Result<(), RuntimeError> {
         self.validate_boot_drivers()?;
-        let source = self.source.as_mut().ok_or(RuntimeError::MissingPackage)?;
-        let host = self
+        // Without an installed physics engine the instance does not implement
+        // ui.physics, whatever the profile declares: admission rejects a plan
+        // that requests it, or selects a variant that does not.
+        let composed: Vec<Cow<'static, str>>;
+        let mut host = self
             .profile
             .host_facts(self.config.host_abi, self.config.profile_hash);
+        if !self.ops.core()?.ui.has_physics() {
+            composed = host
+                .capabilities
+                .iter()
+                .filter(|name| *name != "ui.physics")
+                .cloned()
+                .collect();
+            host.capabilities = &composed;
+        }
+        let source = self.source.as_mut().ok_or(RuntimeError::MissingPackage)?;
         let package = Rc::new(
             LoadedPackage::load(source.as_mut(), &host, self.config.heap_limit)
                 .map_err(RuntimeError::Package)?,

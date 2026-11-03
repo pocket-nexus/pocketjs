@@ -4843,6 +4843,7 @@ dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
  "pocket-glyph-pages",
+ "pocket-physics",
  "pocket-raster",
  "pocket-runtime",
  "pocket-spec",
@@ -5081,6 +5082,7 @@ dependencies = [
  "pocket-gles1",
  "pocket-gles2",
  "pocket-package",
+ "pocket-physics",
  "pocket-raster",
  "pocket-runtime",
  "pocket-spec",
@@ -5094,6 +5096,13 @@ dependencies = [
  "pocket-drivers",
  "pocket-spec",
  "serde_json",
+]
+
+[[package]]
+name = "pocket-physics"
+version = "0.16.0"
+dependencies = [
+ "pocketjs-core",
 ]
 
 [[package]]
@@ -5276,7 +5285,9 @@ name = "pocket-sifli-runtime"
 version = "0.16.0"
 dependencies = [
  "pocket-archive",
+ "pocket-drivers",
  "pocket-render-sifli-epic",
+ "pocket-runtime",
 ]
 
 [[package]]
@@ -5356,6 +5367,7 @@ dependencies = [
  "pocket-guest-rquickjs",
  "pocket-mod",
  "pocket-package",
+ "pocket-physics",
  "pocket-raster",
  "pocket-runtime",
  "pocket-spec",
@@ -5712,6 +5724,7 @@ version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
+ "pocket-physics",
  "pocket-present",
  "pocket-raster",
  "pocket-runtime",

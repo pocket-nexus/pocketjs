@@ -2,8 +2,8 @@
 
 use alloc::vec::Vec;
 
-use crate::fmath::{absf, maxf, minf, DEG};
-use crate::spec::physics as ps;
+use pocketjs_core::fmath::{absf, maxf, minf, DEG};
+use pocketjs_core::spec::physics as ps;
 
 use super::{f, id, pairs, V2};
 

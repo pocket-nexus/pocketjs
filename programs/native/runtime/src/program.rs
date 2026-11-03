@@ -423,6 +423,11 @@ unsafe fn create(
     let check = |result: Result<(), RuntimeError>| result.map_err(status_code);
     let runtime = &program.runtime;
     check(runtime.with_runtime(|runtime| runtime.set_package_source(package)))?;
+    // The program links pocket-physics unconditionally; the C `physics`
+    // argument and the package admission decide whether a plan may use it.
+    check(runtime.with_runtime(|runtime| {
+        runtime.set_physics(Box::new(pocket_physics::Physics::new()))
+    }))?;
     if !native_assets {
         check(runtime.with_runtime(|runtime| runtime.set_native_asset_loading(false)))?;
     }
@@ -1488,6 +1493,50 @@ mod tests {
             assert!(facts.borrow().initialized);
             // Host permission does not turn on a feature absent from the original plan.
             assert!(!(*p).ops.supports_op(52));
+            pocket_native_program_destroy(p);
+            // The program installs pocket-physics: a plan that requests
+            // ui.physics, on a profile that declares it and under host
+            // permission, boots with ops 52..56.
+            let physics = package(true);
+            let declared = PocketProfileFacts {
+                capabilities: c"ui.physics".as_ptr().cast(),
+                capabilities_length: 11,
+                ..profile
+            };
+            let p = pocket_native_program_create_package(
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                physics.as_ptr(),
+                physics.len(),
+                c"fixture".as_ptr(),
+                c"dev.fixture".as_ptr(),
+                c"Fixture".as_ptr(),
+                32,
+                24,
+                1,
+                1,
+                &declared,
+                profile_hash.as_ptr(),
+            );
+            assert!(!p.is_null());
+            assert!((*p)
+                .runtime
+                .with_runtime(|runtime| {
+                    runtime.set_guest(Box::new(TestGuest {
+                        facts: facts.clone(),
+                    }))
+                })
+                .is_ok());
+            #[cfg(feature = "host-backend")]
+            host::register(
+                p,
+                None,
+                DisplayRole::Primary,
+                [32, 24],
+                &Rc::new(Cell::new(0)),
+            );
+            assert_eq!(pocket_native_program_boot(p), 0);
+            assert!((52..=56).all(|op| (*p).ops.supports_op(op)));
             pocket_native_program_destroy(p);
         }
     }

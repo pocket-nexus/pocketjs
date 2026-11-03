@@ -8,6 +8,7 @@ export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, 
   "pocketjs-core": { default: [], counters: [] },
   "pocket-archive": {
     default: ["std"], std: [], "external-runtime": [],
+    physics: ["dep:pocket-physics"],
     "software-renderer": ["dep:pocket-raster"],
   },
   "pocket-guest-rquickjs": {}, "pocket-apple": {},
@@ -46,7 +47,7 @@ export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, 
 export const ARCHIVE_ROOT_FEATURES: readonly { root: string; build: readonly string[]; features: readonly string[]; raster: boolean }[] = [
   // tools/release/archive.ts and the host contract runners: runtime-cabi,
   // pica-driver's driver.c, 3ds-minimal and the programs/3ds build.
-  { root: "SDK and host contract runners", build: ["-p", "pocket-archive", "--no-default-features", "--features", "software-renderer"], features: ["software-renderer"], raster: true },
+  { root: "SDK and host contract runners", build: ["-p", "pocket-archive", "--no-default-features", "--features", "physics,software-renderer"], features: ["physics", "software-renderer"], raster: true },
   { root: "products/3ds/core", build: ["-p", "pocketjs-3ds-core", "--no-default-features"], features: [], raster: false },
   { root: "programs/esp-idf/archive", build: ["-p", "pocket-idf-runtime", "--no-default-features"], features: ["software-renderer"], raster: true },
   { root: "programs/sifli/archive", build: ["-p", "pocket-sifli-runtime", "--no-default-features"], features: ["software-renderer"], raster: true },

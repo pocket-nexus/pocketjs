@@ -27,6 +27,13 @@ without writing the surface. The SDK export, the host contract runners, and
 the ESP-IDF and SiFli archives enable it; `products/3ds/core` and the native
 program do not.
 
+**The `physics` feature installs `pocket-physics` in every runtime
+`pocket_runtime_create` returns.** A package that requests `ui.physics` is
+admitted only by such a runtime, and only when the profile declares the
+capability. The SDK export and the 3DS reference program build enable it; the
+IDF and SiFli archives leave it off, do not link `pocket-physics`, and report
+ops 52..56 unsupported.
+
 `programs/esp-idf/archive`, `programs/sifli/archive` and `products/3ds/core`
 re-export this crate and add their own symbols. A Rust program that drives an
 instance through `pocket_runtime::abi` without a C guest does not link it.

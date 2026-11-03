@@ -17,6 +17,7 @@ pocketjs/
 │  ├─ drivers/              resource views, device-class contracts, C ABI adapters and e-ink refresh
 │  ├─ driver-kit/           Rust and C driver conformance checks
 │  ├─ core/                 retained UI tree, layout, text and animation
+│  ├─ physics/              2D bodies, contacts, zones and emitters for ui.physics
 │  ├─ render/               operation decoding, vertex batches, texture and glyph caches, damage
 │  ├─ raster/               software rendering, incremental drawing and surface composition
 │  ├─ present/              forwarding crate for the former pocket-present paths
@@ -125,6 +126,16 @@ history; `pocket-raster` draws on the CPU. The coordinator in
 resource retirement. `pocketjs-core` depends on neither `pocket-raster` nor the
 coordinator.
 `pocket-ui-wgpu` adapts existing desktop embedding APIs to `pocket-web-render`.
+
+**`pocket-physics` implements the `Physics` trait of `pocketjs-core`.** The core
+steps an installed engine once per tick and applies the `physics_values` layer
+it writes; it has no engine of its own. A program installs the engine with
+`Runtime::set_physics` before boot. A package or AOT artifact that requests
+`ui.physics` is rejected at boot without one, and ops 52..56 stay unsupported.
+`pocket-native-program`, the wasm program and `pocket-ui-surface` (for every
+`UiProgram`) install it; `programs/sdk/archive` installs it in
+`pocket_runtime_create` under its `physics` feature, which the SDK export and
+the 3DS reference program enable and the IDF and SiFli archives leave off.
 
 **`contracts/spec/ui-ops.ts` defines 61 public operations and six private guest
 hooks.** `tools/ui-bindings.ts` generates the runtime dispatcher and guest

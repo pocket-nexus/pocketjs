@@ -4,10 +4,10 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::fmath::{clampf, cosf, exp_neg, lerpf, maxf, sinf, DEG, PI, TAU};
-use crate::spec;
-use crate::spec::physics as ps;
-use crate::tree::Tree;
+use pocketjs_core::fmath::{clampf, cosf, exp_neg, lerpf, maxf, sinf, DEG, PI, TAU};
+use pocketjs_core::spec;
+use pocketjs_core::spec::physics as ps;
+use pocketjs_core::tree::Tree;
 
 use super::{f, id, node_frame, pairs, put, rand01, release_view, View, V2};
 
