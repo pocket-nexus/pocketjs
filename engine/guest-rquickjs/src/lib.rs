@@ -37,6 +37,57 @@ pub struct RquickjsGuest {
     /// the collection threshold this guest set last (keep_collection_below_limit)
     threshold_set: usize,
 }
+
+/// The collection threshold QuickJS keeps for `context`'s runtime.
+fn gc_threshold(context: &Context) -> usize {
+    context.with(|ctx| {
+        // SAFETY: `with` holds the runtime's lock, and the runtime outlives its context
+        unsafe {
+            rquickjs::qjs::JS_GetGCThreshold(rquickjs::qjs::JS_GetRuntime(ctx.as_raw().as_ptr()))
+                as usize
+        }
+    })
+}
+
+/// QuickJS collects cycles once the heap passes a threshold, which it sets to
+/// 1.5 times the heap a collection leaves and checks only when it creates an
+/// object; an allocation past the memory limit fails without collecting
+/// first. With the live heap above two thirds of the limit, 1.5 times it lies
+/// past the limit, and garbage a collection would free runs the guest out of
+/// memory; strings and buffers allocated between two objects pass the
+/// threshold unchecked. This keeps the threshold at most halfway from the
+/// heap the last collection left (QuickJS's threshold over 1.5) to the limit,
+/// which lowers it once the live heap is above half the limit.
+///
+/// `limit` is the runtime's memory limit (0: none, and nothing changes) and
+/// `set` the threshold the previous call answered; the call answers the
+/// threshold it leaves, to pass back next time. It reads one field and writes
+/// it when QuickJS has collected since. A realm calls it after every turn,
+/// outside [`Context::with`], whether the turn returned or threw.
+/// pocket-mod's realm calls it too.
+pub fn keep_collection_below_limit(
+    runtime: &Runtime,
+    context: &Context,
+    limit: usize,
+    set: usize,
+) -> usize {
+    if limit == 0 {
+        return set;
+    }
+    let threshold = gc_threshold(context);
+    if threshold == set {
+        return set;
+    }
+    // QuickJS's own: 1.5 times the heap its last collection left
+    let live = threshold / 3 * 2;
+    let halfway = live + limit.saturating_sub(live) / 2;
+    if threshold <= halfway {
+        return set;
+    }
+    runtime.set_gc_threshold(halfway);
+    halfway
+}
+
 impl Default for RquickjsGuest {
     fn default() -> Self {
         Self::new(BindingProfile::Canonical)
@@ -59,39 +110,12 @@ impl RquickjsGuest {
     pub fn with<R>(&self, f: impl for<'js> FnOnce(Ctx<'js>) -> R) -> Option<R> {
         self.context.as_ref().map(|ctx| ctx.with(f))
     }
-    /// QuickJS collects cycles once the heap passes a threshold it sets to 1.5
-    /// times the heap after each collection, and an allocation past the memory
-    /// limit fails without collecting first. With the live heap above half the
-    /// limit, the threshold QuickJS sets can lie past the limit, and garbage a
-    /// collection would free runs the guest out of memory. This keeps the
-    /// threshold at most halfway from the heap the last collection left (the
-    /// threshold over 1.5) to the limit. It reads and writes one field.
-    fn keep_collection_below_limit(&mut self) {
-        let limit = self.heap_limit;
-        let Some(context) = &self.context else { return };
-        if limit == 0 {
-            return;
+    /// After a turn, whether it returned or threw: [`keep_collection_below_limit`].
+    fn keep_below_limit(&mut self) {
+        if let (Some(runtime), Some(context)) = (&self.runtime, &self.context) {
+            self.threshold_set =
+                keep_collection_below_limit(runtime, context, self.heap_limit, self.threshold_set);
         }
-        let set = self.threshold_set;
-        let next = context.with(|ctx| {
-            // SAFETY: the runtime outlives its context, and this thread holds it
-            unsafe {
-                let runtime = rquickjs::qjs::JS_GetRuntime(ctx.as_raw().as_ptr());
-                let threshold = rquickjs::qjs::JS_GetGCThreshold(runtime) as usize;
-                if threshold == set {
-                    return set;
-                }
-                // QuickJS's own: 1.5 times the heap its last collection left
-                let live = threshold / 3 * 2;
-                let halfway = live + limit.saturating_sub(live) / 2;
-                if threshold <= halfway {
-                    return set;
-                }
-                rquickjs::qjs::JS_SetGCThreshold(runtime, halfway as _);
-                halfway
-            }
-        });
-        self.threshold_set = next;
     }
     fn remember<T, E: std::fmt::Display>(
         &mut self,
@@ -139,19 +163,18 @@ impl Guest for RquickjsGuest {
             ctx.eval::<(), _>(code)
                 .map_err(|error| engine_error(&ctx, error))
         });
-        self.remember(result)?;
-        let collected = self.collect();
-        self.keep_collection_below_limit();
-        collected
+        let turn = self.remember(result).and_then(|()| self.collect());
+        // a turn that threw (out of memory among them) left QuickJS's threshold too
+        self.keep_below_limit();
+        turn
     }
     fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
         let context = self.context.as_ref().ok_or(RuntimeError::Guest)?;
         let result =
             context.with(|ctx| call_frame(&ctx, frame).map_err(|error| engine_error(&ctx, error)));
-        self.remember(result)?;
-        let collected = self.collect();
-        self.keep_collection_below_limit();
-        collected
+        let turn = self.remember(result).and_then(|()| self.collect());
+        self.keep_below_limit();
+        turn
     }
     fn collect(&mut self) -> Result<(), RuntimeError> {
         if let Some(runtime) = &self.runtime {
@@ -905,6 +928,77 @@ mod tests {
         }
         assert_eq!(evaluate::<i32>(&guest, "frames"), 40);
         assert_eq!(evaluate::<i32>(&guest, "keep.length"), 10500);
+    }
+    #[test]
+    fn a_turn_that_throws_leaves_the_threshold_below_the_limit() {
+        let limit = 16 << 20;
+        let ops = OpContext::from_ui(pocketjs_core::Ui::new());
+        let mut guest = RquickjsGuest::new(BindingProfile::Canonical);
+        let mut env = environment(None);
+        env.heap_limit = limit;
+        guest.initialize(ops, &env).unwrap();
+        let threshold = |guest: &RquickjsGuest| gc_threshold(guest.context.as_ref().unwrap());
+        // ~12 MB live, then an object: QuickJS collects and sets 1.5 times
+        // that, past the limit; then the evaluation throws
+        assert!(guest
+            .evaluate(b"globalThis.keep=[];for(let i=0;i<12000;i++)keep.push('k'.repeat(1000)+i);({});throw new Error('after the heap grew')")
+            .is_err());
+        assert!(guest.last_error().unwrap().contains("after the heap grew"));
+        assert!(
+            threshold(&guest) < limit,
+            "{} of {limit}",
+            threshold(&guest)
+        );
+        assert_eq!(threshold(&guest), guest.threshold_set);
+        // the same after a frame that throws, QuickJS made to collect in it
+        guest
+            .evaluate(b"globalThis.frame=()=>{({});throw new Error('frame threw')}")
+            .unwrap();
+        guest.runtime.as_ref().unwrap().set_gc_threshold(1);
+        let frame = GuestFrame {
+            buttons: 0,
+            analog: 0x8080,
+            touches: &[],
+            hits: &[],
+            touch_surfaces: &[],
+            right_analog: 0x8080,
+            axis_deltas: &[],
+            motion: None,
+            text: &[],
+        };
+        assert!(guest.frame(&frame).is_err());
+        assert!(guest.last_error().unwrap().contains("frame threw"));
+        assert!(
+            threshold(&guest) < limit,
+            "{} of {limit}",
+            threshold(&guest)
+        );
+        assert_eq!(threshold(&guest), guest.threshold_set);
+    }
+    #[test]
+    fn quickjs_sets_the_threshold_to_one_and_a_half_times_the_heap_a_collection_leaves() {
+        // keep_collection_below_limit infers the live heap from this; an
+        // rquickjs-sys whose QuickJS sets another threshold fails here
+        let runtime = Runtime::new().unwrap();
+        let context = Context::full(&runtime).unwrap();
+        context.with(|ctx| {
+            ctx.eval::<(), _>(
+                "globalThis.keep=[];for(let i=0;i<4000;i++)keep.push('k'.repeat(1000)+i)",
+            )
+            .unwrap()
+        });
+        // the next object QuickJS creates collects (an explicit run_gc
+        // leaves the threshold as it is)
+        runtime.set_gc_threshold(1);
+        context.with(|ctx| ctx.eval::<(), _>("({})").unwrap());
+        let threshold = gc_threshold(&context) as f64;
+        let heap = runtime.memory_usage().malloc_size as f64;
+        // what the evaluation allocated after the collection is a few KiB of ~4 MB
+        let ratio = threshold / heap;
+        assert!(
+            (1.45..=1.51).contains(&ratio),
+            "threshold {threshold} for a heap of {heap}"
+        );
     }
     #[test]
     fn evaluates_the_nul_terminated_source_span_returned_by_package_admission() {
