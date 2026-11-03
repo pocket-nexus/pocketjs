@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
 LINK_BEACON_BYTES,
 LINK_FRAME,
+LINK_MAX_CTRL,
 LINK_MAX_DATA,
 LINK_MAX_FRAME,
 LINK_PAIR_URI_MAX,
@@ -207,7 +208,7 @@ describe("link", () => {
 
   beforeAll(async () => {
     appsDir = freshDir("apps");
-    hnPackage = makePackage({ id: "dev.pocket-nexus.hn", title: "Hacker News", version: "0.2.0", summary: "Top stories", services: ["youtube"], padBytes: 200_000 });
+    hnPackage = makePackage({ id: "dev.pocket-nexus.hn", title: "Hacker News", version: "0.2.0", summary: "Top stories", services: ["youtube", "store"], padBytes: 200_000 });
     writeFileSync(join(appsDir, "hn.pocket"), hnPackage);
     writeFileSync(join(appsDir, "psp-only.pocket"), makePackage({ id: "dev.pocket-nexus.psp", title: "PSP", target: "psp" }));
     writeFileSync(join(appsDir, "broken.pocket"), new Uint8Array(100).fill(7));
@@ -350,6 +351,36 @@ describe("link", () => {
       expect([200, 501, 502, 503]).toContain(youtube.status);
       expect(youtube.headers["content-type"]).toContain("json");
     } finally {
+      client.close();
+    }
+  });
+
+  test("net: a service reply larger than one ctrl frame streams its body as data, and net.head carries no body", async () => {
+    const client = await linked();
+    const heads: Record<string, unknown>[] = [];
+    const off = client.onMessage((message) => {
+      if (message.t === "net.head") heads.push(message);
+    });
+    try {
+      const value = { notes: "n".repeat(LINK_MAX_CTRL + 8 * 1024) };
+      const set = await client.net({
+        app: "dev.pocket-nexus.hn",
+        url: "https://companion.pocket/store/set?name=notes",
+        method: "POST",
+        body: new TextEncoder().encode(JSON.stringify(value)),
+      }).done;
+      expect(set.status).toBe(200);
+      const large = await client.net({ app: "dev.pocket-nexus.hn", url: "https://companion.pocket/store/get?name=notes" }).done;
+      expect(large.status).toBe(200);
+      expect(large.body.length).toBeGreaterThan(LINK_MAX_CTRL);
+      expect(JSON.parse(new TextDecoder().decode(large.body))).toEqual({ value });
+      const small = await client.net({ app: "dev.pocket-nexus.hn", url: "https://companion.pocket/store/list" }).done;
+      expect(small.status).toBe(200);
+      expect(JSON.parse(new TextDecoder().decode(small.body))).toEqual({ names: ["notes"] });
+      expect(heads).toHaveLength(3);
+      for (const head of heads) expect(Object.keys(head).sort()).toEqual(["headers", "id", "status", "stream", "t", "url"]);
+    } finally {
+      off();
       client.close();
     }
   });
