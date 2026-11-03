@@ -76,7 +76,7 @@ describe("Cargo program and library graph", () => {
         expect(() => checkFeatureTree(independent), mode).not.toThrow();
         expect(active(independent), mode).toEqual(active(source));
       }
-      const sdk = command([...treeOptions, "-p", "pocket-runtime-cabi", "--no-default-features"]);
+      const sdk = command([...treeOptions, "-p", "pocket-archive", "--no-default-features"]);
       expect(sdk).not.toMatch(/^pocket-gles[12]? (?:v|feature)/m);
       expect(() => checkFeatureTree(sdk)).not.toThrow();
     } finally {
@@ -87,6 +87,6 @@ describe("Cargo program and library graph", () => {
   test("the feature gate rejects selectors and undocumented resolved activation", () => {
     expect(() => checkFeatureTree('pocketjs-core feature "psp"')).toThrow("undocumented public feature");
     expect(() => checkFeatureTree('pocket-runtime v0.1.0 (/external/runtime)|profile-handheld')).toThrow("undocumented public feature");
-    expect(() => checkFeatureTree('pocket-runtime-cabi feature "gles1"')).toThrow("undocumented public feature");
+    expect(() => checkFeatureTree('pocket-archive feature "gles1"')).toThrow("undocumented public feature");
   });
 });

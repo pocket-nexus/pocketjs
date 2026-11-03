@@ -25,7 +25,7 @@ libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev =
 pocketjs-core = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
-pocket-runtime-cabi = { workspace = true, default-features = true }
+pocket-archive = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
 pocket-vita-render = { workspace = true, default-features = true }
 # The USB developer mailbox protocol (src/dev.rs, src/dev_protocol.rs).

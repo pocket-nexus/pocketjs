@@ -1,9 +1,9 @@
 //! Vita program composition: canonical runtime instance, sampled input and
 //! private platform providers. Core operations use the generated dispatcher.
 use libquickjs_sys::*;
+use pocket_drivers::abi::*;
 use pocket_drivers::{AxisSample, Contact, InputClasses, InputFrameBuilder, InputSource};
 use pocket_runtime::{OpArg, OpProvider, OpResult, RuntimeError};
-use pocket_runtime_cabi::abi::*;
 use std::{
     cell::RefCell,
     ffi::{c_void, CStr},
@@ -227,16 +227,12 @@ impl OpProvider for Services {
 }
 /// Preserve the supplied package as the source for canonical admission. This
 /// path is shared by catalog packages, runtime files and USB replacements.
-pub(crate) unsafe fn boot_package(
-    runtime: *mut PocketRuntime,
+pub(crate) fn boot_package(
+    runtime: &pocket_runtime::abi::Handle,
     bytes: impl AsRef<[u8]> + 'static,
-) -> i32 {
-    let status = pocket_runtime_cabi::embedding::set_package_source(
-        runtime,
-        Box::new(pocket_package::source::MemorySource(bytes)),
-    );
-    if status != 0 {
-        return status;
-    }
-    pocket_runtime_cabi::embedding::boot_deferred(runtime)
+) -> Result<(), RuntimeError> {
+    runtime.with_runtime(|runtime| {
+        runtime.set_package_source(Box::new(pocket_package::source::MemorySource(bytes)))
+    })?;
+    runtime.with_runtime(pocket_runtime::Runtime::boot_deferred)
 }

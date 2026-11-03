@@ -74,10 +74,13 @@ wire, promise-job draining, host identity, tick rate, viewport, and native asset
 tables. **Absent asset tables mean JavaScript must load assets from `__pak`.**
 An empty native table means native loading completed without that asset kind.
 
-**`pocket-runtime-cabi` owns the instance C entry points.** Its compatibility
-adapters retain the old UI and IDF call shapes over runtime-owned state.
-`programs/native/runtime` supplies the historical C-shell archive;
-`programs/esp-idf/archive` composes one Rust archive for IDF. The GLES renderers
+**`pocket_runtime::abi` owns the instance C entry points.** It holds the
+instance handle and the bodies of the `pocket_runtime_*` functions;
+`pocket_drivers::abi` adapts C driver tables to the driver traits.
+`programs/sdk/archive` defines each exported symbol once with the allocator,
+panic handler and host hooks of a C archive. `programs/native/runtime` supplies
+the native program composition; `programs/esp-idf/archive` composes one Rust
+archive for IDF over the SDK archive. The GLES renderers
 live in `devices/gles/`. Program scene adapters connect existing embedding
 APIs to these renderers. C guest composition lives in
 `programs/native/quickjs`; generated guest bindings live in `engine/guest-quickjs`.

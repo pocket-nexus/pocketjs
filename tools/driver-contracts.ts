@@ -178,7 +178,7 @@ export function generatedDriverContracts(): Map<string, string> {
   return new Map([
     ["contracts/generated/pocket_drivers.h", cHeader("drivers")],
     ["contracts/generated/pocket_runtime.h", cHeader("runtime")],
-    ["engine/drivers/src/abi.rs", rustTypes()],
+    ["engine/drivers/src/abi/generated.rs", rustTypes()],
   ]);
 }
 

@@ -19,7 +19,6 @@ crate-type = ["cdylib"]
 [dependencies]
 pocketjs-core = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
-pocket-runtime-cabi = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
 pocket-present = { workspace = true, default-features = true }

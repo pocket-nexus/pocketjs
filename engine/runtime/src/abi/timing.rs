@@ -1,10 +1,14 @@
+//! The `pocket_tick_schedule_*` bodies over [`crate::timing::TickSchedule`].
+use crate::timing::TickSchedule;
 use alloc::boxed::Box;
 use core::ptr;
-use pocket_drivers::abi::*;
-use pocket_runtime::timing::TickSchedule;
+use pocket_drivers::abi::{
+    PocketTickSchedule, PocketTickTiming, POCKET_STATUS_FAILED, POCKET_STATUS_INVALID,
+    POCKET_STATUS_OK,
+};
 
-#[no_mangle]
-pub extern "C" fn pocket_tick_schedule_create(
+/// A null result is a rejected rate or lag budget.
+pub fn pocket_tick_schedule_create(
     tick_hz: u32,
     started: u64,
     max_lag_us: u64,
@@ -16,8 +20,7 @@ pub extern "C" fn pocket_tick_schedule_create(
 }
 /// # Safety
 /// Schedule is live on this thread and out points to writable u64 storage.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_tick_schedule_deadline(
+pub unsafe fn pocket_tick_schedule_deadline(
     schedule: *const PocketTickSchedule,
     out: *mut u64,
 ) -> i32 {
@@ -41,8 +44,7 @@ pub unsafe extern "C" fn pocket_tick_schedule_deadline(
 /// Schedule is live on this thread. out provides its declared writable prefix;
 /// ready provides writable u32 storage. Output buffers do not overlap each other
 /// or the schedule allocation.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_tick_schedule_poll(
+pub unsafe fn pocket_tick_schedule_poll(
     schedule: *mut PocketTickSchedule,
     now: u64,
     out: *mut PocketTickTiming,
@@ -80,8 +82,7 @@ pub unsafe extern "C" fn pocket_tick_schedule_poll(
 }
 /// # Safety
 /// Schedule was returned by create, has not been destroyed and is not in use.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_tick_schedule_destroy(schedule: *mut PocketTickSchedule) {
+pub unsafe fn pocket_tick_schedule_destroy(schedule: *mut PocketTickSchedule) {
     if !schedule.is_null() {
         unsafe {
             drop(Box::from_raw(schedule.cast::<TickSchedule>()));

@@ -31,11 +31,11 @@ typedef struct {
  * exported profile facts admit (binding generation, raster density,
  * animation, rate, viewport, presentation, capabilities, auxiliary surface),
  * identity, plan and NUL-terminated JS. BAD_ARGUMENT for a null or empty
- * argument; PLAN_JSON for a plan that is not one JSON object; PLAN_VIEWPORT
- * for a plan whose viewport or auxiliary surface cannot be read (a program
- * has no auxiliary surface); PLAN_AUXILIARY is not returned here. profile_hash
- * is null or the host profile SHA-256 (32 readable bytes); it only orders
- * variants. */
+ * argument; PLAN_JSON, PLAN_VIEWPORT or PLAN_AUXILIARY for a plan whose JSON,
+ * viewport or auxiliary surface cannot be read after admission: one table
+ * with the 3DS product's pocket_package_open and the ESP-IDF archive's
+ * pocket_idf_package_open. profile_hash is null or the host profile SHA-256
+ * (32 readable bytes); it only orders variants. */
 int32_t pocket_native_package_open(
   const uint8_t *bytes,
   size_t length,

@@ -1,5 +1,4 @@
 //! C software fallback into one acquired CPU surface.
-use crate::adapters::{borrowed, pixel_format, rect, writable, AdapterError, CResources};
 use pocket_draw_ops::Operation;
 use pocket_drivers::{abi::*, DamageRect, RenderResources, Surface};
 

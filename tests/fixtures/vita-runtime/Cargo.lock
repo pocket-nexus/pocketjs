@@ -50,6 +50,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-archive"
+version = "0.16.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-raster",
+ "pocket-runtime",
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-draw-ops"
 version = "0.16.0"
 dependencies = [
@@ -122,19 +134,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-runtime-cabi"
-version = "0.16.0"
-dependencies = [
- "pocket-draw-ops",
- "pocket-drivers",
- "pocket-glyph-pages",
- "pocket-raster",
- "pocket-runtime",
- "pocket-spec",
- "pocketjs-core",
-]
-
-[[package]]
 name = "pocket-spec"
 version = "0.16.0"
 
@@ -175,11 +174,11 @@ version = "0.0.0"
 dependencies = [
  "cc",
  "libquickjs-sys",
+ "pocket-archive",
  "pocket-drivers",
  "pocket-package",
  "pocket-profile-build",
  "pocket-runtime",
- "pocket-runtime-cabi",
  "pocket-spec",
  "pocket-vita-render",
  "pocketjs-core",

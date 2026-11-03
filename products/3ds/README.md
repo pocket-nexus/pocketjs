@@ -1,6 +1,6 @@
 # Nintendo 3DS product
 
-The 3DS product composes **one archive containing `pocket-runtime-cabi` and
+The 3DS product composes **one archive containing `pocket-archive` and
 private recovery inspection** with the
 generated QuickJS guest, a package source, input source, PICA renderer and two
 display outputs. The runtime owns the retained tree, layout, animation, physics,

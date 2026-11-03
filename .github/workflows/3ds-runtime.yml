@@ -23,7 +23,7 @@ on:
       - "tools/pocket.ts"
       - "tools/cli/**"
       - "engine/runtime/**"
-      - "engine/runtime-cabi/**"
+      - "programs/sdk/archive/**"
       - "engine/guest-quickjs/**"
       - "engine/core/**"
       - "engine/spec/**"

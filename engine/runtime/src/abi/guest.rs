@@ -1,9 +1,12 @@
-use crate::{adapters::AdapterError, runtime::handle};
+//! The C guest vtable as a runtime `Guest`.
+use super::Handle;
+use crate::{Guest, GuestEnvironment, GuestFrame, OpContext, RuntimeError};
 use alloc::vec::Vec;
 use core::{cell::Cell, ffi::c_void, ptr};
 use pocket_drivers::{abi::*, MotionState, TextEvent};
-use pocket_runtime::{Guest, GuestEnvironment, GuestFrame, OpContext, RuntimeError};
 
+/// A guest registered through `pocket_runtime_set_guest`: the table is copied,
+/// the context and the runtime pointer are handed back to every callback.
 pub struct CGuest {
     table: PocketGuestV1,
     context: *mut c_void,
@@ -19,6 +22,11 @@ impl Drop for Active<'_> {
     }
 }
 impl CGuest {
+    /// A table without `evaluate` and `frame` is unsupported.
+    /// # Safety
+    /// `table` is null or readable through its prefix; `context` and the
+    /// callbacks obey the guest contract until the runtime is destroyed;
+    /// `runtime` is the handle the guest is registered in.
     pub unsafe fn new(
         table: *const PocketGuestV1,
         context: *mut c_void,
@@ -35,7 +43,7 @@ impl CGuest {
         })
     }
     fn active(&self) -> Active<'_> {
-        let flag = &unsafe { handle(self.runtime) }
+        let flag = &unsafe { Handle::from_raw(self.runtime) }
             .expect("registered runtime is live")
             .guest_active;
         Active {

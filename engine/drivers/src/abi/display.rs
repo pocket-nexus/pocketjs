@@ -1,4 +1,9 @@
 use super::*;
+use crate::{
+    BufferIdentity, DeviceTarget, DisplayDescriptor, DisplayError, DisplayOutput, DisplayRole,
+    Rect, Surface, Target, TargetOwnership, VsyncSource, HOST_DAMAGE_RECTS,
+};
+use core::ffi::c_void;
 
 struct PendingTransfer {
     id: u64,

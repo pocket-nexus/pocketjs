@@ -13,8 +13,8 @@ use core::{
     mem::{align_of, offset_of, size_of, MaybeUninit},
     ptr, slice,
 };
+use pocket_drivers::abi::{borrowed, rect, AdapterError, CResources};
 use pocket_drivers::{abi::*, DeviceTarget, PixelFormat, Rect as Region, RenderError, Renderer};
-use pocket_runtime_cabi::adapters::{borrowed, rect, AdapterError, CResources};
 
 pub const POCKET_EPIC_FILL_OPAQUE: u32 = 1 << 0;
 pub const POCKET_EPIC_FILL_ALPHA: u32 = 1 << 1;

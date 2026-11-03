@@ -18,8 +18,8 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
   mkdirSync(buildDirectory, { recursive: true });
   exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION,
     dependencies: [] }, buildDirectory);
-  const native = await prepareNative3ds({ packageName: "pocket-runtime-cabi",
-    archiveName: "libpocket_runtime_cabi.a", targetDirectory: join(repository, ".pocket-build/native/3ds/minimal"),
+  const native = await prepareNative3ds({ packageName: "pocket-archive",
+    archiveName: "libpocket_archive.a", targetDirectory: join(repository, ".pocket-build/native/3ds/minimal"),
     roots: [outdir], context });
   const program = join(outdir, THREE_DS_RUNTIME_FILE);
   rmSync(program, { force: true });
@@ -38,7 +38,7 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
 }
 export const build: RuntimeBuild = {
   sourceInputs: [
-    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
+    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
     ...programFiles("programs/3ds", /\.(c|h|png)$/), resolve(repository, "programs/3ds/Makefile"),
     ...["hooks.c", "input.c", "input.h", "input_source.c", "input_source.h"].map(path => resolve(repository, "platforms/3ds", path)),
   ],

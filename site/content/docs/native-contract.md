@@ -54,21 +54,24 @@ The op codes are pinned once, in `contracts/spec/spec.ts` (the `OP` table), and 
 `contracts/spec/input.ts`, `driver-abi.ts`, and `runtime-abi.ts` define the
 device vocabulary, C records, callbacks, and runtime function declarations.
 `bun tools/driver-contracts.ts` generates `contracts/generated/pocket_drivers.h`,
-`contracts/generated/pocket_runtime.h`, and `engine/drivers/src/abi.rs`.
+`contracts/generated/pocket_runtime.h`, and `engine/drivers/src/abi/generated.rs`.
 `--check` compares each output with its source. Rust and C compile-time
 assertions check field offsets, alignment, and record size using the target's
 primitive alignment rules.
 
-**`pocket-runtime-cabi` implements the instance runtime functions.**
-`pocket-runtime` owns application state and driver registration. The C and Rust
+**`pocket_runtime::abi` implements the instance runtime functions.**
+`pocket-runtime` owns application state and driver registration; its `abi`
+module holds the instance handle and the function bodies, and
+`programs/sdk/archive` defines each exported symbol once over them.
+`pocket_drivers::abi` holds the C records, the pointer checks and the adapters
+between C vtables and the driver traits. The C and Rust
 guest adapters use signatures from `contracts/spec/ui-ops.ts`, whose generated
 dispatcher validates argument records before calling the core. Byte arguments
 remain borrowed for the call; byte results expire at the next call on the same
 instance, including a failed call.
 
-The old UI and ESP-IDF library names delegate to compatibility implementations
-in `engine/runtime-cabi/src/compat`. Existing QuickJS C, rquickjs `UiSurface`,
-and Wasm entry paths remain available. **Applications use package format 2
+Existing QuickJS C, rquickjs `UiSurface`, and Wasm entry paths remain
+available. **Applications use package format 2
 and binding generation 12.** Host contract identity (`profileHash`), binding
 generation, C record prefixes and DrawList versions are checked as separate
 contracts.

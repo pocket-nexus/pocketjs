@@ -21,13 +21,14 @@ bun tools/pocket.ts sdk build --triple aarch64-apple-darwin \
   --out .pocket-build/validation/sdk/local
 ```
 
-The Cargo template depends on a versioned `pocket-runtime-cabi` crate with
+The Cargo template depends on the `pocket-archive` crate
+(`programs/sdk/archive`) at the release's Git tag, with
 `default-features = false`. Add Rust driver dependencies to that program crate;
-it produces the program's single Rust static archive. The versioned template
-requires those crates to be published to the selected Cargo registry; generating
-the template does not publish them. A prerelease consumer can select an exact
-Git revision, as in `tests/fixtures/out-of-tree-rust/Cargo.toml.in`. The `std` feature provides
-the six host hooks through the standard library. A no_std program provides them.
+it produces the program's single Rust static archive. The crate is not
+published to a Cargo registry. A prerelease consumer can select an exact Git
+revision, as in `tests/fixtures/out-of-tree-rust/Cargo.toml.in`. The `std`
+feature provides the six host hooks through the standard library. A no_std
+program provides them.
 
 The export contains:
 

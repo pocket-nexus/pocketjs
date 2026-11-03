@@ -5,20 +5,22 @@ use alloc::vec::Vec;
 use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::{
     cell::{Cell, RefCell},
-    ffi::{c_char, c_void, CStr},
+    ffi::{c_char, CStr},
     ptr,
 };
-use pocket_drivers::*;
-use pocket_runtime::{Cow, OpContext, Profile, RuntimeConfig};
-use pocket_runtime_cabi::{abi::*, adapters::CInputSource, embedding as embed};
+use pocket_drivers::{abi::*, *};
+use pocket_runtime::{
+    abi::{status_code, Handle},
+    Cow, OpContext, Profile, Runtime, RuntimeConfig, RuntimeError,
+};
 
-const INPUT_CLASSES: u32 = POCKET_INPUT_CLASS_BUTTONS
-    | POCKET_INPUT_CLASS_AXIS_ABSOLUTE
-    | POCKET_INPUT_CLASS_AXIS_RELATIVE
-    | POCKET_INPUT_CLASS_POINTER
-    | POCKET_INPUT_CLASS_CONTACT
-    | POCKET_INPUT_CLASS_TEXT
-    | POCKET_INPUT_CLASS_MOTION;
+/// The C status of one runtime call on the program's instance.
+fn call(handle: &Handle, action: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>) -> i32 {
+    handle
+        .with_runtime(action)
+        .map_or_else(status_code, |_| POCKET_STATUS_OK)
+}
+
 struct Input(Rc<RefCell<InputFrameBuilder>>);
 impl InputSource for Input {
     fn classes(&self) -> InputClasses {
@@ -34,36 +36,6 @@ impl InputSource for Input {
         *out = core::mem::take(&mut *self.0.borrow_mut());
     }
 }
-unsafe extern "C" fn input_classes(_: *mut c_void) -> u32 {
-    INPUT_CLASSES
-}
-unsafe extern "C" fn input_poll(
-    context: *mut c_void,
-    builder: *mut PocketInputFrameBuilder,
-) -> i32 {
-    let Some(builder) = (unsafe { PocketInputFrameBuilder::read_prefix(builder) }) else {
-        return POCKET_STATUS_INVALID;
-    };
-    let Some(append) = builder.append else {
-        return POCKET_STATUS_INVALID;
-    };
-    unsafe { append(builder.context, context.cast()) }
-}
-unsafe fn decode_input(frame: *const PocketInputFrame) -> Result<InputFrameBuilder, i32> {
-    let table = PocketInputSourceV1 {
-        classes: Some(input_classes),
-        poll: Some(input_poll),
-        ..PocketInputSourceV1::empty()
-    };
-    let mut adapter =
-        unsafe { CInputSource::new(&table, frame.cast_mut().cast()) }.map_err(|e| e.status())?;
-    let mut out = InputFrameBuilder::new();
-    adapter.poll(&mut out);
-    match adapter.last_error() {
-        Some(error) => Err(error.status()),
-        None => Ok(out),
-    }
-}
 #[derive(Default)]
 struct State {
     pending: bool,
@@ -76,7 +48,7 @@ struct State {
 
 /// Private opaque program handle. It never exposes a mutable core reference.
 pub struct PocketNativeProgram {
-    runtime: *mut PocketRuntime,
+    runtime: Box<Handle>,
     ops: OpContext,
     input: Rc<RefCell<InputFrameBuilder>>,
     viewport: Cell<[u32; 2]>,
@@ -123,14 +95,6 @@ impl PocketNativeProgram {
         }
     }
 }
-impl Drop for PocketNativeProgram {
-    fn drop(&mut self) {
-        unsafe {
-            pocket_runtime_cabi::pocket_runtime_destroy(self.runtime);
-        }
-    }
-}
-
 #[cfg(any(feature = "std", feature = "software-only"))]
 struct CpuDisplay {
     width: u32,
@@ -288,10 +252,8 @@ unsafe fn create(
     let target = unsafe { CStr::from_ptr(target) }
         .to_str()
         .map_err(|_| POCKET_STATUS_INVALID)?;
-    let code = unsafe { pocket_runtime_cabi::adapters::borrowed(code, code_length) }
-        .map_err(|e| e.status())?;
-    let pak = unsafe { pocket_runtime_cabi::adapters::borrowed(pak, pak_length) }
-        .map_err(|e| e.status())?;
+    let code = unsafe { borrowed(code, code_length) }.map_err(|e| e.status())?;
+    let pak = unsafe { borrowed(pak, pak_length) }.map_err(|e| e.status())?;
     let length = (width as usize)
         .checked_mul(height as usize)
         .and_then(|n| n.checked_mul(4))
@@ -367,7 +329,7 @@ unsafe fn create(
         })
         .map_err(|_| POCKET_STATUS_INVALID)?
     };
-    let runtime = embed::create(RuntimeConfig {
+    let runtime = Handle::new(RuntimeConfig {
         profile_hash,
         host_abi,
         heap_limit: 128 * 1024 * 1024,
@@ -375,13 +337,7 @@ unsafe fn create(
         profile,
     })
     .map_err(|_| POCKET_STATUS_INVALID)?;
-    let ops = match unsafe { embed::op_context(runtime) } {
-        Ok(ops) => ops,
-        Err(_) => {
-            unsafe { pocket_runtime_cabi::pocket_runtime_destroy(runtime) };
-            return Err(POCKET_STATUS_FAILED);
-        }
-    };
+    let ops = runtime.op_context();
     let input = Rc::new(RefCell::new(InputFrameBuilder::new()));
     #[allow(unused_mut)] // CPU builds set the stable display buffer pointer.
     let mut program = Box::new(PocketNativeProgram {
@@ -396,15 +352,17 @@ unsafe fn create(
         #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
         gl: Rc::new(RefCell::new(gpu::State::new(width, height))),
     });
-    let check = |status| if status == 0 { Ok(()) } else { Err(status) };
-    check(unsafe {
-        embed::set_package_source(
-            runtime,
-            Box::new(pocket_package::source::MemorySource(package)),
-        )
-    })?;
-    check(unsafe { embed::set_native_asset_loading(runtime, false) })?;
-    check(unsafe { embed::add_input_source(runtime, Box::new(Input(program.input.clone()))) })?;
+    let check = |result: Result<(), RuntimeError>| result.map_err(status_code);
+    let runtime = &program.runtime;
+    check(runtime.with_runtime(|runtime| {
+        runtime.set_package_source(Box::new(pocket_package::source::MemorySource(package)))
+    }))?;
+    check(runtime.with_runtime(|runtime| runtime.set_native_asset_loading(false)))?;
+    check(
+        runtime.with_runtime(|runtime| {
+            runtime.add_input_source(Box::new(Input(program.input.clone())))
+        }),
+    )?;
     program
         .ops
         .set_compositor_enabled(true)
@@ -417,27 +375,27 @@ unsafe fn create(
             .map_err(|_| POCKET_STATUS_FAILED)?;
         pixels.resize(length, 0);
         program.pixels = pixels.as_ptr();
-        let renderer = unsafe { embed::add_renderer(runtime, CpuRenderer) }?;
-        check(unsafe {
-            embed::add_display(
-                runtime,
-                CpuDisplay {
-                    width,
-                    height,
-                    pixels,
-                    stats: program.state.clone(),
-                },
-                renderer,
-            )
-        })?;
+        let renderer = runtime
+            .with_runtime(|runtime| runtime.add_renderer(CpuRenderer))
+            .map_err(status_code)?;
+        let display = CpuDisplay {
+            width,
+            height,
+            pixels,
+            stats: program.state.clone(),
+        };
+        check(runtime.with_runtime(|runtime| runtime.add_display(display, renderer).map(|_| ())))?;
     }
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     {
-        let renderer = unsafe { embed::add_renderer(runtime, gpu::Render(program.gl.clone())) }?;
-        check(unsafe { embed::add_display(runtime, gpu::Display(program.gl.clone()), renderer) })?;
+        let renderer = runtime
+            .with_runtime(|runtime| runtime.add_renderer(gpu::Render(program.gl.clone())))
+            .map_err(status_code)?;
+        let display = gpu::Display(program.gl.clone());
+        check(runtime.with_runtime(|runtime| runtime.add_display(display, renderer).map(|_| ())))?;
     }
     // Native hosts own the final presentation transform, including logical-sized CPU buffers.
-    check(unsafe { embed::allow_embedded_viewport_changes(runtime) })?;
+    check(runtime.with_runtime(Runtime::allow_embedded_viewport_changes))?;
     Ok(program)
 }
 /// # Safety
@@ -523,7 +481,7 @@ unsafe fn trusted_profile(
     if hash.is_null() {
         return Err(POCKET_STATUS_INVALID);
     }
-    let profile = unsafe { embed::profile_from_facts(facts) }.ok_or(POCKET_STATUS_INVALID)?;
+    let profile = unsafe { pocket_runtime::abi::profile(facts) }.ok_or(POCKET_STATUS_INVALID)?;
     let hash: [u8; 32] = unsafe { core::slice::from_raw_parts(hash, 32) }
         .try_into()
         .unwrap();
@@ -560,8 +518,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
         };
         let profile = unsafe { trusted_profile(profile, profile_hash) }?;
         let target_name = string(target)?;
-        let bytes = unsafe { pocket_runtime_cabi::adapters::borrowed(bytes, length) }
-            .map_err(|error| error.status())?;
+        let bytes = unsafe { borrowed(bytes, length) }.map_err(|error| error.status())?;
         if profile.0.id != target_name {
             return Err(POCKET_STATUS_INVALID);
         }
@@ -616,7 +573,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
 pub unsafe extern "C" fn pocket_native_program_runtime(
     program: *mut PocketNativeProgram,
 ) -> *mut PocketRuntime {
-    unsafe { program.as_ref() }.map_or(ptr::null_mut(), |p| p.runtime)
+    unsafe { program.as_ref() }.map_or(ptr::null_mut(), |p| p.runtime.as_ptr())
 }
 /// # Safety
 /// The program is live; its guest has been registered.
@@ -628,11 +585,11 @@ pub unsafe extern "C" fn pocket_native_program_boot(program: *mut PocketNativePr
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    let result = unsafe { embed::boot_deferred(p.runtime) };
+    let result = call(&p.runtime, Runtime::boot_deferred);
     if result != 0 {
         return result;
     }
-    unsafe { embed::skip_presentation(p.runtime) }
+    call(&p.runtime, Runtime::skip_presentation)
 }
 /// # Safety
 /// Program and input's nested records are readable on the owning thread.
@@ -648,18 +605,20 @@ pub unsafe extern "C" fn pocket_native_program_advance(
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    let input = match unsafe { decode_input(input) } {
+    let input = match unsafe { pocket_drivers::abi::decode_input_frame(input) } {
         Ok(input) => input,
-        Err(error) => return error,
+        Err(error) => return error.status(),
     };
     if p.state.borrow().pending {
-        let status = unsafe { embed::skip_presentation(p.runtime) };
+        let status = call(&p.runtime, Runtime::skip_presentation);
         if status != 0 {
             return status;
         }
     }
     *p.input.borrow_mut() = input;
-    let status = unsafe { embed::advance_with_core_ticks(p.runtime, core_ticks) };
+    let status = call(&p.runtime, |runtime| {
+        runtime.advance_with_core_ticks(core_ticks)
+    });
     p.state.borrow_mut().pending = status == 0;
     status
 }
@@ -679,7 +638,7 @@ pub unsafe extern "C" fn pocket_native_program_render_argb(
         return ptr::null();
     }
     p.begin_render();
-    let status = unsafe { embed::present(p.runtime) };
+    let status = call(&p.runtime, Runtime::present);
     p.record(status, p.viewport.get()[0], p.viewport.get()[1]);
     if status == 0 {
         p.pixels
@@ -978,7 +937,9 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
             old
         };
         if old != [width, height] {
-            let status = unsafe { embed::resize_embedded_presentation(p.runtime, [width, height]) };
+            let status = call(&p.runtime, |runtime| {
+                runtime.resize_embedded_presentation([width, height])
+            });
             if status != 0 {
                 p.gl.borrow_mut().window = old;
                 return status;
@@ -988,11 +949,11 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
         if let Some(trace) = p.gl.borrow().trace {
             trace(0, 0, 0);
         }
-        let mut status = unsafe { embed::present(p.runtime) };
+        let mut status = call(&p.runtime, Runtime::present);
         // The host's GL context is current only inside this call, so the
         // Deferred GLES frame completes here: glFinish, then retirement.
         if status == 0 {
-            status = unsafe { embed::complete_presentation(p.runtime) };
+            status = call(&p.runtime, Runtime::complete_presentation);
         }
         p.record(status, width, height);
         status
@@ -1012,7 +973,7 @@ pub unsafe extern "C" fn pocket_native_program_collect(program: *mut PocketNativ
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    unsafe { embed::collect(p.runtime) }
+    call(&p.runtime, Runtime::collect)
 }
 /// # Safety
 /// Program is live; called between guest turns. Only GPU programs support a
@@ -1036,14 +997,18 @@ pub unsafe extern "C" fn pocket_native_program_resize_viewport(
     {
         let old = p.gl.borrow().window;
         p.gl.borrow_mut().window = [width, height];
-        let status = unsafe { embed::resize_embedded(p.runtime, [width, height], [width, height]) };
+        let status = call(&p.runtime, |runtime| {
+            runtime.resize_embedded([width, height], [width, height])
+        });
         p.gl.borrow_mut().window = old;
         if status != 0 {
             return status;
         }
         p.viewport.set([width, height]);
         // Restore the native window extent after changing the logical viewport.
-        unsafe { embed::resize_embedded_presentation(p.runtime, old) }
+        call(&p.runtime, |runtime| {
+            runtime.resize_embedded_presentation(old)
+        })
     }
     #[cfg(any(feature = "std", feature = "software-only"))]
     {
@@ -1105,7 +1070,7 @@ pub unsafe extern "C" fn pocket_native_program_set_gl_trace(
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use pocket_runtime::{Guest, GuestEnvironment, GuestFrame, RuntimeError};
+    use pocket_runtime::{Guest, GuestEnvironment, GuestFrame};
     use std::sync::Mutex;
     static SERIAL: Mutex<()> = Mutex::new(());
     #[derive(Default)]
@@ -1163,17 +1128,13 @@ mod tests {
         };
         assert!(!p.is_null());
         let facts = Rc::new(RefCell::new(Facts::default()));
-        assert_eq!(
-            unsafe {
-                embed::set_guest(
-                    (*p).runtime,
-                    Box::new(TestGuest {
-                        facts: facts.clone(),
-                    }),
-                )
-            },
-            0
-        );
+        assert!(unsafe { &(*p).runtime }
+            .with_runtime(|runtime| {
+                runtime.set_guest(Box::new(TestGuest {
+                    facts: facts.clone(),
+                }))
+            })
+            .is_ok());
         assert_eq!(unsafe { pocket_native_program_boot(p) }, 0);
         (p, facts)
     }
@@ -1328,15 +1289,14 @@ mod tests {
             assert!(!p.is_null());
             drop(bytes);
             let facts = Rc::new(RefCell::new(Facts::default()));
-            assert_eq!(
-                embed::set_guest(
-                    (*p).runtime,
-                    Box::new(TestGuest {
-                        facts: facts.clone()
-                    })
-                ),
-                0
-            );
+            assert!((*p)
+                .runtime
+                .with_runtime(|runtime| {
+                    runtime.set_guest(Box::new(TestGuest {
+                        facts: facts.clone(),
+                    }))
+                })
+                .is_ok());
             assert_eq!(pocket_native_program_boot(p), 0);
             assert!(facts.borrow().initialized);
             // Host permission does not turn on a feature absent from the original plan.

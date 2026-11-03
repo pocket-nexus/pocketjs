@@ -10,10 +10,10 @@ description = "PocketJS render SiFli EPIC component"
 
 [features]
 default = []
-cabi = ["dep:pocket-runtime-cabi"]
+# The C factory and vtable over pocket_drivers::abi.
+cabi = []
 
 [dependencies]
-pocket-runtime-cabi = { workspace = true, optional = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-draw-ops = { workspace = true, default-features = true }

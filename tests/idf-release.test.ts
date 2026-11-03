@@ -88,7 +88,7 @@ describe("ESP-IDF release integrity", () => {
         expect(packages.some(pkg => pkg.name === name)).toBe(false);
         expect(existsSync(join(output, native.component, "vendor/packages", name))).toBe(false);
       }
-      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocket-render-esp-ppa"])
+      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-archive", "pocket-render-esp-ppa"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
       const cargoHome = join(directory, "empty-cargo-home"); mkdirSync(cargoHome, { recursive: true });
       const offline = Bun.spawnSync(["cargo", "check", "--release", "--offline", "--locked", "--no-default-features", "-p", "pocket-idf-runtime"], {

@@ -1,6 +1,5 @@
 use core::ffi::c_void;
 use pocket_drivers::{abi::*, *};
-use pocket_runtime_cabi::adapters::*;
 
 #[derive(Default)]
 struct Device {

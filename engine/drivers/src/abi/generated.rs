@@ -130,7 +130,7 @@ pub const POCKET_RESULT_NONE: u32 = 0;
 pub const POCKET_RESULT_I64: u32 = 1;
 pub const POCKET_RESULT_F64: u32 = 2;
 pub const POCKET_RESULT_BYTES: u32 = 3;
-// Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (engine/runtime-cabi/src/package_open.rs). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned.
+// Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (pocket_runtime::abi). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned.
 pub const POCKET_PACKAGE_OPEN_OK: i32 = 0;
 pub const POCKET_PACKAGE_OPEN_TRUNCATED: i32 = 1;
 pub const POCKET_PACKAGE_OPEN_BAD_MAGIC: i32 = 2;

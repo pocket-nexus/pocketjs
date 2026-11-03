@@ -10,10 +10,8 @@ use core::{
     mem::{align_of, size_of},
     ptr,
 };
+use pocket_drivers::abi::{borrowed, pixel_format, rect, writable, AdapterError, CResources};
 use pocket_drivers::{abi::*, Rect as Region, RenderError, Surface};
-use pocket_runtime_cabi::adapters::{
-    borrowed, pixel_format, rect, writable, AdapterError, CResources,
-};
 
 pub type PpaFillFn =
     unsafe extern "C" fn(*mut c_void, *mut u16, usize, u32, u32, PocketRect, u16) -> i32;

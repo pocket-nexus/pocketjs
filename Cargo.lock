@@ -4830,9 +4830,20 @@ dependencies = [
  "pocket-guest-rquickjs",
  "pocket-package",
  "pocket-runtime",
- "pocket-runtime-cabi",
  "pocket-spec",
  "rquickjs",
+]
+
+[[package]]
+name = "pocket-archive"
+version = "0.16.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-raster",
+ "pocket-runtime",
+ "pocket-spec",
 ]
 
 [[package]]
@@ -4961,9 +4972,11 @@ dependencies = [
 name = "pocket-idf-runtime"
 version = "0.16.0"
 dependencies = [
+ "pocket-archive",
+ "pocket-drivers",
  "pocket-package",
  "pocket-render-esp-ppa",
- "pocket-runtime-cabi",
+ "pocket-runtime",
 ]
 
 [[package]]
@@ -5060,6 +5073,7 @@ dependencies = [
 name = "pocket-native-program"
 version = "0.16.0"
 dependencies = [
+ "pocket-archive",
  "pocket-drivers",
  "pocket-gles",
  "pocket-gles1",
@@ -5067,7 +5081,6 @@ dependencies = [
  "pocket-package",
  "pocket-raster",
  "pocket-runtime",
- "pocket-runtime-cabi",
  "pocket-spec",
  "pocketjs-core",
 ]
@@ -5193,7 +5206,6 @@ dependencies = [
  "pocket-drivers",
  "pocket-glyph-pages",
  "pocket-raster",
- "pocket-runtime-cabi",
  "pocket-spec",
 ]
 
@@ -5205,7 +5217,6 @@ dependencies = [
  "pocket-drivers",
  "pocket-glyph-pages",
  "pocket-raster",
- "pocket-runtime-cabi",
  "pocket-spec",
  "pocket-tex-cache",
 ]
@@ -5249,24 +5260,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-runtime-cabi"
-version = "0.16.0"
-dependencies = [
- "pocket-draw-ops",
- "pocket-drivers",
- "pocket-glyph-pages",
- "pocket-raster",
- "pocket-runtime",
- "pocket-spec",
- "pocketjs-core",
-]
-
-[[package]]
 name = "pocket-sifli-runtime"
 version = "0.16.0"
 dependencies = [
+ "pocket-archive",
  "pocket-render-sifli-epic",
- "pocket-runtime-cabi",
 ]
 
 [[package]]
@@ -5574,8 +5572,10 @@ dependencies = [
 name = "pocketjs-3ds-core"
 version = "0.16.0"
 dependencies = [
+ "pocket-archive",
+ "pocket-drivers",
  "pocket-package",
- "pocket-runtime-cabi",
+ "pocket-runtime",
 ]
 
 [[package]]
@@ -5646,6 +5646,7 @@ version = "0.16.0"
 dependencies = [
  "cc",
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=a5cac5d8631bdc068b43af93355b9f82d666949e)",
+ "pocket-archive",
  "pocket-drivers",
  "pocket-package",
  "pocket-profile-build",
@@ -5659,7 +5660,6 @@ dependencies = [
  "pocket-psp-render",
  "pocket-psp-system",
  "pocket-runtime",
- "pocket-runtime-cabi",
  "pocket-spec",
  "pocketjs-core",
  "psp",
@@ -5671,11 +5671,11 @@ version = "0.16.0"
 dependencies = [
  "cc",
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b)",
+ "pocket-archive",
  "pocket-drivers",
  "pocket-package",
  "pocket-profile-build",
  "pocket-runtime",
- "pocket-runtime-cabi",
  "pocket-spec",
  "pocket-vita-audio",
  "pocket-vita-input",
@@ -5699,7 +5699,6 @@ dependencies = [
  "pocket-present",
  "pocket-raster",
  "pocket-runtime",
- "pocket-runtime-cabi",
  "pocketjs-core",
  "serde_json",
 ]

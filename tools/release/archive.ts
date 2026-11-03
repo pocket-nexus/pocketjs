@@ -12,10 +12,10 @@ export interface SdkOptions {
   cargoArgs: string[]; rustflags: string[]; prepare?: "esp32p4"; archiver?: string;
 }
 const hash = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
-const roots = ["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime", "runtime-cabi", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"];
+const roots = ["engine/spec", "engine/drivers", "engine/core", "engine/raster", "engine/present", "engine/package", "engine/modules/media", "engine/runtime", "programs/sdk/archive", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tri-batch", "engine/render/tex-cache"];
 
 function sourceHash(root: string): string {
-  const inputs = ["LICENSE", "Cargo.toml", "Cargo.lock", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "contracts/spec/binding-generation.ts", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "engine/driver-kit/c", "tools/sdk.ts", "tools/release", "tools/packaging/cmake", ...roots.flatMap(name => [`engine/${name}/Cargo.toml`, `engine/${name}/src`])];
+  const inputs = ["LICENSE", "Cargo.toml", "Cargo.lock", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "contracts/spec/binding-generation.ts", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "engine/driver-kit/c", "tools/sdk.ts", "tools/release", "tools/packaging/cmake", ...roots.flatMap(name => [`${name}/Cargo.toml`, `${name}/src`])];
   const digest = createHash("sha256");
   for (const file of inputs.flatMap(path => filesUnder(join(root, path))).sort()) {
     digest.update(relative(root, file).split(sep).join("/")); digest.update("\0"); digest.update(readFileSync(file)); digest.update("\0");
@@ -102,7 +102,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   const buildDir = join(root, ".pocket-build/validation/sdk/cargo", hash(JSON.stringify({ target: options.triple, compiler, rustflags, args: options.cargoArgs })).slice(0, 20));
   mkdirSync(buildDir, { recursive: true });
   console.error(`Pocket SDK: building candidate ${targetName} (${options.toolchain}, no_std)`);
-  const command = [cargo, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", join(root, existsSync(join(root, "Cargo.toml")) ? "Cargo.toml" : "engine/Cargo.toml"), "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target", options.triple, "--target-dir", buildDir, "--message-format=json-render-diagnostics", ...options.cargoArgs, "--", "--print=native-static-libs"];
+  const command = [cargo, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", join(root, existsSync(join(root, "Cargo.toml")) ? "Cargo.toml" : "engine/Cargo.toml"), "-p", "pocket-archive", "--no-default-features", "--release", "--target", options.triple, "--target-dir", buildDir, "--message-format=json-render-diagnostics", ...options.cargoArgs, "--", "--print=native-static-libs"];
   const child = Bun.spawn(command, { cwd: root, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   writeFileSync(join(buildDir, "sdk-build.log"), `${stdout}\n${stderr}`);
@@ -113,7 +113,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   for (const line of stdout.split("\n")) {
     if (!line.startsWith("{")) continue;
     const message = JSON.parse(line);
-    if (message.reason === "compiler-artifact" && message.target?.name === "pocket_runtime_cabi") {
+    if (message.reason === "compiler-artifact" && message.target?.name === "pocket_archive") {
       archive = message.filenames?.find((file: string) => /\.(a|lib)$/.test(file));
       features = message.features;
     }
@@ -125,7 +125,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   for (const match of stderr.matchAll(/native-static-libs:[ \t]*([^\r\n]*)/g)) {
     for (const library of match[1]!.trim().split(/\s+/).filter(Boolean)) if (!nativeStaticLibs.includes(library)) nativeStaticLibs.push(library);
   }
-  if (!archive || !existsSync(archive)) throw new Error("Cargo did not report a pocket-runtime-cabi static archive");
+  if (!archive || !existsSync(archive)) throw new Error("Cargo did not report a pocket-archive static archive");
   if (!features || features.length) throw new Error(`SDK default archive must have no enabled Cargo features: ${features?.join(", ") ?? "unknown"}`);
   mkdirSync(dirname(options.out), { recursive: true });
   const staging = join(dirname(options.out), `.${basename(options.out)}-${randomUUID()}.tmp`);

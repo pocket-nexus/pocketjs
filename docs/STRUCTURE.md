@@ -14,7 +14,7 @@ pocketjs/
 │  └─ schema/               app contract, host contract and system JSON schemas
 ├─ engine/
 │  ├─ spec/                 generated no_std constants and ABI records
-│  ├─ drivers/              resource views and device-class contracts
+│  ├─ drivers/              resource views, device-class contracts and C ABI adapters
 │  ├─ driver-kit/           Rust and C driver conformance checks
 │  ├─ core/                 retained UI tree, layout, text and animation
 │  ├─ render/               operation decoding, glyph pages, batches and caches
@@ -22,8 +22,7 @@ pocketjs/
 │  ├─ present/              damage history and presentation transactions
 │  ├─ profile-build/        build-script support that embeds the exported host contract
 │  ├─ package/              package, asset and font archive readers and hashing
-│  ├─ runtime/              instance lifecycle, admission, input and scheduling
-│  ├─ runtime-cabi/         instance C ABI and driver adapters
+│  ├─ runtime/              instance lifecycle, admission, input, scheduling and C ABI bodies
 │  ├─ guest-quickjs/        C guest lifecycle and generated operation bindings
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
@@ -56,6 +55,7 @@ pocketjs/
 │  ├─ linux-kms/            Linux program with its own host contract
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
 │  ├─ sifli/archive/        one Rust archive for the SiFli composition
+│  ├─ sdk/archive/          C SDK archive: runtime symbols, allocator and host hooks
 │  └─ native/               instance native programs and QuickJS composition
 ├─ products/
 │  └─ 3ds/                  Link, launcher, camera and development product
@@ -98,11 +98,16 @@ compose the same Runtime, generated guest and PICA driver.
 ## Ownership and dependency rules
 
 **`engine/runtime` owns application instances.** Each instance owns its package,
-guest, input encoding and display/renderer registrations. `engine/runtime-cabi`
-exposes instance handles. Compatibility entry points delegate to this state;
-`programs/native/runtime` supplies the historical archive name and program
-composition. `programs/web/wasm` compiles the browser composition against the
-same runtime and C ABI.
+guest, input encoding and display/renderer registrations. `pocket_runtime::abi`
+holds the instance handle, package admission and the bodies of the
+`pocket_runtime_*` functions; `pocket_drivers::abi` holds the C records, the
+pointer checks and the adapters between C vtables and the driver traits.
+`programs/sdk/archive` defines each exported `pocket_runtime.h` symbol once,
+with the allocator, panic handler and host hooks of a link unit; the IDF, SiFli
+and 3DS archives re-export it. `programs/native/runtime` supplies the native
+program composition. `programs/web/wasm` compiles the browser composition
+against the same runtime and decodes operation arguments with
+`pocket_runtime::abi`.
 
 **Platform drivers do not depend on programs or the UI core.** Drivers receive
 resource views, input builders and transport buffers through their interfaces.

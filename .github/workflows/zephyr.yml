@@ -6,7 +6,9 @@ on:
       - ".bun-version"
       - 'platforms/zephyr/**'
       - 'zephyr/**'
-      - 'engine/runtime-cabi/**'
+      - 'programs/sdk/archive/**'
+      - 'engine/runtime/**'
+      - 'engine/drivers/**'
       - 'engine/raster/**'
       - 'contracts/**'
       - 'tools/packaging/zephyr/**'

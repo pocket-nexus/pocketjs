@@ -14,7 +14,7 @@ on:
       - "programs/ipodtouch4/**"
       - "engine/guest-quickjs/**"
       - "engine/runtime/**"
-      - "engine/runtime-cabi/**"
+      - "programs/sdk/archive/**"
       - "contracts/**"
       - "hosts/ipodtouch4-dev/**"
       - "tools/ui-bindings.ts"

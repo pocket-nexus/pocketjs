@@ -1,5 +1,4 @@
 //! Borrowed C font views expanded by the independent glyph page tool.
-use crate::adapters::{borrowed, writable};
 use pocket_drivers::{abi::*, FontView};
 use pocket_glyph_pages::GlyphPageLayout;
 

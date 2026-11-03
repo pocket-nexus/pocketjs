@@ -1,18 +1,16 @@
-//! C driver adapters. Constructors are unsafe because callbacks and storage
-//! must remain valid and obey the driver ABI through adapter destruction.
-use core::{ffi::c_void, mem, slice};
-use pocket_drivers::{abi::*, *};
-mod display;
-mod input;
-mod package;
-mod renderer;
-mod resources;
-pub use display::CDisplay;
-pub use input::CInputSource;
-pub use package::CPackageSource;
-pub use renderer::CRenderer;
-pub use resources::{CResources, ResourceBridge};
+//! Checks a C caller's memory must pass before the ABI borrows it.
+use super::{
+    PocketRect, POCKET_PIXEL_FORMAT_ARGB8888, POCKET_PIXEL_FORMAT_BGR888,
+    POCKET_PIXEL_FORMAT_GRAY4, POCKET_PIXEL_FORMAT_GRAY8, POCKET_PIXEL_FORMAT_MONO1,
+    POCKET_PIXEL_FORMAT_RGB565, POCKET_PIXEL_FORMAT_RGBA8888, POCKET_STATUS_FAILED,
+    POCKET_STATUS_INVALID, POCKET_STATUS_UNSUPPORTED, POCKET_TARGET_CPU_VISIBLE,
+    POCKET_TARGET_DEVICE_OWNED, POCKET_VSYNC_CLOCK, POCKET_VSYNC_DEVICE, POCKET_VSYNC_NONE,
+};
+use crate::{DisplayError, PixelFormat, Rect, RenderError, TargetOwnership, VsyncSource};
+use core::{mem, slice};
 
+/// A C status that is not `POCKET_STATUS_OK`, and the reason a record or
+/// pointer failed the checks below.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdapterError {
     Invalid,
@@ -28,7 +26,7 @@ impl AdapterError {
         }
     }
 }
-fn check(status: i32) -> Result<(), AdapterError> {
+pub(super) fn check(status: i32) -> Result<(), AdapterError> {
     match status {
         0 => Ok(()),
         POCKET_STATUS_INVALID => Err(AdapterError::Invalid),
@@ -49,14 +47,14 @@ pub fn pixel_format(value: u32) -> Result<PixelFormat, AdapterError> {
         _ => Err(AdapterError::Unsupported),
     }
 }
-fn ownership(value: u32) -> Result<TargetOwnership, AdapterError> {
+pub(super) fn ownership(value: u32) -> Result<TargetOwnership, AdapterError> {
     match value {
         POCKET_TARGET_CPU_VISIBLE => Ok(TargetOwnership::CpuVisible),
         POCKET_TARGET_DEVICE_OWNED => Ok(TargetOwnership::DeviceOwned),
         _ => Err(AdapterError::Invalid),
     }
 }
-fn vsync(value: u32) -> Result<VsyncSource, AdapterError> {
+pub(super) fn vsync(value: u32) -> Result<VsyncSource, AdapterError> {
     match value {
         POCKET_VSYNC_NONE => Ok(VsyncSource::None),
         POCKET_VSYNC_DEVICE => Ok(VsyncSource::Display),
@@ -98,7 +96,9 @@ pub unsafe fn writable<'a>(pointer: *mut u8, count: usize) -> Result<&'a mut [u8
     }
     Ok(unsafe { slice::from_raw_parts_mut(pointer, count) })
 }
-unsafe fn record_array<T>(
+/// Walk a packed record array: each element announces its own size, so the
+/// consumer's `size_of` is not the stride.
+pub(super) unsafe fn record_array<T>(
     pointer: *const T,
     count: usize,
     mut read: impl FnMut(*const T) -> Result<(), AdapterError>,
@@ -151,7 +151,7 @@ pub unsafe fn rect(pointer: *const PocketRect) -> Result<Rect, AdapterError> {
     }
     Ok(Rect::new(r.x, r.y, r.width, r.height))
 }
-fn c_rect(r: Rect) -> PocketRect {
+pub(super) fn c_rect(r: Rect) -> PocketRect {
     PocketRect {
         x: r.x,
         y: r.y,
@@ -160,14 +160,14 @@ fn c_rect(r: Rect) -> PocketRect {
         ..PocketRect::empty()
     }
 }
-pub(crate) fn render_error(error: AdapterError) -> RenderError {
+pub(super) fn render_error(error: AdapterError) -> RenderError {
     match error {
         AdapterError::Invalid => RenderError::InvalidFrame,
         AdapterError::Unsupported => RenderError::Unsupported,
         AdapterError::Failed => RenderError::Failed,
     }
 }
-fn display_error(error: AdapterError) -> DisplayError {
+pub(super) fn display_error(error: AdapterError) -> DisplayError {
     match error {
         AdapterError::Invalid => DisplayError::InvalidTarget,
         AdapterError::Unsupported => DisplayError::Unsupported,

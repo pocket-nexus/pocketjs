@@ -15,7 +15,7 @@ crate-type = ["rlib", "staticlib"]
 
 [features]
 default = ["std", "standalone-extension-provider"]
-std = ["pocket-runtime-cabi/std"]
+std = ["pocket-archive/std"]
 standalone-extension-provider = []
 # Select the fixed-function OpenGL ES 1.1 renderer.
 gles1 = []
@@ -24,7 +24,7 @@ software-only = []
 
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }
-pocket-runtime-cabi = { workspace = true }
+pocket-archive = { workspace = true }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }

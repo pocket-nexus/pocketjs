@@ -63,7 +63,7 @@ members = [
     "engine/render/tex-cache",
     "engine/render/tri-batch",
     "engine/runtime",
-    "engine/runtime-cabi",
+    "programs/sdk/archive",
     "engine/spec",
     "programs/native/runtime",
     "programs/web/wasm",
@@ -130,7 +130,7 @@ default-members = [
     "engine/render/tex-cache",
     "engine/render/tri-batch",
     "engine/runtime",
-    "engine/runtime-cabi",
+    "programs/sdk/archive",
     "engine/spec",
     "platforms/esp-idf/render-ppa",
     "platforms/sifli/render-epic",
@@ -201,7 +201,7 @@ pocket-raster = { path = "engine/raster", version = "0.16.0", default-features =
 pocket-render-esp-ppa = { path = "platforms/esp-idf/render-ppa", version = "0.16.0", default-features = false }
 pocket-render-sifli-epic = { path = "platforms/sifli/render-epic", version = "0.16.0", default-features = false }
 pocket-runtime = { path = "engine/runtime", version = "0.16.0", default-features = false }
-pocket-runtime-cabi = { path = "engine/runtime-cabi", version = "0.16.0", default-features = false }
+pocket-archive = { path = "programs/sdk/archive", version = "0.16.0", default-features = false }
 pocket-sifli-runtime = { path = "programs/sifli/archive", version = "0.16.0", default-features = false }
 pocket-sim = { path = "engine/crates/pocket-sim", version = "0.16.0", default-features = false }
 pocket-solid-aot-lab = { path = "apps/solid-aot-lab", version = "0.16.0", default-features = false }

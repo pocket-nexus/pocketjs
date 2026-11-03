@@ -35,7 +35,7 @@ pocket_runtime/lib/<target>/libpocket_idf_runtime.a
 pocket_runtime/lib/<target>/build-receipt.json
 ```
 
-`programs/esp-idf/archive` composes `pocket-runtime-cabi` and
+`programs/esp-idf/archive` composes `pocket-archive` (`programs/sdk/archive`) and
 `pocket-render-esp-ppa` with its C factory feature. The generic SDK archive has
 no platform driver dependency. Both compositions use one allocator and panic
 handler backed by the six `pocket_host_*` hooks in `pocket_runtime/src/hooks.c`.

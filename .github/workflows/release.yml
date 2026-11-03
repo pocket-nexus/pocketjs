@@ -134,7 +134,7 @@ jobs:
         run: cargo test --locked --manifest-path Cargo.toml
 
       - name: Test native UI C ABI
-        run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi -p pocket-native-program
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-archive -p pocket-native-program
 
       - name: Test renderer goldens
         run: bun tests/golden.ts

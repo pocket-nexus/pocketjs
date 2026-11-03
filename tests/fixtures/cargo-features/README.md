@@ -25,7 +25,7 @@ The declared parameters are:
 - `default`: the declared convenience group of the parameters above.
 
 The SDK test checks that the no-default-feature dependency graph of
-`pocket-runtime-cabi` excludes every GLES crate.
+`pocket-archive` excludes every GLES crate.
 
 The list records exact dependency edges. Adding a selector to an existing
 parameter's expansion fails even if its feature name stays unchanged. Registry

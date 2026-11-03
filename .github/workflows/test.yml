@@ -116,7 +116,7 @@ jobs:
         run: |
           cargo test --locked --manifest-path Cargo.toml -p pocket-psp-ge -p pocket-vita-gxm -p pocket-apple -p pocket3d-title -p pocketjs-wasm -p pocket-web-wgpu
           cargo test --locked --manifest-path Cargo.toml -p pocketjs-core --features counters
-          cargo test --locked --manifest-path Cargo.toml -p pocket-native-program -p pocket-runtime-cabi -p pocket-gles -p pocket-gles1 -p pocket-gles2
+          cargo test --locked --manifest-path Cargo.toml -p pocket-native-program -p pocket-archive -p pocket-gles -p pocket-gles1 -p pocket-gles2
           cargo test --locked --manifest-path Cargo.toml -p microts --features runtime
           cargo check --locked --manifest-path Cargo.toml -p pocket-web-wgpu --target wasm32-unknown-unknown
       - name: Portable text wasm

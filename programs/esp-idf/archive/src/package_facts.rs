@@ -1,16 +1,11 @@
 //! What a launcher program reads from a stored `.pocket` before it boots
 //! it: the variant's sections, its hash and the facts of its plan. The
 //! runtime admits the package again at boot; this call shares its reader.
-use pocket_package::sha256::sha256_hex_prefix;
-use pocket_package::{plan_facts, PlanFactsError};
-use pocket_runtime_cabi::{
-    abi::{
-        PocketProfileFacts, POCKET_PACKAGE_OPEN_BAD_ARGUMENT, POCKET_PACKAGE_OPEN_NO_IDENTITY,
-        POCKET_PACKAGE_OPEN_OK, POCKET_PACKAGE_OPEN_PLAN_AUXILIARY, POCKET_PACKAGE_OPEN_PLAN_JSON,
-        POCKET_PACKAGE_OPEN_PLAN_VIEWPORT,
-    },
-    package_open,
+use pocket_drivers::abi::{
+    PocketProfileFacts, POCKET_PACKAGE_OPEN_BAD_ARGUMENT, POCKET_PACKAGE_OPEN_OK,
 };
+use pocket_package::sha256::sha256_hex_prefix;
+use pocket_runtime::abi::open_package;
 
 /// Borrowed sections of one verified `.pocket`; the caller keeps the bytes
 /// alive while it reads them.
@@ -54,9 +49,10 @@ pub const POCKET_IDF_FEATURE_DEVICE: u32 = 64;
 
 /// Verify a complete `.pocket` and admit the first variant the exported
 /// profile facts satisfy (`pocket_package::admission`), then read its facts.
-/// Returns the generated `POCKET_PACKAGE_OPEN_*` codes of `pocket_runtime.h`,
-/// the same table as the 3DS product's `pocket_package_open`: `OK` on
-/// success, the selection codes of `package_open::guest_error_code`,
+/// Returns the generated `POCKET_PACKAGE_OPEN_*` codes of `pocket_runtime.h`
+/// from the table of `pocket_runtime::abi::open_package`, shared with the 3DS
+/// product's `pocket_package_open`: `OK` on success, the selection codes of
+/// `guest_error_code`,
 /// `BAD_ARGUMENT` for a bad pointer or a short record, `NO_IDENTITY` for an
 /// empty app id, and `PLAN_JSON`, `PLAN_VIEWPORT` or `PLAN_AUXILIARY` for a
 /// plan whose JSON, viewport or auxiliary surface cannot be read. The profile
@@ -75,29 +71,17 @@ pub unsafe extern "C" fn pocket_idf_package_open(
     profile_hash: *const u8,
     out: *mut PocketIdfPackageFacts,
 ) -> i32 {
-    if bytes.is_null()
-        || length == 0
-        || length > isize::MAX as usize
-        || facts.is_null()
-        || out.is_null()
+    if out.is_null()
         || unsafe { (*out).struct_size } < core::mem::size_of::<PocketIdfPackageFacts>()
     {
         return POCKET_PACKAGE_OPEN_BAD_ARGUMENT;
     }
-    let package = unsafe { core::slice::from_raw_parts(bytes, length) };
-    let guest = match unsafe { package_open::admit(package, facts, host_abi, profile_hash) } {
-        Ok(guest) => guest,
-        Err(code) => return code,
-    };
-    if guest.id.is_empty() {
-        return POCKET_PACKAGE_OPEN_NO_IDENTITY;
-    }
-    let facts = match plan_facts(guest.plan) {
-        Ok(facts) => facts,
-        Err(PlanFactsError::Malformed) => return POCKET_PACKAGE_OPEN_PLAN_JSON,
-        Err(PlanFactsError::Viewport) => return POCKET_PACKAGE_OPEN_PLAN_VIEWPORT,
-        Err(PlanFactsError::Auxiliary) => return POCKET_PACKAGE_OPEN_PLAN_AUXILIARY,
-    };
+    // The app id names the slot below the store's apps directory.
+    let (guest, facts) =
+        match unsafe { open_package(bytes, length, facts, host_abi, profile_hash, true) } {
+            Ok(opened) => (opened.guest, opened.facts),
+            Err(code) => return code,
+        };
     let auxiliary = facts.auxiliary;
     let mut slot = [0u8; 17];
     slot[..16].copy_from_slice(&sha256_hex_prefix::<16>(guest.id.as_bytes()));
@@ -134,7 +118,7 @@ pub unsafe extern "C" fn pocket_idf_package_open(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pocket_runtime_cabi::abi::*;
+    use pocket_drivers::abi::*;
 
     const PLAN: &[u8] = br#"{"features":{"data.fs":true},"profile":{"tickHz":60},"viewport":{"logical":[32,24],"presentation":"native","rasterDensity":1}}"#;
     /// Admission compares the variant's generation with the host's for

@@ -64,23 +64,22 @@ const char *runtime_upload_path(void) { return upload_path; }
 
 static const char *package_error(int32_t code) {
   switch (code) {
-    case 1: return "truncated package";
-    case 2: return "bad package magic";
-    case 3: return "unsupported package version";
-    case 4: return "package integrity hash mismatch";
-    case 5: return "invalid package UTF-8";
-    case 6: return "package has no " POCKETJS_TARGET_ID " variant";
-    case 7: return "package host ABI mismatch";
-    case 8: return "package identity section missing";
-    case 9: return "package plan section missing";
-    case 10: return "package JavaScript section missing";
-    case 11: return "package JavaScript is not NUL-terminated";
-    case 13: return "package plan is not readable JSON";
-    case 14: return "package plan has no usable viewport";
-    case 15: return "package plan has an unusable auxiliary surface";
-    case 16: return "package profile hash mismatch";
-    case 17: return "invalid package layout";
-    case 18: return "worker capability and package section disagree";
+    case POCKET_PACKAGE_OPEN_TRUNCATED: return "truncated package";
+    case POCKET_PACKAGE_OPEN_BAD_MAGIC: return "bad package magic";
+    case POCKET_PACKAGE_OPEN_BAD_VERSION: return "unsupported package version";
+    case POCKET_PACKAGE_OPEN_HASH_MISMATCH: return "package integrity hash mismatch";
+    case POCKET_PACKAGE_OPEN_BAD_UTF8: return "invalid package UTF-8";
+    case POCKET_PACKAGE_OPEN_NO_VARIANT: return "package has no " POCKETJS_TARGET_ID " variant";
+    case POCKET_PACKAGE_OPEN_BINDING_GENERATION: return "package host ABI mismatch";
+    case POCKET_PACKAGE_OPEN_NO_IDENTITY: return "package identity section missing";
+    case POCKET_PACKAGE_OPEN_PLAN: return "package plan section missing";
+    case POCKET_PACKAGE_OPEN_NO_JAVASCRIPT: return "package JavaScript section missing";
+    case POCKET_PACKAGE_OPEN_JAVASCRIPT_NOT_TERMINATED: return "package JavaScript is not NUL-terminated";
+    case POCKET_PACKAGE_OPEN_PLAN_JSON: return "package plan is not readable JSON";
+    case POCKET_PACKAGE_OPEN_PLAN_VIEWPORT: return "package plan has no usable viewport";
+    case POCKET_PACKAGE_OPEN_PLAN_AUXILIARY: return "package plan has an unusable auxiliary surface";
+    case POCKET_PACKAGE_OPEN_BAD_LAYOUT: return "invalid package layout";
+    case POCKET_PACKAGE_OPEN_WORKER_SECTION: return "worker capability and package section disagree";
     default: return "invalid package arguments";
   }
 }

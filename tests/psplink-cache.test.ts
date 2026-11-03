@@ -32,7 +32,7 @@ test("cached PSP PRXs rebuild when extracted contract sources or dependencies ch
       "engine/render/draw-ops/src/lib.rs", "engine/render/draw-ops/Cargo.toml",
       "engine/render/glyph-pages/src/lib.rs", "engine/render/glyph-pages/Cargo.toml",
       "engine/runtime/src/lib.rs", "engine/runtime/Cargo.toml",
-      "engine/runtime-cabi/src/guest.rs", "engine/runtime-cabi/Cargo.toml",
+      "engine/runtime/src/abi/guest.rs", "programs/sdk/archive/src/runtime.rs", "programs/sdk/archive/Cargo.toml",
       "engine/profile-build/src/lib.rs", "engine/profile-build/Cargo.toml", "tools/profile-export.ts",
       "engine/guest-quickjs/src/guest.c", "engine/guest-quickjs/src/generated_ops.h",
       "engine/guest-quickjs/include/pocket_guest_quickjs.h", "contracts/generated/pocket_runtime.h",

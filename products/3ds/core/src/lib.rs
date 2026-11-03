@@ -2,13 +2,11 @@
 //! The host composes C guest, PICA Renderer, Display and input drivers.
 #![no_std]
 extern crate alloc;
+pub use pocket_archive::*;
+use pocket_drivers::abi;
 use pocket_package::sha256::sha256_hex_prefix;
-use pocket_package::{plan_facts, PlanFactsError};
-pub use pocket_runtime_cabi::*;
+use pocket_runtime::abi::open_package;
 
-unsafe fn bytes<'a>(pointer: *const u8, length: usize) -> &'a [u8] {
-    unsafe { core::slice::from_raw_parts(pointer, length) }
-}
 /// Borrowed sections of one verified filesystem `.pocket`. The C runtime owns
 /// the package allocation and keeps it alive until the guest is torn down.
 #[repr(C)]
@@ -60,11 +58,12 @@ pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
 /// Verify a complete `.pocket` and admit the first variant the exported
 /// profile facts satisfy (`pocket_package::admission`). Returns the generated
 /// `POCKET_PACKAGE_OPEN_*` codes of `pocket_runtime.h`, which the C runtime's
-/// status and recovery files store: `OK` on success, the selection codes of
-/// `pocket_runtime_cabi::package_open::guest_error_code`, `BAD_ARGUMENT` for
-/// a bad pointer, `NO_IDENTITY` for an empty app id, and `PLAN_JSON`,
-/// `PLAN_VIEWPORT` or `PLAN_AUXILIARY` for a plan whose JSON, viewport or
-/// auxiliary surface cannot be read. The profile hash only orders variants.
+/// status and recovery files store, from the table of
+/// `pocket_runtime::abi::open_package`: `OK` on success, the selection codes
+/// of `guest_error_code`, `BAD_ARGUMENT` for a bad pointer, `NO_IDENTITY` for
+/// an empty app id, and `PLAN_JSON`, `PLAN_VIEWPORT` or `PLAN_AUXILIARY` for a
+/// plan whose JSON, viewport or auxiliary surface cannot be read. The profile
+/// hash only orders variants.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_package_open(
     ptr: *const u8,
@@ -74,21 +73,13 @@ pub unsafe extern "C" fn pocket_package_open(
     profile_hash: *const u8,
     out: *mut PocketGuestPackage,
 ) -> i32 {
-    if ptr.is_null() || len == 0 || len > isize::MAX as usize || facts.is_null() || out.is_null() {
+    if out.is_null() {
         return abi::POCKET_PACKAGE_OPEN_BAD_ARGUMENT;
     }
-    let guest = match package_open::admit(bytes(ptr, len), facts, host_abi, profile_hash) {
-        Ok(guest) => guest,
+    // The app id names the state slot below runtime/apps.
+    let (guest, facts) = match open_package(ptr, len, facts, host_abi, profile_hash, true) {
+        Ok(opened) => (opened.guest, opened.facts),
         Err(code) => return code,
-    };
-    if guest.id.is_empty() {
-        return abi::POCKET_PACKAGE_OPEN_NO_IDENTITY;
-    }
-    let facts = match plan_facts(guest.plan) {
-        Ok(facts) => facts,
-        Err(PlanFactsError::Malformed) => return abi::POCKET_PACKAGE_OPEN_PLAN_JSON,
-        Err(PlanFactsError::Viewport) => return abi::POCKET_PACKAGE_OPEN_PLAN_VIEWPORT,
-        Err(PlanFactsError::Auxiliary) => return abi::POCKET_PACKAGE_OPEN_PLAN_AUXILIARY,
     };
     let auxiliary = facts.auxiliary;
     let mut slot = [0u8; 17];

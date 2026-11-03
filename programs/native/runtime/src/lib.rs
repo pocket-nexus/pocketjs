@@ -5,6 +5,10 @@ pub mod extension;
 pub mod package;
 pub mod program;
 pub use package::*;
+// The archive supplies the exported pocket_runtime_* symbols, the allocator
+// and panic handler of the no_std build and the std host hooks; nothing here
+// calls it by name.
+use pocket_archive as _;
 
 #[cfg(feature = "standalone-extension-provider")]
 #[no_mangle]

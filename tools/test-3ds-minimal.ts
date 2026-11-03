@@ -34,7 +34,7 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
     "programs/3ds/package_source.c", "platforms/3ds/input_source.c", "-o", source]);
   run([source, join(out, "range.bin")]);
   const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
-  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "-p", "pocket-runtime-cabi",
+  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "-p", "pocket-archive",
     "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
   const quickjs = ensureQuickJsSources();
   const flags = ["-DPOCKET_QJS_BELLARD", "-DJS_NO_NAN_BOXING"];
@@ -45,7 +45,7 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
   run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", ...flags, ...includes,
     "-I", "engine/guest-quickjs/include", "-isystem", quickjs, "tests/fixtures/3ds-minimal/runtime.c",
     "programs/3ds/package_source.c", "platforms/3ds/input_source.c", "engine/guest-quickjs/src/guest.c",
-    ...objects, join(target, "release/libpocket_runtime_cabi.a"), "-lm", "-lpthread", "-o", binary]);
+    ...objects, join(target, "release/libpocket_archive.a"), "-lm", "-lpthread", "-o", binary]);
   if (packagePath) return run([binary, "--smoke", resolve(packagePath)]);
   const makePackage = (profileHash: string, rasterDensity = 1) => encodePocketPackage({ manifest: new Uint8Array(), variants: [{
     target: profile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash, sections: [

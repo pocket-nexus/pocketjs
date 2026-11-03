@@ -1,4 +1,5 @@
-use pocket_runtime_cabi::{abi::*, pocket_glyph_page_a8};
+use pocket_archive::pocket_glyph_page_a8;
+use pocket_drivers::abi::*;
 
 #[test]
 fn page_query_and_expansion_share_guarded_tool_layout() {

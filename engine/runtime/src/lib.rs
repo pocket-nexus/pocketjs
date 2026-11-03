@@ -5,6 +5,7 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod abi;
 mod assets;
 mod config;
 pub mod generated_ops;

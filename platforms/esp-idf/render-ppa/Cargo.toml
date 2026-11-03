@@ -10,17 +10,12 @@ description = "PocketJS render esp ppa component"
 
 [features]
 default = []
-cabi = ["dep:pocket-runtime-cabi"]
+# The C factory and vtable over pocket_drivers::abi.
+cabi = []
 
 [dependencies]
-pocket-runtime-cabi = { workspace = true, optional = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-draw-ops = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
 pocket-glyph-pages = { workspace = true, default-features = true }
-
-[dev-dependencies]
-pocket-runtime-cabi = { workspace = true, default-features = true, features = ["std"] }
-
-# C bridge tests use the host allocator; production builds remain no_std.

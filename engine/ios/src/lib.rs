@@ -6,13 +6,9 @@ mod bridge;
 mod package;
 
 use bridge::Bridge;
+use pocket_drivers::abi::*;
 use pocket_guest_rquickjs::{BindingProfile, RquickjsGuest};
-use pocket_runtime_cabi::abi::*;
-use pocket_runtime_cabi::{
-    pocket_runtime_add_display, pocket_runtime_add_input_source, pocket_runtime_add_op_provider,
-    pocket_runtime_boot, pocket_runtime_destroy, pocket_runtime_op, pocket_runtime_set_guest,
-    pocket_runtime_set_package_source, pocket_runtime_supports_op, pocket_runtime_tick,
-};
+use pocket_runtime::abi::{self as runtime_abi, Handle, status_code};
 use std::{
     cell::{Cell, RefCell},
     ffi::{CStr, CString, c_char, c_void},
@@ -49,7 +45,9 @@ struct Configuration {
     guest: Option<(PocketGuestV1, *mut c_void)>,
 }
 pub struct PocketApple {
-    runtime: Cell<*mut PocketRuntime>,
+    /// Shared borrows only while the instance runs: guest callbacks reenter
+    /// `pocket_apple_op` during a tick.
+    runtime: RefCell<Option<Box<Handle>>>,
     busy: Cell<bool>,
     config: RefCell<Configuration>,
     bridge: Box<Bridge>,
@@ -71,9 +69,25 @@ fn access(handle: *mut PocketApple, operation: impl FnOnce(&PocketApple) -> i32)
     let _guard = Busy(&state.busy);
     operation(state)
 }
+impl PocketApple {
+    fn booted(&self) -> bool {
+        self.runtime
+            .try_borrow()
+            .map_or(true, |runtime| runtime.is_some())
+    }
+    /// The C pointer of the booted instance; null before boot, as the
+    /// `pocket_runtime_*` bodies expect for an absent handle.
+    fn pointer(&self) -> *mut PocketRuntime {
+        self.runtime
+            .try_borrow()
+            .ok()
+            .and_then(|runtime| runtime.as_ref().map(|handle| handle.as_ptr()))
+            .unwrap_or(ptr::null_mut())
+    }
+}
 fn configure(handle: *mut PocketApple, action: impl FnOnce(&mut Configuration) -> i32) -> i32 {
     access(handle, |state| {
-        if !state.runtime.get().is_null() {
+        if state.booted() {
             return error("configuration must precede guest boot");
         }
         action(&mut state.config.borrow_mut())
@@ -113,7 +127,7 @@ pub extern "C" fn pocket_apple_create(density: u32, width: u32, height: u32) -> 
         return ptr::null_mut();
     };
     Box::into_raw(Box::new(PocketApple {
-        runtime: Cell::new(ptr::null_mut()),
+        runtime: RefCell::new(None),
         busy: Cell::new(false),
         config: RefCell::new(Configuration {
             host: "desktop".into(),
@@ -164,7 +178,7 @@ pub extern "C" fn pocket_apple_set_svc_allowlist(
     names: *const c_char,
 ) -> i32 {
     access(handle, |state| {
-        if !state.runtime.get().is_null() {
+        if state.booted() {
             return error("service allowlist must precede boot");
         }
         let Some(names) = (unsafe { string(names) }) else {
@@ -224,16 +238,16 @@ pub extern "C" fn pocket_apple_set_guest(
     })
 }
 fn boot(state: &PocketApple, code: &[u8]) -> i32 {
-    if !state.runtime.get().is_null() {
+    if state.booted() {
         return error("guest is already booted");
     }
-    let (config, guest) = {
+    let guest = {
         let mut configuration = state.config.borrow_mut();
         configuration.package = match package::encode(&configuration, &state.bridge, code) {
             Ok(value) => value,
             Err(message) => return error(message),
         };
-        let runtime = match pocket_runtime_cabi::embedding::create(pocket_runtime::RuntimeConfig {
+        let runtime = match Handle::new(pocket_runtime::RuntimeConfig {
             profile_hash: package::PROFILE_HASH,
             host_abi: configuration.abi,
             heap_limit: MAX_PACKAGE_BYTES,
@@ -243,26 +257,56 @@ fn boot(state: &PocketApple, code: &[u8]) -> i32 {
             Ok(runtime) => runtime,
             Err(_) => return error("runtime rejected Apple profile"),
         };
-        state.runtime.set(runtime);
-        (runtime, configuration.guest)
+        *state.runtime.borrow_mut() = Some(runtime);
+        configuration.guest
     };
+    // Guest callbacks during boot reach the instance through `pointer`.
+    let status = state
+        .runtime
+        .borrow()
+        .as_deref()
+        .map_or(POCKET_STATUS_FAILED, |handle| compose(state, handle, guest));
+    if status != 0 {
+        drop(state.runtime.borrow_mut().take());
+        state.bridge.reset();
+        return error(format!("Apple runtime boot failed ({status})"));
+    }
+    0
+}
+/// Register the bridge drivers and the guest, then boot. The C tables go
+/// through the `pocket_runtime_*` bodies; a Rust guest and the boot call
+/// return `Result`s.
+fn compose(
+    state: &PocketApple,
+    handle: &Handle,
+    guest: Option<(PocketGuestV1, *mut c_void)>,
+) -> i32 {
+    let config = handle.as_ptr();
     let context = (&*state.bridge as *const Bridge)
         .cast_mut()
         .cast::<c_void>();
     let source_context = (state as *const PocketApple).cast_mut().cast::<c_void>();
-    let mut status =
-        unsafe { pocket_runtime_set_package_source(config, &bridge::SOURCE, source_context) };
+    let mut status = unsafe {
+        runtime_abi::pocket_runtime_set_package_source(config, &bridge::SOURCE, source_context)
+    };
     if status == 0 {
         status = unsafe {
-            pocket_runtime_add_display(config, &bridge::DISPLAY, context, POCKET_RENDERER_SOFTWARE)
+            runtime_abi::pocket_runtime_add_display(
+                config,
+                &bridge::DISPLAY,
+                context,
+                POCKET_RENDERER_SOFTWARE,
+            )
         };
     }
     if status == 0 {
-        status = unsafe { pocket_runtime_add_input_source(config, &bridge::INPUT, context) };
+        status = unsafe {
+            runtime_abi::pocket_runtime_add_input_source(config, &bridge::INPUT, context)
+        };
     }
     if status == 0 {
         status = unsafe {
-            pocket_runtime_add_op_provider(
+            runtime_abi::pocket_runtime_add_op_provider(
                 config,
                 &bridge::PROVIDER,
                 context,
@@ -273,25 +317,28 @@ fn boot(state: &PocketApple, code: &[u8]) -> i32 {
     }
     if status == 0 {
         status = match guest {
-            Some((table, context)) => unsafe { pocket_runtime_set_guest(config, &table, context) },
-            None => unsafe {
-                pocket_runtime_cabi::embedding::set_guest(
-                    config,
-                    Box::new(RquickjsGuest::new(BindingProfile::Canonical)),
-                )
+            Some((table, context)) => unsafe {
+                runtime_abi::pocket_runtime_set_guest(config, &table, context)
             },
+            None => handle
+                .with_runtime(|runtime| {
+                    runtime.set_guest(Box::new(RquickjsGuest::new(BindingProfile::Canonical)))
+                })
+                .map_or_else(status_code, |_| 0),
         };
     }
     if status == 0 {
-        status = unsafe { pocket_runtime_boot(config) };
+        status = handle
+            .with_runtime(pocket_runtime::Runtime::boot)
+            .map_or_else(
+                |cause| {
+                    log::error!("boot failed: {cause:?}");
+                    status_code(cause)
+                },
+                |_| 0,
+            );
     }
-    if status != 0 {
-        unsafe { pocket_runtime_destroy(config) };
-        state.runtime.set(ptr::null_mut());
-        state.bridge.reset();
-        return error(format!("Apple runtime boot failed ({status})"));
-    }
-    0
+    status
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_eval_bundle(
@@ -319,7 +366,7 @@ pub extern "C" fn pocket_apple_frame(
     count: usize,
 ) -> i32 {
     access(handle, |state| {
-        if state.runtime.get().is_null() || count > 8 || (count != 0 && touches.is_null()) {
+        if !state.booted() || count > 8 || (count != 0 && touches.is_null()) {
             return POCKET_STATUS_INVALID;
         }
         let words = if count == 0 {
@@ -331,7 +378,12 @@ pub extern "C" fn pocket_apple_frame(
             .bridge
             .set_input(buttons, if analog == 0 { 0x8080 } else { analog }, words);
         state.bridge.begin_frame();
-        let status = unsafe { pocket_runtime_tick(state.runtime.get()) };
+        let status = match state.runtime.borrow().as_deref() {
+            Some(runtime) => runtime
+                .with_runtime(pocket_runtime::Runtime::tick)
+                .map_or_else(status_code, |_| 0),
+            None => POCKET_STATUS_INVALID,
+        };
         if status != 0 {
             return error(format!("Apple runtime tick failed ({status})"));
         }
@@ -355,7 +407,7 @@ pub extern "C" fn pocket_apple_frame(
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_render(handle: *mut PocketApple, out: *mut PocketAppleFrame) -> i32 {
     access(handle, |state| {
-        if out.is_null() || state.runtime.get().is_null() {
+        if out.is_null() || !state.booted() {
             return POCKET_STATUS_INVALID;
         }
         let frame = state.bridge.frame.borrow();
@@ -378,14 +430,14 @@ pub extern "C" fn pocket_apple_op(
     let Some(state) = (unsafe { handle.as_ref() }) else {
         return POCKET_STATUS_INVALID;
     };
-    unsafe { pocket_runtime_op(state.runtime.get(), operation, args, length, result) }
+    unsafe { runtime_abi::pocket_runtime_op(state.pointer(), operation, args, length, result) }
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_supports_op(handle: *mut PocketApple, operation: u16) -> u32 {
     let Some(state) = (unsafe { handle.as_ref() }) else {
         return 0;
     };
-    unsafe { pocket_runtime_supports_op(state.runtime.get(), operation) }
+    unsafe { runtime_abi::pocket_runtime_supports_op(state.pointer(), operation) }
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_hit_test_bounds(handle: *mut PocketApple, x: f32, y: f32) -> i32 {
@@ -452,8 +504,10 @@ pub extern "C" fn pocket_apple_destroy(handle: *mut PocketApple) {
     if state.busy.replace(true) {
         return;
     }
+    if let Ok(mut runtime) = state.runtime.try_borrow_mut() {
+        drop(runtime.take());
+    }
     unsafe {
-        pocket_runtime_destroy(state.runtime.replace(ptr::null_mut()));
         drop(Box::from_raw(handle));
     }
 }

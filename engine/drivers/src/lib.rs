@@ -1,9 +1,11 @@
 //! Device contracts shared by the UI core, runtime, and external drivers.
 //!
-//! This crate has no platform or runtime dependency. The `abi` module is
-//! generated from `contracts/spec`; the remaining modules provide borrowed
-//! Rust interfaces. Driver registration and presentation scheduling belong
-//! to the runtime and are not implemented here.
+//! This crate has no platform or runtime dependency. The `abi` module holds
+//! the C records generated from `contracts/spec`, the checks a foreign pointer
+//! passes before it is borrowed, and the adapters between C vtables and the
+//! traits below; the remaining modules provide borrowed Rust interfaces.
+//! Driver registration and presentation scheduling belong to the runtime and
+//! are not implemented here.
 
 #![no_std]
 

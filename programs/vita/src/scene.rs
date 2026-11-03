@@ -141,23 +141,17 @@ pub unsafe fn render_over(ui: &Ui, words: &[u32]) {
 }
 
 /// Register the process device in one canonical guest instance.
-pub(crate) unsafe fn register(
-    runtime: *mut pocket_runtime_cabi::abi::PocketRuntime,
-) -> Result<(), String> {
+pub(crate) unsafe fn register(runtime: &pocket_runtime::abi::Handle) -> Result<(), String> {
+    use pocket_runtime::abi::status_code;
     let shared = RENDERER.as_ref().ok_or("GXM is not initialized")?.clone();
-    let id =
-        pocket_runtime_cabi::embedding::add_renderer(runtime, RegisteredRenderer(shared.clone()))
-            .map_err(|s| format!("GXM registration: {s}"))?;
-    let status = pocket_runtime_cabi::embedding::add_display(
-        runtime,
-        GxmDisplay::new(shared, pocket_drivers::DisplayRole::Primary),
-        id,
-    );
-    if status == 0 {
-        Ok(())
-    } else {
-        Err(format!("Vita display registration: {status}"))
-    }
+    let renderer = RegisteredRenderer(shared.clone());
+    let id = runtime
+        .with_runtime(|runtime| runtime.add_renderer(renderer))
+        .map_err(|error| format!("GXM registration: {}", status_code(error)))?;
+    let display = GxmDisplay::new(shared, pocket_drivers::DisplayRole::Primary);
+    runtime
+        .with_runtime(|runtime| runtime.add_display(display, id).map(|_| ()))
+        .map_err(|error| format!("Vita display registration: {}", status_code(error)))
 }
 #[cfg(feature = "capture")]
 fn validate_texture_residency(ui: &Ui, words: &[u32]) -> io::Result<()> {

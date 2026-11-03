@@ -1,4 +1,4 @@
-# UIKit composition over pocket-runtime-cabi with an owned or external guest.
+# UIKit composition over pocket_runtime::abi with an owned or external guest.
 
 [package]
 name = "pocket-apple"
@@ -15,7 +15,6 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }
-pocket-runtime-cabi = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }

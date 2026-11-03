@@ -217,7 +217,7 @@ pub unsafe extern "C" fn web_dispatch(
     status(
         h,
         (|| {
-            let args = pocket_runtime_cabi::arguments(args.cast(), count)
+            let args = pocket_runtime::abi::arguments(args.cast(), count)
                 .map_err(|_| RuntimeError::InvalidArgument)?;
             let result = h.ops.borrow().dispatch(op, &args)?;
             let mut record = PocketResult::empty();

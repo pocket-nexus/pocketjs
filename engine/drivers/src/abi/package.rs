@@ -1,5 +1,7 @@
 use super::*;
+use crate::{PackageBytes, PackageSource, PackageStorage, SourceError};
 use alloc::boxed::Box;
+use core::{ffi::c_void, slice};
 
 pub struct CPackageSource {
     table: PocketPackageSourceV1,

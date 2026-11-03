@@ -1,5 +1,9 @@
 use super::*;
+use crate::{
+    FrameInput, PixelFormat, RenderError, Renderer, RendererDescriptor, Synchronization, Target,
+};
 use alloc::vec::Vec;
+use core::ffi::c_void;
 
 struct Pending {
     id: u64,
@@ -106,7 +110,6 @@ impl CRenderer {
                 target.kind = POCKET_TARGET_DEVICE_OWNED;
                 target.device_handle = value.handle;
             }
-            _ => return Err(RenderError::Unsupported),
         }
         let list = PocketDrawList {
             words: frame.list.words.as_ptr(),

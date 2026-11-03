@@ -1,18 +1,25 @@
-use crate::adapters::{borrowed, AdapterError};
+//! The C op provider vtable as a runtime `OpProvider`.
+use crate::{generated_ops, OpArg, OpProvider, OpResult, RuntimeError};
 use alloc::vec::Vec;
 use core::{ffi::c_void, mem};
 use pocket_drivers::abi::*;
-use pocket_runtime::{generated_ops, OpArg, OpProvider, OpResult, RuntimeError};
 use pocketjs_core::Ui;
 
-pub(crate) struct COpProvider {
+/// A provider registered through `pocket_runtime_add_op_provider`, with its
+/// sorted operation list.
+pub struct COpProvider {
     dispatch: PocketOpProviderDispatchFn,
     context: *mut c_void,
     operations: Vec<u16>,
 }
 impl COpProvider {
-    /// The caller retains context and callback storage through runtime destruction.
-    pub(crate) unsafe fn new(
+    /// The caller retains context and callback storage through runtime
+    /// destruction. An empty, repeated, unknown, core or package operation is
+    /// invalid.
+    /// # Safety
+    /// `table` is null or readable through its prefix; `operations` supplies
+    /// `count` readable values for this call.
+    pub unsafe fn new(
         table: *const PocketOpProviderV1,
         context: *mut c_void,
         operations: *const u16,

@@ -1,7 +1,24 @@
+//! The C ABI of a runtime instance, as Rust functions.
+//!
+//! `pocket_runtime.h` declares the `pocket_runtime_*` and
+//! `pocket_tick_schedule_*` functions. Their bodies are the `pub unsafe fn`
+//! items of this module: the C signatures and status codes, without
+//! `#[no_mangle]`. The SDK archive (`programs/sdk/archive`) defines each
+//! exported symbol once by forwarding to them; a Rust program that drives an
+//! instance through the C contract calls them without linking that archive.
+//!
+//! [`Handle`] is the memory behind a `pocket_runtime` pointer. A Rust embedder
+//! that owns one gets `Result`s from [`Handle::with_runtime`] in place of
+//! status codes. [`CGuest`] and [`COpProvider`] adapt the C guest and op
+//! provider vtables to the runtime traits; [`arguments`] decodes op argument
+//! records and [`result_record`] encodes an op result; [`open_package`] is the
+//! package admission the three C `*_package_open` entry points share.
+//!
+//! Nothing here references the six `pocket_host_*` hooks: the archive owns
+//! them, and a boot failure's cause reaches the host log through the
+//! callback `pocket_runtime_boot` takes.
 use crate::{
-    adapters::{borrowed, AdapterError, CDisplay, CInputSource, CPackageSource, CRenderer},
-    guest::CGuest,
-    provider::COpProvider,
+    OpArg, OpContext, OpResult, Profile, RendererId, Runtime, RuntimeConfig, RuntimeError,
 };
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 use core::{
@@ -9,22 +26,99 @@ use core::{
     ffi::c_void,
     mem, ptr,
 };
-use pocket_drivers::{abi::*, InputClasses};
-use pocket_runtime::{
-    OpArg, OpContext, OpResult, Profile, RendererId, Runtime, RuntimeConfig, RuntimeError,
+use pocket_drivers::{
+    abi::{
+        borrowed, AdapterError, CDisplay, CInputSource, CPackageSource, CRenderer,
+        PocketDisplayOutputV1, PocketGuestV1, PocketInputSourceV1, PocketOpArg, PocketOpProviderV1,
+        PocketPackageSourceV1, PocketProfileDisplay, PocketProfileFacts, PocketProfileRange,
+        PocketRendererV1, PocketResult, PocketRuntime, PocketRuntimeConfig, PocketRuntimeTiming,
+        POCKET_ARG_BYTES, POCKET_ARG_INTEGER, POCKET_ARG_REAL, POCKET_RENDERER_INVALID,
+        POCKET_RESULT_BYTES, POCKET_RESULT_F64, POCKET_RESULT_I64, POCKET_RESULT_NONE,
+        POCKET_STATUS_FAILED, POCKET_STATUS_INVALID, POCKET_STATUS_OK, POCKET_STATUS_UNSUPPORTED,
+    },
+    InputClasses,
 };
 
-pub(crate) struct Handle {
-    pub runtime: RefCell<Runtime>,
-    pub ops: OpContext,
-    pub guest_active: Cell<bool>,
+mod admission;
+mod guest;
+mod provider;
+mod timing;
+pub use admission::{admit, guest_error_code, open_package, plan_code, OpenedPackage};
+pub use guest::CGuest;
+pub use provider::COpProvider;
+pub use timing::*;
+
+/// The instance behind a `pocket_runtime` pointer: the runtime, a cloned
+/// operation context for guest bindings, the reentrancy flags the C contract
+/// promises, and the storage of the last byte result.
+pub struct Handle {
+    runtime: RefCell<Runtime>,
+    ops: OpContext,
+    guest_active: Cell<bool>,
     operation_active: Cell<bool>,
     result: RefCell<Vec<u8>>,
 }
-pub(crate) unsafe fn handle<'a>(pointer: *const PocketRuntime) -> Option<&'a Handle> {
-    unsafe { pointer.cast::<Handle>().as_ref() }
+impl Handle {
+    /// Construct an instance from a Rust configuration. `Runtime::new` checks
+    /// the ranges; the box is the allocation a C caller receives from
+    /// `pocket_runtime_create`.
+    pub fn new(config: RuntimeConfig) -> Result<Box<Self>, RuntimeError> {
+        let runtime = Runtime::new(config)?;
+        let ops = runtime.op_context();
+        Ok(Box::new(Self {
+            runtime: RefCell::new(runtime),
+            ops,
+            guest_active: Cell::new(false),
+            operation_active: Cell::new(false),
+            result: RefCell::new(Vec::new()),
+        }))
+    }
+    /// Give the instance to C. Release it with `pocket_runtime_destroy`.
+    pub fn into_raw(self: Box<Self>) -> *mut PocketRuntime {
+        Box::into_raw(self).cast()
+    }
+    /// # Safety
+    /// `pointer` is null or was returned by `into_raw` and not yet destroyed.
+    pub unsafe fn from_raw<'a>(pointer: *const PocketRuntime) -> Option<&'a Self> {
+        unsafe { pointer.cast::<Self>().as_ref() }
+    }
+    /// The pointer the `pocket_runtime_*` functions and C guest callbacks accept.
+    pub fn as_ptr(&self) -> *mut PocketRuntime {
+        (self as *const Self).cast_mut().cast()
+    }
+    /// An operation context for native guest bindings and private host hooks.
+    /// Clones become inactive when the runtime shuts down; a held core guard
+    /// must be released before a runtime call that needs the core.
+    pub fn op_context(&self) -> OpContext {
+        self.ops.clone()
+    }
+    /// Run one runtime call under the C contract: the previous byte result
+    /// expires, and a call that overlaps an operation or another runtime call
+    /// is [`RuntimeError::Busy`].
+    pub fn with_runtime<T>(
+        &self,
+        action: impl FnOnce(&mut Runtime) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        self.invalidate()?;
+        if self.operation_active.get() {
+            return Err(RuntimeError::Busy);
+        }
+        let mut runtime = self
+            .runtime
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::Busy)?;
+        action(&mut runtime)
+    }
+    fn invalidate(&self) -> Result<(), RuntimeError> {
+        self.result
+            .try_borrow_mut()
+            .map(|mut bytes| bytes.clear())
+            .map_err(|_| RuntimeError::Busy)
+    }
 }
-fn status(error: RuntimeError) -> i32 {
+
+/// The C status of a runtime error.
+pub fn status_code(error: RuntimeError) -> i32 {
     match error {
         RuntimeError::UnsupportedOperation => POCKET_STATUS_UNSUPPORTED,
         RuntimeError::InvalidArgument
@@ -37,32 +131,25 @@ fn status(error: RuntimeError) -> i32 {
         _ => POCKET_STATUS_FAILED,
     }
 }
-fn invalidate(handle: &Handle) -> Result<(), i32> {
-    handle
-        .result
-        .try_borrow_mut()
-        .map(|mut bytes| bytes.clear())
-        .map_err(|_| POCKET_STATUS_FAILED)
+impl From<AdapterError> for RuntimeError {
+    fn from(error: AdapterError) -> Self {
+        match error {
+            AdapterError::Unsupported => RuntimeError::UnsupportedOperation,
+            AdapterError::Invalid => RuntimeError::InvalidArgument,
+            AdapterError::Failed => RuntimeError::InvalidState,
+        }
+    }
 }
-pub(crate) unsafe fn modify(
+unsafe fn modify(
     pointer: *mut PocketRuntime,
     action: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>,
 ) -> i32 {
-    let Some(handle) = (unsafe { handle(pointer) }) else {
+    let Some(handle) = (unsafe { Handle::from_raw(pointer) }) else {
         return POCKET_STATUS_INVALID;
     };
-    if let Err(status) = invalidate(handle) {
-        return status;
-    }
-    if handle.operation_active.get() {
-        return POCKET_STATUS_FAILED;
-    }
-    let Ok(mut runtime) = handle.runtime.try_borrow_mut() else {
-        return POCKET_STATUS_FAILED;
-    };
-    action(&mut runtime)
-        .map(|_| POCKET_STATUS_OK)
-        .unwrap_or_else(status)
+    handle
+        .with_runtime(action)
+        .map_or_else(status_code, |_| POCKET_STATUS_OK)
 }
 
 /// Copy `count` width/height pairs out of an exported viewport list.
@@ -114,10 +201,12 @@ unsafe fn display(display: *const PocketProfileDisplay) -> Option<Option<Panel>>
     let logical = unsafe { pairs(display.logical, display.logical_count) }?;
     Some(Some((display.physical, logical, display.raster_density)))
 }
-/// Copy exported profile facts into runtime-owned storage.
+/// Copy an exported `pocket_profile_facts` record into a runtime `Profile`,
+/// the conversion `pocket_runtime_create` applies to `config.profile`.
+/// `Runtime::new` checks the ranges.
 /// # Safety
 /// facts is null or provides its announced readable bytes and live lists.
-pub(crate) unsafe fn profile(facts: *const PocketProfileFacts) -> Option<Profile> {
+pub unsafe fn profile(facts: *const PocketProfileFacts) -> Option<Profile> {
     let facts = unsafe { PocketProfileFacts::read_prefix(facts) }?;
     let id = unsafe { borrowed(facts.id, facts.id_length) }.ok()?;
     let id = String::from(core::str::from_utf8(id).ok()?);
@@ -194,35 +283,16 @@ unsafe fn configuration(config: *const PocketRuntimeConfig) -> Option<RuntimeCon
 }
 /// # Safety
 /// config and its borrowed profile facts provide their announced readable bytes.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_create(
-    config: *const PocketRuntimeConfig,
-) -> *mut PocketRuntime {
+pub unsafe fn pocket_runtime_create(config: *const PocketRuntimeConfig) -> *mut PocketRuntime {
     let Some(config) = (unsafe { configuration(config) }) else {
         return ptr::null_mut();
     };
-    let Ok(runtime) = Runtime::new(config) else {
-        return ptr::null_mut();
-    };
-    into_handle(runtime)
-}
-/// Move a constructed runtime behind the opaque C handle.
-pub(crate) fn into_handle(runtime: Runtime) -> *mut PocketRuntime {
-    let ops = runtime.op_context();
-    Box::into_raw(Box::new(Handle {
-        runtime: RefCell::new(runtime),
-        ops,
-        guest_active: Cell::new(false),
-        operation_active: Cell::new(false),
-        result: RefCell::new(Vec::new()),
-    }))
-    .cast()
+    Handle::new(config).map_or(ptr::null_mut(), Handle::into_raw)
 }
 
 /// # Safety
 /// runtime is live; driver storage and callback validity last through destruction.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_set_package_source(
+pub unsafe fn pocket_runtime_set_package_source(
     runtime: *mut PocketRuntime,
     source: *const PocketPackageSourceV1,
     context: *mut c_void,
@@ -230,65 +300,49 @@ pub unsafe extern "C" fn pocket_runtime_set_package_source(
     // Adapter construction is delayed until the runtime borrow is acquired.
     unsafe {
         modify(runtime, |runtime| {
-            let source = CPackageSource::new(source, context).map_err(adapter_runtime_error)?;
+            let source = CPackageSource::new(source, context)?;
             runtime.set_package_source(Box::new(source))
         })
     }
 }
 /// # Safety
 /// runtime is live.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_set_texture_budget(
-    runtime: *mut PocketRuntime,
-    bytes: usize,
-) -> i32 {
+pub unsafe fn pocket_runtime_set_texture_budget(runtime: *mut PocketRuntime, bytes: usize) -> i32 {
     unsafe { modify(runtime, |runtime| runtime.set_texture_budget(bytes)) }
 }
 /// # Safety
 /// runtime is live; guest/context obey the callback and borrowing contracts.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_set_guest(
+pub unsafe fn pocket_runtime_set_guest(
     pointer: *mut PocketRuntime,
     guest: *const PocketGuestV1,
     context: *mut c_void,
 ) -> i32 {
     unsafe {
         modify(pointer, |runtime| {
-            runtime.set_guest(Box::new(
-                CGuest::new(guest, context, pointer).map_err(adapter_runtime_error)?,
-            ))
+            runtime.set_guest(Box::new(CGuest::new(guest, context, pointer)?))
         })
     }
 }
 /// # Safety
 /// runtime is live; renderer/context obey the C driver contract until destruction.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_add_renderer(
+pub unsafe fn pocket_runtime_add_renderer(
     pointer: *mut PocketRuntime,
     renderer: *const PocketRendererV1,
     context: *mut c_void,
 ) -> u32 {
-    let Some(handle) = (unsafe { handle(pointer) }) else {
+    let Some(handle) = (unsafe { Handle::from_raw(pointer) }) else {
         return POCKET_RENDERER_INVALID;
     };
-    if invalidate(handle).is_err() || handle.operation_active.get() {
-        return POCKET_RENDERER_INVALID;
-    }
-    let Ok(mut runtime) = handle.runtime.try_borrow_mut() else {
-        return POCKET_RENDERER_INVALID;
-    };
-    let Ok(renderer) = (unsafe { CRenderer::new(renderer, context) }) else {
-        return POCKET_RENDERER_INVALID;
-    };
-    runtime
-        .add_renderer(renderer)
-        .map(|id| id.as_raw())
-        .unwrap_or(POCKET_RENDERER_INVALID)
+    handle
+        .with_runtime(|runtime| {
+            let renderer = unsafe { CRenderer::new(renderer, context) }?;
+            runtime.add_renderer(renderer)
+        })
+        .map_or(POCKET_RENDERER_INVALID, RendererId::as_raw)
 }
 /// # Safety
 /// runtime is live; display/context obey the C driver contract until destruction.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_add_display(
+pub unsafe fn pocket_runtime_add_display(
     runtime: *mut PocketRuntime,
     display: *const PocketDisplayOutputV1,
     context: *mut c_void,
@@ -298,7 +352,7 @@ pub unsafe extern "C" fn pocket_runtime_add_display(
         modify(runtime, |runtime| {
             runtime
                 .add_display(
-                    CDisplay::new(display, context).map_err(adapter_runtime_error)?,
+                    CDisplay::new(display, context)?,
                     RendererId::from_raw(renderer),
                 )
                 .map(|_| ())
@@ -307,25 +361,21 @@ pub unsafe extern "C" fn pocket_runtime_add_display(
 }
 /// # Safety
 /// runtime is live; source/context obey the C input contract until destruction.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_add_input_source(
+pub unsafe fn pocket_runtime_add_input_source(
     runtime: *mut PocketRuntime,
     source: *const PocketInputSourceV1,
     context: *mut c_void,
 ) -> i32 {
     unsafe {
         modify(runtime, |runtime| {
-            runtime.add_input_source(Box::new(
-                CInputSource::new(source, context).map_err(adapter_runtime_error)?,
-            ))
+            runtime.add_input_source(Box::new(CInputSource::new(source, context)?))
         })
     }
 }
 /// # Safety
 /// runtime is live. The provider context and callback last through destruction;
 /// operations supplies operation_count readable u16 values for this call.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_add_op_provider(
+pub unsafe fn pocket_runtime_add_op_provider(
     runtime: *mut PocketRuntime,
     provider: *const PocketOpProviderV1,
     context: *mut c_void,
@@ -334,68 +384,59 @@ pub unsafe extern "C" fn pocket_runtime_add_op_provider(
 ) -> i32 {
     unsafe {
         modify(runtime, |runtime| {
-            let provider = COpProvider::new(provider, context, operations, operation_count)
-                .map_err(adapter_runtime_error)?;
+            let provider = COpProvider::new(provider, context, operations, operation_count)?;
             runtime.add_provider(Box::new(provider))
         })
     }
 }
-/// A boot failure names its cause in the host log: the status alone does not
-/// tell package admission from guest evaluation or the first present, and
-/// the guest's error text covers evaluation only.
-fn report_boot_failure(error: RuntimeError) -> RuntimeError {
-    let message = alloc::format!("boot failed: {error:?}");
-    // SAFETY: the message bytes are live for the call.
-    unsafe { pocket_host_log(0, message.as_ptr().cast(), message.len()) };
-    error
-}
+/// Boot the admitted package. `failure` receives the cause of a failed boot
+/// before the status is returned: the status alone does not tell package
+/// admission from guest evaluation or the first present, and the guest's
+/// error text covers evaluation only.
 /// # Safety
 /// runtime is a live instance on its owning thread.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32 {
+pub unsafe fn pocket_runtime_boot(
+    runtime: *mut PocketRuntime,
+    failure: impl FnOnce(&RuntimeError),
+) -> i32 {
+    unsafe { modify(runtime, |runtime| runtime.boot().inspect_err(failure)) }
+}
+/// Boot without presenting the first frame; `failure` is as for `pocket_runtime_boot`.
+/// # Safety
+/// runtime is a live instance on its owning thread.
+pub unsafe fn pocket_runtime_boot_deferred(
+    runtime: *mut PocketRuntime,
+    failure: impl FnOnce(&RuntimeError),
+) -> i32 {
     unsafe {
         modify(runtime, |runtime| {
-            runtime.boot().map_err(report_boot_failure)
+            runtime.boot_deferred().inspect_err(failure)
         })
     }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32 {
-    unsafe {
-        modify(runtime, |runtime| {
-            runtime.boot_deferred().map_err(report_boot_failure)
-        })
-    }
-}
-/// # Safety
-/// runtime is a live instance on its owning thread.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32 {
+pub unsafe fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32 {
     unsafe { modify(runtime, Runtime::present) }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_complete_presentation(runtime: *mut PocketRuntime) -> i32 {
+pub unsafe fn pocket_runtime_complete_presentation(runtime: *mut PocketRuntime) -> i32 {
     unsafe { modify(runtime, Runtime::complete_presentation) }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32 {
+pub unsafe fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32 {
     unsafe { modify(runtime, Runtime::tick) }
 }
 /// # Safety
 /// runtime is a live instance on its owning thread; out provides its
 /// announced writable prefix.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_get_timing(
+pub unsafe fn pocket_runtime_get_timing(
     runtime: *const PocketRuntime,
     out: *mut PocketRuntimeTiming,
 ) -> i32 {
-    let Some(handle) = (unsafe { handle(runtime) }) else {
+    let Some(handle) = (unsafe { Handle::from_raw(runtime) }) else {
         return POCKET_STATUS_INVALID;
     };
     let Ok(runtime) = handle.runtime.try_borrow() else {
@@ -418,9 +459,8 @@ pub unsafe extern "C" fn pocket_runtime_get_timing(
 }
 /// # Safety
 /// runtime is a live instance on its owning thread.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32 {
-    unsafe { handle(runtime) }
+pub unsafe fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32 {
+    unsafe { Handle::from_raw(runtime) }
         .map(|handle| u32::from(handle.ops.supports_op(op)))
         .unwrap_or(0)
 }
@@ -428,8 +468,7 @@ pub unsafe extern "C" fn pocket_runtime_supports_op(runtime: *const PocketRuntim
 /// # Safety
 /// runtime is live and no guest or driver callback is running; pixels
 /// supplies length readable bytes.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_update_texture(
+pub unsafe fn pocket_runtime_update_texture(
     runtime: *mut PocketRuntime,
     texture: i32,
     x: u32,
@@ -439,16 +478,16 @@ pub unsafe extern "C" fn pocket_runtime_update_texture(
     pixels: *const u8,
     length: usize,
 ) -> i32 {
-    let Some(handle) = (unsafe { handle(runtime) }) else {
+    let Some(handle) = (unsafe { Handle::from_raw(runtime) }) else {
         return POCKET_STATUS_INVALID;
     };
-    if let Err(status) = invalidate(handle) {
-        return status;
+    if handle.invalidate().is_err() {
+        return POCKET_STATUS_FAILED;
     }
     if handle.operation_active.get() || handle.guest_active.get() {
         return POCKET_STATUS_FAILED;
     }
-    let bytes = match unsafe { crate::adapters::borrowed(pixels, length) } {
+    let bytes = match unsafe { borrowed(pixels, length) } {
         Ok(bytes) => bytes,
         Err(error) => return error.status(),
     };
@@ -463,26 +502,25 @@ pub unsafe extern "C" fn pocket_runtime_update_texture(
                 POCKET_STATUS_INVALID
             }
         }
-        Err(error) => status(error),
+        Err(error) => status_code(error),
     }
 }
 
 /// # Safety
 /// runtime is live. args supplies length readable bytes of aligned extensible
 /// argument records and borrowed payloads; out supplies its writable prefix.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_op(
+pub unsafe fn pocket_runtime_op(
     runtime: *mut PocketRuntime,
     op: u16,
     args: *const c_void,
     length: usize,
     out: *mut PocketResult,
 ) -> i32 {
-    let Some(handle) = (unsafe { handle(runtime) }) else {
+    let Some(handle) = (unsafe { Handle::from_raw(runtime) }) else {
         return POCKET_STATUS_INVALID;
     };
-    if let Err(status) = invalidate(handle) {
-        return status;
+    if handle.invalidate().is_err() {
+        return POCKET_STATUS_FAILED;
     }
     if !unsafe { PocketResult::empty().write_prefix(out) } {
         return POCKET_STATUS_INVALID;
@@ -508,29 +546,12 @@ pub unsafe extern "C" fn pocket_runtime_op(
     let _operation = OperationGuard(&handle.operation_active);
     let result = match handle.ops.dispatch(op, &arguments) {
         Ok(result) => result,
-        Err(error) => return status(error),
+        Err(error) => return status_code(error),
     };
-    let mut output = PocketResult::empty();
-    match result {
-        OpResult::None => output.tag = POCKET_RESULT_NONE,
-        OpResult::Integer(value) => {
-            output.tag = POCKET_RESULT_I64;
-            output.integer = value;
-        }
-        OpResult::Real(value) => {
-            output.tag = POCKET_RESULT_F64;
-            output.real = value;
-        }
-        OpResult::Bytes(bytes) => {
-            let Ok(mut storage) = handle.result.try_borrow_mut() else {
-                return POCKET_STATUS_FAILED;
-            };
-            *storage = bytes;
-            output.tag = POCKET_RESULT_BYTES;
-            output.bytes = storage.as_ptr();
-            output.byte_length = storage.len();
-        }
-    }
+    let Ok(mut storage) = handle.result.try_borrow_mut() else {
+        return POCKET_STATUS_FAILED;
+    };
+    let output = result_record(result, &mut storage);
     if unsafe { output.write_prefix(out) } {
         POCKET_STATUS_OK
     } else {
@@ -597,15 +618,37 @@ pub unsafe fn arguments<'a>(
     }
     Ok(args)
 }
+/// Encode an operation result as the C result record. Byte results move into
+/// `storage`, which the record borrows until the caller's next call.
+pub fn result_record(result: OpResult, storage: &mut Vec<u8>) -> PocketResult {
+    let mut output = PocketResult::empty();
+    match result {
+        OpResult::None => output.tag = POCKET_RESULT_NONE,
+        OpResult::Integer(value) => {
+            output.tag = POCKET_RESULT_I64;
+            output.integer = value;
+        }
+        OpResult::Real(value) => {
+            output.tag = POCKET_RESULT_F64;
+            output.real = value;
+        }
+        OpResult::Bytes(bytes) => {
+            *storage = bytes;
+            output.tag = POCKET_RESULT_BYTES;
+            output.bytes = storage.as_ptr();
+            output.byte_length = storage.len();
+        }
+    }
+    output
+}
 /// # Safety
 /// runtime was returned by create and has not been destroyed. Reentrant
 /// destruction is rejected; the caller can destroy after the active call ends.
-#[no_mangle]
-pub unsafe extern "C" fn pocket_runtime_destroy(pointer: *mut PocketRuntime) {
-    let Some(handle) = (unsafe { handle(pointer) }) else {
+pub unsafe fn pocket_runtime_destroy(pointer: *mut PocketRuntime) {
+    let Some(handle) = (unsafe { Handle::from_raw(pointer) }) else {
         return;
     };
-    if invalidate(handle).is_err() || handle.operation_active.get() {
+    if handle.invalidate().is_err() || handle.operation_active.get() {
         return;
     }
     {
@@ -618,10 +661,92 @@ pub unsafe extern "C" fn pocket_runtime_destroy(pointer: *mut PocketRuntime) {
         drop(Box::from_raw(pointer.cast::<Handle>()));
     }
 }
-fn adapter_runtime_error(error: AdapterError) -> RuntimeError {
-    match error {
-        AdapterError::Unsupported => RuntimeError::UnsupportedOperation,
-        AdapterError::Invalid => RuntimeError::InvalidArgument,
-        AdapterError::Failed => RuntimeError::InvalidState,
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> RuntimeConfig {
+        RuntimeConfig {
+            profile_hash: [7; 32],
+            host_abi: pocket_spec::BINDING_GENERATION,
+            heap_limit: 64 * 1024,
+            frame_buffer_budget: 64,
+            profile: Profile {
+                id: Cow::Borrowed("fixture"),
+                cadences: Cow::Borrowed(&[30]),
+                viewport: [960, 544],
+                logical_viewports: Cow::Borrowed(&[[480, 272], [320, 240]]),
+                dynamic_viewport: None,
+                presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
+                auxiliary: Some([320, 240]),
+                auxiliary_logical: Cow::Borrowed(&[[160, 120]]),
+                density: 2,
+                animation: Cow::Borrowed("composited"),
+                capabilities: Cow::Borrowed(&[]),
+                required_inputs: InputClasses::BUTTONS,
+            },
+        }
+    }
+
+    #[test]
+    fn rust_configuration_reaches_the_runtime_handle() {
+        let handle = Handle::new(config()).unwrap();
+        {
+            let ops = handle.op_context();
+            let state = ops.core().unwrap();
+            assert_eq!(state.ui.viewport(), (480.0, 272.0));
+            // The core keeps its default rate until a package boots.
+            assert_eq!(state.ui.tick_rate(), 60);
+            assert_eq!(state.ui.raster_density(), 2);
+            assert_eq!(state.ui.auxiliary_viewport(), Some((160.0, 120.0)));
+        }
+        // The C destroy releases a Rust-constructed instance.
+        let pointer = handle.into_raw();
+        assert!(unsafe { Handle::from_raw(pointer) }.is_some());
+        unsafe { pocket_runtime_destroy(pointer) };
+        let mut dynamic = config();
+        dynamic.profile.dynamic_viewport = Some([[320, 240], [640, 480]]);
+        drop(Handle::new(dynamic).unwrap());
+    }
+
+    #[test]
+    fn rejected_configurations_are_errors() {
+        let mut generation = config();
+        generation.host_abi += 1;
+        assert!(matches!(
+            Handle::new(generation).map(|_| ()),
+            Err(RuntimeError::BindingGenerationMismatch)
+        ));
+        let mut orphan = config();
+        orphan.profile.auxiliary = None;
+        let mut empty = config();
+        empty.profile.logical_viewports = Cow::Borrowed(&[]);
+        let mut range = config();
+        range.profile.dynamic_viewport = Some([[640, 480], [320, 240]]);
+        let mut id = config();
+        id.profile.id = Cow::Borrowed("");
+        for rejected in [orphan, empty, range, id] {
+            assert!(matches!(
+                Handle::new(rejected).map(|_| ()),
+                Err(RuntimeError::InvalidConfiguration)
+            ));
+        }
+    }
+
+    /// A runtime call on a handle whose runtime is borrowed is `Busy`, the
+    /// error the C functions report as `POCKET_STATUS_FAILED`.
+    #[test]
+    fn overlapping_runtime_calls_are_busy() {
+        let handle = Handle::new(config()).unwrap();
+        let borrowed = handle.runtime.borrow();
+        assert!(matches!(
+            handle.with_runtime(|_| Ok(())),
+            Err(RuntimeError::Busy)
+        ));
+        assert_eq!(status_code(RuntimeError::Busy), POCKET_STATUS_FAILED);
+        drop(borrowed);
+        assert!(handle.with_runtime(|_| Ok(())).is_ok());
+        assert_eq!(unsafe { pocket_runtime_supports_op(handle.as_ptr(), 1) }, 1);
     }
 }

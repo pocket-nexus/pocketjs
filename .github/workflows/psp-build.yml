@@ -32,7 +32,7 @@ on:
       - "tools/psp-linker.ts"
       - "engine/guest-quickjs/**"
       - "engine/runtime/**"
-      - "engine/runtime-cabi/**"
+      - "programs/sdk/archive/**"
       - "engine/profile-build/**"
       - "tools/pocket.ts"
       - "tools/cli/**"

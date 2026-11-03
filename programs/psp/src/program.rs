@@ -4,8 +4,10 @@ use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::cell::{Cell, RefCell, RefMut};
 use libquickjs_sys::{JSContext, JSValue};
 use pocket_psp_render::{native::NativeDevice, Config, GeDisplay, GeRenderer, SharedRenderer};
-use pocket_runtime::{CoreState, OpContext, RuntimeConfig};
-use pocket_runtime_cabi::{abi::*, embedding as embed};
+use pocket_runtime::{
+    abi::{self, status_code, Handle},
+    CoreState, OpContext, RuntimeConfig, RuntimeError,
+};
 
 /// One `present` call: the previous list's residual GE wait and its paced
 /// swap, then this frame's encode and kick.
@@ -115,7 +117,9 @@ impl core::ops::DerefMut for UiGuard<'_> {
 /// list, paces and swaps it, then kicks its own. Zero-copy texture storage
 /// the list reads stays unchanged until then; no other borrow survives.
 pub struct Runtime {
-    handle: *mut PocketRuntime,
+    /// Declared first: it drops right after `Drop::drop` returns, so the
+    /// canonical shutdown precedes the guest adapter and its context.
+    handle: Box<Handle>,
     guest: Box<instance::Guest>,
     ops: OpContext,
     input: Rc<RefCell<instance::Input>>,
@@ -133,7 +137,7 @@ impl Runtime {
         clock: Rc<Cell<u32>>,
     ) -> Result<Self, String> {
         let _fpu = crate::host::FpuGuard::masked();
-        let handle = embed::create(RuntimeConfig {
+        let handle = Handle::new(RuntimeConfig {
             profile_hash: profile::PROFILE_HASH,
             host_abi: profile::HOST_ABI,
             heap_limit: 128 * 1024 * 1024,
@@ -141,20 +145,8 @@ impl Runtime {
             profile: profile::profile().expect("build.rs requires an exported profile"),
         })
         .map_err(|error| format!("PSP runtime profile rejected: {error:?}"))?;
-        let ops = match embed::op_context(handle) {
-            Ok(v) => v,
-            Err(e) => {
-                pocket_runtime_cabi::pocket_runtime_destroy(handle);
-                return Err(format!("{e:?}"));
-            }
-        };
-        let guest = match instance::Guest::new(ops.clone(), fixed_cadence) {
-            Ok(v) => v,
-            Err(e) => {
-                pocket_runtime_cabi::pocket_runtime_destroy(handle);
-                return Err(e);
-            }
-        };
+        let ops = handle.op_context();
+        let guest = instance::Guest::new(ops.clone(), fixed_cadence)?;
         let timing = Rc::new(Cell::new(FrameTiming::default()));
         let vblanks = Rc::new(Cell::new(1));
         let device = PacedDevice {
@@ -165,10 +157,7 @@ impl Runtime {
         };
         let renderer = match GeRenderer::new(device, Config::psp()) {
             Ok(v) => SharedRenderer::new(v),
-            Err(e) => {
-                pocket_runtime_cabi::pocket_runtime_destroy(handle);
-                return Err(format!("{e:?}"));
-            }
+            Err(e) => return Err(format!("{e:?}")),
         };
         let input = Rc::new(RefCell::new(instance::Input {
             buttons: 0,
@@ -191,25 +180,34 @@ impl Runtime {
             .ops
             .set_compositor_enabled(true)
             .map_err(|e| format!("{e:?}"))?;
-        runtime.check(embed::set_package_source(handle, source))?;
-        runtime.check(embed::add_input_source(
-            handle,
-            Box::new(instance::InputDriver(runtime.input.clone())),
-        ))?;
-        let id = embed::add_renderer(handle, runtime.renderer.clone())
-            .map_err(|status| format!("renderer registration {status}"))?;
-        runtime.check(embed::add_display(
-            handle,
-            GeDisplay::new(runtime.renderer.clone()),
-            id,
-        ))?;
+        runtime.call(|r| r.set_package_source(source))?;
+        let input = Box::new(instance::InputDriver(runtime.input.clone()));
+        runtime.call(|r| r.add_input_source(input))?;
+        let renderer = runtime.renderer.clone();
+        let id = runtime
+            .handle
+            .with_runtime(|r| r.add_renderer(renderer))
+            .map_err(|error| format!("renderer registration {}", status_code(error)))?;
+        let display = GeDisplay::new(runtime.renderer.clone());
+        runtime.call(|r| r.add_display(display, id).map(|_| ()))?;
         let context = (&mut *runtime.guest as *mut instance::Guest).cast();
-        runtime.check(pocket_runtime_cabi::pocket_runtime_set_guest(
-            handle,
+        runtime.check(abi::pocket_runtime_set_guest(
+            runtime.handle.as_ptr(),
             &instance::GUEST,
             context,
         ))?;
         Ok(runtime)
+    }
+    /// One runtime call; a failure reads as `check` reports its status.
+    fn call(
+        &self,
+        action: impl FnOnce(&mut pocket_runtime::Runtime) -> Result<(), RuntimeError>,
+    ) -> Result<(), String> {
+        self.check(
+            self.handle
+                .with_runtime(action)
+                .map_or_else(status_code, |_| 0),
+        )
     }
     fn check(&self, status: i32) -> Result<(), String> {
         if status == 0 {
@@ -250,14 +248,14 @@ impl Runtime {
     /// Owning graphics thread. Boot performs no GU submission.
     pub unsafe fn boot(&mut self) -> Result<(), String> {
         let _fpu = crate::host::FpuGuard::masked();
-        self.check(embed::boot_deferred(self.handle))?;
+        self.call(pocket_runtime::Runtime::boot_deferred)?;
         // The guest recorded the admitted rate and the cadence it published.
         let sim_hz = self.guest.sim_hz.get();
         if sim_hz == 0 || 60 % sim_hz != 0 {
             return Err(alloc::format!("PSP cannot present at {sim_hz} Hz"));
         }
         self.vblanks.set(60 / sim_hz);
-        self.check(embed::skip_presentation(self.handle))
+        self.call(pocket_runtime::Runtime::skip_presentation)
     }
     /// Guest frames per second after boot (__simHz).
     pub fn sim_hz(&self) -> u32 {
@@ -276,7 +274,7 @@ impl Runtime {
             input.buttons = buttons;
             input.analog = analog;
         }
-        self.check(embed::advance_with_core_ticks(self.handle, ticks))
+        self.call(|r| r.advance_with_core_ticks(ticks))
     }
     /// # Safety
     /// Owning graphics thread, no core guard. The GE may still draw the
@@ -291,7 +289,7 @@ impl Runtime {
             crate::vid::present(&mut state.ui);
             crate::media::present(&mut state.ui);
         }
-        self.check(embed::present(self.handle))
+        self.call(pocket_runtime::Runtime::present)
     }
     /// Sync, pace and swap the list kicked by the last present(), so the
     /// display shows it and the GE is idle.
@@ -299,12 +297,12 @@ impl Runtime {
     /// Owning graphics thread, no core guard.
     pub unsafe fn complete(&mut self) -> Result<(), String> {
         let _fpu = crate::host::FpuGuard::masked();
-        self.check(embed::complete_presentation(self.handle))
+        self.call(pocket_runtime::Runtime::complete_presentation)
     }
     /// # Safety
     /// Owning guest thread, no core guard or JS call is active.
     pub unsafe fn collect(&mut self) -> Result<(), String> {
-        self.check(embed::collect(self.handle))
+        self.call(pocket_runtime::Runtime::collect)
     }
 }
 impl Drop for Runtime {
@@ -312,7 +310,9 @@ impl Drop for Runtime {
         unsafe {
             let _fpu = crate::host::FpuGuard::masked();
             // Show the frame in flight before the renderer stops the GE.
-            embed::complete_presentation(self.handle);
+            let _ = self
+                .handle
+                .with_runtime(pocket_runtime::Runtime::complete_presentation);
             self.renderer.reset();
             if let Ok(mut state) = self.ops.core_mut() {
                 crate::vid::close(&mut state.ui);
@@ -323,8 +323,8 @@ impl Drop for Runtime {
             crate::media::reset();
             crate::offload::reset();
             crate::offload_local::reset();
-            pocket_runtime_cabi::pocket_runtime_destroy(self.handle);
-            // guest adapter/context are dropped after canonical shutdown invalidates bindings.
+            // `handle` drops next: canonical shutdown invalidates bindings
+            // before the guest adapter/context are dropped.
         }
     }
 }

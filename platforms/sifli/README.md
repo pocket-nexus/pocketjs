@@ -204,7 +204,7 @@ Host regression checks for damage, fallback pixels and triangle coverage:
 ```sh
 cargo test --locked -p pocket-raster -p pocket-render-sifli-epic -p pocketjs-core
 cargo clippy --locked -p pocket-raster -p pocket-render-sifli-epic --all-targets --no-deps -- -D warnings
-cargo test --locked -p pocket-render-sifli-epic --features cabi,pocket-runtime-cabi/std
+cargo test --locked -p pocket-render-sifli-epic --features cabi
 ```
 
 The rotation preflight also runs on the host, with address/undefined-behavior

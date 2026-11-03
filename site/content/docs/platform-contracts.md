@@ -542,8 +542,11 @@ return one table of `POCKET_PACKAGE_OPEN_*` codes**, declared in
 `pocket_drivers::abi`. The first failing item is its code:
 `POCKET_PACKAGE_OPEN_BINDING_GENERATION` (7), `PLAN` (9), `RASTER_DENSITY`
 (19), `ANIMATION` (20), `RATE` (21), `VIEWPORT` (22), `PRESENTATION` (23),
-`CAPABILITY` (24), `AUXILIARY` (25); `engine/runtime-cabi/src/package_open.rs`
-maps every other selection failure. Repack, `pocket pack` and the companion
+`CAPABILITY` (24), `AUXILIARY` (25); `pocket_runtime::abi::open_package`, the
+body the three entry points share, maps every other selection failure. A plan
+whose JSON, viewport or auxiliary surface cannot be read after admission is
+`PLAN_JSON` (13), `PLAN_VIEWPORT` (14) or `PLAN_AUXILIARY` (15) at all three
+entry points. Repack, `pocket pack` and the companion
 agent read a runtime's `pocket.host.json` and apply the same rules.
 
 ### Rate and cadence

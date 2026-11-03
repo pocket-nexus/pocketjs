@@ -1,5 +1,10 @@
 use super::*;
+use crate::{
+    AxisDelta, AxisSample, CancelledContact, Contact, InputClasses, InputFrameBuilder, InputSource,
+    MotionState, Pointer, TextEvent,
+};
 use alloc::string::ToString;
+use core::{ffi::c_void, mem};
 
 pub struct CInputSource {
     table: PocketInputSourceV1,
@@ -68,7 +73,7 @@ unsafe extern "C" fn append(context: *mut c_void, pointer: *const PocketInputFra
     let Some(append) = (unsafe { context.cast::<Append>().as_mut() }) else {
         return POCKET_STATUS_INVALID;
     };
-    match unsafe { decode(pointer) } {
+    match unsafe { decode_input_frame(pointer) } {
         Ok(frame) => {
             merge(&mut append.frame, frame);
             POCKET_STATUS_OK
@@ -100,7 +105,14 @@ impl InputSource for CInputSource {
         }
     }
 }
-unsafe fn decode(pointer: *const PocketInputFrame) -> Result<InputFrameBuilder, AdapterError> {
+/// Decode one C input frame into the builder a Rust input source fills: the
+/// same checks the C input adapter applies to every polled contribution.
+/// # Safety
+/// The frame and its nested record arrays and text bytes remain readable
+/// until this call returns.
+pub unsafe fn decode_input_frame(
+    pointer: *const PocketInputFrame,
+) -> Result<InputFrameBuilder, AdapterError> {
     let raw = unsafe { PocketInputFrame::read_prefix(pointer) }.ok_or(AdapterError::Invalid)?;
     let mut result = InputFrameBuilder::new();
     result.buttons = raw.buttons;

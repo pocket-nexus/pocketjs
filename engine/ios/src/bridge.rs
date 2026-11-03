@@ -1,5 +1,5 @@
 use super::{PocketApple, PocketAppleFrame, POCKET_APPLE_MAX_DAMAGE_REGIONS};
-use pocket_runtime_cabi::abi::*;
+use pocket_drivers::abi::*;
 use std::{cell::RefCell, collections::VecDeque, ffi::c_void, mem};
 
 #[derive(Default)]

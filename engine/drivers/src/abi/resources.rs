@@ -1,4 +1,6 @@
 use super::*;
+use crate::{FontView, RenderResources, TexView};
+use core::ffi::c_void;
 
 /// Borrowed callback-backed views. The caller of new guarantees lookup buffers
 /// remain unchanged for the frame borrow, including successive lookups.
