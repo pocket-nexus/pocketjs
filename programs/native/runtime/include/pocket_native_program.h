@@ -26,13 +26,15 @@ typedef struct {
 #define POCKET_NATIVE_PACKAGE_OFFLOAD 2u    /* features["io.offload"] */
 #define POCKET_NATIVE_PACKAGE_COMPANIONS 4u /* companions is not empty */
 
-/* 0 = admitted: footer hash, the first variant the exported profile facts
- * admit (binding generation, raster density, animation, rate, viewport,
- * presentation, capabilities, auxiliary surface), identity, plan and
- * NUL-terminated JS. 1-11 package errors (7 binding generation, 9 plan),
- * 12 bad arguments, 13 plan JSON, 14 plan viewport, 17 section layout,
- * 18 worker section, 19-25 the first failed admission item. profile_hash is
- * null or the host profile SHA-256 (32 readable bytes); it only orders
+/* Returns the POCKET_PACKAGE_OPEN_* codes of pocket_runtime.h.
+ * POCKET_PACKAGE_OPEN_OK = admitted: footer hash, the first variant the
+ * exported profile facts admit (binding generation, raster density,
+ * animation, rate, viewport, presentation, capabilities, auxiliary surface),
+ * identity, plan and NUL-terminated JS. BAD_ARGUMENT for a null or empty
+ * argument; PLAN_JSON for a plan that is not one JSON object; PLAN_VIEWPORT
+ * for a plan whose viewport or auxiliary surface cannot be read (a program
+ * has no auxiliary surface); PLAN_AUXILIARY is not returned here. profile_hash
+ * is null or the host profile SHA-256 (32 readable bytes); it only orders
  * variants. */
 int32_t pocket_native_package_open(
   const uint8_t *bytes,

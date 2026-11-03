@@ -534,13 +534,17 @@ package compiled for the original host contract.**
 A device takes the first variant whose `profileHash` equals its own and that it
 admits, then the first other variant it admits. When none qualifies it rejects
 the package and names the items the closest variant lacks, for example
-`variant 0 (psp) is not admitted: rasterDensity`. The C package-open entry
-points return the first failing item as a code: **7** binding generation,
-**9** plan, **19** raster density, **20** animation, **21** rate, **22**
-viewport, **23** presentation, **24** capability, **25** auxiliary
-(`engine/runtime-cabi/src/package_open.rs`). Repack, `pocket pack` and the
-companion agent read a runtime's `pocket.host.json` and apply the same
-rules.
+`variant 0 (psp) is not admitted: rasterDensity`. **The three C package-open
+entry points, `pocket_native_package_open`, the 3DS product's
+`pocket_package_open` and the ESP-IDF archive's `pocket_idf_package_open`,
+return one table of `POCKET_PACKAGE_OPEN_*` codes**, declared in
+`contracts/spec/runtime-abi.ts` and generated into `pocket_runtime.h` and
+`pocket_drivers::abi`. The first failing item is its code:
+`POCKET_PACKAGE_OPEN_BINDING_GENERATION` (7), `PLAN` (9), `RASTER_DENSITY`
+(19), `ANIMATION` (20), `RATE` (21), `VIEWPORT` (22), `PRESENTATION` (23),
+`CAPABILITY` (24), `AUXILIARY` (25); `engine/runtime-cabi/src/package_open.rs`
+maps every other selection failure. Repack, `pocket pack` and the companion
+agent read a runtime's `pocket.host.json` and apply the same rules.
 
 ### Rate and cadence
 

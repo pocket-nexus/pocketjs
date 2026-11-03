@@ -30,6 +30,33 @@ typedef uint32_t pocket_renderer_id;
 #define POCKET_RESULT_I64 1U
 #define POCKET_RESULT_F64 2U
 #define POCKET_RESULT_BYTES 3U
+/* Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (engine/runtime-cabi/src/package_open.rs). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned. */
+#define POCKET_PACKAGE_OPEN_OK (0)
+#define POCKET_PACKAGE_OPEN_TRUNCATED (1)
+#define POCKET_PACKAGE_OPEN_BAD_MAGIC (2)
+#define POCKET_PACKAGE_OPEN_BAD_VERSION (3)
+#define POCKET_PACKAGE_OPEN_HASH_MISMATCH (4)
+#define POCKET_PACKAGE_OPEN_BAD_UTF8 (5)
+#define POCKET_PACKAGE_OPEN_NO_VARIANT (6)
+#define POCKET_PACKAGE_OPEN_BINDING_GENERATION (7)
+#define POCKET_PACKAGE_OPEN_NO_IDENTITY (8)
+#define POCKET_PACKAGE_OPEN_PLAN (9)
+#define POCKET_PACKAGE_OPEN_NO_JAVASCRIPT (10)
+#define POCKET_PACKAGE_OPEN_JAVASCRIPT_NOT_TERMINATED (11)
+#define POCKET_PACKAGE_OPEN_BAD_ARGUMENT (12)
+#define POCKET_PACKAGE_OPEN_PLAN_JSON (13)
+#define POCKET_PACKAGE_OPEN_PLAN_VIEWPORT (14)
+#define POCKET_PACKAGE_OPEN_PLAN_AUXILIARY (15)
+#define POCKET_PACKAGE_OPEN_BAD_LAYOUT (17)
+#define POCKET_PACKAGE_OPEN_WORKER_SECTION (18)
+#define POCKET_PACKAGE_OPEN_RASTER_DENSITY (19)
+#define POCKET_PACKAGE_OPEN_ANIMATION (20)
+#define POCKET_PACKAGE_OPEN_RATE (21)
+#define POCKET_PACKAGE_OPEN_VIEWPORT (22)
+#define POCKET_PACKAGE_OPEN_PRESENTATION (23)
+#define POCKET_PACKAGE_OPEN_CAPABILITY (24)
+#define POCKET_PACKAGE_OPEN_AUXILIARY (25)
+#define POCKET_PACKAGE_OPEN_BAD_BYTECODE (26)
 typedef struct pocket_glyph_page pocket_glyph_page;
 typedef struct pocket_tick_timing pocket_tick_timing;
 typedef struct pocket_profile_display pocket_profile_display;

@@ -28,14 +28,12 @@ pub const POCKET_NATIVE_PACKAGE_COMPANIONS: u32 = 4;
 
 /// Verify a complete `.pocket` (footer hash included) and select the first
 /// variant the exported profile facts admit (`pocket_package::admission`).
-/// 0 = admitted; the other codes are `package_open::guest_error_code`'s: 1-5
-/// a damaged file, 6 no variant, 7 another binding generation, 8 a missing
-/// identity, 9 an unreadable plan, 10-11 missing or unterminated JavaScript,
-/// 12 a bad argument, 13-14 a plan whose JSON or viewport cannot be read, 17
-/// an invalid section layout, 18 a plan whose `domains.worker` and section 8
-/// disagree, and 19-25 the first failed admission item (raster density,
-/// animation, rate, viewport, presentation, capability, auxiliary). The
-/// profile hash, null or 32 readable bytes, only orders variants.
+/// Returns the generated `POCKET_PACKAGE_OPEN_*` codes of `pocket_runtime.h`:
+/// `OK` admits; the selection codes are `package_open::guest_error_code`'s;
+/// `BAD_ARGUMENT` for a null or empty argument; `PLAN_JSON` for a plan that
+/// is not one JSON object. A program has no auxiliary surface, so a plan
+/// whose viewport or auxiliary surface cannot be read is `PLAN_VIEWPORT`.
+/// The profile hash, null or 32 readable bytes, only orders variants.
 ///
 /// # Safety
 /// `ptr` is readable for `len` bytes, `facts` follows
@@ -50,9 +48,13 @@ pub unsafe extern "C" fn pocket_native_package_open(
     profile_hash: *const u8,
     out: *mut PocketNativePackage,
 ) -> i32 {
+    use pocket_runtime_cabi::abi::{
+        POCKET_PACKAGE_OPEN_BAD_ARGUMENT, POCKET_PACKAGE_OPEN_OK, POCKET_PACKAGE_OPEN_PLAN_JSON,
+        POCKET_PACKAGE_OPEN_PLAN_VIEWPORT,
+    };
     use pocketjs_core::plan_facts::{plan_facts, PlanFactsError};
     if ptr.is_null() || len == 0 || facts.is_null() || out.is_null() {
-        return 12;
+        return POCKET_PACKAGE_OPEN_BAD_ARGUMENT;
     }
     let guest = match pocket_runtime_cabi::package_open::admit(
         core::slice::from_raw_parts(ptr, len),
@@ -65,8 +67,10 @@ pub unsafe extern "C" fn pocket_native_package_open(
     };
     let facts = match plan_facts(guest.plan) {
         Ok(facts) => facts,
-        Err(PlanFactsError::Malformed) => return 13,
-        Err(_) => return 14,
+        Err(PlanFactsError::Malformed) => return POCKET_PACKAGE_OPEN_PLAN_JSON,
+        Err(PlanFactsError::Viewport) | Err(PlanFactsError::Auxiliary) => {
+            return POCKET_PACKAGE_OPEN_PLAN_VIEWPORT
+        }
     };
     let mut features = 0;
     if facts.feature("ui.physics") {
@@ -91,5 +95,5 @@ pub unsafe extern "C" fn pocket_native_package_open(
         raster_density: facts.viewport.raster_density,
         features,
     });
-    0
+    POCKET_PACKAGE_OPEN_OK
 }

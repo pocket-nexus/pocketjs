@@ -130,6 +130,33 @@ pub const POCKET_RESULT_NONE: u32 = 0;
 pub const POCKET_RESULT_I64: u32 = 1;
 pub const POCKET_RESULT_F64: u32 = 2;
 pub const POCKET_RESULT_BYTES: u32 = 3;
+// Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (engine/runtime-cabi/src/package_open.rs). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned.
+pub const POCKET_PACKAGE_OPEN_OK: i32 = 0;
+pub const POCKET_PACKAGE_OPEN_TRUNCATED: i32 = 1;
+pub const POCKET_PACKAGE_OPEN_BAD_MAGIC: i32 = 2;
+pub const POCKET_PACKAGE_OPEN_BAD_VERSION: i32 = 3;
+pub const POCKET_PACKAGE_OPEN_HASH_MISMATCH: i32 = 4;
+pub const POCKET_PACKAGE_OPEN_BAD_UTF8: i32 = 5;
+pub const POCKET_PACKAGE_OPEN_NO_VARIANT: i32 = 6;
+pub const POCKET_PACKAGE_OPEN_BINDING_GENERATION: i32 = 7;
+pub const POCKET_PACKAGE_OPEN_NO_IDENTITY: i32 = 8;
+pub const POCKET_PACKAGE_OPEN_PLAN: i32 = 9;
+pub const POCKET_PACKAGE_OPEN_NO_JAVASCRIPT: i32 = 10;
+pub const POCKET_PACKAGE_OPEN_JAVASCRIPT_NOT_TERMINATED: i32 = 11;
+pub const POCKET_PACKAGE_OPEN_BAD_ARGUMENT: i32 = 12;
+pub const POCKET_PACKAGE_OPEN_PLAN_JSON: i32 = 13;
+pub const POCKET_PACKAGE_OPEN_PLAN_VIEWPORT: i32 = 14;
+pub const POCKET_PACKAGE_OPEN_PLAN_AUXILIARY: i32 = 15;
+pub const POCKET_PACKAGE_OPEN_BAD_LAYOUT: i32 = 17;
+pub const POCKET_PACKAGE_OPEN_WORKER_SECTION: i32 = 18;
+pub const POCKET_PACKAGE_OPEN_RASTER_DENSITY: i32 = 19;
+pub const POCKET_PACKAGE_OPEN_ANIMATION: i32 = 20;
+pub const POCKET_PACKAGE_OPEN_RATE: i32 = 21;
+pub const POCKET_PACKAGE_OPEN_VIEWPORT: i32 = 22;
+pub const POCKET_PACKAGE_OPEN_PRESENTATION: i32 = 23;
+pub const POCKET_PACKAGE_OPEN_CAPABILITY: i32 = 24;
+pub const POCKET_PACKAGE_OPEN_AUXILIARY: i32 = 25;
+pub const POCKET_PACKAGE_OPEN_BAD_BYTECODE: i32 = 26;
 
 pub type PocketTextureFn = unsafe extern "C" fn(context: *const c_void, handle: i32, out: *mut PocketTextureView) -> i32;
 

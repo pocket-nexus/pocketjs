@@ -1301,3 +1301,38 @@ fn queued_flush_requires_a_device_owned_target() {
         Err(PresentError::InvalidDisplayDescriptor)
     );
 }
+
+/// Slot 0 is the built-in software rasterizer that C programs name with
+/// POCKET_RENDERER_SOFTWARE; registered renderers take the ids from 1 on.
+#[test]
+fn slot_zero_is_the_software_renderer_and_registered_ids_start_at_one() {
+    assert_eq!(
+        RendererId::SOFTWARE.as_raw(),
+        pocket_drivers::abi::POCKET_RENDERER_SOFTWARE
+    );
+    assert_eq!(RendererId::from_raw(0), RendererId::SOFTWARE);
+    let state = Shared::default();
+    let mut coordinator = Coordinator::new(1, 96).unwrap();
+    let renderer = || FakeRenderer {
+        state: state.clone(),
+        zero_copy: false,
+        version: pocket_spec::DRAW_LIST_VERSION,
+        sync: Synchronization::Deferred,
+    };
+    assert_eq!(coordinator.add_renderer(renderer()).unwrap().as_raw(), 1);
+    assert_eq!(coordinator.add_renderer(renderer()).unwrap().as_raw(), 2);
+    // A CPU-visible display binds to slot 0 without registering a renderer.
+    coordinator
+        .add_display(
+            cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary),
+            RendererId::SOFTWARE,
+        )
+        .unwrap();
+    assert!(matches!(
+        coordinator.add_display(
+            cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary),
+            RendererId::from_raw(3),
+        ),
+        Err(PresentError::InvalidRenderer)
+    ));
+}

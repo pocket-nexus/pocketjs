@@ -23,6 +23,37 @@ export const RUNTIME_ABI_CONSTANTS: Readonly<Record<string, number>> = {
   POCKET_RESULT_NONE: 0, POCKET_RESULT_I64: 1, POCKET_RESULT_F64: 2, POCKET_RESULT_BYTES: 3,
 };
 
+export const PACKAGE_OPEN_STATUS_DOC = "Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (engine/runtime-cabi/src/package_open.rs). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned.";
+/** One `int32_t` code space, positive, distinct from the negative POCKET_STATUS_* values. */
+export const PACKAGE_OPEN_STATUS: Readonly<Record<string, number>> = {
+  POCKET_PACKAGE_OPEN_OK: 0,
+  POCKET_PACKAGE_OPEN_TRUNCATED: 1,
+  POCKET_PACKAGE_OPEN_BAD_MAGIC: 2,
+  POCKET_PACKAGE_OPEN_BAD_VERSION: 3,
+  POCKET_PACKAGE_OPEN_HASH_MISMATCH: 4,
+  POCKET_PACKAGE_OPEN_BAD_UTF8: 5,
+  POCKET_PACKAGE_OPEN_NO_VARIANT: 6,
+  POCKET_PACKAGE_OPEN_BINDING_GENERATION: 7,
+  POCKET_PACKAGE_OPEN_NO_IDENTITY: 8,
+  POCKET_PACKAGE_OPEN_PLAN: 9,
+  POCKET_PACKAGE_OPEN_NO_JAVASCRIPT: 10,
+  POCKET_PACKAGE_OPEN_JAVASCRIPT_NOT_TERMINATED: 11,
+  POCKET_PACKAGE_OPEN_BAD_ARGUMENT: 12,
+  POCKET_PACKAGE_OPEN_PLAN_JSON: 13,
+  POCKET_PACKAGE_OPEN_PLAN_VIEWPORT: 14,
+  POCKET_PACKAGE_OPEN_PLAN_AUXILIARY: 15,
+  POCKET_PACKAGE_OPEN_BAD_LAYOUT: 17,
+  POCKET_PACKAGE_OPEN_WORKER_SECTION: 18,
+  POCKET_PACKAGE_OPEN_RASTER_DENSITY: 19,
+  POCKET_PACKAGE_OPEN_ANIMATION: 20,
+  POCKET_PACKAGE_OPEN_RATE: 21,
+  POCKET_PACKAGE_OPEN_VIEWPORT: 22,
+  POCKET_PACKAGE_OPEN_PRESENTATION: 23,
+  POCKET_PACKAGE_OPEN_CAPABILITY: 24,
+  POCKET_PACKAGE_OPEN_AUXILIARY: 25,
+  POCKET_PACKAGE_OPEN_BAD_BYTECODE: 26,
+};
+
 export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
   record("PocketGlyphPage", "pocket_glyph_page", [f("page", "u32"), f("first", "u32"), f("count", "u32"), f("width", "u32"), f("height", "u32"), f("uv", "[f32; 4]")], "Guarded A8 page layout and requested glyph UVs; rows include the transparent one-texel guard. The caller owns output storage."),
   record("PocketTickTiming", "pocket_tick_timing", [f("index", "u64"), f("deadline", "u64"), f("skipped", "u64")], "Monotonic microsecond deadline and wall-clock slot index. Skipped slots do not advance guest simulation."),

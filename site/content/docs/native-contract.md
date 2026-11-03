@@ -196,7 +196,11 @@ make an old renderer understand a new DrawList operation. The runtime lifecycle
 tests cover old-package rejection before guest initialization and replacement
 with a current package. Before a release, `bun tools/test-runtime-cabi-compat.ts`
 compiles and links old/new C prefixes in both directions against the archive of
-the first revision with `pocket_profile_facts`; CI does not run it.
+the first main-line revision with `pocket_profile_facts`, and
+`bun tools/test-native-program-compat.ts` does the same for
+`pocket_native_program.h` against that revision's program archive, built under
+its own crate name and features. **Both tools fail when the two archives come
+from one source revision or are byte-identical.** CI does not run them.
 
 ## The op table
 

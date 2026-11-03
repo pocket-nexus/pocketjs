@@ -3,7 +3,14 @@
 //! runtime admits the package again at boot; this call shares its reader.
 use pocket_package::sha256::sha256_hex_prefix;
 use pocket_package::{plan_facts, PlanFactsError};
-use pocket_runtime_cabi::{abi::PocketProfileFacts, package_open};
+use pocket_runtime_cabi::{
+    abi::{
+        PocketProfileFacts, POCKET_PACKAGE_OPEN_BAD_ARGUMENT, POCKET_PACKAGE_OPEN_NO_IDENTITY,
+        POCKET_PACKAGE_OPEN_OK, POCKET_PACKAGE_OPEN_PLAN_AUXILIARY, POCKET_PACKAGE_OPEN_PLAN_JSON,
+        POCKET_PACKAGE_OPEN_PLAN_VIEWPORT,
+    },
+    package_open,
+};
 
 /// Borrowed sections of one verified `.pocket`; the caller keeps the bytes
 /// alive while it reads them.
@@ -47,12 +54,12 @@ pub const POCKET_IDF_FEATURE_DEVICE: u32 = 64;
 
 /// Verify a complete `.pocket` and admit the first variant the exported
 /// profile facts satisfy (`pocket_package::admission`), then read its facts.
-/// Returns 0 on success; the non-zero codes are those of the 3DS product's
-/// `pocket_package_open` (`package_open::guest_error_code`: 12 is a bad
-/// pointer or a short record, 13 to 15 a plan whose JSON, viewport or
-/// auxiliary surface cannot be read, 17 a malformed layout, 18 a worker
-/// declaration and section that disagree, 19 to 25 the first failed
-/// admission item, 26 a bytecode section that is no envelope). The profile
+/// Returns the generated `POCKET_PACKAGE_OPEN_*` codes of `pocket_runtime.h`,
+/// the same table as the 3DS product's `pocket_package_open`: `OK` on
+/// success, the selection codes of `package_open::guest_error_code`,
+/// `BAD_ARGUMENT` for a bad pointer or a short record, `NO_IDENTITY` for an
+/// empty app id, and `PLAN_JSON`, `PLAN_VIEWPORT` or `PLAN_AUXILIARY` for a
+/// plan whose JSON, viewport or auxiliary surface cannot be read. The profile
 /// hash only orders variants.
 ///
 /// # Safety
@@ -75,7 +82,7 @@ pub unsafe extern "C" fn pocket_idf_package_open(
         || out.is_null()
         || unsafe { (*out).struct_size } < core::mem::size_of::<PocketIdfPackageFacts>()
     {
-        return 12;
+        return POCKET_PACKAGE_OPEN_BAD_ARGUMENT;
     }
     let package = unsafe { core::slice::from_raw_parts(bytes, length) };
     let guest = match unsafe { package_open::admit(package, facts, host_abi, profile_hash) } {
@@ -83,13 +90,13 @@ pub unsafe extern "C" fn pocket_idf_package_open(
         Err(code) => return code,
     };
     if guest.id.is_empty() {
-        return 8;
+        return POCKET_PACKAGE_OPEN_NO_IDENTITY;
     }
     let facts = match plan_facts(guest.plan) {
         Ok(facts) => facts,
-        Err(PlanFactsError::Malformed) => return 13,
-        Err(PlanFactsError::Viewport) => return 14,
-        Err(PlanFactsError::Auxiliary) => return 15,
+        Err(PlanFactsError::Malformed) => return POCKET_PACKAGE_OPEN_PLAN_JSON,
+        Err(PlanFactsError::Viewport) => return POCKET_PACKAGE_OPEN_PLAN_VIEWPORT,
+        Err(PlanFactsError::Auxiliary) => return POCKET_PACKAGE_OPEN_PLAN_AUXILIARY,
     };
     let auxiliary = facts.auxiliary;
     let mut slot = [0u8; 17];
@@ -121,5 +128,132 @@ pub unsafe extern "C" fn pocket_idf_package_open(
             slot,
         });
     }
-    0
+    POCKET_PACKAGE_OPEN_OK
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pocket_runtime_cabi::abi::*;
+
+    const PLAN: &[u8] = br#"{"features":{"data.fs":true},"profile":{"tickHz":60},"viewport":{"logical":[32,24],"presentation":"native","rasterDensity":1}}"#;
+    /// Admission compares the variant's generation with the host's for
+    /// equality; the encoder and the entry point receive the same value.
+    const GENERATION: u32 = 0x1234;
+
+    fn package() -> Vec<u8> {
+        let identity =
+            pocket_package::embedded::identity("fixture", "dev.fixture", "Fixture").unwrap();
+        pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "idf",
+            host_abi: GENERATION,
+            profile_hash: [0x51; 32],
+            identity: &identity,
+            plan: PLAN,
+            code: b"fixture",
+            pak: &[],
+        })
+        .unwrap()
+    }
+
+    fn display(raster_density: u32) -> PocketProfileDisplay {
+        static LOGICAL: [u32; 2] = [32, 24];
+        PocketProfileDisplay {
+            physical: [32, 24],
+            logical: LOGICAL.as_ptr(),
+            logical_count: 1,
+            raster_density,
+            ..PocketProfileDisplay::empty()
+        }
+    }
+
+    fn facts(display: &PocketProfileDisplay) -> PocketProfileFacts {
+        PocketProfileFacts {
+            id: b"idf".as_ptr(),
+            id_length: 3,
+            tick_hz: 60,
+            input_classes: POCKET_INPUT_CLASS_BUTTONS,
+            display,
+            capabilities: b"data.fs\0".as_ptr(),
+            capabilities_length: 8,
+            ..PocketProfileFacts::empty()
+        }
+    }
+
+    /// The launcher's entry point reports the generated codes and the plan
+    /// facts of an admitted variant.
+    #[test]
+    fn opens_an_admitted_package_and_reports_generated_codes() {
+        let bytes = package();
+        let hash = [0x51u8; 32];
+        let panel = display(1);
+        let host = facts(&panel);
+        let mut out: PocketIdfPackageFacts = unsafe { core::mem::zeroed() };
+        out.struct_size = core::mem::size_of::<PocketIdfPackageFacts>();
+        let open = |bytes: &[u8],
+                    host: &PocketProfileFacts,
+                    abi: u32,
+                    out: &mut PocketIdfPackageFacts| unsafe {
+            pocket_idf_package_open(bytes.as_ptr(), bytes.len(), host, abi, hash.as_ptr(), out)
+        };
+        let generation = GENERATION;
+        assert_eq!(
+            unsafe {
+                pocket_idf_package_open(
+                    core::ptr::null(),
+                    0,
+                    &host,
+                    generation,
+                    hash.as_ptr(),
+                    &mut out,
+                )
+            },
+            POCKET_PACKAGE_OPEN_BAD_ARGUMENT
+        );
+        out.struct_size = 8;
+        assert_eq!(
+            open(&bytes, &host, generation, &mut out),
+            POCKET_PACKAGE_OPEN_BAD_ARGUMENT
+        );
+        out.struct_size = core::mem::size_of::<PocketIdfPackageFacts>();
+        assert_eq!(
+            open(&bytes, &host, generation.wrapping_add(1), &mut out),
+            POCKET_PACKAGE_OPEN_BINDING_GENERATION
+        );
+        let dense = display(2);
+        assert_eq!(
+            open(&bytes, &facts(&dense), generation, &mut out),
+            POCKET_PACKAGE_OPEN_RASTER_DENSITY
+        );
+        let mut damaged = bytes.clone();
+        *damaged.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            open(&damaged, &host, generation, &mut out),
+            POCKET_PACKAGE_OPEN_HASH_MISMATCH
+        );
+        assert_eq!(
+            open(&bytes, &host, generation, &mut out),
+            POCKET_PACKAGE_OPEN_OK
+        );
+        assert_eq!(
+            out.struct_size,
+            core::mem::size_of::<PocketIdfPackageFacts>()
+        );
+        assert_eq!(
+            (
+                out.view_width,
+                out.view_height,
+                out.raster_density,
+                out.aux_width,
+                out.aux_height
+            ),
+            (32, 24, 1, 0, 0)
+        );
+        assert_eq!(out.features, POCKET_IDF_FEATURE_FS);
+        assert_eq!(out.javascript_length, b"fixture\0".len());
+        assert_eq!(out.plan_length, PLAN.len());
+        assert_ne!(out.package_hash, 0);
+        assert_eq!(out.slot[16], 0);
+        assert!(out.slot[..16].iter().all(u8::is_ascii_hexdigit));
+    }
 }

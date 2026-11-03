@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { canonicalProfileJson, type PocketProfile } from "../contracts/spec/profile.ts";
+import { HOST_ABI_FUNCTIONS, RUNTIME_ABI_FUNCTIONS } from "../contracts/spec/runtime-abi.ts";
 import { profileFactsC } from "../tools/profile-export.ts";
 import { compilerRtMembers, exportSdk, parseSdkExport, verifySdk } from "../tools/sdk.ts";
 
@@ -54,7 +55,9 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     const match = /^[0-9a-fA-F]+\s+[TDBR]\s+_?(\w+)$/.exec(line.trim());
     return match ? [match[1]!] : [];
   }));
-  for (const symbol of ["pocket_runtime_create", "pocket_runtime_tick", "pocket_runtime_destroy", "pocket_raster_draw_op", "pocket_draw_list_visit"]) expect(symbols.has(symbol), symbol).toBe(true);
+  // The archive defines every function pocket_runtime.h declares; the six host hooks stay the program's.
+  for (const fn of RUNTIME_ABI_FUNCTIONS) expect(symbols.has(fn.name), fn.name).toBe(true);
+  for (const fn of HOST_ABI_FUNCTIONS) expect(symbols.has(fn.name), fn.name).toBe(false);
   expect([...symbols].filter(symbol => /^(ui_|pocketjs_native_|pocketjs_idf_)/.test(symbol))).toEqual([]);
   await expect(exportSdk(options)).rejects.toThrow("already exists");
   const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "Cargo.toml"], root));

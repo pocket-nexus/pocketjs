@@ -63,6 +63,24 @@ int main(void) {
   char source[2048];
   int source_length = snprintf(source, sizeof source, source_template, (unsigned)POCKET_BINDING_GENERATION);
   assert(source_length > 0 && (size_t)source_length < sizeof source);
+  /* The inspection entry point reports the generated POCKET_PACKAGE_OPEN_* codes. */
+  PocketNativePackage opened;
+  assert(pocket_native_package_open(fixture_package, sizeof fixture_package, pocket_profile.facts, POCKET_BINDING_GENERATION,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_OK);
+  assert(opened.view_width == 360 && opened.view_height == 640 && opened.raster_density == 1 && opened.features == 0);
+  assert(opened.javascript_length > 0 && opened.javascript[opened.javascript_length - 1] == 0 && opened.plan_length > 0 && opened.package_hash != 0);
+  assert(pocket_native_package_open(NULL, 0, pocket_profile.facts, POCKET_BINDING_GENERATION, pocket_profile.profile_hash, &opened)
+    == POCKET_PACKAGE_OPEN_BAD_ARGUMENT);
+  assert(pocket_native_package_open(fixture_package, sizeof fixture_package, pocket_profile.facts, POCKET_BINDING_GENERATION - 1,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_BINDING_GENERATION);
+  pocket_profile_display dense = *pocket_profile.facts->display; dense.raster_density = 2;
+  pocket_profile_facts other = *pocket_profile.facts; other.display = &dense;
+  assert(pocket_native_package_open(fixture_package, sizeof fixture_package, &other, POCKET_BINDING_GENERATION,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_RASTER_DENSITY);
+  unsigned char damaged[sizeof fixture_package];
+  memcpy(damaged, fixture_package, sizeof damaged); damaged[sizeof damaged - 1] ^= 1;
+  assert(pocket_native_package_open(damaged, sizeof damaged, pocket_profile.facts, POCKET_BINDING_GENERATION,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_HASH_MISMATCH);
   assert(!pocket_native_program_create_package("native-program-fixture", POCKET_BINDING_GENERATION - 1, fixture_package, sizeof fixture_package,
     "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
     pocket_profile.facts, pocket_profile.profile_hash));
