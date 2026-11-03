@@ -116,7 +116,9 @@ A refused change answers **400** with `{error}`. A service with no setup
 answers **404** at `/_setup`. A program a service keeps running (its own
 helper, a vendor tool) runs under `Supervised` (`tools/companion/supervise.ts`):
 started again when it exits after **1 s**, doubling to **30 s**, with its
-arguments and environment read at each start.
+arguments and environment read at each start. It does not outlive its
+supervisor: with `pidFile`, a start first stops the run the file names when
+that process is the same program, and the supervisor's exit stops it.
 
 ## Source rules
 

@@ -190,6 +190,29 @@ describe("a supervised program", () => {
     expect(program.running).toBe(false);
   });
 
+  test("a new supervisor stops the run an earlier one left behind", async () => {
+    const pidFile = join(dir, "probe.pid");
+    const argv = () => [process.execPath, "-e", "setInterval(() => {}, 1000)"];
+    const first = new Supervised({ name: "probe", argv, pidFile });
+    first.start();
+    const orphan = first.pid!;
+    expect(readFileSync(pidFile, "utf8").split("\n")[0]).toBe(String(orphan));
+    // the first supervisor is gone without stopping it (a service manager that kills only its main process)
+    const second = new Supervised({ name: "probe", argv, pidFile });
+    second.start();
+    await until(() => {
+      try {
+        process.kill(orphan, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(second.pid).not.toBe(orphan);
+    expect(second.running).toBe(true);
+    second.stop();
+  });
+
   test("argv is read at each start, and nothing starts while it answers null", async () => {
     let binary: string | null = null;
     const seen: string[] = [];
