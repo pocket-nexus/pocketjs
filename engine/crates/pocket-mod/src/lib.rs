@@ -20,6 +20,8 @@
 //! process access. A guest can affect exactly what its mounted surfaces
 //! express.
 
+use std::cell::Cell;
+
 use anyhow::{Result, anyhow};
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Object, Runtime};
 
@@ -30,6 +32,10 @@ pub use rquickjs as qjs;
 pub struct Guest {
     rt: Runtime,
     ctx: Context,
+    /// the limit set_memory_limit set (0: none)
+    heap_limit: Cell<usize>,
+    /// the collection threshold keep_collection_below_limit set last
+    threshold_set: Cell<usize>,
 }
 
 impl Guest {
@@ -51,7 +57,12 @@ impl Guest {
         let ctx = Context::full(&rt)?;
         ctx.with(|ctx| install_console(&ctx))
             .map_err(|e| anyhow!("pocket-mod: installing console: {e}"))?;
-        Ok(Guest { rt, ctx })
+        Ok(Guest {
+            rt,
+            ctx,
+            heap_limit: Cell::new(0),
+            threshold_set: Cell::new(0),
+        })
     }
 
     /// Run `f` with the realm's [`Ctx`]. Surface crates use this to build
@@ -83,14 +94,23 @@ impl Guest {
     /// Evaluate a product bundle (an iife script, the PocketJS build output)
     /// as a global script. Exceptions come back as errors with the JS stack.
     pub fn eval(&self, label: &str, source: &str) -> Result<()> {
-        self.ctx.with(|ctx| -> Result<()> {
+        let turn = self.ctx.with(|ctx| -> Result<()> {
             ctx.eval::<(), _>(source.as_bytes())
                 .catch(&ctx)
                 .map_err(|e| anyhow!("pocket-mod: eval '{label}' failed: {e}"))?;
             Ok(())
-        })?;
-        self.drain_jobs();
-        Ok(())
+        });
+        self.finish(turn)
+    }
+
+    /// The end of a turn this realm runs: its jobs drained when it returned,
+    /// and the collection threshold kept below the limit either way.
+    fn finish(&self, turn: Result<()>) -> Result<()> {
+        if turn.is_ok() {
+            self.drain_jobs();
+        }
+        self.keep_collection_below_limit();
+        turn
     }
 
     /// One guest turn at a centered analog nub — hosts without a stick call
@@ -105,7 +125,7 @@ impl Guest {
     /// as (x << 8) | y, each axis 0..255 with 128 = center. Call exactly
     /// once per fixed-step tick.
     pub fn frame_with_analog(&self, buttons: u32, analog: u32) -> Result<()> {
-        self.ctx.with(|ctx| -> Result<()> {
+        let turn = self.ctx.with(|ctx| -> Result<()> {
             let frame: Option<Function> = ctx.globals().get("frame").ok();
             if let Some(frame) = frame {
                 frame
@@ -114,9 +134,8 @@ impl Guest {
                     .map_err(|e| anyhow!("pocket-mod: frame() threw: {e}"))?;
             }
             Ok(())
-        })?;
-        self.drain_jobs();
-        Ok(())
+        });
+        self.finish(turn)
     }
 
     /// One guest turn with touch contacts. `touches` packs each contact as
@@ -157,7 +176,7 @@ impl Guest {
         touches: &[u32],
         hits: Option<&[i32]>,
     ) -> Result<()> {
-        self.ctx.with(|ctx| -> Result<()> {
+        let turn = self.ctx.with(|ctx| -> Result<()> {
             let frame: Option<Function> = ctx.globals().get("frame").ok();
             if let Some(frame) = frame {
                 let arr = rquickjs::Array::new(ctx.clone())
@@ -186,24 +205,49 @@ impl Guest {
                 }
             }
             Ok(())
-        })?;
-        self.drain_jobs();
-        Ok(())
+        });
+        self.finish(turn)
     }
 
     /// Bound this realm before a canonical runtime initializes its guest.
+    /// Each turn this realm runs, and collect_result, then keeps QuickJS's
+    /// collection threshold below the limit ([`Guest::keep_collection_below_limit`]).
     pub fn set_memory_limit(&self, bytes: usize) {
         self.rt.set_memory_limit(bytes);
+        self.heap_limit.set(bytes);
+        self.threshold_set.set(0);
+    }
+
+    /// Keep QuickJS's collection threshold below the memory limit after a
+    /// turn ([`pocket_guest_rquickjs::keep_collection_below_limit`]): with the
+    /// live heap above two thirds of the limit, the threshold QuickJS sets
+    /// lies past it, and garbage a collection would free runs the guest out
+    /// of memory. eval, the frame turns and collect_result call it; a host
+    /// that runs a turn through [`Guest::with`] calls it after a turn that
+    /// threw. Nothing changes without a limit.
+    pub fn keep_collection_below_limit(&self) {
+        self.threshold_set
+            .set(pocket_guest_rquickjs::keep_collection_below_limit(
+                &self.rt,
+                &self.ctx,
+                self.heap_limit.get(),
+                self.threshold_set.get(),
+            ));
     }
 
     /// Drain jobs for a runtime-owned turn. Any failed job fails that turn.
+    /// The collection threshold is kept below the limit after it either way.
     pub fn collect_result(&self) -> Result<()> {
-        while self.rt.is_job_pending() {
-            self.rt
-                .execute_pending_job()
-                .map_err(|error| anyhow!("pocket-mod: pending job: {error:?}"))?;
-        }
-        Ok(())
+        let drained = (|| {
+            while self.rt.is_job_pending() {
+                self.rt
+                    .execute_pending_job()
+                    .map_err(|error| anyhow!("pocket-mod: pending job: {error:?}"))?;
+            }
+            Ok(())
+        })();
+        self.keep_collection_below_limit();
+        drained
     }
 
     /// Drain the microtask/job queue (promise reactions). Job exceptions are
@@ -427,6 +471,64 @@ mod tests {
         );
         let msg = format!("{:#}", err.unwrap_err());
         assert!(msg.contains("kaboom"), "got: {msg}");
+    }
+
+    /// QuickJS's collection threshold for the realm.
+    fn gc_threshold(g: &Guest) -> usize {
+        g.with(|ctx| {
+            // SAFETY: `with` holds the runtime's lock
+            unsafe {
+                qjs::qjs::JS_GetGCThreshold(qjs::qjs::JS_GetRuntime(ctx.as_raw().as_ptr())) as usize
+            }
+        })
+    }
+
+    #[test]
+    fn frames_under_a_memory_limit_collect_before_it() {
+        // a live heap near 70% of the limit, and every frame makes garbage
+        // that only a cycle collection frees
+        let g = Guest::new().unwrap();
+        g.set_memory_limit(16 << 20);
+        g.eval(
+            "boot",
+            "globalThis.keep=[];for(let i=0;i<10500;i++)keep.push('k'.repeat(1000)+i);globalThis.frames=0;globalThis.frame=()=>{for(let i=0;i<4000;i++){const a={pad:'g'.repeat(200)+i};const b={a};a.b=b}frames++}",
+        )
+        .unwrap();
+        for i in 0..40 {
+            g.frame(0).unwrap_or_else(|e| panic!("frame {i}: {e:#}"));
+        }
+        let frames: i32 = g.with(|ctx| ctx.globals().get("frames").unwrap());
+        assert_eq!(frames, 40);
+    }
+
+    #[test]
+    fn a_turn_that_throws_leaves_the_threshold_below_the_limit() {
+        let limit = 16 << 20;
+        let g = Guest::new().unwrap();
+        g.set_memory_limit(limit);
+        // ~12 MB live, then an object: QuickJS collects and sets 1.5 times
+        // that, past the limit; then the evaluation throws
+        assert!(
+            g.eval(
+                "boot",
+                "globalThis.keep=[];for(let i=0;i<12000;i++)keep.push('k'.repeat(1000)+i);({});throw new Error('after the heap grew')",
+            )
+            .is_err()
+        );
+        assert!(gc_threshold(&g) < limit, "{} of {limit}", gc_threshold(&g));
+        // a runtime-owned turn run through `with` (pocket-ui-surface's)
+        g.rt.set_gc_threshold(1);
+        assert!(g.with(|ctx| {
+            ctx.eval::<(), _>("({});throw new Error('threw')")
+                .catch(&ctx)
+                .is_err()
+        }));
+        g.keep_collection_below_limit();
+        assert!(gc_threshold(&g) < limit, "{} of {limit}", gc_threshold(&g));
+        g.rt.set_gc_threshold(1);
+        g.with(|ctx| ctx.eval::<(), _>("({})").unwrap());
+        g.collect_result().unwrap();
+        assert!(gc_threshold(&g) < limit, "{} of {limit}", gc_threshold(&g));
     }
 
     #[test]

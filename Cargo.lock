@@ -5032,6 +5032,7 @@ version = "0.16.0"
 dependencies = [
  "anyhow",
  "log",
+ "pocket-guest-rquickjs",
  "pocketjs-core",
  "rquickjs",
 ]
