@@ -603,7 +603,9 @@ bun tools/3ds.ts <app> --project-root=<dir> --extension=<dir> --extension-romfs=
 | `<extension>/src/*.c` | Compiled with this product's flags and include paths. Implements every function in `include/pocket_extension.h` |
 | `--extension-romfs` | Files staged as `romfs:/extension` |
 
-**A plan with the capability and no `--extension` fails the build.** A binary without an extension refuses such a guest at boot. `main.c` calls the extension's tick before the frame, its frame begin after the previous frame retired, its render from the primary display's draw and its after-frame outside the frame. `agent_use_channel` gives it the microphone as `<feature>.audio`, and `link_feature_ready` says when the companion offers that feature. On the computer, `main()` in `tools/companion.ts` takes `LinkExtensionFactory` values, whose sessions receive `<feature>.*` messages.
+**A plan with the capability and no `--extension` fails the build.** A binary without an extension refuses such a guest at boot. `main.c` calls the extension's tick before the frame, its frame begin after the previous frame retired, its render from the primary display's draw and its after-frame outside the frame.
+
+Two hooks are optional; `src/gfx.c` defines weak versions that return false. **`pocket_extension_shows_primary` returning true draws the guest's primary list over the scene `render` drew**, without clearing it: a 3D scene keeps a HUD the guest lays out. In 3D mode (`gfxIs3D()`) the list is drawn into both eyes at the screen's depth, so an extension that draws its scene in stereo keeps the HUD whole. **`pocket_extension_render_auxiliary` draws under the guest's touch-screen list**: it clears the auxiliary target itself, draws, and returns true; false leaves the product's clear under the list. `agent_use_channel` gives it the microphone as `<feature>.audio`, and `link_feature_ready` says when the companion offers that feature. On the computer, `main()` in `tools/companion.ts` takes `LinkExtensionFactory` values, whose sessions receive `<feature>.*` messages.
 
 ## ZL and ZR
 
