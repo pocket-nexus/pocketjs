@@ -11,7 +11,7 @@ mechanism and the companion implementation in `tools/companion/`.
 
 | Side | Process | Sockets |
 | --- | --- | --- |
-| Console | the host runtime (3DS: `products/3ds`) | UDP **8627** for beacons, one outgoing TCP connection |
+| Console | the host runtime (3DS: `products/3ds`; M5Stack Tab5: pocket-m5's `pocket_system`) | UDP **8627** for beacons, one outgoing TCP connection |
 | Companion | `tools/companion.ts serve`, or the daemon inside Pocket Companion.app | TCP **8628** listener, UDP beacon sender, control API on 127.0.0.1 |
 
 **The companion listens; the console connects.** The console holds no listening
@@ -44,7 +44,8 @@ ignores beacons from companion ids it holds no key for.
    interfaces first; tunnels and VM bridges are left out. The URI is shorter
    than **160 bytes**: the companion shortens the name to fit, and the console
    receives the full name in the `paired` reply.
-3. The console scans the code with its outer camera, connects to each host in
+3. In Pocket Shell's **Settings › Mac › Pair a Mac…** the console scans the
+   code with its camera (the 3DS's outer camera), connects to each host in
    order, and runs the handshake in mode `pair` with the secret.
 4. The companion mints a **32-byte link key**, stores it, and sends it masked
    with an HMAC of the secret and both nonces. The window closes: the secret
@@ -123,11 +124,12 @@ environment.
 
 **catalog.** The companion offers every `.pocket` file in its apps directories
 that has a variant for the console's `target` from `hello` (`3ds-dev` by
-default). A row carries the identity section's id, title and output, the
-app contract's `version` and `summary` (or `description`), the file size and the
-file's **footer hash** (FNV-1a64, 16 hex digits). The footer is verified when
-the file is scanned; a file that fails it is skipped. At most **64** rows; one
-row per app id, the first directory winning. The companion watches the
+default; the Tab5 sends `tab5-home`). A row carries the identity section's
+id, title and output, the app contract's `version` and `summary` (or
+`description`), the file size and the file's **footer hash** (FNV-1a64, 16
+hex digits). The footer is verified when the file is scanned; a file that
+fails it is skipped. At most **64** rows; one row per app id, the first
+directory winning. The companion watches the
 directories and pushes `{"t":"catalog.changed"}` to every linked console after
 the offer changes.
 
@@ -255,13 +257,13 @@ HTTP on `127.0.0.1`, a random port, `Authorization: Bearer <token>`:
 | `DELETE /pair` | closes the window |
 | `DELETE /consoles/:id` | forgets the console: `{removed}` |
 | `POST /apps-dir {path}` | sets the owner's apps folder: `{appsDir, apps}` |
-| `POST /service {name, args}` | runs a service's owner command (`x login`, `x logout`, `discord token <token>`, `discord logout`, `youtube install`): `{output}` |
-| `GET /services` | `services`: each service's setup state (`x {signedIn, since, signingIn, lastError}`, `discord {configured, bot, servers, invite, gateway, contentIntent}`, `youtube {ready, ytDlp, ffmpeg, managed, install}`), never a credential; `agent {on, enabled, codex, signedIn}`, the last two read at the request |
+| `POST /service {name, args}` | runs a service's owner command (`x login`, `x logout`, `discord token <token>`, `discord logout`, `youtube install`, `homeassistant setup <url> <token>`, `homeassistant forget`, or `status`, which every service with commands answers): `{output}` |
+| `GET /services` | `services`: the setup state of each service that reports one (`x {signedIn, since, signingIn, lastError}`, `discord {configured, bot, servers, invite, gateway, contentIntent}`, `youtube {ready, ytDlp, ffmpeg, managed, install}`, `homeassistant {ready, url}`, `podcasts`, `maps`, `store`), never a credential; `agent {on, enabled, codex, signedIn}`, the last two read at the request |
 
 `status.apps` lists every app the catalog offers once, for the default
-target (`3ds-dev`) and for the other targets its packages carry: on a
-CardputerZero the PSP applets. Entries carry each applet's `summary` and the
-`services` its app contract declares.
+target (`3ds-dev`) and for the other targets its packages carry (`tab5-home`
+for the Tab5). Entries carry each applet's `summary` and the `services` its
+app contract declares.
 
 ## Pocket Companion.app
 
@@ -285,8 +287,9 @@ bundle. Options of `tools/companion-app.ts`:
 | `--notarize <profile>` | submits the signed app to Apple's notary service with a `notarytool` keychain profile, staples the ticket and checks it with `spctl` |
 | `--zip <file>` | writes the app as a zip with `ditto` |
 
-The release of the app and its applets is built from Pocket Shell, which
-builds the applets and passes their folder with `--apps`.
+A release carries the applets of pocket-nexus/applets: Pocket Shell's `bun
+run offer` builds their 3DS and Tab5 packages (`<output>.pocket`,
+`<output>.tab5.pocket`) into one folder, which the build takes with `--apps`.
 
 The app lives in the menu bar and starts `Contents/MacOS/pocket-companion
 serve` as a child process with `--parent-pid` and `--apps` for its bundled

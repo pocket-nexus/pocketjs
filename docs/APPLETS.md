@@ -1,11 +1,13 @@
 # Pocket Applets
 
 A **Pocket Applet** is a Pocket app that a launcher runs on behalf of the
-system: Pocket Shell on the 3DS runs Hacker News, YouTube, X, Discord and
-Pocket Nexus as applets. An applet declares the app contract section `applet` and
-accepts rules a general app does not, so that one package runs on every
-launcher host, the system agent can read and operate it, and a generated
-(user- or model-written) applet can be admitted by checks alone. The launcher
+system: Pocket Shell on the M5Stack Tab5 and the Nintendo 3DS runs Hacker
+News, GitHub, X, YouTube, Discord, Notes and the other applets of
+[pocket-nexus/applets](https://github.com/pocket-nexus/applets), and Omarchy
+Pocket runs them in windows. An applet declares the app contract section
+`applet` and accepts rules a general app does not, so that one package runs
+on every launcher host, the system agent can read and operate it, and a
+generated (user- or model-written) applet can be admitted by checks alone. The launcher
 itself is an app, not an applet: it pairs, installs and switches.
 
 The contract is `contracts/spec/applet.ts`. The rules run in two places:
@@ -19,7 +21,8 @@ The contract is `contracts/spec/applet.ts`. The rules run in two places:
 
 `bun tools/applet-check.ts <pocket.app.json> [--project-root=<dir>] [--js=<bundle>
 --pak=<pak>]` runs every rule outside a build; `checkApplet` is the same check
-as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
+as a library, which pocket-nexus/applets runs over every applet in `bun run
+check` (`test/applets.test.ts`).
 
 ## The app contract section
 
@@ -43,11 +46,11 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 
 | Rule | Reason |
 | --- | --- |
-| One touch surface that admits **320×240** logical: `app.surfaces.auxiliary` is `fixed` at 320×240, or `adaptive` with a `{min, max}` range holding 320×240; `display.auxiliary` and `input.touch.auxiliary` are required | The surface is the unit every launcher host presents: the 3DS touch screen (320×240), the M5Stack Tab5's portrait panel above its home button (360×592), a browser frame. An adaptive applet reads the size the host chose with `auxiliaryViewport()` (`@pocketjs/framework/display`) and lays out for it. The primary display belongs to the system (the agent's stage on the 3DS). |
+| One touch surface that admits **320×240** logical: `app.surfaces.auxiliary` is `fixed` at 320×240, or `adaptive` with a `{min, max}` range holding 320×240; `display.auxiliary` and `input.touch.auxiliary` are required | The surface is the unit every launcher host presents: the 3DS touch screen (320×240), the M5Stack Tab5's landscape surface (640×360 logical on its 1280×720 panel), an Omarchy Pocket window, a browser frame. An adaptive applet reads the size the host chose with `auxiliaryViewport()` (`@pocketjs/framework/display`) and lays out for it. The primary display belongs to the system (the agent's stage on the 3DS). |
 | `system.agent` is enhanced | The overlay is added to every applet, so the agent can summon over it, read it and act in it. |
 | Capabilities come from an allowlist: text, buttons, left stick, the surface and touch, `net.http`, `ui.physics`, `audio.pcm`, `media.playback`, `data.fs`, `system.agent`, and `camera.*` | Pairing, Wi-Fi, offload workers and launcher control act for the whole console and stay with the launcher. An allowlist, not a denylist: a new capability is unavailable to applets until it is added here. |
 | `framework` is `solid`; no `model: "rust"`; no `app.companions` | One UI toolkit the agent's text capture and played input know; no native code; companion work goes through declared services. |
-| At most one presentation, the **full screen**: `entry` is `app.entry`, `modality` is `{screens: 1, touch: "none", buttons: true}`, no `surfaces`, no `output`. With it, `app.modality` is `{touch: "auxiliary"}`, `display.auxiliary` and `input.touch.auxiliary` move to `enhances`, and `input.buttons` is required | A device with one screen and no touch (the PSP, 480×272) runs the same program on its whole screen with its buttons. The baseline keeps serving the touch surface on dual-screen hosts. One entry means one program: the layout follows the surface size and the input follows the modality, never a second code path per device. |
+| At most one presentation, the **full screen**: `entry` is `app.entry`, `modality` is `{screens: 1, touch: "none", buttons: true}`, no `surfaces`, no `output`. With it, `app.modality` is `{touch: "auxiliary"}`, `display.auxiliary` and `input.touch.auxiliary` move to `enhances`, and `input.buttons` is required | A device with one screen and no touch (the PSP, 480×272) runs the same program on its whole screen with its buttons. The baseline keeps serving the touch surface on dual-screen hosts. One entry means one program: the layout follows the surface size and the input follows the modality, never a second code path per device. The PSP host runs no worker yet, so an applet with `domains.worker` does not resolve for it. |
 | `title` at most **24** characters | The title is the springboard label and the name the agent launches the applet by. |
 | `services` needs `net.http` | A companion service is an HTTP destination of the applet's worker, and the capability admits the worker's `io.http` resource. |
 | `data.fs` needs `store` | Every persistent byte is declared before the applet runs. |
@@ -98,7 +101,7 @@ does not count.
 
 | Rule | Reason |
 | --- | --- |
-| Relative imports stay inside the project root | The applet's code is what the package carries; a shared kit (pocket-shell `shells/3ds/ui/`) lives inside the root. |
+| Relative imports stay inside the project root | The applet's code is what the package carries; a shared kit (`ui/` and `kit/` in pocket-nexus/applets) lives inside the root. |
 | Bare imports: `solid-js` and `@pocketjs/framework/*` modules on the applet list; `camera` with a `camera.*` capability, `fs` with `data.fs`, `worker/channels` with `net.http` | The framework surface is the portability layer. `launcher`, `wifi`, `agent`, `devtools`, `offload` and `config` are system or build modules. |
 | No dynamic `import()` | The bundle is the whole program, checked once. |
 | No `eval` and no `Function` constructor | A checked applet runs the code that was checked and nothing else. |
@@ -107,10 +110,10 @@ does not count.
 
 ## Bundle budgets
 
-| Output | Budget | Shipped applets (3DS) |
+| Output | Budget | 3DS builds |
 | --- | --- | --- |
-| Guest bundle (`<output>.js`) | **640 KiB** | 355 to 400 KiB |
-| Pak (`<output>.pak`) | **3 MiB** | 206 KiB (Hacker News) to 2.33 MB (Pocket Nexus) |
+| Guest bundle (`<output>.js`) | **640 KiB** | 315 KiB (Camera) to 502 KiB (GitHub) in Pocket Companion 0.16.0 |
+| Pak (`<output>.pak`) | **3 MiB** | 174 KiB (Camera) to 479 KiB (Notes) in Pocket Companion 0.16.0; 2.33 MB for Pocket Nexus (`apps/nexus`) |
 
 ## One program on two surfaces
 

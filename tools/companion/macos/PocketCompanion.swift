@@ -6,8 +6,8 @@
 // and drives it through the local control API named by control.json.
 //
 // The window walks an owner through the setup (Pocket Shell on a Tab5 or a 3DS, the
-// pairing code, the applets) and holds a page for each service the applets
-// use: X, Discord, YouTube and the L+R assistant. It lives in the menu bar;
+// pairing code, the applets) and holds a page for each service set up on
+// this Mac: X, Discord, YouTube and the L+R assistant. It lives in the menu bar;
 // while the window is open the app also shows in the Dock.
 //
 // Built by tools/companion-app.ts:

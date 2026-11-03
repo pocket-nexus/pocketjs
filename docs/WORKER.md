@@ -315,7 +315,10 @@ executor, GPIO edges, command channels, remote worker replacement for
 `offload`, complete domain tape, TCP/UDP, generated board-node accessor
 types and UI fallback ownership tables remain unimplemented. UI-only hosts keep
 their offload module; HTTP is the worker's `io.http` resource. The 3DS routes
-it over Pocket Link; the CardputerZero routes it to its own loopback interface.
+it over Pocket Link. The Linux worker (`platforms/linux/worker`) hands it to
+the program's exchange: loopback servers on the CardputerZero, the daemon on
+Omarchy Pocket. pocket-m5's Tab5 firmware fetches it with its own HTTP and
+sends `companion.pocket` over the Pocket Link.
 
 QuickJS facts and SDK records allocate objects during a turn. The current
 runner disables threshold-triggered GC and runs GC while idle; it does not

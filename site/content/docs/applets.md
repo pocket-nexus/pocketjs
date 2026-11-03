@@ -1,9 +1,11 @@
 # Pocket Applets
 
 **A Pocket Applet is a Pocket app that a launcher runs on behalf of the
-system.** Pocket Home runs Hacker News, X, YouTube, Discord and Notes as
-applets, and a launcher is an app that pairs, installs and switches between
-them. An applet declares the `applet` section of the
+system.** Pocket Shell, the launcher on the M5Stack Tab5 and the Nintendo 3DS,
+runs Hacker News, GitHub, X, YouTube, Discord, Notes and the other applets of
+[pocket-nexus/applets](https://github.com/pocket-nexus/applets), and a
+launcher is an app that pairs, installs and switches between them. An applet
+declares the `applet` section of the
 [app contract](/docs/app-contract/) and accepts rules a general app does not.
 
 The rules exist for three reasons:
@@ -25,7 +27,11 @@ ESP32-P4 and on a handheld's screen.
 | --- | --- | --- |
 | M5Stack Tab5 | **ESP32-P4 microcontroller** | Adaptive, 640×360 logical on a 1280×720 panel |
 | Nintendo 3DS | ARM11 | 320×240 touch screen |
+| Omarchy Pocket (Anbernic RG DS Plus) | Rockchip RK3568 | A window on the 512×384 logical touch screen |
 | PSP | MIPS R4000 | 480×272, full screen, read by the d-pad |
+
+The PSP host runs no worker yet, so an applet that reaches the network does
+not build for it.
 
 The [ESP-IDF](/docs/esp-idf/) page describes the components the Tab5's firmware
 is built from.
@@ -46,6 +52,7 @@ is built from.
 | `version` | **1**. A host refuses a version it does not know. |
 | `summary` | One sentence of at most **120** characters, shown where the applet is offered. |
 | `services` | Companion services the applet's worker fetches over `net.http`, at most **8**. A service the applet does not list answers **403**. |
+| `hosts` | Host names outside the companion that the worker fetches, at most **16**. A host that installs applets from a store (Omarchy Pocket) shows them before an install and refuses any other. |
 | `store` | Persistent state, required for `data.fs`. `maxBytes` is at most **4 MiB**. |
 
 ## What an applet accepts
@@ -76,7 +83,9 @@ fetches the applet's services at `https://companion.pocket/<name>/…` and sends
 each answer back over a channel, and the UI reads it with
 `@pocketjs/framework/worker/channels`, which an applet imports when it
 declares `net.http`. One request (URL, method, headers and body) is at most
-**1024 bytes**, and a channel record at most **1024 bytes**.
+**1024 bytes**. A channel record is **1024 bytes** and a response at most
+**256 KiB** unless the target's host contract states more
+(`worker.channels`, `worker.http.responseBytes`).
 
 ## Drawing on the surface
 
