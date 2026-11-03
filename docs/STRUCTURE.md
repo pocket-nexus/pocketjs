@@ -87,8 +87,8 @@ or repository ownership. See
 
 **The M5Stack Tab5 program lives in pocket-nexus/pocket-m5.** It pins this
 repository as a submodule and composes the `platforms/esp-idf` components,
-`engine/host-services` and the IDF archive; its host contracts (`tab5-hero`,
-`tab5-clear`, `tab5-home`) live with the program.
+`engine/host-services` and the IDF archive; its host contract (`tab5-home`,
+`programs/m5stack-tab5/pocket.host.json`) lives with the program.
 
 **The 3DS product lives in `products/3ds`.**
 Its private package inspection, Link, camera, launcher and development services

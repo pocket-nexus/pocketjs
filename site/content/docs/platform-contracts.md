@@ -232,11 +232,11 @@ large subtree repaints the whole area every frame, so the application
 replaces it with a cut; an animation that runs while nothing happens (a
 wiggle, a pulse) repaints its area every frame for no input.
 
-On the M5Stack Tab5 (ESP32-P4 at 360 MHz, 592×360 logical pixels), a
-full-surface repaint takes **25 to 60 ms per core** by content, a
-translated opaque page moves through DMA in **under 20 ms**, and an
-icon-sized region repaints in **under 10 ms**; the cadence is 30 Hz, 33 ms per
-frame.
+On the M5Stack Tab5 (ESP32-P4 at 360 MHz), measured on the 592×360 logical
+surface it had before the 640×360 one, a full-surface repaint takes **25 to
+60 ms per core** by content, a translated opaque page moves through DMA in
+**under 20 ms**, and an icon-sized region repaints in **under 10 ms**; the
+cadence is 30 Hz, 33 ms per frame.
 
 ## Viewport policy and companion adapters
 

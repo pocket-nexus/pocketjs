@@ -24,7 +24,7 @@ one thread inside one process**. There is **no DOM, no CSS engine and no
 WebView**. PocketJS is a [Pocket Nexus](https://pocket.nexus) project.
 
 <a href="https://studio.pocket.nexus">
-  <img src="./assets/screenshots/pocket-studio-wall.jpg" alt="Twelve screens from Pocket Studio. Applets: Tokyo Weather, GitHub, Pocket Home, Hacker News, Discord, X and YouTube. Games: Pocket Duty, Pocket Tokyo, Pocket Requiem, Pocket Atlas and Pocket Maneuver." />
+  <img src="./assets/screenshots/pocket-studio-wall.jpg" alt="Twelve screens from Pocket Studio. Pocket Shell's home screen, and applets: Tokyo Weather, GitHub, Hacker News, Discord, X and YouTube. Games: Pocket Duty, Pocket Tokyo, Pocket Requiem, Pocket Atlas and Pocket Maneuver." />
 </a>
 
 Applets built with PocketJS and games built with Pocket3D, from
@@ -321,7 +321,7 @@ links to the project, and most to the story of how it was built.
 | [**Pocket Voxel**](https://github.com/pocket-nexus/pocket-voxel) | PSP, PS Vita, web | A creature-RPG town rebuilt as a walking voxel diorama. Game state lives in the JS guest; logic runs at 60 Hz while presentation holds a locked 30 fps beat. [Story](https://pocketjs.pocket.nexus/blog/pocket-voxel/) |
 | [**Pocket Figma**](https://github.com/pocket-nexus/pocket-figma) | PSP, PS Vita | A 14,430-node design file, cooked into streamed tile pyramids and panned with the analog nub at 60 fps on a handheld with 32 MB of RAM. [Story](https://pocketjs.pocket.nexus/blog/pocket-figma/) |
 | [**Pocket YouTube**](https://github.com/pocket-nexus/pocket-youtube) | 3DS, PSP, PS Vita | Watch on the upper screen while searching and browsing on the touch screen. A Mac companion streams video to the 3DS over Wi-Fi. [Story](https://pocketjs.pocket.nexus/blog/pocket-youtube/) |
-| [**Pocket Shell**](https://github.com/pocket-nexus/pocket-shell) | 3DS | A tiling interface: windows on the upper screen, a workspace and control deck below |
+| [**Pocket Shell**](https://github.com/pocket-nexus/pocket-shell) | 3DS, M5Stack Tab5, PSP | A launcher for Pocket Applets: it pairs with a Mac, installs the applets the Mac offers and switches between them |
 | [**Pocket Doc**](https://github.com/pocket-nexus/pocket-doc) | 3DS | A Markdown library on two screens: read above, edit and navigate below |
 | [**Pocket Map**](https://github.com/pocket-nexus/pocket-map) | 3DS, PSP | OpenStreetMap or Hyrule on a handheld: pan with the touchpad, zoom, search and save places through a paired Mac |
 | [**Pocket Term**](https://github.com/pocket-nexus/pocket-term) | 3DS | Mac shell sessions above a touch keyboard |

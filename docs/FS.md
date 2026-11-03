@@ -128,7 +128,7 @@ A key-value need is one JSON file in this tree, not a second module.
 | Host | Implementation | Status |
 |---|---|---|
 | sim (`platforms/sim/fs.ts`) | in-memory tree behind the op namespace, injected via `bootWorld` `extraGlobals` | ships with the test host; `tests/fs.test.ts` runs the contract, the SDK, and an oracle comparison against Bun's real fs |
-| Nintendo 3DS (`products/3ds`), M5Stack Tab5 (pocket-m5's `pocket_system`) | `engine/host-services/fs.c`: the nine ops over the slot's `data/` directory on the SD card, bound per guest when the plan's `features` hold `data.fs` | ships; `tests/fs-3ds.test.ts` compiles `fs.c` natively against the contract |
+| Nintendo 3DS (`products/3ds`), M5Stack Tab5 (pocket-m5's `pocket_system`) | `engine/host-services/fs.c`: the nine ops over the slot's `data/` directory on the SD card (on the Tab5 without a card, its `storage` flash partition), bound per guest when the plan's `features` hold `data.fs` | ships; `tests/fs-3ds.test.ts` compiles `fs.c` natively against the contract |
 | PSP (`programs/psp/src/fs_ops.rs`) | the nine ops over sceIo, rooted at `ms0:/PSP/SAVEDATA/POCKETJS/<guest>/`: the embedded app's output name, or the EBOOT's directory name on the generic runtime | ships. **sceIoRename stays inside one directory and does not replace a file**, so a truncating write stages a sibling and removes the old file first, which leaves a window where a power cut loses the file |
 | other consoles / devices | — | a target appends `data.fs` to its host contract when its program compiles the module in; the port point is the data root (a POSIX directory, a LittleFS directory on MCU hosts) |
 
@@ -139,7 +139,8 @@ the spec, the SDK, or any app:
 
 1. pick the app's data root and a sibling temp directory on the platform
    filesystem (the 3DS and the Tab5 use the slot's `data/` directory on
-   the SD card) and bind them per guest;
+   the SD card, the Tab5 its `storage` flash partition without a card) and
+   bind them per guest;
 2. compile `engine/host-services/fs.c` into the program and install its
    nine functions on the guest's `globalThis.fs` when the plan's
    `features` hold `data.fs` (the 3DS product and the Tab5's
