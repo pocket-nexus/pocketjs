@@ -34,14 +34,29 @@ static void release_native(void *context, void *lease) {
   (void)context;
   (void)lease;
 }
+#ifdef POCKETJS_EXTENSION
+/* An extension that defines neither keeps the scene in place of the primary
+ * surface and the product's clear under the touch screen's list. */
+__attribute__((weak)) bool pocket_extension_shows_primary(void) { return false; }
+__attribute__((weak)) bool
+pocket_extension_render_auxiliary(C3D_RenderTarget *target) {
+  (void)target;
+  return false;
+}
+#endif
 static bool scene(void *context, uint32_t role, C3D_RenderTarget *target,
                   C3D_RenderTarget *right) {
   (void)context;
 #ifdef POCKETJS_EXTENSION
   if (role == POCKET_DISPLAY_ROLE_PRIMARY && pocket_extension_enabled()) {
     pocket_extension_render(target, right);
-    return true;
+    /* False hands the target to the driver, which draws the guest's list
+     * over the scene without clearing it. */
+    return !pocket_extension_shows_primary();
   }
+  if (role == POCKET_DISPLAY_ROLE_AUXILIARY && pocket_extension_enabled() &&
+      pocket_extension_render_auxiliary(target))
+    return false;
 #endif
   C3D_RenderTargetClear(target, C3D_CLEAR_ALL, 0x000000ff, 0);
   if (role == POCKET_DISPLAY_ROLE_PRIMARY && agent_enabled()) {
