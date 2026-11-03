@@ -1,8 +1,8 @@
 //! Bodies: parameters, integration, anchors, flights, grabs, jelly and the
 //! pose written to views.
 
-use crate::fmath::{absf, atan2f, clampf, cosf, exp_neg, lerpf, maxf, minf, sinf, sqrtf, tanf, wrap_angle, DEG, PI};
-use crate::spec::physics as ps;
+use pocketjs_core::fmath::{absf, atan2f, clampf, cosf, exp_neg, lerpf, maxf, minf, sinf, sqrtf, tanf, wrap_angle, DEG, PI};
+use pocketjs_core::spec::physics as ps;
 
 use super::{f, id, pairs, rand01, Events, View, World, V2};
 

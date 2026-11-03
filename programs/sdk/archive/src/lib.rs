@@ -5,6 +5,8 @@
 extern crate alloc;
 mod glyph;
 mod hooks;
+#[cfg(feature = "physics")]
+mod physics;
 mod raster;
 mod runtime;
 mod timing;

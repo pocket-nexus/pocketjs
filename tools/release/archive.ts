@@ -12,7 +12,9 @@ export interface SdkOptions {
   cargoArgs: string[]; rustflags: string[]; prepare?: "esp32p4"; archiver?: string;
 }
 const hash = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
-const roots = ["engine/spec", "engine/drivers", "engine/core", "engine/raster", "engine/present", "engine/package", "engine/modules/media", "engine/runtime", "programs/sdk/archive", "engine/render", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tex-cache"];
+/** pocket-archive features of the C SDK archive: its default composition. */
+export const SDK_FEATURES: readonly string[] = ["physics"];
+const roots = ["engine/spec", "engine/drivers", "engine/core", "engine/raster", "engine/present", "engine/package", "engine/modules/media", "engine/runtime", "programs/sdk/archive", "engine/render", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/physics"];
 
 function sourceHash(root: string): string {
   const inputs = ["LICENSE", "Cargo.toml", "Cargo.lock", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "contracts/spec/binding-generation.ts", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "engine/driver-kit/c", "tools/sdk.ts", "tools/release", "tools/packaging/cmake", ...roots.flatMap(name => [`${name}/Cargo.toml`, `${name}/src`])];
@@ -102,7 +104,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   const buildDir = join(root, ".pocket-build/validation/sdk/cargo", hash(JSON.stringify({ target: options.triple, compiler, rustflags, args: options.cargoArgs })).slice(0, 20));
   mkdirSync(buildDir, { recursive: true });
   console.error(`Pocket SDK: building candidate ${targetName} (${options.toolchain}, no_std)`);
-  const command = [cargo, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", join(root, existsSync(join(root, "Cargo.toml")) ? "Cargo.toml" : "engine/Cargo.toml"), "-p", "pocket-archive", "--no-default-features", "--release", "--target", options.triple, "--target-dir", buildDir, "--message-format=json-render-diagnostics", ...options.cargoArgs, "--", "--print=native-static-libs"];
+  const command = [cargo, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", join(root, existsSync(join(root, "Cargo.toml")) ? "Cargo.toml" : "engine/Cargo.toml"), "-p", "pocket-archive", "--no-default-features", "--features", SDK_FEATURES.join(","), "--release", "--target", options.triple, "--target-dir", buildDir, "--message-format=json-render-diagnostics", ...options.cargoArgs, "--", "--print=native-static-libs"];
   const child = Bun.spawn(command, { cwd: root, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   writeFileSync(join(buildDir, "sdk-build.log"), `${stdout}\n${stderr}`);
@@ -126,7 +128,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
     for (const library of match[1]!.trim().split(/\s+/).filter(Boolean)) if (!nativeStaticLibs.includes(library)) nativeStaticLibs.push(library);
   }
   if (!archive || !existsSync(archive)) throw new Error("Cargo did not report a pocket-archive static archive");
-  if (!features || features.length) throw new Error(`SDK default archive must have no enabled Cargo features: ${features?.join(", ") ?? "unknown"}`);
+  if (!features || [...features].sort().join(",") !== [...SDK_FEATURES].sort().join(",")) throw new Error(`SDK default archive must enable exactly ${SDK_FEATURES.join(", ")}: ${features?.join(", ") ?? "unknown"}`);
   mkdirSync(dirname(options.out), { recursive: true });
   const staging = join(dirname(options.out), `.${basename(options.out)}-${randomUUID()}.tmp`);
   mkdirSync(staging);
@@ -162,7 +164,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
     // build-directory references in its CMake package.
     writeFileSync(join(staging, "lib/cmake/Pocket/PocketArchive.cmake"), `set(Pocket_TRIPLE "${targetName}")\nset(Pocket_ARCHIVE "${archiveName}")\nset(Pocket_NATIVE_STATIC_LIBS "${nativeStaticLibs.join(";")}")\n`);
     if (before !== sourceHash(root) || (targetBytes && !targetBytes.equals(readFileSync(options.triple)))) throw new Error("SDK sources changed while the archive was building; export again");
-    const manifest: SdkManifest = { schemaVersion: 1, status: "candidate", abiFrozen: false, hostAbi, source: { revision, dirty: status === null ? null : status.length > 0, sha256: before }, build: { triple: targetName, target: options.triple.endsWith(".json") ? basename(options.triple) : options.triple, targetSha256: targetBytes ? hash(targetBytes) : null, cargo: cargoVersion, compiler, toolchain: options.toolchain, profile: "release", defaultFeatures: false, features: [], rustflags, cargoArgs: options.cargoArgs, archive: archiveName, nativeStaticLibs }, preparation, files: {} };
+    const manifest: SdkManifest = { schemaVersion: 1, status: "candidate", abiFrozen: false, hostAbi, source: { revision, dirty: status === null ? null : status.length > 0, sha256: before }, build: { triple: targetName, target: options.triple.endsWith(".json") ? basename(options.triple) : options.triple, targetSha256: targetBytes ? hash(targetBytes) : null, cargo: cargoVersion, compiler, toolchain: options.toolchain, profile: "release", defaultFeatures: false, features: [...SDK_FEATURES], rustflags, cargoArgs: options.cargoArgs, archive: archiveName, nativeStaticLibs }, preparation, files: {} };
     for (const file of filesUnder(staging)) { const bytes = readFileSync(file); manifest.files[relative(staging, file).split(sep).join("/")] = { sha256: hash(bytes), bytes: bytes.length }; }
     writeFileSync(join(staging, "sdk-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
     verifySdk(staging);

@@ -16,6 +16,13 @@ standard library instead; it is the Rust crate's default. `external-runtime`
 omits the allocator and panic handler when the embedding Rust program owns
 them, and keeps the symbols.
 
+**The `physics` feature installs `pocket-physics` in every runtime
+`pocket_runtime_create` returns.** A package that requests `ui.physics` is
+admitted only by such a runtime, and only when the profile declares the
+capability. The SDK export and the 3DS reference program build enable it; the
+IDF and SiFli archives leave it off, do not link `pocket-physics`, and report
+ops 52..56 unsupported.
+
 `programs/esp-idf/archive`, `programs/sifli/archive` and `products/3ds/core`
 re-export this crate and add their own symbols. A Rust program that drives an
 instance through `pocket_runtime::abi` without a C guest does not link it.

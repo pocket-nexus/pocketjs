@@ -35,6 +35,7 @@ pocketjs-core = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
+pocket-physics = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
 pocket-gles = { workspace = true, default-features = true }
 pocket-gles1 = { workspace = true, default-features = true }

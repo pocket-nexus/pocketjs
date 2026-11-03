@@ -1,5 +1,9 @@
-//! 2D bodies stepped by the UI core: the native half of capability
+//! 2D bodies for the PocketJS UI core: the native half of capability
 //! `ui.physics` (contracts/spec/physics.ts, spec ops 52..56).
+//!
+//! [`Physics`] implements [`pocketjs_core::Physics`]. A program installs it
+//! with `Ui::set_physics` (or `Runtime::set_physics`) before boot; the
+//! runtime admits a plan that requests `ui.physics` only then.
 //!
 //! A world advances inside `Ui::tick`, `substeps` semi-implicit Euler
 //! integrations per core tick at the realm's fixed dt, with an integer substep
@@ -8,18 +12,23 @@
 //! translateY, rotate, skewX, scaleX, scaleY and originY, so the tree paints,
 //! clips and hit-tests the motion and layout never runs for it. Emitters write
 //! translateX/Y, rotate, uniform scale, opacity and the image texture into a
-//! pool of image nodes.
+//! pool of image nodes. Nothing else in the node is written, and a released
+//! view's layer is cleared: the write rules of the core's `Physics` trait.
 //!
 //! Module layout: this file owns the object tables, handles, parameters,
 //! commands, queries and the per-tick schedule; `body` integrates bodies and
 //! builds their poses; `contact` resolves collisions; `shape` holds static
 //! geometry (colliders and zones); `emitter` steps particles.
 //!
-//! Determinism: f32 arithmetic from `crate::fmath`, one xorshift32 per world
-//! and one per emitter, slot-ordered iteration, and rates written as
-//! exp(-k·h) so the dynamics do not depend on the substep length beyond
-//! integration error. The same params, commands and tick count give the same
-//! bits on every host.
+//! Determinism: f32 arithmetic from `pocketjs_core::fmath` (the functions
+//! paint uses), one xorshift32 per world and one per emitter, slot-ordered
+//! iteration, and rates written as exp(-k·h) so the dynamics do not depend on
+//! the substep length beyond integration error. The same params, commands and
+//! tick count give the same bits on every host.
+
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
 
 mod body;
 mod contact;
@@ -32,10 +41,10 @@ use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::fmath::{clampf, exp_neg, maxf, sqrtf, DEG};
-use crate::spec;
-use crate::spec::physics as ps;
-use crate::tree::{Node, Tree};
+use pocketjs_core::fmath::{clampf, exp_neg, maxf, sqrtf, DEG};
+use pocketjs_core::spec;
+use pocketjs_core::spec::physics as ps;
+use pocketjs_core::tree::{Node, Tree};
 
 use body::{Body, Flight};
 use contact::OwnerKick;
@@ -1029,5 +1038,32 @@ impl Physics {
             let Some(origin) = self.worlds.items.get(e.world).and_then(|w| w.as_ref()).map(|w| w.origin) else { continue };
             e.write(tree, aux_root, &origin);
         }
+    }
+}
+
+impl pocketjs_core::Physics for Physics {
+    fn is_idle(&self) -> bool {
+        Physics::is_idle(self)
+    }
+    fn step(&mut self, dt: f32, tree: &mut Tree, aux_root: i32) {
+        Physics::step(self, dt, tree, aux_root)
+    }
+    fn create(&mut self, kind: u32, params: &[f64]) -> i32 {
+        Physics::create(self, kind, params)
+    }
+    fn apply(&mut self, records: &[f64]) {
+        Physics::apply(self, records)
+    }
+    fn destroy(&mut self, handle: i32, tree: &mut Tree) {
+        Physics::destroy(self, handle, tree)
+    }
+    fn take_events(&mut self, out: &mut Vec<f64>) {
+        Physics::take_events(self, out)
+    }
+    fn has_events(&self) -> bool {
+        Physics::has_events(self)
+    }
+    fn query(&self, query: u32, handle: i32, a: f64, b: f64, c: f64, d: f64) -> f64 {
+        Physics::query(self, query, handle, a, b, c, d)
     }
 }

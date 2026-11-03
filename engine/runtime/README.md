@@ -47,6 +47,8 @@ Rust 1.93 or later. `no_std` with `alloc`; the host provides an allocator, guest
 
 The example configures an instance without booting an application. Production hosts use facts exported by `pocket host export`; the sample hash is not a production host identity. Register a package source, guest, renderer, display and required inputs before `boot`, then drive `tick` and call `shutdown` before releasing devices.
 
+The runtime has no physics engine of its own. A program that admits `ui.physics` installs one, such as the `pocket-physics` crate in the PocketJS repository, with `Runtime::set_physics` before `boot`. Without an engine, a package or AOT artifact that requests `ui.physics` is rejected at boot and ops 52..56 are unsupported.
+
 The `coordinator` module registers renderers and displays and completes each frame's rendering and display transfers. `Coordinator::new` registers a
 `pocket_raster::RasterRenderer` as `RendererId::SOFTWARE` (id 0); `add_renderer`
 numbers other renderers from 1.

@@ -294,6 +294,7 @@ pub unsafe extern "C" fn web_boot(
                 frame_buffer_budget: MAX_BYTES,
                 profile,
             })?;
+            runtime.set_physics(Box::new(pocket_physics::Physics::new()))?;
             runtime.allow_embedded_viewport_changes()?;
             runtime.set_native_asset_loading(false)?;
             runtime.set_package_source(Box::new(MemorySource(package)))?;

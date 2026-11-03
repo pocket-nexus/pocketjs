@@ -15,6 +15,7 @@ pocket-runtime = { path = "../../../engine/runtime" }
 pocket-archive = { path = "../../../programs/sdk/archive" }
 pocket-package = { path = "../../../engine/package" }
 pocketjs-core = { path = "../../../engine/core" }
+pocket-physics = { path = "../../../engine/physics" }
 pocket-vita-render = { path = "../../../devices/vita/pocket-vita-render" }
 [build-dependencies]
 pocket-profile-build = { path = "../../../engine/profile-build" }

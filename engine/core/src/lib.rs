@@ -26,12 +26,15 @@
 //! dynamic override. `cancel_anim` freezes the current value as a dynamic
 //! override.
 //!
-//! Physics plumbing (ui.physics): `tick()` steps every world after the
-//! animation tracks, against current layout, and each body writes its pose
-//! into its views' `physics_values`. `style::resolve` applies that layer after
+//! Physics plumbing (ui.physics): the engine is a separate crate
+//! (`pocket-physics`) a program installs with `set_physics` before boot; see
+//! [`Physics`] for the contract. `tick()` steps it after the animation
+//! tracks, against current layout, and each body writes its pose into its
+//! views' `physics_values`. `style::resolve` applies that layer after
 //! `anim_values`; animation and transition start values read
 //! `style::resolve_animated`, which stops before it, so `animate()` and
-//! `cancel_anim` never capture a physics pose.
+//! `cancel_anim` never capture a physics pose. Without an installed engine
+//! the physics methods create nothing and report no events.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -48,11 +51,12 @@ pub mod codec;
 #[cfg(feature = "counters")]
 pub mod counters;
 pub mod draw;
-mod fmath;
+pub mod fmath;
 pub mod layout;
 pub mod package;
 pub mod pak;
-pub mod physics;
+mod physics;
+pub use physics::Physics;
 pub mod plan_facts;
 pub mod sha256;
 pub use pocket_spec as spec;
@@ -398,7 +402,8 @@ pub struct Ui {
     anims: anim::Anims,
     timelines: Vec<TimelineInst>,
     /// 2D bodies (ui.physics): stepped after animations, writes view props.
-    physics: physics::Physics,
+    /// None until a program installs an engine with `set_physics`.
+    physics: Option<alloc::boxed::Box<dyn Physics>>,
     layout: layout::LayoutEngine,
     auxiliary: Option<AuxiliarySurface>,
     /// Generation-tagged texture slots (handles per spec.ts TEX_SLOT_BITS).
@@ -500,7 +505,7 @@ impl Ui {
             font_revisions: [0; spec::MAX_FONT_SLOTS],
             anims: anim::Anims::new(),
             timelines: Vec::new(),
-            physics: physics::Physics::new(),
+            physics: None,
             layout: layout::LayoutEngine::new(),
             auxiliary: None,
             textures: Vec::new(),
@@ -2174,7 +2179,7 @@ impl Ui {
         }
         self.anims.publish_completions();
         self.tick_timelines();
-        if !self.physics.is_idle() {
+        if let Some(physics) = self.physics.as_mut().filter(|physics| !physics.is_idle()) {
             // Anchors and node colliders read layout, so it must be current.
             if self.layout.needs() {
                 layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
@@ -2190,8 +2195,8 @@ impl Ui {
                     );
                 }
             }
-            let aux_root = self.auxiliary_surface_root();
-            self.physics.step(self.dt, &mut self.tree, aux_root);
+            let aux_root = self.auxiliary.as_ref().map_or(0, |auxiliary| auxiliary.root);
+            physics.step(self.dt, &mut self.tree, aux_root);
         }
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
@@ -2200,34 +2205,58 @@ impl Ui {
 
     // ---- physics (ui.physics; contracts/spec/physics.ts) ----------------------
 
-    /// `physicsCreate(kind, params)` → handle, or 0.
+    /// Install the physics engine (`pocket-physics`). Programs install it
+    /// before boot; the runtime admits `ui.physics` only when one is
+    /// installed. Replacing an engine drops its worlds without releasing
+    /// their views, so install it before the first physics op.
+    pub fn set_physics(&mut self, physics: alloc::boxed::Box<dyn Physics>) {
+        self.physics = Some(physics);
+    }
+
+    /// Whether a physics engine is installed.
+    pub fn has_physics(&self) -> bool {
+        self.physics.is_some()
+    }
+
+    /// `physicsCreate(kind, params)` → handle, or 0 (always 0 without an
+    /// installed engine).
     pub fn physics_create(&mut self, kind: u32, params: &[f64]) -> i32 {
-        self.physics.create(kind, params)
+        self.physics.as_mut().map_or(0, |physics| physics.create(kind, params))
     }
 
     /// `physicsApply(records)`.
     pub fn physics_apply(&mut self, records: &[f64]) {
-        self.physics.apply(records);
+        if let Some(physics) = self.physics.as_mut() {
+            physics.apply(records);
+        }
     }
 
     /// `physicsDestroy(handle)`.
     pub fn physics_destroy(&mut self, handle: i32) {
-        self.physics.destroy(handle, &mut self.tree);
+        if let Some(physics) = self.physics.as_mut() {
+            physics.destroy(handle, &mut self.tree);
+        }
     }
 
     /// `physicsEvents()`: move the pending records into `out`.
     pub fn physics_take_events(&mut self, out: &mut Vec<f64>) {
-        self.physics.take_events(out);
+        match self.physics.as_mut() {
+            Some(physics) => physics.take_events(out),
+            None => out.clear(),
+        }
     }
 
     /// Whether `physicsEvents()` would return records.
     pub fn physics_has_events(&self) -> bool {
-        self.physics.has_events()
+        self.physics.as_ref().is_some_and(|physics| physics.has_events())
     }
 
-    /// `physicsQuery(query, handle, a, b, c, d)`.
+    /// `physicsQuery(query, handle, a, b, c, d)`; 0 without an installed
+    /// engine, as for a stale handle.
     pub fn physics_query(&self, query: u32, handle: i32, a: f64, b: f64, c: f64, d: f64) -> f64 {
-        self.physics.query(query, handle, a, b, c, d)
+        self.physics
+            .as_ref()
+            .map_or(0.0, |physics| physics.query(query, handle, a, b, c, d))
     }
 
     // The wire form the C ABI hosts cross: packed little-endian Float64
@@ -2248,11 +2277,11 @@ impl Ui {
     /// records, and stays empty when there are none.
     pub fn physics_take_events_wire(&mut self, out: &mut Vec<u8>) {
         out.clear();
-        if !self.physics.has_events() {
+        let Some(physics) = self.physics.as_mut().filter(|physics| physics.has_events()) else {
             return;
-        }
+        };
         let mut words = Vec::new();
-        self.physics.take_events(&mut words);
+        physics.take_events(&mut words);
         out.reserve(words.len() * 8);
         for word in words {
             out.extend_from_slice(&word.to_le_bytes());

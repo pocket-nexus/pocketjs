@@ -8,6 +8,7 @@ export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, 
   "pocketjs-core": { default: [], counters: [] },
   "pocket-archive": {
     default: ["std"], std: [], "external-runtime": [],
+    physics: ["dep:pocket-physics"],
   },
   "pocket-guest-rquickjs": {}, "pocket-apple": {},
   "pocket-gles": { default: [], "mock-gl": [] }, "pocket-gles1": {}, "pocket-gles2": {},

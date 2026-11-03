@@ -102,6 +102,8 @@ release ships.
 | Crate | Change |
 | --- | --- |
 | `pocket-drivers` | New `target` module: the device target registration contract. `TargetRenderer` is the renderer half (`register_target`, `unregister_target`, `target`, `queue_present`, `drain_present`, `end_registration`, the `PENDING_UNREGISTER` rule); `PendingUnregister` names the three rules; `RendererCell`, `Registration`, `TargetPort` and `TargetSlot` hold the renderer, register it with a runtime, link a display to it and hold a display's current target. Existing items are unchanged. |
+| `pocketjs-core` | Breaking: the `physics` module and its `Physics` struct are removed; the engine moved to the unpublished `pocket-physics` crate. `pocketjs_core::Physics` is now the trait an engine implements (`is_idle`, `step`, `create`, `apply`, `destroy`, `take_events`, `has_events`, `query`). A `Ui` has no engine until `Ui::set_physics` installs one (`Ui::has_physics` reports it); until then `physics_create` returns 0, `physics_query` returns 0, and no events are reported. `fmath` is now public: the f32 functions paint and physics share. |
+| `pocket-runtime` | `Runtime::set_physics` installs a physics engine before boot. Behavior change: without an engine, package admission treats `ui.physics` as absent from the profile, `boot_aot_deferred` with `physics = true` returns `ProfileMismatch`, and `OpContext::set_physics_enabled(true)` returns `UnsupportedOperation`. |
 
 ## First publication
 

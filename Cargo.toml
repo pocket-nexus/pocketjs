@@ -46,6 +46,7 @@ members = [
     "engine/ios",
     "engine/modules/media",
     "engine/package",
+    "engine/physics",
     "engine/pocket3d/crates/pocket3d",
     "engine/pocket3d/crates/pocket3d-anim",
     "engine/pocket3d/crates/pocket3d-mesh",
@@ -114,6 +115,7 @@ default-members = [
     "engine/guest-rquickjs",
     "engine/modules/media",
     "engine/package",
+    "engine/physics",
     "engine/pocket3d/crates/pocket3d",
     "engine/pocket3d/crates/pocket3d-anim",
     "engine/pocket3d/crates/pocket3d-mesh",
@@ -193,6 +195,7 @@ pocketbook-host = { path = "programs/pocketbook", version = "0.16.0", default-fe
 pocket-media = { path = "engine/modules/media", version = "0.16.0", default-features = false }
 pocket-mod = { path = "engine/crates/pocket-mod", version = "0.16.0", default-features = false }
 pocket-package = { path = "engine/package", version = "0.16.0", default-features = false }
+pocket-physics = { path = "engine/physics", version = "0.16.0", default-features = false }
 pocket-present = { path = "engine/present", version = "0.16.0", default-features = false }
 pocket-profile-build = { path = "engine/profile-build", version = "0.16.0", default-features = false }
 pocket-psp-ge = { path = "devices/psp/pocket-psp-ge", version = "0.16.0", default-features = false }

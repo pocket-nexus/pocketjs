@@ -19,7 +19,10 @@ fn report_boot_failure(error: &RuntimeError) {
 pub unsafe extern "C" fn pocket_runtime_create(
     config: *const PocketRuntimeConfig,
 ) -> *mut PocketRuntime {
-    unsafe { abi::pocket_runtime_create(config) }
+    let runtime = unsafe { abi::pocket_runtime_create(config) };
+    #[cfg(feature = "physics")]
+    let runtime = unsafe { crate::physics::install(runtime) };
+    runtime
 }
 /// # Safety
 /// runtime is live; driver storage and callback validity last through destruction.

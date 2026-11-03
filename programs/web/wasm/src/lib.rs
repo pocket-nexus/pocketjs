@@ -46,6 +46,7 @@ fn core_context(size: [u32; 2], density: u32, auxiliary: Option<[u32; 2]>) -> Op
     if let Some([w, h]) = auxiliary {
         ui.create_auxiliary_surface(w as f32, h as f32);
     }
+    ui.set_physics(Box::new(pocket_physics::Physics::new()));
     let ops = OpContext::from_ui(ui);
     ops.set_compositor_enabled(true).unwrap();
     ops.set_physics_enabled(true).unwrap();

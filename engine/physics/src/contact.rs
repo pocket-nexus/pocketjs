@@ -9,8 +9,8 @@
 
 use alloc::vec::Vec;
 
-use crate::fmath::{absf, atan2f, clampf, minf, signf};
-use crate::spec::physics as ps;
+use pocketjs_core::fmath::{absf, atan2f, clampf, minf, signf};
+use pocketjs_core::spec::physics as ps;
 
 use super::body::{Body, Shape};
 use super::shape::{Collider, GeoKind, Geometry};
@@ -191,7 +191,7 @@ fn react(b: &mut Body, n: V2, dv: f32, speed: f32) {
         return;
     }
     if dv > 0.0 && (j.impact > 0.0 || j.lean_impact > 0.0) {
-        let nl = n.rot(crate::fmath::sinf(-b.a), crate::fmath::cosf(-b.a));
+        let nl = n.rot(pocketjs_core::fmath::sinf(-b.a), pocketjs_core::fmath::cosf(-b.a));
         if j.impact > 0.0 {
             let kick = minf(IMPACT_SQUASH_MAX, dv * j.impact);
             j.vq += kick * (absf(nl.y) - 0.55 * absf(nl.x));
@@ -268,7 +268,7 @@ fn geo_circle(geo: &Geometry, p: V2, r: f32) -> Option<(V2, f32)> {
                 } else {
                     let len = l2.max(0.0);
                     if len > 0.0 {
-                        let len = crate::fmath::sqrtf(len);
+                        let len = pocketjs_core::fmath::sqrtf(len);
                         V2::new(-ab.y / len, ab.x / len)
                     } else {
                         V2::new(0.0, -1.0)

@@ -196,6 +196,10 @@ impl Program {
             profile: profile::profile().unwrap(),
         })
         .unwrap();
+        // The fixture profile adds ui.physics; the fixture installs the engine.
+        runtime
+            .with_runtime(|r| r.set_physics(Box::new(pocket_physics::Physics::new())))
+            .unwrap();
         let ops = runtime.op_context();
         ops.add_provider(Box::new(instance::Services)).unwrap();
         let guest = instance::Guest::new(ops, Some(20)).unwrap();

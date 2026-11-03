@@ -8,7 +8,8 @@ const profile = POCKET_PROFILES["psp"];
 const root = resolve(import.meta.dir, "..");
 const validation = join(root, ".pocket-build/validation/psp-runtime");
 // The fixture embeds the profile module the PSP program embeds, plus
-// ui.physics so a plan can enable the feature-gated physics namespace.
+// ui.physics so a plan can enable the feature-gated physics namespace; the
+// fixture installs pocket-physics before boot.
 const fixtureProfile = { ...profile, capabilities: [...profile.capabilities, "ui.physics"] };
 const exported = exportProfile({ profile: fixtureProfile, profileHash: hashPocketProfile(fixtureProfile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(validation, "profile"));
 const metadata = Bun.spawnSync(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", join(root, "programs/psp/Cargo.toml")], { cwd: root, stdout: "pipe", stderr: "pipe" });

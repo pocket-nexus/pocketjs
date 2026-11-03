@@ -98,6 +98,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-physics"
+version = "0.16.0"
+dependencies = [
+ "pocketjs-core",
+]
+
+[[package]]
 name = "pocket-profile-build"
 version = "0.16.0"
 
@@ -110,6 +117,7 @@ dependencies = [
  "pocket-archive",
  "pocket-drivers",
  "pocket-package",
+ "pocket-physics",
  "pocket-profile-build",
  "pocket-runtime",
  "pocket-spec",

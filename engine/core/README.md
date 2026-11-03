@@ -28,6 +28,8 @@ Rust 1.93 or later. `no_std` with `alloc`; layout uses taffy. The host supplies 
 
 This crate emits drawing operations. Use `pocket-runtime` for package admission, guests, input and frame scheduling; a renderer and display present the result. The `counters` feature exposes layout diagnostics and validation hooks.
 
+The crate defines the `Physics` trait for `ui.physics` and contains no engine. `Ui::set_physics` installs one; `tick` steps it after animation tracks, and the engine writes only the `physics_values` layer of the nodes it poses.
+
 Use matching PocketJS crate releases and compiler contracts. Application package
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.

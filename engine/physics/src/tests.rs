@@ -21,7 +21,16 @@ fn handles_are_kind_tagged_and_stale_after_removal() {
 
 // -- end to end through Ui ------------------------------------------------
 
-use crate::Ui;
+use alloc::boxed::Box;
+
+use pocketjs_core::Ui;
+
+/// A core with this engine installed, as a program installs it before boot.
+fn physics_ui() -> Ui {
+    let mut ui = Ui::new();
+    ui.set_physics(Box::new(Physics::new()));
+    ui
+}
 
 fn abs_box(ui: &mut Ui, parent: i32, x: f64, y: f64, w: f64, h: f64) -> i32 {
     let n = ui.create_node(0);
@@ -79,7 +88,7 @@ fn letter(ui: &mut Ui, world: i32, view: i32, extra: &[(u32, f64)]) -> i32 {
 
 #[test]
 fn layout_anchor_rests_the_view_on_its_slot_and_hops_back() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let view = abs_box(&mut ui, spec::ROOT_ID, 100.0, 60.0, 64.0, 64.0);
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 2500.0)]));
     let body = letter(&mut ui, world, view, &[]);
@@ -113,7 +122,7 @@ fn layout_anchor_rests_the_view_on_its_slot_and_hops_back() {
 
 #[test]
 fn launch_arrives_at_the_anchor_on_time_and_hands_over_to_the_springs() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let view = abs_box(&mut ui, spec::ROOT_ID, 100.0, 40.0, 64.0, 64.0);
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[]));
     let body = letter(&mut ui, world, view, &[(ps::KEY_ASLEEP, 1.0), (ps::KEY_X, 200.0), (ps::KEY_Y, 420.0)]);
@@ -191,7 +200,7 @@ fn toy(ui: &mut Ui, world: i32, view: i32, x: f64, y: f64) -> i32 {
 
 #[test]
 fn a_toy_falls_bounces_dents_and_comes_to_rest_on_a_chain_floor() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let view = abs_box(&mut ui, spec::ROOT_ID, 0.0, 0.0, 40.0, 40.0);
     let (world, floor) = floor_world(&mut ui);
     let body = toy(&mut ui, world, view, 240.0, 40.0);
@@ -221,7 +230,7 @@ fn a_toy_falls_bounces_dents_and_comes_to_rest_on_a_chain_floor() {
 
 #[test]
 fn toys_knock_an_anchored_letter_which_springs_home() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let slot = abs_box(&mut ui, spec::ROOT_ID, 208.0, 76.0, 64.0, 64.0);
     let ball = abs_box(&mut ui, spec::ROOT_ID, 0.0, 0.0, 40.0, 40.0);
     let (world, _) = floor_world(&mut ui);
@@ -248,7 +257,7 @@ fn toys_knock_an_anchored_letter_which_springs_home() {
 #[test]
 fn the_same_commands_give_the_same_bits() {
     let run = || {
-        let mut ui = Ui::new();
+        let mut ui = physics_ui();
         let (world, _) = floor_world(&mut ui);
         let mut bodies = Vec::new();
         for k in 0..6 {
@@ -274,7 +283,7 @@ fn the_same_commands_give_the_same_bits() {
 
 #[test]
 fn views_on_two_surfaces_share_one_world() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     ui.set_viewport(400.0, 240.0);
     let aux = ui.create_auxiliary_surface(320.0, 240.0);
     let top = abs_box(&mut ui, spec::ROOT_ID, 0.0, 0.0, 20.0, 20.0);
@@ -316,7 +325,7 @@ fn views_on_two_surfaces_share_one_world() {
 
 #[test]
 fn zones_report_enter_and_leave() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
     let zone = ui.physics_create(
         ps::KIND_ZONE,
@@ -340,7 +349,7 @@ fn zones_report_enter_and_leave() {
 
 #[test]
 fn an_emitter_bursts_into_its_pool_and_hides_spent_particles() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[]));
     let mut params = kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_LIFE_MIN, 0.2), (ps::KEY_LIFE_MAX, 0.3), (ps::KEY_SCALE_CURVE, ps::SCALE_CURVE_POP as f64)]);
     let mut pool = Vec::new();
@@ -370,7 +379,7 @@ fn an_emitter_bursts_into_its_pool_and_hides_spent_particles() {
 
 #[test]
 fn a_collider_owner_absorbs_impacts_as_wobble() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let (world, _) = floor_world(&mut ui);
     let pocket = ui.physics_create(
         ps::KIND_BODY,
@@ -432,7 +441,7 @@ fn box_body(ui: &mut Ui, world: i32, x: f64, y: f64, extra: &[(u32, f64)]) -> i3
 fn a_box_lands_flat_on_a_box_without_hovering() {
     // every bottom sample touches at once; each must see the correction the
     // earlier ones applied
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 2500.0)]));
     ui.physics_create(
         ps::KIND_COLLIDER,
@@ -450,7 +459,7 @@ fn a_box_lands_flat_on_a_box_without_hovering() {
 fn a_box_lands_on_a_box_body_without_a_gap() {
     // while the top box sits on the bottom one their faces touch; the solver
     // makes no promise that a stack stays up
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 2500.0)]));
     ui.physics_create(
         ps::KIND_COLLIDER,
@@ -470,7 +479,7 @@ fn a_box_lands_on_a_box_body_without_a_gap() {
 #[test]
 fn an_owner_turns_away_from_the_side_that_was_struck() {
     let run = |x: f64| {
-        let mut ui = Ui::new();
+        let mut ui = physics_ui();
         let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 2500.0)]));
         let owner = ui.physics_create(
             ps::KIND_BODY,
@@ -514,7 +523,7 @@ fn an_owner_turns_away_from_the_side_that_was_struck() {
 
 #[test]
 fn non_finite_input_is_refused_and_never_spreads() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
     let a = ui.physics_create(ps::KIND_BODY, &kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_SHAPE, 1.0), (ps::KEY_RADIUS, 10.0), (ps::KEY_X, 100.0), (ps::KEY_Y, 100.0)]));
     let b = ui.physics_create(ps::KIND_BODY, &kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_SHAPE, 1.0), (ps::KEY_RADIUS, 10.0), (ps::KEY_X, 115.0), (ps::KEY_Y, 100.0)]));
@@ -531,7 +540,7 @@ fn non_finite_input_is_refused_and_never_spreads() {
 
 #[test]
 fn a_huge_stream_rate_is_bounded_by_the_pool() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &[]);
     let mut params = kv(&[(ps::KEY_WORLD, world as f64)]);
     for _ in 0..4 {
@@ -552,7 +561,7 @@ fn bursts_draw_from_the_emitter_not_the_world() {
     // the landing wobble's side comes from the world generator; a burst in
     // between must not change it
     let run = |burst: bool| {
-        let mut ui = Ui::new();
+        let mut ui = physics_ui();
         let view = abs_box(&mut ui, spec::ROOT_ID, 100.0, 60.0, 64.0, 64.0);
         let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_SEED, 9.0)]));
         let node = ui.create_node(2);
@@ -576,7 +585,7 @@ fn bursts_draw_from_the_emitter_not_the_world() {
 
 #[test]
 fn a_silent_world_records_nothing_and_a_flood_reports_overflow() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
     let zone = ui.physics_create(
         ps::KIND_ZONE,
@@ -608,7 +617,7 @@ fn a_silent_world_records_nothing_and_a_flood_reports_overflow() {
 fn the_wire_form_is_the_float64_form_in_little_endian_bytes() {
     let wire = |words: &[f64]| words.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
     let run = |through_wire: bool| {
-        let mut ui = Ui::new();
+        let mut ui = physics_ui();
         let world_params = kv(&[(ps::KEY_GRAVITY_Y, 0.0)]);
         let world = if through_wire { ui.physics_create_wire(ps::KIND_WORLD, &wire(&world_params)) } else { ui.physics_create(ps::KIND_WORLD, &world_params) };
         let zone = kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_SHAPE, ps::SHAPE_BOX as f64), (ps::KEY_X, 100.0), (ps::KEY_Y, 100.0), (ps::KEY_HALF_WIDTH, 50.0), (ps::KEY_HALF_HEIGHT, 50.0)]);
@@ -644,7 +653,7 @@ fn the_wire_form_is_the_float64_form_in_little_endian_bytes() {
 
 #[test]
 fn the_physics_layer_is_not_the_animation_layer() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let view = abs_box(&mut ui, spec::ROOT_ID, 0.0, 0.0, 20.0, 20.0);
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
     let body = ui.physics_create(ps::KIND_BODY, &kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_VIEW, view as f64), (ps::KEY_X, 110.0), (ps::KEY_Y, 10.0)]));
@@ -663,7 +672,7 @@ fn the_physics_layer_is_not_the_animation_layer() {
 #[test]
 fn contacts_lean_letters_the_homepage_way_and_toys_squash_vertically() {
     // a toy thrown at a letter from the left leans it positive
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let slot = abs_box(&mut ui, spec::ROOT_ID, 208.0, 76.0, 64.0, 64.0);
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
     letter(&mut ui, world, slot, &[(ps::KEY_LEAN_STIFFNESS, 320.0), (ps::KEY_LEAN_DAMPING, 11.0), (ps::KEY_LEAN_IMPACT, 30.0)]);
@@ -700,7 +709,7 @@ fn contacts_lean_letters_the_homepage_way_and_toys_squash_vertically() {
 
 #[test]
 fn a_body_anchored_only_in_angle_launches_from_where_it_is() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
     let body = ui.physics_create(
         ps::KIND_BODY,
@@ -723,7 +732,7 @@ fn a_body_anchored_only_in_angle_launches_from_where_it_is() {
 #[test]
 fn a_flight_passes_through_bodies_unless_solid() {
     let run = |solid: f64| {
-        let mut ui = Ui::new();
+        let mut ui = physics_ui();
         let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
         let flyer = ui.physics_create(ps::KIND_BODY, &kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_SHAPE, 1.0), (ps::KEY_RADIUS, 10.0), (ps::KEY_X, 0.0), (ps::KEY_Y, 100.0)]));
         let resting = ui.physics_create(ps::KIND_BODY, &kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_SHAPE, 1.0), (ps::KEY_RADIUS, 10.0), (ps::KEY_X, 100.0), (ps::KEY_Y, 100.0)]));
@@ -739,7 +748,7 @@ fn a_flight_passes_through_bodies_unless_solid() {
 
 #[test]
 fn destroying_a_body_inside_a_zone_reports_leave() {
-    let mut ui = Ui::new();
+    let mut ui = physics_ui();
     let world = ui.physics_create(ps::KIND_WORLD, &kv(&[(ps::KEY_GRAVITY_Y, 0.0)]));
     let zone = ui.physics_create(
         ps::KIND_ZONE,

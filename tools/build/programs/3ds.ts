@@ -18,9 +18,10 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
   mkdirSync(buildDirectory, { recursive: true });
   exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION,
     dependencies: [] }, buildDirectory);
+  // The 3ds-runtime profile declares ui.physics: create installs pocket-physics.
   const native = await prepareNative3ds({ packageName: "pocket-archive",
     archiveName: "libpocket_archive.a", targetDirectory: join(repository, ".pocket-build/native/3ds/minimal"),
-    roots: [outdir], context });
+    cargoArgs: ["--features", "physics"], roots: [outdir], context });
   const program = join(outdir, THREE_DS_RUNTIME_FILE);
   rmSync(program, { force: true });
   await runNative3dsMake({ directory: join(repository, "programs/3ds"), mounts: native.mounts, profile, context,
