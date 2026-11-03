@@ -4,7 +4,7 @@ import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 const profile = POCKET_PROFILES["3ds-dev"];
 
@@ -21,7 +21,7 @@ function run(args: string[], env = process.env): string {
 test.skipIf(!cc)("PICA driver retains independent screen submissions and exact resource versions until terminal waits", () => {
   mkdirSync(runDir, { recursive: true });
   const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
-  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", "Cargo.toml", "-p", "pocket-archive", "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", "Cargo.toml", "-p", "pocket-archive", "--no-default-features", "--features", "software-renderer", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
   const binary = resolve(runDir, "driver");
   run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", resolve(root,"tests/fixtures/pica-driver"),
     "-I", resolve(root,"devices/3ds/pocket-3ds-pica/include"), "-I", resolve(root,"contracts/generated"),
@@ -37,6 +37,15 @@ test.skipIf(!cc)("PICA driver retains independent screen submissions and exact r
   // The product archive: pocket-archive, the 3DS package inspection and the
   // native program without built-in outputs or hooks, as products/3ds links it.
   run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", "Cargo.toml", "-p", "pocketjs-3ds-core", "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+  // The product archive does not enable software-renderer: it keeps the
+  // pocket_raster_draw_op symbol and links no pocket_raster code.
+  const host = /^host: (.+)$/m.exec(run(["rustup", "run", STABLE_RUST_TOOLCHAIN, "rustc", "-Vv"]))![1]!;
+  const sysroot = run(["rustup", "run", STABLE_RUST_TOOLCHAIN, "rustc", "--print", "sysroot"]).trim();
+  const llvmNm = [resolve(sysroot, "lib/rustlib", host, "bin/llvm-nm"), Bun.which("llvm-nm"), "/opt/homebrew/opt/llvm/bin/llvm-nm"].find(path => path && existsSync(path));
+  const symbols = run([...(llvmNm ? [llvmNm] : ["nm", ...(process.platform === "darwin" ? ["--no-llvm-bc"] : [])]),
+    resolve(target, "release/libpocketjs_3ds_core.a")]).split("\n");
+  expect(symbols.some(line => / T _?pocket_raster_draw_op$/.test(line))).toBe(true);
+  expect(symbols.filter(line => line.includes("pocket_raster") && !/ _?pocket_raster_draw_op$/.test(line))).toEqual([]);
   const instance = resolve(runDir, "instance");
   run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
     "-I", resolve(root,"tests/fixtures/pica-driver"), "-I", resolve(root,"products/3ds/include"),

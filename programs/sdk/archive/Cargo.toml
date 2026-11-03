@@ -19,11 +19,15 @@ default = ["std"]
 std = []
 # A no_std Rust program supplies its own allocator, panic and compiler handlers.
 external-runtime = []
+# pocket_runtime_create registers the software rasterizer as renderer 0 and
+# pocket_raster_draw_op draws; without it renderer 0 is empty and the
+# function returns POCKET_STATUS_UNSUPPORTED.
+software-renderer = ["dep:pocket-raster"]
 
 [dependencies]
 pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
-pocket-raster = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true, optional = true }
 pocket-draw-ops = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-glyph-pages = { workspace = true, default-features = true }

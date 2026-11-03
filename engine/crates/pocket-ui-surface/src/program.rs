@@ -400,6 +400,13 @@ mod tests {
             frame_buffer_budget: 1024,
         })
         .unwrap();
+        program
+            .runtime_mut()
+            .set_software_renderer(
+                pocket_raster::RasterRenderer::new(1).unwrap(),
+                pocket_raster::RasterRenderer::new,
+            )
+            .unwrap();
         let count = Rc::new(RefCell::new(0));
         program
             .add_display(

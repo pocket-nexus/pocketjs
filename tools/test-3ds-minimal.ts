@@ -35,7 +35,7 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
   run([source, join(out, "range.bin")]);
   const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
   run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "-p", "pocket-archive",
-    "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+    "--no-default-features", "--features", "software-renderer", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
   const quickjs = ensureQuickJsSources();
   const flags = ["-DPOCKET_QJS_BELLARD", "-DJS_NO_NAN_BOXING"];
   const objects = quickJsVendorObjects({ cc, quickjs, units: ["quickjs", "dtoa", "libregexp", "libunicode", "cutils"],

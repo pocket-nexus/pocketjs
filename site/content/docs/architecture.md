@@ -114,8 +114,14 @@ on the UI core.** Their callers supply resource views or borrowed bytes.
 Both consume `RenderResources` from `pocket-drivers`; neither requires a `Ui`
 instance. The coordinator that registers renderers and displays and orders
 render completion, display transfer, and resource retirement is
-`pocket_runtime::coordinator`; `Coordinator::new` registers
-`pocket_raster::RasterRenderer` as renderer 0.
+`pocket_runtime::coordinator`. **Renderer 0 is reserved for the software
+rasterizer and is empty until the composition registers it.** A C archive built
+with the `software-renderer` feature registers `pocket_raster::RasterRenderer`
+there in `pocket_runtime_create`; a Rust program calls
+`Runtime::set_software_renderer` before it registers a display with renderer 0.
+The registration carries a callback that rebuilds the renderer when boot or a
+resize selects another integer scale. `pocket-runtime` does not depend on
+`pocket-raster`.
 
 **`pocketjs-core` depends on neither `pocket-raster` nor the coordinator.**
 Hosts import `pocket_raster` and `pocket_render::damage`. The core

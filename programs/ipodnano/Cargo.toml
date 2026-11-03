@@ -21,6 +21,7 @@ microts = { workspace = true, default-features = true, features = ["runtime"] }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
 
 [target.'cfg(target_os = "none")'.dependencies]
 microts = { workspace = true, default-features = true, features = ["critical-section"] }

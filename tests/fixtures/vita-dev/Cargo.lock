@@ -47,15 +47,6 @@ name = "pocket-profile-build"
 version = "0.16.0"
 
 [[package]]
-name = "pocket-raster"
-version = "0.16.0"
-dependencies = [
- "pocket-drivers",
- "pocket-render",
- "pocket-spec",
-]
-
-[[package]]
 name = "pocket-render"
 version = "0.16.0"
 dependencies = [
@@ -69,7 +60,6 @@ version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
- "pocket-raster",
  "pocket-render",
  "pocket-spec",
  "pocketjs-core",

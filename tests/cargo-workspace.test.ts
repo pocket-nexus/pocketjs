@@ -3,7 +3,7 @@ import { copyFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
-import { FEATURE_CONTRACTS, checkFeatureTree } from "./fixtures/cargo-features/contracts.ts";
+import { ARCHIVE_ROOT_FEATURES, FEATURE_CONTRACTS, checkFeatureTree } from "./fixtures/cargo-features/contracts.ts";
 
 const root = resolve(import.meta.dir, "..");
 const toml = (path: string) => Bun.TOML.parse(readFileSync(join(root, path), "utf8")) as any;
@@ -79,6 +79,18 @@ describe("Cargo program and library graph", () => {
       const sdk = command([...treeOptions, "-p", "pocket-archive", "--no-default-features"]);
       expect(sdk).not.toMatch(/^pocket-gles[12]? (?:v|feature)/m);
       expect(() => checkFeatureTree(sdk)).not.toThrow();
+      // Each archive root resolves its own pocket-archive features; a separate
+      // build per root keeps them from being unified with another root's.
+      for (const { root: name, build, features, raster } of ARCHIVE_ROOT_FEATURES) {
+        const tree = command([...treeOptions, ...build]);
+        const resolved = [...new Set(tree.split("\n").flatMap(line => {
+          const match = /^pocket-archive v[^|]+\|([^ ]*)/.exec(line);
+          return match ? [match[1]!] : [];
+        }))];
+        expect(resolved, name).toEqual([features.join(",")]);
+        expect(() => checkFeatureTree(tree), name).not.toThrow();
+        expect(/^pocket-raster v/m.test(tree), name).toBe(raster);
+      }
     } finally {
       rmSync(consumer, { recursive: true, force: true });
     }

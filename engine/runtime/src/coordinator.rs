@@ -11,10 +11,9 @@ use core::{any::Any, cell::RefCell};
 
 use pocket_drivers::{
     BufferIdentity, DamageRect, DisplayDescriptor, DisplayError, DisplayOutput, DisplayRole,
-    DrawList, FontView, FrameInput, Rect, RenderError, RenderResources, Renderer,
+    DrawList, FontView, FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer,
     RendererDescriptor, Synchronization, Target, TargetOwnership, TexView, HOST_DAMAGE_RECTS,
 };
-use pocket_raster::RasterRenderer;
 use pocket_render::damage::{DamagePolicy, DamageTarget, DamageTracker};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,6 +155,34 @@ struct RegisteredRenderer {
     driver: Option<Box<dyn ErasedRenderer>>,
 }
 
+/// The integer logical-to-physical scales a coordinator accepts. The runtime
+/// selects scales in this range; a scale outside it is
+/// `InvalidRendererDescriptor`, with or without a software renderer.
+const SCALES: core::ops::RangeInclusive<u32> = 1..=4;
+
+/// Builds the slot 0 renderer for a scale. It holds the program's rescale
+/// callback and the descriptor the first renderer declared.
+type SoftwareRescale = Box<dyn FnMut(u32) -> Result<RegisteredRenderer, PresentError>>;
+
+fn check_renderer_descriptor(descriptor: &RendererDescriptor) -> Result<(), PresentError> {
+    if descriptor.draw_list_version() != pocket_spec::DRAW_LIST_VERSION
+        || descriptor.formats().is_empty()
+        || (descriptor.target_ownership() == TargetOwnership::CpuVisible
+            && descriptor.synchronization() != Synchronization::Immediate)
+    {
+        return Err(PresentError::InvalidRendererDescriptor);
+    }
+    Ok(())
+}
+
+fn same_descriptor(a: &RendererDescriptor, b: &RendererDescriptor) -> bool {
+    a.formats() == b.formats()
+        && a.target_ownership() == b.target_ownership()
+        && a.synchronization() == b.synchronization()
+        && a.draw_list_version() == b.draw_list_version()
+        && a.zero_copy() == b.zero_copy()
+}
+
 struct Pending {
     submission: ErasedValue,
     render_waited: bool,
@@ -226,27 +253,99 @@ pub struct Coordinator {
     /// The caller keeps borrowed texture storage until retirement
     /// (`enable_deferred_zero_copy`).
     deferred_zero_copy: bool,
+    /// Rebuilds slot 0 when the scale changes; set by `set_software_renderer`.
+    software: Option<SoftwareRescale>,
 }
 
 impl Coordinator {
+    /// A coordinator at `scale` whose slot 0 ([`RendererId::SOFTWARE`]) is
+    /// empty until [`Coordinator::set_software_renderer`]; `add_renderer`
+    /// numbers renderers from 1.
     pub fn new(scale: u32, frame_buffer_budget: usize) -> Result<Self, PresentError> {
-        let software =
-            RasterRenderer::new(scale).map_err(|_| PresentError::InvalidRendererDescriptor)?;
-        let mut result = Self {
+        if !SCALES.contains(&scale) {
+            return Err(PresentError::InvalidRendererDescriptor);
+        }
+        let empty = RendererDescriptor::new(
+            &[PixelFormat::Rgba8888],
+            TargetOwnership::CpuVisible,
+            Synchronization::Immediate,
+            pocket_spec::DRAW_LIST_VERSION,
+            false,
+        )
+        .map_err(|_| PresentError::InvalidRendererDescriptor)?;
+        Ok(Self {
             scale,
             frame_buffer_budget,
-            renderers: Vec::new(),
+            // The descriptor of an empty slot is never read: every use checks
+            // for a driver first.
+            renderers: alloc::vec![RegisteredRenderer {
+                descriptor: empty,
+                driver: None,
+            }],
             displays: Vec::new(),
             frame: 0,
             borrowed: Vec::new(),
             deferred_zero_copy: false,
+            software: None,
+        })
+    }
+
+    /// Install the renderer that [`RendererId::SOFTWARE`] (slot 0) names.
+    /// `renderer` serves the current scale. `rescale` returns a renderer for
+    /// a new scale; [`Coordinator::set_scale`] and
+    /// [`Coordinator::refresh_displays`] call it and replace slot 0 with the
+    /// result, which must declare the same descriptor. Slot 0 accepts one
+    /// installation, before any display binds it.
+    pub fn set_software_renderer<R, F>(
+        &mut self,
+        renderer: R,
+        mut rescale: F,
+    ) -> Result<(), PresentError>
+    where
+        R: Renderer + 'static,
+        R::Submission: 'static,
+        F: FnMut(u32) -> Result<R, RenderError> + 'static,
+    {
+        if self.software.is_some() {
+            return Err(PresentError::InvalidRenderer);
+        }
+        let descriptor = renderer.descriptor();
+        check_renderer_descriptor(&descriptor)?;
+        self.renderers[RendererId::SOFTWARE.0 as usize] = RegisteredRenderer {
+            descriptor,
+            driver: Some(Box::new(RendererAdapter(renderer))),
         };
-        result.add_renderer(software)?;
-        Ok(result)
+        self.software = Some(Box::new(move |scale| {
+            let renderer = rescale(scale).map_err(|_| PresentError::InvalidRendererDescriptor)?;
+            let rescaled = renderer.descriptor();
+            if !same_descriptor(&rescaled, &descriptor) {
+                return Err(PresentError::InvalidRendererDescriptor);
+            }
+            Ok(RegisteredRenderer {
+                descriptor: rescaled,
+                driver: Some(Box::new(RendererAdapter(renderer))),
+            })
+        }));
+        Ok(())
+    }
+
+    /// The slot 0 renderer for `scale`, or None while the slot is empty.
+    fn software_renderer(
+        &mut self,
+        scale: u32,
+    ) -> Result<Option<RegisteredRenderer>, PresentError> {
+        if !SCALES.contains(&scale) {
+            return Err(PresentError::InvalidRendererDescriptor);
+        }
+        self.software
+            .as_mut()
+            .map(|rescale| rescale(scale))
+            .transpose()
     }
 
     /// Change the logical-to-physical scale after package admission. This
-    /// replaces only the built-in software renderer; custom renderers retain
+    /// replaces only the slot 0 software renderer, through the rescale
+    /// callback `set_software_renderer` installed; custom renderers retain
     /// their own configuration. Call before the next presentation begins.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), PresentError> {
         self.complete()?;
@@ -257,15 +356,13 @@ impl Coordinator {
         {
             return Err(PresentError::InvalidFrame);
         }
-        let software =
-            RasterRenderer::new(scale).map_err(|_| PresentError::InvalidRendererDescriptor)?;
+        let software = self.software_renderer(scale)?;
         for display in &self.displays {
             validate_display(&display.descriptor, scale)?;
         }
-        self.renderers[RendererId::SOFTWARE.0 as usize] = RegisteredRenderer {
-            descriptor: software.descriptor(),
-            driver: Some(Box::new(RendererAdapter(software))),
-        };
+        if let Some(software) = software {
+            self.renderers[RendererId::SOFTWARE.0 as usize] = software;
+        }
         self.scale = scale;
         self.invalidate();
         Ok(())
@@ -278,8 +375,7 @@ impl Coordinator {
     /// requested physical viewport.
     pub fn refresh_displays(&mut self, scale: u32, primary: [u32; 2]) -> Result<(), PresentError> {
         self.complete()?;
-        let software =
-            RasterRenderer::new(scale).map_err(|_| PresentError::InvalidRendererDescriptor)?;
+        let software = self.software_renderer(scale)?;
         if self
             .displays
             .iter()
@@ -311,10 +407,9 @@ impl Coordinator {
             descriptors.push(descriptor);
         }
         let plans = budget_plans(&descriptors, self.frame_buffer_budget)?;
-        self.renderers[0] = RegisteredRenderer {
-            descriptor: software.descriptor(),
-            driver: Some(Box::new(RendererAdapter(software))),
-        };
+        if let Some(software) = software {
+            self.renderers[RendererId::SOFTWARE.0 as usize] = software;
+        }
         for ((display, descriptor), plan) in self.displays.iter_mut().zip(descriptors).zip(plans) {
             display.descriptor = descriptor;
             display.strip_height = plan.rows;
@@ -338,13 +433,7 @@ impl Coordinator {
         R::Submission: 'static,
     {
         let descriptor = renderer.descriptor();
-        if descriptor.draw_list_version() != pocket_spec::DRAW_LIST_VERSION
-            || descriptor.formats().is_empty()
-            || (descriptor.target_ownership() == TargetOwnership::CpuVisible
-                && descriptor.synchronization() != Synchronization::Immediate)
-        {
-            return Err(PresentError::InvalidRendererDescriptor);
-        }
+        check_renderer_descriptor(&descriptor)?;
         let id = u32::try_from(self.renderers.len()).map_err(|_| PresentError::InvalidRenderer)?;
         if id == u32::MAX {
             return Err(PresentError::InvalidRenderer);

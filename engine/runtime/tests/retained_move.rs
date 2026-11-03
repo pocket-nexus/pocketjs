@@ -12,6 +12,19 @@ use pocket_drivers::{
 use pocket_runtime::coordinator::{Coordinator, PresentError, RendererId};
 use pocket_spec as spec;
 
+/// A coordinator with the software rasterizer in slot 0, as a program
+/// that binds displays to `RendererId::SOFTWARE` composes it.
+fn software(scale: u32, budget: usize) -> Coordinator {
+    let mut coordinator = Coordinator::new(scale, budget).unwrap();
+    coordinator
+        .set_software_renderer(
+            pocket_raster::RasterRenderer::new(scale).unwrap(),
+            pocket_raster::RasterRenderer::new,
+        )
+        .unwrap();
+    coordinator
+}
+
 const W: i32 = 64;
 const H: i32 = 48;
 const FORMAT: PixelFormat = PixelFormat::Rgb565;
@@ -238,7 +251,7 @@ fn scrolled_rows_move_on_the_display_and_the_frame_equals_a_full_render() {
         let display = MoveDisplay::new(scale, 8 * scale);
         let (screen, log) = (display.screen.clone(), display.log.clone());
         let budget = display.descriptor.stride_bytes * 8 * scale as usize;
-        let mut coordinator = Coordinator::new(scale, budget).unwrap();
+        let mut coordinator = software(scale, budget);
         coordinator
             .add_display(display, RendererId::SOFTWARE)
             .unwrap();
@@ -274,7 +287,7 @@ fn a_declined_move_repaints_its_destination() {
     display.decline_moves = true;
     let (screen, log) = (display.screen.clone(), display.log.clone());
     let budget = display.descriptor.stride_bytes * 96;
-    let mut coordinator = Coordinator::new(2, budget).unwrap();
+    let mut coordinator = software(2, budget);
     coordinator
         .add_display(display, RendererId::SOFTWARE)
         .unwrap();
@@ -293,7 +306,7 @@ fn host_damage_is_repainted_when_the_words_do_not_change() {
         display.host.clone(),
     );
     let stride = display.descriptor.stride_bytes;
-    let mut coordinator = Coordinator::new(2, stride * 96).unwrap();
+    let mut coordinator = software(2, stride * 96);
     coordinator
         .add_display(display, RendererId::SOFTWARE)
         .unwrap();
@@ -327,7 +340,7 @@ fn retained_move_requires_device_frame_storage_and_partial_refresh() {
             _ => display.descriptor.partial_refresh = false,
         }
         let budget = display.descriptor.stride_bytes * 48;
-        let mut coordinator = Coordinator::new(1, budget).unwrap();
+        let mut coordinator = software(1, budget);
         assert_eq!(
             coordinator.add_display(display, RendererId::SOFTWARE),
             Err(PresentError::InvalidDisplayDescriptor)

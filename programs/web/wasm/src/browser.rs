@@ -305,6 +305,13 @@ pub unsafe extern "C" fn web_boot(
                 }))?;
             }
             runtime.add_input_source(Box::new(BrowserInput(h.input.clone())))?;
+            // Both displays bind renderer 0: the software rasterizer, rebuilt
+            // at the boot scale and at every web_resize.
+            runtime.set_software_renderer(
+                pocket_raster::RasterRenderer::new(1)
+                    .map_err(|_| RuntimeError::InvalidConfiguration)?,
+                pocket_raster::RasterRenderer::new,
+            )?;
             runtime.add_display(
                 Display::new(h.physical.clone(), DisplayRole::Primary, h.snapshot.clone()),
                 pocket_present::RendererId::SOFTWARE,

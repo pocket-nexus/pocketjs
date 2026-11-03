@@ -47,9 +47,13 @@ Rust 1.93 or later. `no_std` with `alloc`; the host provides an allocator, guest
 
 The example configures an instance without booting an application. Production hosts use facts exported by `pocket host export`; the sample hash is not a production host identity. Register a package source, guest, renderer, display and required inputs before `boot`, then drive `tick` and call `shutdown` before releasing devices.
 
-The `coordinator` module registers renderers and displays and completes each frame's rendering and display transfers. `Coordinator::new` registers a
-`pocket_raster::RasterRenderer` as `RendererId::SOFTWARE` (id 0); `add_renderer`
-numbers other renderers from 1.
+The `coordinator` module registers renderers and displays and completes each frame's rendering and display transfers. `RendererId::SOFTWARE` (id 0) is
+reserved for a software renderer and is empty after `Runtime::new`; `add_renderer`
+numbers other renderers from 1. A program that binds displays to id 0 first calls
+`Runtime::set_software_renderer` with a renderer and a callback that rebuilds it at
+a new integer scale, for example `pocket_raster::RasterRenderer::new(1)?` and
+`pocket_raster::RasterRenderer::new`. Boot and the resize entry points call the
+callback. Without it, `add_display` with id 0 returns `InvalidRenderer`.
 
 Use matching PocketJS crate releases and compiler contracts. Application package
 format, binding generation, and DrawList version are checked at their respective

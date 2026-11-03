@@ -8,13 +8,24 @@ glyph-pages and raster crates. The ABI records, pointer checks and vtable
 adapters are `pocket_drivers::abi`. **Driver registration selects the
 backend.** Profile IDs, targets and devices are not Cargo features.
 
-The SDK builds this crate with **default features disabled** and contains no
-GLES driver. A C program supplies the six `pocket_host_*` functions; the no_std
-build defines the global allocator over them, the panic handler and
-`rust_eh_personality`. The `std` feature defines the six hooks over the
+The SDK builds this crate with **default features disabled** and the
+`software-renderer` feature, and contains no GLES driver. A C program supplies
+the six `pocket_host_*` functions; the no_std build defines the global
+allocator over them, the panic handler and `rust_eh_personality`. The `std` feature defines the six hooks over the
 standard library instead; it is the Rust crate's default. `external-runtime`
 omits the allocator and panic handler when the embedding Rust program owns
 them, and keeps the symbols.
+
+**`software-renderer` registers the software rasterizer as renderer 0.**
+`pocket_runtime_create` calls `Runtime::set_software_renderer` with a
+`pocket_raster::RasterRenderer` and the callback that rebuilds it at the
+integer scale boot and the resize entry points select, before the C caller
+registers drivers; `pocket_raster_draw_op` forwards to `pocket_raster::abi`.
+Without the feature the crate does not depend on `pocket-raster`, renderer 0
+stays empty, and `pocket_raster_draw_op` returns `POCKET_STATUS_UNSUPPORTED`
+without writing the surface. The SDK export, the host contract runners, and
+the ESP-IDF and SiFli archives enable it; `products/3ds/core` and the native
+program do not.
 
 `programs/esp-idf/archive`, `programs/sifli/archive` and `products/3ds/core`
 re-export this crate and add their own symbols. A Rust program that drives an

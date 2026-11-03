@@ -12,6 +12,11 @@ no path dependencies, Cargo patches, internal engine modules, or direct core
 dependency. Logs, resolved metadata, the generated lockfile, and the result
 receipt go under `.pocket-build/validation/out-of-tree-rust/`.
 
+The consumer registers `pocket_raster::RasterRenderer` as renderer 0 through
+`Runtime::set_software_renderer` before its CPU display binds it. Replaying a
+revision whose `Runtime::new` registered the rasterizer itself removes that call
+and the `pocket-raster` dependency.
+
 The tests exercise public runtime registration, software drawing, input wire
 encoding, short-read package sources, delayed device rendering, two displays
 sharing texture storage, reversed completion, terminal errors, and destruction.

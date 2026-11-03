@@ -90,8 +90,7 @@ contents, then deprecated on crates.io.
 | `pocket-present` | Forwarding | `damage` and `transaction` in `pocket_render::damage`; `compositor` and `incremental` in `pocket-raster`; `coordinator` in `pocket_runtime::coordinator`; `ink` in `pocket_drivers::ink` |
 
 `pocketjs-core` no longer exports `raster`, `damage`, or `compositor`; use
-`pocket_raster`, `pocket_render::damage`, and `pocket_raster::compositor`. The
-software rasterizer remains registered as renderer 0 by `Coordinator::new`.
+`pocket_raster`, `pocket_render::damage`, and `pocket_raster::compositor`.
 
 ## Public API changes since the last release
 
@@ -101,6 +100,8 @@ release ships.
 
 | Crate | Change |
 | --- | --- |
+| `pocket-runtime` | **`Runtime::new` and `Coordinator::new` no longer register the software rasterizer as renderer 0, and `pocket-runtime` no longer depends on `pocket-raster`.** Renderer 0 (`RendererId::SOFTWARE`) stays reserved and is empty until `Runtime::set_software_renderer(renderer, rescale)` or `Coordinator::set_software_renderer` registers a renderer and the callback that rebuilds it at a new integer scale; boot and the four resize entry points call the callback. Until then `add_display` with renderer 0 returns `InvalidRenderer`. `add_renderer` numbers from 1, as before. A program that binds displays to renderer 0 adds `runtime.set_software_renderer(pocket_raster::RasterRenderer::new(1)?, pocket_raster::RasterRenderer::new)` before registering them. |
+| `pocket-raster` | New `abi` module with `pocket_raster_draw_op`, the body of the `pocket_runtime.h` function of that name. |
 | `pocket-drivers` | New `target` module: the device target registration contract. `TargetRenderer` is the renderer half (`register_target`, `unregister_target`, `target`, `queue_present`, `drain_present`, `end_registration`, the `PENDING_UNREGISTER` rule); `PendingUnregister` names the three rules; `RendererCell`, `Registration`, `TargetPort` and `TargetSlot` hold the renderer, register it with a runtime, link a display to it and hold a display's current target. Existing items are unchanged. |
 
 ## First publication

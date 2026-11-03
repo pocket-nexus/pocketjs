@@ -554,6 +554,28 @@ impl Runtime {
         self.configuring()?;
         Ok(self.presenter.add_renderer(renderer)?)
     }
+    /// Register the software renderer that [`RendererId::SOFTWARE`] (slot 0,
+    /// `POCKET_RENDERER_SOFTWARE`) names. `renderer` serves scale 1;
+    /// `rescale` returns a renderer for another integer scale and must
+    /// declare the same descriptor. The runtime calls it when boot selects the
+    /// package's scale and when `resize_embedded`,
+    /// `resize_embedded_presentation`, `resize_embedded_gpu` or
+    /// `resize_auxiliary` refresh the displays. Call it once, before a display
+    /// binds slot 0; until then `add_display` with slot 0 returns
+    /// `InvalidRenderer`. `add_renderer` numbers other renderers from 1.
+    pub fn set_software_renderer<R, F>(
+        &mut self,
+        renderer: R,
+        rescale: F,
+    ) -> Result<(), RuntimeError>
+    where
+        R: Renderer + 'static,
+        R::Submission: 'static,
+        F: FnMut(u32) -> Result<R, pocket_drivers::RenderError> + 'static,
+    {
+        self.configuring()?;
+        Ok(self.presenter.set_software_renderer(renderer, rescale)?)
+    }
     pub fn add_display<D: DisplayOutput + 'static>(
         &mut self,
         display: D,

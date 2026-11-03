@@ -72,15 +72,69 @@ static int32_t wait_display(void *context, uint64_t token) {
   assert(((TestDisplay *)context)->token == token);
   return 0;
 }
+static const pocket_display_output_v1 display_api = {
+    sizeof display_api, display_descriptor, acquire_display,
+    flush_display,      wait_display,       NULL,
+    NULL,               NULL,               NULL};
+/* The product archive registers no software renderer in slot 0, so the
+ * fixture stands in for gfx.c's PICA renderer with a CPU one of its own. */
+static const uint32_t renderer_formats[] = {POCKET_PIXEL_FORMAT_RGBA8888};
+static uint64_t renders;
+static int32_t renderer_descriptor(void *context,
+                                   pocket_renderer_descriptor *out) {
+  (void)context;
+  *out = (pocket_renderer_descriptor){
+      sizeof *out,           renderer_formats,      1,
+      POCKET_TARGET_CPU_VISIBLE, POCKET_SYNC_IMMEDIATE, POCKET_DRAW_LIST_VERSION,
+      0};
+  return 0;
+}
+static int32_t render(void *context, const pocket_frame_input *frame,
+                      uint64_t *submission) {
+  (void)context;
+  assert(frame->target->kind == POCKET_TARGET_CPU_VISIBLE);
+  *submission = ++renders;
+  return 0;
+}
+static int32_t wait_render(void *context, uint64_t submission) {
+  (void)context;
+  assert(submission && submission <= renders);
+  return 0;
+}
+static void retire_render(void *context, uint64_t submission) {
+  (void)context;
+  (void)submission;
+}
+static const pocket_renderer_v1 renderer_api = {
+    sizeof renderer_api, renderer_descriptor, render, wait_render,
+    retire_render,       NULL};
 bool gfx_register(pocket_runtime *runtime) {
-  pocket_display_output_v1 api = {
-      sizeof api,    display_descriptor, acquire_display,
-      flush_display, wait_display,       NULL,
-      NULL,          NULL,               NULL};
-  return !pocket_runtime_add_display(runtime, &api, &displays[0],
-                                     POCKET_RENDERER_SOFTWARE) &&
-         !pocket_runtime_add_display(runtime, &api, &displays[1],
-                                     POCKET_RENDERER_SOFTWARE);
+  uint32_t renderer = pocket_runtime_add_renderer(runtime, &renderer_api, NULL);
+  return renderer != POCKET_RENDERER_INVALID &&
+         renderer != POCKET_RENDERER_SOFTWARE &&
+         !pocket_runtime_add_display(runtime, &display_api, &displays[0],
+                                     renderer) &&
+         !pocket_runtime_add_display(runtime, &display_api, &displays[1],
+                                     renderer);
+}
+/* The archive keeps pocket_raster_draw_op without the rasterizer: the call
+ * returns UNSUPPORTED and leaves the surface untouched. */
+static void software_fallback_is_unsupported(void) {
+  uint8_t pixels[4 * 4 * 4];
+  memset(pixels, 0xab, sizeof pixels);
+  pocket_rect region = {sizeof region, 0, 0, 4, 4};
+  pocket_surface surface = {sizeof surface, pixels, sizeof pixels, &region, 16,
+                            POCKET_PIXEL_FORMAT_RGBA8888};
+  const uint32_t words[] = {POCKET_DRAW_OP_RECT, 0, 4u | (4u << 16),
+                            0xff0000ffu};
+  pocket_logical_clip clip = {.struct_size = sizeof clip, .x1 = 4, .y1 = 4};
+  pocket_draw_op op = {sizeof op, words, 4, &clip, 1};
+  pocket_render_resources resources = {.struct_size = sizeof resources,
+                                       .viewport_width = 4,
+                                       .viewport_height = 4};
+  assert(pocket_raster_draw_op(&surface, &op, &resources) ==
+         POCKET_STATUS_UNSUPPORTED);
+  for (size_t i = 0; i < sizeof pixels; ++i) assert(pixels[i] == 0xab);
 }
 static unsigned initialized, evaluated, framed, shut_down;
 static uint32_t expected_touch;
@@ -155,10 +209,15 @@ int main(void) {
    * primary and the profile's auxiliary display before the guest runs. */
   assert(pocket_native_program_boot(program));
   assert(initialized == 0);
+  /* Slot 0 is empty in this archive: a display bound to it is refused. */
+  assert(pocket_runtime_add_display(runtime, &display_api, &displays[0],
+                                    POCKET_RENDERER_SOFTWARE));
+  software_fallback_is_unsupported();
   assert(instance_attach(runtime) && !instance_attach(runtime));
   assert(!pocket_native_program_boot(program));
   /* The first frame presents the mounted tree (qjs_present). */
   assert(!pocket_runtime_present(runtime));
+  assert(renders > 0);
   uint32_t contact = (5 << 18) | (87 << 9) | 159;
   expected_touch = contact;
   instance_input(0x4000, 0x00ff, &contact, 1, 0xff00);

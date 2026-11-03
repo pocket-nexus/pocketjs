@@ -2,6 +2,19 @@ use pocket_drivers::*;
 use pocket_runtime::coordinator::{Coordinator, RendererId};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+/// A coordinator with the software rasterizer in slot 0, as a program
+/// that binds displays to `RendererId::SOFTWARE` composes it.
+fn software(scale: u32, budget: usize) -> Coordinator {
+    let mut coordinator = Coordinator::new(scale, budget).unwrap();
+    coordinator
+        .set_software_renderer(
+            pocket_raster::RasterRenderer::new(scale).unwrap(),
+            pocket_raster::RasterRenderer::new,
+        )
+        .unwrap();
+    coordinator
+}
+
 struct Resources;
 impl RenderResources for Resources {
     fn raster_revision(&self) -> u64 {
@@ -113,7 +126,7 @@ impl DisplayOutput for Persistent {
 #[test]
 fn each_physical_buffer_has_its_own_history_and_generation() {
     let facts = Rc::new(RefCell::new(Facts::default()));
-    let mut coordinator = Coordinator::new(1, 512).unwrap();
+    let mut coordinator = software(1, 512);
     coordinator
         .add_display(
             Persistent {
@@ -271,7 +284,7 @@ impl Drop for Panel {
 }
 fn panel(facts: Rc<RefCell<Facts>>) -> Coordinator {
     facts.borrow_mut().pixels = vec![0; 256];
-    let mut coordinator = Coordinator::new(1, 128).unwrap();
+    let mut coordinator = software(1, 128);
     let id = coordinator
         .add_display(
             Panel {

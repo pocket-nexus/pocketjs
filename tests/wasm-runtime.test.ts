@@ -55,6 +55,17 @@ test("instances keep independent runtime, buffers and auxiliary viewports throug
   expect(()=>a.resizeViewport(32000,32000)).toThrow();expect(a.ops.__viewport).toEqual({w:40,h:30});a.dispose();b.dispose();
 });
 
+test("renderer 0 presents at the boot scale and keeps it through resize",async()=>{
+  const wasm=await make(),realm:Record<string,any>={};
+  wasm.boot(source,{global:realm,evaluate:evaluator(realm),renderScale:2});
+  const red=(pixels:Uint8Array)=>{let n=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i]===240&&pixels[i+1]===20&&pixels[i+2]===40&&pixels[i+3]===255)n++;return n;};
+  // The 12x10 logical node covers 24x20 physical pixels at scale 2.
+  let frame=wasm.present();expect(frame.length).toBe(64*48*4);expect(red(frame)).toBe(24*20);
+  wasm.resizeViewport(40,30);wasm.advance();frame=wasm.present();
+  expect(frame.length).toBe(80*60*4);expect(red(frame)).toBe(24*20);
+  wasm.dispose();
+});
+
 test("guest callbacks cannot reenter lifecycle and failed frames retain shutdown ownership",async()=>{
   const wasm=await make(),realm:Record<string,any>={};let attempts=0;
   wasm.boot(source,{global:realm,evaluate:evaluator(realm),beforeFrame(){for(const f of [()=>wasm.dispose(),()=>wasm.init(),()=>wasm.advance()]){expect(f).toThrow("guest callback");attempts++;}}});

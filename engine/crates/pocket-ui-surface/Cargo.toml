@@ -19,3 +19,6 @@ pocket-package = { workspace = true, default-features = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
+
+[dev-dependencies]
+pocket-raster = { workspace = true, default-features = true }

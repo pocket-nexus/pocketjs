@@ -47,7 +47,7 @@ console.log("npm consumer passed");
       expect(consumer.success, consumer.stderr.toString()).toBe(true);
       expect(consumer.stdout.toString()).toContain("npm consumer passed");
       const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
-      expect(readFileSync(join(scratch, "program/Cargo.toml"), "utf8")).toContain(`pocket-archive = { git = "https://github.com/pocket-nexus/pocketjs", tag = "v${version}", default-features = false }`);
+      expect(readFileSync(join(scratch, "program/Cargo.toml"), "utf8")).toContain(`pocket-archive = { git = "https://github.com/pocket-nexus/pocketjs", tag = "v${version}", default-features = false, features = ["software-renderer"] }`);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   }, 60_000);
 });

@@ -28,6 +28,19 @@ impl RenderResources for Resources {
     }
 }
 
+/// A coordinator with the software rasterizer in slot 0, as a program
+/// that binds displays to `RendererId::SOFTWARE` composes it.
+fn software(scale: u32, budget: usize) -> Coordinator {
+    let mut coordinator = Coordinator::new(scale, budget).unwrap();
+    coordinator
+        .set_software_renderer(
+            pocket_raster::RasterRenderer::new(scale).unwrap(),
+            pocket_raster::RasterRenderer::new,
+        )
+        .unwrap();
+    coordinator
+}
+
 fn scene(width: u32, height: u32) -> DrawList {
     let mut list = DrawList::new();
     list.words = vec![
@@ -488,7 +501,7 @@ fn budgeted_strips_match_full_frame_in_all_software_formats_and_scales() {
             let screen = display.screen.clone();
             let acquisitions = display.acquisitions.clone();
             let budget = display.descriptor.stride_bytes * 2;
-            let mut coordinator = Coordinator::new(scale, budget).unwrap();
+            let mut coordinator = software(scale, budget);
             let id = coordinator
                 .add_display(display, RendererId::SOFTWARE)
                 .unwrap();
@@ -522,7 +535,7 @@ fn auxiliary_uses_its_own_viewport_and_missing_lists_submit_nothing() {
     let auxiliary = cpu_display(3, 2, PixelFormat::Rgb565, 2, DisplayRole::Auxiliary);
     let screen = auxiliary.screen.clone();
     let acquisitions = primary.acquisitions.clone();
-    let mut coordinator = Coordinator::new(1, 108).unwrap();
+    let mut coordinator = software(1, 108);
     coordinator
         .add_display(primary, RendererId::SOFTWARE)
         .unwrap();
@@ -549,7 +562,7 @@ fn auxiliary_uses_its_own_viewport_and_missing_lists_submit_nothing() {
 #[test]
 fn descriptor_and_budget_failures_are_rejected_during_registration() {
     let state = Shared::default();
-    let mut coordinator = Coordinator::new(1, 100).unwrap();
+    let mut coordinator = software(1, 100);
     assert_eq!(
         coordinator.add_renderer(FakeRenderer {
             state: state.clone(),
@@ -583,14 +596,14 @@ fn descriptor_and_budget_failures_are_rejected_during_registration() {
             Err(PresentError::InvalidDisplayDescriptor)
         );
     }
-    let mut coordinator = Coordinator::new(1, 80).unwrap();
+    let mut coordinator = software(1, 80);
     let mut no_gram = cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary);
     no_gram.descriptor.device_frame_storage = false;
     assert_eq!(
         coordinator.add_display(no_gram, RendererId::SOFTWARE),
         Err(PresentError::BudgetExceeded)
     );
-    let mut coordinator = Coordinator::new(1, 15).unwrap();
+    let mut coordinator = software(1, 15);
     assert_eq!(
         coordinator.add_display(
             cpu_display(8, 6, PixelFormat::Rgb565, 1, DisplayRole::Primary),
@@ -598,7 +611,7 @@ fn descriptor_and_budget_failures_are_rejected_during_registration() {
         ),
         Err(PresentError::BudgetExceeded)
     );
-    let mut coordinator = Coordinator::new(1, 80).unwrap();
+    let mut coordinator = software(1, 80);
     let mut double = cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary);
     double.descriptor.double_buffered = true;
     let id = coordinator
@@ -610,7 +623,7 @@ fn descriptor_and_budget_failures_are_rejected_during_registration() {
 
 #[test]
 fn registration_replans_shared_budget_and_respects_strip_alignment() {
-    let mut coordinator = Coordinator::new(1, 80).unwrap();
+    let mut coordinator = software(1, 80);
     let mut first = cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary);
     first.descriptor.window_alignment[1] = 2;
     let first_id = coordinator
@@ -671,7 +684,7 @@ fn partial_strip_failure_invalidates_history_and_retries_from_row_zero() {
     let screen = display.screen.clone();
     let acquisitions = display.acquisitions.clone();
     failure.set(Some(2));
-    let mut coordinator = Coordinator::new(1, 32).unwrap();
+    let mut coordinator = software(1, 32);
     let id = coordinator
         .add_display(display, RendererId::SOFTWARE)
         .unwrap();
@@ -718,7 +731,7 @@ fn scale_change_reconfigures_software_and_preserves_registered_custom_renderer()
     let state = Shared::default();
     let display = cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary);
     let screen = display.screen.clone();
-    let mut coordinator = Coordinator::new(1, 96).unwrap();
+    let mut coordinator = software(1, 96);
     coordinator
         .add_display(display, RendererId::SOFTWARE)
         .unwrap();
@@ -1295,15 +1308,16 @@ fn zero_copy_deferred_frames_report_borrowed_textures_until_retired() {
 fn queued_flush_requires_a_device_owned_target() {
     let mut display = cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary);
     display.descriptor.queued_flush = true;
-    let mut coordinator = Coordinator::new(1, 96).unwrap();
+    let mut coordinator = software(1, 96);
     assert_eq!(
         coordinator.add_display(display, RendererId::SOFTWARE),
         Err(PresentError::InvalidDisplayDescriptor)
     );
 }
 
-/// Slot 0 is the built-in software rasterizer that C programs name with
-/// POCKET_RENDERER_SOFTWARE; registered renderers take the ids from 1 on.
+/// Slot 0 is the software renderer that C programs name with
+/// POCKET_RENDERER_SOFTWARE. It stays empty until the composition registers
+/// one; registered renderers take the ids from 1 on either way.
 #[test]
 fn slot_zero_is_the_software_renderer_and_registered_ids_start_at_one() {
     assert_eq!(
@@ -1312,16 +1326,41 @@ fn slot_zero_is_the_software_renderer_and_registered_ids_start_at_one() {
     );
     assert_eq!(RendererId::from_raw(0), RendererId::SOFTWARE);
     let state = Shared::default();
-    let mut coordinator = Coordinator::new(1, 96).unwrap();
     let renderer = || FakeRenderer {
         state: state.clone(),
         zero_copy: false,
         version: pocket_spec::DRAW_LIST_VERSION,
         sync: Synchronization::Deferred,
     };
+    // Without an injected software renderer slot 0 is an empty entry.
+    let mut empty = Coordinator::new(1, 96).unwrap();
+    assert_eq!(empty.add_renderer(renderer()).unwrap().as_raw(), 1);
+    assert_eq!(empty.add_renderer(renderer()).unwrap().as_raw(), 2);
+    assert!(matches!(
+        empty.add_display(
+            cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary),
+            RendererId::SOFTWARE,
+        ),
+        Err(PresentError::InvalidRenderer)
+    ));
+    assert_eq!(empty.display_descriptors().len(), 0);
+    // Scale changes leave the empty slot empty; the scale range holds.
+    empty.set_scale(2).unwrap();
+    for scale in [0, 5] {
+        assert_eq!(
+            empty.set_scale(scale),
+            Err(PresentError::InvalidRendererDescriptor)
+        );
+        assert!(matches!(
+            Coordinator::new(scale, 96),
+            Err(PresentError::InvalidRendererDescriptor)
+        ));
+    }
+    // After injection a CPU-visible display binds slot 0 without registering
+    // a renderer of its own, and the injection keeps the numbering.
+    let mut coordinator = software(1, 96);
     assert_eq!(coordinator.add_renderer(renderer()).unwrap().as_raw(), 1);
     assert_eq!(coordinator.add_renderer(renderer()).unwrap().as_raw(), 2);
-    // A CPU-visible display binds to slot 0 without registering a renderer.
     coordinator
         .add_display(
             cpu_display(8, 6, PixelFormat::Rgb565, 6, DisplayRole::Primary),
@@ -1335,4 +1374,125 @@ fn slot_zero_is_the_software_renderer_and_registered_ids_start_at_one() {
         ),
         Err(PresentError::InvalidRenderer)
     ));
+}
+
+/// The injected software renderer's rescale callback builds slot 0 for every
+/// scale change: `set_scale` after admission and `refresh_displays` after a
+/// resize. A failed or mismatched rebuild leaves the registration unchanged.
+#[test]
+fn software_rescale_serves_set_scale_and_refresh_displays() {
+    let scales = Rc::new(RefCell::new(Vec::new()));
+    let mut coordinator = Coordinator::new(1, 1024).unwrap();
+    let seen = scales.clone();
+    coordinator
+        .set_software_renderer(
+            pocket_raster::RasterRenderer::new(1).unwrap(),
+            move |scale| {
+                seen.borrow_mut().push(scale);
+                pocket_raster::RasterRenderer::new(scale)
+            },
+        )
+        .unwrap();
+    // Slot 0 holds one installation.
+    assert_eq!(
+        coordinator.set_software_renderer(
+            pocket_raster::RasterRenderer::new(1).unwrap(),
+            pocket_raster::RasterRenderer::new
+        ),
+        Err(PresentError::InvalidRenderer)
+    );
+    let display = cpu_display(16, 12, PixelFormat::Rgba8888, 12, DisplayRole::Primary);
+    let screen = display.screen.clone();
+    coordinator
+        .add_display(display, RendererId::SOFTWARE)
+        .unwrap();
+    let expected = |scale: u32, logical: [u32; 2]| {
+        let mut pixels = vec![0; 16 * 4 * 12];
+        let mut surface = Surface::new(
+            &mut pixels,
+            Rect::new(0, 0, 16, 12),
+            16 * 4,
+            PixelFormat::Rgba8888,
+        )
+        .unwrap();
+        let resources = Resources(logical[0], logical[1]);
+        pocket_raster::render_surface(
+            &resources,
+            &scene(logical[0], logical[1]).words,
+            &mut surface,
+            scale,
+        )
+        .unwrap();
+        pixels
+    };
+    coordinator.set_scale(2).unwrap();
+    assert_eq!(*scales.borrow(), [2]);
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    assert_eq!(*screen.borrow(), expected(2, [8, 6]));
+    // An out-of-range scale fails before registration changes.
+    assert_eq!(
+        coordinator.set_scale(5),
+        Err(PresentError::InvalidRendererDescriptor)
+    );
+    assert_eq!(coordinator.scale(), 2);
+    coordinator.refresh_displays(1, [16, 12]).unwrap();
+    assert_eq!(*scales.borrow(), [2, 1]);
+    coordinator
+        .present(&scene(16, 12), None, &Resources(16, 12))
+        .unwrap();
+    assert_eq!(*screen.borrow(), expected(1, [16, 12]));
+}
+
+/// A rescale callback whose renderer declares another descriptor is refused
+/// and slot 0 keeps the installed renderer.
+#[test]
+fn software_rescale_requires_the_installed_descriptor() {
+    /// Declares RGB565 alone at scales above 2.
+    struct Varying(pocket_raster::RasterRenderer);
+    impl Renderer for Varying {
+        type Submission = ();
+        fn descriptor(&self) -> RendererDescriptor {
+            if self.0.scale() > 2 {
+                RendererDescriptor::new(
+                    &[PixelFormat::Rgb565],
+                    TargetOwnership::CpuVisible,
+                    Synchronization::Immediate,
+                    pocket_spec::DRAW_LIST_VERSION,
+                    false,
+                )
+                .unwrap()
+            } else {
+                self.0.descriptor()
+            }
+        }
+        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<(), RenderError> {
+            self.0.render(frame)
+        }
+        fn wait(&mut self, _: &()) -> Result<(), RenderError> {
+            Ok(())
+        }
+        fn retire(&mut self, _: ()) {}
+    }
+    let mut coordinator = Coordinator::new(1, 1024).unwrap();
+    coordinator
+        .set_software_renderer(
+            Varying(pocket_raster::RasterRenderer::new(1).unwrap()),
+            |scale| pocket_raster::RasterRenderer::new(scale).map(Varying),
+        )
+        .unwrap();
+    let display = cpu_display(12, 12, PixelFormat::Rgba8888, 12, DisplayRole::Primary);
+    coordinator
+        .add_display(display, RendererId::SOFTWARE)
+        .unwrap();
+    coordinator.set_scale(2).unwrap();
+    assert_eq!(
+        coordinator.set_scale(3),
+        Err(PresentError::InvalidRendererDescriptor)
+    );
+    assert_eq!(coordinator.scale(), 2);
+    coordinator
+        .present(&scene(6, 6), None, &Resources(6, 6))
+        .unwrap();
 }

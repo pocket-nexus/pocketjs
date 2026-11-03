@@ -19,7 +19,23 @@ fn report_boot_failure(error: &RuntimeError) {
 pub unsafe extern "C" fn pocket_runtime_create(
     config: *const PocketRuntimeConfig,
 ) -> *mut PocketRuntime {
-    unsafe { abi::pocket_runtime_create(config) }
+    let runtime = unsafe { abi::pocket_runtime_create(config) };
+    let Some(handle) = (unsafe { abi::Handle::from_raw(runtime) }) else {
+        return runtime;
+    };
+    // The archive's features choose what a new instance holds before the C
+    // caller registers its own drivers.
+    let composed = handle.with_runtime(|runtime| {
+        #[cfg(feature = "software-renderer")]
+        crate::raster::install_software_renderer(runtime)?;
+        let _ = runtime;
+        Ok(())
+    });
+    if composed.is_err() {
+        unsafe { abi::pocket_runtime_destroy(runtime) };
+        return core::ptr::null_mut();
+    }
+    runtime
 }
 /// # Safety
 /// runtime is live; driver storage and callback validity last through destruction.

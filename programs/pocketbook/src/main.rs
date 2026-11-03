@@ -138,10 +138,7 @@ fn run(
         full: true,
         flushes: 0,
     }));
-    program.add_display(
-        display::Display::new(panel.clone()),
-        pocket_runtime::RendererId::SOFTWARE,
-    )?;
+    register_output(&mut program, display::Display::new(panel.clone()))?;
     program.boot(Rc::new(Guest::new()?), "app", &bundle, &pak)?;
     let started = Instant::now();
     let mut schedule = pocket_runtime::timing::TickSchedule::new(PRESENT_HZ, 0, 1)
@@ -202,6 +199,24 @@ fn run(
         tick(&mut program, &panel, &input, full)?;
     }
     Ok(())
+}
+
+/// Register the software rasterizer as renderer 0, then the display that
+/// binds it. Registration precedes boot.
+fn register_output<D: pocket_drivers::DisplayOutput + 'static>(
+    program: &mut UiProgram,
+    display: D,
+) -> Result<()>
+where
+    D::Token: 'static,
+{
+    let renderer = pocket_raster::RasterRenderer::new(1)
+        .map_err(|error| anyhow::anyhow!("software renderer: {error:?}"))?;
+    program
+        .runtime_mut()
+        .set_software_renderer(renderer, pocket_raster::RasterRenderer::new)
+        .map_err(|error| anyhow::anyhow!("software renderer: {error:?}"))?;
+    program.add_display(display, pocket_runtime::RendererId::SOFTWARE)
 }
 
 /// Submit device facts, let Runtime drive the guest/core, and present through
@@ -337,4 +352,105 @@ fn pak_path() -> String {
 
 fn js_path() -> String {
     std::env::var("POCKET_JS").unwrap_or_else(|_| "app.js".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pocket_drivers::*;
+
+    /// The panel's RGBA8 storage without Inkview: the published frame is
+    /// copied out at flush.
+    struct Panel {
+        buffer: Vec<u8>,
+        screen: Rc<RefCell<Vec<u8>>>,
+    }
+    impl DisplayOutput for Panel {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                16,
+                16,
+                PixelFormat::Rgba8888,
+                64,
+                TargetOwnership::CpuVisible,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            Ok(Target::CpuVisible(Surface::new(
+                &mut self.buffer,
+                region,
+                64,
+                PixelFormat::Rgba8888,
+            )?))
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            self.screen.borrow_mut().clone_from(&self.buffer);
+            Ok(())
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+
+    /// Construction, output registration, boot and the first frame, at the
+    /// 2x raster density the PocketBook profile uses.
+    #[test]
+    fn registered_output_boots_and_presents_the_first_frame_at_profile_density() {
+        let (profile, profile_hash) =
+            pocket_ui_surface::embedded_profile("pocketbook-test", [8, 8], 2, 60);
+        let mut program = UiProgram::new(ProgramConfig {
+            profile,
+            profile_hash,
+            tick_hz: 60,
+            host_abi: pocket_spec::BINDING_GENERATION,
+            logical: [8, 8],
+            heap_limit: 4 * 1024 * 1024,
+            frame_buffer_budget: 16 * 16 * 4,
+        })
+        .unwrap();
+        let screen = Rc::new(RefCell::new(Vec::new()));
+        register_output(
+            &mut program,
+            Panel {
+                buffer: vec![0; 16 * 16 * 4],
+                screen: screen.clone(),
+            },
+        )
+        .unwrap();
+        program
+            .boot(
+                Rc::new(Guest::new().unwrap()),
+                "app",
+                "const n=ui.createNode(0);ui.setProp(n,1,4);ui.setProp(n,2,4);ui.setProp(n,64,0xff0000ff);ui.insertBefore(1,n,0);globalThis.frame=()=>{};",
+                &[],
+            )
+            .unwrap();
+        program.advance().unwrap();
+        program.present().unwrap();
+        let mut expected = vec![0; 16 * 16 * 4];
+        program.surface().with_ui(|ui| {
+            let mut surface = Surface::new(
+                &mut expected,
+                Rect::new(0, 0, 16, 16),
+                64,
+                PixelFormat::Rgba8888,
+            )
+            .unwrap();
+            pocket_raster::render_surface(&*ui, &ui.current_draw_list().words, &mut surface, 2)
+                .unwrap();
+        });
+        assert_eq!(*screen.borrow(), expected);
+        // The 4x4 logical node covers 8x8 physical pixels.
+        let red = screen
+            .borrow()
+            .chunks_exact(4)
+            .filter(|pixel| *pixel == [0xff, 0, 0, 0xff])
+            .count();
+        assert_eq!(red, 64);
+    }
 }

@@ -52,6 +52,7 @@ use pocket_drivers::RenderResources;
 use pocket_drivers::TexView;
 use pocket_spec::{self as spec, draw_op};
 
+pub mod abi;
 pub mod compositor;
 pub mod incremental;
 mod surface;

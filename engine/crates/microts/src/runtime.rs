@@ -151,11 +151,21 @@ mod tests {
             VsyncSource::None
         }
     }
+    /// Register the software rasterizer as renderer 0, before a display binds it.
+    fn software(runtime: &mut Runtime) {
+        runtime
+            .set_software_renderer(
+                pocket_raster::RasterRenderer::new(1).unwrap(),
+                pocket_raster::RasterRenderer::new,
+            )
+            .unwrap();
+    }
     #[test]
     fn compiled_guest_shares_core_and_runtime_advances_animation_once() {
         let mut runtime = Runtime::new(config(64)).unwrap();
         let (guest, app) = AotGuest::<App>::new();
         runtime.set_guest(Box::new(guest)).unwrap();
+        software(&mut runtime);
         runtime
             .add_display(Display([0; 64]), RendererId::SOFTWARE)
             .unwrap();
@@ -192,6 +202,7 @@ mod tests {
     #[test]
     fn zero_cpu_budget_is_accepted_but_rejects_cpu_visible_display() {
         let mut runtime = Runtime::new(config(0)).unwrap();
+        software(&mut runtime);
         assert!(
             runtime
                 .add_display(Display([0; 64]), RendererId::SOFTWARE)

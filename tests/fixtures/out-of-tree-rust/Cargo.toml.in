@@ -9,6 +9,7 @@ pocket-driver-kit = { git = @GIT_URL@, rev = @REVISION@ }
 pocket-drivers = { git = @GIT_URL@, rev = @REVISION@ }
 pocket-runtime = { git = @GIT_URL@, rev = @REVISION@ }
 pocket-present = { git = @GIT_URL@, rev = @REVISION@ }
+pocket-raster = { git = @GIT_URL@, rev = @REVISION@ }
 pocket-package = { git = @GIT_URL@, rev = @REVISION@ }
 pocket-spec = { git = @GIT_URL@, rev = @REVISION@ }
 pocket-draw-ops = { git = @GIT_URL@, rev = @REVISION@ }

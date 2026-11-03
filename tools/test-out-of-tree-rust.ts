@@ -10,6 +10,7 @@ const ROOT = resolve(import.meta.dir, "..");
 const DIRECT_CRATES = [
   "pocket-drivers", "pocket-runtime", "pocket-present", "pocket-package",
   "pocket-spec", "pocket-draw-ops", "pocket-tex-cache", "pocket-driver-kit",
+  "pocket-raster",
 ] as const;
 interface CargoPackage {
   id: string;
@@ -96,7 +97,15 @@ export async function runOutOfTreeRust(options: {
       cpSync(join(ROOT, "tests/fixtures/packages/corpus"), join(consumer, "corpus"), { recursive: true });
     }
     const hasKit = Bun.spawnSync(["git", "-C", repository, "cat-file", "-e", revision + ":engine/driver-kit/Cargo.toml"], { stdout: "pipe", stderr: "pipe" }).success;
-    const directCrates = DIRECT_CRATES.filter(name => hasKit || name !== "pocket-driver-kit");
+    const runtimeSource = Bun.spawnSync(["git", "-C", repository, "show", revision + ":engine/runtime/src/lib.rs"], { stdout: "pipe", stderr: "pipe" });
+    const injectsSoftware = runtimeSource.success && runtimeSource.stdout.toString().includes("fn set_software_renderer");
+    if (!injectsSoftware) {
+      // Before renderer 0 became a program registration, Runtime::new
+      // registered the software rasterizer itself.
+      const file = join(consumer, "tests/consumer.rs");
+      writeFileSync(file, readFileSync(file, "utf8").replace(/ *\/\/ Renderer 0 is empty[^\n]*\n *runtime\n *\.set_software_renderer\([\s\S]*?\.unwrap\(\);\n/, ""));
+    }
+    const directCrates = DIRECT_CRATES.filter(name => (hasKit || name !== "pocket-driver-kit") && (injectsSoftware || name !== "pocket-raster"));
     if (!hasKit) {
       // Historical replay keeps that revision's fixture instead of importing
       // a new test library into an older public dependency graph.
@@ -105,6 +114,7 @@ export async function runOutOfTreeRust(options: {
     }
     const manifest = readFileSync(join(consumer, "Cargo.toml.in"), "utf8")
       .replace(/^pocket-driver-kit = .*\n/m, hasKit ? "$&" : "")
+      .replace(/^pocket-raster = .*\n/m, injectsSoftware ? "$&" : "")
       .replaceAll("@GIT_URL@", JSON.stringify(gitUrl))
       .replaceAll("@REVISION@", JSON.stringify(revision));
     writeFileSync(join(consumer, "Cargo.toml"), manifest);

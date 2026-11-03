@@ -31,3 +31,4 @@ critical-section = ["portable-atomic/critical-section"]
 
 [dev-dependencies]
 pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }

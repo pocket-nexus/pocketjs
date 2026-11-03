@@ -86,6 +86,18 @@ provides the six host hooks and its QuickJS dependency. `pocket sdk verify
 not publish a release or freeze the ABI. `pocket sdk build` compiles a local
 candidate from a source checkout. See `docs/SDK.md` for release and Cargo exports.
 
+**Renderer 0 (`POCKET_RENDERER_SOFTWARE`) is the software rasterizer of archives
+built with the `pocket-archive` feature `software-renderer`.** The C SDK, the
+ESP-IDF and the SiFli archives enable it: `pocket_runtime_create` registers the
+rasterizer there, a CPU-visible display binds it without registering a
+renderer, and the rasterizer is rebuilt at the integer scale boot and each
+resize select. `pocket_raster_draw_op` draws in those archives. The 3DS product
+archive and the program archives do not enable it: no renderer has id 0,
+`pocket_runtime_add_display` with it fails, and `pocket_raster_draw_op` returns
+`POCKET_STATUS_UNSUPPORTED` without writing the surface. Registered renderers
+take ids from 1 in every archive. Rust programs register the rasterizer with
+`Runtime::set_software_renderer` before a display binds renderer 0.
+
 `DisplayOutput` owns acquired targets and display transfers. `Renderer`
 consumes the core's DrawList and borrowed resource views. The Rust render
 method takes `&mut FrameInput` because a CPU surface grants exclusive write

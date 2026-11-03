@@ -286,9 +286,20 @@ fn compose(
         .cast_mut()
         .cast::<c_void>();
     let source_context = (state as *const PocketApple).cast_mut().cast::<c_void>();
-    let mut status = unsafe {
-        runtime_abi::pocket_runtime_set_package_source(config, &bridge::SOURCE, source_context)
-    };
+    // The bridge display binds renderer 0: the software rasterizer, rebuilt
+    // at the scale boot selects.
+    let mut status = handle
+        .with_runtime(|runtime| {
+            let renderer = pocket_raster::RasterRenderer::new(1)
+                .map_err(|_| pocket_runtime::RuntimeError::InvalidConfiguration)?;
+            runtime.set_software_renderer(renderer, pocket_raster::RasterRenderer::new)
+        })
+        .map_or_else(status_code, |_| 0);
+    if status == 0 {
+        status = unsafe {
+            runtime_abi::pocket_runtime_set_package_source(config, &bridge::SOURCE, source_context)
+        };
+    }
     if status == 0 {
         status = unsafe {
             runtime_abi::pocket_runtime_add_display(
@@ -595,6 +606,24 @@ mod tests {
         assert_eq!(pixels, one.snapshot().1);
         assert_eq!(pocket_apple_set_tick_rate(one.0, 120), POCKET_STATUS_FAILED);
         assert_eq!(one.boot(RECT), POCKET_STATUS_FAILED);
+    }
+    #[test]
+    fn bridge_presents_through_renderer_zero_at_the_density_scale() {
+        let app = Apple(pocket_apple_create(2, 8, 6));
+        assert!(!app.0.is_null());
+        assert_eq!(app.boot("let n=ui.createNode(0);ui.setProp(n,1,4);ui.setProp(n,2,3);ui.setProp(n,64,0xff0000ff);ui.insertBefore(1,n,0);globalThis.frame=function(){};"), 0);
+        let (frame, pixels) = app.snapshot();
+        assert_eq!((frame.width_px, frame.height_px), (16, 12));
+        // The 4x3 logical node covers 8x6 physical pixels at density 2.
+        let red = |pixels: &[u8]| {
+            pixels
+                .chunks_exact(4)
+                .filter(|p| *p == [0, 0, 255, 255])
+                .count()
+        };
+        assert_eq!(red(&pixels), 48);
+        assert_eq!(app.tick(&[]), 0);
+        assert_eq!(red(&app.snapshot().1), 48);
     }
     #[test]
     fn pak_and_texture_registry_are_owned_through_guest_shutdown() {
