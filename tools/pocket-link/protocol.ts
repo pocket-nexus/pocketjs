@@ -1,6 +1,7 @@
 // Pocket Link wire codec (contracts/spec/link.ts): beacon, preamble, frames,
 // the HMAC-SHA256 handshake proofs, the masked pairing key and the pairing
-// URI. Shared by the companion daemon and the reference console client.
+// URI. Shared by Pocket Hub's companion daemon and the reference console
+// client.
 //
 // Byte conventions the contract leaves implicit, fixed here for every
 // implementation: an HMAC key is the RAW bytes of the secret (the pairing key

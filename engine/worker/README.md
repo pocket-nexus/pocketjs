@@ -96,9 +96,8 @@ channels from every turn.
 
 `quickjs_ui.c` supplies the UI bridge for a separate QuickJS context. **The
 bridge calls the UI context's QuickJS, so the worker library compiles against
-the QuickJS build that runs the UI realm**: the CardputerZero program
-(`programs/cardputer-zero/build.rs`) compiles it against the `rquickjs-sys`
-source in the workspace lock. After
+the QuickJS build that runs the UI realm**: Pocket Hub's CardputerZero program
+compiles it against the `rquickjs-sys` source in its Cargo lock. After
 worker bootstrap declares channels, call `pocket_worker_ui_attach` before UI
 bundle evaluation. Call `pocket_worker_ui_latch` before each UI frame; it copies
 records into UI-owned mirrors and advances the SDK's frame-view generation.

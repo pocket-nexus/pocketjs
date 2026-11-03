@@ -1,7 +1,7 @@
 //! The worker's `http` node: the resources `io.http(...)` opens, their facts,
 //! and the driver the C core calls. Where a request goes is the program's
-//! [`Exchange`]: the CardputerZero's reaches loopback servers, Omarchy
-//! Pocket's hands it to its daemon.
+//! [`Exchange`]: the one in Pocket Hub's CardputerZero program reaches
+//! loopback servers, Omarchy Pocket's hands it to its daemon.
 //!
 //! Open parses the descriptor (framework/src/io.ts), bounded as
 //! contracts/spec/net.ts bounds it with the node's response limit (the

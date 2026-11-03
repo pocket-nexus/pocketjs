@@ -5,7 +5,7 @@
 //!
 //! [`WorkerDomain`] is the part a program's own guest wrapper calls (Omarchy
 //! Pocket's windowed apps); [`WorkerGuest`] is a whole guest for a program that
-//! runs one package on the rquickjs guest (the CardputerZero).
+//! runs one package on the rquickjs guest (Pocket Hub's CardputerZero program).
 use crate::http::{Exchange, HttpNode, MAX_RESPONSE_BYTES};
 use crate::runner::{
     pocket_worker_ui_attach, pocket_worker_ui_detach, pocket_worker_ui_latch, Bridge, Notify,

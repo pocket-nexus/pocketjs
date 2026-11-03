@@ -68,7 +68,7 @@ interface ScannedFile {
 export interface CatalogEntry extends LinkCatalogApp {
   path: string;
   /** The manifest's `applet.services`: the companion services the app may
-   *  call (services.ts). */
+   *  call (Pocket Hub's service host). */
   services: string[];
 }
 

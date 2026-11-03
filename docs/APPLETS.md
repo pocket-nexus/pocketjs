@@ -37,8 +37,8 @@ check` (`test/applets.test.ts`).
 | Field | Meaning |
 | --- | --- |
 | `version` | **1**. A later version adds rules; a host refuses versions it does not know. |
-| `summary` | One sentence on what the applet does, at most **120** characters. The console's store and Pocket Companion's list of applets show it. |
-| `services` | Companion services the applet's worker fetches at `https://companion.pocket/<name>/…` through `io.http`. At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service the app does not declare. |
+| `summary` | One sentence on what the applet does, at most **120** characters. The console's store and Pocket Hub's list of applets show it. |
+| `services` | Companion services the applet's worker fetches at `https://companion.pocket/<name>/…` through `io.http`. At most **8**. Pocket Hub reads this list from the package it offers and answers **403** to a service the app does not declare. |
 | `hosts` | Host names outside the companion that the applet's worker fetches, at most **16**, each a lower-case DNS name. A host that installs applets from a store (Omarchy Pocket) lists them before an install, and its `http` node refuses any other host to an app the store installed. |
 | `store` | Persistent state: required for `data.fs`; `maxBytes` at most **4 MiB**. |
 
@@ -96,9 +96,9 @@ bundle (`tools/build-worker.ts`) resolves only the modules whose domain is
 ## A service's owner setup
 
 A companion service that needs something from its owner declares it as an
-`OwnerSetup` (`tools/companion/setup.ts`), and **the companion answers
+`OwnerSetup` (Pocket Hub's `tools/companion/setup.ts`), and **the companion answers
 `/_setup` the same way for every service**, so one setup page in an applet or
-in Pocket Companion's menu serves any of them:
+in Pocket Hub's menu serves any of them:
 
 | Kind | What the companion does |
 | --- | --- |
@@ -114,7 +114,7 @@ in Pocket Companion's menu serves any of them:
 
 A refused change answers **400** with `{error}`. A service with no setup
 answers **404** at `/_setup`. A program a service keeps running (its own
-helper, a vendor tool) runs under `Supervised` (`tools/companion/supervise.ts`):
+helper, a vendor tool) runs under `Supervised` (Pocket Hub's `tools/companion/supervise.ts`):
 started again when it exits after **1 s**, doubling to **30 s**, with its
 arguments and environment read at each start. It does not outlive its
 supervisor: with `pidFile`, a start first stops the run the file names when
@@ -139,8 +139,8 @@ does not count.
 
 | Output | Budget | 3DS builds |
 | --- | --- | --- |
-| Guest bundle (`<output>.js`) | **640 KiB** | 315 KiB (Camera) to 502 KiB (GitHub) in Pocket Companion 0.16.0 |
-| Pak (`<output>.pak`) | **3 MiB** | 174 KiB (Camera) to 479 KiB (Notes) in Pocket Companion 0.16.0; 2.33 MB for Pocket Nexus (`apps/nexus`) |
+| Guest bundle (`<output>.js`) | **640 KiB** | 315 KiB (Camera) to 502 KiB (GitHub), built with PocketJS 0.16.0 |
+| Pak (`<output>.pak`) | **3 MiB** | 174 KiB (Camera) to 479 KiB (Notes), built with PocketJS 0.16.0; 2.33 MB for Pocket Nexus (`apps/nexus`) |
 
 ## One program on two surfaces
 
