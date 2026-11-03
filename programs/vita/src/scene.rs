@@ -228,7 +228,7 @@ pub fn capture_golden(ui: &Ui, words: &[u32], path: &str) -> io::Result<()> {
     // only omissions cannot hide behind a passing CPU golden.
     validate_texture_residency(ui, words)?;
     let mut pixels = vec![0u8; PHYSICAL_W as usize * PHYSICAL_H as usize * 4];
-    pocketjs_core::raster::render_scaled(ui, words, &mut pixels, INTEGER_SCALE as u32);
+    pocket_raster::render_scaled(ui, words, &mut pixels, INTEGER_SCALE as u32);
     if let Some(parent) = Path::new(path).parent() {
         fs::create_dir_all(parent)?;
     }

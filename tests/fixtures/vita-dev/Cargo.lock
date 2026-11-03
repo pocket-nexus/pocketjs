@@ -21,25 +21,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "pocket-draw-ops"
-version = "0.16.0"
-dependencies = [
- "pocket-drivers",
- "pocket-spec",
-]
-
-[[package]]
 name = "pocket-drivers"
 version = "0.16.0"
 dependencies = [
- "pocket-spec",
-]
-
-[[package]]
-name = "pocket-glyph-pages"
-version = "0.16.0"
-dependencies = [
- "pocket-drivers",
  "pocket-spec",
 ]
 
@@ -59,16 +43,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-present"
-version = "0.16.0"
-dependencies = [
- "pocket-draw-ops",
- "pocket-drivers",
- "pocket-raster",
- "pocket-spec",
-]
-
-[[package]]
 name = "pocket-profile-build"
 version = "0.16.0"
 
@@ -76,7 +50,15 @@ version = "0.16.0"
 name = "pocket-raster"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-render",
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-render"
+version = "0.16.0"
+dependencies = [
  "pocket-drivers",
  "pocket-spec",
 ]
@@ -87,7 +69,8 @@ version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
- "pocket-present",
+ "pocket-raster",
+ "pocket-render",
  "pocket-spec",
  "pocketjs-core",
 ]
@@ -112,11 +95,9 @@ name = "pocketjs-core"
 version = "0.16.0"
 dependencies = [
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-media",
  "pocket-package",
- "pocket-present",
- "pocket-raster",
+ "pocket-render",
  "pocket-spec",
  "taffy",
 ]

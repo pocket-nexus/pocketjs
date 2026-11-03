@@ -4897,6 +4897,7 @@ name = "pocket-draw-ops"
 version = "0.16.0"
 dependencies = [
  "pocket-drivers",
+ "pocket-render",
  "pocket-spec",
 ]
 
@@ -4954,7 +4955,7 @@ name = "pocket-glyph-pages"
 version = "0.16.0"
 dependencies = [
  "pocket-drivers",
- "pocket-spec",
+ "pocket-render",
 ]
 
 [[package]]
@@ -5106,9 +5107,10 @@ dependencies = [
 name = "pocket-present"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
  "pocket-drivers",
  "pocket-raster",
+ "pocket-render",
+ "pocket-runtime",
  "pocket-spec",
 ]
 
@@ -5192,7 +5194,15 @@ dependencies = [
 name = "pocket-raster"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-render",
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-render"
+version = "0.16.0"
+dependencies = [
  "pocket-drivers",
  "pocket-spec",
 ]
@@ -5253,7 +5263,8 @@ version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
- "pocket-present",
+ "pocket-raster",
+ "pocket-render",
  "pocket-spec",
  "pocketjs-core",
 ]
@@ -5307,6 +5318,9 @@ dependencies = [
 [[package]]
 name = "pocket-tex-cache"
 version = "0.16.0"
+dependencies = [
+ "pocket-render",
+]
 
 [[package]]
 name = "pocket-text"
@@ -5325,6 +5339,7 @@ version = "0.16.0"
 dependencies = [
  "gpui",
  "image",
+ "pocket-raster",
  "pocketjs-core",
  "smallvec",
 ]
@@ -5353,6 +5368,7 @@ dependencies = [
  "bytemuck",
  "pocket-drivers",
  "pocket-mod",
+ "pocket-raster",
  "pocket-runtime",
  "pocket-spec",
  "pocket-ui-surface",
@@ -5552,8 +5568,9 @@ dependencies = [
  "log",
  "pocket-drivers",
  "pocket-mod",
- "pocket-present",
  "pocket-profile-build",
+ "pocket-raster",
+ "pocket-render",
  "pocket-runtime",
  "pocket-spec",
  "pocket-ui-surface",
@@ -5576,11 +5593,10 @@ name = "pocketjs-core"
 version = "0.16.0"
 dependencies = [
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-media",
  "pocket-package",
- "pocket-present",
  "pocket-raster",
+ "pocket-render",
  "pocket-spec",
  "taffy 0.11.0",
 ]
@@ -5605,6 +5621,7 @@ name = "pocketjs-gba-bake"
 version = "0.16.0"
 dependencies = [
  "microts",
+ "pocket-raster",
  "pocketjs-core",
  "serde",
  "serde_json",
@@ -5668,6 +5685,7 @@ dependencies = [
  "pocket-drivers",
  "pocket-package",
  "pocket-profile-build",
+ "pocket-raster",
  "pocket-runtime",
  "pocket-spec",
  "pocket-vita-audio",

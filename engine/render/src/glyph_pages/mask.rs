@@ -1,4 +1,4 @@
-use crate::GlyphSource;
+use super::GlyphSource;
 use pocket_drivers::{DamageRect, FontView};
 
 /// Integer source-over for A8 coverage; each blend rounds once.

@@ -7,7 +7,7 @@
 //! towards the next throttle interval. No framebuffer or panel handle is kept.
 
 use core::time::Duration;
-use pocket_drivers::Rect;
+use crate::Rect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InkTiming {

@@ -8,6 +8,7 @@ extern crate std;
 pub mod abi;
 mod assets;
 mod config;
+pub mod coordinator;
 pub mod generated_ops;
 mod guest;
 pub mod input;
@@ -18,7 +19,7 @@ pub use guest::*;
 pub use pocket_drivers::InputClasses;
 pub use pocket_package;
 pub use pocket_package::Timing;
-pub use pocket_present::{DisplayId, RendererId};
+pub use coordinator::{DisplayId, RendererId};
 
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::{Cell, Ref, RefCell, RefMut};
@@ -26,7 +27,7 @@ use pocket_drivers::{
     DisplayOutput, DisplayRole, InputFrameBuilder, InputSource, PackageSource, Renderer,
 };
 use pocket_package::source::LoadedPackage;
-use pocket_present::Coordinator;
+use coordinator::{Coordinator, PresentError};
 use pocketjs_core::Ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,10 +48,10 @@ pub enum RuntimeError {
     InvalidAssets,
     InvalidInput,
     Guest,
-    Presentation(pocket_present::PresentError),
+    Presentation(PresentError),
 }
-impl From<pocket_present::PresentError> for RuntimeError {
-    fn from(error: pocket_present::PresentError) -> Self {
+impl From<PresentError> for RuntimeError {
+    fn from(error: PresentError) -> Self {
         Self::Presentation(error)
     }
 }

@@ -38,7 +38,7 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
 }
 export const build: RuntimeBuild = {
   sourceInputs: [
-    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
+    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/present", "engine/raster", "engine/modules/media", "engine/render", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
     ...programFiles("programs/3ds", /\.(c|h|png)$/), resolve(repository, "programs/3ds/Makefile"),
     ...["hooks.c", "input.c", "input.h", "input_source.c", "input_source.h"].map(path => resolve(repository, "platforms/3ds", path)),
   ],

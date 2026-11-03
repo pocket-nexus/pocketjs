@@ -672,7 +672,7 @@ impl GpuiRenderer {
         let full = (fw * fh * 4) as usize;
         self.raster_scratch.resize(full, 0);
         self.raster_scratch[..full].fill(0);
-        pocketjs_core::raster::render_scaled_over(ui, batch, &mut self.raster_scratch, scale);
+        pocket_raster::render_scaled_over(ui, batch, &mut self.raster_scratch, scale);
         let (pw, ph) = (bw * scale, bh * scale);
         let mut bgra = Vec::with_capacity((pw * ph * 4) as usize);
         let (ox_px, oy_px) = (min_x as u32 * scale, min_y as u32 * scale);

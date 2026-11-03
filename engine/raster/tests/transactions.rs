@@ -1,5 +1,5 @@
 use pocket_drivers::{FontView, RenderResources, TexView};
-use pocket_present::{DamagePolicy, DamageTracker, DamageTransaction};
+use pocket_render::damage::{DamagePolicy, DamageTracker, DamageTransaction};
 use pocket_spec::draw_op;
 
 struct Resources;
@@ -112,7 +112,7 @@ fn prepare_does_not_commit_and_targets_keep_independent_histories() {
 
 #[test]
 fn generic_compositor_preserves_surface_and_following_operation_order() {
-    let surface = pocket_present::compositor::CompositorRaster {
+    let surface = pocket_raster::compositor::CompositorRaster {
         pixels: [255, 0, 0, 255].repeat(4),
         width: 2,
         height: 2,
@@ -131,7 +131,7 @@ fn generic_compositor_preserves_surface_and_following_operation_order() {
     ];
     words.extend_from_slice(&rectangle(2, 0xffff_0000));
     let mut pixels = [0u8; 32];
-    pocket_present::compositor::render(&Resources, &words, &mut pixels, 1, &[Some(surface)]);
+    pocket_raster::compositor::render(&Resources, &words, &mut pixels, 1, &[Some(surface)]);
     let black = [0, 0, 0, 255];
     let red = [255, 0, 0, 255];
     let blue = [0, 0, 255, 255];
@@ -147,7 +147,7 @@ fn incremental_entrypoints_work_without_a_core_ui() {
     let mut pixels = [0u8; 32];
     for x in [0, 2, 1] {
         let words = rectangle(x, 0xff00_ff00);
-        pocket_present::incremental::render_scaled_incremental(
+        pocket_raster::incremental::render_scaled_incremental(
             &Resources,
             &words,
             &mut pixels,

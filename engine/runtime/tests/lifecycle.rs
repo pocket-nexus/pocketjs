@@ -400,7 +400,7 @@ fn embedded_resize_requires_opt_in_and_checks_budget_before_changing_ui() {
     assert!(matches!(
         rt.resize_embedded([8, 8], [8, 8]),
         Err(RuntimeError::Presentation(
-            pocket_present::PresentError::BudgetExceeded
+            pocket_runtime::coordinator::PresentError::BudgetExceeded
         ))
     ));
     assert_eq!(ops.core().unwrap().ui.viewport(), (4., 4.));

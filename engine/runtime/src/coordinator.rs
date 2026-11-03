@@ -6,7 +6,6 @@
 //! frame stays in flight until the next present, so its device work overlaps
 //! the caller's next guest turn.
 
-use crate::damage::{DamagePolicy, DamageTarget, DamageTracker};
 use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
 use core::{any::Any, cell::RefCell};
 
@@ -16,6 +15,7 @@ use pocket_drivers::{
     RendererDescriptor, Synchronization, Target, TargetOwnership, TexView, HOST_DAMAGE_RECTS,
 };
 use pocket_raster::RasterRenderer;
+use pocket_render::damage::{DamagePolicy, DamageTarget, DamageTracker};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RendererId(u32);
@@ -661,7 +661,7 @@ impl Coordinator {
             // may leave a fractional logical edge. Include its boundary pixel.
             let clip_width = viewport.0 as i32 + i32::from(viewport.0 > viewport.0 as i32 as f32);
             let clip_height = viewport.1 as i32 + i32::from(viewport.1 > viewport.1 as i32 as f32);
-            pocket_draw_ops::validate(&list.words, DamageRect::new(0, 0, clip_width, clip_height))
+            pocket_render::validate(&list.words, DamageRect::new(0, 0, clip_width, clip_height))
                 .map_err(|_| PresentError::InvalidFrame)?;
             views.push(FrameResources {
                 source: resources,

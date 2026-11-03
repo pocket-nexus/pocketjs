@@ -1,6 +1,6 @@
 //! Prepare, commit, and abort for a persistent presentation target.
 
-use crate::damage::{DamageError, DamagePlan, DamagePolicy, DamageTarget, DamageTracker};
+use super::{DamageError, DamagePlan, DamagePolicy, DamageTarget, DamageTracker};
 use pocket_drivers::RenderResources;
 
 /// Presentation configuration independent of the renderer and pixel format.

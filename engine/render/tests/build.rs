@@ -1,5 +1,5 @@
-use pocket_draw_ops::record::SurfaceQuad;
-use pocket_draw_ops::{build, Backend, Batch, Emit, Fill, GlyphCell, Record, Source, Vertex};
+use pocket_render::record::SurfaceQuad;
+use pocket_render::{build, Backend, Batch, Emit, Fill, GlyphCell, Record, Source, Vertex};
 use pocket_drivers::{DamageRect, RenderError};
 use pocket_spec::draw_op::*;
 use pocket_spec::GradDir;
@@ -125,7 +125,7 @@ impl Backend for Test {
         uv1: [f32; 2],
         colors: [u32; 4],
     ) -> [V; 6] {
-        let standard: [V; 6] = pocket_draw_ops::quad(top_left, bottom_right, uv0, uv1, colors);
+        let standard: [V; 6] = pocket_render::quad(top_left, bottom_right, uv0, uv1, colors);
         if self.strip_diagonal {
             // TL, TR, BL / BL, TR, BR.
             [
@@ -162,7 +162,7 @@ impl Backend for Test {
         if !self.surface {
             return Ok(());
         }
-        let corners: [V; 6] = pocket_draw_ops::quad(
+        let corners: [V; 6] = pocket_render::quad(
             [surface.x, surface.y],
             [surface.x + surface.width, surface.y + surface.height],
             [0.0; 2],

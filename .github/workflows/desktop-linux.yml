@@ -23,6 +23,8 @@ on:
       - "engine/modules/media/**"
       - "engine/render/draw-ops/**"
       - "engine/render/glyph-pages/**"
+      - "engine/render/Cargo.toml"
+      - "engine/render/src/**"
       - "engine/crates/pocket-mod/**"
       - "engine/crates/pocket-ui-surface/**"
       - "engine/crates/pocket-text/**"

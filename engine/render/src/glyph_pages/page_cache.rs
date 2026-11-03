@@ -1,7 +1,7 @@
 //! Bounded GPU renditions of immutable baked font cells. Source glyph IDs and
 //! metrics never change when a texture page is evicted. Call `retire(submission)`
 //! only after the GPU has finished reading every page used by that submission. Submission ids are unique until retirement.
-use crate::GlyphSource;
+use super::GlyphSource;
 use alloc::vec::Vec;
 
 pub const PAGE_DIM: u32 = 128;

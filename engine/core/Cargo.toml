@@ -21,11 +21,9 @@ description = "Retained PocketJS UI tree, layout, animation and DrawList emissio
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
-pocket-raster = { workspace = true, default-features = true }
-pocket-present = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
 pocket-media = { workspace = true, default-features = true }
-pocket-glyph-pages = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
 # no_std + alloc flexbox layout. Feature set verified to resolve; f32-only,
 # no libm (see docs/DESIGN.md "Why these choices").
 taffy = { version = "0.11", default-features = false, features = [
@@ -34,6 +32,9 @@ taffy = { version = "0.11", default-features = false, features = [
     "flexbox",
     "content_size",
 ] }
+
+[dev-dependencies]
+pocket-raster = { workspace = true, default-features = true }
 
 [features]
 default = []

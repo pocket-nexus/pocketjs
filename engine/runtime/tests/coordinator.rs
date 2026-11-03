@@ -9,7 +9,7 @@ use pocket_drivers::{
     FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer, RendererDescriptor,
     Surface, Synchronization, Target, TargetOwnership, TexView, VsyncSource,
 };
-use pocket_present::{Coordinator, PresentError, RendererId};
+use pocket_runtime::coordinator::{Coordinator, PresentError, RendererId};
 use pocket_spec::draw_op;
 
 struct Resources(u32, u32);
@@ -337,7 +337,7 @@ fn shared_renderer_keeps_both_submissions_live_and_retires_in_reverse_order() {
         assert!(state.dma.is_empty());
         for index in 0..2 {
             assert_eq!(
-                coordinator.history_valid(pocket_present::DisplayId::from_raw(index)),
+                coordinator.history_valid(pocket_runtime::coordinator::DisplayId::from_raw(index)),
                 Some(true)
             );
         }
@@ -371,7 +371,7 @@ fn all_failure_stages_drain_other_work_and_allow_a_full_retry() {
         }
         for index in 0..2 {
             assert_eq!(
-                coordinator.history_valid(pocket_present::DisplayId::from_raw(index)),
+                coordinator.history_valid(pocket_runtime::coordinator::DisplayId::from_raw(index)),
                 Some(false)
             );
         }
@@ -381,7 +381,7 @@ fn all_failure_stages_drain_other_work_and_allow_a_full_retry() {
             .unwrap();
         for index in 0..2 {
             assert_eq!(
-                coordinator.history_valid(pocket_present::DisplayId::from_raw(index)),
+                coordinator.history_valid(pocket_runtime::coordinator::DisplayId::from_raw(index)),
                 Some(true)
             );
         }
@@ -954,7 +954,7 @@ fn check_borrowed_unwind(panic_on_wait: bool) {
     );
     for index in 0..3 {
         assert_eq!(
-            coordinator.history_valid(pocket_present::DisplayId::from_raw(index)),
+            coordinator.history_valid(pocket_runtime::coordinator::DisplayId::from_raw(index)),
             Some(false)
         );
     }
@@ -977,7 +977,7 @@ fn native_overlays_are_submitted_between_ui_draw_and_terminal_render_wait() {
         assert!(pos(format!("render:{target}")) < pos(format!("overlay:{target}")));
         assert!(pos(format!("overlay:{target}")) < pos(format!("render-stop:{target}")));
         assert_eq!(
-            coordinator.history_valid(pocket_present::DisplayId::from_raw(target - 1)),
+            coordinator.history_valid(pocket_runtime::coordinator::DisplayId::from_raw(target - 1)),
             Some(false)
         );
     }
@@ -1090,7 +1090,7 @@ fn deferred_frame_completes_at_the_next_present_before_any_acquire() {
     assert_eq!(state.borrow().events.len(), mark);
     for index in 0..2 {
         assert_eq!(
-            coordinator.history_valid(pocket_present::DisplayId::from_raw(index)),
+            coordinator.history_valid(pocket_runtime::coordinator::DisplayId::from_raw(index)),
             Some(true)
         );
     }
@@ -1158,7 +1158,7 @@ fn failed_deferred_completion_reports_next_and_invalidates_only_its_display() {
         (true, Failure::DisplayWait),
     ] {
         let (mut coordinator, state) = deferred_pair(false, queued);
-        let display = pocket_present::DisplayId::from_raw;
+        let display = pocket_runtime::coordinator::DisplayId::from_raw;
         coordinator
             .present(&scene(8, 6), None, &Resources(8, 6))
             .unwrap();
@@ -1200,7 +1200,7 @@ fn failure_after_a_deferred_submission_leaves_no_work_in_flight() {
     assert_eq!(
         coordinator.present(&scene(8, 6), None, &Resources(8, 6)),
         Err(PresentError::Render(
-            pocket_present::DisplayId::from_raw(1),
+            pocket_runtime::coordinator::DisplayId::from_raw(1),
             RenderError::Failed
         ))
     );

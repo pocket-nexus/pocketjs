@@ -512,7 +512,7 @@ impl PaintCache {
 }
 
 // Sampling descriptors remain available at the existing public path.
-pub use pocket_glyph_pages::GlyphSampler;
+pub use pocket_render::glyph_pages::GlyphSampler;
 
 /// Compatibility constructor for core-owned Atlas values.
 pub(crate) struct GlyphPageLayout;
@@ -520,8 +520,8 @@ impl GlyphPageLayout {
     pub fn new(
         atlas: &crate::text::Atlas,
         gid: u16,
-    ) -> Option<pocket_glyph_pages::GlyphPageLayout> {
-        pocket_glyph_pages::GlyphPageLayout::new(crate::font_pages::view(atlas), gid)
+    ) -> Option<pocket_render::glyph_pages::GlyphPageLayout> {
+        pocket_render::glyph_pages::GlyphPageLayout::new(crate::font_pages::view(atlas), gid)
     }
 }
 

@@ -50,7 +50,7 @@ available. An output reservation prevents recording more GPU work while the
 window thread has not consumed the previous output. Surface loss/outdated errors reconfigure and retry; fatal GPU errors
 exit with an error. Production presentation performs no framebuffer readback.
 
-The WASM host retains `engine/present/src/compositor.rs` and the software rasterizer.
+The WASM host retains `engine/raster/src/compositor.rs` and the software rasterizer.
 Vita/GXM and 3DS/PICA retain their own DrawList adapters and host contracts;
 wgpu is not added to their dependency graph. Desktop composition support does
 not admit that capability on handheld targets.
@@ -114,7 +114,7 @@ text can come from the host text system.
 - **Two ops keep a pixel-exact escape hatch.** Gouraud `TRI` and `TEX_TRI`
   batches (rotated gradients and images, 3D subtrees) have no gpui vector
   equivalent, so consecutive batches raster through
-  `pocketjs_core::raster` into cached local images at the target density —
+  `pocket_raster` into cached local images at the target density —
   the portable rasterizer used as a sub-backend.
 
 ### What the gpui backend guarantees, and what it does not

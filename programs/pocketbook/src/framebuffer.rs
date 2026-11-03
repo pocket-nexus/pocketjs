@@ -11,11 +11,9 @@
 use inkview::screen::{Screen, RGB24};
 use pocket_drivers::{DisplayError, PixelFormat, Rect as PhysicalRect, Surface};
 #[cfg(test)]
-use pocketjs_core::damage::DamagePlan;
+use pocket_render::damage::{DamagePlan, DamagePolicy, DamageRect, DamageTracker};
 #[cfg(test)]
-use pocketjs_core::damage::{DamagePolicy, DamageRect, DamageTracker};
-#[cfg(test)]
-use pocketjs_core::{raster, Ui};
+use pocketjs_core::Ui;
 
 use crate::Geometry;
 
@@ -67,7 +65,7 @@ impl FramebufferPipeline {
     /// conservatively fall back to a full render.
     #[cfg(test)]
     pub fn rasterize(&mut self, ui: &Ui, words: &[u32]) -> DamagePlan {
-        match raster::render_scaled_incremental(
+        match pocket_raster::render_scaled_incremental(
             ui,
             words,
             &mut self.rgba,
@@ -77,7 +75,7 @@ impl FramebufferPipeline {
         ) {
             Ok(plan) => plan,
             Err(_) => {
-                raster::render_scaled(ui, words, &mut self.rgba, self.density);
+                pocket_raster::render_scaled(ui, words, &mut self.rgba, self.density);
                 self.tracker.invalidate();
                 let logical = DamageRect::new(
                     0,
@@ -268,7 +266,7 @@ mod tests {
 
     fn reference(ui: &Ui, words: &[u32], w: usize, h: usize, density: u32) -> Vec<u8> {
         let mut full = vec![0u8; w * h * 4];
-        raster::render_scaled(ui, words, &mut full, density);
+        pocket_raster::render_scaled(ui, words, &mut full, density);
         full
     }
 
@@ -397,7 +395,7 @@ mod tests {
         let mut fb = FramebufferPipeline::new(64, 32, 2);
         let full = PhysicalRect::new(0, 0, 64, 32);
         let words = frame(1, 0xff00_00ff);
-        raster::render_surface(&ui, &words, &mut fb.surface(full).unwrap(), 2).unwrap();
+        pocket_raster::render_surface(&ui, &words, &mut fb.surface(full).unwrap(), 2).unwrap();
         assert_eq!(fb.rgba, reference(&ui, &words, 64, 32, 2));
         let dirty = fb.physical_diff(&[full]);
         fb.advance(&dirty);
@@ -405,7 +403,7 @@ mod tests {
         let before = fb.rgba.clone();
         let region = PhysicalRect::new(2, 8, 12, 12);
         let words = frame(1, 0xff00_ff00);
-        raster::render_surface(&ui, &words, &mut fb.surface(region).unwrap(), 2).unwrap();
+        pocket_raster::render_surface(&ui, &words, &mut fb.surface(region).unwrap(), 2).unwrap();
         let expected = reference(&ui, &words, 64, 32, 2);
         for y in 0..32 {
             for x in 0..64 {

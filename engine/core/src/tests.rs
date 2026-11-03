@@ -1008,7 +1008,7 @@ fn scaled_flat_rounded_box_has_no_gaps_between_fast_path_pieces() {
 
     let words = ui.draw().words.clone();
     let mut framebuffer = alloc::vec![0u8; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
-    crate::raster::render(&ui, &words, &mut framebuffer);
+    pocket_raster::render(&ui, &words, &mut framebuffer);
 
     for &(x, y) in &[(68usize, 25usize), (40usize, 76usize)] {
         let offset = (y * spec::SCREEN_W as usize + x) * 4;
@@ -1149,7 +1149,7 @@ fn transparent_rounded_border_draws_an_outline_not_square_strips() {
         1
     );
     let mut pixels = alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
-    crate::raster::render(&ui, &words, &mut pixels);
+    pocket_raster::render(&ui, &words, &mut pixels);
     let blue_at = |x: usize, y: usize| pixels[(y * spec::SCREEN_W as usize + x) * 4 + 2] > 0;
     assert!(blue_at(20, 10), "top edge should be present");
     assert!(blue_at(10, 16), "left edge should be present");
@@ -1263,8 +1263,8 @@ fn border_masks_are_bounded_and_match_analytic_coverage_at_rest() {
         );
         let mut ap = alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
         let mut bp = ap.clone();
-        crate::raster::render(&masked, &a, &mut ap);
-        crate::raster::render(&analytic, &b, &mut bp);
+        pocket_raster::render(&masked, &a, &mut ap);
+        pocket_raster::render(&analytic, &b, &mut bp);
         assert_eq!(ap, bp, "baked and analytic borders agree at rest");
     }
 }
@@ -2160,7 +2160,7 @@ fn scaled_glyph_cells_follow_the_window_at_both_raster_densities() {
         let texture = ui.texture(words[1] as i32).unwrap();
         assert!(texture.linear);
         let mut frame = alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
-        crate::raster::render(&ui, &words, &mut frame);
+        pocket_raster::render(&ui, &words, &mut frame);
         let at = (2 * spec::SCREEN_W as usize + 2) * 4;
         assert_eq!(&frame[at..at + 3], &[60, 120, 180]);
         // The same page survives a new scale, but must not survive a font
@@ -2310,7 +2310,7 @@ fn moving_inner_clip_does_not_resample_visible_scaled_glyph_ink() {
             let mut reference =
                 alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
             let full = ui.draw().words.clone();
-            crate::raster::render(&ui, &full, &mut reference);
+            pocket_raster::render(&ui, &full, &mut reference);
             assert!(reference
                 .chunks_exact(4)
                 .any(|pixel| pixel != &reference[..4]));
@@ -2324,7 +2324,7 @@ fn moving_inner_clip_does_not_resample_visible_scaled_glyph_ink() {
                 let clipped = ui.draw().words.clone();
                 validate_drawlist(&clipped);
                 let mut pixels = alloc::vec![0; reference.len()];
-                crate::raster::render(&ui, &clipped, &mut pixels);
+                pocket_raster::render(&ui, &clipped, &mut pixels);
                 for y in 0..8 {
                     for x in 0..width {
                         let at = (y * spec::SCREEN_W as usize + x) * 4;
@@ -5132,8 +5132,8 @@ fn stable_motion_gradient_pixels_follow_the_box_across_the_clip() {
         let width = 40 * scale as usize;
         let mut whole = alloc::vec![0u16; width * 30 * scale as usize];
         let mut cut = whole.clone();
-        crate::raster::render_scaled_rgb565(&ui, &visible, &mut whole, scale);
-        crate::raster::render_scaled_rgb565(&ui, &clipped, &mut cut, scale);
+        pocket_raster::render_scaled_rgb565(&ui, &visible, &mut whole, scale);
+        pocket_raster::render_scaled_rgb565(&ui, &clipped, &mut cut, scale);
         // Box row r sits at screen row 3 + r in `whole` and -7 + r in `cut`.
         let shift = 10 * scale as usize;
         for row in 0..(17 * scale as usize) {

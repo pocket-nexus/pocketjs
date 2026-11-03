@@ -5,8 +5,8 @@
 //! texture overwritten in place repaints the quads that sample it and no
 //! other pixel.
 
-use pocketjs_core::damage::{DamageMotion, DamageTarget, DamageTracker};
-use pocketjs_core::raster::{render_scaled_rgb565, render_scaled_rgb565_regions};
+use pocket_render::damage::{DamageMotion, DamageTarget, DamageTracker};
+use pocket_raster::{render_scaled_rgb565, render_scaled_rgb565_regions};
 use pocketjs_core::{spec, Ui};
 
 const W: u32 = 120;

@@ -1,4 +1,4 @@
-use pocket_tex_cache::{CacheError, InUse, TextureCache, TextureKey};
+use pocket_render::tex_cache::{CacheError, InUse, TextureCache, TextureKey};
 use std::cell::Cell;
 
 fn key(handle: i32, revision: u64) -> TextureKey {

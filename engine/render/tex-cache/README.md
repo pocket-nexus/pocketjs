@@ -1,6 +1,6 @@
 # pocket-tex-cache
 
-Versioned texture storage with submission-scoped retention for graphics drivers.
+Forwarding crate for `pocket_render::tex_cache`: versioned texture storage with submission-scoped retention.
 
 ## Install
 
@@ -26,9 +26,21 @@ assert!(cache.is_empty());
 
 ## Environment and compatibility
 
-Rust 1.93 or later. `no_std` with `alloc`; no other crate dependencies.
+Rust 1.93 or later. `no_std`; the crate contains no code of its own.
 
-The driver supplies upload/free callbacks and completion events. Pinned versions cannot be evicted. Retire submissions after device completion, then clear the cache while the native device remains valid.
+**Every public path re-exports the item itself**, so values and types pass
+between code that names the former path and code that names the new one.
+
+| Former path | Item |
+| --- | --- |
+| `pocket_tex_cache::*` | `pocket_render::tex_cache::*` |
+
+This crate is published for one release after `pocket-render` and is then
+deprecated. New code depends on the crates in the right column.
+
+Use matching PocketJS crate releases and compiler contracts. Application package
+format, binding generation, and DrawList version are checked at their respective
+boundaries; a Cargo version alone does not replace those checks.
 
 ## Documentation and license
 

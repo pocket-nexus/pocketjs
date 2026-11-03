@@ -12,7 +12,7 @@ export interface SdkOptions {
   cargoArgs: string[]; rustflags: string[]; prepare?: "esp32p4"; archiver?: string;
 }
 const hash = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
-const roots = ["engine/spec", "engine/drivers", "engine/core", "engine/raster", "engine/present", "engine/package", "engine/modules/media", "engine/runtime", "programs/sdk/archive", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tex-cache"];
+const roots = ["engine/spec", "engine/drivers", "engine/core", "engine/raster", "engine/present", "engine/package", "engine/modules/media", "engine/runtime", "programs/sdk/archive", "engine/render", "engine/render/draw-ops", "engine/render/glyph-pages", "engine/render/tex-cache"];
 
 function sourceHash(root: string): string {
   const inputs = ["LICENSE", "Cargo.toml", "Cargo.lock", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "contracts/spec/binding-generation.ts", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "engine/driver-kit/c", "tools/sdk.ts", "tools/release", "tools/packaging/cmake", ...roots.flatMap(name => [`${name}/Cargo.toml`, `${name}/src`])];

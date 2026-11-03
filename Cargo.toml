@@ -58,6 +58,7 @@ members = [
     "engine/present",
     "engine/profile-build",
     "engine/raster",
+    "engine/render",
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
     "engine/render/tex-cache",
@@ -124,6 +125,7 @@ default-members = [
     "engine/present",
     "engine/profile-build",
     "engine/raster",
+    "engine/render",
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
     "engine/render/tex-cache",
@@ -196,6 +198,7 @@ pocket-profile-build = { path = "engine/profile-build", version = "0.16.0", defa
 pocket-psp-ge = { path = "devices/psp/pocket-psp-ge", version = "0.16.0", default-features = false }
 pocket-psp-render = { path = "devices/psp/pocket-psp-render", version = "0.16.0", default-features = false }
 pocket-raster = { path = "engine/raster", version = "0.16.0", default-features = false }
+pocket-render = { path = "engine/render", version = "0.16.0", default-features = false }
 pocket-render-esp-ppa = { path = "platforms/esp-idf/render-ppa", version = "0.16.0", default-features = false }
 pocket-render-sifli-epic = { path = "platforms/sifli/render-epic", version = "0.16.0", default-features = false }
 pocket-runtime = { path = "engine/runtime", version = "0.16.0", default-features = false }

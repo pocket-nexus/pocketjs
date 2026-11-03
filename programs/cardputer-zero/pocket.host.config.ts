@@ -18,7 +18,7 @@ export default defineHostConfig({
     sourceInputs: ["Cargo.toml", "build.rs", "src", "pocket.host.json", "../../Cargo.toml", "../../Cargo.lock", "../../rust-toolchain.toml",
       ...["hooks", "fbdev", "evdev", "worker"].flatMap(name => [`../../platforms/linux/${name}/Cargo.toml`, `../../platforms/linux/${name}/src`]),
       "../../engine/worker/include", "../../engine/worker/src",
-      ...["spec", "drivers", "core", "raster", "present", "package", "runtime", "guest-rquickjs", "profile-build", "render/draw-ops", "render/glyph-pages", "render/tex-cache"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
+      ...["spec", "drivers", "core", "raster", "present", "package", "runtime", "guest-rquickjs", "profile-build", "render", "render/draw-ops", "render/glyph-pages", "render/tex-cache"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
     ],
     artifact: "{outdir}/runtime",
     run(context) {

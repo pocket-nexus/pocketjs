@@ -3,7 +3,7 @@
 use super::UiRenderer;
 use pocket3d::gpu::{Gpu, OffscreenTarget};
 use pocketjs_core::{
-    Ui, compositor, raster,
+    Ui,
     spec::{self, draw_op as op},
 };
 
@@ -113,7 +113,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
             op::SCISSOR_POP,
         ]);
         let mut expected = vec![0; (16 * scale * 16 * scale * 4) as usize];
-        raster::render_scaled(&ui, &words, &mut expected, scale);
+        pocket_raster::render_scaled(&ui, &words, &mut expected, scale);
         close(
             &draw(&gpu, &mut renderer, &ui, &words, &out, scale),
             &expected,
@@ -135,7 +135,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
                 0xffe0a010,
                 dir as u32,
             ];
-            raster::render_scaled(&ui, &w, &mut expected, scale);
+            pocket_raster::render_scaled(&ui, &w, &mut expected, scale);
             close(
                 &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
                 &expected,
@@ -158,7 +158,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
             0xffe0a040,
             0xff804080,
         ];
-        raster::render_scaled(&ui, &w, &mut expected, scale);
+        pocket_raster::render_scaled(&ui, &w, &mut expected, scale);
         close(
             &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
             &expected,
@@ -192,7 +192,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
             one,
             0xffffffff,
         ];
-        raster::render_scaled(&ui, &w, &mut expected, scale);
+        pocket_raster::render_scaled(&ui, &w, &mut expected, scale);
         close(
             &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
             &expected,
@@ -208,7 +208,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
             let handle = ui.upload_texture(&data, 1, 1, psm);
             assert!(handle >= 0);
             let w = image(handle, 0, 0, 16, 16);
-            raster::render_scaled(&ui, &w, &mut expected, scale);
+            pocket_raster::render_scaled(&ui, &w, &mut expected, scale);
             close(
                 &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
                 &expected,
@@ -217,7 +217,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
             ui.free_texture(handle);
             let mut stale = w.to_vec();
             stale.extend([op::RECT, packed(2, 2), packed(4, 4), 0xff802040]);
-            raster::render_scaled(&ui, &stale, &mut expected, scale);
+            pocket_raster::render_scaled(&ui, &stale, &mut expected, scale);
             close(
                 &draw(&gpu, &mut renderer, &ui, &stale, &out, scale),
                 &expected,
@@ -233,7 +233,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
         for color in [[64, 128, 192, 255], [192, 32, 64, 255]] {
             palette[..4].copy_from_slice(&color);
             assert!(ui.update_texture_t8(handle, &palette, &[0]));
-            raster::render_scaled(&ui, &w, &mut expected, scale);
+            pocket_raster::render_scaled(&ui, &w, &mut expected, scale);
             close(
                 &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
                 &expected,
@@ -245,7 +245,7 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
         let w = [op::GLYPH_RUN, 3 | (1 << 16), 0xff80c0ff, packed(2, 2), 0];
         for coverage in [255, 0, 128] {
             assert!(ui.load_font_atlas(&font(coverage)));
-            raster::render_scaled(&ui, &w, &mut expected, scale);
+            pocket_raster::render_scaled(&ui, &w, &mut expected, scale);
             close(
                 &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
                 &expected,
@@ -302,20 +302,20 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
             0xff503010,
         ]);
         let mut surfaces = vec![None; 8];
-        surfaces[7] = Some(compositor::CompositorRaster {
+        surfaces[7] = Some(pocket_raster::compositor::CompositorRaster {
             pixels: child_pixels,
             width: 16,
             height: 16,
             density: scale,
         });
-        compositor::render(&ui, &w, &mut expected, scale, &surfaces);
+        pocket_raster::compositor::render(&ui, &w, &mut expected, scale, &surfaces);
         close(
             &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
             &expected,
             0,
         );
         renderer.retain_surfaces(|_| false);
-        compositor::render(&ui, &w, &mut expected, scale, &[]);
+        pocket_raster::compositor::render(&ui, &w, &mut expected, scale, &[]);
         close(
             &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
             &expected,

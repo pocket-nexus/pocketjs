@@ -69,9 +69,29 @@ on the merged commit, then continues through builds, validation, Rust
 publication, npm publication and the GitHub Release. No second command or tag
 push is needed.
 
-**The repository release publishes 14 Rust crates** listed in
+**The repository release publishes 15 Rust crates** listed in
 `tools/release/publish-crates.ts`. The script reads each version from its Cargo
 manifest. The npm and Rust version numbers can differ.
+
+## Forwarding crates
+
+**A published crate whose contents move to another crate keeps its name for
+one release as a forwarding crate.** The forwarding crate contains only
+`pub use` items, so each former path names the same type or function as its
+new path. It is published in the same release as the crate that receives the
+contents, then deprecated on crates.io.
+
+| Crate | Status | Contents now in |
+| --- | --- | --- |
+| `pocket-render` | New | DrawList decoding, `record`, `batch`, `build`, `tex_cache`, `glyph_pages`, and `damage` |
+| `pocket-draw-ops` | Forwarding | `pocket-render` crate root and its `record`, `batch`, `build` modules |
+| `pocket-glyph-pages` | Forwarding | `pocket_render::glyph_pages` |
+| `pocket-tex-cache` | Forwarding | `pocket_render::tex_cache` |
+| `pocket-present` | Forwarding | `damage` and `transaction` in `pocket_render::damage`; `compositor` and `incremental` in `pocket-raster`; `coordinator` in `pocket_runtime::coordinator`; `ink` in `pocket_drivers::ink` |
+
+`pocketjs-core` no longer exports `raster`, `damage`, or `compositor`; use
+`pocket_raster`, `pocket_render::damage`, and `pocket_raster::compositor`. The
+software rasterizer remains registered as renderer 0 by `Coordinator::new`.
 
 ## First publication
 

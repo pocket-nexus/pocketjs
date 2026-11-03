@@ -1,16 +1,22 @@
-//! Backend-independent damage, composition, and presentation transactions.
+//! Forwarding crate for the former `pocket-present` modules.
+//!
+//! Every item keeps its `pocket_present` path and is the item itself:
+//! `damage` and `DamageTransaction` are in `pocket_render::damage`,
+//! `compositor` and `incremental` in `pocket_raster`, `coordinator` in
+//! `pocket_runtime::coordinator`, and `ink` in `pocket_drivers::ink`. New code
+//! depends on those crates.
 
 #![no_std]
 
-extern crate alloc;
+pub use pocket_drivers::ink;
+pub use pocket_raster::{compositor, incremental};
+pub use pocket_render::damage;
+pub use pocket_runtime::coordinator;
 
-pub mod compositor;
-pub mod coordinator;
-pub mod damage;
-pub mod incremental;
-pub mod ink;
-pub mod transaction;
+pub mod transaction {
+    pub use pocket_render::damage::DamageTransaction;
+}
 
-pub use damage::*;
 pub use coordinator::{Coordinator, DisplayId, PresentError, RendererId};
+pub use damage::*;
 pub use transaction::DamageTransaction;

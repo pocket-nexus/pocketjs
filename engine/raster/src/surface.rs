@@ -1,6 +1,6 @@
 //! Driver entrypoints for bounded, strided CPU surfaces.
 
-use pocket_draw_ops::{word_len, DrawOps, Operation};
+use pocket_render::{word_len, DrawOps, Operation};
 use pocket_drivers::{
     DamageRect, FontView, FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer,
     RendererDescriptor, Surface, Synchronization, Target, TargetOwnership, TexView,

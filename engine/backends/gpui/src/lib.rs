@@ -14,7 +14,7 @@
 //! clock, never from a paint callback.
 //!
 //! Two DrawList ops keep a pixel-exact escape hatch through the core
-//! software rasterizer ([`pocketjs_core::raster`]): gouraud TRIs and
+//! software rasterizer (`pocket_raster`): gouraud TRIs and
 //! TEX_TRIs (rotated images, 3D subtrees) have no gpui vector equivalent,
 //! so consecutive batches raster into a cached local image at the target
 //! density and paint as one quad.

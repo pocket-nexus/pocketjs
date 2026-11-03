@@ -1,6 +1,6 @@
 //! Damage planning and commit around synchronous software rasterization.
 
-use crate::damage::{DamageError, DamagePlan, DamagePolicy, DamageTarget, DamageTracker};
+use pocket_render::damage::{DamageError, DamagePlan, DamagePolicy, DamageTarget, DamageTracker};
 use pocket_drivers::{DamageRect, RenderResources};
 
 const DAMAGE_SIGNATURE_RGBA8: u64 = u32::from_be_bytes(*b"RGBA") as u64;
@@ -24,7 +24,7 @@ pub fn render_scaled_incremental<const MAX_REGIONS: usize>(
         tracker,
         policy,
         DAMAGE_SIGNATURE_RGBA8,
-        |regions| pocket_raster::render_scaled_regions(ui, words, fb, scale, regions),
+        |regions| crate::render_scaled_regions(ui, words, fb, scale, regions),
     )
 }
 
@@ -45,7 +45,7 @@ pub fn render_scaled_argb_incremental<const MAX_REGIONS: usize>(
         tracker,
         policy,
         DAMAGE_SIGNATURE_ARGB8,
-        |regions| pocket_raster::render_scaled_argb_regions(ui, words, fb, scale, regions),
+        |regions| crate::render_scaled_argb_regions(ui, words, fb, scale, regions),
     )
 }
 
@@ -66,7 +66,7 @@ pub fn render_scaled_rgb565_incremental<const MAX_REGIONS: usize>(
         tracker,
         policy,
         DAMAGE_SIGNATURE_RGB565,
-        |regions| pocket_raster::render_scaled_rgb565_regions(ui, words, fb, scale, regions),
+        |regions| crate::render_scaled_rgb565_regions(ui, words, fb, scale, regions),
     )
 }
 
@@ -81,7 +81,7 @@ fn render_incremental<const MAX_REGIONS: usize>(
     signature: u64,
     render: impl FnOnce(&[DamageRect]),
 ) -> Result<DamagePlan<MAX_REGIONS>, DamageError> {
-    let (width, height) = pocket_raster::validate_framebuffer(ui, pixel_count, scale);
+    let (width, height) = crate::validate_framebuffer(ui, pixel_count, scale);
     let target = DamageTarget::new(width as u32, height as u32, scale, signature);
     let plan = tracker.prepare(ui, words, target)?.with_policy(policy)?;
     render(plan.regions());

@@ -45,10 +45,8 @@ use alloc::vec::Vec;
 
 pub mod anim;
 pub mod codec;
-pub mod compositor;
 #[cfg(feature = "counters")]
 pub mod counters;
-pub mod damage;
 pub mod draw;
 mod fmath;
 pub mod layout;
@@ -56,7 +54,6 @@ pub mod package;
 pub mod pak;
 pub mod physics;
 pub mod plan_facts;
-pub mod raster;
 pub mod sha256;
 pub use pocket_spec as spec;
 pub mod font_pages;

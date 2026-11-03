@@ -1,5 +1,5 @@
 use pocket_drivers::{DamageRect, FontView};
-use pocket_glyph_pages::{
+use pocket_render::glyph_pages::{
     blend_glyph_run, fill_mask_rect, FontPages, GlyphPageLayout, GlyphSource, MAX_PAGES,
 };
 

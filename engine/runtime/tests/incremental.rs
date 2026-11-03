@@ -1,5 +1,5 @@
 use pocket_drivers::*;
-use pocket_present::{Coordinator, RendererId};
+use pocket_runtime::coordinator::{Coordinator, RendererId};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 struct Resources;

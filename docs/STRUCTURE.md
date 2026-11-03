@@ -14,15 +14,15 @@ pocketjs/
 │  └─ schema/               app contract, host contract and system JSON schemas
 ├─ engine/
 │  ├─ spec/                 generated no_std constants and ABI records
-│  ├─ drivers/              resource views, device-class contracts and C ABI adapters
+│  ├─ drivers/              resource views, device-class contracts, C ABI adapters and e-ink refresh
 │  ├─ driver-kit/           Rust and C driver conformance checks
 │  ├─ core/                 retained UI tree, layout, text and animation
-│  ├─ render/               operation decoding, glyph pages, batches and caches
-│  ├─ raster/               software rendering
-│  ├─ present/              damage history and presentation transactions
+│  ├─ render/               operation decoding, vertex batches, texture and glyph caches, damage
+│  ├─ raster/               software rendering, incremental drawing and surface composition
+│  ├─ present/              forwarding crate for the former pocket-present paths
 │  ├─ profile-build/        build-script support that embeds the exported host contract
 │  ├─ package/              package, asset and font archive readers and hashing
-│  ├─ runtime/              instance lifecycle, admission, input, scheduling and C ABI bodies
+│  ├─ runtime/              instance lifecycle, admission, input, presentation and C ABI bodies
 │  ├─ guest-quickjs/        C guest lifecycle and generated operation bindings
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
@@ -116,8 +116,12 @@ without linking the UI tree. A program selects implementations in code and
 provides its memory budgets and private services.
 
 **DrawList renderers consume `FrameInput` and `RenderResources`.** GPU mechanism
-libraries retain their device interfaces. `pocket-present` owns damage history
-and orders render completion, display transfer and resource retirement.
+libraries retain their device interfaces. `pocket-render` owns DrawList
+decoding, vertex batching, texture and glyph page retention and damage
+history; `pocket-raster` draws on the CPU. The coordinator in
+`pocket_runtime::coordinator` orders render completion, display transfer and
+resource retirement. `pocketjs-core` depends on neither `pocket-raster` nor the
+coordinator.
 `pocket-ui-wgpu` adapts existing desktop embedding APIs to `pocket-web-render`.
 
 **`contracts/spec/ui-ops.ts` defines 61 public operations and six private guest

@@ -1,6 +1,6 @@
 # pocket-glyph-pages
 
-Font coverage expansion, guarded glyph pages, and A8 masks for PocketJS renderers.
+Forwarding crate for `pocket_render::glyph_pages`: font coverage expansion, guarded glyph pages, and A8 masks.
 
 ## Install
 
@@ -29,9 +29,17 @@ assert!(coverage.contains(&255));
 
 ## Environment and compatibility
 
-Rust 1.93 or later. `no_std` with `alloc`; no font shaping library or GPU API is selected.
+Rust 1.93 or later. `no_std`; the crate contains no code of its own.
 
-Font views borrow baked coverage bytes. Drivers upload expanded pages and retire cached pages after the submissions referencing them finish. This crate does not shape text or load system fonts.
+**Every public path re-exports the item itself**, so values and types pass
+between code that names the former path and code that names the new one.
+
+| Former path | Item |
+| --- | --- |
+| `pocket_glyph_pages::*` | `pocket_render::glyph_pages::*` |
+
+This crate is published for one release after `pocket-render` and is then
+deprecated. New code depends on the crates in the right column.
 
 Use matching PocketJS crate releases and compiler contracts. Application package
 format, binding generation, and DrawList version are checked at their respective

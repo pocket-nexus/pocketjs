@@ -130,7 +130,6 @@ RGBA8→Gray8 conversion + e-ink refresh management on top.
 [dependencies]
 pocketjs-core = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
-pocket-present = { workspace = true, default-features = true }
 pocket-mod = { workspace = true, default-features = true }
 inkview = { git = "https://github.com/simmsb/inkview-rs", rev = "0e4ecab93f6e2907c255bb50bc4b6c1882779274", package = "inkview" }
 ```
@@ -178,7 +177,6 @@ publish = false
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
-pocket-present = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-mod = { workspace = true, default-features = true }

@@ -1,4 +1,4 @@
-use pocket_draw_ops::{word_len, DecodeError, DrawOps, MAX_CLIP_DEPTH};
+use pocket_render::{word_len, DecodeError, DrawOps, MAX_CLIP_DEPTH};
 use pocket_drivers::DamageRect;
 use pocket_spec::draw_op::*;
 
@@ -156,10 +156,10 @@ fn clip_stack_errors_are_explicit_and_terminal() {
 
 mod records {
     use super::{wh, xy, SCREEN};
-    use pocket_draw_ops::record::{
+    use pocket_render::record::{
         Glyph, GradRect, Rect, Scissor, SurfaceQuad, TexQuad, TexTri, Tri,
     };
-    use pocket_draw_ops::{gradient_corners, record, Corners, DecodeError, DrawOps, Record};
+    use pocket_render::{gradient_corners, record, Corners, DecodeError, DrawOps, Record};
     use pocket_drivers::DamageRect;
     use pocket_spec::draw_op::*;
     use pocket_spec::GradDir;

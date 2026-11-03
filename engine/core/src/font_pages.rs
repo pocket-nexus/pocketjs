@@ -1,6 +1,6 @@
 //! Compatibility adapter from core font atlases to shared coverage pages.
 use crate::text::Atlas;
-pub use pocket_glyph_pages::{FontPage, MAX_PAGES, PAGE_DIM, PAGE_WIDTH};
+pub use pocket_render::glyph_pages::{FontPage, MAX_PAGES, PAGE_DIM, PAGE_WIDTH};
 
 pub(crate) fn view(atlas: &Atlas) -> pocket_drivers::FontView<'_> {
     pocket_drivers::FontView {
@@ -13,7 +13,7 @@ pub(crate) fn view(atlas: &Atlas) -> pocket_drivers::FontView<'_> {
 }
 
 #[derive(Default)]
-pub struct FontPages(pocket_glyph_pages::FontPages);
+pub struct FontPages(pocket_render::glyph_pages::FontPages);
 impl FontPages {
     /// PSP's legacy adapter has one frame in flight. Call after GE completion.
     pub fn retire_frame(&mut self) {
@@ -23,7 +23,7 @@ impl FontPages {
         self.0.resident_bytes()
     }
     pub fn get(&mut self, atlas: &Atlas, revision: u64, gid: u16) -> Option<(&FontPage, bool)> {
-        let source = pocket_glyph_pages::GlyphSource::new(
+        let source = pocket_render::glyph_pages::GlyphSource::new(
             view(atlas),
             atlas.slot,
             atlas.texture_coverage_width(),

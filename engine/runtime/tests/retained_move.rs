@@ -9,7 +9,7 @@ use pocket_drivers::{
     FontView, PixelFormat, Rect, RenderResources, Surface, Target, TargetOwnership, TexView,
     VsyncSource, HOST_DAMAGE_RECTS,
 };
-use pocket_present::{Coordinator, PresentError, RendererId};
+use pocket_runtime::coordinator::{Coordinator, PresentError, RendererId};
 use pocket_spec as spec;
 
 const W: i32 = 64;

@@ -4,7 +4,7 @@
 #![cfg(feature = "counters")]
 
 use pocketjs_core::spec::prop::*;
-use pocketjs_core::{raster, spec, Ui};
+use pocketjs_core::{spec, Ui};
 
 const FILL: u32 = 0xff22_3344;
 
@@ -75,7 +75,7 @@ fn snapshot(ui: &Ui, root: i32) -> Snapshot {
 fn pixels(ui: &Ui, words: &[u32]) -> Vec<u8> {
     let (width, height) = ui.viewport();
     let mut pixels = vec![0; width as usize * height as usize * 4];
-    raster::render(ui, words, &mut pixels);
+    pocket_raster::render(ui, words, &mut pixels);
     pixels
 }
 

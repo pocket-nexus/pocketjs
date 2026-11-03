@@ -17,3 +17,4 @@ gpui = "0.2.2"
 image = "0.25"
 smallvec = "1"
 pocketjs-core = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }

@@ -65,8 +65,7 @@ dependencies = [
 name = "pocket-draw-ops"
 version = "0.16.0"
 dependencies = [
- "pocket-drivers",
- "pocket-spec",
+ "pocket-render",
 ]
 
 [[package]]
@@ -80,8 +79,7 @@ dependencies = [
 name = "pocket-glyph-pages"
 version = "0.16.0"
 dependencies = [
- "pocket-drivers",
- "pocket-spec",
+ "pocket-render",
 ]
 
 [[package]]
@@ -100,16 +98,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-present"
-version = "0.16.0"
-dependencies = [
- "pocket-draw-ops",
- "pocket-drivers",
- "pocket-raster",
- "pocket-spec",
-]
-
-[[package]]
 name = "pocket-profile-build"
 version = "0.16.0"
 
@@ -117,7 +105,15 @@ version = "0.16.0"
 name = "pocket-raster"
 version = "0.16.0"
 dependencies = [
- "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-render",
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-render"
+version = "0.16.0"
+dependencies = [
  "pocket-drivers",
  "pocket-spec",
 ]
@@ -128,7 +124,8 @@ version = "0.16.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
- "pocket-present",
+ "pocket-raster",
+ "pocket-render",
  "pocket-spec",
  "pocketjs-core",
 ]
@@ -140,6 +137,9 @@ version = "0.16.0"
 [[package]]
 name = "pocket-tex-cache"
 version = "0.16.0"
+dependencies = [
+ "pocket-render",
+]
 
 [[package]]
 name = "pocket-vita-gxm"
@@ -184,11 +184,9 @@ name = "pocketjs-core"
 version = "0.16.0"
 dependencies = [
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-media",
  "pocket-package",
- "pocket-present",
- "pocket-raster",
+ "pocket-render",
  "pocket-spec",
  "taffy",
 ]

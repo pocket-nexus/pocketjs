@@ -2,10 +2,9 @@
 //! workers and WASM, preserving scissor and surface painter order.
 
 use alloc::vec::Vec;
-use pocket_draw_ops::record::SurfaceQuad;
-use pocket_draw_ops::Record;
 use pocket_drivers::RenderResources;
-use pocket_raster as raster;
+use pocket_render::record::SurfaceQuad;
+use pocket_render::Record;
 
 /// A host-owned raster, outside the guest texture namespace.
 #[derive(Clone)]
@@ -18,7 +17,7 @@ pub struct CompositorRaster {
 }
 
 pub fn draw_op_len(words: &[u32], at: usize) -> Option<usize> {
-    pocket_draw_ops::word_len(words, at).ok()
+    pocket_render::word_len(words, at).ok()
 }
 
 fn render_segment(
@@ -36,7 +35,7 @@ fn render_segment(
         staged.extend_from_slice(scissor);
     }
     staged.extend_from_slice(words);
-    raster::render_scaled_over(ui, &staged, framebuffer, scale);
+    crate::render_scaled_over(ui, &staged, framebuffer, scale);
 }
 
 fn blend_surface(
@@ -127,7 +126,7 @@ pub fn render(
     surfaces: &[Option<CompositorRaster>],
 ) {
     let (viewport_width, viewport_height) = ui.viewport();
-    raster::render_scaled(ui, &[], framebuffer, scale);
+    crate::render_scaled(ui, &[], framebuffer, scale);
     let mut inherited_scissors: Vec<[u32; 3]> = Vec::new();
     let mut segment_scissors: Vec<[u32; 3]> = Vec::new();
     let mut segment_start = 0usize;
@@ -151,7 +150,7 @@ pub fn render(
                     framebuffer,
                     scale,
                 );
-                let Ok(Record::SurfaceQuad(quad)) = pocket_draw_ops::record(&words[at..end]) else {
+                let Ok(Record::SurfaceQuad(quad)) = pocket_render::record(&words[at..end]) else {
                     break;
                 };
                 if let Some(entry) = surfaces.get(quad.surface as usize).and_then(Option::as_ref) {

@@ -120,14 +120,14 @@ programs/pocketbook/
 
 The program inherits versioned PocketJS dependencies from the root workspace.
 **The workspace paths point into this repository's engine crates and use the
-root `Cargo.lock`.** The program uses the shared `pocket-present`
+root `Cargo.lock`.** The program uses the shared `pocket_drivers::ink`
 refresh policy; its adapter supplies `Instant` timestamps and inkview calls.
 
 ```toml
 # programs/pocketbook/Cargo.toml
 [dependencies]
+pocket-drivers = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
-pocket-present = { workspace = true, default-features = true }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-mod = { workspace = true, default-features = true }
 pocket-ui-surface = { workspace = true, default-features = true }

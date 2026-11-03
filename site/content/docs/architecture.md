@@ -105,29 +105,41 @@ on the UI core.** Their callers supply resource views or borrowed bytes.
 
 | Crate | Source | Responsibility |
 | --- | --- | --- |
-| `pocket-raster` | `engine/raster` | DrawList interpretation and software pixel output |
-| `pocket-present` | `engine/present` | Damage history, prepare/commit/abort transactions, incremental drawing, and surface composition |
+| `pocket-render` | `engine/render` | DrawList decoding, vertex batching, texture and glyph page retention, damage history, and prepare/commit/abort transactions |
+| `pocket-raster` | `engine/raster` | DrawList interpretation, software pixel output, incremental drawing, and surface composition |
 | `pocket-package` | `engine/package` | Package admission, variant selection, pak entries, build facts, and SHA-256 |
 | `pocket-media` | `engine/modules/media` | Stream containers, transport messages, RAM stream assembly, and byte codecs |
 
-`pocket-present` calls `pocket-raster` for software drawing. Both consume
-`RenderResources` from `pocket-drivers`; neither requires a `Ui` instance.
-**The core keeps compatibility exports at the existing module paths.**
-Hosts can continue importing `pocketjs_core::raster`, `damage`, `compositor`,
-`package`, `pak`, `sha256`, `plan_facts`, `stream`, `stream_rx`, `wire`, and
-`codec` while their implementations reside in the new crates. Package bytes,
-admission checks, and DrawList encoding retain their existing formats.
+`pocket-raster` decodes operations and plans damage through `pocket-render`.
+Both consume `RenderResources` from `pocket-drivers`; neither requires a `Ui`
+instance. The coordinator that registers renderers and displays and orders
+render completion, display transfer, and resource retirement is
+`pocket_runtime::coordinator`; `Coordinator::new` registers
+`pocket_raster::RasterRenderer` as renderer 0.
+
+**`pocketjs-core` depends on neither `pocket-raster` nor the coordinator.**
+Hosts import `pocket_raster` and `pocket_render::damage`. The core
+keeps compatibility exports at `pocketjs_core::package`, `pak`, `sha256`,
+`plan_facts`, `stream`, `stream_rx`, `wire`, and `codec` while their
+implementations reside in the new crates. The `pocket-present` crate
+re-exports its former paths from `pocket-render`, `pocket-raster`,
+`pocket-runtime`, and `pocket-drivers`. Package bytes, admission checks, and
+DrawList encoding retain their existing formats.
 
 ## Rendering utilities
 
-**The rendering utilities use `no_std` and have no dependency on the UI core
-or each other.** Drivers select the utilities they need.
+**`pocket-render` uses `no_std` and depends only on `pocket-drivers` and
+`pocket-spec`.** Drivers use the modules they need.
 
-| Crate | Mechanism |
+| Module | Mechanism |
 | --- | --- |
-| `pocket-draw-ops` | Borrows operation words, validates record lengths, attaches the current absolute clip, decodes record fields, constructs driver-defined vertices, merges adjacent ranges with equal texture and clip keys, and walks a DrawList into vertices and batches under a driver's `Backend` policies |
-| `pocket-glyph-pages` | Expands A8 pages and masks, and retains ABGR4444 pages by submission |
-| `pocket-tex-cache` | Keeps device texture versions alive until their last referencing submission retires |
+| crate root, `record`, `batch`, `build` | Borrows operation words, validates record lengths, attaches the current absolute clip, decodes record fields, constructs driver-defined vertices, merges adjacent ranges with equal texture and clip keys, and walks a DrawList into vertices and batches under a driver's `Backend` policies |
+| `glyph_pages` | Expands A8 pages and masks, and retains ABGR4444 pages by submission |
+| `tex_cache` | Keeps device texture versions alive until their last referencing submission retires |
+| `damage` | Compares a DrawList with the one whose pixels a persistent target holds and plans disjoint regions to repaint |
+
+`pocket-draw-ops`, `pocket-glyph-pages`, and `pocket-tex-cache` re-export the
+crate root, `glyph_pages`, and `tex_cache` at their former paths.
 
 `pocket-raster::RasterRenderer` implements the driver trait for RGBA8888,
 ARGB8888, and RGB565 CPU targets. **It writes only the acquired region and
@@ -140,14 +152,14 @@ work and made the target cache visible. Native text and surface composition
 remain separate host responsibilities.
 
 **The GLES, GXM, and wgpu renderers share one DrawList walk from
-`pocket-draw-ops`; each supplies its vertex type, texture and clip keys, fill
+`pocket-render`; each supplies its vertex type, texture and clip keys, fill
 source, image and glyph lookup, record acceptance, and quad diagonal.** The
 PSP, PPA, EPIC, and software renderers keep their own walks and take XY and
 WH unpacking from the same crate; the PSP and EPIC gradient paths also take
 its corner color mapping, and the software compositor decodes surface records
 through it.
 The core's glyph texture preparation and the RGB565 glyph mask path use
-`pocket-glyph-pages`. Existing host entry points remain available during the
+`pocket_render::glyph_pages`. Existing host entry points remain available during the
 runtime migration.
 
 ## The pipeline

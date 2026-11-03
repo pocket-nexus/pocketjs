@@ -16,6 +16,7 @@ pub mod clock;
 pub mod damage_rect;
 pub mod display;
 pub mod draw;
+pub mod ink;
 pub mod input;
 pub mod package;
 pub mod render;

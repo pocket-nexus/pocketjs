@@ -13,7 +13,6 @@ extern crate alloc;
 use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
 use core::cell::{Cell, RefCell, UnsafeCell};
 use microts::{
-    pocketjs_core::damage::DamageRect,
     runtime::{AotApp, AotGuest, AppState},
     Input, Ui,
 };

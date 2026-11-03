@@ -24,6 +24,8 @@ use alloc::vec::Vec;
 
 use pocket_spec as spec;
 
+mod transaction;
+pub use transaction::DamageTransaction;
 
 /// Default fixed capacity used by the generic software rasterizer.
 pub const DEFAULT_DAMAGE_REGIONS: usize = 8;
@@ -515,12 +517,12 @@ struct DecodedOp<'a> {
 }
 
 struct DamageDecoder<'a> {
-    operations: pocket_draw_ops::DrawOps<'a>,
+    operations: crate::DrawOps<'a>,
 }
 
 impl<'a> DamageDecoder<'a> {
     fn new(words: &'a [u32], screen: DamageRect) -> Self {
-        Self { operations: pocket_draw_ops::DrawOps::new(words, screen) }
+        Self { operations: crate::DrawOps::new(words, screen) }
     }
 
     fn next(&mut self, ui: &impl RenderResources) -> Result<Option<DecodedOp<'a>>, ()> {
@@ -1058,4 +1060,4 @@ fn xy(word: u32) -> (i32, i32) {
     )
 }
 
-use pocket_draw_ops::logical_rect;
+use crate::logical_rect;

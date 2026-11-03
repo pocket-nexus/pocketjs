@@ -4,7 +4,7 @@
 
 use pocket_drivers::{abi::*, *};
 use pocket_runtime::{generated_ops::BINDING_GENERATION, OpContext, OpResult, Runtime, RuntimeError};
-use pocketjs_core::{raster, Ui};
+use pocketjs_core::Ui;
 use serde_json::{json, Value};
 use std::{
     alloc::{alloc, dealloc, Layout},
@@ -422,14 +422,14 @@ pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 
                 .ok_or(RuntimeError::InvalidArgument)?
                 .words;
             resize(&mut capture.auxiliary, len)?;
-            raster::render_scaled(&Auxiliary(&c.ui), words, &mut capture.auxiliary, scale);
+            pocket_raster::render_scaled(&Auxiliary(&c.ui), words, &mut capture.auxiliary, scale);
             return Ok(capture.auxiliary.as_ptr());
         }
         c.draw();
         let words = &c.current_draw_list().words;
         if mode == 2 {
             resize(&mut capture.transparent, len)?;
-            raster::render_scaled_premultiplied(&c.ui, words, &mut capture.transparent, scale);
+            pocket_raster::render_scaled_premultiplied(&c.ui, words, &mut capture.transparent, scale);
             return Ok(capture.transparent.as_ptr());
         }
         resize(&mut capture.opaque, len)?;
@@ -448,11 +448,11 @@ pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 
             )
             .is_err()
             {
-                raster::render_scaled(&c.ui, words, opaque, scale);
+                pocket_raster::render_scaled(&c.ui, words, opaque, scale);
                 damage.invalidate();
             }
         } else {
-            raster::render_scaled(&c.ui, words, opaque, scale);
+            pocket_raster::render_scaled(&c.ui, words, opaque, scale);
             damage.invalidate();
         }
         Ok(opaque.as_ptr())

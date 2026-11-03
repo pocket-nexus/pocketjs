@@ -25,6 +25,9 @@ Rust 1.93 or later. `no_std` with `alloc`; the embedding program supplies an all
 
 Drivers own device I/O. The runtime owns registration and frame scheduling. Borrowed resources must remain valid for the lifetime required by each submission.
 
+The `ink` module schedules partial, dynamic and full e-ink refreshes from host
+timestamps and the panel's busy state; it holds no framebuffer or panel handle.
+
 Use matching PocketJS crate releases and compiler contracts. Application package
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.

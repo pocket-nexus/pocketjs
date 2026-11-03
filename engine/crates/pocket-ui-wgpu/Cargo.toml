@@ -22,3 +22,6 @@ wgpu = { workspace = true }
 winit = { workspace = true }
 bytemuck = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+pocket-raster = { workspace = true, default-features = true }

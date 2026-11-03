@@ -6,8 +6,11 @@ documentation = "https://docs.rs/pocket-tex-cache"
 keywords = ["textures", "cache", "rendering"]
 categories = ["no-std", "rendering"]
 edition = "2021"
-description = "Versioned driver texture storage with submission-scoped retirement"
+description = "Forwarding crate for the texture cache in pocket-render"
 version.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 license.workspace = true
+
+[dependencies]
+pocket-render = { workspace = true, default-features = true }
