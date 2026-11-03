@@ -42,7 +42,7 @@ void pocket_extension_frame_begin(void);
 /* Draws the top screen in the current native frame; `right` is the right eye. */
 void pocket_extension_render(C3D_RenderTarget *target, C3D_RenderTarget *right);
 /* Optional; the product's weak default returns false. True: the guest's primary list is
- * drawn over the scene `render` drew (a HUD), on the left eye's target. False: the scene
+ * drawn over the scene `render` drew (a HUD), in both eyes in 3D mode. False: the scene
  * replaces the primary surface, which is laid out and not shown. */
 bool pocket_extension_shows_primary(void);
 /* Optional; the product's weak default returns false. Draws under the guest's touch-screen

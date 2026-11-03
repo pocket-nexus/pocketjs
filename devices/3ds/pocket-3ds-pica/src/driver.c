@@ -879,8 +879,14 @@ static int32_t render(void *context, const pocket_frame_input *raw,
   bool replaced =
       r->config.scene && r->config.scene(r->config.context, display->role,
                                          display->target, display->right);
-  if (!replaced)
+  if (!replaced) {
     draw(r, s, b.width, b.height);
+    /* A scene drawn in stereo under the list: the list stands at the screen's
+     * depth, the same in both eyes. */
+    if (display->right && gfxIs3D())
+      draw_commands(r, s, display->right, 0, s->overlay_command, b.width,
+                    b.height);
+  }
   draw_overlay(r, s);
   r->words[display->role] = list->word_count;
   r->vertices += s->vertex_count;
