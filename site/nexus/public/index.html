@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Pocket Nexus</title>
-<meta name="description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS and Omarchy Pocket.">
+<meta name="description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS, Omarchy Pocket and Pocket Applets.">
 <link rel="canonical" href="https://pocket.nexus/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Pocket Nexus">
 <meta property="og:title" content="Pocket Nexus">
-<meta property="og:description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS and Omarchy Pocket.">
+<meta property="og:description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS, Omarchy Pocket and Pocket Applets.">
 <meta property="og:url" content="https://pocket.nexus/">
 <meta property="og:image" content="https://pocket.nexus/og-image.png">
 <meta property="og:image:type" content="image/png">
@@ -20,7 +20,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@pocket_js">
 <meta name="twitter:title" content="Pocket Nexus">
-<meta name="twitter:description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS and Omarchy Pocket.">
+<meta name="twitter:description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS, Omarchy Pocket and Pocket Applets.">
 <meta name="twitter:image" content="https://pocket.nexus/og-image.png">
 <meta name="twitter:image:alt" content="The Pocket Nexus wordmark in bubble letters above a stitched jeans pocket">
 <meta name="theme-color" content="#171226">
@@ -33,7 +33,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=1">
 <meta name="apple-mobile-web-app-title" content="Pocket Nexus">
 <link rel="manifest" href="/site.webmanifest">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Pocket Nexus","url":"https://pocket.nexus/","logo":"https://pocket.nexus/icon-512.png","description":"An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS and Omarchy Pocket.","email":"support@pocket.nexus","sameAs":["https://github.com/pocket-nexus","https://x.com/pocket_js","https://discord.gg/cTce4eXzSK"]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Pocket Nexus","url":"https://pocket.nexus/","logo":"https://pocket.nexus/icon-512.png","description":"An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D, MicroTS, Omarchy Pocket and Pocket Applets.","email":"support@pocket.nexus","sameAs":["https://github.com/pocket-nexus","https://x.com/pocket_js","https://discord.gg/cTce4eXzSK"]}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titan+One&text=POCKETNXUS&display=block">
@@ -106,17 +106,47 @@ html:not(.js) .ch{width:auto;height:auto;line-height:.86;color:var(--c);-webkit-
 .btn.big .pj{width:44px;height:44px}
 .btn.big .pj svg{width:27px;height:27px}
 .btn .two{display:grid;gap:4px;text-align:left}
-.btn .two b{font:600 19px/1 var(--sans);letter-spacing:.005em}
-.btn .two small{font:500 13px/1 var(--sans);color:#6a4f12}
-/* the lab's technology, one small button each */
-.tech{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
-.tech > span{margin-right:4px;font:500 13.5px/1 var(--sans);color:var(--ink-2)}
-.chip{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 14px 0 8px;border-radius:999px;text-decoration:none;color:var(--ink);font:600 14.5px/1 var(--round);letter-spacing:.01em;
-  background:rgba(35,27,59,.82);border:2px solid rgba(203,189,226,.16);box-shadow:0 4px 0 var(--shade);
-  transition:transform .2s cubic-bezier(.3,1.6,.5,1),background-color .15s,border-color .15s,color .15s}
-.chip svg{width:23px;height:23px;flex:none;overflow:visible}
-.chip:hover{background:var(--yellow);border-color:var(--yellow);color:#2a1b10;transform:translateY(-2px)}
-.chip:active{transform:translateY(3px);box-shadow:0 1px 0 var(--shade)}
+.btn.big{flex:none}
+.btn .two b{font:600 19px/1 var(--sans);letter-spacing:.005em;white-space:nowrap}
+.btn .two small{font:500 13px/1 var(--sans);color:#6a4f12;white-space:nowrap}
+/* a mark on its dark tile: the technology dock and the Technology menu */
+.tile{flex:none;display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--bg);
+  border:2px solid rgba(203,189,226,.12);box-shadow:0 3px 0 var(--shade)}
+.tile svg{width:28px;height:28px;overflow:visible}
+/* the lab's technology: one dock, a cell each with the mark, the name and what it is; the
+   caption is a badge on the dock's top edge, so it adds no row of its own */
+.tech{position:relative;display:flex;flex-direction:column;align-items:center;padding-top:10px;width:min(620px,calc(100vw - 36px))}
+.tech > span{position:absolute;left:50%;top:0;z-index:1;transform:translateX(-50%);padding:3px 10px;border-radius:999px;white-space:nowrap;
+  background:var(--panel);border:2px solid rgba(203,189,226,.16);font:600 10.5px/1 var(--round);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2)}
+.dock{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;width:100%;padding:5px;border-radius:22px;
+  background:rgba(35,27,59,.82);border:2px solid rgba(203,189,226,.16);box-shadow:0 5px 0 var(--shade);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.cell{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:0;padding:15px 3px 10px;border-radius:17px;
+  text-decoration:none;color:var(--ink);text-align:center;transition:background-color .15s,color .15s}
+.cell .tile{transition:transform .3s cubic-bezier(.3,1.8,.5,1)}
+.cell b{display:block;max-width:100%;font:600 14.5px/1.1 var(--round);letter-spacing:.01em;white-space:nowrap}
+.cell small{display:block;margin-top:-3px;font:500 11.5px/1.2 var(--sans);color:var(--muted);white-space:nowrap}
+.cell:hover{background:var(--yellow);color:#2a1b10}
+.cell:hover small{color:#6a4f12}
+.cell:hover .tile{transform:translateY(-3px) rotate(-6deg)}
+.cell:active .tile{transform:translateY(2px) scale(.94);transition-duration:.07s}
+/* Omarchy Pocket's clamshell is narrow: it takes the tile's height */
+.tile svg.tall{width:32px;height:32px}
+/* a wide screen: each cell puts its mark beside the name and what it is, one row as tall as the mark;
+   the caption hangs left of the centred dock, so the row is only as tall as the dock */
+@media (min-width:1000px){
+  .tech{width:auto;padding-top:0}
+  .tech > span{left:auto;right:calc(100% + 14px);top:50%;transform:translateY(-50%);padding:0;border:0;background:none;
+    font:500 13.5px/1 var(--sans);letter-spacing:.01em;text-transform:none}
+  .dock{display:flex;width:auto;padding:4px;border-radius:19px}
+  .cell{display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;column-gap:9px;align-items:center;
+    padding:5px 13px 5px 5px;border-radius:15px;text-align:left}
+  .cell .tile{grid-row:1/3;width:36px;height:36px;border-radius:11px}
+  .cell .tile svg{width:24px;height:24px}
+  .cell .tile svg.tall{width:28px;height:28px}
+  .cell b{align-self:end}
+  .cell small{align-self:start;margin-top:3px}
+}
 
 /* top bar: the mark on the left; the product, the technology and the social links on the right */
 .bar{position:fixed;z-index:6;left:0;right:0;top:0;display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -150,9 +180,6 @@ html:not(.js) .ch{width:auto;height:auto;line-height:.86;color:var(--c);-webkit-
 .menu.open .menu-list{opacity:1;visibility:visible;transform:none;transition:opacity .16s ease,transform .3s cubic-bezier(.3,1.6,.5,1),visibility 0s}
 .menu-list a{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:14px;text-decoration:none;color:var(--ink)}
 .menu-list a:hover,.menu-list a:focus-visible{background:rgba(203,189,226,.08)}
-.menu-list .tile{flex:none;display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--bg);
-  border:2px solid rgba(203,189,226,.12);box-shadow:0 3px 0 var(--shade)}
-.menu-list .tile svg{width:28px;height:28px}
 .menu-list b{display:flex;align-items:center;gap:6px;font:600 16px/1.2 var(--round);letter-spacing:.01em}
 .menu-list b svg{width:12px;height:12px;color:var(--muted)}
 .menu-list small{display:block;margin-top:2px;font:500 12.5px/1.35 var(--sans);color:var(--muted)}
@@ -234,20 +261,38 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
   .btn.big .pj{width:40px;height:40px}
   .btn .two b{font-size:17px}
   .btn .two small{font-size:12px}
-  .tech{gap:7px 6px}
-  .tech > span{flex-basis:100%;margin:0;text-align:center}
-  .chip{height:35px;padding:0 11px 0 6px;font-size:13.5px;gap:6px}
-  .chip svg{width:21px;height:21px}
+}
+/* a narrow dock: the cells keep the mark and the name, the name may take two lines */
+@media (max-width:560px){
+  .tech{gap:8px}
+  .dock{padding:4px;border-radius:20px}
+  .cell{gap:6px;padding:14px 2px 8px;border-radius:15px}
+  .cell .tile{width:38px;height:38px;border-radius:11px}
+  .cell .tile svg{width:25px;height:25px}
+  .cell .tile svg.tall{width:29px;height:29px}
+  .cell b{font-size:12.5px;line-height:1.12;white-space:normal;text-wrap:balance}
+  .cell small{display:none}
 }
 @media (max-width:340px){
   .hero{padding:0 10px}
+  .bar{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  .pill{height:38px;min-width:38px;font-size:13.5px}
+  .brand{width:40px;height:40px}
+  .brand svg{width:28px;height:28px}
+  .links{gap:5px}
+  .menu>.pill{padding:0 9px 0 12px}
   .btn.big{padding:0 16px 0 8px}
   .btn.big .arr{display:none}
-  .btn .two small{font-size:11.5px;white-space:nowrap}
+  .btn .two small{font-size:11.5px}
+  .tech{width:calc(100vw - 20px);padding-top:0}
   .tech > span{display:none}
-  .chip{height:33px;padding:0 9px 0 5px;font-size:12.5px;gap:5px}
-  .chip svg{width:19px;height:19px}
+  .cell{padding:8px 1px 7px}
+  .cell .tile{width:34px;height:34px;border-radius:10px}
+  .cell .tile svg{width:22px;height:22px}
+  .cell .tile svg.tall{width:26px;height:26px}
+  .cell b{font-size:11.5px}
 }
+/* a short wide screen: the button and the dock share one row */
 @media (max-height:560px) and (min-width:641px){
   .lede{font-size:13.5px;max-width:46em;line-height:1.4;margin-top:2px}
   .cta{flex-direction:row;gap:16px;margin-top:8px}
@@ -256,10 +301,18 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
   .btn.big .pj svg{width:19px;height:19px}
   .btn .two b{font-size:15px}
   .btn .two small{display:none}
-  .chip{height:34px}
+  .tech{width:auto;padding-top:0}
+  .tech > span{display:none}
+  .dock{display:grid;width:auto;grid-template-columns:repeat(5,70px);padding:3px;border-radius:18px}
+  .cell{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;padding:6px 2px 5px;border-radius:14px}
+  .cell .tile{grid-row:auto;width:30px;height:30px;border-radius:9px;box-shadow:0 2px 0 var(--shade)}
+  .cell .tile svg{width:20px;height:20px}
+  .cell .tile svg.tall{width:24px;height:24px}
+  .cell b{font-size:11.5px;line-height:1.1;white-space:normal;text-wrap:balance}
+  .cell small{display:none}
 }
 @media (prefers-reduced-motion:reduce){
-  .lede,.cta,.bar,.pill,.menu-list,.copy,.btn,.btn .arr,.chip{transition:none}
+  .lede,.cta,.bar,.pill,.menu-list,.copy,.btn,.btn .arr,.cell,.cell .tile{transition:none}
 }
 </style>
 </head>
@@ -270,6 +323,8 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="omp-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7a4bd6"/><stop offset=".55" stop-color="#ff6f91"/><stop offset="1" stop-color="#ffc46b"/></linearGradient></defs><symbol id="omp" viewBox="0 0 64 64"><rect x="10" y="3" width="44" height="28" rx="6" fill="#23242c"/><rect x="15" y="7" width="34" height="20" rx="2" fill="url(#omp-sky)"/><rect x="10" y="33" width="44" height="28" rx="6" fill="#23242c"/><rect x="15" y="37" width="34" height="20" rx="2" fill="#0d0e14"/><g fill="#8e99c9"><rect x="18" y="44" width="28" height="3" rx="1"/><rect x="21" y="49" width="22" height="3" rx="1"/></g></symbol></svg>
 <!-- the MicroTS mark, as site/microts/mark.svg draws it -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="mts" viewBox="0 0 100 100"><rect x="4.5" y="4.5" width="91" height="91" rx="22" fill="#171226" stroke="#ffd23f" stroke-width="9"/><path d="M17.5 40h7.5M75 40h7.5" stroke="#ff5f9e" stroke-width="8" stroke-linecap="round"/><path d="M17.5 53.5h7.5M75 53.5h7.5" stroke="#a98bff" stroke-width="8" stroke-linecap="round"/><path d="M44.3 31.5 34.6 72.3" stroke="#3fd0e8" stroke-width="11" stroke-linecap="round"/><path d="M65.4 30.9 61.6 46.5C60.1 51.8 61.2 60.2 63.1 57.8" fill="none" stroke="#3fd0e8" stroke-width="10" stroke-linecap="round"/><path d="M41.1 51.5 45.3 51.2C44.2 55.8 55 55.4 56.1 47.3L60.8 47.3 56.6 57.4C54.8 60.6 50.7 63.2 47.5 63.2 44.2 63.2 41.3 62.8 38.8 58.9Z" fill="#3fd0e8"/></symbol></svg>
+<!-- the Pocket Applets mark: four applets on a home screen -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="pap" viewBox="0 0 32 32"><rect x="2.3" y="2.3" width="27.4" height="27.4" rx="7.5" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><rect x="7.4" y="7.4" width="7.6" height="7.6" rx="2.3" fill="#ff5f9e"/><rect x="17" y="7.4" width="7.6" height="7.6" rx="2.3" fill="#3fd0e8"/><rect x="7.4" y="17" width="7.6" height="7.6" rx="2.3" fill="#a98bff"/><circle cx="20.8" cy="20.8" r="3.9" fill="#ffb45c"/></symbol></svg>
 <div class="sky" aria-hidden="true"></div>
 <canvas id="play" aria-hidden="true"></canvas>
 
@@ -286,6 +341,7 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
         <a href="https://3d.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#p3d" width="32" height="32"/></svg></span><span><b>Pocket3D</b><small>Create 3D for every machine you love</small></span></a>
         <a href="https://microts.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#mts" width="32" height="32"/></svg></span><span><b>MicroTS</b><small>TypeScript compiled ahead of time to native code</small></span></a>
         <a href="https://omapocket.org/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#omp" width="32" height="32"/></svg></span><span><b>Omarchy Pocket</b><small>Linux for handhelds, built on Omarchy</small></span></a>
+        <a href="https://applets.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#pap" width="32" height="32"/></svg></span><span><b>Pocket Applets</b><small>Small apps for pocket devices, and their store</small></span></a>
       </div>
     </div>
     <a class="pill ico" href="https://x.com/pocket_js" target="_blank" rel="noreferrer" aria-label="Pocket Nexus on X"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
@@ -303,10 +359,18 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
   <div class="cta">
     <a class="btn big" href="https://studio.pocket.nexus/">
       <span class="pj" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M12.5 9.5v13l10.5-6.5z" fill="#ffd23f" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/></svg></span>
-      <span class="two"><b>Try Pocket Studio</b><small>Make a game with your coding agent</small></span>
+      <span class="two"><b>Try Pocket Studio</b><small>Make applets and games from a few words</small></span>
       <span class="arr" aria-hidden="true">→</span>
     </a>
-    <p class="tech"><span>Our technology</span><a class="chip" href="https://pocketjs.pocket.nexus/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/><rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/><rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/></svg>PocketJS</a><a class="chip" href="https://3d.pocket.nexus/"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#p3d" width="32" height="32"/></svg>Pocket3D</a><a class="chip" href="https://microts.pocket.nexus/"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#mts" width="32" height="32"/></svg>MicroTS</a><a class="chip" href="https://omapocket.org/"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#omp" width="32" height="32"/></svg>Omarchy Pocket</a></p>
+    <nav class="tech" aria-label="Our technology"><span aria-hidden="true">Our technology</span>
+    <div class="dock">
+      <a class="cell" href="https://pocketjs.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/><rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/><rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/></svg></span><b>PocketJS</b><small>UI framework</small></a>
+      <a class="cell" href="https://3d.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#p3d" width="32" height="32"/></svg></span><b>Pocket3D</b><small>3D engine</small></a>
+      <a class="cell" href="https://microts.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#mts" width="32" height="32"/></svg></span><b>MicroTS</b><small>TS compiler</small></a>
+      <a class="cell" href="https://omapocket.org/"><span class="tile"><svg class="tall" viewBox="0 0 32 32" aria-hidden="true"><use href="#omp" width="32" height="32"/></svg></span><b>Omarchy Pocket</b><small>Handheld Linux</small></a>
+      <a class="cell" href="https://applets.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#pap" width="32" height="32"/></svg></span><b>Pocket Applets</b><small>App store</small></a>
+    </div>
+    </nav>
   </div>
 </main>
 
