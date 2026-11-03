@@ -61,7 +61,6 @@ members = [
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
     "engine/render/tex-cache",
-    "engine/render/tri-batch",
     "engine/runtime",
     "programs/sdk/archive",
     "engine/spec",
@@ -128,7 +127,6 @@ default-members = [
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
     "engine/render/tex-cache",
-    "engine/render/tri-batch",
     "engine/runtime",
     "programs/sdk/archive",
     "engine/spec",
@@ -209,7 +207,6 @@ pocket-spec = { path = "engine/spec", version = "0.16.0", default-features = fal
 pocket-stage = { path = "engine/pocket3d/examples/handheld", version = "0.16.0", default-features = false }
 pocket-tex-cache = { path = "engine/render/tex-cache", version = "0.16.0", default-features = false }
 pocket-text = { path = "engine/crates/pocket-text", version = "0.16.0", default-features = false }
-pocket-tri-batch = { path = "engine/render/tri-batch", version = "0.16.0", default-features = false }
 pocket-ui-gpui = { path = "engine/backends/gpui", version = "0.16.0", default-features = false }
 pocket-ui-surface = { path = "engine/crates/pocket-ui-surface", version = "0.16.0", default-features = false }
 pocket-ui-wgpu = { path = "engine/crates/pocket-ui-wgpu", version = "0.16.0", default-features = false }

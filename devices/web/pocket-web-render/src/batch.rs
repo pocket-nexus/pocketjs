@@ -1,5 +1,6 @@
 use crate::*;
-use pocket_draw_ops::DrawOps;
+use pocket_draw_ops::record::SurfaceQuad;
+use pocket_draw_ops::{Backend, Emit, Fill, GlyphCell, Record, Source};
 use pocket_drivers::DamageRect;
 use pocket_glyph_pages::GlyphSource;
 
@@ -189,195 +190,170 @@ impl WgpuRenderer {
     ) -> Result<(Vec<UiVertex>, Vec<DrawCmd>), RenderError> {
         let mut vertices = Vec::new();
         let mut commands = Vec::new();
-        let ndc = |[x, y]: [f32; 2]| {
-            [
+        let mut frame = Frame {
+            renderer: self,
+            resources,
+            size,
+            scale,
+            submission,
+        };
+        pocket_draw_ops::build(&mut frame, words, viewport, &mut vertices, &mut commands)?;
+        // The walk emits logical positions; the shader takes NDC.
+        for vertex in &mut vertices {
+            let [x, y] = vertex.pos;
+            vertex.pos = [
                 x * scale / size.0 as f32 * 2.0 - 1.0,
                 1.0 - y * scale / size.1 as f32 * 2.0,
-            ]
-        };
-        let xy = |word: u32| {
-            [
-                (word as u16 as i16) as f32,
-                ((word >> 16) as u16 as i16) as f32,
-            ]
-        };
-        let wh = |word: u32| [(word & 0xffff) as f32, (word >> 16) as f32];
-        let quad =
-            |vertices: &mut Vec<UiVertex>, xy0: [f32; 2], xy1: [f32; 2], uv0, uv1, colors, mode| {
-                let mut quad: [UiVertex; 6] =
-                    pocket_tri_batch::quad(ndc(xy0), ndc(xy1), uv0, uv1, colors);
-                for vertex in &mut quad {
-                    vertex.mode = mode;
-                }
-                vertices.extend(quad);
-            };
-        for operation in DrawOps::new(words, viewport) {
-            let operation = operation.map_err(|_| RenderError::InvalidFrame)?;
-            let w = operation.words;
-            let scissor = clip(operation.clip, size, scale);
-            let start = vertices.len();
-            let mut texture = TexBind::White;
-            match operation.opcode {
-                spec::draw_op::SCISSOR | spec::draw_op::SCISSOR_POP => continue,
-                spec::draw_op::RECT | spec::draw_op::GRAD_RECT => {
-                    let [x, y] = xy(w[1]);
-                    let [width, height] = wh(w[2]);
-                    if width <= 0.0 || height <= 0.0 {
-                        continue;
-                    }
-                    let colors = if operation.opcode == spec::draw_op::RECT {
-                        [w[3]; 4]
-                    } else if w[5] == spec::GradDir::ToTop as u32 {
-                        [w[4], w[4], w[3], w[3]]
-                    } else if w[5] == spec::GradDir::ToLeft as u32 {
-                        [w[4], w[3], w[3], w[4]]
-                    } else if w[5] == spec::GradDir::ToRight as u32 {
-                        [w[3], w[4], w[4], w[3]]
-                    } else {
-                        [w[3], w[3], w[4], w[4]]
-                    };
-                    quad(
-                        &mut vertices,
-                        [x, y],
-                        [x + width, y + height],
-                        [0.0; 2],
-                        [1.0; 2],
-                        colors,
-                        0,
-                    );
-                }
-                spec::draw_op::TEX_QUAD => {
-                    let Some(key) = self.image(resources, w[1] as i32, submission)? else {
-                        continue;
-                    };
-                    texture = TexBind::Image(key);
-                    let [x, y] = xy(w[2]);
-                    let [width, height] = wh(w[3]);
-                    let uv = [w[4], w[5], w[6], w[7]].map(f32::from_bits);
-                    if uv.iter().any(|v| !v.is_finite()) {
-                        return Err(RenderError::InvalidFrame);
-                    }
-                    quad(
-                        &mut vertices,
-                        [x, y],
-                        [x + width, y + height],
-                        [uv[0], uv[1]],
-                        [uv[2], uv[3]],
-                        [w[8]; 4],
-                        1,
-                    );
-                }
-                spec::draw_op::TRI => {
-                    let triangle: [UiVertex; 3] = pocket_tri_batch::triangle(
-                        [ndc(xy(w[1])), ndc(xy(w[2])), ndc(xy(w[3]))],
-                        [[0.0; 2]; 3],
-                        [w[4], w[5], w[6]],
-                    );
-                    vertices.extend(triangle);
-                }
-                spec::draw_op::TEX_TRI => {
-                    let Some(key) = self.image(resources, w[1] as i32, submission)? else {
-                        continue;
-                    };
-                    texture = TexBind::Image(key);
-                    let positions = core::array::from_fn(|i| ndc(xy(w[2 + i * 3])));
-                    let uvs: [[f32; 2]; 3] = core::array::from_fn(|i| {
-                        [f32::from_bits(w[3 + i * 3]), f32::from_bits(w[4 + i * 3])]
-                    });
-                    if uvs.iter().flatten().any(|v| !v.is_finite()) {
-                        return Err(RenderError::InvalidFrame);
-                    }
-                    let mut triangle: [UiVertex; 3] =
-                        pocket_tri_batch::triangle(positions, uvs, [w[11]; 3]);
-                    for vertex in &mut triangle {
-                        vertex.mode = 1;
-                    }
-                    vertices.extend(triangle);
-                }
-                spec::draw_op::GLYPH_RUN => {
-                    for pair in w[3..].as_chunks::<2>().0 {
-                        let Some(GlyphDraw {
-                            key,
-                            uv,
-                            bounds,
-                            logical,
-                        }) = self.glyph(resources, w[1] as u8, pair[1] as u16, submission)?
-                        else {
-                            continue;
-                        };
-                        let start = vertices.len();
-                        let [x, y] = xy(pair[0]);
-                        quad(
-                            &mut vertices,
-                            [x, y],
-                            [x + logical.0, y + logical.1],
-                            [uv[0], uv[1]],
-                            [uv[2], uv[3]],
-                            [w[2]; 4],
-                            2,
-                        );
-                        for vertex in &mut vertices[start..] {
-                            vertex.bounds = bounds;
-                        }
-                        pocket_tri_batch::append_batch(
-                            &mut commands,
-                            TexBind::Font(key),
-                            scissor,
-                            start..vertices.len(),
-                        );
-                    }
-                    continue;
-                }
-                spec::draw_op::SURFACE_QUAD => {
-                    let Some(surface) = self.surfaces.get(&w[1]) else {
-                        continue;
-                    };
-                    let logical = surface.logical;
-                    let [x, y, width, height] = [w[2], w[3], w[4], w[5]].map(f32::from_bits);
-                    if [x, y, width, height].iter().any(|v| !v.is_finite()) {
-                        return Err(RenderError::InvalidFrame);
-                    }
-                    let width = width.min(logical.0 as f32);
-                    let height = height.min(logical.1 as f32);
-                    if width <= 0.0 || height <= 0.0 || logical.0 == 0 || logical.1 == 0 {
-                        continue;
-                    }
-                    let [cx, cy] = xy(w[6]);
-                    let [cw, ch] = wh(w[7]);
-                    // Surface clips use ceil at fractional physical boundaries.
-                    let x0 = ((cx * scale).max(0.0).ceil() as u32)
-                        .max(scissor.0)
-                        .min(size.0);
-                    let y0 = ((cy * scale).max(0.0).ceil() as u32)
-                        .max(scissor.1)
-                        .min(size.1);
-                    let x1 = (((cx + cw) * scale).max(0.0).ceil() as u32)
-                        .min(scissor.0 + scissor.2)
-                        .min(size.0);
-                    let y1 = (((cy + ch) * scale).max(0.0).ceil() as u32)
-                        .min(scissor.1 + scissor.3)
-                        .min(size.1);
-                    quad(
-                        &mut vertices,
-                        [x, y],
-                        [x + width, y + height],
-                        [0.0; 2],
-                        [width / logical.0 as f32, height / logical.1 as f32],
-                        [u32::MAX; 4],
-                        1,
-                    );
-                    pocket_tri_batch::append_batch(
-                        &mut commands,
-                        TexBind::Surface(w[1]),
-                        (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)),
-                        start..vertices.len(),
-                    );
-                    continue;
-                }
-                _ => return Err(RenderError::Unsupported),
-            }
-            pocket_tri_batch::append_batch(&mut commands, texture, scissor, start..vertices.len());
+            ];
         }
         Ok((vertices, commands))
+    }
+}
+
+/// One frame's policies for the shared DrawList walk: textures resolve
+/// through the caches as the walk meets them and stay pinned for the
+/// submission.
+struct Frame<'a> {
+    renderer: &'a mut WgpuRenderer,
+    resources: &'a dyn RenderResources,
+    size: (u32, u32),
+    scale: f32,
+    submission: Option<u64>,
+}
+
+fn finite<'a>(values: impl IntoIterator<Item = &'a f32>) -> Result<bool, RenderError> {
+    if values.into_iter().any(|value| !value.is_finite()) {
+        Err(RenderError::InvalidFrame)
+    } else {
+        Ok(true)
+    }
+}
+
+impl Backend for Frame<'_> {
+    type Vertex = UiVertex;
+    type Texture = TexBind;
+    type Clip = (u32, u32, u32, u32);
+    type GlyphData = [f32; 4];
+
+    /// Fills sample the white texture across its whole extent.
+    fn start(&self) -> Fill<TexBind> {
+        Fill {
+            texture: TexBind::White,
+            uv0: [0.0; 2],
+            uv1: [1.0; 2],
+        }
+    }
+
+    fn clip(&self, rect: DamageRect) -> Self::Clip {
+        clip(rect, self.size, self.scale)
+    }
+
+    fn fill(&mut self, _texture: TexBind) -> Fill<TexBind> {
+        self.start()
+    }
+
+    fn image(&mut self, handle: i32) -> Result<Option<TexBind>, RenderError> {
+        Ok(self
+            .renderer
+            .image(self.resources, handle, self.submission)?
+            .map(TexBind::Image))
+    }
+
+    fn glyph(
+        &mut self,
+        slot: u8,
+        gid: u16,
+    ) -> Result<Option<GlyphCell<TexBind, [f32; 4]>>, RenderError> {
+        Ok(self
+            .renderer
+            .glyph(self.resources, slot, gid, self.submission)?
+            .map(|glyph| GlyphCell {
+                texture: TexBind::Font(glyph.key),
+                uv: glyph.uv,
+                width: glyph.logical.0,
+                height: glyph.logical.1,
+                data: glyph.bounds,
+            }))
+    }
+
+    /// Empty rectangles draw nothing; a non-finite texture coordinate is an
+    /// invalid frame.
+    fn accepts(&mut self, record: &Record<'_>) -> Result<bool, RenderError> {
+        match record {
+            Record::Rect(rect) => Ok(rect.width > 0 && rect.height > 0),
+            Record::GradRect(gradient) => Ok(gradient.width > 0 && gradient.height > 0),
+            Record::TexQuad(image) => finite(image.uv0.iter().chain(&image.uv1)),
+            Record::TexTri(image) => finite(image.uvs.iter().flatten()),
+            _ => Ok(true),
+        }
+    }
+
+    /// The shader's `mode` selects the sampling path; glyph vertices carry
+    /// their inset sampling bounds.
+    fn emitted(&mut self, vertices: &mut [UiVertex], source: Source<[f32; 4]>) {
+        match source {
+            Source::Fill => {}
+            Source::Image | Source::Surface => {
+                for vertex in vertices {
+                    vertex.mode = 1;
+                }
+            }
+            Source::Glyph(bounds) => {
+                for vertex in vertices {
+                    vertex.mode = 2;
+                    vertex.bounds = bounds;
+                }
+            }
+        }
+    }
+
+    fn surface_quad(
+        &mut self,
+        emit: &mut Emit<'_, UiVertex, TexBind, Self::Clip>,
+        surface: &SurfaceQuad,
+        clip: DamageRect,
+    ) -> Result<(), RenderError> {
+        let Some(entry) = self.renderer.surfaces.get(&surface.surface) else {
+            return Ok(());
+        };
+        let logical = entry.logical;
+        let [x, y, width, height] = [surface.x, surface.y, surface.width, surface.height];
+        finite(&[x, y, width, height])?;
+        let width = width.min(logical.0 as f32);
+        let height = height.min(logical.1 as f32);
+        if width <= 0.0 || height <= 0.0 || logical.0 == 0 || logical.1 == 0 {
+            return Ok(());
+        }
+        let (size, scale) = (self.size, self.scale);
+        let scissor = self.clip(clip);
+        let [cx, cy] = [surface.clip_x as f32, surface.clip_y as f32];
+        let [cw, ch] = [surface.clip_width as f32, surface.clip_height as f32];
+        // Surface clips use ceil at fractional physical boundaries.
+        let x0 = ((cx * scale).max(0.0).ceil() as u32)
+            .max(scissor.0)
+            .min(size.0);
+        let y0 = ((cy * scale).max(0.0).ceil() as u32)
+            .max(scissor.1)
+            .min(size.1);
+        let x1 = (((cx + cw) * scale).max(0.0).ceil() as u32)
+            .min(scissor.0 + scissor.2)
+            .min(size.0);
+        let y1 = (((cy + ch) * scale).max(0.0).ceil() as u32)
+            .min(scissor.1 + scissor.3)
+            .min(size.1);
+        let corners: [UiVertex; 6] = pocket_draw_ops::quad(
+            [x, y],
+            [x + width, y + height],
+            [0.0; 2],
+            [width / logical.0 as f32, height / logical.1 as f32],
+            [u32::MAX; 4],
+        );
+        let vertices = emit.detached(
+            TexBind::Surface(surface.surface),
+            (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)),
+            &corners,
+        );
+        self.emitted(vertices, Source::Surface);
+        Ok(())
     }
 }

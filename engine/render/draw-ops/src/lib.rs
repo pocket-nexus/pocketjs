@@ -5,13 +5,28 @@
 //! clip intersected with the caller's viewport. The decoder and producer use
 //! the same DrawList version; unknown operations cannot be skipped because
 //! operation headers do not carry a length.
+//!
+//! [`Operation::record`] decodes a record's fields. The `record` module holds
+//! the field types and the gradient corner mapping. The `batch` module builds
+//! driver-defined vertices and merges adjacent draw ranges with equal keys.
+//! The `build` module walks a DrawList into a vertex stream and batches under
+//! a driver's [`Backend`] policies.
 
 #![no_std]
+
+extern crate alloc;
 
 use pocket_drivers::DamageRect;
 use pocket_spec::draw_op;
 
+pub mod batch;
+pub mod build;
+pub mod record;
+
+pub use batch::{append_batch, quad, triangle, Batch, Vertex};
+pub use build::{build, Backend, Emit, Fill, GlyphCell, Source};
 pub use pocket_spec::DRAW_LIST_VERSION;
+pub use record::{gradient_corners, record, Corners, Record};
 pub const MAX_CLIP_DEPTH: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,11 +78,23 @@ pub fn word_len(words: &[u32], at: usize) -> Result<usize, DecodeError> {
     }
 }
 
+/// The two signed 16-bit coordinates of an XY word.
+#[inline]
+pub fn xy(word: u32) -> (i32, i32) {
+    (word as u16 as i16 as i32, (word >> 16) as u16 as i16 as i32)
+}
+
+/// The two unsigned 16-bit extents of a WH word.
+#[inline]
+pub fn wh(word: u32) -> (i32, i32) {
+    ((word & 0xffff) as i32, (word >> 16) as i32)
+}
+
 /// Signed XY and unsigned width/height packed into two DrawList words.
-pub fn logical_rect(xy: u32, wh: u32) -> DamageRect {
-    let x = xy as u16 as i16 as i32;
-    let y = (xy >> 16) as u16 as i16 as i32;
-    DamageRect::new(x, y, x + (wh & 0xffff) as i32, y + (wh >> 16) as i32)
+pub fn logical_rect(xy_word: u32, wh_word: u32) -> DamageRect {
+    let (x, y) = xy(xy_word);
+    let (width, height) = wh(wh_word);
+    DamageRect::new(x, y, x + width, y + height)
 }
 
 /// Allocation-free iterator. An error is yielded once and ends iteration.

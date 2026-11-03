@@ -4,7 +4,7 @@
 //! signed). Physical coordinates are target pixels after the integer render
 //! scale ([`Rect`], unsigned).
 
-pub use pocket_draw_ops::logical_rect;
+pub use pocket_draw_ops::{logical_rect, wh, xy};
 pub use pocket_drivers::DamageRect as Clip;
 pub use pocket_raster::blend_rgb565_pixel;
 
@@ -99,21 +99,6 @@ pub fn point_bounds(points: [Point; 4]) -> Clip {
         y1 = y1.max(point.y);
     }
     Clip { x0, y0, x1, y1 }
-}
-
-/// Unpack an XY word (two i16 halves) into logical coordinates.
-#[inline]
-pub fn xy(word: u32) -> (i32, i32) {
-    (
-        (word & 0xffff) as u16 as i16 as i32,
-        (word >> 16) as u16 as i16 as i32,
-    )
-}
-
-/// Unpack a WH word (two u16 halves) into a logical size.
-#[inline]
-pub fn wh(word: u32) -> (i32, i32) {
-    ((word & 0xffff) as i32, (word >> 16) as i32)
 }
 
 /// Pack logical coordinates into an XY word.

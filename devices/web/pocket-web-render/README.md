@@ -1,7 +1,7 @@
 # Pocket wgpu renderer
 
-`pocket-web-render` translates DrawList through `pocket-draw-ops`,
-`pocket-tri-batch`, `pocket-glyph-pages`, and `pocket-tex-cache`. Its resources
+`pocket-web-render` translates DrawList through the `pocket-draw-ops` walk,
+`pocket-glyph-pages`, and `pocket-tex-cache`. Its resources
 implement `pocket-drivers::RenderResources`; it has **no dependency on Ui,
 pocketjs-core, or pocket3d**. Hosts construct a `WgpuRenderer` with their wgpu
 `Device`, `Queue`, and attachment format, then register it as a renderer.

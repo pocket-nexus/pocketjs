@@ -1,12 +1,8 @@
 //! Triangle construction and adjacent batching for graphics drivers.
 //!
-//! Drivers own vertex layouts, texture keys, clips, and submission. This crate
+//! Drivers own vertex layouts, texture keys, clips, and submission. This module
 //! preserves vertex order and merges only consecutive ranges with equal keys;
 //! it does not sort geometry or apply clipping.
-
-#![no_std]
-
-extern crate alloc;
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -14,7 +10,7 @@ use core::ops::Range;
 /// Construct the driver's vertex format from logical position, UV, and color.
 ///
 /// Color is the DrawList's `0xAABBGGRR`. A driver may convert the components to
-/// its hardware format here; this crate imposes no memory layout on the result.
+/// its hardware format here; this module imposes no memory layout on the result.
 pub trait Vertex: Copy {
     fn from_components(position: [f32; 2], uv: [f32; 2], color: u32) -> Self;
 }
@@ -211,6 +207,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::reversed_empty_ranges)]
     fn gaps_overlaps_and_empty_ranges_do_not_join_geometry() {
         let mut batches = Vec::new();
         append_batch(&mut batches, 7, (), 0..3);

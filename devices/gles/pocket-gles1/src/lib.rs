@@ -17,46 +17,13 @@
 
 use core::ffi::c_void;
 
+// `pocket_gles::raw` declares every entry point; this crate references only
+// the ES 1.1 set and the common set.
+use pocket_gles::raw::es1::*;
 use pocket_gles::raw::{
-    glGetError, GLenum, GLfloat, GLint, GLsizei, GL_FLOAT, GL_NO_ERROR, GL_ONE_MINUS_SRC_ALPHA,
-    GL_SRC_ALPHA, GL_UNSIGNED_BYTE,
+    glActiveTexture, glEnable, glGetError, GLsizei, GL_FLOAT, GL_NO_ERROR, GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC_ALPHA, GL_TEXTURE0, GL_TEXTURE_2D, GL_UNSIGNED_BYTE,
 };
-
-const GL_PROJECTION: GLenum = 0x1701;
-const GL_MODELVIEW: GLenum = 0x1700;
-const GL_TEXTURE: GLenum = 0x1702;
-const GL_TEXTURE_2D: GLenum = 0x0de1;
-const GL_SMOOTH: GLenum = 0x1d01;
-const GL_VERTEX_ARRAY: GLenum = 0x8074;
-const GL_TEXTURE_COORD_ARRAY: GLenum = 0x8078;
-const GL_COLOR_ARRAY: GLenum = 0x8076;
-const GL_TEXTURE_ENV: GLenum = 0x2300;
-const GL_TEXTURE_ENV_MODE: GLenum = 0x2200;
-const GL_MODULATE: GLint = 0x2100;
-const GL_TEXTURE0: GLenum = 0x84c0;
-
-unsafe extern "C" {
-    fn glActiveTexture(texture: GLenum);
-    fn glBlendFunc(source: GLenum, destination: GLenum);
-    fn glColorPointer(size: GLint, kind: GLenum, stride: GLsizei, pointer: *const c_void);
-    fn glDisableClientState(array: GLenum);
-    fn glEnable(capability: GLenum);
-    fn glEnableClientState(array: GLenum);
-    fn glLoadIdentity();
-    fn glMatrixMode(mode: GLenum);
-    fn glShadeModel(mode: GLenum);
-    fn glOrthof(
-        left: GLfloat,
-        right: GLfloat,
-        bottom: GLfloat,
-        top: GLfloat,
-        near: GLfloat,
-        far: GLfloat,
-    );
-    fn glTexCoordPointer(size: GLint, kind: GLenum, stride: GLsizei, pointer: *const c_void);
-    fn glTexEnvi(target: GLenum, parameter: GLenum, value: GLint);
-    fn glVertexPointer(size: GLint, kind: GLenum, stride: GLsizei, pointer: *const c_void);
-}
 
 /// The ES 1.1 pipeline has no program object, so there is no state to carry.
 pub struct Pipeline;

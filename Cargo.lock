@@ -4933,7 +4933,6 @@ dependencies = [
  "pocket-glyph-pages",
  "pocket-spec",
  "pocket-tex-cache",
- "pocket-tri-batch",
 ]
 
 [[package]]
@@ -5321,10 +5320,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-tri-batch"
-version = "0.16.0"
-
-[[package]]
 name = "pocket-ui-gpui"
 version = "0.16.0"
 dependencies = [
@@ -5417,7 +5412,6 @@ dependencies = [
  "pocket-glyph-pages",
  "pocket-spec",
  "pocket-tex-cache",
- "pocket-tri-batch",
  "pocket-vita-gxm",
  "vita2d-sys",
  "vitasdk-sys",
@@ -5459,7 +5453,6 @@ dependencies = [
  "pocket-glyph-pages",
  "pocket-spec",
  "pocket-tex-cache",
- "pocket-tri-batch",
  "pollster 0.4.0",
  "wgpu",
 ]

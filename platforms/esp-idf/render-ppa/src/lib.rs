@@ -13,7 +13,7 @@ extern crate alloc;
 #[cfg(feature = "cabi")]
 pub mod cabi;
 use alloc::vec::Vec;
-use pocket_draw_ops::{word_len, Operation, MAX_CLIP_DEPTH};
+use pocket_draw_ops::{logical_rect, wh, word_len, xy, Operation, MAX_CLIP_DEPTH};
 use pocket_drivers::{
     DamageRect as Clip, PixelFormat, Rect as Region, RenderError, RenderResources, Surface, TexView,
 };
@@ -1495,31 +1495,6 @@ fn triangle_bounds(vertices: [u32; 3], clip: Clip) -> Clip {
         y1: y0.max(y1).max(y2),
     }
     .intersect(clip)
-}
-
-#[inline]
-fn xy(word: u32) -> (i32, i32) {
-    (
-        (word & 0xffff) as u16 as i16 as i32,
-        (word >> 16) as u16 as i16 as i32,
-    )
-}
-
-#[inline]
-fn wh(word: u32) -> (i32, i32) {
-    ((word & 0xffff) as i32, (word >> 16) as i32)
-}
-
-#[inline]
-fn logical_rect(xy_word: u32, wh_word: u32) -> Clip {
-    let (x, y) = xy(xy_word);
-    let (w, h) = wh(wh_word);
-    Clip {
-        x0: x,
-        y0: y,
-        x1: x + w,
-        y1: y + h,
-    }
 }
 
 #[inline]

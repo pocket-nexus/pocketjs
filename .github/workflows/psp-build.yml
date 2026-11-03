@@ -19,7 +19,6 @@ on:
       - "contracts/**"
       - "hosts/psp-runtime/pocket.host.json"
       - "engine/render/tex-cache/**"
-      - "engine/render/tri-batch/**"
       - "framework/compiler/**"
       - "framework/src/manifest/**"
       - "tools/profile-export.ts"
