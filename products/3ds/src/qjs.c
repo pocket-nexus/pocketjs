@@ -12,6 +12,8 @@
 #include "offload_coverage.h"
 #include "photos.h"
 #include "pocket_guest_quickjs.h"
+#include "pocket_profile.h"
+#include "pocket_qjs_program.h"
 #include "wifi.h"
 #include "worker.h"
 #include "pocket/worker.h"
@@ -111,7 +113,13 @@ static JSRuntime *runtime;
 static JSContext *context;
 static JSValue global;
 static pocket_guest_quickjs *guest;
+/* The handle-based facade owns the native program and its runtime; this
+ * realm and guest_api are its host guest. */
+static PocketQjsProgram *program;
 static pocket_runtime *instance;
+/* compose ran for the boot in progress: a later failure is admission or
+ * guest initialization, not composition. */
+static bool composed;
 /* Wide enough for a message plus the frames QuickJS keeps for it. */
 static char last_error[1024];
 static char debug_poll_buffer[32 * 1024];
@@ -792,6 +800,42 @@ static const pocket_guest_v1 guest_api = {sizeof guest_api, guest_evaluate,
                                           guest_frame,      guest_collect,
                                           guest_shutdown,   guest_initialize,
                                           NULL};
+static const char *guest_error(void *self) {
+  (void)self;
+  return pocket_guest_quickjs_error(guest);
+}
+
+/* After the facade attaches guest_api and before Runtime admits the package:
+ * the 3DS drivers, then the worker, whose channels the guest's initialize
+ * mirrors into this realm. */
+static int32_t compose(void *context, pocket_runtime *runtime) {
+  const PocketRuntimePackage *package = context;
+  composed = true;
+  instance = runtime;
+  if (!instance_attach(runtime)) {
+    set_error("3DS runtime composition failed");
+    return -1;
+  }
+  if (package->guest.worker_javascript_length && !pocket_3ds_worker_start(
+        package->guest.worker_javascript, package->guest.worker_javascript_length, mount_worker_services)) {
+    set_error(pocket_3ds_worker_error());
+    return -1;
+  }
+  return 0;
+}
+/* Before the facade destroys the program: the bridge detaches before the
+ * worker core stops, and both stop before the runtime shuts the guest down.
+ * Repeating it after a release does nothing. */
+static void release(void *context) {
+  (void)context;
+  if (ui_bridge) {
+    pocket_worker_ui_detach(ui_bridge);
+    ui_bridge = NULL;
+  }
+  pocket_3ds_worker_stop();
+  instance_detach();
+  instance = NULL;
+}
 
 /* QuickJS calls this every few thousand bytecode steps; a true from the hook
  * ends the running code with an uncatchable InternalError. */
@@ -845,26 +889,35 @@ bool qjs_boot(PocketRuntimePackage *package, const uint8_t *bytecode,
     set_error("QuickJS guest attachment failed");
     return false;
   }
-  instance = instance_create(package);
-  if (!instance || pocket_runtime_set_guest(instance, &guest_api, NULL)) {
+  pocket_qjs_program_host host = {.struct_size = sizeof host,
+                                  .profile = &pocket_3ds_profile,
+                                  .profile_hash = pocket_3ds_profile_hash,
+                                  .guest = &guest_api,
+                                  .guest_error = guest_error,
+                                  .compose = compose,
+                                  .release = release,
+                                  .context = package};
+  composed = false;
+  program = pocket_qjs_program_create_host(&host);
+  if (!program) {
     set_error("3DS runtime composition failed");
     return false;
   }
-  if (package->guest.worker_javascript_length && !pocket_3ds_worker_start(
-        package->guest.worker_javascript, package->guest.worker_javascript_length, mount_worker_services)) {
-    set_error(pocket_3ds_worker_error());
-    return false;
-  }
-  int32_t booted = pocket_runtime_boot_deferred(instance);
+  /* Runtime reads and admits the package from the source at boot and loads
+   * its assets natively, as the archive's default does. */
+  int booted = pocket_qjs_program_boot_source(
+      program, instance_package_source(), package, package->guest.view_width,
+      package->guest.view_height, package->guest.raster_density,
+      INSTANCE_HEAP_LIMIT, INSTANCE_FRAME_BUFFER_BUDGET);
   boot_bytecode = NULL;
   boot_compiled = NULL;
   boot_compiled_length = NULL;
-  if (booted) {
+  if (!booted) {
     if (last_error[0] == 0) {
-      const char *message = pocket_guest_quickjs_error(guest);
-      set_error(message && *message
-                    ? message
-                    : "3DS runtime admission or guest initialization failed");
+      const char *message = composed ? pocket_guest_quickjs_error(guest) : NULL;
+      set_error(message && *message ? message
+                : composed       ? "3DS runtime admission or guest initialization failed"
+                                 : "3DS runtime composition failed");
     }
     return false;
   }
@@ -904,13 +957,12 @@ bool qjs_frame(int32_t buttons, int32_t analog, const uint32_t *touches,
 }
 const char *qjs_last_error(void) { return last_error; }
 void qjs_shutdown(void) {
-  if (ui_bridge) {
-    pocket_worker_ui_detach(ui_bridge);
-    ui_bridge = NULL;
+  /* release runs inside when compose ran; otherwise it runs here. */
+  if (program) {
+    pocket_qjs_program_destroy(program);
+    program = NULL;
   }
-  pocket_3ds_worker_stop();
-  instance_destroy();
-  instance = NULL;
+  release(NULL);
 #ifdef POCKETJS_MEDIA
   media_forget_guest();
 #endif

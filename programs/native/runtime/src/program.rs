@@ -1,11 +1,14 @@
 //! Program composition for the existing portable C hosts. Canonical Runtime
 //! owns the guest, package, retained tree, input encoding and presentation.
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 use alloc::vec::Vec;
 use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::{
     cell::{Cell, RefCell},
-    ffi::{c_char, CStr},
+    ffi::{c_char, c_void, CStr},
     ptr,
 };
 use pocket_drivers::{abi::*, *};
@@ -56,7 +59,11 @@ pub struct PocketNativeProgram {
     length: usize,
     busy: Cell<bool>,
     state: Rc<RefCell<State>>,
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     gl: gpu::Gl,
 }
 struct Busy<'a>(&'a Cell<bool>);
@@ -87,7 +94,11 @@ impl PocketNativeProgram {
             s.pixels = 0;
             s.last_bounds = None;
         }
-        #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+        #[cfg(all(
+            not(feature = "host-backend"),
+            not(feature = "std"),
+            not(feature = "software-only")
+        ))]
         if status == 0 {
             s.redraws = s.redraws.saturating_add(1);
             s.pixels = u64::from(_width) * u64::from(_height);
@@ -95,14 +106,20 @@ impl PocketNativeProgram {
         }
     }
 }
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 struct CpuDisplay {
     width: u32,
     height: u32,
     pixels: Vec<u8>,
     stats: Rc<RefCell<State>>,
 }
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 impl DisplayOutput for CpuDisplay {
     type Token = ();
     fn descriptor(&self) -> DisplayDescriptor {
@@ -168,9 +185,15 @@ impl DisplayOutput for CpuDisplay {
     }
 }
 
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 struct CpuRenderer;
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 impl Renderer for CpuRenderer {
     type Submission = ();
     fn descriptor(&self) -> RendererDescriptor {
@@ -223,6 +246,23 @@ impl Renderer for CpuRenderer {
     fn retire(&mut self, _: ()) {}
 }
 
+/// Where the program's runtime reads its package at boot.
+enum Source<'a> {
+    /// Raw JavaScript and PAK: the program encodes an embedded package with a
+    /// synthesized plan and keeps native asset loading off.
+    Embedded,
+    /// The host's complete original package, copied; native asset loading off.
+    Original(&'a [u8]),
+    /// The host's package source, read when Runtime boots. Native asset
+    /// loading keeps the runtime default, on.
+    Host(CPackageSource),
+}
+/// Guest heap limit when the host names none.
+const HEAP_LIMIT: usize = 128 * 1024 * 1024;
+/// Builds with a renderer and display of their own register both at create
+/// and admit a single primary surface; `host-backend` builds register none.
+const BUILTIN_BACKEND: bool = !cfg!(feature = "host-backend");
+
 #[allow(clippy::too_many_arguments)] // Mirrors the private C program constructor.
 unsafe fn create(
     target: *const c_char,
@@ -235,8 +275,10 @@ unsafe fn create(
     height: u32,
     density: u32,
     physics: u32,
-    original_package: Option<&[u8]>,
+    source: Source<'_>,
     trusted_profile: Option<(Profile, [u8; 32])>,
+    // Guest heap limit and frame buffer budget; None keeps the defaults.
+    limits: (Option<usize>, Option<usize>),
 ) -> Result<Box<PocketNativeProgram>, i32> {
     if host_abi != pocket_spec::BINDING_GENERATION
         || target.is_null()
@@ -290,50 +332,72 @@ unsafe fn create(
     if profile.id != target || profile.density != density {
         return Err(POCKET_STATUS_INVALID);
     }
-    // The synthesized plan states the facts the raw code was compiled for:
-    // the profile's animation class and presentation, at the 60 Hz rate.
-    let presentation = if profile.presentations.iter().any(|name| name == "native") {
-        "native"
-    } else {
-        profile
-            .presentations
-            .first()
-            .map_or("native", |name| name.as_ref())
+    // The default budget holds the program's primary buffer and the
+    // profile's auxiliary panel, which only a host-registered display shows.
+    let frame_buffer_budget = match limits.1 {
+        Some(budget) => budget,
+        None => profile
+            .auxiliary
+            .map_or(Some(0), |[w, h]| {
+                (w as usize).checked_mul(h as usize)?.checked_mul(4)
+            })
+            .and_then(|auxiliary| auxiliary.checked_add(length))
+            .ok_or(POCKET_STATUS_INVALID)?,
     };
-    let animation = if profile.animation.is_empty() {
-        String::new()
-    } else {
-        format!(r#""animation":"{}","#, profile.animation)
-    };
-    let plan = format!(
-        r#"{{{animation}"features":{{"ui.physics":{}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[{width},{height}],"presentation":"{presentation}","rasterDensity":{density}}}}}"#,
-        physics != 0
-    );
-    let identity = pocket_package::embedded::identity(
-        "embedded",
-        "dev.pocketjs.native.embedded",
-        "Embedded guest",
-    )
-    .map_err(|_| POCKET_STATUS_INVALID)?;
-    let package = if let Some(original) = original_package {
-        original.to_vec()
-    } else {
-        pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-            target,
-            host_abi,
-            profile_hash,
-            identity: &identity,
-            plan: plan.as_bytes(),
-            code,
-            pak,
-        })
-        .map_err(|_| POCKET_STATUS_INVALID)?
+    let (package, native_assets): (Box<dyn PackageSource>, bool) = match source {
+        Source::Host(source) => (Box::new(source), true),
+        Source::Original(original) => (
+            Box::new(pocket_package::source::MemorySource(original.to_vec())),
+            false,
+        ),
+        Source::Embedded => {
+            // The synthesized plan states the facts the raw code was compiled
+            // for: the profile's animation class and presentation, at 60 Hz.
+            let presentation = if profile.presentations.iter().any(|name| name == "native") {
+                "native"
+            } else {
+                profile
+                    .presentations
+                    .first()
+                    .map_or("native", |name| name.as_ref())
+            };
+            let animation = if profile.animation.is_empty() {
+                String::new()
+            } else {
+                format!(r#""animation":"{}","#, profile.animation)
+            };
+            let plan = format!(
+                r#"{{{animation}"features":{{"ui.physics":{}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[{width},{height}],"presentation":"{presentation}","rasterDensity":{density}}}}}"#,
+                physics != 0
+            );
+            let identity = pocket_package::embedded::identity(
+                "embedded",
+                "dev.pocketjs.native.embedded",
+                "Embedded guest",
+            )
+            .map_err(|_| POCKET_STATUS_INVALID)?;
+            let package =
+                pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+                    target,
+                    host_abi,
+                    profile_hash,
+                    identity: &identity,
+                    plan: plan.as_bytes(),
+                    code,
+                    pak,
+                })
+                .map_err(|_| POCKET_STATUS_INVALID)?;
+            (
+                Box::new(pocket_package::source::MemorySource(package)),
+                false,
+            )
+        }
     };
     let runtime = Handle::new(RuntimeConfig {
         profile_hash,
         host_abi,
-        heap_limit: 128 * 1024 * 1024,
-        frame_buffer_budget: length,
+        heap_limit: limits.0.unwrap_or(HEAP_LIMIT),
+        frame_buffer_budget,
         profile,
     })
     .map_err(|_| POCKET_STATUS_INVALID)?;
@@ -349,25 +413,37 @@ unsafe fn create(
         length,
         busy: Cell::new(false),
         state: Rc::new(RefCell::new(State::default())),
-        #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+        #[cfg(all(
+            not(feature = "host-backend"),
+            not(feature = "std"),
+            not(feature = "software-only")
+        ))]
         gl: gpu::Gl::new(width, height),
     });
     let check = |result: Result<(), RuntimeError>| result.map_err(status_code);
     let runtime = &program.runtime;
-    check(runtime.with_runtime(|runtime| {
-        runtime.set_package_source(Box::new(pocket_package::source::MemorySource(package)))
-    }))?;
-    check(runtime.with_runtime(|runtime| runtime.set_native_asset_loading(false)))?;
+    check(runtime.with_runtime(|runtime| runtime.set_package_source(package)))?;
+    if !native_assets {
+        check(runtime.with_runtime(|runtime| runtime.set_native_asset_loading(false)))?;
+    }
     check(
         runtime.with_runtime(|runtime| {
             runtime.add_input_source(Box::new(Input(program.input.clone())))
         }),
     )?;
-    program
-        .ops
-        .set_compositor_enabled(true)
-        .map_err(|_| POCKET_STATUS_FAILED)?;
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    // The built-in outputs present the compositor namespace and own the final
+    // presentation transform, including logical-sized CPU buffers. A host
+    // that registers its own outputs keeps both off, as pocket_runtime_create does.
+    if BUILTIN_BACKEND {
+        program
+            .ops
+            .set_compositor_enabled(true)
+            .map_err(|_| POCKET_STATUS_FAILED)?;
+    }
+    #[cfg(all(
+        not(feature = "host-backend"),
+        any(feature = "std", feature = "software-only")
+    ))]
     {
         let mut pixels = Vec::new();
         pixels
@@ -386,7 +462,11 @@ unsafe fn create(
         };
         check(runtime.with_runtime(|runtime| runtime.add_display(display, renderer).map(|_| ())))?;
     }
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
         let renderer = runtime
             .with_runtime(|runtime| runtime.add_renderer(program.gl.render()))
@@ -394,8 +474,9 @@ unsafe fn create(
         let display = program.gl.display();
         check(runtime.with_runtime(|runtime| runtime.add_display(display, renderer).map(|_| ())))?;
     }
-    // Native hosts own the final presentation transform, including logical-sized CPU buffers.
-    check(runtime.with_runtime(Runtime::allow_embedded_viewport_changes))?;
+    if BUILTIN_BACKEND {
+        check(runtime.with_runtime(Runtime::allow_embedded_viewport_changes))?;
+    }
     Ok(program)
 }
 /// # Safety
@@ -425,8 +506,9 @@ pub unsafe extern "C" fn pocket_native_program_create(
             height,
             density,
             physics,
+            Source::Embedded,
             None,
-            None,
+            (None, None),
         )
     }
     .map(Box::into_raw)
@@ -465,8 +547,9 @@ pub unsafe extern "C" fn pocket_native_program_create_profile(
                 height,
                 density,
                 physics,
-                None,
+                Source::Embedded,
                 Some(profile),
+                (None, None),
             )
         }
     };
@@ -543,7 +626,9 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
         let facts = pocket_package::plan_facts(guest.plan).map_err(|_| POCKET_STATUS_INVALID)?;
         if [facts.viewport.width, facts.viewport.height] != [width, height]
             || facts.viewport.raster_density != density
-            || facts.auxiliary.is_some()
+            // One built-in output has no auxiliary surface; without it the
+            // runtime's boot checks require a registered auxiliary display.
+            || (BUILTIN_BACKEND && facts.auxiliary.is_some())
             || (facts.feature("ui.physics") && physics == 0)
         {
             return Err(POCKET_STATUS_INVALID);
@@ -560,8 +645,55 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
                 height,
                 density,
                 physics,
-                Some(bytes),
+                Source::Original(bytes),
                 Some(profile),
+                (None, None),
+            )
+        }
+    };
+    checked().map(Box::into_raw).unwrap_or(ptr::null_mut())
+}
+/// # Safety
+/// target is a terminated UTF-8 string; profile and profile_hash follow
+/// `pocket_native_program_create_profile`; source obeys the C package source
+/// contract and, with context, stays valid until the program is destroyed.
+/// The package is read and admitted when Runtime boots, before the guest
+/// initializes. heap_limit and frame_buffer_budget of zero keep the program
+/// defaults: 128 MiB, and width * height * 4 bytes plus 4 bytes per pixel of
+/// the profile's auxiliary panel.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_native_program_create_source(
+    target: *const c_char,
+    host_abi: u32,
+    source: *const PocketPackageSourceV1,
+    context: *mut c_void,
+    width: u32,
+    height: u32,
+    density: u32,
+    heap_limit: usize,
+    frame_buffer_budget: usize,
+    profile: *const PocketProfileFacts,
+    profile_hash: *const u8,
+) -> *mut PocketNativeProgram {
+    let checked = || -> Result<Box<PocketNativeProgram>, i32> {
+        let profile = unsafe { trusted_profile(profile, profile_hash) }?;
+        let source = unsafe { CPackageSource::new(source, context) }.map_err(|e| e.status())?;
+        let nonzero = |value: usize| (value != 0).then_some(value);
+        unsafe {
+            create(
+                target,
+                host_abi,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                width,
+                height,
+                density,
+                0,
+                Source::Host(source),
+                Some(profile),
+                (nonzero(heap_limit), nonzero(frame_buffer_budget)),
             )
         }
     };
@@ -708,7 +840,11 @@ pub unsafe extern "C" fn pocket_native_program_destroy(program: *mut PocketNativ
     }
 }
 
-#[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    not(feature = "std"),
+    not(feature = "software-only")
+))]
 mod gpu {
     //! The GL composition under the device target contract
     //! (`pocket_drivers::target`). The program owns the GLES renderer in a
@@ -883,7 +1019,11 @@ pub unsafe extern "C" fn pocket_native_program_gl_initialize(
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
         return if p.gl.initialize().is_ok() {
             POCKET_STATUS_OK
@@ -891,7 +1031,7 @@ pub unsafe extern "C" fn pocket_native_program_gl_initialize(
             POCKET_STATUS_FAILED
         };
     }
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     {
         POCKET_STATUS_UNSUPPORTED
     }
@@ -943,7 +1083,11 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
     {
         return POCKET_STATUS_INVALID;
     }
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
         let old = {
             let mut window = p.gl.window.borrow_mut();
@@ -975,7 +1119,7 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
         p.record(status, width, height);
         status
     }
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     {
         POCKET_STATUS_UNSUPPORTED
     }
@@ -1010,7 +1154,11 @@ pub unsafe extern "C" fn pocket_native_program_resize_viewport(
     if width == 0 || height == 0 || width > 4096 || height > 4096 {
         return POCKET_STATUS_INVALID;
     }
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
         let old = p.gl.window.borrow().size;
         p.gl.window.borrow_mut().size = [width, height];
@@ -1027,7 +1175,7 @@ pub unsafe extern "C" fn pocket_native_program_resize_viewport(
             runtime.resize_embedded_presentation(old)
         })
     }
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     {
         POCKET_STATUS_UNSUPPORTED
     }
@@ -1042,7 +1190,11 @@ pub unsafe extern "C" fn pocket_native_program_gl_reset(program: *mut PocketNati
     let Ok(_busy) = p.enter() else {
         return;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     p.gl.reset();
 }
 /// # Safety
@@ -1055,7 +1207,11 @@ pub unsafe extern "C" fn pocket_native_program_gl_shutdown(program: *mut PocketN
     let Ok(_busy) = p.enter() else {
         return;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     p.gl.shutdown();
 }
 
@@ -1072,9 +1228,13 @@ pub unsafe extern "C" fn pocket_native_program_set_gl_trace(
     let Ok(_busy) = p.enter() else {
         return;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     p.gl.set_trace(trace);
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     let _ = trace;
 }
 
@@ -1146,6 +1306,14 @@ mod tests {
                 }))
             })
             .is_ok());
+        #[cfg(feature = "host-backend")]
+        host::register(
+            p,
+            None,
+            DisplayRole::Primary,
+            [32, 24],
+            &Rc::new(Cell::new(0)),
+        );
         assert_eq!(unsafe { pocket_native_program_boot(p) }, 0);
         (p, facts)
     }
@@ -1308,6 +1476,14 @@ mod tests {
                     }))
                 })
                 .is_ok());
+            #[cfg(feature = "host-backend")]
+            host::register(
+                p,
+                None,
+                DisplayRole::Primary,
+                [32, 24],
+                &Rc::new(Cell::new(0)),
+            );
             assert_eq!(pocket_native_program_boot(p), 0);
             assert!(facts.borrow().initialized);
             // Host permission does not turn on a feature absent from the original plan.
@@ -1315,6 +1491,394 @@ mod tests {
             pocket_native_program_destroy(p);
         }
     }
+    /// The facts of the composition tests: a 32x24 primary panel and, when
+    /// `auxiliary` is set, a 16x12 auxiliary panel.
+    struct ComposedFacts {
+        logical: [u32; 2],
+        auxiliary_logical: [u32; 2],
+        display: PocketProfileDisplay,
+        auxiliary: PocketProfileDisplay,
+    }
+    impl ComposedFacts {
+        fn new() -> Box<Self> {
+            let mut facts = Box::new(Self {
+                logical: [32, 24],
+                auxiliary_logical: [16, 12],
+                display: PocketProfileDisplay::empty(),
+                auxiliary: PocketProfileDisplay::empty(),
+            });
+            facts.display = PocketProfileDisplay {
+                physical: [32, 24],
+                logical: facts.logical.as_ptr(),
+                logical_count: 1,
+                raster_density: 1,
+                ..PocketProfileDisplay::empty()
+            };
+            facts.auxiliary = PocketProfileDisplay {
+                physical: [16, 12],
+                logical: facts.auxiliary_logical.as_ptr(),
+                logical_count: 1,
+                raster_density: 1,
+                ..PocketProfileDisplay::empty()
+            };
+            facts
+        }
+        fn profile(&self, auxiliary: bool) -> PocketProfileFacts {
+            PocketProfileFacts {
+                id: b"qnx".as_ptr(),
+                id_length: 3,
+                tick_hz: 60,
+                input_classes: POCKET_INPUT_CLASS_BUTTONS,
+                display: &self.display,
+                auxiliary: if auxiliary {
+                    &self.auxiliary
+                } else {
+                    ptr::null()
+                },
+                ..PocketProfileFacts::empty()
+            }
+        }
+    }
+    const COMPOSED_HASH: [u8; 32] = [0x61; 32];
+    fn composed_package(features: &str, auxiliary: bool) -> Vec<u8> {
+        let identity =
+            pocket_package::embedded::identity("fixture", "dev.fixture", "Fixture").unwrap();
+        let surfaces = if auxiliary {
+            r#","surfaces":{"auxiliary":{"logical":[16,12],"rasterDensity":1}}"#
+        } else {
+            ""
+        };
+        let plan = format!(
+            r#"{{"features":{{{features}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[32,24],"presentation":"native","rasterDensity":1}}{surfaces}}}"#
+        );
+        pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "qnx",
+            host_abi: pocket_spec::BINDING_GENERATION,
+            profile_hash: COMPOSED_HASH,
+            identity: &identity,
+            plan: plan.as_bytes(),
+            code: b"fixture",
+            pak: &[],
+        })
+        .unwrap()
+    }
+    /// What a composed guest saw at initialize.
+    #[derive(Default)]
+    struct Composed {
+        initialized: usize,
+        assets: bool,
+        auxiliary: Option<[u32; 2]>,
+        shutdowns: usize,
+    }
+    struct ComposedGuest(Rc<RefCell<Composed>>);
+    impl Guest for ComposedGuest {
+        fn initialize(
+            &mut self,
+            _: OpContext,
+            environment: &GuestEnvironment<'_>,
+        ) -> Result<(), RuntimeError> {
+            let mut seen = self.0.borrow_mut();
+            seen.initialized += 1;
+            seen.assets = environment.assets.is_some();
+            seen.auxiliary = environment.auxiliary_viewport;
+            Ok(())
+        }
+        fn evaluate(&mut self, _: &[u8]) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn frame(&mut self, _: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn shutdown(&mut self) {
+            self.0.borrow_mut().shutdowns += 1;
+        }
+    }
+    unsafe fn attach(p: *mut PocketNativeProgram) -> Rc<RefCell<Composed>> {
+        let seen = Rc::new(RefCell::new(Composed::default()));
+        let guest = ComposedGuest(seen.clone());
+        assert!(unsafe { &(*p).runtime }
+            .with_runtime(|runtime| runtime.set_guest(Box::new(guest)))
+            .is_ok());
+        seen
+    }
+    /// A host output: one CPU display per role behind a renderer that draws
+    /// nothing, registered through the program's runtime.
+    #[cfg(feature = "host-backend")]
+    mod host {
+        use super::*;
+        use pocket_runtime::RendererId;
+        pub struct Blank;
+        impl Renderer for Blank {
+            type Submission = ();
+            fn descriptor(&self) -> RendererDescriptor {
+                RendererDescriptor::new(
+                    &[PixelFormat::Argb8888],
+                    TargetOwnership::CpuVisible,
+                    Synchronization::Immediate,
+                    POCKET_DRAW_LIST_VERSION,
+                    false,
+                )
+                .unwrap()
+            }
+            fn render(&mut self, _: &mut FrameInput<'_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn wait(&mut self, _: &()) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn retire(&mut self, _: ()) {}
+        }
+        pub struct Panel {
+            pub role: DisplayRole,
+            pub size: [u32; 2],
+            pub pixels: Vec<u8>,
+            pub flushes: Rc<Cell<usize>>,
+        }
+        impl DisplayOutput for Panel {
+            type Token = ();
+            fn descriptor(&self) -> DisplayDescriptor {
+                DisplayDescriptor::new(
+                    self.role,
+                    self.size[0],
+                    self.size[1],
+                    PixelFormat::Argb8888,
+                    self.size[0] as usize * 4,
+                    TargetOwnership::CpuVisible,
+                )
+            }
+            fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+                let stride = self.size[0] as usize * 4;
+                Ok(Target::CpuVisible(Surface::new(
+                    &mut self.pixels,
+                    region,
+                    stride,
+                    PixelFormat::Argb8888,
+                )?))
+            }
+            fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+                self.flushes.set(self.flushes.get() + 1);
+                Ok(())
+            }
+            fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+                Ok(())
+            }
+            fn vsync(&mut self) -> VsyncSource {
+                VsyncSource::None
+            }
+        }
+        pub fn register(
+            p: *mut PocketNativeProgram,
+            renderer: Option<RendererId>,
+            role: DisplayRole,
+            size: [u32; 2],
+            flushes: &Rc<Cell<usize>>,
+        ) -> RendererId {
+            let handle = unsafe { &(*p).runtime };
+            let renderer = renderer.unwrap_or_else(|| {
+                handle
+                    .with_runtime(|runtime| runtime.add_renderer(Blank))
+                    .unwrap()
+            });
+            let panel = Panel {
+                role,
+                size,
+                pixels: alloc::vec![0; size[0] as usize * size[1] as usize * 4],
+                flushes: flushes.clone(),
+            };
+            handle
+                .with_runtime(|runtime| runtime.add_display(panel, renderer))
+                .unwrap();
+            renderer
+        }
+    }
+    unsafe fn create_composed_package(
+        bytes: &[u8],
+        facts: &PocketProfileFacts,
+    ) -> *mut PocketNativeProgram {
+        unsafe {
+            pocket_native_program_create_package(
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                bytes.as_ptr(),
+                bytes.len(),
+                c"fixture".as_ptr(),
+                c"dev.fixture".as_ptr(),
+                c"Fixture".as_ptr(),
+                32,
+                24,
+                1,
+                0,
+                facts,
+                COMPOSED_HASH.as_ptr(),
+            )
+        }
+    }
+    #[cfg(not(feature = "host-backend"))]
+    #[test]
+    fn built_in_output_rejects_an_auxiliary_plan_at_create() {
+        let _lock = SERIAL.lock().unwrap();
+        let facts = ComposedFacts::new();
+        let profile = facts.profile(true);
+        let bytes = composed_package("", true);
+        assert!(unsafe { create_composed_package(&bytes, &profile) }.is_null());
+        let p = unsafe { create_composed_package(&composed_package("", false), &profile) };
+        assert!(!p.is_null());
+        // The profile names an auxiliary panel that one built-in output lacks.
+        let seen = unsafe { attach(p) };
+        assert_ne!(unsafe { pocket_native_program_boot(p) }, 0);
+        assert_eq!(seen.borrow().initialized, 0);
+        unsafe { pocket_native_program_destroy(p) };
+    }
+    #[cfg(feature = "host-backend")]
+    #[test]
+    fn host_backend_admits_an_auxiliary_plan_through_registered_displays() {
+        let _lock = SERIAL.lock().unwrap();
+        let facts = ComposedFacts::new();
+        let profile = facts.profile(true);
+        let bytes = composed_package("", true);
+        let p = unsafe { create_composed_package(&bytes, &profile) };
+        assert!(!p.is_null());
+        drop(bytes);
+        let seen = unsafe { attach(p) };
+        // No output is built in: boot needs the host's primary display.
+        assert_eq!(
+            unsafe { pocket_native_program_boot(p) },
+            POCKET_STATUS_FAILED
+        );
+        let flushes = Rc::new(Cell::new(0));
+        let renderer = host::register(p, None, DisplayRole::Primary, [32, 24], &flushes);
+        // The profile's auxiliary panel needs its display too.
+        assert_eq!(
+            unsafe { pocket_native_program_boot(p) },
+            POCKET_STATUS_FAILED
+        );
+        assert_eq!(seen.borrow().initialized, 0);
+        host::register(
+            p,
+            Some(renderer),
+            DisplayRole::Auxiliary,
+            [16, 12],
+            &flushes,
+        );
+        assert_eq!(unsafe { pocket_native_program_boot(p) }, 0);
+        assert_eq!(seen.borrow().initialized, 1);
+        assert_eq!(seen.borrow().auxiliary, Some([16, 12]));
+        // The program renders no output of its own.
+        assert!(unsafe { pocket_native_program_render_argb(p) }.is_null());
+        let handle = unsafe { &(*p).runtime };
+        assert!(handle.with_runtime(Runtime::present).is_ok());
+        assert_eq!(flushes.get(), 2);
+        unsafe { pocket_native_program_destroy(p) };
+        assert_eq!(seen.borrow().shutdowns, 1);
+    }
+    unsafe extern "C" fn source_length(context: *mut c_void, out: *mut usize) -> i32 {
+        unsafe { *out = (*context.cast::<Vec<u8>>()).len() };
+        0
+    }
+    unsafe extern "C" fn source_range(
+        context: *mut c_void,
+        offset: usize,
+        buffer: *mut u8,
+        capacity: usize,
+        read: *mut usize,
+    ) -> i32 {
+        let bytes = unsafe { &*context.cast::<Vec<u8>>() };
+        let Some(rest) = bytes.get(offset..) else {
+            return POCKET_STATUS_INVALID;
+        };
+        let count = rest.len().min(capacity);
+        unsafe {
+            ptr::copy_nonoverlapping(rest.as_ptr(), buffer, count);
+            *read = count;
+        }
+        0
+    }
+    const SOURCE: PocketPackageSourceV1 = PocketPackageSourceV1 {
+        struct_size: core::mem::size_of::<PocketPackageSourceV1>(),
+        length: Some(source_length),
+        all: None,
+        range: Some(source_range),
+        take: None,
+    };
+    unsafe fn create_composed_source(
+        bytes: &mut Vec<u8>,
+        facts: &PocketProfileFacts,
+    ) -> *mut PocketNativeProgram {
+        unsafe {
+            pocket_native_program_create_source(
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                &SOURCE,
+                (bytes as *mut Vec<u8>).cast(),
+                32,
+                24,
+                1,
+                0,
+                0,
+                facts,
+                COMPOSED_HASH.as_ptr(),
+            )
+        }
+    }
+    #[test]
+    fn host_package_source_admits_at_boot_with_native_assets() {
+        let _lock = SERIAL.lock().unwrap();
+        let facts = ComposedFacts::new();
+        let profile = facts.profile(false);
+        let mut bytes = composed_package("", false);
+        unsafe {
+            assert!(pocket_native_program_create_source(
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                ptr::null(),
+                ptr::null_mut(),
+                32,
+                24,
+                1,
+                0,
+                0,
+                &profile,
+                COMPOSED_HASH.as_ptr(),
+            )
+            .is_null());
+            let p = create_composed_source(&mut bytes, &profile);
+            assert!(!p.is_null());
+            let seen = attach(p);
+            #[cfg(feature = "host-backend")]
+            host::register(
+                p,
+                None,
+                DisplayRole::Primary,
+                [32, 24],
+                &Rc::new(Cell::new(0)),
+            );
+            assert_eq!(pocket_native_program_boot(p), 0);
+            // Native asset loading follows the host source: on.
+            assert_eq!(seen.borrow().initialized, 1);
+            assert!(seen.borrow().assets);
+            assert_eq!(pocket_native_program_length(p), 32 * 24 * 4);
+            pocket_native_program_destroy(p);
+            assert_eq!(seen.borrow().shutdowns, 1);
+            // A plan that asks for a capability the profile lacks fails
+            // admission at boot, before the guest initializes.
+            let mut other = composed_package(r#""ui.physics":true"#, false);
+            let p = create_composed_source(&mut other, &profile);
+            assert!(!p.is_null());
+            let seen = attach(p);
+            #[cfg(feature = "host-backend")]
+            host::register(
+                p,
+                None,
+                DisplayRole::Primary,
+                [32, 24],
+                &Rc::new(Cell::new(0)),
+            );
+            assert_ne!(pocket_native_program_boot(p), 0);
+            assert_eq!(seen.borrow().initialized, 0);
+            pocket_native_program_destroy(p);
+        }
+    }
+    #[cfg(not(feature = "host-backend"))]
     #[test]
     fn cpu_buffer_preserves_pixels_and_reports_actual_damage() {
         let _lock = SERIAL.lock().unwrap();
@@ -1392,7 +1956,14 @@ mod tests {
                 POCKET_STATUS_INVALID
             );
             assert_eq!(facts.borrow().frames, 2);
+            #[cfg(not(feature = "host-backend"))]
             assert!(!pocket_native_program_render_argb(p).is_null());
+            #[cfg(feature = "host-backend")]
+            {
+                // The host's display presents; the program has no buffer.
+                assert!(pocket_native_program_render_argb(p).is_null());
+                assert!((*p).runtime.with_runtime(Runtime::present).is_ok());
+            }
             pocket_native_program_destroy(p);
             assert_eq!(facts.borrow().shutdowns, 1);
         }

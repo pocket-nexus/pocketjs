@@ -15,5 +15,14 @@ use pocket_archive as _;
 pub extern "C" fn pocket_native_extension_v1() -> *const extension::ExtensionV1 {
     core::ptr::null()
 }
-#[cfg(not(feature = "std"))]
+#[cfg(all(feature = "std", feature = "host-hooks"))]
+compile_error!(
+    "host-hooks selects C hooks for the no_std archive; the std archive defines its own"
+);
+#[cfg(all(
+    feature = "host-backend",
+    any(feature = "software-only", feature = "gles1")
+))]
+compile_error!("host-backend registers no built-in output; software-only and gles1 select one");
+#[cfg(all(not(feature = "std"), not(feature = "host-hooks")))]
 mod host_hooks;
