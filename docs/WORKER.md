@@ -167,16 +167,16 @@ HTTP `open({url, method, headers, body, timeoutMs, maxBytes})` creates a request
 bytes. Facts deliver headers, body blocks and an end record with the final
 offset through `observe()`; the completion settles the request id. The 3DS
 provider uses Pocket Link `net.stream` and byte credits. It does not allocate a
-complete response body. The CardputerZero provider
-(`programs/cardputer-zero/src/http.rs`) reaches loopback addresses and the
-companion's control API; each request runs on its own thread and queues its
-facts, which the owner task emits when it waits or finishes a turn. Link socket
-servicing retains the system's service-loop cadence; worker JS execution has an
-independent task. Cancellation can report an unknown request outcome before
-native access ends. The stream's end fact remains the boundary of the retained
-prefix; a consumer that needs that prefix reads to the end fact before closing
-the resource. `apps/companion-zero/worker.ts` closes the resource from the
-completion, which ends the stream loop whether or not an end fact arrived.
+complete response body. The CardputerZero provider in Pocket Hub reaches
+loopback addresses and the companion's control API; each request runs on its own
+thread and queues its facts, which the owner task emits when it waits or
+finishes a turn. Link socket servicing retains the system's service-loop
+cadence; worker JS execution has an independent task. Cancellation can report an
+unknown request outcome before native access ends. The stream's end fact remains
+the boundary of the retained prefix; a consumer that needs that prefix reads to
+the end fact before closing the resource. The worker of Pocket Hub's
+CardputerZero screen closes the resource from the completion, which ends the
+stream loop whether or not an end fact arrived.
 
 `close()` stops admission and ends the resource's stream. Native drivers stop
 production and acknowledge the end of native buffer access before storage is
@@ -316,9 +316,9 @@ executor, GPIO edges, command channels, remote worker replacement for
 types and UI fallback ownership tables remain unimplemented. UI-only hosts keep
 their offload module; HTTP is the worker's `io.http` resource. The 3DS routes
 it over Pocket Link. The Linux worker (`platforms/linux/worker`) hands it to
-the program's exchange: loopback servers on the CardputerZero, the daemon on
-Omarchy Pocket. pocket-m5's Tab5 firmware fetches it with its own HTTP and
-sends `companion.pocket` over the Pocket Link.
+the program's exchange: loopback servers in Pocket Hub's CardputerZero program,
+the daemon on Omarchy Pocket. pocket-m5's Tab5 firmware fetches it with its own
+HTTP and sends `companion.pocket` over the Pocket Link.
 
 QuickJS facts and SDK records allocate objects during a turn. The current
 runner disables threshold-triggered GC and runs GC while idle; it does not
@@ -331,7 +331,7 @@ in that domain.
 ## Validation
 
 ```sh
-bun test tests/worker.test.ts tests/worker-mqtt.test.ts tests/worker-http-stream.test.ts tests/host-services-link.test.ts
+bun test tests/worker.test.ts tests/worker-mqtt.test.ts tests/worker-http-stream.test.ts
 sh engine/worker/tests/run.sh /path/to/quickjs-ng
 bun tools/packaging/esp-idf/contracts.ts --check
 ```

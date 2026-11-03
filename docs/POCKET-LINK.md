@@ -5,14 +5,17 @@ The console's runtime holds **one authenticated TCP connection** to a companion
 process on that computer. Three services ride it: a worker's HTTP requests as
 credited byte streams, the companion's app catalog, and app installs.
 The wire contract is `contracts/spec/link.ts`; this page describes the
-mechanism and the companion implementation in `tools/companion/`.
+mechanism. Pocket Hub (`pocket-nexus/pocket-hub`) is the companion. The
+reference implementation in `tools/pocket-link/` holds the wire codec, a
+console client and the companion's `net.stream` requests, and the tests check
+the console's C client against it.
 
 ## Roles
 
 | Side | Process | Sockets |
 | --- | --- | --- |
 | Console | the host runtime (3DS: `products/3ds`; M5Stack Tab5: pocket-m5's `pocket_system`) | UDP **8627** for beacons, one outgoing TCP connection |
-| Companion | `tools/companion.ts serve`, or the daemon inside Pocket Companion.app | TCP **8628** listener, UDP beacon sender, control API on 127.0.0.1 |
+| Companion | the Pocket Hub daemon, on its own or inside Pocket Hub.app | TCP **8628** listener, UDP beacon sender, control API on 127.0.0.1 |
 
 **The companion listens; the console connects.** The console holds no listening
 socket for the link. A companion that cannot bind 8628 listens on an ephemeral
@@ -30,9 +33,8 @@ ignores beacons from companion ids it holds no key for.
 
 ## Pairing
 
-1. The owner opens a pairing window (menu bar: **Pair a Console…**, or
-   `bun tools/companion.ts pair`). The companion mints a **16-byte single-use
-   secret** valid for **10 minutes**.
+1. The owner opens a pairing window in Pocket Hub. The companion mints a
+   **16-byte single-use secret** valid for **10 minutes**.
 2. The companion shows the pairing URI as a QR code (byte mode, error
    correction level M):
 
@@ -206,161 +208,51 @@ companion's name while it beats and `searching` otherwise; `pair`, `forget`,
 `catalog`, `install` and `remove` refuse.
 
 ```
-# on the computer the PSP is plugged into
+# on the computer the PSP is plugged into, in a Pocket Hub checkout
 usbhostfs_pc /opt/pocket/host0 &
-bun tools/companion.ts serve --usb /opt/pocket/host0 --no-agent
+bun run hub serve --usb /opt/pocket/host0 --no-agent
 ```
 
-## Running the companion
+## The companion and the reference implementation
 
-```
-bun run companion serve                     # dist/3ds + ~/Library/Application Support/Pocket Companion/apps
-bun run companion serve --apps ./my-apps --allow-private --name "Studio Mac"
-bun run companion pair --wait               # QR code in the terminal; waits for the console
-bun run companion status
-bun run companion forget <console id>
-bun run companion apps-dir <path>
-```
+Pocket Hub implements the companion: the daemon (listener, beacons, pairing
+windows, catalog, installs, `net.stream`, the USB carrier, the companion
+services and the console agent), its control API on 127.0.0.1, the Mac app
+and the CardputerZero's screen. Its documentation covers running it, the
+control API, its storage and its tests.
 
-`serve` options: `--apps <dir>` (repeatable; replaces the checkout's
-`dist/3ds`), `--name`, `--port` (default 8628), `--allow-private`,
-`--store <dir>`, `--unicast <ip>` (repeatable extra beacon target),
-`--usb <share>` (repeatable; the USB carrier in that share),
-`--parent-pid <pid>` (exit when that process exits). Logs are one line per
-event.
+`tools/pocket-link/` holds the reference implementation. Pocket Hub imports
+these files from its PocketJS submodule.
 
-State lives in `~/Library/Application Support/Pocket Companion/`
-(`$POCKET_COMPANION_HOME` or `--store` overrides it):
-
-- `companion.json` (mode **0600**): the companion id, the owner's apps folder,
-  and each paired console `{id, name, model, key, lastAddress, lastSeen}`;
-- `control.json` (mode **0600**, present while a daemon runs): `{port, token, pid}`
-  of the control API;
-- `services/<name>/`: a service's credentials (the X session, the Discord bot
-  token), mode **0600**;
-- `tools/`: `yt-dlp` and `ffmpeg` fetched by `service youtube install`
-  (`tools/companion/tools.ts`): yt-dlp's macOS build from its latest release,
-  checked against that release's `SHA2-256SUMS`, and a pinned ffmpeg 9.0.2
-  static build for the Mac's architecture, checked against a SHA-256 in the
-  source. The YouTube service uses these before any on `PATH`. Without bun,
-  deno or node on the Mac, the compiled daemon runs yt-dlp's JavaScript
-  itself (`BUN_BE_BUN=1`).
-
-### Control API
-
-HTTP on `127.0.0.1`, a random port, `Authorization: Bearer <token>`:
-
-| Request | Result |
+| File | Content |
 | --- | --- |
-| `GET /status` | companion `{id, name, port, version, addresses, allowPrivate}`, `consoles` (linked: `{id, name, model, target, address, since}`), `paired` (without keys), `apps`, `appsDirs`, `appsDir`, `pairing {open, uri?, expiresAt?}` |
-| `POST /pair` | opens a window: `{uri, expiresAt}` |
-| `DELETE /pair` | closes the window |
-| `DELETE /consoles/:id` | forgets the console: `{removed}` |
-| `POST /apps-dir {path}` | sets the owner's apps folder: `{appsDir, apps}` |
-| `POST /service {name, args}` | runs a service's owner command (`x login`, `x logout`, `discord token <token>`, `discord logout`, `youtube install`, `homeassistant setup <url> <token>`, `homeassistant forget`, or `status`, which every service with commands answers): `{output}` |
-| `GET /services` | `services`: the setup state of each service that reports one (`x {signedIn, since, signingIn, lastError}`, `discord {configured, bot, servers, invite, gateway, contentIntent}`, `youtube {ready, ytDlp, ffmpeg, managed, install}`, `homeassistant {ready, url}`, `podcasts`, `maps`, `store`), never a credential; `agent {on, enabled, codex, signedIn}`, the last two read at the request |
-
-`status.apps` lists every app the catalog offers once, for the default
-target (`3ds-dev`) and for the other targets its packages carry (`tab5-home`
-for the Tab5). Entries carry each applet's `summary` and the `services` its
-app contract declares.
-
-## Pocket Companion.app
-
-```
-bun run companion:app        # -> dist/companion/Pocket Companion.app
-open "dist/companion/Pocket Companion.app"
-```
-
-The build compiles the daemon with `bun build --compile`, compiles
-`tools/companion/macos/*.swift` with `swiftc`, draws the icon, writes
-`Info.plist` (`LSUIElement`, `NSLocalNetworkUsageDescription`) and signs the
-bundle. Options of `tools/companion-app.ts`:
-
-| Option | Effect |
-| --- | --- |
-| `--apps <dir>` | copies the `.pocket` files of `<dir>` into `Contents/Resources/apps`; the app offers them with no folder set (repeatable) |
-| `--release` | leaves out `PocketRepoAppsDir`, the checkout's `dist/3ds` |
-| `--universal` | builds every executable for `arm64` and `x86_64` and joins them with `lipo` |
-| `--version <v>` | `CFBundleShortVersionString` |
-| `--sign <identity>` | signs with a Developer ID, the hardened runtime and a timestamp; the daemon gets the JIT entitlements a compiled Bun program needs |
-| `--notarize <profile>` | submits the signed app to Apple's notary service with a `notarytool` keychain profile, staples the ticket and checks it with `spctl` |
-| `--zip <file>` | writes the app as a zip with `ditto` |
-
-A release carries the applets of pocket-nexus/applets: Pocket Shell's `bun
-run offer` builds their 3DS and Tab5 packages (`<output>.pocket`,
-`<output>.tab5.pocket`) into one folder, which the build takes with `--apps`.
-
-The app lives in the menu bar and starts `Contents/MacOS/pocket-companion
-serve` as a child process with `--parent-pid` and `--apps` for its bundled
-applets, or attaches to a daemon already running for the same store. It reads
-`/status` once a second, and `/services` every two seconds while its window is
-open. The window opens at launch when no console is paired; while it is open
-the app shows in the Dock. Its pages:
-
-- **Get Started**: four steps with links to Pocket Shell on Pocket Studio and
-  the install guide, the pairing QR code (CoreImage, level M, integer-scaled
-  modules) with its countdown, the applets, and the service pages.
-- **Consoles**: paired consoles, connected or last seen, with **Forget…**, and
-  the pairing code.
-- **Applets**: the offered applets with their summaries, links to the pages
-  of the services each declares, and a folder chooser for developers.
-- **X**: sign in through `pocket-websignin` (`x login`) or sign out.
-- **Discord**: the three steps of making a bot (Developer Portal, Message
-  Content Intent, the token in a secure field), then the bot, its servers, the
-  invite link and a warning when the intent is off.
-- **YouTube**: the programs found, a download of both with a progress bar, and
-  **Update yt-dlp** for the fetched copy.
-- **Assistant**: whether Codex is installed and signed in; **Sign In to
-  Codex…** runs `codex login`, and a restart turns the agent on once Codex is
-  ready.
-- **Settings**: open at login (`SMAppService`), the name and address consoles
-  see, the version, the log, a restart.
-
-Quitting the app stops the daemon. Daemon output goes to
-`~/Library/Logs/Pocket Companion/companion.log`. The app and the daemon read
-`$POCKET_COMPANION_HOME` for the store.
-
-Launch arguments for checks: `--show-window` opens the window at launch,
-`--pair` opens a pairing window, `--snapshot <png> [--page <page>] [--window]`
-renders a page (`start`, `consoles`, `applets`, `x`, `discord`, `youtube`,
-`assistant`, `settings`) to a PNG after five seconds without screen-recording
-permission; `--window` draws the page inside a picture of the window's title
-bar and sidebar (Pocket Studio's listing pictures).
-
-## The CardputerZero's screen
-
-`programs/cardputer-zero` runs `apps/companion-zero` on the Zero's 320x170
-panel: the app's pages, laid out for the panel and the keyboard. The arrows
-(Fn layer) move through the sidebar and the page beside it follows; Enter
-opens the page and moves to its buttons, Esc goes back. **The screen's worker
-makes its control API calls: the program's `http` node sends
-`http://companion/...` to the companion on the same Zero with the token from
-`control.json`, so the screen calls the same control API as the Mac app.**
-The UI realm sends each call to the worker over a ring channel and reads the
-answer back in records of at most 1 KiB, which the channel bridge copies into
-the UI realm before each frame. What differs from the Mac:
-
-- Links (Pocket Shell, the Discord invite and Developer Portal, Codex) show
-  as QR codes to open on a phone; pairing a 3DS shows the pairing code the
-  same way.
-- **X**, **Discord** and the assistant's Codex take no sign-in or token on
-  the Zero: X and Codex sign in through a browser and the Zero has none, and
-  the screen has no text entry. The pages name the commands to run over SSH
-  (`service x cookies`, `service discord token`, `codex login --device-auth`).
-- **Settings** restarts the companion's systemd unit and closes the screen.
-
-`bun tools/cardputer-zero.ts install root@<address>` builds and installs the
-program, the package and the launcher entry (programs/cardputer-zero/README.md).
+| `protocol.ts` | Beacon, preamble and frame codec, the handshake proofs, the masked pairing key, the pairing URI |
+| `console-client.ts` | The console side in TypeScript: both handshake modes, ping, `net.stream`, catalog and install requests, the agent channel's messages and streams, a beacon listener |
+| `catalog.ts` | The companion's app offer from `.pocket` files, with each file's footer hash |
+| `qr.ts` | The pairing code's QR encoder: byte mode, level M, versions 1–10 |
+| `fetch.ts` | The companion's side of `net.stream`: destination checks, redirects, `maxBytes`, timeout, the proxy settings |
+| `stream-credit.ts` | The byte credit a streamed response body waits on |
 
 ## Tests
 
-`tests/pocket-link.test.ts` (unit stage of `tools/test.ts`) runs the companion
-on loopback against `tools/companion/console-client.ts`, the reference console
-implementation: protocol vectors, both handshake modes and every refusal, net
-against a local server (with and without `--allow-private`, redirects,
-`maxBytes`, timeout, cancel), catalog, install of a package with a `3ds-dev`
-variant, `catalog.changed`, the frame-size guard, beacons and the control API.
-The QR encoder is read back by an independent decoder in the test (format and
-version words, Reed–Solomon syndromes, payload) for versions 1–10 and all eight
-masks, and on macOS by CoreImage's `CIDetector`.
+Three files in the unit stage of `tools/test.ts` test the reference
+implementation and the console's C client:
+
+- `tests/pocket-link.test.ts`: protocol vectors (proofs, the masked key, the
+  beacon layout, preamble and frame header, split frames and the frame-size
+  guard, the pairing URI) and the destination policy. The QR encoder is read
+  back by an independent decoder in the test (format and version words,
+  Reed–Solomon syndromes, payload) for versions 1–10 and all eight masks, and
+  on macOS by CoreImage's `CIDetector`.
+- `tests/3ds-link.test.ts` compiles the socket-free half of the console's
+  client (`engine/host-services/link_proto.c`, `sha256.c`, `jscan.c`) and the
+  vendored QR decoder for the build machine and checks them against
+  `protocol.ts` and `qr.ts`: the same proofs and masked key, the same pairing
+  URI and beacon, and the decoder reading the pairing code at camera size.
+- `tests/worker-http-stream.test.ts`: the byte credit, response headers
+  before the body through `fetch.ts`, and `engine/host-services/link_http.c`
+  holding a full byte window and its disconnect terminal.
+
+Pocket Hub's tests run its companion on loopback against `console-client.ts`,
+and build `engine/host-services/link.c` into a POSIX link client that runs
+against the companion.

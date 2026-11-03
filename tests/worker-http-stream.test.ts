@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { StreamCredit } from "../tools/companion/stream-credit.ts";
-import { performNet } from "../tools/companion/fetch.ts";
+import { StreamCredit } from "../tools/pocket-link/stream-credit.ts";
+import { performNet } from "../tools/pocket-link/fetch.ts";
 
 test("stream credit blocks at capacity and cancellation releases its waiter", async () => {
   const abort = new AbortController();

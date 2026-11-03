@@ -4,7 +4,7 @@
 // @pocketjs/framework/io, engine/worker) under this policy; the companion's
 // own services answer the same requests. No UI realm has a network namespace.
 //
-// tools/companion/fetch.ts applies these limits; engine/host-services/link_http.c
+// tools/pocket-link/fetch.ts applies these limits; engine/host-services/link_http.c
 // repeats the descriptor bounds it admits before a request leaves the console.
 
 /** Common application HTTP methods. CONNECT and TRACE are intentionally not

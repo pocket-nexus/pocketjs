@@ -155,7 +155,7 @@ export const LINK_REFUSAL = {
   version: "version",
 } as const;
 
-/** Companion services (tools/companion/services.ts): a worker's HTTP request
+/** Companion services (Pocket Hub's service host): a worker's HTTP request
  *  to this origin is answered by the companion itself, never fetched. The
  *  path's first segment names the service. */
 export const LINK_SERVICES_HOST = "companion.pocket";

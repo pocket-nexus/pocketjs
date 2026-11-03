@@ -114,8 +114,8 @@ async function write(socket: Socket, bytes: Uint8Array): Promise<void> {
     socket.once("drain",drain);socket.once("close",close);socket.once("error",error);
   });
 }
-/** A ticket a consumer other than a socket took: the USB carrier
- *  (tools/companion/usb.ts) runs `produce` itself and paces it by the ring
+/** A ticket a consumer other than a socket took: Pocket Hub's USB carrier
+ *  runs `produce` itself and paces it by the ring
  *  the console reads. `signal` aborts when the ticket is revoked. */
 export interface MediaTicket {
   header: Buffer;

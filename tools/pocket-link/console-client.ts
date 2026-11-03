@@ -1,8 +1,8 @@
 // Reference CONSOLE side of Pocket Link (contracts/spec/link.ts) in TS: the
 // handshake in both modes, ping, net / catalog / install requests, the agent
 // channel's raw messages and streams (contracts/spec/agent.ts), and a beacon
-// listener. The tests drive the companion through it; a desktop or sim host
-// can use it as its link.
+// listener. Pocket Hub's tests drive its companion through it; a desktop or
+// sim host can use it as its link.
 
 import { createSocket } from "node:dgram";
 import { connect as tcpConnect, type Socket } from "node:net";

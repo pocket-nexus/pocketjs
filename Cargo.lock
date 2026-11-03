@@ -4836,26 +4836,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocket-cardputer-zero"
-version = "0.16.0"
-dependencies = [
- "libc",
- "pocket-drivers",
- "pocket-guest-rquickjs",
- "pocket-linux-evdev",
- "pocket-linux-fbdev",
- "pocket-linux-hooks",
- "pocket-linux-worker",
- "pocket-package",
- "pocket-profile-build",
- "pocket-raster",
- "pocket-runtime",
- "pocket-spec",
- "rquickjs",
- "serde_json",
-]
-
-[[package]]
 name = "pocket-desktop-host"
 version = "0.16.0"
 dependencies = [
