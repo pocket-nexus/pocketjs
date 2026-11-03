@@ -93,6 +93,16 @@ contents, then deprecated on crates.io.
 `pocket_raster`, `pocket_render::damage`, and `pocket_raster::compositor`. The
 software rasterizer remains registered as renderer 0 by `Coordinator::new`.
 
+## Public API changes since the last release
+
+The generated changelog lists commit subjects. This table records additions
+and behavior changes to the public API of the published crates that the next
+release ships.
+
+| Crate | Change |
+| --- | --- |
+| `pocket-drivers` | New `target` module: the device target registration contract. `TargetRenderer` is the renderer half (`register_target`, `unregister_target`, `target`, `queue_present`, `drain_present`, `end_registration`, the `PENDING_UNREGISTER` rule); `PendingUnregister` names the three rules; `RendererCell`, `Registration`, `TargetPort` and `TargetSlot` hold the renderer, register it with a runtime, link a display to it and hold a display's current target. Existing items are unchanged. |
+
 ## First publication
 
 Initial publication requires a crates.io API token with publish permissions for

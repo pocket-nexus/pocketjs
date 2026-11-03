@@ -1,4 +1,5 @@
 use crate::registered_renderer::RegisteredRenderer;
+use pocket_drivers::target::RendererCell;
 use pocket_drivers::{DrawList, FrameInput, RenderError, Renderer, Target};
 use pocket_vita_render::{Command, Config, Device, GxmRenderer, TextureFormat, Vertex};
 use std::{cell::RefCell, panic::AssertUnwindSafe, rc::Rc};
@@ -72,14 +73,14 @@ unsafe impl Device for Mock {
 #[test]
 fn registered_renderer_drop_stops_work_while_process_rc_remains_alive() {
     let state = Rc::new(RefCell::new(State::default()));
-    let process = Rc::new(RefCell::new(
+    let process = RendererCell::new(
         GxmRenderer::new(Mock(state.clone()), Config::new(960, 544, 2)).unwrap(),
-    ));
-    process.borrow_mut().begin_frame(0).unwrap();
-    let mut registered = RegisteredRenderer(process.clone());
+    );
+    process.borrow_mut().unwrap().begin_frame(0).unwrap();
+    let mut registered: RegisteredRenderer<Mock> = process.registration().unwrap();
     let mut ui = pocketjs_core::Ui::new();
     ui.set_viewport(480., 272.);
-    let target = process.borrow().target();
+    let target = process.borrow_mut().unwrap().target();
     let list = DrawList::new();
     let token = registered
         .render(&mut FrameInput::new(
@@ -92,7 +93,7 @@ fn registered_renderer_drop_stops_work_while_process_rc_remains_alive() {
     state.borrow_mut().display_pending = true;
     state.borrow_mut().fail_wait = true;
     drop(registered);
-    assert_eq!(Rc::strong_count(&process), 1);
+    assert!(process.borrow_mut().is_some(), "the process keeps its renderer");
     assert_eq!(
         state.borrow().events,
         [
@@ -105,10 +106,14 @@ fn registered_renderer_drop_stops_work_while_process_rc_remains_alive() {
         ]
     );
     // The token and native host reference can both outlive the registration.
-    process.borrow_mut().retire(token);
+    process.borrow_mut().unwrap().retire(token);
     state.borrow_mut().fail_wait = false;
-    process.borrow_mut().begin_frame(0).unwrap();
-    process.borrow_mut().discard_frame().unwrap();
+    process.borrow_mut().unwrap().begin_frame(0).unwrap();
+    process.borrow_mut().unwrap().discard_frame().unwrap();
+    // The registration held no other owner: the process cell was the last.
+    let port = process.port();
+    drop(process);
+    assert_eq!(port.instance(), None);
 }
 
 #[test]
@@ -117,15 +122,15 @@ fn registered_renderer_unwind_stops_submission_without_returned_token() {
         panic_submit: true,
         ..Default::default()
     }));
-    let process = Rc::new(RefCell::new(
+    let process = RendererCell::new(
         GxmRenderer::new(Mock(state.clone()), Config::new(960, 544, 2)).unwrap(),
-    ));
+    );
     let mut ui = pocketjs_core::Ui::new();
     ui.set_viewport(480., 272.);
-    let target = process.borrow().target();
+    let target = process.borrow_mut().unwrap().target();
     let list = DrawList::new();
     let panic = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut registered = RegisteredRenderer(process.clone());
+        let mut registered: RegisteredRenderer<Mock> = process.registration().unwrap();
         let _ = registered.render(&mut FrameInput::new(
             &list,
             &ui,
@@ -134,12 +139,15 @@ fn registered_renderer_unwind_stops_submission_without_returned_token() {
         ));
     }));
     assert!(panic.is_err());
-    assert_eq!(Rc::strong_count(&process), 1);
+    assert!(process.borrow_mut().is_some(), "the unwound call released the renderer");
     assert!(!state.borrow().active);
     assert_eq!(
         state.borrow().events,
         ["submit", "display-terminal", "gpu-terminal"]
     );
-    process.borrow_mut().begin_frame(0).unwrap();
-    process.borrow_mut().discard_frame().unwrap();
+    process.borrow_mut().unwrap().begin_frame(0).unwrap();
+    process.borrow_mut().unwrap().discard_frame().unwrap();
+    let port = process.port();
+    drop(process);
+    assert_eq!(port.instance(), None);
 }

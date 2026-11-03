@@ -1,9 +1,9 @@
 # Nintendo 3DS product
 
-The 3DS product composes **one archive containing `pocket-archive` and
-private recovery inspection** with the
-generated QuickJS guest, a package source, input source, PICA renderer and two
-display outputs. The runtime owns the retained tree, layout, animation, physics,
+The 3DS product composes **one archive containing `pocket-archive`, private
+recovery inspection and the native program without built-in outputs** with the
+handle-based QuickJS facade (`programs/native/quickjs`), the generated QuickJS
+guest, a package source, input source, PICA renderer and two display outputs. The runtime owns the retained tree, layout, animation, physics,
 package admission and frame coordination. The C device driver consumes the public
 DrawList and resource contracts and issues **PICA200 draws through citro3d**.
 
@@ -16,10 +16,11 @@ hardware and golden suite; the architecture migration has compiler, linker and
 host-test coverage.
 
 ```
-core/                 one runtime staticlib plus package recovery inspection ABI
+core/                 one runtime staticlib: package recovery inspection ABI and
+                      pocket-native-program with host-backend and host-hooks
 include/pocket_core.h package inspection and native resource convenience calls
 include/pocket_profile.h generated host contract facts, hash and operation identifiers
-src/instance.c        runtime, package/input/provider registration
+src/instance.c        package source; input, provider and output registration
 src/main.c            process boot, reusable guest lifecycle, frame boundary
 src/runtime.c         immutable package storage, active/rollback state
 src/devserver.c       discovery, paired TCP pump, uploads, screenshots, receipts
@@ -29,7 +30,8 @@ src/native.c          .3dsx staging, verification and swap for the dev connectio
 src/hbldr.c           Luma3DS hb:ldr requests that start a .3dsx on exit
 src/error_text.h      fixed-buffer error formatter
 src/gfx.c             PICA driver registration and product texture/scene adapters
-src/qjs.c             generated guest attachment and product namespaces
+src/qjs.c             facade host guest: realm, product namespaces, bytecode,
+                      worker start and stop around the program
 src/transition.c      app-switch overlay: scrim and activity indicator lists
 src/bytecode.c        a slot's bundle bytecode on the SD card
 src/services_host.c   host_services.h: clocks, owner name, sockets, SD slots
@@ -59,8 +61,31 @@ Two toolchains, one repository:
   `arm-none-eabi-gcc`, libctru, citro3d, `picasso`, `smdhtool` and `3dsxtool`.
 
 `tools/3ds.ts` drives both and hands this Makefile container paths in
-environment variables (the list is at the top of the Makefile).
-`src/instance.c` registers the PICA instance and both outputs.
+environment variables (the list is at the top of the Makefile). The Makefile
+also compiles `programs/native/quickjs/pocket_qjs_program.c` with
+`POCKET_QJS_HOST_PROFILE`: the facade takes the 3DS profile from `src/qjs.c`.
+
+## Composition
+
+**`src/qjs.c` boots each guest through the QuickJS facade with a host
+composition.** It creates the QuickJS realm and attaches the generated guest
+in canonical mode, then passes `pocket_qjs_program_create_host` the 3DS profile
+facts and hash, its `pocket_guest_v1` table and two hooks.
+`pocket_qjs_program_boot_source` creates the program from the package source
+in `src/instance.c`, with the plan's viewport, a 64 MiB guest heap and frame
+buffers for both screens. The runtime reads and admits the package at boot and
+loads its assets natively.
+
+The compose hook runs after the facade attaches the guest and before admission:
+`instance_attach` registers the input source, the product op provider, the
+PICA renderer and both displays on the program's runtime, then the worker
+starts for a package with a worker bundle. The program registers no output of
+its own, so the runtime's boot checks require the primary display and the
+profile's auxiliary display. The release hook detaches the worker bridge,
+stops the worker and forgets the runtime before the facade destroys the
+program, after a failed compose or boot as well as at `qjs_shutdown`. Frames
+call `pocket_runtime_present` and `pocket_runtime_tick` on the runtime that
+`pocket_qjs_program_runtime` returns.
 
 ```sh
 bun tools/3ds.ts 3ds-demo              # dist/3ds/<output>.3dsx
@@ -95,7 +120,8 @@ package and registers the generated guest, input source and two PICA displays.
 It has no product services, development server, camera, launcher or recovery
 state. Its `3ds-runtime` host contract accepts only the capabilities
 implemented by that program. The generic program links the default Runtime archive; this
-product links `core/` for its recovery inspection interface.
+product links `core/` for its recovery inspection interface and the native
+program the facade composes.
 
 Use `pocket build --target 3ds --generic` for that runtime and
 `pocket pack --runtime <build-directory> --pocket <application.pocket>` to

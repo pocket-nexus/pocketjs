@@ -105,7 +105,9 @@ pointer checks and the adapters between C vtables and the driver traits.
 `programs/sdk/archive` defines each exported `pocket_runtime.h` symbol once,
 with the allocator, panic handler and host hooks of a link unit; the IDF, SiFli
 and 3DS archives re-export it. `programs/native/runtime` supplies the native
-program composition. `programs/web/wasm` compiles the browser composition
+program composition; its `host-backend` and `host-hooks` features leave outputs
+and hooks to the host, and the 3DS archive links it that way for the QuickJS
+facade in `programs/native/quickjs`. `programs/web/wasm` compiles the browser composition
 against the same runtime and decodes operation arguments with
 `pocket_runtime::abi`.
 

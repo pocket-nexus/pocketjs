@@ -21,6 +21,12 @@ standalone-extension-provider = []
 gles1 = []
 # Select CPU rasterization without linking a GLES backend.
 software-only = []
+# Register no renderer or display at create: the host registers its own
+# through pocket_native_program_runtime() before boot.
+host-backend = []
+# The C host links the six pocket_host_* hooks; the no_std archive omits the
+# malloc-backed set in src/host_hooks.rs.
+host-hooks = []
 
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }

@@ -589,6 +589,56 @@ impl Renderer for WgpuRenderer {
         }
     }
 }
+/// A complete attachment for [`WgpuRenderer`]'s `TargetRenderer`
+/// registration; [`WgpuRenderer::register_target`] takes the same values.
+#[derive(Clone, Debug)]
+pub struct TargetConfig {
+    pub view: wgpu::TextureView,
+    pub size: (u32, u32),
+    pub scale: f32,
+    pub load: wgpu::LoadOp<wgpu::Color>,
+}
+impl TargetConfig {
+    pub fn new(
+        view: &wgpu::TextureView,
+        size: (u32, u32),
+        scale: f32,
+        load: wgpu::LoadOp<wgpu::Color>,
+    ) -> Self {
+        Self {
+            view: view.clone(),
+            size,
+            scale,
+            load,
+        }
+    }
+}
+
+/// Unregistering removes the target at once; each encoded submission keeps
+/// its own view of the attachment. Ending the runtime registration shuts the
+/// renderer down.
+impl pocket_drivers::target::TargetRenderer for WgpuRenderer {
+    type TargetConfig = TargetConfig;
+    const PENDING_UNREGISTER: pocket_drivers::target::PendingUnregister =
+        pocket_drivers::target::PendingUnregister::Detached;
+    fn register_target(&mut self, config: TargetConfig) -> Result<u64, RenderError> {
+        WgpuRenderer::register_target(self, &config.view, config.size, config.scale, config.load)
+            .map(|id| id.0)
+    }
+    fn unregister_target(&mut self, handle: u64) -> Result<(), RenderError> {
+        if WgpuRenderer::unregister_target(self, TargetId(handle)) {
+            Ok(())
+        } else {
+            Err(RenderError::InvalidFrame)
+        }
+    }
+    fn target(&self, handle: u64) -> Result<DeviceTarget, RenderError> {
+        WgpuRenderer::target(self, TargetId(handle))
+    }
+    fn end_registration(&mut self) {
+        self.shutdown();
+    }
+}
 impl Drop for WgpuRenderer {
     fn drop(&mut self) {
         self.shutdown();

@@ -93,6 +93,25 @@ access to its pixels. A renderer with a CPU-visible target uses the
 `Immediate` synchronization model; a device-owned target may use either
 model.
 
+**A device-owned target's handle comes from the renderer that renders into
+it.** `pocket_drivers::target` states the registration contract. The
+composition creates the renderer and keeps it in a `RendererCell`; the runtime
+receives a `Registration` of that cell, and each display receives a
+`TargetPort`, a weak link that reaches the renderer's `TargetRenderer` methods
+and never keeps the renderer alive. The composition or display creates a
+target's backing and registers it through the port; the renderer validates the
+configuration and issues the handle. **A handle belongs to one renderer
+instance**: installing a new renderer in the cell, as recovery from GL context
+loss does, makes every earlier handle stale. A target's region is fixed at
+registration, so a resize registers a new target and unregisters the old one.
+Each renderer declares what unregistering does while a pending submission
+renders into the target: GLES refuses until that submission retires, wgpu
+removes the registration while the encoded submission keeps its own view of
+the attachment, and the Vita GXM renderer owns one fixed target that cannot be
+unregistered. **The runtime drops renderer registrations before displays.**
+Dropping a `Registration` stops the work submitted through it; a display
+dropped afterwards makes no device call once the renderer is gone.
+
 **The required order is acquire, render, renderer wait, display flush,
 display wait, retire.** An `Immediate` renderer's frame runs the whole
 sequence inside one `present` call. **A `Deferred` renderer's frame completes
@@ -204,6 +223,42 @@ the first main-line revision with `pocket_profile_facts`, and
 `pocket_native_program.h` against that revision's program archive, built under
 its own crate name and features. **Both tools fail when the two archives come
 from one source revision or are byte-identical.** CI does not run them.
+
+## Native programs
+
+**`pocket_native_program.h` composes one runtime instance for a C host.**
+`programs/native/runtime` creates the instance from one of four constructors:
+raw JavaScript and PAK (`pocket_native_program_create`, `_create_profile`), a
+complete `.pocket` (`_create_package`), or a host `pocket_package_source_v1`
+(`_create_source`). The first three copy the bytes into a memory source and
+turn native asset loading off; the source form reads the package at boot and
+keeps native asset loading on. Admission against the host profile runs before
+the guest initializes in every form.
+
+The archive's features select the outputs `create` registers:
+
+| Features | Outputs registered at create | Hooks |
+| --- | --- | --- |
+| `std` or `software-only` | CPU ARGB buffer and its renderer | `std`: archive; otherwise `src/host_hooks.rs` |
+| none | GLES 2 renderer and display | `src/host_hooks.rs` |
+| `gles1` | GLES 1.1 renderer and display | `src/host_hooks.rs` |
+| `host-backend` | None: the host registers renderers and displays through `pocket_native_program_runtime()` before boot | `host-hooks`: the C host links the six `pocket_host_*` hooks |
+
+A build with a built-in output has one primary surface: `_create_package`
+rejects a plan with an auxiliary surface, and the built-in outputs enable the
+compositor namespace and embedded viewport changes. A `host-backend` build
+leaves both off, as `pocket_runtime_create` does, and admits auxiliary plans;
+boot then requires a registered auxiliary display when the profile has one.
+
+**`programs/native/quickjs` is the handle-based QuickJS facade over that
+program.** `pocket_qjs_program_create_host` accepts the host's profile facts,
+a `pocket_guest_v1` table with its own context, a `compose` hook that
+registers drivers and starts host services after the guest is attached, and a
+`release` hook that runs before the facade destroys the program. Without a
+host guest the facade creates its own `JSRuntime`, `JSContext` and canonical
+guest. `products/3ds` composes the facade with its own QuickJS realm, the PICA
+renderer, both screens and its package source over a `host-backend,host-hooks`
+archive; the ipodtouch4 host uses the facade's own guest and GLES 1.1 output.
 
 ## The op table
 

@@ -34,9 +34,12 @@ cache versions and target bindings. This covers a panic after native submission
 but before token registration. Shutdown is idempotent and closes the driver;
 `render`, `encode` and `register_target` then return `Failed`. The infallible
 surface-binding setter performs no work after closure. Drop uses the same path.
-An adapter which shares the renderer must call shutdown when its registration
-owner is dropped, even if other handles retain the renderer. Normal retirement
-waits only the requested submission. No method destroys a shared device or calls
+Under the device target contract (`pocket_drivers::target`), dropping the
+runtime `Registration` calls shutdown even while the composition's
+`RendererCell` retains the renderer. Unregistering a target that a pending
+submission renders into removes it at once; the encoded submission keeps its
+own view of the attachment. Normal retirement waits only the requested
+submission. No method destroys a shared device or calls
 `Texture::destroy`/`Buffer::destroy`.
 
 For composition with other GPU passes, `encode` records into a host encoder and

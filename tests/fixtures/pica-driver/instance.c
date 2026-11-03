@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200112L
 #include "../../../products/3ds/src/instance.c"
 #include "package_fixture.h"
+#include "pocket_native_program.h"
 #include <assert.h>
 #include <stdlib.h>
 
@@ -92,6 +93,8 @@ static int32_t initialize_guest(void *self, pocket_runtime *runtime,
          env->auxiliary_root > 0);
   assert(env->host_length == 7 && !memcmp(env->host, "3ds-dev", 7));
   assert(env->host_abi == POCKET_BINDING_GENERATION && env->raster_density == 1);
+  /* The host package source keeps native asset loading on. */
+  assert(env->assets_present);
   /* This would fail if POCKETJS_LINK were not visible in instance.c. */
   assert(pocket_runtime_supports_op(runtime, POCKET_3DS_OP_appTable));
   assert(pocket_runtime_supports_op(runtime, POCKET_3DS_OP_appLaunch));
@@ -129,17 +132,33 @@ static void shutdown_guest(void *self) {
   (void)self;
   shut_down++;
 }
+/* The program products/3ds/src/qjs.c boots through the facade: no built-in
+ * output, the 3DS package source, then instance_attach before boot. */
+static PocketNativeProgram *create(PocketRuntimePackage *package) {
+  return pocket_native_program_create_source(
+      "3ds-dev", POCKETJS_HOST_ABI, instance_package_source(), package, 400,
+      240, 1, INSTANCE_HEAP_LIMIT, INSTANCE_FRAME_BUFFER_BUDGET,
+      &pocket_3ds_profile, pocket_3ds_profile_hash);
+}
 int main(void) {
   PocketRuntimePackage package = {.bytes = (uint8_t *)package_bytes,
                                   .length = sizeof package_bytes};
-  pocket_runtime *runtime = instance_create(&package);
-  assert(runtime && !instance_create(&package));
+  PocketNativeProgram *program = create(&package);
+  assert(program);
+  pocket_runtime *runtime = pocket_native_program_runtime(program);
   pocket_guest_v1 guest_api = {sizeof guest_api, evaluate_guest,
                                frame_guest,      NULL,
                                shutdown_guest,   initialize_guest,
                                NULL};
   assert(!pocket_runtime_set_guest(runtime, &guest_api, NULL));
-  assert(!pocket_runtime_boot(runtime));
+  /* The program registers no output; the runtime's boot checks require the
+   * primary and the profile's auxiliary display before the guest runs. */
+  assert(pocket_native_program_boot(program));
+  assert(initialized == 0);
+  assert(instance_attach(runtime) && !instance_attach(runtime));
+  assert(!pocket_native_program_boot(program));
+  /* The first frame presents the mounted tree (qjs_present). */
+  assert(!pocket_runtime_present(runtime));
   uint32_t contact = (5 << 18) | (87 << 9) | 159;
   expected_touch = contact;
   instance_input(0x4000, 0x00ff, &contact, 1, 0xff00);
@@ -152,12 +171,15 @@ int main(void) {
   instance_input(0x4000, 0x00ff, NULL, 0, 0xff00);
   assert(!pocket_runtime_tick(runtime));
   assert(initialized == 1 && evaluated == 1 && framed == 3);
-  instance_destroy();
+  instance_detach();
+  pocket_native_program_destroy(program);
   assert(shut_down == 1);
-  runtime = instance_create(&package);
-  assert(runtime); /* An app switch constructs a fresh instance from the same
+  program = create(&package);
+  assert(program); /* An app switch constructs a fresh program from the same
                       source. */
-  instance_destroy();
+  assert(instance_attach(pocket_native_program_runtime(program)));
+  instance_detach();
+  pocket_native_program_destroy(program);
   puts("3DS runtime composition: package, auxiliary metadata, providers and "
        "exact input passed");
 }

@@ -1,52 +1,64 @@
-//! Runtime registration owns a terminal boundary even when the process keeps
-//! another Rc for native drawing and subsequent guests.
-use crate::{Device, GxmRenderer, Submission};
-use alloc::rc::Rc;
-use core::cell::RefCell;
-use pocket_drivers::{FrameInput, RenderError, Renderer, RendererDescriptor};
+//! Runtime registration of the process GXM renderer through the device
+//! target contract (`pocket_drivers::target`). The process keeps the renderer
+//! in its `RendererCell` for native drawing and subsequent guests; each
+//! runtime registration owns a terminal boundary, and its display reaches the
+//! renderer only through a `TargetPort`.
+use crate::{Device, GxmRenderer};
+use pocket_drivers::target::{PendingUnregister, RendererCell, TargetPort, TargetRenderer};
+use pocket_drivers::{DeviceTarget, Rect, RenderError};
 
-/// One Runtime registration owns the terminal boundary. Extra Rc handles are
-/// for that program's native scene; do not register the same device in multiple
-/// independent runtimes. Drop drains display and render work before returning.
-pub struct SharedRenderer<D: Device>(pub Rc<RefCell<GxmRenderer<D>>>);
-impl<D: Device> Renderer for SharedRenderer<D> {
-    type Submission = Submission;
-    fn descriptor(&self) -> RendererDescriptor {
-        self.0.borrow().descriptor()
-    }
-    fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<Submission, RenderError> {
-        self.0.borrow_mut().render(frame)
-    }
-    unsafe fn render_zero_copy(
-        &mut self,
-        _: &mut FrameInput<'_>,
-    ) -> Result<Submission, RenderError> {
+/// The renderer a runtime registers. Dropping it waits for the queued display
+/// transfers, then closes any open scene and retires its submissions; the
+/// renderer stays in the process cell.
+pub type SharedRenderer<D> = pocket_drivers::target::Registration<GxmRenderer<D>>;
+
+/// The renderer owns one target covering its configured physical viewport.
+/// Registering and unregistering are unsupported, so no pending submission
+/// can lose its target. Context loss does not exist on GXM; a failed
+/// submission or swap closes the scene and the next frame starts clean.
+impl<D: Device> TargetRenderer for GxmRenderer<D> {
+    type TargetConfig = ();
+    const PENDING_UNREGISTER: PendingUnregister = PendingUnregister::Fixed;
+    fn register_target(&mut self, _: ()) -> Result<u64, RenderError> {
         Err(RenderError::Unsupported)
     }
-    fn wait(&mut self, token: &Submission) -> Result<(), RenderError> {
-        self.0.borrow_mut().wait(token)
+    fn unregister_target(&mut self, _: u64) -> Result<(), RenderError> {
+        Err(RenderError::Unsupported)
     }
-    fn retire(&mut self, token: Submission) {
-        self.0.borrow_mut().retire(token)
-    }
-}
-impl<D: Device> Drop for SharedRenderer<D> {
-    fn drop(&mut self) {
-        // FrameGuard drops its renderer after the active call's RefMut unwinds.
-        // A process/native drawing Rc can keep the underlying driver alive.
-        if let Ok(mut renderer) = self.0.try_borrow_mut() {
-            // Finish prior display transfers before discard_frame retires any
-            // submission. No current scene is flushed during this cleanup.
-            let _ = renderer.wait_display();
-            let _ = renderer.discard_frame();
+    fn target(&self, handle: u64) -> Result<DeviceTarget, RenderError> {
+        let target = GxmRenderer::target(self);
+        if handle == target.handle {
+            Ok(target)
+        } else {
+            Err(RenderError::InvalidFrame)
         }
+    }
+    /// The display's queued flush: close the scene and queue the swap behind
+    /// its GPU work.
+    fn queue_present(&mut self, handle: u64) -> Result<(), RenderError> {
+        TargetRenderer::target(self, handle)?;
+        self.queue_display()
+    }
+    fn drain_present(&mut self) -> Result<(), RenderError> {
+        self.wait_display()
+    }
+    fn end_registration(&mut self) {
+        // Finish prior display transfers before discard_frame retires any
+        // submission. No current scene is flushed during this cleanup.
+        let _ = self.wait_display();
+        let _ = self.discard_frame();
     }
 }
 
-/// A display paired with one SharedRenderer. Use on the same owning thread.
+/// The display of one registration, on the renderer's owning thread. It
+/// holds the renderer's fixed target and a port; it never keeps the renderer
+/// alive. Drop waits for its queued swap while the renderer exists; a
+/// renderer dropped first has already drained the display queue.
 pub struct GxmDisplay<D: Device> {
     role: pocket_drivers::DisplayRole,
-    shared: Rc<RefCell<GxmRenderer<D>>>,
+    port: TargetPort<GxmRenderer<D>>,
+    handle: u64,
+    region: Rect,
     acquired: bool,
     pending: Option<u64>,
     next: u64,
@@ -54,13 +66,12 @@ pub struct GxmDisplay<D: Device> {
 impl<D: Device> pocket_drivers::DisplayOutput for GxmDisplay<D> {
     type Token = u64;
     fn descriptor(&self) -> pocket_drivers::DisplayDescriptor {
-        let target = self.shared.borrow().target();
         let mut d = pocket_drivers::DisplayDescriptor::new(
             self.role,
-            target.region.width,
-            target.region.height,
+            self.region.width,
+            self.region.height,
             pocket_drivers::PixelFormat::Rgba8888,
-            target.region.width as usize * 4,
+            self.region.width as usize * 4,
             pocket_drivers::TargetOwnership::DeviceOwned,
         );
         d.vsync = pocket_drivers::VsyncSource::Display;
@@ -72,7 +83,10 @@ impl<D: Device> pocket_drivers::DisplayOutput for GxmDisplay<D> {
         &mut self,
         region: pocket_drivers::Rect,
     ) -> Result<pocket_drivers::Target<'_>, pocket_drivers::DisplayError> {
-        let target = self.shared.borrow().target();
+        let target = self
+            .port
+            .target(self.handle)
+            .map_err(|_| pocket_drivers::DisplayError::InvalidTarget)?;
         if self.pending.is_some() || region != target.region {
             return Err(pocket_drivers::DisplayError::InvalidTarget);
         }
@@ -89,9 +103,8 @@ impl<D: Device> pocket_drivers::DisplayOutput for GxmDisplay<D> {
             .next
             .checked_add(1)
             .ok_or(pocket_drivers::DisplayError::Failed)?;
-        self.shared
-            .borrow_mut()
-            .queue_display()
+        self.port
+            .queue_present(self.handle)
             .map_err(|_| pocket_drivers::DisplayError::Failed)?;
         self.pending = Some(token);
         Ok(token)
@@ -114,19 +127,27 @@ impl<D: Device> pocket_drivers::DisplayOutput for GxmDisplay<D> {
 impl<D: Device> Drop for GxmDisplay<D> {
     fn drop(&mut self) {
         if self.pending.take().is_some() {
-            let _ = self.shared.borrow_mut().wait_display();
+            let _ = self.port.drain_present();
         }
     }
 }
 
 impl<D: Device> GxmDisplay<D> {
-    pub fn new(shared: Rc<RefCell<GxmRenderer<D>>>, role: pocket_drivers::DisplayRole) -> Self {
-        Self {
-            shared,
+    /// A display of the renderer's fixed target. `Failed` when the cell is
+    /// empty or in use.
+    pub fn new(
+        renderer: &RendererCell<GxmRenderer<D>>,
+        role: pocket_drivers::DisplayRole,
+    ) -> Result<Self, RenderError> {
+        let target = renderer.with(|renderer| GxmRenderer::target(renderer))?;
+        Ok(Self {
+            port: renderer.port(),
+            handle: target.handle,
+            region: target.region,
             role,
             acquired: false,
             pending: None,
             next: 1,
-        }
+        })
     }
 }
