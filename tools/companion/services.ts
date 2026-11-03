@@ -14,6 +14,10 @@
 // and JSON body. Credentials stay in the companion's store; a response
 // never carries one.
 //
+// What a service needs from its owner (a key typed once, a vendor's program
+// fetched with the owner's consent) it declares as an OwnerSetup (setup.ts);
+// the host answers its `/_setup` the same way for every service.
+//
 // The console names the app behind every request (the `app` member, filled
 // by its runtime, not the guest). A service answers only an app this
 // companion offers whose manifest lists the service in `applet.services`
@@ -23,6 +27,7 @@
 import { LINK_SERVICES_HOST } from "../../contracts/spec/link.ts";
 import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { NetFailure, type NetRequest, type NetResponse } from "./fetch.ts";
+import type { OwnerSetup } from "./setup.ts";
 import { createDiscordService } from "./services/discord.ts";
 import { createStoreService } from "./services/store.ts";
 import { createPodcastsService } from "./services/podcasts.ts";
@@ -78,6 +83,8 @@ export interface ServiceProvider {
   /** What the owner's setup screen shows (signed in, the bot, the tools
    *  found). Never carries a credential. */
   state?(): Promise<Record<string, unknown>>;
+  /** what the service needs from its owner; the host answers `/_setup` from it */
+  readonly setup?: OwnerSetup;
   close?(): void;
 }
 
@@ -190,14 +197,22 @@ export class ServiceHost {
       return { ...jsonResponse(403, { error: `${caller.app || "this app"} does not declare the ${name} service in applet.services of an app this companion offers` }), url: request.url };
     }
     const provider = this.provider(name)!;
+    const path = `/${rest.join("/")}`;
+    // the owner's setup, the same for every service (setup.ts)
+    const answer: ServiceProvider =
+      path === "/_setup"
+        ? provider.setup
+          ? { name, handle: (r) => provider.setup!.handle(r) }
+          : { name, handle: async () => jsonResponse(404, { error: `the ${name} service needs no setup` }) }
+        : provider;
     const deadline = AbortSignal.timeout(request.timeoutMs);
     const done = AbortSignal.any([signal, deadline]);
     let response: Omit<NetResponse, "url">;
     try {
       response = await Promise.race([
-        serve(provider, {
+        serve(answer, {
           method: request.method,
-          path: `/${rest.join("/")}`,
+          path,
           query: url.searchParams,
           body: request.body,
           maxBytes: request.maxBytes,

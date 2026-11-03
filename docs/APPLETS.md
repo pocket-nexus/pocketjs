@@ -93,6 +93,31 @@ The source rules walk the UI's import graph from `app.entry`. The worker
 bundle (`tools/build-worker.ts`) resolves only the modules whose domain is
 `worker`.
 
+## A service's owner setup
+
+A companion service that needs something from its owner declares it as an
+`OwnerSetup` (`tools/companion/setup.ts`), and **the companion answers
+`/_setup` the same way for every service**, so one setup page in an applet or
+in Pocket Companion's menu serves any of them:
+
+| Kind | What the companion does |
+| --- | --- |
+| **Field** | A value the owner types once: a key from a vendor's dashboard, an instance URL. Checked against the field's pattern and kept in `<store>/services/<name>/setup.json` (**0600**). `/_setup` answers whether a field is set and never a secret's value. |
+| **Vendor tool** | A vendor's own program the service runs, which the companion may not bundle or pass on. It is fetched from the vendor when the owner consents to the vendor's terms (the consent is kept), SHA-256 checked when the spec pins one, unpacked into `<store>/tools/<id>/<digest>/`, and fetched again after `refreshAfterDays`, the old build kept until the new one is in place. |
+| **Prompt** | Something the owner does elsewhere, shown while it waits: confirm a code at a vendor's page (`code`), pick this device in a vendor's app (`pick`). |
+
+| Request | Answer |
+| --- | --- |
+| `GET /<service>/_setup` | `SetupState`: the fields with `set`, the tools with `state` (`unavailable`, `absent`, `fetching`, `ready`, `failed`), `consented` and the bytes fetched, the prompt, and `ready` |
+| `POST /<service>/_setup {field, value}` / `{field, clear: true}` | sets or forgets a field |
+| `POST /<service>/_setup {tool, consent: true}` / `{tool, update: true}` / `{tool, remove: true}` | accepts the terms and fetches, fetches again, or deletes the tool and withdraws the consent |
+
+A refused change answers **400** with `{error}`. A service with no setup
+answers **404** at `/_setup`. A program a service keeps running (its own
+helper, a vendor tool) runs under `Supervised` (`tools/companion/supervise.ts`):
+started again when it exits after **1 s**, doubling to **30 s**, with its
+arguments and environment read at each start.
+
 ## Source rules
 
 `tools/applet-check.ts` walks the import graph from `app.entry`. Comments and
