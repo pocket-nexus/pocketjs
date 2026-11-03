@@ -103,7 +103,7 @@ in Pocket Companion's menu serves any of them:
 | Kind | What the companion does |
 | --- | --- |
 | **Field** | A value the owner types once: a key from a vendor's dashboard, an instance URL. Checked against the field's pattern and kept in `<store>/services/<name>/setup.json` (**0600**). `/_setup` answers whether a field is set and never a secret's value. |
-| **Vendor tool** | A vendor's own program the service runs, which the companion may not bundle or pass on. It is fetched from the vendor when the owner consents to the vendor's terms (the consent is kept), SHA-256 checked when the spec pins one, unpacked into `<store>/tools/<id>/<digest>/`, and fetched again after `refreshAfterDays`, the old build kept until the new one is in place. |
+| **Vendor tool** | A vendor's own program the service runs, which the companion may not bundle or pass on. It is fetched from the vendor when the owner consents to the vendor's terms (the consent is kept), SHA-256 checked when the spec pins one, unpacked into `<store>/tools/<id>/<digest>/`, and fetched again after `refreshAfterDays`, the old build kept until the new one is in place. A tool consented to and not in place is fetched when the service starts. |
 | **Prompt** | Something the owner does elsewhere, shown while it waits: confirm a code at a vendor's page (`code`), pick this device in a vendor's app (`pick`). |
 
 | Request | Answer |

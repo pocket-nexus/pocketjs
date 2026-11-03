@@ -162,6 +162,11 @@ export class OwnerSetup {
     this.now = options.now ?? Date.now;
     if (options.onChange) this.listeners.push(options.onChange);
     this.kept = this.load();
+    // a tool consented to and not in place (a fetch a restart cut short, a
+    // setup.json the owner wrote): fetch it now
+    for (const tool of spec.tools ?? []) {
+      if (this.kept.consent[tool.id] && !this.fetched(tool.id) && this.build(tool)) void this.fetch(tool.id).catch(() => {});
+    }
   }
 
   private load(): Kept {

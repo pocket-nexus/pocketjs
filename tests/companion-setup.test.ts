@@ -116,6 +116,22 @@ describe("owner setup", () => {
     expect(existsSync(join(dir, "tools", "probe-tool"))).toBe(false);
   });
 
+  test("a tool consented to and not in place is fetched when the service starts", async () => {
+    const own = mkdtempSync(join(tmpdir(), "companion-setup-start-"));
+    try {
+      // what an owner writes by hand: the consent, and no build yet
+      Bun.spawnSync(["mkdir", "-p", join(own, "services", "probe")]);
+      writeFileSync(join(own, "services", "probe", "setup.json"), JSON.stringify({ values: { key: "0123abcd" }, consent: { "probe-tool": { at: 1, terms: "https://example.com/terms" } } }));
+      const before = downloads;
+      const setup = new OwnerSetup(serviceContext(own, () => {}), "probe", spec(), { platform: "linux-arm64" });
+      await until(() => setup.state().ready);
+      expect(downloads).toBe(before + 1);
+      expect(setup.value("key")).toBe("0123abcd");
+    } finally {
+      rmSync(own, { recursive: true, force: true });
+    }
+  });
+
   test("a download that does not match its SHA-256 is refused; no build for this computer is said", async () => {
     const setup = new OwnerSetup(serviceContext(dir, () => {}), "probe", spec("00".repeat(32)), { platform: "linux-arm64" });
     await setup.consent("probe-tool");
