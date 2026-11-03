@@ -517,9 +517,9 @@ fn coordinator_error_before_submission_closes_external_scene_without_swap() {
 fn registered_display_queues_the_swap_and_completion_never_drains_the_display_queue() {
     use pocket_drivers::{DisplayOutput, DisplayRole};
     let (renderer, device) = fresh();
-    let shared = Rc::new(RefCell::new(renderer));
-    let mut registered = registered::SharedRenderer(shared.clone());
-    let mut display = registered::GxmDisplay::new(shared.clone(), DisplayRole::Primary);
+    let shared = pocket_drivers::target::RendererCell::new(renderer);
+    let mut registered: registered::SharedRenderer<Mock> = shared.registration().unwrap();
+    let mut display = registered::GxmDisplay::new(&shared, DisplayRole::Primary).unwrap();
     assert!(display.descriptor().queued_flush);
     let res = Resources::new();
     let words = image();
@@ -528,7 +528,7 @@ fn registered_display_queues_the_swap_and_completion_never_drains_the_display_qu
     for _ in 0..2 {
         // The program opens the scene; this waits for the previous scene's
         // GPU work before vita2d reuses its vertex pool.
-        shared.borrow_mut().begin_frame(0).unwrap();
+        shared.borrow_mut().unwrap().begin_frame(0).unwrap();
         // Coordinator completion of the previous frame, before acquire.
         if let Some((submission, token)) = previous.take() {
             registered.wait(&submission).unwrap();
@@ -569,4 +569,151 @@ fn registered_display_queues_the_swap_and_completion_never_drains_the_display_qu
             "retire",
         ]
     );
+}
+
+/// The device target contract (`pocket_drivers::target`) on GXM: one fixed
+/// target owned by the renderer, a display that reaches the renderer only
+/// through its port, and a registration whose drop is a terminal boundary.
+mod target_contract {
+    use super::*;
+    use pocket_drivers::target::{PendingUnregister, RendererCell};
+    use pocket_drivers::{DisplayError, DisplayOutput, DisplayRole};
+
+    fn setup() -> (
+        RendererCell<GxmRenderer<Mock>>,
+        registered::SharedRenderer<Mock>,
+        registered::GxmDisplay<Mock>,
+        Mock,
+    ) {
+        let (renderer, device) = fresh();
+        let cell = RendererCell::new(renderer);
+        let registration = cell.registration().unwrap();
+        let display = registered::GxmDisplay::new(&cell, DisplayRole::Primary).unwrap();
+        (cell, registration, display, device)
+    }
+    const REGION: Rect = Rect::new(0, 0, 200, 100);
+    fn frame(
+        registration: &mut registered::SharedRenderer<Mock>,
+        display: &mut registered::GxmDisplay<Mock>,
+        res: &Resources,
+    ) -> (Submission, u64) {
+        let target = display.acquire(REGION).unwrap();
+        let submission = registration
+            .render(&mut FrameInput::new(&image(), res, &[REGION], target))
+            .unwrap();
+        (submission, display.flush(&[REGION]).unwrap())
+    }
+
+    #[test]
+    fn the_fixed_target_cannot_be_unregistered_while_or_after_a_frame_is_pending() {
+        let (cell, mut registration, mut display, _device) = setup();
+        let port = cell.port();
+        assert_eq!(port.pending_unregister(), PendingUnregister::Fixed);
+        let handle = cell.with(|r| r.target().handle).unwrap();
+        let (submission, token) = frame(&mut registration, &mut display, &Resources::new());
+        assert_eq!(port.unregister(handle), Err(RenderError::Unsupported));
+        assert_eq!(port.register(()), Err(RenderError::Unsupported));
+        registration.wait(&submission).unwrap();
+        display.wait(token).unwrap();
+        registration.retire(submission);
+        assert_eq!(port.unregister(handle), Err(RenderError::Unsupported));
+        assert_eq!(port.target(handle).unwrap().region, REGION);
+    }
+
+    #[test]
+    fn a_foreign_or_stale_handle_is_rejected_before_device_work() {
+        let (cell, mut registration, mut display, device) = setup();
+        let (other, _) = fresh();
+        let foreign = other.target();
+        let res = Resources::new();
+        assert_eq!(
+            registration
+                .render(&mut FrameInput::new(&image(), &res, &[], Target::DeviceOwned(foreign)))
+                .err(),
+            Some(RenderError::InvalidFrame)
+        );
+        assert!(!device.0.borrow().events.contains(&"submit-clear"));
+        assert_eq!(cell.port().queue_present(other.target().handle), Err(RenderError::InvalidFrame));
+        assert!(!device.0.borrow().events.contains(&"flush"));
+        // A new instance in the cell: the display's handle is stale.
+        drop(cell.take().unwrap());
+        let (replacement, _) = fresh();
+        assert!(cell.install(replacement).is_ok());
+        assert_eq!(display.acquire(REGION).err(), Some(DisplayError::InvalidTarget));
+    }
+
+    #[test]
+    fn the_target_size_is_fixed_and_a_resized_region_is_rejected() {
+        let (cell, _registration, mut display, _device) = setup();
+        let descriptor = display.descriptor();
+        assert_eq!([descriptor.width, descriptor.height], [200, 100]);
+        assert!(descriptor.queued_flush);
+        assert_eq!(
+            display.acquire(Rect::new(0, 0, 400, 200)).err(),
+            Some(DisplayError::InvalidTarget)
+        );
+        assert_eq!(cell.port().register(()), Err(RenderError::Unsupported));
+        assert_eq!(display.acquire(REGION).unwrap().region(), REGION);
+    }
+
+    #[test]
+    fn a_failed_submission_closes_the_scene_and_the_queued_flush_refuses_the_frame() {
+        let (cell, mut registration, mut display, device) = setup();
+        cell.borrow_mut().unwrap().begin_frame(0).unwrap();
+        let target = display.acquire(REGION).unwrap();
+        device.0.borrow_mut().fail_submit = true;
+        let res = Resources::new();
+        assert!(registration
+            .render(&mut FrameInput::new(&image(), &res, &[REGION], target))
+            .is_err());
+        device.0.borrow_mut().events.clear();
+        // A port flush after a failed submission waits and displays nothing.
+        let handle = cell.with(|r| r.target().handle).unwrap();
+        assert_eq!(cell.port().queue_present(handle), Err(RenderError::Failed));
+        assert_eq!(device.0.borrow().events, ["wait"]);
+        device.0.borrow_mut().fail_submit = false;
+        cell.borrow_mut().unwrap().begin_frame(0).unwrap();
+        let (submission, token) = frame(&mut registration, &mut display, &res);
+        registration.wait(&submission).unwrap();
+        display.wait(token).unwrap();
+        registration.retire(submission);
+    }
+
+    #[test]
+    fn runtime_order_ends_the_registration_before_the_display_drains_its_swap() {
+        let (cell, mut registration, mut display, device) = setup();
+        let (_submission, _token) = frame(&mut registration, &mut display, &Resources::new());
+        device.0.borrow_mut().events.clear();
+        drop(registration);
+        assert_eq!(
+            device.0.borrow().events,
+            ["display-wait", "wait", "retire"],
+            "the registration drains display transfers before retiring"
+        );
+        device.0.borrow_mut().events.clear();
+        drop(display);
+        assert_eq!(device.0.borrow().events, ["display-wait"]);
+        assert!(cell.borrow_mut().is_some(), "the process keeps its renderer");
+    }
+
+    #[test]
+    fn a_display_dropped_first_drains_its_swap_and_a_late_display_costs_nothing() {
+        let (cell, mut registration, mut display, device) = setup();
+        let (submission, _token) = frame(&mut registration, &mut display, &Resources::new());
+        device.0.borrow_mut().events.clear();
+        drop(display);
+        assert_eq!(device.0.borrow().events, ["display-wait"]);
+        registration.wait(&submission).unwrap();
+        registration.retire(submission);
+        drop(registration);
+        // The renderer is dropped before a second display with a queued swap.
+        let mut display = registered::GxmDisplay::new(&cell, DisplayRole::Primary).unwrap();
+        let mut registration = cell.registration().unwrap();
+        let (_submission, _token) = frame(&mut registration, &mut display, &Resources::new());
+        drop(registration);
+        drop(cell);
+        device.0.borrow_mut().events.clear();
+        drop(display);
+        assert_eq!(device.0.borrow().events, [] as [&str; 0]);
+    }
 }

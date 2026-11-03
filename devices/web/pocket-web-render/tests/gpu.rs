@@ -526,3 +526,229 @@ fn shutdown_releases_cache_pins_left_by_a_resource_callback_panic() {
     assert_eq!(renderer.resident_images(), 0);
     assert!(matches!(renderer.target(id), Err(RenderError::Failed)));
 }
+
+/// The device target contract (`pocket_drivers::target`) on wgpu: an
+/// unregistered target detaches from its pending submission, and shutdown is
+/// the renderer's terminal state.
+mod target_contract {
+    use super::*;
+    use pocket_drivers::target::{PendingUnregister, Registration, RendererCell, TargetSlot};
+    use pocket_web_render::TargetConfig;
+
+    fn texture(gpu: &Gpu, size: u32) -> wgpu::Texture {
+        gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("target contract output"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        })
+    }
+    fn read(gpu: &Gpu, texture: &wgpu::Texture, size: u32) -> Vec<u8> {
+        let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 256 * size as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(size),
+                },
+            },
+            texture.size(),
+        );
+        let index = gpu.queue.submit([encoder.finish()]);
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        gpu.device
+            .poll(wgpu::PollType::WaitForSubmissionIndex(index))
+            .unwrap();
+        let mapped = buffer.slice(..).get_mapped_range();
+        let row = size as usize * 4;
+        (0..size as usize)
+            .flat_map(|y| mapped[y * 256..y * 256 + row].to_vec())
+            .collect()
+    }
+    fn config(output: &wgpu::Texture, size: u32, scale: f32) -> TargetConfig {
+        TargetConfig::new(
+            &output.create_view(&Default::default()),
+            (size, size),
+            scale,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+        )
+    }
+    fn submit(
+        registration: &mut Registration<WgpuRenderer>,
+        target: DeviceTarget,
+        resources: &Resources,
+    ) -> Result<pocket_web_render::Submission, RenderError> {
+        registration.render(&mut FrameInput::new(
+            &image(4),
+            resources,
+            &[],
+            Target::DeviceOwned(target),
+        ))
+    }
+
+    #[test]
+    fn unregistering_a_pending_target_detaches_it_and_the_frame_still_completes() {
+        let gpu = Gpu::new();
+        let cell = RendererCell::new(gpu.renderer());
+        let port = cell.port();
+        assert_eq!(port.pending_unregister(), PendingUnregister::Detached);
+        let mut registration = cell.registration().unwrap();
+        let output = gpu.output();
+        let handle = port.register(config(&output, 4, 1.)).unwrap();
+        let resources = Resources::red();
+        let submission = submit(&mut registration, port.target(handle).unwrap(), &resources).unwrap();
+        port.unregister(handle).unwrap();
+        assert_eq!(port.target(handle).err(), Some(RenderError::InvalidFrame));
+        assert_eq!(cell.with(|r| r.pending_submissions()).unwrap(), 1);
+        registration.wait(&submission).unwrap();
+        registration.retire(submission);
+        assert_eq!(cell.with(|r| r.pending_submissions()).unwrap(), 0);
+        assert_eq!(gpu.read(&output), [255, 0, 0, 255].repeat(16));
+    }
+
+    #[test]
+    fn a_submission_to_an_unregistered_target_is_rejected_without_gpu_work() {
+        let gpu = Gpu::new();
+        let cell = RendererCell::new(gpu.renderer());
+        let port = cell.port();
+        let mut registration = cell.registration().unwrap();
+        let output = gpu.output();
+        let handle = port.register(config(&output, 4, 1.)).unwrap();
+        let stale = port.target(handle).unwrap();
+        port.unregister(handle).unwrap();
+        assert_eq!(
+            submit(&mut registration, stale, &Resources::red()).err(),
+            Some(RenderError::InvalidFrame)
+        );
+        assert_eq!(cell.with(|r| r.pending_submissions()).unwrap(), 0);
+        assert_eq!(cell.with(|r| r.resident_images()).unwrap(), 0);
+        assert_eq!(gpu.read(&output), [0; 64]);
+    }
+
+    #[test]
+    fn resize_registers_a_new_attachment_while_the_old_frame_is_pending() {
+        let gpu = Gpu::new();
+        let cell = RendererCell::new(gpu.renderer());
+        let mut registration = cell.registration().unwrap();
+        let mut slot = TargetSlot::new(cell.port());
+        let resources = Resources::red();
+        let small = gpu.output();
+        let first = slot.replace(config(&small, 4, 1.)).unwrap();
+        let old = first.handle;
+        let pending = submit(&mut registration, first, &resources).unwrap();
+        let large = texture(&gpu, 8);
+        let second = slot.replace(config(&large, 8, 2.)).unwrap();
+        assert_ne!(second.handle, old);
+        assert_eq!(second.region, Rect::new(0, 0, 8, 8));
+        assert!(cell.port().target(old).is_err());
+        let resized = submit(&mut registration, second, &resources).unwrap();
+        for submission in [pending, resized] {
+            registration.wait(&submission).unwrap();
+            registration.retire(submission);
+        }
+        assert_eq!(gpu.read(&small), [255, 0, 0, 255].repeat(16));
+        assert_eq!(read(&gpu, &large, 8), [255, 0, 0, 255].repeat(64));
+    }
+
+    #[test]
+    fn ending_the_registration_is_terminal_and_a_new_instance_makes_old_handles_stale() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let gpu = Gpu::new();
+        let cell = RendererCell::new(gpu.renderer());
+        let port = cell.port();
+        let mut registration = cell.registration().unwrap();
+        let mut slot = TargetSlot::new(port.clone());
+        let output = gpu.output();
+        let target = slot.replace(config(&output, 4, 1.)).unwrap();
+        let old = target.handle;
+        let _unretired = submit(&mut registration, target, &Resources::red()).unwrap();
+        let complete = Arc::new(AtomicBool::new(false));
+        gpu.queue.on_submitted_work_done({
+            let complete = complete.clone();
+            move || complete.store(true, Ordering::SeqCst)
+        });
+        drop(registration);
+        assert!(complete.load(Ordering::SeqCst), "shutdown waits for submitted work");
+        assert!(cell.with(|r| r.is_shutdown()).unwrap());
+        assert_eq!(cell.with(|r| r.pending_submissions()).unwrap(), 0);
+        assert_eq!(
+            port.register(config(&output, 4, 1.)).err(),
+            Some(RenderError::Failed)
+        );
+        assert_eq!(slot.target().err(), Some(RenderError::Failed));
+        slot.release().unwrap();
+        // Recovery: a new renderer in the same cell.
+        let target = slot.replace(config(&output, 4, 1.));
+        assert_eq!(target.err(), Some(RenderError::Failed));
+        drop(cell.take().unwrap());
+        assert!(cell.install(gpu.renderer()).is_ok());
+        let mut registration = cell.registration().unwrap();
+        let target = slot.replace(config(&output, 4, 1.)).unwrap();
+        assert_eq!(port.target(old).err(), Some(RenderError::InvalidFrame));
+        let mut resources = Resources::red();
+        resources.green();
+        let submission = submit(&mut registration, target, &resources).unwrap();
+        registration.wait(&submission).unwrap();
+        registration.retire(submission);
+        assert_eq!(gpu.read(&output), [0, 255, 0, 255].repeat(16));
+    }
+
+    #[test]
+    fn display_and_renderer_drop_in_either_order_without_stranding_gpu_work() {
+        let gpu = Gpu::new();
+        // Runtime order: registration, then display, then the composition.
+        let cell = RendererCell::new(gpu.renderer());
+        let port = cell.port();
+        let mut registration = cell.registration().unwrap();
+        let mut slot = TargetSlot::new(port.clone());
+        let output = gpu.output();
+        let submission =
+            submit(&mut registration, slot.replace(config(&output, 4, 1.)).unwrap(), &Resources::red())
+                .unwrap();
+        registration.wait(&submission).unwrap();
+        registration.retire(submission);
+        drop(registration);
+        drop(slot);
+        assert!(cell.with(|r| r.is_shutdown()).unwrap());
+        drop(cell);
+        assert_eq!(port.instance(), None);
+        assert_eq!(gpu.read(&output), [255, 0, 0, 255].repeat(16));
+        // The composition drops its cell first; the registration still renders.
+        let cell = RendererCell::new(gpu.renderer());
+        let port = cell.port();
+        let mut registration = cell.registration().unwrap();
+        let mut slot = TargetSlot::new(port.clone());
+        let output = gpu.output();
+        let target = slot.replace(config(&output, 4, 1.)).unwrap();
+        drop(cell);
+        let submission = submit(&mut registration, target, &Resources::red()).unwrap();
+        // A display dropped while its frame is pending detaches its target.
+        drop(slot);
+        registration.wait(&submission).unwrap();
+        registration.retire(submission);
+        assert!(port.instance().is_some());
+        drop(registration);
+        assert_eq!(port.instance(), None);
+        assert_eq!(gpu.read(&output), [255, 0, 0, 255].repeat(16));
+    }
+}

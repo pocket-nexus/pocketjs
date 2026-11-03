@@ -29,8 +29,13 @@ per submission is bounded by the pool size passed to `VitaDevice::new`, in
 addition to vita2d's native pool. These limits are candidate defaults pending
 hardware performance acceptance.
 
-The Vita host registers a typed Renderer and DeviceOwned DisplayOutput in
-its canonical Runtime. A shared scene begins with `graphics::begin_frame` and
+The Vita host keeps the process renderer in a `pocket_drivers::target::RendererCell`
+and registers a `Registration` of it and a DeviceOwned `GxmDisplay` in its
+canonical Runtime. The display reaches the renderer through a `TargetPort`:
+it presents the renderer's one fixed target, which cannot be unregistered, and
+queues the swap through the port. Dropping the registration waits for queued
+display transfers, then closes the scene and retires its submissions; the
+renderer stays in the process cell for native drawing and later guests. A shared scene begins with `graphics::begin_frame` and
 native 3D; `Runtime::render_over_with` records UI and an optional native overlay
 inside the coordinator's frame. **The renderer is `Deferred` and the display
 declares a queued flush: presentation ends the scene and queues

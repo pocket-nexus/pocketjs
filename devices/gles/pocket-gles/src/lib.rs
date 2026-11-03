@@ -721,6 +721,24 @@ impl<P: Pipeline, C: ContextAccess> Renderer for GlesRenderer<P, C> {
         }
     }
 }
+/// Targets are registered by the composition with a [`TargetConfig`]. A
+/// target that a pending submission renders into cannot be unregistered until
+/// that submission retires. Context loss keeps this rule: retirement after the
+/// loss makes no GL call.
+impl<P: Pipeline, C: ContextAccess> pocket_drivers::target::TargetRenderer for GlesRenderer<P, C> {
+    type TargetConfig = TargetConfig<C::NativeTarget>;
+    const PENDING_UNREGISTER: pocket_drivers::target::PendingUnregister =
+        pocket_drivers::target::PendingUnregister::Refused;
+    fn register_target(&mut self, config: Self::TargetConfig) -> Result<u64, RenderError> {
+        GlesRenderer::register_target(self, config)
+    }
+    fn unregister_target(&mut self, handle: u64) -> Result<(), RenderError> {
+        GlesRenderer::unregister_target(self, handle)
+    }
+    fn target(&self, handle: u64) -> Result<DeviceTarget, RenderError> {
+        GlesRenderer::target(self, handle)
+    }
+}
 impl<P: Pipeline, C: ContextAccess> Drop for GlesRenderer<P, C> {
     fn drop(&mut self) {
         let _ = self.finish();

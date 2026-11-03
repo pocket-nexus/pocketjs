@@ -20,6 +20,7 @@ pub mod input;
 pub mod package;
 pub mod render;
 pub mod resources;
+pub mod target;
 
 pub use clock::Clock;
 pub use damage_rect::DamageRect;

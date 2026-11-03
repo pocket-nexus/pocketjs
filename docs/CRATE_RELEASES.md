@@ -73,6 +73,16 @@ push is needed.
 `tools/release/publish-crates.ts`. The script reads each version from its Cargo
 manifest. The npm and Rust version numbers can differ.
 
+## Public API changes since the last release
+
+The generated changelog lists commit subjects. This table records additions
+and behavior changes to the public API of the published crates that the next
+release ships.
+
+| Crate | Change |
+| --- | --- |
+| `pocket-drivers` | New `target` module: the device target registration contract. `TargetRenderer` is the renderer half (`register_target`, `unregister_target`, `target`, `queue_present`, `drain_present`, `end_registration`, the `PENDING_UNREGISTER` rule); `PendingUnregister` names the three rules; `RendererCell`, `Registration`, `TargetPort` and `TargetSlot` hold the renderer, register it with a runtime, link a display to it and hold a display's current target. Existing items are unchanged. |
+
 ## First publication
 
 Initial publication requires a crates.io API token with publish permissions for

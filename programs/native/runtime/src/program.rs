@@ -57,7 +57,7 @@ pub struct PocketNativeProgram {
     busy: Cell<bool>,
     state: Rc<RefCell<State>>,
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    gl: Rc<RefCell<gpu::State>>,
+    gl: gpu::Gl,
 }
 struct Busy<'a>(&'a Cell<bool>);
 impl Drop for Busy<'_> {
@@ -350,7 +350,7 @@ unsafe fn create(
         busy: Cell::new(false),
         state: Rc::new(RefCell::new(State::default())),
         #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-        gl: Rc::new(RefCell::new(gpu::State::new(width, height))),
+        gl: gpu::Gl::new(width, height),
     });
     let check = |result: Result<(), RuntimeError>| result.map_err(status_code);
     let runtime = &program.runtime;
@@ -389,9 +389,9 @@ unsafe fn create(
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     {
         let renderer = runtime
-            .with_runtime(|runtime| runtime.add_renderer(gpu::Render(program.gl.clone())))
+            .with_runtime(|runtime| runtime.add_renderer(program.gl.render()))
             .map_err(status_code)?;
-        let display = gpu::Display(program.gl.clone());
+        let display = program.gl.display();
         check(runtime.with_runtime(|runtime| runtime.add_display(display, renderer).map(|_| ())))?;
     }
     // Native hosts own the final presentation transform, including logical-sized CPU buffers.
@@ -710,7 +710,13 @@ pub unsafe extern "C" fn pocket_native_program_destroy(program: *mut PocketNativ
 
 #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
 mod gpu {
+    //! The GL composition under the device target contract
+    //! (`pocket_drivers::target`). The program owns the GLES renderer in a
+    //! `RendererCell` and installs it while the host's context is current.
+    //! The display holds the window the host last presented and a
+    //! `TargetSlot`: each acquire registers that window as a new target.
     use super::*;
+    use pocket_drivers::target::{Registration, RendererCell, TargetSlot};
     use pocket_gles::{ClearMode, ContextAccess, TargetConfig, Viewport};
     pub(super) struct Context;
     // This unsafe program ABI requires the host to make its GL context current
@@ -728,118 +734,129 @@ mod gpu {
     type Driver = pocket_gles1::Renderer<Context>;
     #[cfg(not(feature = "gles1"))]
     type Driver = pocket_gles2::Renderer<Context>;
-    pub(super) struct State {
-        pub driver: Option<Driver>,
-        pub window: [u32; 2],
+    /// The host's presentation of the next frame, shared with the display.
+    pub(super) struct Window {
+        pub size: [u32; 2],
         pub viewport: Viewport,
         pub over: bool,
-        pub trace: Option<pocket_gles::Trace>,
-        target: Option<u64>,
     }
-    impl State {
+    /// The program's half: the renderer cell and the host trace.
+    pub(super) struct Gl {
+        renderer: RendererCell<Driver>,
+        pub window: Rc<RefCell<Window>>,
+        pub trace: Rc<Cell<Option<pocket_gles::Trace>>>,
+    }
+    impl Gl {
         pub fn new(w: u32, h: u32) -> Self {
             Self {
-                driver: None,
-                window: [w, h],
-                viewport: Viewport::new(0, 0, w, h),
-                over: false,
-                trace: None,
-                target: None,
+                renderer: RendererCell::empty(),
+                window: Rc::new(RefCell::new(Window {
+                    size: [w, h],
+                    viewport: Viewport::new(0, 0, w, h),
+                    over: false,
+                })),
+                trace: Rc::new(Cell::new(None)),
             }
         }
-        fn target(&mut self) -> Result<DeviceTarget, RenderError> {
-            let driver = self.driver.as_mut().ok_or(RenderError::Failed)?;
-            if let Some(old) = self.target.take() {
-                driver.unregister_target(old)?;
+        pub fn render(&self) -> Render {
+            Render {
+                registration: self.renderer.registration_with(
+                    RendererDescriptor::new(
+                        &[PixelFormat::Rgba8888],
+                        TargetOwnership::DeviceOwned,
+                        Synchronization::Deferred,
+                        POCKET_DRAW_LIST_VERSION,
+                        false,
+                    )
+                    .unwrap(),
+                ),
+                trace: self.trace.clone(),
+            }
+        }
+        pub fn display(&self) -> Display {
+            Display {
+                window: self.window.clone(),
+                target: TargetSlot::new(self.renderer.port()),
+            }
+        }
+        /// Replace the renderer on the current context. Handles of the old
+        /// instance become stale; the display registers anew.
+        pub fn initialize(&self) -> Result<(), RenderError> {
+            drop(self.renderer.take()?);
+            let mut driver = Driver::new(Context)?;
+            driver.set_trace(self.trace.get());
+            self.renderer
+                .install(driver)
+                .map_err(|_| RenderError::Failed)
+        }
+        pub fn reset(&self) {
+            let _ = self.renderer.with(|driver| driver.reset_resources());
+        }
+        pub fn shutdown(&self) {
+            if let Ok(driver) = self.renderer.take() {
+                drop(driver);
+            }
+        }
+        pub fn set_trace(&self, trace: Option<pocket_gles::Trace>) {
+            self.trace.set(trace);
+            let _ = self.renderer.with(|driver| driver.set_trace(trace));
+        }
+    }
+    pub(super) struct Render {
+        registration: Registration<Driver>,
+        trace: Rc<Cell<Option<pocket_gles::Trace>>>,
+    }
+    impl Renderer for Render {
+        type Submission = pocket_gles::Submission;
+        fn descriptor(&self) -> RendererDescriptor {
+            self.registration.descriptor()
+        }
+        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<Self::Submission, RenderError> {
+            if let Some(trace) = self.trace.get() {
+                trace(1, 0, 0);
+            }
+            self.registration.render(frame)
+        }
+        fn wait(&mut self, token: &Self::Submission) -> Result<(), RenderError> {
+            self.registration.wait(token)
+        }
+        fn retire(&mut self, token: Self::Submission) {
+            self.registration.retire(token)
+        }
+    }
+    pub(super) struct Display {
+        window: Rc<RefCell<Window>>,
+        target: TargetSlot<Driver>,
+    }
+    impl DisplayOutput for Display {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            let size = self.window.borrow().size;
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                size[0],
+                size[1],
+                PixelFormat::Rgba8888,
+                size[0] as usize * 4,
+                TargetOwnership::DeviceOwned,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            let window = self.window.borrow();
+            if region != Rect::new(0, 0, window.size[0], window.size[1]) {
+                return Err(DisplayError::InvalidTarget);
             }
             let mut config =
-                TargetConfig::new((), self.window, self.viewport, PixelFormat::Rgba8888);
-            config.clear = if self.over {
+                TargetConfig::new((), window.size, window.viewport, PixelFormat::Rgba8888);
+            config.clear = if window.over {
                 ClearMode::Preserve
             } else {
                 ClearMode::OpaqueBlack
             };
             config.external_compositor = true;
-            let handle = driver.register_target(config)?;
-            self.target = Some(handle);
-            driver.target(handle)
-        }
-        pub fn initialize(&mut self) -> Result<(), RenderError> {
-            self.driver = None;
-            self.target = None;
-            let mut driver = Driver::new(Context)?;
-            driver.set_trace(self.trace);
-            self.driver = Some(driver);
-            Ok(())
-        }
-        pub fn reset(&mut self) {
-            if let Some(driver) = self.driver.as_mut() {
-                let _ = driver.reset_resources();
-            }
-        }
-        pub fn shutdown(&mut self) {
-            self.driver = None;
-            self.target = None;
-        }
-    }
-    pub(super) struct Render(pub Rc<RefCell<State>>);
-    impl Renderer for Render {
-        type Submission = pocket_gles::Submission;
-        fn descriptor(&self) -> RendererDescriptor {
-            RendererDescriptor::new(
-                &[PixelFormat::Rgba8888],
-                TargetOwnership::DeviceOwned,
-                Synchronization::Deferred,
-                POCKET_DRAW_LIST_VERSION,
-                false,
-            )
-            .unwrap()
-        }
-        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<Self::Submission, RenderError> {
-            if let Some(trace) = self.0.borrow().trace {
-                trace(1, 0, 0);
-            }
-            self.0
-                .borrow_mut()
-                .driver
-                .as_mut()
-                .ok_or(RenderError::Failed)?
-                .render(frame)
-        }
-        fn wait(&mut self, token: &Self::Submission) -> Result<(), RenderError> {
-            self.0
-                .borrow_mut()
-                .driver
-                .as_mut()
-                .ok_or(RenderError::Failed)?
-                .wait(token)
-        }
-        fn retire(&mut self, token: Self::Submission) {
-            if let Some(driver) = self.0.borrow_mut().driver.as_mut() {
-                driver.retire(token);
-            }
-        }
-    }
-    pub(super) struct Display(pub Rc<RefCell<State>>);
-    impl DisplayOutput for Display {
-        type Token = ();
-        fn descriptor(&self) -> DisplayDescriptor {
-            let s = self.0.borrow();
-            DisplayDescriptor::new(
-                DisplayRole::Primary,
-                s.window[0],
-                s.window[1],
-                PixelFormat::Rgba8888,
-                s.window[0] as usize * 4,
-                TargetOwnership::DeviceOwned,
-            )
-        }
-        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
-            let mut s = self.0.borrow_mut();
-            if region != Rect::new(0, 0, s.window[0], s.window[1]) {
-                return Err(DisplayError::InvalidTarget);
-            }
-            s.target()
+            drop(window);
+            self.target
+                .replace(config)
                 .map(Target::DeviceOwned)
                 .map_err(|_| DisplayError::Failed)
         }
@@ -868,7 +885,7 @@ pub unsafe extern "C" fn pocket_native_program_gl_initialize(
     };
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     {
-        return if p.gl.borrow_mut().initialize().is_ok() {
+        return if p.gl.initialize().is_ok() {
             POCKET_STATUS_OK
         } else {
             POCKET_STATUS_FAILED
@@ -929,11 +946,11 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     {
         let old = {
-            let mut s = p.gl.borrow_mut();
-            let old = s.window;
-            s.window = [width, height];
-            s.viewport = pocket_gles::Viewport::new(x, y, target_width, target_height);
-            s.over = over != 0;
+            let mut window = p.gl.window.borrow_mut();
+            let old = window.size;
+            window.size = [width, height];
+            window.viewport = pocket_gles::Viewport::new(x, y, target_width, target_height);
+            window.over = over != 0;
             old
         };
         if old != [width, height] {
@@ -941,12 +958,12 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
                 runtime.resize_embedded_presentation([width, height])
             });
             if status != 0 {
-                p.gl.borrow_mut().window = old;
+                p.gl.window.borrow_mut().size = old;
                 return status;
             }
         }
         p.begin_render();
-        if let Some(trace) = p.gl.borrow().trace {
+        if let Some(trace) = p.gl.trace.get() {
             trace(0, 0, 0);
         }
         let mut status = call(&p.runtime, Runtime::present);
@@ -995,12 +1012,12 @@ pub unsafe extern "C" fn pocket_native_program_resize_viewport(
     }
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     {
-        let old = p.gl.borrow().window;
-        p.gl.borrow_mut().window = [width, height];
+        let old = p.gl.window.borrow().size;
+        p.gl.window.borrow_mut().size = [width, height];
         let status = call(&p.runtime, |runtime| {
             runtime.resize_embedded([width, height], [width, height])
         });
-        p.gl.borrow_mut().window = old;
+        p.gl.window.borrow_mut().size = old;
         if status != 0 {
             return status;
         }
@@ -1026,7 +1043,7 @@ pub unsafe extern "C" fn pocket_native_program_gl_reset(program: *mut PocketNati
         return;
     };
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    p.gl.borrow_mut().reset();
+    p.gl.reset();
 }
 /// # Safety
 /// Program is live; context remains current until graphics resources retire.
@@ -1039,7 +1056,7 @@ pub unsafe extern "C" fn pocket_native_program_gl_shutdown(program: *mut PocketN
         return;
     };
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    p.gl.borrow_mut().shutdown();
+    p.gl.shutdown();
 }
 
 /// # Safety
@@ -1056,13 +1073,7 @@ pub unsafe extern "C" fn pocket_native_program_set_gl_trace(
         return;
     };
     #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    {
-        let mut state = p.gl.borrow_mut();
-        state.trace = trace;
-        if let Some(driver) = state.driver.as_mut() {
-            driver.set_trace(trace);
-        }
-    }
+    p.gl.set_trace(trace);
     #[cfg(any(feature = "std", feature = "software-only"))]
     let _ = trace;
 }

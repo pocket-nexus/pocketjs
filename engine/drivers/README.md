@@ -23,7 +23,7 @@ assert_eq!(requested.intersect(viewport), DamageRect::new(0, 20, 50, 60));
 
 Rust 1.93 or later. `no_std` with `alloc`; the embedding program supplies an allocator.
 
-Drivers own device I/O. The runtime owns registration and frame scheduling. Borrowed resources must remain valid for the lifetime required by each submission.
+Drivers own device I/O. The runtime owns registration and frame scheduling. Borrowed resources must remain valid for the lifetime required by each submission. The `target` module states how a renderer issues the device target handles its displays present, who owns the renderer, and the order in which a renderer, its displays and their targets are destroyed.
 
 Use matching PocketJS crate releases and compiler contracts. Application package
 format, binding generation, and DrawList version are checked at their respective
