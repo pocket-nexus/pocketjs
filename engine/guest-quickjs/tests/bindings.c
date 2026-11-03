@@ -95,6 +95,7 @@ static void console_sink(void) {
   assert(pocket_guest_quickjs_set_log_hook(guest,capture_log,&capture)==0);
   assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
   assert(pocket_guest_quickjs_set_log_hook(guest,NULL,NULL)!=0);
+  eval(guest,&runtime,"if(console.log.name!=='log'||console.info.name!=='info'||console.warn.name!=='warn'||console.error.name!=='error'||console.debug.name!=='debug')throw Error('console function name')");
   eval(guest,&runtime,"console.log('hello',17);console.info('info');console.warn('warn');console.error('error');console.debug('debug');console.log();console.log('\\ud800x')");
   const pocket_qjs_log_level levels[]={POCKET_QJS_LOG,POCKET_QJS_INFO,POCKET_QJS_WARN,POCKET_QJS_ERROR,POCKET_QJS_DEBUG,POCKET_QJS_LOG,POCKET_QJS_LOG};
   const char *messages[]={"hello 17","info","warn","error","debug","","\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbdx"};
