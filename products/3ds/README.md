@@ -210,11 +210,18 @@ Pair once while ftpd is running, then restart Pocket Runtime:
 bun run 3ds:dev pair --host <device-ip> --ftp-port 5000
 ```
 
-**The pairing command generates a random 32-byte key, stores the local copy
-under `.pocket/3ds/devices/`, uploads the device copy, and verifies the FTP
-readback byte for byte.** The Runtime does not open a listener without the key,
-and a client must prove the complete key before any command or package byte is
-accepted.
+**The pairing command reads the console's key through ftpd first.** A console
+that holds a key keeps it, and the command stores the same 32 bytes on the
+computer; a console without one gets a random 32-byte key, uploaded and
+verified by an FTP readback byte for byte. `--rotate` replaces the console's
+key. **The computer keeps one file per console,
+`~/.pocketjs/3ds/keys/<device id>.key` (`$POCKETJS_3DS_KEYS` names another
+directory), shared by every tool that speaks this connection, Pocket Hub
+included** (`tools/3ds-keys.ts`). The device id is the FNV-1a64 of the key that
+discovery announces, as 16 hex digits. Keys a checkout stored under
+`.pocket/3ds/devices/` before are read and not written. The Runtime does not
+open a listener without the key, and a client must prove the complete key
+before any command or package byte is accepted.
 
 **The key authenticates a client but does not encrypt the TCP stream.** Use the
 listener on a trusted LAN, and pass `--rotate` to `pair` after a key is exposed.
