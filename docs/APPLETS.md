@@ -37,8 +37,8 @@ check` (`test/applets.test.ts`).
 | Field | Meaning |
 | --- | --- |
 | `version` | **1**. A later version adds rules; a host refuses versions it does not know. |
-| `summary` | One sentence on what the applet does, at most **120** characters. The console's store and Pocket Companion's list of applets show it. |
-| `services` | Companion services the applet's worker fetches at `https://companion.pocket/<name>/…` through `io.http`. At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service the app does not declare. |
+| `summary` | One sentence on what the applet does, at most **120** characters. The console's store and Pocket Hub's list of applets show it. |
+| `services` | Companion services the applet's worker fetches at `https://companion.pocket/<name>/…` through `io.http`. At most **8**. Pocket Hub reads this list from the package it offers and answers **403** to a service the app does not declare. |
 | `hosts` | Host names outside the companion that the applet's worker fetches, at most **16**, each a lower-case DNS name. A host that installs applets from a store (Omarchy Pocket) lists them before an install, and its `http` node refuses any other host to an app the store installed. |
 | `store` | Persistent state: required for `data.fs`; `maxBytes` at most **4 MiB**. |
 
@@ -93,6 +93,35 @@ The source rules walk the UI's import graph from `app.entry`. The worker
 bundle (`tools/build-worker.ts`) resolves only the modules whose domain is
 `worker`.
 
+## A service's owner setup
+
+A companion service that needs something from its owner declares it as an
+`OwnerSetup` (Pocket Hub's `tools/companion/setup.ts`), and **the companion answers
+`/_setup` the same way for every service**, so one setup page in an applet
+serves any of them. The wire types are `contracts/spec/owner-setup.ts`:
+
+| Kind | What the companion does |
+| --- | --- |
+| **Field** | A value the owner types once: a key from a vendor's dashboard, an instance URL. Checked against the field's pattern and kept in `<store>/services/<name>/setup.json` (**0600**). `/_setup` answers whether a field is set and never a secret's value. |
+| **Vendor tool** | A vendor's own program the service runs, which the companion may not bundle or pass on. It is fetched from the vendor when the owner consents to the vendor's terms (the consent is kept), SHA-256 checked when the spec pins one, unpacked into `<store>/services/<name>/tools/<id>/<digest>/`, and fetched again after `refreshAfterDays`, the old build kept until the new one is in place. A tool consented to and not in place is fetched when the service starts. After a failed fetch the background refresh waits **10 minutes**; a fetch places its build only if the consent it started under still holds. |
+| **Prompt** | Something the owner does elsewhere, shown while it waits: confirm a code at a vendor's page (`code`), pick this device in a vendor's app (`pick`). |
+
+| Request | Answer |
+| --- | --- |
+| `GET /<service>/_setup` | `SetupState`: the fields with `set`, the tools with `state` (`unavailable`, `absent`, `fetching`, `ready`, `failed`), `consented` and the bytes fetched, the prompt, and `ready` |
+| `POST /<service>/_setup {field, value}` / `{field, clear: true}` | sets or forgets a field |
+| `POST /<service>/_setup {tool, consent: true}` / `{tool, update: true}` / `{tool, remove: true}` | accepts the terms and fetches, fetches again (**400** without the consent), or stops a fetch, deletes the tool and withdraws the consent |
+
+A refused change answers **400** with `{error}`. A service with no setup
+answers **404** at `/_setup`. A program a service keeps running (its own
+helper, a vendor tool) runs under `Supervised` (Pocket Hub's `tools/companion/supervise.ts`):
+started again when it exits after **1 s**, doubling to **30 s**, with its
+arguments and environment read at each start. A stop waits for the program
+to exit and kills it after **2 s**; a start waits for the run it replaces. It
+does not outlive its supervisor: with `pidFile`, a start first stops the run
+the file names when that process is the same program, and the supervisor's
+exit stops it.
+
 ## Source rules
 
 `tools/applet-check.ts` walks the import graph from `app.entry`. Comments and
@@ -112,8 +141,8 @@ does not count.
 
 | Output | Budget | 3DS builds |
 | --- | --- | --- |
-| Guest bundle (`<output>.js`) | **640 KiB** | 315 KiB (Camera) to 502 KiB (GitHub) in Pocket Companion 0.16.0 |
-| Pak (`<output>.pak`) | **3 MiB** | 174 KiB (Camera) to 479 KiB (Notes) in Pocket Companion 0.16.0; 2.33 MB for Pocket Nexus (`apps/nexus`) |
+| Guest bundle (`<output>.js`) | **640 KiB** | 315 KiB (Camera) to 502 KiB (GitHub), built with PocketJS 0.16.0 |
+| Pak (`<output>.pak`) | **3 MiB** | 174 KiB (Camera) to 479 KiB (Notes), built with PocketJS 0.16.0; 2.33 MB for Pocket Nexus (`apps/nexus`) |
 
 ## One program on two surfaces
 

@@ -26,7 +26,7 @@ const APPLET_VERSION = 1 as const;
 export interface AppletDeclaration {
   readonly version: typeof APPLET_VERSION;
   /** One sentence on what the applet does, shown where it is offered (the
-   *  console's store, Pocket Companion's list). */
+   *  console's store, Pocket Hub's list). */
   readonly summary?: string;
   /** Companion services the applet's worker fetches at
    *  `https://companion.pocket/<name>/…` (contracts/spec/link.ts

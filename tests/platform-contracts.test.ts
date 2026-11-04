@@ -579,7 +579,6 @@ describe("semantic resolution", () => {
       cards: [true, true, false, true],
       chrome: [true, true, false, true],
       clear: [false, false, false, false], // admitted only by the private ipodtouch4-dev profile (fixed 320x480 portrait touch surface)
-      "companion-zero": [false, false, false, false], // built against programs/cardputer-zero's profile: a fixed 320x170 panel and a worker whose HTTP reaches its own machine
       cursor: [true, true, false, true],
       devkit: [true, true, false, true],
       gallery: [true, true, false, true],

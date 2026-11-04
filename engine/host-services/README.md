@@ -26,10 +26,10 @@ every program implements once.
 | M5Stack Tab5 | pocket-nexus/pocket-m5 `programs/m5stack-tab5/components/pocket_system`, `pocket_camera`, `pocket_media` | `src/services_host.c` in `pocket_system`: `esp_timer`, `esp_fill_random`, lwIP, the `/pocket` store; the camera and media components compile the photo, QR and media sources |
 
 `platforms/3ds/media.c` reads the media headers from this directory. The
-build machine compiles `fs.c`, `jscan.c`, `link.c`, `launcher.c`,
-`link_proto.c` and `sha256.c` in `tests/fs-3ds.test.ts`,
-`tests/3ds-link.test.ts`, `tests/3ds-runtime-state.test.ts` and
-`tests/host-services-link.test.ts`. `link_http.c` needs
-`engine/worker/include` on the include path; `tests/host-services-link.test.ts`
-builds it into the link client under `POCKETJS_WORKER_HTTP`, and
-`tests/worker-http-stream.test.ts` builds it with `jscan.c` and no link client.
+build machine compiles `fs.c`, `jscan.c`, `link_proto.c` and `sha256.c` in
+`tests/fs-3ds.test.ts`, `tests/3ds-link.test.ts` and
+`tests/3ds-runtime-state.test.ts`. `link_http.c` needs `engine/worker/include`
+on the include path; `tests/worker-http-stream.test.ts` builds it with
+`jscan.c` and no link client. Pocket Hub's tests build `link.c`, `launcher.c`
+and `link_http.c` (under `POCKETJS_WORKER_HTTP`) into a POSIX link client and
+run it against Pocket Hub's companion.

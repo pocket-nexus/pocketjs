@@ -613,8 +613,9 @@ own-screen frames, all over the Pocket Link. `main.c` filters the chord out of
 the guest's buttons, copies the touch screen into the monitor's texture at
 the start of the frame and calls `stage_render` in place of the primary
 surface's draw. `ui.captureTexts` / `ui.capturedTexts` read the texts a
-surface painted. The mechanism, the overlay and the companion side are in
-[docs/POCKET-AGENT.md](../../docs/POCKET-AGENT.md).
+surface painted. The mechanism and the overlay are in
+[docs/POCKET-AGENT.md](../../docs/POCKET-AGENT.md); the companion side runs in
+Pocket Hub.
 
 ## Product extensions
 
@@ -630,7 +631,7 @@ bun tools/3ds.ts <app> --project-root=<dir> --extension=<dir> --extension-romfs=
 | `<extension>/src/*.c` | Compiled with this product's flags and include paths. Implements every function in `include/pocket_extension.h` |
 | `--extension-romfs` | Files staged as `romfs:/extension` |
 
-**A plan with the capability and no `--extension` fails the build.** A binary without an extension refuses such a guest at boot. `main.c` calls the extension's tick before the frame, its frame begin after the previous frame retired, its render from the primary display's draw and its after-frame outside the frame. `agent_use_channel` gives it the microphone as `<feature>.audio`, and `link_feature_ready` says when the companion offers that feature. On the computer, `main()` in `tools/companion.ts` takes `LinkExtensionFactory` values, whose sessions receive `<feature>.*` messages.
+**A plan with the capability and no `--extension` fails the build.** A binary without an extension refuses such a guest at boot. `main.c` calls the extension's tick before the frame, its frame begin after the previous frame retired, its render from the primary display's draw and its after-frame outside the frame. `agent_use_channel` gives it the microphone as `<feature>.audio`, and `link_feature_ready` says when the companion offers that feature. On the computer, Pocket Hub's `main()` takes `LinkExtensionFactory` values, whose sessions receive `<feature>.*` messages.
 
 ## ZL and ZR
 

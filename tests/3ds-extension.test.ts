@@ -1,12 +1,10 @@
 // The seam a program outside this repository uses to add a product extension to the
-// 3DS product: its build arguments, its C interface, and its link features.
+// 3DS product: its build arguments and its C interface. The link side of an
+// extension (LinkExtensionFactory) is tested in Pocket Hub.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse3dsArguments } from "../products/3ds/build.ts";
-import { Companion, type LinkExtensionSession } from "../tools/companion/server.ts";
-import { CompanionStore } from "../tools/companion/store.ts";
 
 const product = resolve(import.meta.dir, "../products/3ds");
 
@@ -26,25 +24,5 @@ describe("3DS product extensions", () => {
       expect(called.length).toBeGreaterThan(0);
       for (const name of called) expect(header).toContain(`${name}(`);
     }
-  });
-
-  test("a link extension adds its feature and stops with the companion", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "link-extension-"));
-    let stops = 0;
-    const session: LinkExtensionSession = { handle() {}, data: () => false, detach() {} };
-    const companion = new Companion({
-      store: new CompanionStore(dir),
-      appsDirs: [],
-      agent: false,
-      extensions: [({ storeDir }) => {
-        expect(storeDir).toBe(dir);
-        return { feature: "a-feature", attach: () => session, stop: () => { stops += 1; } };
-      }],
-      log() {},
-    });
-    expect(companion.features()).toContain("a-feature");
-    await companion.stop();
-    expect(stops).toBe(1);
-    rmSync(dir, { recursive: true, force: true });
   });
 });

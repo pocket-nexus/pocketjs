@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn fnv_matches_the_companion() {
-        // The companion's fnv1a32 (tools/companion/usb.ts) gives the same values.
+        // The fnv1a32 of Pocket Hub's USB carrier gives the same values.
         assert_eq!(fnv1a32(b""), 2166136261);
         assert_eq!(fnv1a32(b"a"), 0xe40c292c);
     }

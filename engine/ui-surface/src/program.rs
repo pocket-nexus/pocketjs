@@ -289,34 +289,48 @@ impl pocket_runtime::Guest for NativeGuest {
     }
     fn evaluate(&mut self, source: &[u8]) -> Result<(), RuntimeError> {
         let source = source.strip_suffix(&[0]).unwrap_or(source);
-        self.guest.with(|ctx| {
+        let turn = self.guest.with(|ctx| {
             ctx.eval::<(), _>(source).catch(&ctx).map_err(|error| {
                 log::error!("native guest evaluate: {error}");
                 RuntimeError::Guest
             })
-        })?;
-        self.collect()?;
+        });
+        self.finish(turn)?;
         if !self.guest.has_frame() {
             return Err(RuntimeError::Guest);
         }
         Ok(())
     }
     fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
-        self.guest.with(|ctx| {
+        let turn = self.guest.with(|ctx| {
             pocket_guest_rquickjs::call_frame(&ctx, frame)
                 .catch(&ctx)
                 .map_err(|error| {
                     log::error!("native guest frame: {error}");
                     RuntimeError::Guest
                 })
-        })?;
-        self.collect()
+        });
+        self.finish(turn)
     }
     fn collect(&mut self) -> Result<(), RuntimeError> {
         self.guest.collect_result().map_err(|error| {
             log::error!("native guest jobs: {error:#}");
             RuntimeError::Guest
         })
+    }
+}
+impl NativeGuest {
+    /// The end of a turn: its jobs when it returned (collect_result keeps the
+    /// collection threshold below the memory limit), the threshold kept below
+    /// it when the turn threw (out of memory among the reasons).
+    fn finish(&mut self, turn: Result<(), RuntimeError>) -> Result<(), RuntimeError> {
+        match turn {
+            Ok(()) => pocket_runtime::Guest::collect(self),
+            Err(error) => {
+                self.guest.keep_collection_below_limit();
+                Err(error)
+            }
+        }
     }
 }
 

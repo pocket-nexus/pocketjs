@@ -1,7 +1,7 @@
 // The socket-free half of the Pocket Link client (engine/host-services/
 // link_proto.c, sha256.c, jscan.c) and the vendored QR decoder, compiled for
 // the build machine and checked against the contract (contracts/spec/link.ts)
-// and the companion's own codec (tools/companion/protocol.ts, qr.ts): the
+// and the reference codec (tools/pocket-link/protocol.ts, qr.ts): the
 // console and the companion must compute the same proofs, read the same
 // pairing URI and beacon, and the console must decode the code the companion
 // shows.
@@ -18,8 +18,8 @@ companionProof,
 consoleProof,
 encodeBeacon,
 maskKey,
-} from "../tools/companion/protocol.ts";
-import { encodeQr,rasterizeQr } from "../tools/companion/qr.ts";
+} from "../tools/pocket-link/protocol.ts";
+import { encodeQr,rasterizeQr } from "../tools/pocket-link/qr.ts";
 
 const root = resolve(import.meta.dir, "..");
 const src = join(root, "products/3ds/src");
