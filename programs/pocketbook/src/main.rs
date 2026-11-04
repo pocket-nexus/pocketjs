@@ -138,10 +138,7 @@ fn run(
         full: true,
         flushes: 0,
     }));
-    program.add_display(
-        display::Display::new(panel.clone()),
-        pocket_runtime::RendererId::SOFTWARE,
-    )?;
+    register_output(&mut program, display::Display::new(panel.clone()))?;
     program.boot(Rc::new(Guest::new()?), "app", &bundle, &pak)?;
     let started = Instant::now();
     let mut schedule = pocket_runtime::timing::TickSchedule::new(PRESENT_HZ, 0, 1)
@@ -202,6 +199,24 @@ fn run(
         tick(&mut program, &panel, &input, full)?;
     }
     Ok(())
+}
+
+/// Register the software rasterizer as renderer 0, then the display that
+/// binds it. Registration precedes boot.
+fn register_output<D: pocket_drivers::DisplayOutput + 'static>(
+    program: &mut UiProgram,
+    display: D,
+) -> Result<()>
+where
+    D::Token: 'static,
+{
+    let renderer = pocket_raster::RasterRenderer::new(1)
+        .map_err(|error| anyhow::anyhow!("software renderer: {error:?}"))?;
+    program
+        .runtime_mut()
+        .set_software_renderer(renderer, pocket_raster::RasterRenderer::new)
+        .map_err(|error| anyhow::anyhow!("software renderer: {error:?}"))?;
+    program.add_display(display, pocket_runtime::RendererId::SOFTWARE)
 }
 
 /// Submit device facts, let Runtime drive the guest/core, and present through

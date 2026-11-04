@@ -14,6 +14,10 @@
 //! memory model from docs/DESIGN.md "Memory (the blocker fix)".
 
 extern crate alloc;
+// The archive's symbol shells define the pocket_runtime_op and
+// pocket_runtime_supports_op the C guest calls (external-runtime: no
+// allocator or panic handler of its own).
+use pocket_archive as _;
 
 mod allocator;
 pub use pocket_psp_alloc::arena;

@@ -10,63 +10,13 @@
 use core::ffi::{c_char, c_void};
 use core::ptr;
 
-// Shared entry points and scalar types belong to pocket-gles.
+// `pocket_gles::raw` declares every entry point; this crate references only
+// the ES 2 set and the common set.
+use pocket_gles::raw::es2::*;
 use pocket_gles::raw::{
-    glGetError, GLenum, GLfloat, GLint, GLsizei, GLuint, GL_FLOAT, GL_NO_ERROR,
-    GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_UNSIGNED_BYTE,
+    glActiveTexture, glGetError, GLenum, GLint, GLsizei, GLuint, GL_FLOAT, GL_NO_ERROR, GL_ONE,
+    GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_TEXTURE0, GL_UNSIGNED_BYTE,
 };
-
-/// Only the separate-alpha blend path needs this factor.
-const GL_ONE: GLenum = 1;
-
-type GLboolean = u8;
-const GL_FALSE: GLboolean = 0;
-
-const GL_VERTEX_SHADER: GLenum = 0x8b31;
-const GL_FRAGMENT_SHADER: GLenum = 0x8b30;
-const GL_COMPILE_STATUS: GLenum = 0x8b81;
-const GL_LINK_STATUS: GLenum = 0x8b82;
-const GL_TEXTURE0: GLenum = 0x84c0;
-
-unsafe extern "C" {
-    fn glActiveTexture(texture: GLenum);
-    fn glAttachShader(program: GLuint, shader: GLuint);
-    fn glBindAttribLocation(program: GLuint, index: GLuint, name: *const c_char);
-    fn glBlendFuncSeparate(
-        source_rgb: GLenum,
-        destination_rgb: GLenum,
-        source_alpha: GLenum,
-        destination_alpha: GLenum,
-    );
-    fn glCompileShader(shader: GLuint);
-    fn glCreateProgram() -> GLuint;
-    fn glCreateShader(kind: GLenum) -> GLuint;
-    fn glDeleteProgram(program: GLuint);
-    fn glDeleteShader(shader: GLuint);
-    fn glDisableVertexAttribArray(index: GLuint);
-    fn glEnableVertexAttribArray(index: GLuint);
-    fn glGetProgramiv(program: GLuint, parameter: GLenum, value: *mut GLint);
-    fn glGetShaderiv(shader: GLuint, parameter: GLenum, value: *mut GLint);
-    fn glGetUniformLocation(program: GLuint, name: *const c_char) -> GLint;
-    fn glLinkProgram(program: GLuint);
-    fn glShaderSource(
-        shader: GLuint,
-        count: GLsizei,
-        source: *const *const c_char,
-        length: *const GLint,
-    );
-    fn glUniform1i(location: GLint, value: GLint);
-    fn glUniform2f(location: GLint, x: GLfloat, y: GLfloat);
-    fn glUseProgram(program: GLuint);
-    fn glVertexAttribPointer(
-        index: GLuint,
-        size: GLint,
-        kind: GLenum,
-        normalized: GLboolean,
-        stride: GLsizei,
-        pointer: *const c_void,
-    );
-}
 
 const VERTEX_SHADER: &[u8] = b"
 attribute vec2 a_position;

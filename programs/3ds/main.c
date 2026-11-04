@@ -1,8 +1,11 @@
-/* Minimal file PackageSource + Runtime + generated QuickJS + PICA program. */
+/* Minimal file PackageSource + generated QuickJS + PICA program composed
+ * through the QuickJS facade (pocket_qjs_program.h) over the native program
+ * built without outputs or hooks. */
 #include <3ds.h>
 #include <citro3d.h>
 #include <pocket_guest_quickjs.h>
 #include <pocket_pica_driver.h>
+#include <pocket_qjs_program.h>
 #include "pocket_profile.h"
 #include "package_source.h"
 #include "input.h"
@@ -14,13 +17,35 @@
 unsigned int __stacksize__ = 1024 * 1024;
 static const size_t heap_limit = 64u * 1024u * 1024u;
 
+/* What compose registers on the runtime the facade creates for each boot. */
+typedef struct {
+  pocket_pica_renderer *renderer;
+  pocket_pica_display *primary, *auxiliary;
+  pocket_3ds_input_source *input;
+  pocket_runtime *runtime;
+} composition;
+static int32_t compose(void *context, pocket_runtime *runtime) {
+  composition *c = context;
+  pocket_renderer_id renderer_id = pocket_runtime_add_renderer(runtime,
+    pocket_pica_renderer_vtable(), c->renderer);
+  if (renderer_id == POCKET_RENDERER_INVALID ||
+      pocket_runtime_add_display(runtime, pocket_pica_display_vtable(), c->primary, renderer_id) ||
+      pocket_runtime_add_display(runtime, pocket_pica_display_vtable(), c->auxiliary, renderer_id) ||
+      pocket_runtime_add_input_source(runtime, pocket_3ds_input_source_vtable(), c->input)) return -1;
+  c->runtime = runtime;
+  return 0;
+}
+static void release(void *context) { ((composition *)context)->runtime = NULL; }
+static const char *guest_error(void *guest) { return pocket_guest_quickjs_error(guest); }
+
 int main(int argc, char **argv) {
   int result = 1;
   char failure[256] = "3DS graphics initialization failed";
   bool graphics = false, romfs = false, hid = false;
   pocket_3ds_file_source file = {0};
   pocket_3ds_input_source input = {0};
-  pocket_runtime *runtime = NULL;
+  PocketQjsProgram *program = NULL;
+  composition parts = {0};
   pocket_guest_quickjs *guest = NULL;
   JSRuntime *js_runtime = NULL;
   JSContext *js_context = NULL;
@@ -51,13 +76,6 @@ int main(int argc, char **argv) {
     POCKET_DISPLAY_ROLE_AUXILIARY, bottom, NULL, 320, 240);
   if (!primary || !auxiliary) goto done;
 
-  pocket_runtime_config config = {.struct_size=sizeof config,
-    .host_abi=pocket_profile.host_abi, .tick_hz=pocket_profile.tick_hz,
-    .heap_limit=heap_limit, .frame_buffer_budget=400u*240u*4u+320u*240u*4u,
-    .profile=pocket_profile.facts};
-  memcpy(config.profile_hash, pocket_profile.profile_hash, sizeof config.profile_hash);
-  runtime = pocket_runtime_create(&config);
-  if (!runtime) goto done;
   js_runtime = JS_NewRuntime();
   if (!js_runtime) goto done;
   JS_SetMaxStackSize(js_runtime, 384u * 1024u);
@@ -67,18 +85,24 @@ int main(int argc, char **argv) {
   guest = pocket_guest_quickjs_attach(js_context, POCKET_QJS_CANONICAL);
   if (!guest) goto done;
   pocket_3ds_input_source_set(&input, 0, 0x8080, NULL, 0, 0x8080);
-  pocket_renderer_id renderer_id = pocket_runtime_add_renderer(runtime,
-    pocket_pica_renderer_vtable(), renderer);
-  if (renderer_id == POCKET_RENDERER_INVALID ||
-      pocket_runtime_add_display(runtime, pocket_pica_display_vtable(), primary, renderer_id) ||
-      pocket_runtime_add_display(runtime, pocket_pica_display_vtable(), auxiliary, renderer_id) ||
-      pocket_runtime_set_package_source(runtime, pocket_3ds_file_source_vtable(), &file) ||
-      pocket_runtime_set_guest(runtime, pocket_guest_quickjs_vtable(), guest) ||
-      pocket_runtime_add_input_source(runtime, pocket_3ds_input_source_vtable(), &input)) goto done;
+  parts = (composition){.renderer=renderer, .primary=primary, .auxiliary=auxiliary, .input=&input};
+  const pocket_qjs_program_host host = {.struct_size=sizeof host,
+    .profile=pocket_profile.facts, .profile_hash=pocket_profile.profile_hash,
+    .guest=pocket_guest_quickjs_vtable(), .guest_context=guest, .guest_error=guest_error,
+    .compose=compose, .release=release, .context=&parts};
+  program = pocket_qjs_program_create_host(&host);
+  if (!program) goto done;
   pocket_3ds_hid_init();
   hid = true;
   snprintf(failure, sizeof failure, "Package admission or guest boot failed");
-  if (pocket_runtime_boot(runtime)) goto done;
+  /* Runtime reads, verifies and admits the package from the file at boot. */
+  const pocket_profile_display *view = pocket_profile.facts->display;
+  if (!pocket_qjs_program_boot_source(program, pocket_3ds_file_source_vtable(), &file,
+        (int)view->logical[0], (int)view->logical[1], view->raster_density,
+        heap_limit, 400u*240u*4u+320u*240u*4u)) {
+    snprintf(failure, sizeof failure, "%s", pocket_qjs_program_error(program));
+    goto done;
+  }
   while (aptMainLoop()) {
     hidScanInput();
     /* Exit belongs to this program; the input mechanism does not reserve keys. */
@@ -89,15 +113,16 @@ int main(int argc, char **argv) {
     size_t count = pocket_3ds_hid_touch(&touch);
     pocket_3ds_input_source_set(&input, buttons, pocket_3ds_hid_analog(),
       &touch, count, pocket_3ds_hid_right_analog());
-    if (pocket_runtime_tick(runtime)) { snprintf(failure, sizeof failure, "Runtime frame failed"); goto done; }
+    if (pocket_runtime_tick(parts.runtime)) { snprintf(failure, sizeof failure, "Runtime frame failed"); goto done; }
     gspWaitForVBlank();
   }
   result = 0;
 done:
   if (result && guest && pocket_guest_quickjs_error(guest)[0])
     snprintf(failure, sizeof failure, "%s", pocket_guest_quickjs_error(guest));
-  /* Runtime ends all GPU access and guest callbacks before these contexts die. */
-  pocket_runtime_destroy(runtime);
+  /* The facade's program ends all GPU access and guest callbacks before
+   * these contexts die. */
+  pocket_qjs_program_destroy(program);
   pocket_guest_quickjs_destroy(guest);
   if (js_context) JS_FreeContext(js_context);
   if (js_runtime) JS_FreeRuntime(js_runtime);

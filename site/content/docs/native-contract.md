@@ -54,21 +54,24 @@ The op codes are pinned once, in `contracts/spec/spec.ts` (the `OP` table), and 
 `contracts/spec/input.ts`, `driver-abi.ts`, and `runtime-abi.ts` define the
 device vocabulary, C records, callbacks, and runtime function declarations.
 `bun tools/driver-contracts.ts` generates `contracts/generated/pocket_drivers.h`,
-`contracts/generated/pocket_runtime.h`, and `engine/drivers/src/abi.rs`.
+`contracts/generated/pocket_runtime.h`, and `engine/drivers/src/abi/generated.rs`.
 `--check` compares each output with its source. Rust and C compile-time
 assertions check field offsets, alignment, and record size using the target's
 primitive alignment rules.
 
-**`pocket-runtime-cabi` implements the instance runtime functions.**
-`pocket-runtime` owns application state and driver registration. The C and Rust
+**`pocket_runtime::abi` implements the instance runtime functions.**
+`pocket-runtime` owns application state and driver registration; its `abi`
+module holds the instance handle and the function bodies, and
+`programs/sdk/archive` defines each exported symbol once over them.
+`pocket_drivers::abi` holds the C records, the pointer checks and the adapters
+between C vtables and the driver traits. The C and Rust
 guest adapters use signatures from `contracts/spec/ui-ops.ts`, whose generated
 dispatcher validates argument records before calling the core. Byte arguments
 remain borrowed for the call; byte results expire at the next call on the same
 instance, including a failed call.
 
-The old UI and ESP-IDF library names delegate to compatibility implementations
-in `engine/runtime-cabi/src/compat`. Existing QuickJS C, rquickjs `UiSurface`,
-and Wasm entry paths remain available. **Applications use package format 2
+Existing QuickJS C, rquickjs `UiSurface`, and Wasm entry paths remain
+available. **Applications use package format 2
 and binding generation 12.** Host contract identity (`profileHash`), binding
 generation, C record prefixes and DrawList versions are checked as separate
 contracts.
@@ -83,12 +86,43 @@ provides the six host hooks and its QuickJS dependency. `pocket sdk verify
 not publish a release or freeze the ABI. `pocket sdk build` compiles a local
 candidate from a source checkout. See `docs/SDK.md` for release and Cargo exports.
 
+**Renderer 0 (`POCKET_RENDERER_SOFTWARE`) is the software rasterizer of archives
+built with the `pocket-archive` feature `software-renderer`.** The C SDK, the
+ESP-IDF and the SiFli archives enable it: `pocket_runtime_create` registers the
+rasterizer there, a CPU-visible display binds it without registering a
+renderer, and the rasterizer is rebuilt at the integer scale boot and each
+resize select. `pocket_raster_draw_op` draws in those archives. The 3DS product
+archive and the program archives do not enable it: no renderer has id 0,
+`pocket_runtime_add_display` with it fails, and `pocket_raster_draw_op` returns
+`POCKET_STATUS_UNSUPPORTED` without writing the surface. Registered renderers
+take ids from 1 in every archive. Rust programs register the rasterizer with
+`Runtime::set_software_renderer` before a display binds renderer 0.
+
 `DisplayOutput` owns acquired targets and display transfers. `Renderer`
 consumes the core's DrawList and borrowed resource views. The Rust render
 method takes `&mut FrameInput` because a CPU surface grants exclusive write
 access to its pixels. A renderer with a CPU-visible target uses the
 `Immediate` synchronization model; a device-owned target may use either
 model.
+
+**A device-owned target's handle comes from the renderer that renders into
+it.** `pocket_drivers::target` states the registration contract. The
+composition creates the renderer and keeps it in a `RendererCell`; the runtime
+receives a `Registration` of that cell, and each display receives a
+`TargetPort`, a weak link that reaches the renderer's `TargetRenderer` methods
+and never keeps the renderer alive. The composition or display creates a
+target's backing and registers it through the port; the renderer validates the
+configuration and issues the handle. **A handle belongs to one renderer
+instance**: installing a new renderer in the cell, as recovery from GL context
+loss does, makes every earlier handle stale. A target's region is fixed at
+registration, so a resize registers a new target and unregisters the old one.
+Each renderer declares what unregistering does while a pending submission
+renders into the target: GLES refuses until that submission retires, wgpu
+removes the registration while the encoded submission keeps its own view of
+the attachment, and the Vita GXM renderer owns one fixed target that cannot be
+unregistered. **The runtime drops renderer registrations before displays.**
+Dropping a `Registration` stops the work submitted through it; a display
+dropped afterwards makes no device call once the renderer is gone.
 
 **The required order is acquire, render, renderer wait, display flush,
 display wait, retire.** An `Immediate` renderer's frame runs the whole
@@ -196,7 +230,47 @@ make an old renderer understand a new DrawList operation. The runtime lifecycle
 tests cover old-package rejection before guest initialization and replacement
 with a current package. Before a release, `bun tools/test-runtime-cabi-compat.ts`
 compiles and links old/new C prefixes in both directions against the archive of
-the first revision with `pocket_profile_facts`; CI does not run it.
+the first main-line revision with `pocket_profile_facts`, and
+`bun tools/test-native-program-compat.ts` does the same for
+`pocket_native_program.h` against that revision's program archive, built under
+its own crate name and features. **Both tools fail when the two archives come
+from one source revision or are byte-identical.** CI does not run them.
+
+## Native programs
+
+**`pocket_native_program.h` composes one runtime instance for a C host.**
+`programs/native/runtime` creates the instance from one of four constructors:
+raw JavaScript and PAK (`pocket_native_program_create`, `_create_profile`), a
+complete `.pocket` (`_create_package`), or a host `pocket_package_source_v1`
+(`_create_source`). The first three copy the bytes into a memory source and
+turn native asset loading off; the source form reads the package at boot and
+keeps native asset loading on. Admission against the host profile runs before
+the guest initializes in every form.
+
+The archive's features select the outputs `create` registers:
+
+| Features | Outputs registered at create | Hooks |
+| --- | --- | --- |
+| `std` or `software-only` | CPU ARGB buffer and its renderer | `std`: archive; otherwise `src/host_hooks.rs` |
+| none | GLES 2 renderer and display | `src/host_hooks.rs` |
+| `gles1` | GLES 1.1 renderer and display | `src/host_hooks.rs` |
+| `host-backend` | None: the host registers renderers and displays through `pocket_native_program_runtime()` before boot | `host-hooks`: the C host links the six `pocket_host_*` hooks |
+
+A build with a built-in output has one primary surface: `_create_package`
+rejects a plan with an auxiliary surface, and the built-in outputs enable the
+compositor namespace and embedded viewport changes. A `host-backend` build
+leaves both off, as `pocket_runtime_create` does, and admits auxiliary plans;
+boot then requires a registered auxiliary display when the profile has one.
+
+**`programs/native/quickjs` is the handle-based QuickJS facade over that
+program.** `pocket_qjs_program_create_host` accepts the host's profile facts,
+a `pocket_guest_v1` table with its own context, a `compose` hook that
+registers drivers and starts host services after the guest is attached, and a
+`release` hook that runs before the facade destroys the program. Without a
+host guest the facade creates its own `JSRuntime`, `JSContext` and canonical
+guest. `products/3ds` composes the facade with its own QuickJS realm, the PICA
+renderer, both screens and its package source over a `host-backend,host-hooks`
+archive; the ipodtouch4 host uses the facade's own guest and GLES 1.1 output.
 
 ## The op table
 

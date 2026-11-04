@@ -42,9 +42,10 @@ psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "880d36aa7d2
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
-pocket-runtime-cabi = { workspace = true, features = ["external-runtime"] }
+pocket-archive = { workspace = true, features = ["external-runtime"] }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
+pocket-media = { workspace = true, default-features = true }
 
 [build-dependencies]
 pocket-spec = { workspace = true, default-features = true }

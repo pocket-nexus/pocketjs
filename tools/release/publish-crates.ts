@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { STABLE_RUST_TOOLCHAIN } from "../build/toolchains/rust.ts";
 
 const CRATES = [
-  "pocket-spec", "pocket-drivers", "pocket-draw-ops", "pocket-glyph-pages",
-  "pocket-tex-cache", "pocket-media", "pocket-package", "pocket-raster",
+  "pocket-spec", "pocket-drivers", "pocket-render", "pocket-draw-ops",
+  "pocket-glyph-pages", "pocket-tex-cache", "pocket-media", "pocket-package", "pocket-raster",
   "pocket-present", "pocketjs-core", "pocket-runtime", "pocket-guest-rquickjs",
   "pocket-driver-kit", "pocket-sim",
 ];
@@ -93,7 +93,7 @@ async function main() {
     return;
   }
   if (pending.length === 0) {
-    console.log("All 14 crate versions are already published.");
+    console.log("All 15 crate versions are already published.");
     return;
   }
   if (output(["git", "status", "--porcelain"])) throw new Error("Publish from a clean working tree");
@@ -107,7 +107,7 @@ async function main() {
     for (const pkg of ordered) {
       if (!await published(pkg)) throw new Error(`${pkg.name}@${pkg.version} is not visible on crates.io`);
     }
-    console.log("All 14 selected crate versions are available on crates.io.");
+    console.log("All 15 selected crate versions are available on crates.io.");
   }
 }
 

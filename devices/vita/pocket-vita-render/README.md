@@ -2,8 +2,9 @@
 
 `GxmRenderer<D>` consumes `FrameInput` and `RenderResources` through
 `pocket-drivers::Renderer`. **The renderer does not depend on `Ui` or a guest
-engine.** It resolves resources referenced by the DrawList, decodes commands
-with `pocket-draw-ops`, and preserves painter order with `pocket-tri-batch`.
+engine.** It resolves resources referenced by the DrawList and builds vertices
+and painter-ordered batches through the `pocket-render` walk, supplying
+vita2d's quad diagonal and texture zero as the untextured key.
 The target covers the configured physical viewport; partial device targets and
 zero-copy rendering return errors.
 
@@ -28,8 +29,13 @@ per submission is bounded by the pool size passed to `VitaDevice::new`, in
 addition to vita2d's native pool. These limits are candidate defaults pending
 hardware performance acceptance.
 
-The Vita host registers a typed Renderer and DeviceOwned DisplayOutput in
-its canonical Runtime. A shared scene begins with `graphics::begin_frame` and
+The Vita host keeps the process renderer in a `pocket_drivers::target::RendererCell`
+and registers a `Registration` of it and a DeviceOwned `GxmDisplay` in its
+canonical Runtime. The display reaches the renderer through a `TargetPort`:
+it presents the renderer's one fixed target, which cannot be unregistered, and
+queues the swap through the port. Dropping the registration waits for queued
+display transfers, then closes the scene and retires its submissions; the
+renderer stays in the process cell for native drawing and later guests. A shared scene begins with `graphics::begin_frame` and
 native 3D; `Runtime::render_over_with` records UI and an optional native overlay
 inside the coordinator's frame. **The renderer is `Deferred` and the display
 declares a queued flush: presentation ends the scene and queues
@@ -50,7 +56,7 @@ CoreState. Its generated guest uses the pinned Bellard QuickJS context.
 ```sh
 cargo +stable test --locked --manifest-path devices/vita/pocket-vita-render/Cargo.toml
 cargo +stable clippy --locked --manifest-path devices/vita/pocket-vita-render/Cargo.toml --all-targets -- -D warnings
-cargo +stable test --locked --manifest-path engine/Cargo.toml -p pocket-tex-cache
+cargo +stable test --locked -p pocket-render
 cargo +stable test --locked --manifest-path devices/vita/pocket-vita-gxm/Cargo.toml
 bun tools/test-vita-runtime.ts
 bun tools/test-quickjs-guest.ts --bellard

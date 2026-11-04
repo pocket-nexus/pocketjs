@@ -9,7 +9,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use pocketjs_core::package::Package;
+use pocket_package::package::Package;
 use pocketjs_core::{spec, Ui};
 
 // $OUT_DIR/apps.rs -- `EmbeddedApp` + `APPS` (programs/vita/build.rs).
@@ -203,7 +203,7 @@ pub unsafe fn capture_shot(ui: &Ui, words: &[u32]) {
     let source = RASTER_SCRATCH.get_or_insert_with(Vec::new);
     source.resize(source_len, 0);
     source.fill(0);
-    pocketjs_core::raster::render_scaled(ui, words, source, crate::graphics::INTEGER_SCALE as u32);
+    pocket_raster::render_scaled(ui, words, source, crate::graphics::INTEGER_SCALE as u32);
 
     let source_w = crate::graphics::PHYSICAL_W as usize;
     let source_h = crate::graphics::PHYSICAL_H as usize;

@@ -294,6 +294,7 @@ pub unsafe extern "C" fn web_boot(
                 frame_buffer_budget: MAX_BYTES,
                 profile,
             })?;
+            runtime.set_physics(Box::new(pocket_physics::Physics::new()))?;
             runtime.allow_embedded_viewport_changes()?;
             runtime.set_native_asset_loading(false)?;
             runtime.set_package_source(Box::new(MemorySource(package)))?;
@@ -305,9 +306,16 @@ pub unsafe extern "C" fn web_boot(
                 }))?;
             }
             runtime.add_input_source(Box::new(BrowserInput(h.input.clone())))?;
+            // Both displays bind renderer 0: the software rasterizer, rebuilt
+            // at the boot scale and at every web_resize.
+            runtime.set_software_renderer(
+                pocket_raster::RasterRenderer::new(1)
+                    .map_err(|_| RuntimeError::InvalidConfiguration)?,
+                pocket_raster::RasterRenderer::new,
+            )?;
             runtime.add_display(
                 Display::new(h.physical.clone(), DisplayRole::Primary, h.snapshot.clone()),
-                pocket_present::RendererId::SOFTWARE,
+                pocket_runtime::RendererId::SOFTWARE,
             )?;
             if let Some([aw, ah]) = h.auxiliary.get() {
                 runtime.add_display(
@@ -316,7 +324,7 @@ pub unsafe extern "C" fn web_boot(
                         DisplayRole::Auxiliary,
                         Rc::new(Cell::new(Snapshot::default())),
                     ),
-                    pocket_present::RendererId::SOFTWARE,
+                    pocket_runtime::RendererId::SOFTWARE,
                 )?;
             }
             let ops = runtime.op_context();

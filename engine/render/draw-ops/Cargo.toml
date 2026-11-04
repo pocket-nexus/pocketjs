@@ -6,7 +6,7 @@ documentation = "https://docs.rs/pocket-draw-ops"
 keywords = ["pocketjs", "rendering", "drawlist"]
 categories = ["no-std", "rendering"]
 edition = "2021"
-description = "Borrowed DrawList decoding and clipping for PocketJS renderers"
+description = "Forwarding crate for the DrawList decoder in pocket-render"
 
 version.workspace = true
 repository.workspace = true
@@ -14,5 +14,4 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-pocket-drivers = { workspace = true, default-features = true }
-pocket-spec = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }

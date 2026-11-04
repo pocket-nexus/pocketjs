@@ -26,14 +26,16 @@ typedef struct {
 #define POCKET_NATIVE_PACKAGE_OFFLOAD 2u    /* features["io.offload"] */
 #define POCKET_NATIVE_PACKAGE_COMPANIONS 4u /* companions is not empty */
 
-/* 0 = admitted: footer hash, the first variant the exported profile facts
- * admit (binding generation, raster density, animation, rate, viewport,
- * presentation, capabilities, auxiliary surface), identity, plan and
- * NUL-terminated JS. 1-11 package errors (7 binding generation, 9 plan),
- * 12 bad arguments, 13 plan JSON, 14 plan viewport, 17 section layout,
- * 18 worker section, 19-25 the first failed admission item. profile_hash is
- * null or the host profile SHA-256 (32 readable bytes); it only orders
- * variants. */
+/* Returns the POCKET_PACKAGE_OPEN_* codes of pocket_runtime.h.
+ * POCKET_PACKAGE_OPEN_OK = admitted: footer hash, the first variant the
+ * exported profile facts admit (binding generation, raster density,
+ * animation, rate, viewport, presentation, capabilities, auxiliary surface),
+ * identity, plan and NUL-terminated JS. BAD_ARGUMENT for a null or empty
+ * argument; PLAN_JSON, PLAN_VIEWPORT or PLAN_AUXILIARY for a plan whose JSON,
+ * viewport or auxiliary surface cannot be read after admission: one table
+ * with the 3DS product's pocket_package_open and the ESP-IDF archive's
+ * pocket_idf_package_open. profile_hash is null or the host profile SHA-256
+ * (32 readable bytes); it only orders variants. */
 int32_t pocket_native_package_open(
   const uint8_t *bytes,
   size_t length,
@@ -46,7 +48,10 @@ int32_t pocket_native_package_open(
 
 typedef struct PocketNativeProgram PocketNativeProgram;
 /* Constructors require host_abi == POCKET_BINDING_GENERATION; packages also
- * match the independently supplied profile hash. */
+ * match the independently supplied profile hash. Each build registers its
+ * outputs at create: the CPU ARGB buffer (std or software-only), the GLES 1.1
+ * renderer (gles1) or the GLES 2 renderer. host-backend builds register none;
+ * the host adds its renderer and displays through runtime() before boot. */
 /* target is NUL-terminated. Code/pak are copied before create returns.
  * width/height are logical pixels; density controls baked resource sampling.
  * No guest or GL context is created here. Register a guest and optional op
@@ -68,11 +73,27 @@ PocketNativeProgram *pocket_native_program_create_profile(const char *target, ui
  * while the package plan decides whether its methods mount. Runtime performs
  * package admission against the supplied host profile before guest initialization.
  * Profile facts/hash must come from the host build, never this package. Initial viewport uses the
- * package declaration; live-window hosts resize before their first frame. */
+ * package declaration; live-window hosts resize before their first frame.
+ * Builds with a built-in output reject a plan with an auxiliary surface here;
+ * host-backend builds leave it to boot, which requires a registered
+ * auxiliary display when the profile has one. */
 PocketNativeProgram *pocket_native_program_create_package(const char *target, uint32_t host_abi,
   const uint8_t *package, size_t package_length,
   const char *output, const char *id, const char *title,
   uint32_t width, uint32_t height, uint32_t density, uint32_t physics,
+  const pocket_profile_facts *profile, const uint8_t profile_hash[32]);
+/* Host package source form: Runtime reads and admits the package from source
+ * at boot, before guest initialization, against profile and profile_hash
+ * (rules of create_profile). Native asset loading stays on, so the guest
+ * receives the pak's named textures and sprites. source and context outlive
+ * the program. The plan decides physics within the profile's capabilities.
+ * heap_limit and frame_buffer_budget of zero keep the defaults of the other
+ * forms: a 128 MiB guest heap, and width * height * 4 bytes plus 4 bytes per
+ * pixel of the profile's auxiliary panel. */
+PocketNativeProgram *pocket_native_program_create_source(const char *target, uint32_t host_abi,
+  const pocket_package_source_v1 *source, void *context,
+  uint32_t width, uint32_t height, uint32_t density,
+  size_t heap_limit, size_t frame_buffer_budget,
   const pocket_profile_facts *profile, const uint8_t profile_hash[32]);
 pocket_runtime *pocket_native_program_runtime(PocketNativeProgram *program);
 /* Status codes are canonical POCKET_STATUS_* values (zero is success).

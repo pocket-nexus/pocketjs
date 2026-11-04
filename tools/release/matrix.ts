@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { exportSdk, parseSdkExport } from "./archive.ts";
+import { exportSdk, parseSdkExport, SDK_FEATURES } from "./archive.ts";
 import { ESP_TOOLCHAIN_NAME, verifyEspToolchain } from "../build/toolchains/esp.ts";
 import { BUILD_STD_NIGHTLY, STABLE_RUST_TOOLCHAIN } from "../build/toolchains/rust.ts";
 
@@ -9,10 +9,10 @@ export const SDK_MATRIX = [
     "thumbv6m-none-eabi", "thumbv7m-none-eabi", "thumbv7em-none-eabi", "thumbv7em-none-eabihf",
     "thumbv8m.main-none-eabi", "thumbv8m.main-none-eabihf", "riscv64gc-unknown-none-elf",
     "riscv32imc-unknown-none-elf", "riscv32imac-unknown-none-elf", "riscv32imafc-unknown-none-elf"]
-    .map(triple => ({ triple, toolchain: STABLE_RUST_TOOLCHAIN, features: [] as string[], cargoArgs: [] as string[] })),
+    .map(triple => ({ triple, toolchain: STABLE_RUST_TOOLCHAIN, features: [...SDK_FEATURES], cargoArgs: [] as string[] })),
   ...["armv6k-nintendo-3ds", "thumbv4t-none-eabi"].map(triple => ({ triple, toolchain: BUILD_STD_NIGHTLY,
-    features: [] as string[], cargoArgs: ["-Zbuild-std=core,alloc", "-Zbuild-std-features=compiler-builtins-mem"] })),
-  { triple: "xtensa-esp32s3-none-elf", toolchain: ESP_TOOLCHAIN_NAME, features: [] as string[],
+    features: [...SDK_FEATURES], cargoArgs: ["-Zbuild-std=core,alloc", "-Zbuild-std-features=compiler-builtins-mem"] })),
+  { triple: "xtensa-esp32s3-none-elf", toolchain: ESP_TOOLCHAIN_NAME, features: [...SDK_FEATURES],
     cargoArgs: ["-Zbuild-std=core,alloc", "-Zbuild-std-features=compiler-builtins-mem"] },
 ] as const;
 export async function buildSdkMatrixRow(triple: string, output: string, extra: string[] = []): Promise<void> {

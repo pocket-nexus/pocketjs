@@ -4,7 +4,7 @@
 
 use pocket_drivers::{abi::*, *};
 use pocket_runtime::{generated_ops::BINDING_GENERATION, OpContext, OpResult, Runtime, RuntimeError};
-use pocketjs_core::{raster, Ui};
+use pocketjs_core::Ui;
 use serde_json::{json, Value};
 use std::{
     alloc::{alloc, dealloc, Layout},
@@ -30,15 +30,14 @@ pub struct WasmHost {
     provider_ops: RefCell<Vec<u16>>,
     provider_result: RefCell<Option<OpResult>>,
     capture: RefCell<Capture>,
-    surfaces: RefCell<Vec<Option<pocket_present::compositor::CompositorRaster>>>,
+    surfaces: RefCell<Vec<Option<pocket_raster::compositor::CompositorRaster>>>,
 }
 #[derive(Default)]
 struct Capture {
     opaque: Vec<u8>,
     transparent: Vec<u8>,
     auxiliary: Vec<u8>,
-    damage:
-        pocket_present::damage::DamageTracker<{ pocket_present::damage::DEFAULT_DAMAGE_REGIONS }>,
+    damage: pocket_render::damage::DamageTracker<{ pocket_render::damage::DEFAULT_DAMAGE_REGIONS }>,
 }
 fn core_context(size: [u32; 2], density: u32, auxiliary: Option<[u32; 2]>) -> OpContext {
     let mut ui = Ui::new_with_raster_density(density);
@@ -46,6 +45,7 @@ fn core_context(size: [u32; 2], density: u32, auxiliary: Option<[u32; 2]>) -> Op
     if let Some([w, h]) = auxiliary {
         ui.create_auxiliary_surface(w as f32, h as f32);
     }
+    ui.set_physics(Box::new(pocket_physics::Physics::new()));
     let ops = OpContext::from_ui(ui);
     ops.set_compositor_enabled(true).unwrap();
     ops.set_physics_enabled(true).unwrap();
@@ -217,7 +217,7 @@ pub unsafe extern "C" fn web_dispatch(
     status(
         h,
         (|| {
-            let args = pocket_runtime_cabi::arguments(args.cast(), count)
+            let args = pocket_runtime::abi::arguments(args.cast(), count)
                 .map_err(|_| RuntimeError::InvalidArgument)?;
             let result = h.ops.borrow().dispatch(op, &args)?;
             let mut record = PocketResult::empty();
@@ -422,37 +422,37 @@ pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 
                 .ok_or(RuntimeError::InvalidArgument)?
                 .words;
             resize(&mut capture.auxiliary, len)?;
-            raster::render_scaled(&Auxiliary(&c.ui), words, &mut capture.auxiliary, scale);
+            pocket_raster::render_scaled(&Auxiliary(&c.ui), words, &mut capture.auxiliary, scale);
             return Ok(capture.auxiliary.as_ptr());
         }
         c.draw();
         let words = &c.current_draw_list().words;
         if mode == 2 {
             resize(&mut capture.transparent, len)?;
-            raster::render_scaled_premultiplied(&c.ui, words, &mut capture.transparent, scale);
+            pocket_raster::render_scaled_premultiplied(&c.ui, words, &mut capture.transparent, scale);
             return Ok(capture.transparent.as_ptr());
         }
         resize(&mut capture.opaque, len)?;
         let Capture { opaque, damage, .. } = &mut *capture;
         if mode == 3 {
-            pocket_present::compositor::render(&c.ui, words, opaque, scale, &h.surfaces.borrow());
+            pocket_raster::compositor::render(&c.ui, words, opaque, scale, &h.surfaces.borrow());
             damage.invalidate();
         } else if mode == 1 {
-            if pocket_present::incremental::render_scaled_incremental(
+            if pocket_raster::incremental::render_scaled_incremental(
                 &c.ui,
                 words,
                 opaque,
                 scale,
                 damage,
-                pocket_present::damage::DamagePolicy::default(),
+                pocket_render::damage::DamagePolicy::default(),
             )
             .is_err()
             {
-                raster::render_scaled(&c.ui, words, opaque, scale);
+                pocket_raster::render_scaled(&c.ui, words, opaque, scale);
                 damage.invalidate();
             }
         } else {
-            raster::render_scaled(&c.ui, words, opaque, scale);
+            pocket_raster::render_scaled(&c.ui, words, opaque, scale);
             damage.invalidate();
         }
         Ok(opaque.as_ptr())
@@ -503,7 +503,7 @@ pub unsafe extern "C" fn web_upload_surface(
     if index >= surfaces.len() {
         surfaces.resize_with(index + 1, || None);
     }
-    surfaces[index] = Some(pocket_present::compositor::CompositorRaster {
+    surfaces[index] = Some(pocket_raster::compositor::CompositorRaster {
         pixels: bytes(p, n).to_vec(),
         width: w,
         height,

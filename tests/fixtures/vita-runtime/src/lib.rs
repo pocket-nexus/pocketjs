@@ -71,7 +71,13 @@ mod switch {
 }
 use libquickjs_sys::*;
 use pocket_drivers::*;
-use pocket_runtime_cabi::{abi::*, embedding as embed};
+use pocket_drivers::abi::*;
+use pocket_runtime::{
+    abi::{status_code, Handle},
+    Runtime, RuntimeError,
+};
+// The archive defines the pocket_runtime_* symbols the C guest calls.
+use pocket_archive as _;
 use std::{cell::RefCell, rc::Rc};
 struct Render(Rc<RefCell<Vec<&'static str>>>);
 impl Renderer for Render {
@@ -131,36 +137,41 @@ impl DisplayOutput for Display {
     }
 }
 struct Program {
-    runtime: *mut PocketRuntime,
+    /// Declared first: the instance shuts down before the guest adapter and
+    /// its context drop. `None` once a test destroys it.
+    runtime: Option<Box<Handle>>,
     guest: Box<instance::Guest>,
     input: Rc<RefCell<instance::Input>>,
     events: Rc<RefCell<Vec<&'static str>>>,
 }
-impl Drop for Program {
-    fn drop(&mut self) {
-        unsafe {
-            pocket_runtime_cabi::pocket_runtime_destroy(self.runtime);
-        }
-    }
+/// The C status of one runtime call on the program's instance.
+fn status<T>(result: Result<T, RuntimeError>) -> i32 {
+    result.map_or_else(status_code, |_| POCKET_STATUS_OK)
 }
 impl Program {
+    fn handle(&self) -> &Handle {
+        self.runtime.as_deref().expect("live runtime")
+    }
+    fn call(&self, action: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>) -> i32 {
+        status(self.handle().with_runtime(action))
+    }
     unsafe fn new(code: &[u8]) -> Self {
         let p = Self::unbooted();
         assert_eq!(
-            instance::boot_package(
-                p.runtime,
+            status(instance::boot_package(
+                p.handle(),
                 package("vita", pocket_spec::BINDING_GENERATION, PLAN, code)
-            ),
+            )),
             0,
             "{}",
             p.guest.error()
         );
         assert!(p.events.borrow().is_empty());
-        assert_eq!(embed::skip_presentation(p.runtime), 0);
+        assert_eq!(p.call(Runtime::skip_presentation), 0);
         p
     }
     unsafe fn unbooted() -> Self {
-        let runtime = embed::create(pocket_runtime::RuntimeConfig {
+        let runtime = Handle::new(pocket_runtime::RuntimeConfig {
             profile_hash: profile::PROFILE_HASH,
             host_abi: profile::HOST_ABI,
             heap_limit: 128 << 20,
@@ -168,7 +179,11 @@ impl Program {
             profile: profile::profile().unwrap(),
         })
         .unwrap();
-        let ops = embed::op_context(runtime).unwrap();
+        // The fixture profile adds ui.physics; the fixture installs the engine.
+        runtime
+            .with_runtime(|r| r.set_physics(Box::new(pocket_physics::Physics::new())))
+            .unwrap();
+        let ops = runtime.op_context();
         ops.add_provider(Box::new(instance::Services)).unwrap();
         let guest = instance::Guest::new(ops).unwrap();
         let input = Rc::new(RefCell::new(instance::Input {
@@ -177,23 +192,20 @@ impl Program {
         }));
         let events = Rc::new(RefCell::new(Vec::new()));
         let mut p = Self {
-            runtime,
+            runtime: Some(runtime),
             guest,
             input,
             events,
         };
-        let renderer = embed::add_renderer(runtime, Render(p.events.clone())).unwrap();
+        let render = Render(p.events.clone());
+        let renderer = p.handle().with_runtime(|r| r.add_renderer(render)).unwrap();
+        let display = Display(p.events.clone());
+        assert_eq!(p.call(|r| r.add_display(display, renderer).map(|_| ())), 0);
+        let input = Box::new(instance::InputDriver(p.input.clone()));
+        assert_eq!(p.call(|r| r.add_input_source(input)), 0);
         assert_eq!(
-            embed::add_display(runtime, Display(p.events.clone()), renderer),
-            0
-        );
-        assert_eq!(
-            embed::add_input_source(runtime, Box::new(instance::InputDriver(p.input.clone()))),
-            0
-        );
-        assert_eq!(
-            pocket_runtime_cabi::pocket_runtime_set_guest(
-                runtime,
+            pocket_runtime::abi::pocket_runtime_set_guest(
+                p.handle().as_ptr(),
                 &instance::GUEST,
                 (&mut *p.guest as *mut instance::Guest).cast()
             ),
@@ -250,13 +262,13 @@ fn original_package_plan_controls_generated_capability_namespaces() {
         let p = Program::unbooted();
         let package = std::sync::Arc::<[u8]>::from(original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN));
         assert_eq!(
-            instance::boot_package(p.runtime, package.clone()),
+            status(instance::boot_package(p.handle(), package.clone())),
             0,
             "{}",
             p.guest.error()
         );
         drop(package);
-        assert_eq!(embed::skip_presentation(p.runtime), 0);
+        assert_eq!(p.call(Runtime::skip_presentation), 0);
         p.assert_js("if(!started||typeof ui.physicsCreate!=='function')throw Error('original plan or lifetime lost')");
         assert!(p.events.borrow().is_empty());
     }
@@ -295,7 +307,7 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
         unsafe {
             let p = Program::unbooted();
             assert_ne!(
-                instance::boot_package(p.runtime, package),
+                status(instance::boot_package(p.handle(), package)),
                 0,
                 "accepted {reason}"
             );
@@ -331,16 +343,16 @@ fn sampled_input_and_native_overlay_run_before_terminal_wait() {
                 cancelled: false,
             });
         }
-        assert_eq!(embed::advance(p.runtime), 0, "{}", p.guest.error());
-        assert_ne!(embed::advance(p.runtime), 0);
+        assert_eq!(p.call(Runtime::advance), 0, "{}", p.guest.error());
+        assert_ne!(p.call(Runtime::advance), 0);
         assert_eq!(
-            embed::present_with_overlay(p.runtime, |_| p.events.borrow_mut().push("overlay")),
+            p.call(|r| r.present_with_overlay(|_| p.events.borrow_mut().push("overlay"))),
             0
         );
         // The GXM driver is Deferred: the scene stays in flight after present
         // returns, and completion runs the terminal wait before the display.
         assert_eq!(&*p.events.borrow(), &["render", "overlay"]);
-        assert_eq!(embed::complete_presentation(p.runtime), 0);
+        assert_eq!(p.call(Runtime::complete_presentation), 0);
         assert_eq!(
             &*p.events.borrow(),
             &[
@@ -365,7 +377,7 @@ fn independent_c_handles_do_not_share_ui_or_borrow_across_coercion() {
         a.assert_js("if(ui.createNode(1)!==node+1)throw Error('shared ui');ui.setProp({valueOf(){ui.createNode(1);return node}},0,1);");
         b.assert_js("if(ui.createNode(1)!==node+2)throw Error('shared ui');");
         drop(a);
-        assert_eq!(embed::advance(b.runtime), 0, "{}", b.guest.error());
-        assert_eq!(embed::present(b.runtime), 0);
+        assert_eq!(b.call(Runtime::advance), 0, "{}", b.guest.error());
+        assert_eq!(b.call(Runtime::present), 0);
     }
 }

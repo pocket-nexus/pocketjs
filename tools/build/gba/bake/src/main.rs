@@ -110,7 +110,7 @@ impl Screen {
         let core = app.ui_mut().core_mut();
         core.draw();
         let mut pixels = vec![0; self.width * self.height * 4];
-        pocketjs_core::raster::render(core, &core.current_draw_list().words, &mut pixels);
+        pocket_raster::render(core, &core.current_draw_list().words, &mut pixels);
         pixels
             .chunks_exact(4)
             .map(|p| (p[0] as u16 >> 3) | ((p[1] as u16 >> 3) << 5) | ((p[2] as u16 >> 3) << 10))

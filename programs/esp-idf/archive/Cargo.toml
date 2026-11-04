@@ -11,9 +11,11 @@ publish = false
 [lib]
 crate-type = ["rlib", "staticlib"]
 [dependencies]
-pocket-runtime-cabi = { workspace = true }
+pocket-archive = { workspace = true, features = ["software-renderer"] }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
 pocket-render-esp-ppa = { workspace = true, default-features = true, features = ["cabi"] }
 pocket-package = { workspace = true }
 [features]
 default = ["std"]
-std = ["pocket-runtime-cabi/std"]
+std = ["pocket-archive/std"]

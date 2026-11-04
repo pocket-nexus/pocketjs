@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use inkview::screen::Screen;
 use pocket_drivers::Rect;
-use pocket_present::ink::{InkRefresh, InkTiming, InkUpdate};
+use pocket_drivers::ink::{InkRefresh, InkTiming, InkUpdate};
 
 use crate::framebuffer::DirtyRect;
 

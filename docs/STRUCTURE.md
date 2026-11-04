@@ -14,41 +14,49 @@ pocketjs/
 │  └─ schema/               app contract, host contract and system JSON schemas
 ├─ engine/
 │  ├─ spec/                 generated no_std constants and ABI records
-│  ├─ drivers/              resource views and device-class contracts
+│  ├─ drivers/              resource views, device-class contracts, C ABI adapters and e-ink refresh
 │  ├─ driver-kit/           Rust and C driver conformance checks
 │  ├─ core/                 retained UI tree, layout, text and animation
-│  ├─ render/               operation decoding, glyph pages, batches and caches
-│  ├─ raster/               software rendering
-│  ├─ present/              damage history and presentation transactions
+│  ├─ physics/              2D bodies, contacts, zones and emitters for ui.physics
+│  ├─ render/               operation decoding, vertex batches, texture and glyph caches, damage;
+│  │                        draw-ops/, glyph-pages/, tex-cache/ forward former paths, one release
+│  ├─ raster/               software rendering, incremental drawing and surface composition
+│  ├─ present/              forwarding crate for the former pocket-present paths, one release
 │  ├─ profile-build/        build-script support that embeds the exported host contract
 │  ├─ package/              package, asset and font archive readers and hashing
-│  ├─ runtime/              instance lifecycle, admission, input and scheduling
-│  ├─ runtime-cabi/         instance C ABI and driver adapters
+│  ├─ runtime/              instance lifecycle, admission, input, presentation and C ABI bodies
 │  ├─ guest-quickjs/        C guest lifecycle and generated operation bindings
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
 │  ├─ host-services/        C link, launcher, fs and photo services for native programs
-│  ├─ backends/gpui/        desktop renderer and text integration
-│  ├─ ios/                 UIKit runtime integration
-│  ├─ crates/              module, UI embedding, text and widget libraries
-│  └─ pocket3d/            3D libraries and examples
+│  ├─ mod/                  guest hosting for the runtime family
+│  ├─ ui-surface/ ui-wgpu/  UI embedding: guest surface and wgpu output
+│  ├─ text/                 worker-owned text layout
+│  ├─ sim/                  fixed-step prediction and reconciliation
+│  ├─ vrm/ widget/          VRM characters and desktop widgets
+│  ├─ microts-runtime/      `microts` crate that compiled MicroTS models and views link
+│  └─ pocket3d/             Pocket3D entry point, 3D libraries, browser kernel and examples
 ├─ devices/                 GPU mechanisms and DrawList renderers
 │  ├─ psp/ vita/ 3ds/       fixed-console GPU libraries
 │  ├─ gles/                 GLES traversal and GLES1/GLES2 pipelines
-│  └─ web/                  wgpu mechanism library and renderer
+│  ├─ wgpu/                 wgpu DrawList renderer
+│  ├─ esp-idf/              ESP32-P4 PPA renderer
+│  └─ sifli/                SF32LB5x EPIC renderer
 ├─ platforms/               OS, SDK and fixed-console drivers
 │  ├─ psp/ vita/ 3ds/       input, display, audio, I/O and system services
+│  ├─ apple/                UIKit runtime integration
 │  ├─ gba/ rockbox/         display and input adapters
 │  ├─ web/ sim/             browser and deterministic service providers
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
 │  ├─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
-│  └─ sifli/                RT-Thread drivers, EPIC executor and renderer
+│  └─ sifli/                RT-Thread drivers and EPIC executor
 ├─ hosts/                   built-in host contracts identified by content hashes
 ├─ programs/
 │  ├─ psp/ vita/ 3ds/       console entries and host configs
 │  ├─ gba/ ipodnano/        fixed-console programs
-│  ├─ web/ sim/ desktop/    reference programs and their composition
+│  ├─ web/ sim/             reference programs and their composition
+│  ├─ desktop/              desktop program and its gpui/ renderer
 │  ├─ ipodtouch4/ ipodtouch6/ music-player programs
 │  ├─ ios-simulator/        NativeScript shell and UIKit integration
 │  ├─ nokia-e7/             Symbian program
@@ -56,6 +64,7 @@ pocketjs/
 │  ├─ linux-kms/            Linux program with its own host contract
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
 │  ├─ sifli/archive/        one Rust archive for the SiFli composition
+│  ├─ sdk/archive/          C SDK archive: runtime symbols, allocator and host hooks
 │  └─ native/               instance native programs and QuickJS composition
 ├─ products/
 │  └─ 3ds/                  Link, launcher, camera and development product
@@ -93,16 +102,24 @@ repository as a submodule and composes the `platforms/esp-idf` components,
 **The 3DS product lives in `products/3ds`.**
 Its private package inspection, Link, camera, launcher and development services
 are separate from the file-backed reference program in `programs/3ds`. Both
-compose the same Runtime, generated guest and PICA driver.
+compose the native program, the QuickJS facade, the generated guest and the
+PICA driver.
 
 ## Ownership and dependency rules
 
 **`engine/runtime` owns application instances.** Each instance owns its package,
-guest, input encoding and display/renderer registrations. `engine/runtime-cabi`
-exposes instance handles. Compatibility entry points delegate to this state;
-`programs/native/runtime` supplies the historical archive name and program
-composition. `programs/web/wasm` compiles the browser composition against the
-same runtime and C ABI.
+guest, input encoding and display/renderer registrations. `pocket_runtime::abi`
+holds the instance handle, package admission and the bodies of the
+`pocket_runtime_*` functions; `pocket_drivers::abi` holds the C records, the
+pointer checks and the adapters between C vtables and the driver traits.
+`programs/sdk/archive` defines each exported `pocket_runtime.h` symbol once,
+with the allocator, panic handler and host hooks of a link unit; the IDF, SiFli
+and 3DS archives re-export it. `programs/native/runtime` supplies the native
+program composition; its `host-backend` and `host-hooks` features leave outputs
+and hooks to the host, and the 3DS archive links it that way for the QuickJS
+facade in `programs/native/quickjs`. `programs/web/wasm` compiles the browser composition
+against the same runtime and decodes operation arguments with
+`pocket_runtime::abi`.
 
 **Platform drivers do not depend on programs or the UI core.** Drivers receive
 resource views, input builders and transport buffers through their interfaces.
@@ -111,9 +128,23 @@ without linking the UI tree. A program selects implementations in code and
 provides its memory budgets and private services.
 
 **DrawList renderers consume `FrameInput` and `RenderResources`.** GPU mechanism
-libraries retain their device interfaces. `pocket-present` owns damage history
-and orders render completion, display transfer and resource retirement.
-`pocket-ui-wgpu` adapts existing desktop embedding APIs to `pocket-web-render`.
+libraries retain their device interfaces. `pocket-render` owns DrawList
+decoding, vertex batching, texture and glyph page retention and damage
+history; `pocket-raster` draws on the CPU. The coordinator in
+`pocket_runtime::coordinator` orders render completion, display transfer and
+resource retirement. `pocketjs-core` depends on neither `pocket-raster` nor the
+coordinator.
+`pocket-ui-wgpu` adapts existing desktop embedding APIs to `pocket-wgpu-render`.
+
+**`pocket-physics` implements the `Physics` trait of `pocketjs-core`.** The core
+steps an installed engine once per tick and applies the `physics_values` layer
+it writes; it has no engine of its own. A program installs the engine with
+`Runtime::set_physics` before boot. A package or AOT artifact that requests
+`ui.physics` is rejected at boot without one, and ops 52..56 stay unsupported.
+`pocket-native-program`, the wasm program and `pocket-ui-surface` (for every
+`UiProgram`) install it; `programs/sdk/archive` installs it in
+`pocket_runtime_create` under its `physics` feature, which the SDK export
+enables and the IDF and SiFli archives leave off.
 
 **`contracts/spec/ui-ops.ts` defines 61 public operations and six private guest
 hooks.** `tools/ui-bindings.ts` generates the runtime dispatcher and guest
@@ -170,4 +201,4 @@ maintained device programs out of this repository.
 
 Solid AOT admission, contract mapping and JSX lowering live in `microts/compiler/aot-solid-frontend.ts`. Both front ends share `aot-contract.ts`, `aot-program.ts` and the Rust generator. The reference is `site/content/docs/microts-solid.md`; `apps/solid-aot-lab/` contains the TSX view and compiled TypeScript model example.
 
-**Model AOT admission is separate from View IR.** `microts/compiler/aot-model-frontend.ts` builds Model IR, `aot-model-ledger.ts` records dependencies and schedules reactions, and `aot-model-tasks.ts` lowers task continuations. `aot-model-codegen.ts` emits Rust; `aot-model-js.ts` emits the browser and guest model. `model-interp.ts` executes the reference contract, and `model-fuzz.ts` generates programs for differential tests. The runtime protocol lives in `engine/crates/microts/src/model.rs`; JavaScript scheduling and service delivery live in `framework/src/model-reactive.ts` and `model-tasks.ts`. The reference is `site/content/docs/microts-model.md`.
+**Model AOT admission is separate from View IR.** `microts/compiler/aot-model-frontend.ts` builds Model IR, `aot-model-ledger.ts` records dependencies and schedules reactions, and `aot-model-tasks.ts` lowers task continuations. `aot-model-codegen.ts` emits Rust; `aot-model-js.ts` emits the browser and guest model. `model-interp.ts` executes the reference contract, and `model-fuzz.ts` generates programs for differential tests. The runtime protocol lives in `engine/microts-runtime/src/model.rs`; JavaScript scheduling and service delivery live in `framework/src/model-reactive.ts` and `model-tasks.ts`. The reference is `site/content/docs/microts-model.md`.

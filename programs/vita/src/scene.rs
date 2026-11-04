@@ -1,16 +1,14 @@
 //! Vita host registration and shared-scene compatibility for pocket-vita-render.
 //! The driver owns geometry, resource versions and GPU completion; this layer
 //! supplies the fixed display plan and adapts retained Ui resources.
+use pocket_drivers::target::RendererCell;
 use pocket_drivers::{DrawList, FrameInput, Renderer, Target};
-use pocket_vita_render::registered::{GxmDisplay, SharedRenderer as RegisteredRenderer};
+use pocket_vita_render::registered::GxmDisplay;
 use pocket_vita_render::{native::VitaDevice, Config, GxmRenderer};
 #[cfg(feature = "capture")]
 use pocketjs_core::spec;
 use pocketjs_core::{text::Atlas, Ui};
-use std::{
-    cell::{RefCell, RefMut},
-    rc::Rc,
-};
+use std::cell::RefMut;
 #[cfg(feature = "capture")]
 use std::{fs, io, path::Path};
 mod build_plan {
@@ -20,11 +18,14 @@ pub use build_plan::{
     INTEGER_SCALE, LOGICAL_H, LOGICAL_W, PHYSICAL_H, PHYSICAL_W, RASTER_DENSITY, SCALE,
 };
 pub const DEFAULT_POOL_BYTES: u32 = 2 * 1024 * 1024;
-type SharedRenderer = Rc<RefCell<GxmRenderer<VitaDevice>>>;
-static mut RENDERER: Option<SharedRenderer> = None;
+/// The process owns the GXM renderer; runtime registrations and their
+/// displays reach it through the device target contract.
+static mut RENDERER: Option<RendererCell<GxmRenderer<VitaDevice>>> = None;
 static mut CANONICAL_PRESENTED: bool = false;
 unsafe fn renderer() -> Option<RefMut<'static, GxmRenderer<VitaDevice>>> {
-    RENDERER.as_ref().map(|renderer| renderer.borrow_mut())
+    RENDERER
+        .as_ref()
+        .map(|renderer| renderer.borrow_mut().expect("GXM renderer is in use"))
 }
 pub fn init() -> Result<(), &'static str> {
     init_with_pool(DEFAULT_POOL_BYTES)
@@ -37,9 +38,9 @@ pub fn init_with_pool(pool_bytes: u32) -> Result<(), &'static str> {
         let device = VitaDevice::new(pool_bytes).map_err(|_| "vita2d initialization failed")?;
         let mut config = Config::new(PHYSICAL_W as u32, PHYSICAL_H as u32, INTEGER_SCALE as u32);
         config.external_compositor = true;
-        RENDERER = Some(Rc::new(RefCell::new(
+        RENDERER = Some(RendererCell::new(
             GxmRenderer::new(device, config).map_err(|_| "GXM renderer registration failed")?,
-        )));
+        ));
         Ok(())
     }
 }
@@ -141,23 +142,20 @@ pub unsafe fn render_over(ui: &Ui, words: &[u32]) {
 }
 
 /// Register the process device in one canonical guest instance.
-pub(crate) unsafe fn register(
-    runtime: *mut pocket_runtime_cabi::abi::PocketRuntime,
-) -> Result<(), String> {
-    let shared = RENDERER.as_ref().ok_or("GXM is not initialized")?.clone();
-    let id =
-        pocket_runtime_cabi::embedding::add_renderer(runtime, RegisteredRenderer(shared.clone()))
-            .map_err(|s| format!("GXM registration: {s}"))?;
-    let status = pocket_runtime_cabi::embedding::add_display(
-        runtime,
-        GxmDisplay::new(shared, pocket_drivers::DisplayRole::Primary),
-        id,
-    );
-    if status == 0 {
-        Ok(())
-    } else {
-        Err(format!("Vita display registration: {status}"))
-    }
+pub(crate) unsafe fn register(runtime: &pocket_runtime::abi::Handle) -> Result<(), String> {
+    use pocket_runtime::abi::status_code;
+    let cell = RENDERER.as_ref().ok_or("GXM is not initialized")?;
+    let renderer = cell
+        .registration()
+        .map_err(|error| format!("GXM registration: {error:?}"))?;
+    let id = runtime
+        .with_runtime(|runtime| runtime.add_renderer(renderer))
+        .map_err(|error| format!("GXM registration: {}", status_code(error)))?;
+    let display = GxmDisplay::new(cell, pocket_drivers::DisplayRole::Primary)
+        .map_err(|error| format!("Vita display registration: {error:?}"))?;
+    runtime
+        .with_runtime(|runtime| runtime.add_display(display, id).map(|_| ()))
+        .map_err(|error| format!("Vita display registration: {}", status_code(error)))
 }
 #[cfg(feature = "capture")]
 fn validate_texture_residency(ui: &Ui, words: &[u32]) -> io::Result<()> {
@@ -234,7 +232,7 @@ pub fn capture_golden(ui: &Ui, words: &[u32], path: &str) -> io::Result<()> {
     // only omissions cannot hide behind a passing CPU golden.
     validate_texture_residency(ui, words)?;
     let mut pixels = vec![0u8; PHYSICAL_W as usize * PHYSICAL_H as usize * 4];
-    pocketjs_core::raster::render_scaled(ui, words, &mut pixels, INTEGER_SCALE as u32);
+    pocket_raster::render_scaled(ui, words, &mut pixels, INTEGER_SCALE as u32);
     if let Some(parent) = Path::new(path).parent() {
         fs::create_dir_all(parent)?;
     }

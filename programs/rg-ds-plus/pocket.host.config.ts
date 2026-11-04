@@ -22,7 +22,7 @@ export default defineHostConfig({
     sourceInputs: ["Cargo.toml", "build.rs", "src", "pocket.host.json", "../../Cargo.toml", "../../Cargo.lock", "../../rust-toolchain.toml",
       ...["hooks", "drm", "evdev"].flatMap(name => [`../../platforms/linux/${name}/Cargo.toml`, `../../platforms/linux/${name}/src`]),
       ...["pocket-gles", "pocket-gles2"].flatMap(name => [`../../devices/gles/${name}/Cargo.toml`, `../../devices/gles/${name}/src`]),
-      ...["spec", "drivers", "core", "raster", "present", "package", "runtime", "guest-rquickjs", "profile-build", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
+      ...["spec", "drivers", "core", "raster", "package", "runtime", "guest-rquickjs", "profile-build", "render"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
     ],
     artifact: "{outdir}/runtime",
     run(context) {

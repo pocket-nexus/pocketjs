@@ -21,13 +21,15 @@ bun tools/pocket.ts sdk build --triple aarch64-apple-darwin \
   --out .pocket-build/validation/sdk/local
 ```
 
-The Cargo template depends on a versioned `pocket-runtime-cabi` crate with
-`default-features = false`. Add Rust driver dependencies to that program crate;
-it produces the program's single Rust static archive. The versioned template
-requires those crates to be published to the selected Cargo registry; generating
-the template does not publish them. A prerelease consumer can select an exact
-Git revision, as in `tests/fixtures/out-of-tree-rust/Cargo.toml.in`. The `std` feature provides
-the six host hooks through the standard library. A no_std program provides them.
+The Cargo template depends on the `pocket-archive` crate
+(`programs/sdk/archive`) at the release's Git tag, with
+`default-features = false` and the SDK feature set, `software-renderer`. Add
+Rust driver dependencies to that program crate;
+it produces the program's single Rust static archive. The crate is not
+published to a Cargo registry. A prerelease consumer can select an exact Git
+revision, as in `tests/fixtures/out-of-tree-rust/Cargo.toml.in`. The `std`
+feature provides the six host hooks through the standard library. A no_std
+program provides them.
 
 The export contains:
 
@@ -43,8 +45,13 @@ The export contains:
 | `LICENSE` | PocketJS license |
 
 **The archive uses `no_std`, `alloc`, and `panic=abort`; legacy features are
-disabled.** The program supplies the six `pocket_host_*` functions declared in
-the headers. The archive contains its panic personality support. The program
+disabled.** It is built with the `software-renderer` feature:
+`pocket_runtime_create` registers the software rasterizer as renderer 0
+(`POCKET_RENDERER_SOFTWARE`) and rebuilds it at the integer scale boot and
+each resize select, and `pocket_raster_draw_op` draws. `SDK_FEATURES` in
+`tools/release/receipt.ts` is the feature list; the export and release steps
+reject an archive built with another list. The program supplies the six
+`pocket_host_*` functions declared in the headers. The archive contains its panic personality support. The program
 links one PocketJS Rust archive and compiles its C drivers and guest glue with
 its own C compiler. QuickJS is a consumer dependency and is not in the export.
 The C guest copies package bytes unless the consumer opts into the verified

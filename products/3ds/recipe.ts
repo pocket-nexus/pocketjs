@@ -7,9 +7,10 @@ import { repository, nativeSources, programFiles, buildHosts, handheldLock, nati
 const profile = POCKET_PROFILES["3ds-dev"];
 export const build: RuntimeBuild = {
   sourceInputs: [
-    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "products/3ds", "products/3ds/core", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
+    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/physics", "engine/modules/media", "engine/render", "products/3ds", "products/3ds/core", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs", "programs/native/runtime", "devices/gles/pocket-gles", "devices/gles/pocket-gles1", "devices/gles/pocket-gles2"),
     ...programFiles("products/3ds", /\.(png|rsf)$/),
     resolve(repository, "platforms/3ds"), resolve(repository, "engine/modules/offload/include"),
+    resolve(repository, "programs/native/quickjs"),
   ],
   hosts: buildHosts, input: "package", steps: compilerOnly(), artifact: "{outdir}/{output}.3dsx",
   async run(context) {

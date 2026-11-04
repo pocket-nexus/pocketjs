@@ -1,8 +1,0 @@
-[package]
-name = "pocket-tri-batch"
-edition = "2021"
-description = "Driver-defined triangle vertices and ordered adjacent draw batches"
-version.workspace = true
-repository.workspace = true
-rust-version.workspace = true
-license.workspace = true

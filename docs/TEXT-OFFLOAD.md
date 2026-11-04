@@ -31,7 +31,7 @@ starving completed snapshots.
 
 ## Execution and transport ownership
 
-- `engine/crates/pocket-text`: one Rust engine for native and WASM execution.
+- `engine/text`: one Rust engine for native and WASM execution.
   Atlas wrapping uses the same package metrics as the Rust UI renderer.
   COSMIC Text / Harfrust / Swash provide advanced shaping and rasterization.
   The font database starts empty. Hosts explicitly load `ui:font.*` atlases,
@@ -40,7 +40,7 @@ starving completed snapshots.
 - `pocket-ui-surface::offload::OffloadWorker`: generic bounded worker channels;
   handler initialization and requests execute off the native runtime thread.
   Native window presentation uses winit/softbuffer; guest layout and the shared
-  `engine/present/src/compositor.rs` software painter run on a runtime worker.
+  `engine/raster/src/compositor.rs` software painter run on a runtime worker.
 - Web: `text-worker.js` instantiates the same Rust WASM engine. AppInstance
   lifecycle owns its worker and bounded credits. Ordinary browser rendering
   retains the existing iframe/WASM scheduler.

@@ -30,7 +30,7 @@ export default defineHostConfig({
     steps: cargo({ manifest: "../../Cargo.toml", package: "pocket-linux-kms", targetDirectory: "{outdir}/cargo", release: true }),
     sourceInputs: ["Cargo.toml", "build.rs", "src", "pocket.host.json", "../../Cargo.toml", "../../Cargo.lock", "../../rust-toolchain.toml",
       ...["hooks", "drm", "fbdev", "evdev"].flatMap(name => [`../../platforms/linux/${name}/Cargo.toml`, `../../platforms/linux/${name}/src`]),
-      ...["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime", "guest-rquickjs", "profile-build", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
+      ...["spec", "drivers", "core", "raster", "package", "modules/media", "runtime", "guest-rquickjs", "profile-build", "render"].flatMap(name => [`../../engine/${name}/Cargo.toml`, `../../engine/${name}/src`]),
     ],
     artifact: "{outdir}/runtime",
     run(context) {

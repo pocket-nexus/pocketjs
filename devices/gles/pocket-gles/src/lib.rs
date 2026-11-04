@@ -12,10 +12,12 @@ use pocket_drivers::{
     DamageRect, DeviceTarget, FrameInput, PixelFormat, Rect, RenderError, RenderResources,
     Renderer, RendererDescriptor, Synchronization, Target, TargetOwnership,
 };
-use pocket_glyph_pages::{GlyphPageLayout, GlyphSampler};
+use pocket_render::glyph_pages::{GlyphPageLayout, GlyphSampler};
+use pocket_render::tex_cache::{TextureCache, TextureKey};
 use pocket_spec as spec;
-use pocket_tex_cache::{TextureCache, TextureKey};
 mod geometry;
+#[cfg(any(test, feature = "mock-gl"))]
+pub mod mock;
 mod pixels;
 pub mod raw;
 use pixels::*;
@@ -133,7 +135,7 @@ struct Vertex {
     uv: [f32; 2],
     color: u32,
 }
-impl pocket_tri_batch::Vertex for Vertex {
+impl pocket_render::Vertex for Vertex {
     fn from_components(position: [f32; 2], uv: [f32; 2], color: u32) -> Self {
         Self {
             position,
@@ -149,7 +151,7 @@ struct Clip {
     w: i32,
     h: i32,
 }
-type Command = pocket_tri_batch::Batch<GLuint, Clip>;
+type Command = pocket_render::Batch<GLuint, Clip>;
 #[derive(Clone, Copy)]
 struct ImageTexture {
     handle: i32,
@@ -516,7 +518,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
                 |image| glDeleteTextures(1, &image.name),
             )
             .map_err(|error| match error {
-                pocket_tex_cache::CacheError::Upload(error) => error,
+                pocket_render::tex_cache::CacheError::Upload(error) => error,
                 _ => RenderError::Failed,
             })?;
         self.images.push(image);
@@ -593,7 +595,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
                 |page| glDeleteTextures(1, &page.name),
             )
             .map_err(|error| match error {
-                pocket_tex_cache::CacheError::Upload(error) => error,
+                pocket_render::tex_cache::CacheError::Upload(error) => error,
                 _ => RenderError::Failed,
             })?;
         // get_or_upload invalidates older revisions of this page. They can
@@ -618,7 +620,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
     ) -> Result<(), RenderError> {
         self.images.clear();
         self.fonts.clear();
-        for op in pocket_draw_ops::DrawOps::new(&frame.list.words, viewport) {
+        for op in pocket_render::DrawOps::new(&frame.list.words, viewport) {
             let op = op.map_err(|_| RenderError::InvalidFrame)?;
             match op.opcode {
                 spec::draw_op::TEX_QUAD | spec::draw_op::TEX_TRI => {
@@ -719,6 +721,24 @@ impl<P: Pipeline, C: ContextAccess> Renderer for GlesRenderer<P, C> {
         }
     }
 }
+/// Targets are registered by the composition with a [`TargetConfig`]. A
+/// target that a pending submission renders into cannot be unregistered until
+/// that submission retires. Context loss keeps this rule: retirement after the
+/// loss makes no GL call.
+impl<P: Pipeline, C: ContextAccess> pocket_drivers::target::TargetRenderer for GlesRenderer<P, C> {
+    type TargetConfig = TargetConfig<C::NativeTarget>;
+    const PENDING_UNREGISTER: pocket_drivers::target::PendingUnregister =
+        pocket_drivers::target::PendingUnregister::Refused;
+    fn register_target(&mut self, config: Self::TargetConfig) -> Result<u64, RenderError> {
+        GlesRenderer::register_target(self, config)
+    }
+    fn unregister_target(&mut self, handle: u64) -> Result<(), RenderError> {
+        GlesRenderer::unregister_target(self, handle)
+    }
+    fn target(&self, handle: u64) -> Result<DeviceTarget, RenderError> {
+        GlesRenderer::target(self, handle)
+    }
+}
 impl<P: Pipeline, C: ContextAccess> Drop for GlesRenderer<P, C> {
     fn drop(&mut self) {
         let _ = self.finish();
@@ -794,7 +814,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
         }
         let (width, height) = (width.max(1.0) as u32, height.max(1.0) as u32);
         let logical = DamageRect::new(0, 0, width as i32, height as i32);
-        pocket_draw_ops::validate(&frame.list.words, logical)
+        pocket_render::validate(&frame.list.words, logical)
             .map_err(|_| RenderError::InvalidFrame)?;
         self.activate()?;
         if let Err(error) = self.context.bind_target(&self.targets[index].config.native) {

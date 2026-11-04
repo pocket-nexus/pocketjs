@@ -5,8 +5,10 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod abi;
 mod assets;
 mod config;
+pub mod coordinator;
 pub mod generated_ops;
 mod guest;
 pub mod input;
@@ -17,7 +19,7 @@ pub use guest::*;
 pub use pocket_drivers::InputClasses;
 pub use pocket_package;
 pub use pocket_package::Timing;
-pub use pocket_present::{DisplayId, RendererId};
+pub use coordinator::{DisplayId, RendererId};
 
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::{Cell, Ref, RefCell, RefMut};
@@ -25,7 +27,7 @@ use pocket_drivers::{
     DisplayOutput, DisplayRole, InputFrameBuilder, InputSource, PackageSource, Renderer,
 };
 use pocket_package::source::LoadedPackage;
-use pocket_present::Coordinator;
+use coordinator::{Coordinator, PresentError};
 use pocketjs_core::Ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,10 +48,10 @@ pub enum RuntimeError {
     InvalidAssets,
     InvalidInput,
     Guest,
-    Presentation(pocket_present::PresentError),
+    Presentation(PresentError),
 }
-impl From<pocket_present::PresentError> for RuntimeError {
-    fn from(error: pocket_present::PresentError) -> Self {
+impl From<PresentError> for RuntimeError {
+    fn from(error: PresentError) -> Self {
         Self::Presentation(error)
     }
 }
@@ -197,8 +199,14 @@ impl OpContext {
     }
     /// Enable physics operations for a low-level embedding. Full Runtime boot
     /// replaces this setting with the admitted package's feature declaration.
+    /// Enabling requires a physics engine installed in the core
+    /// (`Ui::set_physics`); without one this returns `UnsupportedOperation`.
     pub fn set_physics_enabled(&self, enabled: bool) -> Result<(), RuntimeError> {
-        self.core_mut()?.physics = enabled;
+        let mut state = self.core_mut()?;
+        if enabled && !state.ui.has_physics() {
+            return Err(RuntimeError::UnsupportedOperation);
+        }
+        state.physics = enabled;
         Ok(())
     }
     /// Register a provider before mounting generated guest bindings. Runtime
@@ -405,6 +413,17 @@ impl Runtime {
         self.guest = Some(guest);
         Ok(())
     }
+    /// Install the physics engine (`pocket-physics`) before boot. A package
+    /// or AOT artifact that requests `ui.physics` is admitted only after this
+    /// call; without it ops 52..56 stay unsupported.
+    pub fn set_physics(
+        &mut self,
+        physics: Box<dyn pocketjs_core::Physics>,
+    ) -> Result<(), RuntimeError> {
+        self.configuring()?;
+        self.ops.core_mut()?.ui.set_physics(physics);
+        Ok(())
+    }
     pub fn set_native_asset_loading(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.configuring()?;
         self.native_assets = enabled;
@@ -552,6 +571,28 @@ impl Runtime {
         self.configuring()?;
         Ok(self.presenter.add_renderer(renderer)?)
     }
+    /// Register the software renderer that [`RendererId::SOFTWARE`] (slot 0,
+    /// `POCKET_RENDERER_SOFTWARE`) names. `renderer` serves scale 1;
+    /// `rescale` returns a renderer for another integer scale and must
+    /// declare the same descriptor. The runtime calls it when boot selects the
+    /// package's scale and when `resize_embedded`,
+    /// `resize_embedded_presentation`, `resize_embedded_gpu` or
+    /// `resize_auxiliary` refresh the displays. Call it once, before a display
+    /// binds slot 0; until then `add_display` with slot 0 returns
+    /// `InvalidRenderer`. `add_renderer` numbers other renderers from 1.
+    pub fn set_software_renderer<R, F>(
+        &mut self,
+        renderer: R,
+        rescale: F,
+    ) -> Result<(), RuntimeError>
+    where
+        R: Renderer + 'static,
+        R::Submission: 'static,
+        F: FnMut(u32) -> Result<R, pocket_drivers::RenderError> + 'static,
+    {
+        self.configuring()?;
+        Ok(self.presenter.set_software_renderer(renderer, rescale)?)
+    }
     pub fn add_display<D: DisplayOutput + 'static>(
         &mut self,
         display: D,
@@ -698,6 +739,7 @@ impl Runtime {
             || !self.profile.admits_viewport(viewport)
             || self.source.is_some()
             || cadence_hz.is_none()
+            || (physics && !self.ops.core()?.ui.has_physics())
         {
             return Err(RuntimeError::ProfileMismatch);
         }
@@ -756,10 +798,23 @@ impl Runtime {
     /// This allows a native scene to be established before its UI overlay.
     pub fn boot_deferred(&mut self) -> Result<(), RuntimeError> {
         self.validate_boot_drivers()?;
-        let source = self.source.as_mut().ok_or(RuntimeError::MissingPackage)?;
-        let host = self
+        // Without an installed physics engine the instance does not implement
+        // ui.physics, whatever the profile declares: admission rejects a plan
+        // that requests it, or selects a variant that does not.
+        let composed: Vec<Cow<'static, str>>;
+        let mut host = self
             .profile
             .host_facts(self.config.host_abi, self.config.profile_hash);
+        if !self.ops.core()?.ui.has_physics() {
+            composed = host
+                .capabilities
+                .iter()
+                .filter(|name| *name != "ui.physics")
+                .cloned()
+                .collect();
+            host.capabilities = &composed;
+        }
+        let source = self.source.as_mut().ok_or(RuntimeError::MissingPackage)?;
         let package = Rc::new(
             LoadedPackage::load(source.as_mut(), &host, self.config.heap_limit)
                 .map_err(RuntimeError::Package)?,

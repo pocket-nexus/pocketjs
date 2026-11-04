@@ -3,7 +3,7 @@ name = "pocket3d-world"
 description = "Deterministic physical and reactive world state for Pocket3D"
 readme = "README.md"
 edition.workspace = true
-license-file = "../../../../pocket3d/LICENSE"
+license-file = "../../LICENSE"
 
 version.workspace = true
 repository.workspace = true

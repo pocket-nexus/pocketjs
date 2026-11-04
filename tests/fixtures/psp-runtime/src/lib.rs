@@ -70,7 +70,13 @@ mod switch {
 }
 use libquickjs_sys::*;
 use pocket_drivers::*;
-use pocket_runtime_cabi::{abi::*, embedding as embed};
+use pocket_drivers::abi::*;
+use pocket_runtime::{
+    abi::{status_code, Handle},
+    Runtime, RuntimeError,
+};
+// The archive defines the pocket_runtime_* symbols the C guest calls.
+use pocket_archive as _;
 use std::{cell::RefCell, rc::Rc};
 struct Render(Rc<RefCell<Vec<&'static str>>>);
 impl Renderer for Render {
@@ -130,17 +136,16 @@ impl DisplayOutput for Display {
     }
 }
 struct Program {
-    runtime: *mut PocketRuntime,
+    /// Declared first: the instance shuts down before the guest adapter and
+    /// its context drop. `None` once a test destroys it.
+    runtime: Option<Box<Handle>>,
     guest: Box<instance::Guest>,
     input: Rc<RefCell<instance::Input>>,
     events: Rc<RefCell<Vec<&'static str>>>,
 }
-impl Drop for Program {
-    fn drop(&mut self) {
-        unsafe {
-            pocket_runtime_cabi::pocket_runtime_destroy(self.runtime);
-        }
-    }
+/// The C status of one runtime call on the program's instance.
+fn status<T>(result: Result<T, RuntimeError>) -> i32 {
+    result.map_or_else(status_code, |_| POCKET_STATUS_OK)
 }
 /// A compiled package for the exported profile, as tools/psp.ts embeds one.
 fn package(code: &[u8], plan: &[u8]) -> Vec<u8> {
@@ -158,29 +163,32 @@ fn package(code: &[u8], plan: &[u8]) -> Vec<u8> {
 }
 const PLAN: &[u8] = br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1},"features":{}}"#;
 impl Program {
+    fn handle(&self) -> &Handle {
+        self.runtime.as_deref().expect("live runtime")
+    }
+    fn call(&self, action: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>) -> i32 {
+        status(self.handle().with_runtime(action))
+    }
     unsafe fn new(code: &[u8]) -> Self {
         let p = Self::unbooted();
         assert_eq!(
             {
                 assert_eq!(
-                    embed::set_package_source(
-                        p.runtime,
-                        Box::new(pocket_package::source::MemorySource(package(code, PLAN)))
-                    ),
+                    p.call(|r| r.set_package_source(Box::new(pocket_package::source::MemorySource(package(code, PLAN))))),
                     0
                 );
-                embed::boot_deferred(p.runtime)
+                p.call(Runtime::boot_deferred)
             },
             0,
             "{}",
             p.guest.error()
         );
         assert!(p.events.borrow().is_empty());
-        assert_eq!(embed::skip_presentation(p.runtime), 0);
+        assert_eq!(p.call(Runtime::skip_presentation), 0);
         p
     }
     unsafe fn unbooted() -> Self {
-        let runtime = embed::create(pocket_runtime::RuntimeConfig {
+        let runtime = Handle::new(pocket_runtime::RuntimeConfig {
             profile_hash: profile::PROFILE_HASH,
             host_abi: profile::HOST_ABI,
             heap_limit: 128 << 20,
@@ -188,7 +196,11 @@ impl Program {
             profile: profile::profile().unwrap(),
         })
         .unwrap();
-        let ops = embed::op_context(runtime).unwrap();
+        // The fixture profile adds ui.physics; the fixture installs the engine.
+        runtime
+            .with_runtime(|r| r.set_physics(Box::new(pocket_physics::Physics::new())))
+            .unwrap();
+        let ops = runtime.op_context();
         ops.add_provider(Box::new(instance::Services)).unwrap();
         let guest = instance::Guest::new(ops, Some(20)).unwrap();
         let input = Rc::new(RefCell::new(instance::Input {
@@ -197,23 +209,20 @@ impl Program {
         }));
         let events = Rc::new(RefCell::new(Vec::new()));
         let mut p = Self {
-            runtime,
+            runtime: Some(runtime),
             guest,
             input,
             events,
         };
-        let renderer = embed::add_renderer(runtime, Render(p.events.clone())).unwrap();
+        let render = Render(p.events.clone());
+        let renderer = p.handle().with_runtime(|r| r.add_renderer(render)).unwrap();
+        let display = Display(p.events.clone());
+        assert_eq!(p.call(|r| r.add_display(display, renderer).map(|_| ())), 0);
+        let input = Box::new(instance::InputDriver(p.input.clone()));
+        assert_eq!(p.call(|r| r.add_input_source(input)), 0);
         assert_eq!(
-            embed::add_display(runtime, Display(p.events.clone()), renderer),
-            0
-        );
-        assert_eq!(
-            embed::add_input_source(runtime, Box::new(instance::InputDriver(p.input.clone()))),
-            0
-        );
-        assert_eq!(
-            pocket_runtime_cabi::pocket_runtime_set_guest(
-                runtime,
+            pocket_runtime::abi::pocket_runtime_set_guest(
+                p.handle().as_ptr(),
                 &instance::GUEST,
                 (&mut *p.guest as *mut instance::Guest).cast()
             ),
@@ -407,21 +416,21 @@ fn canonical_turns_preserve_input_and_wait_before_retiring() {
         p.input.borrow_mut().buttons = 123;
         p.input.borrow_mut().analog = 0x1234;
         assert_eq!(
-            embed::advance_with_core_ticks(p.runtime, 3),
+            p.call(|r| r.advance_with_core_ticks(3)),
             0,
             "{}",
             p.guest.error()
         );
         p.assert_js("if(seen!==1)throw Error('duplicate guest turn')");
-        assert_eq!(embed::advance(p.runtime), POCKET_STATUS_INVALID);
+        assert_eq!(p.call(Runtime::advance), POCKET_STATUS_INVALID);
         // The GE driver is Deferred: present returns after the kick, and the
         // list stays in flight through the next guest turn.
-        assert_eq!(embed::present(p.runtime), 0);
+        assert_eq!(p.call(Runtime::present), 0);
         assert_eq!(&*p.events.borrow(), &["render"]);
-        assert_eq!(embed::advance(p.runtime), 0, "{}", p.guest.error());
+        assert_eq!(p.call(Runtime::advance), 0, "{}", p.guest.error());
         // The next present syncs, swaps and retires that list before it kicks
         // its own; complete_presentation finishes the frame still in flight.
-        assert_eq!(embed::present(p.runtime), 0);
+        assert_eq!(p.call(Runtime::present), 0);
         assert_eq!(
             &*p.events.borrow(),
             &[
@@ -433,7 +442,7 @@ fn canonical_turns_preserve_input_and_wait_before_retiring() {
                 "render"
             ]
         );
-        assert_eq!(embed::complete_presentation(p.runtime), 0);
+        assert_eq!(p.call(Runtime::complete_presentation), 0);
         assert_eq!(
             &*p.events.borrow(),
             &[
@@ -460,17 +469,13 @@ fn original_package_facts_are_admitted_before_guest_initialization() {
             br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"native","rasterDensity":1},"features":{"ui.physics":true}}"#,
         );
         assert_eq!(
-            embed::set_package_source(
-                p.runtime,
-                Box::new(pocket_package::source::MemorySource(package))
-            ),
+            p.call(|r| r.set_package_source(Box::new(pocket_package::source::MemorySource(package)))),
             0
         );
-        assert_eq!(embed::boot_deferred(p.runtime), 0, "{}", p.guest.error());
-        assert_eq!(embed::skip_presentation(p.runtime), 0);
+        assert_eq!(p.call(Runtime::boot_deferred), 0, "{}", p.guest.error());
+        assert_eq!(p.call(Runtime::skip_presentation), 0);
         p.assert_js("globalThis.saved=ui.createNode");
-        pocket_runtime_cabi::pocket_runtime_destroy(p.runtime);
-        p.runtime = std::ptr::null_mut();
+        drop(p.runtime.take());
         p.assert_js("let failed=false;try{saved(0)}catch(e){failed=true}if(!failed)throw Error('stale binding active')");
     }
 }
@@ -484,13 +489,10 @@ fn malformed_package_never_runs_guest_or_submits_gpu() {
         );
         *package.last_mut().unwrap() ^= 1;
         assert_eq!(
-            embed::set_package_source(
-                p.runtime,
-                Box::new(pocket_package::source::MemorySource(package))
-            ),
+            p.call(|r| r.set_package_source(Box::new(pocket_package::source::MemorySource(package)))),
             0
         );
-        assert_ne!(embed::boot_deferred(p.runtime), 0);
+        assert_ne!(p.call(Runtime::boot_deferred), 0);
         p.assert_js("if(typeof started!=='undefined'||typeof ui!=='undefined')throw Error('ran before admission')");
         assert!(p.events.borrow().is_empty());
     }
@@ -515,13 +517,10 @@ fn packages_the_profile_facts_do_not_satisfy_are_refused_before_the_guest_runs()
         })
         .unwrap();
         assert_eq!(
-            embed::set_package_source(
-                p.runtime,
-                Box::new(pocket_package::source::MemorySource(package))
-            ),
+            p.call(|r| r.set_package_source(Box::new(pocket_package::source::MemorySource(package)))),
             0
         );
-        assert_ne!(embed::boot_deferred(p.runtime), 0);
+        assert_ne!(p.call(Runtime::boot_deferred), 0);
         p.assert_js("if(typeof started!=='undefined')throw Error('ran before admission')");
     }
 }

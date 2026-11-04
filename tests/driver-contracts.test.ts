@@ -42,7 +42,7 @@ describe("candidate driver and runtime contract generation", () => {
 
   test.skipIf(!compiler || !rustc)("C11 and Rust compilers agree on every record size, alignment and field offset", () => {
     const c = write("layouts.c", `#include <stdio.h>\n#include "pocket_runtime.h"\nint main(void) {\n${records.map(record => `  printf("${record.name} %zu %zu${record.fields.map(() => " %zu").join("")}\\n", sizeof(${record.cName}), _Alignof(${record.cName}), ${record.fields.map(field => `offsetof(${record.cName}, ${field.name})`).join(", ")});`).join("\n")}\nreturn 0;\n}\n`);
-    const rust = write("layouts.rs", `#[path = ${JSON.stringify(resolve(root, "engine/drivers/src/abi.rs"))}]\n#[allow(dead_code)]\nmod abi;\nuse abi::*;\nfn main() {\n${records.map(record => `  println!("${record.name} {} {}${record.fields.map(() => " {}").join("")}", core::mem::size_of::<${record.name}>(), core::mem::align_of::<${record.name}>(), ${record.fields.map(field => `core::mem::offset_of!(${record.name}, ${field.name})`).join(", ")});`).join("\n")}\n}\n`);
+    const rust = write("layouts.rs", `#[path = ${JSON.stringify(resolve(root, "engine/drivers/src/abi/generated.rs"))}]\n#[allow(dead_code)]\nmod abi;\nuse abi::*;\nfn main() {\n${records.map(record => `  println!("${record.name} {} {}${record.fields.map(() => " {}").join("")}", core::mem::size_of::<${record.name}>(), core::mem::align_of::<${record.name}>(), ${record.fields.map(field => `core::mem::offset_of!(${record.name}, ${field.name})`).join(", ")});`).join("\n")}\n}\n`);
     const cBinary = resolve(runDir, "c-layouts");
     const rustBinary = resolve(runDir, "rust-layouts");
     run([compiler!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", resolve(root, "contracts/generated"), c, "-o", cBinary]);
@@ -64,7 +64,7 @@ describe("candidate driver and runtime contract generation", () => {
   }, 60_000);
 
   test.skipIf(!rustc)("generated Rust ABI compiles without std", () => {
-    const source = write("nostd.rs", `#![no_std]\n#[path = ${JSON.stringify(resolve(root, "engine/drivers/src/abi.rs"))}]\n#[allow(dead_code)]\nmod abi;\nconst _: () = assert!(abi::POCKET_DRAW_LIST_VERSION == ${DRAW_LIST_VERSION});\n`);
+    const source = write("nostd.rs", `#![no_std]\n#[path = ${JSON.stringify(resolve(root, "engine/drivers/src/abi/generated.rs"))}]\n#[allow(dead_code)]\nmod abi;\nconst _: () = assert!(abi::POCKET_DRAW_LIST_VERSION == ${DRAW_LIST_VERSION});\n`);
     run([rustc!, "--edition=2021", "--crate-type=lib", "--emit=metadata", "-Dwarnings", source, "-o", resolve(runDir, "nostd.rmeta")]);
   }, 60_000);
 });

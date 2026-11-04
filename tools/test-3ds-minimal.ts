@@ -1,5 +1,6 @@
 import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
-// Host contract runner: actual file source, Runtime archive and Bellard guest.
+// Host contract runner: actual file source, the native program composed
+// through the QuickJS facade, and the Bellard guest.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
@@ -34,8 +35,9 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
     "programs/3ds/package_source.c", "platforms/3ds/input_source.c", "-o", source]);
   run([source, join(out, "range.bin")]);
   const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
-  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "-p", "pocket-runtime-cabi",
-    "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+  // The device program's composition: no built-in outputs, C host hooks.
+  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "-p", "pocket-native-program",
+    "--no-default-features", "--features", "host-backend,host-hooks", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
   const quickjs = ensureQuickJsSources();
   const flags = ["-DPOCKET_QJS_BELLARD", "-DJS_NO_NAN_BOXING"];
   const objects = quickJsVendorObjects({ cc, quickjs, units: ["quickjs", "dtoa", "libregexp", "libunicode", "cutils"],
@@ -43,9 +45,12 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
     log: (command, output) => writeFileSync(join(out, `${++commandIndex}.log`), `${command.join(" ")}\n${output}`) });
   const binary = join(out, "runtime");
   run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", ...flags, ...includes,
-    "-I", "engine/guest-quickjs/include", "-isystem", quickjs, "tests/fixtures/3ds-minimal/runtime.c",
+    "-I", "engine/guest-quickjs/include", "-I", "programs/native/quickjs", "-I", "programs/native/runtime/include",
+    "-isystem", quickjs, "tests/fixtures/3ds-minimal/runtime.c",
     "programs/3ds/package_source.c", "platforms/3ds/input_source.c", "engine/guest-quickjs/src/guest.c",
-    ...objects, join(target, "release/libpocket_runtime_cabi.a"), "-lm", "-lpthread", "-o", binary]);
+    "-DPOCKET_QJS_HOST_PROFILE", `-DPOCKETJS_TARGET_ID="${profile.id}"`, `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
+    "programs/native/quickjs/pocket_qjs_program.c",
+    ...objects, join(target, "release/libpocket_native_program.a"), "-lm", "-lpthread", "-o", binary]);
   if (packagePath) return run([binary, "--smoke", resolve(packagePath)]);
   const makePackage = (profileHash: string, rasterDensity = 1) => encodePocketPackage({ manifest: new Uint8Array(), variants: [{
     target: profile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash, sections: [

@@ -9,8 +9,10 @@ import { repack3ds, THREE_DS_RUNTIME_FILE } from "../../repack/3ds.ts";
 import { writeRuntimeManifest } from "../../runtime/manifest.ts";
 import { exportProfile } from "../../profile-export.ts";
 import { requireProgramProfile } from "./application.ts";
-import { repository, nativeSources, programFiles, buildHosts, handheldLock } from "./handheld-common.ts";
+import { repository, nativeSources, buildHosts, handheldLock } from "./handheld-common.ts";
 const profile = POCKET_PROFILES["3ds-runtime"];
+
+const MINIMAL = "programs/3ds";
 
 /** Build the file-loaded program, with no product sources or package parser. */
 export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext): Promise<string> {
@@ -18,14 +20,20 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
   mkdirSync(buildDirectory, { recursive: true });
   exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION,
     dependencies: [] }, buildDirectory);
-  const native = await prepareNative3ds({ packageName: "pocket-runtime-cabi",
-    archiveName: "libpocket_runtime_cabi.a", targetDirectory: join(repository, ".pocket-build/native/3ds/minimal"),
-    roots: [outdir], context });
+  // The program composes through the QuickJS facade: the native program
+  // registers no outputs (host-backend), platforms/3ds/hooks.c supplies the
+  // pocket_host_* hooks (host-hooks), and main.c registers the PICA renderer
+  // and both displays. The program installs pocket-physics for the
+  // 3ds-runtime profile's ui.physics.
+  const native = await prepareNative3ds({ packageName: "pocket-native-program",
+    archiveName: "libpocket_native_program.a", targetDirectory: join(repository, ".pocket-build/native/3ds/minimal"),
+    cargoArgs: ["--features", "host-backend,host-hooks"], roots: [outdir], context });
   const program = join(outdir, THREE_DS_RUNTIME_FILE);
   rmSync(program, { force: true });
-  await runNative3dsMake({ directory: join(repository, "programs/3ds"), mounts: native.mounts, profile, context,
+  await runNative3dsMake({ directory: join(repository, MINIMAL), mounts: native.mounts, profile, context,
     environment: {
       POCKETJS_ROOT: containerPathFor(repository, native.mounts),
+      POCKETJS_TARGET: profile.id, POCKETJS_HOST_ABI: String(POCKET_BINDING_GENERATION),
       POCKETJS_PROFILE_JSON: canonicalProfileJson(profile), POCKETJS_PROFILE_HASH: hashPocketProfile(profile),
       POCKETJS_RUNTIME_LIB: containerPathFor(native.library, native.mounts),
       POCKETJS_QUICKJS_DIR: containerPathFor(native.quickJsDirectory, native.mounts),
@@ -38,9 +46,10 @@ export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext
 }
 export const build: RuntimeBuild = {
   sourceInputs: [
-    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
-    ...programFiles("programs/3ds", /\.(c|h|png)$/), resolve(repository, "programs/3ds/Makefile"),
-    ...["hooks.c", "input.c", "input.h", "input_source.c", "input_source.h"].map(path => resolve(repository, "platforms/3ds", path)),
+    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/physics", "engine/modules/media", "engine/render", "programs/native/runtime", "devices/gles/pocket-gles", "devices/gles/pocket-gles1", "devices/gles/pocket-gles2", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
+    ...["main.c", "package_source.c", "package_source.h", "Makefile"].map(path => resolve(repository, MINIMAL, path)),
+    resolve(repository, "programs/native/quickjs"),
+    ...["hooks.c", "input.c", "input.h", "input_source.c", "input_source.h", "icon.png", "icon-small.png"].map(path => resolve(repository, "platforms/3ds", path)),
   ],
   hosts: buildHosts, steps: compilerOnly(), artifact: "{outdir}/runtime",
   genericRuntime: { repack: repack3ds, extension: ".3dsx" },

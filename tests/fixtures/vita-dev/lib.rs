@@ -72,7 +72,7 @@ mod tests {
             pocketjs_core::spec::BINDING_GENERATION,
             crate::profile::PROFILE_HASH,
         );
-        let guest = pocketjs_core::package::select_guest(&bundle.package, &host, false).unwrap();
+        let guest = pocket_package::package::select_guest(&bundle.package, &host, false).unwrap();
         assert_eq!(guest.js, b"globalThis.frame = () => {};\0");
         assert_eq!(serde_json::from_slice::<Value>(guest.plan).unwrap(), plan());
         // The variant name and profile hash are provenance; the facts admit.
@@ -114,7 +114,7 @@ mod tests {
         };
         let mut command: Command = serde_json::from_value(json!({
             "version":1,"session":session.session,"id":"b".repeat(32),"op":"push",
-            "size":3,"hash":format!("{:016x}", pocketjs_core::package::fnv1a64(&[b"abc"]))
+            "size":3,"hash":format!("{:016x}", pocket_package::package::fnv1a64(&[b"abc"]))
         }))
         .unwrap();
         command.validate(&session).unwrap();

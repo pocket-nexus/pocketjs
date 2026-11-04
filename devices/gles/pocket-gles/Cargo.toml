@@ -8,10 +8,12 @@ repository.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Recording definitions of every GL entry point for host tests.
+mock-gl = []
+
 [dependencies]
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
-pocket-draw-ops = { workspace = true, default-features = true }
-pocket-tri-batch = { workspace = true, default-features = true }
-pocket-glyph-pages = { workspace = true, default-features = true }
-pocket-tex-cache = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }

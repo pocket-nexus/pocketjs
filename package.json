@@ -61,8 +61,7 @@
     "assets/images/spinner-*.svg",
     "tsconfig.json",
     "devices/LICENSE",
-    "engine/pocket3d/LICENSE",
-    "pocket3d/LICENSE"
+    "engine/pocket3d/LICENSE"
   ],
   "publishConfig": {
     "access": "public"

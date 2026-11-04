@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200112L
 #include "../../../products/3ds/src/instance.c"
 #include "package_fixture.h"
+#include "pocket_native_program.h"
 #include <assert.h>
 #include <stdlib.h>
 
@@ -71,15 +72,50 @@ static int32_t wait_display(void *context, uint64_t token) {
   assert(((TestDisplay *)context)->token == token);
   return 0;
 }
+static const pocket_display_output_v1 display_api = {
+    sizeof display_api, display_descriptor, acquire_display,
+    flush_display,      wait_display,       NULL,
+    NULL,               NULL,               NULL};
+/* The product archive registers no software renderer in slot 0, so the
+ * fixture stands in for gfx.c's PICA renderer with a CPU one of its own. */
+static const uint32_t renderer_formats[] = {POCKET_PIXEL_FORMAT_RGBA8888};
+static uint64_t renders;
+static int32_t renderer_descriptor(void *context,
+                                   pocket_renderer_descriptor *out) {
+  (void)context;
+  *out = (pocket_renderer_descriptor){
+      sizeof *out,           renderer_formats,      1,
+      POCKET_TARGET_CPU_VISIBLE, POCKET_SYNC_IMMEDIATE, POCKET_DRAW_LIST_VERSION,
+      0};
+  return 0;
+}
+static int32_t render(void *context, const pocket_frame_input *frame,
+                      uint64_t *submission) {
+  (void)context;
+  assert(frame->target->kind == POCKET_TARGET_CPU_VISIBLE);
+  *submission = ++renders;
+  return 0;
+}
+static int32_t wait_render(void *context, uint64_t submission) {
+  (void)context;
+  assert(submission && submission <= renders);
+  return 0;
+}
+static void retire_render(void *context, uint64_t submission) {
+  (void)context;
+  (void)submission;
+}
+static const pocket_renderer_v1 renderer_api = {
+    sizeof renderer_api, renderer_descriptor, render, wait_render,
+    retire_render,       NULL};
 bool gfx_register(pocket_runtime *runtime) {
-  pocket_display_output_v1 api = {
-      sizeof api,    display_descriptor, acquire_display,
-      flush_display, wait_display,       NULL,
-      NULL,          NULL,               NULL};
-  return !pocket_runtime_add_display(runtime, &api, &displays[0],
-                                     POCKET_RENDERER_SOFTWARE) &&
-         !pocket_runtime_add_display(runtime, &api, &displays[1],
-                                     POCKET_RENDERER_SOFTWARE);
+  uint32_t renderer = pocket_runtime_add_renderer(runtime, &renderer_api, NULL);
+  return renderer != POCKET_RENDERER_INVALID &&
+         renderer != POCKET_RENDERER_SOFTWARE &&
+         !pocket_runtime_add_display(runtime, &display_api, &displays[0],
+                                     renderer) &&
+         !pocket_runtime_add_display(runtime, &display_api, &displays[1],
+                                     renderer);
 }
 static unsigned initialized, evaluated, framed, shut_down;
 static uint32_t expected_touch;
@@ -129,17 +165,27 @@ static void shutdown_guest(void *self) {
   (void)self;
   shut_down++;
 }
+/* The program products/3ds/src/qjs.c boots through the facade: no built-in
+ * output, the 3DS package source, then instance_attach before boot. */
+static PocketNativeProgram *create(PocketRuntimePackage *package) {
+  return pocket_native_program_create_source(
+      "3ds-dev", POCKETJS_HOST_ABI, instance_package_source(), package, 400,
+      240, 1, INSTANCE_HEAP_LIMIT, INSTANCE_FRAME_BUFFER_BUDGET,
+      &pocket_3ds_profile, pocket_3ds_profile_hash);
+}
 int main(void) {
   PocketRuntimePackage package = {.bytes = (uint8_t *)package_bytes,
                                   .length = sizeof package_bytes};
-  pocket_runtime *runtime = instance_create(&package);
-  assert(runtime && !instance_create(&package));
+  PocketNativeProgram *program = create(&package);
+  assert(program);
+  pocket_runtime *runtime = pocket_native_program_runtime(program);
   pocket_guest_v1 guest_api = {sizeof guest_api, evaluate_guest,
                                frame_guest,      NULL,
                                shutdown_guest,   initialize_guest,
                                NULL};
   assert(!pocket_runtime_set_guest(runtime, &guest_api, NULL));
-  assert(!pocket_runtime_boot(runtime));
+  assert(instance_attach(runtime) && !instance_attach(runtime));
+  assert(!pocket_native_program_boot(program));
   uint32_t contact = (5 << 18) | (87 << 9) | 159;
   expected_touch = contact;
   instance_input(0x4000, 0x00ff, &contact, 1, 0xff00);
@@ -152,12 +198,15 @@ int main(void) {
   instance_input(0x4000, 0x00ff, NULL, 0, 0xff00);
   assert(!pocket_runtime_tick(runtime));
   assert(initialized == 1 && evaluated == 1 && framed == 3);
-  instance_destroy();
+  instance_detach();
+  pocket_native_program_destroy(program);
   assert(shut_down == 1);
-  runtime = instance_create(&package);
-  assert(runtime); /* An app switch constructs a fresh instance from the same
+  program = create(&package);
+  assert(program); /* An app switch constructs a fresh program from the same
                       source. */
-  instance_destroy();
+  assert(instance_attach(pocket_native_program_runtime(program)));
+  instance_detach();
+  pocket_native_program_destroy(program);
   puts("3DS runtime composition: package, auxiliary metadata, providers and "
        "exact input passed");
 }

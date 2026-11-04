@@ -14,7 +14,7 @@ GPIO configuration, panel setup and package storage.
 | `pocket_runner` | Optional owner task using the shared tick schedule | P4, S3 |
 
 The runtime component links `libpocket_idf_runtime.a`. This archive composes
-`pocket-runtime-cabi` and the PPA factory. `pocket-raster` supplies the built-in
+`pocket-archive` and the PPA factory. `pocket-raster` supplies the built-in
 software renderer. The PPA renderer implements the same public driver contract;
 unsupported operations use ordered software fallback.
 

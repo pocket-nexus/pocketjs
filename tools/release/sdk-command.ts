@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { exportSdk, parseSdkExport, verifySdk } from "./archive.ts";
+import { exportSdk, parseSdkExport, SDK_FEATURES, verifySdk } from "./archive.ts";
 import { exportReleasedSdk } from "./fetch.ts";
 import { releaseVersion } from "./manifest.ts";
 
@@ -16,8 +16,11 @@ function take(args: string[], name: string): string | undefined {
 function cargoTemplate(out: string): void {
   if (existsSync(out)) throw new Error("program output already exists: " + out);
   mkdirSync(join(out, "src"), { recursive: true });
-  writeFileSync(join(out, "Cargo.toml"), '[package]\nname = "pocket-program"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\n\n[lib]\ncrate-type = ["staticlib"]\n\n[dependencies]\npocket-runtime-cabi = { version = "0.1.0", default-features = false }\n\n[profile.release]\npanic = "abort"\n');
-  writeFileSync(join(out, "src/lib.rs"), "#![no_std]\n// Add Rust drivers here; this crate produces the program's only Rust archive.\npub use pocket_runtime_cabi::*;\n");
+  // The archive crate is not on a registry: the template names this release's
+  // source tag, as tests/fixtures/out-of-tree-rust names a git revision.
+  const archive = 'pocket-archive = { git = "https://github.com/pocket-nexus/pocketjs", tag = "v' + releaseVersion() + '", default-features = false, features = ' + JSON.stringify(SDK_FEATURES) + ' }';
+  writeFileSync(join(out, "Cargo.toml"), '[package]\nname = "pocket-program"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\n\n[lib]\ncrate-type = ["staticlib"]\n\n[dependencies]\n' + archive + '\n\n[profile.release]\npanic = "abort"\n');
+  writeFileSync(join(out, "src/lib.rs"), "#![no_std]\n// Add Rust drivers here; this crate produces the program's only Rust archive.\npub use pocket_archive::*;\n");
 }
 export async function sdkCommand(input: string[]): Promise<number> {
   const args = [...input];

@@ -134,8 +134,9 @@ int main(int argc,char **argv){
   pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=fixture_binding_generation;config.tick_hz=facts.tick_hz;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile=&facts;
   instance=pocket_runtime_create(&config);assert(instance);
   prefix_and_operation_tests();raster_test();
-  pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range,NULL};
-  pocket_guest_v1 guest={sizeof(guest),evaluate,frame,NULL,shutdown_guest,initialize,NULL};
+  /* Members by name: the old revision's tables end at range and initialize. */
+  pocket_package_source_v1 source={.struct_size=sizeof(source),.length=source_length,.range=source_range};
+  pocket_guest_v1 guest={.struct_size=sizeof(guest),.evaluate=evaluate,.frame=frame,.shutdown=shutdown_guest,.initialize=initialize};
   pocket_display_output_v1 display={.struct_size=sizeof(display),.descriptor=descriptor,.acquire=acquire,.flush=flush,.wait=display_wait};
   assert(pocket_runtime_set_package_source(instance,&source,NULL)==0);
   assert(pocket_runtime_set_guest(instance,&guest,NULL)==0);

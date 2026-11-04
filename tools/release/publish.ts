@@ -7,7 +7,7 @@ import { readRuntimeDirectory } from "../repack.ts";
 import { readRuntime } from "../repack/shared/runtime.ts";
 import { releaseVersion, validateReleaseManifest, type ReleaseAsset, type ReleaseManifest } from "./manifest.ts";
 import { POCKET_PROFILE_FILE } from "../../contracts/spec/profile.ts";
-import { verifySdk } from "./receipt.ts";
+import { SDK_FEATURES, verifySdk } from "./receipt.ts";
 import { archiveDirectory } from "./tar.ts";
 
 export interface ReleaseInputs {
@@ -34,7 +34,7 @@ export async function prepareRelease(inputs: ReleaseInputs, output: string): Pro
       const receipt = verifySdk(directory);
       if (receipt.source.revision !== inputs.revision || receipt.source.dirty !== false ||
           receipt.hostAbi !== POCKET_BINDING_GENERATION || receipt.build.triple !== triple ||
-          receipt.build.defaultFeatures !== false || receipt.build.features.length !== 0)
+          receipt.build.defaultFeatures !== false || [...receipt.build.features].sort().join(",") !== [...SDK_FEATURES].sort().join(","))
         throw new Error("SDK release requires a clean matching revision and default archive: " + triple);
       const copy = join(staging, "sdk"); cpSync(directory, copy, { recursive: true });
       // Release status records distribution, not completion of ABI acceptance.

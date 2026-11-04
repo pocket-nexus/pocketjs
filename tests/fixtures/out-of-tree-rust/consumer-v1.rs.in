@@ -4,7 +4,7 @@ use pocket_package::{
     package_format as format,
     source::{LoadedPackage, MemorySource},
 };
-use pocket_present::{Coordinator, DisplayId, RendererId};
+use pocket_runtime::coordinator::{Coordinator, DisplayId, RendererId};
 use pocket_runtime::{
     Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, Runtime, RuntimeConfig,
     RuntimeError,

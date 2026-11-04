@@ -31,16 +31,15 @@ typedef struct {
 #define POCKET_IDF_FEATURE_AUDIO_PCM 16U
 #define POCKET_IDF_FEATURE_AUDIO_CAPTURE 32U
 #define POCKET_IDF_FEATURE_DEVICE 64U
-/* 0 = admitted: the first variant the exported profile facts satisfy
- * (binding generation, raster density, animation, rate, viewport,
- * presentation, capabilities, auxiliary surface). profile_hash is null or
- * 32 bytes and only orders variants. Non-zero codes: 1..5 a damaged file,
- * 6 no variant, 7 another binding generation, 8 no identity, 9 an unreadable
- * plan, 10..11 missing or unterminated JavaScript, 12 a bad argument,
- * 13..15 an unreadable plan fact, 17 a malformed layout, 18 a worker section
- * mismatch, 19..25 the first failed admission item (raster density,
- * animation, rate, viewport, presentation, capability, auxiliary).
- * Initialize out->struct_size. */
+/* Returns the POCKET_PACKAGE_OPEN_* codes of pocket_runtime.h.
+ * POCKET_PACKAGE_OPEN_OK = admitted: the first variant the exported profile
+ * facts satisfy (binding generation, raster density, animation, rate,
+ * viewport, presentation, capabilities, auxiliary surface). profile_hash is
+ * null or 32 bytes and only orders variants. The other codes name a damaged
+ * file, a package without a variant, the first failed admission item, a
+ * missing identity or JavaScript section, a bad argument or a short record
+ * (BAD_ARGUMENT), and a plan fact that cannot be read (PLAN_JSON,
+ * PLAN_VIEWPORT, PLAN_AUXILIARY). Initialize out->struct_size. */
 int32_t pocket_idf_package_open(const uint8_t *bytes, size_t length,
                                 const pocket_profile_facts *facts,
                                 uint32_t host_abi,

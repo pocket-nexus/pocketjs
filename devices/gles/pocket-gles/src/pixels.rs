@@ -3,18 +3,6 @@ use alloc::{vec, vec::Vec};
 use core::ffi::c_void;
 use pocket_drivers::TexView;
 use pocket_spec as spec;
-#[inline]
-pub(crate) fn xy(word: u32) -> (f32, f32) {
-    (
-        (word as u16 as i16) as f32,
-        ((word >> 16) as u16 as i16) as f32,
-    )
-}
-
-#[inline]
-pub(crate) fn wh(word: u32) -> (f32, f32) {
-    ((word & 0xffff) as f32, ((word >> 16) & 0xffff) as f32)
-}
 
 /// Drain stale context errors before an operation whose result we inspect.
 ///

@@ -8,7 +8,7 @@ export const RUNTIME_ABI_RULES = [
   "Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.",
   "Runtime configurations and guest environments require POCKET_BINDING_GENERATION. hostAbi is not a per-target identifier; unsupported generations are rejected before guest initialization.",
   "Create copies the configuration and the profile facts it points to; no JSON is read at runtime. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.",
-  "Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.",
+  "Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the software rasterizer that create registers in an archive built with it (the C SDK, ESP-IDF and SiFli archives). In an archive without it no renderer has that id, and add_display with it fails. Registered renderers take ids from 1. Multiple displays may share a renderer instance.",
   "Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.",
   "Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. A DEFERRED renderer's frame completes at the start of the next present, so its device work overlaps the next guest turn. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks.",
   "The guest receives the eight frame arguments and the frame's text events through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format. A text event names an editing key as KeyboardEvent.key does (Enter, Backspace, Delete, Escape, Tab, ArrowLeft, Home), with a held modifier in front: Control+z, Alt+ArrowLeft.",
@@ -21,6 +21,37 @@ export const RUNTIME_ABI_CONSTANTS: Readonly<Record<string, number>> = {
   POCKET_RENDERER_INVALID: 0xffffffff,
   POCKET_ARG_INTEGER: 1, POCKET_ARG_REAL: 2, POCKET_ARG_BYTES: 3,
   POCKET_RESULT_NONE: 0, POCKET_RESULT_I64: 1, POCKET_RESULT_F64: 2, POCKET_RESULT_BYTES: 3,
+};
+
+export const PACKAGE_OPEN_STATUS_DOC = "Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (pocket_runtime::abi). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned.";
+/** One `int32_t` code space, positive, distinct from the negative POCKET_STATUS_* values. */
+export const PACKAGE_OPEN_STATUS: Readonly<Record<string, number>> = {
+  POCKET_PACKAGE_OPEN_OK: 0,
+  POCKET_PACKAGE_OPEN_TRUNCATED: 1,
+  POCKET_PACKAGE_OPEN_BAD_MAGIC: 2,
+  POCKET_PACKAGE_OPEN_BAD_VERSION: 3,
+  POCKET_PACKAGE_OPEN_HASH_MISMATCH: 4,
+  POCKET_PACKAGE_OPEN_BAD_UTF8: 5,
+  POCKET_PACKAGE_OPEN_NO_VARIANT: 6,
+  POCKET_PACKAGE_OPEN_BINDING_GENERATION: 7,
+  POCKET_PACKAGE_OPEN_NO_IDENTITY: 8,
+  POCKET_PACKAGE_OPEN_PLAN: 9,
+  POCKET_PACKAGE_OPEN_NO_JAVASCRIPT: 10,
+  POCKET_PACKAGE_OPEN_JAVASCRIPT_NOT_TERMINATED: 11,
+  POCKET_PACKAGE_OPEN_BAD_ARGUMENT: 12,
+  POCKET_PACKAGE_OPEN_PLAN_JSON: 13,
+  POCKET_PACKAGE_OPEN_PLAN_VIEWPORT: 14,
+  POCKET_PACKAGE_OPEN_PLAN_AUXILIARY: 15,
+  POCKET_PACKAGE_OPEN_BAD_LAYOUT: 17,
+  POCKET_PACKAGE_OPEN_WORKER_SECTION: 18,
+  POCKET_PACKAGE_OPEN_RASTER_DENSITY: 19,
+  POCKET_PACKAGE_OPEN_ANIMATION: 20,
+  POCKET_PACKAGE_OPEN_RATE: 21,
+  POCKET_PACKAGE_OPEN_VIEWPORT: 22,
+  POCKET_PACKAGE_OPEN_PRESENTATION: 23,
+  POCKET_PACKAGE_OPEN_CAPABILITY: 24,
+  POCKET_PACKAGE_OPEN_AUXILIARY: 25,
+  POCKET_PACKAGE_OPEN_BAD_BYTECODE: 26,
 };
 
 export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
@@ -73,7 +104,7 @@ export const RUNTIME_ABI_CALLBACKS: readonly AbiCallback[] = [
 ];
 
 export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
-  { name: "pocket_glyph_page_a8", args: [f("font", "*const PocketFontView"), f("glyph", "u32"), f("max_dimension", "u32"), f("pixels", "*mut u8"), f("capacity", "usize"), f("out", "*mut PocketGlyphPage")], result: "i32", doc: "Query or expand a bounded guarded A8 page through pocket-glyph-pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap." },
+  { name: "pocket_glyph_page_a8", args: [f("font", "*const PocketFontView"), f("glyph", "u32"), f("max_dimension", "u32"), f("pixels", "*mut u8"), f("capacity", "usize"), f("out", "*mut PocketGlyphPage")], result: "i32", doc: "Query or expand a bounded guarded A8 page through pocket_render::glyph_pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap." },
   { name: "pocket_tick_schedule_create", args: [f("tick_hz", "u32"), f("started", "u64"), f("max_lag_us", "u64")], result: "*mut PocketTickSchedule", doc: "Create a thread-owned monotonic deadline schedule. Invalid rate, zero lag limit, or overflow returns null. Platform code owns waits and cancellation." },
   { name: "pocket_tick_schedule_deadline", args: [f("schedule", "*const PocketTickSchedule"), f("out", "*mut u64")], result: "i32" },
   { name: "pocket_tick_schedule_poll", args: [f("schedule", "*mut PocketTickSchedule"), f("now", "u64"), f("out", "*mut PocketTickTiming"), f("ready", "*mut u32")], result: "i32", doc: "Reserve at most one due slot. Early polls set ready to zero without advancing; excessive lag skips expired wall-clock slots. Invalid output prefixes leave the schedule unchanged." },
@@ -96,7 +127,7 @@ export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
   { name: "pocket_runtime_op", args: [runtime, f("op", "u16"), f("args", "*const c_void"), f("length", "usize"), f("out", "*mut PocketResult")], result: "i32", doc: "Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime." },
   { name: "pocket_runtime_update_texture", args: [runtime, f("handle", "i32"), f("x", "u32"), f("y", "u32"), f("width", "u32"), f("height", "u32"), f("pixels", "*const u8"), f("length", "usize")], result: "i32", doc: "Overwrite the rectangle of a live 16- or 32-bit texture in place with width*height texels in its format, rows packed: the handle and the nodes drawing it stay, and the next frame repaints only the quads that sample it. Not during a guest callback; INVALID for a stale handle, an indexed texture, a rectangle outside the texture or another byte count." },
   { name: "pocket_runtime_destroy", args: [runtime], result: "void" },
-  { name: "pocket_raster_draw_op", args: [f("target", "*mut PocketSurface"), f("op", "*const PocketDrawOp"), f("resources", "*const PocketRenderResources")], result: "i32", doc: "Software fallback after accelerator completion and cache visibility, within target's acquired region." },
+  { name: "pocket_raster_draw_op", args: [f("target", "*mut PocketSurface"), f("op", "*const PocketDrawOp"), f("resources", "*const PocketRenderResources")], result: "i32", doc: "Software fallback after accelerator completion and cache visibility, within target's acquired region. An archive built without the software rasterizer returns UNSUPPORTED and does not write target." },
   { name: "pocket_draw_list_visit", args: [f("list", "*const PocketDrawList"), f("resources", "*const PocketRenderResources"), f("scale", "u32"), f("visitor", "Option<PocketDrawOpVisitFn>"), context], result: "i32", doc: "Validate the complete matching-version DrawList before any callback, then visit every operation in order with inherited logical clip and positive output scale. Callback errors stop iteration and are returned unchanged. No allocation or resource lookup occurs." },
 ];
 

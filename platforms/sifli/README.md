@@ -10,7 +10,7 @@ starts the runner thread. It owns board files, the partition table,
 
 | Unit | Source | Kconfig |
 | --- | --- | --- |
-| DrawList renderer and its C factory | `render-epic/` (Rust, `pocket-render-sifli-epic`) | linked through the archive |
+| DrawList renderer and its C factory | [`devices/sifli/render-epic/`](../../devices/sifli/render-epic) (Rust, `pocket-render-sifli-epic`) | linked through the archive |
 | EPIC executor behind `pocket_epic_ops`, VG Lite on SF32LB58 | `epic/` | `POCKETJS_EPIC`, `POCKETJS_EPIC_VGLITE` |
 | `pocket_host_*` heap, panic and log hooks; memory package source | `hooks/hooks.c`, `hooks/package.c` | `POCKETJS` |
 | SF32LB58x MPU table | `hooks/mpu.c` | `POCKETJS_MPU_OVERRIDE` |
@@ -21,7 +21,7 @@ starts the runner thread. It owns board files, the partition table,
 | Native texture baker | `tools/build/sifli/epic.ts` | |
 
 `include/pocket/sifli.h` declares the drivers;
-`render-epic/include/pocket/render_sifli_epic.h` declares the renderer factory
+`devices/sifli/render-epic/include/pocket/render_sifli_epic.h` declares the renderer factory
 and the executor table. Only the runner creates a thread. Only `epic/`
 includes EPIC and VG Lite headers, and it owns `EPIC_IRQHandler`: keep
 `BSP_USING_EPIC` (the SDK's `drv_epic`) and LVGL out of the build.
@@ -75,7 +75,7 @@ executor binds the same array. The presentation coordinator supplies the
 damage rectangles of the framebuffer it acquired, so damage history follows
 each framebuffer's retained pixels.
 
-Per frame the renderer decodes the DrawList once with `pocket-draw-ops`,
+Per frame the renderer decodes the DrawList once with `pocket-render`,
 recovers the rectangles and quads the core flattened into triangle pairs, and
 groups consecutive coverage-only texture quads into one A8 run. For each
 damage rectangle it clears the covering logical pixels and replays every
@@ -204,7 +204,7 @@ Host regression checks for damage, fallback pixels and triangle coverage:
 ```sh
 cargo test --locked -p pocket-raster -p pocket-render-sifli-epic -p pocketjs-core
 cargo clippy --locked -p pocket-raster -p pocket-render-sifli-epic --all-targets --no-deps -- -D warnings
-cargo test --locked -p pocket-render-sifli-epic --features cabi,pocket-runtime-cabi/std
+cargo test --locked -p pocket-render-sifli-epic --features cabi
 ```
 
 The rotation preflight also runs on the host, with address/undefined-behavior
@@ -213,7 +213,7 @@ sanitizers and no SDK dependency:
 ```sh
 mkdir -p .pocket-build/validation/rotation/host
 cc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined,address \
-  -Iplatforms/sifli/render-epic/include -Icontracts/generated \
+  -Idevices/sifli/render-epic/include -Icontracts/generated \
   platforms/sifli/epic/rotate.c platforms/sifli/tests/rotation_geometry.c \
   -lm -o .pocket-build/validation/rotation/host/geometry
 .pocket-build/validation/rotation/host/geometry

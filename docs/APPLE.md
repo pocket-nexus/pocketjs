@@ -1,8 +1,8 @@
 # Modern iOS via NativeScript
 
-`engine/ios` composes **one canonical PocketJS Runtime per UIKit view**.
+`platforms/apple` composes **one canonical PocketJS Runtime per UIKit view**.
 `PocketSurfaceView` registers a CPU display, touch input, package source and
-service provider through `pocket-runtime-cabi`. The Runtime owns package
+service provider through `pocket_runtime::abi`. The Runtime owns package
 admission, asset loading, input hit snapshots, guest ticks and presentation.
 The Apple adapter holds the framebuffer and host queues; it holds no second
 `Ui` or operation dispatcher.

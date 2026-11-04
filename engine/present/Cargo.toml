@@ -6,7 +6,7 @@ documentation = "https://docs.rs/pocket-present"
 keywords = ["pocketjs", "rendering", "display"]
 categories = ["no-std", "rendering"]
 edition = "2021"
-description = "Damage tracking, composition and presentation transactions for PocketJS"
+description = "Forwarding crate for damage tracking in pocket-render, composition in pocket-raster, and the coordinator in pocket-runtime"
 
 version.workspace = true
 repository.workspace = true
@@ -14,7 +14,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-pocket-draw-ops = { workspace = true, default-features = true }
-pocket-spec = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }

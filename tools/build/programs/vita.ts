@@ -12,7 +12,7 @@ const profile = POCKET_PROFILES["vita"];
 
 export const build: RuntimeBuild = {
   deploy: deployVita,
-  sourceInputs: [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/profile-build", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/vita", "platforms/vita", "devices/vita", "devices/vita/pocket-vita-render", "engine/guest-quickjs")],
+  sourceInputs: [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/raster", "engine/modules/media", "engine/render", "programs/vita", "platforms/vita", "devices/vita", "devices/vita/pocket-vita-render", "engine/guest-quickjs")],
   hosts: buildHosts, input: "package", steps: compilerOnly(), artifact: "{outdir}/{output}.vpk",
   async run(context) {
     requireProgramProfile(context, profile);
@@ -25,7 +25,7 @@ export const build: RuntimeBuild = {
   },
 };
 export const genericBuild: RuntimeBuild = {
-  sourceInputs: [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/profile-build", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/vita", "platforms/vita", "devices/vita", "devices/vita/pocket-vita-render", "engine/guest-quickjs")],
+  sourceInputs: [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/raster", "engine/modules/media", "engine/render", "programs/vita", "platforms/vita", "devices/vita", "devices/vita/pocket-vita-render", "engine/guest-quickjs")],
   hosts: buildHosts, steps: compilerOnly(), artifact: "{outdir}/runtime",
   genericRuntime: { repack: repackVita, extension: ".vpk" },
   async run(context) {

@@ -50,7 +50,7 @@ available. An output reservation prevents recording more GPU work while the
 window thread has not consumed the previous output. Surface loss/outdated errors reconfigure and retry; fatal GPU errors
 exit with an error. Production presentation performs no framebuffer readback.
 
-The WASM host retains `engine/present/src/compositor.rs` and the software rasterizer.
+The WASM host retains `engine/raster/src/compositor.rs` and the software rasterizer.
 Vita/GXM and 3DS/PICA retain their own DrawList adapters and host contracts;
 wgpu is not added to their dependency graph. Desktop composition support does
 not admit that capability on handheld targets.
@@ -66,7 +66,7 @@ and specialized widget hosts retain their existing pipeline.
 
 ## The legacy gpui backend
 
-`engine/backends/gpui` (`pocket-ui-gpui`) paints the same DrawList through
+`programs/desktop/gpui` (`pocket-ui-gpui`) paints the same DrawList through
 [gpui](https://gpui.rs) — Zed's native GPU renderer. This retained optional
 crate is no longer used by the stock desktop host. The following describes its
 legacy contract. Boxes, gradients
@@ -99,7 +99,7 @@ text can come from the host text system.
   backend.
 - **Prefix additivity is preserved.** Ligatures, contextual alternates and
   kerning are disabled in the native shaping configuration
-  (`engine/backends/gpui/src/fonts.rs`), because app editor math measures
+  (`programs/desktop/gpui/src/fonts.rs`), because app editor math measures
   caret positions as prefix widths through `measureText`
   (`apps/note/layout.ts`, `apps/im/wrap.ts`) and prefix sums only equal
   shaped positions when advances are additive.
@@ -114,7 +114,7 @@ text can come from the host text system.
 - **Two ops keep a pixel-exact escape hatch.** Gouraud `TRI` and `TEX_TRI`
   batches (rotated gradients and images, 3D subtrees) have no gpui vector
   equivalent, so consecutive batches raster through
-  `pocketjs_core::raster` into cached local images at the target density —
+  `pocket_raster` into cached local images at the target density —
   the portable rasterizer used as a sub-backend.
 
 ### What the gpui backend guarantees, and what it does not
@@ -189,7 +189,7 @@ framebuffer and the incremental tracker stay as they were.
 `ui_draw_hash` hashes the primary one. An AppInstance created with
 `text: false` starts no text worker and gives its guest no `offload`. A
 Pocket3D game's browser tab uses the three to lay its interface over a WebGPU
-scene ([`devices/web/pocket-web-wgpu`](../devices/web/pocket-web-wgpu/README.md)).
+scene ([`engine/pocket3d/crates/pocket-web-wgpu`](../engine/pocket3d/crates/pocket-web-wgpu/README.md)).
 
 ## System UI companion input
 

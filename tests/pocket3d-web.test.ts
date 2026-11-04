@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { cutPack, PACK_PIECES, stagePocket3dWeb } from "../tools/pocket3d-web.ts";
 
-// devices/web/pocket-web-wgpu is what a Pocket3D game drawn with wgpu takes
+// engine/pocket3d/crates/pocket-web-wgpu is what a Pocket3D game drawn with wgpu takes
 // for a browser tab. This is its check without a game: the files a page
 // loads are staged, a guest written by hand runs in the realm and is driven
 // through the kernel's page module, and a pack is cut into pieces. The Rust

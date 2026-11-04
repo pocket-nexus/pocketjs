@@ -8,7 +8,7 @@
 /* Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target. */
 /* Runtime configurations and guest environments require POCKET_BINDING_GENERATION. hostAbi is not a per-target identifier; unsupported generations are rejected before guest initialization. */
 /* Create copies the configuration and the profile facts it points to; no JSON is read at runtime. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them. */
-/* Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance. */
+/* Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the software rasterizer that create registers in an archive built with it (the C SDK, ESP-IDF and SiFli archives). In an archive without it no renderer has that id, and add_display with it fails. Registered renderers take ids from 1. Multiple displays may share a renderer instance. */
 /* Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest. */
 /* Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. A DEFERRED renderer's frame completes at the start of the next present, so its device work overlaps the next guest turn. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks. */
 /* The guest receives the eight frame arguments and the frame's text events through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format. A text event names an editing key as KeyboardEvent.key does (Enter, Backspace, Delete, Escape, Tab, ArrowLeft, Home), with a held modifier in front: Control+z, Alt+ArrowLeft. */
@@ -30,6 +30,33 @@ typedef uint32_t pocket_renderer_id;
 #define POCKET_RESULT_I64 1U
 #define POCKET_RESULT_F64 2U
 #define POCKET_RESULT_BYTES 3U
+/* Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (pocket_runtime::abi). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned. */
+#define POCKET_PACKAGE_OPEN_OK (0)
+#define POCKET_PACKAGE_OPEN_TRUNCATED (1)
+#define POCKET_PACKAGE_OPEN_BAD_MAGIC (2)
+#define POCKET_PACKAGE_OPEN_BAD_VERSION (3)
+#define POCKET_PACKAGE_OPEN_HASH_MISMATCH (4)
+#define POCKET_PACKAGE_OPEN_BAD_UTF8 (5)
+#define POCKET_PACKAGE_OPEN_NO_VARIANT (6)
+#define POCKET_PACKAGE_OPEN_BINDING_GENERATION (7)
+#define POCKET_PACKAGE_OPEN_NO_IDENTITY (8)
+#define POCKET_PACKAGE_OPEN_PLAN (9)
+#define POCKET_PACKAGE_OPEN_NO_JAVASCRIPT (10)
+#define POCKET_PACKAGE_OPEN_JAVASCRIPT_NOT_TERMINATED (11)
+#define POCKET_PACKAGE_OPEN_BAD_ARGUMENT (12)
+#define POCKET_PACKAGE_OPEN_PLAN_JSON (13)
+#define POCKET_PACKAGE_OPEN_PLAN_VIEWPORT (14)
+#define POCKET_PACKAGE_OPEN_PLAN_AUXILIARY (15)
+#define POCKET_PACKAGE_OPEN_BAD_LAYOUT (17)
+#define POCKET_PACKAGE_OPEN_WORKER_SECTION (18)
+#define POCKET_PACKAGE_OPEN_RASTER_DENSITY (19)
+#define POCKET_PACKAGE_OPEN_ANIMATION (20)
+#define POCKET_PACKAGE_OPEN_RATE (21)
+#define POCKET_PACKAGE_OPEN_VIEWPORT (22)
+#define POCKET_PACKAGE_OPEN_PRESENTATION (23)
+#define POCKET_PACKAGE_OPEN_CAPABILITY (24)
+#define POCKET_PACKAGE_OPEN_AUXILIARY (25)
+#define POCKET_PACKAGE_OPEN_BAD_BYTECODE (26)
 typedef struct pocket_glyph_page pocket_glyph_page;
 typedef struct pocket_tick_timing pocket_tick_timing;
 typedef struct pocket_profile_display pocket_profile_display;
@@ -665,7 +692,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_op_provider_v1) == POCKET_LAYOUT_POC
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_op_provider_v1, struct_size) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_0_OFFSET, "pocket_op_provider_v1.struct_size");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_op_provider_v1, dispatch) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_OFFSET, "pocket_op_provider_v1.dispatch");
 
-/* Query or expand a bounded guarded A8 page through pocket-glyph-pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap. */
+/* Query or expand a bounded guarded A8 page through pocket_render::glyph_pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap. */
 int32_t pocket_glyph_page_a8(const pocket_font_view * font, uint32_t glyph, uint32_t max_dimension, uint8_t * pixels, size_t capacity, pocket_glyph_page * out);
 
 /* Create a thread-owned monotonic deadline schedule. Invalid rate, zero lag limit, or overflow returns null. Platform code owns waits and cancellation. */
@@ -723,7 +750,7 @@ int32_t pocket_runtime_update_texture(pocket_runtime * runtime, int32_t handle, 
 
 void pocket_runtime_destroy(pocket_runtime * runtime);
 
-/* Software fallback after accelerator completion and cache visibility, within target's acquired region. */
+/* Software fallback after accelerator completion and cache visibility, within target's acquired region. An archive built without the software rasterizer returns UNSUPPORTED and does not write target. */
 int32_t pocket_raster_draw_op(pocket_surface * target, const pocket_draw_op * op, const pocket_render_resources * resources);
 
 /* Validate the complete matching-version DrawList before any callback, then visit every operation in order with inherited logical clip and positive output scale. Callback errors stop iteration and are returned unchanged. No allocation or resource lookup occurs. */

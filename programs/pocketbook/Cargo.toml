@@ -24,11 +24,11 @@ publish = false
 [dependencies]
 pocket-spec = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
-pocket-present = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-mod = { workspace = true, default-features = true }
 pocket-ui-surface = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
 
 # inkview is consumed as-is (no modifications), pinned to a git REV like the
 # PSP toolchain pins (local sibling-checkout edits are invisible until merged
@@ -47,6 +47,9 @@ env_logger = "0.11"
 # Native builds keep the pre-generated bindings (no libclang required).
 [target.'cfg(target_arch = "arm")'.dependencies]
 rquickjs = { version = "0.12", features = ["bindgen"] }
+
+[dev-dependencies]
+pocket-render = { workspace = true, default-features = true }
 
 [build-dependencies]
 cc = "1"

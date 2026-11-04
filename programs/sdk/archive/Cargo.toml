@@ -1,0 +1,37 @@
+[package]
+name = "pocket-archive"
+edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS C SDK archive: the pocket_runtime.h symbols, allocator, panic handler and host hooks"
+
+[lib]
+name = "pocket_archive"
+# Rust programs link this library into their own final artifact.
+# SDK export selects --crate-type staticlib for the default C archive.
+crate-type = ["rlib"]
+
+[features]
+default = ["std"]
+std = []
+# A no_std Rust program supplies its own allocator, panic and compiler handlers.
+external-runtime = []
+# pocket_runtime_create registers the software rasterizer as renderer 0 and
+# pocket_raster_draw_op draws; without it renderer 0 is empty and the
+# function returns POCKET_STATUS_UNSUPPORTED.
+software-renderer = ["dep:pocket-raster"]
+# pocket_runtime_create installs pocket-physics, so ui.physics plans are
+# admitted where the profile declares the capability. Archives that leave it
+# off do not link pocket-physics and report ops 52..56 unsupported.
+physics = ["dep:pocket-physics"]
+
+[dependencies]
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true, optional = true }
+pocket-render = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-physics = { workspace = true, default-features = true, optional = true }

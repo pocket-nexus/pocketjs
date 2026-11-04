@@ -1,6 +1,6 @@
 # pocket-present
 
-Damage tracking, surface composition, and render/display submission coordination for PocketJS.
+Forwarding crate for damage tracking, software composition, the presentation coordinator, and e-ink refresh scheduling.
 
 ## Install
 
@@ -23,9 +23,20 @@ assert_eq!(plan.regions()[0], DamageRect::new(0, 0, 320, 240));
 
 ## Environment and compatibility
 
-Rust 1.93 or later. `no_std` with `alloc`; renderers and displays are caller-supplied.
+Rust 1.93 or later. `no_std`; the crate contains no code of its own.
 
-Keep one damage history per persistent physical target. Commit it after successful output; abort or invalidate it on failure. Deferred submissions retain resources until render and display waits complete.
+**Every public path re-exports the item itself**, so values and types pass
+between code that names the former path and code that names the new one.
+
+| Former path | Item |
+| --- | --- |
+| `pocket_present::damage`, `transaction` and the root damage types | `pocket_render::damage` |
+| `pocket_present::compositor`, `incremental` | `pocket_raster::compositor`, `pocket_raster::incremental` |
+| `pocket_present::coordinator`, `Coordinator`, `DisplayId`, `PresentError`, `RendererId` | `pocket_runtime::coordinator` |
+| `pocket_present::ink` | `pocket_drivers::ink` |
+
+This crate is published for one release after `pocket-render` and is then
+deprecated. New code depends on the crates in the right column.
 
 Use matching PocketJS crate releases and compiler contracts. Application package
 format, binding generation, and DrawList version are checked at their respective

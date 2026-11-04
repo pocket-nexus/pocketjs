@@ -13,7 +13,6 @@ extern crate alloc;
 use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
 use core::cell::{Cell, RefCell, UnsafeCell};
 use microts::{
-    pocketjs_core::damage::DamageRect,
     runtime::{AotApp, AotGuest, AppState},
     Input, Ui,
 };
@@ -174,6 +173,13 @@ impl Hero {
             .unwrap();
         let pixels = Rc::new(Pixels(UnsafeCell::new(vec![0; WIDTH * HEIGHT])));
         let flushed = Rc::new(RefCell::new(Vec::new()));
+        // The LCD binds renderer 0: register the software rasterizer first.
+        runtime
+            .set_software_renderer(
+                pocket_raster::RasterRenderer::new(1).unwrap(),
+                pocket_raster::RasterRenderer::new,
+            )
+            .unwrap();
         runtime
             .add_display(
                 Lcd {

@@ -18,4 +18,7 @@ pocketjs-core = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }
-pocket-present = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+
+[dev-dependencies]
+pocket-raster = { workspace = true, default-features = true }

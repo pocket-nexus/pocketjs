@@ -5,9 +5,9 @@ use core::{
     ffi::{c_void, CStr},
 };
 use libquickjs_sys::*;
+use pocket_drivers::abi::*;
 use pocket_drivers::{AxisSample, InputClasses, InputFrameBuilder, InputSource};
 use pocket_runtime::{OpArg, OpContext, OpProvider, OpResult, RuntimeError};
-use pocket_runtime_cabi::abi::*;
 
 const JS_STRIP_SOURCE: core::ffi::c_int = 1;
 extern "C" {

@@ -25,6 +25,15 @@ fn config() -> RuntimeConfig {
         },
     }
 }
+/// Register the software rasterizer as renderer 0, before a display binds it.
+fn software(runtime: &mut Runtime) {
+    runtime
+        .set_software_renderer(
+            pocket_raster::RasterRenderer::new(1).unwrap(),
+            pocket_raster::RasterRenderer::new,
+        )
+        .unwrap();
+}
 fn package() -> Vec<u8> {
     package_for(config().profile_hash)
 }
@@ -148,6 +157,7 @@ fn runtime(facts: Rc<RefCell<Facts>>, fail_guest: bool, fail_display: bool) -> R
             fail: fail_guest,
         }))
         .unwrap();
+    software(&mut runtime);
     runtime
         .add_display(
             Display {
@@ -386,6 +396,7 @@ fn embedded_resize_requires_opt_in_and_checks_budget_before_changing_ui() {
     rt.set_package_source(Box::new(MemorySource(package())))
         .unwrap();
     let size = Rc::new(Cell::new([4, 4]));
+    software(&mut rt);
     rt.add_display(
         Resizable {
             size: size.clone(),
@@ -400,7 +411,7 @@ fn embedded_resize_requires_opt_in_and_checks_budget_before_changing_ui() {
     assert!(matches!(
         rt.resize_embedded([8, 8], [8, 8]),
         Err(RuntimeError::Presentation(
-            pocket_present::PresentError::BudgetExceeded
+            pocket_runtime::coordinator::PresentError::BudgetExceeded
         ))
     ));
     assert_eq!(ops.core().unwrap().ui.viewport(), (4., 4.));
@@ -475,6 +486,7 @@ fn profile_auxiliary_surface_has_guest_metadata_without_a_package_declaration() 
     rt.set_package_source(Box::new(MemorySource(package)))
         .unwrap();
     let facts = Rc::new(RefCell::new(Facts::default()));
+    software(&mut rt);
     rt.add_display(
         Display {
             pixels: [0; 64],
@@ -793,6 +805,7 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
         runtime
             .set_package_source(Box::new(MemorySource(package)))
             .unwrap();
+        software(&mut runtime);
         runtime
             .add_display(Output(physical), RendererId::SOFTWARE)
             .unwrap();
@@ -1100,6 +1113,7 @@ fn boot_runs_the_package_rate_at_the_fastest_dividing_cadence() {
         runtime.set_guest(Box::new(Rates(seen.clone()))).unwrap();
         runtime.set_package_source(Box::new(MemorySource(bytes))).unwrap();
         let facts = Rc::new(RefCell::new(Facts::default()));
+        software(&mut runtime);
         runtime
             .add_display(Display { pixels: [0; 64], facts, fail_once: false }, RendererId::SOFTWARE)
             .unwrap();

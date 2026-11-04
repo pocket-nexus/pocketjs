@@ -8,7 +8,7 @@ A Pocket3D game cooks one pack a level and a device profile. `pocket3d-packs` cu
 | LAN delivery to a 3DS, computer side | `tools/pocket3d-delivery.ts` |
 | LAN delivery to a 3DS, console side | `products/3ds/src/packs_delivery.c` |
 | Reader (`no_std` + `alloc`, optional C interface) | `engine/pocket3d/crates/pocket3d-packs` |
-| Browser reader over HTTP | `devices/web/pocket-web-wgpu/src/source.rs` |
+| Browser reader over HTTP | `engine/pocket3d/crates/pocket-web-wgpu/src/source.rs` |
 | Tests | `tests/pocket3d-packs.test.ts`, `tests/pocket3d-delivery.test.ts`, the crate's unit tests |
 
 ## The manifest

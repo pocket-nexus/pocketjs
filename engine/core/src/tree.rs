@@ -72,7 +72,8 @@ pub struct Node {
     /// removes them (see lib.rs).
     pub anim_values: Vec<(u8, u32)>,
     /// Poses a physics body or emitter writes (ui.physics), applied after
-    /// `anim_values`. Only the physics module writes or clears this layer.
+    /// `anim_values`. Only the installed `Physics` engine writes or clears
+    /// this layer (see `crate::Physics`).
     pub physics_values: Vec<(u8, u32)>,
     /// UTF-8 content (text nodes only).
     pub text: String,

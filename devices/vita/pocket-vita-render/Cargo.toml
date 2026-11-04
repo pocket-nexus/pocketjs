@@ -11,10 +11,7 @@ license.workspace = true
 [dependencies]
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
-pocket-draw-ops = { workspace = true, default-features = true }
-pocket-tri-batch = { workspace = true, default-features = true }
-pocket-glyph-pages = { workspace = true, default-features = true }
-pocket-tex-cache = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
 
 [target.'cfg(target_os = "vita")'.dependencies]
 pocket-vita-gxm = { workspace = true, default-features = true }

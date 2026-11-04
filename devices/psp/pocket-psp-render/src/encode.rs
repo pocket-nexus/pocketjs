@@ -1,10 +1,10 @@
 use crate::{Device, Primitive, TextureBinding, VertC, VertTC, Vertices};
 use alloc::vec::Vec;
 use core::mem::size_of;
-use pocket_draw_ops::DrawOps;
 use pocket_drivers::{DamageRect, FontView, RenderError, RenderResources, TexView};
-use pocket_glyph_pages::{FontPages, GlyphSource};
 use pocket_psp_ge::FramePool;
+use pocket_render::glyph_pages::{FontPages, GlyphSource};
+use pocket_render::{gradient_corners, DrawOps};
 use pocket_spec as spec;
 
 /// Storage for an open native GE pass. It owns geometry and font renditions.
@@ -241,18 +241,13 @@ impl Encoder {
                 spec::draw_op::GRAD_RECT => {
                     let (x, y) = xy(data[1]);
                     let (x1, y1) = end_xy(x, y, data[2])?;
-                    let (a, b) = (data[3], data[4]);
-                    let colors = match data[5] {
-                        d if d == spec::GradDir::ToTop as u32 => [b, b, a, a],
-                        d if d == spec::GradDir::ToLeft as u32 => [b, a, b, a],
-                        d if d == spec::GradDir::ToRight as u32 => [a, b, a, b],
-                        _ => [a, a, b, b],
-                    };
+                    // Strip order: TL, TR, BL, BR.
+                    let corners = gradient_corners(data[3], data[4], data[5]);
                     let v = self.colored(4);
-                    v[0] = VertC::new(colors[0], x, y);
-                    v[1] = VertC::new(colors[1], x1, y);
-                    v[2] = VertC::new(colors[2], x, y1);
-                    v[3] = VertC::new(colors[3], x1, y1);
+                    v[0] = VertC::new(corners.top_left, x, y);
+                    v[1] = VertC::new(corners.top_right, x1, y);
+                    v[2] = VertC::new(corners.bottom_left, x, y1);
+                    v[3] = VertC::new(corners.bottom_right, x1, y1);
                     device.draw(Primitive::TriangleStrip, Vertices::Colored(v));
                 }
                 spec::draw_op::TRI => {
@@ -492,13 +487,15 @@ unsafe fn ge_texture_storage(
     (pointer, 16 / pixel_bytes, size)
 }
 fn xy(word: u32) -> (i16, i16) {
-    (word as u16 as i16, (word >> 16) as u16 as i16)
+    let (x, y) = pocket_render::xy(word);
+    (x as i16, y as i16)
 }
 fn add(start: i16, amount: u32) -> Result<i16, RenderError> {
     i16::try_from(i64::from(start) + i64::from(amount)).map_err(|_| RenderError::InvalidFrame)
 }
 fn end_xy(x: i16, y: i16, wh: u32) -> Result<(i16, i16), RenderError> {
-    Ok((add(x, wh & 65535)?, add(y, wh >> 16)?))
+    let (width, height) = pocket_render::wh(wh);
+    Ok((add(x, width as u32)?, add(y, height as u32)?))
 }
 fn uv(word: u32, dimension: u32) -> Result<i16, RenderError> {
     let value = f32::from_bits(word) * dimension as f32;

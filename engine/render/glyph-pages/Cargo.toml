@@ -6,7 +6,7 @@ documentation = "https://docs.rs/pocket-glyph-pages"
 keywords = ["pocketjs", "fonts", "rendering"]
 categories = ["no-std", "rendering"]
 edition = "2021"
-description = "Borrowed font coverage expansion, bounded pages, and A8 masks for PocketJS"
+description = "Forwarding crate for the glyph pages in pocket-render"
 
 version.workspace = true
 repository.workspace = true
@@ -14,5 +14,4 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-pocket-drivers = { workspace = true, default-features = true }
-pocket-spec = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }

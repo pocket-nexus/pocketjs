@@ -1,6 +1,6 @@
 # PSP GE renderer
 
-`GeRenderer` consumes `pocket_drivers::FrameInput` and `RenderResources` without a `Ui`, package loader, or guest engine. It uses `pocket-draw-ops` to validate the complete word stream and decode clipping, `pocket-glyph-pages` for ABGR4444 font pages, and `pocket-psp-ge` for aligned retained geometry storage. The PSP host initializes GU and owns its framebuffer pair and 1 MiB command list.
+`GeRenderer` consumes `pocket_drivers::FrameInput` and `RenderResources` without a `Ui`, package loader, or guest engine. It uses `pocket-render` to validate the complete word stream and decode clipping, `pocket_render::glyph_pages` for ABGR4444 font pages, and `pocket-psp-ge` for aligned retained geometry storage. The PSP host initializes GU and owns its framebuffer pair and 1 MiB command list.
 
 Composition registers a `SharedRenderer<NativeDevice>` and a `GeDisplay` sharing that renderer. The device target contains an instance identity and a full 480 × 272 region. Other instances' targets and stale submissions are rejected. One submission may be pending. **The renderer is `Deferred`: present kicks the list with `sceGuFinish` and returns; the next present runs `sceGuSync`, the display flush (VBlank pacing from the host clock, then the buffer swap), display wait and retirement before it encodes and kicks the next list.** The display declares no queued flush because the swap must follow the sync.
 

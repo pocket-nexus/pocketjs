@@ -6,7 +6,7 @@ logical points rasterized to its 640×1136 Retina display at density 2.** It
 provides `input.touch` and baked glyphs; it does not publish buttons, analog
 input, networking, or device SDK objects to application code.
 
-The executable statically links `engine/ios` and uses the shared
+The executable statically links `platforms/apple` and uses the shared
 `PocketSurfaceView`. Its target identity is `ipodtouch-dev` with host ABI 7.
 The NativeScript simulator shell retains the default `ios-dev` identity; the
 new identity-aware initializer prevents the two host contracts from being

@@ -103,7 +103,7 @@ jobs:
             ~/.cargo/git
             target
             .pocket-build/cache
-          key: ${{ runner.os }}-wasm-${{ hashFiles('programs/web/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'programs/web/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
+          key: ${{ runner.os }}-wasm-${{ hashFiles('programs/web/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'programs/web/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/Cargo.toml', 'engine/render/src/**', 'engine/runtime/Cargo.toml', 'engine/runtime/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
       - name: Install dependencies
@@ -134,7 +134,7 @@ jobs:
         run: cargo test --locked --manifest-path Cargo.toml
 
       - name: Test native UI C ABI
-        run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi -p pocket-native-program
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-archive -p pocket-native-program
 
       - name: Test renderer goldens
         run: bun tests/golden.ts

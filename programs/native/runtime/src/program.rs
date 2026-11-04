@@ -1,6 +1,9 @@
 //! Program composition for the existing portable C hosts. Canonical Runtime
 //! owns the guest, package, retained tree, input encoding and presentation.
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 use alloc::vec::Vec;
 use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::{
@@ -8,17 +11,19 @@ use core::{
     ffi::{c_char, c_void, CStr},
     ptr,
 };
-use pocket_drivers::*;
-use pocket_runtime::{Cow, OpContext, Profile, RuntimeConfig};
-use pocket_runtime_cabi::{abi::*, adapters::CInputSource, embedding as embed};
+use pocket_drivers::{abi::*, *};
+use pocket_runtime::{
+    abi::{status_code, Handle},
+    Cow, OpContext, Profile, Runtime, RuntimeConfig, RuntimeError,
+};
 
-const INPUT_CLASSES: u32 = POCKET_INPUT_CLASS_BUTTONS
-    | POCKET_INPUT_CLASS_AXIS_ABSOLUTE
-    | POCKET_INPUT_CLASS_AXIS_RELATIVE
-    | POCKET_INPUT_CLASS_POINTER
-    | POCKET_INPUT_CLASS_CONTACT
-    | POCKET_INPUT_CLASS_TEXT
-    | POCKET_INPUT_CLASS_MOTION;
+/// The C status of one runtime call on the program's instance.
+fn call(handle: &Handle, action: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>) -> i32 {
+    handle
+        .with_runtime(action)
+        .map_or_else(status_code, |_| POCKET_STATUS_OK)
+}
+
 struct Input(Rc<RefCell<InputFrameBuilder>>);
 impl InputSource for Input {
     fn classes(&self) -> InputClasses {
@@ -34,36 +39,6 @@ impl InputSource for Input {
         *out = core::mem::take(&mut *self.0.borrow_mut());
     }
 }
-unsafe extern "C" fn input_classes(_: *mut c_void) -> u32 {
-    INPUT_CLASSES
-}
-unsafe extern "C" fn input_poll(
-    context: *mut c_void,
-    builder: *mut PocketInputFrameBuilder,
-) -> i32 {
-    let Some(builder) = (unsafe { PocketInputFrameBuilder::read_prefix(builder) }) else {
-        return POCKET_STATUS_INVALID;
-    };
-    let Some(append) = builder.append else {
-        return POCKET_STATUS_INVALID;
-    };
-    unsafe { append(builder.context, context.cast()) }
-}
-unsafe fn decode_input(frame: *const PocketInputFrame) -> Result<InputFrameBuilder, i32> {
-    let table = PocketInputSourceV1 {
-        classes: Some(input_classes),
-        poll: Some(input_poll),
-        ..PocketInputSourceV1::empty()
-    };
-    let mut adapter =
-        unsafe { CInputSource::new(&table, frame.cast_mut().cast()) }.map_err(|e| e.status())?;
-    let mut out = InputFrameBuilder::new();
-    adapter.poll(&mut out);
-    match adapter.last_error() {
-        Some(error) => Err(error.status()),
-        None => Ok(out),
-    }
-}
 #[derive(Default)]
 struct State {
     pending: bool,
@@ -76,7 +51,7 @@ struct State {
 
 /// Private opaque program handle. It never exposes a mutable core reference.
 pub struct PocketNativeProgram {
-    runtime: *mut PocketRuntime,
+    runtime: Box<Handle>,
     ops: OpContext,
     input: Rc<RefCell<InputFrameBuilder>>,
     viewport: Cell<[u32; 2]>,
@@ -84,8 +59,12 @@ pub struct PocketNativeProgram {
     length: usize,
     busy: Cell<bool>,
     state: Rc<RefCell<State>>,
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    gl: Rc<RefCell<gpu::State>>,
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
+    gl: gpu::Gl,
 }
 struct Busy<'a>(&'a Cell<bool>);
 impl Drop for Busy<'_> {
@@ -115,7 +94,11 @@ impl PocketNativeProgram {
             s.pixels = 0;
             s.last_bounds = None;
         }
-        #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+        #[cfg(all(
+            not(feature = "host-backend"),
+            not(feature = "std"),
+            not(feature = "software-only")
+        ))]
         if status == 0 {
             s.redraws = s.redraws.saturating_add(1);
             s.pixels = u64::from(_width) * u64::from(_height);
@@ -123,22 +106,20 @@ impl PocketNativeProgram {
         }
     }
 }
-impl Drop for PocketNativeProgram {
-    fn drop(&mut self) {
-        unsafe {
-            pocket_runtime_cabi::pocket_runtime_destroy(self.runtime);
-        }
-    }
-}
-
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 struct CpuDisplay {
     width: u32,
     height: u32,
     pixels: Vec<u8>,
     stats: Rc<RefCell<State>>,
 }
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 impl DisplayOutput for CpuDisplay {
     type Token = ();
     fn descriptor(&self) -> DisplayDescriptor {
@@ -204,9 +185,15 @@ impl DisplayOutput for CpuDisplay {
     }
 }
 
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 struct CpuRenderer;
-#[cfg(any(feature = "std", feature = "software-only"))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    any(feature = "std", feature = "software-only")
+))]
 impl Renderer for CpuRenderer {
     type Submission = ();
     fn descriptor(&self) -> RendererDescriptor {
@@ -259,6 +246,23 @@ impl Renderer for CpuRenderer {
     fn retire(&mut self, _: ()) {}
 }
 
+/// Where the program's runtime reads its package at boot.
+enum Source<'a> {
+    /// Raw JavaScript and PAK: the program encodes an embedded package with a
+    /// synthesized plan and keeps native asset loading off.
+    Embedded,
+    /// The host's complete original package, copied; native asset loading off.
+    Original(&'a [u8]),
+    /// The host's package source, read when Runtime boots. Native asset
+    /// loading keeps the runtime default, on.
+    Host(CPackageSource),
+}
+/// Guest heap limit when the host names none.
+const HEAP_LIMIT: usize = 128 * 1024 * 1024;
+/// Builds with a renderer and display of their own register both at create
+/// and admit a single primary surface; `host-backend` builds register none.
+const BUILTIN_BACKEND: bool = !cfg!(feature = "host-backend");
+
 #[allow(clippy::too_many_arguments)] // Mirrors the private C program constructor.
 unsafe fn create(
     target: *const c_char,
@@ -271,8 +275,10 @@ unsafe fn create(
     height: u32,
     density: u32,
     physics: u32,
-    original_package: Option<&[u8]>,
+    source: Source<'_>,
     trusted_profile: Option<(Profile, [u8; 32])>,
+    // Guest heap limit and frame buffer budget; None keeps the defaults.
+    limits: (Option<usize>, Option<usize>),
 ) -> Result<Box<PocketNativeProgram>, i32> {
     if host_abi != pocket_spec::BINDING_GENERATION
         || target.is_null()
@@ -288,10 +294,8 @@ unsafe fn create(
     let target = unsafe { CStr::from_ptr(target) }
         .to_str()
         .map_err(|_| POCKET_STATUS_INVALID)?;
-    let code = unsafe { pocket_runtime_cabi::adapters::borrowed(code, code_length) }
-        .map_err(|e| e.status())?;
-    let pak = unsafe { pocket_runtime_cabi::adapters::borrowed(pak, pak_length) }
-        .map_err(|e| e.status())?;
+    let code = unsafe { borrowed(code, code_length) }.map_err(|e| e.status())?;
+    let pak = unsafe { borrowed(pak, pak_length) }.map_err(|e| e.status())?;
     let length = (width as usize)
         .checked_mul(height as usize)
         .and_then(|n| n.checked_mul(4))
@@ -328,60 +332,76 @@ unsafe fn create(
     if profile.id != target || profile.density != density {
         return Err(POCKET_STATUS_INVALID);
     }
-    // The synthesized plan states the facts the raw code was compiled for:
-    // the profile's animation class and presentation, at the 60 Hz rate.
-    let presentation = if profile.presentations.iter().any(|name| name == "native") {
-        "native"
-    } else {
-        profile
-            .presentations
-            .first()
-            .map_or("native", |name| name.as_ref())
+    // The default budget holds the program's primary buffer and the
+    // profile's auxiliary panel, which only a host-registered display shows.
+    let frame_buffer_budget = match limits.1 {
+        Some(budget) => budget,
+        None => profile
+            .auxiliary
+            .map_or(Some(0), |[w, h]| {
+                (w as usize).checked_mul(h as usize)?.checked_mul(4)
+            })
+            .and_then(|auxiliary| auxiliary.checked_add(length))
+            .ok_or(POCKET_STATUS_INVALID)?,
     };
-    let animation = if profile.animation.is_empty() {
-        String::new()
-    } else {
-        format!(r#""animation":"{}","#, profile.animation)
+    let (package, native_assets): (Box<dyn PackageSource>, bool) = match source {
+        Source::Host(source) => (Box::new(source), true),
+        Source::Original(original) => (
+            Box::new(pocket_package::source::MemorySource(original.to_vec())),
+            false,
+        ),
+        Source::Embedded => {
+            // The synthesized plan states the facts the raw code was compiled
+            // for: the profile's animation class and presentation, at 60 Hz.
+            let presentation = if profile.presentations.iter().any(|name| name == "native") {
+                "native"
+            } else {
+                profile
+                    .presentations
+                    .first()
+                    .map_or("native", |name| name.as_ref())
+            };
+            let animation = if profile.animation.is_empty() {
+                String::new()
+            } else {
+                format!(r#""animation":"{}","#, profile.animation)
+            };
+            let plan = format!(
+                r#"{{{animation}"features":{{"ui.physics":{}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[{width},{height}],"presentation":"{presentation}","rasterDensity":{density}}}}}"#,
+                physics != 0
+            );
+            let identity = pocket_package::embedded::identity(
+                "embedded",
+                "dev.pocketjs.native.embedded",
+                "Embedded guest",
+            )
+            .map_err(|_| POCKET_STATUS_INVALID)?;
+            let package =
+                pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+                    target,
+                    host_abi,
+                    profile_hash,
+                    identity: &identity,
+                    plan: plan.as_bytes(),
+                    code,
+                    pak,
+                })
+                .map_err(|_| POCKET_STATUS_INVALID)?;
+            (
+                Box::new(pocket_package::source::MemorySource(package)),
+                false,
+            )
+        }
     };
-    let plan = format!(
-        r#"{{{animation}"features":{{"ui.physics":{}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[{width},{height}],"presentation":"{presentation}","rasterDensity":{density}}}}}"#,
-        physics != 0
-    );
-    let identity = pocket_package::embedded::identity(
-        "embedded",
-        "dev.pocketjs.native.embedded",
-        "Embedded guest",
-    )
-    .map_err(|_| POCKET_STATUS_INVALID)?;
-    let package = if let Some(original) = original_package {
-        original.to_vec()
-    } else {
-        pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-            target,
-            host_abi,
-            profile_hash,
-            identity: &identity,
-            plan: plan.as_bytes(),
-            code,
-            pak,
-        })
-        .map_err(|_| POCKET_STATUS_INVALID)?
-    };
-    let runtime = embed::create(RuntimeConfig {
+    let runtime = Handle::new(RuntimeConfig {
         profile_hash,
         host_abi,
-        heap_limit: 128 * 1024 * 1024,
-        frame_buffer_budget: length,
+        heap_limit: limits.0.unwrap_or(HEAP_LIMIT),
+        frame_buffer_budget,
         profile,
     })
     .map_err(|_| POCKET_STATUS_INVALID)?;
-    let ops = match unsafe { embed::op_context(runtime) } {
-        Ok(ops) => ops,
-        Err(_) => {
-            unsafe { pocket_runtime_cabi::pocket_runtime_destroy(runtime) };
-            return Err(POCKET_STATUS_FAILED);
-        }
-    };
+    let ops = runtime.op_context();
     let input = Rc::new(RefCell::new(InputFrameBuilder::new()));
     #[allow(unused_mut)] // CPU builds set the stable display buffer pointer.
     let mut program = Box::new(PocketNativeProgram {
@@ -393,23 +413,42 @@ unsafe fn create(
         length,
         busy: Cell::new(false),
         state: Rc::new(RefCell::new(State::default())),
-        #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-        gl: Rc::new(RefCell::new(gpu::State::new(width, height))),
+        #[cfg(all(
+            not(feature = "host-backend"),
+            not(feature = "std"),
+            not(feature = "software-only")
+        ))]
+        gl: gpu::Gl::new(width, height),
     });
-    let check = |status| if status == 0 { Ok(()) } else { Err(status) };
-    check(unsafe {
-        embed::set_package_source(
-            runtime,
-            Box::new(pocket_package::source::MemorySource(package)),
-        )
-    })?;
-    check(unsafe { embed::set_native_asset_loading(runtime, false) })?;
-    check(unsafe { embed::add_input_source(runtime, Box::new(Input(program.input.clone()))) })?;
-    program
-        .ops
-        .set_compositor_enabled(true)
-        .map_err(|_| POCKET_STATUS_FAILED)?;
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    let check = |result: Result<(), RuntimeError>| result.map_err(status_code);
+    let runtime = &program.runtime;
+    check(runtime.with_runtime(|runtime| runtime.set_package_source(package)))?;
+    // The program links pocket-physics unconditionally; the C `physics`
+    // argument and the package admission decide whether a plan may use it.
+    check(runtime.with_runtime(|runtime| {
+        runtime.set_physics(Box::new(pocket_physics::Physics::new()))
+    }))?;
+    if !native_assets {
+        check(runtime.with_runtime(|runtime| runtime.set_native_asset_loading(false)))?;
+    }
+    check(
+        runtime.with_runtime(|runtime| {
+            runtime.add_input_source(Box::new(Input(program.input.clone())))
+        }),
+    )?;
+    // The built-in outputs present the compositor namespace and own the final
+    // presentation transform, including logical-sized CPU buffers. A host
+    // that registers its own outputs keeps both off, as pocket_runtime_create does.
+    if BUILTIN_BACKEND {
+        program
+            .ops
+            .set_compositor_enabled(true)
+            .map_err(|_| POCKET_STATUS_FAILED)?;
+    }
+    #[cfg(all(
+        not(feature = "host-backend"),
+        any(feature = "std", feature = "software-only")
+    ))]
     {
         let mut pixels = Vec::new();
         pixels
@@ -417,27 +456,32 @@ unsafe fn create(
             .map_err(|_| POCKET_STATUS_FAILED)?;
         pixels.resize(length, 0);
         program.pixels = pixels.as_ptr();
-        let renderer = unsafe { embed::add_renderer(runtime, CpuRenderer) }?;
-        check(unsafe {
-            embed::add_display(
-                runtime,
-                CpuDisplay {
-                    width,
-                    height,
-                    pixels,
-                    stats: program.state.clone(),
-                },
-                renderer,
-            )
-        })?;
+        let renderer = runtime
+            .with_runtime(|runtime| runtime.add_renderer(CpuRenderer))
+            .map_err(status_code)?;
+        let display = CpuDisplay {
+            width,
+            height,
+            pixels,
+            stats: program.state.clone(),
+        };
+        check(runtime.with_runtime(|runtime| runtime.add_display(display, renderer).map(|_| ())))?;
     }
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
-        let renderer = unsafe { embed::add_renderer(runtime, gpu::Render(program.gl.clone())) }?;
-        check(unsafe { embed::add_display(runtime, gpu::Display(program.gl.clone()), renderer) })?;
+        let renderer = runtime
+            .with_runtime(|runtime| runtime.add_renderer(program.gl.render()))
+            .map_err(status_code)?;
+        let display = program.gl.display();
+        check(runtime.with_runtime(|runtime| runtime.add_display(display, renderer).map(|_| ())))?;
     }
-    // Native hosts own the final presentation transform, including logical-sized CPU buffers.
-    check(unsafe { embed::allow_embedded_viewport_changes(runtime) })?;
+    if BUILTIN_BACKEND {
+        check(runtime.with_runtime(Runtime::allow_embedded_viewport_changes))?;
+    }
     Ok(program)
 }
 /// # Safety
@@ -467,8 +511,9 @@ pub unsafe extern "C" fn pocket_native_program_create(
             height,
             density,
             physics,
+            Source::Embedded,
             None,
-            None,
+            (None, None),
         )
     }
     .map(Box::into_raw)
@@ -507,8 +552,9 @@ pub unsafe extern "C" fn pocket_native_program_create_profile(
                 height,
                 density,
                 physics,
-                None,
+                Source::Embedded,
                 Some(profile),
+                (None, None),
             )
         }
     };
@@ -523,7 +569,7 @@ unsafe fn trusted_profile(
     if hash.is_null() {
         return Err(POCKET_STATUS_INVALID);
     }
-    let profile = unsafe { embed::profile_from_facts(facts) }.ok_or(POCKET_STATUS_INVALID)?;
+    let profile = unsafe { pocket_runtime::abi::profile(facts) }.ok_or(POCKET_STATUS_INVALID)?;
     let hash: [u8; 32] = unsafe { core::slice::from_raw_parts(hash, 32) }
         .try_into()
         .unwrap();
@@ -560,8 +606,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
         };
         let profile = unsafe { trusted_profile(profile, profile_hash) }?;
         let target_name = string(target)?;
-        let bytes = unsafe { pocket_runtime_cabi::adapters::borrowed(bytes, length) }
-            .map_err(|error| error.status())?;
+        let bytes = unsafe { borrowed(bytes, length) }.map_err(|error| error.status())?;
         if profile.0.id != target_name {
             return Err(POCKET_STATUS_INVALID);
         }
@@ -586,7 +631,9 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
         let facts = pocket_package::plan_facts(guest.plan).map_err(|_| POCKET_STATUS_INVALID)?;
         if [facts.viewport.width, facts.viewport.height] != [width, height]
             || facts.viewport.raster_density != density
-            || facts.auxiliary.is_some()
+            // One built-in output has no auxiliary surface; without it the
+            // runtime's boot checks require a registered auxiliary display.
+            || (BUILTIN_BACKEND && facts.auxiliary.is_some())
             || (facts.feature("ui.physics") && physics == 0)
         {
             return Err(POCKET_STATUS_INVALID);
@@ -603,8 +650,55 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
                 height,
                 density,
                 physics,
-                Some(bytes),
+                Source::Original(bytes),
                 Some(profile),
+                (None, None),
+            )
+        }
+    };
+    checked().map(Box::into_raw).unwrap_or(ptr::null_mut())
+}
+/// # Safety
+/// target is a terminated UTF-8 string; profile and profile_hash follow
+/// `pocket_native_program_create_profile`; source obeys the C package source
+/// contract and, with context, stays valid until the program is destroyed.
+/// The package is read and admitted when Runtime boots, before the guest
+/// initializes. heap_limit and frame_buffer_budget of zero keep the program
+/// defaults: 128 MiB, and width * height * 4 bytes plus 4 bytes per pixel of
+/// the profile's auxiliary panel.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_native_program_create_source(
+    target: *const c_char,
+    host_abi: u32,
+    source: *const PocketPackageSourceV1,
+    context: *mut c_void,
+    width: u32,
+    height: u32,
+    density: u32,
+    heap_limit: usize,
+    frame_buffer_budget: usize,
+    profile: *const PocketProfileFacts,
+    profile_hash: *const u8,
+) -> *mut PocketNativeProgram {
+    let checked = || -> Result<Box<PocketNativeProgram>, i32> {
+        let profile = unsafe { trusted_profile(profile, profile_hash) }?;
+        let source = unsafe { CPackageSource::new(source, context) }.map_err(|e| e.status())?;
+        let nonzero = |value: usize| (value != 0).then_some(value);
+        unsafe {
+            create(
+                target,
+                host_abi,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                width,
+                height,
+                density,
+                0,
+                Source::Host(source),
+                Some(profile),
+                (nonzero(heap_limit), nonzero(frame_buffer_budget)),
             )
         }
     };
@@ -616,7 +710,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
 pub unsafe extern "C" fn pocket_native_program_runtime(
     program: *mut PocketNativeProgram,
 ) -> *mut PocketRuntime {
-    unsafe { program.as_ref() }.map_or(ptr::null_mut(), |p| p.runtime)
+    unsafe { program.as_ref() }.map_or(ptr::null_mut(), |p| p.runtime.as_ptr())
 }
 /// # Safety
 /// The program is live; its guest has been registered.
@@ -628,11 +722,11 @@ pub unsafe extern "C" fn pocket_native_program_boot(program: *mut PocketNativePr
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    let result = unsafe { embed::boot_deferred(p.runtime) };
+    let result = call(&p.runtime, Runtime::boot_deferred);
     if result != 0 {
         return result;
     }
-    unsafe { embed::skip_presentation(p.runtime) }
+    call(&p.runtime, Runtime::skip_presentation)
 }
 /// # Safety
 /// Program and input's nested records are readable on the owning thread.
@@ -648,18 +742,20 @@ pub unsafe extern "C" fn pocket_native_program_advance(
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    let input = match unsafe { decode_input(input) } {
+    let input = match unsafe { pocket_drivers::abi::decode_input_frame(input) } {
         Ok(input) => input,
-        Err(error) => return error,
+        Err(error) => return error.status(),
     };
     if p.state.borrow().pending {
-        let status = unsafe { embed::skip_presentation(p.runtime) };
+        let status = call(&p.runtime, Runtime::skip_presentation);
         if status != 0 {
             return status;
         }
     }
     *p.input.borrow_mut() = input;
-    let status = unsafe { embed::advance_with_core_ticks(p.runtime, core_ticks) };
+    let status = call(&p.runtime, |runtime| {
+        runtime.advance_with_core_ticks(core_ticks)
+    });
     p.state.borrow_mut().pending = status == 0;
     status
 }
@@ -679,7 +775,7 @@ pub unsafe extern "C" fn pocket_native_program_render_argb(
         return ptr::null();
     }
     p.begin_render();
-    let status = unsafe { embed::present(p.runtime) };
+    let status = call(&p.runtime, Runtime::present);
     p.record(status, p.viewport.get()[0], p.viewport.get()[1]);
     if status == 0 {
         p.pixels
@@ -749,9 +845,19 @@ pub unsafe extern "C" fn pocket_native_program_destroy(program: *mut PocketNativ
     }
 }
 
-#[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+#[cfg(all(
+    not(feature = "host-backend"),
+    not(feature = "std"),
+    not(feature = "software-only")
+))]
 mod gpu {
+    //! The GL composition under the device target contract
+    //! (`pocket_drivers::target`). The program owns the GLES renderer in a
+    //! `RendererCell` and installs it while the host's context is current.
+    //! The display holds the window the host last presented and a
+    //! `TargetSlot`: each acquire registers that window as a new target.
     use super::*;
+    use pocket_drivers::target::{Registration, RendererCell, TargetSlot};
     use pocket_gles::{ClearMode, ContextAccess, TargetConfig, Viewport};
     pub(super) struct Context;
     // This unsafe program ABI requires the host to make its GL context current
@@ -769,118 +875,129 @@ mod gpu {
     type Driver = pocket_gles1::Renderer<Context>;
     #[cfg(not(feature = "gles1"))]
     type Driver = pocket_gles2::Renderer<Context>;
-    pub(super) struct State {
-        pub driver: Option<Driver>,
-        pub window: [u32; 2],
+    /// The host's presentation of the next frame, shared with the display.
+    pub(super) struct Window {
+        pub size: [u32; 2],
         pub viewport: Viewport,
         pub over: bool,
-        pub trace: Option<pocket_gles::Trace>,
-        target: Option<u64>,
     }
-    impl State {
+    /// The program's half: the renderer cell and the host trace.
+    pub(super) struct Gl {
+        renderer: RendererCell<Driver>,
+        pub window: Rc<RefCell<Window>>,
+        pub trace: Rc<Cell<Option<pocket_gles::Trace>>>,
+    }
+    impl Gl {
         pub fn new(w: u32, h: u32) -> Self {
             Self {
-                driver: None,
-                window: [w, h],
-                viewport: Viewport::new(0, 0, w, h),
-                over: false,
-                trace: None,
-                target: None,
+                renderer: RendererCell::empty(),
+                window: Rc::new(RefCell::new(Window {
+                    size: [w, h],
+                    viewport: Viewport::new(0, 0, w, h),
+                    over: false,
+                })),
+                trace: Rc::new(Cell::new(None)),
             }
         }
-        fn target(&mut self) -> Result<DeviceTarget, RenderError> {
-            let driver = self.driver.as_mut().ok_or(RenderError::Failed)?;
-            if let Some(old) = self.target.take() {
-                driver.unregister_target(old)?;
+        pub fn render(&self) -> Render {
+            Render {
+                registration: self.renderer.registration_with(
+                    RendererDescriptor::new(
+                        &[PixelFormat::Rgba8888],
+                        TargetOwnership::DeviceOwned,
+                        Synchronization::Deferred,
+                        POCKET_DRAW_LIST_VERSION,
+                        false,
+                    )
+                    .unwrap(),
+                ),
+                trace: self.trace.clone(),
+            }
+        }
+        pub fn display(&self) -> Display {
+            Display {
+                window: self.window.clone(),
+                target: TargetSlot::new(self.renderer.port()),
+            }
+        }
+        /// Replace the renderer on the current context. Handles of the old
+        /// instance become stale; the display registers anew.
+        pub fn initialize(&self) -> Result<(), RenderError> {
+            drop(self.renderer.take()?);
+            let mut driver = Driver::new(Context)?;
+            driver.set_trace(self.trace.get());
+            self.renderer
+                .install(driver)
+                .map_err(|_| RenderError::Failed)
+        }
+        pub fn reset(&self) {
+            let _ = self.renderer.with(|driver| driver.reset_resources());
+        }
+        pub fn shutdown(&self) {
+            if let Ok(driver) = self.renderer.take() {
+                drop(driver);
+            }
+        }
+        pub fn set_trace(&self, trace: Option<pocket_gles::Trace>) {
+            self.trace.set(trace);
+            let _ = self.renderer.with(|driver| driver.set_trace(trace));
+        }
+    }
+    pub(super) struct Render {
+        registration: Registration<Driver>,
+        trace: Rc<Cell<Option<pocket_gles::Trace>>>,
+    }
+    impl Renderer for Render {
+        type Submission = pocket_gles::Submission;
+        fn descriptor(&self) -> RendererDescriptor {
+            self.registration.descriptor()
+        }
+        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<Self::Submission, RenderError> {
+            if let Some(trace) = self.trace.get() {
+                trace(1, 0, 0);
+            }
+            self.registration.render(frame)
+        }
+        fn wait(&mut self, token: &Self::Submission) -> Result<(), RenderError> {
+            self.registration.wait(token)
+        }
+        fn retire(&mut self, token: Self::Submission) {
+            self.registration.retire(token)
+        }
+    }
+    pub(super) struct Display {
+        window: Rc<RefCell<Window>>,
+        target: TargetSlot<Driver>,
+    }
+    impl DisplayOutput for Display {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            let size = self.window.borrow().size;
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                size[0],
+                size[1],
+                PixelFormat::Rgba8888,
+                size[0] as usize * 4,
+                TargetOwnership::DeviceOwned,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            let window = self.window.borrow();
+            if region != Rect::new(0, 0, window.size[0], window.size[1]) {
+                return Err(DisplayError::InvalidTarget);
             }
             let mut config =
-                TargetConfig::new((), self.window, self.viewport, PixelFormat::Rgba8888);
-            config.clear = if self.over {
+                TargetConfig::new((), window.size, window.viewport, PixelFormat::Rgba8888);
+            config.clear = if window.over {
                 ClearMode::Preserve
             } else {
                 ClearMode::OpaqueBlack
             };
             config.external_compositor = true;
-            let handle = driver.register_target(config)?;
-            self.target = Some(handle);
-            driver.target(handle)
-        }
-        pub fn initialize(&mut self) -> Result<(), RenderError> {
-            self.driver = None;
-            self.target = None;
-            let mut driver = Driver::new(Context)?;
-            driver.set_trace(self.trace);
-            self.driver = Some(driver);
-            Ok(())
-        }
-        pub fn reset(&mut self) {
-            if let Some(driver) = self.driver.as_mut() {
-                let _ = driver.reset_resources();
-            }
-        }
-        pub fn shutdown(&mut self) {
-            self.driver = None;
-            self.target = None;
-        }
-    }
-    pub(super) struct Render(pub Rc<RefCell<State>>);
-    impl Renderer for Render {
-        type Submission = pocket_gles::Submission;
-        fn descriptor(&self) -> RendererDescriptor {
-            RendererDescriptor::new(
-                &[PixelFormat::Rgba8888],
-                TargetOwnership::DeviceOwned,
-                Synchronization::Deferred,
-                POCKET_DRAW_LIST_VERSION,
-                false,
-            )
-            .unwrap()
-        }
-        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<Self::Submission, RenderError> {
-            if let Some(trace) = self.0.borrow().trace {
-                trace(1, 0, 0);
-            }
-            self.0
-                .borrow_mut()
-                .driver
-                .as_mut()
-                .ok_or(RenderError::Failed)?
-                .render(frame)
-        }
-        fn wait(&mut self, token: &Self::Submission) -> Result<(), RenderError> {
-            self.0
-                .borrow_mut()
-                .driver
-                .as_mut()
-                .ok_or(RenderError::Failed)?
-                .wait(token)
-        }
-        fn retire(&mut self, token: Self::Submission) {
-            if let Some(driver) = self.0.borrow_mut().driver.as_mut() {
-                driver.retire(token);
-            }
-        }
-    }
-    pub(super) struct Display(pub Rc<RefCell<State>>);
-    impl DisplayOutput for Display {
-        type Token = ();
-        fn descriptor(&self) -> DisplayDescriptor {
-            let s = self.0.borrow();
-            DisplayDescriptor::new(
-                DisplayRole::Primary,
-                s.window[0],
-                s.window[1],
-                PixelFormat::Rgba8888,
-                s.window[0] as usize * 4,
-                TargetOwnership::DeviceOwned,
-            )
-        }
-        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
-            let mut s = self.0.borrow_mut();
-            if region != Rect::new(0, 0, s.window[0], s.window[1]) {
-                return Err(DisplayError::InvalidTarget);
-            }
-            s.target()
+            drop(window);
+            self.target
+                .replace(config)
                 .map(Target::DeviceOwned)
                 .map_err(|_| DisplayError::Failed)
         }
@@ -907,15 +1024,19 @@ pub unsafe extern "C" fn pocket_native_program_gl_initialize(
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
-        return if p.gl.borrow_mut().initialize().is_ok() {
+        return if p.gl.initialize().is_ok() {
             POCKET_STATUS_OK
         } else {
             POCKET_STATUS_FAILED
         };
     }
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     {
         POCKET_STATUS_UNSUPPORTED
     }
@@ -967,37 +1088,43 @@ pub unsafe extern "C" fn pocket_native_program_gl_render_rect(
     {
         return POCKET_STATUS_INVALID;
     }
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
         let old = {
-            let mut s = p.gl.borrow_mut();
-            let old = s.window;
-            s.window = [width, height];
-            s.viewport = pocket_gles::Viewport::new(x, y, target_width, target_height);
-            s.over = over != 0;
+            let mut window = p.gl.window.borrow_mut();
+            let old = window.size;
+            window.size = [width, height];
+            window.viewport = pocket_gles::Viewport::new(x, y, target_width, target_height);
+            window.over = over != 0;
             old
         };
         if old != [width, height] {
-            let status = unsafe { embed::resize_embedded_presentation(p.runtime, [width, height]) };
+            let status = call(&p.runtime, |runtime| {
+                runtime.resize_embedded_presentation([width, height])
+            });
             if status != 0 {
-                p.gl.borrow_mut().window = old;
+                p.gl.window.borrow_mut().size = old;
                 return status;
             }
         }
         p.begin_render();
-        if let Some(trace) = p.gl.borrow().trace {
+        if let Some(trace) = p.gl.trace.get() {
             trace(0, 0, 0);
         }
-        let mut status = unsafe { embed::present(p.runtime) };
+        let mut status = call(&p.runtime, Runtime::present);
         // The host's GL context is current only inside this call, so the
         // Deferred GLES frame completes here: glFinish, then retirement.
         if status == 0 {
-            status = unsafe { embed::complete_presentation(p.runtime) };
+            status = call(&p.runtime, Runtime::complete_presentation);
         }
         p.record(status, width, height);
         status
     }
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     {
         POCKET_STATUS_UNSUPPORTED
     }
@@ -1012,7 +1139,7 @@ pub unsafe extern "C" fn pocket_native_program_collect(program: *mut PocketNativ
     let Ok(_busy) = p.enter() else {
         return POCKET_STATUS_FAILED;
     };
-    unsafe { embed::collect(p.runtime) }
+    call(&p.runtime, Runtime::collect)
 }
 /// # Safety
 /// Program is live; called between guest turns. Only GPU programs support a
@@ -1032,20 +1159,28 @@ pub unsafe extern "C" fn pocket_native_program_resize_viewport(
     if width == 0 || height == 0 || width > 4096 || height > 4096 {
         return POCKET_STATUS_INVALID;
     }
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
     {
-        let old = p.gl.borrow().window;
-        p.gl.borrow_mut().window = [width, height];
-        let status = unsafe { embed::resize_embedded(p.runtime, [width, height], [width, height]) };
-        p.gl.borrow_mut().window = old;
+        let old = p.gl.window.borrow().size;
+        p.gl.window.borrow_mut().size = [width, height];
+        let status = call(&p.runtime, |runtime| {
+            runtime.resize_embedded([width, height], [width, height])
+        });
+        p.gl.window.borrow_mut().size = old;
         if status != 0 {
             return status;
         }
         p.viewport.set([width, height]);
         // Restore the native window extent after changing the logical viewport.
-        unsafe { embed::resize_embedded_presentation(p.runtime, old) }
+        call(&p.runtime, |runtime| {
+            runtime.resize_embedded_presentation(old)
+        })
     }
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     {
         POCKET_STATUS_UNSUPPORTED
     }
@@ -1060,8 +1195,12 @@ pub unsafe extern "C" fn pocket_native_program_gl_reset(program: *mut PocketNati
     let Ok(_busy) = p.enter() else {
         return;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    p.gl.borrow_mut().reset();
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
+    p.gl.reset();
 }
 /// # Safety
 /// Program is live; context remains current until graphics resources retire.
@@ -1073,8 +1212,12 @@ pub unsafe extern "C" fn pocket_native_program_gl_shutdown(program: *mut PocketN
     let Ok(_busy) = p.enter() else {
         return;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    p.gl.borrow_mut().shutdown();
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
+    p.gl.shutdown();
 }
 
 /// # Safety
@@ -1090,22 +1233,20 @@ pub unsafe extern "C" fn pocket_native_program_set_gl_trace(
     let Ok(_busy) = p.enter() else {
         return;
     };
-    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
-    {
-        let mut state = p.gl.borrow_mut();
-        state.trace = trace;
-        if let Some(driver) = state.driver.as_mut() {
-            driver.set_trace(trace);
-        }
-    }
-    #[cfg(any(feature = "std", feature = "software-only"))]
+    #[cfg(all(
+        not(feature = "host-backend"),
+        not(feature = "std"),
+        not(feature = "software-only")
+    ))]
+    p.gl.set_trace(trace);
+    #[cfg(any(feature = "host-backend", feature = "std", feature = "software-only"))]
     let _ = trace;
 }
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use pocket_runtime::{Guest, GuestEnvironment, GuestFrame, RuntimeError};
+    use pocket_runtime::{Guest, GuestEnvironment, GuestFrame};
     use std::sync::Mutex;
     static SERIAL: Mutex<()> = Mutex::new(());
     #[derive(Default)]
@@ -1163,16 +1304,20 @@ mod tests {
         };
         assert!(!p.is_null());
         let facts = Rc::new(RefCell::new(Facts::default()));
-        assert_eq!(
-            unsafe {
-                embed::set_guest(
-                    (*p).runtime,
-                    Box::new(TestGuest {
-                        facts: facts.clone(),
-                    }),
-                )
-            },
-            0
+        assert!(unsafe { &(*p).runtime }
+            .with_runtime(|runtime| {
+                runtime.set_guest(Box::new(TestGuest {
+                    facts: facts.clone(),
+                }))
+            })
+            .is_ok());
+        #[cfg(feature = "host-backend")]
+        host::register(
+            p,
+            None,
+            DisplayRole::Primary,
+            [32, 24],
+            &Rc::new(Cell::new(0)),
         );
         assert_eq!(unsafe { pocket_native_program_boot(p) }, 0);
         (p, facts)
@@ -1328,14 +1473,21 @@ mod tests {
             assert!(!p.is_null());
             drop(bytes);
             let facts = Rc::new(RefCell::new(Facts::default()));
-            assert_eq!(
-                embed::set_guest(
-                    (*p).runtime,
-                    Box::new(TestGuest {
-                        facts: facts.clone()
-                    })
-                ),
-                0
+            assert!((*p)
+                .runtime
+                .with_runtime(|runtime| {
+                    runtime.set_guest(Box::new(TestGuest {
+                        facts: facts.clone(),
+                    }))
+                })
+                .is_ok());
+            #[cfg(feature = "host-backend")]
+            host::register(
+                p,
+                None,
+                DisplayRole::Primary,
+                [32, 24],
+                &Rc::new(Cell::new(0)),
             );
             assert_eq!(pocket_native_program_boot(p), 0);
             assert!(facts.borrow().initialized);
@@ -1344,6 +1496,97 @@ mod tests {
             pocket_native_program_destroy(p);
         }
     }
+    /// A host output: one CPU display per role behind a renderer that draws
+    /// nothing, registered through the program's runtime.
+    #[cfg(feature = "host-backend")]
+    mod host {
+        use super::*;
+        use pocket_runtime::RendererId;
+        pub struct Blank;
+        impl Renderer for Blank {
+            type Submission = ();
+            fn descriptor(&self) -> RendererDescriptor {
+                RendererDescriptor::new(
+                    &[PixelFormat::Argb8888],
+                    TargetOwnership::CpuVisible,
+                    Synchronization::Immediate,
+                    POCKET_DRAW_LIST_VERSION,
+                    false,
+                )
+                .unwrap()
+            }
+            fn render(&mut self, _: &mut FrameInput<'_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn wait(&mut self, _: &()) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn retire(&mut self, _: ()) {}
+        }
+        pub struct Panel {
+            pub role: DisplayRole,
+            pub size: [u32; 2],
+            pub pixels: Vec<u8>,
+            pub flushes: Rc<Cell<usize>>,
+        }
+        impl DisplayOutput for Panel {
+            type Token = ();
+            fn descriptor(&self) -> DisplayDescriptor {
+                DisplayDescriptor::new(
+                    self.role,
+                    self.size[0],
+                    self.size[1],
+                    PixelFormat::Argb8888,
+                    self.size[0] as usize * 4,
+                    TargetOwnership::CpuVisible,
+                )
+            }
+            fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+                let stride = self.size[0] as usize * 4;
+                Ok(Target::CpuVisible(Surface::new(
+                    &mut self.pixels,
+                    region,
+                    stride,
+                    PixelFormat::Argb8888,
+                )?))
+            }
+            fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+                self.flushes.set(self.flushes.get() + 1);
+                Ok(())
+            }
+            fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+                Ok(())
+            }
+            fn vsync(&mut self) -> VsyncSource {
+                VsyncSource::None
+            }
+        }
+        pub fn register(
+            p: *mut PocketNativeProgram,
+            renderer: Option<RendererId>,
+            role: DisplayRole,
+            size: [u32; 2],
+            flushes: &Rc<Cell<usize>>,
+        ) -> RendererId {
+            let handle = unsafe { &(*p).runtime };
+            let renderer = renderer.unwrap_or_else(|| {
+                handle
+                    .with_runtime(|runtime| runtime.add_renderer(Blank))
+                    .unwrap()
+            });
+            let panel = Panel {
+                role,
+                size,
+                pixels: alloc::vec![0; size[0] as usize * size[1] as usize * 4],
+                flushes: flushes.clone(),
+            };
+            handle
+                .with_runtime(|runtime| runtime.add_display(panel, renderer))
+                .unwrap();
+            renderer
+        }
+    }
+    #[cfg(not(feature = "host-backend"))]
     #[test]
     fn cpu_buffer_preserves_pixels_and_reports_actual_damage() {
         let _lock = SERIAL.lock().unwrap();
@@ -1421,7 +1664,14 @@ mod tests {
                 POCKET_STATUS_INVALID
             );
             assert_eq!(facts.borrow().frames, 2);
+            #[cfg(not(feature = "host-backend"))]
             assert!(!pocket_native_program_render_argb(p).is_null());
+            #[cfg(feature = "host-backend")]
+            {
+                // The host's display presents; the program has no buffer.
+                assert!(pocket_native_program_render_argb(p).is_null());
+                assert!((*p).runtime.with_runtime(Runtime::present).is_ok());
+            }
             pocket_native_program_destroy(p);
             assert_eq!(facts.borrow().shutdowns, 1);
         }

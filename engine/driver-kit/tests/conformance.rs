@@ -392,7 +392,7 @@ fn real_coordinator_uses_extracted_delayed_device_and_drains_each_fault() {
     ] {
         let shared = Rc::new(RefCell::new(Device::default()));
         shared.borrow_mut().fault = fault;
-        let mut coordinator = pocket_present::Coordinator::new(1, 1024).unwrap();
+        let mut coordinator = pocket_runtime::coordinator::Coordinator::new(1, 1024).unwrap();
         let renderer = coordinator
             .add_renderer(Renderer::new(shared.clone()))
             .unwrap();

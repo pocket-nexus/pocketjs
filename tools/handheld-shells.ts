@@ -1,6 +1,6 @@
 // tools/handheld-shells.ts: the handhelds' shells a page shows a device's
 // screens in, in two sets: the Pocket3D player's
-// (devices/web/pocket-web-wgpu/web/shells) and the MicroTS playground's
+// (engine/pocket3d/crates/pocket-web-wgpu/web/shells) and the MicroTS playground's
 // (site/microts/shells; the playground also shows the PSP and the 3DS of the
 // Pocket3D set).
 //
@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const RENDERS = join(ROOT, "dist/handheld-shells");
 export const SHELL_SETS = {
-  pocket3d: { out: "devices/web/pocket-web-wgpu/web/shells", ids: ["psp", "vita", "3ds", "ipod", "android"] },
+  pocket3d: { out: "engine/pocket3d/crates/pocket-web-wgpu/web/shells", ids: ["psp", "vita", "3ds", "ipod", "android"] },
   microts: { out: "site/microts/shells", ids: ["gba", "ipod-touch-5", "ipod-nano"] },
 } as const;
 export type ShellSet = keyof typeof SHELL_SETS;

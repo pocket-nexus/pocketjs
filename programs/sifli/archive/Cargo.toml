@@ -11,8 +11,8 @@ publish = false
 [lib]
 crate-type = ["rlib", "staticlib"]
 [dependencies]
-pocket-runtime-cabi = { workspace = true }
+pocket-archive = { workspace = true, features = ["software-renderer"] }
 pocket-render-sifli-epic = { workspace = true, default-features = true, features = ["cabi"] }
 [features]
 default = ["std"]
-std = ["pocket-runtime-cabi/std"]
+std = ["pocket-archive/std"]

@@ -19,8 +19,8 @@ not match the code. These corrections reshape the implementation:
 
 | # | Feasibility doc says | Reality (verified) | Consequence |
 | --- | ---------------------- | -------------------- | ------------- |
-| 1 | Hand-write ~17 `HostOps` forwarders in a new `host_ops.rs` / `ffi.rs` using a `pocket-mod` API of `ns.func(...)`, `args[0].as_i32()` | The **full** `ui` surface already exists: `pocket_ui_wgpu::UiSurface` (`engine/crates/pocket-ui-wgpu/src/surface.rs`) implements every op, pak feeding, boot tables, and host identity. `pocket-mod`'s real mount API is rquickjs: `guest.mount("ui", \|ctx, ns\| ns.set("op", Function::new(ctx.clone(), closure)))` with **typed closure params**. | **Do not reimplement the surface.** Reuse `UiSurface`. The entire `host_ops.rs`/`ffi.rs` from the doc is deleted. |
-| 2 | Pak is a *directory*: `bundle.js`, `styles.bin`, `font-atlas-*.bin`, `images/` | A pak is a **single binary archive** walked by `walk_pak` (`engine/crates/pocket-ui-wgpu/src/pak.rs`, format pinned in `spec::pak`). The JS bundle is a **separate `.js` file**. `UiSurface::feed_pak(&bytes)` feeds styles/atlases/images/sprites natively. | `load_pak` in the doc is deleted. Load one `.pak` + one `.js`. |
+| 1 | Hand-write ~17 `HostOps` forwarders in a new `host_ops.rs` / `ffi.rs` using a `pocket-mod` API of `ns.func(...)`, `args[0].as_i32()` | The **full** `ui` surface already exists: `pocket_ui_wgpu::UiSurface` (`engine/ui-wgpu/src/surface.rs`) implements every op, pak feeding, boot tables, and host identity. `pocket-mod`'s real mount API is rquickjs: `guest.mount("ui", \|ctx, ns\| ns.set("op", Function::new(ctx.clone(), closure)))` with **typed closure params**. | **Do not reimplement the surface.** Reuse `UiSurface`. The entire `host_ops.rs`/`ffi.rs` from the doc is deleted. |
+| 2 | Pak is a *directory*: `bundle.js`, `styles.bin`, `font-atlas-*.bin`, `images/` | A pak is a **single binary archive** walked by `walk_pak` (`engine/ui-wgpu/src/pak.rs`, format pinned in `spec::pak`). The JS bundle is a **separate `.js` file**. `UiSurface::feed_pak(&bytes)` feeds styles/atlases/images/sprites natively. | `load_pak` in the doc is deleted. Load one `.pak` + one `.js`. |
 | 3 | `ui.tick(1.0/60.0)` and `let words = ui.draw() -> Vec<u32>` | `Ui::tick(&mut self)` takes **no dt** (fixed step internally). `Ui::draw(&mut self) -> &DrawList`, and `DrawList { pub words: Vec<u32> }`. | Call `surface.tick()`; rasterize from `ui.draw().words`. |
 | 4 | `frame(buttons, analog?, touches?)` is called via `guest.call_frame(buttons, analog, touches)` | `pocket-mod::Guest` only exposes `frame(buttons)` and `frame_with_analog(buttons, analog)` — **no touch path**. The framework *does* accept a 3rd `touches: readonly number[]` arg (`framework/src/host.ts:306`, decoded in `framework/src/touch.ts`). | Add a small `Guest::frame_with_touches(buttons, analog, &[u32])` to `pocket-mod` (§6). |
 | 5 | Touch is "single-touch `{x,y,phase}`", coords scaled freely | Touch packs each contact as one u32: `(id<<18) \| (y<<9) \| x` — **9 bits per axis ⇒ max coordinate 511** (`framework/src/touch.ts`). There is no `phase`; a contact is simply present (down) or absent (up) per frame. | **The logical viewport must be ≤ 511×511.** A 1024×758 logical viewport (doc's "1:1 is best") silently wraps touch X. This forces the Vita-style scaled model (§9). This is the single biggest architectural correction. |
@@ -80,7 +80,7 @@ Depending on it from the PocketBook host would drag the whole GPU stack into an
 ARM cross-build that never uses it. Extract the backend-agnostic surface into
 its own crate.
 
-**New crate `engine/crates/pocket-ui-surface/`** containing the three modules
+**New crate `engine/ui-surface/`** containing the three modules
 that have no wgpu dependency:
 
 | Move from `pocket-ui-wgpu/src/` | To `pocket-ui-surface/src/` | Notes |
@@ -120,14 +120,14 @@ programs/pocketbook/
 
 The program inherits versioned PocketJS dependencies from the root workspace.
 **The workspace paths point into this repository's engine crates and use the
-root `Cargo.lock`.** The program uses the shared `pocket-present`
+root `Cargo.lock`.** The program uses the shared `pocket_drivers::ink`
 refresh policy; its adapter supplies `Instant` timestamps and inkview calls.
 
 ```toml
 # programs/pocketbook/Cargo.toml
 [dependencies]
+pocket-drivers = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
-pocket-present = { workspace = true, default-features = true }
 pocketjs-core = { workspace = true, default-features = true }
 pocket-mod = { workspace = true, default-features = true }
 pocket-ui-surface = { workspace = true, default-features = true }
@@ -418,7 +418,7 @@ contact is one u32 `(id<<18) | (y<<9) | x`, **9 bits per axis (max 511)**, up to
 currently has no 3-arg frame, so add one:
 
 ```rust
-// engine/crates/pocket-mod/src/lib.rs — add alongside frame_with_analog
+// engine/mod/src/lib.rs — add alongside frame_with_analog
 /// One guest turn with touch contacts. `touches` packs each contact as
 /// (id<<18)|(y<<9)|x (framework/src/touch.ts); coords are logical px, ≤511/axis.
 pub fn frame_with_touches(&self, buttons: u32, analog: u32, touches: &[u32]) -> Result<()> {
@@ -852,10 +852,10 @@ chmod +x $D/myapp
 
 | File | Role |
 | --- | --- |
-| `engine/crates/pocket-ui-wgpu/src/surface.rs` | `UiSurface` — the `ui` HostOps surface to reuse |
-| `engine/crates/pocket-ui-wgpu/src/pak.rs` | `walk_pak`/`find_pak` — pak format |
+| `engine/ui-wgpu/src/surface.rs` | `UiSurface` — the `ui` HostOps surface to reuse |
+| `engine/ui-wgpu/src/pak.rs` | `walk_pak`/`find_pak` — pak format |
 | `engine/pocket3d/examples/uihost/src/main.rs` | Canonical boot + tick loop + BTN bits |
-| `engine/crates/pocket-mod/src/lib.rs` | `Guest` — add `frame_with_touches` here |
+| `engine/mod/src/lib.rs` | `Guest` — add `frame_with_touches` here |
 | `engine/core/src/lib.rs` | `Ui::tick`/`draw`/`set_viewport`/`new_with_raster_density` |
 | `engine/raster/src/lib.rs` | `render_scaled` (RGBA8, integer scale 1..4) |
 | `engine/core/src/draw.rs` | `DrawList { pub words: Vec<u32> }` |

@@ -2,8 +2,10 @@
 #if POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
 #error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
-/* Explicit 3DS composition of the single runtime archive and C device drivers.
- */
+/* 3DS drivers on a native program's runtime: the package source, input
+ * source, product op provider, PICA renderer and both displays. The program
+ * and its facade (programs/native/quickjs) own the runtime; qjs.c attaches
+ * these before boot. */
 #include "instance.h"
 #include "input_source.h"
 #include "devserver.h"
@@ -17,24 +19,23 @@
 #include <stdlib.h>
 #include <string.h>
 static pocket_runtime *active;
-static PocketRuntimePackage *source;
 static pocket_3ds_input_source input;
 static char provider_text[8193];
 
 static int32_t package_length(void *context, size_t *out) {
-  (void)context;
+  const PocketRuntimePackage *source = context;
   *out = source->length;
   return 0;
 }
 static int32_t package_all(void *context, const uint8_t **out, size_t *length) {
-  (void)context;
+  const PocketRuntimePackage *source = context;
   *out = source->bytes;
   *length = source->length;
   return 0;
 }
 static int32_t package_range(void *context, size_t offset, uint8_t *bytes,
                              size_t capacity, size_t *read) {
-  (void)context;
+  const PocketRuntimePackage *source = context;
   if (offset > source->length)
     return POCKET_STATUS_INVALID;
   size_t n = source->length - offset;
@@ -117,21 +118,13 @@ static const pocket_package_source_v1 source_api = {
     sizeof source_api, package_length, package_all, package_range, NULL};
 static const pocket_op_provider_v1 provider_api = {sizeof provider_api,
                                                    provider};
-pocket_runtime *instance_create(PocketRuntimePackage *package) {
-  if (active || !package)
-    return NULL;
-  pocket_runtime_config config = {
-      .struct_size = sizeof config,
-      .host_abi = POCKETJS_HOST_ABI,
-      .tick_hz = pocket_3ds_profile.tick_hz,
-      .heap_limit = 64u * 1024u * 1024u,
-      .frame_buffer_budget = 400u * 240u * 4u + 320u * 240u * 4u,
-      .profile = &pocket_3ds_profile};
-  memcpy(config.profile_hash, pocket_3ds_profile_hash, 32);
-  source = package;
-  active = pocket_runtime_create(&config);
-  if (!active)
-    return NULL;
+const pocket_package_source_v1 *instance_package_source(void) {
+  return &source_api;
+}
+bool instance_attach(pocket_runtime *runtime) {
+  if (active || !runtime)
+    return false;
+  active = runtime;
   instance_input(0, 0x8080, NULL, 0, 0x8080);
   const uint16_t operations[] = {
       POCKET_3DS_OP_svcOpen,    POCKET_3DS_OP_svcPoll,   POCKET_3DS_OP_svcSend,
@@ -140,22 +133,16 @@ pocket_runtime *instance_create(PocketRuntimePackage *package) {
       POCKET_3DS_OP_appTable,   POCKET_3DS_OP_appLaunch, POCKET_3DS_OP_appShot,
 #endif
   };
-  if (pocket_runtime_set_package_source(active, &source_api, NULL) ||
-      pocket_runtime_add_input_source(active, pocket_3ds_input_source_vtable(), &input) ||
+  if (pocket_runtime_add_input_source(active, pocket_3ds_input_source_vtable(), &input) ||
       pocket_runtime_add_op_provider(active, &provider_api, NULL, operations,
                                      sizeof operations / sizeof *operations) ||
       !gfx_register(active)) {
-    instance_destroy();
-    return NULL;
+    instance_detach();
+    return false;
   }
-  return active;
+  return true;
 }
-void instance_destroy(void) {
-  if (active)
-    pocket_runtime_destroy(active);
-  active = NULL;
-  source = NULL;
-}
+void instance_detach(void) { active = NULL; }
 static pocket_op_arg integer(int64_t value) {
   return (pocket_op_arg){.struct_size = sizeof(pocket_op_arg),
                          .tag = POCKET_ARG_INTEGER,

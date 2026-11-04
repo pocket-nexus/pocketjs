@@ -1,7 +1,7 @@
 [package]
 name = "pocket-vita-gxm"
 edition = "2021"
-license-file = "../../../pocket3d/LICENSE"
+license-file = "../../../engine/pocket3d/LICENSE"
 description = "PS Vita device mechanisms: GPU memory, GXP programs, targets and texture upload"
 
 # Vita-only standalone crate: consumers depend on it by path from their

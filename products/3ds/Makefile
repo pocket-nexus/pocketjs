@@ -52,15 +52,19 @@ OFFLOAD_INCLUDE := $(POCKETJS_ROOT)/engine/modules/offload/include
 POCKETJS_CONTRACTS := $(POCKETJS_ROOT)/contracts/generated
 POCKETJS_WORKER := $(POCKETJS_ROOT)/engine/worker
 POCKETJS_GUEST := $(POCKETJS_ROOT)/engine/guest-quickjs
+# The handle-based QuickJS facade and the native program header it composes;
+# libpocketjs_3ds_core.a links the program crate without built-in outputs.
+POCKETJS_NATIVE_QUICKJS := $(POCKETJS_ROOT)/programs/native/quickjs
+POCKETJS_NATIVE_PROGRAM_INCLUDE := $(POCKETJS_ROOT)/programs/native/runtime/include
 POCKETJS_PICA_INCLUDE ?= $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-pica/include
 BUILD := $(POCKETJS_BUILD_DIR)
 OUT := $(POCKETJS_OUT_3DSX)
 # 3dsxtool reads the recovery guest out of a RomFS directory.
 ROMFS := $(BUILD)/romfs
-ICON ?= $(CURDIR)/icon.png
+ICON ?= $(PLATFORM_SOURCE)/icon.png
 # Custom large icons keep smdhtool's automatic reduction unless their caller
 # also supplies SMALL_ICON. The host default has a separate optical drawing.
-SMALL_ICON ?= $(if $(filter $(CURDIR)/icon.png,$(ICON)),$(CURDIR)/icon-small.png,)
+SMALL_ICON ?= $(if $(filter $(PLATFORM_SOURCE)/icon.png,$(ICON)),$(PLATFORM_SOURCE)/icon-small.png,)
 CIA := $(POCKETJS_OUT_CIA)
 RSF := $(CURDIR)/app.rsf
 
@@ -85,7 +89,7 @@ CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections
   $(ARCH) -D__3DS__ -DPOCKETJS_WORKER_HTTP -DJS_NO_NAN_BOXING -DPOCKET_QJS_BELLARD \
   -DPOCKETJS_TARGET_ID='"$(POCKETJS_TARGET)"' \
   -DPOCKETJS_HOST_ABI=$(POCKETJS_HOST_ABI) \
-  -I$(POCKETJS_WORKER)/include -I$(PLATFORM_SOURCE) -I$(SHARED) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
+  -I$(POCKETJS_WORKER)/include -I$(PLATFORM_SOURCE) -I$(SHARED) -I$(OFFLOAD_INCLUDE) -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(POCKETJS_NATIVE_QUICKJS) -I$(POCKETJS_NATIVE_PROGRAM_INCLUDE) -I$(BUILD) -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include -I$(DEVKITPRO)/portlibs/3ds/include
 
 # bytecode.c keys its per-slot bytecode cache by the QuickJS build: the first
@@ -125,7 +129,7 @@ LIBS := -ljpeg -lcitro3d -lctru -lm
 # quirc (vendored, ISC; engine/host-services/quirc/VENDORED.txt) decodes QR
 # codes for camera.c.
 QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
-OBJECTS := $(BUILD)/worker.o $(BUILD)/worker_core.o $(BUILD)/worker_quickjs.o $(BUILD)/worker_quickjs_ui.o $(BUILD)/worker_runner.o $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/input_policy.o $(BUILD)/input_source.o $(BUILD)/hooks.o \
+OBJECTS := $(BUILD)/worker.o $(BUILD)/worker_core.o $(BUILD)/worker_quickjs.o $(BUILD)/worker_quickjs_ui.o $(BUILD)/worker_runner.o $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/qjs_program.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/input_policy.o $(BUILD)/input_source.o $(BUILD)/hooks.o \
   $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/link_http.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
   $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
@@ -207,6 +211,10 @@ $(BUILD)/worker_runner.o: $(POCKETJS_WORKER)/src/runner.c $(wildcard $(POCKETJS_
 $(BUILD)/canonical_guest.o: $(POCKETJS_GUEST)/src/guest.c $(wildcard $(POCKETJS_GUEST)/src/*.h) $(wildcard $(POCKETJS_GUEST)/include/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# The facade takes the 3DS profile from qjs.c, not a compiled host profile.
+$(BUILD)/qjs_program.o: $(POCKETJS_NATIVE_QUICKJS)/pocket_qjs_program.c $(wildcard $(POCKETJS_NATIVE_QUICKJS)/*.h) $(wildcard $(POCKETJS_NATIVE_PROGRAM_INCLUDE)/*.h) $(wildcard $(POCKETJS_GUEST)/include/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -DPOCKET_QJS_HOST_PROFILE -c $< -o $@
+
 $(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(SHARED)/*.h) $(wildcard $(PLATFORM_SOURCE)/*.h) $(wildcard $(OFFLOAD_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(EXTENSION_HEADERS) $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -245,6 +253,7 @@ $(BUILD)/main.o $(BUILD)/qjs.o $(BUILD)/gfx.o: $(PLATFORM_SOURCE)/media.h
 $(BUILD)/main.o $(BUILD)/transition.o: $(SOURCE)/transition.h
 $(BUILD)/main.o $(BUILD)/bytecode.o: $(SOURCE)/bytecode.h
 $(BUILD)/main.o $(BUILD)/qjs.o: $(SOURCE)/qjs.h
+$(BUILD)/qjs.o $(BUILD)/instance.o: $(POCKETJS_NATIVE_QUICKJS)/pocket_qjs_program.h $(POCKETJS_NATIVE_PROGRAM_INCLUDE)/pocket_native_program.h
 $(BUILD)/main.o $(BUILD)/gfx.o: $(SOURCE)/gfx.h
 
 $(ELF): $(OBJECTS) $(POCKETJS_CORE_LIB) $(POCKETJS_QUICKJS_DIR)/libquickjs.a

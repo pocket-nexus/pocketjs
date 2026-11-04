@@ -1,7 +1,7 @@
 mod support;
 use pocket_drivers::*;
 use pocket_package::source::{LoadedPackage, MemorySource};
-use pocket_present::{Coordinator, DisplayId, RendererId};
+use pocket_runtime::coordinator::{Coordinator, DisplayId, RendererId};
 use pocket_runtime::{
     Cow, Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, Profile, Runtime,
     RuntimeConfig, RuntimeError,
@@ -257,6 +257,13 @@ fn public_runtime_registers_draws_and_preserves_input_tapes() {
     let reads = Rc::new(RefCell::new(0));
     let snapshots = Rc::new(RefCell::new(Vec::new()));
     let mut runtime = runtime(facts.clone(), reads.clone());
+    // Renderer 0 is empty until the program registers its software renderer.
+    runtime
+        .set_software_renderer(
+            pocket_raster::RasterRenderer::new(1).unwrap(),
+            pocket_raster::RasterRenderer::new,
+        )
+        .unwrap();
     runtime
         .add_display(
             CpuDisplay {

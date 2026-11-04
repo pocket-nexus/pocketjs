@@ -1,5 +1,6 @@
-# Product runtime archive with private recovery package inspection.
-# The minimal program links pocket-runtime-cabi without this wrapper.
+# Product runtime archive with private recovery package inspection and the
+# native program the QuickJS facade composes. The minimal program
+# (programs/3ds) links the native program without this wrapper.
 [package]
 name = "pocketjs-3ds-core"
 edition = "2021"
@@ -16,5 +17,10 @@ name = "pocketjs_3ds_core"
 crate-type = ["staticlib"]
 
 [dependencies]
-pocket-runtime-cabi = { workspace = true }
+pocket-archive = { workspace = true }
+# No built-in output: products/3ds registers the PICA renderer and both
+# displays. platforms/3ds/hooks.c supplies the six pocket_host_* hooks.
+pocket-native-program = { workspace = true, features = ["host-backend", "host-hooks"] }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
 pocket-package = { workspace = true, default-features = true }

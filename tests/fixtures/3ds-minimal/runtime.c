@@ -1,5 +1,9 @@
 #define _POSIX_C_SOURCE 200112L
+/* Host contract runner for the minimal 3DS program: the same file source,
+ * input source and QuickJS facade composition as main.c, with a counting CPU
+ * renderer and two CPU displays in place of PICA. */
 #include <pocket_guest_quickjs.h>
+#include <pocket_qjs_program.h>
 #include "pocket_profile.h"
 #include "package_source.h"
 #include "input_source.h"
@@ -69,6 +73,56 @@ static int32_t display_wait(void *context, uint64_t token) {
 static const pocket_display_output_v1 display_api = {
   sizeof display_api, describe, acquire, flush, display_wait, NULL, NULL, NULL, NULL
 };
+/* The facade's program registers no renderer; this one walks each frame's
+ * DrawList through pocket_draw_list_visit and writes no pixels. */
+typedef struct { uint64_t renders, waits, retires, operations, next; } Renderer;
+static Renderer renderer;
+static const uint32_t renderer_formats[] = {POCKET_PIXEL_FORMAT_RGBA8888};
+static int32_t renderer_describe(void *context, pocket_renderer_descriptor *out) {
+  (void)context;
+  *out = (pocket_renderer_descriptor){sizeof *out, renderer_formats, 1,
+    POCKET_TARGET_CPU_VISIBLE, POCKET_SYNC_IMMEDIATE, POCKET_DRAW_LIST_VERSION, 0};
+  return 0;
+}
+static int32_t count_operation(void *context, const pocket_draw_op *operation) {
+  (void)operation; ((Renderer *)context)->operations++;
+  return 0;
+}
+static int32_t render(void *context, const pocket_frame_input *frame, uint64_t *submission) {
+  Renderer *r = context;
+  assert(frame->target->kind == POCKET_TARGET_CPU_VISIBLE);
+  int32_t status = pocket_draw_list_visit(frame->list, frame->resources, 1, count_operation, r);
+  if (status) return status;
+  r->renders++;
+  *submission = ++r->next;
+  return 0;
+}
+static int32_t render_wait(void *context, uint64_t submission) {
+  Renderer *r = context;
+  assert(submission && submission <= r->next); r->waits++;
+  return 0;
+}
+static void render_retire(void *context, uint64_t submission) {
+  Renderer *r = context;
+  assert(submission && submission <= r->next); r->retires++;
+}
+static const pocket_renderer_v1 renderer_api = {
+  sizeof renderer_api, renderer_describe, render, render_wait, render_retire, NULL
+};
+typedef struct { pocket_3ds_input_source *input; pocket_runtime *runtime; unsigned composed, released; } Composition;
+static int32_t compose(void *context, pocket_runtime *runtime) {
+  Composition *c = context;
+  c->composed++;
+  pocket_renderer_id id = pocket_runtime_add_renderer(runtime, &renderer_api, &renderer);
+  if (id == POCKET_RENDERER_INVALID) return -1;
+  for (unsigned i=0; i<2; i++)
+    if (pocket_runtime_add_display(runtime, &display_api, &displays[i], id)) return -1;
+  if (pocket_runtime_add_input_source(runtime, pocket_3ds_input_source_vtable(), c->input)) return -1;
+  c->runtime = runtime;
+  return 0;
+}
+static void release(void *context) { Composition *c = context; c->released++; c->runtime = NULL; }
+static const char *guest_error(void *guest) { return pocket_guest_quickjs_error(guest); }
 static void evaluate(JSContext *ctx, const char *code) {
   JSValue value = JS_Eval(ctx, code, strlen(code), "fixture", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(value)) {
@@ -84,39 +138,41 @@ static void exercise(const char *path, int valid, int fixture) {
   memset(displays[0].pixels, 0, sizeof displays[0].pixels);
   memset(displays[1].pixels, 0, sizeof displays[1].pixels);
   displays[0].flushes = displays[0].waits = displays[1].flushes = displays[1].waits = 0;
+  renderer = (Renderer){0};
   pocket_3ds_file_source source = {0};
   assert(!pocket_3ds_file_source_open(&source, path));
-  pocket_runtime_config config = {.struct_size=sizeof config,
-    .host_abi=pocket_profile.host_abi, .tick_hz=pocket_profile.tick_hz,
-    .heap_limit=64u*1024u*1024u, .frame_buffer_budget=400u*240u*4u+320u*240u*4u,
-    .profile=pocket_profile.facts};
-  memcpy(config.profile_hash, pocket_profile.profile_hash, sizeof config.profile_hash);
-  pocket_runtime *runtime = pocket_runtime_create(&config); assert(runtime);
   JSRuntime *engine = JS_NewRuntime(); assert(engine);
   JSContext *ctx = JS_NewContext(engine); assert(ctx);
   pocket_guest_quickjs *guest = pocket_guest_quickjs_attach(ctx, POCKET_QJS_CANONICAL); assert(guest);
   pocket_3ds_input_source input = {0};
   pocket_3ds_input_source_set(&input, POCKET_BUTTON_CIRCLE, 0x00ff, NULL, 0, 0xff00);
-  assert(!pocket_runtime_set_package_source(runtime, pocket_3ds_file_source_vtable(), &source));
-  assert(!pocket_runtime_set_guest(runtime, pocket_guest_quickjs_vtable(), guest));
-  assert(!pocket_runtime_add_input_source(runtime, pocket_3ds_input_source_vtable(), &input));
-  for (unsigned i=0; i<2; i++)
-    assert(!pocket_runtime_add_display(runtime, &display_api, &displays[i], POCKET_RENDERER_SOFTWARE));
-  int status = pocket_runtime_boot(runtime);
+  Composition parts = {.input=&input};
+  const pocket_qjs_program_host host = {.struct_size=sizeof host,
+    .profile=pocket_profile.facts, .profile_hash=pocket_profile.profile_hash,
+    .guest=pocket_guest_quickjs_vtable(), .guest_context=guest, .guest_error=guest_error,
+    .compose=compose, .release=release, .context=&parts};
+  PocketQjsProgram *program = pocket_qjs_program_create_host(&host); assert(program);
+  const pocket_profile_display *view = pocket_profile.facts->display;
+  int booted = pocket_qjs_program_boot_source(program, pocket_3ds_file_source_vtable(), &source,
+    (int)view->logical[0], (int)view->logical[1], view->raster_density,
+    64u*1024u*1024u, 400u*240u*4u+320u*240u*4u);
   if (valid) {
-    if (status) fprintf(stderr, "boot failed: %s\n", pocket_guest_quickjs_error(guest));
-    assert(status == POCKET_STATUS_OK);
-    assert(!pocket_runtime_tick(runtime)); assert(!pocket_runtime_tick(runtime));
+    if (!booted) fprintf(stderr, "boot failed: %s\n", pocket_qjs_program_error(program));
+    assert(booted && parts.runtime == pocket_qjs_program_runtime(program));
+    assert(!pocket_runtime_tick(parts.runtime)); assert(!pocket_runtime_tick(parts.runtime));
     assert(displays[0].flushes && displays[1].flushes);
     if (fixture) evaluate(ctx, "if(__turns!==2)throw new Error('frame count');globalThis.saved=ui.createNode");
     printf("file runtime: primary=%llu auxiliary=%llu frames=2\n",
       (unsigned long long)displays[0].flushes, (unsigned long long)displays[1].flushes);
   } else {
-    assert(status != POCKET_STATUS_OK);
+    /* A rejected boot shuts its program down and releases the composition. */
+    assert(!booted && pocket_qjs_program_error(program)[0]);
+    assert(parts.released == 1 && !pocket_qjs_program_runtime(program));
     assert(!displays[0].flushes && !displays[1].flushes);
     evaluate(ctx, "if('__turns' in globalThis)throw new Error('rejected package ran guest')");
   }
-  pocket_runtime_destroy(runtime);
+  pocket_qjs_program_destroy(program);
+  assert(parts.released == 1 && !parts.runtime);
   for (unsigned i=0; i<2; i++) assert(displays[i].flushes == displays[i].waits);
   if (valid && fixture)
     evaluate(ctx, "let rejected=false;try{saved(0)}catch(e){rejected=true}if(!rejected||'ui' in globalThis)throw new Error('shutdown lifetime')");
@@ -132,6 +188,6 @@ int main(int argc, char **argv) {
   assert(argc == 4);
   for (unsigned i=0; i<3; i++) exercise(argv[1], 1, 1);
   exercise(argv[2], 0, 1); exercise(argv[3], 0, 1);
-  puts("3DS minimal Runtime: file boot, generated guest, profile rejection, truncation, terminal teardown and zero leaks passed");
+  puts("3DS minimal Runtime through the QuickJS facade: file boot, generated guest, profile rejection, truncation, terminal teardown and zero leaks passed");
   return 0;
 }

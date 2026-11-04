@@ -110,7 +110,7 @@ A browser build has no presentation of its own. **The page loads the bundle a
 device loads, with the `plan.json` PocketJS wrote for it, and shows the game
 as that device**: its shell, its screens in the shell, its presentation, its
 keys under a pointer and from the keyboard. The browser kernel
-([`devices/web/pocket-web-wgpu`](../../devices/web/pocket-web-wgpu/README.md))
+([`engine/pocket3d/crates/pocket-web-wgpu`](../../engine/pocket3d/crates/pocket-web-wgpu/README.md))
 supplies the page itself, `createPlayer`: **one page for every Pocket3D
 game**. The game's page has an empty body and no line of its own.
 

@@ -39,13 +39,14 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_EXTENSION 64u  /* features["system.extension"] */
 #define POCKET_GUEST_FEATURE_CAMERA_PHOTO 32u /* features["camera.photo"] */
 
-/* 0 = admitted. The package footer, the first variant the exported profile
- * facts admit, its identity, plan and NUL-terminated JS section are all
- * checked before success; 7 = another binding generation; 9 = an unreadable
- * plan; 13, 14 and 15 name a plan whose JSON, viewport or auxiliary surface
- * cannot be read; 17 = malformed layout; 18 = worker declaration and section
- * disagree; 19-25 = the first failed admission item (raster density,
- * animation, rate, viewport, presentation, capability, auxiliary). The facts
+/* Returns the POCKET_PACKAGE_OPEN_* codes of pocket_runtime.h.
+ * POCKET_PACKAGE_OPEN_OK = admitted: the package footer, the first variant
+ * the exported profile facts admit, its identity, plan and NUL-terminated JS
+ * section are all checked before success. BINDING_GENERATION, PLAN and
+ * RASTER_DENSITY to AUXILIARY name the first failed admission item;
+ * PLAN_JSON, PLAN_VIEWPORT and PLAN_AUXILIARY a plan whose JSON, viewport or
+ * auxiliary surface cannot be read; BAD_LAYOUT a malformed layout;
+ * WORKER_SECTION a worker declaration and section that disagree. The facts
  * and profile hash are compiled into the program, never read from the
  * package; the hash only orders variants. */
 int32_t pocket_package_open(

@@ -33,7 +33,7 @@ function fixture(directory: string) {
   files[archive] = { bytes: bytes.length, sha256: hash(bytes) };
   const manifest: SdkManifest = { schemaVersion: 1, status: "candidate", abiFrozen: false, hostAbi: POCKET_BINDING_GENERATION,
     source: { revision, dirty: false, sha256: "c".repeat(64) }, build: { triple, target: triple, targetSha256: null,
-      cargo: "fixture", compiler: "fixture", toolchain: "fixture", profile: "release", defaultFeatures: false, features: [],
+      cargo: "fixture", compiler: "fixture", toolchain: "fixture", profile: "release", defaultFeatures: false, features: ["physics", "software-renderer"],
       rustflags: ["-C", "panic=abort"], cargoArgs: [], archive, nativeStaticLibs: [] }, preparation: null, files };
   writeFileSync(join(sdk, "sdk-manifest.json"), JSON.stringify(manifest));
   mkdirSync(runtime);

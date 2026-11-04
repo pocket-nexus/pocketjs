@@ -1,6 +1,6 @@
 set(pocketjs_ppa_includes "include")
 if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/include/pocket/render_esp_ppa.h")
-    list(APPEND pocketjs_ppa_includes "../../../platforms/esp-idf/render-ppa/include")
+    list(APPEND pocketjs_ppa_includes "../../../devices/esp-idf/render-ppa/include")
 endif()
 idf_component_register(
     SRCS

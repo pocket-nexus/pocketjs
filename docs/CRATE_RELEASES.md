@@ -69,9 +69,52 @@ on the merged commit, then continues through builds, validation, Rust
 publication, npm publication and the GitHub Release. No second command or tag
 push is needed.
 
-**The repository release publishes 14 Rust crates** listed in
+**The repository release publishes 15 Rust crates** listed in
 `tools/release/publish-crates.ts`. The script reads each version from its Cargo
 manifest. The npm and Rust version numbers can differ.
+
+## Forwarding crates
+
+**A published crate whose contents move to another crate keeps its name for
+one release as a forwarding crate.** The forwarding crate contains only
+`pub use` items, so each former path names the same type or function as its
+new path. It is published in the same release as the crate that receives the
+contents, then deprecated on crates.io.
+
+| Crate | Status | Contents now in |
+| --- | --- | --- |
+| `pocket-render` | New | DrawList decoding, `record`, `batch`, `build`, `tex_cache`, `glyph_pages`, and `damage` |
+| `pocket-draw-ops` | Forwarding | `pocket-render` crate root and its `record`, `batch`, `build` modules |
+| `pocket-glyph-pages` | Forwarding | `pocket_render::glyph_pages` |
+| `pocket-tex-cache` | Forwarding | `pocket_render::tex_cache` |
+| `pocket-present` | Forwarding | `damage` and `transaction` in `pocket_render::damage`; `compositor` and `incremental` in `pocket-raster`; `coordinator` in `pocket_runtime::coordinator`; `ink` in `pocket_drivers::ink` |
+
+No crate in this repository depends on a forwarding crate.
+
+`pocketjs-core` no longer exports `raster`, `damage`, or `compositor`; use
+`pocket_raster`, `pocket_render::damage`, and `pocket_raster::compositor`.
+It no longer re-exports package and media support either:
+
+| Removed `pocketjs-core` modules | Use |
+| --- | --- |
+| `sha256`, `pak`, `plan_facts`, `package` | `pocket_package::sha256`, `pak`, `plan_facts`, `package` |
+| `codec`, `stream`, `stream_rx`, `wire` | `pocket_media::codec`, `stream`, `stream_rx`, `wire` |
+
+## Public API changes since the last release
+
+The generated changelog lists commit subjects. This table records additions
+and behavior changes to the public API of the published crates that the next
+release ships.
+
+| Crate | Change |
+| --- | --- |
+| `pocket-runtime` | **`Runtime::new` and `Coordinator::new` no longer register the software rasterizer as renderer 0, and `pocket-runtime` no longer depends on `pocket-raster`.** Renderer 0 (`RendererId::SOFTWARE`) stays reserved and is empty until `Runtime::set_software_renderer(renderer, rescale)` or `Coordinator::set_software_renderer` registers a renderer and the callback that rebuilds it at a new integer scale; boot and the four resize entry points call the callback. Until then `add_display` with renderer 0 returns `InvalidRenderer`. `add_renderer` numbers from 1, as before. A program that binds displays to renderer 0 adds `runtime.set_software_renderer(pocket_raster::RasterRenderer::new(1)?, pocket_raster::RasterRenderer::new)` before registering them. |
+| `pocket-raster` | New `abi` module with `pocket_raster_draw_op`, the body of the `pocket_runtime.h` function of that name. |
+| `pocket-drivers` | New `target` module: the device target registration contract. `TargetRenderer` is the renderer half (`register_target`, `unregister_target`, `target`, `queue_present`, `drain_present`, `end_registration`, the `PENDING_UNREGISTER` rule); `PendingUnregister` names the three rules; `RendererCell`, `Registration`, `TargetPort` and `TargetSlot` hold the renderer, register it with a runtime, link a display to it and hold a display's current target. Existing items are unchanged. |
+| `pocketjs-core` | Breaking: the `physics` module and its `Physics` struct are removed; the engine moved to the unpublished `pocket-physics` crate. `pocketjs_core::Physics` is now the trait an engine implements (`is_idle`, `step`, `create`, `apply`, `destroy`, `take_events`, `has_events`, `query`). A `Ui` has no engine until `Ui::set_physics` installs one (`Ui::has_physics` reports it); until then `physics_create` returns 0, `physics_query` returns 0, and no events are reported. `fmath` is now public: the f32 functions paint and physics share. |
+| `pocketjs-core` | Breaking: the `sha256`, `pak`, `plan_facts`, `package`, `codec`, `stream`, `stream_rx` and `wire` modules are removed. They re-exported `pocket_package` and `pocket_media` items under the same names; import those crates. `pocketjs_core::font_archive` remains. |
+| `pocket-driver-kit` | Depends on `pocket-render` in place of `pocket-draw-ops` and `pocket-tex-cache`; its API is unchanged. Its tests use `pocket_runtime::coordinator` in place of `pocket-present`. |
+| `pocket-runtime` | `Runtime::set_physics` installs a physics engine before boot. Behavior change: without an engine, package admission treats `ui.physics` as absent from the profile, `boot_aot_deferred` with `physics = true` returns `ProfileMismatch`, and `OpContext::set_physics_enabled(true)` returns `UnsupportedOperation`. |
 
 ## First publication
 

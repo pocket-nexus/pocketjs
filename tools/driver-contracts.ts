@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DRIVER_ABI_CALLBACKS, DRIVER_ABI_CONSTANTS, DRIVER_ABI_RULES, DRIVER_ABI_STRUCTS, type AbiCallback, type AbiField, type AbiRecord } from "../contracts/spec/driver-abi.ts";
-import { HOST_ABI_FUNCTIONS, RUNTIME_ABI_CALLBACKS, RUNTIME_ABI_CONSTANTS, RUNTIME_ABI_FUNCTIONS, RUNTIME_ABI_RULES, RUNTIME_ABI_STRUCTS } from "../contracts/spec/runtime-abi.ts";
+import { HOST_ABI_FUNCTIONS, PACKAGE_OPEN_STATUS, PACKAGE_OPEN_STATUS_DOC, RUNTIME_ABI_CALLBACKS, RUNTIME_ABI_CONSTANTS, RUNTIME_ABI_FUNCTIONS, RUNTIME_ABI_RULES, RUNTIME_ABI_STRUCTS } from "../contracts/spec/runtime-abi.ts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const records = [...DRIVER_ABI_STRUCTS, ...RUNTIME_ABI_STRUCTS];
@@ -104,6 +104,7 @@ function cHeader(component: "drivers" | "runtime"): string {
   result += '#ifdef __cplusplus\nextern "C" {\n#endif\n';
   if (component === "runtime") result += "typedef struct pocket_runtime pocket_runtime;\ntypedef struct pocket_tick_schedule pocket_tick_schedule;\ntypedef uint32_t pocket_renderer_id;\n";
   result += Object.entries(constants).filter(([name]) => name !== "POCKET_ANALOG_CENTER" && name !== "POCKET_DRAW_LIST_VERSION").map(([name, value]) => `#define ${name} ${value < 0 || name.startsWith("POCKET_STATUS_") ? `(${value})` : `${value}U`}\n`).join("");
+  if (component === "runtime") result += cDoc(PACKAGE_OPEN_STATUS_DOC) + Object.entries(PACKAGE_OPEN_STATUS).map(([name, value]) => `#define ${name} (${value})\n`).join("");
   if (component === "drivers") {
     result += "/* Probe member alignment: i386 can align a scalar to 8 but its struct field to 4. */\n";
     for (const type of ["u64", "i64", "f64"]) result += `typedef struct { char prefix; ${cType(type)} value; } pocket_abi_${type}_alignment;\n`;
@@ -150,6 +151,8 @@ function rustTypes(): string {
   result += [...DRIVER_ABI_RULES, ...RUNTIME_ABI_RULES].map(rule => `// ${rule}\n`).join("");
   result += "\npub type PocketRendererId = u32;\n#[repr(C)]\npub struct PocketRuntime { _private: [u8; 0] }\n#[repr(C)]\npub struct PocketTickSchedule { _private: [u8; 0] }\n";
   for (const [name, value] of Object.entries({ ...DRIVER_ABI_CONSTANTS, ...RUNTIME_ABI_CONSTANTS })) result += `pub const ${name}: ${name.startsWith("POCKET_STATUS_") ? "i32" : "u32"} = ${value};\n`;
+  result += `// ${PACKAGE_OPEN_STATUS_DOC}\n`;
+  for (const [name, value] of Object.entries(PACKAGE_OPEN_STATUS)) result += `pub const ${name}: i32 = ${value};\n`;
   for (const cb of callbacks) result += "\n" + rustCallback(cb);
   for (const record of records) {
     if (record.fields[0]?.name !== "struct_size" || record.fields[0]?.type !== "usize") {
@@ -175,7 +178,7 @@ export function generatedDriverContracts(): Map<string, string> {
   return new Map([
     ["contracts/generated/pocket_drivers.h", cHeader("drivers")],
     ["contracts/generated/pocket_runtime.h", cHeader("runtime")],
-    ["engine/drivers/src/abi.rs", rustTypes()],
+    ["engine/drivers/src/abi/generated.rs", rustTypes()],
   ]);
 }
 

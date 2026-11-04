@@ -46,7 +46,8 @@ console.log("npm consumer passed");
       const consumer = Bun.spawnSync([process.execPath, "consumer.ts"], { cwd: directory, stdout: "pipe", stderr: "pipe" });
       expect(consumer.success, consumer.stderr.toString()).toBe(true);
       expect(consumer.stdout.toString()).toContain("npm consumer passed");
-      expect(readFileSync(join(scratch, "program/Cargo.toml"), "utf8")).toContain('version = "0.1.0", default-features = false');
+      const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+      expect(readFileSync(join(scratch, "program/Cargo.toml"), "utf8")).toContain(`pocket-archive = { git = "https://github.com/pocket-nexus/pocketjs", tag = "v${version}", default-features = false, features = ["physics","software-renderer"] }`);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   }, 60_000);
 });

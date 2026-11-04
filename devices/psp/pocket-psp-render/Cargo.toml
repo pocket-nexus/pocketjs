@@ -11,8 +11,7 @@ license.workspace = true
 [dependencies]
 pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
-pocket-draw-ops = { workspace = true, default-features = true }
-pocket-glyph-pages = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
 pocket-psp-ge = { workspace = true, default-features = true }
 
 [target.'cfg(target_os = "psp")'.dependencies]
