@@ -131,7 +131,7 @@ one `render_words_scaled` pass on dirty frames. It exercises everything the
   read-only fallback, but the current Note app contract is dynamic-only; it must
   add a fixed viewport variant before a PSP or embedded host can admit that
   fallback. The §7 `widget` surface stays unbuilt.
-- **The desktop host contract declares six input and display capabilities.** Six
+- **The widget host contract declares six input and display capabilities.** Six
   registered capability ids name it (`input.text`, `input.pointer`,
   `input.ime`, `host.clipboard`, `display.viewport.live`,
   `text.glyphs.runtime` — each a distinct observable guarantee; a real
@@ -139,7 +139,7 @@ one `render_words_scaled` pass on dirty frames. It exercises everything the
   contract (binding generation 12, density 2, `dynamicViewport` range) provides them.
   Target semantics live in queryable host contract FIELDS (`platform`,
   `form` — takeover/window/widget/kiosk/embedded); ids are labels
-  (convention `<platform>-<form>`, future: `macos-app`, `linux-kiosk`),
+  (convention `<platform>-<form>`, such as `macos-widget`),
   and apps declare viewport intent per policy (`fixed`/`dynamic`
   variants), not per target. Pocket Note currently declares only a dynamic
   variant and is therefore intentionally admitted by `macos-widget`, not by

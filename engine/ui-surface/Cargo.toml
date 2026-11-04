@@ -22,4 +22,5 @@ anyhow = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
+pocket-text = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }

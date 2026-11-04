@@ -166,7 +166,7 @@ export interface HostOps {
    *  ascending UTF-16 code-unit indices, empty = the line fits. The engine
    *  computes greedy word wrap over the same provider that measures and
    *  paints the slot; native-text backends may install the host text
-   *  system's wrapper (gpui LineWrapper) whose positions win. Optional:
+   *  system's wrapper whose positions win. Optional:
    *  hosts that predate it — apps fall back to matching greedy rules over
    *  measureText. */
   wrapText?(str: string, fontSlot: number, maxW: number): number[];
@@ -287,7 +287,7 @@ export interface HostOps {
   __auxiliarySurface?: { readonly root: number; readonly w: number; readonly h: number };
 }
 
-/** Desktop hosts publish their logical UI size as `ui.__viewport` (the core
+/** Resizable hosts publish their logical UI size as `ui.__viewport` (the core
  *  is resized to it at mount); console hosts omit it — the spec screen is
  *  the viewport. One accessor so every consumer reads the same contract. */
 export function hostViewport(ops: HostOps): { w: number; h: number } | null {

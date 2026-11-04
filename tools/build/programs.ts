@@ -22,8 +22,6 @@ export const PROGRAMS: readonly ProgramEntry[] = [
   { id: "vita", profile: "vita", directory: "vita", generic: { directory: "vita/runtime", profile: "vita" } },
   { id: "3ds", profile: "3ds-dev", directory: "3ds", hostConfig: "products/3ds/pocket.host.config.ts", generic: { directory: "3ds", profile: "3ds-runtime" } },
   { id: "web-app", profile: "web-app", directory: "web" },
-  { id: "macos-app", profile: "macos-app", directory: "desktop/macos" },
-  { id: "linux-app", profile: "linux-app", directory: "desktop/linux" },
   { id: "macos-widget", profile: "macos-widget", directory: "macos-widget" },
   { id: "gba", profile: "gba", directory: "gba" },
   { id: "ipodnano", profile: "ipodnano", directory: "ipodnano" },

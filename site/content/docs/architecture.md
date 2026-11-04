@@ -234,7 +234,7 @@ Reading it top to bottom:
    ticks animations, steps the installed 2D physics engine, measures and lays out text, and produces a flat
    **DrawList** each frame.
 5. A **renderer** consumes the DrawList and borrowed resources: sceGu/GE on PSP,
-   GXM on Vita, wgpu in the desktop host, and
+   GXM on Vita, wgpu in widgets and Pocket3D overlays, and
    the deterministic software rasterizer in `engine/raster/src/lib.rs` behind
    the browser canvas and the byte-exact PNG goldens.
 
@@ -317,9 +317,8 @@ program under `programs/` compiles the same crate for its
 target triple and supplies I/O, a JS engine, and a backend. `programs/psp` embeds
 QuickJS and renders through `sceGu`; `programs/web/wasm` wraps the identical core
 with the software rasterizer in one `wasm32-unknown-unknown` cdylib that serves
-both the browser dev host and the headless Bun goldens; `programs/desktop` drives
-gpui behind the `macos-app` and `linux-app` targets. Native hosts consume the
-same stable `HostBuildInputs` projection.
+both the browser dev host and the headless Bun goldens. Native hosts consume
+the same `HostBuildInputs` projection.
 
 ### Native animation on a fixed core clock
 
@@ -384,16 +383,12 @@ a backend — axis-aligned quads are clipped with UV/color re-interpolation,
 rotated quads are Sutherland–Hodgman-clipped or culled.
 
 **3. The backend.** Consumes the DrawList and nothing else. PSP uses `sceGu`,
-Vita uses vita2d/GXM, `programs/desktop` uses the gpui backend
-(`programs/desktop/gpui`), the debug uihosts use wgpu, and `wasm32` uses a
-scanline rasterizer that handles blending, gradients, and glyph coverage
-deterministically. Backends do not redefine input or styling semantics, and
-they differ from each other in one capability alone: **who measures and
-shapes text**. An app that enhances with `text.layout.native` gets a core text
-measurer installed before the guest mounts, so taffy leaf sizes, `measureText`
-and painted glyphs all come from the host text system — layout changes with the
-backend in that one case, and only for apps that asked for it. The rest are
-byte-identical, which is what the PNG goldens pin. See
+Vita uses vita2d/GXM, widgets and Pocket3D overlays use wgpu, and `wasm32` uses
+a scanline rasterizer for blending, gradients and glyph coverage.
+**Software rendering produces the same bytes for the same DrawList, resources
+and density.** GPU backends preserve geometry and painter order; blending,
+filtering and triangle-edge rounding can differ. Backends retain the shared
+input and styling contracts. See
 [Render backends](https://github.com/pocket-nexus/pocketjs/blob/main/docs/BACKENDS.md).
 
 The exact op signatures, node lifecycle, and per-frame ordering live on the

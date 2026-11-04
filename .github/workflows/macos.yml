@@ -1,9 +1,6 @@
 name: macOS portable renderer
 
-# What only a macOS machine runs: the Metal DrawList backend, the desktop
-# host's GPU acceptance tests and its macOS lint, the note compiled against
-# the macos-app profile, and the macos-app host build. Portable crates and
-# the JavaScript contracts run in test.yml.
+# Exercise Metal rendering for the shared UI renderer used by widgets and Pocket3D.
 
 on:
   pull_request:
@@ -27,14 +24,8 @@ on:
       - "engine/runtime/**"
       - "engine/guest-rquickjs/**"
       - "engine/pocket3d/crates/pocket3d/**"
-      - "programs/desktop/**"
       - "devices/wgpu/pocket-wgpu-render/**"
-      - "tools/macos.ts"
       - "framework/src/manifest/**"
-      - "framework/compiler/**"
-      - "apps/note/**"
-      - "hosts/macos-app/**"
-      - "tools/build.ts"
   push:
     branches: [main]
     paths: *paths
@@ -49,7 +40,7 @@ concurrency:
 
 jobs:
   rust:
-    name: Metal renderer + macos-app host
+    name: Metal renderer
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -68,33 +59,5 @@ jobs:
         with:
           workspaces: .
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Install JS dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Compile the note against macos-app (plan + bundle + pak)
-        run: |
-          bun -e '
-          import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
-          import { readPocketManifest } from "./framework/src/manifest/load.ts";
-          import { mkdirSync } from "node:fs";
-          const { manifest: m } = readPocketManifest("apps/note/pocket.app.json");
-          const r = validateAndResolveBuildPlan(m, { target: "macos-app" });
-          if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
-          mkdirSync(".pocket/macos-app", { recursive: true });
-          await Bun.write(".pocket/macos-app/note-main.plan.json", JSON.stringify(r.plan, null, 2) + "\n");'
-          bun tools/build.ts --plan=.pocket/macos-app/note-main.plan.json
-
-      - name: Clippy native desktop host
-        run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-desktop-host --no-deps -- -D warnings
-
-      - name: Test Metal DrawList rendering and frame leases
-        run: |
-          cargo test --locked --manifest-path Cargo.toml -p pocket-ui-wgpu
-          cargo test --locked --manifest-path Cargo.toml -p pocket-desktop-host -- --include-ignored
-
-      - name: Build macos-app host
-        run: cargo build --locked --manifest-path Cargo.toml -p pocket-desktop-host
+      - name: Test Metal DrawList rendering
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-ui-wgpu -p pocket-wgpu-render -- --include-ignored

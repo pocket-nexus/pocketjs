@@ -233,11 +233,11 @@ let pspLine: string;
 const dirFlag = argValue("--dir");
 const external = dirFlag ? null : await detectUsbhostfs();
 if (dirFlag) {
-  // An explicit --dir always wins: it targets a desktop-host mailbox
+  // An explicit --dir always wins: it targets a native UI mailbox
   // (pocket-ui-wgpu) and must not be hijacked by a running PSP session.
   bridge = startBridge({ dir: dirFlag, port: server.port, packagePath, onEvent });
   const rel = dirFlag.startsWith(ROOT) ? dirFlag.slice(ROOT.length) : dirFlag;
-  pspLine = `mailbox armed at ${rel} — launch the desktop host with this cwd (or POCKETJS_DBG_DIR) to attach`;
+  pspLine = `mailbox armed at ${rel} — launch the UI embedding with this cwd (or POCKETJS_DBG_DIR) to attach`;
 } else if (external) {
   bridge = startBridge({ dir: external.dir, port: server.port, packagePath, onEvent });
   const rel = external.dir.startsWith(ROOT) ? external.dir.slice(ROOT.length) : external.dir;

@@ -473,9 +473,9 @@ pub fn render_scaled_rgb565(
 }
 
 /// Execute DrawList words over an existing RGBA8 framebuffer without
-/// clearing it. Render backends composite these into their own scene (the
-/// gpui tri-batch fallback keeps uncovered pixels transparent this way —
-/// the clearing variants paint the full-frame opaque-black background).
+/// clearing it. Render backends composite these into their own scene.
+/// Uncovered pixels retain their original alpha; the clearing variants
+/// paint the full-frame opaque-black background.
 pub fn render_scaled_over(
     ui: &(impl RenderResources + ?Sized),
     words: &[u32],

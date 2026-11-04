@@ -29,9 +29,8 @@ fn rgba(fb: &[u8], scale: u32, x: usize, y: usize) -> [u8; 4] {
 #[test]
 fn render_scaled_over_composites_without_clearing() {
     // The OVER variant must leave untouched pixels exactly as supplied
-    // (a transparent scratch stays transparent outside the ops — the
-    // gpui tri-batch fallback's contract), while the clearing variant
-    // paints the opaque-black background everywhere.
+    // (a transparent scratch stays transparent outside the ops), while
+    // the clearing variant paints the opaque-black background everywhere.
     let ui = Ui::new();
     let words = [
         spec::draw_op::RECT,

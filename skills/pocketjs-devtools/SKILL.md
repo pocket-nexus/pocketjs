@@ -64,7 +64,7 @@ fast-forwards); REPL evals in the app global scope between frames; 📷
 screenshot button downloads a PNG (browser: canvas; PSP: raw VRAM dump over
 usbhostfs, converted by the bridge — pixels never cross the JSON channel).
 
-## Native desktop (macOS) specifics
+## Widget and Pocket3D embedding specifics
 
 - `pocket-ui-wgpu` hosts (OpenStrike desktop, `engine/pocket3d/examples/uihost`)
   carry the same file-mailbox transport as the PSP, pointed at

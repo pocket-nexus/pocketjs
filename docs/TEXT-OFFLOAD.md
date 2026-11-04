@@ -39,8 +39,6 @@ starving completed snapshots.
   discovery or platform text API is involved.
 - `pocket-ui-surface::offload::OffloadWorker`: generic bounded worker channels;
   handler initialization and requests execute off the native runtime thread.
-  Native window presentation uses winit/softbuffer; guest layout and the shared
-  `engine/raster/src/compositor.rs` software painter run on a runtime worker.
 - Web: `text-worker.js` instantiates the same Rust WASM engine. AppInstance
   lifecycle owns its worker and bounded credits. Ordinary browser rendering
   retains the existing iframe/WASM scheduler.
