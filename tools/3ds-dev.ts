@@ -214,23 +214,29 @@ async function waitForDevTarget(): Promise<DeviceTarget> {
   }
 }
 
-/** curl's exit code when an FTP server answers RETR with "no such file". */
-const CURL_FTP_RETR_FAILED = 78;
+/**
+ * curl's exit codes for a key file that is not there: 78, the FTP server
+ * answered RETR with "no such file"; 9, it refused to enter the directory,
+ * which is what a card that has never run the program answers for
+ * /pocketjs/runtime/.
+ */
+const CURL_NO_SUCH_FILE = new Set([78, 9]);
+
+/** What the console's devserver.c load_key accepts: 64 hex digits and at most one "\n". */
+const CONSOLE_KEY_TEXT = /^[0-9a-fA-F]{64}\n?$/;
 
 /**
  * The console's own key, read through ftpd: its bytes, `absent` when the
- * console has none, `corrupt` when the file holds something else. A transport
- * failure throws: pairing must not replace a key it could not read.
+ * console has none, `corrupt` when the file holds something the console does
+ * not read as a key. A transport failure throws: pairing must not replace a
+ * key it could not read.
  */
 function deviceKey(url: string): Uint8Array | "absent" | "corrupt" {
   const read = Bun.spawnSync(["curl", "--silent", "--show-error", "--connect-timeout", "3", "--max-time", "15", url]);
-  if (read.exitCode === CURL_FTP_RETR_FAILED) return "absent";
+  if (CURL_NO_SUCH_FILE.has(read.exitCode ?? -1)) return "absent";
   if (read.exitCode !== 0) throw new Error(read.stderr.toString().trim() || `curl exited ${read.exitCode}`);
-  try {
-    return parsePocketRuntimeToken(read.stdout.toString());
-  } catch {
-    return "corrupt";
-  }
+  const text = read.stdout.toString();
+  return CONSOLE_KEY_TEXT.test(text) ? parsePocketRuntimeToken(text) : "corrupt";
 }
 
 async function pair(): Promise<void> {
