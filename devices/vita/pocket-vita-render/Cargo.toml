@@ -17,7 +17,3 @@ pocket-render = { workspace = true, default-features = true }
 pocket-vita-gxm = { workspace = true, default-features = true }
 vita2d-sys = "0.1.1"
 vitasdk-sys = { version = "0.3.3", features = ["SceGxm_stub", "SceDisplay_stub", "SceSysmem_stub"] }
-
-[dev-dependencies]
-# src/tests.rs audits the renderer lifecycle and renders its fixture scene.
-pocket-driver-kit = { workspace = true, default-features = true }

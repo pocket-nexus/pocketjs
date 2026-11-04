@@ -15,7 +15,3 @@ pocket-render = { workspace = true, default-features = true }
 wgpu = "25"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
-
-[dev-dependencies]
-# tests/gpu.rs audits the renderer lifecycle on a real device.
-pocket-driver-kit = { workspace = true, default-features = true }

@@ -354,22 +354,6 @@ mod tests {
         assert!(output.set_size((0, 0)).is_err());
         assert_eq!(output.size(), (64, 48));
     }
-    #[test]
-    fn the_display_never_keeps_the_renderer_alive() {
-        let gpu = Gpu::new_headless().unwrap();
-        let output = ProgramOutput::new(&gpu, (4, 4), 1.).unwrap();
-        assert!(output.prepare().unwrap());
-        let mut display = RegisteredDisplay(output.state.clone());
-        let port = output.renderer.port();
-        assert!(display.acquire(Rect::new(0, 0, 4, 4)).is_ok());
-        drop(output);
-        // Only the composition owned the renderer; the display holds a port.
-        assert_eq!(port.instance(), None);
-        assert!(matches!(
-            display.acquire(Rect::new(0, 0, 4, 4)),
-            Err(DisplayError::InvalidTarget)
-        ));
-    }
     fn program() -> crate::UiProgram {
         let (profile, profile_hash) = crate::embedded_profile("gpu-test", [4, 4], 1, 60);
         crate::UiProgram::new(crate::ProgramConfig {

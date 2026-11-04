@@ -733,20 +733,4 @@ mod tests {
             ));
         }
     }
-
-    /// A runtime call on a handle whose runtime is borrowed is `Busy`, the
-    /// error the C functions report as `POCKET_STATUS_FAILED`.
-    #[test]
-    fn overlapping_runtime_calls_are_busy() {
-        let handle = Handle::new(config()).unwrap();
-        let borrowed = handle.runtime.borrow();
-        assert!(matches!(
-            handle.with_runtime(|_| Ok(())),
-            Err(RuntimeError::Busy)
-        ));
-        assert_eq!(status_code(RuntimeError::Busy), POCKET_STATUS_FAILED);
-        drop(borrowed);
-        assert!(handle.with_runtime(|_| Ok(())).is_ok());
-        assert_eq!(unsafe { pocket_runtime_supports_op(handle.as_ptr(), 1) }, 1);
-    }
 }

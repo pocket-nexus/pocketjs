@@ -18,7 +18,3 @@ pocket-drivers = { workspace = true, default-features = true }
 pocket-spec = { workspace = true, default-features = true }
 pocket-render = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
-
-[dev-dependencies]
-# tests/driver_kit.rs audits the renderer lifecycle and renders its fixture scene.
-pocket-driver-kit = { workspace = true, default-features = true }

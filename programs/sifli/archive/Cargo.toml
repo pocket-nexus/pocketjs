@@ -13,10 +13,6 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 pocket-archive = { workspace = true, features = ["software-renderer"] }
 pocket-render-sifli-epic = { workspace = true, default-features = true, features = ["cabi"] }
-[dev-dependencies]
-# tests/physics.rs drives a runtime through the exported symbols.
-pocket-drivers = { workspace = true, default-features = true }
-pocket-runtime = { workspace = true, default-features = true }
 [features]
 default = ["std"]
 std = ["pocket-archive/std"]

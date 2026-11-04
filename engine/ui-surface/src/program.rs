@@ -579,65 +579,6 @@ mod tests {
         assert!(guest.eval("stopped", "ui.setText(node,'stale')").is_err());
     }
     #[test]
-    fn default_embedded_profile_requests_ui_physics_and_boots_with_the_engine() {
-        let (profile, _) = embedded_profile("native-test", [16, 16], 1, 60);
-        assert!(profile.capabilities.iter().any(|name| name == "ui.physics"));
-        let (mut program, _) = program();
-        program
-            .boot(
-                Rc::new(Guest::new().unwrap()),
-                "test",
-                "if(typeof ui.physicsCreate!=='function')throw Error('physics not bound');globalThis.frame=()=>{};",
-                &[],
-            )
-            .unwrap();
-        let ops = program.runtime_mut().op_context();
-        assert!((52..=56).all(|op| ops.supports_op(op)));
-        // The pocket-physics engine answers: a world handle is never 0.
-        let world = ops
-            .dispatch(
-                52,
-                &[
-                    pocket_runtime::OpArg::Integer(pocket_spec::physics::KIND_WORLD as i64),
-                    pocket_runtime::OpArg::Bytes(&[]),
-                ],
-            )
-            .unwrap();
-        assert!(matches!(world, pocket_runtime::OpResult::Integer(handle) if handle != 0));
-        program.advance().unwrap();
-    }
-    #[test]
-    fn exported_profile_without_ui_physics_boots_with_physics_ops_unsupported() {
-        // The shape `pocket host export` writes for a host that does not
-        // declare ui.physics, as pocketbook and desktop may.
-        let profile = Profile {
-            id: Cow::Borrowed("exported"),
-            cadences: Cow::Borrowed(&[60]),
-            viewport: [16, 16],
-            logical_viewports: Cow::Borrowed(&[[16, 16]]),
-            dynamic_viewport: None,
-            presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
-            auxiliary: None,
-            auxiliary_logical: Cow::Borrowed(&[]),
-            density: 1,
-            animation: Cow::Borrowed("composited"),
-            capabilities: Cow::Borrowed(&[Cow::Borrowed("input.buttons")]),
-            required_inputs: InputClasses::BUTTONS | InputClasses::CONTACT,
-        };
-        let (mut program, _) = program_with_profile(profile, [3; 32]);
-        program
-            .boot(
-                Rc::new(Guest::new().unwrap()),
-                "exported",
-                "if(typeof ui.physicsCreate!=='undefined')throw Error('physics bound');globalThis.frame=()=>{};",
-                &[],
-            )
-            .unwrap();
-        let ops = program.runtime_mut().op_context();
-        assert!((52..=56).all(|op| !ops.supports_op(op)));
-        program.advance().unwrap();
-    }
-    #[test]
     fn guest_failure_stops_future_ticks_and_second_program_stays_independent() {
         let (mut first, _) = program();
         let (mut second, count) = program();

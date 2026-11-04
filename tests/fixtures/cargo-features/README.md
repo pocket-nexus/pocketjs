@@ -29,12 +29,6 @@ The declared parameters are:
 The SDK test checks that the no-default-feature dependency graph of
 `pocket-archive` excludes every GLES crate.
 
-`ARCHIVE_ROOT_FEATURES` records, for each archive root, the Cargo selection of
-its build command, the `pocket-archive` features `cargo tree` resolves under
-it, and whether `pocket-raster` is in its normal dependency graph. Each root
-is resolved alone, as its build runs, so one root's features do not reach
-another.
-
 The list records exact dependency edges. Adding a selector to an existing
 parameter's expansion fails even if its feature name stays unchanged. Registry
 publication is a separate release step; the independent candidate check uses

@@ -18,6 +18,3 @@ pocket-drivers = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
 pocket-render = { workspace = true, default-features = true }
 pocket-runtime = { workspace = true, default-features = true }
-
-[dev-dependencies]
-pocket-spec = { workspace = true, default-features = true }

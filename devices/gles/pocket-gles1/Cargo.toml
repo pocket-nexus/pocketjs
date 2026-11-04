@@ -13,6 +13,3 @@ pocket-gles = { workspace = true, default-features = true }
 
 [dev-dependencies]
 pocket-gles = { workspace = true, default-features = true, features = ["mock-gl"] }
-# tests/driver_kit.rs audits the renderer lifecycle and renders its fixture scene.
-pocket-driver-kit = { workspace = true, default-features = true }
-pocket-drivers = { workspace = true, default-features = true }

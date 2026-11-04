@@ -36,30 +36,6 @@ export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, 
   "pocket-mod": {}, "pocket-sim": {}, "pocket-text": {},
 };
 
-/**
- * The pocket-archive features each archive root resolves in its own build:
- * the Cargo selection its build command uses, and the features cargo tree
- * reports for pocket-archive under it. Composition features (software
- * renderer) select what pocket_runtime_create registers; std and
- * external-runtime select the allocator, panic handler and hooks. `raster`
- * states whether pocket-raster is in the root's normal dependency graph.
- */
-export const ARCHIVE_ROOT_FEATURES: readonly { root: string; build: readonly string[]; features: readonly string[]; raster: boolean }[] = [
-  // tools/release/archive.ts and the host contract runners: tests/runtime-cabi.test.ts and
-  // pica-driver's driver.c.
-  { root: "SDK and host contract runners", build: ["-p", "pocket-archive", "--no-default-features", "--features", "physics,software-renderer"], features: ["physics", "software-renderer"], raster: true },
-  { root: "products/3ds/core", build: ["-p", "pocketjs-3ds-core", "--no-default-features"], features: [], raster: false },
-  { root: "programs/esp-idf/archive", build: ["-p", "pocket-idf-runtime", "--no-default-features"], features: ["software-renderer"], raster: true },
-  { root: "programs/sifli/archive", build: ["-p", "pocket-sifli-runtime", "--no-default-features"], features: ["software-renderer"], raster: true },
-  { root: "pocket-native-program std,software-only", build: ["-p", "pocket-native-program", "--no-default-features", "--features", "std,software-only"], features: ["std"], raster: true },
-  { root: "pocket-native-program standalone-extension-provider", build: ["-p", "pocket-native-program", "--no-default-features", "--features", "standalone-extension-provider"], features: [], raster: false },
-  // The minimal 3DS program (programs/3ds) and its host contract runner.
-  { root: "pocket-native-program host-backend,host-hooks", build: ["-p", "pocket-native-program", "--no-default-features", "--features", "host-backend,host-hooks"], features: [], raster: false },
-  { root: "pocket-native-program standalone-extension-provider,gles1", build: ["-p", "pocket-native-program", "--no-default-features", "--features", "standalone-extension-provider,gles1"], features: [], raster: false },
-  { root: "programs/psp", build: ["-p", "pocketjs-psp"], features: ["external-runtime"], raster: false },
-  { root: "programs/vita", build: ["-p", "pocketjs-vita"], features: ["default", "std"], raster: true },
-];
-
 /** Validate both feature edges and resolved active features from cargo tree. */
 export function checkFeatureTree(tree: string): void {
   for (const line of tree.split("\n")) {

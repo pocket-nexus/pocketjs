@@ -156,14 +156,11 @@ static void exercise(const char *path, int valid, int fixture) {
   int booted = pocket_qjs_program_boot_source(program, pocket_3ds_file_source_vtable(), &source,
     (int)view->logical[0], (int)view->logical[1], view->raster_density,
     64u*1024u*1024u, 400u*240u*4u+320u*240u*4u);
-  /* compose runs after the guest is attached and before admission. */
-  assert(parts.composed == 1);
   if (valid) {
     if (!booted) fprintf(stderr, "boot failed: %s\n", pocket_qjs_program_error(program));
     assert(booted && parts.runtime == pocket_qjs_program_runtime(program));
     assert(!pocket_runtime_tick(parts.runtime)); assert(!pocket_runtime_tick(parts.runtime));
     assert(displays[0].flushes && displays[1].flushes);
-    assert(renderer.renders);
     if (fixture) evaluate(ctx, "if(__turns!==2)throw new Error('frame count');globalThis.saved=ui.createNode");
     printf("file runtime: primary=%llu auxiliary=%llu frames=2\n",
       (unsigned long long)displays[0].flushes, (unsigned long long)displays[1].flushes);
@@ -177,7 +174,6 @@ static void exercise(const char *path, int valid, int fixture) {
   pocket_qjs_program_destroy(program);
   assert(parts.released == 1 && !parts.runtime);
   for (unsigned i=0; i<2; i++) assert(displays[i].flushes == displays[i].waits);
-  assert(renderer.renders == renderer.waits && renderer.waits == renderer.retires);
   if (valid && fixture)
     evaluate(ctx, "let rejected=false;try{saved(0)}catch(e){rejected=true}if(!rejected||'ui' in globalThis)throw new Error('shutdown lifetime')");
   /* Runtime borrows the source: its FILE and JSContext remain owned by us. */

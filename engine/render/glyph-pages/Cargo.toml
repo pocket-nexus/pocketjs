@@ -15,6 +15,3 @@ license.workspace = true
 
 [dependencies]
 pocket-render = { workspace = true, default-features = true }
-
-[dev-dependencies]
-pocket-drivers = { workspace = true, default-features = true }

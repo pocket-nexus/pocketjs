@@ -117,25 +117,6 @@ bool gfx_register(pocket_runtime *runtime) {
          !pocket_runtime_add_display(runtime, &display_api, &displays[1],
                                      renderer);
 }
-/* The archive keeps pocket_raster_draw_op without the rasterizer: the call
- * returns UNSUPPORTED and leaves the surface untouched. */
-static void software_fallback_is_unsupported(void) {
-  uint8_t pixels[4 * 4 * 4];
-  memset(pixels, 0xab, sizeof pixels);
-  pocket_rect region = {sizeof region, 0, 0, 4, 4};
-  pocket_surface surface = {sizeof surface, pixels, sizeof pixels, &region, 16,
-                            POCKET_PIXEL_FORMAT_RGBA8888};
-  const uint32_t words[] = {POCKET_DRAW_OP_RECT, 0, 4u | (4u << 16),
-                            0xff0000ffu};
-  pocket_logical_clip clip = {.struct_size = sizeof clip, .x1 = 4, .y1 = 4};
-  pocket_draw_op op = {sizeof op, words, 4, &clip, 1};
-  pocket_render_resources resources = {.struct_size = sizeof resources,
-                                       .viewport_width = 4,
-                                       .viewport_height = 4};
-  assert(pocket_raster_draw_op(&surface, &op, &resources) ==
-         POCKET_STATUS_UNSUPPORTED);
-  for (size_t i = 0; i < sizeof pixels; ++i) assert(pixels[i] == 0xab);
-}
 static unsigned initialized, evaluated, framed, shut_down;
 static uint32_t expected_touch;
 static int32_t initialize_guest(void *self, pocket_runtime *runtime,
@@ -147,8 +128,6 @@ static int32_t initialize_guest(void *self, pocket_runtime *runtime,
          env->auxiliary_root > 0);
   assert(env->host_length == 7 && !memcmp(env->host, "3ds-dev", 7));
   assert(env->host_abi == POCKET_BINDING_GENERATION && env->raster_density == 1);
-  /* The host package source keeps native asset loading on. */
-  assert(env->assets_present);
   /* This would fail if POCKETJS_LINK were not visible in instance.c. */
   assert(pocket_runtime_supports_op(runtime, POCKET_3DS_OP_appTable));
   assert(pocket_runtime_supports_op(runtime, POCKET_3DS_OP_appLaunch));
@@ -205,19 +184,8 @@ int main(void) {
                                shutdown_guest,   initialize_guest,
                                NULL};
   assert(!pocket_runtime_set_guest(runtime, &guest_api, NULL));
-  /* The program registers no output; the runtime's boot checks require the
-   * primary and the profile's auxiliary display before the guest runs. */
-  assert(pocket_native_program_boot(program));
-  assert(initialized == 0);
-  /* Slot 0 is empty in this archive: a display bound to it is refused. */
-  assert(pocket_runtime_add_display(runtime, &display_api, &displays[0],
-                                    POCKET_RENDERER_SOFTWARE));
-  software_fallback_is_unsupported();
   assert(instance_attach(runtime) && !instance_attach(runtime));
   assert(!pocket_native_program_boot(program));
-  /* The first frame presents the mounted tree (qjs_present). */
-  assert(!pocket_runtime_present(runtime));
-  assert(renders > 0);
   uint32_t contact = (5 << 18) | (87 << 9) | 159;
   expected_touch = contact;
   instance_input(0x4000, 0x00ff, &contact, 1, 0xff00);

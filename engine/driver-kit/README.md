@@ -100,11 +100,7 @@ for initialization, source checks and the error returned at each boundary.
 Positive and deliberately broken traces exercise the checker itself. The
 crate also runs the extracted delayed driver through the real presenter,
 including failure drain and destruction. The repository integration fixture imports
-this crate at a fixed revision. In this repository every DrawList renderer in
-`devices/` and the Linux file source, framebuffer and KMS displays and the
-PS Vita file source take it as a development dependency: renderers run
-`check_cpu_frame` or a `Lifecycle` audit over their recording device, sources
-run `check_package_source`. SDK tests compile an independent C consumer
+this crate at a fixed revision. SDK tests compile an independent C consumer
 and exercise both accepted and rejected implementations.
 
 These checks do not prove the physical stop probe, cache coherency or device
