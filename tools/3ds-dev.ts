@@ -18,14 +18,23 @@
 import { $ } from "bun";
 import { guardDeviceCommand } from "./device-lease.ts";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
-  readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import {
+  deviceIdText,
+  findKey,
+  legacyKeyDirectory,
+  readKey,
+  sharedKeyDirectory,
+  writeKey,
+} from "./3ds-keys.ts";
 import {
   POCKET_RUNTIME_ACK_FLAG_NATIVE,
   POCKET_RUNTIME_WIRE_PORT,
@@ -84,7 +93,11 @@ const configuredPort = Number(value("--port") ?? POCKET_RUNTIME_WIRE_PORT);
 if (!Number.isInteger(configuredPort) || configuredPort <= 0 || configuredPort > 65535) {
   usage("--port is invalid");
 }
-const keyDirectory = join(ROOT, ".pocket", "3ds", "devices");
+// Keys are shared with every tool that speaks the development wire
+// (tools/3ds-keys.ts); a checkout's .pocket/3ds/devices/ is read, not written.
+const sharedKeys = sharedKeyDirectory();
+const legacyKeys = legacyKeyDirectory(ROOT);
+const keyDirectories = [sharedKeys, legacyKeys];
 const NO_RUNTIME_DISCOVERED =
   "no Pocket Runtime discovered; open the 3DS dev menu for its IP and retry with --host";
 
@@ -95,30 +108,14 @@ interface DeviceTarget {
   readonly deviceId: bigint;
 }
 
-function keyPathFor(host: string, port: number): string {
+/** A key written before the shared directory, named by the host it paired. */
+function legacyKeyPathFor(host: string, port: number): string {
   const safe = `${host}-${port}`.replace(/[^a-zA-Z0-9_.-]/g, "_");
-  return join(keyDirectory, `${safe}.key`);
-}
-
-function tokenAt(path: string): Uint8Array {
-  return parsePocketRuntimeToken(readFileSync(path, "utf8"));
+  return join(legacyKeys, `${safe}.key`);
 }
 
 function tokenForDevice(deviceId: bigint): Uint8Array | null {
-  if (!existsSync(keyDirectory)) return null;
-  for (const name of readdirSync(keyDirectory).filter((entry) => entry.endsWith(".key")).sort()) {
-    try {
-      const token = tokenAt(join(keyDirectory, name));
-      if (pocketRuntimeDeviceId(token) === deviceId) return token;
-    } catch {
-      // A corrupt key is reported when selected explicitly; discovery skips it.
-    }
-  }
-  return null;
-}
-
-function deviceIdText(deviceId: bigint): string {
-  return deviceId.toString(16).padStart(16, "0");
+  return findKey(deviceId, keyDirectories)?.token ?? null;
 }
 
 async function discoveredDevices(addresses?: readonly string[]): Promise<DiscoveredPocketRuntime[]> {
@@ -140,9 +137,9 @@ async function rediscoverTarget(target: DeviceTarget): Promise<DeviceTarget> {
 
 async function resolveTarget(): Promise<DeviceTarget> {
   if (explicitHost) {
-    const path = keyPathFor(explicitHost, configuredPort);
+    const path = legacyKeyPathFor(explicitHost, configuredPort);
     if (existsSync(path)) {
-      const token = tokenAt(path);
+      const token = readKey(path);
       return {
         host: explicitHost,
         port: configuredPort,
@@ -217,56 +214,69 @@ async function waitForDevTarget(): Promise<DeviceTarget> {
   }
 }
 
+/** curl's exit code when an FTP server answers RETR with "no such file". */
+const CURL_FTP_RETR_FAILED = 78;
+
+/**
+ * The console's own key, read through ftpd: its bytes, `absent` when the
+ * console has none, `corrupt` when the file holds something else. A transport
+ * failure throws: pairing must not replace a key it could not read.
+ */
+function deviceKey(url: string): Uint8Array | "absent" | "corrupt" {
+  const read = Bun.spawnSync(["curl", "--silent", "--show-error", "--connect-timeout", "3", "--max-time", "15", url]);
+  if (read.exitCode === CURL_FTP_RETR_FAILED) return "absent";
+  if (read.exitCode !== 0) throw new Error(read.stderr.toString().trim() || `curl exited ${read.exitCode}`);
+  try {
+    return parsePocketRuntimeToken(read.stdout.toString());
+  } catch {
+    return "corrupt";
+  }
+}
+
 async function pair(): Promise<void> {
   const host = explicitHost ?? usage("pair requires --host while ftpd is running");
-  const port = configuredPort;
-  const keyPath = keyPathFor(host, port);
-  mkdirSync(keyDirectory, { recursive: true });
-  let token: Uint8Array;
-  if (existsSync(keyPath) && !has("--rotate")) {
-    token = tokenAt(keyPath);
-  } else {
-    token = crypto.getRandomValues(new Uint8Array(32));
-    writeFileSync(keyPath, `${Buffer.from(token).toString("hex")}\n`, { mode: 0o600 });
-  }
-  chmodSync(keyPath, 0o600);
   const ftpPort = Number(value("--ftp-port") ?? 5000);
   if (!Number.isInteger(ftpPort) || ftpPort <= 0 || ftpPort > 65535) {
     usage("--ftp-port is invalid");
   }
   const url = `ftp://${host}:${ftpPort}/pocketjs/runtime/dev.key`;
-  const upload = Bun.spawnSync([
-    "curl",
-    "--silent",
-    "--show-error",
-    "--fail",
-    "--ftp-create-dirs",
-    "--connect-timeout",
-    "3",
-    "--max-time",
-    "30",
-    "-T",
-    keyPath,
-    url,
-  ]);
-  if (upload.exitCode !== 0) throw new Error(upload.stderr.toString().trim());
-  const readback = Bun.spawnSync([
-    "curl",
-    "--silent",
-    "--show-error",
-    "--fail",
-    "--connect-timeout",
-    "3",
-    "--max-time",
-    "15",
-    url,
-  ]);
-  if (readback.exitCode !== 0) throw new Error(readback.stderr.toString().trim());
-  const remote = parsePocketRuntimeToken(readback.stdout.toString());
-  if (!Buffer.from(remote).equals(Buffer.from(token))) {
-    throw new Error("device pairing key failed its FTP readback comparison");
+  // The console's key is the one every tool shares: adopt it unless asked to rotate.
+  const existing = deviceKey(url);
+  let token: Uint8Array;
+  if (existing instanceof Uint8Array && !has("--rotate")) {
+    token = existing;
+    console.log("the console holds a development key already; adopting it");
+  } else {
+    if (existing === "corrupt") console.log("the console's development key is unreadable; replacing it");
+    token = crypto.getRandomValues(new Uint8Array(32));
+    const staging = mkdtempSync(join(tmpdir(), "pocket-3ds-key-"));
+    const upload = join(staging, "dev.key");
+    try {
+      writeFileSync(upload, `${Buffer.from(token).toString("hex")}\n`, { mode: 0o600 });
+      const sent = Bun.spawnSync([
+        "curl",
+        "--silent",
+        "--show-error",
+        "--ftp-create-dirs",
+        "--connect-timeout",
+        "3",
+        "--max-time",
+        "30",
+        "-T",
+        upload,
+        url,
+      ]);
+      if (sent.exitCode !== 0) throw new Error(sent.stderr.toString().trim());
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+    const remote = deviceKey(url);
+    if (!(remote instanceof Uint8Array) || !Buffer.from(remote).equals(Buffer.from(token))) {
+      throw new Error("device pairing key failed its FTP readback comparison");
+    }
   }
-  console.log(`paired ${host}:${port}`);
+  const keyPath = writeKey(token, sharedKeys);
+  console.log(`paired ${host}:${configuredPort}, device ${deviceIdText(pocketRuntimeDeviceId(token))}`);
   console.log(`device key: /pocketjs/runtime/dev.key`);
   console.log(`local key:  ${keyPath}`);
   console.log("restart Pocket Runtime once; ftpd is not needed afterwards");

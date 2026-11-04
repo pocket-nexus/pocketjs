@@ -14,7 +14,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pocketRuntimeDeviceId } from "../../contracts/spec/pocket-runtime-wire.ts";
-import { PocketRuntimeClient, parsePocketRuntimeToken } from "../../tools/3ds-runtime-client.ts";
+import { PocketRuntimeClient, discoverPocketRuntimes, parsePocketRuntimeToken } from "../../tools/3ds-runtime-client.ts";
+import { findKey, legacyKeyDirectory, sharedKeyDirectory } from "../../tools/3ds-keys.ts";
 import { readRuntimeDirectory } from "../../tools/repack.ts";
 import { repack3ds } from "../../tools/repack/3ds.ts";
 import { decodePng, encodePng } from "../../tools/repack/shared/png.ts";
@@ -216,7 +217,13 @@ try {
   if (device) {
     const host = option("host");
     if (!host) throw new Error("--device needs --host");
-    const token = parsePocketRuntimeToken(readFileSync(join(ROOT, ".pocket/3ds/devices", `${host}-8131.key`), "utf8"));
+    // A key paired before the shared directory is named by its host; any other is found by the device id the console announces.
+    const legacy = join(legacyKeyDirectory(ROOT), `${host}-8131.key`);
+    const announced = existsSync(legacy) ? null : (await discoverPocketRuntimes({ addresses: [host] })).find((found) => found.address === host);
+    const token = existsSync(legacy)
+      ? parsePocketRuntimeToken(readFileSync(legacy, "utf8"))
+      : announced ? findKey(announced.deviceId, [sharedKeyDirectory(), legacyKeyDirectory(ROOT)])?.token : undefined;
+    if (!token) throw new Error(`no development key for ${host}; pair it with bun run 3ds:dev pair --host ${host}`);
     client = await connect(host, token, 30_000);
     log(`connected to ${host} (device ${pocketRuntimeDeviceId(token).toString(16)})`);
     await play(client);
