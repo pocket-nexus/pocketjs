@@ -1,0 +1,11 @@
+{
+  "name": "short-header",
+  "kind": "invalid",
+  "file": "vectors/short-header.bin",
+  "wireBytes": 16,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "SHORT_HEADER"
+}

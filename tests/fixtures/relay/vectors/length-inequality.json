@@ -1,0 +1,11 @@
+{
+  "name": "length-inequality",
+  "kind": "invalid",
+  "file": "vectors/length-inequality.bin",
+  "wireBytes": 271,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_LENGTH"
+}

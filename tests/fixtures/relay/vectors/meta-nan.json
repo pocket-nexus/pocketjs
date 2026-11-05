@@ -1,0 +1,11 @@
+{
+  "name": "meta-nan",
+  "kind": "invalid",
+  "file": "vectors/meta-nan.bin",
+  "wireBytes": 617,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_METADATA"
+}

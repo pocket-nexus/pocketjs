@@ -3,7 +3,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { generateRust } from "../contracts/spec/gen-rust.ts";
+import { generateRelayRust, generateRust } from "../contracts/spec/gen-rust.ts";
+import { relayConstantsSnapshot } from "../contracts/spec/relay.ts";
 import { generateC } from "../contracts/spec/gen-c.ts";
 import { generatedDriverContracts } from "../tools/driver-contracts.ts";
 import { generatedUiBindings } from "../tools/ui-bindings.ts";
@@ -21,6 +22,12 @@ const committed = (path: string) => readFileSync(resolve(root, path), "utf8");
 describe("generated contracts are fresh", () => {
   const outputs = new Map<string, string>([
     ["engine/spec/src/lib.rs", generateRust()],
+    // The relay constants reach Rust twice from one emitter: pocket-spec above
+    // and the no_std frame crate, which builds without pocket-spec.
+    ["engine/relay/src/generated.rs", generateRelayRust()],
+    // The snapshot the C and Rust frame layers compare against; regenerate it
+    // with the vectors through `bun tests/fixtures/relay/generate.ts`.
+    ["tests/fixtures/relay/constants.json", JSON.stringify(relayConstantsSnapshot(), null, 2) + "\n"],
     ["contracts/generated/pocket_spec.h", generateC()],
     ...generatedDriverContracts(),
     ...generatedUiBindings(),

@@ -1,0 +1,11 @@
+{
+  "name": "bad-header-size",
+  "kind": "invalid",
+  "file": "vectors/bad-header-size.bin",
+  "wireBytes": 270,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_HEADER_SIZE"
+}

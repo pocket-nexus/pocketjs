@@ -59,6 +59,7 @@ members = [
     "engine/present",
     "engine/profile-build",
     "engine/raster",
+    "engine/relay",
     "engine/render",
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
@@ -126,6 +127,7 @@ default-members = [
     "engine/present",
     "engine/profile-build",
     "engine/raster",
+    "engine/relay",
     "engine/render",
     "engine/render/draw-ops",
     "engine/render/glyph-pages",
@@ -192,6 +194,7 @@ pocket-rg-ds-plus = { path = "programs/rg-ds-plus", version = "0.16.0", default-
 pocketbook-host = { path = "programs/pocketbook", version = "0.16.0", default-features = false }
 pocket-media = { path = "engine/modules/media", version = "0.16.0", default-features = false }
 pocket-mod = { path = "engine/mod", version = "0.16.0", default-features = false }
+pocket-relay = { path = "engine/relay", version = "0.16.0", default-features = false }
 pocket-package = { path = "engine/package", version = "0.16.0", default-features = false }
 pocket-physics = { path = "engine/physics", version = "0.16.0", default-features = false }
 pocket-present = { path = "engine/present", version = "0.16.0", default-features = false }

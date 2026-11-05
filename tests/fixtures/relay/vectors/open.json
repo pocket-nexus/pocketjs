@@ -1,0 +1,44 @@
+{
+  "name": "open",
+  "kind": "valid",
+  "file": "vectors/open.bin",
+  "wireBytes": 345,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 1,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 2,
+    "stream": 0,
+    "correlation": 2,
+    "metaBytes": 297,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "relay.open",
+      "app": "pocket-map",
+      "namespace": "map/demo",
+      "profile": {
+        "name": "map.raster",
+        "version": 1
+      },
+      "codecs": [
+        0,
+        1,
+        257
+      ],
+      "rxLimits": {
+        "maxWireBytes": 65536,
+        "maxMetaBytes": 2048,
+        "windowFrames": 8,
+        "windowBytes": 32768,
+        "maxPending": 8,
+        "maxObjectBytes": 131072,
+        "maxAssemblies": 2,
+        "maxScratchBytes": 524288
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "push",
+  "kind": "valid",
+  "file": "vectors/push.bin",
+  "wireBytes": 203,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 3,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 7,
+    "stream": 2,
+    "correlation": 0,
+    "metaBytes": 155,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "term.grid",
+      "subscription": 7,
+      "final": true,
+      "resource": {
+        "kind": 6,
+        "ns": "term/demo",
+        "key": "sid-7/grid",
+        "revision": "g2-s11",
+        "rendition": "cells-80x24-v1"
+      }
+    }
+  }
+}

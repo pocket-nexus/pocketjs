@@ -29,6 +29,7 @@ pocketjs/
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
+│  ├─ relay/                Relay frame layer: no_std Rust codec and the C11 layer in c/
 │  ├─ host-services/        C link, launcher, fs and photo services for native programs
 │  ├─ mod/                  guest hosting for the runtime family
 │  ├─ ui-surface/ ui-wgpu/  UI embedding: guest surface and wgpu output

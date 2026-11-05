@@ -1,0 +1,14 @@
+{
+  "name": "codec-not-negotiated",
+  "kind": "invalid",
+  "file": "vectors/codec-not-negotiated.bin",
+  "wireBytes": 61885,
+  "options": {
+    "maxWireBytes": 65536,
+    "maxMetaBytes": 2048,
+    "codecs": [
+      0
+    ]
+  },
+  "errorCode": "BAD_CODEC"
+}

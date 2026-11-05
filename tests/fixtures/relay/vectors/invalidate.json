@@ -1,0 +1,34 @@
+{
+  "name": "invalidate",
+  "kind": "valid",
+  "file": "vectors/invalidate.bin",
+  "wireBytes": 266,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 5,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 6,
+    "stream": 0,
+    "correlation": 0,
+    "metaBytes": 218,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "resource.invalidate",
+      "resource": {
+        "kind": 1,
+        "ns": "map/demo",
+        "key": "webmercator/demo-raster/z14/x2621/y6332",
+        "revision": "tile-v2",
+        "rendition": "r5g6b5le-256-v1"
+      },
+      "args": {
+        "scope": "revision",
+        "reason": "source-update"
+      }
+    }
+  }
+}

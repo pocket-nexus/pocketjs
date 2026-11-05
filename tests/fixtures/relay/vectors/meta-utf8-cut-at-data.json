@@ -1,0 +1,19 @@
+{
+  "name": "meta-utf8-cut-at-data",
+  "kind": "invalid",
+  "file": "vectors/meta-utf8-cut-at-data.bin",
+  "wireBytes": 255,
+  "options": {
+    "maxWireBytes": 65536,
+    "maxMetaBytes": 2048,
+    "codecs": [
+      0,
+      1,
+      257,
+      258,
+      259,
+      260
+    ]
+  },
+  "errorCode": "BAD_METADATA"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "wire-too-large",
+  "kind": "invalid",
+  "file": "vectors/wire-too-large.bin",
+  "wireBytes": 270,
+  "options": {
+    "maxWireBytes": 100,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "WIRE_TOO_LARGE"
+}

@@ -1,0 +1,41 @@
+{
+  "name": "open-response",
+  "kind": "valid",
+  "file": "vectors/open-response.bin",
+  "wireBytes": 345,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 2,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 2,
+    "stream": 0,
+    "correlation": 2,
+    "metaBytes": 297,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "relay.open",
+      "status": "ok",
+      "final": true,
+      "stream": 1,
+      "namespace": "map/demo",
+      "profile": {
+        "name": "map.raster",
+        "version": 1
+      },
+      "rxLimits": {
+        "maxWireBytes": 65536,
+        "maxMetaBytes": 2048,
+        "windowFrames": 8,
+        "windowBytes": 32768,
+        "maxPending": 8,
+        "maxObjectBytes": 131072,
+        "maxAssemblies": 2,
+        "maxScratchBytes": 524288
+      }
+    }
+  }
+}

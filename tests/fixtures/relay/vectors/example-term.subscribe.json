@@ -1,0 +1,37 @@
+{
+  "name": "example-term.subscribe",
+  "kind": "valid",
+  "file": "vectors/example-term.subscribe.bin",
+  "wireBytes": 219,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 1,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 1,
+    "stream": 2,
+    "correlation": 1,
+    "metaBytes": 171,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "resource.subscribe",
+      "resource": {
+        "kind": 6,
+        "ns": "term/demo",
+        "key": "sid-7/grid",
+        "revision": "g2-s10",
+        "rendition": "cells-80x24-v1"
+      },
+      "args": {
+        "delivery": "reliable-delta"
+      }
+    }
+  },
+  "draft": {
+    "headerHex": "d7 00 00 00 50 52 4c 59 01 00 01 00 30 00 00 00 08 07 06 05 04 03 02 01 01 00 00 00 02 00 00 00 01 00 00 00 ab 00 00 00 00 00 00 00 00 00 00 00",
+    "wireBytes": 219
+  }
+}

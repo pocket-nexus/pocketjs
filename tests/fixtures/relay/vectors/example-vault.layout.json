@@ -1,0 +1,64 @@
+{
+  "name": "example-vault.layout",
+  "kind": "valid",
+  "file": "vectors/example-vault.layout.bin",
+  "wireBytes": 416,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 2,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 1,
+    "stream": 3,
+    "correlation": 1,
+    "metaBytes": 368,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "resource.get",
+      "resource": {
+        "kind": 4,
+        "ns": "vault/demo",
+        "key": "note-42/rows/0/count/1",
+        "revision": "content7-layout12",
+        "rendition": "runs-w376-fontset1-v1"
+      },
+      "status": "ok",
+      "final": true,
+      "value": {
+        "mode": "positioned-source-runs",
+        "width": 376,
+        "offsetUnit": "utf16",
+        "rows": [
+          {
+            "index": 0,
+            "k": 0,
+            "l": 0,
+            "s": 0,
+            "height": 18,
+            "r": [
+              [
+                0,
+                "Relay",
+                0
+              ],
+              [
+                80,
+                "协议",
+                1
+              ]
+            ]
+          }
+        ],
+        "next": 1,
+        "total": 32
+      }
+    }
+  },
+  "draft": {
+    "headerHex": "9c 01 00 00 50 52 4c 59 01 00 02 00 30 00 00 00 08 07 06 05 04 03 02 01 01 00 00 00 03 00 00 00 01 00 00 00 70 01 00 00 00 00 00 00 00 00 00 00",
+    "wireBytes": 416
+  }
+}

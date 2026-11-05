@@ -1,0 +1,11 @@
+{
+  "name": "truncated",
+  "kind": "invalid",
+  "file": "vectors/truncated.bin",
+  "wireBytes": 269,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "TRUNCATED"
+}

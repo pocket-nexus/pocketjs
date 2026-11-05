@@ -1,0 +1,54 @@
+{
+  "name": "hello-response",
+  "kind": "valid",
+  "file": "vectors/hello-response.bin",
+  "wireBytes": 511,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 2,
+    "codec": 0,
+    "session": "0000000000000000",
+    "seq": 1,
+    "stream": 0,
+    "correlation": 1,
+    "metaBytes": 463,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "relay.hello",
+      "status": "ok",
+      "final": true,
+      "bootNonce": "00112233445566778899aabbccddeeff",
+      "peerNonce": "ffeeddccbbaa99887766554433221100",
+      "session": "0102030405060708",
+      "selected": [
+        1,
+        0
+      ],
+      "profiles": [
+        {
+          "name": "map.raster",
+          "version": 1
+        }
+      ],
+      "grants": [
+        "pocket-map"
+      ],
+      "rxLimits": {
+        "maxWireBytes": 65536,
+        "maxMetaBytes": 2048,
+        "windowFrames": 8,
+        "windowBytes": 32768,
+        "maxPending": 8,
+        "maxObjectBytes": 131072,
+        "maxAssemblies": 2,
+        "maxScratchBytes": 524288
+      },
+      "transport": {
+        "id": "tcp-paired"
+      }
+    }
+  }
+}
