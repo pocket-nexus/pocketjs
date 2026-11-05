@@ -1,0 +1,17 @@
+[package]
+name = "pocket-wgpu-render"
+edition = "2024"
+description = "Pocket DrawList renderer on native wgpu devices"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+wgpu = "25"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"

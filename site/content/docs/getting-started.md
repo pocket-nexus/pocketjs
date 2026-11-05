@@ -6,10 +6,10 @@ application workflow.
 
 This is the fastest path from an empty checkout to JSX running on screen. You'll
 write a component, mount it, build it, and see it in the browser dev host — the
-same source and `pocket.json` can also be compiled into target-specific packages
+same source and `pocket.app.json` can also be compiled into target-specific packages
 for PSP, PS Vita, and the other registered targets. Your app declares one
-logical viewport in `pocket.json` and the target profile decides whether that
-size is admissible: PSP and Vita are fixed at 480×272, while window and widget
+logical viewport in `pocket.app.json` and the target's host contract decides
+whether that size is admissible: PSP and Vita are fixed at 480×272, while window and widget
 targets carry a default size and resize the core live. Each target owns its
 native renderer, raster density, and HostOps ABI.
 
@@ -27,7 +27,7 @@ the targets that compile the core natively — you don't need them to write UI.
 | ------------------------------------- | --------------------------------------------------------------- |
 | Write components, build bundles       | [Bun](https://bun.sh) (drives the build, tests, and dev host)   |
 | Run the local **browser** dev host    | Bun + Rust with the wasm target (`rustup target add wasm32-unknown-unknown`) |
-| Ship a **PSP EBOOT** | `bun run bootstrap` (pinned Rust, [`cargo-psp`](https://github.com/pocket-stack/rust-psp), LLVM, and verified SDK) |
+| Ship a **PSP EBOOT** | rustup, then `bun run pocket target add psp` (pinned Rust, [`cargo-psp`](https://github.com/pocket-nexus/rust-psp), the verified SDK and a prebuilt QuickJS) |
 | Ship a **PS Vita VPK** | [VitaSDK](https://vitasdk.org/), `cargo-vita` 0.2.2, and Rust nightly `2026-05-28` with `rust-src` |
 | Embed PocketJS in **ESP-IDF** | ESP-IDF 6.0 or 6.1; Registry releases include the P4/S3 native core archives |
 | Hot-reload on **real PSP hardware** | The build toolchain above + optional [PSPLINK](https://github.com/pspdev/psplinkusb) host tools |
@@ -40,35 +40,11 @@ Existing P4 and S3 firmware projects use the independent workflow in the
 ## Install
 
 ```sh
-git clone https://github.com/pocket-stack/pocketjs
+git clone https://github.com/pocket-nexus/pocketjs
 cd pocketjs
 bun install
-bun run bootstrap   # one-time PSP setup; omit for browser-only development
+bun run pocket target add psp   # one-time PSP setup; omit for browser-only development
 ```
-
-The [`@pocketjs/cli`](https://www.npmjs.com/package/@pocketjs/cli) package can
-check (and mostly install) the toolchain for you, flutter-doctor style:
-
-```sh
-npm install -g @pocketjs/cli
-pocket doctor   # diagnoses bun, the Rust targets, and the PSP toolchain
-pocket setup    # runs the checkout's pinned, idempotent bootstrap
-```
-
-The PSP setup is self-contained in PocketJS; it does not inspect DreamCart or
-any sibling source checkout. Its exact revisions and SDK checksum live in
-`tools/cli/psp-toolchain.json`. Artifacts are shared through
-`${XDG_CACHE_HOME:-~/.cache}/pocket-stack`; `POCKET_STACK_CACHE_DIR` overrides
-that root. For a custom SDK, set `PSP_SDK` or `PSPDEV` (in that precedence
-order). The build validates an explicit path and then exports both names to the
-selected SDK, so a typo fails instead of falling through to a different cached
-toolchain.
-
-It also wraps the day-to-day commands. `pocket create <name>` scaffolds a
-manifest-first demo; `pocket check|compile|build --target psp|vita` delegate to
-the canonical resolver; `pocket dev|psp|vita|hw|psplink` retain the low-level
-host-development paths; and `pocket devtools [app]` opens the
-[DevTools](/docs/devtools/) panel with the USB debug bridge.
 
 That pulls `solid-js`, the Vue Vapor and Octane dependencies, and the
 build-time tooling (the
@@ -77,22 +53,34 @@ separate runtime to install — the framework is the `@pocketjs/framework` packa
 in this repo, exposed through subpath imports like
 `@pocketjs/framework/components`.
 
-Create an app and validate it against both stock profiles:
+This guide uses the `pocket` command from `@pocketjs/cli`, which runs on Bun:
+
+```sh
+bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
+```
+
+The [CLI reference](/docs/cli/) lists every command, the target toolchains
+`pocket target add` installs, and the cache they live in.
+
+Create an app and validate it against both stock host contracts:
 
 ```sh
 pocket create my-app
-pocket check --target psp --manifest apps/my-app/pocket.json
-pocket check --target vita --manifest apps/my-app/pocket.json
+pocket check --target psp --manifest apps/my-app/pocket.app.json
+pocket check --target vita --manifest apps/my-app/pocket.app.json
 ```
 
-The generated `pocket.json` is strict application intent:
+Outside a checkout, `pocket create` writes a standalone project with its own
+`package.json`; see [create](/docs/cli/#create).
+
+The generated `pocket.app.json` is the app contract, strict application
+intent; the [App contract](/docs/app-contract/) page lists every field:
 
 ```json
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
   "id": "dev.example.my-app",
-  "name": "my-app",
   "title": "My App",
   "version": "0.1.0",
   "engine": {
@@ -124,12 +112,13 @@ style with `class` — a **build-time subset of Tailwind**, not runtime CSS.
 State comes directly from the selected framework: `createSignal` in Solid,
 `ref` in Vue Vapor, `useState` in Octane.
 
-Solid is the default low-level framework. Manifest builds select Solid, Vue
-Vapor, or Octane with `app.framework` in `pocket.json`; see
+Solid is the default low-level framework. App contract builds select Solid,
+Vue Vapor, or Octane with `app.framework` in `pocket.app.json`; see
 [Frameworks](/docs/frameworks/) for the full selection model.
 
-`pocket create` writes an `apps/my-app/app.tsx` that counts CROSS presses
-through `onButtonPress` from `@pocketjs/framework/lifecycle`. Replace it with
+`pocket create` writes an `app.tsx` that counts CROSS presses through
+`onButtonPress` from `@pocketjs/framework/solid/lifecycle` (or the
+`vue-vapor`/`octane` subpath for `--framework`). Replace it with
 this focusable counter, which routes the same increment through d-pad focus and
 `onPress`:
 
@@ -238,8 +227,8 @@ What's happening:
 
 `app.tsx` exports a component but doesn't put anything on screen. The **mount
 entry** does that. Keep it small — this is app bootstrap. `pocket create`
-writes the Solid spelling to `apps/my-app/main.tsx`; the other two differ in
-the import:
+writes the spelling for its `--framework` (Solid by default) to `main.tsx`; the
+three differ in the import:
 
 :::framework-code
 ```tsx solid
@@ -261,13 +250,19 @@ mount(App);
 ```tsx octane
 // @title PocketJS: My App
 import App from "./app.tsx";
-import { mount } from "@pocketjs/framework/octane";
+import { mount } from "@pocketjs/framework";
 
 // Pass the component itself: in Octane, JSX inside a call-argument arrow
 // (mount(() => <App />)) is a compile error.
 mount(App);
 ```
 :::
+
+The Octane entry imports `mount` from the generic root: the build resolves
+`@pocketjs/framework` to the framework named in `pocket.app.json`, and the root's
+`mount` type accepts a JSX component. `@pocketjs/framework/octane` types `mount`
+for compiled universal components, which `pocket check` does not see in app
+sources.
 
 `mount` comes from the selected framework runtime subpath. It handles host
 detection (native PSP/Vita vs. injected browser/headless hosts), wiring the generated style table,
@@ -278,17 +273,20 @@ app.)
 
 ## Build it
 
-Use the manifest path for product builds. It validates the app, resolves the
-target once, compiles target-specific assets, and dispatches the native backend:
+**`compile` validates the application and produces a version 2 `.pocket` package.**
+The runtime program owns native linking and device packaging. The checkout
+provides PSP and Vita commands for building a demo program:
 
 ```sh
-pocket build --target psp --manifest apps/my-app/pocket.json -- --release
-# hosts/psp/target/mipsel-sony-psp/release/EBOOT.PBP
+pocket compile --target psp --manifest apps/my-app/pocket.app.json
+pocket psp my-app --release
+# programs/psp/target/mipsel-sony-psp/release/EBOOT.PBP
 
 export VITASDK="$HOME/vitasdk"
 export PATH="$VITASDK/bin:$HOME/.cargo/bin:$PATH"
-pocket build --target vita --manifest apps/my-app/pocket.json -- --release
-# apps/my-app/dist/vita/my-app-main.vpk
+pocket compile --target vita --manifest apps/my-app/pocket.app.json
+pocket vita my-app --release
+# dist/vita/my-app-main.vpk
 ```
 
 Vita VPKs include PocketJS's default black 128x128 bubble icon and complete
@@ -298,9 +296,8 @@ a blank bubble or generic launch gate. Custom native hosts call
 assets override matching defaults while missing artwork continues to inherit
 PocketJS's complete set.
 
-`pocket compile --target …` stops after the JS/pak artifacts for a custom native
-host. `pocket check --target …` is read-only. Arguments after `--` belong to the
-selected native backend.
+[check, compile, build](/docs/cli/#check-and-compile) lists the options of
+the three commands and the `build` output of each target.
 
 For framework work, the lower-level compiler remains available:
 
@@ -378,8 +375,8 @@ subsequent runs are fast.
 
 ### In Vita3K
 
-For stock demos, one command builds a manifest-driven VPK, installs it under a
-stable per-demo Title ID, and launches it:
+For stock demos, one command builds a VPK from the demo's app contract,
+installs it under a stable per-demo Title ID, and launches it:
 
 ```sh
 pocket play vita hero
@@ -387,8 +384,8 @@ pocket play vita gallery --fullscreen
 ```
 
 Vita3K is interactive here; `--fullscreen` controls the emulator window. The
-application still uses the profile's 480×272 logical viewport rendered at
-960×544 density 2. See the [Vita host guide](https://github.com/pocket-stack/pocketjs/blob/main/hosts/vita/README.md)
+application still uses the `vita` host contract's 480×272 logical viewport
+rendered at 960×544 density 2. See the [Vita host guide](https://github.com/pocket-nexus/pocketjs/blob/main/programs/vita/README.md)
 for toolchain setup, key mappings, real-device installation, and the golden E2E.
 
 ## Next steps

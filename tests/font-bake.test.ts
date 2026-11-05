@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse as parseFont } from "opentype.js";
-import { bakeSlot, DEFAULT_REGULAR } from "../framework/compiler/bake-font.ts";
+import { bakeSlot, DEFAULT_REGULAR, type GlyphRasterCache } from "../framework/compiler/bake-font.ts";
 import {
   FONT_CMAP_ENTRY_SIZE,
   FONT_HEADER_SIZE,
@@ -175,5 +175,22 @@ describe("fill rule", () => {
       return atlas.coverageH;
     };
     expect(topInk(h)).toBeLessThan(topInk(n));
+  });
+});
+
+describe("glyph raster cache", () => {
+  test("a cached bake is byte-identical to an uncached one, whatever the set's cell width", () => {
+    const narrow = [0x41, 0x42, 0x69, 0xee];
+    const wide = [0x41, 0x42, 0x57, 0x69, 0xee, 0x40];
+    for (const density of [1, 2]) {
+      const cache: GlyphRasterCache = new Map();
+      // the narrow set fills the cache; the wide set reuses it in wider cells
+      expect(bakeSlot(font, 0, 16, false, narrow, density, [], cache).bytes).toEqual(bakeSlot(font, 0, 16, false, narrow, density).bytes);
+      const held = cache.size;
+      const reused = bakeSlot(font, 0, 16, false, wide, density, [], cache);
+      expect(reused.bytes).toEqual(bakeSlot(font, 0, 16, false, wide, density).bytes);
+      expect(cache.size).toBe(held + 2);
+      expect(bakeSlot(font, 0, 16, false, narrow, density, [], cache).bytes).toEqual(bakeSlot(font, 0, 16, false, narrow, density).bytes);
+    }
   });
 });

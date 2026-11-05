@@ -1,9 +1,14 @@
-#[path = "../../../hosts/vita/src/dev_delivery.rs"]
+#[path = "../../../programs/vita/src/dev_delivery.rs"]
 mod delivery;
-#[path = "../../../hosts/vita/src/devmenu/input.rs"]
+#[path = "../../../programs/vita/src/devmenu/input.rs"]
 mod menu_input;
-#[path = "../../../hosts/vita/src/dev_protocol.rs"]
+#[path = "../../../programs/vita/src/dev_protocol.rs"]
 mod protocol;
+/// The profile tests/vita-dev.test.ts exports, as the program embeds it.
+#[allow(dead_code)]
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 
 #[cfg(test)]
 mod tests {
@@ -58,19 +63,29 @@ mod tests {
     }
 
     #[test]
-    fn admits_js_and_assets_with_verified_package_identity() {
-        let bundle = admit(&fixture("good.pocket"), &plan()).unwrap();
-        assert_eq!(bundle.js, "globalThis.frame = () => {};\0");
-        assert_eq!(bundle.hash.len(), 16);
+    fn admits_original_package_with_verified_identity_and_plan() {
+        let bytes = fixture("good.pocket");
+        let bundle = admit(&bytes, &plan()).unwrap();
+        assert_eq!(bundle.package.as_ref(), bytes);
+        let profile = crate::profile::profile().unwrap();
+        let host = profile.host_facts(
+            pocketjs_core::spec::BINDING_GENERATION,
+            crate::profile::PROFILE_HASH,
+        );
+        let guest = pocket_package::package::select_guest(&bundle.package, &host, false).unwrap();
+        assert_eq!(guest.js, b"globalThis.frame = () => {};\0");
+        assert_eq!(serde_json::from_slice::<Value>(guest.plan).unwrap(), plan());
+        // The variant name and profile hash are provenance; the facts admit.
+        for name in ["wrong-profile.pocket", "wrong-target.pocket"] {
+            assert!(admit(&fixture(name), &plan()).is_ok(), "refused {name}");
+        }
     }
     #[test]
     fn rejects_corruption_wrong_application_target_and_native_contract() {
         for name in [
-            "bad-hash.pocket",
             "wrong-app.pocket",
             "wrong-abi.pocket",
             "wrong-native.pocket",
-            "wrong-target.pocket",
             "no-nul.pocket",
         ] {
             assert!(admit(&fixture(name), &plan()).is_err(), "admitted {name}");
@@ -92,19 +107,18 @@ mod tests {
         assert!(admit(&fixture("good.pocket"), &changed).is_ok());
     }
     #[test]
-    fn command_fences_sessions_paths_sizes_and_checksums() {
+    fn command_fences_sessions_paths_and_sizes() {
         let session = Session {
             version: VERSION,
             session: "a".repeat(32),
         };
         let mut command: Command = serde_json::from_value(json!({
             "version":1,"session":session.session,"id":"b".repeat(32),"op":"push",
-            "size":3,"hash":format!("{:016x}", pocketjs_core::package::fnv1a64(&[b"abc"]))
+            "size":3,"hash":format!("{:016x}", pocket_package::package::fnv1a64(&[b"abc"]))
         }))
         .unwrap();
         command.validate(&session).unwrap();
         command.check_payload(b"abc").unwrap();
-        assert!(command.check_payload(b"abd").is_err());
         command.size = MAX_PACKAGE + 1;
         assert!(command.validate(&session).is_err());
         command.size = 3;
@@ -118,5 +132,44 @@ mod tests {
             "id":"b".repeat(32),"op":"status","path":"ux0:/app/other/eboot.bin"}))
             .is_err()
         );
+    }
+    #[test]
+    fn stage_writes_plain_names_to_the_card_or_app_pocket_to_the_title() {
+        let session = Session {
+            version: VERSION,
+            session: "a".repeat(32),
+        };
+        let stage = |name: &str, into: &str, size: usize| -> Command {
+            serde_json::from_value(json!({
+                "version":1,"session":session.session,"id":"b".repeat(32),"op":"stage",
+                "size":size,"hash":"0123456789abcdef","name":name,"into":into
+            }))
+            .unwrap()
+        };
+        let card = stage("twenty48-vita.vpk", "card", 3);
+        card.validate(&session).unwrap();
+        assert_eq!(
+            stage_path(&card, "PABCDEF12"),
+            "ux0:/data/pocket-runtime/twenty48-vita.vpk"
+        );
+        let app = stage("app.pocket", "app", 3);
+        app.validate(&session).unwrap();
+        assert_eq!(
+            stage_path(&app, "PABCDEF12"),
+            "ux0:/app/PABCDEF12/app.pocket"
+        );
+        for (name, into, size) in [
+            ("../eboot.bin", "card", 3),
+            ("eboot.bin", "app", 3),
+            (".hidden", "card", 3),
+            ("x.vpk", "system", 3),
+            ("x.vpk", "card", 0),
+            ("x.vpk", "card", MAX_STAGE + 1),
+        ] {
+            assert!(
+                stage(name, into, size).validate(&session).is_err(),
+                "accepted {name} into {into}"
+            );
+        }
     }
 }

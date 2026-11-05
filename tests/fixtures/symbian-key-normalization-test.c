@@ -1,4 +1,4 @@
-#include "../../hosts/nokia-e7/runtime/pocketjs_symbian_keys.h"
+#include "../../programs/nokia-e7/runtime/pocketjs_symbian_keys.h"
 
 #if POCKETJS_SYMBIAN_NORMALIZED_ASCII_KEY('w') != 'W'
 #error unshifted W must normalize to Qt::Key_W

@@ -6,7 +6,7 @@ touch 4 has a touch panel, one Home button and nothing else. A Vita and a
 New 3DS have both. **An application is written for a modality, and a
 device is admitted only when its modality meets what the application
 declares** (`contracts/spec/modality.ts`, `app.modality` and
-`app.presentations[].modality` in `pocket.json`). Pocket Clear declares
+`app.presentations[].modality` in `pocket.app.json`). Pocket Clear declares
 `{ "touch": "primary" }` and the PSP refuses it at build time; Pocket
 YouTube declares nothing at the app level and a two-screen presentation on
 top, so every stock device compiles one of its two entries.
@@ -99,7 +99,11 @@ entry is not bound.** Errors turn the footer text red; nothing else moves.
   1 px rule, selected with `ClassicSelection`.
 - **Footer, 24 px**: the legend (§2.3).
 - **Keyboard**: docks over the footer in the grid layout; the list shrinks
-  by `oskHeight()`. The keyboard owns every button while open.
+  by `oskHeight()`. The keyboard owns every button while open. On a host
+  whose keyboard is somewhere else (`HostOps.textSession`: a handheld's
+  lower panel, a system keyboard) `Osk` draws nothing and `oskHeight()` is
+  0; the host shows its keyboard while the session is open and types into
+  it with `input.text` events, and the field's `osk.display()` is the echo.
 - **Modal**: `ClassicSheet` slides from the bottom over a scrim; × closes.
 
 ## 3. Touch modality (iPod touch 4; Vita and 3DS with the panel)

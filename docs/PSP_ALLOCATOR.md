@@ -66,9 +66,9 @@ SDK/toolchain:
 bun tools/psp.ts hero --release --example allocator-check
 ```
 
-The example source is `hosts/psp/examples/allocator-check.rs`. The build produces
+The example source is `programs/psp/examples/allocator-check.rs`. The build produces
 an example PRX and EBOOT alongside the normal host outputs under
-`hosts/psp/target/mipsel-sony-psp/release/`. Use the example artifact for allocator
+`programs/psp/target/mipsel-sony-psp/release/`. Use the example artifact for allocator
 acceptance; use the normal Hero artifact for a UI smoke check. Neither requires
 maps, ROMs or other product assets.
 

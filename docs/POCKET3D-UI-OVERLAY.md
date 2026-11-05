@@ -1,9 +1,28 @@
 # PocketJS UI over Pocket3D
 
-`pocket-ui-wgpu::UiOverlay` mounts a compiled PocketJS JS/pak pair in a QuickJS
-guest and draws it over the scene through `Game::overlay`. The UI uses the
-existing native core, layout, font atlases, hit testing, focus and `onPress`.
+`pocket-ui-wgpu::UiOverlay` admits a compiled PocketJS JS/pak pair through
+`UiProgram` and the shared Runtime. Construct it with the game's `Gpu` and
+target texture format; it registers a wgpu renderer and a device-owned display before evaluating the
+guest. Runtime owns input sampling, guest turns, core ticks and presentation.
+The UI retains its layout, font atlases, hit testing, focus and `onPress`.
 Game rules stay with the application.
+
+**UI rendering reaches terminal completion before scene composition.**
+`UiOverlay::render` renders into a transparent target with the scene's color
+space, records a premultiplied-alpha blit over the scene, and returns an
+`Arc<ProgramTarget>`. The blit pipeline is retained across frames; changing the
+source creates a bind group without compiling another pipeline.
+Keep that lease until the scene encoder is submitted to the same GPU queue.
+The pool contains at most three targets; rendering returns an error when all
+three have outstanding leases. Resizing releases pool ownership of old targets,
+while their leases retain the completed pixels.
+
+`ProgramOutput` also serves native window and widget compositions. Its fixed
+texture mode keeps mesh bindings stable; submit scene reads before the next
+Runtime presentation overwrites that texture. Fixed mode does not provide
+immutable frame snapshots. One `UiProgram` owns each output registration;
+clones configure that program and acquire frame leases. Dropping its registered
+renderer invokes terminal GPU shutdown even while output clones remain alive.
 
 **The application declares cursor ownership.** `Game::cursor_mode` returns
 `Visible` while a control window is open and `Captured` for mouse look.

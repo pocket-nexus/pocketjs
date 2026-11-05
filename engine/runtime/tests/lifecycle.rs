@@ -1,0 +1,1139 @@
+use pocket_drivers::*;
+use pocket_package::source::MemorySource;
+use pocket_runtime::*;
+use std::{cell::RefCell, rc::Rc};
+
+fn config() -> RuntimeConfig {
+    RuntimeConfig {
+        profile_hash: [0x5a; 32],
+        host_abi: pocket_spec::BINDING_GENERATION,
+        heap_limit: 64 * 1024,
+        frame_buffer_budget: 64,
+        profile: Profile {
+            id: Cow::Borrowed("fixture"),
+            cadences: Cow::Borrowed(&[60, 30]),
+            viewport: [4, 4],
+            logical_viewports: Cow::Borrowed(&[[4, 4]]),
+            dynamic_viewport: None,
+            presentations: Cow::Borrowed(&[Cow::Borrowed("native")]),
+            auxiliary: None,
+            auxiliary_logical: Cow::Borrowed(&[]),
+            density: 1,
+            animation: Cow::Borrowed("composited"),
+            capabilities: Cow::Borrowed(&[]),
+            required_inputs: InputClasses::NONE,
+        },
+    }
+}
+/// Register the software rasterizer as renderer 0, before a display binds it.
+fn software(runtime: &mut Runtime) {
+    runtime
+        .set_software_renderer(
+            pocket_raster::RasterRenderer::new(1).unwrap(),
+            pocket_raster::RasterRenderer::new,
+        )
+        .unwrap();
+}
+fn package() -> Vec<u8> {
+    package_for(config().profile_hash)
+}
+fn package_for(profile_hash: [u8; 32]) -> Vec<u8> {
+    package_for_generation(profile_hash, pocket_spec::BINDING_GENERATION)
+}
+fn package_for_generation(profile_hash: [u8; 32], generation: u32) -> Vec<u8> {
+    let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+        target: "fixture",
+        host_abi: generation,
+        profile_hash,
+        identity: &identity,
+        plan: br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}"#,
+        code: b"test",
+        pak: &[],
+    })
+    .unwrap()
+}
+#[derive(Default)]
+struct Facts {
+    initializations: usize,
+    frames: usize,
+    shutdowns: usize,
+    evaluated: bool,
+    flushes: usize,
+}
+struct TestGuest {
+    facts: Rc<RefCell<Facts>>,
+    ops: Option<OpContext>,
+    fail: bool,
+}
+impl Guest for TestGuest {
+    fn initialize(
+        &mut self,
+        ops: OpContext,
+        env: &GuestEnvironment<'_>,
+    ) -> Result<(), RuntimeError> {
+        self.facts.borrow_mut().initializations += 1;
+        assert_eq!(env.viewport, [4, 4]);
+        assert!(env.assets.is_some());
+        assert!(ops.supports_op(1));
+        self.ops = Some(ops);
+        Ok(())
+    }
+    fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError> {
+        assert_eq!(code, b"test\0");
+        self.ops
+            .as_ref()
+            .unwrap()
+            .dispatch(1, &[OpArg::Integer(1)])?;
+        self.facts.borrow_mut().evaluated = true;
+        Ok(())
+    }
+    fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+        assert_eq!(frame.analog, 0x8080);
+        self.facts.borrow_mut().frames += 1;
+        if self.fail {
+            return Err(RuntimeError::Guest);
+        }
+        self.ops
+            .as_ref()
+            .unwrap()
+            .dispatch(1, &[OpArg::Integer(1)])?;
+        Ok(())
+    }
+    fn shutdown(&mut self) {
+        self.facts.borrow_mut().shutdowns += 1;
+    }
+}
+struct Display {
+    pixels: [u8; 64],
+    facts: Rc<RefCell<Facts>>,
+    fail_once: bool,
+}
+impl DisplayOutput for Display {
+    type Token = ();
+    fn descriptor(&self) -> DisplayDescriptor {
+        DisplayDescriptor::new(
+            DisplayRole::Primary,
+            4,
+            4,
+            PixelFormat::Rgba8888,
+            16,
+            TargetOwnership::CpuVisible,
+        )
+    }
+    fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+        Ok(Target::CpuVisible(Surface::new(
+            &mut self.pixels,
+            region,
+            16,
+            PixelFormat::Rgba8888,
+        )?))
+    }
+    fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+        self.facts.borrow_mut().flushes += 1;
+        Ok(())
+    }
+    fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+        if self.fail_once {
+            self.fail_once = false;
+            Err(DisplayError::Failed)
+        } else {
+            Ok(())
+        }
+    }
+    fn vsync(&mut self) -> VsyncSource {
+        VsyncSource::None
+    }
+}
+fn runtime(facts: Rc<RefCell<Facts>>, fail_guest: bool, fail_display: bool) -> Runtime {
+    let mut runtime = Runtime::new(config()).unwrap();
+    runtime
+        .set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    runtime
+        .set_guest(Box::new(TestGuest {
+            facts: facts.clone(),
+            ops: None,
+            fail: fail_guest,
+        }))
+        .unwrap();
+    software(&mut runtime);
+    runtime
+        .add_display(
+            Display {
+                pixels: [0; 64],
+                facts,
+                fail_once: fail_display,
+            },
+            RendererId::SOFTWARE,
+        )
+        .unwrap();
+    runtime
+}
+#[test]
+fn guest_callbacks_reenter_dispatch_and_each_tick_runs_one_frame() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = runtime(facts.clone(), false, false);
+    let ops = rt.op_context();
+    rt.boot().unwrap();
+    assert_eq!(facts.borrow().frames, 0);
+    assert!(facts.borrow().evaluated);
+    assert_eq!(facts.borrow().flushes, 1);
+    rt.tick().unwrap();
+    rt.tick().unwrap();
+    assert_eq!(facts.borrow().frames, 2);
+    assert_eq!(facts.borrow().flushes, 3);
+    assert!(matches!(rt.boot(), Err(RuntimeError::InvalidState)));
+    rt.shutdown().unwrap();
+    assert!(!ops.supports_op(1));
+    drop(rt);
+    assert_eq!(facts.borrow().shutdowns, 1);
+}
+
+#[test]
+fn runtime_evaluates_owned_and_static_packages_without_relocating_their_bytes() {
+    struct PointerGuest {
+        inner: TestGuest,
+        code: *const u8,
+    }
+    impl Guest for PointerGuest {
+        fn initialize(&mut self, ops: OpContext, env: &GuestEnvironment<'_>) -> Result<(), RuntimeError> {
+            self.inner.initialize(ops, env)
+        }
+        fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError> {
+            assert_eq!(code.as_ptr(), self.code);
+            self.inner.evaluate(code)
+        }
+        fn frame(&mut self, input: &GuestFrame<'_>) -> Result<(), RuntimeError> { self.inner.frame(input) }
+        fn collect(&mut self) -> Result<(), RuntimeError> { self.inner.collect() }
+        fn shutdown(&mut self) { self.inner.shutdown() }
+    }
+    for owned in [true, false] {
+        let bytes = package().into_boxed_slice();
+        let config = config();
+        let host = config.profile.host_facts(config.host_abi, config.profile_hash);
+        let code = pocket_package::select_guest(&bytes, &host, false).unwrap().js.as_ptr();
+        let source: Box<dyn PackageSource> = if owned {
+            Box::new(pocket_package::source::OwnedMemorySource::new(bytes))
+        } else {
+            Box::new(pocket_package::source::StaticMemorySource(Box::leak(bytes)))
+        };
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        let mut rt = runtime(facts.clone(), false, false);
+        rt.set_package_source(source).unwrap();
+        rt.set_guest(Box::new(PointerGuest {
+            inner: TestGuest { facts: facts.clone(), ops: None, fail: false }, code,
+        })).unwrap();
+        rt.boot().unwrap();
+        rt.tick().unwrap();
+        rt.shutdown().unwrap();
+        assert_eq!(facts.borrow().frames, 1);
+        assert_eq!(facts.borrow().shutdowns, 1);
+    }
+}
+#[test]
+fn terminal_display_failure_allows_next_tick_and_guest_failure_stops_ticks() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = runtime(facts.clone(), false, true);
+    assert!(matches!(rt.boot(), Err(RuntimeError::Presentation(_))));
+    rt.tick().unwrap();
+    assert_eq!(facts.borrow().frames, 1);
+    drop(rt);
+    assert_eq!(facts.borrow().shutdowns, 1);
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = runtime(facts.clone(), true, false);
+    rt.boot().unwrap();
+    assert_eq!(rt.tick(), Err(RuntimeError::Guest));
+    assert_eq!(rt.tick(), Err(RuntimeError::InvalidState));
+    drop(rt);
+    assert_eq!(facts.borrow().shutdowns, 1);
+}
+#[test]
+fn missing_registration_is_rejected_before_guest_evaluation() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = Runtime::new(config()).unwrap();
+    rt.set_guest(Box::new(TestGuest {
+        facts: facts.clone(),
+        ops: None,
+        fail: false,
+    }))
+    .unwrap();
+    assert_eq!(rt.boot(), Err(RuntimeError::MissingDisplay));
+    assert!(!facts.borrow().evaluated);
+}
+#[test]
+fn frame_borrow_rejects_mutation_and_private_services_are_absent() {
+    let ops = OpContext::from_ui(pocketjs_core::Ui::new());
+    let core = ops.core().unwrap();
+    assert_eq!(
+        ops.dispatch(1, &[OpArg::Integer(1)]),
+        Err(RuntimeError::Busy)
+    );
+    drop(core);
+    assert!(!ops.supports_op(30));
+    assert!(!ops.supports_op(44));
+    assert!(ops.supports_op(57));
+    assert_eq!(
+        ops.dispatch(7, &[OpArg::Integer(0), OpArg::Bytes(&[255])]),
+        Err(RuntimeError::InvalidArgument)
+    );
+}
+
+#[test]
+fn dropping_with_an_outstanding_read_guard_disables_all_cloned_contexts() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut runtime = runtime(facts.clone(), false, false);
+    runtime.boot().unwrap();
+    let ops = runtime.op_context();
+    let held = ops.core().unwrap();
+    drop(runtime);
+    assert!(!ops.supports_op(23));
+    assert!(!ops.supports_op(1));
+    assert_eq!(facts.borrow().shutdowns, 1);
+    drop(held);
+    assert_eq!(
+        ops.dispatch(1, &[OpArg::Integer(1)]),
+        Err(RuntimeError::UnsupportedOperation)
+    );
+}
+
+#[test]
+fn auxiliary_panel_needs_its_logical_viewports() {
+    let mut c = config();
+    c.profile.auxiliary = Some([4, 4]);
+    assert!(matches!(
+        Runtime::new(c),
+        Err(RuntimeError::InvalidConfiguration)
+    ));
+}
+
+#[test]
+fn native_scene_embedding_separates_advancement_from_terminal_presentation() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = runtime(facts.clone(), false, true);
+    assert_eq!(rt.present(), Err(RuntimeError::InvalidState));
+    rt.boot_deferred().unwrap();
+    assert!(facts.borrow().evaluated);
+    assert_eq!(facts.borrow().flushes, 0);
+    assert_eq!(rt.advance(), Err(RuntimeError::InvalidState));
+    assert!(matches!(rt.present(), Err(RuntimeError::Presentation(_))));
+    rt.present().unwrap(); // retry the initial output without a guest turn
+    assert_eq!(facts.borrow().frames, 0);
+    rt.advance().unwrap();
+    assert_eq!(facts.borrow().frames, 1);
+    assert_eq!(facts.borrow().flushes, 2);
+    assert_eq!(rt.advance(), Err(RuntimeError::InvalidState));
+    assert_eq!(rt.tick(), Err(RuntimeError::InvalidState));
+    rt.present().unwrap();
+    rt.tick().unwrap();
+    assert_eq!(facts.borrow().frames, 2);
+    assert_eq!(facts.borrow().flushes, 4);
+    rt.advance().unwrap();
+    rt.shutdown().unwrap(); // no GPU work was started by advance
+    assert_eq!(rt.present(), Err(RuntimeError::InvalidState));
+    assert_eq!(facts.borrow().shutdowns, 1);
+}
+
+#[test]
+fn embedded_resize_requires_opt_in_and_checks_budget_before_changing_ui() {
+    use std::cell::Cell;
+    struct Resizable {
+        size: Rc<Cell<[u32; 2]>>,
+        pixels: Vec<u8>,
+    }
+    impl DisplayOutput for Resizable {
+        type Token = ();
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+        fn descriptor(&self) -> DisplayDescriptor {
+            let [w, h] = self.size.get();
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                w,
+                h,
+                PixelFormat::Rgba8888,
+                w as usize * 4,
+                TargetOwnership::CpuVisible,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            let [w, h] = self.size.get();
+            self.pixels.resize(w as usize * h as usize * 4, 0);
+            Ok(Target::CpuVisible(Surface::new(
+                &mut self.pixels,
+                region,
+                w as usize * 4,
+                PixelFormat::Rgba8888,
+            )?))
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            Ok(())
+        }
+    }
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut fixed = runtime(facts.clone(), false, false);
+    fixed.boot().unwrap();
+    assert_eq!(
+        fixed.allow_embedded_viewport_changes(),
+        Err(RuntimeError::InvalidState)
+    );
+    assert_eq!(
+        fixed.resize_embedded([2, 2], [4, 4]),
+        Err(RuntimeError::InvalidState)
+    );
+    let mut rt = Runtime::new(config()).unwrap();
+    rt.allow_embedded_viewport_changes().unwrap();
+    rt.set_guest(Box::new(TestGuest {
+        facts: facts.clone(),
+        ops: None,
+        fail: false,
+    }))
+    .unwrap();
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    let size = Rc::new(Cell::new([4, 4]));
+    software(&mut rt);
+    rt.add_display(
+        Resizable {
+            size: size.clone(),
+            pixels: vec![],
+        },
+        RendererId::SOFTWARE,
+    )
+    .unwrap();
+    rt.boot().unwrap();
+    let ops = rt.op_context();
+    size.set([8, 8]);
+    assert!(matches!(
+        rt.resize_embedded([8, 8], [8, 8]),
+        Err(RuntimeError::Presentation(
+            pocket_runtime::coordinator::PresentError::BudgetExceeded
+        ))
+    ));
+    assert_eq!(ops.core().unwrap().ui.viewport(), (4., 4.));
+    size.set([4, 4]);
+    rt.resize_embedded([2, 2], [4, 4]).unwrap();
+    assert_eq!(ops.core().unwrap().ui.viewport(), (2., 2.));
+    rt.present().unwrap();
+    assert_eq!(
+        rt.advance_with_core_ticks(0),
+        Err(RuntimeError::InvalidArgument)
+    );
+    assert_eq!(
+        rt.advance_with_core_ticks(61),
+        Err(RuntimeError::InvalidArgument)
+    );
+    rt.advance_with_core_ticks(30).unwrap();
+    assert_eq!(facts.borrow().frames, 1);
+    rt.present().unwrap();
+}
+
+#[test]
+fn profile_auxiliary_surface_has_guest_metadata_without_a_package_declaration() {
+    struct AuxDisplay(Display);
+    impl DisplayOutput for AuxDisplay {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            let mut descriptor = self.0.descriptor();
+            descriptor.role = DisplayRole::Auxiliary;
+            descriptor
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            self.0.acquire(region)
+        }
+        fn flush(&mut self, damage: &[Rect]) -> Result<(), DisplayError> {
+            self.0.flush(damage)
+        }
+        fn wait(&mut self, token: ()) -> Result<(), DisplayError> {
+            self.0.wait(token)
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    struct AuxGuest;
+    impl Guest for AuxGuest {
+        fn initialize(
+            &mut self,
+            ops: OpContext,
+            env: &GuestEnvironment<'_>,
+        ) -> Result<(), RuntimeError> {
+            assert_eq!(env.auxiliary_viewport, Some([4, 4]));
+            assert!(env.auxiliary_root > 0);
+            assert!(ops.supports_op(45));
+            assert_eq!(ops.core()?.ui.auxiliary_surface_root(), env.auxiliary_root);
+            Ok(())
+        }
+        fn evaluate(&mut self, _: &[u8]) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn frame(&mut self, _: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn shutdown(&mut self) {}
+    }
+    let mut cfg = config();
+    cfg.profile.auxiliary = Some([4, 4]);
+    cfg.profile.auxiliary_logical = Cow::Borrowed(&[[4, 4]]);
+    cfg.frame_buffer_budget = 128;
+    let package = package_for(cfg.profile_hash);
+    let mut rt = Runtime::new(cfg).unwrap();
+    rt.set_guest(Box::new(AuxGuest)).unwrap();
+    rt.set_package_source(Box::new(MemorySource(package)))
+        .unwrap();
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    software(&mut rt);
+    rt.add_display(
+        Display {
+            pixels: [0; 64],
+            facts: facts.clone(),
+            fail_once: false,
+        },
+        RendererId::SOFTWARE,
+    )
+    .unwrap();
+    rt.add_display(
+        AuxDisplay(Display {
+            pixels: [0; 64],
+            facts: facts.clone(),
+            fail_once: false,
+        }),
+        RendererId::SOFTWARE,
+    )
+    .unwrap();
+    rt.boot_deferred().unwrap();
+    assert_eq!(facts.borrow().flushes, 0);
+    rt.skip_presentation().unwrap();
+    rt.advance().unwrap();
+    rt.present().unwrap();
+    assert_eq!(facts.borrow().flushes, 2);
+}
+
+#[test]
+fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets() {
+    use std::cell::Cell;
+    type RenderedFrame = ((f32, f32), Rect);
+    struct Gpu(Rc<RefCell<Vec<RenderedFrame>>>);
+    impl Renderer for Gpu {
+        type Submission = ();
+        fn descriptor(&self) -> RendererDescriptor {
+            RendererDescriptor::new(
+                &[PixelFormat::Rgba8888],
+                TargetOwnership::DeviceOwned,
+                Synchronization::Immediate,
+                pocket_spec::DRAW_LIST_VERSION,
+                false,
+            )
+            .unwrap()
+        }
+        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<(), RenderError> {
+            let Target::DeviceOwned(target) = &frame.target else {
+                panic!("GPU target required")
+            };
+            self.0
+                .borrow_mut()
+                .push((frame.resources.viewport(), target.region));
+            Ok(())
+        }
+        fn wait(&mut self, _: &()) -> Result<(), RenderError> {
+            Ok(())
+        }
+        fn retire(&mut self, _: ()) {}
+    }
+    struct Output(Rc<Cell<[u32; 2]>>, DisplayRole);
+    impl DisplayOutput for Output {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            let [w, h] = self.0.get();
+            DisplayDescriptor::new(
+                self.1,
+                w,
+                h,
+                PixelFormat::Rgba8888,
+                w as usize * 4,
+                TargetOwnership::DeviceOwned,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            Ok(Target::DeviceOwned(DeviceTarget::new(
+                1,
+                region,
+                PixelFormat::Rgba8888,
+            )))
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = Runtime::new(config()).unwrap();
+    assert_eq!(
+        rt.resize_embedded_gpu([3.5, 2.25], [7, 5]),
+        Err(RuntimeError::InvalidState)
+    );
+    rt.allow_embedded_viewport_changes().unwrap();
+    rt.set_guest(Box::new(TestGuest {
+        facts: facts.clone(),
+        ops: None,
+        fail: false,
+    }))
+    .unwrap();
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    let size = Rc::new(Cell::new([4, 4]));
+    let frames = Rc::new(RefCell::new(Vec::new()));
+    let renderer = rt.add_renderer(Gpu(frames.clone())).unwrap();
+    rt.add_display(Output(size.clone(), DisplayRole::Primary), renderer)
+        .unwrap();
+    rt.boot().unwrap();
+    let ops = rt.op_context();
+    for logical in [
+        [f32::NAN, 1.],
+        [1., f32::INFINITY],
+        [0., 1.],
+        [-1., 1.],
+        [32001., 1.],
+    ] {
+        assert_eq!(
+            rt.resize_embedded_gpu(logical, [7, 5]),
+            Err(RuntimeError::InvalidArgument)
+        );
+    }
+    assert_eq!(
+        rt.resize_embedded_gpu([3.5, 2.25], [0, 5]),
+        Err(RuntimeError::InvalidArgument)
+    );
+    assert!(matches!(
+        rt.resize_embedded_gpu([3.5, 2.25], [7, 5]),
+        Err(RuntimeError::Presentation(_))
+    ));
+    assert_eq!(ops.core().unwrap().ui.viewport(), (4., 4.));
+    size.set([7, 5]);
+    let borrow = ops.core().unwrap();
+    assert_eq!(
+        rt.resize_embedded_gpu([3.5, 2.25], [7, 5]),
+        Err(RuntimeError::Busy)
+    );
+    drop(borrow);
+    rt.resize_embedded_gpu([3.5, 2.25], [7, 5]).unwrap();
+    assert_eq!(ops.core().unwrap().ui.viewport(), (3.5, 2.25));
+    rt.tick().unwrap();
+    assert_eq!(
+        frames.borrow().last(),
+        Some(&((3.5, 2.25), Rect::new(0, 0, 7, 5)))
+    );
+    size.set([1, 1]);
+    rt.resize_embedded_gpu([0.5, 0.5], [1, 1]).unwrap();
+    rt.tick().unwrap();
+    assert_eq!(
+        frames.borrow().last(),
+        Some(&((1.0, 1.0), Rect::new(0, 0, 1, 1)))
+    );
+    let mut cpu = runtime(facts, false, false);
+    cpu.allow_embedded_viewport_changes().unwrap();
+    cpu.boot().unwrap();
+    assert_eq!(
+        cpu.resize_embedded_gpu([3.5, 2.25], [4, 4]),
+        Err(RuntimeError::InvalidArgument)
+    );
+
+    // Auxiliary GPU resources retain their logical viewport at density two.
+    // Its scale takes priority over the primary GPU's optional integer mapping.
+    for (aux_extent, admitted) in [(8, true), (4, true), (5, false)] {
+        let mut cfg = config();
+        cfg.profile.viewport = [8, 8];
+        cfg.profile.density = 2;
+        cfg.profile.auxiliary = Some([aux_extent, aux_extent]);
+        cfg.profile.auxiliary_logical = Cow::Borrowed(&[[4, 4]]);
+        cfg.frame_buffer_budget = 0;
+        let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+        let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "fixture",
+            host_abi: pocket_spec::BINDING_GENERATION,
+            profile_hash: cfg.profile_hash,
+            identity: &identity,
+            plan: br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":2},"features":{}}"#,
+            code: b"test",
+            pak: &[],
+        })
+        .unwrap();
+        let observed = Rc::new(RefCell::new(Vec::new()));
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        let mut runtime = Runtime::new(cfg).unwrap();
+        runtime
+            .set_guest(Box::new(TestGuest {
+                facts: facts.clone(),
+                ops: None,
+                fail: false,
+            }))
+            .unwrap();
+        runtime
+            .set_package_source(Box::new(MemorySource(bytes)))
+            .unwrap();
+        let renderer = runtime.add_renderer(Gpu(observed.clone())).unwrap();
+        runtime
+            .add_display(
+                Output(Rc::new(Cell::new([8, 8])), DisplayRole::Primary),
+                renderer,
+            )
+            .unwrap();
+        runtime
+            .add_display(
+                Output(
+                    Rc::new(Cell::new([aux_extent, aux_extent])),
+                    DisplayRole::Auxiliary,
+                ),
+                renderer,
+            )
+            .unwrap();
+        if admitted {
+            runtime.boot().unwrap();
+            assert_eq!(
+                *observed.borrow(),
+                vec![
+                    ((4., 4.), Rect::new(0, 0, 8, 8)),
+                    ((4., 4.), Rect::new(0, 0, aux_extent, aux_extent)),
+                ]
+            );
+        } else {
+            assert_eq!(runtime.boot(), Err(RuntimeError::ProfileMismatch));
+            assert_eq!(facts.borrow().initializations, 0);
+        }
+    }
+}
+
+#[test]
+fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest() {
+    struct Probe(Rc<RefCell<Vec<[u32; 2]>>>);
+    impl Guest for Probe {
+        fn initialize(
+            &mut self,
+            _: OpContext,
+            env: &GuestEnvironment<'_>,
+        ) -> Result<(), RuntimeError> {
+            self.0.borrow_mut().push(env.viewport);
+            Ok(())
+        }
+        fn evaluate(&mut self, _: &[u8]) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn frame(&mut self, _: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn shutdown(&mut self) {}
+    }
+    struct Output([u32; 2]);
+    impl DisplayOutput for Output {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                self.0[0],
+                self.0[1],
+                PixelFormat::Rgba8888,
+                self.0[0] as usize * 4,
+                TargetOwnership::CpuVisible,
+            )
+        }
+        fn acquire(&mut self, _: Rect) -> Result<Target<'_>, DisplayError> {
+            unreachable!()
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            unreachable!()
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            unreachable!()
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    let cases = [
+        // The panel and the selected declared viewport turn together.
+        (false, false, [4, 2], [8, 4], true),
+        // A fixed CPU output cannot replace the profile panel with an arbitrary size.
+        (false, false, [4, 2], [4, 2], false),
+        // A native embedding explicitly owns the final host-side scaling step.
+        (false, true, [4, 2], [4, 2], true),
+        // A dynamic viewport need not be the profile's default viewport.
+        (true, false, [3, 3], [6, 6], true),
+        (true, false, [5, 3], [10, 6], false),
+        // A dynamic CPU target still matches the density promised by the profile.
+        (true, false, [3, 3], [3, 3], false),
+        (true, true, [5, 3], [5, 3], false),
+    ];
+    for (dynamic, embedding, logical, physical, admitted) in cases {
+        let mut cfg = config();
+        cfg.profile.viewport = [4, 8];
+        cfg.profile.logical_viewports = Cow::Borrowed(&[[2, 4], [4, 2]]);
+        cfg.profile.density = 2;
+        if dynamic {
+            cfg.profile.dynamic_viewport = Some([[2, 2], [4, 4]]);
+        }
+        cfg.frame_buffer_budget = 1024;
+        let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+        let plan = format!(
+            r#"{{"animation":"composited","profile":{{"tickHz":60}},"viewport":{{"logical":[{},{}],"presentation":"native","rasterDensity":2}},"features":{{}}}}"#,
+            logical[0], logical[1]
+        )
+        .into_bytes();
+        let package = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "fixture",
+            host_abi: pocket_spec::BINDING_GENERATION,
+            profile_hash: cfg.profile_hash,
+            identity: &identity,
+            plan: &plan,
+            code: b"test",
+            pak: &[],
+        })
+        .unwrap();
+        let observed = Rc::new(RefCell::new(Vec::new()));
+        let mut runtime = Runtime::new(cfg).unwrap();
+        runtime
+            .set_guest(Box::new(Probe(observed.clone())))
+            .unwrap();
+        runtime
+            .set_package_source(Box::new(MemorySource(package)))
+            .unwrap();
+        software(&mut runtime);
+        runtime
+            .add_display(Output(physical), RendererId::SOFTWARE)
+            .unwrap();
+        if embedding {
+            runtime.allow_embedded_viewport_changes().unwrap();
+        }
+        let result = runtime.boot_deferred();
+        if admitted {
+            result.unwrap();
+            assert_eq!(*observed.borrow(), vec![logical]);
+        } else {
+            assert!(
+                matches!(
+                    result,
+                    Err(RuntimeError::ProfileMismatch)
+                        | Err(RuntimeError::Package(pocket_package::source::LoadError::Admission(
+                            pocket_package::GuestError::NotAdmitted(_)
+                        )))
+                ),
+                "{result:?}"
+            );
+            assert!(observed.borrow().is_empty());
+        }
+    }
+}
+
+#[test]
+fn runtime_configuration_requires_the_generated_binding_generation() {
+    for generation in
+        (0..pocket_spec::BINDING_GENERATION).chain([pocket_spec::BINDING_GENERATION + 1, u32::MAX])
+    {
+        let mut config = config();
+        config.host_abi = generation;
+        assert!(matches!(
+            Runtime::new(config),
+            Err(RuntimeError::BindingGenerationMismatch)
+        ));
+    }
+    assert!(Runtime::new(config()).is_ok());
+}
+
+#[test]
+fn old_packages_are_rejected_before_guest_initialization_and_can_be_replaced() {
+    use pocket_package::source::LoadError;
+    use pocket_package::{GuestError, PackageError};
+    let mut rejected = vec![(
+        include_bytes!("fixtures/bad-v1.pocket").to_vec(),
+        GuestError::Package(PackageError::BadVersion),
+    )];
+    rejected.extend((1..pocket_spec::BINDING_GENERATION).map(|generation| {
+        (
+            package_for_generation(config().profile_hash, generation),
+            GuestError::NotAdmitted(pocket_package::Mismatch {
+                variant: 0,
+                items: pocket_package::admission::item::BINDING_GENERATION,
+                capability: pocket_package::admission::Name::EMPTY,
+            }),
+        )
+    }));
+    for (bytes, expected) in rejected {
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        let mut runtime = runtime(facts.clone(), false, false);
+        runtime
+            .set_package_source(Box::new(MemorySource(bytes)))
+            .unwrap();
+        assert_eq!(
+            runtime.boot(),
+            Err(RuntimeError::Package(LoadError::Admission(expected)))
+        );
+        assert_eq!(facts.borrow().initializations, 0);
+        assert!(!facts.borrow().evaluated);
+        assert_eq!(facts.borrow().flushes, 0);
+        runtime
+            .set_package_source(Box::new(MemorySource(package())))
+            .unwrap();
+        runtime.boot().unwrap();
+        assert_eq!(facts.borrow().initializations, 1);
+        assert!(facts.borrow().evaluated);
+        assert_eq!(facts.borrow().flushes, 1);
+    }
+}
+
+#[test]
+fn current_package_does_not_admit_under_a_legacy_expected_generation() {
+    let config = config();
+    for expected in 1..pocket_spec::BINDING_GENERATION {
+        let host = config.profile.host_facts(expected, config.profile_hash);
+        assert!(matches!(
+            pocket_package::select_guest(&package(), &host, false),
+            Err(pocket_package::GuestError::NotAdmitted(mismatch))
+                if mismatch.items == pocket_package::admission::item::BINDING_GENERATION
+        ));
+    }
+}
+
+#[test]
+fn deferred_frames_release_the_core_and_keep_borrowed_textures_until_retired() {
+    use std::cell::Cell;
+    type Read = (*const u8, Vec<u8>);
+    #[derive(Default)]
+    struct Device {
+        events: Vec<String>,
+        reads: Vec<Read>,
+        texture: Option<i32>,
+        next: u64,
+        ops: Option<OpContext>,
+    }
+    struct Borrowing(Rc<RefCell<Device>>);
+    impl Renderer for Borrowing {
+        type Submission = u64;
+        fn descriptor(&self) -> RendererDescriptor {
+            RendererDescriptor::new(
+                &[PixelFormat::Rgba8888],
+                TargetOwnership::DeviceOwned,
+                Synchronization::Deferred,
+                pocket_spec::DRAW_LIST_VERSION,
+                true,
+            )
+            .unwrap()
+        }
+        fn render(&mut self, _: &mut FrameInput<'_>) -> Result<u64, RenderError> {
+            unreachable!("zero-copy capability selected")
+        }
+        unsafe fn render_zero_copy(
+            &mut self,
+            frame: &mut FrameInput<'_>,
+        ) -> Result<u64, RenderError> {
+            let mut device = self.0.borrow_mut();
+            // Presentation holds the core while it draws and submits.
+            let ops = device.ops.clone().unwrap();
+            assert_eq!(ops.core().err(), Some(RuntimeError::Busy));
+            if let Some(view) = device
+                .texture
+                .and_then(|handle| frame.resources.texture(handle))
+            {
+                // The device keeps reading this pointer after render returns.
+                device
+                    .reads
+                    .push((view.pixels.as_ptr(), view.pixels.to_vec()));
+            }
+            device.next += 1;
+            let id = device.next;
+            device.events.push(format!("render:{id}"));
+            Ok(id)
+        }
+        fn wait(&mut self, submission: &u64) -> Result<(), RenderError> {
+            let mut device = self.0.borrow_mut();
+            for (pointer, bytes) in device.reads.drain(..) {
+                let current = unsafe { std::slice::from_raw_parts(pointer, bytes.len()) };
+                assert_eq!(current, &bytes[..], "borrowed texture changed in flight");
+            }
+            device.events.push(format!("wait:{submission}"));
+            Ok(())
+        }
+        fn retire(&mut self, submission: u64) {
+            self.0
+                .borrow_mut()
+                .events
+                .push(format!("retire:{submission}"));
+        }
+    }
+    struct Output(Rc<RefCell<Device>>, Rc<Cell<bool>>);
+    impl DisplayOutput for Output {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                4,
+                4,
+                PixelFormat::Rgba8888,
+                16,
+                TargetOwnership::DeviceOwned,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            assert!(!self.1.get(), "acquire after the previous frame completed");
+            self.1.set(true);
+            Ok(Target::DeviceOwned(DeviceTarget::new(
+                1,
+                region,
+                PixelFormat::Rgba8888,
+            )))
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            self.0.borrow_mut().events.push("flush".into());
+            Ok(())
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            self.1.set(false);
+            Ok(())
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    let device = Rc::new(RefCell::new(Device::default()));
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = Runtime::new(config()).unwrap();
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    rt.set_guest(Box::new(TestGuest {
+        facts: facts.clone(),
+        ops: None,
+        fail: false,
+    }))
+    .unwrap();
+    let renderer = rt.add_renderer(Borrowing(device.clone())).unwrap();
+    rt.add_display(Output(device.clone(), Rc::default()), renderer)
+        .unwrap();
+    let ops = rt.op_context();
+    device.borrow_mut().ops = Some(ops.clone());
+    rt.boot().unwrap();
+    assert_eq!(device.borrow().events, ["render:1"]);
+    // The in-flight frame holds no core borrow: the next turn dispatches.
+    let texture =
+        ops.core_mut()
+            .unwrap()
+            .ui
+            .upload_texture(&[5; 64], 4, 4, pocket_spec::psm::PSM_8888);
+    device.borrow_mut().texture = Some(texture);
+    rt.tick().unwrap();
+    assert_eq!(facts.borrow().frames, 1);
+    assert_eq!(
+        device.borrow().events,
+        ["render:1", "wait:1", "flush", "retire:1", "render:2"]
+    );
+    // The guest frees the borrowed texture and uploads others during the
+    // next turn. Its storage stays unchanged until frame 2 retires.
+    ops.dispatch(24, &[OpArg::Integer(texture as i64)]).unwrap();
+    {
+        let mut core = ops.core_mut().unwrap();
+        assert!(core.ui.texture(texture).is_none());
+        for _ in 0..4 {
+            core.ui
+                .upload_texture(&[9; 64], 4, 4, pocket_spec::psm::PSM_8888);
+        }
+        assert_eq!(core.ui.retained_texture_bytes(), 64);
+    }
+    device.borrow_mut().texture = None;
+    rt.tick().unwrap();
+    assert_eq!(ops.core().unwrap().ui.retained_texture_bytes(), 0);
+    assert_eq!(
+        &device.borrow().events[5..],
+        ["wait:2", "flush", "retire:2", "render:3"]
+    );
+    // Explicit completion and shutdown finish the frame in flight.
+    rt.complete_presentation().unwrap();
+    assert_eq!(
+        &device.borrow().events[9..],
+        ["wait:3", "flush", "retire:3"]
+    );
+    rt.complete_presentation().unwrap();
+    rt.present().unwrap();
+    rt.shutdown().unwrap();
+    assert_eq!(
+        &device.borrow().events[12..],
+        ["render:4", "wait:4", "flush", "retire:4"]
+    );
+    assert_eq!(facts.borrow().shutdowns, 1);
+}
+
+#[test]
+fn boot_runs_the_package_rate_at_the_fastest_dividing_cadence() {
+    struct Rates(Rc<RefCell<Vec<(u32, u32)>>>);
+    impl Guest for Rates {
+        fn initialize(&mut self, _: OpContext, env: &GuestEnvironment<'_>) -> Result<(), RuntimeError> {
+            self.0.borrow_mut().push((env.tick_hz, env.sim_hz));
+            Ok(())
+        }
+        fn evaluate(&mut self, _: &[u8]) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn frame(&mut self, _: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+    // (package rate, host cadences, admitted timing)
+    let cases: [(u32, &'static [u32], Option<(u32, u32)>); 5] = [
+        (60, &[60, 30], Some((60, 60))),
+        (30, &[60, 30], Some((30, 30))),
+        (60, &[30], Some((60, 30))),
+        (60, &[20, 15], Some((60, 20))),
+        (30, &[25], None),
+    ];
+    for (rate, cadences, expected) in cases {
+        let mut cfg = config();
+        cfg.profile.cadences = Cow::Borrowed(cadences);
+        let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+        let plan = format!(
+            r#"{{"animation":"composited","profile":{{"tickHz":{rate}}},"viewport":{{"logical":[4,4],"presentation":"native","rasterDensity":1}},"features":{{}}}}"#
+        )
+        .into_bytes();
+        let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "compiled-elsewhere",
+            host_abi: pocket_spec::BINDING_GENERATION,
+            profile_hash: [0x99; 32],
+            identity: &identity,
+            plan: &plan,
+            code: b"test",
+            pak: &[],
+        })
+        .unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let mut runtime = Runtime::new(cfg).unwrap();
+        runtime.set_guest(Box::new(Rates(seen.clone()))).unwrap();
+        runtime.set_package_source(Box::new(MemorySource(bytes))).unwrap();
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        software(&mut runtime);
+        runtime
+            .add_display(Display { pixels: [0; 64], facts, fail_once: false }, RendererId::SOFTWARE)
+            .unwrap();
+        match expected {
+            Some((tick_hz, cadence_hz)) => {
+                runtime.boot().unwrap();
+                assert_eq!(runtime.timing(), Some(Timing { tick_hz, cadence_hz }));
+                assert_eq!(*seen.borrow(), vec![(tick_hz, cadence_hz)]);
+                assert_eq!(runtime.op_context().core().unwrap().tick_rate(), tick_hz);
+                runtime.tick().unwrap();
+            }
+            None => {
+                assert!(matches!(
+                    runtime.boot(),
+                    Err(RuntimeError::Package(pocket_package::source::LoadError::Admission(
+                        pocket_package::GuestError::NotAdmitted(mismatch)
+                    ))) if mismatch.items == pocket_package::admission::item::RATE
+                ));
+                assert_eq!(runtime.timing(), None);
+            }
+        }
+    }
+}

@@ -4,8 +4,8 @@ PocketJS is a portable application runtime with **TypeScript application
 sources**. You write **Solid**,
 **Vue Vapor**, or **Octane** components; the build compiles class strings and
 font glyphs into binary tables, and a compact `no_std` Rust core renders
-flexbox layout, sub-pixel text, and native animation from them. One application
-manifest resolves into one target-specific guest artifact — a PSP EBOOT, a Vita VPK,
+flexbox layout, sub-pixel text, and native animation from them. One app
+contract resolves into one target-specific guest artifact — a PSP EBOOT, a Vita VPK,
 a native window, a browser bundle — and each of them drives the same logical UI
 through the same HostOps op set.
 
@@ -36,13 +36,17 @@ by the browser host and headless Bun.
 
 Two places in the repo decide what you can build for:
 
-- `hosts/` holds one directory per host implementation, from consoles and
-  e-readers through phones, ESP-IDF firmware, and the browser.
-- `contracts/spec/platforms.ts` registers the stock targets that
-  `pocket build --target <id>` accepts, each with its host ABI, logical
-  viewport, raster density, presentations, and capability set. A host outside
-  that registry builds through its own host profile or a resolved build plan —
-  see [Platform contracts](/docs/platform-contracts/).
+- `programs/` contains phone, music-player, reader, console and reference
+  program composition. `platforms/` provides OS and SDK drivers; `devices/`
+  provides GPU mechanisms and renderers. These programs and their host
+  contracts share the main repository.
+- `hosts/` holds the built-in host contracts accepted by
+  `pocket compile --target <id>`, one `hosts/<id>/pocket.host.json` per id,
+  with logical viewports, raster density, presentations and capabilities. A
+  program outside the repository names its own `pocket.host.json` from its
+  host config, `pocket.host.config.ts`. The compiler accepts that host
+  contract without a registry entry. See
+  [Platform contracts](/docs/platform-contracts/).
 
 Layout runs in one place — the Rust core — so a screen lays out the same
 everywhere. The browser and Bun hosts share one rasterizer, which is what makes
@@ -96,7 +100,8 @@ PocketJS does not include:
 - `rounded-full` on runtime-sized nodes — it requires build-time-known `w-N h-N`
   in the same class literal
 - a runtime-resizable logical viewport outside the window and widget forms;
-  console profiles bake one fixed logical size (PSP and Vita both 480×272)
+  console host contracts declare one fixed logical size (PSP and Vita both
+  480×272)
 - render-to-texture opacity groups — opacity multiplies vertex alpha down the
   subtree, which is wrong where siblings overlap
 - kerning

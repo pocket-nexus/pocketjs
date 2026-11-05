@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <sched.h>
 #include "3ds.h"
-#include "../../../hosts/3ds/src/soc.h"
+#include "../../../platforms/3ds/soc.h"
 
 static _Atomic int initializations, exits, allocations;
 static _Atomic bool entered, release_init;

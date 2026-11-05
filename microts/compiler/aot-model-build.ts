@@ -77,9 +77,9 @@ export function transformCompiledModel(source: string, filename: string, buildEn
   const extension = config.framework === "vue-vapor" ? ".vue" : ".tsx";
   const conventional = ["app", "App", basename(config.directory!)].map(name => resolve(config.directory!, name + extension)).find(existsSync);
   const configured = config.entry && [resolve(config.directory!, config.entry), resolve(import.meta.dir, "../..", config.entry)].find(existsSync);
-  // A resolved presentation selects the mount graph. Calls without a build
-  // entry retain the conventional root used by standalone transform harnesses.
-  const selected = buildEntry ? resolve(buildEntry) : conventional ?? configured;
+  // An AOT presentation selects the mount graph. An ordinary guest can import
+  // a compiled component without admitting its own host callbacks as AOT.
+  const selected = buildEntry && modelConfiguration(buildEntry).aot ? resolve(buildEntry) : conventional ?? configured;
   const entry = selected && realpathSync(selected);
   if (!entry) throw new Error(`Model AOT: cannot find a view entry under ${config.directory}`);
   const views = extension === ".vue"
@@ -102,6 +102,5 @@ export function transformCompiledModel(source: string, filename: string, buildEn
   const contexts = ast.statements.flatMap(statement => ts.isVariableStatement(statement) ? statement.declarationList.declarations.flatMap(declaration => declaration.initializer && ts.isCallExpression(declaration.initializer) && ts.isIdentifier(declaration.initializer.expression) && contextImports.has(declaration.initializer.expression.text)
     ? [`${statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ? "export " : ""}const ${declaration.getText(ast)};`] : []) : []);
   if (contexts.length) output = `import {${[...contextImports].map(name => `createContext as ${name}`).join(",")}} from "solid-js";\n` + contexts.join("\n") + "\n" + output;
-  if (program.modules.some(m => m.functions.some(f => JSON.stringify(f.body).includes('@pocketjs/framework/net/model')))) output = 'import "@pocketjs/framework/net/model";\n' + output;
   return output;
 }

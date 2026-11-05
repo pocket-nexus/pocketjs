@@ -34,8 +34,8 @@ frontend check with native compilation as described in the
 [support reference](/docs/typescript-support/#checking-an-application).
 A `.d.ts` contract uses the Rust model mode.
 There is no fallback to a guest interpreter or a handwritten Rust method when
-compiled admission fails. The manifest selects one native model implementation
-for the application.
+compiled admission fails. `app.model` in the app contract selects one native
+model implementation for the application.
 
 ```sh
 bun microts/compiler/cli.ts check solid-aot-lab --strict

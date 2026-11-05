@@ -1677,7 +1677,7 @@ mod tests {
     }
 
     #[test]
-    fn same_seed_and_script_have_the_same_hash_and_events() {
+    fn same_seed_and_script_have_the_same_state_and_events() {
         let run = || {
             let mut world = World::with_seed(73);
             let id = world.spawn(reactive_entity(
@@ -1699,9 +1699,10 @@ mod tests {
                         energy: 1_400.0,
                     });
                 }
-                reports.push(world.step(&environment));
+                let report = world.step(&environment);
+                reports.push((report.tick, report.events, report.transport));
             }
-            (world.state_hash(), reports)
+            (world.snapshot(), reports)
         };
         assert_eq!(run(), run());
     }
@@ -2328,13 +2329,13 @@ mod tests {
             world.step(&environment);
         }
         let snapshot = world.snapshot();
-        let expected = world.state_hash();
+        let expected = world.snapshot();
         for _ in 0..10 {
             world.step(&environment);
         }
-        assert_ne!(world.state_hash(), expected);
+        assert_ne!(world.snapshot(), expected);
         world.restore(snapshot);
-        assert_eq!(world.state_hash(), expected);
+        assert_eq!(world.snapshot(), expected);
     }
 
     #[test]
@@ -2399,44 +2400,6 @@ mod tests {
                 |event| matches!(event, WorldEvent::Extinguished { entity } if *entity == id)
             ));
         }
-    }
-
-    #[test]
-    fn state_hash_includes_all_configuration_and_option_discriminants() {
-        let mut baseline = World::with_seed(4);
-        baseline.spawn(EntityBundle::default());
-
-        let mut changed_config = World::with_seed(4);
-        changed_config.spawn(EntityBundle::default());
-        changed_config.config_mut().ambient_exchange += 0.01;
-        assert_ne!(baseline.state_hash(), changed_config.state_hash());
-
-        macro_rules! assert_config_field_hashed {
-            ($field:ident) => {{
-                let mut changed = World::with_seed(4);
-                changed.spawn(EntityBundle::default());
-                changed.config_mut().$field += 0.125;
-                assert_ne!(
-                    baseline.state_hash(),
-                    changed.state_hash(),
-                    "WorldConfig::{} must affect state_hash",
-                    stringify!($field)
-                );
-            }};
-        }
-        assert_config_field_hashed!(water_inlet_temperature_c);
-        assert_config_field_hashed!(water_specific_heat);
-        assert_config_field_hashed!(water_vaporization_heat);
-        assert_config_field_hashed!(water_boiling_temperature_c);
-        assert_config_field_hashed!(combustion_local_heat_fraction);
-        assert_config_field_hashed!(ignition_temperature_margin_c);
-        assert_config_field_hashed!(extinction_temperature_margin_c);
-        assert_config_field_hashed!(ignition_max_moisture);
-        assert_config_field_hashed!(extinction_min_moisture);
-
-        let mut empty_name = World::with_seed(4);
-        empty_name.spawn(EntityBundle::default().named(""));
-        assert_ne!(baseline.state_hash(), empty_name.state_hash());
     }
 
     #[test]

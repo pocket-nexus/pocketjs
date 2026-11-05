@@ -4,7 +4,7 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPOSITORY = fileURLToPath(new URL("..", import.meta.url));
-export const IPODTOUCH_ICON_SOURCE = resolve(REPOSITORY, "hosts/ipodtouch6/Icon.svg");
+export const IPODTOUCH_ICON_SOURCE = resolve(REPOSITORY, "programs/ipodtouch6/Icon.svg");
 
 export const IPODTOUCH_ICON_OUTPUTS = {
   "Icon.png": 57,

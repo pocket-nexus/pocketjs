@@ -1,7 +1,7 @@
 {
   "name": "@pocketjs/cli",
-  "version": "0.12.0",
-  "description": "The PocketJS CLI — manifest-first handheld builds, app scaffolding, and pinned native toolchain setup.",
+  "version": "0.16.0",
+  "description": "The PocketJS CLI — manifest-first handheld and ESP-IDF builds, app scaffolding, and installs of the target toolchains the framework pins. Runs on Bun.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -9,27 +9,28 @@
   },
   "files": [
     "bin.mjs",
-    "psp-toolchain.json",
-    "symbian-toolchain.json",
+    "create.mjs",
+    "framework.mjs",
+    "select.mjs",
     "README.md"
   ],
   "engines": {
-    "node": ">=18"
+    "bun": ">=1.2"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pocket-stack/pocketjs.git",
-    "directory": "cli"
+    "url": "git+https://github.com/pocket-nexus/pocketjs.git",
+    "directory": "tools/cli"
   },
-  "homepage": "https://pocketjs.dev",
+  "homepage": "https://pocketjs.pocket.nexus",
   "keywords": [
     "pocketjs",
     "psp",
     "vita",
-    "symbian",
+    "esp-idf",
+    "bun",
     "cli",
-    "toolchain",
-    "doctor"
+    "toolchain"
   ],
   "publishConfig": {
     "access": "public"

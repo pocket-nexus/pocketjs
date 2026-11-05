@@ -47,10 +47,10 @@ SMDH pass is enabled.
 ## Baselines and format references
 
 - `assets/current-ios-v4.png` is the 118×120 Retina PNG produced by
-  `tools/iphone-classic-icon.ts` at commit `12bcb1b2` (Draft PR #354), copied
+  `tools/ipodtouch4-icon.ts` at commit `12bcb1b2` (Draft PR #354), copied
   from that checkout's `dist/ipodtouch4/PocketJSiPodTouch4.app/`. It is the
   user-reported v4 artwork, not a claim about the latest remote main.
-- `assets/current-3ds.png` is the 48×48 `hosts/3ds/icon.png` from main at
+- `assets/current-3ds.png` is the 48×48 `products/3ds/icon.png` from main at
   `64fc0c07`. The baseline small SMDH icon uses smdhtool's automatic reduction;
   proposals supply a separately drawn small icon.
 - [Apple QA1686](https://developer.apple.com/library/archive/qa/qa1686/_index.html)

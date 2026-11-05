@@ -82,7 +82,7 @@ a bottom-screen touch panel does not imply that the primary display is touchable
 Targets that provide `input.cursor` can replace the d-pad focus walk with a
 **pointer**: the analog nub steers a cursor sprite, hovering applies the
 `focus:` variant, and a press button clicks whatever is under the arrow. It is
-opt-in — declare the capability in `pocket.json` (`requires` or `enhances`)
+opt-in — declare the capability in `pocket.app.json` (`requires` or `enhances`)
 and enable it at runtime:
 
 ```ts
@@ -265,6 +265,35 @@ the surrounding tree. It searches, in order:
 This keeps a sensible node focused as content churns, without any bookkeeping in your
 components.
 
+## Motion state
+
+Apps read device attitude as **fused motion state**, not accelerometer or
+gyroscope samples. The host's native driver fuses its sensors and delivers
+its newest `MotionState` as the eighth `frame` argument, or queues it between
+frames with `feedMotionState(state)` from `@pocketjs/framework/input`.
+`contracts/spec/motion.ts` defines the values, units, quality grades and
+reference frames; the [MicroTS reference](/docs/microts-reference/#motion-state)
+lists them.
+
+`MotionHandler` and `onMotion` fire once per frame whose state carries the
+subscribed value at `minQuality` or better, in document order with the other
+input handlers:
+
+```tsx
+import { MotionHandler } from "@pocketjs/framework/components";
+import { onMotion } from "@pocketjs/framework/lifecycle";
+
+<MotionHandler value="screenRotation" onUpdate={(degrees) => setAngle(degrees)} />;
+
+onMotion("rotationRate", (x, y, z) => spin(x, y, z), { minQuality: "high" });
+```
+
+The driver also publishes the derived conveniences (`screenRotation`,
+`tilt`, `angles`) as members of the state; the runtime does not compute them.
+A fed state is validated, its numbers are rounded to f32 and zeros lose
+their sign, so a DevTools tape, which is JSON, replays exactly what the
+handlers received.
+
 ## Per-frame hooks
 
 `onFrame` registers a callback that runs once per frame with the current button
@@ -329,6 +358,38 @@ import { BTN } from "@pocketjs/framework/input";
 
 <ActionHandler button={BTN.START} onPress={() => togglePause()} />;
 ```
+
+## Keyboard text
+
+A target whose host contract declares `input.text` has a keyboard that types: the
+M5Stack Tab5 with its keyboard on Ext.Port1, a desktop widget. Each frame
+carries the keyboard's events, and `onTextEvent` receives them before the
+frame's button handlers run.
+
+```ts
+import { hasTextInput, onTextEvent } from "@pocketjs/framework/input";
+
+const release = onTextEvent((event) => {
+  if (event.kind === "commit") insert(event.text); // typed characters, UTF-8
+  else if (event.kind === "key" && event.pressed && event.key === "Enter") submit();
+});
+```
+
+An event is one of four kinds. `commit` carries typed text. `key` names an
+editing key as `KeyboardEvent.key` does (`Enter`, `Backspace`, `Delete`,
+`Escape`, `Tab`, `ArrowLeft`, `ArrowRight`, `ArrowUp`, `ArrowDown`, `Home`,
+`End`), with `pressed` false on its release and `repeat` true while held; a
+held modifier comes first, as in `Control+z` or `Alt+ArrowLeft`. `composition`
+and `compositionEnd` carry an IME's text in progress with its selection.
+**Handlers run newest first, and a handler that returns `true` consumes the
+event** for the handlers registered before it.
+
+**The system keyboard session takes the keyboard while it is open**: a
+`createOsk` session inserts commits at its caret, edits with Backspace,
+Delete, Home, End and the arrow keys, commits on Enter and cancels on
+Escape, so a text field typed on by the keyboard fills as it does on screen.
+A key the session does not edit with passes on to the handlers below it.
+`hasTextInput` is the build-time fact, folded per target like `hasFeature`.
 
 ## Blocking background input
 

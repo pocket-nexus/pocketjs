@@ -1,6 +1,6 @@
 mod generated;
 use generated::*;
-use microts::{Host, Input, NodeId, Ui};
+use microts::{Host, Input, MotionPair, MotionScalar, MotionState, MotionVector, NodeId, Ui};
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 
@@ -14,6 +14,10 @@ fn log(value: impl Into<String>) {
 }
 fn take_trace() -> Vec<String> {
     TRACE.with(|trace| std::mem::take(&mut *trace.borrow_mut()))
+}
+/// JavaScript's Number-to-string for the f32 values this fixture produces.
+fn js(value: f32) -> String {
+    if value == 0.0 { "0".into() } else { f64::from(value).to_string() }
 }
 
 struct RowModel {
@@ -162,6 +166,12 @@ impl AppViewModel for Model {
         log(format!("axis:{delta}"));
         self.angle += delta;
     }
+    fn upright(&mut self, degrees: f32, quality: u8, timestamp: u64) {
+        log(format!("upright:{}:{quality}:{timestamp}", js(degrees)));
+    }
+    fn spin(&mut self, x: f32, y: f32, z: f32) {
+        log(format!("spin:{}:{}:{}", js(x), js(y), js(z)));
+    }
 }
 
 struct NativeHost(Ui);
@@ -178,6 +188,27 @@ impl Host for NativeHost {
 }
 impl<const BUTTON: u32> microts::HasButton<BUTTON> for NativeHost {}
 impl microts::HasRelativeAxis<0> for NativeHost {}
+impl microts::HasMotion<1> for NativeHost {}
+impl microts::HasMotion<2> for NativeHost {}
+
+/// A tape frame's motion estimate, as the host's driver would publish it.
+fn motion(value: &Value) -> Option<MotionState> {
+    let state = value.as_object()?;
+    let quality = |name: &str| state.get(name).map_or(0, |estimate| estimate["quality"].as_u64().unwrap() as u8);
+    let components = |name: &str, index: usize| state.get(name).map_or(0.0, |estimate| estimate["value"][index].as_f64().unwrap() as f32);
+    let vector = |name: &str| MotionVector { value: [0, 1, 2].map(|index| components(name, index)), quality: quality(name) };
+    Some(MotionState {
+        timestamp: state["timestamp"].as_u64().unwrap(),
+        gravity_direction: vector("gravityDirection"),
+        rotation_rate: vector("rotationRate"),
+        screen_rotation: MotionScalar {
+            value: state.get("screenRotation").map_or(0.0, |estimate| estimate["value"].as_f64().unwrap() as f32),
+            quality: quality("screenRotation"),
+        },
+        tilt: MotionPair { value: [0, 1].map(|index| components("tilt", index)), quality: quality("tilt") },
+        ..MotionState::default()
+    })
+}
 
 fn tree(ui: &Ui, id: i32) -> Option<Value> {
     let style = ui.core().resolved_style(id)?;
@@ -220,8 +251,11 @@ fn main() {
     let mut app = AppApp::new(NativeHost(ui), AppProps {}, Model::new(&fixture));
     let mut frames = vec![];
     for frame in tape.as_array().unwrap() {
-        let input = Input::buttons(frame["buttons"].as_u64().unwrap() as u32)
+        let mut input = Input::buttons(frame["buttons"].as_u64().unwrap() as u32)
             .with_axis(0, frame["axis"].as_i64().unwrap_or(0) as i32);
+        if let Some(state) = motion(&frame["motion"]) {
+            input = input.with_motion(state);
+        }
         app.frame(&input);
         frames.push(snapshot(app.ui()));
     }

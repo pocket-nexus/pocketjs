@@ -47,7 +47,7 @@ artifacts: `$JOB_TMP/map-*.json`).
   `window`/`document`/`setTimeout`/`WeakRef`; needs Proxy, WeakMap, Promise.
   Prior art: Lightning TV, `@opentui/solid`. Preact+DOM-shim is the fallback.
 - **QuickJS reality [R]**: the linked engine (exact-revision
-  `pocket-stack/quickjs-rs` Cargo dependency) is
+  `pocket-nexus/quickjs-rs` Cargo dependency) is
   **Bellard 2025 (VERSION 2026-06-04), ~ES2023** — logical assignment, WeakRef
   and **FinalizationRegistry are available**. Still absent: `queueMicrotask`
   (polyfill via `Promise.resolve().then`), `setTimeout`, `MessageChannel`,
@@ -60,17 +60,26 @@ artifacts: `$JOB_TMP/map-*.json`).
   PSP bin wraps it with QuickJS + sceGu; `wasm32-unknown-unknown` build wraps
   it with a deterministic software rasterizer used by BOTH the browser dev
   host and headless Bun goldens. One layout engine everywhere.
-- **Damage is backend-independent**: `engine/core/src/damage.rs` compares
+- **Damage is backend-independent**: `engine/render/src/damage.rs` compares
   retained DrawLists and returns logical damage regions for one persistent
   framebuffer. RGBA8, PPA-memory ARGB8 and RGB565 software paths clear each
-  region and replay the complete DrawList under a root clip; framebuffer
-  format/scale signatures and `Ui::raster_revision()` prevent stale reuse.
-  Region limits and full-redraw thresholds remain backend policy.
-- **ESP32-P4 stays 16-bit**: `engine/backends/rgb565/` consumes the same
+  region and replay the complete DrawList under a root clip; the presentation
+  coordinator hands each acquired CPU region the physical damage rectangles
+  that intersect it and `pocket-raster` applies the same rule there.
+  Framebuffer format/scale signatures and `Ui::raster_revision()` prevent
+  stale reuse. Region limits and full-redraw thresholds remain backend policy.
+- **ESP32-P4 stays 16-bit**: `devices/esp-idf/render-ppa/` consumes the same
   DrawList into an opaque RGB565 target. It maps flat fills, A8 coverage
   blending, and compatible PSM 5650 texture transforms to the PPA, then
-  preserves ordering with the core RGB565 rasterizer for unsupported ops.
+  preserves ordering with `engine/raster` for unsupported ops.
   It never allocates a full-frame RGB888/ARGB8888 intermediate.
+- **SiFli renders into device-owned RGB565 framebuffers**:
+  `devices/sifli/render-epic/` plans each damage rectangle against the
+  executor's capabilities and emits fills, A8 blends, gradients, blits,
+  four-point quads and tile copies; `platforms/sifli/epic/` runs them on EPIC
+  through `HAL_EPIC_*` and, on SF32LB58, on VG Lite. The CPU never writes a
+  framebuffer: `engine/raster` draws fallbacks into SRAM tiles that EPIC
+  copies out and back. See [platforms/sifli](../platforms/sifli/README.md).
 - **Native animation**: tweens/springs tick in Rust per vblank with **fixed
   dt = 1/60 s** (frame content is a pure function of frame index — this is
   what makes byte-exact goldens possible **[R]**). JS only declares motion.
@@ -94,11 +103,11 @@ PocketJS/
     spec.ts            SINGLE SOURCE OF TRUTH: op codes, prop ids, enums,
                        style-table format, atlas format, DrawList format,
                        pak container constants (magic/header/entry/align/fnv1a) [R]
-    gen-rust.ts        codegen → engine/core/src/spec.rs (committed)
+    gen-rust.ts        codegen → engine/spec/src/lib.rs (committed)
   engine/core/                Rust lib `pocketjs-core` — #![no_std] + alloc
     framework/src/lib.rs         pub struct Ui: apply-ops, tick(1/60), draw() → &DrawList
-    framework/src/spec.rs        GENERATED — tests/contract.ts re-runs gen-rust.ts and
-                       byte-compares this file (airtight drift guard) [R]
+    framework/src/spec.rs        GENERATED — tests/generated-contracts.test.ts re-runs
+                       gen-rust.ts and byte-compares this file [R]
     framework/src/tree.rs        node arena: Vec<Node> + free list + GENERATION COUNTER
                        (ids are (gen<<20)|slot; stale ids are no-ops) [R]
     framework/src/style.rs       style table parse/resolve; base/focus/active variants
@@ -113,10 +122,11 @@ PocketJS/
                        negative/oversized coords ever reach a backend [R]
     framework/src/raster.rs      shared deterministic software rasterizer used by WASM
                        goldens and Vita guest-side capture
-  hosts/psp/              Rust bin `pocketjs-psp` — the EBOOT (standalone dir, lone bin)
-    Cargo.toml         exact-revision pocket-stack psp + libquickjs-sys deps;
+  programs/psp/              Rust bin `pocketjs-psp` — the EBOOT (standalone dir, lone bin)
+    Cargo.toml         exact-revision pocket-nexus psp + libquickjs-sys deps;
                        pocketjs-core (local path)
-    build.rs           embeds $POCKETJS_APP_OUTPUT js + app.pak when the stock backend owns packaging;
+    build.rs           embeds the compiled $POCKETJS_EMBED_PACKAGE when the stock backend owns packaging,
+                       and $POCKETJS_PROFILE_RS as OUT_DIR/pocket_profile.rs;
                        [features] capture = [] for the E2E frame-dump
     targets/mipsel-sony-psp.json  copied from runtime/ (self-contained)
     framework/src/main.rs        boot (2MB USER|VFPU worker), vblank loop, job pump
@@ -132,12 +142,12 @@ PocketJS/
                        sprite atlases are fed to core DIRECTLY from include_bytes!
                        before JS eval (zero QuickJS-heap transit); image + sprite
                        handles are exposed as ui.__textures / ui.__sprites [R]
-  engine/wasm/                Rust cdylib `pocketjs-wasm` — core + rasterizer, no wasm-bindgen
+  programs/web/wasm/                Rust cdylib `pocketjs-wasm` — core + rasterizer, no wasm-bindgen
     framework/src/lib.rs         extern "C" op mirror + byte-exact render() at 480×272;
                        renderScaled(1..4) rasterizes directly at physical density;
                        opt-in incremental exports retain and repaint damage regions
-  engine/core/src/damage.rs   DrawList diff, logical damage plans and per-target snapshots
-  engine/core/src/raster.rs   shared deterministic scanline rasterizer used by wasm and
+  engine/render/src/damage.rs    DrawList diff, logical damage plans and per-target snapshots
+  engine/raster/src/lib.rs   shared deterministic scanline rasterizer used by wasm and
                        native capture (full and region-clipped RGBA/ARGB/RGB565)
   framework/src/                 TS/JS runtime shared by all hosts
     renderer.ts        Solid universal createRenderer; JS mirror tree; setProperty
@@ -176,7 +186,7 @@ PocketJS/
     bake-font.ts       atlas baker (charset from AST scan + ASCII always + extraChars
                        option [R]; gid 0 = tofu box)
     pak.ts           writer (standalone; constants imported from contracts/spec/spec.ts)
-  hosts/web/
+  programs/web/dev/
     index.html         480×272 canvas playground, virtual buttons, demo picker
     engine.js          loads wasm, HostOps, rAF loop (fixed-step), keyboard map
     serve.ts           static Bun.serve dev server (no livereload; rebuild + reload manually)
@@ -198,6 +208,22 @@ PocketJS/
 
 ## Build pipeline (two-pass — fixes the scan cycle [R])
 
+**`pocket.app.json` owns the application's framework and animation theme.**
+`app.framework` chooses the frontend; `app.theme` supplies keyframes and animation
+shorthands. `pocket compile --target` selects a built-in host id or a `pocket.host.json`
+file. `POCKET_TARGET` provides the option's default. With neither,
+compilation searches upward from the app contract for `pocket.host.config.ts`.
+
+**`pocket.host.config.ts` selects the program's host contract and native build.**
+`defineHostConfig()` from `@pocketjs/framework/host-config` accepts a
+`host` path or a `hosts` list of `pocket.host.json` paths, plus an
+optional `build` recipe. A host config with multiple host contracts requires a
+host id. The host contract supplies capabilities, display geometry and cadences;
+it does not select an application framework. `pocket build` executes the declared native build recipe.
+`pocket compile` produces a `.pocket` application, while `--aot --out <directory>`
+produces generated Rust, baked assets and a dependency manifest without invoking
+Cargo. Both compiler paths bake `app.theme` at the application's `app.tickHz`.
+
 `tools/build.ts <app>`:
 
 1. **Pass 1 — transform & collect.** For every `.tsx`/`.ts` source reachable
@@ -205,8 +231,9 @@ PocketJS/
    plugin collects per-file: (a) candidate class strings, (b) text codepoints
    — both from AST literals *and template quasis*, never regex over quotes.
 2. **Compile styles & fonts.** `tailwind.ts` validates tokens (all-or-nothing
-   per literal), assigns styleIds, writes `styles.bin`, and keeps an ignored
-   `styles.generated.ts` mirror for inspection (excluded from future scans).
+   per literal), assigns styleIds, writes `styles.bin`, and writes the style
+   module to `<outdir>/<output>.styles.ts` for inspection; pass 2 serves the
+   module from memory for `framework/src/styles.generated.ts`.
    `bake-font.ts` bakes atlas slots for the collected charset. `pak.ts` packs
    styles.bin + atlases + images → `<app>.pak`.
 3. **Pass 2 — bundle.** `Bun.build` with an onLoad plugin that serves the
@@ -215,13 +242,21 @@ PocketJS/
    `<app>.js` next to the pak. Parallel builds therefore cannot import one
    another's transient style table.
 
-The PSP build (`tools/psp.ts`) then runs `rustup run nightly-2026-05-28
-cargo psp` with the exact env block from `runtime/build.ts` (LLVM PATH,
-TARGET_CFLAGS, AR_mipsel_sony_psp=llvm-ar, RUST_PSP_TARGET, RUST_PSP_ABORT_ONLY,
-RUSTFLAGS `-A linker-messages …`), `POCKETJS_APP_OUTPUT=<app>` and
-`POCKETJS_EMBED_APP=1` consumed by the stock runtime `build.rs`.
-`POCKETJS_OUTPUT_DIR` carries the CLI artifact directory without putting a
-machine-local path into the checksummed build plan.
+The PSP build (`tools/psp.ts`) uses the installed `nightly-2026-05-28`,
+`cargo-psp`, SDK and pinned QuickJS archive. **The generated QuickJS guest
+compiles with LLVM Clang's MIPS backend** (`POCKETJS_LLVM_BIN` selects its
+binary directory). Its FCSR bridge saves the native caller's status, masks
+exceptions during each Rust operation, and restores the saved register.
+The link adapter places SDK C libraries after the Rust archives that own
+memory and math exports. The SDK archives remain unchanged.
+
+`POCKETJS_APP_OUTPUT` and `POCKETJS_EMBED_APP` select the embedded guest;
+`POCKETJS_EMBED_PACKAGE` names the compiled `.pocket` the EBOOT embeds, and
+`POCKETJS_PROFILE_RS` the exported `pocket_profile.rs` that supplies the host
+contract facts to its Runtime. `tools/psp.ts <demo>` compiles the demo with `pocket compile`
+first. Embedded packages, catalog packages and `app.pocket` enter Runtime as
+their original bytes; **the EBOOT encodes no package at boot**. **Runtime
+performs package admission** before guest initialization.
 
 ## The native contract (`ui.*`)
 
@@ -246,7 +281,7 @@ children[], …}`) so reconciler *reads* never cross the FFI. Handles are `i32`
 | animate | `(id, propId, to:f64, durMs, easing, delayMs) → animId` | from = current |
 | cancelAnim | `(animId)` | |
 | setFocus | `(idOr0)` | applies `focus:` variant natively |
-| loadStyles / loadFontAtlas | `(buf …)` | **web/test hosts only** — on PSP, hosts/psp/src/pak.rs feeds core directly from include_bytes! **[R]** |
+| loadStyles / loadFontAtlas | `(buf …)` | **web/test hosts only** — on PSP, Runtime admits the package and loads its assets into the shared core |
 | measureText | `(str, fontSlot) → width` | JS convenience; layout measures natively |
 | wrapText | `(str, fontSlot, maxW) → u32[]` | soft-wrap break columns for one line (ascending UTF-16 indices, empty = fits): greedy word wrap over the slot's measure provider; native-text hosts install the host text system's wrapper (gpui LineWrapper) and its positions win. Optional — apps fall back to the same greedy rules over measureText |
 | loadTileTexture | `(pakKey, tileIndex) → handle` | decode ONE tile of a TILESET pak entry (spec.ts) into a CLUT8 texture, host-side — on PSP straight from `.rodata`, zero JS-heap transit. Hosts without it: the runtime falls back to `__pak` + uploadTexture (framework/src/tiles.ts) |
@@ -273,12 +308,21 @@ in the runtime (`analogX()/analogY()` from `PocketJS/lifecycle`), never in
 hosts. The DevTools flight recorder tapes the analog track alongside the
 masks (omitted while centered — old tape files stay byte-identical).
 
-**Frame order (PSP).** `sceCtrlRead → sceGuStart → JS frame(buttons) → drain
-jobs (while JS_ExecutePendingJob(rt,&mut ctx)>0 — declare the symbol in a local
-extern block, the curated libquickjs-sys omits it [R]) → renderer end-of-frame
-sweep runs inside frame() → core.tick(1/60): anims → layout if dirty → DrawList
-→ ge::render → sceGuFinish/Sync/WaitVblank/Swap`. Backends never call
-sceGuStart/Finish (display list owned by main.rs, dreamcart contract).
+**Frame order (PSP).** The host samples the controller, calls Runtime
+`advance_with_core_ticks`, and calls Runtime `present`. The generated guest
+runs one JavaScript frame and drains pending jobs; Runtime advances the core
+at 60 Hz and builds the DrawList. `present` then completes the previous
+frame: **terminal `sceGuSync` on the list kicked one frame earlier**, the
+display adapter's wait for the selected 20 or 60 Hz pacing interval, the
+buffer swap, and resource retirement. It encodes the new DrawList through
+`pocket-psp-render`, kicks the list with `sceGuFinish` and returns. **The GE
+draws frame N while JavaScript, tick and layout run for frame N+1**, so frame
+time is the larger of CPU and GE time rather than their sum. The list reads
+zero-copy texture storage, which the core keeps unchanged until the list
+retires; the video plane commit writes new storage while the plane is read.
+Capture builds complete each dumped frame before reading the display buffer.
+The old `ge::render_over` embedding API remains a thin encoder adapter for
+native scenes with an open display list.
 
 ## Memory (the blocker fix [R])
 
@@ -287,10 +331,10 @@ allocation** (cap ≈4096 → crash). The QuickJS-side arena trio only hooks
 QuickJS + newlib malloc — it does NOT cover pocketjs-core's Rust allocations
 (taffy slotmaps, children Vecs, per-pass `.collect()`s, DrawList). Therefore:
 
-1. The pinned `pocket-stack/rust-psp` fork exposes an
+1. The pinned `pocket-nexus/rust-psp` fork exposes an
    **`external-global-alloc`** feature:
    cfg-gate `psp/src/alloc_impl.rs`'s `#[global_allocator]` out.
-2. `hosts/psp/src/alloc.rs` installs the PocketJS global allocator backed by
+2. `platforms/psp/alloc/src/lib.rs` installs the PocketJS global allocator backed by
    `arena::alloc/dealloc` (same single kernel block as QuickJS).
 3. `arena.rs`'s `ensure_init` must call `sceKernelAllocPartitionMemory` /
    `sceKernelGetBlockHeadAddr` directly (no recursion through `alloc::alloc`).
@@ -357,16 +401,16 @@ widths):
 - **motion**: `transition[-transform|colors|opacity|all]`, `duration-N`,
   `ease-linear|in|out|in-out|spring|out-back`, `delay-N`
 - **keyframe animations (baked)**: `animate-<name>` resolves against
-  `theme.keyframes`/`theme.animation` in pocket.config.ts (Tailwind config
-  shape; built-ins `spin|ping|pulse|bounce`). The compiler bakes every CSS
-  `animation` shorthand (comma lists, `cubic-bezier(…)`, named easings as
+  `app.theme.keyframes` and `app.theme.animation` in `pocket.app.json` (Tailwind
+  keyframe and animation shape; built-ins `spin|ping|pulse|bounce`). The compiler
+  bakes every CSS `animation` shorthand (comma lists, `cubic-bezier(…)`, named easings as
   their canonical beziers, delays, `forwards|backwards|both` fills,
   `reverse`, `infinite`) into frame-precise per-prop segment timelines in
   styles.bin — the core plays them at fixed dt with zero per-frame JS.
   Keyframe values must be build-time absolute (px/deg/colors; percentages,
   `calc()`, `var()` are loud errors **[R]**), and every animated prop must be
   pinned at 0% and 100%. `animate-loop-[4s]` (or `{ value, loop }` in the
-  config) replays the node's whole choreography — delays included — every N
+  app contract) replays the node's whole choreography — delays included — every N
   ms: the style-level loop plain CSS can't express without a remount.
 - **variants**: `focus:`, `active:` — variant blocks in the style record,
   switched natively (zero JS on focus change)
@@ -406,8 +450,8 @@ Kinetic scroll views, CLUT/swizzled textures, render-to-texture opacity groups
 kerning, `hover:`, percentage sizes beyond `-full`, Android hosts,
 `rounded-full` on runtime-sized nodes.
 
-The 3DS left this list with `hosts/3ds` — a QuickJS guest over a PICA200
-backend. **The CIA boots and renders on a New 3DS LL.** The `3ds-dev` profile
+The 3DS left this list with `products/3ds` — a QuickJS guest over a PICA200
+backend. **The CIA boots and renders on a New 3DS LL.** The `3ds-dev` target
 in `tools/3ds-profile.ts` stays outside the production registry until its
 synthesized-cursor, sprite, streamed-texture and large-atlas paths have direct
 coverage.

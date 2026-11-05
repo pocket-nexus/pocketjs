@@ -9,7 +9,7 @@
 // where that one left off.
 
 import { BTN, SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
-import type { ScriptEvent } from "../hosts/sim/sim.ts";
+import type { ScriptEvent } from "../programs/sim/sim.ts";
 import {
   clampPos,
   homePos,

@@ -1,0 +1,93 @@
+name: PSP build
+
+# Installs the PSP toolchain the framework pins with `pocket target add psp`
+# into an empty cache, checks that a second add downloads nothing, and builds
+# the hero EBOOT through compile and the program-owned build recipe. The target C compiler and archiver
+# are `false`: QuickJS arrives as a prebuilt archive. The generated guest uses
+# its explicit LLVM compiler and the pinned SDK headers. The EBOOT is the same
+# mipsel binary from any host, so one Linux runner builds it; host selection
+# of the toolchain archive is a unit test (tests/targets-catalog.test.ts).
+
+on:
+  pull_request:
+    paths: &paths
+      - ".bun-version"
+      - ".github/workflows/psp-build.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "contracts/**"
+      - "hosts/psp-runtime/pocket.host.json"
+      - "framework/compiler/**"
+      - "framework/src/manifest/**"
+      - "tools/profile-export.ts"
+      - "tools/profile-resolver.ts"
+      - "tools/targets/**"
+      - "tools/psp.ts"
+      - "tools/build/**"
+      - "platforms/psp/**"
+      - "hosts/psp/pocket.host.json"
+      - "tools/psp-linker.ts"
+      - "engine/guest-quickjs/**"
+      - "engine/runtime/**"
+      - "programs/sdk/archive/**"
+      - "engine/profile-build/**"
+      - "tools/pocket.ts"
+      - "tools/cli/**"
+      - "programs/psp/**"
+      - "devices/psp/**"
+      - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
+      - "engine/raster/**"
+      - "engine/package/**"
+      - "engine/modules/media/**"
+      - "engine/render/Cargo.toml"
+      - "engine/render/src/**"
+      - "package.json"
+      - "bun.lock"
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: psp-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eboot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: LLVM for the generated PSP guest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          echo "POCKETJS_LLVM_BIN=/usr/bin" >> "$GITHUB_ENV"
+      - name: Empty cache
+        run: echo "POCKET_NEXUS_CACHE_DIR=$RUNNER_TEMP/pocket-nexus" >> "$GITHUB_ENV"
+      - name: pocket target add psp
+        run: bun tools/cli/bin.mjs target add psp
+      - name: A second add downloads nothing
+        run: |
+          bun tools/cli/bin.mjs target add psp | tee second-add.log
+          ! grep -q downloading second-add.log
+      - name: Compile the hero package and build its PSP program
+        env:
+          TARGET_CC: /usr/bin/false
+          TARGET_AR: /usr/bin/false
+          CC_mipsel_sony_psp: /usr/bin/false
+          AR_mipsel_sony_psp: /usr/bin/false
+        run: |
+          bun tools/pocket.ts compile --target psp --manifest apps/hero/pocket.app.json --project-root . --output .pocket-build/validation/psp-ci/hero.pocket
+          bun tools/pocket.ts build --target psp --pocket .pocket-build/validation/psp-ci/hero.pocket --out .pocket-build/validation/psp-ci/native
+          bun -e 'import { statSync } from "node:fs"; const r = await Bun.file(".pocket-build/validation/psp-ci/native/build-receipt.json").json(); if (!r.success || !r.artifact || statSync(r.artifact).size === 0) process.exit(1);'

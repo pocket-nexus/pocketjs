@@ -1,0 +1,14 @@
+[package]
+name = "pocket-vita-net"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PocketJS vita net driver"
+
+[dependencies]
+vitasdk-sys = { version = "0.3.3", features = ["SceNet_stub", "SceNetCtl_stub", "SceSysmodule_stub"] }
+pocket-media.workspace = true
+pocket-spec.workspace = true
+pocket-vita-system.workspace = true

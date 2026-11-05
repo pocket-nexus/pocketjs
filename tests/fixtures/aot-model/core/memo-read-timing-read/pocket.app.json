@@ -1,0 +1,10 @@
+{
+  "pocket": 2,
+  "id": "test.model.memo-read-timing-read",
+  "app": {
+    "entry": "App.tsx",
+    "framework": "solid",
+    "aot": true,
+    "model": "compiled"
+  }
+}

@@ -334,6 +334,21 @@ export function resetTextures(): void {
   textures.clear();
 }
 
+/**
+ * The texture handle registered for an image key. An unknown key throws on
+ * strict hosts and counts a miss on native ones (undefined).
+ */
+export function resolveTexture(key: string): number | undefined {
+  const handle = textures.get(key);
+  if (handle === undefined) {
+    if (getHost().strict) {
+      throw new Error(`PocketJS: unknown image src "${key}" - no texture registered under that key`);
+    }
+    missCounters.unknownTexture++;
+  }
+  return handle;
+}
+
 /** A `sprite` key → its atlas texture handle + animation metadata. */
 export interface SpriteMeta {
   /** uploadTexture handle of the atlas. */
@@ -612,17 +627,8 @@ function setSrc(node: NodeMirror, value: unknown): void {
   if (typeof value !== "string") {
     throw new Error("PocketJS: src must be a string key");
   }
-  const handle = textures.get(value);
-  if (handle === undefined) {
-    if (getHost().strict) {
-      throw new Error(
-        `PocketJS: unknown image src "${value}" - no texture registered under that key`,
-      );
-    }
-    missCounters.unknownTexture++;
-    return;
-  }
-  ops.setImage(node.id, handle);
+  const handle = resolveTexture(value);
+  if (handle !== undefined) ops.setImage(node.id, handle);
 }
 
 /** `sprite` prop → bind an animated sprite atlas. Auto-play is native; JS never

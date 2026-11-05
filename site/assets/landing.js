@@ -1,4 +1,5 @@
 import "./showcase.js";
+import "./community.js";
 const handhelds = document.querySelector("[data-handheld]");
 if (handhelds) {
   const approach = new IntersectionObserver((entries) => {

@@ -1,3 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -5,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["ios-dev"];
 
 /**
  * Transitional modern-iOS profile used only by `pocket ios`.
@@ -15,17 +19,17 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * NativeScript layout today), so the form is "embedded": the 480x272 logical
  * viewport is fixed and the view letterboxes it with aspect-fit. The native
  * host publishes this identity via pocket_apple_set_identity
- * (engine/ios/uikit/PocketSurfaceView.m), and external-guest hosts publish
+ * (platforms/apple/uikit/PocketSurfaceView.m), and external-guest hosts publish
  * the same pair on the ui namespace they mount — all three must agree.
  *
  * Raster density is the surface's raster scale (PocketSurfaceView clamps
  * 1..4). Glyph atlases bake at build time, so guests must build at the
  * density the surface renders — a mismatch renders soft text.
  */
-export const IOS_DEV_TARGET_ID = "ios-dev";
-export const IOS_DEV_HOST_ABI = 7;
-export const IOS_DEV_VIEWPORT = [480, 272] as const;
-export const IOS_DEV_DEFAULT_DENSITY = 3;
+export const IOS_DEV_TARGET_ID = softwareProfile.id;
+export const IOS_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
+export const IOS_DEV_VIEWPORT = softwareProfile.display.logicalViewports[0];
+export const IOS_DEV_DEFAULT_DENSITY = softwareProfile.display.rasterDensity;
 export const IOS_DEV_MAX_DENSITY = 4;
 
 export function iosDevContracts(rasterDensity: number = IOS_DEV_DEFAULT_DENSITY) {
@@ -42,18 +46,11 @@ export function iosDevContracts(rasterDensity: number = IOS_DEV_DEFAULT_DENSITY)
   return definePlatformContractRegistry(
     POCKET_CAPABILITIES,
     defineTargetRegistry({
-      [IOS_DEV_TARGET_ID]: {
-        hostAbi: IOS_DEV_HOST_ABI,
-        platform: "ios",
-        form: "embedded",
-        display: {
-          physicalViewport: [width * rasterDensity, height * rasterDensity],
-          logicalViewports: [[width, height]],
-          presentations: ["native", "integer-fit"],
-          rasterDensity,
-        },
-        capabilities: ["input.touch", "text.glyphs.baked"],
-      },
+      [IOS_DEV_TARGET_ID]: targetProfile({
+        ...softwareProfile,
+        display: { ...softwareProfile.display, rasterDensity },
+        panel: { primary: [width * rasterDensity, height * rasterDensity] },
+      }),
     }),
   );
 }

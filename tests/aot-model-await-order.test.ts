@@ -36,6 +36,16 @@ test("restarting an awaited child during wait construction cancels the parent in
   const native=await executeModelRust([fixture]);assertModelObservations(fixture.name,expected,native.get(fixture.name)!,fixture.tape);
 },120_000);
 
+test("element writes after an await keep their array in the task",async()=>{
+  const source=`import{createSignal}from"solid-js";import{frames,len,push,type i32}from"@pocketjs/framework/solid/std";
+  export const[result,setResult]=createSignal<i32[]>([]);
+  export async function press():Promise<void>{const grid:i32[][]=[[1],[2]];await frames(1);push(grid[0],5);grid[1][0]=9;setResult([len(grid[0]),grid[0][1],grid[1][0]]);}`;
+  const fixture={name:"element-after-await",program:analyzeModel(resolve("tests/fixtures/aot-model/await-order/App.ts"),{source}),tape:[{dispatch:[{fn:"press"}]},{},{}]};
+  const expected=observeModelFrames(interpretModel(fixture.program,fixture.tape));expect(expected.map(frame=>frame.state.result)).toEqual([[],[2,5,9],[2,5,9]]);
+  assertModelObservations(fixture.name,expected,await executeModelJavaScript(fixture),fixture.tape);
+  const native=await executeModelRust([fixture]);assertModelObservations(fixture.name,expected,native.get(fixture.name)!,fixture.tape);
+},120_000);
+
 test("inclusive coroutine loops stop at i32 MAX before the induction variable wraps",async()=>{
   const source=`import{createSignal}from"solid-js";import{frames,type i32}from"@pocketjs/framework/solid/std";
   export const[n,setN]=createSignal<i32>(0);export async function press():Promise<void>{for(let i=2147483647;i<=2147483647;i++){await frames(1);setN(v=>v+1);}}`;

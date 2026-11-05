@@ -1,6 +1,6 @@
 # Clear IME and USB companions
 
-Clear supports **application text composition** on the iPod touch 4 and Moto G Play 2024. This is a PocketJS editor API, not an iOS system keyboard extension or Android `InputMethodService`.
+Clear supports **application text composition** on the iPod touch 4 through the PocketJS editor API.
 
 ## Ownership
 
@@ -11,9 +11,9 @@ Clear supports **application text composition** on the iPod touch 4 and Moto G P
 | Pocket Term | Terminal view, input, bounded coverage uploads | A supervisor and authenticated daemon own PTYs; transport workers can reconnect |
 | Clear IME | Keyboard, composition transcript, editor revision, committed text, textures | Rime process, dictionaries, conversion, CJK rasterization |
 
-The inspected source revisions are [Pocket Doc `host/serve.ts`](https://github.com/pocket-stack/pocket-doc/blob/b3a0d72a377226ef01ed95c3162eb83c91024805/host/serve.ts), [Pocket Map `host/serve.ts`](https://github.com/pocket-stack/pocket-map/blob/457a33568a96bc44c24c4f7a7cc55cd2d2cba592/host/serve.ts), and [Pocket Term `host/serve.ts`](https://github.com/pocket-stack/pocket-term/blob/34f27c816ac1903ed3d53b08f8f81f5ec2ec43b4/host/serve.ts), alongside PocketJS `tools/companion-session.ts`, `tools/offload-provider.ts`, and `framework/src/offload.ts`.
+The inspected source revisions are [Pocket Doc `host/serve.ts`](https://github.com/pocket-nexus/pocket-doc/blob/b3a0d72a377226ef01ed95c3162eb83c91024805/host/serve.ts), [Pocket Map `host/serve.ts`](https://github.com/pocket-nexus/pocket-map/blob/457a33568a96bc44c24c4f7a7cc55cd2d2cba592/host/serve.ts), and [Pocket Term `host/serve.ts`](https://github.com/pocket-nexus/pocket-term/blob/34f27c816ac1903ed3d53b08f8f81f5ec2ec43b4/host/serve.ts), alongside PocketJS `tools/companion-session.ts`, `tools/offload-provider.ts`, and `framework/src/offload.ts`.
 
-**The render thread never opens the companion socket or reads a dictionary.** `hosts/shared/offload_posix.c` owns a pthread, loopback listener, key-file reads, socket authentication and transfers. The guest submits and drains fixed-capacity queues. Each record has a connection generation; a later connection cannot consume a previous connection's response. The 3DS and POSIX hosts share the queue and coverage decoder.
+**The render thread never opens the companion socket or reads a dictionary.** `platforms/linux/offload/offload_posix.c` owns a pthread, loopback listener, key-file reads, socket authentication and transfers. The guest submits and drains fixed-capacity queues. Each record has a connection generation; a later connection cannot consume a previous connection's response. The 3DS and POSIX hosts share the queue and coverage decoder.
 
 The v1 offload contract bounds records to **4,096 bytes**, pending requests to **8**, accepted submissions to **2 per frame**, deliveries to **1 per frame**, and coverage uploads to **1 per frame**. These are bounded handoffs; network or provider latency can delay candidates. No network latency guarantee follows from the frame budgets.
 
@@ -58,7 +58,7 @@ bun tools/ime/verify.ts
 
 ## iPod touch 4
 
-Follow [IPODTOUCH4.md](IPODTOUCH4.md) for the pinned iOS 6 toolchain, SSH and User-app installation prerequisites. This path requires the prepared device's existing jailbreak and AppSync. Select its exact USB identifier:
+Follow the [iPod touch 4 runbook](IPODTOUCH4.md) for the pinned iOS 6 toolchain, SSH and User-app installation prerequisites. This path requires the prepared device's existing jailbreak and AppSync. Select its exact USB identifier:
 
 ```sh
 export POCKETJS_IPODTOUCH4_UDID=<idevice_id output>
@@ -77,47 +77,6 @@ bun ipodtouch4 status
 bun ipodtouch4 capture
 ```
 
-## Moto G Play 2024
-
-The tested device is `fogona`, Android 14, with a **720×1600 physical** display. The host uses arm64, GLES2, QuickJS-C, the shared Rust renderer, native multi-touch and a **360×800 logical** viewport. **Platform pointer IDs and guest contact IDs have separate lifetimes.** The native latch holds at most eight contacts, assigns a guest ID at each down edge, and reserves IDs still present in the previous snapshot. An up followed by a reused pointer ID creates a new contact. Ordinary taps between frames latch one down sample; cancellation removes an unsampled contact without a synthetic press. Pause cancellation clears all contacts. Clear's keyboard follows the viewport width; gestures continue through the shared input contracts.
-
-Install Android command-line tools, Java 17 and Rust. Enable USB debugging and authorize this Mac on the device. The default SDK is `/opt/homebrew/share/android-commandlinetools`; `POCKETJS_ANDROID_SDK_ROOT` selects another location. `JAVA_HOME` selects Java 17. The setup command installs platform 34, build tools 35.0.0, NDK 27.1.12297006, the pinned QuickJS revision and the Rust target. Install the pinned Rust toolchain before setup:
-
-```sh
-rustup toolchain install nightly-2026-07-02 --profile minimal
-adb devices -l
-bun moto-g-play setup
-bun moto-g-play doctor
-bun moto-g-play build
-bun moto-g-play deploy --id=<adb serial>
-bun moto-g-play launch --id=<adb serial>
-bun clear:companion moto-g-play --id=<adb serial>
-```
-
-The device commands reject a different model. Deployment installs `dev.pocket_stack.clear` and verifies the installed APK SHA-256 against the local build. The development APK permits `run-as`, which writes the key to the app's private files directory. This package targets Android 14 and keeps the signing key in the local toolchain cache for replacement installs.
-
-```sh
-bun moto-g-play status --id=<adb serial>
-bun moto-g-play capture --id=<adb serial>
-```
-
-For service lifetime across terminal exits and Mac logins, install one user LaunchAgent per target:
-
-```sh
-bun clear:companion ipodtouch4 --id=<iPod UDID> --service
-bun clear:companion moto-g-play --id=<adb serial> --service
-```
-
-**The supervisor reconciles USB state every two seconds.** It recreates a lost ADB forward, restarts a stopped iPod tunnel or provider process, and checks the selected app's pairing key after reconnection and at 30-second intervals. A missing device or installation leaves the supervisor waiting. A process-owned loopback lease on port 18742 or 28742 rejects duplicate supervisors. Each command has a six-second deadline, and reconciliations do not overlap. The socket transport reconnects after the USB route returns. A local port owned by another device is rejected.
-
-LaunchAgents are named `dev.pocket-stack.clear-companion.<target>` and reference the current checkout and Bun executable. Logs stay in ignored `.pocket/ime/services/`. Keep that checkout available while the services run. To stop and uninstall one, replace `<target>` below with `ipodtouch4` or `moto-g-play`:
-
-```sh
-launchctl bootout gui/$(id -u)/dev.pocket-stack.clear-companion.<target>
-rm ~/Library/LaunchAgents/dev.pocket-stack.clear-companion.<target>.plist
-```
-
-The two companions can run at the same time: Mac ports 18741 and 28741 forward to each device's loopback port 8741. Each device has its own 256-bit key in a mode-0600 ignored file. Pairing receipts contain a fingerprint, never the key. Stopping a companion leaves local scrolling and editing available. Restoring it resumes a composition that has not been committed or cancelled. Offline confirmation inserts raw pinyin; dictionary conversion requires the Mac to return.
 
 ## Editing
 
@@ -147,7 +106,7 @@ Keyboard icons are authored filled SVG contours in `apps/clear/`. The globe uses
 
 `bun run test` includes shared queue/authentication/generation tests, IME revision/reconnect tests, text cache and pixel continuity tests, candidate scroll/selection tests and the Moto viewport plan test. `bun tools/ime/verify.ts` requires the built native Rime data and checks Chinese phrases, candidate selection, deterministic replay, paging, read windows, absolute selection, backspace, caret movement, raw commit and space selection.
 
-**Native validation covered composition, candidate scrolling and selection, caret bounds, offline deletion and reconnect on both devices.** Deployment included byte readback on iPod and APK hash readback on Moto. The implementation's test results, measured performance and selected screenshots are recorded in [PR #396](https://github.com/pocket-stack/pocketjs/pull/396).
+**Native validation covered composition, candidate scrolling and selection, caret bounds, offline deletion and reconnect on both devices.** Deployment included byte readback on iPod and APK hash readback on Moto. The implementation's test results, measured performance and selected screenshots are recorded in [PR #396](https://github.com/pocket-nexus/pocketjs/pull/396).
 
 To repeat device acceptance after building, installing and starting the companion:
 
@@ -159,4 +118,4 @@ To repeat device acceptance after building, installing and starting the companio
 
 **Static panels and sustained scrolling require separate timing runs.** On iPod, start from a fresh launch, compose `ni`, expand the panel, wait four seconds, then drag 140 logical points over eight seconds in each direction. Sample device status before taking captures. Use distinct 60-frame heartbeat windows with `touch_down=1`; compute delivered FPS as `window_frames × 1,000,000 / window_us`. `frame_us` measures the guest/core frame before presentation, and `submit_us` measures GL submission. Keep first-pass and reverse-pass results separate. Window means do not establish frame-time percentiles or physical-finger response times.
 
-Capture commands write to ignored `dist/` output. Keep per-run screenshots, logs and device receipts under `.pocket-build/validation/clear/<run>/`; attach selected images and a validation summary to the PR. Versioned image fixtures belong with the tests that consume them. iPod capture reads the app's rendered frame; Android capture reads the device display. GraphicsServices and ADB input exercise native input routes; physical-finger testing remains a separate check.
+Capture commands write to ignored `dist/` output. Keep per-run screenshots, logs and device receipts under `.pocket-build/validation/clear/<run>/`; attach selected images and a validation summary to the PR. Versioned image fixtures belong with the tests that consume them. iPod capture reads the app's rendered frame. GraphicsServices input exercises the native input route; physical-finger testing remains a separate check.

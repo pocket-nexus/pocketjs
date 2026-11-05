@@ -28,7 +28,7 @@ const shared = {
   worker: new URL("./text-provider-worker.ts", import.meta.url),
   data: {
     pak: resolve(values.pak),
-    wasm: resolve(import.meta.dir, "../hosts/web/pocket_text.wasm"),
+    wasm: resolve(import.meta.dir, "../platforms/web/pocket_text.wasm"),
     fonts: (values.font ?? []).map((path) => resolve(path)),
   },
   log: console.log,

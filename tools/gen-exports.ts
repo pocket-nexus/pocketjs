@@ -5,7 +5,7 @@
 //
 // tests/contract.ts imports renderExportsBlock() and byte-compares it
 // against the committed package.json block, so the npm surface can never
-// drift from the subpath registry — the engine/core/src/spec.rs mechanism
+// drift from the subpath registry — the engine/spec/src/lib.rs mechanism
 // applied to the second generated artifact. Only the exports block is
 // touched; the rest of package.json is never rewritten.
 

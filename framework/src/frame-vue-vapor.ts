@@ -3,9 +3,11 @@
 import { computed, onScopeDispose, shallowRef, type ComputedRef } from "vue";
 import { __resetAnalog } from "./analog.ts";
 import { __beginAxisFrame, __endAxisFrame, __resetAxisInput, __axisDelta, RelativeAxis, type RelativeAxisId, type AxisDelta } from "./relative-axis.ts";
+import { __beginMotionFrame, __endMotionFrame, __motionReader, __resetMotionInput, type MotionMinQualityName, type MotionPayload, type MotionState, type MotionValueName } from "./motion.ts";
 import type { i32 } from "./numeric-microts.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
+import { dispatchFrame, FrameRegistry, type FrameCallback, type RunPress } from "./frame-dispatch.ts";
 import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-vue-aot.ts";
 import { reactModelRegions } from "./model-reactive.ts";
 import { resumeModelTasks, resetModelTaskClock } from "./model-tasks.ts";
@@ -13,66 +15,36 @@ import { pollModelAnimations } from "./model-animation.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
-type FrameCallback = (buttons: number) => void;
-
-const callbacks = new Set<FrameCallback>();
-const placedCallbacks = new Map<FrameCallback, NodeMirror>();
+const registry = new FrameRegistry();
 let buttonHandlerBlockDepth = 0;
+
+const runPress: RunPress = (_node, invoke) => invoke();
 
 export function resetFrameHooks(): void {
   resetModelTaskClock();
-  callbacks.clear();
-  placedCallbacks.clear();
+  registry.clear();
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
   __resetAxisInput();
+  __resetMotionInput();
   resetLifecycleHooks();
 }
 
-export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void): void {
+export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void, motion?: MotionState | null): void {
   __beginAxisFrame(axisDeltas);
   try {
+    __beginMotionFrame(motion);
+    const frame = registry.freeze();
     pollModelAnimations(); resumeModelTasks();
-    const pending = new Map<NodeMirror, (() => void)[]>();
-    const enqueue: DeferredPress = (node, invoke) => {
-      const entries = pending.get(node);
-      if (entries) entries.push(invoke);
-      else pending.set(node, [invoke]);
-    };
-    // Gesture recognition keeps its original phase; its declarative presses
-    // join the ordered queue instead of running ahead of all input handlers.
-    beforeHooks?.(enqueue);
-    // General lifecycle subscriptions preserve their phase before navigation.
-    for (const cb of [...callbacks]) cb(buttons);
-    for (const [callback, node] of placedCallbacks) enqueue(node, () => callback(buttons));
-    resolveInput?.(enqueue);
-    // A component's setup order is not its position after a keyed move.
-    // Snapshot the live mirror's document order before running any handlers.
-    const roots = new Set<NodeMirror>();
-    for (const node of pending.keys()) {
-      if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
-      let root = node;
-      while (root.parent) root = root.parent;
-      roots.add(root);
-    }
-    const ordered: (() => void)[] = [];
-    const collect = (node: NodeMirror): void => {
-      const entries = pending.get(node);
-      if (entries) ordered.push(...entries);
-      for (const child of node.children) collect(child);
-    };
-    for (const root of roots) collect(root);
-    for (const invoke of ordered) invoke();
+    dispatchFrame(frame, buttons, runPress, beforeHooks, resolveInput);
     reactModelRegions();
     flushLifecycleHooks();
   }
-  finally { __endAxisFrame(); }
+  finally { __endAxisFrame(); __endMotionFrame(); }
 }
 
 function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => void {
-  if (placement) placedCallbacks.set(callback, placement);
-  else callbacks.add(callback);
-  const dispose = () => { callbacks.delete(callback); placedCallbacks.delete(callback); };
+  const dispose = registry.add(callback, placement);
   onScopeDispose(dispose, true);
   return dispose;
 }
@@ -96,6 +68,19 @@ export function onAxisDelta(axis: RelativeAxisId, callback: (delta: i32) => void
     if (delta === 0) return;
     const active = typeof options.active === "function" ? options.active() : options.active ?? true;
     if (active) callback(delta);
+  };
+  return registerFrame(listener, placement);
+}
+
+export interface MotionOptions { active?: boolean | (() => boolean); minQuality?: MotionMinQualityName }
+/** See framework/src/frame.ts: fires on frames carrying `value` at `minQuality` or better. */
+export function onMotion<V extends MotionValueName>(value: V, callback: (...payload: MotionPayload<V>) => void, options: MotionOptions = {}, placement?: NodeMirror): () => void {
+  const read = __motionReader(value, options.minQuality);
+  const listener: FrameCallback = () => {
+    const payload = read();
+    if (!payload) return;
+    const active = typeof options.active === "function" ? options.active() : options.active ?? true;
+    if (active) (callback as (...payload: number[]) => void)(...payload);
   };
   return registerFrame(listener, placement);
 }

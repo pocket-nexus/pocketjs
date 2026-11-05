@@ -20,12 +20,12 @@ frameworks (browser, RN, Flutter) structurally cannot offer:
   software rasterizer, wgpu) renders it for free.
 
 ```
-┌ DevTools panel (hosts/web/devtools.html) ┐
+┌ DevTools panel (programs/web/dev/devtools.html) ┐
 │ tree · highlight · tape · REPL · logs   │
 └──────────────┬──────────────────────────┘
                │ WebSocket  ws://127.0.0.1:8130/ws  (role=panel)
         ┌──────┴──────┐
-        │  WS hub     │  hosts/web/serve.ts (dumb JSON-line relay)
+        │  WS hub     │  tools/dev/web/serve.ts (dumb JSON-line relay)
         └──────┬──────┘
                │ (role=device)
    ┌───────────┼─────────────────────────────┐
@@ -42,8 +42,8 @@ frameworks (browser, RN, Flutter) structurally cannot offer:
 ### 1. Core (Rust, spec ops 18–22)
 
 New spec ops — added to `contracts/spec/spec.ts` `OP`, regenerated into
-`engine/core/src/spec.rs`, implemented on `Ui`, and exposed by both host bindings
-(`hosts/psp/src/ffi.rs`, `engine/wasm/src/lib.rs`). All are **debug-only, default-off,
+`engine/spec/src/lib.rs`, implemented on `Ui`, and exposed by both host bindings
+(`programs/psp/src/service_bindings.rs`, `programs/web/wasm/src/lib.rs`). All are **debug-only, default-off,
 and unused by tests/goldens**, so shipped behavior is unchanged.
 
 | op | JS (`ui.*`) | semantics |
@@ -93,13 +93,18 @@ poll transport → flush outbox → (paused? maybe step : record + run frame)
 
 ### 3. Transports
 
-The shim needs only `{ send(line), recv() -> line | null }`:
+The shim needs `{ send(line), recv() -> line | null }` and reads two optional
+fields: `everyFrames` (poll cadence in frames) and `listening() -> boolean`.
+**While `listening()` returns false the shim sends no tree or stats snapshots
+and no console lines; the first frame after it returns true sends the tree.**
+Explicit requests such as `getTree` get answers either way. A transport
+without `listening` counts as always attached.
 
-- **Browser / desktop:** `hosts/web/engine.js` connects a WebSocket to the dev
+- **Browser / desktop:** `programs/web/dev/engine.js` connects a WebSocket to the dev
   server (`/ws?role=device`) and injects the transport before the bundle
   evaluates. Latency: same-frame.
 - **Real PSP over the PSPLINK USB cable:** a file mailbox on the usbhostfs
-  share — the exact channel trace/bench already use. `hosts/psp/src/dbg.rs`
+  share — the exact channel trace/bench already use. `programs/psp/src/dbg.rs`
   reads `host0:/pocketjs-dbg/in.jsonl` from a running offset and appends to
   `out.jsonl`; QuickJS sees `ui.__dbgPoll()` / `ui.__dbgSend()`. Enabled only
   if `host0:/pocketjs-dbg/enable` exists at boot (one failed `sceIoOpen` and
@@ -125,11 +130,18 @@ The shim needs only `{ send(line), recv() -> line | null }`:
   are absent when `sdmc:/pocketjs/runtime/dev.key` is absent. Package updates
   reuse the Runtime's target/ABI admission, immutable storage,
   retired-frame acceptance and rollback path. **The pairing key authenticates
-  but does not encrypt the LAN connection. The channel updates `.pocket`
-  guests; native `.3dsx` or CIA host changes still require deployment and
-  restart.**
+  but does not encrypt the LAN connection.** A push replaces the `.pocket`
+  guest. **`bun run 3ds:dev install` writes a `.3dsx` to `sdmc:/3ds/` over the
+  same connection and restarts into it through Luma3DS's `hb:ldr`**
+  (`--no-launch` installs for the next start), and `launch` starts another
+  `.3dsx` on the card. **A client holding the pairing key can install and
+  start native code on the console.** The transport's `listening` reads
+  `ui.__dbgConnected()`, which reports an authenticated client; `ui.__dbgActive()` reports that the
+  listener exists, not that a client is attached. **Without a panel the guest
+  serializes no tree snapshots: a full-tree snapshot measured about 30 ms of
+  JS on an Old 3DS, once per 30 frames.**
 - **Native desktop (macOS et al., `pocket-ui-wgpu`):** the same file mailbox,
-  minus the USB cable — `engine/crates/pocket-ui-wgpu/src/dbg.rs` is the
+  minus the USB cable — `engine/ui-wgpu/src/dbg.rs` is the
   std twin of the PSP transport. Probed once at `UiSurface::mount`: root =
   `$POCKETJS_DBG_DIR`, else the process cwd; active only if
   `pocketjs-dbg/enable` exists. Arm it with `bun run devtools --dir <root>`
@@ -157,18 +169,20 @@ Device → panel:
 `{t:"stats", frame, nodes, tapeLen, paused}` ·
 `{t:"devStats", frame, data}` (data: `{app, bundle, audio:{starved, reserveGiveups,
 lastReserveErr, releaseTimeouts, pushedFrames}, vid:{presented, torn, lapped,
-epochs, hdrFails, bytes}, svc:{truncResets}}` from hosts/psp/src/stats.rs, or
-null when the host lacks the op; `bundle` is the FNV-1a64 of the embedded
-js+pak — the PSPLINK bridge requests this on every hello and compares it
-against `dist/` via tools/bundle-hash.ts, flagging a stale embed loudly) ·
+epochs, hdrFails, bytes}, svc:{truncResets}}` from programs/psp/src/stats.rs, or
+null when the host lacks the op; on PSP `bundle` is the FNV-1a64 of the
+embedded `.pocket` bytes, in table order for a launcher — the PSPLINK bridge
+requests it on every hello and compares it against the package the EBOOT
+embeds (`bun run devtools <demo>` checks the demo's `dist/<output>.pocket`,
+`--pocket` names another), reporting a stale embed) ·
 `{t:"log", level, args}` · `{t:"error", frame, message, stack?}` ·
 `{t:"evalResult", id, ok, value}` ·
 `{t:"tape", tape:{v:1, app, frames, masks:[[mask,count],…]}}` (RLE).
 
-The hub (`hosts/web/serve.ts`) is a dumb relay: device lines go to every panel,
+The hub (`tools/dev/web/serve.ts`) is a dumb relay: device lines go to every panel,
 panel lines to every device, plus join/leave notices. No state, no parsing.
 
-### 5. Panel (`hosts/web/devtools.html`)
+### 5. Panel (`programs/web/dev/devtools.html`)
 
 Component tree (hover → `inspect` → the region lights up **on the device
 screen**, PSP included; click → pin + details: type, `debugName`, classes,
@@ -243,3 +257,10 @@ motion retain their existing tape version and omit the track. Replay supplies
 an empty axis array for absent samples and older tapes, so queued live motion
 cannot enter the replay. `tools/tape.ts` reads the same track as the browser
 DevTools replay path.
+
+**Fused motion state uses a sparse `motion` track in v5 tapes.** Each entry is
+`[frameIndex, MotionState]`, with the state's numbers rounded to f32 and
+unsigned (JSON has no -0) as the eighth frame argument delivered them. Recordings without motion retain their
+existing tape version and omit the track. Replay owns the track: frames
+without a recorded state receive none, so live driver estimates cannot enter
+the replay.

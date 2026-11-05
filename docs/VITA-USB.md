@@ -14,6 +14,17 @@ Successful USB status exchanges reset the display and automatic-suspend idle
 timers. Manual suspend remains available; disconnected apps keep the system's
 idle behavior.
 
+## Pocket Devkit
+
+**Pocket Devkit (`apps/devkit`, title `P25BFE5E2`) is the development
+container.** Install its VPK once. Its screen waits for a build over USB;
+`push` replaces its JS/PAK guest and `native` runs another project's native
+build from its inactive slot. A native build addresses the container through
+its title: build it with `POCKETJS_VITA_TITLE_ID=P25BFE5E2` (the variable
+`tools/vita.ts` sets from the app ID) and pass that build's `.runtime.json`
+to `native`. The LiveArea art is in `apps/devkit/vita/`; `tools/vita.ts`
+overlays an app's `vita/` directory on the framework defaults.
+
 ## First installation
 
 The computer needs VitaSDK, CMake, a C compiler, Bun, and Rust
@@ -24,22 +35,22 @@ The first build downloads the pinned USBHostFS source. Later builds use
 are recorded in `tools/vita-usb/`.
 
 ```sh
-bun run vita:dev build --app hero
+bun run vita:dev build --app devkit
 # In VitaShell, enter USB storage mode.
-bun run vita:dev install --app hero --mount /Volumes/PSV
+bun run vita:dev install --app devkit --mount /Volumes/PSV
 ```
 
-`install` copies `hero-main.vpk` to `ux0:data/pocketjs-dev/` and compares its
+`install` copies `devkit-main.vpk` to `ux0:data/pocketjs-dev/` and compares its
 SHA-256 with the source. Eject the storage volume, exit VitaShell's transfer
-mode, install the VPK, and open Pocket Hero from LiveArea. A successful copy
+mode, install the VPK, and open Pocket Devkit from LiveArea. A successful copy
 does not establish that the app has launched.
 
 ```sh
 # Keep this process running in one terminal.
-bun run vita:dev serve --app hero
+bun run vita:dev serve --app devkit
 # Other terminals:
-bun run vita:dev status --app hero
-bun run vita:dev capture --app hero
+bun run vita:dev status --app devkit
+bun run vita:dev capture --app devkit
 ```
 
 The device enumerates as **`054c:0f01`**, an experimental development ID used
@@ -88,10 +99,10 @@ identify the cause of a shutdown.
 ## JS and resource updates
 
 ```sh
-bun run vita:dev push --app hero
-bun run vita:dev watch --app hero
+bun run vita:dev push --app devkit
+bun run vita:dev watch --app devkit
 # Or send an existing target-correct package:
-bun run vita:dev push --app hero --package dist/hero-main.pocket
+bun run vita:dev push --app devkit --package dist/devkit-main.pocket
 ```
 
 `push` compiles JS/PAK from the runtime's resolved build plan and sends one
@@ -119,8 +130,8 @@ that guest before pushing.
 ## Native and JS replacement
 
 ```sh
-bun run vita:dev build --app hero
-bun run vita:dev native --app hero
+bun run vita:dev build --app devkit
+bun run vita:dev native --app devkit
 ```
 
 The build emits a VPK, SELF, and `.runtime.json` together. The native command
@@ -148,13 +159,38 @@ the system's USB mode. Exit the host process before returning to VitaShell
 USB storage. If another USB plugin owns the port, disable that plugin for
 the development session and reboot before starting Pocket Runtime.
 
+## Generic runtime
+
+`bun tools/vita.ts --runtime --no-usb-debug --release` builds the generic
+runtime (cargo feature `runtime`): no embedded app, and the program reads
+`app0:app.pocket` at startup (docs/PLATFORM.md, "Generic runtimes and the
+repack step"). `bun tools/runtime.ts vita` runs it and collects
+`dist/runtime/vita/`. A file the runtime refuses leaves one line on screen.
+A USB-debug build for an installed container takes the container's title:
+
+```sh
+bun tools/vita.ts --runtime --title=P25BFE5E2 --release
+bun run vita:dev native --runtime dist/vita/pocket-runtime.runtime.json --title P25BFE5E2
+bun run vita:dev stage --file app.pocket --into app --title P25BFE5E2
+bun run vita:dev stage --file game.vpk --title P25BFE5E2
+```
+
+**`stage` writes one file to the card.** `--into card` (the default) puts it
+in `ux0:data/pocket-runtime/` for VitaShell to install; `--into app` puts
+`app.pocket` in the container's own directory, read by the next runtime
+process that `native` starts (the running process released its `app0:`
+mount to write it). The worker writes the file, reads it back and compares
+size and checksum before it replies. The limit is **64 MiB**. The runtime's
+`push` admits any package with a `vita` variant for host ABI 2: it has no
+compiled app id.
+
 ## Captures and acceptance
 
 ```sh
-bun run vita:dev menu --app hero
-bun run vita:dev capture --app hero --out .pocket-build/validation/vita-usb/manual/frame.png
-bun run vita:dev reload --app hero
-bun run vita:dev reset --app hero
+bun run vita:dev menu --app devkit
+bun run vita:dev capture --app devkit --out .pocket-build/validation/vita-usb/manual/frame.png
+bun run vita:dev reload --app devkit
+bun run vita:dev reset --app devkit
 ```
 
 **Captures read the 960 × 544 GXM render buffer after GPU completion.** The

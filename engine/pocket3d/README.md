@@ -1,241 +1,151 @@
 # Pocket3D
 
-A small, modern, extensible 3D runtime in Rust — the native desktop base of
-the Pocket runtime family (see [docs/RUNTIMES.md](../../docs/RUNTIMES.md)). Built on
-**wgpu** (Metal/Vulkan/DX12) + **winit**, with GoldSrc **BSP maps as a
-first-class world format**.
+Pocket3D is a hardware-native 3D stack for portable interactive software. It is
+a family of mechanisms for building purpose-built 3D compilers and runtimes. It
+is not one portable engine and not one GPU API.
 
-Pocket3D is deliberately not a general-purpose engine. It is a lean substrate
-you can read in an afternoon: a forward renderer, a first-person character
-controller driven by collision traces, skeletal animation, and a headless
-verification story that makes every feature screenshot- and script-testable
-without opening a window. Specialized runtimes compose it with the guest
-infrastructure below; the first one is
-**[OpenStrike](https://github.com/pocket-stack/open-strike)**, a CS-like FPS
-whose gameplay rules are QuickJS mods and whose HUD is a PocketJS app.
+[3d.pocket.nexus](https://3d.pocket.nexus) shows it with frames captured on the
+consoles.
 
-![status](https://img.shields.io/badge/status-v0.1_experiment-orange)
+## Design
 
-## Native handheld consumers
+| | |
+| --- | --- |
+| **Hardware-native** | A game gets **a renderer for each machine**. GE, PICA200 and GXM are not normalized into one GPU API, so a renderer can use the PSP's fixed pipeline, the 3DS's two screens and the Vita's Cg programs and MSAA. |
+| **Compiler-first** | The game is modelled once as **Three.js content that runs in a browser**. A compiler lowers that scene to one console's texture formats, vertex layouts and draw structure. |
+| **Purpose-built engines** | Each game owns **its scene DSL, its IR and its renderers**. Games share the device kernels and nothing above them. |
+| **Built for coding agents** | The scene is code, and each later step is a command: compile, deploy to the console, measure late frames. |
 
-**`pocket3d-anim` shares skeletal sampling and pose interpolation.**
-**`pocket3d-mesh` shares skin bindings, palette evaluation and portable mesh data**
-between desktop and handheld hosts. The [citro3d backend](backends/citro3d/README.md)
-provides resident indexed GPU skinning on Nintendo 3DS, with caller-owned lights,
-poses, targets and frame boundaries. Its folding-prop example is independent of
-any application runtime.
+## Where the code lives
 
-[**Pocket Island**](https://github.com/pocket-stack/pocket-island) is a separate
-application repository. Movement and gait policy, expressions, chat, camera,
-scene resources, QuickJS commands and performance scenarios belong to its
-specialized runtime. It pins PocketJS as a submodule instead of carrying a copy
-of Pocket3D. Reusable fixes enter this repository before the app updates its pin.
+This directory is the entry point. The code sits on the axes
+[STRUCTURE.md](../../docs/STRUCTURE.md) defines:
 
-## Layout
+| Path | Contents |
+| --- | --- |
+| [`devices/`](../../devices/README.md) | Device kernels with explicit memory and GPU-lifetime contracts: `pocket-vita-gxm` (GXM memory, patching, targets, descriptors), `pocket-psp-ge` (GE frame storage, byte swizzle, cache publication), `pocket-3ds-pica` (PICA texture storage and mip publication) |
+| `engine/pocket3d/` | Desktop wgpu mechanisms, skeletons and clips, mesh loading, the shared physical simulation, the citro3d mesh submission surface, the title card, the app icon, the browser kernel `pocket-web-wgpu` and example consumers; listed under [Mechanisms in PocketJS](#mechanisms-in-pocketjs) |
+| [`site/pocket3d/`](../../site/pocket3d/) | The homepage served at 3d.pocket.nexus |
 
-```
-engine/pocket3d/
-├── crates/
-│   ├── pocket3d/          # desktop wgpu runtime
-│   │   ├── gpu            #   device bootstrap, offscreen targets + PNG readback
-│   │   ├── renderer       #   forward renderer: world / models / sprites / viewmodel / HUD passes
-│   │   ├── geometry       #   static lightmapped GPU geometry; world is a compatibility alias
-│   │   ├── model, anim    #   glTF GPU assets and shared animation re-exports
-│   │   ├── collide        #   TraceWorld trait + Quake-style character controller
-│   │   ├── camera, input, time, hud, scene, texture
-│   │   └── app            #   winit loop (fixed-step sim, mouse capture, overlay hook)
-│   ├── pocket3d-anim/     # skeletal sampling and local-pose interpolation
-│   ├── pocket3d-mesh/     # skin bindings, colored assets, P3M1 and native packing
-│   ├── pocket3d-bsp/      # GoldSrc BSP v30 + WAD3: geometry, lightmaps,
-│   │                      # entities, clipnode hull tracing (no GPU deps)
-│   ├── pocket3d-world/    # renderer-free fixed-step bodies, structures,
-│   │                      # attachments, heat, moisture, and combustion
-│   ├── pocket-mod/        # guest hosting: one QuickJS realm, mounted surfaces,
-│   │                      # one guest turn per tick (the mod-runtime mechanism)
-│   ├── pocket-ui-wgpu/    # the PocketJS `ui` surface on this base: pak feeding,
-│   │                      # HostOps for the guest, DrawList → wgpu, Blit compositor
-│   └── pocket-widget/     # desktop widgets as a capability: demand-render shell,
-│                          # embedded `ui` surfaces on meshes, part picking (docs/WIDGET.md)
-└── examples/
-    ├── uihost/            # PocketJS UI demos in a native macOS window
-    ├── handheld/          # first pocket-stage package + transitional 3D host
-    └── note-widget/       # a markdown sticky note — the flat pocket-widget form
-```
+Scene formats, cookers and scene renderers belong to the engines. Each engine
+keeps them in its own repository.
 
-## Ownership and dependencies
+## Browser
 
-| Component | Owns | Does not own |
+A game reaches a browser tab through one more renderer: **wgpu over WebGPU,
+compiled to wasm32, reading a pack the game's compiler lowered for a
+handheld**. [`crates/pocket-web-wgpu`](crates/pocket-web-wgpu/README.md)
+supplies the device, the screens, the pass that lays the PocketJS interface
+over the scene, ranged reads of the pack over HTTP, and the page: **one
+player for every game**, with the devices' shells. The game supplies its
+pipelines, its pack reader and its pad mapping.
+
+**The page shows the game as each handheld it runs on, in that handheld's
+shell.** One renderer and one pack stay loaded; picking a device changes the
+shell and the screen's size, starts that device's interface bundle in a new
+realm and maps the keys to that device's buttons. The shell's own keys and
+sticks take a pointer or a finger. A second screen is a second canvas, and a
+pointer is the finger or the stylus on a surface that takes touch. The page
+says the picture is simulated, and leads to the game's packages in Pocket
+Studio. **It speaks English and Japanese**, by the visitor's choice or the
+browser's language, and a game gives its own words in each.
+
+## Title card
+
+A game built on Pocket3D shows the Pocket3D title card when it starts: the
+mark and the wordmark, **144 ticks at 60 Hz**, before the game's renderer
+starts. [`pocket3d-title`](crates/pocket3d-title/README.md)
+draws it into the console's frame buffer on the PS Vita, the PSP and the
+Nintendo 3DS, and over the page in a browser; the three drawers produce the
+same frames. Its README lists the calls and the rules for a game. A browser
+build plays it through `titleCard` of the browser kernel's
+`pocket3d-shell.js`, before the page shows its canvas.
+
+## App icon
+
+A game built on Pocket3D shows the Pocket3D mark as its icon in the console's
+launcher. [`icon/`](icon/README.md) holds
+the file each launcher reads: **144 x 80 for the XMB, 128 x 128 indexed for the
+PS Vita's bubble, 48 x 48 and 24 x 24 for the 3DS, 57 x 57 and 114 x 114 for
+the iPod touch**. `bun tools/pocket3d-icon.ts` bakes them from
+`site/pocket3d/mark.svg`. A game reads them from its PocketJS checkout and
+keeps no icon of its own; the picture behind the icon (`PIC1.PNG`, the
+LiveArea) stays a capture of the game.
+[`skills/pocket3d-brand`](../../skills/pocket3d-brand/SKILL.md) is the procedure
+for a game repository.
+
+## Interface
+
+A game built on Pocket3D draws its title, its readouts, its menus and its
+touch controls with PocketJS, over the scene: **one PocketJS app with one
+presentation per device shape, and a renderer that draws no text**. The
+game's state reaches the app, and the app's commands reach the game, over the
+`pocket.overlay` service answered inside the process. In a browser tab the
+same bundles run in PocketJS's web realm, and the UI core rasterizes the
+interface with its alpha for the renderer to lay over the scene.
+[`skills/pocket3d-interface`](../../skills/pocket3d-interface/SKILL.md) is the
+procedure for a game repository.
+
+## License
+
+Pocket3D is under the [Pocket3D License](./LICENSE), version 1.0. It grants
+what the MIT License grants, with one more condition: **a distributed product
+that draws 3D scenes with Pocket3D shows the title card each time it starts**,
+unmodified and at its full length. The PocketJS hosts in this repository, and
+software that reaches Pocket3D only through them to draw PocketJS interfaces,
+are exempt. A separate written license from the copyright holder removes the
+condition: write to support@pocket.nexus. Copies published under the MIT
+License before this license stay under the MIT License.
+
+## Engines
+
+| Engine | Owns | Renderers |
 | --- | --- | --- |
-| `pocket3d-anim` | TRS channels, hierarchy evaluation, pose interpolation | Meshes, rendering, movement policy |
-| `pocket3d-mesh` | Shared `Skin`, palette evaluation, colored assets and packing | Window/GPU lifecycle, clip selection |
-| `pocket3d` | Desktop glTF loading, wgpu resources, rendering and window loop | A second animation or skin-binding implementation |
-| `pocket3d-world` | Fixed-turn entities, contacts, locomotion and material reactions | Render geometry, model assets, animation |
-| Application | Input mapping, gait/clip choices, camera, scene composition | Copies of shared animation or mesh mechanisms |
+| [OpenStrike](https://github.com/pocket-nexus/open-strike) | BSP, PVS and collision, `.p3d`, the map cooker | GE, GXM, GLES2 |
+| Pocket Atlas | PlaceIR, target profiles, `.place` packs | GXM, PICA200 |
+| Pocket Maneuver | WorldIR, device profiles, `.pack` packs with a compile receipt | GXM, PICA200, GE |
+| Pocket Tokyo | CityIR, device profiles, city packs with a compile receipt | GXM, GE, PICA200 |
 
-`pocket3d` depends on `pocket3d-mesh` and `pocket3d-anim`; `pocket3d-mesh`
-depends on `pocket3d-anim`. `pocket3d-world` is independent of all three. An app
-can connect its simulation snapshots to a renderer. **`pocket3d::geometry`
-contains static render geometry; `pocket3d::world` is an alias for that module.**
-Neither is the `pocket3d-world` simulation crate.
+## Mechanisms in PocketJS
 
-Movement models have different contracts. `pocket3d-bsp::collide` owns the
-trace-based Quake controller shared by desktop and PSP. `pocket3d-world` owns
-contact-constrained sphere/capsule locomotion and material-dependent grip.
-Island owns its bounded walk region and obstacle policy. Changes to one model
-do not add game-name branches to another solver. Shared solver changes must
-preserve their physical invariant across multiple geometries/materials.
+Atlas owns PlaceIR, profiles, recipes, native packs and its scene renderers.
+OpenStrike owns BSP/PVS/collision, `.p3d`, the map cooker and its GE/GXM/GLES2
+renderers in [open-strike/domain](https://github.com/pocket-nexus/open-strike/tree/main/domain).
+Those implementations have moved out of PocketJS. The old desktop `bsp`
+feature and collision re-export are removed; OpenStrike owns its desktop
+`bsp_world` adapter too.
 
-Desktop `pocket3d::anim`, `pocket3d::model::Skin` and `pocket3d::world` import
-paths remain available through re-exports. The experimental handheld mesh
-imports move from `pocket3d_anim::mesh` to
-[`pocket3d_mesh::{colored, rigid}`](crates/pocket3d-mesh/README.md).
+The existing names below identify experimental implementations, not a mandatory
+API for other members of the family:
 
-## uihost — the PSP UI runtime on the desktop
+| Path | Responsibility / consumers |
+| --- | --- |
+| `crates/pocket3d` | Desktop wgpu uploader, camera and render mechanisms; PocketJS desktop host, widgets and OpenStrike desktop |
+| `crates/pocket3d-anim` | Skeletons, clips and pose sampling; desktop models and VRM |
+| `crates/pocket3d-mesh` | Mesh loading; desktop models and widgets |
+| `crates/pocket3d-world` | Shared physical simulation and its invariant tests |
+| `crates/pocket3d-packs` | A game's packs as pieces named by their bytes under one manifest, read by section on every device (`docs/POCKET3D-PACKS.md`); `no_std` with a C header for the Nintendo 3DS |
+| `crates/pocket3d-title` | The title card a Pocket3D game shows at launch, drawn into a frame buffer with no GPU; Rust for the PS Vita and PSP, a C header for the Nintendo 3DS, a module for browser references |
+| `crates/pocket-web-wgpu` | The browser kernel: WebGPU device and screens, the interface overlay pass, ranged pack reads, the page's modules; Pocket Tokyo |
+| `icon/` | The app icon a Pocket3D game shows in a console's launcher: the mark on the title card's ground, one file per launcher (PSP, PS Vita, Nintendo 3DS, iPod touch), baked by `tools/pocket3d-icon.ts` |
+| `backends/citro3d` | Existing 3DS mesh submission surface used by handheld experiments and OpenStrike |
+| `examples/` | Widget and handheld consumers |
 
-The same app bundle + pak that boots on PSP hardware runs in a native window:
-QuickJS guest (`pocket-mod`), the same `pocketjs-core`, rendered through wgpu
-(`pocket-ui-wgpu`) with a chunky nearest-neighbor integer upscale.
+[Device kernels](../../devices/README.md) expose native GXM, GE and PICA
+mechanisms with explicit memory and GPU-lifetime contracts. The browser kernel
+`crates/pocket-web-wgpu` exposes the browser's WebGPU device with the page
+around it. Platform compilers retain knowledge of target formats, limits and
+costs. New shared code must come from demonstrated needs in actual
+applications, without domain scene names or implicit GPU waits.
 
-```sh
-# from the repo root: build a demo, then host it
-bun tools/build.ts hero-main
-cd pocket3d
-cargo run -p uihost -- --app hero-main                # window, 2x scale
-cargo run -p uihost -- --app hero-main --screenshot out.png --frames 10
-```
+## Validation
 
-Arrows = D-pad, Z/Enter = CROSS, X = CIRCLE, A/S = SQUARE/TRIANGLE,
-Q/W = triggers, Tab = SELECT, Space = START, Esc quits.
-
-## pocket-stage — Pocket apps inside authored 3D displays
-
-The first pocket-widget runtime (docs/WIDGET.md): a transparent, undecorated,
-always-on-top 3D stage with one or more authored display surfaces. The bundled
-stage is a PSP, but the process name is deliberately model-neutral. After the
-manifest-v1 migration described in docs/WIDGET.md, iPod, phone, laptop, television,
-and room packages use the same host. A JSON asset manifest keeps model-specific
-scale, LOD paths, display semantics, camera presets, and CPU pick proxies out
-of the runtime. The PSP screen is a live `ui` surface (`OffscreenTarget` bound
-to the exact semantic glTF material), and its buttons feed real BTN bits — the
-same unmodified bundle uihost runs.
+Host checks from the repository root:
 
 ```sh
-bun run widget                   # from the repo root: build bundle + binary, launch
-bun run widget im                # any demo
-bun run widget im --auto-quit 5  # app first; flags and values pass to pocket-stage
-bun run widget -- --profile psp.json --orbit 35,-12
-bun run widget --proof           # ray-picked CIRCLE acceptance → Count: 1
+cargo test --locked -p pocket3d -p pocket3d-world --lib
+cargo check --locked -p pocket-widget -p pocket-vrm -p pocket-ui-wgpu
 ```
 
-The optional app name is recognized only as the first argument; otherwise the
-widget defaults to `hero-main`. All following arguments are forwarded to the
-`pocket-stage` binary in order, including values for options such as
-`--auto-quit`, `--profile`, and `--orbit`. `--proof` is the only
-wrapper-specific flag and is consumed by `tools/widget.ts`; a standalone
-`--` is accepted as Bun's option separator.
-
-Or by hand:
-
-```sh
-bun tools/build.ts hero-main   # from the repo root
-cd pocket3d
-cargo run -p pocket-stage -- --app hero-main
-cargo run -p pocket-stage -- --app hero-main --screenshot out.png --frames 30
-```
-
-Click caps to press them, drag the nub, and double-click the screen to animate
-both framing and orbit into an exact-front, screen-filling focus view
-(`--focus` starts there). Double-click again to animate back to the exact orbit
-that was active before focus; repeated focus cycles do not reset the desk view.
-Drag inert body areas to move the window. On a Mac trackpad, two-finger scroll
-is the primary orbit gesture: horizontal motion changes yaw and vertical motion
-changes pitch. Near exact front, a gentle magnetic dead zone snaps both angles
-to zero; a wider release threshold keeps trackpad noise from making the camera
-jitter, while accumulated input still lets a deliberate gesture pull away.
-A mouse wheel follows the same two-axis path, and right-drag remains available
-as a mouse-compatible fallback. Orbit input pauses during focus and its framing
-transition so the saved desk orbit cannot be changed accidentally. While a
-gesture is active, the widget temporarily uses the 80,879-triangle eco LOD;
-after about 100 ms of
-scroll inactivity (or immediately after right-button release) it restores the
-131,680-triangle settled LOD for one retained high-quality frame. Their 19
-material textures are content-addressed and uploaded only once. The uihost key
-map works throughout.
-Headless scripting:
-`--click x,y` presses that window pixel mid-run, `--tap circle@30` holds a
-button for six ticks, `--hold circle` holds it for the whole run. The guest
-ticks at a fixed 60 Hz; GPU frames render only when something changed
-(watch the `pocket-widget: … frames rendered` line on exit). `--max-fps 30`
-is available when a lower active-power ceiling matters more than 60 Hz camera
-motion.
-
-## note-widget — a markdown sticky on your desk
-
-The first *flat* pocket-widget runtime: no scene at all — the borderless,
-resizable, always-on-top window IS a live `ui` surface, rendered at Retina
-density (density-2 pak + `render_words_scaled`) and demand-driven like every
-widget. The guest is `apps/note` (markdown view/edit, popup menu); the host
-forwards the real keyboard/mouse/wheel/resize over the spec svc channel and
-synthesizes CIRCLE for clicks, so the framework's hover-focus + onPress
-pipeline does all dispatch.
-
-```sh
-bun tools/build.ts note-main --density=2   # from the repo root
-cd pocket3d
-cargo run -p note-widget
-cargo run -p note-widget -- --file ~/notes/todo.md --width 380 --height 520
-```
-
-Click the text to edit (Esc/DONE to finish), drag the header to move, drag
-the dotted corner or any edge to resize (relayout is live), scroll to
-scroll; the ••• menu has theme/reset/close, edits autosave to `--file`
-(default `~/.pocket-note.md`), ⌘Q quits. Headless scripting:
-`--screenshot out.png --frames N`, `--click x,y@frame`, `--type text@frame`,
-`--key Enter@frame`, `--scroll dy@frame`.
-
-## The substrate, briefly
-
-- **Rendering** — single forward pass per frame into any `TextureView`:
-  world batches (albedo × lightmap × 2, alpha-test variant, gradient sky
-  from sky-brush rays), then skinned/static models (dynamic-offset instance
-  + joint-palette buffers), additive sprites/beams, a depth-cleared
-  viewmodel pass, and a bitmap-font debug HUD. A `Game::overlay` hook admits
-  composite passes (this is where OpenStrike's JSX HUD draws). sRGB-correct,
-  CPU mipgen, anisotropic filtering.
-- **BSP as data** — `pocket3d-bsp` parses v30 lumps + WAD3 into plain
-  structs: batched geometry with a packed lightmap atlas, entities as
-  key/value maps, and the original clipnode hulls. Everything is converted
-  to Y-up at parse time (the transform is a proper rotation, so plane
-  equations and texture projections survive unchanged).
-- **Collision** — a faithful port of the recursive clipnode trace
-  (`SV_RecursiveHullCheck`), then a GoldSrc-flavored controller on top:
-  friction/accelerate, air control with the 30 u/s cap, 4-plane slide
-  moves, 18-unit stair stepping, gravity 800. The map's own collision data
-  does the work — no mesh colliders, no physics engine.
-- **Animation** — glTF clips sampled onto a node hierarchy, joint palettes
-  skinned on the GPU. Multi-skin characters concatenate into one palette;
-  skinned bounds are measured in rest pose, so cm-scale or Z-up rigs
-  (Mixamo exports) size correctly. Assets load from `.glb` or are built
-  procedurally.
-- **Determinism** — fixed-step simulation, an explicit xorshift RNG, and
-  injectable input make headless runs reproducible.
-
-## Extension points
-
-- New world format → produce a `WorldSource` (+ implement `TraceWorld`).
-- New game → implement the `Game` trait; compose a `Scene`; mount surfaces
-  with `pocket-mod` (see docs/RUNTIMES.md for the discipline).
-- **Systemic simulation stays renderer-independent.** Use `pocket3d-world`
-  for deterministic bodies, attachments, structural damage, and reactive
-  materials, then translate its state into a `Scene` inside the game adapter.
-- More passes (decals, particles-with-physics, shadow maps) slot into
-  `Renderer::render` alongside the existing ones, or hang off
-  `Game::overlay`.
-
-## Non-goals for v0.1 (a.k.a. the roadmap)
-
-PVS culling, audio, crouch/ladders/water movement, GoldSrc MDL models,
-Source BSP, and networking are all explicitly out of scope for this first
-cut. The point was to prove the pipeline end to end: **BSP in, playable
-round loop out** — which OpenStrike does, in its own repo, through the mod
-runtime.
+Device builds and on-device measurements belong to the application that owns
+the frame loop. A passing host test is not physical GPU acceptance.

@@ -1,5 +1,5 @@
 /** Track reads, writes, subscriptions and host effects to derive a stable reaction schedule. */
-import { emptyLedger, type Ledger, type ModelExpr, type ModelBlock, type ModelStmt, type ModelProgram, type ModelAwaitable } from "./aot-model-ir.ts";
+import { emptyLedger, type Ledger, type ModelExpr, type ModelBlock, type ModelStmt, type ModelProgram, type ModelAwaitable, type ModelTarget } from "./aot-model-ir.ts";
 import { fail, location } from "./aot-types.ts";
 const sorted = (values: number[]) => [...new Set(values)].sort((a, b) => a - b);
 export function combineModelLedgers(...values: Ledger[]): Ledger {
@@ -19,6 +19,12 @@ export function analyzeModelLedgers(program: ModelProgram): void {
     const definition=type.kind==="named"?program.types.find(value=>value.name===type.name):undefined;
     return definition?.kind==="enum"||definition?.kind==="newtype"&&primitive(definition.base);
   }
+  /** A write through a place writes its root field and reads its index operands. */
+  function target(t: ModelTarget): Ledger {
+    const indexes = t.kind === "element" ? [expr(t.index)] : t.kind === "path" ? t.steps.flatMap(step => step.kind === "index" ? [expr(step.index)] : []) : [];
+    const root = t.kind === "field" ? t.id : t.kind === "path" && t.root.kind === "field" ? t.root.id : undefined;
+    return combineModelLedgers(...indexes, { ...emptyLedger(), writes: root === undefined ? [] : [root] });
+  }
   function expr(e: ModelExpr): Ledger {
     let result = emptyLedger();
     switch (e.kind) {
@@ -37,6 +43,8 @@ export function analyzeModelLedgers(program: ModelProgram): void {
       case "builtin": result = combineModelLedgers(...e.args.map(value => value.kind === "lambda" ? branches(emptyLedger(), [expr(value), emptyLedger()]) : expr(value))); break;
       case "lambda": result = block(e.body); break;
       case "sequence": result = combineModelLedgers(block(e.body), expr(e.value)); break;
+      case "constant": break;
+      case "mutate": result = combineModelLedgers(target(e.target), ...e.args.map(expr)); break;
     }
     e.ledger = { ...result, maySubscribe: result.maySubscribe ?? result.subscriptions, mustSubscribe: result.mustSubscribe ?? result.subscriptions }; return e.ledger;
   }
@@ -55,11 +63,13 @@ export function analyzeModelLedgers(program: ModelProgram): void {
     switch (s.kind) {
       case "let": case "expr": result = expr(s.kind === "let" ? s.init : s.value); break;
       case "return": if (s.value) result = expr(s.value); break;
-      case "assign": result = expr(s.value); if (s.target.kind === "field") result = combineModelLedgers(result, { ...emptyLedger(), writes: [s.target.id] }); if (s.target.kind === "element") result = combineModelLedgers(result, expr(s.target.index)); break;
+      case "assign": result = combineModelLedgers(expr(s.value), target(s.target)); break;
       case "set": result = combineModelLedgers(expr(s.value), { reads: s.pre ? [s.signal] : [], writes: [s.signal], subscriptions: [], external: false }); break;
       case "if": result = branches(expr(s.condition), [block(s.then), s.else ? block(s.else) : emptyLedger()]); break;
       case "for": result = combineModelLedgers(s.start ? expr(s.start) : emptyLedger(), expr(s.bound), branches(emptyLedger(), [block(s.body), emptyLedger()])); break;
       case "forOf": result = combineModelLedgers(expr(s.source), branches(emptyLedger(), [block(s.body), emptyLedger()])); break;
+      case "while": result = combineModelLedgers(expr(s.condition), branches(emptyLedger(), [combineModelLedgers(block(s.body), s.update ? block(s.update) : emptyLedger()), emptyLedger()])); break;
+      case "break": case "continue": break;
       case "switch": result = branches(expr(s.value), [...s.cases.map(x => combineModelLedgers(x.value ? expr(x.value) : emptyLedger(), block(x.body))), ...(s.cases.some(x => !x.value) ? [] : [emptyLedger()])]); break;
       case "call": result = combineModelLedgers(...s.args.map(expr), functions.get(s.callee)?.ledger ?? emptyLedger()); break;
       case "start": result = combineModelLedgers(...s.args.map(expr), tasks.get(s.task)?.states[0]?.body.ledger ?? functions.get(s.task)?.ledger ?? emptyLedger(), { ...emptyLedger(), external: true }); break;
@@ -163,9 +173,10 @@ export function analyzeModelLedgers(program: ModelProgram): void {
         const paths = s.cases.map(branch => { const path = new Map(aliases); markBlock(branch.body, path); return path; });
         if (!s.cases.some(branch => !branch.value)) paths.push(new Map(aliases));
         intersect(aliases, paths);
-      } else if (s.kind === "for" || s.kind === "forOf") {
+      } else if (s.kind === "for" || s.kind === "forOf" || s.kind === "while") {
         invalidate(aliases, s.ledger?.writes ?? []);
         markBlock(s.body, new Map(aliases));
+        if (s.kind === "while" && s.update) markBlock(s.update, new Map(aliases));
       } else if (s.kind === "batch" || s.kind === "untrack") markBlock(s.body, aliases);
       else if (s.kind === "await") aliases.clear();
       else {

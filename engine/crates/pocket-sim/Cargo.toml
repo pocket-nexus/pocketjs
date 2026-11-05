@@ -1,9 +1,0 @@
-[package]
-name = "pocket-sim"
-description = "Bounded prediction, reconciliation and snapshot sampling for fixed-step simulations"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-
-[dependencies]

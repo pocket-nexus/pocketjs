@@ -42,6 +42,8 @@ export interface ResolvedSystemPackage {
 }
 
 export interface ResolvedSystemPlanContent {
+  readonly profile: ResolvedBuildPlan["profile"];
+  readonly profileHash: string;
   readonly system: Pick<PocketSystemV1, "id" | "name" | "title" | "version">;
   readonly target: {
     readonly id: string;
@@ -306,6 +308,8 @@ export function resolveSystemPlan(
   return {
     ok: true,
     plan: finalizeSystemPlan({
+      profile: systemUI.plan.profile,
+      profileHash: systemUI.plan.profileHash,
       system: {
         id: system.id,
         name: system.name,

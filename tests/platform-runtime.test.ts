@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ import {
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
+import { SUBPATHS, resolvesIn } from "../framework/compiler/subpaths.ts";
 import type { HostOps } from "../framework/src/host.ts";
 
 async function bundlePlatform(defines: Record<string, string> = {}) {
@@ -21,7 +23,7 @@ async function bundlePlatform(defines: Record<string, string> = {}) {
   expect(result.success).toBe(true);
   const source = await result.outputs[0]!.text();
   return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`) as Promise<{
-    platform: { target: string; pixelRatio: number; features: Record<string, boolean> };
+    platform: { target: string; pixelRatio: number; features: Record<string, boolean>; httpResponseBytes: number };
     hasFeature: (feature: "input.buttons") => boolean;
   }>;
 }
@@ -37,13 +39,14 @@ describe("platform feature availability", () => {
       target: "psp",
       pixelRatio: 1,
       features: { "input.buttons": true },
+      httpResponseBytes: 256 * 1024,
     });
     expect(runtime.hasFeature("input.buttons")).toBe(true);
   });
 
   test("legacy builds have an unknown target and no feature claims", async () => {
     const runtime = await bundlePlatform();
-    expect(runtime.platform).toEqual({ target: "unknown", pixelRatio: 1, features: {} });
+    expect(runtime.platform).toEqual({ target: "unknown", pixelRatio: 1, features: {}, httpResponseBytes: 256 * 1024 });
     expect(runtime.hasFeature("input.buttons")).toBe(false);
   });
 
@@ -54,6 +57,13 @@ describe("platform feature availability", () => {
       __POCKET_PIXEL_RATIO__: "2",
     });
     expect(runtime.platform.pixelRatio).toBe(2);
+  });
+
+  test("exposes the host's http response limit, never below the floor", async () => {
+    const larger = await bundlePlatform({ __POCKET_HTTP_RESPONSE_BYTES__: String(4 << 20) });
+    expect(larger.platform.httpResponseBytes).toBe(4 << 20);
+    const smaller = await bundlePlatform({ __POCKET_HTTP_RESPONSE_BYTES__: "1024" });
+    expect(smaller.platform.httpResponseBytes).toBe(256 * 1024);
   });
 });
 
@@ -116,7 +126,11 @@ test("the build resolver owns every published framework export", async () => {
         exported.startsWith("./vue-vapor/")
       ? "vue-vapor"
       : "solid";
-    expect(packagePath(spec, framework), spec).not.toBeNull();
+    const key = exported === "." ? "" : exported.slice(2);
+    const row = SUBPATHS[key] ?? SUBPATHS[key.replace(/^(?:solid|vue-vapor|octane)(?:\/|$)/, "")];
+    // The UI compiler resolves its own domain's rows and refuses the rest by name.
+    if (resolvesIn(row, "ui")) expect(packagePath(spec, framework), spec).not.toBeNull();
+    else expect(() => packagePath(spec, framework), spec).toThrow(/worker domain/);
   }
 });
 
@@ -148,7 +162,7 @@ test("external apps share PocketJS's Solid runtime identity", async () => {
       define: {
         "process.env.NODE_ENV": '"production"',
         __POCKET_TARGET__: '"symbian-e7-dev"',
-        __POCKET_HOST_ABI__: "4",
+        __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
         __POCKET_FEATURES__: "{}",
         __POCKET_PIXEL_RATIO__: "1",
       },
@@ -180,7 +194,7 @@ test("parallel bundles receive their own generated style table", async () => {
         define: {
           "process.env.NODE_ENV": '"production"',
           __POCKET_TARGET__: '"symbian-e7-dev"',
-          __POCKET_HOST_ABI__: "4",
+          __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
           __POCKET_FEATURES__: "{}",
           __POCKET_PIXEL_RATIO__: "1",
         },
@@ -292,7 +306,7 @@ async function bundleAnalogProbe(framework: PocketFramework): Promise<string> {
       define: {
         "process.env.NODE_ENV": '"production"',
         __POCKET_TARGET__: '"vita"',
-        __POCKET_HOST_ABI__: "2",
+        __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
         __POCKET_FEATURES__: JSON.stringify({ "input.analog.left": true }),
         __POCKET_PIXEL_RATIO__: "2",
       },

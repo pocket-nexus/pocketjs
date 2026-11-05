@@ -45,18 +45,8 @@ import { paletteColor } from "./tailwind.ts";
 // Theme types (mirrors tailwind.config.js `theme.keyframes` / `theme.animation`)
 // ---------------------------------------------------------------------------
 
-/** One keyframe's declarations, CSS-in-JS style (`{ opacity: 0.5, transform: "rotate(45deg)" }`). */
-export type KeyframeProps = Record<string, string | number>;
-/** Selector -> declarations. Selectors: `from`, `to`, `50%`, comma lists (`"from,to"`, `"30%,70%"`). */
-export type Keyframes = Record<string, KeyframeProps>;
-
-export interface AnimationTheme {
-  keyframes?: Record<string, Keyframes>;
-  /** Name -> CSS `animation` shorthand (comma list ok). The object form adds
-   *  `loop`: a whole-choreography loop period (PocketJS extension — restarts
-   *  the full comma list, delays included, every N ms). */
-  animation?: Record<string, string | { value: string; loop?: string | number }>;
-}
+import type { AnimationTheme, KeyframeProps, Keyframes } from "../../contracts/spec/pocket-manifest.ts";
+export type { AnimationTheme, KeyframeProps, Keyframes };
 
 // ---------------------------------------------------------------------------
 // Tailwind built-ins (tailwindcss defaultTheme; bounce's translate-25% is not
@@ -126,14 +116,17 @@ export function resetAnimationBake(): void {
 }
 
 /** Compile one style table without inheriting or changing another build's ids. */
-export function withIsolatedAnimationBake<T>(compile: () => T): T {
+export function withIsolatedAnimationBake<T>(compile: () => T, config?: { theme?: AnimationTheme; tickHz?: number }): T {
+  const previousKeyframes = themeKeyframes, previousAnimation = themeAnimation, previousHz = bakeHz;
   const previousBaked = baked;
   const previousIds = new Map(bakedIds);
   const previousResolved = new Map(resolved);
   resetAnimationBake();
   try {
+    if (config) { registerAnimationTheme(config.theme); setAnimationTickRate(config.tickHz ?? 60); }
     return compile();
   } finally {
+    themeKeyframes = previousKeyframes; themeAnimation = previousAnimation; bakeHz = previousHz;
     baked = previousBaked;
     bakedIds.clear();
     for (const [key, value] of previousIds) bakedIds.set(key, value);
@@ -261,6 +254,7 @@ const KEYFRAME_PROPS: Record<string, [number[], Encode]> = {
   arcStart: [[PROP.arcStart], degBits],
   arcSweep: [[PROP.arcSweep], degBits],
   arcWidth: [[PROP.arcWidth], pxBits],
+  skewX: [[PROP.skewX], degBits],
 };
 
 /** kebab-case -> camelCase (accepts `background-color` next to `backgroundColor`). */
@@ -293,6 +287,7 @@ function parseTransform(value: string | number, where: string): Map<number, numb
       case "rotate": out.set(PROP.rotate, parseDeg(args[0], w)); break;
       case "rotateX": out.set(PROP.rotateX, parseDeg(args[0], w)); break;
       case "rotateY": out.set(PROP.rotateY, parseDeg(args[0], w)); break;
+      case "skewX": out.set(PROP.skewX, parseDeg(args[0], w)); break;
       case "perspective": break; // context distance is static (perspective-[N] on the root)
       case "scale": {
         const sx = parseScalar(args[0], w);
@@ -321,6 +316,7 @@ const TRANSFORM_IDENTITY = new Map<number, number>([
   [PROP.rotate, 0],
   [PROP.rotateX, 0],
   [PROP.rotateY, 0],
+  [PROP.skewX, 0],
   [PROP.scaleX, 1],
   [PROP.scaleY, 1],
 ]);

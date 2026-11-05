@@ -1,0 +1,17 @@
+[package]
+name = "pocket-media"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-media"
+keywords = ["pocketjs", "media", "codec"]
+categories = ["no-std", "multimedia"]
+edition = "2021"
+description = "Stream containers, media transport messages, and asset codecs for PocketJS"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-spec = { workspace = true, default-features = true }

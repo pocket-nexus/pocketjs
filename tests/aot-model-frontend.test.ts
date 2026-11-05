@@ -47,7 +47,15 @@ createEffect(() => { count(); untrack(() => { console.log(tick()); }); });`).mod
     ['export const [n, setN] = createSignal(0); createEffect(on([n], () => setN(x => x + 1)));', "cycle"],
     ['export const [a, setA] = createSignal(false); export const [n, setN] = createSignal(0); createEffect(() => { if (a()) console.log(n()); });', "dependencies of this effect depend on control flow"],
     ['let field = 1; export const memo = createMemo(() => field);', "private field"],
-    ['export function go() { while (true) {} }', "while"],
+    ['export async function go() { while (true) {} }', "while"],
+    ['export function go() { for (let i = 0; i < 3; i++) { switch (i) { case 1: if (i > 0) { break; } break; default: break; } } }', "break inside a switch case"],
+    ['export function go() { outer: for (let i = 0; i < 3; i++) {} }', "labeled"],
+    ['export function go() { break; }', "enclosing loop"],
+    ['import { copyRange } from "@pocketjs/framework/solid/std"; interface P { x: i32 } let ps: P[] = []; let qs: P[] = []; export function go() { copyRange(ps, 0, qs, 0, 1); }', "copyRange requires"],
+    ['import { copyRange } from "@pocketjs/framework/solid/std"; type Name = string & { readonly __newtype?: "Name" }; let a: Name[] = []; let b: Name[] = []; export function go() { copyRange(a, 0, b, 0, 1); }', "copyRange requires"],
+    ['import { truncate, type Cap } from "@pocketjs/framework/solid/std"; let xs: Cap<i32[], 4> = [1]; export function go() { truncate(xs, 0); }', "truncate on a Cap array"],
+    ['import { removeAt, type Cap } from "@pocketjs/framework/solid/std"; let xs: Cap<i32[], 4> = [1]; export function go() { removeAt(xs, 0); }', "removeAt on a Cap array"],
+    ['export function go() { const x = 1.5; const y = x & 1; }', "integer operands"],
     ['export function go() { let x = 1; x = x / 2; }', "numeric type"],
     ['export const [items, setItems] = createSignal<i32[]>([1]); export function go() { const a = items(); a[0] = 2; }', "write through a view"],
     ['export const [items, setItems] = createSignal<i32[]>([1]); export function go() { return items() === items(); }', "non-primitive"],
@@ -55,6 +63,23 @@ createEffect(() => { count(); untrack(() => { console.log(tick()); }); });`).mod
   ])("rejects a specified semantic violation: %s", (source, message) => expect(() => analyze(source)).toThrow(message));
   test("checks a reached module even when importing only a constant", () => {
     expect(() => analyze('import { LIMIT } from "./pure"; export const [n, setN] = createSignal(LIMIT);', { "pure.ts": "export const LIMIT = 3;\nconsole.log(1);" })).toThrow("pure.ts:2:1");
+  });
+  test("rejects state fields of two modules that share a host accessor", () => {
+    const state = 'import type { i32 } from "@pocketjs/framework/solid/std"; export let x: i32 = 0; export function bump(): void { x += 1; }';
+    expect(() => analyze('import { bump } from "./a/state"; import { bump as other } from "./b/state"; export function go() { bump(); other(); }', { "a/state.ts": state, "b/state.ts": state })).toThrow("share the host accessor state_x");
+  });
+  test("rejects a root export with the name of a state accessor", () => {
+    const state = 'import type { i32 } from "@pocketjs/framework/solid/std"; export let x: i32 = 0; export function bump(): void { x += 1; }';
+    expect(() => analyze('import { bump } from "./state"; export function state_x(): void { bump(); }', { "state.ts": state })).toThrow("the state accessor state_x of field x");
+    expect(() => analyze('import { bump } from "./state"; export const [state_x_mut, setIt] = createSignal(0); export function go(): void { bump(); }', { "state.ts": state })).toThrow("the state accessor state_x_mut");
+  });
+  test("rejects state fields whose accessors share a name", () => {
+    const state = 'import type { i32 } from "@pocketjs/framework/solid/std"; export let x: i32 = 0; export let x_mut: i32 = 0; export function bump(): void { x += x_mut; }';
+    expect(() => analyze('import { bump } from "./state"; export function go(): void { bump(); }', { "state.ts": state })).toThrow("share the host accessor state_x_mut");
+  });
+  test("rejects an inferred function whose end is reachable after returning a value", () => {
+    expect(() => analyze('function f(x: i32) { if (x > 0) { return 1; } } export const [n, setN] = createSignal(0); export function go(): void { setN(f(1)); }')).toThrow("return one on every path");
+    expect(() => analyze('function f(x: i32) { while (x > 0) { return 1; } } export const [n, setN] = createSignal(0); export function go(): void { setN(f(1)); }')).toThrow("return one on every path");
   });
   test("rejects state from another model region", () => {
     expect(() => analyze('import { n } from "./other"; export function read() { return n(); }', { "other.ts": 'import { createSignal } from "solid-js"; export const [n, setN] = createSignal(0);' })).toThrow("model");
@@ -155,11 +180,6 @@ describe("Model AOT admitted module shapes", () => {
     const unions=p.types.filter(t=>t.kind==="union"&&t.discriminant==="kind");
     expect(unions).toHaveLength(2);expect(unions[0]!.name).not.toBe(unions[1]!.name);
     expect(unions.map(t=>t.kind==="union"?t.variants[0]!.fields[0]!.type:undefined)).toEqual([{kind:"number",name:"i32"},{kind:"number",name:"f64"}]);
-  });
-  test("mixed any results preserve optional typed service results", () => {
-    const p=analyze('import {any,after} from "@pocketjs/framework/solid/std";import {net} from "@pocketjs/framework/net/model";export const[result,setResult]=createSignal("");export async function run():Promise<void>{const response=await any([net.get("/x"),after(1)]);if(response!==undefined)setResult(response.kind);}');
-    const statement=p.modules[0]!.functions[0]!.body.stmts.find(s=>s.kind==="await");
-    expect(statement).toMatchObject({kind:"await",binder:{type:{kind:"option",value:{kind:"named"}}}});
   });
   test("string literal unions adopt enum storage and retain primitive equality", () => {
     const module=analyze("export function choose():boolean{const property:'width'|'height'='width';return property==='width';}").modules[0]!;

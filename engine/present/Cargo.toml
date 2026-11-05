@@ -1,0 +1,20 @@
+[package]
+name = "pocket-present"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-present"
+keywords = ["pocketjs", "rendering", "display"]
+categories = ["no-std", "rendering"]
+edition = "2021"
+description = "Forwarding crate for damage tracking in pocket-render, composition in pocket-raster, and the coordinator in pocket-runtime"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }

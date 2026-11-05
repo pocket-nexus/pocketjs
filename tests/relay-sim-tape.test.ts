@@ -1,4 +1,4 @@
-// hosts/sim relay frame tape hook: default-off zero counters, enabled
+// programs/sim relay frame tape hook: default-off zero counters, enabled
 // save -> replay round trip over P1 vectors, and first-divergent-seq
 // reporting. Also pins the globalThis.relayTape bootWorld slot.
 
@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import {
   createSimRelayTapeHook,
   loadSimRelayReplay,
-} from "../hosts/sim/relay-tape.ts";
+} from "../programs/sim/relay-tape.ts";
 import type { RelayFrameTransport } from "../framework/src/relay/tape.ts";
 
 const FIX = new URL("./fixtures/relay/", import.meta.url);
@@ -118,7 +118,7 @@ const distHero = new URL("../dist/hero-main.js", import.meta.url).pathname;
 const slotTest = existsSync(distHero) ? test : test.skip;
 
 slotTest("bootWorld installs the relayTape global slot (undefined unless mounted)", async () => {
-  const { bootWorld } = await import("../hosts/sim/sim.ts");
+  const { bootWorld } = await import("../programs/sim/sim.ts");
   const world = await bootWorld("hero-main", 60);
   expect((globalThis as Record<string, unknown>).relayTape).toBeUndefined();
   world.frame(0);

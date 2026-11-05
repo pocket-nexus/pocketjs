@@ -1,4 +1,4 @@
-import Hero from "../hero/app.tsx";
+import Hero from "../../apps/hero/app.tsx";
 import { TICKS_PER_SECOND } from "@pocketjs/framework/clock";
 
 export default function IPhone16Hero() {

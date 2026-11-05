@@ -1,8 +1,8 @@
 # Experimental portable text service
 
 `text.layout.offload` executes text capabilities in a provider worker through
-`io.offload`. Declare both capabilities in a Pocket v2 manifest. A supported
-host profile admits this transport path; execution additionally requires a
+`io.offload`. Declare both capabilities in the app contract. A supported
+host contract admits this transport path; execution requires a
 positive session and provider-supplied fonts. An absent companion is a visible
 unavailable state, with no synchronous layout fallback.
 
@@ -31,7 +31,7 @@ starving completed snapshots.
 
 ## Execution and transport ownership
 
-- `engine/crates/pocket-text`: one Rust engine for native and WASM execution.
+- `engine/text`: one Rust engine for native and WASM execution.
   Atlas wrapping uses the same package metrics as the Rust UI renderer.
   COSMIC Text / Harfrust / Swash provide advanced shaping and rasterization.
   The font database starts empty. Hosts explicitly load `ui:font.*` atlases,
@@ -40,7 +40,7 @@ starving completed snapshots.
 - `pocket-ui-surface::offload::OffloadWorker`: generic bounded worker channels;
   handler initialization and requests execute off the native runtime thread.
   Native window presentation uses winit/softbuffer; guest layout and the shared
-  `engine/core/src/compositor.rs` software painter run on a runtime worker.
+  `engine/raster/src/compositor.rs` software painter run on a runtime worker.
 - Web: `text-worker.js` instantiates the same Rust WASM engine. AppInstance
   lifecycle owns its worker and bounded credits. Ordinary browser rendering
   retains the existing iframe/WASM scheduler.
@@ -67,9 +67,9 @@ coverage compatible with optional `offload.uploadCoverage`.
 
 ```sh
 bun tools/text-wasm.ts
-bun tools/pocket.ts build --target psp --manifest apps/text-offload/pocket.json --project-root . -- --release
+bun tools/pocket.ts build --target psp --manifest apps/text-offload/pocket.app.json --project-root . -- --release
 bun tools/text-provider.ts --usb /path/to/psplink-host0-root \
-  --app dev.pocket-stack.text-offload --pak dist/text-offload-main.pak
+  --app dev.pocket-nexus.text-offload --pak dist/text-offload-main.pak
 ```
 
 The explicit local PSPLINK share is the USB pairing grant. It is scoped by a

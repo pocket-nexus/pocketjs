@@ -1,105 +1,44 @@
 name: Native C harness
 
+# The generated C adapter on both hosts, plus the UIKit ARMv7 compiler check
+# that Linux skips. Portable native-program contracts run in test.yml.
+
 on:
   pull_request:
-    paths:
+    paths: &paths
+      - ".bun-version"
       - ".github/workflows/native-c-harness.yml"
-      - "engine/quickjs-c/**"
-      - "hosts/shared/contact_latch.h"
-      - "hosts/ios-legacy/**"
-      - "hosts/android/**"
-      - "tests/contact-latch.test.ts"
-      - "hosts/esp-idf/components/pocketjs_package/**"
-      - "hosts/esp-idf/tests/host/package_corpus.*"
-      - "tests/idf-package-corpus.test.ts"
-      - "tests/ipodtouch4-installation.test.ts"
-      - "tools/ipodtouch4-installation.ts"
-      - "tests/clear-text.test.ts"
-      - "tests/clear-ime-loading.test.ts"
-      - "apps/**"
-      - "assets/**"
-      - "engine/wasm/**"
-      - "hosts/web/wasm-ops.js"
-      - "tests/golden*.ts"
-      - "tests/goldens/web/**"
-      - "tests/tapes/**"
-      - "tests/png.ts"
-      - "tools/tape.ts"
-      - "tests/fixtures/contact-latch.c"
-      - "engine/ui-cabi/**"
-      - "engine/core/**"
-      - "framework/src/**"
-      - "framework/compiler/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "programs/native/**"
+      - "programs/ipodtouch4/**"
+      - "engine/guest-quickjs/**"
+      - "engine/runtime/**"
+      - "programs/sdk/archive/**"
       - "contracts/**"
-      - "tests/fixtures/quickjs-c-harness/**"
-      - "tests/fixtures/ui-cabi-allocator/**"
-      - "tests/fixtures/ui-cabi-psm-draw/**"
-      - "tests/quickjs-c-harness.test.ts"
-      - "tests/ui-cabi-allocator.test.ts"
-      - "tests/ui-cabi-psm-draw.test.ts"
-      - "tests/tape-assert.test.ts"
-      - "tests/test-suite.test.ts"
-      - "tools/test.ts"
-      - "tests/renderer.test.ts"
-      - "tests/virtual-list.test.ts"
-      - "tests/vue-vapor-dom.test.ts"
-      - "tools/build.ts"
-      - "package.json"
-      - "bun.lock"
+      - "hosts/ipodtouch4-dev/**"
+      - "tools/ui-bindings.ts"
+      - "tools/test-quickjs-guest.ts"
+      - "tools/ipodtouch4*.ts"
+      - "tools/ios6-setup.ts"
+      - "tools/native-source.ts"
+      - "tools/build/toolchains/**"
+      - "tests/ipodtouch4-native.test.ts"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/native-c-harness.yml"
-      - "engine/quickjs-c/**"
-      - "hosts/shared/contact_latch.h"
-      - "hosts/ios-legacy/**"
-      - "hosts/android/**"
-      - "tests/contact-latch.test.ts"
-      - "hosts/esp-idf/components/pocketjs_package/**"
-      - "hosts/esp-idf/tests/host/package_corpus.*"
-      - "tests/idf-package-corpus.test.ts"
-      - "tests/ipodtouch4-installation.test.ts"
-      - "tools/ipodtouch4-installation.ts"
-      - "tests/clear-text.test.ts"
-      - "tests/clear-ime-loading.test.ts"
-      - "apps/**"
-      - "assets/**"
-      - "engine/wasm/**"
-      - "hosts/web/wasm-ops.js"
-      - "tests/golden*.ts"
-      - "tests/goldens/web/**"
-      - "tests/tapes/**"
-      - "tests/png.ts"
-      - "tools/tape.ts"
-      - "tests/fixtures/contact-latch.c"
-      - "engine/ui-cabi/**"
-      - "engine/core/**"
-      - "framework/src/**"
-      - "framework/compiler/**"
-      - "contracts/**"
-      - "tests/fixtures/quickjs-c-harness/**"
-      - "tests/fixtures/ui-cabi-allocator/**"
-      - "tests/fixtures/ui-cabi-psm-draw/**"
-      - "tests/quickjs-c-harness.test.ts"
-      - "tests/ui-cabi-allocator.test.ts"
-      - "tests/ui-cabi-psm-draw.test.ts"
-      - "tests/tape-assert.test.ts"
-      - "tests/test-suite.test.ts"
-      - "tools/test.ts"
-      - "tests/renderer.test.ts"
-      - "tests/virtual-list.test.ts"
-      - "tests/vue-vapor-dom.test.ts"
-      - "tools/build.ts"
-      - "package.json"
-      - "bun.lock"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
+concurrency:
+  group: native-c-harness-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   harness:
-    name: C runtime + allocator (${{ matrix.os }})
+    name: Generated guest and native compiler (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -109,35 +48,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
-      - run: bun install --frozen-lockfile
-      - name: Install the UI C ABI's pinned nightly
+          bun-version-file: .bun-version
+      - name: Install the workspace stable compiler
         run: |
-          toolchain=$(bun -e 'console.log(Bun.TOML.parse(await Bun.file("engine/ui-cabi/rust-toolchain.toml").text()).toolchain.channel)')
-          rustup toolchain install "$toolchain" --profile minimal
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine/ui-cabi
-      - name: Build renderer test styles
-        run: bun tools/build.ts hero
-      - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
-      - name: Native contacts, package corpus and device installation contracts
-        run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts
-      - name: Build Clear simulator inputs
-        run: bun tools/wasm.ts && bun tools/build.ts clear-main --framework=vue-vapor
-      - name: Clear input and text chain
-        run: bun test --conditions=browser tests/clear-text.test.ts tests/clear-ime-loading.test.ts
-      - name: UI singleton access and alignment policy
-        run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features harness-access
-      - name: Link and execute the C allocator and texture draw fixtures
-        run: bun test tests/ui-cabi-allocator.test.ts tests/ui-cabi-psm-draw.test.ts
-      - name: Test suite coverage and tape assertion contracts
-        run: bun test tests/test-suite.test.ts tests/tape-assert.test.ts
-      - name: Contract drift
-        run: bun tests/contract.ts
-      - name: Renderer goldens and deterministic replay
-        if: runner.os == 'Linux'
-        run: bun tests/golden.ts && bun run tape:check
+          workspaces: .
+      - run: bun install --frozen-lockfile
+      - name: Generated C guest against QuickJS-NG
+        run: bun tools/test-quickjs-guest.ts
+      - name: Touch4 UIKit and pinned QuickJS ARMv7 compilation
+        if: runner.os == 'macOS'
+        run: bun test tests/ipodtouch4-native.test.ts

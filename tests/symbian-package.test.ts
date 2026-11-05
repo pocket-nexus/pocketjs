@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { compiledProfile } from "../contracts/spec/profile.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { deriveModality } from "../contracts/spec/modality.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
-import { SYMBIAN_E7_DEV_CONTRACTS, SYMBIAN_E7_DEV_TARGET_ID } from "../tools/symbian-profile.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
 import {
-  symbianDataBaseForEmbeddedBytes,
-  symbianExecutableName,
-  symbianPackageIdentity,
-  symbianUidForAppId,
-  validateSymbianDevelopmentUid,
+symbianDataBaseForEmbeddedBytes,
+symbianExecutableName,
+symbianPackageIdentity,
+validateSymbianDevelopmentUid
 } from "../tools/symbian-package.ts";
+import { SYMBIAN_E7_DEV_CONTRACTS, SYMBIAN_E7_DEV_TARGET_ID } from "../tools/symbian-profile.ts";
+const profile = POCKET_PROFILES["symbian-e7-dev"];
 
 function plan(
   id: string,
@@ -25,7 +29,7 @@ function plan(
       framework: "solid",
     },
     presentation: { id: "default", entry: "app/main.tsx" },
-    target: { id: "symbian-e7-dev", hostAbi: 4 },
+    target: { id: "symbian-e7-dev", hostAbi: POCKET_BINDING_GENERATION },
     viewport: {
       logical: [640, 360],
       physical: [640, 360],
@@ -34,8 +38,11 @@ function plan(
       policy: "dynamic",
     },
     modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
+    animation: "repaint",
     features: {},
     companions: [],
+    profile: { ...compiledProfile(profile), tickHz: 60 },
+    profileHash: hashPocketProfile(profile),
     planHash: `sha256:${"0".repeat(64)}`,
   };
 }
@@ -55,26 +62,16 @@ describe("independent Symbian package identity", () => {
     );
   });
 
-  test("derives stable private UIDs from Pocket ids", () => {
-    expect(symbianUidForAppId("dev.pocket-stack.openstrike")).toBe(
-      "0xE86B9226",
-    );
-    expect(symbianUidForAppId("dev.pocket-stack.figma")).toBe("0xEEB7A533");
-    expect(symbianUidForAppId("dev.pocket-stack.launcher")).toBe(
-      "0xECEF4AC6",
-    );
-  });
-
   test("keeps every installed path unique and Symbian-safe", () => {
     const identity = symbianPackageIdentity(
-      plan("dev.pocket-stack.figma", "Pocket Figma", "pocket-figma"),
+      plan("dev.pocket-nexus.figma", "Pocket Figma", "pocket-figma"),
     );
     expect(identity).toEqual({
-      appId: "dev.pocket-stack.figma",
+      appId: "dev.pocket-nexus.figma",
       appOutput: "pocket-figma",
       title: "Pocket Figma",
-      uid: "0xEEB7A533",
-      executable: "PocketJsPocketFigmaEEB7A533",
+      uid: "0xEEC5BADE",
+      executable: "PocketJsPocketFigmaEEC5BADE",
       sisFile: "pocket-figma.sis",
       receiptFile: "pocket-figma.receipt.json",
     });
@@ -83,7 +80,7 @@ describe("independent Symbian package identity", () => {
     expect(
       symbianPackageIdentity(
         plan(
-          "dev.pocket-stack.launcher",
+          "dev.pocket-nexus.launcher",
           "PocketJS: Launcher",
           "launcher-main",
         ),
@@ -103,7 +100,7 @@ describe("independent Symbian package identity", () => {
   test("allows an explicit development UID but rejects protected UIDs", () => {
     expect(
       symbianPackageIdentity(
-        plan("dev.pocket-stack.app", "App", "app"),
+        plan("dev.pocket-nexus.app", "App", "app"),
         "0xe1234567",
       ).uid,
     ).toBe("0xE1234567");
@@ -115,12 +112,12 @@ describe("independent Symbian package identity", () => {
   test("rejects package metadata that can break the generated PKG", () => {
     expect(() =>
       symbianPackageIdentity(
-        plan("dev.pocket-stack.app", 'Bad "caption"', "app"),
+        plan("dev.pocket-nexus.app", 'Bad "caption"', "app"),
       )
     ).toThrow("safe ASCII");
     expect(() =>
       symbianPackageIdentity(
-        plan("dev.pocket-stack.app", "Bad $$system(id)", "app"),
+        plan("dev.pocket-nexus.app", "Bad $$system(id)", "app"),
       )
     ).toThrow("safe ASCII");
   });

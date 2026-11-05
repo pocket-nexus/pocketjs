@@ -1,0 +1,11 @@
+[package]
+name = "pocket-psp-alloc"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PocketJS psp alloc driver"
+
+[dependencies]
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "880d36aa7d221ccdb120471f8f9d5d1d2bccef30", features = ["external-c-heap", "abort-only", "external-global-alloc"] }

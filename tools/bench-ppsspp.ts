@@ -196,7 +196,7 @@ if (!fromRaw && !existsSync(headless)) throw new Error(`PPSSPPHeadless not found
 
 const dccap = `${homedir()}/.ppsspp/dc_cap`;
 const benchFile = `${homedir()}/.ppsspp/PocketJS-bench.jsonl`;
-const eboot = `${pspUiDir}hosts/psp/target/mipsel-sony-psp/debug/EBOOT.PBP`;
+const eboot = `${pspUiDir}programs/psp/target/mipsel-sony-psp/debug/EBOOT.PBP`;
 
 mkdirSync(outDir, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");

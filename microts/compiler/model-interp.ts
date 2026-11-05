@@ -2,7 +2,8 @@
 import { parseMicroTsColor } from "../../contracts/spec/microts.ts";
 import type { AotType } from "./aot-ir.ts";
 import { assertModelProgram } from "./aot-model-tasks.ts";
-import type { ModelAwaitable, ModelBinder, ModelBlock, ModelExpr, ModelFunction, ModelMemo, ModelModule, ModelProgram, ModelTask, ModelTaskState } from "./aot-model-ir.ts";
+import type { ModelAwaitable, ModelBinder, ModelBlock, ModelExpr, ModelFunction, ModelMemo, ModelModule, ModelPathStep, ModelProgram, ModelTarget, ModelTask, ModelTaskState } from "./aot-model-ir.ts";
+import { readFileSync } from "node:fs";
 
 export interface TaskId { region: number; fn: number; generation: number }
 export interface RequestId { task: TaskId; generation: number; member: number }
@@ -22,6 +23,18 @@ export interface ModelInterpreterOptions {
   cleanup?: (interpreter: ModelInterpreter) => boolean;
 }
 type Value = any;
+function fillWindow(target: Value[], start: number, end: number, value: Value): void {
+  for (let i = Math.max(0, start); i < Math.min(end, target.length); i++) target[i] = clone(value);
+}
+/** copyRange: a window clipped to both arrays; elements equal to skip[0], if given, stay. */
+function copyWindow(target: Value[], to: number, source: Value[], from: number, count: number, skip: Value[]): void {
+  if (from < 0) { count += from; to -= from; from = 0; }
+  if (to < 0) { count += to; from -= to; to = 0; }
+  count = Math.min(count, source.length - from, target.length - to);
+  if (count <= 0) return;
+  const values = source.slice(from, from + count);
+  for (let i = 0; i < count; i++) if (!skip.length || values[i] !== skip[0]) target[to + i] = values[i];
+}
 type Env = Map<number, Value>;
 interface Cell { value: Value; version: number; changed: boolean; seen?: number[] }
 interface Region {
@@ -36,6 +49,7 @@ interface Wait {
 }
 interface Ready { task: RunningTask; value?: Value; cancel?: boolean }
 class Returned { constructor(readonly value: Value) {} }
+class LoopExit { constructor(readonly kind: "break" | "continue", readonly loop: number) {} }
 const clone = <T>(value: T): T => value === undefined ? value : structuredClone(value);
 const key = (id: RequestId) => `${id.task.region}:${id.task.fn}:${id.task.generation}:${id.generation}:${id.member}`;
 const bound = (value: {capacity?:number;type:AotType}) => value.capacity ?? ("capacity" in value.type ? value.type.capacity : undefined);
@@ -257,6 +271,16 @@ export class ModelInterpreter {
     if(type.kind==="named"){const declaration=this.program.types.find(value=>value.name===type.name);return declaration?.kind==="enum"||declaration?.kind==="newtype"&&this.primitiveType(declaration.base);}
     return ["number","boolean","string","undefined","void","style"].includes(type.kind);
   }
+  /** The number type a newtype wraps, or the type itself. */
+  private base(type: AotType): AotType {
+    const declaration = type.kind === "named" ? this.program.types.find(declaration => declaration.name === type.name) : undefined;
+    return declaration?.kind === "newtype" && declaration.unit !== "Color" ? this.base(declaration.base) : type;
+  }
+  /** Whether a value of this type is a float (f32 or f64, or a newtype of one). */
+  private float(type: AotType): boolean {
+    const base = this.base(type);
+    return base.kind === "number" && base.name.startsWith("f");
+  }
   numeric(value: Value, type: AotType): Value {
     if(type.kind==="option")return value===undefined?undefined:this.numeric(value,type.value);
     if(type.kind==="named"){
@@ -301,7 +325,7 @@ export class ModelInterpreter {
       case "copy": return clone(evaluate(expr.value));
       case "cast": return this.numeric(evaluate(expr.value), expr.type);
       case "template": return expr.parts.map(part => typeof part === "string" ? part : String(evaluate(part))).join("");
-      case "unary": { const value = evaluate(expr.operand); return expr.operator === "!" ? !value : this.numeric(expr.operator === "-" ? -value : +value, expr.type); }
+      case "unary": { const value = evaluate(expr.operand); return expr.operator === "!" ? !value : this.numeric(expr.operator === "-" ? -value : expr.operator === "~" ? ~value : +value, expr.type); }
       case "conditional": return evaluate(expr.condition) ? evaluate(expr.consequent) : evaluate(expr.alternate);
       case "binary": {
         const left = evaluate(expr.left);
@@ -311,28 +335,86 @@ export class ModelInterpreter {
         const right = evaluate(expr.right); let value: Value;
         switch (expr.operator) {
           case "+": value = left + right; break; case "-": value = left - right; break;
-          case "*": value = expr.type.kind === "number" && expr.type.name === "i32" ? Math.imul(left, right) : left * right; break;
-          case "/": value = left / right; break; case "%": value = left % right; break; case "**": value = left ** right; break;
+          case "*": { const base = this.base(expr.type); value = base.kind === "number" && base.name === "i32" ? Math.imul(left, right) : left * right; break; }
+          case "/": value = left / right; break; case "%": value = right === 0 && !this.float(expr.type) ? 0 : left % right; break; case "**": value = left ** right; break;
           case "===": return left === right; case "!==": return left !== right; case "<": return left < right; case "<=": return left <= right; case ">": return left > right; case ">=": return left >= right;
-          case "&": value = left & right; break; case "|": value = left | right; break; case "^": value = left ^ right; break; case "<<": value = left << right; break; case ">>": value = left >> right; break; case ">>>": value = left >>> right; break;
+          case "&": value = left & right; break; case "|": value = left | right; break; case "^": value = left ^ right; break; case "<<": value = left << right; break; case ">>": value = left >> right; break;
+          case ">>>": { const base = this.base(expr.type), bits = base.kind === "number" ? ({ i8: 8, u8: 8, i16: 16, u16: 16 } as Record<string, number>)[base.name] : undefined; value = (bits ? left & (2 ** bits - 1) : left) >>> right; break; }
           default: throw new Error(`Unsupported Model IR operator ${expr.operator}`);
         }
         return this.numeric(value, expr.type);
       }
       case "invoke": return this.invoke(expr.callee, expr.args.map(evaluate), region);
-      case "builtin": return this.builtin(expr.name, expr.args.map(evaluate), expr.type);
+      case "builtin": return this.builtin(expr.name, expr.args.map(evaluate), expr.type, expr.args[0] && this.float(expr.args[0].type));
       case "lambda": return (...args: Value[]) => { const inner = new Map(env); expr.params.forEach((b, i) => inner.set(b.id, clone(args[i]))); try { this.block(expr.body, region, inner); } catch (result) { if (result instanceof Returned) return result.value; throw result; } };
       case "sequence": try { this.block(expr.body, region, env); return evaluate(expr.value); } catch (result) { if (result instanceof Returned) return result.value; throw result; }
+      case "constant": return clone(evaluate(expr.value));
+      case "mutate": {
+        const args = expr.args.map(evaluate), target = this.place(expr.target, region, env);
+        const missing = () => this.defaultValue(expr.type);
+        if (!Array.isArray(target)) return expr.type.kind === "void" ? undefined : missing();
+        const [a, b, c, d] = args;
+        switch (expr.op) {
+          case "push": target.push(clone(a)); return;
+          case "pop": return target.length ? target.pop() : missing();
+          case "insert": target.splice(Math.max(0, Math.min(a, target.length)), 0, clone(b)); return;
+          case "removeAt": return Number.isInteger(a) && a >= 0 && a < target.length ? target.splice(a, 1)[0] : missing();
+          case "clear": target.length = 0; return;
+          case "truncate": if (a < target.length) target.length = Math.max(0, a); return;
+          case "fillRange": fillWindow(target, a, b, c); return;
+          case "copyRange": copyWindow(target, a, b, c, d, args.slice(4)); return;
+          case "fillRect": for (let r = 0; r < args[3]; r++) fillWindow(target, a + r * b, a + r * b + c, args[4]); return;
+          case "copyRect": {
+            const source = c === target ? c.slice() : c;
+            for (let r = 0; r < args[6]; r++) copyWindow(target, a + r * b, source, d + r * args[4], args[5], args.slice(7));
+            return;
+          }
+        }
+      }
     }
   }
-  builtin(name: string, args: Value[], type: AotType): Value {
+  /** The array or struct a place denotes, or undefined when an index is out of range. */
+  private place(target: ModelTarget, region: Region, env: Env, steps = this.steps(target)): Value {
+    const root = target.kind === "path" ? target.root : target.kind === "element" || target.kind === "member" ? { kind: "local" as const, id: target.owner } : { kind: target.kind, id: target.id };
+    let value = root.kind === "field" ? region.fields.get(root.id) : env.has(root.id) ? env.get(root.id) : region.params.get(root.id);
+    for (const step of steps) {
+      if (value === undefined) return undefined;
+      if (step.kind === "member") { value = value[step.name]; continue; }
+      const index = this.expr(step.index, region, env);
+      value = Number.isInteger(index) && index >= 0 && index < value.length ? value[index] : undefined;
+    }
+    return value;
+  }
+  private steps(target: ModelTarget): ModelPathStep[] {
+    return target.kind === "path" ? target.steps : target.kind === "element" ? [{ kind: "index", index: target.index }] : target.kind === "member" ? [{ kind: "member", name: target.name }] : [];
+  }
+  private loopBody(body: ModelBlock, loop: number | undefined, region: Region, env: Env): "break" | "continue" | undefined {
+    try { this.block(body, region, env); } catch (exit) { if (exit instanceof LoopExit && exit.loop === loop) return exit.kind; throw exit; }
+    return undefined;
+  }
+  /** `float` is whether the first argument's static type is a float; conversions use it as Rust `as` does. */
+  builtin(name: string, args: Value[], type: AotType, float?: boolean): Value {
     const [a, b, c] = args;
     switch (name) {
       case "String": case "display": return String(a); case "Number": return this.numeric(Number(a), type); case "len": return typeof a === "string" ? [...a].length : a.length;
       case "copy": return clone(a); case "equals": return this.equal(a, b);
-      case "imod": return ((a % b) + b) % b; case "idiv": return this.numeric(Math.trunc(a / b), type); case "trunc": return this.numeric(Math.trunc(a), type);
+      // Integer division and remainder truncate toward zero; a zero divisor gives 0, as in Rust.
+      case "imod": return b === 0 ? 0 : a % b; case "idiv": return b === 0 ? 0 : this.numeric(Math.trunc(a / b), type); case "trunc": return this.numeric(Math.trunc(a), type);
       case "min": return Math.min(...args); case "max": return Math.max(...args); case "abs": return Math.abs(a); case "floor": return Math.floor(a); case "ceil": return Math.ceil(a); case "round": return Math.round(a); case "sqrt": return Math.sqrt(a); case "sin": return Math.sin(a); case "cos": return Math.cos(a); case "clamp": return Math.min(c, Math.max(b, a));
       case "map": return a.map((v: Value, i: number) => b(clone(v), i)); case "filter": return clone(a.filter((v: Value, i: number) => b(clone(v), i))); case "find": return clone(a.find((v: Value, i: number) => b(clone(v), i))); case "some": return a.some((v: Value, i: number) => b(clone(v), i));
+      case "i8": case "i16": case "i32": case "i64": case "u8": case "u16": case "u32": case "u64": case "usize": {
+        const bits = name === "usize" ? 32 : Number(name.slice(1)), signed = name.startsWith("i");
+        if (Number.isNaN(a)) return 0;
+        if (float ?? !Number.isInteger(a)) { const limit = 2 ** (signed ? bits - 1 : bits); return Math.min(limit - 1, Math.max(signed ? -limit : 0, Math.trunc(a))); }
+        const wrapped = BigInt.asUintN(bits, BigInt(a)); return Number(signed ? BigInt.asIntN(bits, wrapped) : wrapped);
+      }
+      case "f32": return Math.fround(a); case "f64": return a;
+      case "tan": return Math.tan(a); case "asin": return Math.asin(a); case "acos": return Math.acos(a); case "atan": return Math.atan(a); case "exp": return Math.exp(a); case "log": return Math.log(a);
+      case "atan2": return Math.atan2(a, b); case "pow": return Math.pow(a, b); case "hypot": return Math.hypot(a, b);
+      case "fill": return Array.from({ length: Math.max(0, a) }, () => clone(b));
+      case "codePoints": return Array.from(a as string, ch => ch.codePointAt(0)!);
+      case "fromCodePoint": return a >= 0 && a <= 0x10ffff && (a < 0xd800 || a > 0xdfff) ? String.fromCodePoint(a) : "\ufffd";
+      case "embedBytes": return Array.from(readFileSync(a));
       default: throw new Error(`Unsupported Model IR builtin ${name}`);
     }
   }
@@ -350,6 +432,12 @@ export class ModelInterpreter {
           if (target.kind === "local") env.set(target.id, value);
           else if (target.kind === "field") { const field = region.module.fields.find(f => f.id === target.id)!; region.fields.set(target.id, this.capacity(value, bound(field), field.name)); }
           else if (target.kind === "element" || target.kind === "member") { const owner = env.get(target.owner); if (target.kind === "member") owner[target.name] = value; else { const index = evaluate(target.index); if (Number.isInteger(index) && index >= 0 && index < owner.length) owner[index] = value; } }
+          else if (target.kind === "path") {
+            const steps = target.steps, last = steps.at(-1)!, owner = this.place(target, region, env, steps.slice(0, -1));
+            if (owner === undefined) break;
+            if (last.kind === "member") owner[last.name] = value;
+            else { const index = evaluate(last.index); if (Number.isInteger(index) && index >= 0 && index < owner.length) owner[index] = value; }
+          }
           break;
         }
         case "set": {
@@ -362,8 +450,19 @@ export class ModelInterpreter {
           if (stmt.pre) env.delete(stmt.pre.id); break;
         }
         case "if": if (evaluate(stmt.condition)) this.block(stmt.then, region, env); else if (stmt.else) this.block(stmt.else, region, env); break;
-        case "for": { const start = stmt.start ? evaluate(stmt.start) : 0, bound = evaluate(stmt.bound); for (let i = start; stmt.inclusive ? i <= bound : i < bound; i++) { this.counts.loopIterations++; env.set(stmt.binder.id, i); this.block(stmt.body, region, env); } break; }
-        case "forOf": { const values = clone(evaluate(stmt.source)); for (const value of values) { this.counts.loopIterations++; env.set(stmt.binder.id, value); this.block(stmt.body, region, env); } break; }
+        case "for": { const start = stmt.start ? evaluate(stmt.start) : 0, bound = evaluate(stmt.bound); for (let i = start; stmt.inclusive ? i <= bound : i < bound; i++) { this.counts.loopIterations++; env.set(stmt.binder.id, i); if (this.loopBody(stmt.body, stmt.loop, region, env) === "break") break; } break; }
+        case "forOf": { const values = clone(evaluate(stmt.source)); for (const value of values) { this.counts.loopIterations++; env.set(stmt.binder.id, value); if (this.loopBody(stmt.body, stmt.loop, region, env) === "break") break; } break; }
+        case "while": {
+          for (;;) {
+            if (!stmt.post && !evaluate(stmt.condition)) break;
+            this.counts.loopIterations++;
+            if (this.loopBody(stmt.body, stmt.loop, region, env) === "break") break;
+            if (stmt.update) this.block(stmt.update, region, env);
+            if (stmt.post && !evaluate(stmt.condition)) break;
+          }
+          break;
+        }
+        case "break": case "continue": throw new LoopExit(stmt.kind, stmt.loop);
         case "switch": { const value = evaluate(stmt.value), arm = stmt.cases.find(c => c.value && evaluate(c.value) === value) ?? stmt.cases.find(c => !c.value); if (arm) this.block(arm.body, region, env); break; }
         case "batch": case "untrack": this.block(stmt.body, region, env); break;
         case "return": throw new Returned(stmt.value ? evaluate(stmt.value) : undefined);

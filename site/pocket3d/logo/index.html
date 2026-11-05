@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pocket3D mark study</title>
+<!-- A study page: the candidate marks for Pocket3D, drawn by ./mark3d.js. -->
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#171226">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titan+One&family=Fredoka:wght@500;600&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;700&display=swap">
+<style>
+:root{--bg:#171226;--panel:#231b3b;--shade:#0e091a;--ink:#fcf6ff;--ink-2:#cbbde2;--muted:#8e80ac;--yellow:#ffd23f;--pink:#ff5f9e;--cyan:#3fd0e8;
+  --out:#221338;--drop:#0a0614;--rule:rgba(203,189,226,.14);
+  --round:Fredoka,"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;--display:"Titan One",ui-rounded,system-ui,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;color:var(--ink);font:16px/1.5 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+  background:radial-gradient(70% 34rem at 50% 0,rgba(169,139,255,.16),transparent 70%),
+    radial-gradient(circle,rgba(203,189,226,.085) 1.1px,transparent 1.6px) 0 0/24px 24px,var(--bg)}
+main{width:min(1280px,calc(100% - 2 * clamp(16px,4vw,40px)));margin:0 auto;padding:clamp(24px,5vh,56px) 0 80px}
+h1{font:clamp(30px,4vw,46px)/1.05 var(--display);text-shadow:0 .07em 0 var(--drop)}
+.lede{margin-top:10px;color:var(--ink-2);max-width:46em}
+h2{margin-top:clamp(36px,6vh,60px);font:600 24px/1.2 var(--round);color:var(--yellow)}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(14px,1.8vw,22px);margin-top:18px}
+.opt{border-radius:20px;border:3px solid var(--out);background:var(--panel);box-shadow:0 7px 0 var(--drop);overflow:hidden;display:flex;flex-direction:column}
+.stage{display:grid;place-items:center;aspect-ratio:4/3;background:radial-gradient(circle at 50% 45%,#2b2148,var(--bg) 75%);border-bottom:3px solid var(--out)}
+.stage svg{width:58%;height:auto;overflow:visible;filter:drop-shadow(0 10px 10px rgba(5,2,12,.55))}
+.body{padding:14px 16px 18px;display:flex;flex-direction:column;gap:12px;flex:1}
+.opt h3{font:600 19px/1.2 var(--round)}
+.opt h3 small{font:500 12px/1 var(--mono);color:var(--muted);margin-right:.5em}
+.opt p{font-size:14px;line-height:1.45;color:var(--ink-2);flex:1}
+.sizes{display:flex;align-items:flex-end;gap:14px;padding-top:12px;border-top:2px dashed var(--rule)}
+.sizes span{display:flex;flex-direction:column;align-items:center;gap:6px;font:500 10.5px/1 var(--mono);color:var(--muted)}
+.sizes svg{display:block}
+.locks{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 17px 0 12px;border-radius:999px;border:2px solid var(--out);background:var(--bg);
+  font:600 15px/1 var(--round);box-shadow:0 4px 0 var(--drop)}
+.pill svg{width:26px;height:26px}
+.plain{display:inline-flex;align-items:center;gap:.5rem;font:700 17px/1 "IBM Plex Sans",system-ui,sans-serif;letter-spacing:-.01em}
+.plain svg{width:28px;height:28px}
+
+/* the tuner */
+.tune{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(16px,2.4vw,32px);margin-top:18px;padding:clamp(16px,2vw,26px);
+  border-radius:20px;border:3px solid var(--out);background:var(--panel);box-shadow:0 7px 0 var(--drop)}
+.tune .stage{border:3px solid var(--out);border-radius:16px;aspect-ratio:auto;min-height:280px}
+.tune .stage svg{width:48%}
+.knobs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 22px;align-content:start}
+.knobs label{display:grid;gap:6px;font:500 12.5px/1 var(--mono);color:var(--muted)}
+.knobs label b{float:right;font-weight:500;color:var(--ink)}
+.knobs input[type=range]{width:100%;accent-color:var(--yellow)}
+.row{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+button{appearance:none;cursor:pointer;height:42px;padding:0 18px;border-radius:999px;border:2px solid var(--out);background:var(--yellow);color:#221338;
+  font:600 15px/1 var(--round);box-shadow:0 4px 0 var(--drop)}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--drop)}
+button.ghost{background:var(--bg);color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+.presets button{height:34px;padding:0 13px;font-size:13.5px;box-shadow:0 3px 0 var(--drop)}
+@media (max-width:1100px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:760px){.tune{grid-template-columns:1fr}}
+@media (max-width:560px){.grid{grid-template-columns:1fr}.knobs{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Pocket3D mark study</h1>
+  <p class="lede">Six ways to push the PocketJS mark into a solid, beside the cube drawn first and the flat mark they come from. Each is shown large, at icon sizes, and in the two places it will sit: the pill of the Pocket3D bar and a plain lockup.</p>
+
+  <h2>The options</h2>
+  <div class="grid" id="grid"></div>
+
+  <h2>Tune one</h2>
+  <div class="tune">
+    <div class="stage" id="tuned"></div>
+    <div class="knobs">
+      <div class="row presets" id="presets"></div>
+      <label>turn <b id="v-yaw"></b><input type="range" id="k-yaw" min="-60" max="60" step="1"></label>
+      <label>tilt <b id="v-pitch"></b><input type="range" id="k-pitch" min="-30" max="60" step="1"></label>
+      <label>depth <b id="v-depth"></b><input type="range" id="k-depth" min="1" max="24" step="0.5"></label>
+      <label>camera distance <b id="v-persp"></b><input type="range" id="k-persp" min="30" max="300" step="2"></label>
+      <label>raised lens and keys <b id="v-emboss"></b><input type="range" id="k-emboss" min="0" max="3" step="0.1"></label>
+      <label>plum keyline <b id="v-outline"></b><input type="range" id="k-outline" min="0" max="2.4" step="0.1"></label>
+      <div class="row">
+        <div class="sizes" id="tuned-sizes" style="border:0;padding:0"></div>
+        <button type="button" id="copy">Copy SVG</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import { mark3d, OPTIONS, DEFAULTS } from "./mark3d.js";
+
+const CUBE = `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path d="M16 3.4 27 9.7v12.6L16 28.6 5 22.3V9.7z" fill="#171226" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/><path d="M16 6.2l6.05 3.5L16 13.2 9.95 9.7z" fill="#ff5f9e"/><path d="M18.5 17.4l6-3.45v6.95l-6 3.45z" fill="#3fd0e8"/></svg>`;
+const FLAT = `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/><rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/><rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/></svg>`;
+
+const sized = (svg, px) => svg.replace("<svg ", `<svg width="${px}" height="${px}" `);
+const sizes = (svg) => [64, 32, 20, 16].map((px) => `<span>${sized(svg, px)}${px}</span>`).join("");
+
+function card(tag, name, note, svg) {
+  const el = document.createElement("article");
+  el.className = "opt";
+  el.innerHTML = `<div class="stage">${svg}</div><div class="body">
+    <h3><small>${tag}</small>${name}</h3><p>${note}</p>
+    <div class="locks"><span class="pill">${svg}Pocket3D</span><span class="plain">${svg}Pocket3D</span></div>
+    <div class="sizes">${sizes(svg)}</div></div>`;
+  return el;
+}
+
+const grid = document.getElementById("grid");
+grid.append(card("0", "Cube", "The mark drawn first: a cube seen from a corner, in the PocketJS stroke and hues. It does not contain the PocketJS mark.", CUBE));
+OPTIONS.forEach((option, i) => grid.append(card(String(i + 1), option.name, option.note, mark3d(option.opts))));
+grid.append(card("ref", "PocketJS", "The flat mark every option above is extruded from.", FLAT));
+
+// the tuner
+const KNOBS = ["yaw", "pitch", "depth", "persp", "emboss", "outline"];
+const state = { ...DEFAULTS, ...OPTIONS[1].opts };
+const input = (key) => document.getElementById("k-" + key);
+function draw() {
+  const svg = mark3d({ yaw: state.yaw, pitch: state.pitch, depth: state.depth, persp: state.persp, emboss: state.emboss, outline: state.outline, shift: state.shift });
+  document.getElementById("tuned").innerHTML = svg;
+  document.getElementById("tuned-sizes").innerHTML = sizes(svg);
+  for (const key of KNOBS) document.getElementById("v-" + key).textContent = state[key];
+  return svg;
+}
+for (const key of KNOBS) {
+  input(key).value = state[key];
+  input(key).addEventListener("input", () => { state[key] = Number(input(key).value); draw(); });
+}
+const presets = document.getElementById("presets");
+for (const option of OPTIONS.filter((option) => !option.opts.oblique)) {
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "ghost"; button.textContent = option.name;
+  button.addEventListener("click", () => {
+    Object.assign(state, DEFAULTS, option.opts);
+    for (const key of KNOBS) input(key).value = state[key];
+    draw();
+  });
+  presets.append(button);
+}
+document.getElementById("copy").addEventListener("click", async (event) => {
+  await navigator.clipboard.writeText(draw());
+  event.target.textContent = "Copied";
+  setTimeout(() => { event.target.textContent = "Copy SVG"; }, 1200);
+});
+draw();
+</script>
+</body>
+</html>

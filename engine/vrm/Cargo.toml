@@ -1,0 +1,17 @@
+[package]
+name = "pocket-vrm"
+description = "VRM 0.x character semantics for pocket3d: extension parsing, spring-bone physics, VRMA retargeting, eye look-at"
+edition.workspace = true
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket3d = { workspace = true, default-features = true }
+glam = { workspace = true, features = ["std"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }

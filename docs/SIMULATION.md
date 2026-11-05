@@ -5,7 +5,7 @@ a frame boundary. **It does not snapshot the JavaScript heap or rewind UI,
 native resources, clocks, or IO.** Applications that need prediction separate
 their simulation state from presentation and external effects.
 
-`engine/crates/pocket-sim` provides a `no_std` + `alloc` implementation for
+`engine/sim` provides a `no_std` + `alloc` implementation for
 native hosts and simulation services. It has no dependency on Pocket3D, a
 device SDK, a transport, or a guest runtime.
 

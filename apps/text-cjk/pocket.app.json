@@ -1,0 +1,32 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.text-cjk",
+  "title": "PocketJS: Text Lab",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "text.glyphs.streamed",
+        "io.offload",
+        "input.buttons"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/text-cjk/main.tsx",
+    "output": "text-cjk-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          480,
+          272
+        ],
+        "presentation": "integer-fit"
+      }
+    },
+    "theme": "./theme.json"
+  }
+}

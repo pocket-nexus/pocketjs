@@ -1,0 +1,20 @@
+{
+  // 3d.pocket.nexus — the Pocket3D homepage, an assets-only Worker (Workers
+  // Static Assets, no server script) serving site/pocket3d/public. It has no
+  // build step. Deploy from the repo root:
+  //   bunx wrangler deploy -c site/pocket3d/wrangler.jsonc
+  // `directory` is resolved relative to THIS file, so it points at
+  // site/pocket3d/public.
+  "name": "pocket3d",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public",
+    "html_handling": "auto-trailing-slash",
+    // unknown paths -> the branded /404.html
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "3d.pocket.nexus", "custom_domain": true }
+  ]
+}

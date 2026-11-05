@@ -1,0 +1,15 @@
+[package]
+name = "pocket-gles2"
+edition = "2021"
+description = "OpenGL ES 2 shader pipeline for PocketJS"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-gles = { workspace = true, default-features = true }
+
+[dev-dependencies]
+pocket-gles = { workspace = true, default-features = true, features = ["mock-gl"] }

@@ -28,6 +28,7 @@ export type RustItem =
   | { kind: "trait"; name: string; public?: boolean; generics?: RustGeneric[]; bounds?: RustType[]; associatedTypes?: { name: string; bounds: RustType[] }[]; methods: RustFunction[] }
   | { kind: "impl"; type: RustType; trait?: RustType; generics?: RustGeneric[]; associatedTypes?: { name: string; type: RustType }[]; methods: RustFunction[] }
   | { kind: "const"; name: string; public?: boolean; type: RustType; value: RustExpr }
+  | { kind: "static"; name: string; public?: boolean; type: RustType; value: RustExpr }
   | { kind: "typeAlias"; name: string; public?: boolean; generics?: RustGeneric[]; type: RustType }
   | RustFunction;
 export interface RustBlock { statements: RustStatement[]; result?: RustExpr }
@@ -43,12 +44,12 @@ export type RustStatement =
   | { kind: "let"; pattern: RustPattern; type?: RustType; value?: RustExpr }
   | { kind: "expr"; expr: RustExpr; semicolon?: boolean }
   | { kind: "assign"; target: RustExpr; value: RustExpr; operator?: string }
-  | { kind: "for"; pattern: RustPattern; iterable: RustExpr; body: RustBlock }
-  | { kind: "while"; condition: RustExpr; body: RustBlock }
-  | { kind: "loop"; body: RustBlock }
+  | { kind: "for"; pattern: RustPattern; iterable: RustExpr; body: RustBlock; label?: string }
+  | { kind: "while"; condition: RustExpr; body: RustBlock; label?: string }
+  | { kind: "loop"; body: RustBlock; label?: string }
   | { kind: "return"; value?: RustExpr }
-  | { kind: "break" }
-  | { kind: "continue" };
+  | { kind: "break"; label?: string }
+  | { kind: "continue"; label?: string };
 export type RustExpr =
   | { kind: "path"; path: string[]; typeArgs?: RustType[] }
   | { kind: "qualifiedPath"; type: RustType; member: string }
@@ -64,7 +65,7 @@ export type RustExpr =
   | { kind: "tuple"; elements: RustExpr[] }
   | { kind: "array"; elements: RustExpr[] }
   | { kind: "struct"; path: string[]; fields: { name: string; value?: RustExpr }[]; rest?: RustExpr }
-  | { kind: "block"; block: RustBlock }
+  | { kind: "block"; block: RustBlock; label?: string }
   | { kind: "if"; condition: RustExpr; then: RustBlock; otherwise?: RustBlock | RustExpr }
   | { kind: "ifLet"; pattern: RustPattern; value: RustExpr; then: RustBlock; otherwise?: RustBlock | RustExpr }
   | { kind: "match"; value: RustExpr; arms: { pattern: RustPattern; guard?: RustExpr; body: RustExpr }[] }

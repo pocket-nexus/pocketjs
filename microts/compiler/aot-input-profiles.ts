@@ -8,6 +8,8 @@ export interface AotInputProfile {
   readonly chorded: Readonly<Partial<Record<PocketButtonName, readonly [PocketButtonName, PocketButtonName]>>>;
   readonly axes: readonly number[];
   readonly touch: boolean;
+  /** Fusion level of the board's motion driver (a `MotionLevel` id); 0 without one. */
+  readonly motion: number;
 }
 
 // Preserve the MeowBit input contract independently of the retired cartridge
@@ -20,6 +22,7 @@ const profiles = new Map<string, AotInputProfile>([
     chorded: { start: ["a", "b"], select: ["left", "right"], r: ["up", "down"] },
     axes: [],
     touch: false,
+    motion: 0,
   }],
 ]);
 

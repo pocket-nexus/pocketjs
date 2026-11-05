@@ -1,0 +1,7 @@
+version: "0.1.0"
+description: "PocketJS touch input source"
+license: MIT
+dependencies:
+  idf: ">=6.0,<6.3"
+  pocket-nexus/pocket_runtime: "0.1.0"
+  espressif/esp_lcd_touch: ">=1.1,<2"

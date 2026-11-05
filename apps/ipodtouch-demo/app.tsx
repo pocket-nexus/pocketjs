@@ -1,5 +1,5 @@
 import { runEffect } from "@pocketjs/framework/effects";
-import Hero from "../hero/app.tsx";
+import Hero from "../../apps/hero/app.tsx";
 
 export default function IPodTouchHero() {
   return (

@@ -231,7 +231,7 @@
     }
   ],
   "demo": {
-    "package_id": "dev.pocket-stack.motions",
+    "package_id": "dev.pocket-nexus.motions",
     "output": "motions-main"
   }
 }

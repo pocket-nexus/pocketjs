@@ -9,7 +9,7 @@ rate the bundle was built for, and the recorder captures every input track it
 has — buttons, analog, touch — so a recorded input tape replays any session
 byte-for-byte. Architecture deep-dive:
 [the blog post](/blog/time-travel-devtools/) and
-[`docs/DEVTOOLS.md`](https://github.com/pocket-stack/pocketjs/blob/main/docs/DEVTOOLS.md).
+[`docs/DEVTOOLS.md`](https://github.com/pocket-nexus/pocketjs/blob/main/docs/DEVTOOLS.md).
 
 ## One command
 
@@ -22,7 +22,8 @@ The panel serves at `http://127.0.0.1:8130/devtools`. With an app argument it
 builds the EBOOT, serves it to the PSP over usbhostfs and launches it through
 PSPLINK; if a `bun psplink` / `bun run hw` session already owns the cable it is
 detected and bridged into instead. Shortcuts: `o` open panel, `r` rebuild +
-relaunch, `q` quit. Also available from the CLI as `pocket devtools`.
+relaunch, `q` quit. [`pocket devtools`](/docs/cli/#host-development-commands)
+runs the same script.
 
 Browser-host debugging needs nothing extra — any demo loaded from the dev
 server connects to the panel on load.
@@ -30,11 +31,12 @@ server connects to the panel on load.
 ## PS Vita USB runtime
 
 **Vita builds include a USB debug worker and a native L+R+SELECT menu.**
-`bun run vita:dev serve --app hero` connects the wired host;
+Pocket Devkit (`apps/devkit`) is the container installed on the console.
+`bun run vita:dev serve --app devkit` connects the wired host;
 `push` rebuilds and reloads JS/resources, `native` replaces the compiled SELF,
 and `capture` retrieves a **960 × 544 GXM framebuffer** with its build and
 frame identity. The native menu remains available after a guest exception.
-See [Vita USB setup and recovery](https://github.com/pocket-stack/pocketjs/blob/main/docs/VITA-USB.md)
+See [Vita USB setup and recovery](https://github.com/pocket-nexus/pocketjs/blob/main/docs/VITA-USB.md)
 for the initial VitaShell installation, transport requirements, and commands.
 
 ## The component tree
@@ -86,8 +88,7 @@ bun run tape tree   <app> session.tape.json --at 4120         # tree JSON at a f
 ```
 
 `--assert` turns a recorded session into a regression test: replay it against a
-new build and it names the exact frame where behavior changed. The repo ships
-one as a *session golden* (`bun run tape:check`).
+new build and it names the first frame whose recorded hash differs.
 
 Tapes carry touch as well as buttons. `tape record` takes a `--touch` script
 alongside `--input`:

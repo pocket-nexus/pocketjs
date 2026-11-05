@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test";
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 import { createHash } from "node:crypto";
 import { buildAot } from "../microts/compiler/aot-build.ts";
 
 test("the compiled Solid lab model and view stay below the 24 MiB allocation cap", async () => {
   await buildAot("solid-aot-lab", { strict: true });
   const run=resolve(".pocket-build/validation/model-aot/resources",String(Date.now()));await mkdir(resolve(run,"src"),{recursive:true});
-  await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-resource-lab"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket-solid-aot-lab={path=${JSON.stringify(resolve("apps/solid-aot-lab"))},features=["std"]}\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\nserde_json="1"\n`);
+  await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-resource-lab"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket-solid-aot-lab={path=${JSON.stringify(resolve("apps/solid-aot-lab"))}}\nmicrots={path=${JSON.stringify(resolve("engine/microts-runtime"))}}\nserde_json="1"\n`);
   await Bun.write(resolve(run,"src/main.rs"),`
 use std::alloc::{GlobalAlloc,Layout,System};use std::sync::atomic::{AtomicUsize,Ordering};use std::time::Instant;
 use pocket_solid_aot_lab::{LabApp,AppModel,AppViewModel};use microts::{Ui,Input,NodeId};
@@ -21,7 +22,7 @@ for frame in 0..2048 {let input=match frame%8{0=>Input::press(increment),2|3=>In
 let started=Instant::now();std::hint::black_box(&mut model);model.adjustCount(15000);model.react(false,&mut commands);model.settle();model.resetCount();model.react(false,&mut commands);model.settle();std::hint::black_box(&mut model);models.push(started.elapsed().as_nanos()as u64);}
 assert_eq!(app.model.count(),0);assert!(app.model.features().iter().all(|row|row.enabled));assert_eq!(model.count(),0);let peak=PEAK.load(Ordering::SeqCst);assert!(peak<=LIMIT);let live=LIVE.load(Ordering::SeqCst);app.unmount();println!("{}",serde_json::json!({"frames":frames.len(),"limitBytes":LIMIT,"peakBytes":peak,"liveBytes":live,"frameNanoseconds":frames,"modelNanoseconds":models}));}
 `);
-  const child=Bun.spawn(["cargo","run","--release","--quiet","--manifest-path",resolve(run,"Cargo.toml")],{stdout:"pipe",stderr:"pipe",env:{...process.env,CARGO_TARGET_DIR:resolve(".pocket-build/validation/model-aot/resources/target")}});
+  const child=Bun.spawn(["cargo","run","--release","--quiet","--manifest-path",resolve(run,"Cargo.toml")],{stdout:"pipe",stderr:"pipe",env:{...process.env,...AOT_CARGO_ENV}});
   const[status,stdout,stderr]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);await Bun.write(resolve(run,"build.log"),stderr);expect(status,stderr).toBe(0);const receipt=JSON.parse(stdout);
   expect(receipt.frames).toBe(2048);expect(receipt.peakBytes).toBeLessThanOrEqual(24*1024*1024);
   const quantiles=(values:number[])=>{const sorted=[...values].sort((a,b)=>a-b);return{p50:sorted[Math.floor(sorted.length*.5)],p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)}};

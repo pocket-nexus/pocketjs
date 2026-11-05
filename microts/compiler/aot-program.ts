@@ -1,10 +1,10 @@
 /** Shared program finalization: resolve context, bake styles and collect host demands. */
-import { withIsolatedAnimationBake } from "../../framework/compiler/animation.ts";
+import { withIsolatedAnimationBake, type AnimationTheme } from "../../framework/compiler/animation.ts";
 import { compileClasses } from "../../framework/compiler/tailwind.ts";
 import { resolveProvidedContext } from "./aot-provide-inject.ts";
 import type { AotProgram, AotComponent, AotNode, AotExpr } from "./aot-ir.ts";
 import { fail, location, type TypeMapper } from "./aot-types.ts";
-export function finalizeAotProgram(root: string, components: AotComponent[], mapper: TypeMapper, classLiterals: Set<string>): AotProgram {
+export function finalizeAotProgram(root: string, components: AotComponent[], mapper: TypeMapper, classLiterals: Set<string>, animation?: { theme?: AnimationTheme; tickHz?: number }): AotProgram {
   resolveProvidedContext(components);
   function collectStyle(value: AotExpr, allowForward = true): void {
     if (value.kind === "literal" && typeof value.value === "string") { if (value.value) classLiterals.add(value.value); }
@@ -26,7 +26,7 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
   for (const component of components) walk(component.nodes, node => {
     if (node.kind === "component") for (const prop of node.props) if (prop.value.type.kind === "style") collectStyle(prop.value);
   });
-  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals));
+  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals), animation);
   for (const classes of classLiterals) if (styles.ids[classes] === undefined) fail(components.find(c => c.root)?.nodes[0]?.loc ?? location(root, ""), `Unsupported class literal ${JSON.stringify(classes)}`);
   function finalize(nodes: AotNode[]) {
     for (const node of nodes) {
@@ -55,10 +55,10 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
     finalize(c.nodes);
     for (const prop of c.props) if (prop.type.kind === "style" && typeof prop.default === "string") prop.default = prop.default === "" ? -1 : styles.ids[prop.default]!;
   });
-  const buttons = new Set<number>(), axes = new Set<number>(), visitedComponents = new Set<string>();
+  const buttons = new Set<number>(), axes = new Set<number>(), motion = new Set<number>(), visitedComponents = new Set<string>();
   function demands(nodes: AotNode[]): void {
     for (const node of nodes) {
-      if (node.kind === "input") { if (node.input.kind === "button") buttons.add(node.input.button); else axes.add(node.input.axis); demands(node.children); }
+      if (node.kind === "input") { if (node.input.kind === "button") buttons.add(node.input.button); else if (node.input.kind === "axis") axes.add(node.input.axis); else motion.add(node.input.value); demands(node.children); }
       else if (node.kind === "component") {
         node.slots.forEach(slot => demands(slot.children));
         if (!visitedComponents.has(node.component)) { visitedComponents.add(node.component); demands(components.find(c => c.name === node.component)!.nodes); }
@@ -68,5 +68,5 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
     }
   }
   demands(components.find(c => c.name === root)!.nodes);
-  return { version: 1, root: root, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  return { version: 1, root: root, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), motion: [...motion].sort((a, b) => a - b), capabilities: [...(axes.size ? ["relative-axis"] : []), ...(motion.size ? ["motion"] : [])] } };
 }

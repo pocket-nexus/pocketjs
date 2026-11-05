@@ -2,7 +2,9 @@
 //
 // A candidate string literal compiles to a style record IFF every
 // whitespace-separated token parses as a supported utility [R]; otherwise the
-// literal is silently ignored (it was ordinary text, not a class string).
+// literal is ignored (it was ordinary text, not a class string). The build
+// knows which literals sit in a `class` attribute, so it reports those that
+// did not compile: `unknownUtilities` names the tokens at fault.
 // The ONE exception: `rounded-full` in an otherwise-valid literal that does
 // not pin both `w-N` and `h-N` is a HARD compile error [R] (the radius must
 // be build-time bakeable).
@@ -47,12 +49,16 @@ const LARGE_FONT_BOLD_SLOT = 15;
  *  request under font-mono still lands on the mono slot for its size. */
 export const MONO_FONT_PX = [12, 14, 16] as const;
 const MONO_SLOT_BASE = 16;
+/** The small pair (`text-2xs`): labels under icons on low-density screens. */
+const SMALL_FONT_PX = 10;
+const SMALL_FONT_REGULAR_SLOT = 19;
+const SMALL_FONT_BOLD_SLOT = 20;
 const TEXT_SIZE_PX: Record<string, number> = {
-  xs: 12, sm: 14, base: 16, lg: 18, xl: 20, "2xl": 24, "4xl": 36, "5xl": 54,
+  "2xs": 10, xs: 12, sm: 14, base: 16, lg: 18, xl: 20, "2xl": 24, "4xl": 36, "5xl": 54,
 };
 
 /** Slot index for a (px, weight, family) triple: 0..6 regular, 7..13 bold,
- *  14/15 the 54 px pair, 16..18 monospace. */
+ *  14/15 the 54 px pair, 16..18 monospace, 19/20 the 10 px pair. */
 export function fontSlotFor(px: number, bold: boolean, mono = false): number {
   if (mono) {
     const i = (MONO_FONT_PX as readonly number[]).indexOf(px);
@@ -62,6 +68,9 @@ export function fontSlotFor(px: number, bold: boolean, mono = false): number {
   if (px === LARGE_FONT_PX) {
     return bold ? LARGE_FONT_BOLD_SLOT : LARGE_FONT_REGULAR_SLOT;
   }
+  if (px === SMALL_FONT_PX) {
+    return bold ? SMALL_FONT_BOLD_SLOT : SMALL_FONT_REGULAR_SLOT;
+  }
   const i = (FONT_PX as readonly number[]).indexOf(px);
   if (i < 0) throw new Error(`PocketJS tailwind: no font slot for ${px}px`);
   return bold ? 7 + i : i;
@@ -69,6 +78,8 @@ export function fontSlotFor(px: number, bold: boolean, mono = false): number {
 
 /** (px, bold, mono) for a slot index — inverse of fontSlotFor. */
 export function fontSlotInfo(slot: number): { px: number; bold: boolean; mono: boolean } {
+  if (slot === SMALL_FONT_REGULAR_SLOT) return { px: SMALL_FONT_PX, bold: false, mono: false };
+  if (slot === SMALL_FONT_BOLD_SLOT) return { px: SMALL_FONT_PX, bold: true, mono: false };
   if (slot >= MONO_SLOT_BASE) {
     const px = MONO_FONT_PX[slot - MONO_SLOT_BASE];
     if (px === undefined) throw new Error(`PocketJS tailwind: bad font slot ${slot}`);
@@ -265,6 +276,7 @@ const ARBITRARY_F32_PROPS: Record<string, number> = {
   "arc-start": PROP.arcStart,
   "arc-sweep": PROP.arcSweep,
   "arc-width": PROP.arcWidth,
+  "skew-x": PROP.skewX,
 };
 
 /**
@@ -290,6 +302,11 @@ function parseUtility(tok: string, acc: VariantAcc): boolean {
     case "relative": D.push([PROP.posType, int(ENUMS.PosType.Relative)]); return true;
     case "hidden": D.push([PROP.display, int(ENUMS.Display.None)]); return true;
     case "overflow-hidden": D.push([PROP.overflow, int(ENUMS.Overflow.Hidden)]); return true;
+    // Layout containment (PocketJS extension of Tailwind's contain-*): the
+    // subtree is solved as its own layout root given this node's box.
+    // `layout-baked` adds the MicroTS build-time proof and rect tables.
+    case "contain-strict": D.push([PROP.contain, int(ENUMS.Contain.Strict)]); return true;
+    case "layout-baked": D.push([PROP.contain, int(ENUMS.Contain.Baked)]); return true;
     case "w-full": D.push([PROP.width, px(SIZE_FULL)]); return true;
     case "h-full": D.push([PROP.height, px(SIZE_FULL)]); return true;
     case "rounded": D.push([PROP.radius, px(4)]); acc.sawRounded = true; return true;
@@ -553,6 +570,64 @@ function dedupe(decls: Decl[]): StyleProp[] {
     .map(([prop, value]) => ({ prop, value }));
 }
 
+/** A token's variant prefix and the utility after it; null when the prefix is no variant or nothing follows it. */
+function splitVariant(tok: string): { variant: "base" | "focus" | "active"; body: string; hover: boolean } | null {
+  let variant: "base" | "focus" | "active" = "base";
+  let body = tok;
+  let hover = false;
+  const colon = tok.indexOf(":");
+  if (colon > 0) {
+    const prefix = tok.slice(0, colon);
+    if (prefix === "focus" || prefix === "active") variant = prefix;
+    else if (prefix === "hover") hover = true;
+    else return null;
+    body = tok.slice(colon + 1);
+  }
+  return body.length === 0 ? null : { variant, body, hover };
+}
+
+/**
+ * The tokens of `literal` that are not supported utilities, in source order.
+ * Empty for a literal every token of which parses. A token one of the loud
+ * rules rejects (`hover:`, a malformed `animate-loop-[..]`) is a known
+ * utility: `parseClassLiteral` reports it with its own message.
+ */
+export function unknownUtilities(literal: string): string[] {
+  const unknown: string[] = [];
+  for (const tok of literal.trim().split(/\s+/).filter((t) => t.length > 0)) {
+    const split = splitVariant(tok);
+    let known = false;
+    if (split !== null) {
+      try {
+        known =
+          (split.variant === "base" && (parseMotion(split.body, {}) || parseAnimation(split.body, { ids: [], loopFrames: 0 }))) ||
+          parseUtility(split.body, { decls: [] });
+      } catch {
+        known = true;
+      }
+    }
+    if (!known) unknown.push(tok);
+  }
+  return unknown;
+}
+
+/** A token that has the shape of a utility: lower case words joined by hyphens, an optional variant, an optional bracket value. */
+const UTILITY_SHAPE = /^(?:(?:focus|active|hover):)?-?[a-z][a-z0-9]*(?:-(?:[a-z0-9.%/]+|\[[^\]\s]+\]))*$/;
+
+/**
+ * For a literal that is NOT in a `class` attribute and did not compile: the
+ * unsupported tokens when the literal still reads as a class string with a
+ * mistake in it, else null. It reads as one when it has at least two tokens,
+ * every token has the shape of a utility, and more of them are supported
+ * than not. A sentence, a file name or a single word never qualifies.
+ */
+export function suspectClassLiteral(literal: string): string[] | null {
+  const tokens = literal.trim().split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length < 2 || !tokens.every((tok) => UTILITY_SHAPE.test(tok))) return null;
+  const unknown = unknownUtilities(literal);
+  return unknown.length > 0 && tokens.length - unknown.length > unknown.length ? unknown : null;
+}
+
 /**
  * Parse one candidate class literal.
  * Returns the StyleRecord, or null when the literal is NOT a class string
@@ -572,22 +647,10 @@ export function parseClassLiteral(literal: string): StyleRecord | null {
   let sawHover = false;
 
   for (const tok of tokens) {
-    let variant: "base" | "focus" | "active" = "base";
-    let body = tok;
-    const colon = tok.indexOf(":");
-    if (colon > 0) {
-      const prefix = tok.slice(0, colon);
-      if (prefix === "focus" || prefix === "active") {
-        variant = prefix;
-        body = tok.slice(colon + 1);
-      } else if (prefix === "hover") {
-        sawHover = true; // decided after the rest of the literal parses
-        body = tok.slice(colon + 1);
-      } else {
-        return null; // not a utility (arbitrary text with a colon)
-      }
-    }
-    if (body.length === 0) return null;
+    const split = splitVariant(tok);
+    if (split === null) return null; // not a utility (arbitrary text with a colon)
+    const { variant, body } = split;
+    if (split.hover) sawHover = true; // decided after the rest of the literal parses
     if (variant === "base" && parseMotion(body, tr)) { sawMotion = true; continue; }
     if (variant === "base" && parseAnimation(body, anim)) continue;
     if (!parseUtility(body, acc[variant])) return null;

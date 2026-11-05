@@ -4,11 +4,14 @@ import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
 import { interpretModel } from "../microts/compiler/model-interp.ts";
 import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames } from "../microts/compiler/model-harness.ts";
 
-const prelude='import {createSignal} from "solid-js";import {len,map,filter,type i32,type Cap} from "@pocketjs/framework/solid/std";';
+const prelude='import {createSignal} from "solid-js";import {len,map,filter,push,fill,fillRange,type i32,type Cap} from "@pocketjs/framework/solid/std";';
 const cases=[
  {name:"local-array",source:'export const [result,setResult]=createSignal<i32>(0);export function press(){const values:Cap<i32[],1>=[1,2];setResult(len(values));}',expected:1},
  {name:"struct-string",source:'interface Row{label:Cap<string,4>}export const[result,setResult]=createSignal("");export function press(){const row:Row={label:"é雪"};setResult(row.label);}',expected:"é"},
  {name:"map-array",source:'export const [rows,setRows]=createSignal<Cap<i32[],2>>([]);export const [result,setResult]=createSignal<i32>(0);export function press(){const values:i32[]=[1,2,3];setRows(map(values,value=>value));setResult(len(rows()));}',expected:2},
+ {name:"push-string",source:'export const[result,setResult]=createSignal("");export function press(){const xs:Cap<string,3>[]=[];const value:string="abcd";push(xs,value);setResult(xs[0]);}',expected:"abc"},
+ {name:"fill-range-string",source:'export const[result,setResult]=createSignal("");export function press(){const xs:Cap<string,3>[]=["a"];const value:string="abcd";fillRange(xs,0,1,value);setResult(xs[0]);}',expected:"abc"},
+ {name:"fill-string",source:'export const[result,setResult]=createSignal("");export function press(){const value:string="abcd";const xs:Cap<string,3>[]=fill(2,value);setResult(xs[1]);}',expected:"abc"},
  {name:"filter-array",source:'export const [rows,setRows]=createSignal<Cap<i32[],2>>([]);export const [result,setResult]=createSignal<i32>(0);export function press(){const values:i32[]=[1,2,3];setRows(filter(values,value=>value>0));setResult(len(rows()));}',expected:2},
 ];
 test("local and nested contract capacities trap in development and truncate in release",async()=>{

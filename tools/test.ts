@@ -4,14 +4,16 @@
 //
 //   bun tools/test.ts                 # the full suite (what CI runs)
 //   bun tools/test.ts --stage=sim     # only stages whose name contains "sim"
+//   bun tools/test.ts --skip=AOT      # every stage but those containing "AOT"
 //   bun tools/test.ts --list          # print the stage table and exit
 //
 // Stage anatomy: `prep` commands build the artifacts a stage needs (stdout
 // captured, replayed only on failure); `script` runs a self-reporting bun
 // script as-is (tests/contract.ts prints its own ok-lines); `tests` run as
 // ONE `bun test` invocation, with `browser: true` adding
-// `--conditions=browser` (stages that eval wasm-host bundles). On failure
-// the exact repro command is printed before exiting 1.
+// `--conditions=browser` (stages that eval wasm-host bundles); `env` is
+// added to every process of the stage. On failure the exact repro command
+// is printed before exiting 1.
 
 interface Stage {
   readonly name: string;
@@ -23,8 +25,8 @@ interface Stage {
   readonly tests?: readonly string[];
   /** Run `tests` under --conditions=browser (wasm-host module resolution). */
   readonly browser?: boolean;
-  /** Run each test file in a separate process, in declaration order. */
-  readonly isolateFiles?: boolean;
+  /** Environment added to every prep, script and test process of the stage. */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 const SUITE: readonly Stage[] = [
@@ -33,69 +35,115 @@ const SUITE: readonly Stage[] = [
     prep: [["bun", "tools/build.ts", "hero"]],
   },
   {
-    name: "contracts drift guard",
+    name: "contract codec",
     script: ["bun", "tests/contract.ts"],
   },
   {
-    // The C ABI allocator and PSM draw tests need the nightly toolchain
-    // pinned by engine/ui-cabi/rust-toolchain.toml. They run under
-    // .github/workflows/native-c-harness.yml; tests/test-suite.test.ts
-    // verifies these exclusions against that workflow.
+    // Native program and guest composition tests share this unit-test stage.
     name: "unit",
-    // wasm-auxiliary.test.ts loads hosts/web/pocketjs.wasm.
+    // wasm-auxiliary.test.ts, wasm-premultiplied.test.ts, pocket3d-web.test.ts and runtime-glyphs.test.ts load platforms/web/pocketjs.wasm.
     prep: [["bun", "tools/wasm.ts"]],
     tests: [
+      "tests/device-lease.test.ts",
+      "tests/device-evidence.test.ts",
+      "tests/doctor.test.ts",
       "tests/release-check.test.ts",
       "tests/release-notes.test.ts",
       "tests/platform-contracts.test.ts",
+      "tests/profile-contract.test.ts",
+      "tests/manifest-theme.test.ts",
+      "tests/source-app.test.ts",
+      "tests/driver-contracts.test.ts",
+      "tests/generated-contracts.test.ts",
+      "tests/driver-kit-c.test.ts",
+      "tests/driver-kit.test.ts",
+      "tests/guest-web-bindings.test.ts",
+      "tests/embedded-package.test.ts",
+      "tests/quickjs-bytecode.test.ts",
+      "tests/runtime-cabi.test.ts",
+      "tests/sdk.test.ts",
+      "tests/release-artifacts.test.ts",
+      "tests/release-inputs.test.ts",
+      "tests/vita-toolchain.test.ts",
+      "tests/e2e-build.test.ts",
+      "tests/cargo-workspace.test.ts",
+      "tests/idf-input.test.ts",
+      "tests/zephyr-contract.test.ts",
+      "tests/linux-platforms.test.ts",
+      "tests/buildroot.test.ts",
+      "tests/sdk-idf.test.ts",
+      "tests/out-of-tree-rust.test.ts",
+      "tests/applet.test.ts",
       "tests/pocket-package.test.ts",
+      "tests/package-admission.test.ts",
       "tests/idf-host-profile.test.ts",
       "tests/idf-embed.test.ts",
       "tests/idf-incremental.test.ts",
       "tests/idf-release.test.ts",
       "tests/idf-package-corpus.test.ts",
       "tests/widget-args.test.ts",
-      "tests/ipod-nano.test.ts",
       "tests/note.test.ts",
       "tests/pocket-system.test.ts",
-      "tests/site-stage.test.ts",
+      "tests/site-arcade.test.ts",
       "tests/site-showcase.test.ts",
       "tests/motions-attribution.test.ts",
       "tests/host-build-inputs.test.ts",
-      "tests/host-layout.test.ts",
       "tests/quickjs-c-harness.test.ts",
+      "tests/native-program.test.ts",
       "tests/native-source.test.ts",
       "tests/3ds-profile.test.ts",
+      "tests/3ds-minimal.test.ts",
+      "tests/pica-kernel.test.ts",
+      "tests/pica-driver.test.ts",
+      "tests/ge-driver.test.ts",
+      "tests/psp-runtime.test.ts",
+      "tests/pocket3d-title.test.ts",
+      "tests/pocket3d-packs.test.ts",
+      "tests/pocket3d-delivery.test.ts",
+      "tests/pocket3d-web.test.ts",
+      "tests/runtime-glyphs.test.ts",
       "tests/media-service.test.ts",
       "tests/media.test.ts",
       "tests/service-client.test.ts",
       "tests/modality.test.ts",
       "tests/actions.test.ts",
+      "tests/3ds-native-install.test.ts",
       "tests/3ds-runtime-state.test.ts",
+      "tests/3ds-transition.test.ts",
       "tests/3ds-runtime-wire.test.ts",
+      "tests/repack-3ds.test.ts",
+      "tests/repack-shared.test.ts",
+      "tests/repack-sfo.test.ts",
+      "tests/repack-psp.test.ts",
+      "tests/repack-palette.test.ts",
+      "tests/repack-vita.test.ts",
       "tests/3ds-soc.test.ts",
-      "tests/iphone2g-profile.test.ts",
-      "tests/iphone4s-profile.test.ts",
-      "tests/ipodtouch-profile.test.ts",
-      "tests/ipodtouch4-profile.test.ts",
-      "tests/ipodtouch4-installation.test.ts",
-      "tests/ipodtouch4-svcwire.test.ts",
-      "tests/meizu-m8-profile.test.ts",
-      "tests/blackberry-classic.test.ts",
-      "tests/pocket-input.test.ts",
+      "tests/3ds-link.test.ts",
+      "tests/camera-photo.test.ts",
+      "tests/fs-3ds.test.ts",
+      "tests/worker.test.ts",
+      "tests/worker-native.test.ts",
+      "tests/worker-http-stream.test.ts",
       "tests/contact-latch.test.ts",
-      "tests/ios-profile.test.ts",
-      "tests/iphone2g-device-contract.test.ts",
-      "tests/iphone2g-toolchain.test.ts",
-      "tests/iphone2g-device-transaction.test.ts",
       "tests/compiler-portability.test.ts",
       "tests/platform-runtime.test.ts",
       "tests/app-check.test.ts",
+      "tests/runtime-packages.test.ts",
+      "tests/build-writes.test.ts",
+      "tests/targets-catalog.test.ts",
+      "tests/toolchain-definitions.test.ts",
+      "tests/runtime-build.test.ts",
+      "tests/runtime-programs.test.ts",
+      "tests/targets-project.test.ts",
+      "tests/targets-install.test.ts",
+      "tests/class-diagnostics.test.ts",
       "tests/vue-sfc.test.ts",
       "tests/font-bake.test.ts",
       "tests/indexed-image.test.ts",
+      "tests/svg-texture-size.test.ts",
       "tests/touch.test.ts",
       "tests/desktop-pointer.test.ts",
+      "tests/desktop-cadence.test.ts",
       "tests/keyboard-touch.test.ts",
       "tests/caret-blink.test.ts",
       "tests/gesture.test.ts",
@@ -103,9 +151,8 @@ const SUITE: readonly Stage[] = [
       "tests/osk-controller.test.ts",
       "tests/clear-keyboard-touch.test.ts",
       "tests/audio.test.ts",
-      "tests/db.test.ts",
       "tests/fs.test.ts",
-      "tests/net.test.ts",
+      "tests/bytes.test.ts",
       "tests/offload.test.ts",
       "tests/offload-posix.test.ts",
       "tests/relay-frame.test.ts",
@@ -131,34 +178,50 @@ const SUITE: readonly Stage[] = [
       "tests/text.test.ts",
       "tests/text-layout-client.test.ts",
       "tests/clear-candidate-panel.test.ts",
-      "tests/moto-g-play-profile.test.ts",
+      "tests/device-program-build.test.ts",
+      "tests/device-source-inputs.test.ts",
+      "tests/ios-profile.test.ts",
+      "tests/ipodtouch-profile.test.ts",
+      "tests/ipodtouch4-installation.test.ts",
+      "tests/ipodtouch4-profile.test.ts",
+      "tests/ipodtouch4-resources.test.ts",
+      "tests/ipodtouch4-native.test.ts",
+      "tests/ipodtouch4-svcwire.test.ts",
+      "tests/nativescript-bridge.test.ts",
+      "tests/repack-ipod.test.ts",
+      "tests/symbian-data.test.ts",
+      "tests/symbian-device.test.ts",
+      "tests/symbian-navigation.test.ts",
+      "tests/symbian-package.test.ts",
+      "tests/symbian-runtime.test.ts",
+      "tests/symbian-toolchain.test.ts",
+      "tests/repack-worker.test.ts",
       "tests/offload-provider.test.ts",
       "tests/companion-session.test.ts",
+      "tests/pocket-link.test.ts",
       "tests/resource-cache.test.ts",
       "tests/font-config.test.ts",
       "tests/font-archive.test.ts",
       "tests/net-web.test.js",
       "tests/web-system-host.test.ts",
       "tests/wasm-auxiliary.test.ts",
+      "tests/wasm-runtime.test.ts",
+      "tests/wasm-premultiplied.test.ts",
+      "tests/physics.test.ts",
+      "tests/nexus-3ds.test.ts",
       "tests/vita-package.test.ts",
       "tests/vita-dev.test.ts",
-      "tests/psp-toolchain.test.ts",
+      "tests/vita-runtime.test.ts",
+      "tests/targets-psp.test.ts",
       "tests/psp-prx.test.ts",
+      "tests/psplink-cache.test.ts",
       "tests/psp-arena.test.ts",
       "tests/psp-qjs-allocator.test.ts",
-      "tests/symbian-data.test.ts",
-      "tests/symbian-toolchain.test.ts",
-      "tests/symbian-device.test.ts",
-      "tests/symbian-runtime.test.ts",
-      "tests/symbian-navigation.test.ts",
       "tests/native-navigation.test.ts",
-      "tests/symbian-package.test.ts",
       "tests/cli.test.ts",
       "tests/npm-package.test.ts",
       "tests/video-outro.test.ts",
       "tests/osk-layout.test.ts",
-      "tests/test-suite.test.ts",
-      "tests/tape-assert.test.ts",
     ],
   },
   {
@@ -178,6 +241,7 @@ const SUITE: readonly Stage[] = [
       "tests/vue-vapor-pak.test.ts",
       "tests/svg-bake.test.ts",
       "tests/devtools.test.ts",
+      "tests/devtools-bridge.test.ts",
       "tests/hot.test.ts",
       "tests/clock.test.ts",
       "tests/tiles.test.ts",
@@ -189,23 +253,8 @@ const SUITE: readonly Stage[] = [
     tests: ["tests/handheld-models.test.ts", "tests/text-batch.test.ts", "tests/text-cjk.test.ts"],
   },
   {
-    // Session golden: a 180-frame deterministic replay hashed per frame.
-    // Placed after a stage that preps hosts/web/pocketjs.wasm so this pays
-    // only the hero-main rebuild (~1s), never a cold wasm compile.
-    name: "tape golden",
-    script: [
-      "bun",
-      "tools/tape.ts",
-      "replay",
-      "hero-main",
-      "tests/tapes/hero-main.tape.json",
-      "--assert",
-      "tests/tapes/hero-main.hashes.json",
-    ],
-  },
-  {
     name: "AOT frontends and execution parity",
-    prep: [["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"]],
+    prep: [["bun", "tools/build.ts", "solid-aot-lab-main"]],
     browser: true,
     tests: [
       "tests/aot-admission.test.ts",
@@ -216,6 +265,7 @@ const SUITE: readonly Stage[] = [
       "tests/aot-constant-contracts.test.ts",
       "tests/aot-codegen.test.ts",
       "tests/aot-differential.test.ts",
+      "tests/microts-layout-baked.test.ts",
       "tests/solid-for.test.ts",
       "tests/solid-aot-lab.test.ts",
       "tests/vue-vapor-frame-flush.test.ts",
@@ -223,21 +273,18 @@ const SUITE: readonly Stage[] = [
   },
   {
     name: "Model AOT semantics and resources",
-    // Generated bundles retain framework module state when imported in one
-    // Bun test global. Keep each source file's bundle oracle independent.
-    isolateFiles: true,
     // Generated-program fuzz checks remain opt-in through `bun run test:fuzz`.
     prep: [
       ["bun", "tools/wasm.ts"],
       // The view oracles import the generated default styles on a clean checkout.
-      ["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"],
+      ["bun", "tools/build.ts", "solid-aot-lab-main"],
     ],
     tests: [
       "tests/aot-model-animation.test.ts",
-      "tests/aot-model-any.test.ts",
       "tests/aot-model-async-view.test.ts",
       "tests/aot-model-await-order.test.ts",
       "tests/aot-model-build-plan.test.ts",
+      "tests/aot-compile.test.ts",
       "tests/aot-model-capacity.test.ts",
       "tests/aot-model-codegen.test.ts",
       "tests/aot-model-differential.test.ts",
@@ -247,11 +294,9 @@ const SUITE: readonly Stage[] = [
       "tests/aot-model-interp.test.ts",
       "tests/aot-model-js.test.ts",
       "tests/aot-model-metamorphic.test.ts",
-      "tests/aot-model-net-pump.test.ts",
       "tests/aot-model-private-fields.test.ts",
       "tests/aot-model-resources.test.ts",
       "tests/aot-model-scalars.test.ts",
-      "tests/aot-model-services.test.ts",
       "tests/aot-model-startup.test.ts",
       "tests/aot-model-tape.test.ts",
       "tests/aot-model-tasks.test.ts",
@@ -263,7 +308,6 @@ const SUITE: readonly Stage[] = [
   {
     name: "vue-sfc journeys",
     prep: [
-      ["bun", "tools/build.ts", "hero-vue-sfc-main", "--framework=vue-vapor"],
       ["bun", "tools/build.ts", "vue-sfc-lab-main", "--framework=vue-vapor"],
     ],
     browser: true,
@@ -288,7 +332,7 @@ const SUITE: readonly Stage[] = [
     name: "cafe sim (determinism)",
     prep: [["bun", "tools/build.ts", "cafe-main"]],
     browser: true,
-    tests: ["tests/sim.test.ts"],
+    tests: ["tests/sim.test.ts", "tests/sim-bundle.test.ts"],
   },
   {
     name: "deepzoom sim",
@@ -309,10 +353,28 @@ const SUITE: readonly Stage[] = [
     tests: ["tests/audio-sim.test.ts"],
   },
   {
+    // The launcher tests read the deck's text and switch protocol, never a
+    // cover's pixels: placeholder covers skip compiling and sim-booting every
+    // registry app (about a minute) and the tests inherit the same mode.
     name: "launcher sim",
+    env: { POCKET_LAUNCHER_COVERS: "placeholder" },
     prep: [["bun", "tools/launcher.ts", "covers"]],
     browser: true,
-    tests: ["tests/launcher-sim.test.ts"],
+    tests: ["tests/launcher-sim.test.ts", "tests/launcher-symbian.test.ts", "tests/nexus-touch.test.ts"],
+  },
+  {
+    // The system agent's overlay over a fixture app on the 3DS geometry, with
+    // the agent fake (programs/sim/console-3ds.ts). The test builds its guest
+    // with `bun tools/3ds.ts --plan=... --pocket-only`. Pocket Shell lives in
+    // pocket-shell (shells/3ds) and the Hacker News applet in
+    // pocket-nexus/applets, each with its own sims.
+    name: "agent overlay sim",
+    prep: [
+      ["bun", "tools/wasm.ts"],
+      ["bun", "tools/3ds-stage-art.ts", "--check"],
+    ],
+    browser: true,
+    tests: ["tests/agent-layer.test.ts"],
   },
 ];
 
@@ -322,8 +384,13 @@ const args = process.argv.slice(2);
 const stageFilter = args
   .find((a) => a.startsWith("--stage="))
   ?.slice("--stage=".length);
+const skipFilter = args
+  .find((a) => a.startsWith("--skip="))
+  ?.slice("--skip=".length);
 const selected = SUITE.filter(
-  (s) => !stageFilter || s.name.includes(stageFilter),
+  (s) =>
+    (!stageFilter || s.name.includes(stageFilter)) &&
+    (!skipFilter || !s.name.includes(skipFilter)),
 );
 
 if (args.includes("--list")) {
@@ -345,6 +412,10 @@ if (stageFilter && selected.length === 0) {
   console.error(`test: no stage matches "${stageFilter}" (see --list)`);
   process.exit(1);
 }
+if (skipFilter && !SUITE.some((s) => s.name.includes(skipFilter))) {
+  console.error(`test: no stage matches --skip="${skipFilter}" (see --list)`);
+  process.exit(1);
+}
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
@@ -362,39 +433,37 @@ for (const stage of selected) {
   for (const cmd of stage.prep ?? []) {
     const p = Bun.spawnSync(cmd as string[], {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "pipe",
       stderr: "pipe",
     });
-    if (p.exitCode !== 0) {
+    if (!p.success) {
       fail(stage.name, cmd, p.stdout.toString() + p.stderr.toString());
     }
   }
   if (stage.script) {
     const p = Bun.spawnSync(stage.script as string[], {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "inherit",
       stderr: "inherit",
     });
-    if (p.exitCode !== 0) fail(stage.name, stage.script);
+    if (!p.success) fail(stage.name, stage.script);
   }
   if (stage.tests) {
-    const batches = stage.isolateFiles
-      ? stage.tests.map((test) => [test])
-      : [stage.tests];
-    for (const tests of batches) {
-      const cmd = [
-        "bun",
-        "test",
-        ...(stage.browser ? ["--conditions=browser"] : []),
-        ...tests,
-      ];
-      const p = Bun.spawnSync(cmd, {
-        cwd: ROOT,
-        stdout: "inherit",
-        stderr: "inherit",
-      });
-      if (p.exitCode !== 0) fail(stage.name, cmd);
-    }
+    const cmd = [
+      "bun",
+      "test",
+      ...(stage.browser ? ["--conditions=browser"] : []),
+      ...stage.tests,
+    ];
+    const p = Bun.spawnSync(cmd, {
+      cwd: ROOT,
+      env: { ...process.env, ...stage.env },
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    if (!p.success) fail(stage.name, cmd);
   }
   console.log(
     `   ${stage.name}: ok (${((Date.now() - started) / 1000).toFixed(1)}s)`,

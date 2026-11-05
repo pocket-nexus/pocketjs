@@ -1,0 +1,58 @@
+Pocket3D License, version 1.0
+
+Copyright (c) 2026 Yifeng "Evan" Wang
+
+This license covers Pocket3D: the files under pocket3d/, devices/ and
+engine/pocket3d/ of the PocketJS repository (the "Software"). The rest of that
+repository is under the MIT License in its root LICENSE file.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of the Software and associated documentation files, to deal in the Software
+without restriction, including without limitation the rights to use, copy,
+modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+1. Notices. The copyright notice above, these conditions and the disclaimer
+   below shall be included in all copies or substantial portions of the
+   Software.
+
+2. Title card. A Product must show the Pocket3D title card each time it
+   starts, before any other picture of the Product:
+
+   a. as the unmodified pocket3d-title component of the Software draws it; or
+   b. where that component has no drawer for the platform, as the unmodified
+      Pocket3D mark and wordmark from the Software's artwork, on the artwork's
+      ground colour, for at least two seconds.
+
+   The card must be shown at its full length, legible, and not obscured,
+   cropped, recoloured or otherwise altered.
+
+   A "Product" is software that draws three-dimensional scenes using the
+   Software or a work derived from the Software, and that is distributed or
+   otherwise made available to anyone outside the person or organisation that
+   built it. A build that stays with the people developing it is not a
+   Product.
+
+3. PocketJS. Condition 2 does not apply to the PocketJS hosts, tools and
+   applications in the repository the Software is distributed in, nor to
+   software that uses the Software only through those hosts to draw PocketJS
+   user interfaces.
+
+4. Other terms. Condition 2 can be waived only by a separate written license
+   from the copyright holder. Requests: support@pocket.nexus
+
+5. Marks. This license gives no right to use the Pocket3D name, mark or
+   wordmark, except to show them as condition 2 requires and to state
+   truthfully that a Product is built with Pocket3D.
+
+6. Earlier versions. Copies of the Software that were published under the MIT
+   License remain under the MIT License.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

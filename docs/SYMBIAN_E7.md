@@ -1,5 +1,7 @@
 # Nokia E7 / Symbian Belle development
 
+The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
+
 PocketJS includes a pinned, repeatable command-line bootstrap for building
 standard Symbian Qt applications and an experimental PocketJS host for a Nokia
 E7 (RM-626). The probe exercises the compiler, Qt ABI, E32 executable, resource
@@ -7,23 +9,24 @@ registration, SIS packaging, and signing. The private runtime additionally
 links the PocketJS Rust core and pinned QuickJS, embeds a compiled application
 and its `.pak`, and exposes the host operations needed to draw and accept
 button and native-resolution touch input. The separate MTP command proves byte delivery to the phone;
-installation and launch remain device-side confirmations.
+with the CODA agent open, `coda usb install` and `coda usb launch` install and
+start a staged package over the same USB cable.
 
 This workflow does not flash or modify firmware. A CFW may relax installation
 policy on the phone, but applications should still use the smallest possible
-capability set. The runtime uses a private `symbian-e7-dev` build profile; it
+capability set. The runtime uses a private `symbian-e7-dev` host contract; it
 does not register Symbian in the production `POCKET_TARGETS` registry.
 
 ## What gets installed
 
-`pocket symbian setup --yes` downloads five pinned, SHA-256-verified inputs into
-the shared Pocket Stack cache:
+`bun tools/symbian.ts setup --yes` downloads five pinned, SHA-256-verified inputs into
+the shared `pocket-nexus` toolchain cache:
 
 - Belle SDK for Qt SDK 1.2.1 (`SymbianSR1Qt474`)
 - GCCE 4.6.3 for Linux/i686
 - Qt 4.7.4 source, used to build a native Linux `qmake`
 - GnuPoc's native EKA2 resource, executable, and SIS tools
-- `pocket-stack/quickjs-rs` at revision
+- `pocket-nexus/quickjs-rs` at revision
   `0fc946fb670c0c29bc0135f510bcb0f595415a61` (QuickJS `2026-06-04`)
 
 Setup also uses `rustup` to install `nightly-2026-07-02` with the `rust-src`
@@ -55,8 +58,8 @@ docker version
 Build and inspect the toolchain:
 
 ```sh
-pocket symbian setup --yes
-pocket symbian doctor
+bun tools/symbian.ts setup --yes
+bun tools/symbian.ts doctor
 ```
 
 The setup is idempotent. Re-running it verifies every critical tool hash and
@@ -66,7 +69,7 @@ downloads, container image, and toolchain generation.
 The default cache is:
 
 ```text
-${POCKET_STACK_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pocket-stack}/symbian
+${POCKET_NEXUS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pocket-nexus}/symbian
 ```
 
 `POCKETJS_SYMBIAN_DOWNLOADS` can point at a pre-populated directory containing
@@ -96,9 +99,9 @@ not preserve it.
 Keep the E7 in **Nokia Suite / Ovi mode**, then run:
 
 ```sh
-pocket symbian doctor --device
-pocket symbian build probe
-pocket symbian deploy dist/symbian/pocketjs-e7-probe.sis
+bun tools/symbian.ts doctor --device
+bun tools/symbian.ts build probe
+bun tools/symbian.ts deploy dist/symbian/pocketjs-e7-probe.sis
 ```
 
 The deploy command:
@@ -127,14 +130,16 @@ requires that choice and its security consequences are understood.
 
 ## Build and stage a PocketJS application
 
-The app builder resolves the manifest against the private
-`symbian-e7-dev` profile, compiles the PocketJS JavaScript and `.pak`, builds
-the Rust core, links the Qt/QuickJS host, and signs one SIS:
+Compile the application with the program's host config, then pass its **`.pocket` package**
+to the native builder. The native step checks the package identity, builds the
+Rust runtime, links the Qt/QuickJS host, and signs one SIS:
 
 ```sh
-bun tools/symbian.ts build app \
-  --manifest apps/hero/pocket.json \
-  --sis-version 1.0.0
+bun tools/pocket.ts compile --manifest apps/hero/pocket.app.json --project-root . \
+  --host-config programs/nokia-e7/pocket.host.config.ts \
+  --output dist/symbian/application.pocket
+bun tools/symbian.ts build app --pocket dist/symbian/application.pocket \
+  -- --sis-version 1.0.0
 ```
 
 It writes both the installable package and a build receipt:
@@ -144,7 +149,7 @@ dist/symbian/hero-main.sis
 dist/symbian/hero-main.receipt.json
 ```
 
-Every manifest gets a stable private-range UID derived from its Pocket app id,
+Every app contract gets a stable private-range UID derived from its Pocket app id,
 a collision-resistant executable name, its own application-menu caption, and
 output-specific SIS/receipt filenames. Multiple PocketJS apps can therefore be
 installed side by side instead of replacing one shared runtime package. The
@@ -164,7 +169,15 @@ bun tools/symbian.ts deploy dist/symbian/hero-main.sis
 ```
 
 Install it from `File manager > Mass memory > Installs`, then launch
-the manifest's title. Symbian package upgrades must use a version greater
+the app contract's title. With CODA open on the phone, the host installs and
+launches the staged package instead:
+
+```sh
+bun tools/symbian.ts coda usb install hero-main.sis
+bun tools/symbian.ts coda usb launch <executable>   # the receipt's "executable"
+```
+
+Symbian package upgrades must use a version greater
 than the version already installed on the phone. After installing `1.0.0`, for
 example, pass `--sis-version 1.0.1` for the next build rather than reusing
 `1.0.0`.
@@ -173,24 +186,22 @@ External Pocket projects use the same authority without copying the toolchain:
 
 ```sh
 bun tools/symbian.ts build app \
-  --manifest /path/to/project/pocket.json \
-  --project-root /path/to/project \
+  --pocket /path/to/project/dist/application.pocket \
   --outdir /path/to/project/dist/symbian
 ```
 
 Applications that need an app-specific native surface can supply a prebuilt
 archive through `--core-library`. The archive must implement the ordinary
 PocketJS `ui_*` ABI; it may also export the versioned
-`pocketjs_symbian_extension_v1` table from
-`pocketjs_symbian_extension.h`. The table adds synchronous boot, fixed-step
+`pocket_native_extension_v1` table from
+`pocket_native_extension.h`. The table adds synchronous boot, fixed-step
 input, post-guest command draining, resize, render, and shutdown callbacks
 without copying or forking the Qt/QuickJS host:
 
 ```sh
 bun tools/symbian.ts build app \
-  --manifest /path/to/project/pocket.json \
-  --project-root /path/to/project \
-  --core-library /path/to/libapplication_symbian_core.a
+  --pocket /path/to/project/dist/application.pocket \
+  -- --core-library /path/to/libapplication_symbian_core.a
 ```
 
 An application-specific core can package a non-empty external data tree in the
@@ -198,9 +209,8 @@ same SIS by adding `--mass-storage-data-root`:
 
 ```sh
 bun tools/symbian.ts build app \
-  --manifest /path/to/project/pocket.json \
-  --project-root /path/to/project \
-  --core-library /path/to/libapplication_symbian_core.a \
+  --pocket /path/to/project/dist/application.pocket \
+  -- --core-library /path/to/libapplication_symbian_core.a \
   --mass-storage-data-root /path/to/native-data
 ```
 
@@ -227,11 +237,11 @@ requests no depth buffer. A custom core disables that default Cargo feature
 and exports the same symbol with a callback table. This explicit null-provider
 shape is intentional: Symbian's historical E32 conversion tools cannot safely
 consume ELF weak relocations. An extension can request a depth attachment,
-render its scene first, and let `ui_gl_render_over` composite the retained
+render its scene first, and let `pocket_native_program_gl_render_rect` composite the retained
 PocketJS HUD without clearing the color buffer. The PAK bytes stay owned by the
-host and may be borrowed only until the matching shutdown call; the JS guest
-receives a separate writable ArrayBuffer, so script code cannot mutate native
-borrowed storage. Shutdown reports whether the owning GL context is current,
+host and may be borrowed only until the matching shutdown call; the generated QuickJS guest
+borrows the package storage until shutdown. QuickJS-NG marks it immutable;
+engines without that API can write the package bytes. Shutdown reports whether the owning GL context is current,
 allowing the extension to delete live resources normally or abandon stale
 handles after context loss. Application-specific cores are intentionally
 single-app only and cannot be combined with a launcher catalog because their
@@ -243,8 +253,19 @@ call the inline value helpers through stable C symbols without carrying a
 second QuickJS build.
 
 Rust application cores should import the matching table, flags, and native-key
-bits from `pocketjs_symbian_core::extension`; that module is the Rust ABI
+bits from `pocket_native_program::extension`; that module is the Rust ABI
 authority paired with the public C header.
+
+**Each guest owns one canonical Runtime through `PocketNativeProgram`.**
+The generated QuickJS binding dispatches core operations against that instance;
+application operations 39–41 register through an operation provider when a
+launcher or native navigation registry exists. Qt owns the window and native
+extension callbacks. The runtime owns the package, input encoding, core ticks
+and presentation coordinator. **Catalog guests retain the original `.pocket`
+bytes and plan.** The shared package reader validates the hash, target, host
+ABI, catalog identity and declared viewport before guest initialization. A
+live window resize runs after evaluation at the package viewport and before
+the first frame. These C records remain a candidate ABI.
 
 The experimental host has these runtime semantics:
 
@@ -255,6 +276,15 @@ The experimental host has these runtime semantics:
   Rust core first, then calls the framework's live-viewport hook. Solid and Vue
   Vapor update their app and overlay roots in place, so application state,
   focus ownership, and timers survive rotation rather than being remounted.
+- **An app contract whose dynamic viewport range admits one orientation only is
+  held in it.** The build reads the range of the selected presentation (or of
+  the app): a maximum width below the minimum height is `portrait`, a maximum
+  height below the minimum width is `landscape`, and every other range is
+  `auto`. The host sets Qt's portrait or landscape lock in place of automatic
+  orientation, so opening the keyboard does not rotate the app. A navigation
+  registry entry marked `portrait` feeds the same decision. The receipt
+  records the choice as `runtime.orientation`. Pocket Clear and Pocket Nexus
+  declare `360x640` as both minimum and maximum and stay portrait.
 - Applications targeting the E7 must declare a compatible dynamic viewport.
   Responsive rows should use wrapping or other flexible layout constraints;
   the Hero example keeps its PSP/Vita fixed viewport and adds a
@@ -276,6 +306,10 @@ The experimental host has these runtime semantics:
   axis while retaining the original untagged 9-bit wire for PSP/Vita-era
   hosts. `symbian-e7-dev` advertises `input.touch`; the framework exposes the
   same immutable per-frame contact snapshots on both encodings.
+- **`symbian-e7-dev` advertises `ui.physics`.** For a plan that resolves it,
+  the build passes `POCKETJS_PHYSICS=1` to qmake and the runtime admits
+  ops 52–56. The generated binding mounts these methods after checking the
+  instance capabilities. The receipt records the choice as `runtime.physics`.
 
 ### Measure frame work
 
@@ -327,8 +361,7 @@ spans. The cache never evicts a mask referenced by the current draw list.
 **Release frames do not query the GL error queue.** `glGetError` can wait for
 queued GPU work on mobile drivers, serializing CPU and GPU execution. Shader,
 texture and renderer initialization retain their error checks. Debug builds
-check each frame; the Rust `gl-frame-validation` feature enables the same
-checks in a release build for diagnosis. Its timing is reported as `error_ms`.
+check each frame.
 The synchronization mechanism is described in Apple's
 [OpenGL ES design guidelines](https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/OpenGLES_ProgrammingGuide/OpenGLESApplicationDesign/OpenGLESApplicationDesign.html).
 
@@ -350,8 +383,11 @@ profiles. A caller-supplied `--core-library` retains its caller's compiler flags
 
 The frame rows contain elapsed time, frame interval, JavaScript execution,
 core ticks, GLES submission and presentation time in milliseconds.
-`hit_ms` measures native hit queries called by the guest and is included in
-`js_ms`; adding the two would double-count that work.
+`js_ms` measures the guest callback and its native extension hooks;
+`tick_ms` includes input encoding and core ticks. `hit_ms` is `-1` in the
+canonical composition because the generated binding has no per-operation
+profiler; the trace records `hit_ms_available=0`. Historical traces measured
+those queries inside `js_ms`.
 **Replay uses the framework's virtual frame clock** (`replay_ms`), so a slow
 frame cannot skip a whole press/release sequence. Phase assignment uses this
 clock; FPS and CPU durations use wall time. Without replay, both clocks use
@@ -360,19 +396,21 @@ Drawing is split into scene generation, resource synchronization, vertex
 generation, buffer upload, GLES submission and frame validation, with batch
 and vertex counts. `error_ms` is zero when frame validation is disabled, apart
 from the trace callback's clock quantization.
-The C ABI `ui_gl_set_trace` callback supplies these boundaries on the render
+The program API `pocket_native_program_set_gl_trace` supplies these boundaries on the render
 thread; a null callback disables them. Callbacks must not re-enter the UI or
 issue GL commands.
 `present_ms` includes `draw_ms` and Qt's swap. **These are CPU wall times,
-not GPU timer queries or panel scanout measurements.** The measured loop does
-not read pixels, call `glFinish`, or write files.
+not GPU timer queries or panel scanout measurements.** The GLES driver calls
+`glFinish` before the coordinator retires frame resources. The measured loop
+performs no readback or file writes. `draw_ms` includes this terminal wait;
+traces from the earlier submission-only renderer have a different boundary.
 The next completed frame after measurement is saved to
 `E:/Installs/pocketjs-perf.png` for visual inspection. This readback is outside
 the measured interval.
 On Symbian, diagnostic builds reset the inactivity timer once per second
 for five minutes, covering collection and inspection: packed replay bypasses
 the window server's input activity tracking. Replay fixes orientation to the
-manifest's initial viewport so icon hit targets stay at the recorded positions.
+app contract's initial viewport so icon hit targets stay at the recorded positions.
 Normal builds retain automatic orientation and device sleep behavior.
 Keep the device unlocked with the application in front. `inactive_frames`
 counts samples taken without an active window after the first startup second;
@@ -391,19 +429,19 @@ delivery through Qt.
 The Launcher SIS contains target-thinned `.pocket` packages and keeps exactly
 one guest realm/core alive at a time. Home or Backspace summons the launcher;
 choosing a card destroys the current guest and cold-boots the next package.
-The built-in catalog admits only manifests with a genuine live E7 viewport.
+The built-in catalog admits only app contracts with a genuine live E7 viewport.
 Additional external projects can be included explicitly without adding their
 machine-specific paths to committed launcher sources:
 
 ```sh
 bun tools/launcher.ts build --target symbian \
-  --include-manifest /path/to/another-app/pocket.json \
-  --include-manifest /path/to/pocket-figma/pocket.json
+  --include-manifest /path/to/another-app/pocket.app.json \
+  --include-manifest /path/to/pocket-figma/pocket.app.json
 ```
 
 The tool locates each external project root from its declared entry, builds
 and validates the exact `.pocket` packages, derives the launcher's E7-only
-dynamic manifest without changing its PSP/Vita contract, records a
+dynamic app contract without changing the one PSP and Vita use, records a
 16-byte-aligned catalog, and produces:
 
 ```text
@@ -430,19 +468,21 @@ SHA-256 db1a0b4208ab90a8c08f62e73aada2f4dbfaa7cea60557bf4fe7d89e0b3cc333
 ```
 
 ```sh
-pocket symbian deploy /absolute/path/to/Public-CODA-1.0.6-for-S60v5-Anna-Belle-vFuture.sis
+bun tools/symbian.ts deploy /absolute/path/to/Public-CODA-1.0.6-for-S60v5-Anna-Belle-vFuture.sis
 ```
 
 Install it manually and open **RnD Tools**. USB is the preferred path on this
 macOS workflow: keep the phone in Nokia Suite mode, select USB in CODA, and run:
 
 ```sh
-pocket symbian coda usb
+bun tools/symbian.ts coda usb
 # Or include it in the complete device check:
-pocket symbian doctor --device --coda-usb
+bun tools/symbian.ts doctor --device --coda-usb
 # Launch an installed app without touching the phone (read the exact name
 # from that app's *.receipt.json):
-pocket symbian coda usb launch PocketJsLauncherMainECEF4AC6.exe
+bun tools/symbian.ts coda usb launch PocketJsLauncherMainECEF4AC6.exe
+# Install a SIS that `deploy` staged in Mass memory/Installs:
+bun tools/symbian.ts coda usb install launcher-main.sis
 ```
 
 The host opens only the exact Nokia E7 Suite-mode VID/PID and claims CODA's
@@ -459,6 +499,14 @@ Success includes the CODA process context, for example
 `CODA process: p2382`. The command never guesses which app to start and never
 terminates an existing process; close the app first if CODA reports that it is
 already running.
+
+`coda usb install <package.sis>` requires the `SymbianInstall` service and
+sends `SymbianInstall.install` for `E:\Installs\<package.sis>` with target
+drive `E:`, the command Qt Creator's CODA deploy step sends. **The phone shows
+no installer dialogs; the command waits up to 180 s for the reply.** The
+argument is a bare file name of ASCII letters, digits, `.`, `_` and `-` ending
+in `.sis`, so the host cannot name a file outside `Installs`. The version rule
+of a manual upgrade still applies.
 
 This is a repeatable remote-launch path for device testing, not yet a
 source-level debugger. CODA also exposes run control, logging, memory,
@@ -538,22 +586,26 @@ This mode cannot be combined with an embedded `--catalog`.
 
 The registry has `shell` (the Shell UID) and `apps` (2–32 entries). Every entry
 contains `uid`, `id`, `output` and `title`; `orientation` accepts `auto` or
-`portrait`. UIDs, manifest IDs and output keys must be unique. Build every
+`portrait`. **A package's own `portrait` entry folds into the build's
+orientation lock** (see the runtime semantics above): it holds an app whose
+app contract range admits both orientations in portrait, and the build rejects it
+for a landscape-only app contract. The packaged table carries no orientation
+column. UIDs, app ids and output keys must be unique. Build every
 participating package with the same registry, including its own UID. The build
 receipt records the encoded registry hash.
 
 ```json
 {
-  "shell": "0xEA360236",
+  "shell": "0xE7C0F0BA",
   "apps": [
-    { "uid": "0xEA360236", "id": "dev.pocket-stack.fluid", "output": "pocketshell-touch", "title": "Pocket Shell" },
-    { "uid": "0xE16ACD8E", "id": "dev.pocket-stack.clear", "output": "clear-main", "title": "Pocket Clear", "orientation": "portrait" }
+    { "uid": "0xE7C0F0BA", "id": "dev.pocket-nexus.fluid", "output": "pocketshell-touch", "title": "Pocket Shell" },
+    { "uid": "0xE6EE02B8", "id": "dev.pocket-nexus.clear", "output": "clear-main", "title": "Pocket Clear", "orientation": "portrait" }
   ]
 }
 ```
 
 ```sh
-bun tools/symbian.ts build app --manifest apps/clear/pocket.symbian.json \
+bun tools/symbian.ts build app --manifest apps/clear/pocket.app.json \
   --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
   --frame-rate 60 --sis-version 0.3.12
 ```
@@ -595,7 +647,7 @@ with the background process. `*-navigation.tsv` records activations alongside
 the frame trace. Release builds do not read replay files.
 
 Native renderers opt into graphics suspension with the optional
-`PocketJsSymbianGraphicsExtensionV1` / `GraphicsExtensionV1` tail. Its V1 prefix
+`PocketNativeGraphicsExtensionV1` / `GraphicsExtensionV1` tail. Its V1 prefix
 and provider symbol remain unchanged; `base.struct_size` covers the full table.
 `release_graphics(gl_context_current)` releases GPU handles and retains CPU
 scene/game data. The next `render` rebuilds GPU resources. A host checks the

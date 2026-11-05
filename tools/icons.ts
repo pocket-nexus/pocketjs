@@ -1,8 +1,11 @@
-// tools/icons.ts — render the icon family from one SVG source.
+// tools/icons.ts — render an icon family from one SVG source.
 //
-//   bun tools/icons.ts
+//   bun tools/icons.ts          pocketjs.dev, from site/assets/favicon.svg
+//   bun tools/icons.ts nexus    pocket.nexus, from site/nexus/mark.svg
+//   bun tools/icons.ts pocket3d 3d.pocket.nexus, from site/pocket3d/mark.svg
+//   bun tools/icons.ts microts  microts.pocket.nexus, from site/microts/mark.svg
 //
-// site/assets/favicon.svg is the only drawing. Everything a browser or a phone
+// For pocketjs.dev, site/assets/favicon.svg is the only drawing. Everything a browser or a phone
 // home screen asks for is rasterized from it here, so the mark can never drift
 // between surfaces:
 //
@@ -15,6 +18,18 @@
 //   icon-512-maskable.png  Android adaptive icons, artwork inside the safe zone
 //   og-image.png           the 1200x630 social card, rasterized from og-image.svg
 //
+// pocket.nexus gets the same treatment into site/nexus/public/, with a shorter
+// apple-touch ladder, favicon.svg copied from the mark, and a social card
+// captured from the homepage itself in its settled reduced-motion state, so
+// the card shows the live wordmark and pocket rather than a second drawing.
+//
+// 3d.pocket.nexus follows pocket.nexus. Its social card is captured from
+// site/pocket3d/og-card.html, a page beside public/ that draws the mark and the
+// wordmark and is not deployed.
+//
+// microts.pocket.nexus gets the icon family of pocket.nexus and no social card.
+// Its favicon.svg is also the image the site's nav, footer and home draw.
+//
 // iOS picks the apple-touch-icon whose `sizes` is closest to what it wants and
 // ignores the manifest when one exists, so the ladder below is what actually
 // lands on a home screen. Two devices, two answers: 180 for iPhone, 152 and
@@ -26,17 +41,20 @@
 // hand rather than shelling out to ImageMagick, which keeps this runnable
 // anywhere Bun and Chrome exist.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { HeadlessChrome } from "./headless-chrome.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const ASSETS = `${ROOT}site/assets/`;
-const SOURCE = `${ASSETS}favicon.svg`;
 const BACKING = "#171226"; // the backing the mark is drawn on, matching favicon.svg
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 type Job = { file: string; size: number; bleed: boolean };
-/** Non-square art rendered from its own SVG rather than from the mark. */
-type Card = { file: string; source: string; width: number; height: number };
+/**
+ * Non-square art: rendered from its own SVG, or captured from a page after a
+ * `prepare` expression resolves truthy. A `page` is a file in the family's
+ * output directory, or an absolute path for a page that is not deployed.
+ */
+type Card = { file: string; width: number; height: number } & ({ source: string } | { page: string; prepare: string });
+type Family = { out: string; source: string; favicon?: string; pngs: Job[]; cards: Card[] };
 
 // `bleed` fills the canvas with the backing colour and insets the artwork: iOS
 // and Android apply their own mask, and a transparent or self-rounded icon
@@ -59,85 +77,82 @@ const CARDS: Card[] = [
   { file: "og-image.png", source: "og-image.svg", width: 1200, height: 630 },
 ];
 
-class Chrome {
-  #ws!: WebSocket;
-  #proc!: Bun.Subprocess;
-  #id = 0;
-  #waiting = new Map<number, (v: any) => void>();
+// The homepage settles at once under reduced motion. The card hides the
+// controls (keeping a 34px top margin where the bar was), lays the scene out
+// again at 1200x630 and waits for Titan One so the letters are drawn in the
+// display face.
+const NEXUS_CARD = `(async () => {
+  await document.fonts.ready;
+  const css = document.createElement("style");
+  css.textContent = ".bar{height:34px;padding:0!important;visibility:hidden}.bar>*,.cta,.copy,.hint,#tags{display:none!important}";
+  document.head.append(css);
+  dispatchEvent(new Event("resize"));
+  await new Promise((r) => setTimeout(r, 1500));
+  return document.fonts.check('100px "Titan One"', "POCKETNXUS");
+})()`;
 
-  async start() {
-    if (!existsSync(CHROME)) throw new Error(`Chrome not found at ${CHROME}`);
-    const port = 9411;
-    this.#proc = Bun.spawn(
-      [
-        CHROME,
-        `--remote-debugging-port=${port}`,
-        "--headless=new",
-        "--hide-scrollbars",
-        "--no-first-run",
-        "--force-device-scale-factor=1",
-        `--user-data-dir=${process.env.TMPDIR ?? "/tmp/"}pocketjs-icons`,
-        "about:blank",
-      ],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-    let url = "";
-    for (let i = 0; i < 100 && !url; i++) {
-      try {
-        const list = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as any[];
-        url = list.find((t) => t.type === "page")?.webSocketDebuggerUrl ?? "";
-      } catch {}
-      if (!url) await Bun.sleep(120);
-    }
-    if (!url) throw new Error("Chrome never opened a debugging target");
-    this.#ws = new WebSocket(url);
-    await new Promise((r) => (this.#ws.onopen = r as any));
-    this.#ws.onmessage = (e) => {
-      const m = JSON.parse(String(e.data));
-      if (m.id && this.#waiting.has(m.id)) {
-        this.#waiting.get(m.id)!(m);
-        this.#waiting.delete(m.id);
-      }
-    };
-    await this.send("Page.enable");
-    await this.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
-  }
+const FAMILIES: Record<string, Family> = {
+  pocketjs: { out: `${ROOT}site/assets/`, source: `${ROOT}site/assets/favicon.svg`, pngs: PNGS, cards: CARDS },
+  nexus: {
+    out: `${ROOT}site/nexus/public/`,
+    source: `${ROOT}site/nexus/mark.svg`,
+    favicon: "favicon.svg",
+    pngs: [
+      { file: "favicon-96.png", size: 96, bleed: false },
+      { file: "apple-touch-icon.png", size: 180, bleed: true },
+      { file: "apple-touch-icon-precomposed.png", size: 180, bleed: true },
+      { file: "icon-192.png", size: 192, bleed: false },
+      { file: "icon-512.png", size: 512, bleed: false },
+      { file: "icon-512-maskable.png", size: 512, bleed: true },
+    ],
+    cards: [{ file: "og-image.png", page: "index.html", prepare: NEXUS_CARD, width: 1200, height: 630 }],
+  },
+};
+// The card page loads its two faces from Google Fonts; the capture waits for both.
+const POCKET3D_CARD = `(async () => {
+  await document.fonts.ready;
+  await Promise.all([...document.images].map((image) => image.decode()));
+  await new Promise((r) => setTimeout(r, 300));
+  return document.fonts.check('150px "Titan One"', "Pocket3D") && document.fonts.check('600 42px Fredoka', "Create");
+})()`;
+FAMILIES.pocket3d = {
+  out: `${ROOT}site/pocket3d/public/`,
+  source: `${ROOT}site/pocket3d/mark.svg`,
+  favicon: "favicon.svg",
+  pngs: FAMILIES.nexus.pngs,
+  cards: [{ file: "og-image.png", page: `${ROOT}site/pocket3d/og-card.html`, prepare: POCKET3D_CARD, width: 1200, height: 630 }],
+};
+FAMILIES.microts = {
+  out: `${ROOT}site/microts/public/`,
+  source: `${ROOT}site/microts/mark.svg`,
+  favicon: "favicon.svg",
+  pngs: FAMILIES.nexus.pngs,
+  cards: [],
+};
+const familyName = process.argv[2] ?? "pocketjs";
+const family = FAMILIES[familyName];
+if (!family) throw new Error(`Unknown icon family "${familyName}"; expected ${Object.keys(FAMILIES).join(" or ")}`);
 
-  send(method: string, params: Record<string, unknown> = {}): Promise<any> {
-    return new Promise((res) => {
-      const id = ++this.#id;
-      this.#waiting.set(id, res);
-      this.#ws.send(JSON.stringify({ id, method, params }));
-    });
-  }
+/** Render an in-memory HTML page at a fixed viewport. */
+async function shot(chrome: HeadlessChrome, html: string, width: number, height = width): Promise<Uint8Array> {
+  await chrome.viewport(width, height);
+  await chrome.html(html);
+  await Bun.sleep(60); // let the SVG paint before the capture
+  return chrome.screenshot();
+}
 
-  async shot(html: string, width: number, height = width): Promise<Uint8Array> {
-    await this.send("Emulation.setDeviceMetricsOverride", {
-      width,
-      height,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    const done = new Promise<void>((res) => {
-      const on = (e: MessageEvent) => {
-        if (JSON.parse(String(e.data)).method === "Page.loadEventFired") {
-          this.#ws.removeEventListener("message", on);
-          res();
-        }
-      };
-      this.#ws.addEventListener("message", on);
-    });
-    await this.send("Page.navigate", { url: `data:text/html;base64,${Buffer.from(html).toString("base64")}` });
-    await done;
-    await Bun.sleep(60); // let the SVG paint before the capture
-    const r = await this.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-    return new Uint8Array(Buffer.from(r.result.data, "base64"));
-  }
-
-  stop() {
-    this.#ws.close();
-    this.#proc.kill();
-  }
+/** Capture a real page with reduced motion, after `prepare` resolves true. */
+async function capturePage(chrome: HeadlessChrome, url: string, width: number, height: number, prepare: string): Promise<Uint8Array> {
+  await chrome.viewport(width, height);
+  await chrome.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await chrome.navigate(url);
+  const ready = await chrome.evaluate(prepare).catch((error: Error) => {
+    throw new Error(`${url}: prepare threw: ${error.message}`);
+  });
+  if (ready !== true) throw new Error(`${url}: prepare did not resolve true: ${JSON.stringify(ready)}`);
+  const png = await chrome.screenshot();
+  await chrome.send("Emulation.setEmulatedMedia", { features: [] });
+  return png;
 }
 
 function page(svg: string, size: number, bleed: boolean): string {
@@ -195,32 +210,38 @@ function ico(images: { size: number; png: Uint8Array }[]): Uint8Array {
   return out;
 }
 
-const svg = readFileSync(SOURCE, "utf8");
-const chrome = new Chrome();
-await chrome.start();
+const OUT = family.out;
+const svg = readFileSync(family.source, "utf8");
+if (family.favicon) {
+  // the served favicon is the mark without its source-of-record comment
+  writeFileSync(OUT + family.favicon, svg.replace(/^<!--[\s\S]*?-->\s*/, ""));
+  console.log(`  ${family.favicon}  copied from ${family.source.slice(ROOT.length)}`);
+}
+const chrome = await HeadlessChrome.start({ port: 9411, profile: `${process.env.TMPDIR ?? "/tmp/"}pocketjs-icons` });
 try {
-  for (const job of PNGS) {
-    const png = await chrome.shot(page(svg, job.size, job.bleed), job.size);
+  for (const job of family.pngs) {
+    const png = await shot(chrome, page(svg, job.size, job.bleed), job.size);
     const [w, h] = pngSize(png);
     if (w !== job.size || h !== job.size) throw new Error(`${job.file}: rendered ${w}x${h}, wanted ${job.size}`);
-    writeFileSync(ASSETS + job.file, png);
+    writeFileSync(OUT + job.file, png);
     console.log(`  ${job.file}  ${job.size}x${job.size}  ${(png.length / 1024).toFixed(1)} KiB`);
   }
   const layers = [];
   for (const size of ICO) {
-    layers.push({ size, png: await chrome.shot(page(svg, size, false), size) });
+    layers.push({ size, png: await shot(chrome, page(svg, size, false), size) });
   }
   const container = ico(layers);
-  writeFileSync(ASSETS + "favicon.ico", container);
+  writeFileSync(OUT + "favicon.ico", container);
   console.log(`  favicon.ico  ${ICO.join(" + ")}  ${(container.length / 1024).toFixed(1)} KiB`);
-  for (const card of CARDS) {
-    const art = readFileSync(ASSETS + card.source, "utf8");
-    const png = await chrome.shot(cardPage(art, card.width, card.height), card.width, card.height);
+  for (const card of family.cards) {
+    const png = "page" in card
+      ? await capturePage(chrome, `file://${card.page.startsWith("/") ? "" : OUT}${card.page}`, card.width, card.height, card.prepare)
+      : await shot(chrome, cardPage(readFileSync(OUT + card.source, "utf8"), card.width, card.height), card.width, card.height);
     const [w, h] = pngSize(png);
     if (w !== card.width || h !== card.height) {
       throw new Error(`${card.file}: rendered ${w}x${h}, wanted ${card.width}x${card.height}`);
     }
-    writeFileSync(ASSETS + card.file, png);
+    writeFileSync(OUT + card.file, png);
     console.log(`  ${card.file}  ${card.width}x${card.height}  ${(png.length / 1024).toFixed(1)} KiB`);
   }
 } finally {

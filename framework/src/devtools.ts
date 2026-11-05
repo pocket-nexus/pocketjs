@@ -12,6 +12,8 @@
 
 import type { AxisDelta } from "./relative-axis.ts";
 import { __takeAxisDeltas, EMPTY_AXIS_DELTAS } from "./relative-axis.ts";
+import { __copyMotionState, __takeMotionState, type MotionState } from "./motion.ts";
+import type { TextEventRecord } from "./text-input.ts";
 import { ANALOG_CENTER } from "../../contracts/spec/spec.ts";
 import type { HostOps } from "./host.ts";
 import { rootMirror, setTreeMutationHook, type NodeMirror } from "./native-tree.ts";
@@ -24,11 +26,15 @@ export interface DevtoolsTransport {
   recv(): string | null | undefined;
   /** Poll cadence in frames (PSP mailbox IO is a few USB round trips). */
   everyFrames?: number;
+  /** Whether a panel is attached now. Absent means always. While it returns
+   *  false the shim sends no tree or stats snapshots and no console lines;
+   *  the first frame after a panel attaches sends the tree. */
+  listening?: () => boolean;
 }
 
 /** Input tape: the complete session input, RLE-encoded (docs/DEVTOOLS.md §4). */
 export interface Tape {
-  v: 1 | 2 | 3 | 4;
+  v: 1 | 2 | 3 | 4 | 5;
   app?: string;
   /** Total frames represented by `masks`. */
   frames: number;
@@ -52,6 +58,9 @@ export interface Tape {
   touchSurfaces?: [number, number[]][];
   /** v4: sparse hardware-neutral relative-axis deltas, in millidegrees. */
   axes?: [number, AxisDelta[]][];
+  /** v5: sparse fused motion estimates, one per frame whose host delivered
+   *  one; every other frame replays with no estimate. */
+  motion?: [number, MotionState][];
   /** Absolute frame index of masks[0] (0 unless the ring wrapped). */
   startFrame?: number;
 }
@@ -60,17 +69,77 @@ export interface Tape {
 const TAPE_CAP = 36000;
 const TOUCH_CHUNK_BITS = 7;
 const TOUCH_CHUNK_SIZE = 1 << TOUCH_CHUNK_BITS;
-type TouchRing = ((number[] | null)[] | undefined)[];
+interface TouchPage {
+  /** Zero is absent; length + 1 also preserves an explicit empty surface lane. */
+  sizes: Uint8Array;
+  words: Float64Array | Uint8Array;
+  stride: number;
+  occupied: number;
+}
+interface TouchRing {
+  pages: (TouchPage | undefined)[];
+  pageCount: number;
+  surfaces: boolean;
+}
 
-function writeTouch(ring: TouchRing, at: number, value: number[] | null): void {
+function createTouchRing(surfaces = false): TouchRing {
+  return { pages: [], pageCount: 0, surfaces };
+}
+
+function writeTouch(ring: TouchRing, at: number, value: readonly number[] | null, limit: number): void {
   const page = at >>> TOUCH_CHUNK_BITS;
-  let chunk = ring[page];
-  if (!chunk && value) chunk = ring[page] = new Array<number[] | null>(TOUCH_CHUNK_SIZE);
-  if (chunk) chunk[at & (TOUCH_CHUNK_SIZE - 1)] = value;
+  const slot = at & (TOUCH_CHUNK_SIZE - 1);
+  let chunk = ring.pages[page];
+  if (!value) {
+    if (chunk?.sizes[slot]) {
+      chunk.sizes[slot] = 0;
+      if (--chunk.occupied === 0) {
+        ring.pages[page] = undefined;
+        if (--ring.pageCount === 0) ring.pages = [];
+      }
+    }
+    return;
+  }
+  const length = Math.min(value.length, limit);
+  if (!chunk) {
+    let stride = 1;
+    while (stride < length) stride *= 2;
+    chunk = ring.pages[page] = {
+      sizes: new Uint8Array(TOUCH_CHUNK_SIZE),
+      // C guests supply signed packed words; other hosts supply unsigned words.
+      // Float64 keeps both representations intact in exported tapes.
+      words: ring.surfaces ? new Uint8Array(TOUCH_CHUNK_SIZE * stride) : new Float64Array(TOUCH_CHUNK_SIZE * stride),
+      stride,
+      occupied: 0,
+    };
+    ring.pageCount++;
+  } else if (length > chunk.stride) {
+    let stride = chunk.stride;
+    while (stride < length) stride *= 2;
+    const words = ring.surfaces ? new Uint8Array(TOUCH_CHUNK_SIZE * stride) : new Float64Array(TOUCH_CHUNK_SIZE * stride);
+    for (let frame = 0; frame < TOUCH_CHUNK_SIZE; frame++) {
+      for (let word = 0; word < chunk.sizes[frame] - 1; word++) {
+        words[frame * stride + word] = chunk.words[frame * chunk.stride + word];
+      }
+    }
+    chunk.words = words;
+    chunk.stride = stride;
+  }
+  if (!chunk.sizes[slot]) chunk.occupied++;
+  chunk.sizes[slot] = length + 1;
+  for (let word = 0; word < length; word++) {
+    chunk.words[slot * chunk.stride + word] = ring.surfaces ? (value[word] === 1 ? 1 : 0) : value[word];
+  }
 }
 
 function readTouch(ring: TouchRing, at: number): number[] | null {
-  return ring[at >>> TOUCH_CHUNK_BITS]?.[at & (TOUCH_CHUNK_SIZE - 1)] ?? null;
+  const chunk = ring.pages[at >>> TOUCH_CHUNK_BITS];
+  const slot = at & (TOUCH_CHUNK_SIZE - 1);
+  const size = chunk?.sizes[slot];
+  if (!size) return null;
+  const value = new Array<number>(size - 1);
+  for (let word = 0; word < value.length; word++) value[word] = chunk!.words[slot * chunk!.stride + word];
+  return value;
 }
 const TREE_THROTTLE = 30; // min frames between tree snapshots
 const STATS_EVERY = 30;
@@ -84,11 +153,12 @@ interface DevtoolsState {
   tape: Uint16Array;
   tapeAnalog: Uint16Array;
   tapeRightAnalog: Uint16Array | null;
-  /** Allocate at most 128 slots at a contact edge, instead of initializing
-   *  all 36,000 slots on the first touch. Empty pages need no storage. */
+  /** Packed pages cover 128 frames and grow their word stride with contact
+   *  count. A page is released when its last recorded frame expires. */
   tapeTouch: TouchRing | null;
   tapeTouchSurfaces: TouchRing | null;
   tapeAxes: (AxisDelta[] | null)[] | null;
+  tapeMotion: (MotionState | null)[] | null;
   tapeStart: number; // ring index of the oldest frame
   tapeLen: number;
   tapeFirstFrame: number; // absolute frame index of the oldest entry
@@ -99,6 +169,7 @@ interface DevtoolsState {
   replayTouch: (number[] | undefined)[] | null;
   replayTouchSurfaces: (number[] | undefined)[] | null;
   replayAxes: (AxisDelta[] | undefined)[] | null;
+  replayMotion: (MotionState | undefined)[] | null;
   replayAt: number;
   // pause
   paused: boolean;
@@ -110,6 +181,8 @@ interface DevtoolsState {
   treeDirty: boolean;
   treeSentAt: number;
   saidHello: boolean;
+  /** A panel was listening after the previous frame (see `listening`). */
+  panelAttached: boolean;
   /** Wrapper invocations — advances even while paused (poll cadence must
    *  not freeze with the world, or resume could never arrive on PSP). */
   hostCalls: number;
@@ -126,6 +199,7 @@ const state: DevtoolsState = {
   tapeTouch: null,
   tapeTouchSurfaces: null,
   tapeAxes: null,
+  tapeMotion: null,
   tapeStart: 0,
   tapeLen: 0,
   tapeFirstFrame: 0,
@@ -135,6 +209,7 @@ const state: DevtoolsState = {
   replayTouch: null,
   replayTouchSurfaces: null,
   replayAxes: null,
+  replayMotion: null,
   replayAt: 0,
   paused: false,
   stepQueued: 0,
@@ -143,6 +218,7 @@ const state: DevtoolsState = {
   treeDirty: true,
   treeSentAt: -TREE_THROTTLE,
   saidHello: false,
+  panelAttached: false,
   hostCalls: 0,
 };
 
@@ -154,7 +230,7 @@ const state: DevtoolsState = {
  * Install the shim for this mount. Called by render() after the host is
  * up. Transport resolution order: an injected `globalThis.
  * __pocketDevtoolsTransport` (browser host, tests, tools/tape.ts), else
- * the PSP mailbox bindings on the ui namespace (hosts/psp/src/dbg.rs).
+ * the PSP mailbox bindings on the ui namespace (programs/psp/src/dbg.rs).
  */
 export function initDevtools(ops: HostOps): void {
   // QuickJS (Solid path) ships no console at all — app code calling
@@ -171,12 +247,14 @@ export function initDevtools(ops: HostOps): void {
   state.tapeRightAnalog = null;
   state.tapeTouchSurfaces = null;
   state.tapeAxes = null;
+  state.tapeMotion = null;
   state.replayMasks = null;
   state.replayAnalog = null;
   state.replayRightAnalog = null;
   state.replayTouch = null;
   state.replayTouchSurfaces = null;
   state.replayAxes = null;
+  state.replayMotion = null;
   state.paused = false;
   state.stepQueued = 0;
   state.inspectReportId = null;
@@ -184,6 +262,7 @@ export function initDevtools(ops: HostOps): void {
   state.treeDirty = true;
   state.treeSentAt = -TREE_THROTTLE;
   state.saidHello = false;
+  state.panelAttached = false;
   state.hostCalls = 0;
   state.app = (globalThis as { __pocketApp?: string }).__pocketApp;
 
@@ -196,6 +275,7 @@ export function initDevtools(ops: HostOps): void {
       send: (l) => ops.__dbgSend!(l),
       recv: () => ops.__dbgPoll!(),
       everyFrames: 10,
+      listening: ops.__dbgConnected ? () => ops.__dbgConnected!() : undefined,
     };
   } else {
     state.transport = null;
@@ -205,10 +285,10 @@ export function initDevtools(ops: HostOps): void {
     setTreeMutationHook(() => {
       state.treeDirty = true;
     });
-    bridgeConsole();
   } else {
     setTreeMutationHook(null);
   }
+  bridgeConsole();
 
   // Manual/eval access (also the REPL's own handle into the shim).
   (globalThis as Record<string, unknown>).__pocketDevtools = api;
@@ -224,6 +304,8 @@ export function wrapFrameHandler(
     touchSurfaces?: readonly number[],
     rightAnalog?: number,
     axisDeltas?: readonly AxisDelta[],
+    motion?: MotionState | null,
+    text?: readonly TextEventRecord[],
   ) => void,
 ): (
   buttons: number,
@@ -233,6 +315,8 @@ export function wrapFrameHandler(
   touchSurfaces?: readonly number[],
   rightAnalog?: number,
   axisDeltas?: readonly AxisDelta[],
+  motion?: MotionState | null,
+  text?: readonly TextEventRecord[],
 ) => void {
   return (
     buttons: number,
@@ -242,6 +326,8 @@ export function wrapFrameHandler(
     touchSurfacesArg?: readonly number[],
     rightAnalogArg?: number,
     axisDeltasArg?: readonly AxisDelta[],
+    motionArg?: MotionState | null,
+    textArg?: readonly TextEventRecord[],
   ) => {
     state.hostCalls++;
     if (state.transport) {
@@ -255,9 +341,13 @@ export function wrapFrameHandler(
     let hits = hitsArg;
     let touchSurfaces = touchSurfacesArg;
     let axisDeltas = axisDeltasArg;
+    let motion = motionArg;
     if (state.replayMasks) {
       if (state.replayAt < state.replayMasks.length) {
+        // Paused host polls must not consume queued replay input.
+        if (state.paused && state.stepQueued <= 0) return;
         axisDeltas = state.replayAxes?.[state.replayAt] ?? EMPTY_AXIS_DELTAS;
+        motion = state.replayMotion?.[state.replayAt] ?? null; // null: no estimate, never the live one
         mask = state.replayMasks[state.replayAt];
         analog = state.replayAnalog ? state.replayAnalog[state.replayAt] : ANALOG_CENTER;
         rightAnalog = state.replayRightAnalog ? state.replayRightAnalog[state.replayAt] : ANALOG_CENTER;
@@ -282,6 +372,7 @@ export function wrapFrameHandler(
         state.replayTouch = null;
         state.replayTouchSurfaces = null;
         state.replayAxes = null;
+        state.replayMotion = null;
         send({ t: "replayDone", frame: state.frame });
       }
     }
@@ -291,10 +382,11 @@ export function wrapFrameHandler(
       state.ops?.debugStep?.(); // arm exactly one core tick
     }
     axisDeltas = __takeAxisDeltas(axisDeltas);
-    recordMask(mask, analog, touch, touchSurfaces, rightAnalog, axisDeltas);
+    motion = __takeMotionState(motion);
+    recordMask(mask, analog, touch, touchSurfaces, rightAnalog, axisDeltas, motion);
     state.frame++;
     try {
-      h(mask, analog, touch, hits, touchSurfaces, rightAnalog, axisDeltas);
+      h(mask, analog, touch, hits, touchSurfaces, rightAnalog, axisDeltas, motion, textArg);
     } catch (e) {
       send({
         t: "error",
@@ -319,38 +411,43 @@ function recordMask(
   touchSurfaces?: readonly number[],
   rightAnalog?: number,
   axisDeltas?: readonly AxisDelta[],
+  motion?: MotionState | null,
 ): void {
   const axes = axisDeltas?.length ? axisDeltas.map(value => ({ ...value })) : null;
   if (axes && !state.tapeAxes) state.tapeAxes = new Array<AxisDelta[] | null>(TAPE_CAP).fill(null);
+  if (motion && !state.tapeMotion) state.tapeMotion = new Array<MotionState | null>(TAPE_CAP).fill(null);
   const right = rightAnalog ?? ANALOG_CENTER;
   if (right !== ANALOG_CENTER && !state.tapeRightAnalog) state.tapeRightAnalog = new Uint16Array(TAPE_CAP).fill(ANALOG_CENTER);
-  // Defensive copy: hosts may reuse the packed-contact buffer across frames.
-  const contacts = touch && touch.length > 0 ? touch.slice(0, 16) : null;
+  // writeTouch copies the words into pages before a host can reuse its buffer.
+  const contacts = touch && touch.length > 0 ? touch : null;
+  const contactCount = Math.min(contacts?.length ?? 0, 16);
   if (contacts && !state.tapeTouch) {
-    state.tapeTouch = [];
+    state.tapeTouch = createTouchRing();
   }
-  const surfaces = contacts && touchSurfaces
-    ? touchSurfaces.slice(0, contacts.length).map((surface) => surface === 1 ? 1 : 0)
-    : null;
-  if (surfaces?.some((surface) => surface === 1) && !state.tapeTouchSurfaces) {
-    state.tapeTouchSurfaces = [];
+  const surfaces = contacts && touchSurfaces ? touchSurfaces : null;
+  if (surfaces && !state.tapeTouchSurfaces) {
+    for (let word = 0; word < Math.min(surfaces.length, contactCount); word++) {
+      if (surfaces[word] === 1) { state.tapeTouchSurfaces = createTouchRing(true); break; }
+    }
   }
   if (state.tapeLen < TAPE_CAP) {
     const at = (state.tapeStart + state.tapeLen) % TAPE_CAP;
     state.tape[at] = mask;
     state.tapeAnalog[at] = analog;
     if (state.tapeRightAnalog) state.tapeRightAnalog[at] = right;
-    if (state.tapeTouch) writeTouch(state.tapeTouch, at, contacts);
-    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, at, surfaces);
+    if (state.tapeTouch) writeTouch(state.tapeTouch, at, contacts, contactCount);
+    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, at, surfaces, contactCount);
     if (state.tapeAxes) state.tapeAxes[at] = axes;
+    if (state.tapeMotion) state.tapeMotion[at] = motion ?? null;
     state.tapeLen++;
   } else {
     state.tape[state.tapeStart] = mask;
     state.tapeAnalog[state.tapeStart] = analog;
     if (state.tapeRightAnalog) state.tapeRightAnalog[state.tapeStart] = right;
-    if (state.tapeTouch) writeTouch(state.tapeTouch, state.tapeStart, contacts);
-    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, state.tapeStart, surfaces);
+    if (state.tapeTouch) writeTouch(state.tapeTouch, state.tapeStart, contacts, contactCount);
+    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, state.tapeStart, surfaces, contactCount);
     if (state.tapeAxes) state.tapeAxes[state.tapeStart] = axes;
+    if (state.tapeMotion) state.tapeMotion[state.tapeStart] = motion ?? null;
     state.tapeStart = (state.tapeStart + 1) % TAPE_CAP;
     state.tapeFirstFrame++;
   }
@@ -391,7 +488,7 @@ function exportTape(): Tape {
     const touch: [number, number[]][] = [];
     for (let i = 0; i < state.tapeLen; i++) {
       const contacts = readTouch(state.tapeTouch, (state.tapeStart + i) % TAPE_CAP);
-      if (contacts) touch.push([i, contacts.slice()]);
+      if (contacts) touch.push([i, contacts]);
     }
     if (touch.length > 0) {
       tape.v = 2;
@@ -402,7 +499,7 @@ function exportTape(): Tape {
     const touchSurfaces: [number, number[]][] = [];
     for (let i = 0; i < state.tapeLen; i++) {
       const surfaces = readTouch(state.tapeTouchSurfaces, (state.tapeStart + i) % TAPE_CAP);
-      if (surfaces) touchSurfaces.push([i, surfaces.slice()]);
+      if (surfaces) touchSurfaces.push([i, surfaces]);
     }
     if (touchSurfaces.length > 0) {
       tape.v = 3;
@@ -416,6 +513,14 @@ function exportTape(): Tape {
       if (deltas) axes.push([i, deltas.map(value => ({ ...value }))]);
     }
     if (axes.length) { tape.v = 4; tape.axes = axes; }
+  }
+  if (state.tapeMotion) {
+    const motion: [number, MotionState][] = [];
+    for (let i = 0; i < state.tapeLen; i++) {
+      const estimate = state.tapeMotion[(state.tapeStart + i) % TAPE_CAP];
+      if (estimate) motion.push([i, __copyMotionState(estimate)]);
+    }
+    if (motion.length) { tape.v = 5; tape.motion = motion; }
   }
   return tape;
 }
@@ -468,6 +573,17 @@ export function expandTapeAxes(tape: Tape): (AxisDelta[] | undefined)[] {
   const out = new Array<AxisDelta[] | undefined>(total).fill(undefined);
   for (const [frame, deltas] of tape.axes ?? []) {
     if (Number.isInteger(frame) && frame >= 0 && frame < total) out[frame] = deltas.map(value => ({ ...value }));
+  }
+  return out;
+}
+
+/** Expand v5's sparse motion lane; frames without an estimate, and every
+ *  earlier tape, replay with no estimate. Entries are validated copies. */
+export function expandTapeMotion(tape: Tape): (MotionState | undefined)[] {
+  const total = tape.masks.reduce((n, [, count]) => n + count, 0);
+  const out = new Array<MotionState | undefined>(total).fill(undefined);
+  for (const [frame, estimate] of tape.motion ?? []) {
+    if (Number.isInteger(frame) && frame >= 0 && frame < total) out[frame] = __copyMotionState(estimate);
   }
   return out;
 }
@@ -601,6 +717,7 @@ function handleMessage(line: string): void {
       // and reloads; tools/tape.ts drives fresh instances).
       const tape = msg.tape as Tape | undefined;
       if (tape && Array.isArray(tape.masks)) {
+        state.replayMotion = tape.motion ? expandTapeMotion(tape) : null;
         state.replayAxes = tape.axes ? expandTapeAxes(tape) : null;
         state.replayMasks = expandTape(tape);
         state.replayAnalog = tape.analog ? expandTapeAnalog(tape) : null;
@@ -618,7 +735,23 @@ function handleMessage(line: string): void {
   }
 }
 
+/** False while the transport reports that no panel is attached. */
+function panelListening(): boolean {
+  const listening = state.transport?.listening;
+  return !listening || listening();
+}
+
 function afterFrame(): void {
+  if (!panelListening()) {
+    state.panelAttached = false;
+    return;
+  }
+  if (!state.panelAttached) {
+    // A panel that just attached has no tree yet, changed or not.
+    state.panelAttached = true;
+    state.treeDirty = true;
+    state.treeSentAt = -TREE_THROTTLE;
+  }
   if (state.treeDirty && state.frame - state.treeSentAt >= TREE_THROTTLE) {
     sendTree();
   }
@@ -775,18 +908,35 @@ function bridgeConsole(): void {
   // stub only ships with the Vue Vapor entry. With a transport attached the
   // channel IS the console, so create one from scratch.
   if (!g.console) g.console = {};
-  const c = g.console;
-  if ((c as { __pocketBridged?: boolean }).__pocketBridged) return;
-  (c as { __pocketBridged?: boolean }).__pocketBridged = true;
+  const c = g.console as Record<string, (...a: unknown[]) => void> & { __pocketBridge?: { current: ConsoleBridge } };
+  const bridge: ConsoleBridge = state.transport
+    ? { send, listening: panelListening }
+    : { send() {}, listening: () => false };
+  // A second bundle in the same realm takes over the existing mirror or
+  // detaches it when no transport is present, releasing the retired shim.
+  // Keep the holder callable for wrappers installed by earlier bundles.
+  if (c.__pocketBridge) {
+    c.__pocketBridge.current = bridge;
+    return;
+  }
+  if (!state.transport) return;
+  const holder = { current: bridge };
+  c.__pocketBridge = holder;
   for (const level of ["log", "warn", "error"] as const) {
     const original = c[level];
     c[level] = (...args: unknown[]) => {
-      send({ t: "log", level, args: args.map((a) => fmt(a)) });
+      if (holder.current.listening()) holder.current.send({ t: "log", level, args: args.map((a) => fmt(a)) });
       // On PSP the original is prelude.ts's no-op stub; elsewhere keep the
       // native console working too.
       original?.apply(c, args);
     };
   }
+}
+
+/** The shim instance that receives mirrored console lines. */
+interface ConsoleBridge {
+  send(msg: unknown): void;
+  listening(): boolean;
 }
 
 /** Depth/size-capped repr for eval results and console args. */
@@ -842,6 +992,7 @@ const api = {
   dumpTape: (): Tape => exportTape(),
   /** Replay a tape's masks starting now (see docs/DEVTOOLS.md on from-boot). */
   replay: (tape: Tape): void => {
+    state.replayMotion = tape.motion ? expandTapeMotion(tape) : null;
     state.replayAxes = tape.axes ? expandTapeAxes(tape) : null;
     state.replayMasks = expandTape(tape);
     state.replayAnalog = tape.analog ? expandTapeAnalog(tape) : null;

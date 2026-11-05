@@ -1,166 +1,100 @@
 name: macOS portable renderer
 
-# Native GPU and WASM software rendering share the Rust DrawList core. Text executes in
-# bounded worker adapters; neither host depends on the legacy gpui backend.
+# What only a macOS machine runs: the Metal DrawList backend, the desktop
+# host's GPU acceptance tests and its macOS lint, the note compiled against
+# the macos-app profile, and the macos-app host build. Portable crates and
+# the JavaScript contracts run in test.yml.
 
 on:
   pull_request:
-    paths:
+    paths: &paths
+      - ".bun-version"
       - ".github/workflows/macos.yml"
-      - "contracts/spec/**"
-      - "contracts/schema/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "engine/core/**"
-      - "engine/crates/pocket-ui-surface/**"
-      - "engine/crates/pocket-text/**"
-      - "framework/src/text-layout.ts"
-      - "framework/src/offload.ts"
-      - "hosts/web/*offload*.js"
-      - "hosts/web/text-*"
-      - "tools/*offload*"
-      - "tools/companion-session.ts"
-      - "tests/offload-provider.test.ts"
-      - "tests/companion-session.test.ts"
-      - "tests/fixtures/offload-ready-worker.ts"
-      - "tools/text-*"
-      - "tests/text-layout-client.test.ts"
-      - "apps/text-offload/**"
-      - "engine/wasm/**"
-      - "hosts/desktop/**"
-      - "engine/crates/pocket-ui-wgpu/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
+      - "engine/raster/**"
+      - "engine/package/**"
+      - "engine/modules/media/**"
+      - "engine/render/Cargo.toml"
+      - "engine/render/src/**"
+      - "engine/ui-surface/**"
+      - "engine/text/**"
+      - "engine/ui-wgpu/**"
+      - "engine/runtime/**"
+      - "engine/guest-rquickjs/**"
       - "engine/pocket3d/crates/pocket3d/**"
+      - "programs/desktop/**"
+      - "devices/wgpu/pocket-wgpu-render/**"
       - "tools/macos.ts"
-      - "framework/src/components*.ts*"
-      - "framework/src/host.ts"
-      - "framework/src/native-tree.ts"
-      - "framework/src/primitives.ts"
       - "framework/src/manifest/**"
-      - "hosts/web/wasm-ops.js"
-      - "hosts/web/app-instance.*"
-      - "hosts/web/system-engine.js"
-      - "apps/note/**"
       - "framework/compiler/**"
-      - "assets/fonts/**"
-      - "tests/platform-contracts.test.ts"
-      - "tests/note.test.ts"
-      - "tests/pocket-system.test.ts"
-      - "tests/web-system-host.test.ts"
-      - "tests/font-bake.test.ts"
-      - "tests/npm-package.test.ts"
-      - "package.json"
+      - "apps/note/**"
+      - "hosts/macos-app/**"
+      - "tools/build.ts"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/macos.yml"
-      - "contracts/spec/**"
-      - "contracts/schema/**"
-      - "engine/core/**"
-      - "engine/crates/pocket-ui-surface/**"
-      - "engine/crates/pocket-text/**"
-      - "framework/src/text-layout.ts"
-      - "framework/src/offload.ts"
-      - "hosts/web/*offload*.js"
-      - "hosts/web/text-*"
-      - "tools/*offload*"
-      - "tools/companion-session.ts"
-      - "tests/offload-provider.test.ts"
-      - "tests/companion-session.test.ts"
-      - "tests/fixtures/offload-ready-worker.ts"
-      - "tools/text-*"
-      - "tests/text-layout-client.test.ts"
-      - "apps/text-offload/**"
-      - "engine/wasm/**"
-      - "hosts/desktop/**"
-      - "engine/crates/pocket-ui-wgpu/**"
-      - "engine/pocket3d/crates/pocket3d/**"
-      - "tools/macos.ts"
-      - "framework/src/components*.ts*"
-      - "framework/src/host.ts"
-      - "framework/src/native-tree.ts"
-      - "framework/src/primitives.ts"
-      - "framework/src/manifest/**"
-      - "hosts/web/wasm-ops.js"
-      - "hosts/web/app-instance.*"
-      - "hosts/web/system-engine.js"
-      - "apps/note/**"
-      - "framework/compiler/**"
-      - "assets/fonts/**"
-      - "tests/platform-contracts.test.ts"
-      - "tests/note.test.ts"
-      - "tests/pocket-system.test.ts"
-      - "tests/web-system-host.test.ts"
-      - "tests/font-bake.test.ts"
-      - "tests/npm-package.test.ts"
-      - "package.json"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust:
-    name: portable renderer + text worker + host
+    name: Metal renderer + macos-app host
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
-          # note.test.ts boots the sim host, which builds the wasm core.
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+          components: clippy
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            engine/crates/pocket-text
-            hosts/desktop
-            engine/wasm
+          workspaces: .
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
-
-      - name: Contract + System + note + platform + npm package tests
-        run: bun test tests/platform-contracts.test.ts tests/pocket-system.test.ts tests/web-system-host.test.ts tests/text-layout-client.test.ts tests/offload.test.ts tests/offload-provider.test.ts tests/companion-session.test.ts tests/note.test.ts tests/font-bake.test.ts tests/npm-package.test.ts && bun tests/contract.ts
 
       - name: Compile the note against macos-app (plan + bundle + pak)
         run: |
           bun -e '
           import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
+          import { readPocketManifest } from "./framework/src/manifest/load.ts";
           import { mkdirSync } from "node:fs";
-          const m = await Bun.file("apps/note/pocket.json").json();
+          const { manifest: m } = readPocketManifest("apps/note/pocket.app.json");
           const r = validateAndResolveBuildPlan(m, { target: "macos-app" });
           if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
           mkdirSync(".pocket/macos-app", { recursive: true });
           await Bun.write(".pocket/macos-app/note-main.plan.json", JSON.stringify(r.plan, null, 2) + "\n");'
           bun tools/build.ts --plan=.pocket/macos-app/note-main.plan.json
 
-      - name: Test core (TEXT_RUN + native measure gates)
-        run: cargo test --locked --manifest-path engine/core/Cargo.toml
-
-      - name: Test ui surface (svcOpen deny-by-default, string ops)
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-surface
-
-      - name: rustfmt
-        run: |
-          cargo fmt --check --manifest-path engine/crates/pocket-text/Cargo.toml
-          cargo fmt --check --manifest-path hosts/desktop/Cargo.toml
-
-      - name: Portable text and WASM tests
-        run: |
-          cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml
-          cargo test --locked --manifest-path engine/wasm/Cargo.toml
-          bun tools/text-wasm.ts
-
       - name: Clippy native desktop host
-        run: cargo clippy --locked --manifest-path hosts/desktop/Cargo.toml -- -D warnings
+        run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-desktop-host --no-deps -- -D warnings
 
       - name: Test Metal DrawList rendering and frame leases
         run: |
-          cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-wgpu
-          cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --include-ignored
+          cargo test --locked --manifest-path Cargo.toml -p pocket-ui-wgpu
+          cargo test --locked --manifest-path Cargo.toml -p pocket-desktop-host -- --include-ignored
 
       - name: Build macos-app host
-        run: cargo build --locked --manifest-path hosts/desktop/Cargo.toml
+        run: cargo build --locked --manifest-path Cargo.toml -p pocket-desktop-host

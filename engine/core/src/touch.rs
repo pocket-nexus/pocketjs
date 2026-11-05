@@ -44,14 +44,23 @@ impl HitTable {
         mut query: impl FnMut(f32, f32) -> i32,
     ) -> usize {
         let n = packed.len().min(8);
-        let mut seen = [false; 8];
+        let mut active_ids = [0; 8];
+        for (id, &contact) in active_ids.iter_mut().zip(&packed[..n]) {
+            *id = decode(contact).0;
+        }
+        // Release absent contacts before allocating new ones: a full table
+        // may replace any number of contacts in the same frame.
+        for (slot, live) in self.live.iter_mut().enumerate() {
+            if *live && !active_ids[..n].contains(&self.ids[slot]) {
+                *live = false;
+            }
+        }
         for i in 0..n {
             let (id, x, y) = decode(packed[i]);
             let mut carried = None;
-            for (slot, seen_slot) in seen.iter_mut().enumerate() {
+            for slot in 0..self.live.len() {
                 if self.live[slot] && self.ids[slot] == id {
                     carried = Some(self.hits[slot]);
-                    *seen_slot = true;
                     break;
                 }
             }
@@ -59,23 +68,17 @@ impl HitTable {
                 Some(hit) => hit,
                 None => {
                     let hit = query(x, y);
-                    for (slot, seen_slot) in seen.iter_mut().enumerate() {
+                    for slot in 0..self.live.len() {
                         if !self.live[slot] {
                             self.live[slot] = true;
                             self.ids[slot] = id;
                             self.hits[slot] = hit;
-                            *seen_slot = true;
                             break;
                         }
                     }
                     hit
                 }
             };
-        }
-        for (slot, seen_slot) in seen.iter().enumerate() {
-            if self.live[slot] && !seen_slot {
-                self.live[slot] = false;
-            }
         }
         n
     }

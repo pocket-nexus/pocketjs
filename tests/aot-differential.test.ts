@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
 import { emitAot } from "../microts/compiler/aot-codegen.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
@@ -16,7 +17,7 @@ test("Solid and Rust agree frame by frame on keyed dispatch, owned events and li
   await Bun.write(resolve(run, "src/generated.rs"), emitAot(program).files["app.rs"]!);
   await Bun.write(resolve(run, "src/main.rs"), Bun.file(resolve(fixture, "native.rs")));
   await Bun.write(resolve(run, "styles.bin"), new Uint8Array(program.styles.bytes));
-  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="aot-differential"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\nserde_json="1"\n`);
+  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="aot-differential"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/microts-runtime"))}}\nserde_json="1"\n`);
   const wasmBuild = Bun.spawnSync([process.execPath, "tools/wasm.ts"], { stdout: "pipe", stderr: "pipe" });
   await Bun.write(resolve(run, "wasm-build.log"), wasmBuild.stdout.toString() + wasmBuild.stderr.toString());
   expect(wasmBuild.exitCode, wasmBuild.stderr.toString()).toBe(0);
@@ -26,11 +27,11 @@ test("Solid and Rust agree frame by frame on keyed dispatch, owned events and li
 import { render } from ${JSON.stringify(resolve("framework/src/index.ts"))};
 import { rootMirror } from ${JSON.stringify(resolve("framework/src/renderer-solid.ts"))};
 import { getFocused } from ${JSON.stringify(resolve("framework/src/input.ts"))};
-import { createWasmUi } from ${JSON.stringify(resolve("hosts/web/wasm-ops.js"))};
+import { createWasmUi } from ${JSON.stringify(resolve("platforms/web/wasm-ops.js"))};
 import App from ${JSON.stringify(resolve(fixture, "App.tsx"))};
 import { trace } from ${JSON.stringify(resolve(fixture, "App.ts"))};
 import tape from ${JSON.stringify(resolve(fixture, "tape.json"))};
-const wasm = await createWasmUi(await Bun.file(${JSON.stringify(resolve("hosts/web/pocketjs.wasm"))}).arrayBuffer());
+const wasm = await createWasmUi(await Bun.file(${JSON.stringify(resolve("platforms/web/pocketjs.wasm"))}).arrayBuffer());
 wasm.ops.loadStyles(new Uint8Array(${JSON.stringify(program.styles.bytes)}));
 const dispose = render(() => App(), { ops: wasm.ops, styles: ${JSON.stringify(program.styles.ids)} });
 const appRootId = rootMirror.children[0].id;
@@ -43,18 +44,24 @@ const snapshot = () => {
 };
 export function check() {
   const frames = [];
-  for (const sample of tape) { globalThis.frame(sample.buttons, 0, [], [], [], 0, [{ axis: 0, delta: sample.axis ?? 0 }]); wasm.tick(); frames.push(snapshot()); }
+  for (const sample of tape) { globalThis.frame(sample.buttons, 0, [], [], [], 0, [{ axis: 0, delta: sample.axis ?? 0 }], sample.motion ?? null); wasm.tick(); frames.push(snapshot()); }
   dispose(); frames.push(snapshot());
   return frames;
 }
+console.log(JSON.stringify(check()));
 `);
   const build = await Bun.build({ entrypoints: [oracle], target: "bun", format: "esm", conditions: ["browser"], plugins: [jsxPlugin("solid")] });
   expect(build.success, build.logs.join("\n")).toBe(true);
   const bundle = resolve(run, "oracle.mjs");
   await Bun.write(bundle, build.outputs[0]!);
-  const solid = (await import(bundle)).check();
+  // Simulator tests install host globals such as __pak. Run both oracles in
+  // fresh processes so an earlier app cannot replace this fixture's styles.
+  const oracleRun = Bun.spawnSync([process.execPath, bundle], { stdout: "pipe", stderr: "pipe" });
+  await Bun.write(resolve(run, "solid.log"), oracleRun.stderr);
+  expect(oracleRun.exitCode, oracleRun.stderr.toString()).toBe(0);
+  const solid = JSON.parse(oracleRun.stdout.toString());
   const native = Bun.spawnSync(["cargo", "run", "--quiet", "--manifest-path", resolve(run, "Cargo.toml"), "--", resolve(fixture, "fixture.json"), resolve(fixture, "tape.json"), resolve(run, "styles.bin")], {
-    stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: resolve(".pocket-build/validation/solid-aot/differential/target") },
+    stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV },
   });
   await Bun.write(resolve(run, "native.log"), native.stderr);
   expect(native.exitCode, native.stderr.toString()).toBe(0);

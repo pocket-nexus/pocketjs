@@ -129,7 +129,7 @@ export class ModelTasks {
       else {
         wait.reserved = true;
         const call = source.call, args = copy(source.args);
-        this.region.emit("request", { module: source.service, call, args: copy(args), request });
+        if (this.region.traceEnabled) this.region.emit("request", { module: source.service, call, args: copy(args), request });
         commands.push(() => {
           wait.hostIssued = true;
           const cleanup = service.request(call, copy(args), request, value => deliverModelResult(request, value));
@@ -220,6 +220,7 @@ export function disposeModelTasks(region: ModelRegion): void {
 }
 export function resumeModelTasks(frame = virtualFrame() + 1, now = virtualNow() * 1000): void {
   lastBoundary = { frame, now };
+  if (taskRuntimes.size === 0 && deliveries.length === 0) return;
   const incoming = deliveries; deliveries = [];
   const values = new Map<string, unknown>();
   for (const item of incoming) {

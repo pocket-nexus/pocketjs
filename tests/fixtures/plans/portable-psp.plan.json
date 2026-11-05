@@ -1,6 +1,53 @@
 {
+  "profile": {
+    "format": "pocket-host/2",
+    "id": "psp",
+    "platform": "psp",
+    "form": "takeover",
+    "cadences": [
+      60,
+      30,
+      20
+    ],
+    "display": {
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "rasterDensity": 1,
+      "animation": "composited"
+    },
+    "panel": {
+      "primary": [
+        480,
+        272
+      ]
+    },
+    "capabilities": [
+      "audio.pcm",
+      "data.fs",
+      "data.pack",
+      "input.analog.left",
+      "input.buttons",
+      "input.cursor",
+      "io.offload",
+      "link.companion",
+      "media.playback",
+      "text.glyphs.baked",
+      "text.glyphs.streamed",
+      "text.layout.offload"
+    ],
+    "tickHz": 60
+  },
+  "profileHash": "sha256:215116618fb3fceaf04e9c681ed4aa9a1cb6b8c4e775aed4cd88d092d3609514",
   "app": {
-    "id": "dev.pocket-stack.telemetry",
+    "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
     "version": "0.1.0",
     "entry": "app/main.tsx",
@@ -13,7 +60,7 @@
   },
   "target": {
     "id": "psp",
-    "hostAbi": 1
+    "hostAbi": 12
   },
   "viewport": {
     "logical": [
@@ -49,11 +96,12 @@
     "text": "osk",
     "glyphs": "playstation"
   },
+  "animation": "composited",
   "features": {
     "input.analog.left": true,
     "input.buttons": true,
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:fc8e74364fe0661d6286dae6e39d88f949385787e5859ffe08764e0c0146ce03"
+  "planHash": "sha256:218f36bdfde4c6a80953f4b83eabe0459e1b2c347f082914d19470ec0ca70d70"
 }

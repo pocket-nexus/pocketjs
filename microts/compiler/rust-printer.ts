@@ -93,7 +93,7 @@ class Printer {
       case "tuple": out = `(${e.elements.map(a => this.expression(a)).join(", ")}${e.elements.length === 1 ? "," : ""})`; break;
       case "array": out = `[${e.elements.map(a => this.expression(a)).join(", ")}]`; break;
       case "struct": out = `${path(e.path)} { ${[...e.fields.map(f => rustIdentifier(f.name) + (f.value ? `: ${this.expression(f.value)}` : "")), ...(e.rest ? [`..${this.expression(e.rest)}`] : [])].join(", ")} }`; break;
-      case "block": out = this.block(e.block); p = 1; break;
+      case "block": out = (e.label ? `'${e.label}: ` : "") + this.block(e.block); p = 1; break;
       case "if": out = `if ${this.expression(e.condition)} ${this.block(e.then)}${e.otherwise ? ` else ${"kind" in e.otherwise ? this.expression(e.otherwise) : this.block(e.otherwise)}` : ""}`; p = 1; break;
       case "ifLet": out = `if let ${pattern(e.pattern)} = ${this.expression(e.value)} ${this.block(e.then)}${e.otherwise ? ` else ${"kind" in e.otherwise ? this.expression(e.otherwise) : this.block(e.otherwise)}` : ""}`; p = 1; break;
       case "match": {
@@ -113,12 +113,12 @@ class Printer {
       case "let": return `let ${pattern(s.pattern)}${s.type ? `: ${type(s.type)}` : ""}${s.value ? ` = ${this.expression(s.value)}` : ""};`;
       case "expr": return this.expression(s.expr) + (s.semicolon === false ? "" : ";");
       case "assign": return `${this.expression(s.target)} ${s.operator ?? "="} ${this.expression(s.value)};`;
-      case "for": return `for ${pattern(s.pattern)} in ${this.expression(s.iterable)} ${this.block(s.body)}`;
-      case "while": return `while ${this.expression(s.condition)} ${this.block(s.body)}`;
-      case "loop": return `loop ${this.block(s.body)}`;
+      case "for": return `${s.label ? `'${s.label}: ` : ""}for ${pattern(s.pattern)} in ${this.expression(s.iterable)} ${this.block(s.body)}`;
+      case "while": return `${s.label ? `'${s.label}: ` : ""}while ${this.expression(s.condition)} ${this.block(s.body)}`;
+      case "loop": return `${s.label ? `'${s.label}: ` : ""}loop ${this.block(s.body)}`;
       case "return": return `return${s.value ? ` ${this.expression(s.value)}` : ""};`;
-      case "break": return "break;";
-      case "continue": return "continue;";
+      case "break": return s.label ? `break '${s.label};` : "break;";
+      case "continue": return s.label ? `continue '${s.label};` : "continue;";
     }
   }
   block(b: RustBlock): string {
@@ -141,6 +141,7 @@ class Printer {
       case "use": return `${pub_}use ${path(i.path)}${i.names ? `::{${i.names.map(n => n === "*" ? "*" : rustIdentifier(n)).join(", ")}}` : ""};`;
       case "mod": return `${pub_}mod ${rustIdentifier(i.name)};`;
       case "const": return `${pub_}const ${rustIdentifier(i.name)}: ${type(i.type)} = ${this.expression(i.value)};`;
+      case "static": return `${pub_}static ${rustIdentifier(i.name)}: ${type(i.type)} = ${this.expression(i.value)};`;
       case "typeAlias": return `${pub_}type ${rustIdentifier(i.name)}${generics(i.generics)} = ${type(i.type)};`;
       case "fn": return this.fn(i);
       case "struct": return derives + `${pub_}struct ${rustIdentifier(i.name)}${generics(i.generics)}` + (i.tuple ? `(${i.tuple.map(t => `${pub_}${type(t)}`).join(", ")});` : ` {\n${(i.fields ?? []).map(f => `    ${f.public ? "pub " : ""}${rustIdentifier(f.name)}: ${type(f.type)},`).join("\n")}\n}`);

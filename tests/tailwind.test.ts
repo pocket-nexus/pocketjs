@@ -6,8 +6,11 @@ import {
   DEFAULT_FONT_SLOT,
   compileClasses,
   fontSlotFor,
+  fontSlotInfo,
   paletteColor,
   parseClassLiteral,
+  suspectClassLiteral,
+  unknownUtilities,
 } from "../framework/compiler/tailwind.ts";
 import {
   ANIM_FILL_BACKWARDS,
@@ -89,6 +92,11 @@ describe("spacing / box", () => {
     expect(f32Of(m, PROP.minW)).toBe(40);
     expect(f32Of(m, PROP.maxH)).toBe(80);
     expect(m.get(PROP.zIndex)).toBe(5);
+  });
+  test("contain-strict / layout-baked", () => {
+    expect(props(parseClassLiteral("contain-strict")).get(PROP.contain)).toBe(ENUMS.Contain.Strict);
+    expect(props(parseClassLiteral("w-[32] h-[32] layout-baked")).get(PROP.contain)).toBe(ENUMS.Contain.Baked);
+    expect(unknownUtilities("contain-strict layout-baked contain-layout")).toEqual(["contain-layout"]);
   });
   test("hidden / overflow-hidden", () => {
     const m = props(parseClassLiteral("hidden overflow-hidden"));
@@ -193,6 +201,14 @@ describe("text", () => {
     expect(m.get(PROP.fontSlot)).toBe(fontSlotFor(24, true));
     expect(m.get(PROP.textColor)).toBe(abgr(255, 255, 255));
   });
+  test("text-2xs is the 10px pair at slots 19 and 20, after monospace", () => {
+    expect(fontSlotFor(10, false)).toBe(19);
+    expect(fontSlotFor(10, true)).toBe(20);
+    expect(fontSlotInfo(20)).toEqual({ px: 10, bold: true, mono: false });
+    expect(props(parseClassLiteral("text-2xs font-bold")).get(PROP.fontSlot)).toBe(20);
+    expect(fontSlotFor(12, false)).toBe(0);
+  });
+
   test("appends 54px regular and bold slots without renumbering legacy slots", () => {
     expect(fontSlotFor(36, true)).toBe(13);
     expect(fontSlotFor(54, false)).toBe(14);
@@ -348,6 +364,18 @@ describe("3D + arc utilities", () => {
     expect(bitsF32(m.get(PROP.arcStart)!)).toBe(45);
     expect(bitsF32(m.get(PROP.arcSweep)!)).toBe(-315);
     expect(bitsF32(m.get(PROP.arcWidth)!)).toBe(5);
+  });
+  test("skew-x-[deg] parses and keyframes bake skewX()", () => {
+    const m = props(parseClassLiteral("skew-x-[-12]"));
+    expect(bitsF32(m.get(PROP.skewX)!)).toBe(-12);
+    registerAnimationTheme({
+      keyframes: { lean: { from: { transform: "skewX(0deg)" }, to: { transform: "skewX(14deg) scaleY(0.9)" } } },
+      animation: { lean: "lean 300ms linear" },
+    });
+    const tl = bakedTimelines()[parseClassLiteral("animate-lean")!.animation!.anims[0]];
+    const skew = tl.tracks.find((t) => t.prop === PROP.skewX)!;
+    expect(skew.segments[0].to).toBe(f32Bits(14));
+    registerAnimationTheme(undefined);
   });
   test("non-arbitrary 3D values reject the literal", () => {
     expect(parseClassLiteral("rotate-x-40")).toBeNull();
@@ -533,5 +561,38 @@ describe("baked keyframe animations", () => {
     const b = parseClassLiteral("animate-fadeB")!;
     expect(a.animation!.anims[0]).toBe(b.animation!.anims[0]);
     registerAnimationTheme(undefined);
+  });
+});
+
+describe("literals that do not compile", () => {
+  test("unknownUtilities names the unsupported tokens in source order", () => {
+    expect(unknownUtilities("flex-row items-centre gap-2")).toEqual(["items-centre"]);
+    expect(unknownUtilities("w-[52] hiden bg-[#ff5f9e] txt-lg")).toEqual(["hiden", "txt-lg"]);
+    expect(unknownUtilities("focus:bg-red-500 active:scale-95 sm:p-2")).toEqual(["sm:p-2"]);
+    expect(unknownUtilities("hiden")).toEqual(["hiden"]);
+  });
+
+  test("a literal that compiles has none, and a loud rule is not an unknown utility", () => {
+    expect(unknownUtilities("flex-row items-center gap-2 transition-colors duration-150 animate-spin")).toEqual([]);
+    // `hover:` and `rounded-full` without a size are reported by parseClassLiteral itself.
+    expect(unknownUtilities("hover:bg-red-500")).toEqual([]);
+    expect(unknownUtilities("rounded-full bg-red-500")).toEqual([]);
+    expect(unknownUtilities("animate-loop-[0s]")).toEqual([]);
+    expect(unknownUtilities("animate-loop-[4x]")).toEqual(["animate-loop-[4x]"]);
+  });
+
+  test("suspectClassLiteral takes a class string with a mistake and leaves prose alone", () => {
+    expect(suspectClassLiteral("text-xl font-bold txt-center")).toEqual(["txt-center"]);
+    expect(suspectClassLiteral("absolute rounded-[12] bg-[#231b3b] ovrflow-hidden")).toEqual(["ovrflow-hidden"]);
+    // Every token compiles: nothing to report.
+    expect(suspectClassLiteral("text-xl font-bold")).toBeNull();
+    // Sentences, names, one word, a list of words with no utility among them.
+    expect(suspectClassLiteral("Tap to start")).toBeNull();
+    expect(suspectClassLiteral("game over")).toBeNull();
+    expect(suspectClassLiteral("hiden")).toBeNull();
+    expect(suspectClassLiteral("left right up down")).toBeNull();
+    expect(suspectClassLiteral("bob 0.9s ease-in-out infinite")).toBeNull();
+    // As many unsupported tokens as supported ones reads as text, not as a class string.
+    expect(suspectClassLiteral("flex wrong-one")).toBeNull();
   });
 });

@@ -37,7 +37,7 @@
 // segment.
 //
 // If you change ANY value here: run `bun contracts/spec/gen-rust.ts`, commit
-// the regenerated engine/core/src/spec.rs (tests/contract.ts byte-compares).
+// the regenerated engine/spec/src/lib.rs (tests/contract.ts byte-compares).
 
 // ---------------------------------------------------------------------------
 // Fs ops (the `fs.*` native contract)
@@ -143,7 +143,7 @@ export const FS_WRITE_APPEND = 1;
 // native core fails the op). Arbitrary byte data belongs in the bytes
 // spelling, never in a string.
 
-/** Marker key for a bytes payload (same spelling as db's DB_BLOB_KEY). */
+/** Marker key for a bytes payload. */
 export const FS_BLOB_KEY = "$b";
 
 // ---------------------------------------------------------------------------

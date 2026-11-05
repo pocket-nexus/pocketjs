@@ -1,14 +1,23 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { compiledProfile } from "../contracts/spec/profile.ts";
+// tools/vita.ts <demo> [--no-usb-debug] [--capture] [cargo args…]
+// tools/vita.ts --runtime [--title=TITLEID] [--no-usb-debug] [cargo args…]
+//
+// A demo compiles with `pocket compile` into dist/<output>.pocket; the
+// program embeds that package and the exported profile, and encodes nothing
+// at startup. The build executor supplies --plan with its admitted package.
+//
+// --runtime builds the generic runtime (cargo feature `runtime`): no app is
+// built or embedded, and the program reads app0:app.pocket at startup.
+// tools/runtime/vita.ts runs it with --no-usb-debug --release and collects
+// eboot.bin; --title addresses a USB-debug build to an installed container
+// such as Pocket Devkit (P25BFE5E2) for `vita:dev native`.
+
 import { $ } from "bun";
 import { createHash, randomBytes } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
-import { pathToFileURL } from "node:url";
-import {
-  FRAMEWORKS,
-  parseFramework,
-  type PocketFramework,
-} from "../framework/compiler/jsx-plugin.ts";
-import type { PocketConfig } from "../framework/src/config.ts";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
+import { parseFramework } from "../framework/compiler/framework-choice.ts";
 import {
   extractHostBuildInputs,
   hostBuildEnvironment,
@@ -19,26 +28,29 @@ import {
   verifyPlanHash,
   type ResolvedBuildPlan,
 } from "../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { demoIdentity, demoManifestFor } from "./demo-identity.ts";
 import { packageVitaVpk } from "./vita-package.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/host-config.ts";
+import { RUST_TOOLCHAINS } from "./build/toolchains/rust.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { prepareApplication } from "./build/inputs.ts";
+import { compileDemoPackage, demoManifest } from "./build/programs/handheld-common.ts";
+import { exportProfile } from "./profile-export.ts";
+const softwareProfile = POCKET_PROFILES["vita"];
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
-const nativeDir = pspUiDir + "hosts/vita/";
+const nativeDir = pspUiDir + "programs/vita/";
 const home = process.env.HOME ?? "";
 
 // ---------------------------------------------------------------------------
-// CLI: first bare arg = app name; everything else is passed to cargo vita
+// CLI: first bare arg = app name; everything else is passed to cargo build
 // ---------------------------------------------------------------------------
 
-const argv = Bun.argv.slice(2);
+export async function buildVita(argv: readonly string[], context?: RuntimeBuildContext): Promise<string> {
 let appArg = "";
 let capture = false;
 let frameworkFlag: string | undefined;
-let configPath = pspUiDir + "pocket.config.ts";
-let configFlagged = false;
-let useConfig = true;
 let planPath: string | undefined;
 let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
@@ -47,8 +59,9 @@ let skipBuild = false;
 let usbDebug = true;
 let launcherRegistry = "";
 let launcherPackages = "";
+let runtime = false;
+let titleOverride: string | undefined;
 const cargoArgs: string[] = [];
-const buildFlags: string[] = [];
 
 for (const a of argv) {
   if (a === "--capture") {
@@ -57,14 +70,8 @@ for (const a of argv) {
     usbDebug = false;
   } else if (a.startsWith("--framework=")) {
     frameworkFlag = a.slice("--framework=".length);
-    buildFlags.push(a);
-  } else if (a.startsWith("--config=")) {
-    configPath = resolvePath(pspUiDir, a.slice("--config=".length));
-    configFlagged = true;
-    buildFlags.push(a);
-  } else if (a === "--no-config") {
-    useConfig = false;
-    buildFlags.push(a);
+  } else if (a.startsWith("--config=") || a === "--no-config") {
+    throw new Error("pocket.config.ts was removed; use pocket.app.json app.framework and app.theme");
   } else if (a.startsWith("--plan=")) {
     planPath = resolvePath(a.slice("--plan=".length));
   } else if (a.startsWith("--project-root=")) {
@@ -79,20 +86,43 @@ for (const a of argv) {
     launcherPackages = resolvePath(a.slice("--launcher-packages=".length));
   } else if (a === "--skip-build") {
     skipBuild = true;
-  } else if (!appArg && !a.startsWith("-")) {
+  } else if (a === "--runtime") {
+    runtime = true;
+  } else if (a.startsWith("--title=")) {
+    titleOverride = a.slice("--title=".length);
+  } else if (!planPath && !runtime && !appArg && !a.startsWith("-")) {
     appArg = a;
   } else {
     cargoArgs.push(a);
   }
 }
 
-if (!appArg && !planPath) {
+if (planPath && !context) throw new Error("PocketJS vita: --plan is the build executor's input; build a compiled package with `pocket build --target vita --pocket`");
+let application: RuntimeApplication | undefined = context?.application;
+if (application && !existsSync(application.packagePath)) throw new Error(`Vita captured package is missing: ${application.packagePath}`);
+if (context && !runtime && !application) throw new Error("Vita native build requires an admitted package");
+const selectedProfile = context?.profile ?? softwareProfile;
+if (runtime && (appArg || planPath || launcherRegistry)) {
+  throw new Error("PocketJS vita: --runtime builds a program without an app; give no app, --plan or launcher registry");
+}
+if (titleOverride !== undefined && !/^[A-Z][A-Z0-9]{8}$/.test(titleOverride)) {
+  throw new Error(`PocketJS vita: --title must be nine uppercase letters and digits, got ${titleOverride}`);
+}
+if (!appArg && !application && !runtime) {
   console.error(
-    "usage: bun tools/vita.ts <app> [--plan=<resolved-plan.json>] [--capture] " +
+    "usage: bun tools/vita.ts <demo> [--framework=<id>] [--capture] " +
       "[--launcher-registry=<tsv> --launcher-packages=<dir>] [cargo args…]   " +
       "e.g. bun tools/vita.ts hero --release",
   );
   process.exit(1);
+}
+if (frameworkFlag && !appArg) throw new Error("PocketJS vita: --framework applies to a stock demo build");
+// A stock demo builds on the same manifest and compiler as `bun play`. A
+// framework override applies to a synthesized manifest only: a demo's own
+// manifest owns its framework, and the title id follows its application id.
+const demoManifestInput = !application && !runtime ? demoManifest(appArg, frameworkFlag) : undefined;
+if (demoManifestInput && frameworkFlag && demoManifestInput.app.framework !== parseFramework(frameworkFlag, "--framework")) {
+  throw new Error("PocketJS vita: --framework differs from the application manifest; use a matching manifest");
 }
 if (Boolean(launcherRegistry) !== Boolean(launcherPackages)) {
   throw new Error(
@@ -131,126 +161,53 @@ if (!existsSync(`${vitasdk}/bin/arm-vita-eabi-gcc`)) {
   process.exit(1);
 }
 
-function mountedAppName(arg: string): string {
-  const bare = arg.replace(/\.tsx?$/, "").replace(/-main$/, "");
-  if (
-    existsSync(`${pspUiDir}apps/${bare}/main.tsx`) ||
-    existsSync(`${pspUiDir}apps/${bare}-main.tsx`)
-  ) {
-    return `${bare}-main`;
-  }
-  return arg;
+// ---------------------------------------------------------------------------
+// 1. A stock demo compiles to dist/<output>.pocket; --skip-build reuses it.
+// The program embeds the package the executor admitted or this compile made.
+// ---------------------------------------------------------------------------
+
+if (runtime) console.log("PocketJS vita: building the generic runtime (no app; reads app0:app.pocket)");
+if (demoManifestInput) {
+  console.log(`PocketJS vita: compiling demo "${appArg}" (framework=${demoManifestInput.app.framework ?? "solid"})`);
+  const compiled = await compileDemoPackage("vita", demoManifestInput, outputDir, skipBuild);
+  application = prepareApplication({ profile: selectedProfile, profileHash: hashPocketProfile(selectedProfile),
+    hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, compiled, outputDir);
+  projectRoot = pspUiDir;
 }
 
 let buildPlan: ResolvedBuildPlan | undefined;
 let hostBuildInputs: HostBuildInputs | undefined;
-if (planPath) {
+if (application) {
+  planPath = application.planPath;
   buildPlan = (await Bun.file(planPath).json()) as ResolvedBuildPlan;
-  if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== "vita") {
+  if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== selectedProfile.id) {
     throw new Error(
       `PocketJS vita: invalid Vita ResolvedBuildPlan at ${planPath}`,
     );
   }
   hostBuildInputs = extractHostBuildInputs(buildPlan, {
-    expectedTarget: "vita",
+    expectedTarget: selectedProfile.id,
   });
-  if (frameworkFlag || configFlagged) {
-    throw new Error(
-      "PocketJS vita: framework/config overrides are forbidden with --plan",
-    );
-  }
 }
 
-const app = buildPlan
-  ? resolvePath(projectRoot, buildPlan.app.entry)
-  : appArg
-    ? mountedAppName(appArg)
-    : "";
-
-async function loadConfig(): Promise<PocketConfig> {
-  if (!useConfig || !existsSync(configPath)) return {};
-  const url = pathToFileURL(configPath);
-  url.searchParams.set("mtime", String(statSync(configPath).mtimeMs));
-  const mod = (await import(url.href)) as {
-    default?: PocketConfig;
-    config?: PocketConfig;
-  };
-  return mod.default ?? mod.config ?? {};
-}
-
-const config = buildPlan ? {} : await loadConfig();
-const framework: PocketFramework = buildPlan
-  ? parseFramework(buildPlan.app.framework, "ResolvedBuildPlan")
-  : frameworkFlag
-    ? parseFramework(frameworkFlag, "--framework")
-    : parseFramework(config.framework, "pocket.config.ts");
-// A resolved plan owns the exact artifact name. Low-level demo builds keep the
-// framework suffix so multiple variants can still coexist in dist/.
-const outputApp = buildPlan
-  ? buildPlan.app.output
-  : `${app}${FRAMEWORKS[framework].outputSuffix}`;
-const stockDemoName = !buildPlan && appArg ? appArg.replace(/-main$/, "") : "";
-const stockDemo =
-  stockDemoName && existsSync(`${pspUiDir}apps/${stockDemoName}/main.tsx`)
-    ? demoIdentity(stockDemoName)
-    : undefined;
-
-// Keep the convenient low-level demo command on the same manifest/plan path
-// as `bun play` and custom hosts. Without this, its compiler defaulted to a
-// density-1 PSP bundle before the Vita native backend packaged it.
-if (!buildPlan && stockDemo) {
-  const manifest = demoManifestFor(
-    pspUiDir,
-    stockDemoName,
-    framework,
-  ) as Record<string, any>;
-  const resolution = validateAndResolveBuildPlan(manifest, { target: "vita" });
-  if (!resolution.ok) {
-    throw new Error(
-      `PocketJS vita: could not resolve stock demo plan: ${resolution.diagnostics
-        .map((item) => `${item.path || "/"}: ${item.message}`)
-        .join("; ")}`,
-    );
-  }
-  buildPlan = resolution.plan;
-  hostBuildInputs = extractHostBuildInputs(buildPlan, {
-    expectedTarget: "vita",
-  });
-  planPath = `${pspUiDir}.pocket/vita-low-level/${outputApp}.plan.json`;
-  mkdirSync(resolvePath(planPath, ".."), { recursive: true });
-  await Bun.write(planPath, JSON.stringify(buildPlan, null, 2) + "\n");
-}
-const applicationId =
-  buildPlan?.app.id ??
-  stockDemo?.id ??
-  `dev.pocket-stack.legacy.${outputApp.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-const packageTitle =
-  buildPlan?.app.title ?? stockDemo?.title ?? `PocketJS ${outputApp}`;
-const titleId = vitaTitleId(applicationId);
+const outputApp = runtime ? "pocket-runtime" : buildPlan!.app.output;
+const applicationId = runtime ? "dev.pocket-nexus.runtime" : buildPlan!.app.id;
+const packageTitle = runtime ? "PocketJS Runtime" : buildPlan!.app.title;
+const titleId = titleOverride ?? vitaTitleId(applicationId);
 const nativeBuild = randomBytes(16).toString("hex");
 const usb = usbDebug ? await prepareVitaUsb() : undefined;
 
 // ---------------------------------------------------------------------------
-// 1. Build the app bundle + pak -> dist/<app>.js + dist/<app>.pak
-// ---------------------------------------------------------------------------
-
-console.log(`PocketJS vita: building app "${app}" (framework=${framework})`);
-if (!skipBuild) {
-  if (buildPlan) {
-    await $`bun tools/build.ts --plan=${planPath!} --project-root=${projectRoot} --outdir=${outputDir}`.cwd(pspUiDir);
-  } else {
-    await $`bun tools/build.ts ${app} ${buildFlags}`.cwd(pspUiDir);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 2. cargo vita build vpk
+// 2. Cargo ELF build, then explicit SDK conversion and packaging
 // ---------------------------------------------------------------------------
 
 const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
+  profile: { ...compiledProfile(selectedProfile), tickHz: Math.max(...selectedProfile.cadences) },
+  profileHash: hashPocketProfile(selectedProfile),
   appOutput: outputApp,
-  target: "vita",
-  hostAbi: 2,
+  app: { id: applicationId, title: packageTitle, version: "0.0.0" },
+  target: selectedProfile.id,
+  hostAbi: POCKET_BINDING_GENERATION,
   viewport: {
     logical: [480, 272],
     physical: [960, 544],
@@ -259,24 +216,45 @@ const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
   },
 };
 
+// The pinned engine crate does not export header metadata through DEP_*.
+// Resolve that exact dependency before Cargo runs the native build script.
+const qjsMetadata = Bun.spawnSync([rustup, "run", RUST_TOOLCHAINS.vita, "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", `${nativeDir}Cargo.toml`], { stdout: "pipe", stderr: "pipe" });
+if (!qjsMetadata.success) throw new Error(qjsMetadata.stderr.toString() || "Vita Cargo metadata failed");
+const packages = JSON.parse(qjsMetadata.stdout.toString()).packages as { name: string; manifest_path: string; source: string | null; dependencies: {name: string; source: string | null}[] }[];
+const qjsRevision = packages.find(pkg => pkg.name === "pocketjs-vita")?.dependencies.find(dep => dep.name === "libquickjs-sys")?.source;
+const qjsPackage = qjsRevision ? packages.find(pkg => pkg.name === "libquickjs-sys" && pkg.source?.startsWith(`${qjsRevision}#`)) : undefined;
+if (!qjsPackage) throw new Error("Vita dependency closure has no libquickjs-sys");
+const quickjsSource = resolvePath(dirname(qjsPackage.manifest_path), "embed/quickjs");
+
+// build.rs embeds the exported profile module. The executor exports it into
+// its outdir; a command-line build exports the selected profile here.
+const profileExportDirectory = context?.outdir ?? `${nativeDir}target/pocket-profile/${selectedProfile.id}`;
+if (!context) {
+  exportProfile({ profile: selectedProfile, profileHash: hashPocketProfile(selectedProfile),
+    hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, profileExportDirectory);
+}
+
 const env = {
   ...process.env,
-  // cargo-vita probes `rustc` from PATH even when cargo itself was launched
-  // through `rustup run`. Keep the rustup shim ahead of Homebrew's stable
-  // compiler and expose VitaSDK tools without requiring shell dotfiles.
+  CARGO_TARGET_DIR: `${nativeDir}target`,
+  CARGO_PROFILE_RELEASE_LTO: "true",
+  // Keep the selected compiler shim and the explicit SDK tools on PATH.
   PATH: `${vitasdk}/bin:${home}/.cargo/bin:${process.env.PATH ?? ""}`,
   VITASDK: vitasdk,
-  // cargo-vita uses this only when the reusable runtime crate deliberately
-  // omits a static title_id. Pocket's stable manifest id owns installation
-  // identity; every demo therefore gets its own LiveArea application.
+  POCKET_QJS_SOURCE: quickjsSource,
+  // The program build identity and final SFO share the manifest title id.
   VITA_DEFAULT_TITLE_ID: titleId,
   POCKETJS_VITA_TITLE_ID: titleId,
   POCKETJS_VITA_PLAN: planPath ?? "",
   POCKETJS_NATIVE_BUILD: nativeBuild,
+  // The package's own JS and pak, extracted beside its snapshot, give the
+  // development identity; the package bytes are what the program embeds.
   ...hostBuildEnvironment(nativeInputs, {
-    outputDirectory: outputDir,
-    embedApp: true,
+    outputDirectory: application?.directory ?? outputDir,
+    embedApp: !runtime,
+    profileExportDirectory,
   }),
+  POCKETJS_EMBED_PACKAGE: application ? resolvePath(application.packagePath) : "",
   TARGET_AR: "arm-vita-eabi-ar",
   AR_armv7_sony_vita_newlibeabihf: "arm-vita-eabi-ar",
   TARGET_CC: "arm-vita-eabi-gcc",
@@ -293,44 +271,44 @@ const env = {
   POCKETJS_LAUNCHER_PACKAGES: launcherPackages,
 };
 
-if (capture) cargoArgs.push("--features", "capture");
+const features = [capture ? "capture" : "", runtime ? "runtime" : ""].filter(Boolean);
+cargoArgs.push("-p", "pocketjs-vita");
+if (features.length > 0) cargoArgs.push("--features", features.join(","));
 if (!usbDebug) cargoArgs.push("--no-default-features");
 
 console.log(
-  `PocketJS vita: cargo vita build vpk (app=${outputApp}${capture ? ", capture" : ""})`,
+  `PocketJS vita: Cargo ELF and SDK VPK (app=${runtime ? "none, runtime" : outputApp}${capture ? ", capture" : ""})`,
 );
-// Forward to cargo-vita
-await $`${rustup} run nightly-2026-05-28 cargo vita build vpk ${cargoArgs}`
-  .cwd(nativeDir)
-  .env(env);
-
-// cargo-vita has a target-id fallback but no corresponding dynamic title-name
-// fallback. Recreate only the package metadata and VPK here so both values
-// come from the same ResolvedBuildPlan; the native executable is unchanged.
-const profile =
-  cargoArgs.includes("--release") || cargoArgs.includes("-r")
-    ? "release"
-    : "debug";
+const execute = async (command: string[]) => {
+  if (context) await context.run(command, { cwd: nativeDir, env });
+  else await $`${command}`.cwd(nativeDir).env(env);
+};
+await execute([rustup, "run", RUST_TOOLCHAINS.vita, "cargo", "build", "--target", "armv7-sony-vita-newlibeabihf", "-Z", "build-std=std,panic_abort", ...cargoArgs]);
+const profile = cargoArgs.includes("--release") || cargoArgs.includes("-r") ? "release" : "debug";
 const targetDirectory = `${nativeDir}target/armv7-sony-vita-newlibeabihf/${profile}`;
+const elf = `${targetDirectory}/pocketjs-vita.elf`;
+const velf = `${targetDirectory}/pocketjs-vita.velf`;
 const eboot = `${targetDirectory}/pocketjs-vita.self`;
 const sfo = `${targetDirectory}/pocketjs-vita.sfo`;
 const vpk = `${targetDirectory}/pocketjs-vita.vpk`;
-if (!existsSync(eboot))
-  throw new Error(`PocketJS vita: eboot not found at ${eboot}`);
+if (!existsSync(elf)) throw new Error(`PocketJS vita: ELF not found at ${elf}`);
+await execute([`${vitasdk}/bin/vita-elf-create`, elf, velf]);
+// Debug's kernel USB driver requires unsafe-homebrew SELF permissions.
+await execute([`${vitasdk}/bin/vita-make-fself`, ...(usbDebug ? [] : ["-s"]), velf, eboot]);
+await execute([`${vitasdk}/bin/vita-mksfoex`, "-d", "ATTRIBUTE2=12", "-s", `TITLE_ID=${titleId}`, packageTitle, sfo]);
 
-// cargo-vita defaults to a safe SELF. Kernel driver loading and writing the
-// inactive native slot require the standard unsafe-homebrew SELF permissions.
-if (usbDebug) {
-  await $`${vitasdk}/bin/vita-make-fself ${targetDirectory}/pocketjs-vita.velf ${eboot}`;
-}
-
-await $`${vitasdk}/bin/vita-mksfoex -d ATTRIBUTE2=12 -s TITLE_ID=${titleId} ${packageTitle} ${sfo}`;
+// An app's `vita/` directory (VPK-relative paths, e.g. sce_sys/icon0.png)
+// overlays the framework's LiveArea defaults.
+const entryFile = buildPlan ? resolvePath(projectRoot, buildPlan.app.entry) : undefined;
+const vitaAssets = entryFile ? resolvePath(dirname(entryFile), "vita") : undefined;
 await packageVitaVpk({
   tool: `${vitasdk}/bin/vita-pack-vpk`,
+  execute,
   sfo,
   eboot,
   output: vpk,
   usbDriver: usb?.driver,
+  applicationAssets: vitaAssets && existsSync(vitaAssets) ? vitaAssets : undefined,
 });
 
 const packagedDirectory = packageOutputDir ?? resolvePath(outputDir, "vita");
@@ -341,8 +319,14 @@ const packagedSelf = resolvePath(packagedDirectory, `${outputApp}.self`);
 cpSync(eboot, packagedSelf);
 await Bun.write(resolvePath(packagedDirectory, `${outputApp}.runtime.json`), JSON.stringify({
   version: 1, titleId, applicationId, output: outputApp, nativeBuild, plan: buildPlan ?? null,
+  profileHash: nativeInputs.profileHash,
   self: `${outputApp}.self`, usbDebug, usbDriver: usb?.fingerprint,
   selfSha256: createHash("sha256").update(Buffer.from(await Bun.file(packagedSelf).arrayBuffer())).digest("hex"),
 }, null, 2) + "\n");
 console.log(`PocketJS vita: package ${titleId} (${applicationId})`);
 console.log(`output: ${packaged}`);
+
+return packaged;
+}
+
+if (import.meta.main) await buildVita(Bun.argv.slice(2));

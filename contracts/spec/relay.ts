@@ -5,7 +5,7 @@
  * tags cite the draft clause ([R5-P02] = §3.2, [R5-P03] = §3.3, …).
  * Do not invent a second set of encodings: C and Rust frame layers consume
  * the same constants through tests/fixtures/relay/constants.json and the
- * generated engine/core/src/spec.rs relay module.
+ * generated engine/spec/src/lib.rs relay module.
  *
  * Scope of P1: framing constants, message/error/codec enums, the control
  * metadata TypeScript types and their strict JSON Schemas. Session state
@@ -1102,8 +1102,9 @@ export interface RelayConstantsSnapshot {
   opPattern: string;
 }
 
-/** Plain JSON value consumed by tests/contract.ts (constants.json drift
- * guard) and by the relay block of generated engine/core/src/spec.rs. */
+/** Plain JSON value consumed by tests/generated-contracts.test.ts
+ * (constants.json drift guard) and by the relay block of generated
+ * engine/spec/src/lib.rs. */
 export function relayConstantsSnapshot(): RelayConstantsSnapshot {
   return {
     version: RELAY_FRAME.major,

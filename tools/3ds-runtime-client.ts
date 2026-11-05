@@ -7,6 +7,7 @@ import {
   POCKET_RUNTIME_MAX_CTRL_BYTES,
   POCKET_RUNTIME_MAX_FRAME_BYTES,
   POCKET_RUNTIME_MSG,
+  POCKET_RUNTIME_NATIVE_FLAG_LAUNCH,
   POCKET_RUNTIME_WIRE_PORT,
   PocketRuntimeFrameDecoder,
   decodePocketRuntimeAck,
@@ -15,9 +16,12 @@ import {
   encodePocketRuntimeDiscoveryRequest,
   encodePocketRuntimeFrame,
   encodePocketRuntimeHello,
+  encodePocketRuntimeLaunch,
+  encodePocketRuntimeNativeBegin,
+  encodePocketRuntimeChunk,
   encodePocketRuntimePackageBegin,
-  encodePocketRuntimePackageChunk,
   pocketPackageFooterHash,
+  pocketRuntimeCrc32,
   type PocketRuntimeAck,
   type PocketRuntimeDiscovery,
   type PocketRuntimeFrame,
@@ -125,6 +129,9 @@ export async function discoverPocketRuntimes(
 
 type CtrlValue = Record<string, unknown>;
 
+/** A connect, handshake or response wait ran out of time. */
+export class PocketRuntimeTimeoutError extends Error {}
+
 export class PocketRuntimeClient extends EventEmitter {
   readonly host: string;
   readonly port: number;
@@ -181,7 +188,7 @@ export class PocketRuntimeClient extends EventEmitter {
 
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error(`Pocket Runtime connection to ${this.host}:${this.port} timed out`)),
+        () => reject(new PocketRuntimeTimeoutError(`Pocket Runtime connection to ${this.host}:${this.port} timed out`)),
         this.timeoutMs,
       );
       const fail = (error: Error) => {
@@ -197,7 +204,7 @@ export class PocketRuntimeClient extends EventEmitter {
     });
     const ackPromise = new Promise<PocketRuntimeAck>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error("Pocket Runtime handshake timed out")),
+        () => reject(new PocketRuntimeTimeoutError("Pocket Runtime handshake timed out")),
         this.timeoutMs,
       );
       const onAck = (value: PocketRuntimeAck) => {
@@ -273,11 +280,43 @@ export class PocketRuntimeClient extends EventEmitter {
       const chunk = bytes.subarray(offset, Math.min(offset + chunkBytes, bytes.length));
       await this.sendFrame(
         POCKET_RUNTIME_MSG.packageChunk,
-        encodePocketRuntimePackageChunk(offset, chunk),
+        encodePocketRuntimeChunk(offset, chunk),
       );
     }
     await this.sendFrame(POCKET_RUNTIME_MSG.packageCommit);
     return hash;
+  }
+
+  /** Stream a .3dsx to sdmc:/3ds/<name>; returns the CRC-32 the device
+   *  checks. `stopped` is polled between chunks: once the device has reported
+   *  a failure, the rest of the file is not sent and the transfer is aborted. */
+  async installNative(
+    bytes: Uint8Array,
+    name: string,
+    launch: boolean,
+    stopped: () => boolean = () => false,
+  ): Promise<number> {
+    const crc = pocketRuntimeCrc32(bytes);
+    await this.sendFrame(
+      POCKET_RUNTIME_MSG.nativeBegin,
+      encodePocketRuntimeNativeBegin(bytes.length, crc, name, launch ? POCKET_RUNTIME_NATIVE_FLAG_LAUNCH : 0),
+    );
+    const chunkBytes = POCKET_RUNTIME_MAX_FRAME_BYTES - 4;
+    for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
+      if (stopped()) {
+        await this.sendFrame(POCKET_RUNTIME_MSG.nativeAbort);
+        return crc;
+      }
+      const chunk = bytes.subarray(offset, Math.min(offset + chunkBytes, bytes.length));
+      await this.sendFrame(POCKET_RUNTIME_MSG.nativeChunk, encodePocketRuntimeChunk(offset, chunk));
+    }
+    await this.sendFrame(POCKET_RUNTIME_MSG.nativeCommit);
+    return crc;
+  }
+
+  /** Start sdmc:/3ds/<name>: the running app exits into it. */
+  async launch(name: string): Promise<void> {
+    await this.sendFrame(POCKET_RUNTIME_MSG.launch, encodePocketRuntimeLaunch(name));
   }
 
   async waitForCtrl(
@@ -293,7 +332,7 @@ export class PocketRuntimeClient extends EventEmitter {
       };
       const timer = setTimeout(() => {
         cleanup();
-        reject(new Error(`Pocket Runtime control response timed out after ${timeoutMs} ms`));
+        reject(new PocketRuntimeTimeoutError(`Pocket Runtime control response timed out after ${timeoutMs} ms`));
       }, timeoutMs);
       const onCtrl = (value: CtrlValue) => {
         // The device says when a record was too large for a frame. Whatever is
@@ -337,7 +376,7 @@ export class PocketRuntimeClient extends EventEmitter {
       };
       const timer = setTimeout(() => {
         cleanup();
-        reject(new Error(`Pocket Runtime screenshot timed out after ${timeoutMs} ms`));
+        reject(new PocketRuntimeTimeoutError(`Pocket Runtime screenshot timed out after ${timeoutMs} ms`));
       }, timeoutMs);
       const onScreenshot = (value: PocketRuntimeScreenshot) => {
         cleanup();

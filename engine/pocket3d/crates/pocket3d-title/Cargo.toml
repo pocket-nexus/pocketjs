@@ -1,0 +1,17 @@
+[package]
+name = "pocket3d-title"
+edition = "2021"
+license-file = "../../LICENSE"
+description = "The Pocket3D title card: the mark and the wordmark, drawn into a console's frame buffer before a game starts its renderer"
+
+# Standalone crate with no dependencies off the PS Vita: a game depends on it
+# by path from its console binary, the way it depends on a device kernel. It is
+# not a member of the engine workspace.
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[target.'cfg(target_os = "vita")'.dependencies]
+vitasdk-sys = { version = "0.3.3", features = ["SceDisplay_stub", "SceSysmem_stub"] }

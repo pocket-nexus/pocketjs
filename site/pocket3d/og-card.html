@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pocket3D social card</title>
+<!-- The 1200 x 630 social card. `bun tools/icons.ts pocket3d` opens this page
+     in headless Chrome and captures it as public/og-image.png. It sits beside
+     public/, so the Worker does not deploy it. The mark is mark.svg itself. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titan+One&family=Fredoka:wght@600&display=block">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1200px;height:630px;overflow:hidden}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;background:#171226;
+  background-image:radial-gradient(60% 70% at 50% -10%,rgba(255,95,158,.2),transparent 70%),
+    radial-gradient(circle,rgba(203,189,226,.1) 1.4px,transparent 2px);background-size:auto,30px 30px}
+.lockup{display:flex;align-items:center;gap:34px}
+.lockup img{width:250px;height:250px;filter:drop-shadow(0 16px 14px rgba(5,2,12,.5))}
+/* the wordmark: a face over a stack of shadows, as the homepage title is drawn */
+.word{font:150px/1 "Titan One",sans-serif;letter-spacing:-.01em;color:#fcf6ff;
+  filter:drop-shadow(3px 0 0 #221338) drop-shadow(-3px 0 0 #221338) drop-shadow(0 3px 0 #221338) drop-shadow(0 -3px 0 #221338) drop-shadow(0 18px 14px rgba(5,2,12,.5))}
+.word span{text-shadow:2px 2px 0 #8a6fe6,4px 4px 0 #8168dd,6px 6px 0 #7861d3,8px 8px 0 #6f59c9,10px 10px 0 #6551bd,12px 12px 0 #5b48b0,14px 14px 0 #5140a4,16px 16px 0 #473797,18px 18px 0 #3d2b8c}
+.word b{font-weight:400;margin-left:.07em;color:#ffd84a;text-shadow:2px 2px 0 #ef941d,4px 4px 0 #e38b1a,6px 6px 0 #d68117,8px 8px 0 #c97714,10px 10px 0 #bc6d11,12px 12px 0 #af630e,14px 14px 0 #a2580b,16px 16px 0 #964d08,18px 18px 0 #8a3f05}
+p{font:600 42px/1.2 Fredoka,sans-serif;color:#cbbde2}
+</style>
+</head>
+<body>
+  <div class="lockup"><img src="mark.svg" alt=""><div class="word"><span>Pocket</span><b>3D</b></div></div>
+  <p>Create 3D for every machine you love</p>
+</body>
+</html>

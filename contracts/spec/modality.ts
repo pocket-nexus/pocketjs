@@ -9,15 +9,15 @@
 // registry stays an inventory of hosts and this file stays a view over it.
 //
 // Applications consume the modality in two places:
-//   - pocket.json `app.presentations[].modality` is a REQUIREMENT the
+//   - pocket.app.json `app.presentations[].modality` is a REQUIREMENT the
 //     resolver tests against the target's derived modality to pick which
 //     presentation (entry module) a build compiles;
 //   - `@pocketjs/framework/modality` exposes the resolved description to the
 //     chosen presentation for the smaller, in-module adaptations.
 
 import type { JsonSchema } from "./pocket-manifest.ts";
-import type { TargetForm, TargetProfile, Viewport } from "./platforms.ts";
-import { DYNAMIC_FORMS, TARGET_FORMS } from "./platforms.ts";
+import type { TargetForm, TargetProfile, Viewport } from "./platform-types.ts";
+import { DYNAMIC_FORMS, TARGET_FORMS } from "./platform-types.ts";
 
 export const SCREEN_ROLES = ["primary", "auxiliary"] as const;
 export type ScreenRole = (typeof SCREEN_ROLES)[number];
@@ -57,7 +57,7 @@ export type ButtonName = (typeof BUTTON_NAMES)[number];
 
 /** Shell labels per BTN bit, keyed by the spec's PlayStation-positional
  *  names. A Nintendo host maps A/B/X/Y onto the CIRCLE/CROSS/TRIANGLE/SQUARE
- *  positions (hosts/3ds/src/input.c), so `circle` reads "A" there. */
+ *  positions (platforms/3ds/input.c), so `circle` reads "A" there. */
 export const BUTTON_GLYPHS: Readonly<Record<ButtonGlyphSet, Readonly<Record<ButtonName, string>>>> = {
   playstation: {
     circle: "○",

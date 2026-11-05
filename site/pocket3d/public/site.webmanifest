@@ -1,0 +1,15 @@
+{
+  "name": "Pocket3D",
+  "short_name": "Pocket3D",
+  "description": "Pocket3D is a hardware-native 3D stack for portable interactive software.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171226",
+  "theme_color": "#171226",
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "/icon-512-maskable.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

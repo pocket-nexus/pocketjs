@@ -1,5 +1,5 @@
 // bun run macos [app] [flags…] — build + launch a PocketJS app on the portable Rust
-// macOS host (hosts/desktop over the macos-app target; docs/BACKENDS.md).
+// macOS host (programs/desktop over the macos-app target; docs/BACKENDS.md).
 //
 //   bun run macos                    # the note, baked package fonts
 //   bun run macos hero               # a fixed-viewport console demo,
@@ -17,20 +17,22 @@ import { existsSync, mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { $ } from "bun";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import {
   validateAndResolveSystemPlan,
   validatePocketSystem,
   type ResolvedSystemPlan,
 } from "../framework/src/manifest/system.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { exportProfile } from "./profile-export.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 // The portable desktop host is a git-only crate (npm files map ships
 // this wrapper for parity with tools/note.ts, whose widget host is git-only
 // too) — fail with directions instead of a cargo error mid-build.
-if (!existsSync(`${root}hosts/desktop/Cargo.toml`)) {
+if (!existsSync(`${root}programs/desktop/Cargo.toml`)) {
   console.error(
-    "bun run macos needs a git checkout: hosts/desktop is not part of the npm package (github.com/pocket-stack/pocketjs).",
+    "bun run macos needs a git checkout: programs/desktop is not part of the npm package (github.com/pocket-nexus/pocketjs).",
   );
   process.exit(1);
 }
@@ -41,9 +43,9 @@ const rest = argv.filter((f) => f !== "--proof" && f !== "--build-only");
 const appArg = rest[0] && !rest[0].startsWith("--") ? rest.shift()! : "note";
 const appDir = appArg.replace(/-main$/, "");
 
-const manifestPath = `${root}apps/${appDir}/pocket.json`;
+const manifestPath = `${root}apps/${appDir}/pocket.app.json`;
 if (!existsSync(manifestPath)) {
-  throw new Error(`pocket-desktop-host: no manifest at apps/${appDir}/pocket.json`);
+  throw new Error(`pocket-desktop-host: no manifest at apps/${appDir}/pocket.app.json`);
 }
 const systemPath = `${root}apps/${appDir}/pocket.system.json`;
 let systemPlan: ResolvedSystemPlan | undefined;
@@ -66,7 +68,7 @@ if (existsSync(systemPath)) {
       .filter((entry) => installed.has(entry.package))
       .map(async (entry) => ({
         source: entry.manifest,
-        manifest: await Bun.file(`${root}${entry.manifest}`).json(),
+        manifest: readPocketManifest(`${root}${entry.manifest}`).manifest,
       })),
   );
   const resolution = validateAndResolveSystemPlan(rawSystem, {
@@ -84,7 +86,7 @@ if (existsSync(systemPath)) {
   systemPlan = resolution.plan;
   plan = systemPlan.systemUI.plan;
 } else {
-  const manifest = await Bun.file(manifestPath).json();
+  const manifest = readPocketManifest(manifestPath).manifest;
   const resolution = validateAndResolveBuildPlan(manifest, {
     target: "macos-app",
   });
@@ -119,7 +121,14 @@ if (systemPlan) {
   systemPlanPath = `${root}.pocket/macos-app/${systemPlan.system.name}.system.plan.json`;
   await Bun.write(systemPlanPath, JSON.stringify(systemPlan, null, 2) + "\n");
 }
-await $`cargo build --release`.cwd(`${root}hosts/desktop`);
+// The host compiles in the profile its packages were resolved against.
+const exported = exportProfile(
+  { profile: plan.profile, profileHash: plan.profileHash, hostAbi: plan.target.hostAbi, dependencies: [] },
+  `${root}.pocket/macos-app/profile`,
+);
+await $`cargo build --locked --release -p pocket-desktop-host`
+  .cwd(root)
+  .env({ ...process.env, POCKETJS_PROFILE_RS: exported.module });
 
 if (buildOnly) {
   console.log(
@@ -131,7 +140,7 @@ if (buildOnly) {
   process.exit(0);
 }
 
-const bin = `${root}hosts/desktop/target/release/pocket-desktop-host`;
+const bin = `${root}target/release/pocket-desktop-host`;
 const env = { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "info" };
 
 // Every host flag derives from the resolved plan (issue #295 landed the

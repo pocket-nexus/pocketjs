@@ -1,260 +1,261 @@
-// Manifest-driven PocketJS orchestration.
-//
-//   bun pocket check --target psp
-//   bun pocket compile --target psp
-//   bun pocket build --target psp -- --release
-
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+// Application compilation and program-owned runtime builds.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { checkAppTypes } from "../framework/compiler/app-check.ts";
-import { depfile } from "../framework/compiler/build-inputs.ts";
-import type { PocketTargetId } from "../contracts/spec/platforms.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { canonicalJson, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
-import {
-  hashPocketIdfHostProfile,
-  pocketIdfHostExtension,
-  pocketIdfHostRegistry,
-  validatePocketIdfHostProfile,
-} from "../framework/src/manifest/idf-host.ts";
-import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
-import { makeVariant } from "./pocket-pack.ts";
-
 import { fileURLToPath } from "node:url";
+import { checkAppTypes } from "../framework/compiler/app-check.ts";
+import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
+import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
+import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readAuthoredManifest } from "../framework/src/manifest/load.ts";
+import { canonicalJson } from "../framework/src/manifest/plan.ts";
+import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { CATALOG } from "./targets/index.ts";
+import { statusRows, targetCommand } from "./targets/commands.ts";
+import { loadProject } from "./targets/project.ts";
+import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
+import { exportProfile } from "./profile-export.ts";
+import { buildRuntime } from "./build/executor.ts";
+import { resolveRuntimeProgram } from "./build/programs.ts";
+import { makeVariant } from "./pocket-pack.ts";
+import { sdkCommand } from "./sdk.ts";
 
 const frameworkRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const argv = Bun.argv.slice(2);
 const command = argv.shift();
-
 function usage(message?: string): never {
   if (message) console.error(`PocketJS: ${message}`);
-  console.error(
-    "usage: bun pocket <check|compile|build> (--target <target> | --host-profile <pocket.host.json>) " +
-      "[--manifest pocket.json] [--project-root .] [--outdir dist] [--plan-dir .pocket] " +
-      "[--output app.pocket] [-- backend args]",
-  );
+  console.error("usage: pocket check|compile [--manifest pocket.app.json] [--target <id|pocket.host.json>] [--host-config FILE]\n" +
+    "       pocket compile [--output app.pocket] [--depfile FILE] [--aot --out DIR]\n" +
+    "       pocket build [--config pocket.host.config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
+    "       pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]\n" +
+    "       pocket host export [--config FILE] [--target ID] --out DIR [--depfile FILE]\n" +
+    "       pocket host fetch --target ID --out FILE [--release-version V] [--manifest-url URL]\n" +
+    "       pocket doctor --target ID [--config FILE] [--generic] [--build-receipt FILE] [--runtime DIR] [--evidence FILE --identity FILE] [--device KEY] [--json]");
   process.exit(1);
 }
-
 function takeOption(name: string): string | undefined {
-  const inline = argv.findIndex((value) => value.startsWith(`--${name}=`));
-  if (inline >= 0) return argv.splice(inline, 1)[0]!.slice(name.length + 3);
+  const inline = argv.findIndex(value => value.startsWith(`--${name}=`));
+  if (inline >= 0) {
+    const value = argv.splice(inline, 1)[0]!.slice(name.length + 3);
+    if (!value) usage(`--${name} requires a value`);
+    return value;
+  }
   const index = argv.indexOf(`--${name}`);
-  if (index < 0) return undefined;
+  if (index < 0) return;
   const value = argv[index + 1];
   if (!value || value.startsWith("--")) usage(`--${name} requires a value`);
   argv.splice(index, 2);
   return value;
 }
+function flag(name: string): boolean {
+  const index = argv.indexOf(`--${name}`);
+  if (index < 0) return false;
+  argv.splice(index, 1);
+  return true;
+}
+function noArguments() { if (argv.length) usage(`unknown option ${argv[0]}`); }
+const cliProtocol = takeOption("cli-protocol");
+if (cliProtocol !== undefined) {
+  const protocol = JSON.parse(readFileSync(resolve(frameworkRoot, "package.json"), "utf8")).pocketjs?.protocol;
+  if (String(protocol) !== cliProtocol) usage(`the CLI speaks protocol ${cliProtocol} and the framework at ${frameworkRoot} speaks ${protocol}`);
+}
 
-if (command !== "check" && command !== "compile" && command !== "build") {
-  usage(`unknown command ${command ?? "<missing>"}`);
-}
-const targetOption = takeOption("target");
-const hostProfileOption = takeOption("host-profile");
-if (Boolean(targetOption) === Boolean(hostProfileOption)) {
-  usage("give exactly one of --target or --host-profile");
-}
-const manifestPath = resolve(takeOption("manifest") ?? "pocket.json");
-const projectRoot = resolve(takeOption("project-root") ?? dirname(manifestPath));
-const outdir = resolve(projectRoot, takeOption("outdir") ?? "dist");
-const planRoot = resolve(projectRoot, takeOption("plan-dir") ?? ".pocket");
-const outputOption = takeOption("output");
-const depfileOption = takeOption("depfile");
-const compilerReceipt = takeOption("compiler-receipt");
-if (depfileOption && (!hostProfileOption || command !== "build")) usage("--depfile requires build --host-profile");
-if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");
-if (outputOption && (!hostProfileOption || command !== "build")) {
-  usage("--output is only valid with build --host-profile");
-}
-// Backend args live strictly AFTER `--`; anything else left over is a typo.
-// (Without the separator check-first split, `argv.splice(0)` would swallow
-// unknown options into backendArgs and the guard below could never fire.)
-const separator = argv.indexOf("--");
-const backendArgs = separator >= 0 ? argv.splice(separator + 1) : [];
-if (separator >= 0) argv.splice(separator, 1);
-if (argv.length > 0) usage(`unknown option ${argv[0]}`);
-
-if (!existsSync(manifestPath)) usage(`manifest not found: ${manifestPath}`);
-const manifestInput: unknown = await Bun.file(manifestPath).json();
-let target = targetOption ?? "";
-let tickHz = 60;
-let profileHash: string | undefined;
-let registry = undefined;
-if (hostProfileOption) {
-  const hostProfilePath = resolve(hostProfileOption);
-  if (!existsSync(hostProfilePath)) usage(`host profile not found: ${hostProfilePath}`);
-  const validated = validatePocketIdfHostProfile(await Bun.file(hostProfilePath).json());
-  if (!validated.ok) {
-    for (const diagnostic of validated.diagnostics) {
-      console.error(`${diagnostic.code} ${diagnostic.path || "/"}: ${diagnostic.message}`);
+async function main() {
+  if (command === "sdk") process.exit(await sdkCommand(argv));
+  if (command === "target") process.exit(await targetCommand(argv));
+  if (command === "doctor") {
+    const options = { target: takeOption("target"), config: takeOption("config") ?? takeOption("host-config"),
+      generic: flag("generic"), buildReceipt: takeOption("build-receipt"), runtime: takeOption("runtime"),
+      evidence: takeOption("evidence"), identity: takeOption("identity"), device: takeOption("device") };
+    const json = flag("json"); noArguments();
+    const { inspectProgram } = await import("./doctor.ts");
+    const report = await inspectProgram(options);
+    if (json) console.log(JSON.stringify(report, null, 2));
+    else {
+      console.log(`${report.target} · ${report.profileHash} · binding generation ${report.hostAbi}`);
+      for (const check of report.checks) console.log(`${check.status}: ${check.name}: ${check.detail}`);
     }
-    process.exit(1);
+    if (!report.ok) process.exitCode = 1;
+    return;
   }
-  target = validated.value.id;
-  tickHz = validated.value.tickHz;
-  profileHash = hashPocketIdfHostProfile(validated.value);
-  registry = pocketIdfHostRegistry(validated.value);
-}
-const resolution = validateAndResolveBuildPlan(
-  manifestInput,
-  {
-    target,
-    ...(profileHash ? { hostExtension: pocketIdfHostExtension(profileHash, tickHz) } : {}),
-  },
-  registry,
-);
-if (!resolution.ok) {
-  for (const diagnostic of resolution.diagnostics) {
-    console.error(`${diagnostic.code} ${diagnostic.path || "/"}: ${diagnostic.message}`);
+  if (command === "catalog") {
+    const json = flag("json"); noArguments();
+    const rows = Object.values(POCKET_PROFILES).map(profile => ({
+      id: profile.id, title: CATALOG.find(entry => entry.contract.target === profile.id)?.title ?? profile.id,
+      platform: profile.platform,
+    }));
+    if (json) console.log(JSON.stringify(rows, null, 2));
+    else for (const row of rows) console.log(`${row.id.padEnd(20)} ${row.title}`);
+    return;
   }
-  process.exit(1);
-}
-const plan = resolution.plan;
-const entry = resolve(projectRoot, plan.app.entry);
-if (!existsSync(entry)) usage(`app entry not found: ${entry}`);
-
-const typeResult = checkAppTypes({
-  entry,
-  tsconfigPath: existsSync(resolve(projectRoot, "tsconfig.json"))
-    ? resolve(projectRoot, "tsconfig.json")
-    : undefined,
-  declarationFiles: [
-    resolve(frameworkRoot, "framework/src/jsx.d.ts"),
-    resolve(frameworkRoot, "framework/src/vue-sfc.d.ts"),
-  ],
-});
-if (!typeResult.ok) {
-  for (const diagnostic of typeResult.diagnostics.filter((item) => item.category === "error")) {
-    const location = diagnostic.file
-      ? `${diagnostic.file}${diagnostic.line ? `:${diagnostic.line}:${diagnostic.column}` : ""}`
-      : "TypeScript";
-    console.error(`${location} TS${diagnostic.code}: ${diagnostic.message}`);
+  if (command === "project" || command === "status") {
+    const manifest = takeOption("manifest");
+    const config = takeOption("host-config") ?? takeOption("config");
+    flag("json"); noArguments();
+    const result = await loadProject(manifest ? dirname(resolve(manifest)) : process.cwd(), config);
+    if (command === "project") console.log(JSON.stringify(result, null, 2));
+    else {
+      if (!result.ok) throw new Error(result.diagnostics.join("\n"));
+      console.log(JSON.stringify(statusRows(result.project), null, 2));
+    }
+    if (!result.ok) process.exit(1);
+    return;
   }
-  process.exit(1);
-}
-
-console.log(`✓ pocket.json v2`);
-console.log(`✓ ${target} satisfies pocket.json capabilities`);
-console.log(`✓ TypeScript (${typeResult.checkedFiles.length} app module(s))`);
-console.log(`✓ ResolvedBuildPlan ${plan.planHash}`);
-
-// `check` is read-only — the plan file is only materialized for the
-// compile/build pipelines that consume it.
-if (command === "check") process.exit(0);
-
-const planDirectory = resolve(planRoot, target);
-const planPath = resolve(planDirectory, "plan.json");
-mkdirSync(planDirectory, { recursive: true });
-await Bun.write(planPath, JSON.stringify(plan, null, 2) + "\n");
-
-async function run(args: string[], label: string): Promise<void> {
-  const child = Bun.spawn(args, { cwd: projectRoot, stdout: "inherit", stderr: "inherit" });
-  const status = await child.exited;
-  if (status !== 0) throw new Error(`${label} failed with exit ${status}`);
-}
-
-await run(
-  [
-    process.execPath,
-    resolve(frameworkRoot, "tools/build.ts"),
-    `--plan=${planPath}`,
-    `--project-root=${projectRoot}`,
-    `--outdir=${outdir}`,
-    `--hz=${tickHz}`,
-    ...(depfileOption ? [`--inputs-file=${resolve(outdir, `${plan.app.output}.inputs.json`)}`] : []),
-  ],
-  "PocketJS compiler",
-);
-
-if (command === "compile") process.exit(0);
-
-if (hostProfileOption) {
-  const js = new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.js`)));
-  const pakPath = resolve(outdir, `${plan.app.output}.pak`);
-  const pak = existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0);
-  const variant = makeVariant({
-    target,
-    hostAbi: plan.target.hostAbi,
-    planJson: canonicalJson(plan),
-    identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
-    js,
-    pak,
-  });
-  const output = outputOption
-    ? resolve(projectRoot, outputOption)
-    : resolve(outdir, `${plan.app.output}.pocket`);
-  if (depfileOption) {
-    const inputs = await Bun.file(resolve(outdir, `${plan.app.output}.inputs.json`)).json() as string[];
-    await Bun.write(resolve(projectRoot, depfileOption), depfile(output, [
-      ...inputs, ...typeResult.checkedFiles.filter(file => !file.endsWith("/styles.generated.ts")),
-      manifestPath, resolve(hostProfileOption), ...(compilerReceipt ? [resolve(compilerReceipt)] : []),
-    ]));
+  if (command === "host") {
+    const subcommand = argv.shift();
+    if (subcommand === "fetch") {
+      // The document a firmware release publishes; compile with --target FILE.
+      const target = takeOption("target"), out = takeOption("out");
+      const releaseVersion = takeOption("release-version"), manifestUrl = takeOption("manifest-url");
+      noArguments();
+      if (!target || !out) usage("host fetch requires --target and --out");
+      const { releasedProfile } = await import("./release/fetch.ts");
+      const profile = await releasedProfile(target, { version: releaseVersion, manifestUrl });
+      mkdirSync(dirname(resolve(out)), { recursive: true });
+      writeFileSync(resolve(out), JSON.stringify(profile, null, 2) + "\n");
+      console.log(`✓ ${resolve(out)} (${profile.id}, binding generation ${profile.hostAbi})`);
+      return;
+    }
+    if (subcommand !== "export") usage("expected host export or host fetch");
+    const config = takeOption("config");
+    const target = takeOption("target");
+    const out = takeOption("out") ?? takeOption("outdir");
+    const dependencies = takeOption("depfile");
+    noArguments();
+    if (!out) usage("host export requires --out");
+    const selected = await resolveProfile({ from: process.cwd(), target, hostConfig: config, env: process.env });
+    const inputs = new BuildInputs();
+    await inputs.compiler([resolve(frameworkRoot, "tools/profile-export.ts"), resolve(frameworkRoot, "tools/profile-resolver.ts")], frameworkRoot);
+    const result = exportProfile({ ...selected, dependencies: [...selected.dependencies, ...inputs.paths()] }, resolve(out), dependencies && resolve(dependencies));
+    console.log(`✓ ${result.header}\n✓ ${result.module}\n✓ ${result.sidecar}`);
+    return;
   }
-  await Bun.write(output, encodePocketPackage({
-    manifest: new Uint8Array(readFileSync(manifestPath)),
-    variants: [variant],
+  if (command === "pack") {
+    const config = takeOption("config") ?? takeOption("host-config");
+    const target = takeOption("target");
+    const runtime = takeOption("runtime");
+    const releaseVersion = takeOption("release-version"), manifestUrl = takeOption("manifest-url");
+    const output = takeOption("output") ?? takeOption("out");
+    const id = takeOption("id"), title = takeOption("title"), author = takeOption("author"), version = takeOption("version"), icon = takeOption("icon");
+    const pocket = takeOption("pocket") ?? argv.shift();
+    noArguments();
+    if (!pocket) usage("pack requires an application.pocket file");
+    const { packRuntime } = await import("./build/pack.ts");
+    await packRuntime({ config, target, runtime, releaseVersion, manifestUrl, output, id, title, author, version, icon, pocket });
+    return;
+  }
+  if (command === "build") {
+    const separator = argv.indexOf("--");
+    const args = separator < 0 ? [] : argv.splice(separator).slice(1);
+    const config = takeOption("config") ?? takeOption("host-config");
+    const target = takeOption("target");
+    const out = takeOption("out") ?? takeOption("outdir");
+    const pocket = takeOption("pocket");
+    const aotDirectory = takeOption("aot-dir");
+    const deploy = flag("deploy");
+    const generic = flag("generic");
+    noArguments();
+    const selected = await resolveRuntimeProgram({ from: process.cwd(), target, hostConfig: config, generic, env: process.env });
+    await buildRuntime(selected, out ? resolve(out) : resolve(dirname(selected.config!.path), selected.config!.value.build ? "dist/runtime" : "dist/profile"), {
+      pocket: pocket && resolve(pocket), aotDirectory: aotDirectory && resolve(aotDirectory), deploy, args,
+    });
+    return;
+  }
+  if (command !== "check" && command !== "compile") usage(`unknown command ${command ?? "<missing>"}`);
+  const target = takeOption("target");
+  const hostConfig = takeOption("host-config");
+  const manifestPath = resolve(takeOption("manifest") ?? "pocket.app.json");
+  const projectRoot = resolve(takeOption("project-root") ?? dirname(manifestPath));
+  const aot = flag("aot");
+  const outOption = takeOption("out");
+  const outdir = resolve(projectRoot, outOption ?? takeOption("outdir") ?? "dist");
+  const planRoot = resolve(projectRoot, takeOption("plan-dir") ?? ".pocket");
+  const outputOption = takeOption("output");
+  const dependencies = takeOption("depfile");
+  const compilerReceipt = takeOption("compiler-receipt");
+  noArguments();
+  if (outOption && !aot) usage("--out names an AOT directory; use --output for a .pocket file or --outdir for compiler intermediates");
+  if (aot && command !== "compile") usage("--aot requires compile");
+  if (aot && outputOption) usage("--aot uses --out, not --output");
+  if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");
+  if (!existsSync(manifestPath)) usage(`manifest not found: ${manifestPath}`);
+  const selected = await resolveProfile({ from: dirname(manifestPath), target, hostConfig, env: process.env });
+  const loaded = readAuthoredManifest(manifestPath);
+  const manifestInput: unknown = loaded.manifest;
+  const resolution = validateAndResolveBuildPlan(manifestInput, { target: selected.profile.id, executionClass: aot ? "aot" : "guest" }, profileRegistry(selected.profile));
+  if (!resolution.ok) throw new Error(resolution.diagnostics.map(item => `${item.code} ${item.path || "/"}: ${item.message}`).join("\n"));
+  const plan = resolution.plan;
+  const entry = resolve(projectRoot, plan.app.entry);
+  if (!existsSync(entry)) usage(`app entry not found: ${entry}`);
+  const mismatch = runtimeVersionMismatch(plan.app.framework, projectRoot);
+  if (mismatch) throw new Error(`the application resolves ${mismatch.name} ${mismatch.application.version} (${mismatch.application.directory}) and the compiler bundles ${mismatch.name} ${mismatch.bundled.version} (${mismatch.bundled.directory}); declare "${mismatch.name}": "${mismatch.bundled.version}" in the application's package.json`);
+  const entries: [string, "ui" | "worker"][] = [[entry, "ui"], ...(plan.domains?.worker ? [[resolve(projectRoot, plan.domains.worker.entry), "worker"] as [string, "worker"]] : [])];
+  for (const [source] of entries) if (!existsSync(source)) usage(`app entry not found: ${source}`);
+  const typeResults = entries.map(([entry, domain]) => checkAppTypes({
+    entry,
+    domain,
+    frameworkRoot,
+    tsconfigPath: existsSync(resolve(projectRoot, "tsconfig.json")) ? resolve(projectRoot, "tsconfig.json") : undefined,
+    declarationFiles: [resolve(frameworkRoot, "framework/src/jsx.d.ts"), resolve(frameworkRoot, "framework/src/vue-sfc.d.ts")],
   }));
-  console.log(`✓ ESP-IDF package ${output}`);
-  process.exit(0);
+  const typeResult = {
+    ok: typeResults.every(result => result.ok),
+    diagnostics: typeResults.flatMap(result => result.diagnostics),
+    checkedFiles: [...new Set(typeResults.flatMap(result => result.checkedFiles))],
+  };
+  if (!typeResult.ok) throw new Error(typeResult.diagnostics.filter(item => item.category === "error").map(item => `${item.file ?? "TypeScript"}${item.line ? `:${item.line}:${item.column}` : ""} TS${item.code}: ${item.message}`).join("\n"));
+  console.log(`✓ pocket.app.json v2\n✓ ${plan.target.id} satisfies pocket.app.json capabilities\n✓ TypeScript (${typeResult.checkedFiles.length} app module(s))\n✓ ResolvedBuildPlan ${plan.planHash}`);
+  if (command === "check") return;
+  // IDs are UTF-8 protocol strings, not filesystem paths.
+  const directoryName = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(plan.target.id) ? plan.target.id : selected.profileHash.slice(7, 23);
+  const planDirectory = resolve(planRoot, directoryName);
+  const planPath = resolve(planDirectory, "plan.json");
+  mkdirSync(planDirectory, { recursive: true });
+  mkdirSync(outdir, { recursive: true });
+  await Bun.write(planPath, JSON.stringify(plan, null, 2) + "\n");
+  const extraDependencies = [...loaded.inputs, ...selected.dependencies, ...typeResult.checkedFiles.filter(file => !file.endsWith("/styles.generated.ts")), ...(compilerReceipt ? [resolve(compilerReceipt)] : [])];
+  if (dependencies) {
+    const tools = new BuildInputs();
+    await tools.compiler([resolve(frameworkRoot, "tools/pocket.ts")], frameworkRoot);
+    extraDependencies.push(...tools.paths());
+  }
+  if (aot) {
+    const { compileAot } = await import("./aot-compile.ts");
+    const result = await compileAot({ plan, manifestPath, projectRoot, outdir, dependencyFiles: extraDependencies });
+    if (dependencies) await Bun.write(resolve(projectRoot, dependencies), depfile(result.includeFile, result.dependencies));
+    console.log(`✓ AOT sources: ${result.outdir}`);
+    return;
+  }
+  const inputsFile = resolve(outdir, `${plan.app.output}.inputs.json`);
+  const child = Bun.spawn([process.execPath, resolve(frameworkRoot, "tools/build.ts"), `--plan=${planPath}`, `--project-root=${projectRoot}`, `--outdir=${outdir}`, ...(dependencies ? [`--inputs-file=${inputsFile}`] : [])], { cwd: projectRoot, stdout: "inherit", stderr: "inherit" });
+  const status = await child.exited;
+  if (status !== 0 || child.signalCode) throw new Error(`PocketJS compiler failed: ${child.signalCode ?? status}`);
+  const pakPath = resolve(outdir, `${plan.app.output}.pak`);
+  const variant = makeVariant({
+    target: plan.target.id, hostAbi: plan.target.hostAbi, planJson: canonicalJson(plan),
+    identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
+    js: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.js`))),
+    ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.worker.js`))) } : {}),
+    pak: existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0),
+    // The manifest's icon travels as the variant's cover section.
+    ...(loaded.icon ? { cover: loaded.icon } : {}),
+  });
+  const output = outputOption ? resolve(projectRoot, outputOption) : resolve(outdir, `${plan.app.output}.pocket`);
+  if (dependencies) {
+    const inputs = await Bun.file(inputsFile).json() as string[];
+    await Bun.write(resolve(projectRoot, dependencies), depfile(output, [...inputs, ...extraDependencies]));
+  }
+  let packaged = variant;
+  if (selected.profile.bytecode) {
+    // The host names the QuickJS build it embeds: its bundles ship as bytecode for it.
+    const { withBytecode } = await import("./quickjs-bytecode.ts");
+    const bytecode = selected.profile.bytecode;
+    packaged = withBytecode(variant, { ...bytecode, buildDirectory: resolve(outdir, "quickjs-bytecode") });
+    console.log(`✓ QuickJS bytecode for ${bytecode.engine}${bytecode.source === "drop" ? " (source dropped)" : ""}`);
+  }
+  await Bun.write(output, encodePocketPackage({ manifest: loaded.embedded, variants: [packaged] }));
+  console.log(`✓ Package: ${output}`);
 }
-
-interface TargetBackendContext {
-  readonly plan: ResolvedBuildPlan;
-  readonly planPath: string;
-  readonly projectRoot: string;
-  readonly outdir: string;
-  readonly args: readonly string[];
-}
-
-type TargetBackend = (context: TargetBackendContext) => Promise<void>;
-
-const targetBackends = {
-  psp: async ({ planPath, projectRoot, outdir, args }) => {
-    await run(
-      [
-        Bun.which("bun") ?? "bun",
-        resolve(frameworkRoot, "tools/psp.ts"),
-        `--plan=${planPath}`,
-        `--project-root=${projectRoot}`,
-        `--outdir=${outdir}`,
-        "--skip-build",
-        ...args,
-      ],
-      "PSP backend",
-    );
-  },
-  vita: async ({ planPath, projectRoot, outdir, args }) => {
-    await run(
-      [
-        Bun.which("bun") ?? "bun",
-        resolve(frameworkRoot, "tools/vita.ts"),
-        `--plan=${planPath}`,
-        `--project-root=${projectRoot}`,
-        `--outdir=${outdir}`,
-        "--skip-build",
-        ...args,
-      ],
-      "Vita backend",
-    );
-  },
-  pocketbook: async ({ outdir }) => {
-    // The PocketBook host loads the pak + bundle from the device filesystem
-    // (hosts/pocketbook), so there is no platform binary to package here —
-    // `compile` already emitted <app>.js + <app>.pak into outdir. The host ELF
-    // is cross-compiled separately (cargo zigbuild; see hosts/pocketbook/
-    // README.md). A dedicated tools/pocketbook.ts wrapper is future work.
-    console.log(
-      `✓ PocketBook bundle ready in ${outdir} — cross-compile the host ` +
-        `(hosts/pocketbook, cargo zigbuild) and copy both to the device.`,
-    );
-  },
-} satisfies Record<PocketTargetId, TargetBackend>;
-
-await targetBackends[target as PocketTargetId]({
-  plan,
-  planPath,
-  projectRoot,
-  outdir,
-  args: backendArgs,
-});
+try { await main(); }
+catch (error) { console.error(`PocketJS: ${error instanceof Error ? error.message : String(error)}`); process.exit(1); }

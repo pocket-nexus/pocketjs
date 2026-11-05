@@ -1,11 +1,11 @@
 //! pocketjs-core — the platform-agnostic retained UI core.
 //!
 //! One `Ui` instance owns the node tree, style table, taffy layout, font
-//! atlases, animation tracks and the per-frame `DrawList`. Hosts (PSP QuickJS
+//! atlases, animation tracks, physics worlds and the per-frame `DrawList`. Hosts (PSP QuickJS
 //! FFI, wasm extern "C" mirror) call the op surface below; nothing here knows
 //! about sceGu, canvas or QuickJS.
 //!
-//! Invariants upheld (from docs/DESIGN.md, all [R]):
+//! Invariants upheld (from docs/DESIGN.md, all `[R]`):
 //!   - Node ids are generation-tagged: (gen << spec::ID_SLOT_BITS) | slot;
 //!     ops on stale ids are silent no-ops.
 //!   - `insert_before` has DOM move semantics: an attached child is unlinked
@@ -25,39 +25,44 @@
 //! the target); an EXPLICIT `animate()` track persists its final value as a
 //! dynamic override. `cancel_anim` freezes the current value as a dynamic
 //! override.
+//!
+//! Physics plumbing (ui.physics): the engine is a separate crate
+//! (`pocket-physics`) a program installs with `set_physics` before boot; see
+//! [`Physics`] for the contract. `tick()` steps it after the animation
+//! tracks, against current layout, and each body writes its pose into its
+//! views' `physics_values`. `style::resolve` applies that layer after
+//! `anim_values`; animation and transition start values read
+//! `style::resolve_animated`, which stops before it, so `animate()` and
+//! `cancel_anim` never capture a physics pose. Without an installed engine
+//! the physics methods create nothing and report no events.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
 pub mod assets;
-mod package_format;
 pub mod resources;
 
 use alloc::vec::Vec;
 
 pub mod anim;
-pub mod codec;
-pub mod damage;
+#[cfg(feature = "counters")]
+pub mod counters;
 pub mod draw;
+pub mod fmath;
 pub mod layout;
-pub mod package;
-pub mod pak;
-pub mod raster;
-pub mod compositor;
-pub mod spec;
-pub mod stream;
-pub mod stream_rx;
-pub mod style;
-pub mod text;
+mod physics;
+pub use physics::Physics;
+pub use pocket_spec as spec;
 pub mod font_pages;
 pub mod font_stream;
-pub mod font_archive;
+pub mod style;
+pub mod text;
+pub use pocket_package::font_archive;
 pub mod touch;
 pub mod tree;
-pub mod wire;
 
-pub use draw::DrawList;
+pub use pocket_drivers::{DrawList, TexView};
 
 /// CLUT byte size: 256 entries x u32 ABGR (the GE CLUT8 palette).
 const TEX_PALETTE_BYTES: usize = 1024;
@@ -75,8 +80,13 @@ pub const MAX_TICK_HZ: u32 = 240;
 /// the PSP GE can sample them directly (the wasm rasterizer reads them via
 /// `Ui::texture`).
 pub struct Texture {
-    /// 16-byte-aligned backing store (`u128` chunks).
-    data: Vec<u128>,
+    /// 16-byte-aligned backing store (`u128` chunks); empty while a
+    /// package texture is released under `Ui::set_texture_budget`.
+    data: core::cell::OnceCell<Vec<u128>>,
+    /// The pak bytes a released texture is decoded from again.
+    source: Option<TextureSource>,
+    /// `Ui::frame` of the last draw that recorded this texture (`touch`).
+    used: core::sync::atomic::AtomicU32,
     byte_len: usize,
     pub w: u32,
     pub h: u32,
@@ -97,46 +107,95 @@ pub struct Texture {
     revision: u64,
 }
 
+/// Where a package texture's pixels come from: the pak's storage, which the
+/// Ui keeps alive, and the raw pixel stream's position in it.
+pub struct TextureSource {
+    storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+    stream: core::ops::Range<usize>,
+}
+
 impl Texture {
-    pub fn pixels(&self) -> &[u8] {
+    /// The pixels, or None for a released package texture that cannot be
+    /// decoded now (`decode`). A released texture is decoded here when
+    /// nothing decoded it first; frames decode the textures they record
+    /// (`touch`) on the recording thread, so a renderer on another thread
+    /// only reads.
+    pub fn pixels(&self) -> Option<&[u8]> {
+        if self.data.get().is_none() {
+            let _ = self.data.set(self.decode()?);
+        }
+        let data = self.data.get()?;
         // Safe: the Vec<u128> owns at least byte_len initialized bytes.
-        unsafe { core::slice::from_raw_parts(self.data.as_ptr() as *const u8, self.byte_len) }
+        Some(unsafe { core::slice::from_raw_parts(data.as_ptr() as *const u8, self.byte_len) })
+    }
+
+    /// The pixels copied from the package. None when the texture has no
+    /// source, the storage no longer holds the stream, or the arena has no
+    /// room for the copy: the texture draws nothing until a later frame
+    /// decodes it (`try_copy_aligned`).
+    fn decode(&self) -> Option<Vec<u128>> {
+        let source = self.source.as_ref()?;
+        let bytes = (*source.storage).as_ref().get(source.stream.clone())?;
+        if bytes.len() < self.byte_len {
+            return None;
+        }
+        try_copy_aligned(bytes, self.byte_len)
+    }
+
+    /// The backing store, decoded first when released; None when `decode`
+    /// cannot provide it.
+    fn data_mut(&mut self) -> Option<&mut Vec<u128>> {
+        if self.data.get().is_none() {
+            let _ = self.data.set(self.decode()?);
+        }
+        self.data.get_mut()
+    }
+
+    /// True while the pixels occupy memory.
+    pub fn is_resident(&self) -> bool {
+        self.data.get().is_some()
+    }
+
+    /// A frame at `frame` draws this texture: decode it now, on the thread
+    /// recording the frame, and stamp it as drawn for `Ui::set_texture_budget`.
+    /// False when the pixels are unavailable (`decode`); the frame then
+    /// records nothing for this texture and the next frame tries again.
+    pub(crate) fn touch(&self, frame: u64) -> bool {
+        self.used
+            .store(frame as u32, core::sync::atomic::Ordering::Relaxed);
+        self.pixels().is_some()
+    }
+
+    /// Drop the pixels of a package texture; the next read decodes them again.
+    fn release(&mut self) -> bool {
+        if self.source.is_none() || self.data.get().is_none() {
+            return false;
+        }
+        self.data.take();
+        true
     }
 
     /// The 1024-byte CLUT (256 x u32 ABGR); Some only when psm == PSM_T8.
     pub fn palette(&self) -> Option<&[u8]> {
         // Safe: the palette Vec<u128> is always TEX_PALETTE_BYTES/16 chunks
-        // (constructed only by copy_aligned(_, TEX_PALETTE_BYTES)).
+        // (constructed only by try_copy_aligned(_, TEX_PALETTE_BYTES)).
         self.palette.as_ref().map(|p| unsafe {
             core::slice::from_raw_parts(p.as_ptr() as *const u8, TEX_PALETTE_BYTES)
         })
     }
 
-    fn view(&self) -> TexView<'_> {
-        TexView {
-            pixels: self.pixels(),
+    /// The renderer's view; None while the pixels are unavailable, so such
+    /// a texture draws nothing like a freed one.
+    fn view(&self) -> Option<TexView<'_>> {
+        Some(TexView {
+            pixels: self.pixels()?,
             w: self.w,
             h: self.h,
             psm: self.psm,
             palette: self.palette(),
             linear: self.linear,
-        }
+        })
     }
-}
-
-/// Borrowed view of one live texture (what backends sample — see
-/// `Ui::texture` / `Ui::texture_at`). All byte slices are 16-byte aligned.
-#[derive(Clone, Copy)]
-pub struct TexView<'a> {
-    pub pixels: &'a [u8],
-    pub w: u32,
-    pub h: u32,
-    /// spec::psm::* pixel format.
-    pub psm: u32,
-    /// 1024-byte CLUT (256 x u32 ABGR) — Some exactly when psm == PSM_T8.
-    pub palette: Option<&'a [u8]>,
-    /// Bilinear sampling hint (spec::img::FLAG_LINEAR); nearest otherwise.
-    pub linear: bool,
 }
 
 /// One texture slot. `gen` tags outstanding handles (bumped on free, so a
@@ -145,6 +204,46 @@ pub struct TexView<'a> {
 pub struct TexSlot {
     gen: u16,
     tex: Option<Texture>,
+    /// Frame of an in-flight zero-copy submission that reads `tex` storage;
+    /// zero when none does (`Ui::retain_textures`).
+    fence: u64,
+    /// Freed or overwritten storage that such a submission may still read,
+    /// tagged with its frame. `Ui::release_textures` drops it.
+    retained: Vec<(u64, Texture)>,
+}
+
+impl TexSlot {
+    /// Remove the live texture. Storage read by an in-flight submission moves
+    /// to `retained` instead of being dropped.
+    pub(crate) fn vacate(&mut self) {
+        if let Some(texture) = self.tex.take() {
+            if self.fence != 0 {
+                self.retained.push((self.fence, texture));
+            }
+        }
+        self.fence = 0;
+    }
+}
+
+impl Drop for Ui {
+    /// A device may still read pinned storage when the Ui is dropped or
+    /// replaced before `release_textures`. Leak that storage instead of
+    /// freeing memory under a pending submission.
+    fn drop(&mut self) {
+        if self.texture_fence == 0 {
+            return;
+        }
+        for slot in &mut self.textures {
+            for (_, texture) in slot.retained.drain(..) {
+                core::mem::forget(texture);
+            }
+            if slot.fence != 0 {
+                if let Some(texture) = slot.tex.take() {
+                    core::mem::forget(texture);
+                }
+            }
+        }
+    }
 }
 
 /// Texture-handle generations live in bits TEX_SLOT_BITS..31 — bit 31 must
@@ -159,6 +258,20 @@ const TEX_GEN_MASK: u32 = (1u32 << (31 - spec::TEX_SLOT_BITS)) - 1;
 #[inline]
 fn make_tex_handle(gen: u16, slot: u32) -> i32 {
     (((gen as u32 & TEX_GEN_MASK) << spec::TEX_SLOT_BITS) | (slot & spec::TEX_SLOT_MASK)) as i32
+}
+
+/// `Texture::touch` for the live texture `handle` resolves to. False only
+/// when that texture's pixels are unavailable this frame, so the recorder
+/// skips its primitives; a stale handle still records them and draws
+/// nothing through `Ui::texture`, as always.
+pub(crate) fn touch_texture(slots: &[TexSlot], handle: u32, frame: u64) -> bool {
+    let Some(slot) = tex_resolve(slots, handle as i32) else {
+        return true;
+    };
+    slots[slot as usize]
+        .tex
+        .as_ref()
+        .is_none_or(|texture| texture.touch(frame))
 }
 
 /// Resolve a generation-tagged handle to its slot index; None for negative,
@@ -183,10 +296,15 @@ pub(crate) fn tex_alloc(slots: &mut Vec<TexSlot>, free: &mut Vec<u32>, tex: Text
     let slot = match free.pop() {
         Some(s) => s,
         None => {
-            if slots.len() as u32 > spec::TEX_SLOT_MASK {
+            if slots.len() as u32 > spec::TEX_SLOT_MASK || slots.try_reserve(1).is_err() {
                 return -1;
             }
-            slots.push(TexSlot { gen: 0, tex: None });
+            slots.push(TexSlot {
+                gen: 0,
+                tex: None,
+                fence: 0,
+                retained: Vec::new(),
+            });
             (slots.len() - 1) as u32
         }
     };
@@ -195,14 +313,22 @@ pub(crate) fn tex_alloc(slots: &mut Vec<TexSlot>, free: &mut Vec<u32>, tex: Text
     make_tex_handle(s.gen, slot)
 }
 
-/// Copy `byte_len` bytes of `src` (caller guarantees `src.len() >= byte_len`)
-/// into a fresh 16-byte-aligned `u128` backing store.
-fn copy_aligned(src: &[u8], byte_len: usize) -> Vec<u128> {
-    let mut chunks = alloc::vec![0u128; byte_len.div_ceil(16)];
+/// A zeroed 16-byte-aligned `u128` backing store, or None when the arena has no room: a game can free
+/// other textures and try again next frame, which beats dying over one image.
+fn try_zeroed_aligned(byte_len: usize) -> Option<Vec<u128>> {
+    let n = byte_len.div_ceil(16);
+    let mut chunks = Vec::new();
+    chunks.try_reserve_exact(n).ok()?;
+    chunks.resize(n, 0u128);
+    Some(chunks)
+}
+
+fn try_copy_aligned(src: &[u8], byte_len: usize) -> Option<Vec<u128>> {
+    let mut chunks = try_zeroed_aligned(byte_len)?;
     unsafe {
         core::ptr::copy_nonoverlapping(src.as_ptr(), chunks.as_mut_ptr() as *mut u8, byte_len);
     }
-    chunks
+    Some(chunks)
 }
 
 // ---- unaligned LE readers (asset blob parsing; overflow-proof offsets) ------
@@ -246,6 +372,19 @@ struct AuxiliarySurface {
 
 /// The retained UI core. One per AppInstance, with an optional independent
 /// auxiliary output root sharing the same resources and frame clock.
+/// Which solver projection a change belongs to (`Ui::box_owner`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Owner {
+    Primary,
+    Auxiliary,
+    /// The region rooted at this node id.
+    Region(i32),
+    /// Under an externally placed node: nothing to solve.
+    Static,
+    /// Not attached to any output root.
+    Detached,
+}
+
 pub struct Ui {
     tree: tree::Tree,
     styles: style::StyleTable,
@@ -253,20 +392,34 @@ pub struct Ui {
     font_revisions: [u64; spec::MAX_FONT_SLOTS],
     anims: anim::Anims,
     timelines: Vec<TimelineInst>,
+    /// 2D bodies (ui.physics): stepped after animations, writes view props.
+    /// None until a program installs an engine with `set_physics`.
+    physics: Option<alloc::boxed::Box<dyn Physics>>,
     layout: layout::LayoutEngine,
     auxiliary: Option<AuxiliarySurface>,
     /// Generation-tagged texture slots (handles per spec.ts TEX_SLOT_BITS).
     textures: Vec<TexSlot>,
     /// LIFO free list of texture slots (freed most recently, reused first).
     tex_free: Vec<u32>,
+    /// Latest frame passed to `retain_textures` and not yet released.
+    texture_fence: u64,
+    /// Decoded bytes of package textures kept past a draw; zero keeps all.
+    texture_budget: usize,
+    /// `frame` of the previous `draw`: textures it recorded are not released.
+    texture_draw_frame: u64,
     /// Core-owned corner masks and scaled-glyph pages (see draw::PaintCache).
     paint_cache: draw::PaintCache,
     /// Raster pixels baked for each logical UI pixel. Layout and DrawList
     /// coordinates always remain logical; only core-owned bitmap resources
     /// (currently rounded-corner masks) use this density.
     raster_density: u32,
+    /// See [`Ui::set_stable_motion_paint`].
+    stable_motion_paint: bool,
     /// Changes whenever raster-visible resource bytes or tables change.
     raster_revision: u64,
+    /// Changes with `raster_revision` except when a live texture's pixels
+    /// are overwritten in place (each texture's own revision records those).
+    resource_revision: u64,
     focused: i32,
     draw_list: DrawList,
     /// Virtual cursor sprite (spec ops 28/29, input.cursor capability):
@@ -343,13 +496,19 @@ impl Ui {
             font_revisions: [0; spec::MAX_FONT_SLOTS],
             anims: anim::Anims::new(),
             timelines: Vec::new(),
+            physics: None,
             layout: layout::LayoutEngine::new(),
             auxiliary: None,
             textures: Vec::new(),
             tex_free: Vec::new(),
+            texture_fence: 0,
+            texture_budget: 0,
+            texture_draw_frame: 0,
             paint_cache: draw::PaintCache::new(),
             raster_density,
+            stable_motion_paint: false,
             raster_revision: 1,
+            resource_revision: 1,
             focused: 0,
             draw_list: DrawList::new(),
             cursor_tex: -1,
@@ -372,6 +531,17 @@ impl Ui {
     /// Raster pixels per logical UI pixel for core-owned bitmap resources.
     pub fn raster_density(&self) -> u32 {
         self.raster_density
+    }
+
+    /// Paint that repeats exactly when content moves by whole logical pixels
+    /// (see `DrawList::stable_motion_paint`): translations round to whole
+    /// pixels for drawing and hit testing, and partially clipped gradients
+    /// keep their unclipped geometry inside a SCISSOR. Damage tracking can
+    /// then move the pixels of sliding content. Only for backends that clip
+    /// in software: coordinates may leave the viewport, which the PSP GE
+    /// cannot draw.
+    pub fn set_stable_motion_paint(&mut self, enabled: bool) {
+        self.stable_motion_paint = enabled;
     }
 
     /// Declare how many `tick()` calls make one second of virtual time
@@ -398,22 +568,268 @@ impl Ui {
         self.raster_revision
     }
 
+    /// [`raster_revision`](Self::raster_revision) less the in-place pixel
+    /// writes of live textures: a damage tracker that compares each sampled
+    /// texture's [`texture_revision`](Self::texture_revision) repaints only
+    /// the ops drawing an updated one while this stays.
+    pub fn resource_revision(&self) -> u64 {
+        self.resource_revision
+    }
+
     fn bump_raster_revision(&mut self) {
+        self.raster_revision = self.raster_revision.wrapping_add(1);
+        self.resource_revision = self.resource_revision.wrapping_add(1);
+    }
+
+    /// A live texture's pixels were overwritten in place.
+    fn bump_texture_content(&mut self) {
         self.raster_revision = self.raster_revision.wrapping_add(1);
     }
 
+    /// Fonts, text providers or styles changed: every retained text
+    /// measurement is stale.
     fn mark_layout_dirty(&mut self) {
-        self.layout.dirty = true;
+        self.layout.invalidate_measurements();
         if let Some(auxiliary) = self.auxiliary.as_mut() {
-            auxiliary.layout.dirty = true;
+            auxiliary.layout.invalidate_measurements();
         }
     }
 
-    fn mark_layout_style(&mut self, slot: u32) {
-        self.layout.mark_style(slot);
+    /// Nodes moved, appeared or disappeared somewhere unknown: reconcile
+    /// every retained tree and keep unchanged nodes and measurements.
+    fn mark_layout_structure_all(&mut self) {
+        self.layout.mark_structure();
         if let Some(auxiliary) = self.auxiliary.as_mut() {
-            auxiliary.layout.mark_style(slot);
+            auxiliary.layout.mark_structure();
         }
+    }
+
+    /// The projection that solves a node's box: the nearest region root above
+    /// it, else the output root the ancestor chain reaches. `Static` means an
+    /// ancestor is externally placed (its whole subtree has no solver nodes).
+    fn box_owner(&self, slot: u32) -> Owner {
+        let auxiliary = self.auxiliary_surface_root();
+        let mut current = self.tree.slots[slot as usize].parent;
+        loop {
+            if current == spec::ROOT_ID {
+                return Owner::Primary;
+            }
+            if current != 0 && current == auxiliary {
+                return Owner::Auxiliary;
+            }
+            let Some(parent_slot) = self.tree.resolve(current) else {
+                return Owner::Detached;
+            };
+            let node = &self.tree.slots[parent_slot as usize];
+            if node.region_root {
+                return Owner::Region(current);
+            }
+            if node.layout_mode != tree::LAYOUT_LIVE {
+                return Owner::Static;
+            }
+            current = node.parent;
+        }
+    }
+
+    /// The projection that holds `slot`'s children.
+    fn children_owner(&self, slot: u32) -> Owner {
+        let id = self.tree.slots[slot as usize].id(slot);
+        if id == spec::ROOT_ID {
+            return Owner::Primary;
+        }
+        if id == self.auxiliary_surface_root() {
+            return Owner::Auxiliary;
+        }
+        let node = &self.tree.slots[slot as usize];
+        if node.region_root {
+            return Owner::Region(id);
+        }
+        if node.layout_mode != tree::LAYOUT_LIVE {
+            return Owner::Static;
+        }
+        self.box_owner(slot)
+    }
+
+    /// The engine that registered region `id` (regions inside the auxiliary
+    /// surface live in its engine).
+    fn region_engine(&mut self, id: i32) -> &mut layout::LayoutEngine {
+        if self.layout.is_region(id) {
+            return &mut self.layout;
+        }
+        match self.auxiliary.as_mut() {
+            Some(auxiliary) if auxiliary.layout.is_region(id) => &mut auxiliary.layout,
+            _ => &mut self.layout,
+        }
+    }
+
+    fn mark_structure_owner(&mut self, owner: Owner) {
+        match owner {
+            Owner::Primary => self.layout.mark_structure(),
+            Owner::Auxiliary => {
+                if let Some(auxiliary) = self.auxiliary.as_mut() {
+                    auxiliary.layout.mark_structure();
+                }
+            }
+            Owner::Region(id) => self.region_engine(id).mark_region_structure(id),
+            Owner::Static => {}
+            Owner::Detached => self.mark_layout_structure_all(),
+        }
+    }
+
+    /// Structure changed among the children of node `parent`.
+    fn mark_layout_structure_under(&mut self, parent: i32) {
+        let owner = match self.tree.resolve(parent) {
+            Some(slot) => self.children_owner(slot),
+            None => Owner::Detached,
+        };
+        self.mark_structure_owner(owner);
+    }
+
+    fn mark_layout_style(&mut self, slot: u32) {
+        match self.tree.slots[slot as usize].layout_mode {
+            tree::LAYOUT_STATIC => return,
+            tree::LAYOUT_FORMULA => {
+                self.formula_layout(slot);
+                return;
+            }
+            _ => {}
+        }
+        match self.box_owner(slot) {
+            Owner::Primary => self.layout.mark_style(slot),
+            Owner::Auxiliary => {
+                if let Some(auxiliary) = self.auxiliary.as_mut() {
+                    auxiliary.layout.mark_style(slot);
+                }
+            }
+            Owner::Region(id) => self.region_engine(id).mark_region_style(id, slot),
+            Owner::Static => {}
+            Owner::Detached => {
+                self.layout.mark_style(slot);
+                if let Some(auxiliary) = self.auxiliary.as_mut() {
+                    auxiliary.layout.mark_style(slot);
+                }
+            }
+        }
+        if self.tree.slots[slot as usize].region_root {
+            // The region's solver root mirrors this node's layout style.
+            let id = self.tree.slots[slot as usize].id(slot);
+            self.region_engine(id).mark_region_style(id, slot);
+        }
+    }
+
+    /// Keep `Node::region_root` and the engine's region table in step with
+    /// the resolved `contain` value (text nodes never contain).
+    fn refresh_region(&mut self, slot: u32) {
+        let node = &self.tree.slots[slot as usize];
+        let id = node.id(slot);
+        let contained = node.node_type != spec::NodeType::Text as u8
+            && style::resolve_contain(node, &self.styles) != spec::Contain::None as u8;
+        if contained == node.region_root
+            || id == spec::ROOT_ID
+            || id == self.auxiliary_surface_root()
+        {
+            return;
+        }
+        self.tree.slots[slot as usize].region_root = contained;
+        let auxiliary = self.auxiliary_surface_root();
+        let in_auxiliary = auxiliary != 0 && self.tree.is_in_subtree(auxiliary, id);
+        let engine = match self.auxiliary.as_mut() {
+            Some(surface) if in_auxiliary => &mut surface.layout,
+            _ => &mut self.layout,
+        };
+        if contained {
+            engine.register_region(id);
+        } else {
+            engine.unregister_region(id);
+        }
+        // The children change projection; the node's own leaf changes shape.
+        let owner = self.box_owner(slot);
+        self.mark_structure_owner(owner);
+    }
+
+    /// Set how `id`'s rect is produced (tree::LAYOUT_LIVE, LAYOUT_STATIC or
+    /// LAYOUT_FORMULA). A static node takes the given rect, relative to its
+    /// parent, and its subtree leaves every solver projection; a formula node
+    /// follows its own resolved inset and size (`layout::formula_rect`). The
+    /// MicroTS compiler calls this for nodes whose geometry it proved; marks on
+    /// a static node are no-ops, so a layout prop set on one does nothing.
+    /// Output roots stay live.
+    pub fn set_layout_mode(&mut self, id: i32, mode: u8, x: f32, y: f32, w: f32, h: f32) {
+        let Some(slot) = self.tree.resolve(id) else {
+            return;
+        };
+        if id == spec::ROOT_ID || id == self.auxiliary_surface_root() || mode > tree::LAYOUT_FORMULA
+        {
+            return;
+        }
+        let was_live = self.tree.slots[slot as usize].layout_mode == tree::LAYOUT_LIVE;
+        self.tree.slots[slot as usize].layout_mode = mode;
+        match mode {
+            tree::LAYOUT_STATIC => {
+                self.tree.slots[slot as usize].layout = tree::LayoutRect { x, y, w, h };
+            }
+            tree::LAYOUT_FORMULA => self.formula_layout(slot),
+            _ => {}
+        }
+        if was_live != (mode == tree::LAYOUT_LIVE) {
+            // The node enters or leaves its owner's projection. A detached
+            // node (mount order: create, set the mode, insert) has none yet;
+            // the insert marks its owner.
+            let owner = self.box_owner(slot);
+            if owner != Owner::Detached {
+                self.mark_structure_owner(owner);
+            }
+        }
+    }
+
+    /// Layout mode of a node (tree::LAYOUT_*), or None for a stale id.
+    pub fn layout_mode(&self, id: i32) -> Option<u8> {
+        self.tree.get(id).map(|node| node.layout_mode)
+    }
+
+    /// Recompute a formula node's rect from its resolved style and its
+    /// parent's rect.
+    fn formula_layout(&mut self, slot: u32) {
+        let parent = self.tree.slots[slot as usize].parent;
+        let (parent_size, origin) = match self.tree.resolve(parent) {
+            Some(parent_slot) => {
+                let rect = self.tree.slots[parent_slot as usize].layout;
+                (
+                    (rect.w, rect.h),
+                    layout::absolute_origin(&self.tree, parent_slot),
+                )
+            }
+            None => ((0.0, 0.0), (0.0, 0.0)),
+        };
+        let resolved = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+        self.tree.slots[slot as usize].layout =
+            layout::formula_rect(&resolved, parent_size, origin);
+    }
+
+    /// Unrounded solver output of a live node relative to its parent:
+    /// (x, y, w, h). None for stale ids and nodes without a solver node.
+    pub fn layout_unrounded_of(&self, id: i32) -> Option<(f32, f32, f32, f32)> {
+        let slot = self.tree.resolve(id)?;
+        layout::unrounded_of(&self.layout, &self.tree, slot).or_else(|| {
+            self.auxiliary
+                .as_ref()
+                .and_then(|auxiliary| layout::unrounded_of(&auxiliary.layout, &self.tree, slot))
+        })
+    }
+
+    /// Full-tree oracle: every live node under the primary root whose rect
+    /// differs from a fresh solve of the whole tree with no regions, static or
+    /// formula nodes, as (id, expected, actual). Empty means the modes agree.
+    #[cfg(feature = "counters")]
+    pub fn layout_mismatches(&mut self) -> Vec<(i32, tree::LayoutRect, tree::LayoutRect)> {
+        let viewport = self.layout.viewport;
+        layout::reference_mismatches(
+            &mut self.tree,
+            &self.styles,
+            &self.fonts,
+            viewport,
+            spec::ROOT_ID,
+        )
     }
 
     /// Create the fixed auxiliary UI root, or resize the existing one. The
@@ -449,6 +865,8 @@ impl Ui {
         }
         let mut surface_layout = layout::LayoutEngine::new();
         surface_layout.viewport = (width, height);
+        surface_layout.set_other_output_root(spec::ROOT_ID);
+        self.layout.set_other_output_root(root);
         self.auxiliary = Some(AuxiliarySurface {
             root,
             layout: surface_layout,
@@ -464,7 +882,9 @@ impl Ui {
     }
 
     pub fn auxiliary_viewport(&self) -> Option<(f32, f32)> {
-        self.auxiliary.as_ref().map(|surface| surface.layout.viewport)
+        self.auxiliary
+            .as_ref()
+            .map(|surface| surface.layout.viewport)
     }
 
     // ---- tree ops ---------------------------------------------------------
@@ -481,21 +901,31 @@ impl Ui {
     /// Destroy `id` and its whole subtree; frees anim tracks; clears focus
     /// if the focused node was inside. Stale/unknown ids are no-ops.
     pub fn destroy_node(&mut self, id: i32) {
-        if id == spec::ROOT_ID || id == self.auxiliary_surface_root() || self.tree.resolve(id).is_none() {
+        if id == spec::ROOT_ID
+            || id == self.auxiliary_surface_root()
+            || self.tree.resolve(id).is_none()
+        {
             return;
         }
         if self.focused != 0 && self.tree.is_in_subtree(id, self.focused) {
             self.focused = 0;
         }
+        let parent = self.tree.get(id).map_or(0, |node| node.parent);
         self.tree.detach(id);
         let mut slots = Vec::new();
         self.tree.collect_subtree(id, &mut slots);
         for slot in slots {
             let nid = self.tree.slots[slot as usize].id(slot);
             self.anims.kill_node(nid);
+            if self.tree.slots[slot as usize].region_root {
+                self.layout.unregister_region(nid);
+                if let Some(auxiliary) = self.auxiliary.as_mut() {
+                    auxiliary.layout.unregister_region(nid);
+                }
+            }
             self.tree.free_slot(slot);
         }
-        self.mark_layout_dirty();
+        self.mark_layout_structure_under(parent);
     }
 
     /// Insert `child` under `parent` before `anchor` (0 = append). DOM move
@@ -504,8 +934,48 @@ impl Ui {
         if child == self.auxiliary_surface_root() {
             return;
         }
+        let previous = self.tree.get(child).map_or(0, |node| node.parent);
         if self.tree.insert_before(parent, child, anchor) {
-            self.mark_layout_dirty();
+            self.mark_layout_structure_under(parent);
+            if previous != 0 && previous != parent {
+                self.mark_layout_structure_under(previous);
+            }
+            self.rehome_regions(child);
+        }
+    }
+
+    /// A region belongs to the engine of the output its node is in. A node
+    /// contained while detached (a renderer sets the class before it inserts)
+    /// registered with the primary engine; inserting it, or an ancestor, under
+    /// the auxiliary surface moves its region to the auxiliary engine, and
+    /// moving it back moves the region back.
+    fn rehome_regions(&mut self, id: i32) {
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return;
+        };
+        if self.layout.regions.is_empty() && auxiliary.layout.regions.is_empty() {
+            return;
+        }
+        let in_auxiliary = self.tree.is_in_subtree(auxiliary.root, id);
+        let (from, to) = if in_auxiliary {
+            (&mut self.layout, &mut auxiliary.layout)
+        } else {
+            (&mut auxiliary.layout, &mut self.layout)
+        };
+        if from.regions.is_empty() {
+            return;
+        }
+        let mut pending = alloc::vec![id];
+        while let Some(current) = pending.pop() {
+            let Some(slot) = self.tree.resolve(current) else {
+                continue;
+            };
+            let node = &self.tree.slots[slot as usize];
+            if node.region_root && from.is_region(current) {
+                from.unregister_region(current);
+                to.register_region(current);
+            }
+            pending.extend_from_slice(&node.children);
         }
     }
 
@@ -513,7 +983,7 @@ impl Ui {
     /// during reorder; the JS renderer sweep destroys still-detached nodes).
     pub fn remove_child(&mut self, parent: i32, child: i32) {
         if self.tree.remove_child(parent, child) {
-            self.mark_layout_dirty();
+            self.mark_layout_structure_under(parent);
         }
     }
 
@@ -525,7 +995,9 @@ impl Ui {
 
     /// Child ids in document order. Stale ids have no children.
     pub fn node_children(&self, id: i32) -> &[i32] {
-        self.tree.get(id).map_or(&[], |node| node.children.as_slice())
+        self.tree
+            .get(id)
+            .map_or(&[], |node| node.children.as_slice())
     }
 
     /// Whether a generation-tagged node id still resolves to a live node.
@@ -543,6 +1015,12 @@ impl Ui {
         self.tree.get(id).map(|node| node.text.as_str())
     }
 
+    /// Style-table record id of a node (spec::STYLE_ID_NONE when unstyled).
+    /// Native presenters match mounted conditional branches by it.
+    pub fn node_style(&self, id: i32) -> Option<i32> {
+        self.tree.get(id).map(|node| node.style_id)
+    }
+
     // ---- styling ----------------------------------------------------------
 
     /// Apply style-table record `style_id` (spec::STYLE_ID_NONE clears).
@@ -552,7 +1030,7 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+        let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
         let was_initialized = self.tree.slots[slot as usize].style_initialized;
         {
             let node = &mut self.tree.slots[slot as usize];
@@ -565,6 +1043,7 @@ impl Ui {
         }
         self.retarget(slot, &old, was_initialized);
         self.restart_timelines(slot);
+        self.refresh_region(slot);
         self.mark_layout_style(slot);
     }
 
@@ -587,6 +1066,9 @@ impl Ui {
         tree::Node::remove_entry(&mut node.anim_values, prop);
         tree::Node::put_entry(&mut node.overrides, prop, bits);
         if spec::is_layout_dirtying(prop) {
+            if prop == spec::prop::CONTAIN {
+                self.refresh_region(slot);
+            }
             self.mark_layout_style(slot);
         }
     }
@@ -609,6 +1091,13 @@ impl Ui {
         // non-empty flip is structural: empty runs are excluded from the
         // taffy tree entirely, so the leaf has to (dis)appear.
         let root_slot = self.text_layout_root(slot);
+        if self.tree.slots[root_slot as usize].layout_mode != tree::LAYOUT_LIVE {
+            // An externally placed cell: the run never sizes the box.
+            let node = &mut self.tree.slots[slot as usize];
+            node.text.clear();
+            node.text.push_str(text);
+            return;
+        }
         let mut run = alloc::string::String::new();
         self.tree.collect_run(root_slot, &mut run);
         let was_empty = run.is_empty();
@@ -620,7 +1109,8 @@ impl Ui {
         run.clear();
         self.tree.collect_run(root_slot, &mut run);
         if was_empty != run.is_empty() {
-            self.mark_layout_dirty();
+            let parent = self.tree.slots[root_slot as usize].parent;
+            self.mark_layout_structure_under(parent);
         } else if !run.is_empty() {
             // A text swap inside a FIXED cell (definite px width AND height
             // on the layout leaf) cannot move layout — the measure result is
@@ -695,10 +1185,10 @@ impl Ui {
             if data.len() < TEX_PALETTE_BYTES {
                 return -1;
             }
-            (
-                Some(copy_aligned(data, TEX_PALETTE_BYTES)),
-                &data[TEX_PALETTE_BYTES..],
-            )
+            let Some(palette) = try_copy_aligned(data, TEX_PALETTE_BYTES) else {
+                return -1;
+            };
+            (Some(palette), &data[TEX_PALETTE_BYTES..])
         } else {
             (None, data)
         };
@@ -707,11 +1197,13 @@ impl Ui {
             // Decode straight into the aligned backing store. The stream must
             // decode to EXACTLY byte_len bytes (codec contract) — anything
             // else is a malformed asset.
-            let mut chunks = alloc::vec![0u128; byte_len.div_ceil(16)];
+            let Some(mut chunks) = try_zeroed_aligned(byte_len) else {
+                return -1;
+            };
             let dst = unsafe {
                 core::slice::from_raw_parts_mut(chunks.as_mut_ptr() as *mut u8, byte_len)
             };
-            if !codec::packbits_decode(stream, dst) {
+            if !pocket_media::codec::packbits_decode(stream, dst) {
                 return -1;
             }
             chunks
@@ -719,10 +1211,15 @@ impl Ui {
             if stream.len() < byte_len {
                 return -1;
             }
-            copy_aligned(stream, byte_len)
+            let Some(chunks) = try_copy_aligned(stream, byte_len) else {
+                return -1;
+            };
+            chunks
         };
         let tex = Texture {
-            data: chunks,
+            data: core::cell::OnceCell::from(chunks),
+            source: None,
+            used: core::sync::atomic::AtomicU32::new(0),
             byte_len,
             w,
             h,
@@ -736,6 +1233,154 @@ impl Ui {
             self.bump_raster_revision();
         }
         handle
+    }
+
+    /// `upload_texture_flags` for a pixel stream at `stream` of `storage`,
+    /// which the caller keeps alive. A raw stream is decoded when the texture
+    /// is first drawn and released again under `set_texture_budget`; an RLE
+    /// stream is decoded here and stays.
+    pub fn upload_texture_from(
+        &mut self,
+        storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+        stream: core::ops::Range<usize>,
+        w: u32,
+        h: u32,
+        psm: u32,
+        flags: u8,
+    ) -> i32 {
+        if flags & spec::img::FLAG_RLE != 0 {
+            let Some(data) = (*storage).as_ref().get(stream) else {
+                return -1;
+            };
+            return self.upload_texture_flags(data, w, h, psm, flags);
+        }
+        let bpp = match psm {
+            spec::psm::PSM_5650 | spec::psm::PSM_4444 => 2usize,
+            spec::psm::PSM_8888 => 4usize,
+            spec::psm::PSM_T8 => 1usize,
+            _ => return -1,
+        };
+        let pow2 = |v: u32| v > 0 && v <= spec::TEX_MAX_DIM && v & (v - 1) == 0;
+        if !pow2(w) || !pow2(h) {
+            return -1;
+        }
+        let byte_len = w as usize * h as usize * bpp;
+        let (palette, pixels) = {
+            let Some(data) = (*storage).as_ref().get(stream.clone()) else {
+                return -1;
+            };
+            if psm == spec::psm::PSM_T8 {
+                if data.len() < TEX_PALETTE_BYTES + byte_len {
+                    return -1;
+                }
+                let Some(palette) = try_copy_aligned(data, TEX_PALETTE_BYTES) else {
+                    return -1;
+                };
+                (Some(palette), stream.start + TEX_PALETTE_BYTES..stream.end)
+            } else {
+                if data.len() < byte_len {
+                    return -1;
+                }
+                (None, stream)
+            }
+        };
+        let tex = Texture {
+            data: core::cell::OnceCell::new(),
+            source: Some(TextureSource {
+                storage,
+                stream: pixels,
+            }),
+            used: core::sync::atomic::AtomicU32::new(0),
+            byte_len,
+            w,
+            h,
+            psm,
+            palette,
+            linear: flags & spec::img::FLAG_LINEAR != 0,
+            revision: 0,
+        };
+        let handle = tex_alloc(&mut self.textures, &mut self.tex_free, tex);
+        if handle >= 0 {
+            self.bump_raster_revision();
+        }
+        handle
+    }
+
+    /// `upload_img_entry` for the IMG entry at `blob` of `storage`; see
+    /// `upload_texture_from`.
+    pub fn upload_img_entry_from(
+        &mut self,
+        storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+        blob: core::ops::Range<usize>,
+    ) -> i32 {
+        let Some((w, h, psm, flags)) = (*storage)
+            .as_ref()
+            .get(blob.clone())
+            .and_then(parse_img_header)
+        else {
+            return -1;
+        };
+        self.upload_texture_from(storage, blob.start + 8..blob.end, w, h, psm, flags)
+    }
+
+    /// Package textures (`upload_texture_from`) beyond `bytes` of decoded
+    /// pixels are released when the next frame is drawn, the least recently
+    /// drawn first, sparing those the previous draw recorded and those a
+    /// deferred submission still reads (`retain_textures`); a released
+    /// texture is decoded again when a draw records it. Zero, the default,
+    /// keeps every texture.
+    pub fn set_texture_budget(&mut self, bytes: usize) {
+        self.texture_budget = bytes;
+    }
+
+    /// Whether a texture's pixels occupy memory now; `None` for a stale
+    /// handle.
+    pub fn texture_resident(&self, handle: i32) -> Option<bool> {
+        let slot = tex_resolve(&self.textures, handle)?;
+        self.textures[slot as usize]
+            .tex
+            .as_ref()
+            .map(Texture::is_resident)
+    }
+
+    /// At the start of a draw: release package textures beyond the budget
+    /// that the previous draw did not record and no submission pins.
+    fn evict_textures(&mut self) {
+        let last_draw = self.texture_draw_frame as u32;
+        self.texture_draw_frame = self.frame;
+        if self.texture_budget == 0 {
+            return;
+        }
+        let now = self.frame as u32;
+        let mut resident = 0usize;
+        let mut candidates: Vec<(u32, usize)> = Vec::new();
+        for (index, slot) in self.textures.iter().enumerate() {
+            let Some(tex) = slot.tex.as_ref() else {
+                continue;
+            };
+            if tex.source.is_none() || !tex.is_resident() {
+                continue;
+            }
+            resident += tex.byte_len;
+            let used = tex.used.load(core::sync::atomic::Ordering::Relaxed);
+            if slot.fence == 0 && used != last_draw {
+                candidates.push((now.wrapping_sub(used), index));
+            }
+        }
+        if resident <= self.texture_budget {
+            return;
+        }
+        candidates.sort_unstable_by(|a, b| b.cmp(a));
+        for (_, index) in candidates {
+            if resident <= self.texture_budget {
+                break;
+            }
+            if let Some(tex) = self.textures[index].tex.as_mut() {
+                if tex.release() {
+                    resident -= tex.byte_len;
+                }
+            }
+        }
     }
 
     /// Upload a self-contained IMG pak entry (spec op uploadImgEntry;
@@ -788,22 +1433,51 @@ impl Ui {
     /// change under them). `palette` must be exactly the 1024-byte CLUT and
     /// `pixels` exactly w*h index bytes for the texture's own dimensions —
     /// this never resizes or re-formats a slot. Returns false (and changes
-    /// nothing) on stale handles, non-T8 textures, or size mismatches.
+    /// nothing) on stale handles, non-T8 textures, size mismatches, or a
+    /// released package texture whose pixels cannot be decoded.
     /// Callers on the PSP must writeback the texture after (the GE samples
-    /// RAM, not the dcache).
+    /// RAM, not the dcache). While an in-flight submission reads the texture
+    /// (`retain_textures`), the update writes new storage and the old storage
+    /// stays unchanged until `release_textures`.
     pub fn update_texture_t8(&mut self, handle: i32, palette: &[u8], pixels: &[u8]) -> bool {
         let Some(slot) = tex_resolve(&self.textures, handle) else {
             return false;
         };
-        let Some(tex) = self.textures[slot as usize].tex.as_mut() else {
+        let TexSlot {
+            tex,
+            fence,
+            retained,
+            ..
+        } = &mut self.textures[slot as usize];
+        let Some(tex) = tex.as_mut() else {
             return false;
         };
         if tex.psm != spec::psm::PSM_T8 || palette.len() != TEX_PALETTE_BYTES {
             return false;
         }
-        if pixels.len() != tex.byte_len {
+        if pixels.len() != tex.byte_len || tex.palette.is_none() {
             return false;
         }
+        if *fence != 0 {
+            let replacement = Texture {
+                data: core::cell::OnceCell::from(alloc::vec![0u128; tex.byte_len.div_ceil(16)]),
+                source: None,
+                used: core::sync::atomic::AtomicU32::new(0),
+                palette: Some(alloc::vec![0u128; TEX_PALETTE_BYTES / 16]),
+                byte_len: tex.byte_len,
+                w: tex.w,
+                h: tex.h,
+                psm: tex.psm,
+                linear: tex.linear,
+                revision: tex.revision,
+            };
+            retained.push((*fence, core::mem::replace(tex, replacement)));
+            *fence = 0;
+        }
+        let Some(data) = tex.data_mut() else {
+            return false;
+        };
+        let data = data.as_mut_ptr() as *mut u8;
         let Some(pal) = tex.palette.as_mut() else {
             return false;
         };
@@ -813,14 +1487,67 @@ impl Ui {
                 pal.as_mut_ptr() as *mut u8,
                 TEX_PALETTE_BYTES,
             );
-            core::ptr::copy_nonoverlapping(
-                pixels.as_ptr(),
-                tex.data.as_mut_ptr() as *mut u8,
-                tex.byte_len,
-            );
+            core::ptr::copy_nonoverlapping(pixels.as_ptr(), data, tex.byte_len);
         }
         tex.revision = tex.revision.wrapping_add(1);
-        self.bump_raster_revision();
+        self.bump_texture_content();
+        true
+    }
+
+    /// Overwrite the rectangle `x, y, w, h` of a live non-T8 texture IN PLACE
+    /// with `pixels`, `w * h` texels in the texture's own format, rows packed
+    /// (a host's camera or video plane: the handle and its image bindings
+    /// stay while the bytes change). Returns false, changing nothing, on
+    /// stale handles, T8 textures, a rectangle outside the texture, a size
+    /// mismatch or a released package texture whose pixels cannot be decoded.
+    pub fn update_texture_rect(
+        &mut self,
+        handle: i32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        pixels: &[u8],
+    ) -> bool {
+        let Some(slot) = tex_resolve(&self.textures, handle) else {
+            return false;
+        };
+        let Some(tex) = self.textures[slot as usize].tex.as_mut() else {
+            return false;
+        };
+        let bpp = match tex.psm {
+            spec::psm::PSM_5650 | spec::psm::PSM_4444 => 2usize,
+            spec::psm::PSM_8888 => 4usize,
+            _ => return false,
+        };
+        if w == 0
+            || h == 0
+            || x.checked_add(w).is_none_or(|right| right > tex.w)
+            || y.checked_add(h).is_none_or(|bottom| bottom > tex.h)
+            || pixels.len() != w as usize * h as usize * bpp
+        {
+            return false;
+        }
+        let row_bytes = w as usize * bpp;
+        let stride = tex.w as usize * bpp;
+        let Some(data) = tex.data_mut() else {
+            return false;
+        };
+        let base = data.as_mut_ptr() as *mut u8;
+        for row in 0..h as usize {
+            let offset = (y as usize + row) * stride + x as usize * bpp;
+            // SAFETY: the rectangle lies inside the texture, whose storage
+            // holds tex.h * stride bytes.
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    pixels.as_ptr().add(row * row_bytes),
+                    base.add(offset),
+                    row_bytes,
+                );
+            }
+        }
+        tex.revision = tex.revision.wrapping_add(1);
+        self.bump_texture_content();
         true
     }
 
@@ -835,10 +1562,60 @@ impl Ui {
             return;
         };
         let s = &mut self.textures[slot as usize];
-        s.tex = None;
+        s.vacate();
         s.gen = ((s.gen as u32 + 1) & TEX_GEN_MASK) as u16;
         self.tex_free.push(slot);
         self.bump_raster_revision();
+    }
+
+    /// Mark texture storage that a deferred zero-copy submission of `frame`
+    /// reads. Until `release_textures` reaches `frame`, freeing or
+    /// overwriting one of these textures (`free_texture`, `update_texture_t8`,
+    /// glyph-page replacement) moves its old storage aside, unchanged, rather
+    /// than dropping or rewriting it. Stale handles are ignored.
+    pub fn retain_textures(&mut self, frame: u64, handles: &[i32]) {
+        if frame == 0 {
+            return;
+        }
+        for &handle in handles {
+            if let Some(slot) = tex_resolve(&self.textures, handle) {
+                let slot = &mut self.textures[slot as usize];
+                slot.fence = slot.fence.max(frame);
+                self.texture_fence = self.texture_fence.max(frame);
+            }
+        }
+    }
+
+    /// Every submission of `frame` and earlier frames has retired: drop the
+    /// storage retained for them and unpin the live textures they read.
+    ///
+    /// # Safety
+    /// No device still reads storage pinned for `frame` or an earlier frame.
+    pub unsafe fn release_textures(&mut self, frame: u64) {
+        if self.texture_fence == 0 {
+            return;
+        }
+        for slot in &mut self.textures {
+            if slot.fence <= frame {
+                slot.fence = 0;
+            }
+            slot.retained.retain(|(fence, _)| *fence > frame);
+        }
+        if self.texture_fence <= frame {
+            self.texture_fence = 0;
+        }
+    }
+
+    /// Bytes of freed or overwritten texture storage kept for in-flight
+    /// submissions, excluding live pinned textures.
+    pub fn retained_texture_bytes(&self) -> usize {
+        self.textures
+            .iter()
+            .flat_map(|slot| &slot.retained)
+            .map(|(_, texture)| {
+                texture.byte_len + texture.palette.as_ref().map_or(0, |_| TEX_PALETTE_BYTES)
+            })
+            .sum()
     }
 
     /// Bind an uploaded texture to an image node. Handles are 0-based, so
@@ -998,11 +1775,37 @@ impl Ui {
         let ok = self.fonts.load(bytes);
         if ok {
             let slot = bytes[12] as usize;
-            self.font_revisions[slot] = self.font_revisions[slot].wrapping_add(1);
-            self.mark_layout_dirty();
-            self.bump_raster_revision();
+            self.font_atlas_loaded(slot);
         }
         ok
+    }
+
+    /// `load_font_atlas` for the blob at `range` of `storage`, which the
+    /// caller keeps alive: the atlas reads its coverage cells from that
+    /// storage in place (`text::Coverage`) instead of copying them.
+    pub fn load_font_atlas_shared(
+        &mut self,
+        storage: alloc::rc::Rc<dyn AsRef<[u8]>>,
+        range: core::ops::Range<usize>,
+    ) -> bool {
+        let Some(slot) = (*storage)
+            .as_ref()
+            .get(range.start + 12)
+            .map(|slot| *slot as usize)
+        else {
+            return false;
+        };
+        let ok = self.fonts.load_shared(storage, range);
+        if ok {
+            self.font_atlas_loaded(slot);
+        }
+        ok
+    }
+
+    fn font_atlas_loaded(&mut self, slot: usize) {
+        self.font_revisions[slot] = self.font_revisions[slot].wrapping_add(1);
+        self.mark_layout_dirty();
+        self.bump_raster_revision();
     }
 
     // ---- animation ---------------------------------------------------------
@@ -1027,8 +1830,8 @@ impl Ui {
         };
         let kind = spec::PROP_VALUE_KIND[prop as usize];
         let is_color = kind == spec::value_kind::COLOR;
-        let from =
-            style::resolve(&self.tree.slots[slot as usize], &self.styles, true).get_bits(prop);
+        let from = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true)
+            .get_bits(prop);
         let to_bits = prop_bits(kind, to);
         let nid = self.tree.slots[slot as usize].id(slot);
         if !is_color {
@@ -1072,7 +1875,9 @@ impl Ui {
     }
 
     /// Stable ids and reasons of tracks that completed in the latest tick.
-    pub fn animation_completions(&self) -> &[anim::TrackCompletion] { self.anims.completions() }
+    pub fn animation_completions(&self) -> &[anim::TrackCompletion] {
+        self.anims.completions()
+    }
     /// Drain completed tracks, including replacements or removals between ticks.
     pub fn drain_animation_completions(&mut self, receive: impl FnMut(anim::TrackCompletion)) {
         self.anims.drain_completions(receive);
@@ -1117,13 +1922,13 @@ impl Ui {
         let old_focused = self.focused;
         self.focused = target;
         if let Some(slot) = self.tree.resolve(old_focused) {
-            let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+            let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
             self.tree.slots[slot as usize].focused = false;
             self.retarget(slot, &old, true);
             self.mark_layout_style(slot);
         }
         if let Some(slot) = self.tree.resolve(target) {
-            let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+            let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
             self.tree.slots[slot as usize].focused = true;
             self.retarget(slot, &old, true);
             self.mark_layout_style(slot);
@@ -1151,7 +1956,7 @@ impl Ui {
             self.tree.slots[slot as usize].active = active;
             return;
         }
-        let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+        let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
         self.tree.slots[slot as usize].active = active;
         self.retarget(slot, &old, true);
         self.mark_layout_style(slot);
@@ -1169,7 +1974,16 @@ impl Ui {
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
-        draw::hit_test(&self.tree, &self.styles, self.layout.viewport, x, y)
+        draw::hit_point(
+            &self.tree,
+            &self.styles,
+            spec::ROOT_ID,
+            self.layout.viewport,
+            x,
+            y,
+            true,
+            self.stable_motion_paint,
+        )
     }
 
     /// `hit_test`'s bounds-only twin (spec op hitTestBounds): pure layout
@@ -1179,11 +1993,22 @@ impl Ui {
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
-        draw::hit_test_bounds(&self.tree, &self.styles, self.layout.viewport, x, y)
+        draw::hit_point(
+            &self.tree,
+            &self.styles,
+            spec::ROOT_ID,
+            self.layout.viewport,
+            x,
+            y,
+            false,
+            self.stable_motion_paint,
+        )
     }
 
     pub fn hit_test_auxiliary(&mut self, x: f32, y: f32) -> i32 {
-        let Some(auxiliary) = self.auxiliary.as_mut() else { return 0 };
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return 0;
+        };
         if auxiliary.layout.needs() {
             layout::relayout_root(
                 &mut self.tree,
@@ -1193,18 +2018,22 @@ impl Ui {
                 auxiliary.root,
             );
         }
-        draw::hit_test_root(
+        draw::hit_point(
             &self.tree,
             &self.styles,
             auxiliary.root,
             auxiliary.layout.viewport,
             x,
             y,
+            true,
+            self.stable_motion_paint,
         )
     }
 
     pub fn hit_test_bounds_auxiliary(&mut self, x: f32, y: f32) -> i32 {
-        let Some(auxiliary) = self.auxiliary.as_mut() else { return 0 };
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return 0;
+        };
         if auxiliary.layout.needs() {
             layout::relayout_root(
                 &mut self.tree,
@@ -1214,13 +2043,15 @@ impl Ui {
                 auxiliary.root,
             );
         }
-        draw::hit_test_bounds_root(
+        draw::hit_point(
             &self.tree,
             &self.styles,
             auxiliary.root,
             auxiliary.layout.viewport,
             x,
             y,
+            false,
+            self.stable_motion_paint,
         )
     }
 
@@ -1235,15 +2066,18 @@ impl Ui {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
         let screen = self.layout.viewport;
+        let snap = self.stable_motion_paint;
         let tree = &self.tree;
         let styles = &self.styles;
         self.touch_table.resolve(packed, out, |x, y| {
-            draw::hit_test_bounds(tree, styles, screen, x, y)
+            draw::hit_point(tree, styles, spec::ROOT_ID, screen, x, y, false, snap)
         })
     }
 
     pub fn touch_hits_auxiliary(&mut self, packed: &[u32], out: &mut [i32; 8]) -> usize {
-        let Some(auxiliary) = self.auxiliary.as_mut() else { return 0 };
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return 0;
+        };
         if auxiliary.layout.needs() {
             layout::relayout_root(
                 &mut self.tree,
@@ -1255,10 +2089,11 @@ impl Ui {
         }
         let root = auxiliary.root;
         let screen = auxiliary.layout.viewport;
+        let snap = self.stable_motion_paint;
         let tree = &self.tree;
         let styles = &self.styles;
         auxiliary.touch_table.resolve(packed, out, |x, y| {
-            draw::hit_test_bounds_root(tree, styles, root, screen, x, y)
+            draw::hit_point(tree, styles, root, screen, x, y, false, snap)
         })
     }
 
@@ -1285,8 +2120,8 @@ impl Ui {
     // ---- frame -------------------------------------------------------------
 
     /// Advance one frame: tick animations by exactly one `set_tick_rate`
-    /// step, then re-run layout if dirty. Call once per vblank, BEFORE
-    /// `draw()`.
+    /// step, step physics worlds against current layout, then re-run layout
+    /// if dirty. Call once per vblank, BEFORE `draw()`.
     pub fn tick(&mut self) {
         self.ticked = true;
         if self.paused {
@@ -1335,8 +2170,112 @@ impl Ui {
         }
         self.anims.publish_completions();
         self.tick_timelines();
+        if let Some(physics) = self.physics.as_mut().filter(|physics| !physics.is_idle()) {
+            // Anchors and node colliders read layout, so it must be current.
+            if self.layout.needs() {
+                layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
+            }
+            if let Some(auxiliary) = self.auxiliary.as_mut() {
+                if auxiliary.layout.needs() {
+                    layout::relayout_root(
+                        &mut self.tree,
+                        &self.styles,
+                        &self.fonts,
+                        &mut auxiliary.layout,
+                        auxiliary.root,
+                    );
+                }
+            }
+            let aux_root = self.auxiliary.as_ref().map_or(0, |auxiliary| auxiliary.root);
+            physics.step(self.dt, &mut self.tree, aux_root);
+        }
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
+        }
+    }
+
+    // ---- physics (ui.physics; contracts/spec/physics.ts) ----------------------
+
+    /// Install the physics engine (`pocket-physics`). Programs install it
+    /// before boot; the runtime admits `ui.physics` only when one is
+    /// installed. Replacing an engine drops its worlds without releasing
+    /// their views, so install it before the first physics op.
+    pub fn set_physics(&mut self, physics: alloc::boxed::Box<dyn Physics>) {
+        self.physics = Some(physics);
+    }
+
+    /// Whether a physics engine is installed.
+    pub fn has_physics(&self) -> bool {
+        self.physics.is_some()
+    }
+
+    /// `physicsCreate(kind, params)` → handle, or 0 (always 0 without an
+    /// installed engine).
+    pub fn physics_create(&mut self, kind: u32, params: &[f64]) -> i32 {
+        self.physics.as_mut().map_or(0, |physics| physics.create(kind, params))
+    }
+
+    /// `physicsApply(records)`.
+    pub fn physics_apply(&mut self, records: &[f64]) {
+        if let Some(physics) = self.physics.as_mut() {
+            physics.apply(records);
+        }
+    }
+
+    /// `physicsDestroy(handle)`.
+    pub fn physics_destroy(&mut self, handle: i32) {
+        if let Some(physics) = self.physics.as_mut() {
+            physics.destroy(handle, &mut self.tree);
+        }
+    }
+
+    /// `physicsEvents()`: move the pending records into `out`.
+    pub fn physics_take_events(&mut self, out: &mut Vec<f64>) {
+        match self.physics.as_mut() {
+            Some(physics) => physics.take_events(out),
+            None => out.clear(),
+        }
+    }
+
+    /// Whether `physicsEvents()` would return records.
+    pub fn physics_has_events(&self) -> bool {
+        self.physics.as_ref().is_some_and(|physics| physics.has_events())
+    }
+
+    /// `physicsQuery(query, handle, a, b, c, d)`; 0 without an installed
+    /// engine, as for a stale handle.
+    pub fn physics_query(&self, query: u32, handle: i32, a: f64, b: f64, c: f64, d: f64) -> f64 {
+        self.physics
+            .as_ref()
+            .map_or(0.0, |physics| physics.query(query, handle, a, b, c, d))
+    }
+
+    // The wire form the C ABI hosts cross: packed little-endian Float64
+    // fields, whatever the host's own byte order. A trailing partial field is
+    // ignored.
+
+    /// `physicsCreate(kind, params)` from its wire bytes.
+    pub fn physics_create_wire(&mut self, kind: u32, bytes: &[u8]) -> i32 {
+        self.physics_create(kind, &wire_f64s(bytes))
+    }
+
+    /// `physicsApply(records)` from its wire bytes.
+    pub fn physics_apply_wire(&mut self, bytes: &[u8]) {
+        self.physics_apply(&wire_f64s(bytes));
+    }
+
+    /// `physicsEvents()` as wire bytes: `out` is replaced by the pending
+    /// records, and stays empty when there are none.
+    pub fn physics_take_events_wire(&mut self, out: &mut Vec<u8>) {
+        out.clear();
+        let Some(physics) = self.physics.as_mut().filter(|physics| physics.has_events()) else {
+            return;
+        };
+        let mut words = Vec::new();
+        physics.take_events(&mut words);
+        out.reserve(words.len() * 8);
+        for word in words {
+            out.extend_from_slice(&word.to_le_bytes());
         }
     }
 
@@ -1470,9 +2409,31 @@ impl Ui {
         }
     }
 
+    /// Solve pending layout for both outputs now. `draw` and `draw_auxiliary`
+    /// solve on demand; a host that times layout apart from the DrawList
+    /// build calls this first.
+    pub fn relayout_outputs(&mut self) {
+        if self.layout.needs() {
+            layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
+        }
+        if let Some(auxiliary) = self.auxiliary.as_mut() {
+            if auxiliary.layout.needs() {
+                layout::relayout_root(
+                    &mut self.tree,
+                    &self.styles,
+                    &self.fonts,
+                    &mut auxiliary.layout,
+                    auxiliary.root,
+                );
+            }
+        }
+    }
+
     /// Walk the tree into the DrawList (spec.ts DRAWLIST format) and return
     /// it. Output is valid until the next mutating call.
     pub fn draw(&mut self) -> &DrawList {
+        self.evict_textures();
+        self.draw_list.stable_motion_paint = self.stable_motion_paint;
         self.fonts.stream_begin(self.frame);
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
@@ -1578,6 +2539,7 @@ impl Ui {
                 auxiliary.root,
             );
         }
+        auxiliary.draw_list.stable_motion_paint = self.stable_motion_paint;
         let (target, drawn, provider_stale) = draw::build_root(
             &self.tree,
             &self.styles,
@@ -1597,7 +2559,7 @@ impl Ui {
         );
         let (mut target, mut drawn) = (target, drawn);
         if provider_stale {
-            auxiliary.layout.dirty = true;
+            auxiliary.layout.invalidate_measurements();
             layout::relayout_root(
                 &mut self.tree,
                 &self.styles,
@@ -1686,6 +2648,36 @@ impl Ui {
         self.fonts.misses.get()
     }
 
+    /// Layout work of the main and auxiliary outputs since the last reset.
+    #[cfg(feature = "counters")]
+    pub fn layout_counters(&self) -> counters::LayoutCounters {
+        let mut counts = self.layout.counters;
+        if let Some(auxiliary) = &self.auxiliary {
+            counts.add(auxiliary.layout.counters);
+        }
+        counts
+    }
+
+    /// Clear the layout totals; the live Taffy node count is kept.
+    #[cfg(feature = "counters")]
+    pub fn reset_counters(&mut self) {
+        self.layout.counters.reset();
+        if let Some(auxiliary) = &mut self.auxiliary {
+            auxiliary.layout.counters.reset();
+        }
+    }
+
+    /// Rebuild the next layout with a fresh Taffy tree. Differential tests use
+    /// this to compare retained synchronization with a full rebuild.
+    #[cfg(feature = "counters")]
+    #[doc(hidden)]
+    pub fn force_layout_rebuild_for_validation(&mut self) {
+        self.layout.force_rebuild_for_validation();
+        if let Some(auxiliary) = &mut self.auxiliary {
+            auxiliary.layout.force_rebuild_for_validation();
+        }
+    }
+
     // ---- DevTools ops (spec ops 18..22, docs/DEVTOOLS.md) ------------------------
 
     /// Set (0 = clear) the inspected node. The next `draw()` that paints it
@@ -1698,6 +2690,63 @@ impl Ui {
         if id == 0 {
             self.inspect_drawn = None;
         }
+    }
+
+    /// Arm a capture of the text runs painted inside node `root`'s subtree
+    /// on the next draw of `surface` (0 the primary output, 1 the auxiliary
+    /// one); `root` 0 reads the whole surface. Returns false for a surface
+    /// this Ui does not have or a node it does not hold.
+    pub fn capture_texts(&mut self, surface: u32, root: i32) -> bool {
+        if root != 0 && self.tree.resolve(root).is_none() {
+            return false;
+        }
+        match surface {
+            0 => self.draw_list.capture_texts = if root == 0 { spec::ROOT_ID } else { root },
+            1 => match self.auxiliary.as_mut() {
+                Some(auxiliary) => {
+                    auxiliary.draw_list.capture_texts =
+                        if root == 0 { auxiliary.root } else { root }
+                }
+                None => return false,
+            },
+            _ => return false,
+        }
+        true
+    }
+
+    /// The last capture of `surface`, one painted text run per line:
+    /// `x,y,w,h` (whole px of its visible box), a tab, then the text with
+    /// tabs and line breaks as spaces. Empty until a capture completes.
+    pub fn captured_texts(&self, surface: u32) -> alloc::string::String {
+        use core::fmt::Write;
+        let list = match surface {
+            0 => &self.draw_list,
+            1 => match self.auxiliary.as_ref() {
+                Some(auxiliary) => &auxiliary.draw_list,
+                None => return alloc::string::String::new(),
+            },
+            _ => return alloc::string::String::new(),
+        };
+        let mut out = alloc::string::String::new();
+        for text in &list.texts {
+            let _ = write!(
+                out,
+                "{},{},{},{}\t",
+                text.x as i32,
+                text.y as i32,
+                (text.w + 0.999) as i32,
+                (text.h + 0.999) as i32
+            );
+            for ch in text.text.chars() {
+                out.push(if ch == '\t' || ch == '\n' || ch == '\r' {
+                    ' '
+                } else {
+                    ch
+                });
+            }
+            out.push('\n');
+        }
+        out
     }
 
     /// Packed `x | y << 16` (i16 halves) of the inspected node's last-drawn
@@ -1753,10 +2802,11 @@ impl Ui {
 
     /// Pixels + metadata of a live texture (backends sample through this;
     /// byte slices are 16-byte aligned). Stale/freed handles resolve to None
-    /// — a freed texture "draws nothing" through exactly this path.
+    /// — a freed texture "draws nothing" through exactly this path — and so
+    /// does a released package texture whose pixels cannot be decoded.
     pub fn texture(&self, handle: i32) -> Option<TexView<'_>> {
         let slot = tex_resolve(&self.textures, handle)?;
-        self.textures[slot as usize].tex.as_ref().map(Texture::view)
+        self.textures[slot as usize].tex.as_ref()?.view()
     }
 
     /// Content revision of a live texture. Generation-tagged handles catch
@@ -1781,7 +2831,7 @@ impl Ui {
     pub fn texture_at(&self, slot: u32) -> Option<(i32, TexView<'_>)> {
         let s = self.textures.get(slot as usize)?;
         let t = s.tex.as_ref()?;
-        Some((make_tex_handle(s.gen, slot), t.view()))
+        Some((make_tex_handle(s.gen, slot), t.view()?))
     }
 
     /// Versioned texture-slot walk for GPU caches. This is additive to the
@@ -1790,7 +2840,7 @@ impl Ui {
     pub fn texture_at_versioned(&self, slot: u32) -> Option<(i32, u64, TexView<'_>)> {
         let s = self.textures.get(slot as usize)?;
         let t = s.tex.as_ref()?;
-        Some((make_tex_handle(s.gen, slot), t.revision, t.view()))
+        Some((make_tex_handle(s.gen, slot), t.revision, t.view()?))
     }
 
     /// A registered font atlas (backends read glyph bitmaps through this).
@@ -1808,8 +2858,14 @@ impl Ui {
     /// The returned descriptor must be revalidated after any resource mutation.
     pub fn prepare_glyph_page(&mut self, slot: u8, gid: u16) -> Option<draw::GlyphSampler> {
         let atlas = self.fonts.atlas(slot)?;
-        draw::glyph_page(&mut self.paint_cache, &mut self.textures, &mut self.tex_free,
-            atlas, self.font_revisions[slot as usize], gid)
+        draw::glyph_page(
+            &mut self.paint_cache,
+            &mut self.textures,
+            &mut self.tex_free,
+            atlas,
+            self.font_revisions[slot as usize],
+            gid,
+        )
     }
 
     /// Prepare single-page, baked fonts within a coverage-byte budget before
@@ -1818,13 +2874,25 @@ impl Ui {
     pub fn warm_static_glyph_pages(&mut self, byte_budget: usize) -> usize {
         let mut used = 0;
         for slot in 0..spec::MAX_FONT_SLOTS {
-            let Some(atlas) = self.fonts.atlas(slot as u8) else { continue; };
-            if atlas.stream.is_some() { continue; }
-            let Some(page) = draw::GlyphPageLayout::new(atlas, 0) else { continue; };
-            if page.count != atlas.glyph_count as u32 { continue; }
+            let Some(atlas) = self.fonts.atlas(slot as u8) else {
+                continue;
+            };
+            if atlas.stream.is_some() {
+                continue;
+            }
+            let Some(page) = draw::GlyphPageLayout::new(atlas, 0) else {
+                continue;
+            };
+            if page.count() != atlas.glyph_count as u32 {
+                continue;
+            }
             let bytes = page.coverage_bytes();
-            if bytes > byte_budget.saturating_sub(used) { continue; }
-            if self.prepare_glyph_page(slot as u8, 0).is_some() { used += bytes; }
+            if bytes > byte_budget.saturating_sub(used) {
+                continue;
+            }
+            if self.prepare_glyph_page(slot as u8, 0).is_some() {
+                used += bytes;
+            }
         }
         used
     }
@@ -1999,3 +3067,39 @@ fn prop_bits(kind: u8, value: f64) -> u32 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod driver_contract_identity {
+    #[test]
+    fn public_core_paths_preserve_external_driver_type_identity() {
+        let mut ui = super::Ui::new();
+        let list: &pocket_drivers::DrawList = ui.draw();
+        let _: &super::draw::DrawList = list;
+        let _: &dyn pocket_drivers::RenderResources = &ui;
+        let _: &dyn super::resources::RenderResources = &ui;
+        let text = super::draw::TextBox {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+            text: alloc::string::String::new(),
+        };
+        let _: pocket_drivers::TextBox = text;
+        fn texture<'a>(view: super::TexView<'a>) -> pocket_drivers::TexView<'a> {
+            view
+        }
+        fn font<'a>(view: super::resources::FontView<'a>) -> pocket_drivers::FontView<'a> {
+            view
+        }
+        let _ = (texture, font);
+    }
+}
+
+/// Little-endian Float64 fields of a physics wire record.
+fn wire_f64s(bytes: &[u8]) -> Vec<f64> {
+    let (fields, _) = bytes.as_chunks::<8>();
+    fields
+        .iter()
+        .map(|field| f64::from_le_bytes(*field))
+        .collect()
+}

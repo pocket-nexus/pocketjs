@@ -69,6 +69,8 @@
    never leave one stranded at the end of a line. */
 .foot .cols2 .fgrp{display:flex;gap:1.3rem;flex-wrap:wrap;align-items:baseline}
 .foot .cols2 .fdot{color:var(--muted);opacity:.6}
+.foot .hud a{color:var(--ink-2);text-decoration:underline;text-decoration-color:rgba(var(--ink-2-rgb),.35);text-underline-offset:3px}
+.foot .hud a:hover{color:var(--accent);text-decoration-color:currentColor}
 
 
 /* the interactive 3D stage: one implementation for the playground and the homepage */

@@ -4,6 +4,8 @@
 // picker; the PSP only runs the selected PRX.
 
 import { $ } from "bun";
+import { guardDeviceCommand } from "./device-lease.ts";
+import { psplinkPrxStale } from "./psplink-cache.ts";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createServer } from "node:net";
@@ -141,7 +143,7 @@ async function listDemos(): Promise<Demo[]> {
 
 async function buildDemo(demo: Demo, opts: Options): Promise<void> {
   const profile = opts.release ? "release" : "debug";
-  const source = join(ROOT, "hosts/psp/target/mipsel-sony-psp", profile, "pocketjs-psp.prx");
+  const source = join(ROOT, "programs/psp/target/mipsel-sony-psp", profile, "pocketjs-psp.prx");
   await $`bun tools/psp.ts ${demo.name} ${opts.release ? "--release" : ""}`
     .cwd(ROOT)
     .env({ ...process.env, POCKETJS_TRACE: opts.trace ? "1" : "" });
@@ -150,46 +152,8 @@ async function buildDemo(demo: Demo, opts: Options): Promise<void> {
   await Bun.write(demo.prx, await Bun.file(source).arrayBuffer());
 }
 
-/** Newest mtime (ms) under `dir`, skipping build outputs and caches. */
-function newestMtime(dir: string): number {
-  if (!existsSync(dir)) return 0;
-  let newest = 0;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "target") continue;
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      newest = Math.max(newest, newestMtime(path));
-    } else if (/\.(tsx?|rs|json|svg|toml)$/.test(entry.name) && !entry.name.endsWith(".generated.ts")) {
-      newest = Math.max(newest, statSync(path).mtimeMs);
-    }
-  }
-  return newest;
-}
-
-/** A cached PRX is stale when any input that bakes into it is newer: the
- *  demo's sources, the TS runtime/compiler/spec, the Rust core or the PSP
- *  host. (The old exists-only check kept serving builds from hours ago.) */
 function prxStale(demo: Demo): boolean {
-  if (!existsSync(demo.prx)) return true;
-  const built = statSync(demo.prx).mtimeMs;
-  const inputs = [
-    join(DEMOS_DIR, demo.name),
-    join(DEMOS_DIR, `${demo.name}${MAIN_SUFFIX}`),
-    join(ROOT, "framework", "src"),
-    join(ROOT, "framework", "compiler"),
-    join(ROOT, "contracts", "spec"),
-    join(ROOT, "engine/core/src"),
-    join(ROOT, "hosts/psp/src"),
-    join(ROOT, "hosts/psp/build.rs"),
-    join(ROOT, "pocket.config.ts"),
-  ];
-  for (const input of inputs) {
-    const newest = existsSync(input) && statSync(input).isFile()
-      ? statSync(input).mtimeMs
-      : newestMtime(input);
-    if (newest > built) return true;
-  }
-  return false;
+  return psplinkPrxStale(ROOT, demo.name, demo.prx);
 }
 
 async function prepareCache(demos: Demo[], opts: Options, render?: (status: string) => void): Promise<void> {
@@ -476,6 +440,10 @@ class Picker {
 
 async function main(): Promise<void> {
   const opts = parseArgs(Bun.argv.slice(2));
+  if (!opts.dryRun) {
+    await guardDeviceCommand("psp:usb:transport");
+    await guardDeviceCommand("psp:usb");
+  }
   const demos = await listDemos();
   if (demos.length === 0) throw new Error(`no demos found under ${DEMOS_DIR}`);
 

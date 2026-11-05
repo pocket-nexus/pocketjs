@@ -11,7 +11,7 @@ export function atomicWrite(path: string, data: string | Uint8Array): void {
 
 export function usbHash(bytes: Uint8Array): string { return fnv1a64(bytes).toString(16).padStart(16, "0"); }
 
-export type VitaUsbOp = "status" | "push" | "reload" | "capture" | "menu" | "native" | "reset";
+export type VitaUsbOp = "status" | "push" | "reload" | "capture" | "menu" | "native" | "reset" | "stage";
 interface Command {
   version: number;
   session: string;
@@ -21,6 +21,8 @@ interface Command {
   hash?: string;
   build?: string;
   title_id?: string;
+  name?: string;
+  into?: "card" | "app";
 }
 
 class RuntimeUnavailable extends Error {}
@@ -98,11 +100,23 @@ export class VitaUsbClient {
     rmSync(join(this.directory, `${command.id}.payload`), { force: true });
   }
 
-  async command(op: VitaUsbOp, options: { payload?: Uint8Array; build?: string } = {}): Promise<Record<string, any>> {
-    if (!["status", "push", "reload", "capture", "menu", "native", "reset"].includes(op)) throw new Error("unknown USB operation");
-    if ((op === "push" || op === "native") !== (options.payload !== undefined)) throw new Error("only push/native commands require a payload");
-    if (options.payload && (!options.payload.length || options.payload.length > (op === "native" ? 64 : 32) * 1024 * 1024)) {
+  async command(
+    op: VitaUsbOp,
+    options: { payload?: Uint8Array; build?: string; name?: string; into?: "card" | "app" } = {},
+  ): Promise<Record<string, any>> {
+    if (!["status", "push", "reload", "capture", "menu", "native", "reset", "stage"].includes(op)) throw new Error("unknown USB operation");
+    if ((op === "push" || op === "native" || op === "stage") !== (options.payload !== undefined)) {
+      throw new Error("only push/native/stage commands require a payload");
+    }
+    if (options.payload && (!options.payload.length || options.payload.length > (op === "push" ? 32 : 64) * 1024 * 1024)) {
       throw new Error("upload exceeds the Vita protocol size limit");
+    }
+    if (op === "stage") {
+      const name = options.name ?? "";
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new Error("stage needs a plain file name");
+      if (options.into !== "card" && !(options.into === "app" && name === "app.pocket")) {
+        throw new Error("stage goes into card, or app.pocket into app");
+      }
     }
     if (op === "native" && !/^[a-f0-9]{32}$/.test(options.build ?? "")) throw new Error("invalid native build identity");
     // Vita may remove the destination while replacing its status file. A slow
@@ -127,6 +141,7 @@ export class VitaUsbClient {
     const request: Command = { version: 1, session, id, op,
       ...(payload ? { size: payload.length, hash: usbHash(payload) } : {}),
       ...(op === "native" ? { build: options.build, title_id: this.titleId } : {}),
+      ...(op === "stage" ? { name: options.name, into: options.into } : {}),
     };
     let completed = false;
     let published = false;

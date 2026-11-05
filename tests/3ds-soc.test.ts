@@ -10,7 +10,7 @@ test("3DS transports share SOC without waiting on a competing initializer", () =
     const root = resolve(import.meta.dir, "..");
     const compile = Bun.spawnSync(["cc", "-std=c11", "-O2", "-pthread", "-fsanitize=address,undefined",
       `-I${root}/tests/fixtures/3ds-soc`, `${root}/tests/fixtures/3ds-soc/harness.c`,
-      `${root}/hosts/3ds/src/soc.c`, "-o", binary]);
+      `${root}/platforms/3ds/soc.c`, "-o", binary]);
     expect(compile.exitCode, compile.stderr.toString()).toBe(0);
     const run = Bun.spawnSync([binary], { timeout: 10000 });
     expect(run.exitCode, run.stderr.toString()).toBe(0);

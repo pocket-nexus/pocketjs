@@ -8,11 +8,13 @@ and Vue SFC generation into Rust, including compiled TypeScript models, see
 application code, AOT views and compiled model bodies; the rules for one mode
 do not define the source subset for another.
 
-This page describes the low-level bundle/style/font/pak compiler. Product builds
-should first resolve `pocket.json` through `bun pocket check`, `compile`, or
-`build`; see [Platform contracts](/docs/platform-contracts/) for how one small,
-checksummed target plan becomes the authoritative input to this pipeline and
-native packaging.
+This page describes the low-level bundle/style/font/pak compiler. Application
+builds resolve the app contract `pocket.app.json` against a host contract
+`pocket.host.json` through `pocket check` or `pocket compile`
+([CLI](/docs/cli/#check-and-compile)) before this pipeline runs. The resulting
+build plan contains the selected viewport, capabilities, `profileHash` and
+application options. See
+[Platform contracts](/docs/platform-contracts/) for the plan fields.
 
 With `app.aot: true` and `app.model: "compiled"`, model admission and lowering
 run before JSX transformation and transform-cache lookup. The model's signals,
@@ -22,28 +24,28 @@ model; native `async` execution and Promise microtasks do not schedule its
 task segments.
 
 The resolved build plan includes model selection and `recursionLimit`. A build
-using a frozen plan rejects a changed model configuration. `pocket compile`
-and the guest bundle command still produce guest artifacts; native AOT uses
-`bun microts/compiler/cli.ts build <app>` followed by Cargo and the target's
-host packaging. See [TypeScript models to Rust](/docs/microts-model/).
+using a frozen plan rejects a changed model configuration. `pocket compile` produces a guest package by default.
+`pocket compile --aot --out <directory>` generates Rust application code,
+font/image data and a dependency manifest for the program to compile. It does
+not invoke the native toolchain. See [TypeScript models to Rust](/docs/microts-model/).
 Admission and generation commands for both paths are listed in
 [Checking an application](/docs/typescript-support/#checking-an-application).
 
-The manifest-first compiler resolves the target before producing its bundle:
+**Application compilation and program compilation have separate commands.**
+`pocket compile --target <id|pocket.host.json> --output <file>` resolves the
+app contract against that host contract, writes `.pocket/<target>/plan.json`,
+then packages the JS and assets in a `.pocket` file. Without `--target`, it
+uses the host contract named by the nearest host config,
+`pocket.host.config.ts`. `--host-config <file>` selects another host config.
 
-```sh
-bun pocket check --target psp
-bun pocket compile --target psp
-bun pocket build --target psp -- --release
-
-bun pocket check --target vita
-bun pocket build --target vita -- --release
-```
-
-`check` validates the schema, capabilities, viewport, and reachable TypeScript.
-`compile` also writes `.pocket/<target>/plan.json` plus the target-specific JS
-and pak. `build` dispatches that same plan to the matching native backend —
-`tools/pocket.ts` registers one for `psp`, `vita`, and `pocketbook`.
+**`pocket build` consumes compiled application inputs and the program's host
+config, `pocket.host.config.ts`.** `--pocket` provides a format 2 package;
+`--aot-dir` provides the generated source directory. The executor verifies
+the host contract's `profileHash` and binding generation, snapshots the
+admitted files, then runs Cargo, CMake, Make or the program's native hook.
+`build-receipt.json` records the input and artifact hashes. A host config
+without `build` exports `pocket_profile.h` and leaves native compilation to
+its external build system.
 
 The lower-level compiler can still turn one entry into two files directly:
 
@@ -53,8 +55,8 @@ bun tools/build.ts hero
 
 produces `dist/hero.js` (the bundle) and `dist/hero.pak` (styles, font
 atlases, and images packed into a single binary container). This direct command
-uses the default density-1 development contract. A manifest build is
-target-specific: PSP and Vita compile from the same source and logical layout,
+uses the default density-1 development contract. A build from an app contract
+is target-specific: PSP and Vita compile from the same source and logical layout,
 but Vita receives density-2 atlases/assets plus an embedded target/HostOps-ABI
 handshake. Do not copy one target's pair into another target's native package.
 
@@ -62,8 +64,8 @@ Solid is the default framework. Vue Vapor and Octane build beside the Solid
 artifacts by adding a suffix:
 
 ```sh
-bun tools/build.ts hero-vue-vapor-main --framework=vue-vapor
-# -> dist/hero-vue-vapor-main.vue-vapor.js + dist/hero-vue-vapor-main.vue-vapor.pak
+bun tools/build.ts hero-main --framework=vue-vapor
+# -> dist/hero-main.vue-vapor.js + dist/hero-main.vue-vapor.pak
 bun tools/build.ts hero-main --framework=octane
 # -> dist/hero-main.octane.js + dist/hero-main.octane.pak
 ```
@@ -87,24 +89,34 @@ bun tools/build.ts hero-main               # the mounted entry (apps/hero/main.t
 A bare name resolves against `apps/`: `hero` finds `apps/hero/app.tsx`, and a
 name ending in `-main` finds `apps/hero/main.tsx`.
 
-An external ESP-IDF product supplies its host profile instead of selecting a
-stock target:
+An ESP-IDF product names its host contract in the firmware's host config,
+`pocket.host.config.ts`. Compile the application and export the program's
+trusted host contract from that host config:
 
 ```sh
-pocket build --manifest app/pocket.json \
-  --host-profile firmware/pocket.host.json \
-  --project-root app --output dist/app.pocket
+pocket compile --manifest app/pocket.app.json \
+  --host-config pocket.host.config.ts --output dist/app.pocket
+pocket host export --config pocket.host.config.ts --out profile-export
 ```
 
-The package carries the JSON plan and a fixed-width binary `hostInputs`
-section. Device admission reads the binary section and does not run a JSON
-parser in QuickJS. See [ESP-IDF](/docs/esp-idf/#build-an-application-package).
+The package carries its `profileHash`, JSON plan and a fixed-width binary
+`hostInputs` section. The Python embedding tool admits those inputs against
+the facts in `profile-export/pocket.host.json`; the program compiles
+`profile-export/pocket_profile.h`. **The package and program must have the
+same binding generation, and the program's facts must satisfy the package's
+plan.**
+
+IDF's `pocketjs_compile_app` and `pocketjs_profile_header` invoke these CLI
+operations and track imported modules in depfiles. Their `HOST_CONFIG`
+parameter defaults to the firmware root's `pocket.host.config.ts`.
+`pocketjs_embed_package(... PROFILE_EXPORT_DIR <directory>)` consumes an
+existing package, header and exported `pocket.host.json` with Python; it
+requires no Bun or CLI.
+See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 
 | Flag | Effect |
 |---|---|
-| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build, overriding `pocket.config.ts`. Manifest builds take it from `pocket.json`. |
-| `--config=<path>` | Load a different Pocket config file. |
-| `--no-config` | Ignore `pocket.config.ts`; defaults to Solid unless `--framework` is set. |
+| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build; the default is Solid. App contract builds use `app.framework` from `pocket.app.json`. |
 | `--extra-chars=<string>` | Force these codepoints into **every** baked atlas, on top of the collected charset and ASCII. |
 | `--density=N` | Raster samples per logical pixel for this build — an integer 1 through 255, default 1. A resolved plan owns the density, so passing both is an error. |
 | `--hz=N` | Bake this virtual tick rate into the bundle — an integer 1 through 240, default 60. The host must drive the surface at the same rate; a bundle whose baked rate differs from the host's `ui.__tickHz` throws before it mounts. |
@@ -205,10 +217,14 @@ so the transform **throws with a code frame** rather than miscompiling:
 
 ### The transform cache
 
-Each transform result is cached in `.cache/transforms/`, keyed by a SHA‑256 of
-the file contents **plus** the toolchain identity — the selected framework, the
-versions of the JSX/compiler packages, the renderer path, and an internal cache
-version. Bumping any dependency invalidates
+Each transform result is cached in `transforms/` under the PocketJS cache root
+(`POCKET_NEXUS_CACHE_DIR`, else `$XDG_CACHE_HOME/pocket-nexus`, else
+`~/.cache/pocket-nexus`), keyed by a SHA‑256 of the file path and contents
+**plus** the toolchain identity — the selected framework, the versions of the
+JSX/compiler packages and of the Solid runtime, the renderer path, the compiler
+sources, and an internal cache version. Checkouts, forks and installed
+frameworks share the cache; a build writes nothing into the framework
+directory. Bumping any dependency invalidates
 the cache automatically. Because pass 2 loads through the *same* `transformFile`,
 the expensive Babel work runs once per file per build and pass 2 gets it for
 free.
@@ -237,12 +253,14 @@ Two literals that produce byte‑identical records share a single styleId, so
 compiler emits:
 
 - **`styles.bin`** — the encoded style table, packed into the pak as
-  `ui:styles`. Any `theme.keyframes` / `theme.animation` entries referenced by
+  `ui:styles`. Any `app.theme.keyframes` / `app.theme.animation` entries referenced by
   an `animate-<name>` class are baked into it too, as frame-precise
   per-property segment timelines (the ANIM TABLE) — see
   [Animation → baked keyframe timelines](/docs/animation/#baked-keyframe-timelines).
-- **`framework/src/styles.generated.ts`** — a TypeScript module the renderer imports,
-  mapping each source class literal to its styleId, plus the font‑slot metadata
+- **The style module** — the framework imports `framework/src/styles.generated.ts`;
+  in a build, the JSX plugin serves this build's module for that path from
+  memory, and `tools/build.ts` writes a copy to `<outdir>/<output>.styles.ts`.
+  It maps each source class literal to its styleId, plus the font‑slot metadata
   and record count:
 
 ```ts
@@ -267,7 +285,7 @@ both `w-N` and `h-N` (the radius must be build‑time bakeable), and any `hover:
 variant (the PSP has no pointer — use `focus:`/`active:`).
 
 ```
-  tailwind: 48 style record(s), 0 baked timeline(s), 48 literal(s) -> framework/src/styles.generated.ts
+  tailwind: 48 style record(s), 0 baked timeline(s), 48 literal(s) -> dist/hero.styles.ts
 ```
 
 ## Bake fonts
@@ -297,12 +315,30 @@ The charset baked into every slot is the union of:
 - anything passed via **`--extra-chars`**.
 
 Codepoints the font does not map are left out of the atlas. **On a target whose
-profile carries only `text.glyphs.baked`, a codepoint missing from the atlas
+host contract carries only `text.glyphs.baked`, a codepoint missing from the atlas
 resolves to glyph 0 — a drawn hollow "tofu" box, also mapped from U+FFFD so it
 has an advance.** A target that also advertises `text.glyphs.runtime`
-(`macos-widget` today) rasterizes the missing glyph from a system font and
+(`macos-widget`, and `web-app` and every page that runs a package through
+`programs/web/app-instance.js`) rasterizes the missing glyph from a system font and
 reloads the atlas through `loadFontAtlas`, so tofu is what an app that accepts
-arbitrary text gets on a baked-only target. Each atlas is horizontally
+arbitrary text gets on a baked-only target.
+
+In a browser, `platforms/web/runtime-glyphs.js` does this inside the package's
+realm. It keeps a copy of each atlas the guest loads. Before the core reads a
+string (`setText`, `replaceText`, `measureText`, `wrapText`) it draws each
+codepoint no atlas maps on a 2D canvas, in the browser's Japanese, Chinese and
+Korean faces and then `sans-serif`, and appends the cell to **every loaded
+slot**. The new glyph's em is the slot's cap height (the ink of its `H`) over
+0.72, so it stands as tall beside the slot's Latin as it does in a CJK UI face;
+a bold slot draws at weight 700; a slot whose baked coverage is only 0 and 255
+(a bitmap face) gets cells thresholded at 120; a glyph wider than the slot's
+cells widens every cell of that atlas. The grown atlases reach the core before
+`measureText` and `wrapText` measure and before each tick, and layout
+re-measures on the reload. The pixels are the browser's: Hiragino on macOS,
+Yu Gothic or Meiryo on Windows, Noto Sans CJK on Android and ChromeOS.
+`create({ runtimeGlyphs: false })` keeps the baked atlases unchanged, and
+`glyphFamilies` names other CSS families. `glyphStats()` on the instance
+reports the codepoints and cells added, the reloads and the milliseconds. Each atlas is horizontally
 supersampled 8‑bit coverage cells plus proportional advances and a cmap, and is
 packed into the pak as `ui:font.<slot>`.
 
@@ -387,7 +423,7 @@ Bun.build({
   define: {
     "process.env.NODE_ENV": '"production"',
     __POCKET_TARGET__: JSON.stringify(buildPlan?.target.id ?? ""),
-    __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? 0),
+    __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
     __POCKET_FEATURES__: JSON.stringify(buildPlan?.features ?? {}),
     __POCKET_PIXEL_RATIO__: String(rasterDensity),
     __POCKET_TICK_HZ__: String(tickHz),
@@ -402,19 +438,20 @@ Bun.build({
 
 The plugin's `onLoad` hook intercepts every project `.ts`/`.tsx` file and serves
 the **cached pass‑1 transform** (`node_modules` and `.d.ts` fall through to
-Bun). It also serves this build's generated style module directly from memory;
-the ignored `framework/src/styles.generated.ts` file is only a human-readable
-mirror. Parallel target builds therefore cannot consume one another's transient
-style table. The bundle is built from *exactly* the code the class/charset scan
+Bun). It also serves this build's generated style module from memory for the
+framework's `styles.generated.ts` import. The committed file at that path holds
+the empty table that code importing framework sources without a build receives;
+`<outdir>/<output>.styles.ts` is a copy for inspection. Parallel target builds
+therefore cannot consume one another's style table, and no build writes into
+the framework directory. The bundle is built from *exactly* the code the class/charset scan
 saw — the two passes agree on the module graph by construction, so a style can
 never be shipped that the bundle doesn't use, or vice versa.
 
 With a resolved plan, pass 1 also replaces literal
 `hasFeature("capability.id")` calls with `true` or `false`; normal tree shaking
 can then remove an unavailable enhancement branch. Pass 2 bakes five constants
-the runtime contract reads: `__POCKET_TARGET__` and `__POCKET_HOST_ABI__` (empty
-and 0 without a plan, which is how a plan-less bundle skips the target/ABI
-check), `__POCKET_FEATURES__`, `__POCKET_PIXEL_RATIO__` (the resolved raster
+the runtime contract reads: `__POCKET_TARGET__` (empty without a plan),
+`__POCKET_HOST_ABI__` (the generated binding generation), `__POCKET_FEATURES__`, `__POCKET_PIXEL_RATIO__` (the resolved raster
 density), and `__POCKET_TICK_HZ__` (the `--hz` rate, 60 by default). A Vue Vapor
 build adds a sixth define, rewriting the bare `document` identifier to
 `globalThis.__pocketDocument`.
@@ -442,9 +479,9 @@ The [Playground](/playground/) runs the same compiler stages **live in the
 browser**: it transforms and collects, compiles the Tailwind subset, bakes
 atlases, packs a pak, and bundles — then loads the result into the WebAssembly
 core and renders to a canvas. It exercises the same logical UI and pak formats,
-but its density-1 browser development pair is not interchangeable with a
-manifest-built PSP or Vita artifact carrying target-specific density and ABI
-constants.
+but its density-1 browser development pair is not interchangeable with a PSP
+or Vita artifact built from an app contract, which carries target-specific
+density and ABI constants.
 
 ## Related
 

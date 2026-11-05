@@ -9,7 +9,7 @@
 // the committed header, so the C constants can never drift from spec.ts. Keep
 // this generator free of anything non-deterministic.
 
-import { ANALOG_CENTER, BTN } from "./spec.ts";
+import { ANALOG_CENTER, BTN, DRAW_LIST_VERSION, DRAW_OP, OP, POCKET_BINDING_GENERATION } from "./spec.ts";
 
 function hex(n: number, pad = 4): string {
   return "0x" + (n >>> 0).toString(16).toUpperCase().padStart(pad, "0");
@@ -25,6 +25,9 @@ export function generateC(): string {
   put("#ifndef POCKET_SPEC_H");
   put("#define POCKET_SPEC_H");
   put();
+  put("/* Generated guest/native binding contract; independent of profile identity. */");
+  put(`#define POCKET_BINDING_GENERATION ${POCKET_BINDING_GENERATION}U`);
+  put();
   put("/* Portable button bitmask — identical on every host. Native hosts map");
   put(" * their platform key codes onto these bits; the guest only sees the mask. */");
   for (const [name, value] of Object.entries(BTN)) {
@@ -34,6 +37,19 @@ export function generateC(): string {
   put("/* frame(buttons, analog): analog packs a stick as (x << 8) | y, each axis");
   put(" * 0..255 with 128 = center. Hosts without a stick pass this value. */");
   put(`#define POCKET_ANALOG_CENTER ${hex(ANALOG_CENTER)}U`);
+  put();
+  put("/* Closed DrawList operation set; word layouts are specified in spec.ts. */");
+  put(`#define POCKET_DRAW_LIST_VERSION ${DRAW_LIST_VERSION}U`);
+  for (const [name, value] of Object.entries(DRAW_OP)) {
+    const constant = name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+    put(`#define POCKET_DRAW_OP_${constant} ${value}U`);
+  }
+  put();
+  put("/* Portable operation numbers (contracts/spec/ui-ops.ts): what a program's");
+  put(" * operation provider serves and pocket_runtime_op dispatches. */");
+  for (const [name, value] of Object.entries(OP)) {
+    put(`#define POCKET_OP_${name} ${value}U`);
+  }
   put();
   put("#endif");
   return lines.join("\n") + "\n";

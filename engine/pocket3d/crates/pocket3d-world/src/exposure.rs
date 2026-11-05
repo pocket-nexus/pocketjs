@@ -936,24 +936,16 @@ mod tests {
     fn queued_emission_and_barrier_snapshot_replay_identical_state_and_transport() {
         let mut world = world();
         receiver(&mut world, Vec3::ZERO, true, 3.0);
-        let panel = panel(&mut world, Vec3::Z, 0.5, 0.0);
-        let empty_hash = world.state_hash();
+        panel(&mut world, Vec3::Z, 0.5, 0.0);
         world.queue_interaction(Interaction::Water(pulse()));
-        assert_ne!(empty_hash, world.state_hash());
         let snapshot = world.snapshot();
         let first = world.step(&weather());
-        world.restore(snapshot.clone());
-        assert_eq!(first, world.step(&weather()));
+        let expected = world.snapshot();
         world.restore(snapshot);
-        let before = world.state_hash();
-        world
-            .entity_mut(panel)
-            .unwrap()
-            .transport_surface
-            .as_mut()
-            .unwrap()
-            .water_transmission = 0.75;
-        assert_ne!(before, world.state_hash());
+        let replay = world.step(&weather());
+        assert_eq!(first.events, replay.events);
+        assert_eq!(first.transport, replay.transport);
+        assert_eq!(expected, world.snapshot());
     }
 
     #[test]

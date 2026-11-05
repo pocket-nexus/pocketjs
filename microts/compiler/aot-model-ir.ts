@@ -27,6 +27,8 @@ export interface ModelSignal {
 }
 export interface ModelField {
   id: number; name: string; type: AotType; capacity?: number; seed: ModelExpr; loc?: SourceLocation;
+  /** Native accessor name for an exported field of a state module. */
+  hostName?: string;
 }
 export interface ModelMemo {
   id: number; name: string; exported: boolean; type: AotType;
@@ -44,7 +46,8 @@ export interface ModelFunction {
   loc?: SourceLocation;
 }
 export interface ModelModule {
-  name: string; file: string; kind: "root" | "factory" | "pure";
+  /** A "state" module is merged into the root region before later passes run. */
+  name: string; file: string; kind: "root" | "factory" | "pure" | "state";
   factory?: string;
   params: ModelBinder[];
   signals: ModelSignal[];
@@ -57,13 +60,16 @@ export interface ModelModule {
   tasks: ModelTask[];
   constants?: { id: number; name: string; value: ModelExpr; exported?: boolean }[];
 }
+/** One step of an assignable place below its root local or field. */
+export type ModelPathStep = { kind: "index"; index: ModelExpr } | { kind: "member"; name: string };
+export type ModelMutation = "push" | "pop" | "insert" | "removeAt" | "clear" | "truncate" | "fillRange" | "copyRange" | "fillRect" | "copyRect";
 export type ModelExpr = (
   | { kind: "literal"; value: string | number | boolean; rawNumber?: string }
   | { kind: "undefined" }
   | { kind: "local" | "signal" | "memo" | "field"; id: number }
   | { kind: "member"; object: ModelExpr; name: string; optional?: boolean; variant?: string }
   | { kind: "index"; object: ModelExpr; index: ModelExpr }
-  | { kind: "unary"; operator: "!" | "-" | "+"; operand: ModelExpr }
+  | { kind: "unary"; operator: "!" | "-" | "+" | "~"; operand: ModelExpr }
   | { kind: "binary"; operator: string; left: ModelExpr; right: ModelExpr }
   | { kind: "conditional"; condition: ModelExpr; consequent: ModelExpr; alternate: ModelExpr }
   | { kind: "template"; parts: (string | ModelExpr)[] }
@@ -74,18 +80,26 @@ export type ModelExpr = (
   | { kind: "builtin"; name: string; args: ModelExpr[] }
   | { kind: "lambda"; params: ModelBinder[]; body: ModelBlock }
   | { kind: "sequence"; body: ModelBlock; value: ModelExpr }
+  /** A module constant stored once as a static array; `value` is its initializer. */
+  | { kind: "constant"; id: number; value: ModelExpr }
+  /** An in-place array operation on an assignable place. */
+  | { kind: "mutate"; op: ModelMutation; target: ModelTarget; args: ModelExpr[] }
 ) & { type: AotType; ledger: Ledger; loc: SourceLocation };
 export type ModelTarget =
   | { kind: "local" | "field"; id: number }
   | { kind: "element"; owner: number; index: ModelExpr }
-  | { kind: "member"; owner: number; name: string };
+  | { kind: "member"; owner: number; name: string }
+  | { kind: "path"; root: { kind: "local" | "field"; id: number }; steps: ModelPathStep[] };
 export type ModelStmt = (
   | { kind: "let"; binder: ModelBinder; init: ModelExpr }
   | { kind: "assign"; target: ModelTarget; value: ModelExpr }
   | { kind: "set"; signal: number; value: ModelExpr; pre?: ModelBinder; writeBack?: true }
   | { kind: "if"; condition: ModelExpr; then: ModelBlock; else?: ModelBlock }
-  | { kind: "for"; binder: ModelBinder; start?: ModelExpr; bound: ModelExpr; inclusive?: boolean; body: ModelBlock }
-  | { kind: "forOf"; binder: ModelBinder; source: ModelExpr; body: ModelBlock }
+  | { kind: "for"; binder: ModelBinder; start?: ModelExpr; bound: ModelExpr; inclusive?: boolean; body: ModelBlock; loop?: number }
+  | { kind: "forOf"; binder: ModelBinder; source: ModelExpr; body: ModelBlock; loop?: number }
+  /** `while`, `do`-`while` (`post`) and general `for` loops; `update` runs after each iteration, including after `continue`. */
+  | { kind: "while"; loop: number; condition: ModelExpr; body: ModelBlock; update?: ModelBlock; post?: boolean }
+  | { kind: "break" | "continue"; loop: number }
   | { kind: "switch"; value: ModelExpr; cases: { value?: ModelExpr; body: ModelBlock }[] }
   | { kind: "return"; value?: ModelExpr }
   | { kind: "call"; callee: number; args: ModelExpr[] }

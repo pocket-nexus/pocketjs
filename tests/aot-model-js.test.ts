@@ -4,6 +4,8 @@ import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
 import { generateModelJavaScript } from "../microts/compiler/aot-model-js.ts";
 import { ModelRegion, capacity } from "../framework/src/model-reactive.ts";
 import { ModelTasks, resumeModelTasks, resetModelTaskClock } from "../framework/src/model-tasks.ts";
+import { fill, fillRange, fillRect } from "../framework/src/std-microts.ts";
+import { interpretModel } from "../microts/compiler/model-interp.ts";
 
 const storage = <T>(value: T): [() => T, (next: T) => void] => [() => value, next => { value = next; }];
 const prelude = `import {createSignal} from "solid-js";
@@ -73,4 +75,19 @@ test("generated JS keeps exported constants and source names separate from compi
 export const [__r,setR]=createSignal<i32>(0);
 export function f1():void {setR(STEP);}`);
   expect(module.STEP).toBe(3); module.f1(); expect(module.__r()).toBe(3);
+});
+test("std array built-ins copy values without structuredClone, which QuickJS lacks", () => {
+  const saved = globalThis.structuredClone;
+  delete (globalThis as { structuredClone?: unknown }).structuredClone;
+  try {
+    const items = fill(3, { x: 0 }); fillRange(items, 0, 2, { x: 1 }); fillRect(items, 2, 1, 1, 1, { x: 2 }); items[0]!.x = 5;
+    expect(items).toEqual([{ x: 5 }, { x: 1 }, { x: 2 }]); expect(fill(2, 0)).toEqual([0, 0]);
+  } finally { globalThis.structuredClone = saved; }
+});
+test("copyRange copies windows longer than the call argument limit", async () => {
+  const { module, program } = await compile(`import {copyRange, fill, len} from "@pocketjs/framework/solid/std";
+export const [last,setLast]=createSignal<i32>(0);
+export function press():void {const src:i32[]=fill(1100000,1);const dst:i32[]=fill(1100000,0);copyRange(dst,0,src,0,1100000);setLast(dst[1099999]+len(dst));}`);
+  module.press(); expect(module.last()).toBe(1100001);
+  expect(interpretModel(program, [{ dispatch: [{ fn: "press" }] }]).at(-1)!.state.last).toBe(1100001);
 });

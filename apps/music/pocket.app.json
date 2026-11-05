@@ -1,0 +1,33 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.music",
+  "title": "PocketJS: Now Playing",
+  "version": "0.6.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons"
+      ],
+      "enhances": [
+        "audio.pcm"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/music/main.tsx",
+    "output": "music-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          480,
+          272
+        ],
+        "presentation": "integer-fit"
+      }
+    },
+    "theme": "./theme.json"
+  }
+}

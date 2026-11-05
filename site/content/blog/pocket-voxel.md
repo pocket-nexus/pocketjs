@@ -4,7 +4,7 @@
 
 There is a Lua project called [gen1recomp](https://github.com/bryanthaboi/gen1recomp) that re-implements the first-generation Game Boy creature-RPG (the one with the red cartridge) as a clean modern engine that reads your own ROM for its content. And there is a mod for it, [DramaticShape's Voxel Mod](https://github.com/DramaticShape/DramaticShapeVoxelMod), that does something quietly spectacular: it re-reads the flat GB tile maps as *architecture*, so walls get height, roofs get gables, trees get carved into little round hulls, and the whole game becomes a walking 3D diorama. Both run on [LÖVE](https://love2d.org/), the C++ game framework you script in Lua. Both are desktop programs.
 
-We rewrote the pair, gameplay into TypeScript and renderer into Rust, and now the diorama runs on a **2004 Sony PSP**: 333 MHz, no shaders, no JIT. The result is [Pocket Voxel](https://github.com/pocket-stack/pocket-voxel), a specialized runtime of [PocketJS](/blog/introducing-pocketjs/), and this post is the story of the port: why a rewrite rather than a port of the engine, what a creature-RPG looks like rebuilt from first principles in TypeScript, and how two Lua codebases we never vendored kept every formula honest anyway.
+We rewrote the pair, gameplay into TypeScript and renderer into Rust, and now the diorama runs on a **2004 Sony PSP**: 333 MHz, no shaders, no JIT. The result is [Pocket Voxel](https://github.com/pocket-nexus/pocket-voxel), a specialized runtime of [PocketJS](/blog/introducing-pocketjs/), and this post is the story of the port: why a rewrite rather than a port of the engine, what a creature-RPG looks like rebuilt from first principles in TypeScript, and how two Lua codebases we never vendored kept every formula honest anyway.
 
 ## Why rewrite, and why these languages
 
@@ -345,7 +345,7 @@ The gaps, named, because that is house policy: wild battles are the shipped batt
 
 ## Try it
 
-[pocket-stack/pocket-voxel](https://github.com/pocket-stack/pocket-voxel) is MIT, with the same vendored-runtime shape as OpenStrike (`vendor/pocketjs` pinned as a submodule). Bring your own ROM:
+[pocket-nexus/pocket-voxel](https://github.com/pocket-nexus/pocket-voxel) is MIT, with the same vendored-runtime shape as OpenStrike (`vendor/pocketjs` pinned as a submodule). Bring your own ROM:
 
 ```sh
 VOXELMON_ROM=path/to/red.gb bun tools/voxel.ts import   # SHA-1 gated decode

@@ -1,17 +1,25 @@
 # iPod touch 4
 
+The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
+
 The private iPod touch 4 target runs PocketJS on an exact `iPod4,1` device
 with iOS 6.1.6 build `10B500`. **The application owns a 320×480-point surface
 backed by the device's 640×960 Retina display, rendered through the required
-OpenGL ES 1.1 path of the shared legacy UIKit runtime.** The target id is
-`ipodtouch4-dev`; it shares host ABI 8 with `iphone4s-dev` because the guest
-protocol — the op table, the frame entry, the embedded `__pocket_js` /
-`__pocket_pak` sections — is the same runtime compiled for the same
-architecture. The target remains outside the public `POCKET_TARGETS` registry.
+OpenGL ES 1.1 path of the UIKit host.** The target id is
+`ipodtouch4-dev`; its guest uses the canonical QuickJS binding.
+Each host contract retains its own content hash, and package admission checks both
+that hash and the binding generation. The target remains outside the public `POCKET_TARGETS` registry.
 
-The bundled application is Pocket Clear (`apps/clear`), a Vue Vapor guest
-whose input is entirely gestures; its acceptance receipt is the
-`clear_gesture` action counter.
+The target builds two applications from this repository, selected with
+`POCKETJS_IPODTOUCH4_APP`:
+
+| App | Id | Guest | Acceptance action |
+|---|---|---|---|
+| Pocket Clear | `clear` (default) | `apps/clear`, Vue Vapor, gestures only | `clear_gesture` |
+| Pocket Nexus | `nexus-touch` | `apps/nexus-touch`, Solid, `ui.physics` | `nexus_play` |
+
+Each app has its own bundle identifier, executable, bundle name and URL
+scheme, so both install side by side.
 
 Clear also supports **companion-backed Chinese pinyin composition** through
 `io.offload`. The device owns the editor and a bounded input transcript; a
@@ -20,16 +28,46 @@ candidates and coverage tiles. See [Clear IME setup and device validation](CLEAR
 
 ## Multi-contact touch
 
-This target is the reason the legacy UIKit runtime tracks a touch slot table
-instead of one contact. **`hosts/ios-legacy/runtime.c` keeps eight slots — the
-guest wire cap — with the slot index as the wire contact id, release-latched
-delivery (a sub-frame tap is still delivered for at least one guest frame),
-and a bounds hit fact resolved once at each contact's down edge.** The frame
-entry is `pocket_runtime_frame_contacts`, which packs every contact into the
-`frame()` wire words: `x:9 | y:9 | id:8` below 512 logical pixels, the bit-31
-wide form above. A single id-0 contact produces the same bytes as the old
-single-touch entry points, so existing tapes and hosts decode unchanged. The
-1.x GSEvent fallback has no per-finger identity and owns slot 0 alone.
+**The host retains up to eight touch contacts.** `programs/ipodtouch4/contact_latch.h`
+assigns an ID to each contact lifetime, latches taps between frames and records
+cancellations. The host sends those facts in a `pocket_input_frame` through
+`pocket_qjs_program_advance`. Runtime resolves bounds hits at each down edge
+and encodes the guest frame words.
+
+## Frame rate
+
+**The display link fires at 60 Hz, the rate of the guest clock (`__simHz`),
+and `programs/ipodtouch4/runtime.c` advances the core one tick per callback.**
+Animations, baked keyframes and physics therefore run at the durations the
+guest authored, in step with its `after()` timers. Before this rate was set in the iPod wrapper, core motion
+on this target ran at twice its authored speed.
+
+## Pocket Nexus and 2D bodies
+
+`apps/nexus-touch` is the pocket.nexus homepage as a standalone app: the
+spill, the toys, and letters that hop, talk, and go back to the pocket's
+mouth. It shares its bodies, toys and bake with the 3DS scene in
+`apps/nexus` (`homepage.ts`, `toys.ts`, `bake.ts`).
+
+**The host contract advertises `ui.physics`.** For an app whose plan resolves
+it, the build sets `POCKET_PHYSICS`. The native program registers operations
+52..56 on that runtime. Other apps omit those operations.
+
+Measured on the device (`iPod4,1`, iOS 6.1.6) with the status record's window
+counters: 60 fps at rest with 1.4 ms of guest and core time per frame, and 57
+to 61 fps with 3.5 to 4.3 ms under a sustained load of a pop every 0.3 s, 14
+live toys, bursts, waves and swallowed letters.
+
+The app descriptor names an icon (`site/nexus/public/apple-touch-icon.png`)
+and a launch image (`apps/nexus-touch/launch.png`, the app's first frame),
+which replaces the generated `Default@2x.png`.
+
+```sh
+bun apps/nexus-touch/gen-art.ts                       # re-bake the art from the homepage
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build --pocket dist/ipodtouch4/application.pocket
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 deploy
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 launch
+```
 
 ## Device state
 
@@ -51,8 +89,8 @@ iOS 6.1.6 is untethered). The completed bootstrap provides:
 The default local files are:
 
 ```text
-~/.cache/pocket-stack/ipodtouch4/ssh/id_rsa
-~/.cache/pocket-stack/ipodtouch4/ssh/known_hosts
+~/.cache/pocket-nexus/ipodtouch4/ssh/id_rsa
+~/.cache/pocket-nexus/ipodtouch4/ssh/known_hosts
 ```
 
 `POCKETJS_IPODTOUCH4_KEY`, `POCKETJS_IPODTOUCH4_KNOWN_HOSTS`, and
@@ -60,25 +98,29 @@ The default local files are:
 
 ## Build inputs
 
-**The toolchain is the iPhone 4S one, byte for byte: the validated iOS 6.1.3
-ARMv7 sysroot, Apple's pinned Csu bootstrap, the pinned QuickJS sources, and
-the pinned dyld extractor.** The sysroot supplies link-time TAPI stubs and
-Mach-O images extracted from the 6.1.3 shared cache; iOS 6.1.6 is the 6.1.3
-SDK surface plus a TLS fix, so every linked install name resolves identically
-on the device. `bun ipodtouch4 setup-sources` and `bun ipodtouch4
-prepare-sysroot` delegate to the iPhone 4S commands so the provenance stays
-pinned exactly once.
+**The build uses a pinned iPod touch 4 iOS 6.1.6 ARMv7 sysroot, Csu bootstrap,
+QuickJS sources and dyld extractor.** `tools/ios6-setup.ts` prepares these
+inputs; `tools/build/toolchains/ios6/manifest.json` records the firmware and
+source hashes. The sysroot contains **seven TAPI symbol files** extracted
+from the firmware shared cache. `POCKETJS_IOS6_ROOT` selects its cache;
+`POCKETJS_IOS6_SYSROOT` selects an extracted sysroot.
+`prepare-sysroot --device` reads the system cache through the verified USB SSH
+tunnel. The cache identity zeroes the writable mapping before hashing; its pointers
+and data can change on a running device. **The remaining cache bytes and the
+seven generated TAPI files must match the pinned SHA-256 values.**
+Extracted Mach-O images are temporary inputs and are not installed in the sysroot.
+`POCKETJS_IOS6_SHARED_CACHE` accepts an existing copy of that cache.
 
 ```sh
 bun ipodtouch4 setup-sources
-bun ipodtouch4 prepare-sysroot   # needs POCKETJS_IPHONE4S_IPSW on a fresh machine
+bun ipodtouch4 prepare-sysroot --device
 bun ipodtouch4 doctor
 ```
 
 ## Build and deploy
 
 ```sh
-bun ipodtouch4 build
+bun ipodtouch4 build --pocket dist/ipodtouch4/application.pocket
 bun ipodtouch4 deploy
 bun ipodtouch4 launch
 bun ipodtouch4 status [--require-action]
@@ -86,14 +128,14 @@ bun ipodtouch4 capture
 bun ipodtouch4 uninstall         # removes the app and its data
 ```
 
-`build` resolves `apps/clear/pocket.json` against the `ipodtouch4-dev`
-profile, produces the guest bundle and pak, compiles the shared legacy
-runtime for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
+`build --pocket` consumes an application package admitted to the `ipodtouch4-dev` host contract and compiles the UIKit
+host for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
 embedded as `__pocket_js` / `__pocket_pak` sections. The build id hashes the
 plan, the guest artifacts, every native object, the sysroot stubs, and the
 baked artwork.
 
-**`build` also produces `dist/ipodtouch4/PocketJSiPodTouch4.ipa`.** `deploy`
+**`build` also produces the app's IPA, `dist/ipodtouch4/PocketJSiPodTouch4.ipa`
+for Clear and `dist/ipodtouch4/PocketNexus.ipa` for Nexus.** `deploy`
 transfers that IPA over the pinned USB SSH tunnel and calls iOS 6
 `MobileInstallationInstall` with `ApplicationType=User`. **iOS creates the
 UUID container under `/var/mobile/Applications`, owns updates, and preserves
@@ -125,10 +167,119 @@ its receipts and captures inside that container. **`status` reads
 `<container>/tmp/pocketjs.status` twice** and
 requires the running build id, an advancing frame counter and heartbeat, and
 the GLES1 640×960 density-2 drawable. With `--require-action` it additionally
-requires at least one completed touch sequence and a reported `clear_gesture`
-action — a receipt that a gesture interaction completed on the hardware.
+requires at least one completed touch sequence and a reported action under
+the app's action name (`clear_gesture`, `nexus_play`) — a receipt that an
+interaction completed on the hardware.
 
 `capture` asks the running app for a raw RGBA frame and converts it to
 `dist/ipodtouch4/device-frame.png`.
 
 User application icons use **opaque 57×57 and 114×114 artwork**. SpringBoard applies the rounded mask and shadow; `UIPrerenderedIcon` suppresses the stock gloss. The System application path uses a precomposed transparent mask instead. Baking that mask into a User icon adds an inset rim under the native mask. Icon filenames include the artwork revision so an update selects a fresh SpringBoard cache entry.
+
+## Native application extensions
+
+External app descriptors may supply `nativeCore`, `assets`, `icon` and
+`launch`, resolved against `projectRoot`:
+
+```json
+{
+  "nativeCore": {
+    "manifest": "crates/game/Cargo.toml",
+    "library": "libgame.a",
+    "features": ["native"],
+    "sources": ["programs/ipod/bridge.c"]
+  },
+  "assets": ".pocket/ipod/assets",
+  "icon": "assets/app-icon.png",
+  "launch": "assets/launch.png"
+}
+```
+
+**The application archive includes `pocket-native-program` and exports
+`pocket_native_extension_v1`.** The callback table is declared in
+`programs/native/runtime/include/pocket_native_extension.h`.
+`boot` registers application APIs before evaluating the guest. `before_guest`
+advances native state; `after_guest` drains commands after the guest and its
+pending jobs. The host keeps every callback on its UI/render thread.
+
+A depth flag requests a 16-bit GLES1 depth attachment. `render` draws the
+application world before `pocket_native_program_gl_render` composites the retained UI.
+The optional graphics tail releases GPU resources when the context shuts
+down; it must retain guest and simulation state and recreate GPU resources
+on the next render. Final shutdown runs before QuickJS context destruction.
+The supplied `gl_context_current` flag determines whether the extension may
+issue GL deletion calls or must abandon handles. Every app on this target
+advances one UI tick per display-link callback (see Frame rate).
+
+**Nested asset files participate in both build identity and installed-byte
+verification.** Symlinks, unsupported filenames and replacements for generated
+bundle content are rejected. The icon is baked into opaque 57- and 114-pixel
+User artwork. `launch`, an opaque 640×960 PNG, replaces the generated
+`Default@2x.png`; the 4-inch `Default-568h@2x.png` repeats its bottom row
+below it. Keep the app's bundle identifier, executable, bundle name and URL
+scheme distinct from installed applications.
+
+UIKit touch callbacks carry up to eight contacts. Host receipts include
+`touch_max_contacts` and `uikit_touch_events` to record contact delivery.
+
+## One runtime for every game
+
+`bun tools/runtime.ts ipod` builds the UIKit host once, with no game,
+into `dist/runtime/ipod/`: the executable `PocketJSRuntime`, the PocketJS
+icons and launch images, `PkgInfo` and `runtime.json` (target, binding generation,
+PocketJS commit, the files' sizes and SHA-256, and under `host` the build id,
+the executable name and the deployment target). **The executable has no
+`__pocket_js` or `__pocket_pak` section and is compiled with
+`POCKET_PACKAGE_RUNTIME`: before `UIApplicationMain` it reads `app.pocket`
+beside itself, admits a variant through `pocket_native_package_open` with the
+exported `pocket_profile_facts` (footer hash, binding generation, the
+[admission](../site/content/docs/platform-contracts.md#admission) facts,
+identity, plan, NUL-ended JavaScript), and takes the logical surface and raster density from that
+variant's plan.** The plan must ask for 320×480 or 480×320 at density 2. A
+bundle without `app.pocket`, or with one that is refused, opens a
+software-drawn window that shows the reason (for example `this app carries no
+game: app.pocket is missing`) and writes it to the status record.
+
+What a per-app build compiles from its descriptor or plan, the runtime fixes
+once:
+
+| Per-app build | Generic runtime |
+|---|---|
+| viewport and raster density (`-DPOCKET_LOGICAL_*`) | read from the plan at launch |
+| `ui.physics` ops 52..56 (`-DPOCKET_PHYSICS` when the plan has it) | compiled in for every game |
+| `io.offload` worker | compiled in, as in every build |
+| keep-awake (`-DPOCKET_KEEP_AWAKE`, descriptor) | on for every game: the idle timer is disabled while the game runs |
+| svc wire (`-DPOCKET_SVC_WIRE`, descriptor) | not carried; a plan with `companions` is refused |
+| native core and assets (descriptor) | not carried |
+
+The executable is linked and signed by `ldid -S` in a directory of its own.
+**`codesign -d` reports `Info.plist=not bound` and `Sealed Resources=none`:
+the ad hoc signature covers the code pages and nothing else, so a bundle with another
+Info.plist, other icons and another `app.pocket` keeps it valid.**
+
+`tools/repack/ipod.ts` writes a game's `.ipa` from that directory and the
+game's `.pocket`, in TypeScript with no native tool:
+`Payload/Studio<Name>.app/` holds the executable byte for byte under the
+name `Studio<Name>` (`<Name>` from the title as pocket-studio names its
+bundles), an Info.plist with the game's bundle id, display name, version and
+URL scheme (the id), opaque 57 and 114 px icons scaled from the identity's PNG
+(file names carry a hash of the 57 px PNG, so a changed icon is not shown from
+SpringBoard's cache), the runtime's launch images, `app.pocket` and a
+`build-receipt.json` with every file's SHA-256 and the runtime's build id.
+The zip is deterministic: 1980-01-01 entry times, Unix modes (the executable
+0755), PNGs stored and the rest deflated.
+
+```sh
+bun tools/runtime.ts ipod
+bun tools/repack.ts --target ipod --runtime dist/runtime/ipod --pocket game.pocket \
+  --id dev.example.game --title Game --author Example --version 1.0.0 --icon icon.png -o game.ipa
+bun ipodtouch4 deploy --ipa game.ipa    # AppSync Unified install, byte-exact readback
+bun ipodtouch4 launch --ipa game.ipa
+bun ipodtouch4 capture --ipa game.ipa
+```
+
+`--ipa` makes `deploy`, `uninstall`, `launch`, `status` and `capture` take
+the bundle id, bundle name, executable, URL scheme and receipt from the
+package instead of this repository's build. `bun tests/e2e/ipod-repack.ts`
+builds a project's `.pocket`, repacks it and, with `--device`, runs those
+commands.

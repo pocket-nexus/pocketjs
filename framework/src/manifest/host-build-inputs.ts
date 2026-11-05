@@ -1,3 +1,4 @@
+import type { AnimationTheme } from "../../../contracts/spec/pocket-manifest.ts";
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { canonicalJson } from "./plan.ts";
 import {
@@ -5,10 +6,15 @@ import {
   type PresentationMode,
   type Viewport,
 } from "../../../contracts/spec/platforms.ts";
-import { verifyPlanHash, type ResolvedBuildPlan } from "./plan.ts";
+import { verifyPlanHash, verifyPlanProfile, type PlanProfile, type ResolvedBuildPlan } from "./plan.ts";
+import { canonicalProfileJson, hashPocketProfile } from "../profile.ts";
+import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 
 /** Stable subset of the internal build plan consumed by custom native hosts. */
 export interface HostBuildInputs {
+  /** The profile's provenance projection and the package rate (`tickHz`). */
+  readonly profile: PlanProfile;
+  readonly profileHash: string;
   readonly appOutput: string;
   /** Package identity from the manifest, as the plan resolved it. Hosts map
    *  it onto their platform's package id and version scheme. */
@@ -16,6 +22,7 @@ export interface HostBuildInputs {
     readonly id: string;
     readonly title: string;
     readonly version: string;
+    readonly theme?: AnimationTheme;
   };
   readonly target: string;
   readonly hostAbi: number;
@@ -38,11 +45,14 @@ export interface HostBuildInputs {
 
 export interface ExtractHostBuildInputsOptions {
   readonly expectedTarget?: string;
+  readonly expectedProfileHash?: string;
 }
 
 export interface HostBuildEnvironmentOptions {
   readonly outputDirectory: string;
   readonly embedApp: boolean;
+  /** Where `exportProfile` wrote pocket_profile.h and pocket_profile.rs for this build. */
+  readonly profileExportDirectory?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -97,6 +107,9 @@ function readVerifiedPlan(input: unknown): ResolvedBuildPlan {
     if (!verifyPlanHash(input)) {
       throw new TypeError("PocketJS host build: invalid ResolvedBuildPlan checksum");
     }
+    if (!verifyPlanProfile(input)) {
+      throw new TypeError("PocketJS host build: invalid ResolvedBuildPlan profile identity");
+    }
   } catch (error) {
     if (error instanceof TypeError && error.message.startsWith("PocketJS host build:")) {
       throw error;
@@ -115,17 +128,26 @@ export function extractHostBuildInputs(
   options: ExtractHostBuildInputsOptions = {},
 ): HostBuildInputs {
   const plan = readVerifiedPlan(input);
+  if (plan.target.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new TypeError(`PocketJS host build: binding generation ${plan.target.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  }
   if (options.expectedTarget && plan.target.id !== options.expectedTarget) {
     throw new TypeError(
       `PocketJS host build: expected target ${options.expectedTarget}, got ${plan.target.id}`,
     );
   }
+  if (options.expectedProfileHash && plan.profileHash !== options.expectedProfileHash) {
+    throw new TypeError(`PocketJS host build: expected profile ${options.expectedProfileHash}, got ${plan.profileHash}`);
+  }
   return {
+    profile: plan.profile,
+    profileHash: plan.profileHash,
     appOutput: plan.app.output,
     app: {
       id: plan.app.id,
       title: plan.app.title,
       version: plan.app.version,
+      ...(plan.app.theme !== undefined ? { theme: plan.app.theme } : {}),
     },
     target: plan.target.id,
     hostAbi: plan.target.hostAbi,
@@ -145,7 +167,16 @@ export function hostBuildEnvironment(
   inputs: HostBuildInputs,
   options: HostBuildEnvironmentOptions,
 ): Readonly<Record<string, string>> {
+  if (inputs.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new TypeError(`PocketJS host build: binding generation ${inputs.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  }
+  if (inputs.profile.id !== inputs.target || hashPocketProfile(inputs.profile) !== inputs.profileHash) {
+    throw new TypeError("PocketJS host build: invalid profile identity");
+  }
   return {
+    POCKETJS_PROFILE_HASH: inputs.profileHash,
+    POCKETJS_PROFILE_JSON: canonicalProfileJson(inputs.profile),
+    POCKETJS_TICK_HZ: String(inputs.profile.tickHz),
     POCKETJS_APP_OUTPUT: inputs.appOutput,
     POCKETJS_APP_ID: inputs.app.id,
     POCKETJS_APP_TITLE: inputs.app.title,
@@ -167,5 +198,6 @@ export function hostBuildEnvironment(
     POCKETJS_AUX_PRESENTATION: inputs.surfaces ? inputs.surfaces.auxiliary.presentation : "",
     POCKETJS_AUX_RASTER_DENSITY: inputs.surfaces ? String(inputs.surfaces.auxiliary.rasterDensity) : "",
     ...(inputs.hostExtension ? { POCKETJS_HOST_EXTENSION: canonicalJson(inputs.hostExtension) } : {}),
+    ...(options.profileExportDirectory ? { POCKETJS_PROFILE_EXPORT_DIR: options.profileExportDirectory, POCKETJS_PROFILE_RS: `${options.profileExportDirectory}/pocket_profile.rs` } : {}),
   };
 }

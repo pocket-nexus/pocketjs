@@ -51,7 +51,7 @@ export function symbianDataBaseForEmbeddedBytes(
  * Symbian's 0xE0000000..0xEFFFFFFF range is intentionally unprotected. The
  * reverse-DNS Pocket id is the durable input so independent checkouts build
  * upgrade-compatible packages without adding private Symbian fields to
- * pocket.json.
+ * pocket.app.json.
  */
 export function symbianUidForAppId(appId: string): string {
   const digest = createHash("sha256").update(appId, "utf8").digest("hex");

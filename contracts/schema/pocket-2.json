@@ -8,7 +8,6 @@
     "$schema",
     "pocket",
     "id",
-    "name",
     "title",
     "version",
     "engine",
@@ -26,12 +25,6 @@
       "minLength": 3,
       "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
     },
-    "name": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64,
-      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
-    },
     "title": {
       "type": "string",
       "minLength": 1,
@@ -41,23 +34,63 @@
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
     },
-    "execution": {
+    "author": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "icon": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.png$"
+    },
+    "applet": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "classes"
+        "version"
       ],
       "properties": {
-        "classes": {
+        "version": {
+          "const": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "services": {
           "type": "array",
           "items": {
-            "enum": [
-              "guest",
-              "aot"
-            ]
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$"
           },
-          "minItems": 1,
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 8
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
+            "maxLength": 253
+          },
+          "uniqueItems": true,
+          "maxItems": 16
+        },
+        "store": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxBytes"
+          ],
+          "properties": {
+            "maxBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4194304
+            }
+          }
         }
       }
     },
@@ -96,6 +129,112 @@
         }
       }
     },
+    "domains": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entry",
+            "nodes"
+          ],
+          "properties": {
+            "entry": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.ts$"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "kind"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "i2c",
+                      "uart",
+                      "http",
+                      "mqtt"
+                    ]
+                  }
+                }
+              }
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "kind",
+                  "direction",
+                  "recordBytes",
+                  "capacity"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "snapshot",
+                      "ring"
+                    ]
+                  },
+                  "direction": {
+                    "enum": [
+                      "ui-to-worker",
+                      "worker-to-ui"
+                    ]
+                  },
+                  "recordBytes": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65536
+                      },
+                      {
+                        "const": "host"
+                      }
+                    ]
+                  },
+                  "capacity": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 256
+                      },
+                      {
+                        "const": "host"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "app": {
       "type": "object",
       "additionalProperties": false,
@@ -123,6 +262,10 @@
             "octane"
           ]
         },
+        "theme": {
+          "type": "string",
+          "minLength": 1
+        },
         "aot": {
           "type": "boolean"
         },
@@ -137,6 +280,12 @@
           "minimum": 1,
           "default": 256
         },
+        "tickHz": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 60
+        },
         "surfaces": {
           "type": "object",
           "additionalProperties": false,
@@ -147,9 +296,7 @@
             "auxiliary": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "fixed"
-              ],
+              "description": "Exactly one of fixed and adaptive (checked at resolution).",
               "properties": {
                 "fixed": {
                   "type": "object",
@@ -178,6 +325,34 @@
                       ]
                     }
                   }
+                },
+                "adaptive": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "properties": {
+                    "min": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "max": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  }
                 }
               }
             }
@@ -204,13 +379,59 @@
               ],
               "properties": {
                 "logical": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "minItems": 2,
-                  "maxItems": 2
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "min",
+                        "max"
+                      ],
+                      "properties": {
+                        "min": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "minItems": 2,
+                          "maxItems": 2
+                        },
+                        "max": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    }
+                  ]
                 },
                 "presentation": {
                   "enum": [
@@ -236,13 +457,59 @@
                   ],
                   "properties": {
                     "logical": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer",
-                        "minimum": 1
-                      },
-                      "minItems": 2,
-                      "maxItems": 2
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "minItems": 2,
+                          "maxItems": 2
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "minItems": 1,
+                          "uniqueItems": true
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "min",
+                            "max"
+                          ],
+                          "properties": {
+                            "min": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              "minItems": 2,
+                              "maxItems": 2
+                            },
+                            "max": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              "minItems": 2,
+                              "maxItems": 2
+                            }
+                          }
+                        }
+                      ]
                     },
                     "presentation": {
                       "enum": [
@@ -414,13 +681,59 @@
                     ],
                     "properties": {
                       "logical": {
-                        "type": "array",
-                        "items": {
-                          "type": "integer",
-                          "minimum": 1
-                        },
-                        "minItems": 2,
-                        "maxItems": 2
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              "minItems": 2,
+                              "maxItems": 2
+                            },
+                            "minItems": 1,
+                            "uniqueItems": true
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "min",
+                              "max"
+                            ],
+                            "properties": {
+                              "min": {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "minItems": 2,
+                                "maxItems": 2
+                              },
+                              "max": {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "minItems": 2,
+                                "maxItems": 2
+                              }
+                            }
+                          }
+                        ]
                       },
                       "presentation": {
                         "enum": [
@@ -446,13 +759,59 @@
                         ],
                         "properties": {
                           "logical": {
-                            "type": "array",
-                            "items": {
-                              "type": "integer",
-                              "minimum": 1
-                            },
-                            "minItems": 2,
-                            "maxItems": 2
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "minItems": 2,
+                                "maxItems": 2
+                              },
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                  },
+                                  "minItems": 2,
+                                  "maxItems": 2
+                                },
+                                "minItems": 1,
+                                "uniqueItems": true
+                              },
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "min",
+                                  "max"
+                                ],
+                                "properties": {
+                                  "min": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "minimum": 1
+                                    },
+                                    "minItems": 2,
+                                    "maxItems": 2
+                                  },
+                                  "max": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "minimum": 1
+                                    },
+                                    "minItems": 2,
+                                    "maxItems": 2
+                                  }
+                                }
+                              }
+                            ]
                           },
                           "presentation": {
                             "enum": [
@@ -515,9 +874,7 @@
                   "auxiliary": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": [
-                      "fixed"
-                    ],
+                    "description": "Exactly one of fixed and adaptive (checked at resolution).",
                     "properties": {
                       "fixed": {
                         "type": "object",
@@ -544,6 +901,34 @@
                               "native",
                               "stretch"
                             ]
+                          }
+                        }
+                      },
+                      "adaptive": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "properties": {
+                          "min": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "max": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
                           }
                         }
                       }

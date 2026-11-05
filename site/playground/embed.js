@@ -7,11 +7,11 @@
 // reset() assigns globalThis.ui / globalThis.frame / globalThis.__pak,
 // framework/src/host.ts keeps `current` at module scope, and
 // framework/src/gesture-core.ts keeps its recognizer table there too. Two of
-// them on one page clobber each other. hosts/web/app-instance.js is the
+// them on one page clobber each other. programs/web/app-instance.js is the
 // primitive that already solves this: a hidden same-origin iframe gives each
 // app its own JavaScript Realm and its own wasm Ui. The parent owns the
 // visible canvas, the frame clock and the input channel; the realm owns the
-// app. hosts/web/system-engine.js is the reference implementation of that
+// app. programs/web/system-engine.js is the reference implementation of that
 // split and this file follows its shapes.
 
 import { __packTouch, createTouchHitFacts } from "../../framework/src/touch.ts";
@@ -25,7 +25,7 @@ const MAX_CATCH_UP = 4;
 /** The legacy wire form packs x:9,y:9 — site/doc-demos.ts rejects anything wider. */
 const COORD_LIMIT = 512;
 
-/** Copy of hosts/web/system-engine.js createRealm(). */
+/** Copy of programs/web/system-engine.js createRealm(). */
 async function createRealm(instanceUrl, options) {
   const iframe = document.createElement("iframe");
   iframe.hidden = true;
@@ -234,7 +234,7 @@ class DocDemo {
     return this.booting;
   }
 
-  /** Client coordinates to logical pixels — hosts/web/system-engine.js. */
+  /** Client coordinates to logical pixels — programs/web/system-engine.js. */
   logicalPoint(event) {
     const rect = this.canvas.getBoundingClientRect();
     return {

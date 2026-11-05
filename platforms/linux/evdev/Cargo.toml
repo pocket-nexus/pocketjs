@@ -1,0 +1,15 @@
+[package]
+name = "pocket-linux-evdev"
+edition = "2021"
+description = "PocketJS Linux evdev platform unit"
+publish = true
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+libc = "0.2.191"

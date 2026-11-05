@@ -2,7 +2,7 @@
 //
 // Everything the TS runtime (framework/src/), the compiler (framework/compiler/), the Rust core
 // (engine/core/), the wasm host and the PSP native host agree on is pinned HERE, in
-// plain data. `contracts/spec/gen-rust.ts` deterministically generates `engine/core/src/spec.rs`
+// plain data. `contracts/spec/gen-rust.ts` deterministically generates `engine/spec/src/lib.rs`
 // from this file; `tests/contract.ts` regenerates it in-memory and byte-compares
 // against the committed file, so TS and Rust can never drift.
 //
@@ -15,8 +15,10 @@
 //     unless stated otherwise.
 //
 // If you change ANY value here: run `bun contracts/spec/gen-rust.ts`, commit the
-// regenerated engine/core/src/spec.rs, and bump the relevant format VERSION if the
+// regenerated engine/spec/src/lib.rs, and bump the relevant format VERSION if the
 // change alters a binary layout.
+
+export { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -74,7 +76,7 @@ export const SIZE_FULL = -1;
 // ---------------------------------------------------------------------------
 // UI ops (the `ui.*` native contract — see docs/DESIGN.md table)
 // ---------------------------------------------------------------------------
-// Numeric codes are the engine/wasm/FFI ABI identity of each op. 0 is reserved
+// Numeric codes are the programs/web/wasm/FFI ABI identity of each op. 0 is reserved
 // (invalid/nop). Codes are append-only: never renumber, never reuse.
 //
 // Signatures (authoritative; hosts marshal them however they like):
@@ -98,6 +100,7 @@ export const SIZE_FULL = -1;
 //   measureText(str, fontSlot) -> width:f32
 //   setCompositorSurface(id, handle, focusedInt) [surface nodes only; handle
 //                                                  < 0 clears]
+//   physicsCreate/Apply/Destroy/Events/Query      [ui.physics; see physics.ts]
 
 export const OP = {
   createNode: 1,
@@ -198,7 +201,7 @@ export const OP = {
   //                      whole session; -1 when no stream is open).
   videoClose: 37, //      () — stop audio, close the stream, free the plane.
   debugStats: 38, //      () -> string. One JSON snapshot of the device's
-  //                      diagnostic counters (hosts/psp/src/stats.rs: audio
+  //                      diagnostic counters (programs/psp/src/stats.rs: audio
   //                      underruns/reserve failures, video frames presented/
   //                      torn/lapped, svc truncation resets) plus build
   //                      identity: the app output name and the FNV-1a64 hash
@@ -285,6 +288,26 @@ export const OP = {
   appClose: 51, // (output: string) -> 0|1. Native navigation only: request
   //                graceful closure of a configured child app. Never closes
   //                the shell or caller. Embedded hosts omit this operation.
+  // -- 2D bodies (ui.physics capability; contracts/spec/physics.ts holds the
+  //    kinds, parameter keys, commands, events and queries). Hosts omit all
+  //    five ops without the capability. ------------------------------------
+  physicsCreate: 52, // (kind: i32, params: f64[] [key, value]*) -> handle | 0.
+  //                    Create a world, body, collider, zone or emitter.
+  physicsApply: 53, //  (records: f64[] [handle, cmd, argc, arg*]*) — apply
+  //                    commands in order; stale handles no-op.
+  physicsDestroy: 54, // (handle) — a world takes its objects with it; a body
+  //                    or emitter clears the props it wrote on its views.
+  physicsEvents: 55, // () -> f64 records | undefined. Drain the events the ticks
+  //                    since the last drain produced, PHYSICS_EVENT_WORDS per
+  //                    record, at most PHYSICS_EVENT_MAX.
+  physicsQuery: 56, //  (query, handle, a, b, c, d) -> f64. Picks and body
+  //                    state reads (PHYSICS_QUERY).
+  // Public HostOps that predate their portable dispatcher numbers.
+  setPropBatch: 57,
+  takeAnimationCompletions: 58,
+  fontStreamBatch: 59,
+  captureTexts: 60,
+  capturedTexts: 61,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -335,6 +358,11 @@ export const PROP = {
   //                    marks its full-screen overlay/portal layers with it so
   //                    bounds hit facts (op 42) resolve through empty overlay
   //                    space to the app content beneath.
+  contain: 33, //       enum Contain. Strict: the subtree is solved as its own
+  //                    layout root given this node's box (CSS size + layout
+  //                    containment; needs definite width and height). Baked:
+  //                    Strict, plus the MicroTS compiler proves every rect in
+  //                    the subtree at build time and writes it as a constant.
 
   // -- visual (64..95) -------------------------------------------------------
   bgColor: 64, //       color u32 ABGR
@@ -400,6 +428,11 @@ export const PROP = {
   //                    center = node center, outer radius = min(w,h)/2, color
   //                    = bgColor. Axis-aligned worlds only (rotation belongs
   //                    in arcStart).
+  skewX: 143, //        f32 degrees of horizontal shear about the transform
+  //                    origin, composed between rotate and scale (CSS
+  //                    `rotate() skewX() scale()`): with it, rotate + skewX +
+  //                    scaleX/scaleY reach every 2D linear map with a
+  //                    positive determinant.
 } as const;
 
 export type PropName = keyof typeof PROP;
@@ -458,6 +491,7 @@ export const ANIMATABLE: readonly PropName[] = [
   "arcStart", //    35
   "arcSweep", //    36
   "arcWidth", //    37
+  "skewX", //       38
 ];
 
 /** Anim bit index for a prop, or -1 if not animatable. */
@@ -479,7 +513,7 @@ export const LAYOUT_DIRTYING: readonly PropName[] = [
   "paddingT", "paddingR", "paddingB", "paddingL",
   "marginT", "marginR", "marginB", "marginL",
   "gap", "flexDir", "justify", "align", "grow", "shrink", "basis", "flexWrap",
-  "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow",
+  "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow", "contain",
   "fontSlot", "textAlign", "lineHeight", "tracking",
 ];
 
@@ -514,7 +548,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   insetT: VALUE_KIND.f32, insetR: VALUE_KIND.f32,
   insetB: VALUE_KIND.f32, insetL: VALUE_KIND.f32,
   display: VALUE_KIND.int, overflow: VALUE_KIND.int, zIndex: VALUE_KIND.int,
-  hitPass: VALUE_KIND.int,
+  hitPass: VALUE_KIND.int, contain: VALUE_KIND.int,
   bgColor: VALUE_KIND.color, gradFrom: VALUE_KIND.color, gradTo: VALUE_KIND.color,
   gradDir: VALUE_KIND.int, radius: VALUE_KIND.f32, opacity: VALUE_KIND.f32,
   borderColor: VALUE_KIND.color, borderWidth: VALUE_KIND.f32,
@@ -532,6 +566,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   rotateX: VALUE_KIND.f32, rotateY: VALUE_KIND.f32,
   translateZ: VALUE_KIND.f32, perspective: VALUE_KIND.f32,
   arcStart: VALUE_KIND.f32, arcSweep: VALUE_KIND.f32, arcWidth: VALUE_KIND.f32,
+  skewX: VALUE_KIND.f32,
 };
 
 // ---------------------------------------------------------------------------
@@ -546,6 +581,8 @@ export const ENUMS = {
   PosType: { Relative: 0, Absolute: 1 },
   Display: { Flex: 0, None: 1 },
   Overflow: { Visible: 0, Hidden: 1 },
+  /** Layout containment: `contain-strict` / `layout-baked`. */
+  Contain: { None: 0, Strict: 1, Baked: 2 },
   TextAlign: { Left: 0, Center: 1, Right: 2 },
   /** Gradient direction: `bg-gradient-to-t|b|l|r`. */
   GradDir: { ToTop: 0, ToBottom: 1, ToLeft: 2, ToRight: 3 },
@@ -1452,6 +1489,9 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           in shell painter order, so later shell ops remain
 //                           above the child surface.
 
+/** Closed DrawList operation generation; drivers and archives use matching headers. */
+export const DRAW_LIST_VERSION = 1;
+
 export const DRAW_OP = {
   rect: 1,
   gradRect: 2,
@@ -1541,6 +1581,9 @@ export const BTN = {
 
 // Optional sixth frame argument carries the right stick with identical packing.
 // Omission reads as center; touch/hit/surface arguments retain their positions.
+// The seventh carries relative-axis deltas; the eighth carries the newest fused
+// MotionState (contracts/spec/motion.ts) since the previous frame, null or
+// omitted when the motion driver published none.
 export const ANALOG_CENTER = 0x8080;
 
 // ---------------------------------------------------------------------------

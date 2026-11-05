@@ -18,9 +18,12 @@ import {
   type PropName,
 } from "../../contracts/spec/spec.ts";
 import type { AxisDelta } from "./relative-axis.ts";
+import type { MotionState } from "./motion.ts";
+import type { TextEventRecord } from "./text-input.ts";
+import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
-// Replaced by tools/build.ts for manifest-driven builds. `typeof` keeps
-// legacy/test bundles valid until they opt into a ResolvedBuildPlan.
+// Replaced by tools/build.ts. A raw bundle has no target restriction but uses
+// the same generated UI binding as a manifest-driven bundle.
 declare const __POCKET_TARGET__: string;
 declare const __POCKET_HOST_ABI__: number;
 // Replaced by tools/build.ts in EVERY build (default 60, `--hz` declares
@@ -113,6 +116,21 @@ export interface HostOps {
    * display.auxiliary; coordinates belong to its logical viewport. */
   hitTestAuxiliary?(x: number, y: number): number;
   hitTestBoundsAuxiliary?(x: number, y: number): number;
+
+  // -- 2D bodies (spec ops 52..56, ui.physics; contracts/spec/physics.ts).
+  //    Present together or not at all; @pocketjs/framework/physics checks. ---
+  /** Create a world, body, collider, zone or emitter from little-endian f64
+   *  [key, value] pairs → handle, 0 when refused. */
+  physicsCreate?(kind: number, params: ArrayBuffer): number;
+  /** Apply little-endian f64 [handle, cmd, argc, arg*] command records. */
+  physicsApply?(records: ArrayBuffer): void;
+  /** Destroy a physics object; bodies and emitters release their views. */
+  physicsDestroy?(handle: number): void;
+  /** Drain the events the ticks since the last drain produced, as
+   *  little-endian f64 records; undefined when there are none. */
+  physicsEvents?(): ArrayBuffer | undefined;
+  /** Picks and body state reads (PHYSICS_QUERY). */
+  physicsQuery?(query: number, handle: number, a?: number, b?: number, c?: number, d?: number): number;
   /** Bind the cursor sprite: an uploaded texture drawn topmost every frame,
    *  offset by its hotspot; never laid out, never hit-tested. tex < 0 hides
    *  it; w/h <= 0 draw at the texture's own pixel size. */
@@ -136,6 +154,12 @@ export interface HostOps {
   fontStreamStats?(): string;
   /** PFB1 batch lease: 1 ready, 0 pending, -1 missing, -2 budget, -3 stale. */
   fontStreamBatch?(descriptor: Uint8Array): number;
+  /** Arm a capture of the text runs painted inside node `root` (0: the
+   *  whole surface) on the next draw of `surface` (0 primary, 1 auxiliary).
+   *  The agent reads a screen this way (contracts/spec/agent.ts). */
+  captureTexts?(surface: number, root: number): boolean;
+  /** The last capture: one run per line, "x,y,w,h", a tab, the text. */
+  capturedTexts?(surface: number): string;
   /** JS-side convenience; layout measures natively. → width in px. */
   measureText(str: string, fontSlot: number): number;
   /** Soft-wrap break columns for ONE line under maxW px (spec op 43):
@@ -189,6 +213,13 @@ export interface HostOps {
   /** Stop audio, close the stream, free the plane. */
   videoClose?(): void;
 
+  // -- text sessions. Optional: a host whose keyboard is somewhere else (a
+  //    handheld's lower panel, a system keyboard) shows it while a text
+  //    field's keyboard session is open and sends input.text events; the
+  //    on-screen keyboard's controller calls it (osk-controller.ts). ----
+  /** A text field's keyboard session opened (true) or closed (false). */
+  textSession?(open: boolean): void;
+
   // -- DevTools ops (spec ops 18..22, docs/DEVTOOLS.md). Optional: debug-only,
   //    default-off; hosts that predate them (e.g. pocket-mod) simply lack
   //    them and the shim feature-detects. ---------------------------------
@@ -205,6 +236,9 @@ export interface HostOps {
   debugStep?(): void;
   /** Native DevTools transport (PSP mailbox or paired 3DS TCP connection). */
   __dbgActive?(): boolean;
+  /** Whether a DevTools client is connected now (3DS). Hosts without it keep
+   *  sending snapshots whenever the transport exists. */
+  __dbgConnected?(): boolean;
   __dbgPoll?(): string | undefined;
   __dbgSend?(line: string): void;
   /** On-demand native screenshot. The host transports bulk pixels outside
@@ -217,7 +251,7 @@ export interface HostOps {
   debugStats?(): string;
 
   // -- app switching (spec ops 39..41, docs/LAUNCHER.md). Optional: only
-  //    multi-app hosts (the launcher EBOOT, hosts/sim's launcher runner)
+  //    multi-app hosts (the launcher EBOOT, programs/sim's launcher runner)
   //    implement them; @pocketjs/framework/launcher feature-detects and the
   //    launcher app degrades to its empty state elsewhere. -----------------
   /** OP.appTable — JSON { apps: [{output, id, title}], current, resume }. */
@@ -238,7 +272,7 @@ export interface HostOps {
   __reportAppAction?(name: string, value: number): void;
   /** Framework target/profile identity (for example "psp" or "vita"). */
   __host?: string;
-  /** Version of the JS/native HostOps ABI implemented by this namespace. */
+  /** Generated UI binding generation, independent of the target/profile id. */
   __hostAbi?: number;
   /** Ticks per second of virtual time the host drives this realm at. Absent
    *  means the spec default 60 — hosts that predate per-realm rates only
@@ -278,13 +312,16 @@ let current: Host | null = null;
 export function embeddedBuildHostContract(): BuildHostContract | null {
   const target = typeof __POCKET_TARGET__ === "string" ? __POCKET_TARGET__ : "";
   const hostAbi =
-    typeof __POCKET_HOST_ABI__ === "number" ? __POCKET_HOST_ABI__ : 0;
-  return target && hostAbi > 0 ? { target, hostAbi } : null;
+    typeof __POCKET_HOST_ABI__ === "number" ? __POCKET_HOST_ABI__ : POCKET_BINDING_GENERATION;
+  if (hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`PocketJS: bundle binding generation ${hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  return target ? { target, hostAbi } : null;
 }
 
-/** Fail before mounting when a bundle was packaged with the wrong native
- *  host, or baked for a tick rate the host does not drive. The rate check
- *  runs for every native mount — plan-less bundles bake a rate too. */
+/** Fail before mounting when a bundle was packaged for another binding
+ *  generation, or baked for a tick rate the host does not drive. The rate
+ *  check runs for every native mount — plan-less bundles bake a rate too.
+ *  The host's profile id is not compared: device admission decides which
+ *  hosts run a package (contracts/spec/admission.ts). */
 export function assertNativeHostContract(
   ops: HostOps,
   expected: BuildHostContract | null = embeddedBuildHostContract(),
@@ -304,6 +341,12 @@ export function assertNativeHostContract(
           "a bundle only runs correctly at the rate it was built with (`--hz`), like glyphs at their density",
     );
   }
+  if (expected && expected.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`PocketJS: native host ABI mismatch (bundle binding generation ${expected.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION})`);
+  }
+  if (ops.__hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`PocketJS: native host ABI mismatch (bundle=${POCKET_BINDING_GENERATION}, host=${ops.__hostAbi ?? "missing"}); rebuild the native host`);
+  }
   if (!expected) return;
   if (typeof ops.__host !== "string") {
     throw new Error(
@@ -311,16 +354,8 @@ export function assertNativeHostContract(
         "contracts — add __host/__hostAbi to its ui namespace (see framework/src/host.ts HostOps)",
     );
   }
-  if (ops.__host !== expected.target) {
-    throw new Error(
-      `PocketJS: native target mismatch (bundle=${expected.target}, host=${ops.__host})`,
-    );
-  }
-  if (ops.__hostAbi !== expected.hostAbi) {
-    throw new Error(
-      `PocketJS: native host ABI mismatch (bundle=${expected.hostAbi}, host=${ops.__hostAbi ?? "missing"})`,
-    );
-  }
+  // The device admitted this package against its profile facts; the host's
+  // profile id is provenance and need not equal the compiled one.
 }
 
 /**
@@ -328,14 +363,10 @@ export function assertNativeHostContract(
  * QuickJS).
  * Throws when neither exists — PocketJS cannot run without a native tree.
  *
- * A namespace is NATIVE when it self-identifies with `__host` (platform
- * contracts) — or, for hosts built before contracts existed (pocket-shell,
- * the iOS fork, shipped EBOOTs), when it carries `__textures`, which only
- * native ffi layers ever set. Those legacy hosts stay hosts/psp/non-strict with
- * target "unknown"; a bundle carrying an embedded contract refuses them with
- * an actionable migration error (assertNativeHostContract). Web/wasm
- * adapters publish `globalThis.ui` too but set neither marker and stay
- * strict-injected, exactly as before.
+ * A namespace is native when it self-identifies with `__host` or carries
+ * native resource handles in `__textures`. Both paths require the current
+ * binding generation. A low-level injected HostOps object has no native
+ * marker and stays strict.
  */
 export function detectHost(injected?: HostOps): Host {
   const native = (globalThis as { ui?: HostOps & { __textures?: unknown } }).ui;
@@ -392,6 +423,13 @@ export function getOps(): HostOps {
   return getHost().ops;
 }
 
+/** The active host's ops, or null before render() installed one: for a
+ *  controller that works without a host (the keyboard session in a unit
+ *  test) and asks the host for an optional service. */
+export function peekOps(): HostOps | null {
+  return current?.ops ?? null;
+}
+
 const APP_ACTION_NAME = /^[a-z][a-z0-9_.-]{0,62}$/;
 
 /**
@@ -417,14 +455,16 @@ export function reportAppAction(name: string, value: number): void {
 // Frame hookup
 // ---------------------------------------------------------------------------
 // Every host drives frames the same way: once per vblank/rAF tick it calls
-// `globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?)` with the
+// `globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?, motion?)` with the
 // PSP button bitmask (spec BTN)
 // and, when the host has an analog stick, the packed nub value
 // (x << 8 | y, each axis 0..255, 128 = center — spec ANALOG_CENTER). Hosts
 // without a stick pass one argument; the runtime defaults to center, so every
 // pre-analog host, tape and golden is unchanged. index.ts composes input
 // edge-detection + the renderer's end-of-frame sweep into that entry point
-// via installFrameHandler.
+// via installFrameHandler. `motion` is the newest fused estimate the host's
+// motion driver published since the previous frame (contracts/spec/motion.ts);
+// null or absent means none, and a frame argument replaces a queued estimate.
 
 export function installFrameHandler(
   fn: (
@@ -435,6 +475,8 @@ export function installFrameHandler(
     touchSurfaces?: readonly number[],
     rightAnalog?: number,
     axisDeltas?: readonly AxisDelta[],
+    motion?: MotionState | null,
+    text?: readonly TextEventRecord[],
   ) => void,
 ): void {
   (
@@ -447,6 +489,8 @@ export function installFrameHandler(
         touchSurfaces?: readonly number[],
         rightAnalog?: number,
         axisDeltas?: readonly AxisDelta[],
+        motion?: MotionState | null,
+        text?: readonly TextEventRecord[],
       ) => void;
     }
   ).frame = fn;

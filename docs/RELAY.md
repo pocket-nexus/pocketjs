@@ -903,17 +903,17 @@ takes `min(local, peer)`, so a device shrinks the window and never widens
 it. An OPEN may name a smaller per-stream window, which is how a guest
 that needs three streams divides one attachment window between them.
 
-**Hosts that publish the lane today: none.** `hosts/3ds` and `hosts/psp`
-carry the offload record transport (`hosts/3ds/src/offload.c`,
-`hosts/psp/src/offload.rs`) and no relay lane, so a guest on either falls
+**Hosts that publish the lane today: none.** The 3DS and PSP programs
+carry the offload record transport (`platforms/3ds/offload.c`,
+`platforms/psp/io/src/offload.rs`) and no relay lane, so a guest on either falls
 back to offload. The remaining work per host is the socket or link plumbing
 plus three bindings, on top of the bounded admission queue
-`hosts/shared/relay_frame.h` provides (`RelayFrameQueue`,
+`engine/relay/c/relay_frame.h` provides (`RelayFrameQueue`,
 `relay_frame_admit`) for both directions.
 
 ## C frame layer
 
-`hosts/shared/relay_frame.h` and `relay_frame.c` decode the fixed header on a
+`engine/relay/c/relay_frame.h` and `relay_frame.c` decode the fixed header on a
 C host. **The C layer checks the header fields, the §3.6 CANCEL stream rule
 (header stream 0), the length identity, the negotiated
 `maxWireBytes`/`maxMetaBytes`/codec set, and UTF-8 over the metadata region;
@@ -932,7 +932,7 @@ code is C11 plus the C standard library: **no POSIX function is called**, in
 the library or in the test harness.
 
 `RelayFrameQueue` has the shape of `OffloadQueue` in
-`hosts/shared/offload_queue.h` — single producer, single consumer, fixed
+`engine/modules/offload/include/offload_queue.h` — single producer, single consumer, fixed
 slots, no waiting — with the admission rules of R5 §3.9. A full queue answers
 busy; it never drops or overwrites a frame it holds. Slot occupancy and
 window bytes are two counters: `relay_frame_queue_pop` frees the slot, while
@@ -946,7 +946,7 @@ window`), so a backlog that fills the window cannot be extended.
 **The frame tape records one session's complete wire records for debugging
 and conformance replay. Recording is off by default (R5 Q7) and is turned on
 per transport.** The implementation is `framework/src/relay/tape.ts`; the sim
-host hook is `hosts/sim/relay-tape.ts`.
+host hook is `programs/sim/relay-tape.ts`.
 
 The tape is a JSON document:
 
@@ -1050,7 +1050,7 @@ bun test tests/relay-endpoint.test.ts  # composed endpoint, guest <-> provider
 bun test tests/relay-private-op.test.ts # private op negotiation and both request directions
 bun test tests/relay-frame-c.test.ts  # compiles the C layer, feeds it the vectors
 bun test tests/relay-tape.test.ts tests/relay-sim-tape.test.ts
-bun tests/contract.ts
+bun test tests/generated-contracts.test.ts
 ```
 
 `tests/fixtures/relay/vectors/*.bin` are complete wire records with a paired
@@ -1058,17 +1058,17 @@ bun tests/contract.ts
 nine `example-*` vectors reproduce the R5 draft's Map/Term/Vault worked
 frames byte-for-byte (48-byte header hex and total length pinned).
 `constants.json` is the snapshot the C and Rust layers compare against;
-`engine/core/src/spec.rs` and `engine/crates/pocket-relay/src/generated.rs`
+`engine/spec/src/lib.rs` and `engine/relay/src/generated.rs`
 regenerate from the same spec through `bun contracts/spec/gen-rust.ts`.
 
 ## The Rust frame layer
 
-`engine/crates/pocket-relay` is the Rust half of the frame layer. It is
+`engine/relay` (`pocket-relay`) is the Rust half of the frame layer. It is
 `#![no_std]` and allocates nothing: `decode` borrows the caller's record and
 returns the metadata and data regions as slices, `encode_into` writes a
 caller-owned buffer, and `RecordReader` reassembles split transport input
 inside a buffer the caller supplies, whose length is the wire ceiling. The
-default `std` feature adds one thing, the `std::error::Error` impls; `hosts/psp`
+default `std` feature adds one thing, the `std::error::Error` impls; `programs/psp`
 builds `--no-default-features`, and the crate compiles for
 `thumbv7em-none-eabi` and `wasm32-unknown-unknown` as well as the desktop
 target.

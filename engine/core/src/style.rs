@@ -257,6 +257,8 @@ pub struct Resolved {
     pub inset: [f32; 4],
     pub display: u8,
     pub overflow: u8,
+    /// spec::Contain ordinal (layout containment).
+    pub contain: u8,
     pub hit_pass: u8,
     pub z_index: i32,
     pub bg_color: u32,
@@ -305,6 +307,9 @@ pub struct Resolved {
     pub arc_start: f32,
     pub arc_sweep: f32,
     pub arc_width: f32,
+    /// Horizontal shear in degrees about the transform origin, composed
+    /// between rotate and scale (spec.ts PROP.skewX).
+    pub skew_x: f32,
 }
 
 impl Default for Resolved {
@@ -330,6 +335,7 @@ impl Default for Resolved {
             inset: [f32::NAN; 4],
             display: spec::Display::Flex as u8,
             overflow: spec::Overflow::Visible as u8,
+            contain: spec::Contain::None as u8,
             hit_pass: 0,
             z_index: 0,
             bg_color: 0,
@@ -368,6 +374,7 @@ impl Default for Resolved {
             arc_start: 0.0,
             arc_sweep: 0.0,
             arc_width: 0.0,
+            skew_x: 0.0,
         }
     }
 }
@@ -380,6 +387,7 @@ impl Resolved {
     /// don't count: TEXT_RUN places its box exactly under them.
     pub fn declares_transform(&self) -> bool {
         self.rotate != 0.0
+            || self.skew_x != 0.0
             || self.scale != 1.0
             || self.scale_x != 1.0
             || self.scale_y != 1.0
@@ -422,6 +430,7 @@ impl Resolved {
             p::INSET_L => self.inset[3] = f,
             p::DISPLAY => self.display = bits as u8,
             p::OVERFLOW => self.overflow = bits as u8,
+            p::CONTAIN => self.contain = bits as u8,
             p::HIT_PASS => self.hit_pass = bits as u8,
             p::Z_INDEX => self.z_index = bits as i32,
             p::BG_COLOR => self.bg_color = bits,
@@ -460,6 +469,7 @@ impl Resolved {
             p::ARC_START => self.arc_start = f,
             p::ARC_SWEEP => self.arc_sweep = f,
             p::ARC_WIDTH => self.arc_width = f,
+            p::SKEW_X => self.skew_x = f,
             _ => {}
         }
     }
@@ -498,6 +508,7 @@ impl Resolved {
             p::INSET_L => self.inset[3].to_bits(),
             p::DISPLAY => self.display as u32,
             p::OVERFLOW => self.overflow as u32,
+            p::CONTAIN => self.contain as u32,
             p::HIT_PASS => self.hit_pass as u32,
             p::Z_INDEX => self.z_index as u32,
             p::BG_COLOR => self.bg_color,
@@ -536,6 +547,7 @@ impl Resolved {
             p::ARC_START => self.arc_start.to_bits(),
             p::ARC_SWEEP => self.arc_sweep.to_bits(),
             p::ARC_WIDTH => self.arc_width.to_bits(),
+            p::SKEW_X => self.skew_x.to_bits(),
             _ => 0,
         }
     }
@@ -545,63 +557,101 @@ impl Resolved {
 /// for every child's z each frame, and a full resolve there doubled the
 /// per-node style work (measured: the largest single cost in `draw` on PSP).
 pub fn resolve_z(node: &Node, table: &StyleTable) -> i32 {
-    let mut z = 0i32;
-    if let Some(rec) = table.record(node.style_id) {
-        for &(p, v) in &rec.base {
-            if p == spec::prop::Z_INDEX {
-                z = v as i32;
-            }
-        }
-        if node.focused {
-            for &(p, v) in &rec.focus {
-                if p == spec::prop::Z_INDEX {
-                    z = v as i32;
-                }
-            }
-        }
-        if node.active {
-            for &(p, v) in &rec.active {
-                if p == spec::prop::Z_INDEX {
-                    z = v as i32;
-                }
-            }
-        }
-    }
-    for &(p, v) in &node.overrides {
-        if p == spec::prop::Z_INDEX {
-            z = v as i32;
-        }
-    }
-    z
+    last_entry(node, table, Layers::Styled, spec::prop::Z_INDEX).map_or(0, |v| v as i32)
 }
 
 /// Resolve a node's effective style. `with_anim` controls whether live
-/// animation values participate (they do for painting/"from = current"; they
-/// don't when computing a transition's target).
+/// animation values and the physics layer participate (they do for layout,
+/// painting and hit testing; they don't when computing a transition's
+/// target). Animation start values use `resolve_animated`, which leaves the
+/// physics layer out.
 pub fn resolve(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
+    resolve_layers(node, table, if with_anim { Layers::Posed } else { Layers::Styled })
+}
+
+/// The opacity `resolve(node, table, true)` would produce, from the same
+/// layers in the same order without building a `Resolved`. The draw walk uses
+/// it to cull a transparent subtree before resolving the whole style.
+pub fn resolve_opacity(node: &Node, table: &StyleTable) -> f32 {
+    last_entry(node, table, Layers::Posed, spec::prop::OPACITY).map_or(Resolved::default().opacity, f32::from_bits)
+}
+
+/// The `contain` value `resolve` would produce, without building a
+/// `Resolved`: `set_style` checks it on every call to keep the region table
+/// current.
+pub fn resolve_contain(node: &Node, table: &StyleTable) -> u8 {
+    last_entry(node, table, Layers::Styled, spec::prop::CONTAIN)
+        .map_or(spec::Contain::None as u8, |bits| bits as u8)
+}
+
+/// Style, overrides and (with `with_anim`) animation tracks, without the
+/// physics layer: the values animations and transitions start from, so a
+/// body's pose never leaks into a view's own animation state.
+pub fn resolve_animated(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
+    resolve_layers(node, table, if with_anim { Layers::Animated } else { Layers::Styled })
+}
+
+/// How far down the layer stack a resolve reads. Each layer applies over the
+/// ones before it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Layers {
+    /// The style record (base, then the focus and active variants) and the
+    /// dynamic overrides.
+    Styled,
+    /// Plus live animation tracks.
+    Animated,
+    /// Plus physics poses.
+    Posed,
+}
+
+fn resolve_layers(node: &Node, table: &StyleTable, layers: Layers) -> Resolved {
     let mut r = Resolved::default();
+    for_each_entry(node, table, layers, |p, v| r.apply(p, v));
+    r
+}
+
+/// The raw payload of the last entry for `prop` within `layers`: the value
+/// that wins when every entry is applied in order.
+fn last_entry(node: &Node, table: &StyleTable, layers: Layers, prop: u8) -> Option<u32> {
+    let mut last = None;
+    for_each_entry(node, table, layers, |p, v| {
+        if p == prop {
+            last = Some(v);
+        }
+    });
+    last
+}
+
+/// Every (prop, payload) entry that shapes `node`, in application order. All
+/// resolvers read the layer stack through here, so they cannot disagree on
+/// its order.
+fn for_each_entry(node: &Node, table: &StyleTable, layers: Layers, mut apply: impl FnMut(u8, u32)) {
     if let Some(rec) = table.record(node.style_id) {
         for &(p, v) in &rec.base {
-            r.apply(p, v);
+            apply(p, v);
         }
         if node.focused {
             for &(p, v) in &rec.focus {
-                r.apply(p, v);
+                apply(p, v);
             }
         }
         if node.active {
             for &(p, v) in &rec.active {
-                r.apply(p, v);
+                apply(p, v);
             }
         }
     }
     for &(p, v) in &node.overrides {
-        r.apply(p, v);
+        apply(p, v);
     }
-    if with_anim {
+    if layers >= Layers::Animated {
         for &(p, v) in &node.anim_values {
-            r.apply(p, v);
+            apply(p, v);
         }
     }
-    r
+    if layers >= Layers::Posed {
+        for &(p, v) in &node.physics_values {
+            apply(p, v);
+        }
+    }
 }

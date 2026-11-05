@@ -1,0 +1,141 @@
+//! One canonical runtime archive plus the 3DS package recovery inspection ABI
+//! and the native program (`pocket_native_program.h`) built without outputs.
+//! The host composes its C guest, PICA Renderer, Displays and input drivers
+//! through the QuickJS facade.
+#![no_std]
+extern crate alloc;
+pub use pocket_archive::*;
+// The archive member supplies the pocket_native_program_* symbols; nothing
+// here calls it by name.
+use pocket_native_program as _;
+use pocket_drivers::abi;
+use pocket_package::sha256::sha256_hex_prefix;
+use pocket_runtime::abi::open_package;
+
+/// Borrowed sections of one verified filesystem `.pocket`. The C runtime owns
+/// the package allocation and keeps it alive until the guest is torn down.
+#[repr(C)]
+pub struct PocketGuestPackage {
+    pub javascript: *const u8,
+    pub javascript_length: usize,
+    pub worker_javascript: *const u8,
+    pub worker_javascript_length: usize,
+    pub pak: *const u8,
+    pub pak_length: usize,
+    pub plan: *const u8,
+    pub plan_length: usize,
+    pub package_hash: u64,
+    pub variant_hash: u64,
+    /// What the runtime takes from the variant's plan at boot instead of
+    /// having it compiled in: the primary and auxiliary surfaces (auxiliary
+    /// width and height are 0 when the plan has none) and
+    /// POCKET_GUEST_FEATURE_* bits.
+    pub view_width: u32,
+    pub view_height: u32,
+    pub raster_density: u32,
+    pub aux_width: u32,
+    pub aux_height: u32,
+    pub aux_raster_density: u32,
+    pub features: u32,
+    /// The application's state directory name below runtime/apps: the first
+    /// 16 hex digits of SHA-256(app id), NUL-terminated (tools/3ds.ts
+    /// `runtimeSlot`).
+    pub slot: [u8; 17],
+}
+
+/// `features.io.offload` is true in the plan.
+pub const POCKET_GUEST_FEATURE_OFFLOAD: u32 = 1;
+/// `features.media.playback` is true in the plan.
+pub const POCKET_GUEST_FEATURE_MEDIA: u32 = 2;
+/// `features.system.agent` is true in the plan: the top screen is the agent stage.
+pub const POCKET_GUEST_FEATURE_AGENT: u32 = 4;
+/// `features.system.extension` is true in the plan: a product extension owns the top screen.
+pub const POCKET_GUEST_FEATURE_EXTENSION: u32 = 64;
+/// `features.data.fs` is true in the plan: the guest gets `globalThis.fs`.
+pub const POCKET_GUEST_FEATURE_FS: u32 = 8;
+/// `features.camera.qr` is true in the plan: the outer camera's viewfinder
+/// with QR decoding.
+pub const POCKET_GUEST_FEATURE_CAMERA_QR: u32 = 16;
+/// `features.camera.photo` is true in the plan: both cameras, capture and
+/// the photo store.
+pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
+
+/// Verify a complete `.pocket` and admit the first variant the exported
+/// profile facts satisfy (`pocket_package::admission`). Returns the generated
+/// `POCKET_PACKAGE_OPEN_*` codes of `pocket_runtime.h`, which the C runtime's
+/// status and recovery files store, from the table of
+/// `pocket_runtime::abi::open_package`: `OK` on success, the selection codes
+/// of `guest_error_code`, `BAD_ARGUMENT` for a bad pointer, `NO_IDENTITY` for
+/// an empty app id, and `PLAN_JSON`, `PLAN_VIEWPORT` or `PLAN_AUXILIARY` for a
+/// plan whose JSON, viewport or auxiliary surface cannot be read. The profile
+/// hash only orders variants.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_package_open(
+    ptr: *const u8,
+    len: usize,
+    facts: *const abi::PocketProfileFacts,
+    host_abi: u32,
+    profile_hash: *const u8,
+    out: *mut PocketGuestPackage,
+) -> i32 {
+    if out.is_null() {
+        return abi::POCKET_PACKAGE_OPEN_BAD_ARGUMENT;
+    }
+    // The app id names the state slot below runtime/apps.
+    let (guest, facts) = match open_package(ptr, len, facts, host_abi, profile_hash, true) {
+        Ok(opened) => (opened.guest, opened.facts),
+        Err(code) => return code,
+    };
+    let auxiliary = facts.auxiliary;
+    let mut slot = [0u8; 17];
+    slot[..16].copy_from_slice(&sha256_hex_prefix::<16>(guest.id.as_bytes()));
+    out.write(PocketGuestPackage {
+        javascript: guest.js.as_ptr(),
+        javascript_length: guest.js.len(),
+        worker_javascript: guest.worker_js.as_ptr(),
+        worker_javascript_length: guest.worker_js.len(),
+        pak: guest.pak.as_ptr(),
+        pak_length: guest.pak.len(),
+        plan: guest.plan.as_ptr(),
+        plan_length: guest.plan.len(),
+        package_hash: guest.package_hash,
+        variant_hash: guest.variant_hash,
+        view_width: facts.viewport.width,
+        view_height: facts.viewport.height,
+        raster_density: facts.viewport.raster_density,
+        aux_width: auxiliary.map_or(0, |surface| surface.width),
+        aux_height: auxiliary.map_or(0, |surface| surface.height),
+        aux_raster_density: auxiliary.map_or(0, |surface| surface.raster_density),
+        features: if facts.feature("io.offload") {
+            POCKET_GUEST_FEATURE_OFFLOAD
+        } else {
+            0
+        } | if facts.feature("media.playback") {
+            POCKET_GUEST_FEATURE_MEDIA
+        } else {
+            0
+        } | if facts.feature("system.agent") {
+            POCKET_GUEST_FEATURE_AGENT
+        } else {
+            0
+        } | if facts.feature("system.extension") {
+            POCKET_GUEST_FEATURE_EXTENSION
+        } else {
+            0
+        } | if facts.feature("data.fs") {
+            POCKET_GUEST_FEATURE_FS
+        } else {
+            0
+        } | if facts.feature("camera.qr") {
+            POCKET_GUEST_FEATURE_CAMERA_QR
+        } else {
+            0
+        } | if facts.feature("camera.photo") {
+            POCKET_GUEST_FEATURE_CAMERA_PHOTO
+        } else {
+            0
+        },
+        slot,
+    });
+    abi::POCKET_PACKAGE_OPEN_OK
+}

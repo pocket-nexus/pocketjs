@@ -1,6 +1,43 @@
 {
+  "profile": {
+    "format": "pocket-host/2",
+    "id": "vita",
+    "platform": "vita",
+    "form": "takeover",
+    "cadences": [
+      60
+    ],
+    "display": {
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "integer-fit"
+      ],
+      "rasterDensity": 2,
+      "animation": "composited"
+    },
+    "panel": {
+      "primary": [
+        960,
+        544
+      ]
+    },
+    "capabilities": [
+      "input.analog.left",
+      "input.buttons",
+      "input.cursor",
+      "input.touch",
+      "text.glyphs.baked"
+    ],
+    "tickHz": 60
+  },
+  "profileHash": "sha256:d634e29e2770e62c1ab9ed91937336e97a106dd408927f26c894b4e0ee84f647",
   "app": {
-    "id": "dev.pocket-stack.telemetry",
+    "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
     "version": "0.1.0",
     "entry": "app/main.tsx",
@@ -13,7 +50,7 @@
   },
   "target": {
     "id": "vita",
-    "hostAbi": 2
+    "hostAbi": 12
   },
   "viewport": {
     "logical": [
@@ -49,11 +86,12 @@
     "text": "osk",
     "glyphs": "playstation"
   },
+  "animation": "composited",
   "features": {
     "input.analog.left": true,
     "input.buttons": true,
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:dc1c409e75fc1ee9fe69251d356908a95f57df0443d1ffb147940e640c81a1bd"
+  "planHash": "sha256:f7d2533b3d2f6ecaa719b83232c7bdaeb7e0429deeb41094275afc0549602782"
 }

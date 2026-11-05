@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { PROP, abgr } from "../contracts/spec/spec.ts";
 
 test("auxiliary raster and hit queries share resources without moving the primary viewport", async () => {
-  const wasm = await createWasmUi(await Bun.file(new URL("../hosts/web/pocketjs.wasm", import.meta.url)).arrayBuffer(), { width: 400, height: 240 });
+  const wasm = await createWasmUi(await Bun.file(new URL("../platforms/web/pocketjs.wasm", import.meta.url)).arrayBuffer(), { width: 400, height: 240 });
   const auxiliary = wasm.createAuxiliarySurface(320, 240), ops = wasm.ops;
   const rect = (root: number, color: number) => {
     const node = ops.createNode(0);

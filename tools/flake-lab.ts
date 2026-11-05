@@ -24,7 +24,7 @@
 // Same code. The only difference is what "time" means.
 
 import { writeFileSync } from "node:fs";
-import { bootWorld, runScenario } from "../hosts/sim/sim.ts";
+import { bootWorld, runScenario } from "../programs/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 
 const RUNS = Number(argValue("--runs") ?? 60);

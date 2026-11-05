@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyPspPrx } from "../tools/psp-prx.ts";
-import { resolvePspBuildToolchain } from "../tools/psp-toolchain.ts";
+import { resolvePspBuildToolchain } from "../tools/build/toolchains/psp/build.ts";
 
 // ELF32 layout reduced from a real failing PSP build: the RX segment began
 // at file offset 0xe0, but 64-byte-aligned rodata shifted the R segment by
@@ -41,25 +41,29 @@ describe("PSP PRX load layout", () => {
   });
 });
 
-// Opt in on a machine provisioned by `bun run bootstrap`: this exercises
-// clang, the pinned Rust linker, and prxgen rather than a source-text check.
+// Opt in after `pocket target add psp`, with POCKETJS_LLVM_BIN naming an LLVM
+// whose clang assembles the fixture: this exercises the pinned Rust linker and
+// prxgen rather than a source-text check. The PSP guest also uses this LLVM.
 test.skipIf(process.env.POCKETJS_TEST_PSP_LINK !== "1")("links aligned MIPS data into a loadable PRX", () => {
   const toolchain = resolvePspBuildToolchain();
+  const llvmBin = process.env.POCKETJS_LLVM_BIN;
+  if (!llvmBin) throw new Error("POCKETJS_TEST_PSP_LINK=1 needs POCKETJS_LLVM_BIN for clang");
   const dir = mkdtempSync(join(tmpdir(), "pocketjs-prx-"));
   const run = (cmd: string[]) => {
     const result = Bun.spawnSync(cmd, { env: toolchain.environment });
-    if (result.exitCode) throw new Error(result.stderr.toString());
+    if (!result.success) throw new Error(`${result.stderr.toString()} (signal=${result.signalCode})`);
     return result.stdout.toString().trim();
   };
   try {
-    const rust = [toolchain.rustup, "run", toolchain.manifest.rust.toolchain, "rustc"];
+    const rust = [toolchain.rustup, "run", toolchain.rustToolchain, "rustc"];
     const sysroot = run([...rust, "--print", "sysroot"]);
     const host = run([...rust, "-vV"]).match(/^host: (.+)$/m)![1]!;
-    const linker = join(sysroot, "lib/rustlib", host, "bin/rust-lld");
-    const target = JSON.parse(readFileSync(new URL("../hosts/psp/targets/mipsel-sony-psp.json", import.meta.url), "utf8"));
+    const linker = new URL("../tools/psp-linker.ts", import.meta.url).pathname;
+    expect(toolchain.environment.POCKET_PSP_LLD).toBe(join(sysroot, "lib/rustlib", host, "bin/rust-lld"));
+    const target = JSON.parse(readFileSync(new URL("../tools/build/toolchains/psp/mipsel-sony-psp.json", import.meta.url), "utf8"));
     const object = join(dir, "aligned.o"), elf = join(dir, "aligned.elf"), prxFile = join(dir, "aligned.prx");
     writeFileSync(join(dir, "link.ld"), target["link-script"]);
-    run([join(toolchain.llvmBin, "clang"), "-target", "mipsel-sony-psp", "-march=mips2", "-mno-abicalls", "-fno-pic", "-c",
+    run([join(llvmBin, "clang"), "-target", "mipsel-sony-psp", "-march=mips2", "-mno-abicalls", "-fno-pic", "-c",
       new URL("fixtures/psp-prx/aligned.s", import.meta.url).pathname, "-o", object]);
     run([linker, "-flavor", "gnu", "--nmagic", "--emit-relocs", "--eh-frame-hdr", "-T", join(dir, "link.ld"), object, "-o", elf]);
     run([Bun.which("prxgen", { PATH: toolchain.environment.PATH })!, elf, prxFile]);

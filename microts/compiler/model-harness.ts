@@ -1,6 +1,7 @@
 /** Executes compiler output in the JS runtime and one batched native harness. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { AOT_CARGO_ENV } from "./cargo-target.ts";
 import { generateModelJavaScript } from "./aot-model-js.ts";
 import { rustIdentifier } from "./rust-printer.ts";
 import { generateModelRust } from "./aot-model-codegen.ts";
@@ -53,6 +54,7 @@ export async function executeModelJavaScript(fixture: ModelHarnessCase, vue = fa
   await Bun.write(file, transform ? transform(source) : source);
   const cleanups = Object.entries(fixture.services ?? {}).map(([name, service]) => registerModelService(name, { capacity: service.capacity ?? 4, available: () => service.available !== false, validate: () => true, request: () => {} }));
   const module = await import(file), region = module.__modelRegion;
+  region.traceEnabled = true;
   cleanups.push(registerModelCommandHandler(() => {}));
   region.react(true); region.settle(); region.trace = [];
   try {
@@ -105,7 +107,7 @@ export async function executeModelRust(fixtures: readonly ModelHarnessCase[], op
   mkdirSync(resolve(directory, "src"), { recursive: true });
   // Cargo releases the build lock before launching the binary. Give concurrent
   // runs separate executables while sharing their compiled dependencies.
-  writeFileSync(resolve(directory, "Cargo.toml"), `[package]\nname="model-aot-differential-${identity}"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std","model-trace"]}\nserde_json="1"\n`);
+  writeFileSync(resolve(directory, "Cargo.toml"), `[package]\nname="model-aot-differential-${identity}"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/microts-runtime"))},features=["model-trace"]}\nserde_json="1"\n`);
   const modules: string[] = [], invocations: string[] = [];
   fixtures.forEach((fixture, index) => {
     const root = fixture.program.modules.find(module => module.kind === "root")!;
@@ -124,7 +126,7 @@ export async function executeModelRust(fixtures: readonly ModelHarnessCase[], op
     invocations.push(`for _replay in 0..2 { use case_${index}::*; reset_trace(); let mut m=${root.name}Model::default(); let mut commands=Vec::new(); m.react(true,&mut commands);m.settle();take_trace();microts::model::reset_counts();let mut frames=Vec::<Json>::new(); ${body}\nprintln!("{}",json!({"name":${JSON.stringify(fixture.name)},"frames":frames})); }`);
   });
   writeFileSync(resolve(directory, "src/main.rs"), `#![recursion_limit="512"]\n${modules.join("\n")}\n${rustHarness}\nfn main(){${invocations.join("\n")}}\n`);
-  const child = Bun.spawn(["cargo", "run", "--quiet", ...(options.release ? ["--release"] : []), "--manifest-path", resolve(directory, "Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: resolve(output, "target") } });
+  const child = Bun.spawn(["cargo", "run", "--quiet", ...(options.release ? ["--release"] : []), "--manifest-path", resolve(directory, "Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
   const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   writeFileSync(resolve(directory, "build.log"), stderr);
   if (status !== 0) throw new Error(`Model Rust harness failed (${status}):\n${stderr}`);

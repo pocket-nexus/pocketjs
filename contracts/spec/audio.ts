@@ -28,7 +28,7 @@
 //   free-frame budget (starts at AUDIO_RING_FRAMES, minus its own accepted
 //   writes, reset by each credit event) so the hot path never queries.
 //
-//   Virtual-clock hosts (hosts/sim) consume EXACTLY audioFramesForTick()
+//   Virtual-clock hosts (programs/sim) consume EXACTLY audioFramesForTick()
 //   frames per tick while a stream plays. That makes consumed PCM a pure
 //   function of (tick index, op stream) — byte-exact audio traces, the same
 //   determinism story as the pixel goldens.
@@ -38,7 +38,7 @@
 // guest may reuse the buffer immediately. No shared mutable buffers, ever.
 //
 // If you change ANY value here: run `bun contracts/spec/gen-rust.ts`, commit
-// the regenerated engine/core/src/spec.rs (tests/contract.ts byte-compares).
+// the regenerated engine/spec/src/lib.rs (tests/contract.ts byte-compares).
 
 // ---------------------------------------------------------------------------
 // Audio ops (the `audio.*` native contract)
@@ -68,6 +68,22 @@
 //                                          batch empty. Call at most once per
 //                                          event per tick — events are queued
 //                                          at tick boundaries only]
+//
+// Capture (capability `audio.capture`, the same namespace): the host records
+// one of its inputs into a per-input ring the guest drains each tick.
+//   openInput(sampleRate:u32, channels:u32, source:u32) -> handle | -1
+//                    [rate in AUDIO_RATES, channels 1|2, source an
+//                     AUDIO_INPUT_SOURCE value the host has; -1 = refused
+//                     (bad format, absent source or AUDIO_MAX_INPUTS live
+//                     inputs already). Recording starts at once. A source
+//                     with fewer channels than asked is duplicated; one
+//                     with more is averaged]
+//   readInput(handle, pcm:ArrayBuffer) -> frames:i32
+//                    [copies the oldest captured frames, interleaved s16 LE
+//                     at the input rate, into the BORROWED buffer: at most
+//                     byteLength / (2 * channels) frames, never blocking;
+//                     -1 = unknown handle]
+//   closeInput(handle)                    [stops recording, frees the ring]
 
 export const AUDIO_OP = {
   createStream: 1,
@@ -79,6 +95,9 @@ export const AUDIO_OP = {
   setVolume: 7,
   endStream: 8,
   poll: 9,
+  openInput: 10,
+  readInput: 11,
+  closeInput: 12,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -98,11 +117,16 @@ export const AUDIO_OP = {
 //   { "t": "ended",    "h": <handle> }
 //        endStream() was called and the ring has fully drained. The stream is
 //        auto-paused; it may be destroyed or rewritten-to and replayed.
+//   { "t": "overrun",  "h": <input handle> }
+//        An input's ring filled before the guest read it; frames captured
+//        while it was full were dropped. Emitted once per full episode
+//        (edge-triggered).
 
 export const AUDIO_EVENT = {
   credit: "credit",
   underrun: "underrun",
   ended: "ended",
+  overrun: "overrun",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -113,7 +137,7 @@ export const AUDIO_EVENT = {
  * Accepted stream sample rates. This is the PSP hardware constraint promoted
  * to the portable contract: the PSP outputs at its native 44.1 kHz and only
  * integer upsample ratios avoid the (audibly broken) hardware resampler —
- * see hosts/psp/src/audio.rs. Keeping every stream an integer divisor of
+ * see platforms/psp/audio/src/output.rs. Keeping every stream an integer divisor of
  * 44.1 kHz means every current and future host resamples with cheap exact
  * math, so a bundle that plays anywhere plays everywhere.
  */
@@ -124,7 +148,7 @@ export const AUDIO_MAX_CHANNELS = 2;
 
 /**
  * Per-stream ring capacity in SOURCE sample frames (~740 ms at 22.05 kHz —
- * the same figure hosts/psp/src/audio.rs carries for the video plane ring).
+ * the same figure platforms/psp/audio/src/output.rs carries for the video plane ring).
  * This is the credit ceiling: a guest's free-frame mirror starts here.
  */
 export const AUDIO_RING_FRAMES = 16384;
@@ -134,6 +158,19 @@ export const AUDIO_RING_FRAMES = 16384;
  *  a future module concern, not a bigger constant. */
 export const AUDIO_MAX_STREAMS = 4;
 
+/** Inputs a host records from (audio.capture). `microphones` is the
+ *  device's own microphones, stereo where it has a pair; `headset` the
+ *  microphone of a plugged headset, mono; `loopback` what the speaker
+ *  plays, mono, taken where the host can tap it. */
+export const AUDIO_INPUT_SOURCE = { microphones: 0, headset: 1, loopback: 2 } as const;
+export type AudioInputSource = keyof typeof AUDIO_INPUT_SOURCE;
+
+/** Per-input ring capacity in sample frames (~370 ms at 22.05 kHz). */
+export const AUDIO_INPUT_RING_FRAMES = 8192;
+
+/** Live inputs per runtime. */
+export const AUDIO_MAX_INPUTS = 3;
+
 /**
  * Frames the audio clock consumes on virtual tick `tick` (0-based, counted
  * per stream while playing) at 60 core ticks per second. The Bresenham-style
@@ -141,7 +178,7 @@ export const AUDIO_MAX_STREAMS = 4;
  * zero drift: the sum over any 60 consecutive ticks is exactly `rate`.
  *
  * This formula IS the deterministic-audio contract: virtual-clock hosts
- * (hosts/sim) consume exactly this many frames per playing tick, making the
+ * (programs/sim) consume exactly this many frames per playing tick, making the
  * consumed PCM byte-stream a pure function of (tick index, op stream).
  * Real-time hosts consume on the device clock instead and report through
  * `credit` — the formula is their long-run average by construction.

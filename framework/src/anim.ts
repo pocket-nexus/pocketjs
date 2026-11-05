@@ -5,6 +5,7 @@
 // fine); only ANIMATABLE props are accepted. Colors animate per ABGR channel
 // natively — pass a packed u32 or a '#rrggbb' string.
 
+import { ANIMATION_CLASSES, type AnimationClass } from "../../contracts/spec/platform-types.ts";
 import {
   animBit,
   ENUMS,
@@ -17,6 +18,19 @@ import { encodePropValue, getOps } from "./host.ts";
 import type { NodeMirror } from "./renderer.ts";
 import type { NodeSlot } from "./model-node-ref.ts";
 export type ModelAnimationResult = "ended" | "replaced" | "dropped";
+
+declare const __POCKET_ANIMATION__: AnimationClass;
+
+/**
+ * What a changed frame costs the target this bundle was compiled for
+ * (contracts/spec/animation.ts). tools/build.ts defines it from the plan; a
+ * bundle built without a plan animates as a composited target. On a still
+ * target animate() and spring() set the end value and return no animation.
+ */
+export const animationClass: AnimationClass =
+  typeof __POCKET_ANIMATION__ === "string" && (ANIMATION_CLASSES as readonly string[]).includes(__POCKET_ANIMATION__)
+    ? __POCKET_ANIMATION__
+    : "composited";
 
 export type EasingName =
   | "linear"
@@ -75,6 +89,10 @@ export function animate(
 ): number | PromiseLike<ModelAnimationResult> {
   if (typeof node === "function" && node.__pocketNodeRef) throw new Error("NodeSlot animation requires the compiled model transform");
   const propId = animatablePropId(prop);
+  if (animationClass === "still") {
+    getOps().setProp(nodeId(node as NodeMirror | number), propId, encodePropValue(prop, to));
+    return 0;
+  }
   let easing: number;
   if (typeof opts.easing === "number") {
     easing = opts.easing;
@@ -105,6 +123,10 @@ export function spring(
   preset: SpringPreset = "default",
 ): number {
   const propId = animatablePropId(prop);
+  if (animationClass === "still") {
+    getOps().setProp(nodeId(node), propId, encodePropValue(prop, to));
+    return 0;
+  }
   const easing =
     preset === "bouncy" ? ENUMS.Easing.SpringBouncy : ENUMS.Easing.Spring;
   return getOps().animate(nodeId(node), propId, encodePropValue(prop, to), 0, easing, 0);

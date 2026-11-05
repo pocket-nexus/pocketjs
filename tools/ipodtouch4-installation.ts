@@ -48,7 +48,7 @@ export function userDeploymentScript(deployment: UserDeployment): string {
   const executable = deployment.executable ?? bundleName.slice(0, -4);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(executable)) throw new Error("pocket ipodtouch4: invalid executable");
   if (!/^[0-9a-f]{64}$/.test(archiveHash) || !Object.keys(files).length ||
-      Object.entries(files).some(([name, hash]) => !/^[A-Za-z0-9@._-]+$/.test(name) || name === "." || name === ".." || !/^[0-9a-f]{64}$/.test(hash))) {
+      Object.entries(files).some(([name, hash]) => name.split("/").some(part => !/^[A-Za-z0-9@._-]+$/.test(part) || part === "." || part === "..") || !/^[0-9a-f]{64}$/.test(hash))) {
     throw new Error("pocket ipodtouch4: invalid deployment hashes");
   }
   return `set -eu

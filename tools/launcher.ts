@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { ensureHostWasm } from "./wasm.ts";
+import { resizeBilinear } from "./image-resize.ts";
 
 // The launcher artifact chain (docs/LAUNCHER.md "Build pipeline").
 //
@@ -6,7 +8,7 @@
 //   bun tools/launcher.ts covers [--target ...]       + render target-neutral covers
 //   bun tools/launcher.ts build [--target ...]        + multi-app console package
 //
-// The embedded set is COMPUTED, never curated: every apps/*/pocket.json
+// The embedded set is COMPUTED, never curated: every apps/*/pocket.app.json
 // that resolves against the selected target profile (the same admission gate
 // `pocket build` runs) is in, minus explicit --exclude. Covers are rendered by
 // the deterministic PSP-flavored sim host, so they remain target-neutral and
@@ -25,9 +27,10 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { encodePNG } from "../tests/png.ts";
-import { SHOT_W, SHOT_H, downscaleShot } from "../hosts/sim/shot.ts";
+import { SHOT_W, SHOT_H, downscaleShot } from "../programs/sim/shot.ts";
 import {
   SYMBIAN_E7_DEFAULT_VIEWPORT,
   SYMBIAN_E7_DEV_CONTRACTS,
@@ -43,10 +46,10 @@ import {
 import {
   SYMBIAN_TOOLCHAIN,
   withSymbianGuestBuildLock,
-} from "./symbian-toolchain.ts";
-import {
-  withArtifactLock,
-} from "./psp-toolchain.ts";
+} from "./build/toolchains/symbian.ts";
+import { withArtifactLock } from "./targets/lock.ts";
+import { prepareApplication } from "./build/inputs.ts";
+import { resolveProfile } from "./profile-resolver.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const APPS_DIR = join(ROOT, "apps");
@@ -54,7 +57,7 @@ const LAUNCHER_DIR = join(APPS_DIR, "launcher");
 const COVERS_DIR = join(LAUNCHER_DIR, "covers");
 const IMAGES_JSON = join(LAUNCHER_DIR, "images.json");
 const REGISTRY_TS = join(LAUNCHER_DIR, "registry.generated.ts");
-const LAUNCHER_MANIFEST = join(LAUNCHER_DIR, "pocket.json");
+const LAUNCHER_MANIFEST = join(LAUNCHER_DIR, "pocket.app.json");
 const LAUNCHER_APP = join(LAUNCHER_DIR, "app.tsx");
 const LAUNCHER_PSP_DIR = join(LAUNCHER_DIR, "psp");
 
@@ -190,7 +193,7 @@ export interface LauncherRegistryEntry {
   output: string;
   id: string;
   title: string;
-  /** Manifest path, repo-root-relative (hosts/psp/build.rs never reads it —
+  /** Manifest path, repo-root-relative (programs/psp/build.rs never reads it —
    *  it is for humans and for `covers` to rebuild a stale dist). */
   manifest: string;
   /** Build root for an explicitly included external manifest. Omitted for
@@ -207,7 +210,7 @@ class LauncherUsageError extends Error {}
 function usage(message?: string): never {
   if (message) console.error(`launcher: ${message}`);
   console.error(
-    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita|symbian] [--exclude <output>]... [--include-manifest <external/pocket.json>]... [--force] [-- backend args]",
+    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita|symbian] [--exclude <output>]... [--include-manifest <external/pocket.app.json>]... [--force] [-- backend args]",
   );
   throw new LauncherUsageError(message);
 }
@@ -272,7 +275,7 @@ function launcherBuildEntry(
   const generatedManifest = join(
     paths.output,
     ".manifests",
-    "launcher.symbian.pocket.json",
+    "launcher.symbian.pocket.app.json",
   );
   mkdirSync(dirname(generatedManifest), { recursive: true });
   writeFileSync(
@@ -347,7 +350,7 @@ export function prepareIsolatedLauncherSource(
     copyFileSync(sourceAsset, join(covers, asset));
   }
 
-  const manifestPath = join(source, "pocket.json");
+  const manifestPath = join(source, "pocket.app.json");
   writeFileSync(
     manifestPath,
     JSON.stringify(
@@ -413,10 +416,11 @@ function scanRegistryForTarget(
   const apps: LauncherRegistryEntry[] = [];
   const seen = new Map<string, string>();
   for (const dir of readdirSync(APPS_DIR).sort()) {
-    if (dir === "launcher") continue; // the launcher never lists itself
-    const manifestPath = join(APPS_DIR, dir, "pocket.json");
+    // The launcher never lists itself, nor the development container.
+    if (dir === "launcher" || dir === "devkit") continue;
+    const manifestPath = join(APPS_DIR, dir, "pocket.app.json");
     if (!existsSync(manifestPath)) continue;
-    const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const manifest: unknown = readPocketManifest(manifestPath).manifest;
     const resolution = resolveForTarget(manifest, target);
     if (!resolution.ok) {
       const codes = resolution.diagnostics.map((d) => d.code).join(", ");
@@ -450,7 +454,7 @@ function scanRegistryForTarget(
   return { apps };
 }
 
-/** Admission sweep: every app pocket.json that resolves for the target. */
+/** Admission sweep: every app pocket.app.json that resolves for the target. */
 export function scanRegistry(
   exclude: ReadonlySet<string>,
   target: LauncherTarget = "psp",
@@ -469,7 +473,7 @@ export function includeExternalManifests(
   const seen = new Map(apps.map((app) => [app.output, app.manifest]));
   const seenIds = new Map(apps.map((app) => [app.id, app.manifest]));
   const launcherManifest = launcher
-    ? JSON.parse(readFileSync(manifestPath(launcher), "utf8"))
+    ? readPocketManifest(manifestPath(launcher)).manifest
     : launcherManifestForTarget(target);
   const launcherResolution = resolveForTarget(launcherManifest, target);
   if (!launcherResolution.ok) {
@@ -488,7 +492,7 @@ export function includeExternalManifests(
     if (!existsSync(absoluteManifest)) {
       throw new Error(`launcher: external manifest is missing: ${absoluteManifest}`);
     }
-    const manifest: unknown = JSON.parse(readFileSync(absoluteManifest, "utf8"));
+    const manifest: unknown = readPocketManifest(absoluteManifest).manifest;
     const resolution = resolveForTarget(manifest, target);
     if (!resolution.ok) {
       const codes = resolution.diagnostics.map((diagnostic) => diagnostic.code).join(", ");
@@ -658,7 +662,7 @@ function writeRegistry(
       })),
     }, null, 2) + "\n",
   );
-  // The native build's twin (hosts/psp/build.rs): output\tid\ttitle per line —
+  // The native build's twin (programs/psp/build.rs): output\tid\ttitle per line —
   // no JSON parser inside a build script.
   writeFileSync(
     paths.registryTsv,
@@ -690,37 +694,6 @@ async function compileApp(
   await withSymbianGuestBuildLock(async () => {
     const absoluteManifest = manifestPath(app);
     const absoluteProjectRoot = projectRoot(app);
-    if (target === SYMBIAN_E7_DEV_TARGET_ID) {
-      const manifestBytes = readFileSync(absoluteManifest);
-      const resolution = resolveForTarget(
-        JSON.parse(manifestBytes.toString("utf8")),
-        target,
-      );
-      if (!resolution.ok) {
-        throw new Error(`launcher: compile failed to resolve ${absoluteManifest}`);
-      }
-      const planDirectory = join(output, ".plans");
-      mkdirSync(planDirectory, { recursive: true });
-      const planPath = join(
-        planDirectory,
-        `${resolution.plan.app.output}.json`,
-      );
-      writeFileSync(planPath, JSON.stringify(resolution.plan, null, 2) + "\n");
-      const p = Bun.spawnSync(
-        [
-          "bun",
-          "tools/build.ts",
-          `--plan=${planPath}`,
-          `--project-root=${absoluteProjectRoot}`,
-          `--outdir=${output}`,
-        ],
-        { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
-      );
-      if (p.exitCode !== 0) {
-        throw new Error(`launcher: compile failed for ${absoluteManifest}`);
-      }
-      return;
-    }
     const p = Bun.spawnSync(
       [
         "bun",
@@ -737,7 +710,7 @@ async function compileApp(
       ],
       { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
     );
-    if (p.exitCode !== 0) {
+    if (!p.success) {
       throw new Error(`launcher: compile failed for ${absoluteManifest}`);
     }
   });
@@ -867,7 +840,7 @@ function reflectionOf(cover: Uint8Array): Uint8Array {
   return out;
 }
 
-async function renderCovers(
+export async function renderCovers(
   registry: LauncherRegistry,
   force: boolean,
 ): Promise<void> {
@@ -877,40 +850,60 @@ async function renderCovers(
     await Bun.write(bgPath, encodePNG(stageBackground(), SHOT_W, SHOT_H));
     console.log(`  stage ${relative(ROOT, bgPath)}`);
   }
-  // Import lazily: bootWorld pulls the wasm core + build machinery, which
-  // `scan` alone must not need.
-  const { bootWorld } = await import("../hosts/sim/sim.ts");
-  for (const app of registry.apps) {
+  // POCKET_LAUNCHER_COVERS=placeholder (tools/test.ts sets it for the launcher
+  // stage) writes the fallback gradient for every missing cover and compiles
+  // nothing: a cover is 256x128 RGBA either way, and the launcher tests read
+  // the tree's text, not pixels. A placeholder leaves a marker beside its PNG;
+  // a render without the variable treats a marked cover as missing.
+  const placeholder = process.env.POCKET_LAUNCHER_COVERS === "placeholder";
+  const marker = (app: LauncherRegistryEntry) => join(COVERS_DIR, `cover-${app.output}.placeholder`);
+  const pending = registry.apps.filter((app) => {
     const coverPath = join(COVERS_DIR, `cover-${app.output}.png`);
     const reflPath = join(COVERS_DIR, `refl-${app.output}.png`);
-    if (!force && existsSync(coverPath) && existsSync(reflPath)) continue;
+    const present = existsSync(coverPath) && existsSync(reflPath) && (placeholder || !existsSync(marker(app)));
+    return force || !present;
+  });
+  const coverTargetOf = (app: LauncherRegistryEntry) => {
+    const manifest = readPocketManifest(manifestPath(app)).manifest;
+    const coverTarget: LauncherTarget = (["psp", "vita", SYMBIAN_E7_DEV_TARGET_ID] as const).find(target => resolveForTarget(manifest, target).ok)!;
+    if (!coverTarget) throw new Error(`cover app no longer admits a launcher target: ${app.output}`);
+    return { manifest, coverTarget };
+  };
+  if (placeholder) {
+    for (const app of pending) {
+      // An explicitly included manifest still compiles: the command's exit
+      // code is how its author learns that the app does not build.
+      if (app.projectRoot) await compileApp(app, coverTargetOf(app).coverTarget, join(ROOT, "dist"));
+      const ringed = transparentRing(fallbackCover(app.output), SHOT_W, SHOT_H);
+      await Bun.write(join(COVERS_DIR, `cover-${app.output}.png`), encodePNG(ringed, SHOT_W, SHOT_H));
+      await Bun.write(join(COVERS_DIR, `refl-${app.output}.png`), encodePNG(reflectionOf(ringed), REFL_W, REFL_H));
+      await Bun.write(marker(app), "");
+      console.log(`  cover ${app.output} -> placeholder gradient (POCKET_LAUNCHER_COVERS)`);
+    }
+    return;
+  }
+  if (pending.length === 0) return;
+  // Import lazily: bootWorld pulls the wasm core + build machinery, which
+  // `scan` alone must not need.
+  const { bootBundle } = await import("../programs/sim/sim.ts");
+  const wasm = await ensureHostWasm();
+  for (const app of pending) {
+    const coverPath = join(COVERS_DIR, `cover-${app.output}.png`);
+    const { manifest, coverTarget } = coverTargetOf(app);
     if (force || !existsSync(join(ROOT, "dist", `${app.output}.js`))) {
-      // The deterministic sim is the PSP-flavored 480x272 oracle. Covers are
-      // distribution metadata, not a target raster variant; Vita consumes the
-      // same 256x128 PNG from its own density-2 launcher pak. Prefer PSP, then
-      // Vita; a Symbian-only dynamic app uses its density-1 bundle through the
-      // injected sim host without making the common registry target-specific.
-      const manifest = JSON.parse(
-        readFileSync(manifestPath(app), "utf8"),
-      );
-      const coverTarget: LauncherTarget = validateAndResolveBuildPlan(
-        manifest,
-        { target: "psp" },
-      ).ok
-        ? "psp"
-        : validateAndResolveBuildPlan(manifest, { target: "vita" }).ok
-          ? "vita"
-          : SYMBIAN_E7_DEV_TARGET_ID;
       await compileApp(app, coverTarget, join(ROOT, "dist"));
     }
     let shot: Uint8Array;
     try {
-      const world = await bootWorld(app.output, 60);
-      for (let f = 0; f < COVER_SETTLE_FRAMES; f++) {
-        world.frame(0);
-        for (let t = 0; t < world.ticksPerFrame; t++) world.tick();
-      }
-      shot = downscaleShot(world.render());
+      const resolved = resolveForTarget(manifest, coverTarget);
+      if (!resolved.ok) throw new Error("cover app is no longer admitted");
+      const world = await bootBundle({ js: join(ROOT, "dist", `${app.output}.js`), pak: join(ROOT, "dist", `${app.output}.pak`),
+        app: app.output, wasm, hz: 60, viewport: { host: resolved.plan.target.id, hostAbi: resolved.plan.target.hostAbi,
+          width: resolved.plan.viewport.logical[0], height: resolved.plan.viewport.logical[1], rasterDensity: resolved.plan.viewport.rasterDensity } });
+      for (let f = 0; f < COVER_SETTLE_FRAMES; f++) world.step();
+      if (world.failure) throw new Error(world.failure.message);
+      const pixels = world.pixels();
+      shot = downscaleShot(pixels.rgba, pixels.width, pixels.height);
       console.log(`  cover ${app.output} -> ${relative(ROOT, coverPath)}`);
     } catch (error) {
       shot = fallbackCover(app.output);
@@ -925,44 +918,14 @@ async function renderCovers(
       join(COVERS_DIR, `refl-${app.output}.png`),
       encodePNG(reflectionOf(ringed), REFL_W, REFL_H),
     );
+    rmSync(marker(app), { force: true });
   }
 }
 
 /** Generic bilinear resample (art assets only — the deck textures use the
  *  fixed-size shot path). Also used by tools/psp.ts to bake the switch
  *  veil's logo texture. */
-export function resizeBilinear(
-  rgba: Uint8Array,
-  sw: number,
-  sh: number,
-  dw: number,
-  dh: number,
-): Uint8Array {
-  const out = new Uint8Array(dw * dh * 4);
-  for (let y = 0; y < dh; y++) {
-    const sy = ((y + 0.5) * sh) / dh - 0.5;
-    const y0 = Math.min(sh - 1, Math.max(0, Math.floor(sy)));
-    const y1 = Math.min(sh - 1, y0 + 1);
-    const fy = Math.min(1, Math.max(0, sy - y0));
-    for (let x = 0; x < dw; x++) {
-      const sx = ((x + 0.5) * sw) / dw - 0.5;
-      const x0 = Math.min(sw - 1, Math.max(0, Math.floor(sx)));
-      const x1 = Math.min(sw - 1, x0 + 1);
-      const fx = Math.min(1, Math.max(0, sx - x0));
-      const o = (y * dw + x) * 4;
-      for (let c = 0; c < 4; c++) {
-        const top =
-          rgba[(y0 * sw + x0) * 4 + c] +
-          (rgba[(y0 * sw + x1) * 4 + c] - rgba[(y0 * sw + x0) * 4 + c]) * fx;
-        const bot =
-          rgba[(y1 * sw + x0) * 4 + c] +
-          (rgba[(y1 * sw + x1) * 4 + c] - rgba[(y1 * sw + x0) * 4 + c]) * fx;
-        out[o + c] = Math.round(top + (bot - top) * fy);
-      }
-    }
-  }
-  return out;
-}
+export { resizeBilinear } from "./image-resize.ts";
 
 /** XMB identity (cargo-psp packs apps/launcher/psp/Psp.toml): ICON0 is the
  *  REAL deck — a settled sim render resized to 144×80 — and PIC1 is the
@@ -971,7 +934,7 @@ export function resizeBilinear(
 async function renderXmbArt(): Promise<void> {
   const pspDir = join(LAUNCHER_DIR, "psp");
   mkdirSync(pspDir, { recursive: true });
-  const { bootWorld } = await import("../hosts/sim/sim.ts");
+  const { bootWorld } = await import("../programs/sim/sim.ts");
   const world = await bootWorld("launcher-main", 60);
   for (let f = 0; f < 60; f++) {
     world.frame(0);
@@ -989,7 +952,7 @@ async function renderXmbArt(): Promise<void> {
 
 /** Emit one target-thinned package per embedded app from ALREADY-BUILT dists.
  *  Native hosts embed these files verbatim and select their target variant
- *  through engine/core/src/package.rs. The standalone multi-target packer
+ *  through engine/package/src/package.rs. The standalone multi-target packer
  *  remains tools/pocket-pack.ts. */
 async function packPackages(
   registry: LauncherRegistry,
@@ -1007,9 +970,8 @@ async function packPackages(
   ];
   for (const entry of entries) {
     const absoluteManifest = manifestPath(entry);
-    const manifestBytes = readFileSync(absoluteManifest);
-    const manifest: unknown = JSON.parse(manifestBytes.toString("utf8"));
-    const resolution = resolveForTarget(manifest, target);
+    const loaded = readPocketManifest(absoluteManifest);
+    const resolution = resolveForTarget(loaded.manifest, target);
     if (!resolution.ok) {
       throw new Error(
         `launcher pack: ${absoluteManifest} no longer admits ${target}`,
@@ -1025,7 +987,7 @@ async function packPackages(
       : new Uint8Array(0);
     const coverPath = join(COVERS_DIR, `cover-${plan.app.output}.png`);
     const bytes = encodePocketPackage({
-      manifest: new Uint8Array(manifestBytes),
+      manifest: loaded.embedded,
       variants: [
         makeVariant({
           target,
@@ -1037,6 +999,7 @@ async function packPackages(
             title: plan.app.title,
           },
           js,
+          ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(paths.output, `${plan.app.output}.worker.js`))) } : {}),
           pak,
           cover: existsSync(coverPath)
             ? new Uint8Array(readFileSync(coverPath))
@@ -1078,7 +1041,7 @@ export function encodeSymbianCatalog(
 ): EncodedSymbianCatalog {
   if (
     entries.length < 2 ||
-    entries[0]?.plan.app.id !== "dev.pocket-stack.launcher"
+    entries[0]?.plan.app.id !== "dev.pocket-nexus.launcher"
   ) {
     throw new Error(
       "launcher: Symbian catalog must start with the launcher and contain an app",
@@ -1164,7 +1127,7 @@ async function writeSymbianCatalog(
     const packageBytes = new Uint8Array(readFileSync(packagePath));
     const decoded = decodePocketPackage(packageBytes);
     const variant = findVariant(decoded, SYMBIAN_E7_DEV_TARGET_ID);
-    if (!variant || variant.hostAbi !== resolution.plan.target.hostAbi) {
+    if (!variant || variant.hostAbi !== resolution.plan.target.hostAbi || variant.profileHash !== resolution.plan.profileHash) {
       throw new Error(
         `launcher: ${packagePath} does not match its Symbian build plan`,
       );
@@ -1249,11 +1212,11 @@ async function main(): Promise<void> {
       exclude.add(value);
     } else if (arg === "--include-manifest") {
       const value = argv.shift();
-      if (!value) usage("--include-manifest requires a pocket.json path");
+      if (!value) usage("--include-manifest requires a pocket.app.json path");
       externalManifests.push(value);
     } else if (arg.startsWith("--include-manifest=")) {
       const value = arg.slice("--include-manifest=".length);
-      if (!value) usage("--include-manifest requires a pocket.json path");
+      if (!value) usage("--include-manifest requires a pocket.app.json path");
       externalManifests.push(value);
     } else if (arg === "--target") {
       const value = argv.shift();
@@ -1300,7 +1263,7 @@ async function main(): Promise<void> {
   ): Promise<void> => {
     let launcher = launcherBuildEntry(target, paths);
     console.log(
-      `launcher: scanning apps/*/pocket.json against target ${target}`,
+      `launcher: scanning apps/*/pocket.app.json against target ${target}`,
     );
     const registry = includeExternalManifests(
       scanRegistry(exclude, target),
@@ -1372,6 +1335,9 @@ async function main(): Promise<void> {
       await renderXmbArt();
       copyIsolatedPspMetadata(paths.isolatedSource);
     }
+    const launcherResolution = resolveForTarget(readPocketManifest(manifestPath(launcher)).manifest, target);
+    if (!launcherResolution.ok) throw new Error("launcher: package no longer resolves for the native program");
+    const launcherPocket = join(paths.packages, `${launcherResolution.plan.app.output}.pocket`);
     console.log(`launcher: building the multi-app ${
       target === "psp"
         ? "EBOOT"
@@ -1393,6 +1359,7 @@ async function main(): Promise<void> {
           catalogIndex: paths.catalogIndex!,
           catalogBlob: paths.catalogBlob!,
           transaction: symbianTransaction,
+          application: prepareApplication(await resolveProfile({ from: ROOT, target }), launcherPocket, join(paths.output, ".native-input")),
         },
       );
       console.log(`PocketJS Symbian launcher: ${sis}`);
@@ -1401,8 +1368,7 @@ async function main(): Promise<void> {
     const targetBackendArgs =
       target === "vita"
         ? [
-            `--launcher-packages=${relative(ROOT, paths.packages)}`,
-            `--package-outdir=${relative(ROOT, join(ROOT, "dist/vita"))}`,
+            `--launcher-packages=${paths.packages}`,
           ]
         : [];
     const p = Bun.spawnSync(
@@ -1412,20 +1378,18 @@ async function main(): Promise<void> {
         "build",
         "--target",
         target,
-        "--manifest",
-        manifestPath(launcher),
-        "--project-root",
-        projectRoot(launcher),
-        "--outdir",
-        paths.output,
+        "--pocket",
+        launcherPocket,
+        "--out",
+        join(paths.output, "native"),
         "--",
-        `--launcher-registry=${relative(ROOT, paths.registryTsv)}`,
+        `--launcher-registry=${paths.registryTsv}`,
         ...targetBackendArgs,
         ...backendArgs,
       ],
       { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
     );
-    if (p.exitCode !== 0)
+    if (!p.success)
       throw new Error(`launcher: ${target} backend build failed`);
   };
 

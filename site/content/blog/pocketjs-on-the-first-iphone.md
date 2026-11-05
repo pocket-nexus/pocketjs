@@ -324,7 +324,7 @@ bug one.
 
 The rasterizer always was. `ui_render_incremental` writes only the spans the
 damage plan covers, and it works: instrumenting the plan the core already
-returns — and which `engine/ui-cabi` was discarding — gives
+returns — and which `programs/native/cabi` was discarding — gives
 `damage_failures=0`, two full redraws in 361 frames, and an **empty** plan on
 most frames, because a mostly-still UI mostly does not change.
 
@@ -436,4 +436,4 @@ On hardware you can only touch one machine at a time. The cheapest thing you can
 
 ---
 
-*PocketJS is open source at [pocket-stack/pocketjs](https://github.com/pocket-stack/pocketjs). The iPhone workflow and its acceptance layers are documented in [`docs/IPHONE2G.md`](https://github.com/pocket-stack/pocketjs/blob/main/docs/IPHONE2G.md); the port is PR [#219](https://github.com/pocket-stack/pocketjs/pull/219), with the GL fixes and this correction in [#233](https://github.com/pocket-stack/pocketjs/pull/233). The C runtime startup is Apple's [Csu](https://github.com/apple-oss-distributions/Csu), and the historical map of this toolchain territory is still [saurik's](https://www.saurik.com/toolchain.html).*
+*PocketJS is open source at [pocket-nexus/pocketjs](https://github.com/pocket-nexus/pocketjs). The iPhone workflow and its acceptance layers are documented in [`docs/IPHONE2G.md`](https://github.com/pocket-nexus/pocketjs/blob/38471d0ac0918fb3f2fca2f0cf527dd0ebd492b2/docs/IPHONE2G.md); the port is PR [#219](https://github.com/pocket-nexus/pocketjs/pull/219), with the GL fixes and this correction in [#233](https://github.com/pocket-nexus/pocketjs/pull/233). The C runtime startup is Apple's [Csu](https://github.com/apple-oss-distributions/Csu), and the historical map of this toolchain territory is still [saurik's](https://www.saurik.com/toolchain.html).*

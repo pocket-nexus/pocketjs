@@ -10,7 +10,7 @@ let sequence=0;
 export function generateModelViewCase(seed:number) {
   const initial=(seed>>>0)%17,step=1+((seed>>>3)%3);
   const files:Record<string,string>={
-    "pocket.json":JSON.stringify({pocket:2,id:"test.model.view-fuzz",name:"Generated regions",app:{entry:"App.tsx",framework:"solid",aot:true,model:"compiled"}}),
+    "pocket.app.json":JSON.stringify({pocket:2,id:"test.model.view-fuzz",name:"Generated regions",app:{entry:"App.tsx",framework:"solid",aot:true,model:"compiled"}}),
     "App.ts":`import{createSignal}from"solid-js";import{createEffect,on}from"@pocketjs/framework/solid/reactive";import type{i32}from"@pocketjs/framework/solid/std";
       export const[count,setCount]=createSignal<i32>(0);export const[mid,setMid]=createSignal<i32>(0);export const[end,setEnd]=createSignal<i32>(0);export const[open,setOpen]=createSignal(true);
       createEffect(on([count],()=>setMid(count()),{defer:true}));createEffect(on([mid],()=>setEnd(mid()),{defer:true}));

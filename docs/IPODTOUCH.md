@@ -1,5 +1,7 @@
 # iPod touch 6 connected-device host
 
+Native build inputs and host configs are listed in [Device native builds](DEVICE_BUILDS.md).
+
 PocketJS runs on the sixth-generation iPod touch as a native UIKit
 application. **The tested device is `iPod7,1` on iOS 12.5.8 (`16H88`) with an
 A8 processor and a 640×1136 Retina display.** The host exposes a 320×568
@@ -7,20 +9,21 @@ logical viewport at raster density 2.
 
 ## Execution path
 
-The application statically links `engine/ios`:
+The application statically links `platforms/apple`:
 
-- `pocket-mod` owns the QuickJS guest realm.
-- `pocket-ui-surface` installs the synchronous `ui.*` operations and feeds the
-  baked asset package.
-- `pocketjs-core` lays out and software-rasterizes the draw list.
+- `pocket-runtime` owns the admitted package, guest lifecycle, input and
+  presentation state.
+- `pocket-guest-rquickjs` runs the QuickJS realm and installs the generated
+  `ui.*` operations.
+- `pocketjs-core` lays out the UI; `pocket-raster` renders the draw list.
 - `PocketSurfaceView` advances the guest from a 60 Hz main-run-loop timer,
   presents the framebuffer through Core Graphics, and maps UIKit touches back
   to logical coordinates. The iPod host selects this explicit clock because
   its jailbroken iOS 12 runtime does not deliver `CADisplayLink` callbacks;
   the default Apple host keeps the display-link path.
 
-The iPod host publishes `ipodtouch-dev` / ABI 7. The NativeScript simulator
-shell continues to publish `ios-dev` / ABI 7. **A plan-built guest refuses to
+The iPod host publishes `ipodtouch-dev` / current binding generation. The NativeScript simulator
+shell continues to publish `ios-dev` / current binding generation. **A plan-built guest refuses to
 mount when the target identifier differs, even though both hosts share the
 same operation ABI.**
 
@@ -35,13 +38,12 @@ defaults to `127.0.0.1:2223`; it does not open a Wi-Fi listener.
 rustup target add aarch64-apple-ios
 bun install --frozen-lockfile
 bun ipodtouch doctor
-bun ipodtouch build
+bun ipodtouch build --pocket dist/ipodtouch/application.pocket
 bun ipodtouch deploy
 bun ipodtouch launch
 ```
 
-`build` resolves `apps/ipodtouch-demo/pocket.json`, builds its Solid guest and
-pak, compiles `pocket-apple` for arm64 iOS 12, links a UIKit executable, and
+`build --pocket` consumes an admitted application package, compiles `pocket-apple` for arm64 iOS 12, links a UIKit executable, and
 pseudo-signs it with `ldid`. Generated output is
 `dist/ipodtouch/PocketJSiPod.app`. **The build ID hashes the compiled
 `libpocket_apple.a` in addition to the guest and host inputs, so any transitive
@@ -52,7 +54,7 @@ native-code change produces a different device receipt.**
 1. Re-identify the USB device as the exact tested model, system version, build,
    and activated state.
 2. Start a new `iproxy` tunnel bound to that UDID and verify the jailbreak's
-   SSH host key with the dedicated key in `~/.cache/pocket-stack/ipodtouch/keys`.
+   SSH host key with the dedicated key in `~/.cache/pocket-nexus/ipodtouch/keys`.
    **Deploy, launch, status, and capture never reuse an existing local tunnel.**
 3. Acquire a device-side deployment lock and extract through transaction-unique
    archive, unpack, stage, and backup paths.
@@ -75,7 +77,7 @@ observed brightness and idle-timer state.
 
 ## App icon
 
-`hosts/ipodtouch6/Icon.svg` is the only authored icon source. It uses the Pocket
+`programs/ipodtouch6/Icon.svg` is the only authored icon source. It uses the Pocket
 homepage's `#171226`, `#1a1430`, and `#231b3b` plum surfaces with restrained
 `#ffd23f` and `#ff5f9e` iOS 7-style ambient highlights. There is no baked outer
 frame; SpringBoard applies the installed rounded mask. The centered mark

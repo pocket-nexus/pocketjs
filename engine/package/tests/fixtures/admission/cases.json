@@ -1,0 +1,589 @@
+[
+  {
+    "name": "compiled-profile",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 60
+      }
+    }
+  },
+  {
+    "name": "added-capability",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked",
+        "audio.pcm"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 60
+      }
+    }
+  },
+  {
+    "name": "added-viewport",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          960,
+          544
+        ],
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 60
+      }
+    }
+  },
+  {
+    "name": "changed-id",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 60
+      }
+    }
+  },
+  {
+    "name": "reordered-capabilities",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "text.glyphs.baked",
+        "input.buttons"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 60
+      }
+    }
+  },
+  {
+    "name": "dynamic-range",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          720,
+          480
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": [],
+      "dynamicViewport": {
+        "min": [
+          320,
+          240
+        ],
+        "max": [
+          1024,
+          768
+        ]
+      }
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 60
+      }
+    }
+  },
+  {
+    "name": "slower-cadence",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        30,
+        20
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 30
+      }
+    }
+  },
+  {
+    "name": "equal-hash-first",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60,
+        30
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked",
+        "net.http"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 1,
+      "timing": {
+        "tickHz": 30,
+        "cadenceHz": 30
+      }
+    }
+  },
+  {
+    "name": "equal-hash-not-admitted",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60,
+        30
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "admitted": {
+      "variant": 0,
+      "timing": {
+        "tickHz": 60,
+        "cadenceHz": 60
+      }
+    }
+  },
+  {
+    "name": "missing-capability",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 0,
+      "items": [
+        "capability"
+      ],
+      "capability": "text.glyphs.baked"
+    }
+  },
+  {
+    "name": "raster-density",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 2,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 0,
+      "items": [
+        "rasterDensity"
+      ]
+    }
+  },
+  {
+    "name": "rate-not-divisible",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        25
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 0,
+      "items": [
+        "rate"
+      ]
+    }
+  },
+  {
+    "name": "binding-generation",
+    "host": {
+      "bindingGeneration": 13,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 0,
+      "items": [
+        "bindingGeneration"
+      ]
+    }
+  },
+  {
+    "name": "animation",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "repaint",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 0,
+      "items": [
+        "animation"
+      ]
+    }
+  },
+  {
+    "name": "presentation",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 0,
+      "items": [
+        "presentation"
+      ]
+    }
+  },
+  {
+    "name": "viewport",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          400,
+          240
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 0,
+      "items": [
+        "viewport"
+      ]
+    }
+  },
+  {
+    "name": "closest-variant",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        30
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
+      "variant": 1,
+      "items": [
+        "capability"
+      ],
+      "capability": "net.http"
+    }
+  }
+]

@@ -1,0 +1,66 @@
+{
+  "state": {
+    "result": [
+      5,
+      4,
+      0,
+      2,
+      320,
+      8
+    ]
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": [
+        5,
+        2,
+        0,
+        1,
+        160,
+        4
+      ],
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": [
+        5,
+        4,
+        0,
+        2,
+        320,
+        8
+      ],
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": [
+        5,
+        2,
+        0,
+        1,
+        160,
+        4
+      ],
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": [
+        5,
+        4,
+        0,
+        2,
+        320,
+        8
+      ],
+      "changed": true
+    }
+  ]
+}

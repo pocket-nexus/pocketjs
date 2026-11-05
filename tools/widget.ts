@@ -1,9 +1,13 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 // bun run widget [app] [flags…] — build + launch a Pocket Stage desktop widget
 // (the first bundled stage is the PSP asset; docs/WIDGET.md).
 //
 //   bun run widget                # the hero demo inside the widget
 //   bun run widget im             # any demo (name resolves to <name>-main)
-//   bun run widget --stage ipod   # iPod nano demo + authored nano profile
+//   bun run widget --stage ipod   # iPod nano Hero + authored nano profile
 //   bun run widget -- --focus     # extra flags pass through to the binary
 //   bun run widget im --auto-quit 5
 //   bun run widget --proof        # headless acceptance: a scripted D-pad
@@ -25,14 +29,16 @@ import {
 } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { exportProfile } from "./profile-export.ts";
+const softwareProfile = POCKET_PROFILES["macos-embedded"];
 
 const root = new URL("..", import.meta.url).pathname;
 
 /** Transitional embedded target shared by the bundled PSP and iPod stages. */
-export const STAGE_TARGET_ID = "macos-embedded";
+export const STAGE_TARGET_ID = softwareProfile.id;
 // Same current desktop HostOps wire generation as macos-widget; form and
 // capabilities differ even though the native UI surface implementation is shared.
-export const STAGE_HOST_ABI = 3;
+export const STAGE_HOST_ABI = POCKET_BINDING_GENERATION;
 export type WidgetStage = "psp" | "ipod";
 
 export interface StageDisplayFacts {
@@ -55,7 +61,7 @@ const STAGE_REGISTRY: Record<WidgetStage, { defaultApp: string; profile: string 
     profile: resolvePath(root, "engine/pocket3d/examples/handheld/assets/dibad-psp/profile.json"),
   },
   ipod: {
-    defaultApp: "ipod-nano-main",
+    defaultApp: "ipodnano-hero-main",
     profile: resolvePath(root, "engine/pocket3d/examples/handheld/assets/ipod-nano-2/profile.json"),
   },
 };
@@ -115,23 +121,15 @@ export function stagePlatformContracts(display: StageDisplayFacts) {
   return definePlatformContractRegistry(
     POCKET_CAPABILITIES,
     defineTargetRegistry({
-      [STAGE_TARGET_ID]: {
-        hostAbi: STAGE_HOST_ABI,
-        platform: "macos",
-        form: "embedded",
+      [STAGE_TARGET_ID]: targetProfile({
+        ...softwareProfile,
         display: {
-          physicalViewport: [width * density, height * density],
+          ...softwareProfile.display,
           logicalViewports: [[width, height]],
-          presentations: ["native", "integer-fit"],
           rasterDensity: density,
         },
-        capabilities: [
-          "input.analog.left",
-          "input.buttons",
-          "input.cursor",
-          "text.glyphs.baked",
-        ],
-      },
+        panel: { primary: [width * density, height * density] },
+      }),
     }),
   );
 }
@@ -250,7 +248,7 @@ async function main(): Promise<void> {
   const { stage, app, proof, pass } = parsed;
   const stageConfig = widgetStageConfig(stage);
 
-  // Stock demos own their committed pocket.json. Legacy demos without one
+  // Stock demos own their committed pocket.app.json. Legacy demos without one
   // inherit the root template through demoManifestFor; either way the build
   // is admitted once against the embedded Stage profile and every later
   // compiler input comes from the serialized plan.
@@ -267,9 +265,16 @@ async function main(): Promise<void> {
   // target-flavored bundles in dist/ proper are never picked up by mistake.
   const stageDist = resolvePath(root, "dist", `stage-${stage}`);
   await $`bun tools/build.ts --plan=${planPath} --project-root=${root} --outdir=${stageDist}`.cwd(root);
-  await $`cargo build --release -p pocket-stage`.cwd(`${root}engine`);
+  // The binary compiles in this stage's profile; switching stages rebuilds it.
+  const exported = exportProfile(
+    { profile: planProfileDocument(plan.profile), profileHash: plan.profileHash, hostAbi: STAGE_HOST_ABI, dependencies: [] },
+    resolvePath(root, ".pocket", STAGE_TARGET_ID, `${stage}-profile`),
+  );
+  await $`cargo build --locked --release -p pocket-stage`
+    .cwd(root)
+    .env({ ...process.env, POCKETJS_PROFILE_RS: exported.module });
 
-  const bin = `${root}engine/target/release/pocket-stage`;
+  const bin = `${root}target/release/pocket-stage`;
   const env = {
     ...process.env,
     RUST_LOG: process.env.RUST_LOG ?? "info",

@@ -56,7 +56,7 @@ until a guest tick has consumed the press; hidden previews stop their clocks.
 
 ```sh
 bun run site:build
-bun test tests/handheld-models.test.ts tests/site-stage.test.ts
+bun test tests/handheld-models.test.ts
 bun site/preview.ts --no-build --port=4173
 # In another terminal:
 bun site/verify-handhelds.ts http://127.0.0.1:4173/
@@ -81,3 +81,61 @@ ffmpeg -y -framerate 6 -i dist/handheld-models/hinge-frames/%03d.png \
   -vf 'split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse' \
   -loop 0 dist/handheld-models/new-nintendo-3ds-hinge.gif
 ```
+
+## Shells for a page
+
+`shells.py` renders a device from the front for a page that shows its screens
+in it: the Pocket3D player (`engine/pocket3d/crates/pocket-web-wgpu/web/shells`) and the
+MicroTS playground (`site/microts/shells`, which also shows the Pocket3D set's
+PSP and 3DS). An orthographic camera on the screen's axis, a transparent film,
+**14 pixels a millimetre** (20 for the iPod touch, 16 for the Android phone and
+the playground's phones, 18 for the iPod nano). `bun tools/handheld-shells.ts`
+runs it and encodes the result.
+
+```sh
+bun tools/handheld-shells.ts pocket3d              # all five: psp, vita, 3ds, ipod, android
+bun tools/handheld-shells.ts pocket3d 3ds --samples 64
+bun tools/handheld-shells.ts microts               # gba, ipod-touch-5, ipod-nano
+```
+
+The playground's GBA and iPod touch are **other
+authors' models under CC BY 4.0, which this repository does not carry**.
+`downloads.json` names each one (title, author, Sketchfab page, SHA-256).
+The tool downloads a missing one into the ignored `dist/handheld-sources/`
+with a Sketchfab token (`SKETCHFAB_TOKEN`, or the file `~/.sketchfab-token`;
+Sketchfab gives a download only to an account) and refuses a file whose
+SHA-256 differs. `site/microts/shells/ATTRIBUTION.md` credits them and lists
+what was changed.
+
+Each device is rendered as **the case with its moving parts taken out**, then
+**each moving part alone** in its own rectangle of the frame, packed on one
+sheet. A page lays the parts over the case and moves one when its key is
+held. The profile says where the screens, the controls and the parts are, and
+(`system`) the keys a device keeps for itself, such as a phone's home button.
+
+- The PS Vita and the 3DS are read from their `.blend` files. The 3DS's
+  hinge is set flat (`Lid_Hinge` at 0), so both screens face the camera.
+- The PSP is Dibad's GLB, one mesh. The script finds the front from the
+  screen's plane, brings the model to millimetres, and **splits it by where a
+  face is**: a d-pad arm is a wedge about the d-pad's middle, a face button a
+  disc about its cap, and only what stands in front of the case's face is a
+  key. Sockets get dark floors, since the file has bright metal behind a key.
+- The iPod nano is read from its `.blend` file (`ipod-nano-2/source`), turned
+  from centimetres with its front toward -Y into millimetres facing the
+  camera. Its menu, studio, lights and cameras are left out, its case is
+  anodized pink and its LCD dark. The centre button is a part; the click
+  wheel's ring is a place for a pointer (`zones`).
+- The downloaded models are turned to the script's axes and brought to the
+  device's size in millimetres (`glb`). A key that is pieces of one mesh is
+  the pieces inside its rectangle, joined. A place that is only paint on a
+  model's picture  is found
+  through the face whose texture coordinates hold it. A maker's name or logo
+  is taken out of the mesh or painted over in the picture; a screen's picture
+  gives way to a dark panel.
+- The iPod touch and the Android phone are drawn in the script, each lying
+  on its side with its keys' end at the right: the player turns the picture
+  a quarter for a screen that stands.
+- **`hide` lists the objects that are a wordmark or a logo.** A new device
+  lists its own before its shell is committed.
+
+Cycles' noise differs between two runs, so a rerun changes the files' bytes.

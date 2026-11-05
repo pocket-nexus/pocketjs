@@ -833,7 +833,7 @@ interface HeldFrame {
  * A frame past the normal window is a peer protocol error (the adapter is
  * required to hold every granted frame), never a silent drop; the transport
  * applies backpressure by stopping reads while staging is full (compare
- * hosts/3ds/src/offload.c, which leaves a full incoming queue in the ready
+ * platforms/3ds/offload.c, which leaves a full incoming queue in the ready
  * state and reads nothing). Seq holes/repeats stop the stream (stream 0
  * kills the session). Normal frames leave staging through pump() and keep
  * occupying window until release(), the only point at which wire credit

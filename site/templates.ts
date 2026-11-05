@@ -2,17 +2,23 @@
 // page is renderPage(...)'d so nav/branding/theme stay in one place. Styling is
 // Tailwind (utilities inline + a few component classes in assets/tailwind.css).
 
+import { candyHeadings } from "./candy.ts";
+
 const YEAR = 2026;
-const GH = "https://github.com/pocket-stack/pocketjs";
+const GH = "https://github.com/pocket-nexus/pocketjs";
 const DISCORD = "https://discord.gg/cTce4eXzSK";
 const X_URL = "https://x.com/pocket_js";
-export const SITE_URL = "https://pocketjs.dev";
-export const SITE_TITLE = "PocketJS · JavaScript UI runtime";
+// The organization PocketJS belongs to; its homepage links back here.
+const NEXUS_URL = "https://pocket.nexus";
+// The canonical origin: PocketJS lives under the Pocket Nexus homepage.
+// pocketjs.dev serves the same build; its pages point here as canonical.
+export const SITE_URL = "https://pocketjs.pocket.nexus";
+export const SITE_TITLE = "PocketJS · Create UI on every screen you love";
 export const SITE_DESC =
-  "PocketJS is a portable application runtime that turns modern component code into native pixels across radically different hardware. Solid, Vue Vapor and Octane components compile to one native tree that a Rust core lays out and draws, with no DOM, CSS engine or WebView underneath.";
+  "Create UI on every screen you love. Build apps with familiar JavaScript components, from handhelds and desktops to embedded screens.";
 // Shared by the standalone homepage and every page rendered through renderPage().
 export const SITE_FOOTER_DESC =
-  "A portable application runtime that turns modern component code into native pixels, carried to radically different hardware by a compact native core.";
+  "Create UI on every screen you love. A small runtime for apps on handhelds, desktops, and embedded devices.";
 export const SITE_FOOTER_DESC_SLOT = "{{SITE_FOOTER_DESC}}";
 export const OG_IMAGE_URL = `${SITE_URL}/og-image.png`;
 
@@ -48,6 +54,12 @@ export const ICON_LINKS = [
   '<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#ffd23f">',
   '<link rel="manifest" href="/site.webmanifest">',
 ].join("\n");
+
+// The Arcade look (site/assets/arcade.css) sets headlines in Press Start 2P.
+// The file is self-hosted and preloaded, and its @font-face blocks rendering
+// until it arrives, so a headline never paints in a fallback face and jumps.
+export const PIXEL_FONT_PRELOAD =
+  '<link rel="preload" href="/assets/fonts/press-start-2p-latin.woff2" as="font" type="font/woff2" crossorigin>';
 
 export function injectSiteFooterDescription(template: string): string {
   const slots = template.split(SITE_FOOTER_DESC_SLOT).length - 1;
@@ -97,11 +109,14 @@ function header(active: string): string {
     <nav class="nav-links" aria-label="Primary">
       ${link("/docs/overview/", "Docs", "docs")}
       ${link("/blog/", "Blog", "blog")}
+      <a href="https://3d.pocket.nexus/" class="p3d-link">Pocket3D</a>
       <div class="menu">
         <button class="menu-btn" aria-haspopup="true" aria-expanded="false">Resources
           <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="menu-list">
+          <a href="https://3d.pocket.nexus/" class="p3d-item">Pocket3D</a>
+          <a href="https://microts.pocket.nexus/">MicroTS</a>
           <a href="/playground/">Playground</a>
           <a href="/changelog/">Changelog</a>
         </div>
@@ -116,7 +131,7 @@ function header(active: string): string {
 
 const footer = `<footer class="foot">
   <div class="wrap">
-    <span class="hud">© ${YEAR} PocketJS · MIT · a Pocket Lab project</span>
+    <span class="hud">© ${YEAR} PocketJS · MIT · a <a href="${NEXUS_URL}">Pocket Nexus</a> project</span>
     <nav class="cols2" aria-label="Footer">
       <span class="fgrp">
         <a href="/docs/overview/">Docs</a>
@@ -149,7 +164,7 @@ export function renderPage(o: PageOpts): string {
     programmingLanguage: ["TypeScript", "JavaScript", "Rust"],
     runtimePlatform: ["Sony PSP", "PPSSPP", "WebAssembly", "Bun"],
   });
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -175,8 +190,10 @@ export function renderPage(o: PageOpts): string {
 ${ICON_LINKS}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/arcade.css">
 <script type="application/ld+json">${jsonLd}</script>
 ${o.head ?? ""}
 </head>
@@ -186,5 +203,5 @@ ${header(o.active)}
 ${footer}
 ${(o.scripts ?? []).join("\n")}
 </body>
-</html>`;
+</html>`);
 }

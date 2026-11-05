@@ -1,0 +1,10 @@
+{
+  "pocket": 2,
+  "id": "test.model.overflow-multiply",
+  "app": {
+    "entry": "App.tsx",
+    "framework": "solid",
+    "aot": true,
+    "model": "compiled"
+  }
+}

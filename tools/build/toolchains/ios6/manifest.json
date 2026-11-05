@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "toolchainVersion": "iphoneos-6.1.6-tapi-v1",
+  "cachePath": "ios6",
+  "compiler": {
+    "target": "armv7-apple-ios",
+    "minimumVersion": "6.0",
+    "linker": "ld-classic",
+    "sysrootFiles": {
+      "usr/lib/libSystem.tbd": "ab7c554d6951a425256c7b980b05e7ad8462036f8dae349467dd7584bd100638",
+      "usr/lib/libgcc_s.1.tbd": "6bba50345eda45e7e64c576607f4f8fbce55208d19b418ffc3b8b25c60bdcc8a",
+      "usr/lib/libobjc.tbd": "384146b659e70f93b5d46c08d33a9d637b36ea110cf819a271cb9b46435d6ef8",
+      "System/Library/Frameworks/UIKit.framework/UIKit.tbd": "a8f833f60f1dd84edd9385670a172c3775164bd509f84037279d5d7cc9ca7a52",
+      "System/Library/Frameworks/Foundation.framework/Foundation.tbd": "863d30deeb5468f8e43a194e08a42f6a1e32b23fe44c1ebb3cc8d32be821ca60",
+      "System/Library/Frameworks/CoreGraphics.framework/CoreGraphics.tbd": "e836ebd4e8f30decae6b6bc8fc5e33e7b3fdfd9e1d38bf0cb49a4c8a1f4189eb",
+      "System/Library/Frameworks/OpenGLES.framework/OpenGLES.tbd": "88269efcb42920b8a1e35fe0e21d0be64d7434bcf98c4d52adbd3648f2ad4d0c"
+    },
+    "csu": {
+      "repository": "https://github.com/apple-oss-distributions/Csu.git",
+      "tag": "Csu-76",
+      "revision": "a02bd5830f6fbe841d5b0bd54b90ee5f35b99a4e",
+      "startSha256": "369cc46f111d096262348579bd854e7a27dfbf4ed94585384cf9ab744100fd21",
+      "dyldGlueSha256": "9efab347c6ed3c66780991f0dfd24bed80e81ed101ad5f7dbecf598afde8e685"
+    },
+    "quickJsRepository": "https://github.com/pocket-nexus/quickjs-rs.git",
+    "quickJsRevision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
+    "quickJsVersion": "2026-06-04"
+  },
+  "firmware": {
+    "sharedCachePath": "System/Library/Caches/com.apple.dyld/dyld_shared_cache_armv7",
+    "sourceDevice": {
+      "productType": "iPod4,1",
+      "hardwareModel": "N81AP",
+      "productVersion": "6.1.6",
+      "buildVersion": "10B500"
+    },
+    "sharedCacheLinkIdentitySha256": "e70b020bc82c1823c551e9359c446dc072940d26e889742db652c4eae3dfa5de"
+  },
+  "dyld": {
+    "repository": "https://github.com/apple-oss-distributions/dyld.git",
+    "tag": "dyld-210.2.3",
+    "revision": "cdf4fbef74ae11db03d585cfa3bda237f6505785"
+  }
+}

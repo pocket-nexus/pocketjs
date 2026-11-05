@@ -764,3 +764,98 @@ index 7d874ea..3b37b09 100755
  #define SONY_VID (0x54C)
  
  #define HOSTFS_MAGIC 0x782F0812
+diff --git a/usbhostfs_pc/hostfs.c b/usbhostfs_pc/hostfs.c
+index 87cc4d2..2844bcb 100755
+--- a/usbhostfs_pc/hostfs.c
++++ b/usbhostfs_pc/hostfs.c
+@@ -8,6 +8,7 @@
+ #include <fcntl.h>
+ #include <errno.h>
+ #include <utime.h>
++#include <time.h>
+ #include <pthread.h>
+ #include <usb.h>
+ #include <sys/statvfs.h>
+@@ -283,6 +284,29 @@ int make_path(unsigned int drive, const char *path, char *retpath, int dir) {
+     return ret;
+ }
+ 
++/* A close request lost on the bus leaves its host descriptor open, and
++   MAX_FILES of them stop every later open. Device accesses open, transfer
++   and close within milliseconds, so descriptors idle this long are closed
++   before each open. */
++#define REAP_SECONDS 30
++
++static void reap_idle_files(void) {
++    time_t now = time(NULL);
++    int i;
++
++    for (i = STDERR_FILENO + 1; i < MAX_FILES; i++) {
++        if (open_files[i].opened && now - open_files[i].last > REAP_SECONDS) {
++            V_PRINTF(1, "Closing idle descriptor %d (%s)\n", i, open_files[i].name ? open_files[i].name : "?");
++            close(i);
++            open_files[i].opened = 0;
++            if (open_files[i].name) {
++                free(open_files[i].name);
++                open_files[i].name = NULL;
++            }
++        }
++    }
++}
++
+ int open_file(int drive, const char *path, unsigned int mode, unsigned int mask) {
+     char fullpath[PATH_MAX];
+     unsigned int real_mode = 0;
+@@ -333,12 +357,14 @@ int open_file(int drive, const char *path, unsigned int mode, unsigned int mask)
+     }
+ 
+     if (!is_dir(fullpath)) {
++        reap_idle_files();
+         fd = open(fullpath, real_mode, mask & ~0111);
+         if (fd >= 0) {
+             if (fd < MAX_FILES) {
+                 open_files[fd].opened = 1;
+                 open_files[fd].mode = mode;
+                 open_files[fd].name = strdup(fullpath);
++                open_files[fd].last = time(NULL);
+             } else {
+                 close(fd);
+                 fprintf(stderr, "Error filedescriptor out of range\n");
+@@ -691,6 +717,7 @@ int handle_write(struct usb_dev_handle *hDev, struct HostFsWriteCmd *cmd, int cm
+ 
+         if ((fid >= 0) && (fid < MAX_FILES)) {
+             if (open_files[fid].opened) {
++                open_files[fid].last = time(NULL);
+                 resp.res = LE32(fixed_write(fid, write_block, LE32(cmd->cmd.extralen)));
+             } else {
+                 fprintf(stderr, "Error fid not open %d\n", fid);
+@@ -756,6 +783,7 @@ int handle_read(struct usb_dev_handle *hDev, struct HostFsReadCmd *cmd, int cmdl
+ 
+         if ((fid >= 0) && (fid < MAX_FILES)) {
+             if (open_files[fid].opened) {
++                open_files[fid].last = time(NULL);
+                 resp.res = LE32(fixed_read(fid, read_block, LE32(cmd->len)));
+                 if (LE32(resp.res) >= 0) {
+                     resp.cmd.extralen = resp.res;
+@@ -918,6 +946,7 @@ int handle_lseek(struct usb_dev_handle *hDev, struct HostFsLseekCmd *cmd, int cm
+         fid = LE32(cmd->fid);
+         V_PRINTF(2, "Lseek command fid: %d, ofs: %lld, whence: %d\n", fid, LE64(cmd->ofs), LE32(cmd->whence));
+         if ((fid > STDERR_FILENO) && (fid < MAX_FILES) && (open_files[fid].opened)) {
++            open_files[fid].last = time(NULL);
+             /* TODO: Probably should ensure whence is mapped across, just in case */
+             resp.ofs = LE64((int64_t) lseek(fid, (off_t) LE64(cmd->ofs), LE32(cmd->whence)));
+             if (LE64(resp.ofs) < 0) {
+diff --git a/usbhostfs_pc/hostfs.h b/usbhostfs_pc/hostfs.h
+index b3677c5..53df217 100755
+--- a/usbhostfs_pc/hostfs.h
++++ b/usbhostfs_pc/hostfs.h
+@@ -24,6 +24,9 @@ struct FileHandle {
+     int opened;
+     int mode;
+     char *name;
++    /* Last open/read/write/seek, for reaping descriptors whose close
++       request never arrived. */
++    time_t last;
+ };
+ 
+ struct DirHandle {

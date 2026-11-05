@@ -1,0 +1,3 @@
+dependencies:
+  pocket-nexus/pocket_runtime:
+    override_path: ../../../../../platforms/esp-idf/pocket_runtime

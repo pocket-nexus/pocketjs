@@ -1,14 +1,16 @@
-name: Release to npm
+name: Release
 
-# Publish @pocketjs/framework and @pocketjs/cli when a v* tag is pushed
-# (e.g. `git tag v0.2.0 && git push origin v0.2.0`). Auth is npm Trusted
-# Publishing (OIDC): each package's npm Settings names this repo + workflow
-# file as a trusted publisher, so no token or secret is involved and npm
-# attaches provenance automatically. Publishing is idempotent: versions
-# already on the registry are skipped, so re-running a tag or bumping only
-# one package is safe.
+# A package.json change on main checks whether its version increased.
+# Changes to dependencies or scripts without a version change skip publication.
+# Existing v* tags and manual dispatch remain available for release retries.
+# Publish Rust crates, @pocketjs/framework and @pocketjs/cli. Both registries use Trusted
+# Publishing (OIDC), configured for this repo and workflow. npm attaches
+# provenance automatically. Publishing skips versions already on the registry
+# when retrying a release.
 on:
   push:
+    branches: [main]
+    paths: ["package.json"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -18,26 +20,62 @@ on:
         type: string
 
 permissions:
-  contents: write # GitHub Release creation
-  id-token: write # npm --provenance
+  contents: write # Release tag and GitHub Release creation
+  id-token: write # npm and crates.io Trusted Publishing
 
 jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.identity.outputs.release }}
+      version: ${{ steps.identity.outputs.version }}
+      npm-tag: ${{ steps.identity.outputs.npm-tag }}
+      prerelease: ${{ steps.identity.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Validate release and tag the merged release PR
+        id: identity
+        env:
+          RELEASE_INPUT: ${{ inputs.version }}
+          RELEASE_BEFORE: ${{ github.event.before }}
+        # Tags pushed with GITHUB_TOKEN do not trigger another workflow run.
+        # Continue this run with the same merge commit after creating its tag.
+        run: bun tools/release/identity.ts --create-tag
+  sdk-artifacts:
+    needs: identity
+    if: needs.identity.outputs.release == 'true'
+    uses: ./.github/workflows/sdk-artifacts.yml
+  runtime-artifacts:
+    needs: identity
+    if: needs.identity.outputs.release == 'true'
+    uses: ./.github/workflows/runtime-artifacts.yml
   publish:
+    needs: [identity, sdk-artifacts, runtime-artifacts]
+    if: needs.identity.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_VERSION: ${{ needs.identity.outputs.version }}
+      NPM_DIST_TAG: ${{ needs.identity.outputs.npm-tag }}
+      RELEASE_PRERELEASE: ${{ needs.identity.outputs.prerelease }}
+    concurrency:
+      group: pocketjs-package-publication
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       # This is intentionally before toolchain setup or publish work. A tag or
-      # manual input can only release the exact version committed in all three
-      # public version authorities.
+      # manual input must match the committed version checked by release-check.ts.
       - name: Verify release version
-        env:
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: bun tools/release-check.ts "$RELEASE_VERSION"
 
       # npm (not bun) does the publishing. Trusted Publishing needs npm >=
@@ -50,11 +88,12 @@ jobs:
       - name: Upgrade npm for Trusted Publishing
         run: npm install -g npm@latest
 
-      # hosts/web/pocketjs.wasm is a gitignored build artifact shipped in the
+      # platforms/web/pocketjs.wasm is a gitignored build artifact shipped in the
       # framework tarball, so build it from engine/core/wasm. Stable Rust suffices.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
 
       - name: Cache cargo + wasm target
         uses: actions/cache@v6
@@ -62,8 +101,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            engine/wasm/target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**') }}
+            target
+            .pocket-build/cache
+          key: ${{ runner.os }}-wasm-${{ hashFiles('programs/web/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'programs/web/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/Cargo.toml', 'engine/render/src/**', 'engine/runtime/Cargo.toml', 'engine/runtime/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
       - name: Install dependencies
@@ -71,6 +111,10 @@ jobs:
 
       - name: Build wasm (core + software rasterizer)
         run: bun tools/wasm.ts
+
+      # Camera fixtures link libjpeg; Linux audio fixtures use ALSA's null device.
+      - name: Install native test dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-turbo8-dev libasound2-dev pkg-config
 
       - name: Test JavaScript and package contracts
         run: bun run test
@@ -87,23 +131,46 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
 
       - name: Test desktop 3D and widget workspace
-        run: cargo test --locked --manifest-path engine/Cargo.toml --workspace
+        run: cargo test --locked --manifest-path Cargo.toml
 
-      # The native UI C ABI is a standalone workspace because only historical
-      # device builds need nightly build-std. Host tests stay stable-compatible.
       - name: Test native UI C ABI
-        run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-archive -p pocket-native-program
 
       - name: Test renderer goldens
         run: bun tests/golden.ts
 
-      - name: Test deterministic tape replay
-        run: bun run tape:check
-
       - name: Build documentation and public schema
         run: |
           bun run site:build
-          cmp contracts/schema/pocket-2.json site/dist/schema/pocket-2.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pocket-sdk-*
+          path: .pocket-build/validation/release/sdks
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pocket-runtime-*
+          path: .pocket-build/validation/release/runtimes
+      - name: Prepare verified SDK, runtime and source release assets
+        run: |
+          bun tools/release/inputs.ts .pocket-build/validation/release .
+          bun tools/release/publish.ts .pocket-build/validation/release/inputs.json .pocket-build/validation/release/assets
+          bun tools/release/crates.ts > .pocket-build/validation/release/assets/crate-release-plan.json
+
+      - name: Select unpublished Rust crate versions
+        id: crates-plan
+        run: bun tools/release/publish-crates.ts plan
+
+      - name: Authenticate with crates.io
+        if: steps.crates-plan.outputs.pending != '0'
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish Rust crates
+        if: steps.crates-plan.outputs.pending != '0'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        run: bun tools/release/publish-crates.ts publish
 
       - name: Publish @pocketjs/framework
         run: |
@@ -112,7 +179,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            npm publish --access public --provenance
+            npm publish --access public --provenance --tag "$NPM_DIST_TAG"
           fi
 
       - name: Publish @pocketjs/cli
@@ -123,7 +190,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            npm publish --access public --provenance
+            npm publish --access public --provenance --tag "$NPM_DIST_TAG"
           fi
 
       # The GitHub Release mirrors the changelog entry for this version.
@@ -131,14 +198,28 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: |
           tag="v${RELEASE_VERSION#v}"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "$tag release already exists — skipping"
           else
             bun tools/release-notes.ts "$tag" > "$RUNNER_TEMP/notes.md"
-            gh release create "$tag" --verify-tag --latest \
+            release_flags=(--latest)
+            if [[ "$RELEASE_PRERELEASE" == true ]]; then
+              release_flags=(--prerelease --latest=false)
+            fi
+            gh release create "$tag" --verify-tag "${release_flags[@]}" \
               --title "$(bun tools/release-notes.ts "$tag" --title)" \
               --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+      - name: Upload verified SDK, runtime and source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${RELEASE_VERSION#v}"
+          mkdir -p "$RUNNER_TEMP/existing-release"
+          if gh release download "$tag" --pattern pocket-release.json --dir "$RUNNER_TEMP/existing-release"; then
+            cmp "$RUNNER_TEMP/existing-release/pocket-release.json" .pocket-build/validation/release/assets/pocket-release.json
+          else
+            gh release upload "$tag" .pocket-build/validation/release/assets/*
           fi

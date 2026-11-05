@@ -30,8 +30,8 @@ frozen at build time.
 4. Pass 2 (`Bun.build`) bundles the app, with the JSX plugin serving that
    generated module **from memory** — two target builds running at once cannot
    read each other's table. `tools/build.ts` writes
-   `framework/src/styles.generated.ts` as a mirror for inspection; the bundle
-   does not read that file from disk, and pass 1 skips it.
+   `<outdir>/<output>.styles.ts` as a copy for inspection; the bundle does not
+   read it, and nothing is written into the framework directory.
 
 `styles.bin` ships in the `.pak`. On PSP the native pak walker feeds it to the
 core; on the browser and headless Bun hosts it arrives through the `loadStyles`
@@ -53,8 +53,31 @@ attributes, so it needs a rule for deciding which strings are styles:
 ```
 
 A label like `"flex the muscles"` never turns into a layout: one unrecognized
-token disqualifies the literal, with no diagnostic. Some literals that do parse
-fail the build instead — see [Loud errors](#loud-errors).
+token disqualifies the literal. Some literals that do parse fail the build
+instead — see [Loud errors](#loud-errors).
+
+The build reports a literal it left out when the source says it was meant as a
+class string:
+
+- **In a `class` attribute** (the attribute's string, or a branch of the
+  ternaries and `&&` / `||` / `??` chains in its expression): every
+  unsupported token is reported with **file, line, column and the token**.
+  `bun tools/build.ts` prints it as a warning; **`--strict-classes` makes it an
+  error** and writes no bundle.
+- **Anywhere else** (a constant, a function that returns the class): reported
+  as a warning in both modes, and only when the literal has **at least two
+  tokens, every token has the shape of a utility, and more of them are
+  supported than not**. `"text-xl font-bold txt-center"` in a constant is
+  reported; `"Tap to start"` is not.
+
+```
+error: app.tsx:42:17: class "flex-row items-centre gap-2" does not compile: unknown utility items-centre
+  warning: layout.ts:8:22: "text-xl font-bold txt-center" reads as a class string and does not compile: unknown utility txt-center
+```
+
+At run time a class string with no record throws on the browser and headless
+hosts (`unknown class "…" - not in the compiled style table`) and counts a miss
+on native hosts, where the node keeps no style from it.
 
 ## How a class attribute resolves
 
@@ -108,8 +131,9 @@ pressed look drops away when the list starts scrolling
 
 Any utility below can carry a variant prefix, with one exception: motion and
 `animate-*` tokens are recognized on the base variant only, so `focus:transition`
-drops **the whole literal** to plain text with no diagnostic. A prefix that is
-not `focus:`, `active:` or `hover:` does the same.
+drops **the whole literal** to plain text. A prefix that is not `focus:`,
+`active:` or `hover:` does the same. In a `class` attribute the build reports
+either one as an unknown utility.
 
 ## Dynamic styling
 
@@ -214,11 +238,27 @@ parse, so the literal is text.
 | `hidden` | `display: none` |
 | `overflow-hidden` | clip children (native scissor) |
 | `z-N` | z-index |
+| `contain-strict` | the subtree is solved as its own layout root, given this node's box |
+| `layout-baked` | `contain-strict`, plus the MicroTS compiler proves every rect in the subtree at build time |
 
 Those five `justify-*` and four `items-*` values are the whole set — no
 `justify-evenly`, no `items-baseline`. `w-full` / `h-full` are the only
 percentage-style sizes; `p-N` and `m-N` fan out to four sides, `px`/`py` and
 `mx`/`my` to the two axes.
+
+**`contain-strict` needs a definite `w-*` and `h-*`.** The parent solves the
+node as a leaf of that size; the node's children form a second solver root in
+the core's single taffy tree, computed with that box as the available space.
+A structure or style change below the node reconciles and solves that root
+only; the rest of the page keeps its solver nodes and cached results. The
+rects come out as the full tree would produce them: the solver runs with
+rounding off and readback rounds every rect against the cumulative unrounded
+origin, the algorithm taffy itself uses. This is CSS size and layout
+containment, and it works on every host, guest or MicroTS.
+
+**`layout-baked` moves the solve to the build.** It is only meaningful for
+MicroTS native builds; the rules and the compiler's output are in the
+[MicroTS reference](/docs/microts-reference/#build-time-layout-layout-baked).
 
 ## Visual
 
@@ -259,7 +299,7 @@ token is a compile error.
 | Utility | Effect |
 |---|---|
 | `text-{color}` | text color |
-| `text-xs` \| `-sm` \| `-base` \| `-lg` \| `-xl` \| `-2xl` \| `-4xl` \| `-5xl` | 12 / 14 / 16 / 18 / 20 / 24 / 36 / 54 px |
+| `text-2xs` \| `-xs` \| `-sm` \| `-base` \| `-lg` \| `-xl` \| `-2xl` \| `-4xl` \| `-5xl` | 10 / 12 / 14 / 16 / 18 / 20 / 24 / 36 / 54 px |
 | `font-bold` | bold weight of the same size |
 | `font-mono` | JetBrains Mono at slots 16–18: sizes 12/14/16 only, regular weight only |
 | `text-left` \| `text-center` \| `text-right` | horizontal alignment |
@@ -268,7 +308,8 @@ token is a compile error.
 
 A text-size utility selects a **baked font-atlas slot**, not a free number:
 slots 0–6 are the regular sizes, 7–13 their bold pairs, 14/15 the 54px pair,
-16–18 monospace. There is no arbitrary font size. Text with no size or weight
+16–18 monospace, 19/20 the 10px pair (`text-2xs`, for labels under icons).
+There is no arbitrary font size. Text with no size or weight
 utility uses **16px regular**.
 
 `font-mono` overrides weight — `font-mono font-bold` lands on the mono slot for
@@ -290,6 +331,7 @@ Transforms are animatable and do not trigger relayout — prefer them for motion
 | `rotate-N` | 2D rotation in degrees |
 | `origin-center` \| `-top` \| `-bottom` \| `-left` \| `-right` \| `-top-left` \| `-top-right` \| `-bottom-left` \| `-bottom-right` | transform origin, as a fraction from the node center |
 | `rotate-x-[N]`, `rotate-y-[N]` | 3D rotation, degrees (bracket-only) |
+| `skew-x-[N]` | horizontal shear about the transform origin, degrees (bracket-only) |
 | `translate-z-[N]` | 3D depth, px (bracket-only) |
 | `perspective-[N]` | 3D context root; distance in px (bracket-only, > 0) |
 
@@ -338,11 +380,11 @@ rate (`--hz=N`, 1–240, default 60).
 ## Native text layout
 
 Baked atlases are the portable path. An app that lists `text.layout.native` in
-the `enhances` block of its `pocket.json` gets host measurement and shaping
-instead, on any target whose profile registers that capability in
-`contracts/spec/platforms.ts` — read the registry, not a list of hosts. The host
-installs a core text measurer before the guest mounts (`Ui::set_text_measure`),
-and one provider then feeds taffy leaf sizes, the `measureText` op and the
+the `enhances` block of its `pocket.app.json` gets host measurement and shaping
+instead, on any target whose host contract declares that capability
+(`hosts/<id>/pocket.host.json` for the built-in hosts) — read the contracts,
+not a list of hosts. The host installs a core text measurer before the guest
+mounts (`Ui::set_text_measure`), and one provider then feeds taffy leaf sizes, the `measureText` op and the
 painted glyphs. What changes for your classes:
 
 - Text-size, `font-bold` and `font-mono` still pick the slot; the host resolves

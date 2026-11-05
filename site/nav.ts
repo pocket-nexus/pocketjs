@@ -17,6 +17,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "getting-started", title: "Getting started" },
       { slug: "frameworks", title: "Frameworks" },
       { slug: "architecture", title: "Architecture" },
+      { slug: "applets", title: "Pocket Applets" },
     ],
   },
   {
@@ -26,6 +27,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "styling", title: "Styling" },
       { slug: "reactivity", title: "Reactivity" },
       { slug: "animation", title: "Animation" },
+      { slug: "physics", title: "Physics" },
       { slug: "input-focus", title: "Input & focus" },
       { slug: "touch-gestures", title: "Touch & gestures" },
       { slug: "app-shell", title: "App shell & overlays" },
@@ -48,6 +50,8 @@ export const DOC_NAV: DocSection[] = [
     items: [
       { slug: "typescript-support", title: "TypeScript support" },
       { slug: "api", title: "API reference" },
+      { slug: "cli", title: "CLI" },
+      { slug: "app-contract", title: "App contract" },
       { slug: "build-pipeline", title: "Build pipeline" },
       { slug: "native-contract", title: "Native contract" },
       { slug: "platform-contracts", title: "Platform contracts" },
@@ -67,6 +71,14 @@ export interface BlogPost {
 }
 
 export const BLOG_POSTS: BlogPost[] = [
+  {
+    slug: "introducing-pocket3d",
+    title: "Introducing Pocket3D",
+    date: "2026-10-07",
+    description:
+      "A hardware-native 3D stack for portable interactive software. How a city becomes different programs for the PSP, Nintendo 3DS and PS Vita, why each experience owns its compiler and renderer, and how Pocket Studio brings the games to the people who play and create them.",
+    author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
+  },
   {
     slug: "blackberry-classic",
     title:
@@ -161,7 +173,7 @@ export const BLOG_POSTS: BlogPost[] = [
     title: "Twice the Pixels, Zero Forks: PocketJS on PS Vita",
     date: "2026-07-13",
     description:
-      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
+      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.app.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
     author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
   },
   {

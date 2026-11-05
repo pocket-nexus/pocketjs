@@ -1,0 +1,9 @@
+[package]
+name = "pocket-profile-build"
+edition = "2021"
+description = "Build-script support that places the exported PocketJS profile into OUT_DIR"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true

@@ -1,30 +1,38 @@
 /** Public Vue SFC / Solid TSX -> generated Rust build entry. */
+import type { AnimationTheme } from "../../framework/compiler/animation.ts";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { analyzeSolidAot } from "./aot-solid-frontend.ts";
 import { analyzeVueAot } from "./aot-frontend.ts";
 import { emitAot } from "./aot-codegen.ts";
 import type { AotProgram } from "./aot-ir.ts";
+import type { LayoutEnvironment, LayoutReport } from "./aot-layout-plan.ts";
 import { requireAotBoard, aotBoardAdmission } from "./aot-admission.ts";
 import { attachCompiledModel } from "./aot-model-build.ts";
 import { generateModelRust } from "./aot-model-codegen.ts";
 import { replayModelTape } from "./aot-model-tape.ts";
 
-export function analyzeAot(entry: string, options: { strict?: boolean } = {}): AotProgram {
+export function analyzeAot(entry: string, options: { strict?: boolean; theme?: AnimationTheme; tickHz?: number } = {}): AotProgram {
   return attachCompiledModel(entry.endsWith(".tsx") ? analyzeSolidAot(entry, options) : analyzeVueAot(entry, options), entry, options.strict);
 }
 export interface AotBuildOptions {
+  theme?: AnimationTheme;
+  tickHz?: number;
   strict?: boolean;
   outDir?: string;
   format?: boolean;
   ir?: string;
   board?: string;
+  /** Required when the app uses `layout-baked`: the viewport, font atlases and wasm core that solve its static set. */
+  layoutEnvironment?: LayoutEnvironment;
 }
 export interface AotBuildResult {
   entry: string;
   outDir: string;
   files: string[];
   program: AotProgram;
+  /** The `layout-baked` subtrees the build solved. */
+  layout: LayoutReport;
 }
 
 export function resolveAotEntry(app: string): string {
@@ -38,7 +46,7 @@ export function resolveAotEntry(app: string): string {
       const entry = join(path, name);
       if (existsSync(entry)) return entry;
     }
-    const manifest = join(path, "pocket.json");
+    const manifest = join(path, "pocket.app.json");
     if (existsSync(manifest)) {
       const entry = JSON.parse(readFileSync(manifest, "utf8")).app?.entry;
       if (typeof entry === "string" && /\.(vue|tsx)$/.test(entry)) {
@@ -52,9 +60,9 @@ export function resolveAotEntry(app: string): string {
 
 export async function buildAot(app: string, options: AotBuildOptions = {}): Promise<AotBuildResult> {
   const entry = resolveAotEntry(app);
-  const program = analyzeAot(entry, { strict: options.strict });
+  const program = analyzeAot(entry, { strict: options.strict, theme: options.theme, tickHz: options.tickHz });
   if (options.board) requireAotBoard(program, options.board);
-  const output = emitAot(program);
+  const output = emitAot(program, { layoutEnvironment: options.layoutEnvironment });
   if (program.model) {
     const name = program.root.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase() + "_model";
     output.files[`${name}.rs`] = generateModelRust(program.model, program);
@@ -103,7 +111,7 @@ export async function buildAot(app: string, options: AotBuildOptions = {}): Prom
       writeFileSync(modelPath, JSON.stringify(program.model, null, 2) + "\n"); files.push(modelPath);
     }
   }
-  return { entry, outDir, files, program };
+  return { entry, outDir, files, program, layout: output.layout };
 }
 
 export async function runAotCli(args: string[]): Promise<void> {

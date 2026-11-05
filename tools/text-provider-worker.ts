@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { createTextEngine } from "../hosts/web/text-engine.js";
+import { createTextEngine } from "../platforms/web/text-engine.js";
 let engine: Awaited<ReturnType<typeof createTextEngine>>;
 let ready: Promise<void>;
 self.onmessage = async ({ data }) => {

@@ -3,7 +3,7 @@
 // A docs page embeds a live PocketJS app by naming an apps/<app>/ directory.
 // Everything the page needs (dist artifact names, logical size, raster
 // density, the command that produces the artifact) is derived here from that
-// app's pocket.json, so the markdown never repeats a build detail and the
+// app's pocket.app.json, so the markdown never repeats a build detail and the
 // site build and the prerequisite chain in tools/site-build.ts cannot drift.
 //
 // Imported by BOTH site/build.ts (to emit the figure and copy the artifacts)
@@ -16,10 +16,10 @@ const ROOT = new URL("..", import.meta.url).pathname;
 export interface DocDemo {
   /** apps/<app>/ directory name, the token written after `:::demo`. */
   app: string;
-  /** pocket.json app.output — the dist artifact's base name. */
+  /** pocket.app.json app.output — the dist artifact's base name. */
   output: string;
   framework: "solid" | "vue-vapor" | "octane";
-  /** pocket.json id, handed to the AppInstance realm as its package id. */
+  /** pocket.app.json id, handed to the AppInstance realm as its package id. */
   packageId: string;
   title: string;
   /** Logical viewport in PocketJS pixels. */
@@ -55,14 +55,14 @@ export class MissingDemoArtifactError extends Error {
   }
 }
 
-/** Resolve `:::demo <app>` against apps/<app>/pocket.json. Throws if unbuilt. */
+/** Resolve `:::demo <app>` against apps/<app>/pocket.app.json. Throws if unbuilt. */
 export function resolveDocDemo(app: string): DocDemo {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(app)) {
     throw new Error(`:::demo wants an apps/ directory name, got ${JSON.stringify(app)}`);
   }
-  const manifestPath = `${ROOT}apps/${app}/pocket.json`;
+  const manifestPath = `${ROOT}apps/${app}/pocket.app.json`;
   if (!existsSync(manifestPath)) {
-    throw new Error(`:::demo ${app} has no manifest at apps/${app}/pocket.json`);
+    throw new Error(`:::demo ${app} has no manifest at apps/${app}/pocket.app.json`);
   }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     id?: string;
@@ -70,17 +70,20 @@ export function resolveDocDemo(app: string): DocDemo {
     app?: {
       output?: string;
       framework?: keyof typeof OUTPUT_SUFFIX;
-      viewport?: { fixed?: { logical?: [number, number] } };
+      viewport?: { fixed?: { logical?: [number, number] | [number, number][] | { min: [number, number] } } };
     };
   };
   const output = manifest.app?.output;
   const framework = manifest.app?.framework;
-  const logical = manifest.app?.viewport?.fixed?.logical;
+  // A preference list's first size; a range's lower bound.
+  const declared = manifest.app?.viewport?.fixed?.logical;
+  const logical = !declared ? undefined : "min" in declared ? declared.min
+    : typeof declared[0] === "number" ? declared as [number, number] : (declared as [number, number][])[0];
   if (!output || !framework || !(framework in OUTPUT_SUFFIX)) {
-    throw new Error(`apps/${app}/pocket.json declares no app.output/app.framework`);
+    throw new Error(`apps/${app}/pocket.app.json declares no app.output/app.framework`);
   }
   if (!logical || logical.length !== 2) {
-    throw new Error(`apps/${app}/pocket.json declares no app.viewport.fixed.logical`);
+    throw new Error(`apps/${app}/pocket.app.json declares no app.viewport.fixed.logical`);
   }
   const [width, height] = logical;
   if (width >= LEGACY_COORD_LIMIT || height >= LEGACY_COORD_LIMIT) {

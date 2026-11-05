@@ -1,117 +1,119 @@
 # Modern iOS via NativeScript
 
-`pocket ios` runs PocketJS guests on the iOS simulator inside a NativeScript
-shell app. The native core is `engine/ios` ([PR #255](https://github.com/pocket-stack/pocketjs/pull/255)):
-the `pocket-apple` crate behind a C ABI, and `PocketSurfaceView`, a UIKit view
-driving one guest realm and one software-rastered surface per instance. The
-NativeScript side is the published
-[`@nativescript/pocketjs`](https://github.com/NativeScript/pocketjs) plugin,
-whose npm package carries a prebuilt `PocketApple.xcframework` — the default
-flow needs **no Rust toolchain**.
+`platforms/apple` composes **one canonical PocketJS Runtime per UIKit view**.
+`PocketSurfaceView` registers a CPU display, touch input, package source and
+service provider through `pocket_runtime::abi`. The Runtime owns package
+admission, asset loading, input hit snapshots, guest ticks and presentation.
+The Apple adapter holds the framebuffer and host queues; it holds no second
+`Ui` or operation dispatcher.
 
-## Current status
+The maintained NativeScript plugin is
+`programs/ios-simulator/shell/pocketjs`. The shell installs it through a `file:`
+dependency and imports the generated UI mount from
+`@pocketjs/framework/guest-web`. **Both guest modes use the generated op
+schema and the same Runtime lifecycle.**
 
-| Claim | Evidence |
-| --- | --- |
-| Guest boots, renders, animates at 60 fps | iOS 26.5 simulator, `apps/nsengine` at density 4 |
-| Touch reaches the guest with aspect-fit inverse mapping | `Ping host` pressable increments on tap |
-| Guest ↔ host service round trip | `ns.ping` → shell reply renders in the guest stat tile, unprompted on mount |
-| External-guest mode (the app's JS runtime is the guest engine) | Guest code reads `UIDevice.currentDevice.systemVersion` |
-| Platform-contract identity enforced end to end | Plan-built bundles bake `ios-dev`/7 and mount only on hosts publishing the same pair |
-| Real-device run | **Not yet exercised** — simulator only |
-
-## One-time setup
+## Build and run
 
 ```sh
-pocket ios doctor    # Xcode, arm64 iOS 16+ simulator runtime, node, ns CLI
-pocket ios setup     # adds the two Rust iOS targets (only needed for --rebuild-native)
+bun tools/ios.ts doctor
+bun tools/ios.ts setup
+bun tools/ios.ts native
+bun tools/play.ts ios nsengine
+bun tools/play.ts ios nsengine --external-guest
 ```
 
-**An Apple Silicon Mac is required.** `PocketApple.xcframework` and the
-`@nativescript/ios-quickjs` runtime ship `ios-arm64`/`ios-arm64-simulator`
-slices only, so the shell excludes `x86_64` for simulator builds
-(`hosts/ios-nativescript/App_Resources/iOS/build.xcconfig`). CocoaPods is not
-required: neither the shell nor the plugin carries a Podfile.
+Building `PocketApple.xcframework` requires Xcode with the iPhone SDKs, the
+Rust `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets, and libclang.
+The framework contains the Rust runtime archive, `PocketSurfaceView`, and
+its generated C headers. The shell uses the arm64 device/simulator slices
+and excludes x86_64. CocoaPods is not required.
 
-## Build and run a demo
+`tools/play.ts` compiles the demo against `ios-dev` and passes the resulting
+`.pocket` package to `tools/ios.ts`. The iOS tool admits that package, stages
+`<output>.pocketjs`, `<output>.pak`, `<output>.plan.json` and `current.json`,
+copies the framework into the local plugin, installs shell dependencies and
+starts NativeScript. `--rebuild-native` rebuilds the framework before staging.
+NativeScript build files, installed dependencies, staged assets and framework
+copies are ignored by Git.
+
+Build a simulator application without launching it through the host config:
 
 ```sh
-pocket play ios nsengine                     # build, stage, launch on the simulator
-pocket ios play nsengine --external-guest    # the NativeScript runtime as the guest engine
-pocket ios build nsengine --density=4        # guest artifacts only (dist/ios/nsengine/)
-pocket ios devices                           # admissible simulators
+bun tools/pocket.ts compile --manifest apps/nsengine/pocket.app.json \
+  --project-root . --host-config programs/ios-simulator/pocket.host.config.ts \
+  --output dist/ios/application.pocket
+bun tools/pocket.ts build --config programs/ios-simulator/pocket.host.config.ts \
+  --pocket dist/ios/application.pocket --out dist/ios/native
 ```
 
-The flow: resolve the app's manifest against the `ios-dev` profile → run
-`tools/build.ts` from the plan → stage `<output>.pocketjs`, `<output>.pak`,
-`<output>.plan.json` and `current.json` into the shell's `src/assets/pocket/`
-→ `npm install` (first run) → boot an arm64 simulator →
-`ns run ios --device <udid> --no-hmr --justlaunch`. The shell runs in place,
-so only the first run pays the full cost: **~47 s cold** (npm install + full
-Xcode build, Apple Silicon, warm simulator) and **~16 s on repeat runs**
-(`--no-build`; ~25 s with a guest rebuild). `--attach` keeps `ns run`
-attached for console output.
+The native recipe writes `PocketShell.app` and `PocketApple.xcframework` under
+`dist/ios/native`. To stage an existing package for a simulator run, use
+`bun tools/ios.ts play --pocket dist/ios/application.pocket`.
 
-**Density is load-bearing:** glyph atlases bake at build time, and the shell
-sets the surface's raster scale from the staged plan — a guest built at one
-density and rastered at another renders soft text. `--density=1..4`, default 3.
+The raw JS/pak entry points remain for existing UIKit consumers. The Apple
+adapter wraps those inputs in the current `.pocket` format with
+`pocket-package::embedded`, then passes the result through the standard
+package reader. The wrapper derives its host contract hash from the configured
+host identity, viewport, density, tick rate and service capabilities.
 
-## The ios-dev profile
+## Guest modes
 
-`tools/ios-profile.ts` follows the transitional pattern
-(`tools/iphone2g-profile.ts`): a scoped registry that stays out of
-`POCKET_TARGETS` until the host has device-level acceptance. Profile:
-platform `ios`, form `embedded` (a fixed 480×272 logical viewport letterboxed
-by the view), presentations `native` + `integer-fit`, capabilities
-`input.touch` + `text.glyphs.baked` only — `PocketSurfaceView` reports no
-buttons and a centered analog.
+- `PocketView` owns an `RquickjsGuest` inside the Runtime. Guest code runs in
+  the QuickJS realm embedded in the framework.
+- `PocketHostView` uses the NativeScript engine. UIKit calls the registered
+  guest initialize/evaluate/frame/shutdown callbacks. The generated mount
+  sends typed operation records through a generic Foundation transport.
+  NativeScript guest code retains access to iOS platform APIs.
 
-**The identity contract:** bundles built from a resolved plan bake
-`__POCKET_TARGET__`/`__POCKET_HOST_ABI__` and refuse to mount unless the host
-publishes the same pair (`framework/src/host.ts`). Three places publish
-`"ios-dev"` / `7` and must stay in agreement: this profile,
-`PocketSurfaceView.m` (`pocket_apple_set_identity` at init), and the plugin's
-external-guest `ui` mount. `tests/ios-profile.test.ts` guards the first two.
+External guest byte arguments copy their exact typed-array window into
+`NSData`. Returned bytes are copied before another runtime call can
+invalidate them. Shutdown invalidates functions retained from `ui` and
+removes the guest's global frame callback. The external mode mounts one
+active guest in the NativeScript global namespace.
 
-## The two guest modes
+UIKit drives both modes through `pocket_apple_frame`; the separate
+`pocket_apple_render` entry point reads the completed framebuffer. Repeated
+snapshot reads do not advance guest time. The display reports a stable
+buffer identity so the coordinator can retain unchanged pixels and skip
+idle transfers. UIKit copies changed output into a `CGImage` for its layer.
 
-- **Sidecar (default, `PocketView`)** — the guest runs in the QuickJS realm
-  embedded in the xcframework. The host app's runtime never sees guest code;
-  the surface composes into the app's layout like any UIView.
-- **External guest (`--external-guest`, `PocketHostView`)** — the shell's own
-  JS runtime evaluates the bundle; `globalThis.ui` delegates each op over the
-  NativeScript metadata bindings to the same native core. Guest code reaches
-  the whole iOS platform with no per-API glue.
+Touches use the inverse aspect-fit mapping. Contacts retain their slot
+until release, brief taps survive until a tick, and UIKit cancellation
+produces the canonical cancellation word. Each frame includes the Runtime's
+committed hit and surface arrays. Service effects are delivered after the
+runtime tick; a synchronous host reply enters the next frame's service
+queue. A disposal request from a guest or effect callback stops the timer
+and destroys the instance after the active call returns.
 
-Both modes run the identical bundle; `current.json` selects the view class.
+## Host contract and shell
 
-## The shell (`hosts/ios-nativescript`)
+`hosts/ios-dev/pocket.host.json` declares the private `ios-dev` host contract: a 480×272
+logical viewport, `input.touch` and `text.glyphs.baked`. The build and view
+must agree on **identity, viewport, raster density and tick rate**. Set
+`tickRate` before evaluating the bundle; later changes are rejected.
+**The maintained `ios-dev` host contract uses raster density 3.** Glyph atlases
+bake at that density and the view uses the same raster scale. Staging rejects
+a `--density` or `--hz` value that differs from the selected host config.
+`programs/ipodtouch6` uses the same UIKit consumer with its own identity and
+viewport.
 
-Authored and committed: `package.json`, `nativescript.config.ts`,
-`webpack.config.js`, `tsconfig.json`, `references.d.ts`, `src/app.ts`,
-`App_Resources/iOS/{build.xcconfig,Info.plist,LaunchScreen.storyboard}`.
-Generated and gitignored: `node_modules/`, `platforms/`, `hooks/`,
-`src/assets/pocket/`, `package-lock.json`. The shell is plan-driven — it reads
-the staged plan for viewport and density and the staged mode for the view
-class, so nothing is templated at stage time. Its `tsconfig.json` pins
-`@nativescript/core` paths so the plugin's typings resolve when the plugin is
-a `file:` symlink. `--shell-dir=<path>` stages into another NativeScript app
-instead.
+The shell reads the staged plan and mode, selects `PocketView` or
+`PocketHostView`, and forwards service events. `--shell-dir` stages into a
+compatible shell. `--plugin-path` overrides the maintained plugin checkout;
+that checkout must implement the canonical guest bridge.
+`--runtime-tgz` overrides the NativeScript QuickJS runtime package.
 
-## Pre-publish overrides
+## Validation
 
-`--plugin-path=<checkout>` and `--runtime-tgz=<tgz>` point the shell at a
-local `@nativescript/pocketjs` checkout and a local
-`@nativescript/ios-quickjs` tarball. The committed `package.json` names the
-published packages; overrides are applied for the `npm install` and the
-template is restored afterwards. With `--plugin-path`, a present
-`engine/ios/dist/PocketApple.xcframework` is copied into the local plugin
-(`--rebuild-native` rebuilds it first).
+```sh
+cargo +stable test --locked --manifest-path Cargo.toml -p pocket-apple
+bun test tests/nativescript-bridge.test.ts tests/ios-profile.test.ts tests/ipodtouch-profile.test.ts
+```
 
-## Sources
-
-- `engine/ios/` — pocket-apple crate, `PocketSurfaceView`, `build-xcframework.sh`
-- `tools/ios.ts`, `tools/ios-profile.ts` — the CLI flow and the profile
-- `hosts/ios-nativescript/` — the committed shell
-- `apps/nsengine/` — the reference guest (service channel + platform probe)
-- [`@nativescript/pocketjs`](https://github.com/NativeScript/pocketjs) — the plugin repo
+Desktop tests execute real QuickJS and the external C guest callbacks
+against the canonical Runtime. They cover frame output, instance isolation,
+boot failure/retry, touch hit/cancel facts, service replies and callback
+lifetime. JS tests cover generated dispatch, byte ownership and shutdown.
+These checks do not validate UIKit metadata marshalling or device rendering;
+those require an iOS framework build and the final platform acceptance run.

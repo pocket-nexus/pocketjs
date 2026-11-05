@@ -13,7 +13,10 @@
 //   /playground/          the live editor page
 //   /docs/*, /index.html  rendered from site/content (added below)
 
+import { stageWebAssets } from "../tools/build/web-assets.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +35,7 @@ import {
 import {
   ICON_LINKS,
   OG_IMAGE_URL,
+  PIXEL_FONT_PRELOAD,
   SITE_DESC,
   SITE_TITLE,
   SITE_URL,
@@ -39,6 +43,7 @@ import {
   renderPage,
 } from "./templates.ts";
 import { BLOG_POSTS, DOC_NAV, type DocSection } from "./nav.ts";
+import { candyHeadings } from "./candy.ts";
 import {
   assertDocDemoBuilt,
   findDocDemoDirectives,
@@ -48,6 +53,10 @@ import {
 import { emitSingleLodStagePackage } from "./stage-package.ts";
 import { renderHomeShowcase } from "./home-showcase.ts";
 import { SHOWCASE_APPS } from "./showcase.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { decodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
+const pspProfile = POCKET_PROFILES["psp"];
 
 const ROOT = new URL("..", import.meta.url).pathname; // repo root
 const SITE = ROOT + "site/";
@@ -91,6 +100,23 @@ const shimPlugin: import("bun").BunPlugin = {
 // binding but prune its declaration in a browser bundle. Resolve the browser
 // compiler straight to the owning module; normal Bun/Node consumers keep using
 // the public `octane/compiler` subpath in source.
+// The playground runtimes bundle the framework with the hero build's style
+// table (tools/site-build.ts builds hero before this script) as the default
+// table for applications that pass none.
+const HERO_STYLES = ROOT + "dist/hero.styles.ts";
+function heroStyles(): string {
+  if (!existsSync(HERO_STYLES)) {
+    throw new Error(`site build: ${HERO_STYLES} is missing; run \`bun tools/build.ts hero\` first`);
+  }
+  return readFileSync(HERO_STYLES, "utf8");
+}
+const heroStylesPlugin: import("bun").BunPlugin = {
+  name: "hero-styles",
+  setup(build) {
+    build.onResolve({ filter: /(?:^|\/)styles\.generated(?:\.ts)?$/ }, () => ({ path: HERO_STYLES }));
+  },
+};
+
 const octaneBrowserCompilerPlugin: import("bun").BunPlugin = {
   name: "octane-browser-compiler",
   setup(b) {
@@ -341,9 +367,9 @@ function demoManifest() {
     // PSP-admissible demos: a committed manifest that does not resolve
     // against the psp target (desktop-only capabilities, non-console
     // viewport) keeps its demo off the site.
-    const manifestPath = dir + name + "/pocket.json";
+    const manifestPath = dir + name + "/pocket.app.json";
     if (existsSync(manifestPath)) {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const manifest = readPocketManifest(manifestPath).manifest;
       if (!validateAndResolveBuildPlan(manifest, { target: "psp" }).ok) continue;
     }
     const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"));
@@ -513,8 +539,15 @@ async function main() {
   await bundleSolidUniversal("pg/solid-universal.js");
   await bundleVueVapor("pg/vue-vapor.js");
   writeVueVaporHelpers();
-  await bundle("playground/runtime-entry.ts", "pg/runtime.js", { external: ["solid-js", "solid-js/universal"] });
-  await bundle("playground/runtime-vue-vapor-entry.ts", "pg/runtime-vue-vapor.js", { external: ["vue"] });
+  heroStyles();
+  await bundle("playground/runtime-entry.ts", "pg/runtime.js", {
+    external: ["solid-js", "solid-js/universal"],
+    plugins: [heroStylesPlugin],
+  });
+  await bundle("playground/runtime-vue-vapor-entry.ts", "pg/runtime-vue-vapor.js", {
+    external: ["vue"],
+    plugins: [heroStylesPlugin],
+  });
   await bundle("playground/compiler-entry.ts", "pg/compiler.js", {
     shims: true,
     prelude: PROCESS_PRELUDE,
@@ -530,7 +563,7 @@ async function main() {
   // with a require-of-top-level-await error.
   const { jsxPlugin } = await import("../framework/compiler/jsx-plugin.ts");
   await bundle("playground/runtime-octane-entry.ts", "pg/runtime-octane.js", {
-    plugins: [jsxPlugin("octane")],
+    plugins: [jsxPlugin("octane", { generatedStyles: heroStyles() })],
   });
   await bundle("playground/playground.js", "pg/playground.bundle.js");
   // Live docs demos (`:::demo <app>`). Bundled from source so it can import
@@ -546,16 +579,13 @@ async function main() {
   // validator. The deployed path is POCKET_MANIFEST_SCHEMA_ID —
   // /schema/pocket-2.json, independent of where the repo keeps the file.
   copy(ROOT + "contracts/schema/pocket-2.json", "schema/pocket-2.json");
-  copy(ROOT + "contracts/schema/pocket-idf-host-1.json", "schema/pocket-idf-host-1.json");
-  copy(ROOT + "hosts/web/pocketjs.wasm", "pg/pocketjs.wasm");
-  // The AppInstance realm a docs demo boots into: one hidden same-origin
-  // iframe per demo, so several demos on one page never share globals.
-  copy(ROOT + "hosts/web/app-instance.html", "pg/app-instance.html");
-  copy(ROOT + "hosts/web/app-instance.js", "pg/app-instance.js");
-  copy(ROOT + "hosts/web/wasm-ops.js", "pg/wasm-ops.js");
-  for (const name of ["offload-worker.js", "text-worker.js", "text-engine.js", "pocket_text.wasm"]) {
-    copy(ROOT + "hosts/web/" + name, "pg/" + name);
-  }
+  copy(ROOT + "contracts/schema/pocket-host-2.json", "schema/pocket-host-2.json");
+  copy(ROOT + "platforms/web/pocketjs.wasm", "pg/pocketjs.wasm");
+  // Preserve program/provider module and worker URLs under the deployed root.
+  stageWebAssets(OUT + "pg", {
+    wasm: ROOT + "platforms/web/pocketjs.wasm",
+    textWasm: ROOT + "platforms/web/pocket_text.wasm",
+  });
   copy(ROOT + "assets/fonts/Inter-Regular.ttf", "pg/fonts/Inter-Regular.ttf");
   copy(ROOT + "assets/fonts/Inter-Bold.ttf", "pg/fonts/Inter-Bold.ttf");
   for (const f of readdirSync(ROOT + "assets/images/")) copy(ROOT + "assets/images/" + f, "demo-assets/" + f);
@@ -574,16 +604,22 @@ async function main() {
     apps: { output: string; id: string; title: string }[];
   };
   const stageApps = ["launcher-main", ...launcherRegistry.apps.map((a) => a.output)];
+  const stageProfileHash = hashPocketProfile(pspProfile);
   for (const output of stageApps) {
     const source = ROOT + `dist/packages/${output}.pocket`;
     if (!existsSync(source)) {
       throw new Error(`missing dist/packages/${output}.pocket — run: bun tools/launcher.ts pack`);
+    }
+    const variant = findVariant(decodePocketPackage(new Uint8Array(readFileSync(source))), "psp");
+    if (!variant || variant.profileHash !== stageProfileHash) {
+      throw new Error(`stage package ${output} does not match the PSP software profile; rebuild it`);
     }
     copy(source, `stage/apps/${output}.pocket`);
   }
   write(
     "stage/apps/apps.json",
     JSON.stringify({
+      target: "psp", hostAbi: POCKET_BINDING_GENERATION, profileHash: stageProfileHash,
       apps: launcherRegistry.apps.map(({ output, id, title }) => ({ output, id, title })),
     }),
   );
@@ -630,6 +666,12 @@ async function main() {
   ]) {
     if (existsSync(SITE + "assets/" + asset)) copy(SITE + "assets/" + asset, asset);
   }
+  // The Pocket3D mark beside the homepage's link to 3d.pocket.nexus: that site's
+  // drawing, copied at build time so this one keeps no second copy.
+  copy(SITE + "pocket3d/mark.svg", "assets/pocket3d-mark.svg");
+  // The Arcade look for pages outside the homepage, and its self-hosted pixel font.
+  copy(SITE + "assets/arcade.css", "assets/arcade.css");
+  copy(SITE + "assets/fonts/", "assets/fonts/");
   // OpenStrike desktop screenshot (referenced by the shipping-openstrike post).
   copy(SITE + "assets/os-dust2.jpg", "assets/os-dust2.jpg");
   // The original hardware capture (embedded by the introducing-pocketjs post).
@@ -672,8 +714,9 @@ async function main() {
   //    header/footer (those stay for docs + playground).
   write("index.html", renderHome());
   // The homepage ships one stylesheet: the same tokens and chrome the Tailwind
-  // build imports, plus the landing sections, concatenated in layer order.
-  write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css", "showcase.css"]
+  // build imports, plus the landing sections, concatenated in layer order and
+  // closed by the Arcade look. Other pages link arcade.css after their own CSS.
+  write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css", "showcase.css", "arcade.css"]
     .map((f) => readFileSync(SITE + "assets/" + f, "utf8"))
     .join("\n"));
   await bundle("assets/landing.js", "assets/landing.js", {
@@ -755,7 +798,7 @@ function renderHome(): string {
     name: "PocketJS",
     description: SITE_DESC,
     url: SITE_URL,
-    codeRepository: "https://github.com/pocket-stack/pocketjs",
+    codeRepository: "https://github.com/pocket-nexus/pocketjs",
     programmingLanguage: ["TypeScript", "JavaScript", "Rust"],
     runtimePlatform: [
       "Sony PSP",
@@ -774,7 +817,7 @@ function renderHome(): string {
       "Bun",
     ],
   });
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -800,7 +843,8 @@ function renderHome(): string {
 ${ICON_LINKS}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/landing.css">
 <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -808,27 +852,18 @@ ${ICON_LINKS}
 ${body}
 <script type="module" src="/assets/landing.js"></script>
 </body>
-</html>`;
+</html>`);
 }
 
 // The /for/ pages share the homepage's bespoke chrome (home.css, no shared
 // Tailwind shell): site/for/shell.html holds the nav + footer, and
-// site/for/<slug>.html the main content. Linked from the use-case cards.
+// site/for/<slug>.html the main content. Games and 3D have no page here: that
+// subject belongs to Pocket3D and its own site.
 const FOR_PAGES = [
   {
     slug: "interfaces",
     title: "PocketJS for user interfaces",
     desc: "Components, signals and Tailwind classes in Solid, Vue Vapor or Octane become one native tree that runs on every machine in the registry.",
-  },
-  {
-    slug: "games",
-    title: "PocketJS for games",
-    desc: "Rust engine cores under JavaScript gameplay: OpenStrike holds a locked 60 fps on a 333 MHz PSP while the HUD stays a Solid app.",
-  },
-  {
-    slug: "worlds",
-    title: "PocketJS for 3D worlds",
-    desc: "Pocket3D cooks a scene once and renders it through wgpu, sceGu, GXM and OpenGL ES, up to VRM humans with spring-bone physics.",
   },
   {
     slug: "agents",
@@ -843,7 +878,7 @@ function renderForPage(page: { slug: string; title: string; desc: string }): str
   if (!shell.includes("{{FOR_MAIN}}")) throw new Error("for/shell.html must contain {{FOR_MAIN}}");
   const body = shell.replace("{{FOR_MAIN}}", main);
   const url = `${SITE_URL}/for/${page.slug}/`;
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -867,12 +902,17 @@ function renderForPage(page: { slug: string; title: string; desc: string }): str
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
 <meta name="theme-color" content="#171226">
 ${ICON_LINKS}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/home.css">
+<link rel="stylesheet" href="/assets/arcade.css">
 </head>
 <body>
 ${body}
 </body>
-</html>`;
+</html>`);
 }
 
 async function compileCss() {
@@ -904,6 +944,7 @@ const PLAYGROUND_IMPORTS: Record<string, string> = {
   "@pocketjs/framework/audio": "/pg/runtime.js",
   "@pocketjs/framework/clock": "/pg/runtime.js",
   "@pocketjs/framework/components": "/pg/runtime.js",
+  "@pocketjs/framework/game2d": "/pg/runtime.js",
   "@pocketjs/framework/host": "/pg/runtime.js",
   "@pocketjs/framework/input": "/pg/runtime.js",
   "@pocketjs/framework/launcher": "/pg/runtime.js",
@@ -990,7 +1031,7 @@ function docDemoFigure(demo: DocDemo, caption: string): string {
   const attrs: Record<string, string> = {
     "data-app": demo.app,
     "data-package-id": demo.packageId,
-    "data-instance": "/pg/app-instance.html",
+    "data-instance": "/pg/programs/web/app-instance.html",
     "data-wasm": "/pg/pocketjs.wasm",
     "data-bundle": `/pg/demos/${demo.bundleFile}`,
     "data-pak": `/pg/demos/${demo.pakFile}`,

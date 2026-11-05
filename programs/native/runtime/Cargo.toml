@@ -1,0 +1,47 @@
+[package]
+name = "pocket-native-program"
+edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Instance-based native program composition for PocketJS"
+publish = false
+
+[lib]
+name = "pocket_native_program"
+crate-type = ["rlib", "staticlib"]
+
+[features]
+default = ["std", "standalone-extension-provider"]
+std = ["pocket-archive/std", "dep:pocket-raster"]
+standalone-extension-provider = []
+# Select the fixed-function OpenGL ES 1.1 renderer.
+gles1 = []
+# Select CPU rasterization without linking a GLES backend.
+software-only = ["dep:pocket-raster"]
+# Register no renderer or display at create: the host registers its own
+# through pocket_native_program_runtime() before boot.
+host-backend = []
+# The C host links the six pocket_host_* hooks; the no_std archive omits the
+# malloc-backed set in src/host_hooks.rs.
+host-hooks = []
+
+[dependencies]
+pocket-spec = { workspace = true, default-features = true }
+pocket-archive = { workspace = true }
+pocketjs-core = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-physics = { workspace = true, default-features = true }
+# The CPU output of std and software-only builds; GL and host-backend
+# builds link no rasterizer.
+pocket-raster = { workspace = true, default-features = true, optional = true }
+pocket-gles = { workspace = true, default-features = true }
+pocket-gles1 = { workspace = true, default-features = true }
+pocket-gles2 = { workspace = true, default-features = true }
+
+[dev-dependencies]
+pocket-raster = { workspace = true, default-features = true }

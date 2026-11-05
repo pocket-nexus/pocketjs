@@ -1,5 +1,5 @@
 /** Lower async bodies into states and retain locals needed by later states or waits. */
-import { checkModelVersion, emptyLedger, type ModelAwaitable, type ModelBinder, type ModelBlock, type ModelExpr, type ModelProgram, type ModelStmt, type ModelTaskState } from "./aot-model-ir.ts";
+import { checkModelVersion, emptyLedger, type ModelAwaitable, type ModelBinder, type ModelBlock, type ModelExpr, type ModelProgram, type ModelStmt, type ModelTarget, type ModelTaskState } from "./aot-model-ir.ts";
 import { AotCompileError, I32 } from "./aot-ir.ts";
 
 function objects(value: unknown, visit: (node: any) => void): void {
@@ -81,7 +81,11 @@ export function lowerModelTasks(program: ModelProgram): ModelProgram {
       const uses: Set<number>[] = [], defs: Set<number>[] = [];
       for (const s of lowered) {
         const use = new Set<number>(), def = new Set<number>();
-        const exprUses = (value: unknown) => objects(value, n => { if (n.kind === "local" && !def.has(n.id)) use.add(n.id); });
+        // Element and member targets name their owner by id: a write through one uses the owner.
+        const exprUses = (value: unknown) => objects(value, n => {
+          if (n.kind === "local" && !def.has(n.id)) use.add(n.id);
+          if ((n.kind === "assign" || n.kind === "mutate") && (n.target?.kind === "element" || n.target?.kind === "member") && !def.has(n.target.owner)) use.add(n.target.owner);
+        });
         for (const stmt of s.body.stmts) {
           if (stmt.kind === "let") { exprUses(stmt.init); def.add(stmt.binder.id); }
           else if (stmt.kind === "assign" && stmt.target.kind === "local") { exprUses(stmt.value); def.add(stmt.target.id); }
@@ -185,9 +189,20 @@ export function assertModelProgram(program: ModelProgram): void {
         case "array": for (const e of expr.items) checkExpr(e, scope); break;
         case "template": for (const part of expr.parts) if (typeof part !== "string") checkExpr(part, scope); break;
         case "builtin": for (const arg of expr.args) checkExpr(arg, scope); break;
-        case "literal": case "undefined": break;
+        case "literal": case "undefined": case "constant": break;
+        case "mutate": checkTarget(expr.target, scope); for (const arg of expr.args) checkExpr(arg, scope); break;
         default: fail(`unknown expression ${(expr as any).kind}`);
       }
+    };
+    const checkTarget = (target: ModelTarget, scope: Set<number>): void => {
+      if (target.kind === "element" || target.kind === "member") { if (!scope.has(target.owner)) fail(`undeclared local ${target.owner}`); if (!owned.get(target.owner)) fail(`write through a view ${target.owner}`); origins.delete(target.owner); if (target.kind === "element") checkExpr(target.index, scope); }
+      else if (target.kind === "path") {
+        if (target.root.kind === "local") { if (!scope.has(target.root.id)) fail(`undeclared local ${target.root.id}`); if (!owned.get(target.root.id)) fail(`write through a view ${target.root.id}`); origins.delete(target.root.id); }
+        else if (!fields.has(target.root.id)) fail(`undeclared field ${target.root.id}`);
+        for (const step of target.steps) if (step.kind === "index") checkExpr(step.index, scope);
+      }
+      else if (target.kind === "local") { if (!scope.has(target.id)) fail(`undeclared local ${target.id}`); origins.delete(target.id); }
+      else if (!fields.has(target.id)) fail(`undeclared field ${target.id}`);
     };
     const checkAwait = (source: ModelAwaitable, scope: Set<number>): void => {
       switch (source.kind) {
@@ -224,12 +239,9 @@ export function assertModelProgram(program: ModelProgram): void {
           case "batch": case "untrack": checkBlock(s.body, new Set(scope), inFunction, async); break;
           case "return": if (!inFunction) fail("return outside a function"); checkExpr(s.value, scope); break;
           case "await": if (!async) fail("await outside an async function"); checkAwait(s.source, scope); if (s.binder) bind(s.binder, scope); break;
-          case "assign": {
-            if (s.target.kind === "element" || s.target.kind === "member") { if (!scope.has(s.target.owner)) fail(`undeclared local ${s.target.owner}`); if (!owned.get(s.target.owner)) fail(`write through a view ${s.target.owner}`); origins.delete(s.target.owner); if (s.target.kind === "element") checkExpr(s.target.index, scope); }
-            else if (s.target.kind === "local") { if (!scope.has(s.target.id)) fail(`undeclared local ${s.target.id}`); origins.delete(s.target.id); }
-            else if (!fields.has(s.target.id)) fail(`undeclared field ${s.target.id}`);
-            checkExpr(s.value, scope); break;
-          }
+          case "assign": checkTarget(s.target, scope); checkExpr(s.value, scope); break;
+          case "while": checkExpr(s.condition, scope); checkBlock(s.body, new Set(scope), inFunction, async); if (s.update) checkBlock(s.update, new Set(scope), inFunction, async); break;
+          case "break": case "continue": if (!inFunction) fail(`${s.kind} outside a function`); break;
           case "call": checkCall(s.callee, s.args, scope); break;
           case "start": if (!functions.get(s.task)?.async) fail(`start target ${s.task} is not async`); for (const arg of s.args) checkExpr(arg, scope); break;
           case "expr": checkExpr(s.value, scope); break;
@@ -251,6 +263,7 @@ export function assertModelProgram(program: ModelProgram): void {
       objects(body, n => {
         if (n.kind === "set") result.add(n.signal);
         if (n.kind === "assign" && n.target.kind === "field") result.add(n.target.id);
+        if ((n.kind === "assign" || n.kind === "mutate") && n.target.kind === "path" && n.target.root.kind === "field") result.add(n.target.root.id);
         if ((n.kind === "call" || n.kind === "invoke" || n.kind === "start") && !seen.has(n.callee ?? n.task)) { const id = n.callee ?? n.task; seen.add(id); const f = functions.get(id); if (f) for (const w of writes(f.body, seen)) result.add(w); }
       }); return result;
     };

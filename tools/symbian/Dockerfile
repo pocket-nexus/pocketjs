@@ -61,7 +61,7 @@ ENV POCKETJS_SYMBIAN_IMAGE_IMPLEMENTATION_SHA256="${POCKETJS_SYMBIAN_IMPLEMENTAT
 LABEL org.pocketjs.symbian.toolchain="${POCKETJS_SYMBIAN_TOOLCHAIN_VERSION}" \
       org.pocketjs.symbian.implementation="${POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256}"
 
-COPY tools/cli/symbian-toolchain.json /opt/pocketjs/symbian-toolchain.json
+COPY tools/build/toolchains/symbian/manifest.json /opt/pocketjs/symbian-toolchain.json
 COPY tools/symbian/container/patches /opt/pocketjs/patches
 # Repository command entrypoints use Bun TypeScript by default. These shell
 # entrypoints are the documented exception: the pinned, network-disabled

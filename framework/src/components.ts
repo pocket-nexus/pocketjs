@@ -17,8 +17,10 @@ import {
 } from "solid-js";
 import { BTN, ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./anim.ts";
-import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onFrame, type ButtonPressOptions } from "./frame.ts";
+import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame.ts";
 import { RelativeAxis } from "./relative-axis.ts";
+import { MOTION_DEFAULT_MIN_QUALITY } from "./motion.ts";
+import type { MicroTsMotionHandlerProps } from "./component-types-microts.ts";
 import type { i32 } from "./numeric-microts.ts";
 import { RowContext, captureNodeRow, type RowContextValue } from "./solid-row.ts";
 import { getOps, hostViewport } from "./host.ts";
@@ -203,6 +205,16 @@ export function AxisHandler(props: AxisHandlerProps): SolidJSX.Element {
   const marker = inputPlacement("axis");
   onAxisDelta(props.axis === "primary" ? RelativeAxis.Primary : RelativeAxis.Secondary,
     props.onDelta, { active: () => props.active ?? true }, marker);
+  return inputBlock(marker, () => props.children);
+}
+
+export type MotionHandlerProps = MicroTsMotionHandlerProps & { children?: SolidJSX.Element };
+
+/** Fires in document order on frames whose motion state carries `value` at `minQuality` or better. */
+export function MotionHandler(props: MotionHandlerProps): SolidJSX.Element {
+  const marker = inputPlacement("motion");
+  onMotion(props.value, (...payload: number[]) => (props.onUpdate as ((...payload: number[]) => void) | undefined)?.(...payload),
+    { active: () => resolveActive(props.active), minQuality: props.minQuality ?? MOTION_DEFAULT_MIN_QUALITY }, marker);
   return inputBlock(marker, () => props.children);
 }
 

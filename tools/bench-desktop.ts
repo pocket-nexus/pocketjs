@@ -1,5 +1,5 @@
 // bun tools/bench-desktop.ts — the desktop markdown-editor benchmark:
-// the pocket note on the gpui host (hosts/desktop, docs/BACKENDS.md) against
+// the pocket note on the gpui host (programs/desktop, docs/BACKENDS.md) against
 // byte-identical web editors shelled by Tauri v2 (WKWebView) and Electron
 // (tools/bench-desktop/). Protocol follows the pocket-character measurement
 // (site/content/blog/pocket-character.md): same machine, hands off, process
@@ -153,7 +153,7 @@ interface Launcher {
   disk: () => Promise<number>;
 }
 
-const pocketBin = `${root}hosts/desktop/target/release/pocket-desktop-host`;
+const pocketBin = `${root}target/release/pocket-desktop-host`;
 const electronDir = `${root}tools/bench-desktop/electron`;
 const electronBin = `${electronDir}/node_modules/.bin/electron`;
 const tauriBin = `${root}tools/bench-desktop/tauri/src-tauri/target/release/bench-tauri`;
@@ -463,7 +463,7 @@ Fairness notes:
   QuickJS interpreter on every keystroke — an app-level O(n) the web
   editors' native contenteditable machinery does not pay. The caret is a
   square wave demand rendering skips between edges (apps/note/
-  pocket.config.ts), so idle repaints are ~2/s, not 60.
+  pocket.app.json app.theme), so idle repaints are ~2/s, not 60.
 `;
 
 await Bun.write(`${base}.md`, md);

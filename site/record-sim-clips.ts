@@ -15,14 +15,14 @@
 // runtimes from ever sharing globals.
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { BTN, SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const SITE = ROOT + "site/";
 const SIM_DIR = SITE + ".cache/demo-wall/sim/";
 const BUILD_DIST = SITE + ".cache/demo-wall/sim-build/";
-const WASM_PATH = ROOT + "hosts/web/pocketjs.wasm";
+const WASM_PATH = ROOT + "platforms/web/pocketjs.wasm";
 
 const DUR_S = 24; // must match bake-demo-wall.ts DUR
 const SIM_HZ = 60;

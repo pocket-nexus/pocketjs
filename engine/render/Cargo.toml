@@ -1,0 +1,18 @@
+[package]
+name = "pocket-render"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-render"
+keywords = ["pocketjs", "rendering", "drawlist"]
+categories = ["no-std", "rendering"]
+edition = "2021"
+description = "DrawList decoding, vertex building, texture and glyph page retention, and damage tracking for PocketJS renderers"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }

@@ -1,0 +1,383 @@
+#![cfg(test)]
+#![allow(dead_code, unused_unsafe)]
+// Compile the production composition/extension code. Only device services are
+// substituted; QuickJS, generated bindings, runtime and core are real.
+#[path = "../../../../programs/vita/src/service_bindings.rs"]
+mod service_bindings;
+#[path = "../../../../programs/vita/src/instance.rs"]
+mod instance;
+/// The profile tools/test-vita-runtime.ts exports, as the program embeds it.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
+mod registered_renderer { pub use pocket_vita_render::registered::SharedRenderer as RegisteredRenderer; }
+mod renderer_drop;
+mod dbg {
+    pub fn active() -> bool {
+        false
+    }
+    pub fn poll() -> Option<String> {
+        None
+    }
+    pub fn send(_: &[u8]) {}
+    pub fn shot() -> bool {
+        false
+    }
+}
+mod svc {
+    pub fn open(name: &str) -> bool {
+        name == "fixture"
+    }
+    pub fn poll() -> Option<String> {
+        Some("reply".into())
+    }
+    pub fn send(_: &[u8]) {}
+    pub fn read_side_file(_: &str, _: usize) -> Option<Vec<u8>> {
+        None
+    }
+}
+mod vid {
+    pub fn open(_: &mut pocketjs_core::Ui, _: &str) -> bool {
+        true
+    }
+    pub fn tick(_: &mut pocketjs_core::Ui) -> i32 {
+        7
+    }
+    pub fn texture() -> i32 {
+        -1
+    }
+    pub fn close(_: &mut pocketjs_core::Ui) {}
+}
+mod stats {
+    pub fn json() -> String {
+        "{}".into()
+    }
+}
+mod switch {
+    pub fn multi() -> bool {
+        false
+    }
+    pub fn upload_shot(_: &mut pocketjs_core::Ui) {}
+    pub fn table_json() -> String {
+        "{}".into()
+    }
+    pub fn find(_: &str) -> Option<usize> {
+        None
+    }
+    pub fn request_launch(_: usize) {}
+    pub fn shot_handle() -> i32 {
+        -1
+    }
+}
+use libquickjs_sys::*;
+use pocket_drivers::*;
+use pocket_drivers::abi::*;
+use pocket_runtime::{
+    abi::{status_code, Handle},
+    Runtime, RuntimeError,
+};
+// The archive defines the pocket_runtime_* symbols the C guest calls.
+use pocket_archive as _;
+use std::{cell::RefCell, rc::Rc};
+struct Render(Rc<RefCell<Vec<&'static str>>>);
+impl Renderer for Render {
+    type Submission = ();
+    fn descriptor(&self) -> RendererDescriptor {
+        RendererDescriptor::new(
+            &[PixelFormat::Rgba8888],
+            TargetOwnership::DeviceOwned,
+            Synchronization::Deferred,
+            pocketjs_core::spec::DRAW_LIST_VERSION,
+            false,
+        )
+        .unwrap()
+    }
+    fn render(&mut self, _: &mut FrameInput<'_>) -> Result<(), RenderError> {
+        self.0.borrow_mut().push("render");
+        Ok(())
+    }
+    fn wait(&mut self, _: &()) -> Result<(), RenderError> {
+        self.0.borrow_mut().push("wait");
+        Ok(())
+    }
+    fn retire(&mut self, _: ()) {
+        self.0.borrow_mut().push("retire");
+    }
+}
+struct Display(Rc<RefCell<Vec<&'static str>>>);
+impl DisplayOutput for Display {
+    type Token = ();
+    fn vsync(&mut self) -> VsyncSource {
+        VsyncSource::None
+    }
+    fn descriptor(&self) -> DisplayDescriptor {
+        DisplayDescriptor::new(
+            DisplayRole::Primary,
+            960,
+            544,
+            PixelFormat::Rgba8888,
+            960 * 4,
+            TargetOwnership::DeviceOwned,
+        )
+    }
+    fn acquire(&mut self, rect: Rect) -> Result<Target<'_>, DisplayError> {
+        Ok(Target::DeviceOwned(DeviceTarget::new(
+            1,
+            rect,
+            PixelFormat::Rgba8888,
+        )))
+    }
+    fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+        self.0.borrow_mut().push("flush");
+        Ok(())
+    }
+    fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+        self.0.borrow_mut().push("display-wait");
+        Ok(())
+    }
+}
+struct Program {
+    /// Declared first: the instance shuts down before the guest adapter and
+    /// its context drop. `None` once a test destroys it.
+    runtime: Option<Box<Handle>>,
+    guest: Box<instance::Guest>,
+    input: Rc<RefCell<instance::Input>>,
+    events: Rc<RefCell<Vec<&'static str>>>,
+}
+/// The C status of one runtime call on the program's instance.
+fn status<T>(result: Result<T, RuntimeError>) -> i32 {
+    result.map_or_else(status_code, |_| POCKET_STATUS_OK)
+}
+impl Program {
+    fn handle(&self) -> &Handle {
+        self.runtime.as_deref().expect("live runtime")
+    }
+    fn call(&self, action: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>) -> i32 {
+        status(self.handle().with_runtime(action))
+    }
+    unsafe fn new(code: &[u8]) -> Self {
+        let p = Self::unbooted();
+        assert_eq!(
+            status(instance::boot_package(
+                p.handle(),
+                package("vita", pocket_spec::BINDING_GENERATION, PLAN, code)
+            )),
+            0,
+            "{}",
+            p.guest.error()
+        );
+        assert!(p.events.borrow().is_empty());
+        assert_eq!(p.call(Runtime::skip_presentation), 0);
+        p
+    }
+    unsafe fn unbooted() -> Self {
+        let runtime = Handle::new(pocket_runtime::RuntimeConfig {
+            profile_hash: profile::PROFILE_HASH,
+            host_abi: profile::HOST_ABI,
+            heap_limit: 128 << 20,
+            frame_buffer_budget: 1,
+            profile: profile::profile().unwrap(),
+        })
+        .unwrap();
+        // The fixture profile adds ui.physics; the fixture installs the engine.
+        runtime
+            .with_runtime(|r| r.set_physics(Box::new(pocket_physics::Physics::new())))
+            .unwrap();
+        let ops = runtime.op_context();
+        ops.add_provider(Box::new(instance::Services)).unwrap();
+        let guest = instance::Guest::new(ops).unwrap();
+        let input = Rc::new(RefCell::new(instance::Input {
+            analog: 0x8080,
+            ..Default::default()
+        }));
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let mut p = Self {
+            runtime: Some(runtime),
+            guest,
+            input,
+            events,
+        };
+        let render = Render(p.events.clone());
+        let renderer = p.handle().with_runtime(|r| r.add_renderer(render)).unwrap();
+        let display = Display(p.events.clone());
+        assert_eq!(p.call(|r| r.add_display(display, renderer).map(|_| ())), 0);
+        let input = Box::new(instance::InputDriver(p.input.clone()));
+        assert_eq!(p.call(|r| r.add_input_source(input)), 0);
+        assert_eq!(
+            pocket_runtime::abi::pocket_runtime_set_guest(
+                p.handle().as_ptr(),
+                &instance::GUEST,
+                (&mut *p.guest as *mut instance::Guest).cast()
+            ),
+            0
+        );
+        p
+    }
+    unsafe fn assert_js(&self, source: &str) {
+        let source = std::ffi::CString::new(source).unwrap();
+        let v = JS_Eval(
+            self.guest.context,
+            source.as_ptr().cast(),
+            source.as_bytes().len(),
+            c"fixture".as_ptr(),
+            JS_EVAL_TYPE_GLOBAL as i32,
+        );
+        if JS_IsException(v) {
+            let err = JS_GetException(self.guest.context);
+            let str = JS_ToCStringLen2(self.guest.context, std::ptr::null_mut(), err, 0);
+            let message = std::ffi::CStr::from_ptr(str).to_string_lossy().into_owned();
+            JS_FreeCString(self.guest.context, str);
+            JS_FreeValue(self.guest.context, err);
+            panic!("{message}");
+        }
+        JS_FreeValue(self.guest.context, v);
+    }
+}
+
+/// A compiled package for the exported profile, as tools/vita.ts embeds one.
+fn package(target: &str, abi: u32, plan: &[u8], code: &[u8]) -> Vec<u8> {
+    let identity =
+        pocket_package::embedded::identity("fixture", "vita.original", "Original plan").unwrap();
+    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+        target,
+        host_abi: abi,
+        profile_hash: profile::PROFILE_HASH,
+        identity: &identity,
+        plan,
+        code,
+        pak: &[],
+    }).unwrap()
+}
+fn original_package(target: &str, abi: u32, plan: &[u8]) -> Vec<u8> {
+    package(target, abi, plan, br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#)
+}
+
+const PLAN: &[u8] = br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{}}"#;
+const ORIGINAL_PLAN: &[u8] =
+    br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{"ui.physics":true}}"#;
+
+#[test]
+fn original_package_plan_controls_generated_capability_namespaces() {
+    unsafe {
+        let p = Program::unbooted();
+        let package = std::sync::Arc::<[u8]>::from(original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN));
+        assert_eq!(
+            status(instance::boot_package(p.handle(), package.clone())),
+            0,
+            "{}",
+            p.guest.error()
+        );
+        drop(package);
+        assert_eq!(p.call(Runtime::skip_presentation), 0);
+        p.assert_js("if(!started||typeof ui.physicsCreate!=='function')throw Error('original plan or lifetime lost')");
+        assert!(p.events.borrow().is_empty());
+    }
+}
+
+#[test]
+fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
+    for (reason, package) in [
+        ("ABI", original_package("vita", 99, ORIGINAL_PLAN)),
+        (
+            "viewport",
+            original_package(
+                "vita",
+                pocket_spec::BINDING_GENERATION,
+                br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[240,136],"presentation":"integer-fit","rasterDensity":2}}"#,
+            ),
+        ),
+        (
+            "density",
+            original_package(
+                "vita",
+                pocket_spec::BINDING_GENERATION,
+                br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":1}}"#,
+            ),
+        ),
+        (
+            "capability",
+            original_package(
+                "vita",
+                pocket_spec::BINDING_GENERATION,
+                br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{"net.http":true}}"#,
+            ),
+        ),
+        ("plan", original_package("vita", pocket_spec::BINDING_GENERATION, b"{}")),
+    ] {
+        unsafe {
+            let p = Program::unbooted();
+            assert_ne!(
+                status(instance::boot_package(p.handle(), package)),
+                0,
+                "accepted {reason}"
+            );
+            p.assert_js("if(typeof started!=='undefined'||typeof ui!=='undefined')throw Error('guest ran before admission')");
+            assert!(
+                p.events.borrow().is_empty(),
+                "submitted GPU work for {reason}"
+            );
+        }
+    }
+}
+#[test]
+fn production_instance_uses_generated_ops_and_keeps_native_extensions() {
+    unsafe {
+        let p=Program::new(r#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='vita'||ui.__hostAbi!==EXPECTED_BINDING||ui.__tickHz!==60||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing services');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false)throw Error('native extension');"#.replace("EXPECTED_BINDING", &pocket_spec::BINDING_GENERATION.to_string()).as_bytes());
+        assert!(p.guest.ops.core().unwrap().ui.viewport().0 == 480.0);
+        p.assert_js("if(node<=0)throw Error('core dispatch')");
+    }
+}
+#[test]
+fn sampled_input_and_native_overlay_run_before_terminal_wait() {
+    unsafe {
+        let p=Program::new(br#"globalThis.frames=0;globalThis.frame=function(buttons,analog,touches,hits,surfaces){frames++;if(buttons!==123||analog!==0x2040||touches.length!==1||((touches[0]&511)!==42)||((touches[0]>>9&511)!==23)||hits.length!==1||surfaces[0]!==0)throw Error('input');};"#);
+        {
+            let mut i = p.input.borrow_mut();
+            i.buttons = 123;
+            i.analog = 0x2040;
+            i.contacts.push(Contact {
+                surface: 0,
+                id: 7,
+                x: 42.,
+                y: 23.,
+                cancelled: false,
+            });
+        }
+        assert_eq!(p.call(Runtime::advance), 0, "{}", p.guest.error());
+        assert_ne!(p.call(Runtime::advance), 0);
+        assert_eq!(
+            p.call(|r| r.present_with_overlay(|_| p.events.borrow_mut().push("overlay"))),
+            0
+        );
+        // The GXM driver is Deferred: the scene stays in flight after present
+        // returns, and completion runs the terminal wait before the display.
+        assert_eq!(&*p.events.borrow(), &["render", "overlay"]);
+        assert_eq!(p.call(Runtime::complete_presentation), 0);
+        assert_eq!(
+            &*p.events.borrow(),
+            &[
+                "render",
+                "overlay",
+                "wait",
+                "flush",
+                "display-wait",
+                "retire"
+            ]
+        );
+        p.assert_js("if(frames!==1)throw Error('duplicate guest turn')");
+    }
+}
+#[test]
+fn independent_c_handles_do_not_share_ui_or_borrow_across_coercion() {
+    unsafe {
+        let a = Program::new(br#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);"#);
+        let b = Program::new(
+            br#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);ui.createNode(1);"#,
+        );
+        a.assert_js("if(ui.createNode(1)!==node+1)throw Error('shared ui');ui.setProp({valueOf(){ui.createNode(1);return node}},0,1);");
+        b.assert_js("if(ui.createNode(1)!==node+2)throw Error('shared ui');");
+        drop(a);
+        assert_eq!(b.call(Runtime::advance), 0, "{}", b.guest.error());
+        assert_eq!(b.call(Runtime::present), 0);
+    }
+}

@@ -29,6 +29,22 @@ test("button tape dispatch refreshes active memos and later handler arguments be
   expect(frames[3]!.state).toEqual({ count: 4, recorded: 2, double: 8 });
 });
 
+test("motion tape states fire handlers at their quality with driver values and metadata", () => {
+  const view = program({
+    "App.ts": imports + 'import type {f32,u8,u64} from "@pocketjs/framework/solid/std";export const [angle,setAngle]=createSignal<f32>(0);export const [stamp,setStamp]=createSignal<u64>(0);export const [spins,setSpins]=createSignal<i32>(0);export function upright(degrees:f32,quality:u8,timestamp:u64){setAngle(degrees);setStamp(timestamp);}export function spin(x:f32){setSpins(n=>n+1);}',
+    "App.tsx": 'import {MotionHandler,View} from "@pocketjs/framework/solid/components";import {upright,spin} from "./App";export default function App(){return <View><MotionHandler value="screenRotation" onUpdate={(d,q,t)=>upright(d,q,t)}/><MotionHandler value="rotationRate" minQuality="high" onUpdate={spin}/></View>;}',
+  });
+  const turned = { timestamp: 2000, screenRotation: { value: 90, quality: 4 as const }, rotationRate: { value: [0, 0, 90] as const, quality: 3 as const } };
+  const flat = { timestamp: 3000, screenRotation: { value: 0, quality: 1 as const } };
+  const frames = replayModelTape(view, [{ motion: { timestamp: 1000, screenRotation: { value: 0, quality: 3 } } }, { motion: turned }, { buttons: 0 }, { motion: flat }]);
+  expect(frames.map(frame => frame.state)).toEqual([
+    { angle: 0, stamp: 1000, spins: 0 },
+    { angle: 90, stamp: 2000, spins: 0 },
+    { angle: 90, stamp: 2000, spins: 0 },
+    { angle: 90, stamp: 2000, spins: 0 },
+  ]);
+});
+
 test("factory tape regions retain seeds and cancel at unmount, then restart deadlines at remount", () => {
   const view = program({
     "App.ts": imports + 'export const [visible,setVisible]=createSignal(true);export const [seed,setSeed]=createSignal<i32>(3);export function toggle(){setVisible(!visible());}export function increment(){setSeed(n=>n+1);}',

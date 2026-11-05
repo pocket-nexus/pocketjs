@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,18 +23,22 @@ describe("Nintendo 3DS Pocket Runtime storage", () => {
       "-std=c11",
       "-D_POSIX_C_SOURCE=200809L",
       '-DPOCKETJS_TARGET_ID="3ds-dev"',
-      '-DPOCKETJS_RUNTIME_SLOT="0123456789abcdef"',
-      "-DPOCKETJS_HOST_ABI=8",
-      `-I${join(ROOT, "hosts/3ds/include")}`,
-      `-I${join(ROOT, "hosts/3ds/src")}`,
+      `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
+      `-I${join(ROOT, "products/3ds/include")}`,
+      `-I${join(ROOT, "contracts/generated")}`,
+      `-I${join(ROOT, "products/3ds/src")}`,
+      `-I${join(ROOT, "engine/host-services")}`,
       join(ROOT, "tests/fixtures/3ds-runtime-state.c"),
-      join(ROOT, "hosts/3ds/src/runtime.c"),
+      join(ROOT, "products/3ds/src/runtime.c"),
+      // runtime_slot_remove deletes a slot with fs.c's tree removal.
+      join(ROOT, "engine/host-services/fs.c"),
+      join(ROOT, "engine/host-services/jscan.c"),
       "-o",
       binary,
     ]);
-    expect(compile.exitCode, compile.stderr.toString()).toBe(0);
+    expect(compile.success, `exit=${compile.exitCode}, signal=${compile.signalCode}\n${compile.stderr}`).toBe(true);
 
     const run = Bun.spawnSync([binary, directory]);
-    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.success, `exit=${run.exitCode}, signal=${run.signalCode}\n${run.stderr}`).toBe(true);
   });
 });

@@ -117,7 +117,7 @@ offload client or native queue.
 
 ## 3DS deployment
 
-The current 3DS profile compiles a dedicated offload execution mode when the
+The current 3DS program compiles a dedicated offload execution mode when the
 resolved plan enables `io.offload`. **It boots its own embedded package and does
 not run the SD package admission or development socket pumps during UI frames.**
 It therefore cannot fall back to another application's shared active package.

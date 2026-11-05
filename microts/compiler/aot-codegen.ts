@@ -5,6 +5,10 @@ import { rb, rc, re, ref, rf, rl, rm, rn, rp, rr, rt } from "./rust-ast";
 import { allocateRustTypeNames, printRust, rustVariant } from "./rust-printer";
 import { parseMicroTsColor, MICROTS_ELEMENTS } from "../../contracts/spec/microts";
 import { generateAotApp, generateAotLifecycle, generateAotReconcile } from "./aot-app-codegen";
+import { MOTION_VALUES, motionValueParameters, type MotionValueName } from "../../contracts/spec/motion";
+import { planLayout, type LayoutEnvironment, type LayoutPlan, type LayoutReport } from "./aot-layout-plan";
+
+const motionValueName = (id: number) => (Object.keys(MOTION_VALUES) as MotionValueName[]).find(name => MOTION_VALUES[name].id === id)!;
 
 type Locals = Map<string, AotType>;
 type ExpandedNode = AotNode;
@@ -53,7 +57,9 @@ class Lowerer {
   scopedLocals = new Set<string>();
   explicitSlotUpdates = new WeakSet<RustExpr>();
   asyncDispatch: boolean;
-  constructor(readonly program: AotProgram) {
+  /** Build-time rects for `layout-baked` subtrees (aot-layout-plan.ts). */
+  layoutPlan: LayoutPlan = { entries: new WeakMap(), report: { regions: [] } };
+  constructor(readonly program: AotProgram, readonly options: AotEmitOptions = {}) {
     this.asyncDispatch = program.components.some(component => component.functions.some(fn => fn.async));
     this.lifecycle = !!program.modelProtocol || program.components.some(component => !!component.hooks?.mount || !!component.hooks?.unmount);
     this.declarations = new Map(program.types.map(t => [t.name, t]));
@@ -618,7 +624,13 @@ class Lowerer {
     this.registerBlock(name, [children]);
     const fields: RustField[] = [{ name: "node", type: rt("NodeId") }, { name: "children", type: rt(children.name) }];
     const initial: { name: string; value?: RustExpr }[] = [{ name: "node" }, { name: "children" }];
-    const mount: RustStatement[] = [stmtLet("node", rm(ui, "create_node", rl(MICROTS_ELEMENTS[node.tag].nodeType, "u8"))), re(rm(ui, "insert_before", parent, rp("node"), anchor)), re(rm(ui, "set_style", rp("node"), rc(rp("StyleId"), rl(node.style, "i32"))))];
+    // A planned node takes its layout mode before it is inserted and styled:
+    // the insert under a static parent and the style application then cost
+    // no solver work.
+    const placed = this.layoutPlan.entries.get(node);
+    const placement: RustStatement[] = placed?.mode === "static" ? [re(rm(ui, "set_layout_static", rp("node"), ...placed.rect.map(value => rl(value, "f32"))))]
+      : placed?.mode === "formula" ? [re(rm(ui, "set_layout_formula", rp("node")))] : [];
+    const mount: RustStatement[] = [stmtLet("node", rm(ui, "create_node", rl(MICROTS_ELEMENTS[node.tag].nodeType, "u8"))), ...placement, re(rm(ui, "insert_before", parent, rp("node"), anchor)), re(rm(ui, "set_style", rp("node"), rc(rp("StyleId"), rl(node.style, "i32"))))];
     if (node.focusable) mount.push(re(rm(ui, "set_focusable", rp("node"), rl(true))));
     if (node.src) mount.push(re(rm(ui, "set_image_asset", rp("node"), rl(node.src))));
     if (node.debugName) mount.push(re(rm(ui, "set_debug_name", rp("node"), rl(node.debugName))));
@@ -718,14 +730,23 @@ class Lowerer {
     this.registerBlock(name, [children], false, true);
     const fields: RustField[] = [{ name: "children", type: rt(children.name) }];
     const init: { name: string; value: RustExpr }[] = [{ name: "children", value: rc(rp(children.name, "mount"), ui, parent, anchor, ...this.slotArgs()) }];
-    if (node.input.kind === "button") { fields.push({ name: "latch", type: rt("microts::ButtonLatch") }); init.push({ name: "latch", value: rc(rp("microts", "ButtonLatch", "new"), rl(node.input.latched)) }); }
-    this.inputTraversal(name, binary("||", node.input.kind === "button" ? rm(rf(self, "latch"), "pending", rp("input"), rl(node.input.button, "u32")) : binary("!=", rm(rp("input"), "axis_delta", rl(node.input.axis, "u8")), rl(0, "i32")), rm(rf(self, "children"), "pending", rp("input"))), [...(node.input.kind === "button" ? [re(rm(rf(self, "latch"), "sample", rp("input"), rl(node.input.button, "u32"), rl(false)))] : []), re(rm(rf(self, "children"), "sample_idle", rp("input")))]);
-    this.structure(name, binary("+", rl(1, "usize"), rm(rf(self, "children"), "handler_count")), [re(rm(rf(self, "children"), "refresh_slot_placement", ui, parent, anchor))], rb([re(ifExpr(binary("&&", binary("==", rp("skip"), rl(0, "usize")), node.input.kind === "button" ? rm(rf(self, "latch"), "pending", rp("input"), rl(node.input.button, "u32")) : binary("!=", rm(rp("input"), "axis_delta", rl(node.input.axis, "u8")), rl(0, "i32"))), [{ kind: "return", value: rl(true) }]))], rm(rf(self, "children"), "pending_after", rp("input"), rm(rp("skip"), "saturating_sub", rl(1, "usize")))));
+    const input = node.input;
+    if (input.kind === "button") { fields.push({ name: "latch", type: rt("microts::ButtonLatch") }); init.push({ name: "latch", value: rc(rp("microts", "ButtonLatch", "new"), rl(input.latched)) }); }
+    const pending = input.kind === "button" ? rm(rf(self, "latch"), "pending", rp("input"), rl(input.button, "u32")) : input.kind === "axis" ? binary("!=", rm(rp("input"), "axis_delta", rl(input.axis, "u8")), rl(0, "i32")) : rm(rp("input"), "has_motion", rl(input.value, "u8"), rl(input.minQuality, "u8"));
+    this.inputTraversal(name, binary("||", pending, rm(rf(self, "children"), "pending", rp("input"))), [...(node.input.kind === "button" ? [re(rm(rf(self, "latch"), "sample", rp("input"), rl(node.input.button, "u32"), rl(false)))] : []), re(rm(rf(self, "children"), "sample_idle", rp("input")))]);
+    this.structure(name, binary("+", rl(1, "usize"), rm(rf(self, "children"), "handler_count")), [re(rm(rf(self, "children"), "refresh_slot_placement", ui, parent, anchor))], rb([re(ifExpr(binary("&&", binary("==", rp("skip"), rl(0, "usize")), pending), [{ kind: "return", value: rl(true) }]))], rm(rf(self, "children"), "pending_after", rp("input"), rm(rp("skip"), "saturating_sub", rl(1, "usize")))));
     const dispatch: RustStatement[] = [stmtLet("handled", rl(false), true)];
     let condition: RustExpr;
-    if (node.input.kind === "button") condition = rm(rf(self, "latch"), "sample", rp("input"), rl(node.input.button, "u32"), binary("&&", rm(rf(self, "latch"), "pending", rp("input"), rl(node.input.button, "u32")), this.expr(node.active, locals)));
-    else { dispatch.push(stmtLet("axis_delta", rm(rp("input"), "axis_delta", rl(node.input.axis, "u8")))); condition = binary("&&", binary("!=", rp("axis_delta"), rl(0, "i32")), this.expr(node.active, locals)); }
-    const handler = this.withEventValues(new Map([["$event", rp("axis_delta")]]), () => this.handler(node.handler, locals));
+    let eventValues = new Map<string, RustExpr>();
+    if (input.kind === "button") condition = rm(rf(self, "latch"), "sample", rp("input"), rl(input.button, "u32"), binary("&&", pending, this.expr(node.active, locals)));
+    else if (input.kind === "axis") { dispatch.push(stmtLet("axis_delta", rm(rp("input"), "axis_delta", rl(input.axis, "u8")))); condition = binary("&&", binary("!=", rp("axis_delta"), rl(0, "i32")), this.expr(node.active, locals)); eventValues = new Map([["$event", rp("axis_delta")]]); }
+    else {
+      dispatch.push(stmtLet("motion", rm(rp("input"), "motion_sample", rl(input.value, "u8"), rl(input.minQuality, "u8"))));
+      condition = binary("&&", rm(rp("motion"), "is_present"), this.expr(node.active, locals));
+      const name = motionValueName(input.value);
+      eventValues = new Map(motionValueParameters(name).map((parameter, index) => [index ? `$event${index}` : "$event", parameter.field.startsWith("component") ? rm(rp("motion"), "component", rl(Number(parameter.field.slice(9)), "u8")) : rm(rp("motion"), { referenceFrame: "reference_frame" }[parameter.field] ?? parameter.field)]));
+    }
+    const handler = this.withEventValues(eventValues, () => this.handler(node.handler, locals));
     dispatch.push(re(ifExpr(binary("&&", rm(rp("cursor"), "visit"), condition), [...handler, assign(rp("handled"), rl(true))])));
     this.items.push({ kind: "struct", name, fields }, { kind: "impl", type: rt(name), methods: [
       this.method("mount", this.mountParams(), rb([], { kind: "struct", path: ["Self"], fields: init }), rt("Self")),
@@ -1115,6 +1136,7 @@ class Lowerer {
         });
       }
       const expanded = this.expand(component.nodes, { component, props: new Map(), events: new Map(), slots: new Map() });
+      if (component.root) this.layoutPlan = planLayout(this.program, component, expanded, this.options.layoutEnvironment);
       this.compileGroup(expanded, new Map(), `${component.name}View`);
       if (component.root) this.items.push(...generateAotApp(component, this.propsType(component), this.program.demands, this.blocks.get(`${component.name}View`)!.generic, this.lifecycle, this.program.version, !!this.program.modelProtocol, this.asyncDispatch));
     }
@@ -1122,10 +1144,21 @@ class Lowerer {
   }
 }
 
-export interface AotEmission { files: Record<string, string>; ast: RustModule }
-export function lowerAot(program: AotProgram): RustModule { checkAotVersion(program); if (program.model && !program.modelProtocol) attachAotModel(program, program.model); return new Lowerer(program).run(); }
-export function emitAot(program: AotProgram): AotEmission {
-  const ast = lowerAot(program);
+export interface AotEmitOptions {
+  /** Viewport, font atlases and wasm core for `layout-baked` subtrees. */
+  layoutEnvironment?: LayoutEnvironment;
+}
+export interface AotEmission { files: Record<string, string>; ast: RustModule; layout: LayoutReport }
+export function lowerAot(program: AotProgram, options: AotEmitOptions = {}): RustModule { return lower(program, options).ast; }
+function lower(program: AotProgram, options: AotEmitOptions): { ast: RustModule; layout: LayoutReport } {
+  checkAotVersion(program);
+  if (program.model && !program.modelProtocol) attachAotModel(program, program.model);
+  const lowerer = new Lowerer(program, options);
+  const ast = lowerer.run();
+  return { ast, layout: lowerer.layoutPlan.report };
+}
+export function emitAot(program: AotProgram, options: AotEmitOptions = {}): AotEmission {
+  const { ast, layout } = lower(program, options);
   const moduleName = program.root.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-  return { ast, files: { [`${moduleName}.rs`]: printRust(ast), "mod.rs": printRust({ items: [{ kind: "mod", name: moduleName }, { kind: "use", path: ["self", moduleName], names: ["*"], public: true }] }) } };
+  return { ast, layout, files: { [`${moduleName}.rs`]: printRust(ast), "mod.rs": printRust({ items: [{ kind: "mod", name: moduleName }, { kind: "use", path: ["self", moduleName], names: ["*"], public: true }] }) } };
 }

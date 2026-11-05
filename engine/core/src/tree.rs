@@ -30,6 +30,15 @@ pub fn make_id(generation: u32, slot: u32) -> i32 {
     (((generation & GEN_MASK) << spec::ID_SLOT_BITS) | (slot & spec::ID_SLOT_MASK)) as i32
 }
 
+/// `Node::layout_mode`: the solver owns the rect.
+pub const LAYOUT_LIVE: u8 = 0;
+/// `Node::layout_mode`: the rect was assigned by `Ui::set_layout_static`; the
+/// node and its subtree are excluded from every solver projection.
+pub const LAYOUT_STATIC: u8 = 1;
+/// `Node::layout_mode`: an absolutely positioned leaf whose rect follows its
+/// own resolved inset and size (`Ui::formula_layout`); no solver node.
+pub const LAYOUT_FORMULA: u8 = 2;
+
 /// Rounded layout output of the last relayout, relative to the parent node.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct LayoutRect {
@@ -62,6 +71,10 @@ pub struct Node {
     /// only while a track runs on (node, prop); completion/cancel migrates or
     /// removes them (see lib.rs).
     pub anim_values: Vec<(u8, u32)>,
+    /// Poses a physics body or emitter writes (ui.physics), applied after
+    /// `anim_values`. Only the installed `Physics` engine writes or clears
+    /// this layer (see `crate::Physics`).
+    pub physics_values: Vec<(u8, u32)>,
     /// UTF-8 content (text nodes only).
     pub text: String,
     /// Uploaded texture handle (image nodes only; -1 = none). For an animated
@@ -87,6 +100,12 @@ pub struct Node {
     pub taffy: Option<taffy::NodeId>,
     /// Rounded layout output (position relative to parent).
     pub layout: LayoutRect,
+    /// LAYOUT_LIVE, LAYOUT_STATIC or LAYOUT_FORMULA (see the constants).
+    pub layout_mode: u8,
+    /// Resolved `contain` is Strict or Baked: the subtree is solved as its
+    /// own layout root (`layout::Region`); this node is a leaf in its parent's
+    /// projection. Kept in sync by `Ui::refresh_region`.
+    pub region_root: bool,
     /// Text nodes: the measurement provider RECORDED at the last layout
     /// build — true = the host's native measurer sized this box, so paint
     /// MUST emit TEXT_RUN; false = baked atlas metrics, GLYPH_RUN. One
@@ -107,6 +126,7 @@ impl Node {
             style_initialized: false,
             overrides: Vec::new(),
             anim_values: Vec::new(),
+            physics_values: Vec::new(),
             text: String::new(),
             tex: -1,
             compositor_surface: -1,
@@ -119,6 +139,8 @@ impl Node {
             active: false,
             taffy: None,
             layout: LayoutRect::default(),
+            layout_mode: LAYOUT_LIVE,
+            region_root: false,
             text_native: false,
         }
     }

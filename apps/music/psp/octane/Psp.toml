@@ -1,5 +1,5 @@
 # XMB metadata for the PocketJS Music (Octane) EBOOT. tools/psp.ts copies this to
-# hosts/psp/Psp.toml when building this demo with --framework=octane; cargo-psp packs
+# programs/psp/Psp.toml when building this demo with --framework=octane; cargo-psp packs
 # it into PARAM.SFO / ICON0 / PIC1.
 # Regenerate the art with: bun tools/gen-demo-covers.ts --framework=octane music
 title = "PocketJS Music (Octane)"

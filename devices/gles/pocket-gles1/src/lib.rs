@@ -1,0 +1,115 @@
+#![no_std]
+//! OpenGL ES 1.1 pipeline: the fixed-function equivalent of pocket-gles2.
+//!
+//! The PowerVR MBX Lite in the original iPhone reports `OpenGL ES-CM 1.1` and
+//! exports no `glCreateShader`, so the ES 2 program cannot exist there. It does
+//! not need to: the two shaders it replaces are each expressible as fixed
+//! function state, exactly.
+//!
+//! * The vertex shader's pixel-to-NDC transform, including its Y flip, is
+//!   `glOrthof(0, w, h, 0, -1, 1)` on the projection matrix — left/right/
+//!   bottom/top in that order puts the origin at the top left.
+//! * The fragment shader's `texture2D(u_texture, v_uv) * v_color` is the
+//!   default texture environment, `GL_MODULATE`, over a per-vertex color array.
+//!
+//! `pocket-gles` owns the DrawList walk, the texture cache and the batching, so this
+//! module is only the state those two lines of GLSL turn into.
+
+use core::ffi::c_void;
+
+// `pocket_gles::raw` declares every entry point; this crate references only
+// the ES 1.1 set and the common set.
+use pocket_gles::raw::es1::*;
+use pocket_gles::raw::{
+    glActiveTexture, glEnable, glGetError, GLsizei, GL_FLOAT, GL_NO_ERROR, GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC_ALPHA, GL_TEXTURE0, GL_TEXTURE_2D, GL_UNSIGNED_BYTE,
+};
+
+/// The ES 1.1 pipeline has no program object, so there is no state to carry.
+pub struct Pipeline;
+
+unsafe impl pocket_gles::Pipeline for Pipeline {
+    unsafe fn new() -> Option<Self> {
+        glActiveTexture(GL_TEXTURE0);
+        Self::state();
+        if glGetError() != GL_NO_ERROR {
+            return None;
+        }
+        Some(Self)
+    }
+
+    unsafe fn destroy(&mut self) {}
+
+    /// Replace the vertex shader: pixel coordinates in, top-left origin.
+    unsafe fn begin_frame(&self, logical_width: f32, logical_height: f32) {
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrthof(0.0, logical_width, logical_height, 0.0, -1.0, 1.0);
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        // The DrawList's UVs are already normalized, so the texture matrix must
+        // contribute nothing.
+        glMatrixMode(GL_TEXTURE);
+        glLoadIdentity();
+        glMatrixMode(GL_MODELVIEW);
+        glActiveTexture(GL_TEXTURE0);
+        Self::state();
+    }
+
+    /// MBX Lite exposes no `GL_OES_blend_func_separate`, so the destination
+    /// alpha cannot be given its own factors. It does not matter here: the
+    /// drawable is opaque and nothing ever reads its alpha back, so the color
+    /// result is identical to the ES 2 path's.
+    unsafe fn set_blend(&self) {
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+    /// Point the three client arrays at the same interleaved buffer the ES 2
+    /// attributes use — identical layout, identical stride, byte offsets 0/8/16.
+    unsafe fn bind_vertices(&self, stride: GLsizei) {
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glEnableClientState(GL_COLOR_ARRAY);
+        glVertexPointer(2, GL_FLOAT, stride, core::ptr::null());
+        glTexCoordPointer(2, GL_FLOAT, stride, 8usize as *const c_void);
+        // GL_UNSIGNED_BYTE colors are normalized by definition in ES 1.1, which
+        // is what the ES 2 path asks for explicitly with normalized = 1.
+        glColorPointer(4, GL_UNSIGNED_BYTE, stride, 16usize as *const c_void);
+    }
+
+    unsafe fn unbind_vertices(&self) {
+        glDisableClientState(GL_VERTEX_ARRAY);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        glDisableClientState(GL_COLOR_ARRAY);
+    }
+}
+
+impl Pipeline {
+    /// The fixed-function state that stands in for having a shader at all.
+    ///
+    /// `glEnable(GL_TEXTURE_2D)` is the one that is easy to miss and total when
+    /// missed: in ES 1.1 texturing is a per-unit *enable*, and with it off every
+    /// fragment takes only the per-vertex colour — geometry and flat fills look
+    /// right while all text, images and atlas content silently vanish. ES 2 has
+    /// no equivalent, because sampling is written into the fragment shader, so
+    /// nothing in the shared module ever needed to enable it.
+    ///
+    /// Every untextured draw binds the backend's 1x1 white texture, so this can
+    /// stay on for the whole frame rather than toggling per batch.
+    unsafe fn state() {
+        glEnable(GL_TEXTURE_2D);
+        // Modulate is the documented default, but state it rather than inherit
+        // it — the drawable is shared with UIKit's compositor.
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        // Gradients interpolate per-vertex colour across the quad.
+        glShadeModel(GL_SMOOTH);
+    }
+}
+
+/// Explicit ES 1 renderer; no feature selects this pipeline.
+pub type Renderer<C> = pocket_gles::GlesRenderer<Pipeline, C>;
+
+#[cfg(test)]
+extern crate std;
+#[cfg(test)]
+mod tests;

@@ -17,6 +17,8 @@ import { mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { $ } from "bun";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { exportProfile } from "./profile-export.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2).filter((a) => a !== "--");
@@ -26,7 +28,7 @@ const pass = args.filter((f) => f !== "--proof");
 // The note builds through its manifest against the macos-widget
 // target profile — density, viewport and capability features all come from
 // the platform contract, not flags.
-const manifest = await Bun.file(`${root}apps/note/pocket.json`).json();
+const manifest = readPocketManifest(`${root}apps/note/pocket.app.json`).manifest;
 const resolution = validateAndResolveBuildPlan(manifest, { target: "macos-widget" });
 if (!resolution.ok) {
   throw new Error(
@@ -40,9 +42,17 @@ mkdirSync(resolvePath(planPath, ".."), { recursive: true });
 await Bun.write(planPath, JSON.stringify(resolution.plan, null, 2) + "\n");
 
 await $`bun tools/build.ts --plan=${planPath} --project-root=${root}`.cwd(root);
-await $`cargo build --release -p note-widget`.cwd(`${root}engine`);
+// The widget compiles in the profile the note was resolved against.
+const { plan } = resolution;
+const exported = exportProfile(
+  { profile: plan.profile, profileHash: plan.profileHash, hostAbi: plan.target.hostAbi, dependencies: [] },
+  `${root}.pocket/desktop-widget/profile`,
+);
+await $`cargo build --locked --release -p note-widget`
+  .cwd(root)
+  .env({ ...process.env, POCKETJS_PROFILE_RS: exported.module });
 
-const bin = `${root}engine/target/release/note-widget`;
+const bin = `${root}target/release/note-widget`;
 const env = { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "info" };
 
 if (proof) {

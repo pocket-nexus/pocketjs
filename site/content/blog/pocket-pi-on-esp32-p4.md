@@ -2,7 +2,7 @@
 
 [Pi](https://github.com/badlogic/pi-mono) is a coding agent harness people actually build on: a deliberately minimal TypeScript loop with schema'd tools, streaming providers, and a clean extension seam. It runs wherever Node ≥ 22 runs — which is to say, nowhere near a microcontroller. We wanted the complete Pi to be usable on embedded devices: an agent that lives on the hardware, with its loop, files, schedules, and behavior on board, rather than a screen paired to a server that runs the real agent somewhere else. And we wanted it in TypeScript specifically, because an agent whose behavior is code-as-data can eventually revise itself — something an agent harness compiled into firmware can never offer.
 
-So we ported it to an ESP32-P4 ([PR #9](https://github.com/pocket-stack/pocket-pi/pull/9)). This is the story of how, layer by layer — starting with the part that didn't exist: embedded JavaScript has always meant an *engine*, never a *runtime*. [Pocket Pi](https://github.com/pocket-stack/pocket-pi) is the runtime we built so that Pi would have something to stand on. (If you are new here: [PocketJS](/blog/introducing-pocketjs/) runs real web-framework components on 2004 handhelds; QuickJS, its engine, is about to get a very different tenant.)
+So we ported it to an ESP32-P4 ([PR #9](https://github.com/pocket-nexus/pocket-pi/pull/9)). This is the story of how, layer by layer — starting with the part that didn't exist: embedded JavaScript has always meant an *engine*, never a *runtime*. [Pocket Pi](https://github.com/pocket-nexus/pocket-pi) is the runtime we built so that Pi would have something to stand on. (If you are new here: [PocketJS](/blog/introducing-pocketjs/) runs real web-framework components on 2004 handhelds; QuickJS, its engine, is about to get a very different tenant.)
 
 ## What Pi stands on
 
@@ -45,7 +45,7 @@ With the runtime working, we measured what the board would actually have to hold
 
 Booting the full bundle takes 46.6 MB of heap — 27.4 MB of it just compiled JS functions — against 32 MB of PSRAM that also has to hold framebuffers, Wi-Fi buffers, and TLS. That chart closed the "ship the desktop profile" debate in an afternoon and split the runtime into two compositions of one family:
 
-<svg viewBox="0 0 760 330" width="100%" role="img" aria-label="Architecture diagram. Two profile boxes at the top: crates/pocket-pi, the full desktop profile running the unmodified 9 megabyte pi-coding-agent bundle, feeding hosts/desktop; and crates/pocket-pi-embedded, the embedded profile running pi-agent-core as a 304 kilobyte bundle, feeding crates/pocket-pi-device-ui, which fans out to firmware/esp32-p4 for the physical board and hosts/esp32-p4-sim for the macOS simulator." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+<svg viewBox="0 0 760 330" width="100%" role="img" aria-label="Architecture diagram. Two profile boxes at the top: crates/pocket-pi, the full desktop profile running the unmodified 9 megabyte pi-coding-agent bundle, feeding programs/desktop; and crates/pocket-pi-embedded, the embedded profile running pi-agent-core as a 304 kilobyte bundle, feeding crates/pocket-pi-device-ui, which fans out to firmware/esp32-p4 for the physical board and hosts/esp32-p4-sim for the macOS simulator." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
   <rect x="0" y="0" width="760" height="330" rx="12" fill="#0b0f1a"/>
   <rect x="36" y="28" width="300" height="66" rx="10" fill="#111827" stroke="#38bdf8" stroke-width="1.5"/>
   <text x="186" y="55" fill="#f1f5f9" font-size="13" font-weight="700" text-anchor="middle">crates/pocket-pi</text>
@@ -56,7 +56,7 @@ Booting the full bundle takes 46.6 MB of heap — 27.4 MB of it just compiled JS
   <line x1="186" y1="94" x2="186" y2="142" stroke="#475569" stroke-width="1.5"/>
   <line x1="574" y1="94" x2="574" y2="142" stroke="#475569" stroke-width="1.5"/>
   <rect x="66" y="142" width="240" height="52" rx="10" fill="#111827" stroke="#475569" stroke-width="1.5"/>
-  <text x="186" y="173" fill="#f1f5f9" font-size="13" text-anchor="middle">hosts/desktop</text>
+  <text x="186" y="173" fill="#f1f5f9" font-size="13" text-anchor="middle">programs/desktop</text>
   <rect x="424" y="142" width="300" height="52" rx="10" fill="#111827" stroke="#34d399" stroke-width="1.5"/>
   <text x="574" y="166" fill="#f1f5f9" font-size="13" text-anchor="middle">crates/pocket-pi-device-ui</text>
   <text x="574" y="184" fill="#94a3b8" font-size="11" text-anchor="middle">one draw list · one hit map · one font set</text>
@@ -169,7 +169,7 @@ Each step closes a specific skeptic's loophole: real tool calls instead of scrip
 
 ## Try it
 
-The repo is [pocket-stack/pocket-pi](https://github.com/pocket-stack/pocket-pi). The simulator runs the same embedded agent, tool registry, and UI crate as the firmware:
+The repo is [pocket-nexus/pocket-pi](https://github.com/pocket-nexus/pocket-pi). The simulator runs the same embedded agent, tool registry, and UI crate as the firmware:
 
 ```sh
 cargo xtask run esp32-p4-sim --backend codex --workspace target/esp32-workspace

@@ -12,7 +12,7 @@ typedef struct { int type,subtype; Point location,windowLocation; int context; u
 typedef struct { int type; short dx,dy; float a,b,width,c,height,d; unsigned char e,count; unsigned short x52; } Hand;
 typedef struct { unsigned char index,identity,proximity; float pressure,radius; Point location; void *window; } Path;
 #ifndef POCKET_TEST_BUNDLE
-#define POCKET_TEST_BUNDLE "dev.pocket-stack.clear"
+#define POCKET_TEST_BUNDLE "dev.pocket-nexus.clear"
 #endif
 static uint64_t (*event_now)(void);
 static void (*event_send)(void*,unsigned);

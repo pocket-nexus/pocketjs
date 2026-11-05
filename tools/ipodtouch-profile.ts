@@ -1,3 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -5,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["ipodtouch-dev"];
 
 /**
  * Private connected-device profile for the iPod touch (6th generation).
@@ -14,27 +18,16 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * The profile remains outside POCKET_TARGETS until the hardware path has a
  * repeatable build, deployment, launch, rendered-frame, and touch receipt.
  */
-export const IPODTOUCH_DEV_TARGET_ID = "ipodtouch-dev";
-export const IPODTOUCH_DEV_HOST_ABI = 7;
-export const IPODTOUCH_LOGICAL_VIEWPORT = [320, 568] as const;
-export const IPODTOUCH_RASTER_DENSITY = 2;
-export const IPODTOUCH_PHYSICAL_VIEWPORT = [640, 1136] as const;
+export const IPODTOUCH_DEV_TARGET_ID = softwareProfile.id;
+export const IPODTOUCH_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
+export const IPODTOUCH_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
+export const IPODTOUCH_RASTER_DENSITY = softwareProfile.display.rasterDensity;
+export const IPODTOUCH_PHYSICAL_VIEWPORT = softwareProfile.panel.primary;
 
 export const IPODTOUCH_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [IPODTOUCH_DEV_TARGET_ID]: {
-      hostAbi: IPODTOUCH_DEV_HOST_ABI,
-      platform: "ios",
-      form: "takeover",
-      display: {
-        physicalViewport: IPODTOUCH_PHYSICAL_VIEWPORT,
-        logicalViewports: [IPODTOUCH_LOGICAL_VIEWPORT],
-        presentations: ["native"],
-        rasterDensity: IPODTOUCH_RASTER_DENSITY,
-      },
-      capabilities: ["input.touch", "text.glyphs.baked"],
-    },
+    [IPODTOUCH_DEV_TARGET_ID]: targetProfile(softwareProfile),
   }),
 );
 

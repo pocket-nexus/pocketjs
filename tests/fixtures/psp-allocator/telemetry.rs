@@ -1,9 +1,10 @@
 #![allow(dead_code, non_snake_case, non_camel_case_types)]
 extern crate self as libquickjs_sys;
 extern crate self as psp;
-#[path = "../../../hosts/psp/src/arena.rs"]
+extern crate self as pocket_psp_alloc;
+#[path = "../../../platforms/psp/alloc/src/arena.rs"]
 mod arena;
-#[path = "../../../hosts/psp/src/qjs_alloc.rs"]
+#[path = "../../../platforms/psp/quickjs-alloc/src/lib.rs"]
 mod qjs_alloc;
 mod sys;
 use core::ffi::c_void;
@@ -156,5 +157,29 @@ fn requested_bytes_exclude_other_allocators_and_rounding() {
         f.js_free.unwrap()(ptr::null_mut(), p);
         arena::dealloc(other, 100, 16);
         assert_eq!(qjs_alloc::stats().live_requested, 0);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn pocket_psp_arena_capacity() -> usize { PROGRAM_BUDGET.load(core::sync::atomic::Ordering::Relaxed) }
+static PROGRAM_BUDGET: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+#[test]
+fn program_budget_precedes_non_rust_heap_users() {
+    use core::sync::atomic::Ordering;
+    PROGRAM_BUDGET.store(4096, Ordering::Relaxed);
+    unsafe {
+        // Initialize through the platform entry point before the QuickJS
+        // allocator is registered or the program GlobalAlloc is called.
+        let first = arena::alloc(32,16);
+        assert!(!first.is_null());
+        let stats = arena::stats();
+        assert_eq!(stats.capacity_bytes,4096);
+        assert_eq!(stats.configured_bytes,4096);
+        let cb=callbacks();
+        let second=cb.js_malloc.unwrap()(core::ptr::null_mut(),48);
+        assert!(!second.is_null());
+        assert_eq!(sys::ALLOCATIONS.load(Ordering::Relaxed),1);
+        cb.js_free.unwrap()(core::ptr::null_mut(),second);
+        arena::dealloc(first,32,16);
     }
 }

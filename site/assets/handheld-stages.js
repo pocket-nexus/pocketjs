@@ -33,7 +33,7 @@ class HandheldHost {
       iframe.addEventListener("load", resolve, { once: true });
       iframe.addEventListener("error", () => reject(Error("Demo runtime could not load")), { once: true });
     });
-    iframe.src = "/pg/app-instance.html";
+    iframe.src = "/pg/programs/web/app-instance.html";
     document.body.append(iframe);
     this.iframe = iframe;
     await loaded;

@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { decodePocketPackage, encodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
+import { makeVariant } from "./pocket-pack.ts";
+import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
 import { encodePNG } from "./png.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
 import { atomicWrite, VitaUsbClient } from "./vita-dev-client.ts";
+import { guardDeviceCommand } from "./device-lease.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
@@ -15,7 +18,8 @@ function value(flag: string): string | undefined {
   const i = args.indexOf(flag);
   return i < 0 ? undefined : args[i + 1];
 }
-const app = value("--app") ?? "hero";
+// Pocket Devkit (apps/devkit) is the installed development container.
+const app = value("--app") ?? "devkit";
 const output = app.endsWith("-main") ? app : `${app}-main`;
 const metadataPath = resolve(value("--runtime") ?? join(ROOT, "dist/vita", `${output}.runtime.json`));
 function metadata(): any { return JSON.parse(readFileSync(metadataPath, "utf8")); }
@@ -41,22 +45,27 @@ function capture(client: VitaUsbClient, receipt: any, stem = receipt.requestId):
 async function main(): Promise<void> {
   if (!command || args.includes("--help")) {
     console.log(`Vita wired debugging (no Wi-Fi fallback)
-  bun run vita:dev build   --app hero
-  bun run vita:dev install --app hero --mount /Volumes/PSV
-  bun run vita:dev serve   --app hero
-  bun run vita:dev status  --app hero
-  bun run vita:dev push    --app hero [--package file.pocket]
-  bun run vita:dev native  --app hero [--runtime file.runtime.json]
-  bun run vita:dev capture --app hero [--out frame.png]
-  bun run vita:dev reload|reset|menu --app hero
-  bun run vita:dev watch   --app hero
+  bun run vita:dev build   --app devkit
+  bun run vita:dev install --app devkit --mount /Volumes/PSV
+  bun run vita:dev serve   --app devkit
+  bun run vita:dev status  --app devkit
+  bun run vita:dev push    --app devkit [--package file.pocket]
+  bun run vita:dev native  --app devkit [--runtime file.runtime.json]
+  bun run vita:dev stage   --file x.vpk [--name x.vpk] [--into card|app]
+  bun run vita:dev capture --app devkit [--out frame.png]
+  bun run vita:dev reload|reset|menu --app devkit
+  bun run vita:dev watch   --app devkit
 Use --title TITLEID to address a runtime and --dir to select the USB share.
 Install stages a VPK over USB mass storage; install/open it once in VitaShell.
 serve then owns the USB host. push rebuilds JS/PAK; native sends the SELF and
-requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
+requires a receipt from the replacement process. stage writes a file to
+ux0:data/pocket-runtime/ (card) for VitaShell to install, or app.pocket into
+the title's directory (app) for a generic runtime's next start.
+L+R+SELECT opens the menu.`);
     return;
   }
   if (command === "build") { await run(["bun", "tools/vita.ts", app, "--release"]); return; }
+  await guardDeviceCommand(command === "serve" ? "vita:usb:transport" : "vita:usb");
   const info = existsSync(metadataPath) ? metadata() : undefined;
   const title = value("--title") ?? info?.titleId;
   if (!title) throw new Error("build the Vita app first, or supply --title");
@@ -114,27 +123,37 @@ requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
     console.log(JSON.stringify(result, null, 2)); return;
   }
   async function push() {
+    if (!/^sha256:[0-9a-f]{64}$/.test(info?.profileHash ?? "")) throw new Error("push needs runtime metadata with profileHash; rebuild the runtime");
     let payload: Uint8Array;
     const packagePath = value("--package");
     if (packagePath) payload = readFileSync(packagePath);
     else {
       if (!info?.plan) throw new Error("push needs a build plan or --package");
+      extractHostBuildInputs(info.plan, { expectedTarget: "vita", expectedProfileHash: info.profileHash });
       mkdirSync(client.directory, { recursive: true });
       const planPath = join(client.directory, "build.plan.json");
       atomicWrite(planPath, JSON.stringify(info.plan));
       await run(["bun", "tools/build.ts", `--plan=${planPath}`, `--project-root=${value("--project-root") ?? ROOT}`]);
       const dist = join(ROOT, "dist");
-      payload = encodePocketPackage({ manifest: Buffer.from(JSON.stringify({ id: info.applicationId })), variants: [{ target: "vita", hostAbi: 2,
-        sections: [
-          { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: info.output, id: info.applicationId, title: info.plan.app.title }) },
-          { kind: POCKET_SECTION.plan, bytes: Buffer.from(JSON.stringify(info.plan)) },
-          { kind: POCKET_SECTION.js, bytes: Buffer.concat([readFileSync(join(dist, `${info.output}.js`)), Buffer.from([0])]) },
-          { kind: POCKET_SECTION.pak, bytes: readFileSync(join(dist, `${info.output}.pak`)) },
-        ] }] });
+      payload = encodePocketPackage({ manifest: Buffer.from(JSON.stringify({ id: info.applicationId })), variants: [makeVariant({
+        target: "vita", hostAbi: info.plan.target.hostAbi, planJson: JSON.stringify(info.plan),
+        identity: { output: info.output, id: info.applicationId, title: info.plan.app.title },
+        js: readFileSync(join(dist, `${info.output}.js`)), pak: readFileSync(join(dist, `${info.output}.pak`)),
+      })] });
     }
+    const variant = findVariant(decodePocketPackage(payload), "vita");
+    if (!variant || variant.profileHash !== info.profileHash) throw new Error("package profileHash does not match the built Vita runtime");
     console.log(JSON.stringify(await client.command("push", { payload }), null, 2));
   }
   if (command === "push") { await push(); return; }
+  if (command === "stage") {
+    const file = value("--file");
+    if (!file) throw new Error("stage needs --file");
+    const into = (value("--into") ?? "card") as "card" | "app";
+    const name = value("--name") ?? file.split("/").pop()!;
+    console.log(JSON.stringify(await client.command("stage", { payload: readFileSync(file), name, into }), null, 2));
+    return;
+  }
   if (command === "watch") {
     const directory = resolve(value("--watch-dir") ?? join(ROOT, "apps", app.replace(/-main$/, "")));
     function stamp(path: string): string {

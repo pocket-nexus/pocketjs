@@ -1,0 +1,46 @@
+import { createSignal } from "solid-js";
+import { push, pop, insert, removeAt, clear, truncate, fillRange, copyRange, fill, len, i32, u8, f32, f64, sqrt, atan2, pow, codePoints, fromCodePoint, type i32 as I32 } from "@pocketjs/framework/solid/std";
+interface Enemy { x: I32; hp: I32; trail: I32[] }
+export const [result, setResult] = createSignal<I32[]>([]);
+export const [text, setText] = createSignal("");
+let enemies: Enemy[] = [];
+let grid: I32[] = fill(8, 0);
+export function press(): void {
+  for (let i = 0; i < 3; i++) push(enemies, { x: i * 10, hp: 3, trail: [] });
+  enemies[1].x += 5;
+  enemies[2].hp--;
+  push(enemies[0].trail, 7);
+  push(enemies[0].trail, 9);
+  insert(enemies[0].trail, 0, 1);
+  const out: I32[] = [];
+  push(out, enemies[1].x);
+  push(out, enemies[2].hp);
+  push(out, len(enemies[0].trail));
+  push(out, removeAt(enemies[0].trail, 1));
+  push(out, pop(enemies[0].trail));
+  push(out, removeAt(enemies[0].trail, 9));
+  fillRange(grid, 2, 5, 4);
+  copyRange(grid, 5, grid, 1, 3);
+  grid[7]++;
+  for (const g of grid) push(out, g);
+  const bytes: u8[] = [250, 3];
+  bytes[0] += u8(10);
+  push(out, i32(bytes[0]));
+  push(out, i32(f32(7) / f32(2) * f32(10)));
+  push(out, i32(sqrt(f64(81))));
+  push(out, i32(atan2(f32(1), f32(1)) * f32(1000)));
+  push(out, i32(pow(f64(2), f64(10))));
+  push(out, i32(-3.9));
+  push(out, i32(u8(300)));
+  push(out, -7 % 3);
+  push(out, ~5);
+  push(out, -16 >>> 28);
+  truncate(out, 26);
+  const cps = codePoints("Hé!");
+  push(out, cps[1]);
+  setText(fromCodePoint(cps[0] + 1));
+  const copy = out;
+  clear(enemies);
+  push(out, len(enemies));
+  setResult(out);
+}

@@ -11,8 +11,9 @@ in exactly one capability: **who measures and shapes text**.
 
 The portable backend is the baked-text pipeline every fixed-function host
 shares: `pocket-ui-wgpu` on the desktop, the core software rasterizer
-(`engine/core/src/raster.rs`) behind the wasm, Apple, PocketBook and sim
-hosts, the PSP GE walker, the ESP32-P4 PPA and Symbian GLES2 ports.
+(`engine/raster/src/lib.rs`) behind the wasm, Apple, PocketBook and sim
+hosts, the PSP GE walker, the ESP32-P4 PPA, the SiFli EPIC executor and
+Symbian GLES2 ports.
 
 - **Text is baked at compile time.** `framework/compiler/bake-font.ts`
   rasterizes the app's collected codepoints into FONT ATLAS v3 blobs; the
@@ -31,7 +32,7 @@ hosts, the PSP GE walker, the ESP32-P4 PPA and Symbian GLES2 ports.
 
 ## The portable desktop host
 
-`hosts/desktop` uses winit for windows/input and the existing `pocket-ui-wgpu`
+`programs/desktop` uses winit for windows/input and the existing `pocket-ui-wgpu`
 DrawList backend for drawing and composition (wgpu/Metal on macOS). It reuses
 `pocket3d::gpu::Gpu`; no extra renderer crate or guest API is introduced.
 QuickJS guests, flex layout and GPU command recording execute on a runtime
@@ -49,8 +50,8 @@ available. An output reservation prevents recording more GPU work while the
 window thread has not consumed the previous output. Surface loss/outdated errors reconfigure and retry; fatal GPU errors
 exit with an error. Production presentation performs no framebuffer readback.
 
-The WASM host retains `engine/core/src/compositor.rs` and the software rasterizer.
-Vita/GXM and 3DS/PICA retain their own DrawList adapters and capability profiles;
+The WASM host retains `engine/raster/src/compositor.rs` and the software rasterizer.
+Vita/GXM and 3DS/PICA retain their own DrawList adapters and host contracts;
 wgpu is not added to their dependency graph. Desktop composition support does
 not admit that capability on handheld targets.
 `text.layout.offload` wraps, shapes and rasterizes text using explicit package
@@ -65,7 +66,7 @@ and specialized widget hosts retain their existing pipeline.
 
 ## The legacy gpui backend
 
-`engine/backends/gpui` (`pocket-ui-gpui`) paints the same DrawList through
+`programs/desktop/gpui` (`pocket-ui-gpui`) paints the same DrawList through
 [gpui](https://gpui.rs) — Zed's native GPU renderer. This retained optional
 crate is no longer used by the stock desktop host. The following describes its
 legacy contract. Boxes, gradients
@@ -98,7 +99,7 @@ text can come from the host text system.
   backend.
 - **Prefix additivity is preserved.** Ligatures, contextual alternates and
   kerning are disabled in the native shaping configuration
-  (`engine/backends/gpui/src/fonts.rs`), because app editor math measures
+  (`programs/desktop/gpui/src/fonts.rs`), because app editor math measures
   caret positions as prefix widths through `measureText`
   (`apps/note/layout.ts`, `apps/im/wrap.ts`) and prefix sums only equal
   shaped positions when advances are additive.
@@ -113,7 +114,7 @@ text can come from the host text system.
 - **Two ops keep a pixel-exact escape hatch.** Gouraud `TRI` and `TEX_TRI`
   batches (rotated gradients and images, 3D subtrees) have no gpui vector
   equivalent, so consecutive batches raster through
-  `pocketjs_core::raster` into cached local images at the target density —
+  `pocket_raster` into cached local images at the target density —
   the portable rasterizer used as a sub-backend.
 
 ### What the gpui backend guarantees, and what it does not
@@ -134,9 +135,10 @@ note does (pure-math unit tests over an injected measurer, sim traces,
 
 ## Native desktop targets
 
-`contracts/spec/platforms.ts` registers `macos-app` and `linux-app` at
-hostAbi 4 with `form: "window"`, a dynamic viewport and `acceptsFixed`.
-Both profiles use the same generic host. macOS resolves density 2; Linux
+`hosts/macos-app/pocket.host.json` and `hosts/linux-app/pocket.host.json` declare `form: "window"`,
+a dynamic viewport and `acceptsFixed`. **Both use the shared binding
+generation 12.**
+Both targets use the same generic host. macOS resolves density 2; Linux
 resolves density 1. Fixed-viewport console apps run size-locked and
 letterboxed with their baked glyph pipeline intact.
 
@@ -146,7 +148,7 @@ bun run macos hero        # fixed 480x272, size-locked, baked glyphs
 bun run macos note --proof
 ```
 
-`tools/macos.ts` resolves the manifest against `macos-app`, writes the
+`tools/macos.ts` resolves the app contract against `macos-app`, writes the
 plan, builds the bundle + pak, and derives the capability-shaped host flags
 (`--fixed`, `--companions`) from the resolved plan. If the
 selected app directory also contains `pocket.system.json`, the tool
@@ -154,13 +156,13 @@ resolves every installed package and starts the host with one complete
 `ResolvedSystemPlan`; it does not project child plans into command-line
 viewport or title fields.
 `--editor` is NOT a capability: it enables the note's companion svc adapter
-(an app protocol — the profile deliberately registers no
+(an app protocol — the `macos-app` host contract registers no
 pointer/text/IME/clipboard ids, see contracts/spec/platforms.ts). The host renders only when the DrawList or retained raster revision changes.
 
 ## Browser System host
 
 **`web-app` runs every package in an independent same-origin iframe
-JavaScript Realm with its own wasm `Ui`.** `hosts/web/system-engine.js`
+JavaScript Realm with its own wasm `Ui`.** `programs/web/system-engine.js`
 derives the package catalog, surface handles and lifecycle policy from one
 `ResolvedSystemPlan`. Live shell bindings create and remove AppInstances;
 focus and visible painter order determine scheduling.
@@ -171,6 +173,23 @@ Full bounds determine the child coordinate origin, clip bounds constrain the
 visible pixels, and the instruction remains at its original DrawList offset.
 Shell chrome emitted after the surface therefore stays above the child. A
 missing child raster leaves the shell's loading fallback visible.
+
+**Each AppInstance draws codepoints its baked atlases lack**
+(`text.glyphs.runtime`, `platforms/web/runtime-glyphs.js`): the realm appends a
+cell drawn by the browser to every loaded slot before the core lays the text
+out ([Build pipeline](../site/content/docs/build-pipeline.md)).
+
+**The wasm host rasterizes an interface with its coverage for a scene the
+embedder draws.** `ui_render_premultiplied_scaled(scale)` runs the primary
+DrawList once into a buffer cleared to zero: premultiplied R,G,B and the alpha
+the ops accumulated, 0 where nothing is drawn. Its R,G,B bytes equal
+`ui_render_scaled`'s, and it writes a buffer of its own, so the opaque
+framebuffer and the incremental tracker stay as they were.
+`ui_draw_hash_auxiliary` hashes the auxiliary surface's DrawList as
+`ui_draw_hash` hashes the primary one. An AppInstance created with
+`text: false` starts no text worker and gives its guest no `offload`. A
+Pocket3D game's browser tab uses the three to lay its interface over a WebGPU
+scene ([`engine/pocket3d/crates/pocket-web-wgpu`](../engine/pocket3d/crates/pocket-web-wgpu/README.md)).
 
 ## System UI companion input
 
@@ -188,14 +207,14 @@ companion carries shell UI input, clipboard requests and cursor intents. It
 does not carry package lifecycle, focus, per-frame visibility or button
 routing.**
 
-The themeable [Pocket Desktop](https://github.com/pocket-stack/pocket-desktop)
+The themeable [Pocket Desktop](https://github.com/pocket-nexus/pocket-desktop)
 product is maintained separately and consumes these contracts as an external
 Pocket System. Its manifest owns the app catalog, installation snapshot,
 System UI role and background-execution policy. **Every installed entry
 reaches the native host as a complete `ResolvedBuildPlan`; ordinary
 applications resolve without the System UI-only compositor capability.**
 
-- **`hosts/desktop` implements a generic `AppSupervisor`; the System contract
+- **`programs/desktop` implements a generic `AppSupervisor`; the System contract
   does not expose that implementation.** The host contains no product catalog
   or package-name rules. Live `<CompositorSurface package>` bindings create
   one AppInstance with its own `Guest`, QuickJS `Runtime`, QuickJS `Context`,
@@ -224,7 +243,7 @@ X,Y[,d|u|r]@TICK` (drags, right clicks), `--key
 
 |                    | portable                                                         | legacy gpui                                        |
 | ------------------ | ---------------------------------------------------------------- | ------------------------------------------- |
-| hosts              | PSP, Vita, PocketBook, ESP32-P4, Symbian, web, sim, macOS widget, macOS/Linux desktop | optional crate, no stock host           |
+| hosts              | PSP, Vita, PocketBook, ESP32-P4, SiFli SF32LB5x, Symbian, web, sim, macOS widget, macOS/Linux desktop | optional crate, no stock host           |
 | text measurement   | core, atlas advance tables                                       | gpui platform text system, per-app opt-in   |
 | codepoint coverage | baked charset (+ runtime extension)                              | OS fallback chain, color emoji              |
 | pixel determinism  | byte-exact across hosts                                          | per-host; transactions still deterministic  |
@@ -232,10 +251,10 @@ X,Y[,d|u|r]@TICK` (drags, right clicks), `--key
 | rotated/3D content | native                                                           | portable rasterizer as a local sub-backend  |
 
 The desktop benchmark against Tauri and Electron (harness, comparison
-apps, results) lives in its own stacked PR — pocket-stack/pocketjs#294.
+apps, results) lives in its own stacked PR — pocket-nexus/pocketjs#294.
 
 
-`hosts/desktop --trace-frames` emits CPU tick, render-submission, worker-total
+`programs/desktop --trace-frames` emits CPU tick, render-submission, worker-total
 and presentation-submission timestamps. These durations exclude GPU completion
 and display scanout. Use a native input tape and record the binary/package hashes
 when comparing renderer changes.

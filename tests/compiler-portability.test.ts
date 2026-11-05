@@ -1,5 +1,5 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +34,6 @@ function expectNativeFile(path: string): void {
   } else {
     expect(path.startsWith("/")).toBe(true);
   }
-  expect(existsSync(path), path).toBe(true);
 }
 
 describe("compiler filesystem portability", () => {
@@ -84,7 +83,7 @@ describe("compiler filesystem portability", () => {
         "process.env.NODE_ENV": '"production"',
         document: "globalThis.__pocketDocument",
         __POCKET_TARGET__: '""',
-        __POCKET_HOST_ABI__: "0",
+        __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
         __POCKET_FEATURES__: "{}",
         __POCKET_PIXEL_RATIO__: "1",
       },

@@ -1,0 +1,46 @@
+import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+const profile = POCKET_PROFILES["3ds-dev"];
+
+const root = resolve(import.meta.dir, "..");
+const cc = Bun.which(process.env.CC || "cc");
+const runDir = resolve(root, `.pocket-build/validation/pica-driver/${Date.now()}-${process.pid}`);
+function run(args: string[], env = process.env): string {
+  const result = Bun.spawnSync(args, { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+  const output = result.stdout.toString() + result.stderr.toString();
+  writeFileSync(resolve(runDir, `${args[0]!.split("/").at(-1)}-${Date.now()}.log`), output);
+  expect(result.success, `${args.join(" ")} (exit=${result.exitCode}, signal=${result.signalCode})\n${output}`).toBe(true);
+  return output;
+}
+test.skipIf(!cc)("PICA driver retains independent screen submissions and exact resource versions until terminal waits", () => {
+  mkdirSync(runDir, { recursive: true });
+  const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
+  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", "Cargo.toml", "-p", "pocket-archive", "--no-default-features", "--features", "software-renderer", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+  const binary = resolve(runDir, "driver");
+  run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", resolve(root,"tests/fixtures/pica-driver"),
+    "-I", resolve(root,"devices/3ds/pocket-3ds-pica/include"), "-I", resolve(root,"contracts/generated"),
+    resolve(root,"tests/fixtures/pica-driver/driver.c"), resolve(target,"release/libpocket_archive.a"), "-lm", "-o", binary]);
+  expect(run([binary])).toContain("PICA driver lifecycle, versioning, guarded fonts and real DrawList visitor passed");
+  const encoder = new TextEncoder();
+  const packageBytes = encodePocketPackage({manifest: new Uint8Array(), variants: [{target: "3ds-dev", hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(profile), sections: [
+    {kind: 1, bytes: encodeIdentity({output: "fixture", id: "test.3ds", title: "3DS composition"})},
+    {kind: 2, bytes: encoder.encode('{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[400,240],"presentation":"native","rasterDensity":1},"features":{}}')},
+    {kind: 3, bytes: encoder.encode("test\0")},
+  ]}]});
+  writeFileSync(resolve(runDir, "package_fixture.h"), `static const uint8_t package_bytes[] = {${[...packageBytes].join(",")}};\n`);
+  // The product archive: pocket-archive, the 3DS package inspection and the
+  // native program without built-in outputs or hooks, as products/3ds links it.
+  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", "Cargo.toml", "-p", "pocketjs-3ds-core", "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+  const instance = resolve(runDir, "instance");
+  run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
+    "-I", resolve(root,"tests/fixtures/pica-driver"), "-I", resolve(root,"products/3ds/include"),
+    "-I", resolve(root,"contracts/generated"), "-I", resolve(root,"programs/native/runtime/include"), "-I", resolve(root,"platforms/3ds"), "-I", resolve(root,"engine/host-services"), "-I", runDir,
+    resolve(root,"tests/fixtures/pica-driver/instance.c"), resolve(root,"platforms/3ds/hooks.c"), resolve(root,"platforms/3ds/input_source.c"), resolve(target,"release/libpocketjs_3ds_core.a"), "-lm", "-o", instance]);
+  expect(run([instance])).toContain("3DS runtime composition: package, auxiliary metadata, providers and exact input passed");
+}, 180_000);

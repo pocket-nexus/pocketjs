@@ -196,7 +196,6 @@ async function main() {
       // before reset() clears that callback so neither the host bit nor the
       // Stage pointer latch can leak into the newly compiled app.
       stageController?.releaseInput();
-      host.reset();
       globalThis.__pgStyles = result.styleMap;
       globalThis.__pgPak = result.pak;
 
@@ -215,8 +214,7 @@ async function main() {
         `{ styles: globalThis.__pgStyles, pak: globalThis.__pgPak });\n`;
       const bootUrl = URL.createObjectURL(new Blob([boot], { type: "text/javascript" }));
       try {
-        await import(/* @vite-ignore */ bootUrl);
-        host.begin();
+        await host.runModule(() => import(/* @vite-ignore */ bootUrl), result.pak);
         // Browser regression mode advances exact virtual frames itself. Stop
         // the RAF after begin()'s single initial frame so ambient animation or
         // HUD timing cannot masquerade as an input result.

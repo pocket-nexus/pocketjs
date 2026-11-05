@@ -1,3 +1,4 @@
+#include "pocket_spec.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
@@ -10,17 +11,18 @@
 
 /* Host-test stand-in for the Rust package admission FFI. runtime.c still owns
  * every filesystem transition; this stub only supplies a deterministic footer
- * identity after checking the fixture marker and exact host ABI. */
+ * identity after checking the fixture marker, the 3DS facts and the exact
+ * host ABI. */
 int32_t pocket_package_open(
   const uint8_t *bytes,
   size_t length,
-  const uint8_t *target,
-  size_t target_length,
-  uint32_t host_abi,
+  const pocket_profile_facts *facts,
+  uint32_t host_abi, const uint8_t *profile_hash,
   PocketGuestPackage *out
 ) {
-  if (length != 32 || bytes[0] != 0x50 || host_abi != 8 ||
-      target_length != 7 || memcmp(target, "3ds-dev", 7) != 0) {
+  (void)profile_hash;
+  if (length != 32 || bytes[0] != 0x50 || host_abi != POCKET_BINDING_GENERATION ||
+      facts == NULL || facts->id_length != 7 || memcmp(facts->id, "3ds-dev", 7) != 0) {
     return 4;
   }
   uint64_t hash = 0;
@@ -68,6 +70,18 @@ int main(int argc, char **argv) {
 
   char error[256] = {0};
   PocketRuntimeState state;
+  /* The slot comes from the booted package at run time. Nothing is written
+   * before one is chosen, and only 16 lowercase hex digits name one. */
+  assert(!runtime_storage_init(&state, error, sizeof error));
+  assert(strcmp(POCKET_RUNTIME_APP_ROOT, "") == 0);
+  assert(!runtime_select_slot(NULL));
+  assert(!runtime_select_slot("0123456789abcde"));
+  assert(!runtime_select_slot("0123456789abcdef0"));
+  assert(!runtime_select_slot("0123456789ABCDEF"));
+  assert(!runtime_select_slot("../../../3ds/xyz"));
+  assert(strcmp(POCKET_RUNTIME_APP_ROOT, "") == 0);
+  assert(runtime_select_slot("0123456789abcdef"));
+  assert(strcmp(runtime_slot(), "0123456789abcdef") == 0);
   assert(runtime_storage_init(&state, error, sizeof error));
   assert(state.generation == 0 && state.active_hash == 0 && state.last_good_hash == 0);
   assert(strcmp(POCKET_RUNTIME_APP_ROOT, "sdmc:/pocketjs/runtime/apps/0123456789abcdef") == 0);
@@ -152,5 +166,34 @@ int main(int argc, char **argv) {
   ) == RUNTIME_PENDING_ERROR);
   assert(mismatch == NULL && exists(network));
   assert(strstr(error, "does not match declared") != NULL);
+
+  /* After an install the embedded guest boots first; when it fails, the
+   * stored packages are still tried, and only then is the failure fatal. */
+  const PocketRuntimeState installed_state = { .generation = 7, .active_hash = 0xaaaa, .last_good_hash = 0xbbbb };
+  PocketRuntimeFailureLineage lineage = {0};
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0));
+  assert(runtime_recovery_hash(&installed_state, &lineage) == 0xaaaa);
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0xaaaa));
+  assert(runtime_recovery_hash(&installed_state, &lineage) == 0xbbbb);
+  assert(!runtime_failure_lineage_reject(&lineage, &installed_state, 0xbbbb));
+  /* As the last resort the embedded guest's failure stays fatal. */
+  const PocketRuntimeState bare_state = { .generation = 1, .active_hash = 0, .last_good_hash = 0 };
+  runtime_failure_lineage_reset(&lineage);
+  assert(!lineage.embedded_failed);
+  assert(!runtime_failure_lineage_reject(&lineage, &bare_state, 0));
+  runtime_failure_lineage_reset(&lineage);
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0xaaaa));
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0xbbbb));
+  assert(!runtime_failure_lineage_reject(&lineage, &installed_state, 0));
+
+  /* The first boot beside an embedded package, and every boot after a .3dsx
+   * with a different one was installed, reports an install exactly once. */
+  const char *embedded_record = "sdmc:/pocketjs/runtime/apps/0123456789abcdef/embedded.txt";
+  assert(!exists(embedded_record));
+  assert(runtime_note_embedded(0x1111222233334444ULL));
+  assert(exists(embedded_record));
+  assert(!runtime_note_embedded(0x1111222233334444ULL));
+  assert(runtime_note_embedded(0x5555666677778888ULL));
+  assert(!runtime_note_embedded(0x5555666677778888ULL));
   return 0;
 }

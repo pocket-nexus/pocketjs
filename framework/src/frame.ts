@@ -4,12 +4,14 @@
 // but application code should register component-scoped lifecycle callbacks instead of
 // patching mount() with a global per-frame callback.
 
-import { batch, createSignal, onCleanup, useContext, type Accessor } from "solid-js";
+import { batch, createContext, createSignal, onCleanup, useContext, type Accessor } from "solid-js";
 import { __resetAnalog } from "./analog.ts";
 import { __beginAxisFrame, __endAxisFrame, __resetAxisInput, __axisDelta, RelativeAxis, type RelativeAxisId, type AxisDelta } from "./relative-axis.ts";
+import { __beginMotionFrame, __endMotionFrame, __motionReader, __resetMotionInput, type MotionMinQualityName, type MotionPayload, type MotionState, type MotionValueName } from "./motion.ts";
 import type { i32 } from "./numeric-microts.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
+import { dispatchFrame, FrameRegistry, type FrameCallback, type FrameSnapshot, type RunPress } from "./frame-dispatch.ts";
 import { RowContext, nodeRow, withRowSnapshot } from "./solid-row.ts";
 import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-solid-aot.ts";
 import { reactModelRegions } from "./model-reactive.ts";
@@ -18,66 +20,85 @@ import { pollModelAnimations } from "./model-animation.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
-type FrameCallback = (buttons: number) => void;
-
-const callbacks = new Set<FrameCallback>();
-const placedCallbacks = new Map<FrameCallback, NodeMirror>();
+const registry = new FrameRegistry();
+/** Callbacks of the system layer (the agent's overlay): they run while the
+ * app is suspended. */
+const systemRegistry = new FrameRegistry();
+let appSuspended = false;
+let merged: { app: FrameSnapshot; system: FrameSnapshot; frame: FrameSnapshot } | null = null;
+const NO_FRAME: FrameSnapshot = { callbacks: [], placed: [] };
 let buttonHandlerBlockDepth = 0;
+
+/** Frame callbacks registered under a true value belong to the system layer. */
+export const SystemFrameContext = createContext(false);
+
+/** Stop (or resume) the app's frame callbacks, button handlers included.
+ *  The system layer's keep running; native animations, timers and service
+ *  deliveries are not affected. */
+export function suspendApp(suspended: boolean): void {
+  appSuspended = suspended;
+}
+
+export function isAppSuspended(): boolean {
+  return appSuspended;
+}
+
+function frameSnapshot(): FrameSnapshot {
+  const app = appSuspended ? NO_FRAME : registry.freeze();
+  const system = systemRegistry.freeze();
+  if (system.callbacks.length === 0 && system.placed.length === 0) return app;
+  if (merged?.app !== app || merged.system !== system) {
+    merged = {
+      app,
+      system,
+      frame: { callbacks: [...app.callbacks, ...system.callbacks], placed: [...app.placed, ...system.placed] },
+    };
+  }
+  return merged.frame;
+}
+
+/** Deferred presses run inside the list row their node was created in. */
+const runInRow: RunPress = (node, invoke) => withRowSnapshot(nodeRow(node), invoke);
 
 export function resetFrameHooks(): void {
   resetModelTaskClock();
-  callbacks.clear();
-  placedCallbacks.clear();
+  registry.clear();
+  systemRegistry.clear();
+  appSuspended = false;
+  merged = null;
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
   __resetAxisInput();
+  __resetMotionInput();
   resetLifecycleHooks();
 }
 
-export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void): void {
+export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void, motion?: MotionState | null): void {
   __beginAxisFrame(axisDeltas);
   try {
-    // Freeze registration before any callback can mount another handler.
-    const frameCallbacks = [...callbacks];
-    const placed = [...placedCallbacks];
+    __beginMotionFrame(motion);
+    const frame = frameSnapshot();
     batch(() => {
       pollModelAnimations(); resumeModelTasks();
-      const pending = new Map<NodeMirror, (() => void)[]>();
-      const enqueue: DeferredPress = (node, invoke) => {
-        const entries = pending.get(node);
-        if (entries) entries.push(invoke);
-        else pending.set(node, [invoke]);
-      };
-      beforeHooks?.(enqueue);
-      for (const cb of frameCallbacks) cb(buttons);
-      for (const [callback, node] of placed) enqueue(node, () => callback(buttons));
-      resolveInput?.(enqueue);
-      const roots = new Set<NodeMirror>();
-      for (const node of pending.keys()) {
-        if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
-        let root = node;
-        while (root.parent) root = root.parent;
-        roots.add(root);
-      }
-      const ordered: { node: NodeMirror; invoke: () => void }[] = [];
-      const collect = (node: NodeMirror): void => {
-        for (const invoke of pending.get(node) ?? []) ordered.push({ node, invoke });
-        for (const child of node.children) collect(child);
-      };
-      for (const root of roots) collect(root);
-      for (const { node, invoke } of ordered) withRowSnapshot(nodeRow(node), invoke);
+      dispatchFrame(frame, buttons, runInRow, beforeHooks, resolveInput);
       reactModelRegions();
     });
     flushLifecycleHooks();
-  } finally { __endAxisFrame(); }
+  } finally { __endAxisFrame(); __endMotionFrame(); }
 }
 
 function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => void {
   const row = useContext(RowContext);
-  const wrapped: FrameCallback = placement ? callback : buttons => withRowSnapshot(row, () => callback(buttons));
-  if (placement) placedCallbacks.set(wrapped, placement);
-  else callbacks.add(wrapped);
-  const dispose = () => { callbacks.delete(wrapped); placedCallbacks.delete(wrapped); };
+  const target = useContext(SystemFrameContext) ? systemRegistry : registry;
+  // Outside a list row there is no snapshot to take, so the wrapper calls
+  // straight through instead of allocating a closure every frame. It stays a
+  // distinct function so registering one callback twice still runs it twice.
+  const wrapped: FrameCallback = placement
+    ? callback
+    : row
+      ? buttons => withRowSnapshot(row, () => callback(buttons))
+      : buttons => callback(buttons);
+  const dispose = target.add(wrapped, placement);
   onCleanup(dispose);
   return dispose;
 }
@@ -93,6 +114,19 @@ export function onAxisDelta(axis: RelativeAxisId, callback: (delta: i32) => void
     if (delta === 0) return;
     const active = typeof options.active === "function" ? options.active() : options.active ?? true;
     if (active) callback(delta);
+  }, placement);
+}
+
+export interface MotionOptions { active?: boolean | (() => boolean); minQuality?: MotionMinQualityName }
+
+/** Fires once per frame whose motion state carries `value` at `minQuality` or better. */
+export function onMotion<V extends MotionValueName>(value: V, callback: (...payload: MotionPayload<V>) => void, options: MotionOptions = {}, placement?: NodeMirror): () => void {
+  const read = __motionReader(value, options.minQuality);
+  return registerFrame(() => {
+    const payload = read();
+    if (!payload) return;
+    const active = typeof options.active === "function" ? options.active() : options.active ?? true;
+    if (active) (callback as (...payload: number[]) => void)(...payload);
   }, placement);
 }
 export interface ButtonPressOptions {

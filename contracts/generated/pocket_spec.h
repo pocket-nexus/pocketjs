@@ -4,6 +4,9 @@
 #ifndef POCKET_SPEC_H
 #define POCKET_SPEC_H
 
+/* Generated guest/native binding contract; independent of profile identity. */
+#define POCKET_BINDING_GENERATION 12U
+
 /* Portable button bitmask — identical on every host. Native hosts map
  * their platform key codes onto these bits; the guest only sees the mask. */
 #define POCKET_BTN_SELECT 0x0001U
@@ -24,5 +27,82 @@
 /* frame(buttons, analog): analog packs a stick as (x << 8) | y, each axis
  * 0..255 with 128 = center. Hosts without a stick pass this value. */
 #define POCKET_ANALOG_CENTER 0x8080U
+
+/* Closed DrawList operation set; word layouts are specified in spec.ts. */
+#define POCKET_DRAW_LIST_VERSION 1U
+#define POCKET_DRAW_OP_RECT 1U
+#define POCKET_DRAW_OP_GRAD_RECT 2U
+#define POCKET_DRAW_OP_GLYPH_RUN 3U
+#define POCKET_DRAW_OP_TEX_QUAD 4U
+#define POCKET_DRAW_OP_SCISSOR 5U
+#define POCKET_DRAW_OP_SCISSOR_POP 6U
+#define POCKET_DRAW_OP_TRI 7U
+#define POCKET_DRAW_OP_TEX_TRI 8U
+#define POCKET_DRAW_OP_TEXT_RUN 9U
+#define POCKET_DRAW_OP_SURFACE_QUAD 10U
+
+/* Portable operation numbers (contracts/spec/ui-ops.ts): what a program's
+ * operation provider serves and pocket_runtime_op dispatches. */
+#define POCKET_OP_createNode 1U
+#define POCKET_OP_destroyNode 2U
+#define POCKET_OP_insertBefore 3U
+#define POCKET_OP_removeChild 4U
+#define POCKET_OP_setStyle 5U
+#define POCKET_OP_setProp 6U
+#define POCKET_OP_setText 7U
+#define POCKET_OP_replaceText 8U
+#define POCKET_OP_uploadTexture 9U
+#define POCKET_OP_setImage 10U
+#define POCKET_OP_animate 11U
+#define POCKET_OP_cancelAnim 12U
+#define POCKET_OP_setFocus 13U
+#define POCKET_OP_loadStyles 14U
+#define POCKET_OP_loadFontAtlas 15U
+#define POCKET_OP_measureText 16U
+#define POCKET_OP_setSprite 17U
+#define POCKET_OP_debugInspect 18U
+#define POCKET_OP_debugRectXY 19U
+#define POCKET_OP_debugRectWH 20U
+#define POCKET_OP_debugPause 21U
+#define POCKET_OP_debugStep 22U
+#define POCKET_OP_loadTileTexture 23U
+#define POCKET_OP_freeTexture 24U
+#define POCKET_OP_uploadImgEntry 25U
+#define POCKET_OP_setActive 26U
+#define POCKET_OP_hitTest 27U
+#define POCKET_OP_setCursor 28U
+#define POCKET_OP_setCursorPos 29U
+#define POCKET_OP_svcOpen 30U
+#define POCKET_OP_svcPoll 31U
+#define POCKET_OP_svcSend 32U
+#define POCKET_OP_loadImgFile 33U
+#define POCKET_OP_videoOpen 34U
+#define POCKET_OP_videoTick 35U
+#define POCKET_OP_videoTexture 36U
+#define POCKET_OP_videoClose 37U
+#define POCKET_OP_debugStats 38U
+#define POCKET_OP_appTable 39U
+#define POCKET_OP_appLaunch 40U
+#define POCKET_OP_appShot 41U
+#define POCKET_OP_hitTestBounds 42U
+#define POCKET_OP_wrapText 43U
+#define POCKET_OP_setCompositorSurface 44U
+#define POCKET_OP_hitTestAuxiliary 45U
+#define POCKET_OP_hitTestBoundsAuxiliary 46U
+#define POCKET_OP_fontStreamConfigure 47U
+#define POCKET_OP_fontStreamRequests 48U
+#define POCKET_OP_fontStreamCommit 49U
+#define POCKET_OP_fontStreamStats 50U
+#define POCKET_OP_appClose 51U
+#define POCKET_OP_physicsCreate 52U
+#define POCKET_OP_physicsApply 53U
+#define POCKET_OP_physicsDestroy 54U
+#define POCKET_OP_physicsEvents 55U
+#define POCKET_OP_physicsQuery 56U
+#define POCKET_OP_setPropBatch 57U
+#define POCKET_OP_takeAnimationCompletions 58U
+#define POCKET_OP_fontStreamBatch 59U
+#define POCKET_OP_captureTexts 60U
+#define POCKET_OP_capturedTexts 61U
 
 #endif

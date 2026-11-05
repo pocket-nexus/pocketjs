@@ -1,0 +1,337 @@
+---
+name: pocket3d-interface
+description: Build the 2D interface of a Pocket3D game (title, HUD, menus, settings, touch controls, a second screen) as one PocketJS app drawn over the scene, with one presentation per device shape (PSP, PS Vita, Nintendo 3DS, iPod touch), and show every presentation on one browser page that changes device. Use when a Pocket3D game draws text, gauges or menus from its renderer, when debug text or a status line is what a player sees, when adding a console target, a browser tab, a menu, a setting or a touch control to a game, or when reviewing a game's HUD.
+---
+
+# Pocket3D interface
+
+## Overview
+
+A Pocket3D game has two layers on the screen. The renderer draws the scene.
+**Every 2D pixel that is not anchored to a point of the world comes from one
+PocketJS app**, compiled per device and drawn over the scene by that device's
+PocketJS host library. The renderer draws no text.
+
+| Layer | Owns | Lives in |
+| --- | --- | --- |
+| Renderer (Rust or C, per console) | simulation, scene, marks anchored to the world (a target's distance, a lock-on ring) | the game's device crates |
+| Interface (PocketJS app) | title, HUD readouts, lists, settings, map, touch controls, loading and error screens | `ui/` in the game repository |
+| Flow (one Rust type) | which mode the screen is in, what the pad means in each mode, what a command does | one `no_std` crate shared by every device |
+
+A line of text drawn by the renderer for a developer (frame time, triangle
+count, key hints) is not an interface. It reaches the screen as a member of
+the state the interface is sent, behind a setting the player turns on.
+
+Three documents state the rules this skill applies:
+[`docs/MODALITY.md`](../../docs/MODALITY.md) (modality and presentations),
+[`docs/HIG.md`](../../docs/HIG.md) (intents, the buttons guideline, the touch
+guideline) and
+[`docs/POCKET3D-UI-OVERLAY.md`](../../docs/POCKET3D-UI-OVERLAY.md) (the same
+overlay on the desktop renderer).
+
+## The parts
+
+| Part | What it is |
+| --- | --- |
+| `ui/pocket.app.json` | The app contract. `app.entry` is the baseline presentation; `app.presentations[]` addresses other entries to a modality. |
+| `ui/app/protocol.ts` | The state the renderer sends and the commands the interface sends. |
+| `ui/app/host.ts` | `connectOverlay` from `@pocketjs/framework/overlay-host`, the state as one signal per member, the numbers that change every turn as a plain array with listeners. |
+| `ui/app/parts.tsx` | Every readout, row, gauge and map once. A presentation places parts; it does not redraw one. |
+| `ui/app/presentations/*.tsx` | One file per device shape. |
+| `crates/<game>-interface` | The renderer's side: the state struct, the command parser, the channel, and `Session`, the flow. |
+| `tools/ui.ts` | Compiles the app for a device, writes every screen as a picture, runs the flow test. |
+| `ui/test/` | A mock renderer and the rig that runs a compiled bundle on the wasm UI core. |
+
+## One presentation per device shape
+
+`pocket.app.json` picks the entry at build time from the target's modality
+(screens, touch, buttons). A game that ships on the four handhelds declares
+three entries:
+
+```json
+"app": {
+  "entry": "app/main.tsx",
+  "viewport": { "logical": [480, 272], "presentation": "integer-fit" },
+  "presentations": [
+    { "id": "dual-screen", "entry": "app/main-dual.tsx",
+      "modality": { "screens": 2, "touch": "auxiliary" },
+      "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } },
+      "surfaces": { "auxiliary": { "fixed": { "logical": [320, 240], "presentation": "native" } } },
+      "capabilities": { "requires": ["display.auxiliary", "input.touch.auxiliary"] } },
+    { "id": "touch", "entry": "app/main-touch.tsx",
+      "modality": { "touch": "primary", "buttons": false },
+      "viewport": { "fixed": { "logical": [480, 320], "presentation": "native" } } }
+  ]
+}
+```
+
+| Presentation | Devices | What it must do |
+| --- | --- | --- |
+| baseline (`single`) | PSP; PS Vita at 2× raster | Readouts at the edges of the scene. Lists walked by the d-pad with one focus bar; a legend strip from `useActions`. On the Vita a list row also takes a tap. |
+| `dual-screen` | Nintendo 3DS | The upper screen keeps the scene and the readouts. **The lower screen is a second surface, not a copy**: the map, the controls a stylus works (a slider, a toggle), and every list. |
+| `touch` | iPod touch | No buttons exist: every verb is drawn on the panel. A stick and keys at the lower corners, at least 44 logical pixels each, and a drag on the scene for the view. The title and the lists keep the baseline's layout with taller rows; the way back stands in a list's heading. |
+
+A device differs by its presentation. A small difference inside one entry
+reads `modality`, `surfaceHasTouch()` and `glyph()` from
+`@pocketjs/framework/modality` (a legend says ○ on a PSP and A on a 3DS from
+one source line). **Do not fork a part per device, and do not write a second
+`pocket.app.json`.**
+
+### One layout for the screens every device has
+
+The title, a list, the menu over the scene and the strip under a list
+**stand in the same place, built from the same parts, in every
+presentation**. Two devices side by side then show one game. A presentation
+changes what its device's input changes:
+
+| | Buttons (PSP, Vita, 3DS) | Touch panel with no buttons |
+| --- | --- | --- |
+| A row's height | 26 px or more (the HIG's floor on a 320-wide screen) | 44 px; 36 px where five rows share the title with the name (iOS's own bars are 32 points on a panel held sideways) |
+| The list's mark | The focus bar, moved by the d-pad | The same bar, under the finger while a row is pressed |
+| The strip under a list | A notice at the left, the buttons' legend at the right | The notice; `useActions().legend()` is empty where no button exists |
+| The way back | ✕ in the legend | `‹ Back` in the list's heading |
+
+A control one device alone has (a stick, keys under a thumb, a bar to drag,
+the lower screen's map) belongs to that presentation. **A shared screen is
+not restyled for a device.** A touch title made of large buttons beside a
+PSP title that is a list reads as another game. A list too long for rows a
+finger can press stands two abreast in the same rows (six hours as three
+rows of two) before it becomes a grid of buttons.
+
+A device outside PocketJS's public registry (the 3DS development target, an
+iPod drawable that shares the scene's 480 × 320) resolves through a host
+contract kept with the game's tool: `resolve3dsBuildPlan` from
+`tools/3ds-profile.ts`, or `validateAndResolveBuildPlan` with a registry of one
+target.
+
+### A browser tab shows every presentation
+
+A browser build has no presentation of its own. **The page loads the bundle a
+device loads, with the `plan.json` PocketJS wrote for it, and shows the game
+as that device**: its shell, its screens in the shell, its presentation, its
+keys under a pointer and from the keyboard. The browser kernel
+([`engine/pocket3d/crates/pocket-web-wgpu`](../../engine/pocket3d/crates/pocket-web-wgpu/README.md))
+supplies the page itself, `createPlayer`: **one page for every Pocket3D
+game**. The game's page has an empty body and no line of its own.
+
+| The page does | With |
+| --- | --- |
+| Reads the screens, the raster density and the surface that takes touch from the plan | `screens(plan)` in `pocket3d-interface.js`. The page keeps no table of device sizes |
+| Starts the device's guest in a realm of its own | `openInterface`: `programs/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared. **`simHz` is the turns a second the game gives the guest** (30 where the device's host sets `__simHz` to 30); each turn then advances `ticks` sixtieths |
+| Builds the page: the bar, the device's shell, the dock with the game's Download and Remix links | `createPlayer({ title, tagline, devices, runsOn, pick })`. The page links `pocket3d-stage.css` and `pocket3d-player.css` |
+| Shows a device: its shell with one or two screens in it | `player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`, from `screens(plan)` and the renderer's shape. The scene is drawn into `player.canvas`; the lower screen is `player.stage.second` |
+| Reads the device's buttons and sticks | `player.controls.read()`: the keyboard and the shell's own keys, d-pad and sticks under a pointer or a finger. The bits are PocketJS's, so one mask goes to the guest and to the game's pad mapping |
+| Hands a pointer to the guest as a contact on the surface that takes touch | `player.show` binds it from `touch` and `viewport`, in the surface's logical pixels |
+| Says that the tab's picture differs from the device's | Nothing: the mark **Simulated** opens the player's own sentence, the same for every game and device. A `note` on a device is not shown |
+| Tells the player the first frame is drawn | `player.ready()`: it then reads the other devices' shells |
+
+**Changing device replaces the guest and keeps the game.** The page removes
+the current realm, starts the next device's bundle in a new one, and the
+renderer opens its channel again: the new guest receives the whole state on
+its first turn and shows the mode the game is in. The flow stays in
+`Session`; the renderer changes its screen's size and its pad mapping. The
+first device is the touch presentation for a browser whose pointer is a
+finger and the baseline at two samples a pixel otherwise.
+
+**A difference between the tab and a device is the page's or the shell's,
+not a branch in `ui/`.** Do not add a `web` presentation, and do not compile
+a bundle for the browser alone.
+
+**What the page says is the player's, and what the game says is in its
+interface.** Credits, sources and a control legend of the game's own belong
+to a sheet of the interface (an About list reached from the title), where
+every device shows them. The page carries no footer, no attribution line and
+no key legend of a game: the player lists the keys and the notices itself.
+
+## The protocol
+
+Both sides speak JSON lines over PocketJS's `pocket.overlay` service,
+answered inside the process. The renderer sends **the members of its state
+that changed since the last line**; the interface sends flat commands
+(numbers, booleans, short strings), which the renderer parses with a scanner
+of a few dozen lines and no allocator-heavy JSON library.
+
+```ts
+// ui/app/host.ts
+const overlay = connectOverlay<Partial<HostState>, Command>((state) => { /* write signals */ });
+overlay.send({ type: "menu", on: true });
+```
+
+The guest calls `ui.svcOpen`, `ui.svcPoll` and `ui.svcSend`. A game answers
+them from its channel in one of two ways:
+
+| Host | How the game answers |
+| --- | --- |
+| Rust hosts (`programs/psp`, `programs/vita`) | After the host registered its ops and before the bundle is evaluated, set `svcOpen`, `svcPoll`, `svcSend` on the guest's `ui` object to C functions that read and write the channel (`JS_NewCFunction2`, `JS_SetPropertyStr`). |
+| C hosts (`products/3ds/src/qjs.c`, `programs/native/quickjs/pocket_qjs_program.c` with `POCKET_SVC_WIRE`) | Link the six functions of [`products/3ds/src/svcwire.h`](../../products/3ds/src/svcwire.h) (`svcwire_open`, `svcwire_recv_lines`, `svcwire_send_line`, …) from the game's interface crate in place of the network client. |
+
+Rules for the state:
+
+- **Numbers that change every turn travel as one array** (`t`), and each is
+  written to its node with `text()` and `prop()` from
+  `@pocketjs/framework/hot`, in a cell of fixed size with the text at its
+  left. That is one native call and no layout. A value set through a signal
+  costs milliseconds per update on a PSP.
+- Everything else is one signal per member, so a statistics line once a
+  second does not re-run what reads the settings.
+- Settings are a list the renderer sends (`{ key, value, choices? }`); the
+  interface renders whatever the device lists. A device that has no bloom
+  lists no bloom.
+- What is kept between runs is one text the interface hands to the renderer
+  (`prefs`), which stores it and hands it back at the start.
+
+## The flow, once
+
+`Session` in the interface crate is the only implementation of the game's
+modes (loading, title, play, pause or menu, results). A device hands it the
+pad each frame and reads back what to simulate. It also holds the fallback:
+with no guest on the screen (its files are missing, memory has no room, the
+script threw) the pad keeps the flow through a button of its own. **Do not
+build a second native HUD for the fallback.**
+
+While a list is up, the pad is the interface's and the simulation reads no
+input. During play the interface listens to the one button that opens the
+menu.
+
+## What a turn costs
+
+A turn of the guest runs the whole framework frame: **4 to 6 ms on a PSP
+however little changed**, about 0.6 ms on an iPod touch 4. The embedding and
+the app share the work of keeping that off the frame:
+
+- The device offers the guest a turn 30 times a second and takes it only
+  when it is worth its cost. The interface sends `idle` when nothing is
+  scheduled (no hint fading, no toast standing); from then a turn is taken
+  when the renderer has news, when a button the interface listens to
+  changes, while a finger is down, and for a few turns after any of those.
+  Buttons pressed between two turns are latched.
+- **The renderer counts a hint's seconds.** A timer of the guest's counts
+  its turns, so while one is pending the device has to take every turn it
+  offers: a hint that stands for 7 s cost a PSP 30 turns a second for 7 s,
+  and frames went late at the start of every flight. The app sends
+  `{ type: "wake", id, seconds }` and the renderer says the id back in a
+  state member when it is due. A timer of the guest's own runs only for the
+  0.4 s of a fade, and `idle` is false for that long.
+- **Screens stay built.** The title, the HUD and the menu are built while
+  the world loads and then shown or hidden (`display`), because a screen
+  takes tenths of a second to build on a PSP.
+- A list's focus is one bar that slides (`translateY`); moving the focus
+  changes one node.
+- On the PSP a turn is two halves on two frames (the script, then layout and
+  the draw list), each beside the GE's work on the previous frame.
+
+What each console charged for the overlay, measured on one game (a city
+flown over at 30 or 60 frames a second):
+
+| Console | A turn | What else the overlay costs | What the game did |
+| --- | --- | --- | --- |
+| PSP | script 6.4 ms, layout and draw list 2.9 ms; 10 turns a second in flight | The GE blends every pixel of a list: 0.9 ms for the HUD, 6.7 ms for a menu over the scene. A collection of the guest's heap stops the CPU for 60 to 80 ms | The scene's triangle budget drops while a list is up. The collection waits for a list. Every list stays built once shown |
+| Nintendo 3DS (Old) | 12.3 ms, 15 turns a second | Redrawing the lower screen on every turn added 3 ms to the GPU's longest frame | The lower surface is redrawn when its draw list changes |
+| PS Vita | 1.05 ms, 30 turns a second; 0.8 ms to draw | vita2d draws a clip as a full-screen stencil pass: one `overflow-hidden` in the HUD made frames late. A collection that starts inside a turn takes 35 ms | No clip in a part that is on the screen during play. The collector runs at the end of loading and when a list closes |
+| iPod touch 4 | 1.0 ms a turn, 5.1 ms a redraw, 11 redraws a second | A blended full-screen layer over a 4× multisampled target made 38 % of frames late | The scene's programs read the interface's texture at their own pixel, and the triangle budget pays for the rest |
+| Browser tab (Chrome 154, M3 Max) | 0.04 ms a turn; a redraw 1.6 ms at 960 × 544 with two samples a pixel, 0.44 ms at 480 × 272; 16 redraws a second | Drawing the interface over black and over white to recover its alpha took 3.3 ms a redraw at 960 × 544. A second screen redrawn on every turn took 1.4 ms on each of 23 turns a second | The UI core draws once with its alpha (`renderPremultiplied`). The second screen is redrawn when `drawHashAuxiliary` changes: 7 times a second |
+
+Compiler facts that shape the parts: a `rounded-full` literal needs `w-[N]`
+and `h-[N]` in the same literal; a pak image is a power of two up to 512; the
+glyphs a runtime string can show are declared in `fonts.json` beside the
+entry.
+
+## Embedding per device
+
+| Device | PocketJS piece | Where the interface is drawn |
+| --- | --- | --- |
+| PSP | `programs/psp` as a library: `Runtime::new`, `boot`, `advance`, `present` in `programs/psp/src/program.rs`; the runtime owns guest bindings and assets, and its arena is the program's allocator | The last pass of the frame's GE list |
+| PS Vita | `programs/vita` as a library: `Runtime::new`, `eval`, `frame_with_input`, `tick`, `render_over` | The display scene, after the game's composite |
+| Nintendo 3DS | `products/3ds/src` composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
+| iPod touch 4 | `programs/native/quickjs/pocket_qjs_program.c` with the UI core's OpenGL ES 2 backend | A texture redrawn when the draw hash changes, laid over the scene |
+| Browser tab | `programs/web/app-instance.js` in a hidden frame of the page, driven through `openInterface` of the browser kernel; the UI core is `platforms/web/pocketjs.wasm` | `renderPremultiplied` when `drawHash` changes: one software drawing with its alpha, uploaded and laid over the scene in a pass of its own (`pocket_web_wgpu::overlay`). A second screen from `renderAuxiliary` into its own canvas when `drawHashAuxiliary` changes |
+
+The guest starts before the world loads when memory has room for both, so
+the loading steps are the interface's first screen.
+
+## Test without a device
+
+1. `bun tools/ui.ts preview`: each device's compiled bundle runs on the wasm
+   UI core (`platforms/web/pocketjs.wasm`, `platforms/web/wasm-ops.js`) against a
+   mock renderer, and every screen is written as a picture over a capture of
+   the scene. **Look at every picture before a device build**: clipped text,
+   a readout over another, a row too short for a finger. Then put the same
+   screen from every device in one picture: a title or a list that differs
+   by more than its rows' height was restyled for that device.
+2. `bun tools/ui.ts test`: the same rig presses buttons and touches the
+   panel through a whole session and asserts the commands the interface
+   sent, on every device's bundle.
+3. `cargo test` in the interface crate: the command parser against the lines
+   the rig logs, the state line, the flow, and when a turn is due.
+
+4. In a browser, the game's own check drives the page with real input on
+   every device: the title's list, a flight, a list opened and closed, the
+   second screen under the pointer, the touch presentation's controls, and
+   another device picked in the middle of a flight. The kernel's check
+   (`bun test tests/pocket3d-web.test.ts`) runs a guest written by hand in
+   the realm with no game.
+
+Change `protocol.ts` and the interface crate in one commit.
+
+## Drive it from the host
+
+Every device accepts the same control words, so a bench and a capture need
+no hands: `mode=<mode>` sets the flow, `ui=<verb>` asks what the interface
+would ask, `press=<mask>` presses PocketJS buttons on the guest, `touch=X,Y`
+holds a finger where the device has a panel. The status record carries the
+interface's own numbers (turns taken, turn milliseconds, the length of its
+draw list). A change to the interface reports the frame bench before and
+after, as a renderer change does.
+
+## Checklist
+
+- [ ] The renderer draws no text; the pack carries no HUD font.
+- [ ] One `ui/` app; one presentation per device shape; parts defined once.
+- [ ] The 3DS's lower screen and the iPod's panel carry controls of their
+      own (a map, a bar to drag, a stick), not the PSP's readouts scaled.
+- [ ] The title, the lists and the menu have one layout on every device;
+      the same screen from each device was looked at side by side.
+- [ ] Numbers in flight go through `hot`; nothing else updates every turn.
+- [ ] `idle` is reported, and the device paces turns by it.
+- [ ] The flow is one `Session`; the no-guest fallback is a button, not a HUD.
+- [ ] Previews looked at for every device; the flow test passes on every
+      bundle; the frame bench is reported before and after.
+- [ ] Developer statistics are a setting inside the interface.
+- [ ] A browser page loads each device's own bundle and plan; every device
+      was flown from its title there, and another device was picked in a
+      flight.
+
+## Common mistakes
+
+- Drawing key hints or a clock with the renderer's own font "until the UI
+  exists". That text ships.
+- Writing a per-turn value through a signal. The PSP loses several
+  milliseconds a turn.
+- Mounting a screen when its mode begins. The first frame of a pause then
+  stalls on a PSP.
+- Centring or right-aligning a text that `hot.text` rewrites. The text keeps
+  the position layout gave the last value and drifts.
+- Reusing the single-screen layout on the 3DS's upper screen and leaving the
+  lower screen for a logo.
+- A touch control smaller than 44 logical pixels, or a list on a touch-only
+  device with no way back drawn on the screen.
+- A title or a list rebuilt from large buttons for the touch panel while the
+  other devices show rows. Keep the layout and raise the rows.
+- An `overflow-hidden` part in the HUD. It is a scissor on the PSP and a
+  full-screen stencil pass on the Vita.
+- Leaving the scene's budget where it was while a menu covers the screen.
+  The menu's pixels are the GPU's work too.
+- A `setTimeout`-style timer for a toast or a hint. It holds `idle` off for
+  its whole length.
+- Letting each device keep its own title / play / pause switch. Two devices
+  then disagree about what START does.
+- A `web` presentation, or a table of screen sizes in the page. The page
+  loads a device's bundle and reads that bundle's plan.
+- A header, a footer or buttons of the game's own on the browser page. The
+  player builds the page; a game that draws its own differs from every other.
+- A wordmark or a logo on a shell. A new device's shell lists them under
+  `hide` in `tools/handheld-models/shells.py` before it is rendered.
+- Drawing the interface twice in a browser, over black and over white, to
+  find what it covers. `renderPremultiplied` is one drawing with its alpha.
+- Redrawing a second screen on every turn. `drawHashAuxiliary` says when it
+  changed.

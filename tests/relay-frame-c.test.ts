@@ -1,6 +1,6 @@
 /** The C frame layer decodes the shared relay byte vectors.
  *
- * hosts/shared/relay_frame.c is compiled here with -std=c11 -Wall -Wextra
+ * engine/relay/c/relay_frame.c is compiled here with -std=c11 -Wall -Wextra
  * -Werror, once with the address and undefined-behaviour sanitizers for the
  * vector runs and once at -O2 for the decode benchmark. Every vector under
  * tests/fixtures/relay/vectors is fed to the C harness and compared against
@@ -20,8 +20,8 @@ import { decodeFrame } from "../framework/src/relay/frame.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const fixtures = join(root, "tests/fixtures/relay");
-const source = join(root, "hosts/shared/relay_frame.c");
-const harness = join(root, "hosts/shared/tests/relay_frame_test.c");
+const source = join(root, "engine/relay/c/relay_frame.c");
+const harness = join(root, "engine/relay/c/tests/relay_frame_test.c");
 const cc = process.env.CC ?? "cc";
 const warnings = ["-std=c11", "-Wall", "-Wextra", "-Werror"];
 
@@ -306,7 +306,7 @@ test("removing any one check turns its vector red", () => {
     // The mutant must still compile clean, so the red comes from the missing
     // check rather than from a broken build.
     const binary = build(`mutant-${mutation.check.replace(/\W+/g, "-")}`,
-      ["-O1", "-I" + join(root, "hosts/shared")], [mutated, harness]);
+      ["-O1", "-I" + join(root, "engine/relay/c")], [mutated, harness]);
     const { spec } = loadVector(mutation.vector);
     const before = decodeVector(mutation.vector, spec);
     expect(before.ok, mutation.vector).toBe(false);

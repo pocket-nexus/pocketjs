@@ -1,9 +1,0 @@
-{
-  "pocketjs_package": { "version": "0.1.0", "requires": {} },
-  "pocketjs_guest": { "version": "0.1.0", "requires": {} },
-  "pocketjs_ui_core": { "version": "0.1.0", "requires": {} },
-  "pocketjs_ui_qjs": { "version": "0.1.0", "requires": { "pocketjs_guest": "0.1.0", "pocketjs_ui_core": "0.1.0" } },
-  "pocketjs_render_rgb565": { "version": "0.1.0", "requires": { "pocketjs_ui_core": "0.1.0" } },
-  "pocketjs_esp32p4_ppa": { "version": "0.1.0", "requires": { "pocketjs_render_rgb565": "0.1.0" } },
-  "pocketjs_runner": { "version": "0.1.0", "requires": { "pocketjs_ui_qjs": "0.1.0" } }
-}

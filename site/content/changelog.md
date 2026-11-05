@@ -3,6 +3,283 @@
 Engine and site milestones, newest first. Versions track the
 `@pocketjs/framework` npm package.
 
+## 0.16.0 — November 2, 2026
+
+**Pocket Applets share companion services, IO runs in isolated workers, and 2D games run on PSP and web.**
+
+This release separates runtime, driver and program ownership, adds Tab5 and
+SF32LB5x platform support, and publishes the Rust SDK crates at 0.16.0 alongside
+the framework and CLI.
+
+### Breaking changes
+
+- IO workers replace the previous worker API; worker facts settle as Promises
+  and no longer use turn time limits.
+- The db module and Rust data crates are removed.
+
+### Features
+
+- feat(microts): show the home page counter in Solid and Vue (#602) ([66caf4e5](https://github.com/pocket-nexus/pocketjs/commit/66caf4e51ca80ecfd8fd8395eb8643f243034686))
+- feat: companion services, Pocket Applets, camera.photo and data.fs on the 3DS, single-screen mode (#598) ([cf77d805](https://github.com/pocket-nexus/pocketjs/commit/cf77d805b66c3b26c51337be6333c82f25e5b5a4))
+- feat(3ds): app switches run under a host-drawn transition, boot from cached bytecode, and SELECT answers inside long frames (#605) ([e27bff3e](https://github.com/pocket-nexus/pocketjs/commit/e27bff3e96df3c7b3c8263a34f2362b964df04fb))
+- feat(video-outro): the Pocket3D card says "every device" and takes 3d.pocket.nexus's ground (#614) ([5216f618](https://github.com/pocket-nexus/pocketjs/commit/5216f61822173e4bb3f60f5dbd0d3c8f48c67a25))
+- feat(esp-idf): Tab5 platform support from #616 without the board program (#617) ([c5012186](https://github.com/pocket-nexus/pocketjs/commit/c501218675c52f9d57853431359f7b66c3a675e8))
+- feat(sifli): SF32LB5x platform with an EPIC renderer on the driver contracts (#338) ([78be9468](https://github.com/pocket-nexus/pocketjs/commit/78be94682060bc54dbf01c867a0bcc7d72f7f233))
+- feat(psp): net, link and media over the PSPLINK share, answered by a companion's USB carrier (#609) ([33bf39dd](https://github.com/pocket-nexus/pocketjs/commit/33bf39ddcd5fe75f5ee86153d47b023301683125))
+- feat(companion): Pocket Companion sets up Pocket Shell, its applets and their services in its own window, and ships signed with the applets in it (#613) ([0e8eedb1](https://github.com/pocket-nexus/pocketjs/commit/0e8eedb120ebdf6effab59386fa6a4e7e84c2af3))
+- feat(cardputer-zero): Pocket Companion's own screen on the CardputerZero, in PocketJS (#615) ([74d36956](https://github.com/pocket-nexus/pocketjs/commit/74d369561e85af3a9cbb5d0c7391b299f9f78c49))
+- feat(applet): the full-screen presentation, one program for the touch surface and the PSP screen (#610) ([c59315d2](https://github.com/pocket-nexus/pocketjs/commit/c59315d274e8fee78cb9e7ccf1add6b6a27e6c76))
+- feat(worker)!: add isolated IO workers and migrate 3ds HTTP ([9a746094](https://github.com/pocket-nexus/pocketjs/commit/9a7460946a666b16db7c387c931a857973d54679))
+- feat(worker)!: settle facts as Promises and drop the turn time limits ([66e39a0f](https://github.com/pocket-nexus/pocketjs/commit/66e39a0fbece6e545a4f4772b11d6c452477e32f))
+- feat(cardputer-zero): run the companion screen's control API calls in a worker (#625) ([f542a63b](https://github.com/pocket-nexus/pocketjs/commit/f542a63b4706ef867f407250284d6ece2f0468ea))
+- feat(package): admit packages by host facts and host contracts (#631) ([4b639284](https://github.com/pocket-nexus/pocketjs/commit/4b6392843ee8cc2eaf198a3f00e7096c3ec7bb6b))
+- feat(gles): let a host that swaps right after the renderer skip glFinish (#634) ([6ca9f914](https://github.com/pocket-nexus/pocketjs/commit/6ca9f914f6aa0f0c66bcc1a3f0e15c3d22127746))
+- feat(3ds): let a program link a product extension (#637) ([0fb7adfa](https://github.com/pocket-nexus/pocketjs/commit/0fb7adfabb3723a1b20760b1cab1503a0a6ec670))
+- feat(contracts): add system.device, audio.capture and the Tab5 worker fixes (#635) ([daad0585](https://github.com/pocket-nexus/pocketjs/commit/daad0585fbfc8121895824ec0b4f762cce06131e))
+- feat(worker): add an I2C receive step without a register phase (#639) ([38eb2df6](https://github.com/pocket-nexus/pocketjs/commit/38eb2df6ec7bbddbc68a5669ce71dbef2516be19))
+- feat(game2d): a 2D game layer and on-demand content packs for PSP and web (#644) ([9f49a7a6](https://github.com/pocket-nexus/pocketjs/commit/9f49a7a606c27fa1fee7279531402e48e6908068))
+- feat(release): prepare release PRs and publish on merge (#647) ([d802fca0](https://github.com/pocket-nexus/pocketjs/commit/d802fca08d4ecbd07a92236419aa7179e2b48a2c))
+
+### Fixes
+
+- fix(framework): keep the Vue Vapor Portal host hit-transparent (#612) ([a9f186e2](https://github.com/pocket-nexus/pocketjs/commit/a9f186e2aa385fb353b05a12c1c8c592b76bec80))
+- fix(present): drop motion bounds decoded under older resources (#620) ([f0eac1be](https://github.com/pocket-nexus/pocketjs/commit/f0eac1bea132ee78d2116f88c720dd393fc53a61))
+- fix(launcher): expand app.theme references when packing launcher packages (#621) ([e6770376](https://github.com/pocket-nexus/pocketjs/commit/e6770376626a4de5c93eaa6fb048e7e9ffb81f9f))
+- fix(ci): avoid recursive Rust and LLVM downloads (#628) ([99924de4](https://github.com/pocket-nexus/pocketjs/commit/99924de47c62fa36f526a8791055d91cbbdb3836))
+
+### Other changes
+
+- refactor(architecture): separate runtime drivers and program ownership (#603) ([1c248fb1](https://github.com/pocket-nexus/pocketjs/commit/1c248fb18f976e91a313f11e0dbb35273c9e48dd))
+- perf: UTF-8 decoding through built-ins, and 3DS font atlases as LA8 written in one pass (#606) ([1894be8e](https://github.com/pocket-nexus/pocketjs/commit/1894be8efaac00440202a50fec97eb2bb41628f8))
+- chore: remove the db module and the Rust data crates (#622) ([7d4f790f](https://github.com/pocket-nexus/pocketjs/commit/7d4f790f2e0e646bd22624512078219a67e12707))
+- chore(examples): remove worker-http demo (#630) ([8bc05257](https://github.com/pocket-nexus/pocketjs/commit/8bc0525776efe779ef9592e0b91574cfbc91f60b))
+- docs(site): a page that says what a Pocket Applet is (#638) ([84590132](https://github.com/pocket-nexus/pocketjs/commit/84590132dfc823ba132d82e49d6bb31fdb1e2b9f))
+- docs(readme): lead with what Pocket Studio shows (#645) ([c997f007](https://github.com/pocket-nexus/pocketjs/commit/c997f007ad62214112282caef57b56ff657ed3bd))
+- docs(crates): prepare Rust SDK packages for publication (#646) ([2e4c357b](https://github.com/pocket-nexus/pocketjs/commit/2e4c357bbed1ad03a058d6b02ee48de5fd947a11))
+
+## 0.15.0 — October 20, 2026
+
+**One runtime per console runs any game's .pocket, and `pocket` installs the toolchains and selects the target it builds for.**
+The PSP, PS Vita, Nintendo 3DS, iPod touch 4 and Android each get a generic
+runtime built once, and a TypeScript repack writes a game's console package
+from it. The CLI runs on Bun, creates standalone projects and resolves
+targets from one catalog. MicroTS gains a site and a playground, and the
+Nintendo 3DS gains the Pocket Link to a Mac.
+
+- **A generic runtime per console, and repacks in TypeScript.**
+  `bun tools/runtime.ts <target>` builds a runtime with no game in it;
+  `bun tools/repack.ts --target <target>` turns it and a game's `.pocket`
+  into a `.3dsx`, a PSP Memory Stick zip, a `.vpk`, an `.ipa` or an APK. At
+  boot each runtime reads `app.pocket`, checks its footer hash, its variant
+  and its host ABI, and takes the surfaces and raster density from the plan.
+  The `.3dsx` and PARAM.SFO writers are byte-identical to `3dsxtool` and
+  `vita-mksfoex` for the same inputs. The Android repack rewrites the binary
+  manifest and resource table, aligns as `zipalign -p 4` does and signs v1 +
+  v2 with Web Crypto, with no SDK tool. `tools/repack/index.ts` gives Pocket
+  Studio's Worker one row per target.
+- **`pocket` selects targets from one catalog.** `tools/targets/index.ts`
+  lists the eighteen targets by the names commands use. A verb acts on the
+  first of `+<id>`, `--target` or `--host-profile`, `POCKET_TARGET`, a
+  directory override, the first of `targets` in `pocket.config.ts`, and the
+  user default, and prints the target and its source. `pocket build --all`
+  builds every project target.
+- **`pocket target add|list|remove` installs the pinned toolchains.** Pins
+  live in `tools/targets/<id>.toolchain.json`; each component is checked
+  against its SHA-256 and stored under its digest, so equal pins share one
+  entry. `pocket doctor` checks the framework's pins instead of the CLI's.
+- **Breaking: the CLI runs on Bun.** `@pocketjs/cli` declares
+  `#!/usr/bin/env bun` and `engines.bun`; under Node it prints the install
+  hint and exits. `pocket create` writes a standalone project outside a
+  checkout, with `--framework solid|vue-vapor|octane`, and derives the
+  manifest of an ESP-IDF project from its host contract.
+- **Builds write nothing under the framework directory.** The style module is
+  served from memory and copied to `<outdir>/<output>.styles.ts`; the
+  transform cache moves to `transforms/` under the PocketJS cache root. A
+  read-only `node_modules` and concurrent builds work.
+- **The guest runtime's dependencies are exact versions.** `solid-js`,
+  `@solid-primitives/keyed`, the Babel presets, `opentype.js` and
+  `babel-plugin-jsx-dom-expressions` are pinned to the versions the goldens
+  use, and the build checks the application's installed copy.
+- **Layout regions and build-time rects.** `contain-strict` (prop 33) makes a
+  definite-size node its own solver root, so a change reconciles and solves
+  only its region. `layout-baked` asserts every rect in a subtree is a
+  build-time constant; MicroTS solves it once in the `no_std` core and emits
+  the rects into the mount code. Readback rounds with Taffy's `round_layout`
+  on unrounded origins, so a region yields the bits the full tree would.
+- **The compiler reports class literals it drops.** Each JSX `class` literal
+  with unsupported tokens is reported with file, line and column; it is an
+  error under `--strict-classes`. The simulator boots any built bundle.
+- **The Nintendo 3DS links to a Mac.** `@pocketjs/framework/link` and Pocket
+  Companion on the Mac carry net requests and the Mac's clock
+  (`companionNow()`), beside the Wi-Fi and QR camera modules. Pocket Home and
+  a Hacker News app run on it, and their lists scroll at 58 to 61 fps on an
+  Old 3DS through fixed row slots in `contain-strict` regions.
+- **Pocket3D games ship as content-addressed packs and play in one browser
+  player.** A game's packs are pieces named by their bytes under one
+  manifest for every device, and a 3DS fetches the pieces it lacks over the
+  LAN. The browser player shows each handheld in its shell, speaks English
+  and Japanese, keeps the interface's alpha over the scene, and offers
+  Download and Remix in a dock a host may draw. Every Pocket3D game shows
+  the Pocket3D icon in each console's launcher. See
+  [Introducing Pocket3D](/blog/introducing-pocket3d/).
+- **MicroTS has a site and a playground, and drives two more devices.**
+  [microts.pocket.nexus](https://microts.pocket.nexus/) carries its docs and a browser playground drawn as the
+  real devices. The GBA sprite presenter is generated from the layout and
+  paint plan. MicroTS Hero runs as a Rockbox plugin on the iPod nano 2G.
+- **Breaking: the iPod nano music player is removed** (`apps/ipod-nano`, the
+  Pocket Stage `audio-playlist@1` service and its tracks); the iPod package
+  runs Hero.
+- **Android builds one APK for any plan**, with a Redmi 1S profile
+  (360x640 at density 2) carrying armeabi-v7a and arm64-v8a, and a release
+  build.
+- **The browser realm draws glyphs at runtime.** `text.glyphs.runtime` draws
+  codepoints no atlas holds with the browser and adds them to the atlases.
+- **Device fixes.** The PSP's GE display list gets cache lines of its own; a
+  shared line's write-back had replaced the first commands of the first list
+  and drawn 16-bit pixels into the 32-bit display. The PS Vita keeps a font
+  atlas as one byte a texel, 1 MiB instead of 4 MiB for the 36 px page.
+
+## 0.14.0 — October 5, 2026
+
+**Pocket3D gets a homepage, a title card and its own license, and the PS Vita and Nintendo 3DS replace native builds over their development connections.**
+The repository now names three technologies: PocketJS, Pocket3D and MicroTS.
+The core steps 2D physics, builds without `std` on every target and keeps its
+layout tree across structural updates. Pocket Nexus runs on the Old 3DS, the
+iPod touch 4 and the Nokia E7.
+
+- **Pocket3D has a homepage and entry points in the repository.**
+  [3d.pocket.nexus](https://3d.pocket.nexus) presents it with frames captured
+  on consoles. `pocket3d/README.md` states its design and maps its code
+  (`devices/`, `engine/pocket3d/`, `site/pocket3d/`); `microts/README.md` does
+  the same for MicroTS, and the README gains an "In this repository" table.
+- **A Pocket3D game shows a title card at launch.** `pocket3d-title` draws the
+  mark and the name into a console's frame buffer **before the game starts
+  its renderer**, for 144 ticks at 60 Hz, with no GPU: `vita::play()` on the
+  PS Vita, `play(surface, present)` on the PSP, `pocket3d_title_play()` in a C
+  header on the Nintendo 3DS and `playTitle()` in a browser. The three
+  drawers produce the same frames; the crate's tests record their hashes and
+  the C header and the browser module are held to them.
+- **Breaking: Pocket3D moves from the MIT License to the Pocket3D License
+  1.0.** `pocket3d/`, `devices/` and `engine/pocket3d/` keep the MIT License's
+  grant and add one condition: a distributed product that draws 3D scenes
+  with Pocket3D shows the title card each time it starts. The PocketJS hosts,
+  and software that reaches Pocket3D only through them to draw PocketJS
+  interfaces, are exempt. A separate written license waives the condition
+  (support@pocket.nexus). PocketJS and MicroTS stay MIT; the npm package's
+  license is now `(MIT AND LicenseRef-Pocket3D-1.0)` and ships
+  `pocket3d/LICENSE`. Copies published before this release stay MIT.
+- **Breaking: the handheld device kernels are shared, and BSP code moved to
+  OpenStrike.** `devices/vita/pocket-vita-gxm`, `devices/psp/pocket-psp-ge`
+  and `devices/3ds/pocket-3ds-pica` hold GPU memory, patching and texture
+  storage for every caller. `pocket3d::bsp`, `pocket3d::collide` and
+  `WorldModel::from_bsp` left this repository; OpenStrike owns them. The GXM
+  kernel gains float and normalized data targets and aligns owned GXP storage
+  on the ARM ABI.
+- **PS Vita development runs in Pocket Devkit.** The Devkit app waits for a
+  build over USB: `vita:dev push` replaces its JS/PAK guest and
+  `vita:dev native` runs another project's native build from the inactive
+  slot. Native apps publish renderer telemetry under `engine` in each status
+  receipt, and the USB host closes descriptors idle for 30 s, which ends the
+  "filedescriptor out of range" stop after about 40 minutes.
+- **The Nintendo 3DS installs and starts `.3dsx` files over the dev
+  connection.** The Runtime stages an upload, checks its length, CRC-32 and
+  3DSX magic, keeps the replaced file as `native-previous.3dsx` and hands the
+  new one to `hb:ldr`.
+- **`ui.physics` steps 2D jelly bodies inside `Ui::tick`.** Ops 52..56 run a
+  fixed-step simulation and write each body's pose into its views as
+  paint-only props; a `skewX` transform prop joins rotate and scale. The wasm
+  core, the 3DS host, the iPod touch 4 host and the Nokia E7 host bind it.
+- **The core builds without `std` on hosts and devices, and keeps its layout
+  tree.** Layout rounding at half boundaries no longer differs by one pixel
+  between a host test and a device. Inserting, removing or reordering nodes
+  reconciles a retained Taffy tree: unchanged nodes keep their handles,
+  styles and text measurements.
+- **Pocket Nexus fits the Old 3DS frame budget and runs on two more
+  devices.** On an Old 3DS it went from 34.6 ms a frame to 16.7 to 17.0 ms.
+  It ships as a standalone iPod touch 4 app and installs on the Nokia E7
+  beside Pocket Clear. The iPod touch 4 host runs native games with a depth
+  buffer and bundled assets.
+- **MicroTS admits imperative code in compiled models.** State modules,
+  assignable places with in-place array operations, `while`, `do`-`while`,
+  `break`, `continue`, general `for` loops, numeric conversions, float math
+  and static constant arrays compile to Rust; element reads of stored arrays
+  index them in place.
+- **Device sessions take leases.** Tools that drive a console take a named
+  lease, so two sessions do not drive one device, and validation evidence is
+  bound to the build that produced it.
+- **Breaking: every `pocket-stack` identifier is `pocket-nexus`.** App ids
+  are `dev.pocket-nexus.*`, the Android package and its JNI symbols follow,
+  and the toolchain cache is `~/.cache/pocket-nexus`. The canonical origin is
+  pocketjs.pocket.nexus; pocketjs.dev keeps working.
+- **DevTools and touch fixes.** Replay input survives a pause, the touch
+  recorder compacts its history and releases empty pages, retired console
+  bridges detach on init, guest trace retention is off by default, and
+  native touch captures are released before new contacts are assigned.
+- **Sites.** [pocket.nexus](https://pocket.nexus) is the Pocket Nexus
+  homepage, and the PocketJS site takes the candy arcade style.
+
+## 0.13.0 — September 26, 2026
+
+**MicroTS compiles Solid and Vue TypeScript apps to native Rust, and the PS Vita gains a wired development runtime.**
+MicroTS turns an admitted TypeScript view and model into a `no_std` Rust
+application that runs without a guest engine, down to a Game Boy Advance
+cartridge. The PS Vita reloads JavaScript and native code over USB. Nokia E7
+rendering reaches 60 fps in Pocket Shell, and Pocket3D and the PSP arena
+carry larger worlds.
+
+- **MicroTS compiles Solid TSX and Vue SFC views, plus a TypeScript model, to
+  Rust.** With `app.aot: true` and `app.model: "compiled"`, state seeds,
+  methods, memos, effects and async tasks are generated from the TypeScript
+  implementation; the default `"rust"` mode keeps an application-provided
+  Rust model behind the same generated trait. Solid and Vue share typed View
+  IR format 1; Model IR format 1 records model bodies, dependencies, schedules
+  and coroutine states. Admission errors report source locations and there is
+  no fallback to another implementation. The package exports new
+  `solid/std`, `vue-vapor/std`, `solid/reactive`, `vue-vapor/reactive`,
+  `model/tasks`, `model/animation` and `net/model` entries. See the
+  [MicroTS guide](/docs/microts/).
+- **MicroTS reaches motion sensors and targets without atomic CAS.** A native
+  motion driver publishes one fused `MotionState` per estimate at gravity,
+  inertial or geomagnetic level; `<MotionHandler>` in Solid and `@update` in
+  Vue receive it, and board admission rejects a board below the level a value
+  requires. On targets such as ARMv4T, MicroTS and heapless select
+  `portable-atomic`. `bun tools/build/gba/build.ts` builds a 656,316-byte Hero ROM
+  that boots in mGBA with a 60,268-byte peak heap.
+- **The shared Hero runs one view and model in JavaScript guests and
+  generated Rust.** The standalone `hero-vue-sfc` and `hero-vue-vapor` apps
+  are removed; Vue Vapor and Octane variants remain inside `apps/hero`, and
+  the npm package ships the Solid Hero sources.
+- **PS Vita builds include a wired development runtime.** L + R + SELECT
+  opens a native menu; `bun run vita:dev` reloads JS and resources over USB,
+  replaces the native SELF through A/B slots with checksum readback, and
+  captures the 960 × 544 GXM framebuffer. A failed reload restores the previous
+  bundle in a fresh realm. `--no-usb-debug` omits the USB driver. See
+  [docs/VITA-USB.md](https://github.com/pocket-nexus/pocketjs/blob/v0.13.0/docs/VITA-USB.md).
+- **Nokia E7 rendering reaches 60 fps in Pocket Shell.** QuickJS builds at
+  `-O2` and the Rust core at `opt-level=3`, both with VFPv2. The GLES backend
+  drops per-frame error queries, merges adjacent draws, shares glyph coverage
+  pages between full-size and scaled text, and bounds border masks and text
+  placement caches. The portrait switcher went from 31.70 to 60.31 fps.
+  Installed apps stay resident behind a shared return gesture and release
+  their EGL resources while in the background.
+- **Pocket3D and the PSP carry larger worlds.** BSP maps build spatial draw
+  groups once per map, cache PVS membership, cull cooked faces and collision
+  hulls, and submit bounded triangle strips; a 28,243-triangle map holds
+  59.9 fps on a physical PSP. `arena::alloc_permanent` reserves process-lifetime
+  buffers without power-of-two rounding, and the PSP host exposes QuickJS
+  allocator counters and an arena free-space snapshot.
+- **ESP-IDF sets the guest heap limit through Kconfig.**
+  `CONFIG_POCKETJS_GUEST_HEAP_LIMIT` defaults to 4 MiB; an explicit
+  `config.heap_limit` takes precedence.
+- **Breaking:** the BlackBerry Classic Android Runtime host and the
+  `blackberry-android` script are removed; the native QNX host remains. The
+  early `vapor/` compiler experiment moved to a standalone repository, taking
+  its `vapor:*` scripts with it.
+- Tape assertions reject malformed, partial and repeated entries, and the
+  suite covers previously omitted tests. The iPod touch 4 installer rejects
+  failed digest checks. The site is also served at
+  [pocket.nexus](https://pocket.nexus).
+
 ## 0.12.0 — September 17, 2026
 
 **Whole-text CJK loading, background resources, and device-aware presentations.**
@@ -35,7 +312,7 @@ without characters arriving a few at a time.
   formats, including PSPMAN's PJPF, must regenerate archives and adopt the
   prepared-text lifecycle. This release supplies that framework path; it does
   not migrate PSPMAN itself. See the
-  [dynamic text guide](https://github.com/pocket-stack/pocketjs/blob/v0.12.0/docs/DYNAMIC_TEXT.md).
+  [dynamic text guide](https://github.com/pocket-nexus/pocketjs/blob/v0.12.0/docs/DYNAMIC_TEXT.md).
 - **Shared resources and offload queues separate I/O from frame work.**
   Scoped demand, reactive reads and cache ownership connect visibility to
   resource lifetime. Bounded worker mailboxes carry provider requests and
@@ -78,7 +355,7 @@ development targets: each records an exact hardware and firmware tuple, and
 neither advertises a production capability from a build alone.
 
 - **The Nintendo 3DS runs a QuickJS guest on both screens.** The split follows
-  `hosts/iphone2g` rather than `hosts/psp`: citro3d is mostly `static inline`,
+  `hosts/iphone2g` rather than `programs/psp`: citro3d is mostly `static inline`,
   so C owns the GPU while a `no_std` Rust staticlib built for the built-in
   `armv6k-nintendo-3ds` target owns the core and exports the DrawList. The top
   screen is a fixed 400×240 viewport and the touch screen a 320×240 auxiliary
@@ -98,15 +375,13 @@ neither advertises a production capability from a build alone.
   hash. The pairing key authenticates but does not encrypt the LAN connection,
   and the channel updates guests only: a new `.3dsx` or CIA still requires
   deployment and a restart.
-- **The BlackBerry Classic runs two hosts over one shared contract.**
+- **The BlackBerry Classic runs a native QNX host.**
   `hosts/blackberry-classic-qnx` is a BB10 Core Native host (libscreen, BPS,
   EGL/GLES2) built and packaged as an unsigned development BAR inside the
-  digest-pinned BBNDK image and installed on a rooted Classic;
-  `hosts/blackberry-classic-android` is an Android Runtime (API 18) host whose
-  v1-signed APK drives the same QuickJS bridge and Rust core through a JNI
-  `armeabi-v7a` library. Both register at 720×720 physical, 360×360 logical at
-  density 2, host ABI 9. First device run recorded on an SQC100-4 at
-  10.3.3.3216; the [port write-up](/blog/blackberry-classic/) walks the QNX
+  digest-pinned BBNDK image and installed on a rooted Classic. It registers
+  at 720×720 physical, 360×360 logical at density 2, host ABI 9.
+  The earlier Android compatibility host has been removed. First device run
+  recorded on an SQC100-4 at 10.3.3.3216; the [port write-up](/blog/blackberry-classic/) walks the QNX
   route onto the square screen.
 - **A second backend class paints through gpui and measures text on the
   host.** The portable family (wgpu, software raster, PPA, GLES2) keeps
@@ -141,7 +416,7 @@ neither advertises a production capability from a build alone.
 - **`via-*` adds a middle gradient stop, and vertical gradients point the
   right way on the 3DS.** The core draws a three-stop gradient as two ordinary
   two-stop boxes, so every backend still sees `GRAD_RECT` and clipping stays
-  where it was. `hosts/3ds/src/gfx.c` copies the spec's `GradDir` ordinals
+  where it was. `products/3ds/src/gfx.c` copies the spec's `GradDir` ordinals
   into C by hand and had `ToTop` and `ToBottom` swapped, which inverted every
   vertical gradient on the one backend that does not read the generated Rust
   enum. The gpui raster fallback renders the full viewport and composites
@@ -298,7 +573,7 @@ byte-for-byte unchanged.
 A guest whose boot parses a megabyte of JSON could exhaust the heap while
 megabytes sat free, because the arena's power-of-two size classes never hand a
 block to a different class. 0.9.3 closes that, and
-[Pocket Voxel](https://github.com/pocket-stack/pocket-voxel) boots on a real
+[Pocket Voxel](https://github.com/pocket-nexus/pocket-voxel) boots on a real
 PSP-2000 at the default arena size again.
 
 - **`realloc` keeps the pointer when the new size stays inside the block's
@@ -347,7 +622,7 @@ and exposes the damage statistics that made the diagnosis possible. The
   handed. The composite costs **0.26 ms**, and the frame **7.63 ms** of a
   16.67 ms budget. No preservation guarantee is relied on: when UIKit discards
   the backing store it passes full bounds and the full frame is drawn.
-- **Damage is observable.** `engine/ui-cabi` was discarding the `DamagePlan` the
+- **Damage is observable.** `programs/native/cabi` was discarding the `DamagePlan` the
   incremental rasterizer returns. Six new C ABI accessors expose attempts,
   failures, policy-chosen full redraws, region count, pixel area and union
   bounds, and four of them ride in the device record. **`damage_failures` is the
@@ -431,7 +706,7 @@ corrected in 0.9.1 above.
   and deployment is a signed transaction with byte-exact readback and
   rollback over key-only USB SSH. The target stays deliberately outside
   the production registry, with a test asserting it.
-- **The GL backend now serves two GPU generations.** `engine/ui-cabi`'s
+- **The GL backend now serves two GPU generations.** `programs/native/cabi`'s
   renderer split into a generation-independent DrawList walker plus two
   pipelines: the existing ES 2 shader program, and a new fixed-function ES
   1.1 path for GPUs that predate shaders. The two shader lines turned out
@@ -525,7 +800,7 @@ JavaScript where no browser fits.
 ## 0.7.0 — July 23, 2026
 
 The C/cartridge compiler entries below describe an earlier experiment, now
-maintained in [its own repository](https://github.com/pocket-stack/pocket-vapor).
+maintained in [its own repository](https://github.com/pocket-nexus/pocket-vapor).
 Its target support and commands belong to that repository. The current
 [MicroTS compiler](/docs/microts/) generates Rust views and models.
 
@@ -534,10 +809,10 @@ component — actual `ref`/`computed`, actual JSX — and emits native code for
 machines that could never host a JavaScript engine: Game Boy Advance, Game
 Boy, NES cartridges, and now an ESP32 dev board, with the same file proven
 cell-identical against real `vue@3.6` after every button press. [The film
-and the whole argument](https://github.com/pocket-stack/pocket-vapor/blob/experiment/standalone/site/content/blog/pocket-vapor.md). Around it, the platform grew
+and the whole argument](https://github.com/pocket-nexus/pocket-vapor/blob/experiment/standalone/site/content/blog/pocket-vapor.md). Around it, the platform grew
 a launcher, a package format, and a desktop widget runtime.
 
-- **[The earlier C/cartridge compiler](https://github.com/pocket-stack/pocket-vapor)** — an AOT compiler for a strict TypeScript
+- **[The earlier C/cartridge compiler](https://github.com/pocket-nexus/pocket-vapor)** — an AOT compiler for a strict TypeScript
   subset of Vue Vapor: reactivity lowered to dirty-bit dependency masks
   baked into ROM, template bindings to span-merged paint effects, every
   byte planned at compile time (no allocator, no GC). One TodoMVC component
@@ -565,7 +840,7 @@ a launcher, a package format, and a desktop widget runtime.
   runtime; the compiler derives what an app demands (buttons statically
   used, style pairs, grid) and `check --json` judges every registered
   board. pocket.json v2 names the guest/aot split (`execution.classes`) —
-  [board contracts](https://github.com/pocket-stack/pocket-vapor/blob/experiment/standalone/vapor/BOARDS.md)
+  [board contracts](https://github.com/pocket-nexus/pocket-vapor/blob/experiment/standalone/vapor/BOARDS.md)
   is the scaling argument.
 - **Cover Flow launcher + whole-guest app switching** — the launcher is
   Home: scrub a cover deck with real momentum, boot any installed app, and
@@ -626,7 +901,7 @@ behaviors.
   references and caps authoring-resolution textures
   (`max_texture_dim`) — 413 MB of GPU memory back on the reference
   character.
-- [pocket-character](https://github.com/pocket-stack/pocket-character):
+- [pocket-character](https://github.com/pocket-nexus/pocket-character):
   the airi-parity widget itself — character surface + QuickJS policy
   bundle, blink/saccade schedulers with airi's exact constants, headless
   render harness, and the [measured report](/blog/pocket-character/).
@@ -645,7 +920,7 @@ proven by [streaming YouTube to a PSP over USB](/blog/pocket-youtube/).
   files for bulk bytes), the same file-transport model DevTools proved,
   hardened against host restarts. Pocket YouTube — search, host-rendered CJK
   result rows, and full-motion playback on real hardware — ships as its own
-  app repo (`pocket-stack/pocket-youtube`) built entirely on these APIs.
+  app repo (`pocket-nexus/pocket-youtube`) built entirely on these APIs.
 - **A streaming video plane** — `.pkst` ring files carry palettized frames
   and PCM audio from the host; the native side pumps them under a per-frame
   IO budget, commits texture updates only in the GE-idle window (tear-free
@@ -697,7 +972,7 @@ target-specific golden tests.
   fold away at build time. A PSP-baseline app resolves unchanged for Vita,
   while Vita-only touch code can retain a controller fallback.
 - **A self-contained PSP toolchain** — `bun run bootstrap` and `pocket setup`
-  install exact `pocket-stack` revisions plus a SHA-256-verified SDK into one
+  install exact `pocket-nexus` revisions plus a SHA-256-verified SDK into one
   shared cache. `PSP_SDK` and `PSPDEV` remain explicit overrides, but builds no
   longer inspect DreamCart or sibling source checkouts. Cache receipts, staged
   publication, and host-revision checks make setup repeatable across PocketJS,
@@ -732,7 +1007,7 @@ target-specific golden tests.
 
 **Pocket DevTools.** Time travel + inspection as framework primitives —
 [read the deep-dive](/blog/time-travel-devtools/), design in
-[docs/DEVTOOLS.md](https://github.com/pocket-stack/pocketjs/blob/main/DEVTOOLS.md).
+[docs/DEVTOOLS.md](https://github.com/pocket-nexus/pocketjs/blob/main/DEVTOOLS.md).
 
 - **Component inspector with on-device highlight** — a desktop panel
   (`/devtools`) shows the component tree with semantic names (`debugName`

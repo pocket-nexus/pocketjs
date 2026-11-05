@@ -285,7 +285,8 @@ export interface ClassicSpinnerProps {
 }
 
 /** Eight bars on a circle; every four virtual frames the bright bar
- *  advances one step. One style write per bar per step, no textures. */
+ *  advances one step. The bars keep fixed opacities and the frame turns 45°
+ *  per step, so a step is one style write, no textures. */
 export function ClassicSpinner(props: ClassicSpinnerProps) {
   const size = props.size ?? 22;
   const barW = Math.max(2, Math.round(size * 0.12)), barH = Math.max(4, Math.round(size * 0.3));
@@ -293,15 +294,13 @@ export function ClassicSpinner(props: ClassicSpinnerProps) {
   const [phase, setPhase] = createSignal(0);
   let frames = 0;
   onFrame(() => { if (++frames % 4 === 0) setPhase((p) => (p + 1) % 8); });
-  const frame = View({ style: { width: size, height: size } });
+  const frame = View({ get style() { return { width: size, height: size, rotate: phase() * 45 }; } });
   const bars = Array.from({ length: 8 }, (_, i) => {
     const angle = i * 45, rad = (angle * Math.PI) / 180;
     const x = size / 2 + radius * Math.sin(rad) - barW / 2, y = size / 2 - radius * Math.cos(rad) - barH / 2;
-    return View({ get style() {
-      const distance = (i - phase() + 8) % 8;
-      return { posType: 1, insetL: x, insetT: y, width: barW, height: barH, radius: barW / 2, rotate: angle,
-        bgColor: props.color ?? CLASSIC.blue, opacity: 1 - distance * 0.11 };
-    } });
+    // Bar i sits i steps past the bright bar.
+    return View({ style: { posType: 1, insetL: x, insetT: y, width: barW, height: barH, radius: barW / 2, rotate: angle,
+      bgColor: props.color ?? CLASSIC.blue, opacity: 1 - i * 0.11 } });
   });
   insert(frame as unknown as NodeMirror, bars);
   return frame;

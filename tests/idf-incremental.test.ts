@@ -1,15 +1,70 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { depfile } from "../framework/compiler/build-inputs.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
 describe("ESP-IDF incremental package build", () => {
+  test.each(["checkout", "vendor"])("native %s builds track extracted contract sources", (layout) => {
+    const temporary = realpathSync(mkdtempSync(join(tmpdir(), "pocketjs native deps ")));
+    try {
+      const component = join(temporary, "platforms/esp-idf/pocket_runtime");
+      const build = join(temporary, "build");
+      mkdirSync(component, { recursive: true });
+      mkdirSync(join(component, "tools"));
+      for (const file of ["native_archive.cmake", "prepare_archive.cmake", "tools/native_sources.py"])
+        cpSync(join(root, "platforms/esp-idf/pocket_runtime", file), join(component, file));
+      const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "programs/esp-idf/archive");
+      const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
+      const crates = ["core", "spec", "drivers", "raster", "package", "modules/media", "render", "runtime"];
+      const extra = ["devices/esp-idf/render-ppa", "programs/sdk/archive"]
+        .map(path => layout === "vendor" ? join(contracts, path.split("/").at(-1)!) : join(temporary, path));
+      for (const source of [native, ...crates.map(crate => join(contracts, crate)), ...extra]) {
+        mkdirSync(join(source, "src"), { recursive: true });
+        writeFileSync(join(source, "Cargo.toml"), "# build dependency fixture\n");
+        writeFileSync(join(source, "src/lib.rs"), "// build dependency fixture\n");
+      }
+      const packages = [native, ...crates.map(crate => join(contracts, crate)), ...extra];
+      const fakeBin = join(temporary, "bin"); mkdirSync(fakeBin);
+      const fakeMetadata = {
+        workspace_root: native,
+        packages: packages.map((directory, i) => ({ id: String(i), manifest_path: join(directory, "Cargo.toml") })),
+        resolve: { nodes: packages.map((_, i) => ({ id: String(i), deps: i === 0 ? packages.slice(1).map((_, j) => ({pkg: String(j + 1), dep_kinds: [{kind: null}]})) : [] })) },
+      };
+      const fakeCargo = join(fakeBin, "cargo");
+      writeFileSync(fakeCargo, `#!/bin/sh\nprintf '%s' ${quote(JSON.stringify(fakeMetadata))}\n`); chmodSync(fakeCargo, 0o755);
+      writeFileSync(join(fakeBin, "rustc"), "#!/bin/sh\nexit 0\n"); chmodSync(join(fakeBin, "rustc"), 0o755);
+      const cabi = join(extra[0], "src/cabi.rs");
+      writeFileSync(cabi, "// C ABI source dependency fixture\n");
+      writeFileSync(join(temporary, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
+project(native_dependencies NONE)
+set(IDF_TARGET esp32s3)
+set(POCKETJS_RUST_FROM_SOURCE ON CACHE BOOL "" FORCE)
+set(POCKETJS_CARGO "${fakeCargo}" CACHE FILEPATH "" FORCE)
+# Inspect the archive build graph without linking a firmware component.
+function(target_link_libraries)
+endfunction()
+include("${join(component, "native_archive.cmake")}")
+pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARCHIVE)
+`);
+      const result = Bun.spawnSync(["cmake", "-S", temporary, "-B", build, "-G", "Ninja"], {
+        stdout: "pipe", stderr: "pipe",
+      });
+      expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
+      const graph = readFileSync(join(build, "build.ninja"), "utf8");
+      const archiveEdge = graph.split("\n").find(line => line.startsWith("build cargo/") && line.includes(".a: CUSTOM_COMMAND"));
+      expect(archiveEdge).toBeDefined();
+      for (const crate of crates) for (const file of ["Cargo.toml", "src/lib.rs"])
+        expect(archiveEdge).toContain(join(contracts, crate, file).replaceAll(" ", "$ "));
+      for (const source of extra) for (const file of ["Cargo.toml", "src/lib.rs"])
+        expect(archiveEdge).toContain(join(source, file).replaceAll(" ", "$ "));
+      expect(archiveEdge).toContain(cabi.replaceAll(" ", "$ "));
+    } finally { rmSync(temporary, { recursive: true, force: true }); }
+  }, 30_000);
+
   test("escapes depfile paths", () => {
     const output = depfile("/tmp/a b.pocket", ["/tmp/new #$.ts"]);
     expect(output).toContain("a\\ b.pocket:");
@@ -17,14 +72,16 @@ describe("ESP-IDF incremental package build", () => {
   });
 
   test("Ninja learns new imports, assets, and compiler receipts without reconfigure", () => {
-    const temporary = mkdtempSync(join(tmpdir(), "pocketjs incremental "));
+    // Ninja reports resolved paths; on macOS the temporary directory is a
+    // symlink (/var/folders -> /private/var/folders).
+    const temporary = realpathSync(mkdtempSync(join(tmpdir(), "pocketjs incremental ")));
     try {
       const app = join(temporary, "app"), build = join(temporary, "build"), bin = join(temporary, "bin");
       mkdirSync(app); mkdirSync(bin);
       mkdirSync(join(app, "node_modules/@pocketjs"), { recursive: true });
       symlinkSync(root, join(app, "node_modules/@pocketjs/framework"), "dir");
-      for (const file of ["pocket.json", "pocket.host.json", "main.tsx"])
-        cpSync(join(root, "hosts/esp-idf/examples/smoke", file), join(app, file));
+      for (const file of ["pocket.app.json", "pocket.host.json", "pocket.host.config.ts", "main.tsx"])
+        cpSync(join(root, "tests/esp-idf/examples/smoke", file), join(app, file));
       const source = (imported: boolean) =>
         'import {Text, View, Image} from "@pocketjs/framework/solid/components";\n' +
         (imported ? 'import {message} from "./new-module";\n' : 'const message="initial";\n') +
@@ -36,20 +93,22 @@ describe("ESP-IDF incremental package build", () => {
       const cli = join(bin, "pocket");
       writeFileSync(cli, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, "tools/pocket.ts"))} "$@"\n`);
       chmodSync(cli, 0o755);
+      writeFileSync(join(app, "dummy.c"), "int dummy(void) { return 0; }\n");
       writeFileSync(join(app, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
-project(incremental NONE)
-include("${join(root, "hosts/esp-idf/components/pocketjs_package/project_include.cmake")}")
+project(incremental C)
+add_library(app STATIC dummy.c)
+include("${join(root, "platforms/esp-idf/pocket_runtime/project_include.cmake")}")
 # Exercise the real compile helper; embedding/firmware linking is tested separately.
 function(_pocketjs_package_attach target name package profile)
   add_custom_target(package ALL DEPENDS "\${package}")
 endfunction()
-pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
-  HOST_PROFILE "${join(app, "pocket.host.json")}" PROJECT_ROOT "${app}"
+pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.app.json")}"
+  PROJECT_ROOT "${app}"
   COMPILER_RECEIPT "${join(app, "compiler-receipt.json")}")
 `);
       const run = (args: string[]) => {
         const result = Bun.spawnSync(args, { cwd: app, env: { ...process.env, PATH: bin + ":" + process.env.PATH }, stdout: "pipe", stderr: "pipe" });
-        expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
+        expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
         return result.stdout.toString() + result.stderr.toString();
       };
       // Real build: the compile recipe runs and the package banner is printed.
@@ -69,11 +128,9 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
 
       const output = join(build, "pocketjs/app/app.pocket");
       const depPath = join(build, "pocketjs/app/app.d");
-      const jsPath = join(build, "pocketjs/app/idf-smoke.js");
-      const pakPath = join(build, "pocketjs/app/idf-smoke.pak");
 
       run(["cmake", "-S", app, "-B", build, "-G", "Ninja"]);
-      expect(ninja()).toContain("ESP-IDF package");
+      expect(ninja()).toContain("app.pocket");
       // The cold depfile tracks the static graph only; the new module is unknown.
       expect(readFileSync(depPath, "utf8")).not.toContain("new-module.ts");
       expectClean(explain());
@@ -82,11 +139,9 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       // import costs one genuine rebuild; no cmake reconfigure is involved.
       writeFileSync(join(app, "new-module.ts"), 'export const message="first new module";\n');
       writeFileSync(join(app, "app.tsx"), source(true));
-      expect(ninja()).toContain("ESP-IDF package");
+      expect(ninja()).toContain("app.pocket");
       expect(readFileSync(depPath, "utf8")).toContain("new-module.ts");
       const firstPackage = readFileSync(output);
-      const firstJs = sha256(jsPath);
-      const firstPak = sha256(pakPath);
       expectClean(explain());
 
       // Each edit is attributed by ninja's own dependency graph; the recipe
@@ -99,14 +154,18 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       expectDirty(explain(), join(app, "compiler-receipt.json"));
 
       // One real build consumes the three pending dirty inputs.
-      expect(ninja()).toContain("ESP-IDF package");
+      expect(ninja()).toContain("app.pocket");
       expect(readFileSync(output).equals(firstPackage)).toBe(false);
-      // Channel attribution: the module edit reaches the JS bundle, the asset
-      // edit reaches the PAK; they are independent build outputs.
-      expect(sha256(jsPath)).not.toBe(firstJs);
-      expect(sha256(pakPath)).not.toBe(firstPak);
+      const exportedProfile = join(build, "pocketjs/app/profile/pocket.host.json");
+      const beforeProfile = readFileSync(exportedProfile, "utf8");
+      const profileSource = join(app, "pocket.host.json");
+      writeFileSync(profileSource, JSON.stringify({ ...JSON.parse(readFileSync(profileSource, "utf8")), cadences: [30] }, null, 2) + "\n");
+      const profileBuild = ninja();
+      expect(profileBuild).toContain("pocket_profile.h");
+      expect(profileBuild).toContain("app.pocket");
+      expect(readFileSync(exportedProfile, "utf8")).not.toBe(beforeProfile);
       // After consuming every pending edge, ninja has no work left.
-      expect(ninja()).not.toContain("ESP-IDF package");
+      expect(ninja()).not.toContain("app.pocket");
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 120_000);
 });

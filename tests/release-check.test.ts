@@ -30,7 +30,6 @@ describe("release version gate", () => {
     const root = await releaseFixture({
       "package.json": "0.4.0",
       "tools/cli/package.json": "0.4.0",
-      "pocket.json": "0.4.0",
     });
 
     expect((await checkReleaseVersion("0.4.0", root)).version).toBe("0.4.0");
@@ -44,27 +43,24 @@ describe("release version gate", () => {
 
   test("reports every artifact that differs from the requested release", async () => {
     const root = await releaseFixture({
-      "package.json": "0.4.0",
+      "package.json": "0.3.1",
       "tools/cli/package.json": "0.3.0",
-      "pocket.json": "0.3.1",
     });
 
     await expect(checkReleaseVersion("v0.4.0", root)).rejects.toThrow(
-      "tools/cli/package.json: 0.3.0\n  pocket.json: 0.3.1",
+      "package.json: 0.3.1\n  tools/cli/package.json: 0.3.0",
     );
   });
 
   test("rejects missing, non-string, and invalid artifact versions", async () => {
     const missing = await releaseFixture({
       "package.json": "0.4.0",
-      "tools/cli/package.json": "0.4.0",
     });
-    await expect(checkReleaseVersion("0.4.0", missing)).rejects.toThrow("cannot read pocket.json");
+    await expect(checkReleaseVersion("0.4.0", missing)).rejects.toThrow("cannot read tools/cli/package.json");
 
     const nonString = await releaseFixture({
       "package.json": "0.4.0",
       "tools/cli/package.json": 4,
-      "pocket.json": "0.4.0",
     });
     await expect(checkReleaseVersion("0.4.0", nonString)).rejects.toThrow(
       "tools/cli/package.json must contain a valid SemVer string",
@@ -73,7 +69,6 @@ describe("release version gate", () => {
     const invalid = await releaseFixture({
       "package.json": "0.4.0",
       "tools/cli/package.json": "next",
-      "pocket.json": "0.4.0",
     });
     await expect(checkReleaseVersion("0.4.0", invalid)).rejects.toThrow(
       "tools/cli/package.json must contain a valid SemVer string",

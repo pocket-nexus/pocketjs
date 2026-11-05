@@ -1,3 +1,6 @@
+import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
+import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
 import {
   cpSync,
@@ -26,9 +29,9 @@ const DEVICE_PORT = 44;
 const LOCAL_PORT = Number(process.env.POCKETJS_IPODTOUCH_PORT ?? "2223");
 const KEY_PATH =
   process.env.POCKETJS_IPODTOUCH_KEY ??
-  join(homedir(), ".cache/pocket-stack/ipodtouch/keys/pocketjs_ed25519");
+  join(homedir(), ".cache/pocket-nexus/ipodtouch/keys/pocketjs_ed25519");
 const BUNDLE_NAME = "PocketJSiPod.app";
-const BUNDLE_ID = "dev.pocket-stack.ipodtouch-demo";
+const BUNDLE_ID = "dev.pocket-nexus.ipodtouch-demo";
 const INSTALL_PATH = `/Applications/${BUNDLE_NAME}`;
 const STATUS_PATH = "/private/var/tmp/pocketjs-ipodtouch.status.json";
 const FRAME_PATH = "/private/var/tmp/pocketjs-ipodtouch.frame.png";
@@ -81,7 +84,7 @@ function run(
     stderr: "pipe",
   });
   return {
-    exitCode: result.exitCode,
+    exitCode: result.success ? 0 : result.exitCode || 1,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   };
@@ -137,7 +140,7 @@ function check(label: string, ok: boolean, detail: string): boolean {
 }
 
 function manifestPath(): string {
-  return join(REPOSITORY, "apps/ipodtouch-demo/pocket.json");
+  return join(REPOSITORY, "apps/ipodtouch-demo/pocket.app.json");
 }
 
 function planPath(): string {
@@ -320,28 +323,10 @@ async function doctor(): Promise<void> {
   });
 }
 
-async function build(): Promise<void> {
-  const manifest = JSON.parse(readFileSync(manifestPath(), "utf8"));
-  const plan = resolveIPodTouchBuildPlan(manifest);
-  mkdirSync(dirname(planPath()), { recursive: true });
-  writeFileSync(planPath(), JSON.stringify(plan, null, 2) + "\n");
-  const inputs = extractHostBuildInputs(plan, { expectedTarget: IPODTOUCH_DEV_TARGET_ID });
-
-  rmSync(guestDirectory(), { recursive: true, force: true });
-  mkdirSync(guestDirectory(), { recursive: true });
-  mustRun("bun", [
-    "tools/build.ts",
-    `--plan=${planPath()}`,
-    `--project-root=${REPOSITORY}`,
-    `--outdir=${guestDirectory()}`,
-  ]);
-  const guestJavaScript = join(guestDirectory(), `${inputs.appOutput}.js`);
-  const guestPak = join(guestDirectory(), `${inputs.appOutput}.pak`);
-  if (!existsSync(guestJavaScript) || !existsSync(guestPak)) {
-    throw new Error("pocket ipodtouch: guest build did not produce its JS and pak artifacts");
-  }
-
-  const rustTarget = join(homedir(), ".cache/pocket-stack/ipodtouch/rust-target");
+export async function buildIPodTouchNative(application: RuntimeApplication, outdir: string): Promise<void> {
+  const { inputs, javaScript: guestJavaScript, pack: guestPak } = applicationBundle(application, IPODTOUCH_DEV_TARGET_ID);
+  mustRun("xcrun", ["--sdk", "iphoneos", "--show-sdk-path"]);
+  const rustTarget = join(homedir(), ".cache/pocket-nexus/ipodtouch/rust-target");
   mkdirSync(rustTarget, { recursive: true });
   const rustEnv = {
     ...process.env,
@@ -350,9 +335,9 @@ async function build(): Promise<void> {
   };
   mustRun(
     "cargo",
-    ["build", "-p", "pocket-apple", "--release", "--locked", "--target", "aarch64-apple-ios"],
+    ["+" + STABLE_RUST_TOOLCHAIN, "build", "--manifest-path", join(REPOSITORY, "Cargo.toml"), "-p", "pocket-apple", "--release", "--locked", "--target", "aarch64-apple-ios"],
     {
-      cwd: join(REPOSITORY, "engine"),
+      cwd: join(REPOSITORY, "."),
       env: rustEnv,
     },
   );
@@ -361,29 +346,32 @@ async function build(): Promise<void> {
     throw new Error(`pocket ipodtouch: missing Rust static library at ${rustLibrary}`);
   }
 
-  const bundle = bundleDirectory();
+  const bundle = join(outdir, "PocketJSiPod.app");
   rmSync(bundle, { recursive: true, force: true });
   mkdirSync(bundle, { recursive: true });
-  cpSync(join(REPOSITORY, "hosts/ipodtouch6/Info.plist"), join(bundle, "Info.plist"));
-  cpSync(join(REPOSITORY, "hosts/ipodtouch6/PkgInfo"), join(bundle, "PkgInfo"));
+  cpSync(join(REPOSITORY, "programs/ipodtouch6/Info.plist"), join(bundle, "Info.plist"));
+  cpSync(join(REPOSITORY, "programs/ipodtouch6/PkgInfo"), join(bundle, "PkgInfo"));
   cpSync(guestJavaScript, join(bundle, `${inputs.appOutput}.js`));
   cpSync(guestPak, join(bundle, `${inputs.appOutput}.pak`));
   await bakeIPodTouchArtwork(bundle);
 
   const buildId = hashInputs([
-    planPath(),
+    application.planPath,
     guestJavaScript,
     guestPak,
-    join(REPOSITORY, "hosts/ipodtouch6/Info.plist"),
-    join(REPOSITORY, "hosts/ipodtouch6/PkgInfo"),
-    join(REPOSITORY, "hosts/ipodtouch6/runtime.m"),
-    join(REPOSITORY, "hosts/ipodtouch6/Icon.svg"),
+    join(REPOSITORY, "programs/ipodtouch6/Info.plist"),
+    join(REPOSITORY, "programs/ipodtouch6/PkgInfo"),
+    join(REPOSITORY, "programs/ipodtouch6/runtime.m"),
+    join(REPOSITORY, "programs/ipodtouch6/Icon.svg"),
     join(REPOSITORY, "tools/ipodtouch.ts"),
     join(REPOSITORY, "tools/ipodtouch-icon.ts"),
-    join(REPOSITORY, "engine/ios/include/pocket_apple.h"),
-    join(REPOSITORY, "engine/ios/uikit/PocketSurfaceView.h"),
-    join(REPOSITORY, "engine/ios/uikit/PocketSurfaceView.m"),
-    join(REPOSITORY, "engine/ios/src/lib.rs"),
+    join(REPOSITORY, "platforms/apple/include/pocket_apple.h"),
+    join(REPOSITORY, "contracts/generated/pocket_runtime.h"),
+    join(REPOSITORY, "contracts/generated/pocket_drivers.h"),
+    join(REPOSITORY, "contracts/generated/pocket_spec.h"),
+    join(REPOSITORY, "platforms/apple/uikit/PocketSurfaceView.h"),
+    join(REPOSITORY, "platforms/apple/uikit/PocketSurfaceView.m"),
+    join(REPOSITORY, "platforms/apple/src/lib.rs"),
     {
       label: "native/libpocket_apple.a",
       path: rustLibrary,
@@ -402,11 +390,13 @@ async function build(): Promise<void> {
     `-DPOCKETJS_BUILD_ID=\"${buildId}\"`,
     `-DPOCKETJS_APP_OUTPUT=\"${inputs.appOutput}\"`,
     "-I",
-    join(REPOSITORY, "engine/ios/uikit"),
+    join(REPOSITORY, "platforms/apple/uikit"),
     "-I",
-    join(REPOSITORY, "engine/ios/include"),
-    join(REPOSITORY, "hosts/ipodtouch6/runtime.m"),
-    join(REPOSITORY, "engine/ios/uikit/PocketSurfaceView.m"),
+    join(REPOSITORY, "platforms/apple/include"),
+    "-I",
+    join(REPOSITORY, "contracts/generated"),
+    join(REPOSITORY, "programs/ipodtouch6/runtime.m"),
+    join(REPOSITORY, "platforms/apple/uikit/PocketSurfaceView.m"),
     rustLibrary,
     "-framework",
     "Foundation",
@@ -448,7 +438,7 @@ async function build(): Promise<void> {
     deploymentTarget: DEPLOYMENT_TARGET,
     files,
   };
-  writeFileSync(receiptPath(), JSON.stringify(receipt, null, 2) + "\n");
+  writeFileSync(join(bundle, "build-receipt.json"), JSON.stringify(receipt, null, 2) + "\n");
 
   console.log(`built ${bundle}`);
   console.log(mustRun("file", [executable]));
@@ -499,7 +489,6 @@ export function deploymentInstallCommand(transactionId: string, paths: Deploymen
 }
 
 async function deploy(): Promise<void> {
-  await build();
   const receipt = readReceipt();
   const transactionId = randomBytes(12).toString("hex");
   const paths = ipodTouchDeploymentPaths(transactionId);
@@ -725,7 +714,7 @@ export async function main(args: readonly string[] = Bun.argv.slice(2)): Promise
       await doctor();
       break;
     case "build":
-      await build();
+      await runProgramBuild("ipodtouch6", args.slice(1));
       break;
     case "deploy":
       await deploy();

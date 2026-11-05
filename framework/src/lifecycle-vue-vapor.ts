@@ -3,6 +3,7 @@ export {
   onFrame,
   onButtonPress,
   onAxisDelta,
+  onMotion,
   createSpriteAnimation,
   analogX,
   analogY,
@@ -12,6 +13,7 @@ export {
   rightAnalogY,
   type ButtonPressOptions,
   type AxisDeltaOptions,
+  type MotionOptions,
   type SpriteAnimationOptions,
 } from "./frame-vue-vapor.ts";
 export { onMounted, onUnmounted } from "./lifecycle-vue-aot.ts";

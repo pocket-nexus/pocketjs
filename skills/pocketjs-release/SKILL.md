@@ -16,7 +16,8 @@ on every `main` push (`deploy.yml`).
 ## Standard workflow
 
 1. **Version bumps (in the feature PR, before merge).** Set the same version
-   in `package.json`, `tools/cli/package.json`, AND `pocket.json` — the release
+   in `package.json`, `tools/cli/package.json`, AND `apps/hero/pocket.app.json`
+   (hero's app contract) — the release
    gate (`tools/release-check.ts`) verifies all three authorities agree
    with the tag. Semver within 0.x: breaking changes (e.g. a bin rename)
    and feature sets bump the minor; docs-only fixes ride the next release
@@ -29,11 +30,11 @@ on every `main` push (`deploy.yml`).
 3. **Validate before merge** (all must pass):
 
 ```bash
-bun run test && bun tests/golden.ts && bun run tape:check
+bun run test && bun tests/golden.ts
 cargo test --manifest-path engine/core/Cargo.toml
 bunx tsc --noEmit
-bun tests/e2e/ppsspp.ts        # when hosts/psp/ or engine/core/ changed
-bun tools/psp.ts hero        # cross-compile check when hosts/psp/ changed
+bun tests/e2e/ppsspp.ts        # when programs/psp/ or engine/core/ changed
+bun tools/psp.ts hero        # cross-compile check when programs/psp/ changed
 ```
 
 4. **Merge.** Draft PR → `gh pr ready <n>` → `gh pr merge <n> --squash`
@@ -71,14 +72,14 @@ gh release list --limit 2      # GitHub Release exists and is marked Latest
   `npm install -g npm@latest` (Node 22 bundles 10.x). Never add
   `registry-url` to setup-node (its .npmrc token placeholder breaks
   tokenless publishes). `permissions: id-token: write` is required.
-- Each package's npm **Trusted Publisher** config names org `pocket-stack`,
+- Each package's npm **Trusted Publisher** config names org `pocket-nexus`,
   repo `pocketjs`, workflow `release.yml`, no environment. A NEW package
   can't use it for its first publish — bootstrap locally with
   `npm publish --access public --otp=…` (account 2FA is auth-and-writes),
   then configure the trusted publisher.
 - The publish steps guard with `npm view "$name@$version"` — pushing a tag
   where one package's version already exists publishes only the other.
-- The framework tarball ships gitignored build output (`hosts/web/
+- The framework tarball ships gitignored build output (`platforms/web/
   pocketjs.wasm`) because the `files` whitelist wins over .gitignore; CI
   builds it (`bun tools/wasm.ts`) before publishing. Check tarball
   contents with `npm pack --dry-run` if `files` changed.

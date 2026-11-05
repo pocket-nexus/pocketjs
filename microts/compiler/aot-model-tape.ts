@@ -1,5 +1,6 @@
-/** Button/axis tape adapter over the same mounted View IR used by native blocks. */
+/** Button/axis/motion tape adapter over the same mounted View IR used by native blocks. */
 import { BTN } from "../../contracts/spec/spec.ts";
+import { motionValueParameters, sampleMotion, type MotionState, type MotionValueName } from "../../contracts/spec/motion.ts";
 import type { AotComponent, AotExpr, AotHandler, AotNode, AotProgram } from "./aot-ir.ts";
 import { checkAotVersion } from "./aot-ir.ts";
 import type { ModelModule } from "./aot-model-ir.ts";
@@ -9,6 +10,8 @@ export interface ModelTapeFrame extends ModelFrameInput {
   axis?: number;
   axes?: readonly number[] | { primary?: number; secondary?: number };
   axis_deltas?: readonly number[];
+  /** The fused motion estimate the host delivered on this frame. */
+  motion?: MotionState;
   /** A host-resolved press target: a mounted node number or unique debugName. */
   target?: number | string;
 }
@@ -275,11 +278,13 @@ export class ModelTapeInterpreter {
     for (const mounted of nodes) {
       const node = mounted.node;
       if (node.kind === "input") {
-        const pending = node.input.kind === "button" ? (buttons & ~mounted.previous! & node.input.button) !== 0 : axis(node.input.axis) !== 0;
+        const sample = node.input.kind === "motion" && input.motion ? sampleMotion(input.motion, node.input.name as MotionValueName, node.input.minQuality) : undefined;
+        const pending = node.input.kind === "button" ? (buttons & ~mounted.previous! & node.input.button) !== 0 : node.input.kind === "axis" ? axis(node.input.axis) !== 0 : sample !== undefined;
         mounted.previous = buttons;
         if (!pending) continue;
         const context = mounted.context(); if (!context || !this.expression(node.active, context)) continue;
-        this.handler(node.handler, { ...context, events: { ...context.events, $event: node.input.kind === "axis" ? axis(node.input.axis) : undefined } }); handled = true;
+        const payload = node.input.kind === "axis" ? { $event: axis(node.input.axis) } : sample ? Object.fromEntries(motionValueParameters(node.input.name as MotionValueName).map((parameter, index) => [index ? `$event${index}` : "$event", parameter.field.startsWith("component") ? sample.components[Number(parameter.field.slice(9))] : sample[parameter.field as "quality"]])) : { $event: undefined };
+        this.handler(node.handler, { ...context, events: { ...context.events, ...payload } }); handled = true;
       } else if (node.kind === "element" && targets[0] === mounted) {
         const context = mounted.context(); if (!context) continue;
         for (const event of node.events) if (event.name === "press") { this.handler(event.handler, context); handled = true; }

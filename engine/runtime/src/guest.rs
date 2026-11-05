@@ -1,0 +1,85 @@
+use crate::{OpContext, RuntimeError};
+use alloc::{string::String, vec::Vec};
+use pocket_drivers::{AxisDelta, MotionState, TextEvent};
+
+#[derive(Clone, Debug)]
+pub struct NamedTexture {
+    pub name: String,
+    pub handle: i32,
+}
+#[derive(Clone, Debug)]
+pub struct NamedSprite {
+    pub name: String,
+    pub handle: i32,
+    pub frames: u32,
+    pub columns: u32,
+    pub step: u32,
+}
+#[derive(Clone, Debug, Default)]
+pub struct AssetRegistry {
+    pub textures: Vec<NamedTexture>,
+    pub sprites: Vec<NamedSprite>,
+}
+
+/// Metadata is copied by the guest. The runtime keeps the package allocation
+/// unchanged until shutdown; a C guest may expose pak as an immutable buffer.
+pub struct GuestEnvironment<'a> {
+    pub host: &'a str,
+    pub host_abi: u32,
+    /// Core ticks per virtual second: the admitted package's rate.
+    pub tick_hz: u32,
+    /// Guest frames per second: the host cadence. Guests publish it as
+    /// `globalThis.__simHz`; each frame advances `tick_hz / sim_hz` ticks.
+    pub sim_hz: u32,
+    pub viewport: [u32; 2],
+    pub auxiliary_viewport: Option<[u32; 2]>,
+    pub auxiliary_root: i32,
+    pub raster_density: u32,
+    pub heap_limit: usize,
+    pub pak: &'a [u8],
+    /// The package's NUL-terminated worker bundle (section 8); empty when
+    /// its plan declares no worker domain. A guest that hosts the worker
+    /// starts it before the UI bundle evaluates.
+    pub worker_javascript: &'a [u8],
+    /// None means that JS must load assets from pak. Some(empty) means that
+    /// native asset loading completed and found no texture or sprite entries.
+    pub assets: Option<&'a AssetRegistry>,
+}
+
+/// The existing eight frame arguments; cancellation records are part of the
+/// touches array (bit 30), with corresponding zero hits and surface ids.
+pub struct GuestFrame<'a> {
+    pub buttons: u32,
+    pub analog: u32,
+    pub touches: &'a [u32],
+    pub hits: &'a [i32],
+    pub touch_surfaces: &'a [u8],
+    pub right_analog: u32,
+    pub axis_deltas: &'a [AxisDelta],
+    pub motion: Option<&'a MotionState>,
+    pub text: &'a [TextEvent],
+}
+
+pub trait Guest {
+    fn initialize(
+        &mut self,
+        _ops: OpContext,
+        _environment: &GuestEnvironment<'_>,
+    ) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError>;
+    /// Evaluate the package's bytecode section (`pocket_package::bytecode`):
+    /// the envelope and the serialized object. `UnsupportedOperation` before
+    /// anything ran when the guest has no engine ABI or the digest is another
+    /// build's; the runtime then evaluates the source.
+    fn evaluate_bytecode(&mut self, _envelope: &[u8]) -> Result<(), RuntimeError> {
+        Err(RuntimeError::UnsupportedOperation)
+    }
+    /// Run frame once and drain the engine's queued jobs before returning.
+    fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError>;
+    fn collect(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn shutdown(&mut self) {}
+}

@@ -1,14 +1,14 @@
 // tests/e2e/ppsspp.ts — deterministic PPSSPPHeadless E2E for the PSP host.
 //
 // Ported from origin/main:framework/test/fps3d-ppsspp.ts (driver shape) +
-// origin/main:runtime/src/main.rs (capture feature, now in hosts/psp/src/main.rs):
+// origin/main:runtime/src/main.rs (capture feature, now in programs/psp/src/main.rs):
 // build the capture EBOOT with a baked input script, run PPSSPPHeadless with
 // the software renderer (the only deterministic backend), decode the raw
 // framebuffer dumps at the named shot frames, and byte-compare against
 // committed goldens.
 //
 // Determinism contract: the core ticks a fixed dt (spec FIXED_DT = 1/60) and
-// the input script is indexed by the RUST frame counter (hosts/psp/src/main.rs
+// the input script is indexed by the RUST frame counter (programs/psp/src/main.rs
 // frame_count — the same counter that names the dumped files), so every frame
 // is a pure function of its index and PPSSPP's software renderer is
 // byte-stable run to run. Goldens are therefore compared byte-exact; they are
@@ -25,10 +25,15 @@
 //
 // Host deps: ~/ppsspp-src/build/PPSSPPHeadless (source-built; see
 // framework/test/bsp-compare/ppsspp-capture.md on origin/main) and ImageMagick.
+// PPSSPP_HEADLESS and PPSSPP_SOURCE override the binary and source checkout;
+// the source revision must match the maintained golden stamp.
 
 import { $ } from "bun";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { demoManifestFor } from "../../tools/demo-identity.ts";
+import { dirname } from "node:path";
+import { buildCaptureApplication, evidenceDirectory } from "./build.ts";
 import { FRAMEWORKS, parseFramework } from "../../framework/compiler/jsx-plugin.ts";
 
 const frameworkArg = Bun.argv.find((a) => a.startsWith("--framework="));
@@ -37,12 +42,12 @@ const framework = parseFramework(frameworkArg?.slice("--framework=".length), "--
 const pspUiDir = new URL("../..", import.meta.url).pathname; // PocketJS/
 const goldensDir =
   framework === "solid" ? `${pspUiDir}tests/goldens/psp` : `${pspUiDir}tests/goldens/psp-${framework}`;
-const outDir = `${pspUiDir}dist/e2e-ppsspp`;
+const outDir = evidenceDirectory(pspUiDir, `ppsspp-${framework}`);
 const headless = process.env.PPSSPP_HEADLESS || `${homedir()}/ppsspp-src/build/PPSSPPHeadless`;
+const emulatorSource = process.env.PPSSPP_SOURCE || `${homedir()}/ppsspp-src`;
 // PPSSPPHeadless maps ms0: to ~/.ppsspp — dumps land in ~/.ppsspp/dc_cap.
 // CAUTION: contents persist across runs; always clean before each run.
 const dccap = `${homedir()}/.ppsspp/dc_cap`;
-const eboot = `${pspUiDir}hosts/psp/target/mipsel-sony-psp/debug/EBOOT.PBP`;
 const update = process.env.UPDATE === "1";
 
 // ---------------------------------------------------------------------------
@@ -231,9 +236,8 @@ mkdirSync(outDir, { recursive: true });
 mkdirSync(goldensDir, { recursive: true });
 
 function writeDemoManifest(app: string): string {
-  const manifest = JSON.parse(readFileSync(`${pspUiDir}pocket.json`, "utf8")) as Record<string, any>;
-  manifest.id = `dev.pocket-stack.e2e.psp.${app.replace(/-/g, ".")}`;
-  manifest.name = `pocketjs-e2e-${app}`;
+  const manifest = demoManifestFor(pspUiDir, app) as Record<string, any>;
+  manifest.id = `dev.pocket-nexus.e2e.psp.${app.replace(/-/g, ".")}`;
   manifest.title = `PocketJS E2E ${app}`;
   manifest.app.entry = `apps/${app}/main.tsx`;
   manifest.app.output = `${app}-main`;
@@ -247,20 +251,29 @@ function writeDemoManifest(app: string): string {
 
 // Emulator provenance: byte-exact goldens are only promised for the PPSSPP
 // build they were generated with.
-const ppssppCommit = (await $`git -C ${homedir()}/ppsspp-src rev-parse HEAD`.text()).trim();
+const ppssppCommit = (await $`git -C ${emulatorSource} rev-parse HEAD`.text()).trim();
 const commitStamp = `${goldensDir}/PPSSPP-COMMIT.txt`;
 const stampedCommit = existsSync(commitStamp) ? readFileSync(commitStamp, "utf8").trim() : null;
+if (!update && stampedCommit !== ppssppCommit) {
+  throw new Error(`PPSSPP revision must match the golden stamp: expected ${stampedCommit ?? "missing stamp"}, got ${ppssppCommit}`);
+}
 
 // Non-default frameworks cover exactly the demos that carry the sibling
 // variant; the rest stay Solid-only.
 const selectedSpecs =
   framework === "solid"
     ? SPECS
-    : SPECS.filter((spec) =>
-        existsSync(`${pspUiDir}apps/${spec.app}/app${FRAMEWORKS[framework].outputSuffix}.tsx`),
-      );
+    : SPECS.filter((spec) => {
+        if (!existsSync(`${pspUiDir}apps/${spec.app}/app${FRAMEWORKS[framework].outputSuffix}.tsx`)) return false;
+        const app = demoManifestFor(pspUiDir, spec.app).app as Record<string, unknown>;
+        if (app.model === "compiled" && app.framework !== framework) {
+          console.log(`SKIP ${spec.app}: compiled model declares framework ${app.framework}; ${framework} needs its own application manifest`);
+          return false;
+        }
+        return true;
+      });
 if (selectedSpecs.length === 0) {
-  console.error(`no demos carry an app${FRAMEWORKS[framework].outputSuffix}.tsx variant`);
+  console.error(`no demos have a compatible ${framework} manifest and app${FRAMEWORKS[framework].outputSuffix}.tsx variant`);
   process.exit(2);
 }
 console.log(`framework: ${framework} (${selectedSpecs.length} demo(s), goldens: ${goldensDir})`);
@@ -271,18 +284,17 @@ for (const spec of selectedSpecs) {
   console.log(`\n## ${spec.app} (input: ${spec.inputScript})`);
   const manifest = writeDemoManifest(spec.app);
 
-  // 1. Build through the manifest/plan path so E2E also exercises the
-  // target/HostOps ABI startup handshake.
+  // 1. Compile a package, then consume that package in the native recipe.
   console.log("# build capture EBOOT ...");
-  await $`bun tools/pocket.ts build --target psp --manifest ${manifest} --project-root ${pspUiDir} -- --capture`
-    .cwd(pspUiDir)
-    .env({
+  const eboot = await buildCaptureApplication({
+    root: pspUiDir, directory: `${outDir}/${spec.app}`, target: "psp", manifest,
+    env: {
       ...process.env,
       POCKETJS_CAPTURE_INPUT: spec.inputScript,
       POCKETJS_CAP_START: String(spec.capStart),
       POCKETJS_CAP_N: String(spec.capN),
-    })
-    .quiet();
+    },
+  });
 
   // 2. One headless run; frames land in ms0:/dc_cap (stale files persist
   //    across runs — clean first). Generous timeout: QuickJS evaluating the
@@ -293,13 +305,16 @@ for (const spec of selectedSpecs) {
   //    remove it for determinism.
   console.log("# PPSSPPHeadless (software renderer) ...");
   rmSync(dccap, { recursive: true, force: true });
-  rmSync(`${pspUiDir}hosts/psp/target/mipsel-sony-psp/debug/pocketjs-dbg`, {
+  rmSync(`${dirname(eboot)}/pocketjs-dbg`, {
     recursive: true,
     force: true,
   });
   const timeout = Number(process.env.E2E_PPSSPP_TIMEOUT || 45);
   const run =
     await $`${headless} --graphics=software --timeout=${timeout} ${eboot}`.cwd("/tmp").nothrow().quiet();
+  writeFileSync(`${outDir}/${spec.app}/ppsspp.stdout.log`, run.stdout);
+  writeFileSync(`${outDir}/${spec.app}/ppsspp.stderr.log`, run.stderr);
+  if (existsSync(dccap)) cpSync(dccap, `${outDir}/${spec.app}/captures`, { recursive: true });
 
   // 3. FPS-floor / liveness check (non-golden). This asserts ONLY that the
   //    frame loop presented all CAP_N frames within the timeout — i.e. boot
@@ -368,19 +383,11 @@ for (const spec of selectedSpecs) {
     if (a.equals(b)) {
       console.log(`ok ${spec.app}.${shot.name} (frame ${shot.frame}, byte-exact)`);
     } else {
-      writeFileSync(`${goldensDir}/${spec.app}.${shot.name}.actual.png`, a);
+      writeFileSync(`${outDir}/${spec.app}.${shot.name}.actual.png`, a);
       console.error(
         `FAIL ${spec.app}.${shot.name}: differs from golden ` +
-          `(actual -> ${goldensDir.slice(pspUiDir.length)}/${spec.app}.${shot.name}.actual.png)`,
+          `(actual -> ${outDir}/${spec.app}.${shot.name}.actual.png)`,
       );
-      if (stampedCommit && stampedCommit !== ppssppCommit) {
-        console.error(
-          `  note: PPSSPP build differs (goldens: ${stampedCommit.slice(0, 12)}, ` +
-            `local: ${ppssppCommit.slice(0, 12)}) — emulator drift, not necessarily a ` +
-            `PocketJS regression. Re-baseline with UPDATE=1, or fall back to threshold ` +
-            `compare (origin/main framework/test/bsp-compare/diff.ts: IoU>=0.995, meanRGB<=8).`,
-        );
-      }
       failed = true;
     }
   }
@@ -389,8 +396,6 @@ for (const spec of selectedSpecs) {
 if (update) {
   writeFileSync(commitStamp, `${ppssppCommit}\n`);
   console.log(`\ngoldens + PPSSPP-COMMIT.txt (${ppssppCommit.slice(0, 12)}) -> ${goldensDir}`);
-} else if (stampedCommit && stampedCommit !== ppssppCommit && !failed) {
-  console.log(`\nnote: local PPSSPP ${ppssppCommit.slice(0, 12)} != golden stamp ${stampedCommit.slice(0, 12)}, but bytes still match.`);
 }
 
 console.log(failed ? "\nE2E FAILED" : "\nE2E OK");

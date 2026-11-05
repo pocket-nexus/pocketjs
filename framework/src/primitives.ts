@@ -12,8 +12,10 @@ import { pending, type ResourceState } from "./resource-state.ts";
 import type { PreparedText, TextResource } from "./fonts.ts";
 import { createElement, spread } from "./renderer.ts";
 import type { NodeMirror } from "./renderer.ts";
+import type { PropName } from "../../contracts/spec/spec.ts";
 
-type StyleObject = Record<string, number | string>;
+/** Inline style: spec PROP names only, so a misspelt or CSS-style name is a type error. */
+export type StyleObject = { [K in PropName]?: number | string };
 type RefProp =
   | ((node: NodeMirror) => void)
   | { current: NodeMirror | null }

@@ -2,38 +2,7 @@
 //! tree or the Rust layout of `Ui`. C adapters can implement this contract.
 use crate::{TexView, Ui};
 
-#[derive(Clone, Copy)]
-pub struct FontView<'a> {
-    pub bitmap: &'a [u8],
-    pub cell_w: u32,
-    pub cell_h: u32,
-    pub raster_density: u8,
-    pub glyph_count: u16,
-}
-
-impl FontView<'_> {
-    pub fn coverage_width(&self) -> u32 {
-        self.cell_w * self.raster_density as u32
-    }
-    pub fn coverage_height(&self) -> u32 {
-        self.cell_h * self.raster_density as u32
-    }
-    pub fn bytes_per_row(&self) -> usize {
-        self.coverage_width() as usize
-    }
-    pub fn glyph_rows(&self, gid: u16) -> &[u8] {
-        let size = self.coverage_height() as usize * self.bytes_per_row();
-        let start = gid as usize * size;
-        &self.bitmap[start..start + size]
-    }
-}
-
-pub trait RenderResources {
-    fn viewport(&self) -> (f32, f32);
-    fn raster_revision(&self) -> u64;
-    fn texture(&self, handle: i32) -> Option<TexView<'_>>;
-    fn font_atlas(&self, slot: u8) -> Option<FontView<'_>>;
-}
+pub use pocket_drivers::{FontView, RenderResources};
 
 impl RenderResources for Ui {
     fn viewport(&self) -> (f32, f32) {
@@ -42,8 +11,20 @@ impl RenderResources for Ui {
     fn raster_revision(&self) -> u64 {
         Ui::raster_revision(self)
     }
+    fn resource_revision(&self) -> u64 {
+        Ui::resource_revision(self)
+    }
     fn texture(&self, handle: i32) -> Option<TexView<'_>> {
         Ui::texture(self, handle)
+    }
+    fn texture_revision(&self, handle: i32) -> Option<u64> {
+        Ui::texture_revision(self, handle)
+    }
+    fn font_revision(&self, slot: u8) -> Option<u64> {
+        Ui::font_atlas(self, slot).map(|_| Ui::font_atlas_revision(self, slot))
+    }
+    fn font_texture_width(&self, slot: u8) -> Option<u32> {
+        Ui::font_atlas(self, slot).map(|atlas| atlas.texture_coverage_width())
     }
     fn font_atlas(&self, slot: u8) -> Option<FontView<'_>> {
         Ui::font_atlas(self, slot).map(|atlas| FontView {
@@ -53,5 +34,31 @@ impl RenderResources for Ui {
             raster_density: atlas.raster_density,
             glyph_count: atlas.glyph_count,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn individual_texture_revisions_survive_unrelated_resource_mutations() {
+        let mut ui = Ui::new();
+        let first = ui.upload_texture(&[255; 4], 1, 1, crate::spec::psm::PSM_8888);
+        assert!(first >= 0);
+        let first_revision = RenderResources::texture_revision(&ui, first).unwrap();
+        let global_revision = RenderResources::raster_revision(&ui);
+        let second = ui.upload_texture(&[0; 4], 1, 1, crate::spec::psm::PSM_8888);
+        assert!(second >= 0);
+        assert_ne!(RenderResources::raster_revision(&ui), global_revision);
+        assert_eq!(
+            RenderResources::texture_revision(&ui, first),
+            Some(first_revision)
+        );
+        ui.free_texture(first);
+        assert_eq!(RenderResources::texture_revision(&ui, first), None);
+        assert!(RenderResources::texture_revision(&ui, second).is_some());
+        assert_eq!(RenderResources::font_revision(&ui, 0), None);
+        assert_eq!(RenderResources::font_texture_width(&ui, 0), None);
     }
 }

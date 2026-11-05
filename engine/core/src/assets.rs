@@ -36,6 +36,20 @@ impl Ui {
         inputs: &[AssetInput<'_>],
         handles: &mut [i32],
     ) -> Result<(), AssetError> {
+        self.load_assets_from(inputs, handles, None)
+    }
+
+    /// `load_assets` whose inputs are slices of `storage`, which the caller
+    /// keeps alive: font atlases then read their coverage cells from it in
+    /// place instead of copying them, and images and sprites are decoded
+    /// from it when first drawn (`upload_texture_from`). An input outside
+    /// `storage` is copied.
+    pub fn load_assets_from(
+        &mut self,
+        inputs: &[AssetInput<'_>],
+        handles: &mut [i32],
+        storage: Option<&alloc::rc::Rc<dyn AsRef<[u8]>>>,
+    ) -> Result<(), AssetError> {
         if handles.len() != inputs.len() {
             return Err(AssetError::Invalid);
         }
@@ -57,13 +71,27 @@ impl Ui {
                 }
                 AssetKind::Font => {
                     let slot = *b.get(12).ok_or(AssetError::Invalid)? as usize;
-                    if slot >= fonts.len() || fonts[slot] || !staged.load_font_atlas(b) {
+                    if slot >= fonts.len() || fonts[slot] {
+                        return Err(AssetError::Invalid);
+                    }
+                    let loaded = match storage.and_then(|storage| range_in(storage, b)) {
+                        Some(range) => {
+                            staged.load_font_atlas_shared(storage.unwrap().clone(), range)
+                        }
+                        None => staged.load_font_atlas(b),
+                    };
+                    if !loaded {
                         return Err(AssetError::Invalid);
                     }
                     fonts[slot] = true;
                 }
                 AssetKind::Image => {
-                    let handle = staged.upload_img_entry(b);
+                    let handle = match storage.and_then(|storage| range_in(storage, b)) {
+                        Some(range) => {
+                            staged.upload_img_entry_from(storage.unwrap().clone(), range)
+                        }
+                        None => staged.upload_img_entry(b),
+                    };
                     if handle < 0 {
                         return Err(AssetError::Invalid);
                     }
@@ -86,7 +114,17 @@ impl Ui {
                     {
                         return Err(AssetError::Invalid);
                     }
-                    let handle = staged.upload_texture(&b[16..], w, h, b[4] as u32);
+                    let handle = match storage.and_then(|storage| range_in(storage, b)) {
+                        Some(range) => staged.upload_texture_from(
+                            storage.unwrap().clone(),
+                            range.start + 16..range.end,
+                            w,
+                            h,
+                            b[4] as u32,
+                            0,
+                        ),
+                        None => staged.upload_texture(&b[16..], w, h, b[4] as u32),
+                    };
                     if handle < 0 {
                         return Err(AssetError::Invalid);
                     }
@@ -104,7 +142,8 @@ impl Ui {
 
         // No fallible operation or allocation is allowed below this point.
         if styles {
-            self.styles = staged.styles;
+            // An empty StyleTable allocates nothing.
+            self.styles = core::mem::take(&mut staged.styles);
         }
         for slot in 0..spec::MAX_FONT_SLOTS {
             if staged.fonts.atlas(slot as u8).is_some() {
@@ -119,10 +158,21 @@ impl Ui {
             }
         }
         handles.copy_from_slice(&staged_handles);
-        self.layout.dirty = true;
+        self.mark_layout_dirty();
         self.bump_raster_revision();
         Ok(())
     }
+}
+
+/// The position of `part` in `storage`, when it lies within it.
+fn range_in(
+    storage: &alloc::rc::Rc<dyn AsRef<[u8]>>,
+    part: &[u8],
+) -> Option<core::ops::Range<usize>> {
+    let base = (**storage).as_ref();
+    let start = (part.as_ptr() as usize).checked_sub(base.as_ptr() as usize)?;
+    let end = start.checked_add(part.len())?;
+    (end <= base.len()).then_some(start..end)
 }
 
 #[cfg(test)]

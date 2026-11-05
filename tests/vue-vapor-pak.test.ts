@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { IMG_FLAG_LINEAR, PAK_DTYPE, PROP, PSM } from "../contracts/spec/spec.ts";
 import { encodeImageEntry, pack } from "../framework/compiler/pak.ts";
@@ -48,7 +49,7 @@ function symbianHost(calls: string[], propCalls: unknown[][] = []): HostOps {
   const noop = () => {};
   return {
     __host: "symbian-e7-dev",
-    __hostAbi: 4,
+    __hostAbi: POCKET_BINDING_GENERATION,
     createNode: () => nextId++,
     destroyNode: noop,
     insertBefore: noop,

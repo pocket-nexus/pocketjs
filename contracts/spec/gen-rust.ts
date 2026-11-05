@@ -1,9 +1,10 @@
-// Deterministic codegen: contracts/spec/{spec,audio,db,net}.ts -> engine/core/src/spec.rs.
+import { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
+// Deterministic codegen: contracts/spec/{spec,audio,db,fs,pack,physics}.ts -> engine/spec/src/lib.rs.
 //
 // Run from PocketJS/:  bun contracts/spec/gen-rust.ts
 //
 // tests/contract.ts imports generateRust() and byte-compares its output against
-// the committed engine/core/src/spec.rs, so the generated file can never drift from
+// the committed engine/spec/src/lib.rs, so the generated file can never drift from
 // spec.ts. Keep this generator free of anything non-deterministic (no dates,
 // no env, no object-key sorting surprises — insertion order only).
 
@@ -17,14 +18,6 @@ import {
   audioFramesForTick,
 } from "./audio.ts";
 import {
-  DB_BLOB_KEY,
-  DB_MAX_DATABASES,
-  DB_MAX_RESULT_ROWS,
-  DB_MAX_SAFE_INTEGER,
-  DB_MEMORY,
-  DB_OP,
-} from "./db.ts";
-import {
   FS_BLOB_KEY,
   FS_MAX_DEPTH,
   FS_MAX_DIR_ENTRIES,
@@ -36,21 +29,45 @@ import {
   FS_WRITE_TRUNCATE,
 } from "./fs.ts";
 import {
-  NET_DEFAULT_RESPONSE_BYTES,
-  NET_DEFAULT_TIMEOUT_MS,
-  NET_ERROR,
-  NET_EVENT,
-  NET_MAX_HEADER_BYTES,
-  NET_MAX_HEADERS,
-  NET_MAX_INFLIGHT,
-  NET_MAX_REDIRECTS,
-  NET_MAX_REQUEST_BYTES,
-  NET_MAX_RESPONSE_BYTES,
-  NET_MAX_TIMEOUT_MS,
-  NET_METHODS,
-  NET_OP,
+  PACK_MAX_DEPTH,
+  PACK_MAX_HANDLES,
+  PACK_MAX_IMG_BYTES,
+  PACK_MAX_PATH_BYTES,
+  PACK_MAX_SEGMENT_BYTES,
+  PACK_OP,
+  PACK_OPEN_MISSING,
+  PACK_OPEN_PENDING,
+} from "./pack.ts";
+import {
 } from "./net.ts";
 import { relayConstantsSnapshot } from "./relay.ts";
+import {
+  PHYSICS_ALPHA_CURVE,
+  PHYSICS_ANCHOR,
+  PHYSICS_AXIS,
+  PHYSICS_CMD,
+  PHYSICS_EVENT,
+  PHYSICS_EVENT_BACKLOG,
+  PHYSICS_EVENT_MAX,
+  PHYSICS_EVENT_WORDS,
+  PHYSICS_GRAB,
+  PHYSICS_HANDLE_GEN_MASK,
+  PHYSICS_HANDLE_GEN_SHIFT,
+  PHYSICS_HANDLE_KIND_SHIFT,
+  PHYSICS_HANDLE_SLOT_MASK,
+  PHYSICS_KEY,
+  PHYSICS_KIND,
+  PHYSICS_MAX_POINTS,
+  PHYSICS_MAX_POOL,
+  PHYSICS_MAX_TEXTURES,
+  PHYSICS_MAX_VIEWS,
+  PHYSICS_MODE,
+  PHYSICS_QUERY,
+  PHYSICS_SCALE_CURVE,
+  PHYSICS_SHAPE,
+  PHYSICS_SQUASH_AXIS,
+  PHYSICS_SURFACE,
+} from "./physics.ts";
 import {
   ANALOG_CENTER,
   ANIMATABLE,
@@ -71,6 +88,7 @@ import {
   PAK_MAGIC,
   PAK_VERSION,
   DRAW_OP,
+  DRAW_LIST_VERSION,
   ENUMS,
   FIXED_DT,
   FONT_CMAP_ENTRY_SIZE,
@@ -187,12 +205,17 @@ export function generateRust(): string {
 
   put("//! GENERATED — do not edit; run `bun contracts/spec/gen-rust.ts` (from PocketJS/).");
   put("//!");
-  put("//! Source of truth: PocketJS/spec/spec.ts — every constant here mirrors it.");
+  put("//! Source of truth: contracts/spec — every constant here mirrors its TypeScript definition.");
   put("//! tests/contract.ts regenerates this file in-memory and byte-compares;");
   put("//! if that fails, run `bun contracts/spec/gen-rust.ts` and commit the result.");
   put("");
+  put("#![no_std]");
   put("#![allow(dead_code)]");
   put("#![allow(clippy::all)]");
+  put("");
+
+  put("/// Generated guest/native binding contract; independent of profile identity.");
+  put(`pub const BINDING_GENERATION: u32 = ${POCKET_BINDING_GENERATION};`);
   put("");
 
   // --- scalars ---------------------------------------------------------------
@@ -245,7 +268,7 @@ export function generateRust(): string {
   put("");
 
   // --- op codes ---------------------------------------------------------------
-  put("/// UI op codes (the engine/wasm/FFI ABI identity of each `ui.*` op; 0 reserved).");
+  put("/// UI op codes (the programs/web/wasm/FFI ABI identity of each `ui.*` op; 0 reserved).");
   put("/// Signatures are documented in spec.ts and docs/DESIGN.md.");
   put("pub mod op {");
   for (const [name, v] of Object.entries(OP)) {
@@ -308,6 +331,7 @@ export function generateRust(): string {
     PosType: "position type.",
     Display: "display (None removes from layout AND paint).",
     Overflow: "overflow (Hidden => scissor in draw).",
+    Contain: "layout containment (Strict: own layout root; Baked: Strict plus build-time rects).",
     TextAlign: "text alignment within the node box.",
     GradDir: "gradient direction (`bg-gradient-to-t|b|l|r`).",
     Easing:
@@ -360,14 +384,14 @@ export function generateRust(): string {
   put("");
 
   // --- svc / stream -----------------------------------------------------------
-  put("/// Host service channel limits (spec.ts SVC — pocket-svc/<app>/ mailbox).");
+  put("/// Host service channel limits (spec.ts SVC — `pocket-svc/<app>/` mailbox).");
   put("pub mod svc {");
   put(`    pub const POLL_BUF: usize = ${SVC_POLL_BUF};`);
   put(`    pub const IMG_MAX_BYTES: usize = ${SVC_IMG_MAX_BYTES};`);
   put("}");
   put("");
   put("/// STREAM container (.pkst) — host-written video+audio ring file.");
-  put("/// Full byte layout in spec.ts; parsed by engine/core/src/stream.rs.");
+  put("/// Full byte layout in spec.ts; parsed by engine/modules/media/src/stream.rs.");
   put("pub mod stream {");
   put(`    pub const MAGIC: u32 = ${hex(STREAM_MAGIC)}; // 'PKST' LE`);
   put(`    pub const VERSION: u16 = ${STREAM_VERSION};`);
@@ -383,7 +407,7 @@ export function generateRust(): string {
   put("}");
   put("");
   put("/// SVC WIRE protocol (PKNT) — the svc mailbox over a socket.");
-  put("/// Full byte layout in spec.ts; parsed by engine/core/src/wire.rs.");
+  put("/// Full byte layout in spec.ts; parsed by engine/modules/media/src/wire.rs.");
   put("pub mod wire {");
   put(`    pub const MAGIC: u32 = ${hex(WIRE_MAGIC)}; // 'PKNT' LE`);
   put(`    pub const BEACON_MAGIC: u32 = ${hex(WIRE_BEACON_MAGIC)}; // 'PKDB' LE`);
@@ -436,10 +460,11 @@ export function generateRust(): string {
   put("");
 
   // --- drawlist ------------------------------------------------------------------
-  put("/// DrawList op codes (core -> backend Vec<u32> words; layout in spec.ts).");
+  put("/// DrawList op codes (core -> backend `Vec<u32>` words; layout in spec.ts).");
   put("/// Word counts incl. header: RECT 4, GRAD_RECT 6, GLYPH_RUN 3+2n,");
   put("/// TEX_QUAD 9, SCISSOR 3, SCISSOR_POP 1, TRI 7, TEX_TRI 12,");
   put("/// TEXT_RUN 8+ceil(bytes/4), SURFACE_QUAD 9.");
+  put(`pub const DRAW_LIST_VERSION: u32 = ${DRAW_LIST_VERSION};`);
   put("pub mod draw_op {");
   for (const [name, v] of Object.entries(DRAW_OP)) {
     put(`    pub const ${screaming(name)}: u32 = ${v};`);
@@ -449,7 +474,7 @@ export function generateRust(): string {
 
   // --- pak ----------------------------------------------------------------------
   put("/// .pak container constants (byte-compatible with dreamcart's format;");
-  put("/// copied from framework/bake/pak.ts + docs/pak-format.md).");
+  put("/// implemented by framework/compiler/pak.ts and framework/src/pak.ts).");
   put("pub mod pak {");
   put(`    pub const MAGIC: u32 = ${hex(PAK_MAGIC)}; // 'DCPK' LE`);
   put(`    pub const VERSION: u16 = ${PAK_VERSION};`);
@@ -483,7 +508,7 @@ export function generateRust(): string {
   // The audio MODULE's boundary (contracts/spec/audio.ts): its own op space,
   // mounted as `globalThis.audio`, independent of the ui surface. A native
   // host implementing it reads these constants; the ring/thread discipline to
-  // copy is hosts/psp/src/audio.rs (currently serving the video plane).
+  // copy is platforms/psp/audio/src/output.rs (currently serving the video plane).
   if (audioFramesForTick(22050, 0) !== 367 || audioFramesForTick(22050, 1) !== 368) {
     throw new Error("audioFramesForTick drifted from the pinned Bresenham formula");
   }
@@ -507,35 +532,11 @@ export function generateRust(): string {
   put("}");
   put("");
 
-  // --- db module -----------------------------------------------------------
-  // The db MODULE's boundary (contracts/spec/db.ts): SQLite behind five
-  // synchronous ops, mounted as `globalThis.db`, independent of the ui
-  // surface. A native host implementing it reads these constants; the
-  // reference implementation is engine/crates/pocket-db.
-  put("/// DB module boundary (contracts/spec/db.ts — `globalThis.db`).");
-  put("/// SQLite behind five synchronous ops; rows cross as one JSON line per");
-  put("/// query() call. The module owns no clock and emits no events.");
-  put("pub mod db {");
-  for (const [name, v] of Object.entries(DB_OP)) {
-    put(`    pub const OP_${screaming(name)}: u8 = ${v};`);
-  }
-  put(`    /// The in-memory database name (private to the handle).`);
-  put(`    pub const MEMORY: &str = ${JSON.stringify(DB_MEMORY)};`);
-  put(`    /// Marker key for a BLOB value inside a row or a parameter list.`);
-  put(`    pub const BLOB_KEY: &str = ${JSON.stringify(DB_BLOB_KEY)};`);
-  put(`    /// Largest integer magnitude that crosses the boundary losslessly.`);
-  put(`    pub const MAX_SAFE_INTEGER: i64 = ${DB_MAX_SAFE_INTEGER};`);
-  put(`    pub const MAX_DATABASES: usize = ${DB_MAX_DATABASES};`);
-  put(`    /// Result-row ceiling per query() call (exceeding it fails the op).`);
-  put(`    pub const MAX_RESULT_ROWS: usize = ${DB_MAX_RESULT_ROWS};`);
-  put("}");
-  put("");
-
   // --- fs module -----------------------------------------------------------
   // The fs MODULE's boundary (contracts/spec/fs.ts): a per-app file tree
   // behind nine synchronous ops, mounted as `globalThis.fs`, independent of
   // the ui surface. A native host implementing it reads these constants; the
-  // reference implementation is engine/crates/pocket-fs.
+  // implementations are engine/host-services/fs.c and platforms/sim/fs.ts.
   put("/// FS module boundary (contracts/spec/fs.ts — `globalThis.fs`).");
   put("/// A per-app file tree behind nine synchronous ops; every path resolves");
   put("/// under the app's own data root. No clock, no events, no mtime.");
@@ -546,7 +547,7 @@ export function generateRust(): string {
   put(`    /// write() modes.`);
   put(`    pub const WRITE_TRUNCATE: u32 = ${FS_WRITE_TRUNCATE};`);
   put(`    pub const WRITE_APPEND: u32 = ${FS_WRITE_APPEND};`);
-  put(`    /// Marker key for a bytes payload (db's blob spelling).`);
+  put(`    /// Marker key for a bytes payload.`);
   put(`    pub const BLOB_KEY: &str = ${JSON.stringify(FS_BLOB_KEY)};`);
   put(`    /// Maximum UTF-8 bytes in one path segment.`);
   put(`    pub const MAX_SEGMENT_BYTES: usize = ${FS_MAX_SEGMENT_BYTES};`);
@@ -561,35 +562,70 @@ export function generateRust(): string {
   put("}");
   put("");
 
-  // --- net module ---------------------------------------------------------------
-  put("/// NET module boundary (contracts/spec/net.ts — `globalThis.net`).");
-  put("/// Bounded whole-response HTTP; completions batch to tick boundaries.");
-  put("pub mod net {");
-  for (const [name, v] of Object.entries(NET_OP)) {
+  // --- pack module ---------------------------------------------------------
+  // The pack MODULE's boundary (contracts/spec/pack.ts): read-only files under
+  // the game data root, mounted as `globalThis.pack`. The native
+  // implementation is programs/psp/src/pack_ops.rs.
+  put("/// PACK module boundary (contracts/spec/pack.ts — `globalThis.pack`).");
+  put("/// Read-only files under the game data root; loadImg decodes an IMG entry");
+  put("/// to a texture without passing its bytes through the JS heap.");
+  put("pub mod pack {");
+  for (const [name, v] of Object.entries(PACK_OP)) {
     put(`    pub const OP_${screaming(name)}: u8 = ${v};`);
   }
-  put(`    pub const MAX_INFLIGHT: usize = ${NET_MAX_INFLIGHT};`);
-  put(`    pub const MAX_REQUEST_BYTES: usize = ${NET_MAX_REQUEST_BYTES};`);
-  put(`    pub const DEFAULT_RESPONSE_BYTES: usize = ${NET_DEFAULT_RESPONSE_BYTES};`);
-  put(`    pub const MAX_RESPONSE_BYTES: usize = ${NET_MAX_RESPONSE_BYTES};`);
-  put(`    pub const MAX_HEADERS: usize = ${NET_MAX_HEADERS};`);
-  put(`    pub const MAX_HEADER_BYTES: usize = ${NET_MAX_HEADER_BYTES};`);
-  put(`    pub const DEFAULT_TIMEOUT_MS: u32 = ${NET_DEFAULT_TIMEOUT_MS};`);
-  put(`    pub const MAX_TIMEOUT_MS: u32 = ${NET_MAX_TIMEOUT_MS};`);
-  put(`    pub const MAX_REDIRECTS: usize = ${NET_MAX_REDIRECTS};`);
-  put(`    pub const METHODS: [&str; ${NET_METHODS.length}] = [${NET_METHODS.map((method) => JSON.stringify(method)).join(", ")}];`);
-  for (const [name, v] of Object.entries(NET_EVENT)) {
-    put(`    pub const EVENT_${screaming(name)}: &str = ${JSON.stringify(v)};`);
-  }
-  for (const [name, v] of Object.entries(NET_ERROR)) {
-    put(`    pub const ERROR_${screaming(name)}: &str = ${JSON.stringify(v)};`);
-  }
+  put(`    /// open() results below zero.`);
+  put(`    pub const OPEN_MISSING: i32 = ${PACK_OPEN_MISSING};`);
+  put(`    pub const OPEN_PENDING: i32 = ${PACK_OPEN_PENDING};`);
+  put(`    /// Files open at once per guest.`);
+  put(`    pub const MAX_HANDLES: usize = ${PACK_MAX_HANDLES};`);
+  put(`    /// Upper bound of one loadImg byte range.`);
+  put(`    pub const MAX_IMG_BYTES: usize = ${PACK_MAX_IMG_BYTES};`);
+  put(`    /// Path grammar ceilings (UTF-8 bytes; segments).`);
+  put(`    pub const MAX_PATH_BYTES: usize = ${PACK_MAX_PATH_BYTES};`);
+  put(`    pub const MAX_SEGMENT_BYTES: usize = ${PACK_MAX_SEGMENT_BYTES};`);
+  put(`    pub const MAX_DEPTH: usize = ${PACK_MAX_DEPTH};`);
+  put("}");
+  put("");
+
+  // --- physics (contracts/spec/physics.ts; capability ui.physics) ------------
+  put("/// 2D bodies stepped by the UI core (contracts/spec/physics.ts).");
+  put("pub mod physics {");
+  const group = (prefix: string, table: Record<string, number>, ty: string) => {
+    for (const [name, v] of Object.entries(table)) {
+      put(`    pub const ${prefix}${screaming(name)}: ${ty} = ${v};`);
+    }
+  };
+  group("KIND_", PHYSICS_KIND, "u32");
+  put(`    pub const HANDLE_KIND_SHIFT: u32 = ${PHYSICS_HANDLE_KIND_SHIFT};`);
+  put(`    pub const HANDLE_GEN_SHIFT: u32 = ${PHYSICS_HANDLE_GEN_SHIFT};`);
+  put(`    pub const HANDLE_GEN_MASK: u32 = ${hex(PHYSICS_HANDLE_GEN_MASK, 3)};`);
+  put(`    pub const HANDLE_SLOT_MASK: u32 = ${hex(PHYSICS_HANDLE_SLOT_MASK, 4)};`);
+  group("SURFACE_", PHYSICS_SURFACE, "usize");
+  group("MODE_", PHYSICS_MODE, "u32");
+  group("SHAPE_", PHYSICS_SHAPE, "u32");
+  group("ANCHOR_", PHYSICS_ANCHOR, "u32");
+  group("AXIS_", PHYSICS_AXIS, "u32");
+  group("SQUASH_AXIS_", PHYSICS_SQUASH_AXIS, "u32");
+  group("GRAB_", PHYSICS_GRAB, "u32");
+  group("SCALE_CURVE_", PHYSICS_SCALE_CURVE, "u32");
+  group("ALPHA_CURVE_", PHYSICS_ALPHA_CURVE, "u32");
+  group("KEY_", PHYSICS_KEY, "u32");
+  group("CMD_", PHYSICS_CMD, "u32");
+  group("EVENT_", PHYSICS_EVENT, "u32");
+  put(`    pub const EVENT_WORDS: usize = ${PHYSICS_EVENT_WORDS};`);
+  put(`    pub const EVENT_MAX: usize = ${PHYSICS_EVENT_MAX};`);
+  put(`    pub const EVENT_BACKLOG: usize = ${PHYSICS_EVENT_BACKLOG};`);
+  group("QUERY_", PHYSICS_QUERY, "u32");
+  put(`    pub const MAX_VIEWS: usize = ${PHYSICS_MAX_VIEWS};`);
+  put(`    pub const MAX_POOL: usize = ${PHYSICS_MAX_POOL};`);
+  put(`    pub const MAX_POINTS: usize = ${PHYSICS_MAX_POINTS};`);
+  put(`    pub const MAX_TEXTURES: usize = ${PHYSICS_MAX_TEXTURES};`);
   put("}");
   put("");
 
   // --- relay (contracts/spec/relay.ts) ---------------------------------------
   // R5 Relay L1 framing constants. The C and Rust frame layers consume the
-  // same values; tests/contract.ts guards this block against
+  // same values; tests/generated-contracts.test.ts guards this block against
   // tests/fixtures/relay/constants.json generated from relay.ts.
   for (const line of relayModuleLines()) put(line);
 
@@ -597,8 +633,8 @@ export function generateRust(): string {
 }
 
 /** The `pub mod relay { … }` block. Emitted verbatim into both
- * engine/core/src/spec.rs and engine/crates/pocket-relay/src/generated.rs, so
- * the desktop core and the no_std frame crate read one set of bytes. */
+ * engine/spec/src/lib.rs and engine/relay/src/generated.rs, so
+ * pocket-spec and the no_std frame crate read one set of bytes. */
 export function relayModuleLines(): string[] {
   const L: string[] = [];
   const put = (s: string) => L.push(s);
@@ -657,25 +693,25 @@ export function relayModuleLines(): string[] {
   return L;
 }
 
-/** engine/crates/pocket-relay/src/generated.rs — the no_std frame crate's copy
+/** engine/relay/src/generated.rs — the no_std frame crate's copy
  * of the same constants, re-exported from its lib.rs as `pocket_relay::spec`. */
 export function generateRelayRust(): string {
   return [
     "// @generated by contracts/spec/gen-rust.ts from contracts/spec/relay.ts.",
-    "// Do not edit by hand: run `bun run gen` and commit. tests/contract.ts",
-    "// byte-compares this file against the generator on every run.",
+    "// Do not edit by hand: run `bun run gen` and commit.",
+    "// tests/generated-contracts.test.ts byte-compares this file against the generator.",
     "",
     ...relayModuleLines(),
   ].join("\n") + "\n";
 }
 
 if (import.meta.main) {
-  const out = new URL("../../engine/core/src/spec.rs", import.meta.url).pathname;
+  const out = new URL("../../engine/spec/src/lib.rs", import.meta.url).pathname;
   await Bun.write(out, generateRust());
   console.log(`wrote ${out}`);
   for (const [path, source] of [
-    ["../../engine/crates/pocket-relay/src/generated.rs", generateRelayRust()],
-    ["../../engine/crates/microts/src/spec.rs", generateMicroTsRust()],
+    ["../../engine/relay/src/generated.rs", generateRelayRust()],
+    ["../../engine/microts-runtime/src/spec.rs", generateMicroTsRust()],
     ["../../framework/src/numeric-microts.ts", generateMicroTsNumericTypes()],
     ["../../framework/src/std-microts.d.ts", generateMicroTsStdDeclarations()],
     ["../../framework/src/component-types-microts.ts", generateMicroTsComponentTypes()],

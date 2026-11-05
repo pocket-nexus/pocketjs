@@ -1,0 +1,28 @@
+menuconfig POCKETJS
+    bool "PocketJS runtime and platform hooks"
+    help
+      Link one PocketJS Rust archive and the Zephyr host hooks. Application
+      main registers each selected unit with its runtime instance.
+
+if POCKETJS
+config POCKETJS_HEAP_SIZE
+    int "PocketJS allocation heap size in bytes"
+    default 1048576
+    range 4096 2147483647
+config POCKETJS_DISPLAY
+    bool "PocketJS display subsystem adapter"
+    depends on DISPLAY
+config POCKETJS_INPUT
+    bool "PocketJS input subsystem adapter"
+    depends on INPUT
+config POCKETJS_GUEST_QUICKJS
+    bool "Generated QuickJS guest adapter"
+    help
+      Requires a consumer supplied QuickJS module target. Set
+      POCKET_QUICKJS_TARGET and POCKET_QUICKJS_INCLUDE_DIR in CMake.
+config POCKETJS_RUST_FROM_SOURCE
+    bool "Compile the program's single Rust archive from source"
+    help
+      POCKET_PROGRAM_MANIFEST and POCKET_PROGRAM_ARCHIVE identify the product
+      program crate. Cargo uses the toolchain selected by the product.
+endif

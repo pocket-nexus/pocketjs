@@ -13,7 +13,7 @@ and the differences from AOT view expressions.
 
 If you know the framework, you know the API. This page puts the three side by
 side so you can read one column and skip the rest, then states what the runtime
-adds. Which framework a build uses is set once in `pocket.json` — see
+adds. Which framework a build uses is set once in `pocket.app.json` — see
 [Frameworks](/docs/frameworks/).
 
 ## The primitives, side by side

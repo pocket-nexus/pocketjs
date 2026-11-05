@@ -1,0 +1,61 @@
+import { mkdirSync, rmSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { compilerOnly, type RuntimeBuild, type RuntimeBuildContext } from "../../../framework/src/host-config.ts";
+import { canonicalProfileJson, hashPocketProfile } from "../../../framework/src/profile.ts";
+import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
+import { prepareNative3ds, runNative3dsMake, containerPathFor } from "../3ds/native.ts";
+import { repack3ds, THREE_DS_RUNTIME_FILE } from "../../repack/3ds.ts";
+import { writeRuntimeManifest } from "../../runtime/manifest.ts";
+import { exportProfile } from "../../profile-export.ts";
+import { requireProgramProfile } from "./application.ts";
+import { repository, nativeSources, buildHosts, handheldLock } from "./handheld-common.ts";
+const profile = POCKET_PROFILES["3ds-runtime"];
+
+const MINIMAL = "programs/3ds";
+
+/** Build the file-loaded program, with no product sources or package parser. */
+export async function buildMinimal3ds(out: string, context?: RuntimeBuildContext): Promise<string> {
+  const outdir = resolve(out), buildDirectory = context ? resolve(context.outdir, "native") : `${outdir}.native`;
+  mkdirSync(buildDirectory, { recursive: true });
+  exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION,
+    dependencies: [] }, buildDirectory);
+  // The program composes through the QuickJS facade: the native program
+  // registers no outputs (host-backend), platforms/3ds/hooks.c supplies the
+  // pocket_host_* hooks (host-hooks), and main.c registers the PICA renderer
+  // and both displays. The program installs pocket-physics for the
+  // 3ds-runtime profile's ui.physics.
+  const native = await prepareNative3ds({ packageName: "pocket-native-program",
+    archiveName: "libpocket_native_program.a", targetDirectory: join(repository, ".pocket-build/native/3ds/minimal"),
+    cargoArgs: ["--features", "host-backend,host-hooks"], roots: [outdir], context });
+  const program = join(outdir, THREE_DS_RUNTIME_FILE);
+  rmSync(program, { force: true });
+  await runNative3dsMake({ directory: join(repository, MINIMAL), mounts: native.mounts, profile, context,
+    environment: {
+      POCKETJS_ROOT: containerPathFor(repository, native.mounts),
+      POCKETJS_TARGET: profile.id, POCKETJS_HOST_ABI: String(POCKET_BINDING_GENERATION),
+      POCKETJS_PROFILE_JSON: canonicalProfileJson(profile), POCKETJS_PROFILE_HASH: hashPocketProfile(profile),
+      POCKETJS_RUNTIME_LIB: containerPathFor(native.library, native.mounts),
+      POCKETJS_QUICKJS_DIR: containerPathFor(native.quickJsDirectory, native.mounts),
+      POCKETJS_BUILD_DIR: containerPathFor(buildDirectory, native.mounts),
+      POCKETJS_OUT_3DSX: containerPathFor(program, native.mounts),
+    } });
+  await writeRuntimeManifest(outdir, { target: profile.id, hostAbi: POCKET_BINDING_GENERATION,
+    profile, files: [THREE_DS_RUNTIME_FILE] });
+  return outdir;
+}
+export const build: RuntimeBuild = {
+  sourceInputs: [
+    ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/physics", "engine/modules/media", "engine/render", "programs/native/runtime", "devices/gles/pocket-gles", "devices/gles/pocket-gles1", "devices/gles/pocket-gles2", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
+    ...["main.c", "package_source.c", "package_source.h", "Makefile"].map(path => resolve(repository, MINIMAL, path)),
+    resolve(repository, "programs/native/quickjs"),
+    ...["hooks.c", "input.c", "input.h", "input_source.c", "input_source.h", "icon.png", "icon-small.png"].map(path => resolve(repository, "platforms/3ds", path)),
+  ],
+  hosts: buildHosts, steps: compilerOnly(), artifact: "{outdir}/runtime",
+  genericRuntime: { repack: repack3ds, extension: ".3dsx" },
+  async run(context) {
+    requireProgramProfile(context, profile);
+    if (context.args.length) throw new Error("3DS generic runtime accepts no native overrides");
+    await handheldLock("3ds", () => buildMinimal3ds(resolve(context.outdir, "runtime"), context));
+  },
+};

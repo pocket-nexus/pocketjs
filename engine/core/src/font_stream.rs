@@ -8,13 +8,11 @@ use alloc::{format, string::String, vec, vec::Vec};
 use core::cell::Cell;
 
 pub const CONFIG_MAGIC: u32 = 0x31534650; // PFS1
-pub const GLYPH_MAGIC: u32 = 0x31474650; // PFG1
+pub use pocket_package::font_archive::{GLYPH_MAGIC, MAX_BATCH, MAX_PIXELS};
 pub const MAX_ENTRIES: usize = 4096;
 pub const BATCH_MAGIC: u32 = 0x31424650; // PFB1
 pub const MAX_LEASES: usize = 32;
-pub const MAX_PIXELS: usize = 4096;
 pub const MAX_BYTES: usize = 2 * 1024 * 1024;
-pub const MAX_BATCH: usize = 4;
 
 pub(crate) struct Entry {
     cp: u32,
@@ -175,8 +173,9 @@ impl Atlas {
             self.glyph_count = base;
             self.cmap.retain(|e| e.gid < base);
             self.cmap.shrink_to_fit();
-            self.bitmap.truncate(base as usize * w * h);
-            self.bitmap.shrink_to_fit();
+            let cells = self.bitmap.to_mut();
+            cells.truncate(base as usize * w * h);
+            cells.shrink_to_fit();
             return true;
         }
         let (w, h) = (b[9] as usize, b[10] as usize);
@@ -211,7 +210,7 @@ impl Atlas {
                 );
             }
         }
-        self.bitmap = pixels;
+        self.bitmap = pixels.into();
         self.cell_w = cw as u32;
         self.cell_h = ch as u32;
         self.glyph_count = base + capacity as u16;

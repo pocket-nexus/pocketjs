@@ -548,12 +548,12 @@ mod tests {
             for _ in 0..60 {
                 w.step(&env);
             }
-            let hash = w.state_hash();
+            let expected = w.snapshot();
             w.restore(snapshot);
             for _ in 0..60 {
                 w.step(&env);
             }
-            assert_eq!(hash, w.state_hash());
+            assert_eq!(expected, w.snapshot());
             w.remove(surface);
             w.step(&env);
             assert_eq!(

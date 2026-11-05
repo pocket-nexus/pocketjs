@@ -1,0 +1,11 @@
+[package]
+name = "pocket-rockbox-input"
+edition = "2021"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rockbox button mapping for PocketJS"
+
+[dependencies]
+pocket-spec.workspace = true

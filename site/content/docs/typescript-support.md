@@ -30,8 +30,8 @@ ownership and host integration.
 Native AOT commands check their input views. In guest builds, `app.aot: true`
 enables Solid graph admission. A Vue SFC also enables its AOT checks when it
 imports a value from its basename model or imports
-`@pocketjs/framework/vue-vapor/std`. Omitting the manifest flag does not bypass
-those Vue contract checks. Compiled model selection still requires both
+`@pocketjs/framework/vue-vapor/std`. Omitting `app.aot` from the app contract
+does not bypass those Vue contract checks. Compiled model selection still requires both
 `app.aot: true` and `app.model: "compiled"`.
 
 **Model AOT restrictions apply to compiled model modules, not all TypeScript
@@ -40,7 +40,7 @@ support by using TypeScript. Its dependencies still need APIs that the target
 provides; TypeScript support does not supply browser DOM or Node.js APIs.
 
 The AOT view frontends support Solid TSX and Vue SFCs. Octane remains a guest
-framework. The earlier [C cartridge compiler](https://github.com/pocket-stack/pocket-vapor)
+framework. The earlier [C cartridge compiler](https://github.com/pocket-nexus/pocket-vapor)
 has its own repository, subset and targets.
 
 A view imports its contract from a basename module: `Counter.tsx` or
@@ -118,7 +118,7 @@ Import numeric types and standard functions from
 | Integer source token such as `1` | Adopts the required type | Infers `i32` without another required type |
 | Fractional/exponent token such as `1.0`, `.5`, `1e3` | Adopts a compatible floating type | Infers `f64`; cannot adopt an integer type |
 | Integer division | `idiv(a, b)` | `idiv(a, b)`; `/` promotes integer operands to `f64` |
-| Integer remainder | `imod(a, b)` | `imod(a, b)`; `%` is rejected |
+| Integer remainder | `imod(a, b)` | `imod(a, b)` or `%`; a remainder by zero is `0` |
 | Float-to-integer conversion | `trunc`, `floor`, `ceil`, `round` | Same functions; a type assertion is not a conversion |
 | Numeric reassignment | Must fit the contract | A local keeps its numeric type for its scope |
 
@@ -222,9 +222,10 @@ when absence matters. Compound-element limitations are listed below.
 | `createNodeRef()` | Mount-owned animation target slot |
 | `createContext()` | Solid view context key |
 
-Model modules reject classes, namespaces, generators, default exports,
-re-exports, side-effect imports, namespace/default value imports and dynamic
-`import()`. A view component's required default export is a separate frontend
+Model modules reject classes, `namespace` declarations, generators, default
+exports, re-exports other than `export * as name` (and type-only ones),
+side-effect imports, default value imports, namespace imports of framework
+modules and dynamic `import()`. A view component's required default export is a separate frontend
 rule. Model top-level executable statements are limited to admitted reactive
 registration forms; arbitrary startup calls belong in model methods/hooks.
 
@@ -237,22 +238,25 @@ registration forms; arbitrary startup calls belong in model methods/hooks.
 | Framework `solid/std` or `vue-vapor/std` | The numeric, collection, ownership and task functions listed on this page |
 | `@pocketjs/framework/input` | `BTN` constants |
 | `@pocketjs/framework/animation` | `createNodeRef`, `animate`, `jump` |
-| `@pocketjs/framework/net/model` | Typed `net.get` awaitable |
 | Relative pure module | Named functions and constants; no model state or host access |
 
 Every reachable module's top level is checked, including a module imported
 for one constant. A pure helper takes its data through parameters. Another
-model's mutable state is reached through props, events or context, not by
-importing its signals into a model module.
+model's signals are reached through props, events or context, not by importing
+them into a model module. [State modules](#imperative-code) share
+top-level `let` fields with the modules that import them.
 
 ## Functions and callbacks
 
 **Model functions use named declarations with fixed parameter lists.**
 Each parameter has a simple name and an explicit supported type. Parameter
-destructuring, optional/default/rest parameters, function type parameters and
-generators are not supported. Return types can be inferred from supported
-return statements; annotate public signatures and functions containing
-`switch`, whose return inference is incomplete.
+destructuring, optional and rest parameters, function type parameters and
+generators are not supported; a trailing parameter may default to a literal or
+constant (see [Imperative code](#imperative-code)). Return types are
+inferred from the body's return statements, including those in loops and
+`switch` cases; a function that returns a value returns one on every path,
+unless its return type includes `undefined`, which it returns at its end.
+Annotate public signatures.
 
 Functions of a model can read and update that model. Imported pure functions
 cannot read model state, emit host commands or start tasks. Calls evaluate
@@ -296,18 +300,18 @@ export function increment(): void {
 | Signal setter / Vue `.value = value` | Admitted signal write; computed values are read-only |
 | `if` / `else` | Boolean condition |
 | `return value` | Returns from its enclosing function or admitted callback |
-| `for (let i = start; i < bound; i++)` | The same counter, `<` or `<=`, incremented by `i++` or `++i`; bound evaluated before the loop |
-| `for (const item of xs)` | Array iteration with one simple local binder |
+| `for (let i = start; i < bound; i++)` | The same counter, `<` or `<=`, incremented by `i++` or `++i` and not assigned in the body; bound evaluated before the loop |
+| `for (const item of xs)` | Array iteration with one simple local binder, over the array as it was before the first iteration |
 | `switch` | Number/string/enum cases; each case ends with a direct `break` or `return`; put `default` last |
 | `batch(...)`, `untrack(...)` | Declared callback forms; a batch does not create another instant |
 | `console.log(...)` | Displayable arguments; development emits a host log command, release omits the command |
 | Task call, `await`, `cancel` | Rules in the task section below |
 
-`while`, `do`, `for-in`, `for await`, loop `break`/`continue`, labels,
-`try`/`catch`/`finally`, `throw` and arbitrary statement forms are unsupported.
-A `for` incrementor such as `i += 1`, `i += 2` or `i--` is not the admitted
-counter-loop form. Switch cases cannot fall through; current lowering does
-not enforce enum exhaustiveness or duplicate-case diagnostics.
+`for-in`, `for await`, labels, `try`/`catch`/`finally`, `throw` and arbitrary
+statement forms are unsupported. Synchronous functions also admit `while`,
+`do`, `break`, `continue` and other `for` loops; see
+[Imperative code](#imperative-code). Switch cases cannot fall through; current
+lowering does not enforce enum exhaustiveness or duplicate-case diagnostics.
 
 ```ts
 import { createSignal } from "solid-js";
@@ -370,7 +374,6 @@ an async function, not inside a memo or effect.
 | `join(task())` | `done` with its value, or `cancelled` |
 | `all([a, b])` | All results, in member order |
 | `any([a, b])` | First ready member; ties choose the lower member index |
-| `net.get(url)` | Typed response or failure variant |
 | `animate(ref, property, value, options)` | `ended`, `replaced` or `dropped` |
 
 `all` and `any` require a nonempty literal list of admitted awaitables.
@@ -380,10 +383,37 @@ ordinary synchronous recursion has the separate depth rule above.
 
 `Promise<T>` describes a task result; it is not a general promise object.
 Arbitrary promises, `.then`, native `fetch` and timers such as `setTimeout`
-are not model APIs. The current shipped model service adapter is `net.get`;
-a TypeScript declaration for another SDK is not enough to admit a service.
-A native host must provide its transport and typed deliveries. See
+are not model APIs. The framework ships no model service adapter: a service
+module ends in `/model`, and a TypeScript declaration alone is not enough to
+admit one. A native host must provide its transport and typed deliveries. See
 [the host boundary](/docs/microts-boundaries/#a-task-requests-work-the-host-performs-it).
+
+## Imperative code
+
+Compiled models also admit the imperative forms below: state shared between
+modules, loops, in-place array operations, numeric conversions and float math.
+Native AOT hosts compile them to Rust; guest builds lower the same Model IR to
+JavaScript, and the reference interpreter executes it.
+
+| Form | Rule |
+|---|---|
+| State modules | A module with top-level `let` fields, or one importing such a module, is a state module. Its fields and functions belong to the root region. Only the root and other state modules import it; factories do not. Exported fields are readable and writable in place by importers, and the native model exposes them as `<module>_<name>()` and `<module>_<name>_mut()`, where `<module>` is the file name; two state modules cannot export fields with the same accessor name |
+| Assignable places | `a[i] = v`, `a[i].x += v`, `s.items[j]++` on locals and fields, including imported state fields. A write evaluates its index operands, then its value, then reads its target place, so a value that replaces the target's array writes into the new one; an out-of-range element write is ignored after its operands are evaluated |
+| Loops | `while`, `do`-`while`, `break`, `continue` and `for` loops with any condition and update, in synchronous functions. `for (let i = a; i < b; i++)` whose body does not assign `i` keeps its bound-once rule; other `for` loops re-evaluate their condition and run their update after `continue` |
+| Operators | `%` on numbers (an integer remainder by zero is `0`), `~` and `>>>`. Shifts of 8- and 16-bit integers run on 32-bit values, as in JavaScript, and wrap the result to the operand's width; `>>>` reads the operand as unsigned in its width |
+| Numeric conversion | `i8()` … `u64()`, `usize()`, `f32()`, `f64()` from the std module, with Rust `as` semantics on the argument's static type: a float truncates toward zero and saturates, an integer wraps. `usize()` converts as `u32` on every target |
+| Float math | `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `exp`, `log`, `atan2`, `pow`, `hypot` on `f32` or `f64` |
+| Arrays | `fill(n, v)` allocates; `push`, `pop`, `insert`, `removeAt`, `clear`, `truncate`, `fillRange`, `copyRange`, `fillRect` and `copyRect` change an assignable array place, which they read after evaluating their arguments. `copyRange` takes numeric, boolean or enum elements, clips its window to both arrays and, given a sixth argument, leaves target elements in place where the source holds that value. `fillRect` and `copyRect` do the same for each row of a rectangle in arrays laid out in rows (`start + row * stride`); `copyRect` reads every source row before writing. `fillRange` and `fillRect` store a copy of the value in each element, a negative `truncate` length empties the array, and `pop` or `removeAt` outside the array returns the element type's default. `Cap` arrays do not admit `push`, `insert`, `removeAt` or `truncate`; a value stored into `Cap` elements, such as a string pushed onto a `Cap<string, 3>[]`, is bounded like any other `Cap` write, and so is the result of `fill`, `codePoints`, `embedBytes` or `fromCodePoint` in a `Cap` place. Loops that only read `rows[i][j]` with `i` fixed borrow the row once |
+| Constants | A module constant holding an array literal of numbers, booleans or enums is stored once as a static; `embedBytes("./file.bin")` embeds a file as a `u8[]` static |
+| Strings | `codePoints(s)` and `fromCodePoint(n)` |
+| Parameter defaults | `function f(a: i32, b: i32 = -1)`: a call may omit trailing parameters whose defaults are literals or constants. Awaiting an async function passes every argument |
+| Imports | `paths` of the nearest `tsconfig.json` in or above the entry's folder map non-relative specifiers to local modules |
+| Namespaces | `export * as name from "./module"` and `import * as name from "./module"` name a local module; `name.member` reads, assigns or calls its exports, nested namespaces included. Namespaces resolve at compile time and cannot be stored or passed |
+
+Element and member reads of fields, locals and constants, including nested
+arrays such as `rows[i][j]`, index the stored value in place; they do not copy
+the array. When an index calls a function, the array is read before the index,
+as in JavaScript.
 
 ## Current implementation limits
 

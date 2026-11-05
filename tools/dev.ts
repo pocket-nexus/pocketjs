@@ -3,7 +3,7 @@
 //
 //   bun tools/dev.ts                 # wasm + hero-main + serve
 //   bun tools/dev.ts hero-main cards # build specific demos instead
-//   bun tools/dev.ts --framework=vue-vapor hero-vue-vapor-main
+//   bun tools/dev.ts --framework=vue-vapor hero-main
 //   PORT=9000 bun tools/dev.ts
 //
 // Rebuild-on-change is deliberately manual (dev-tool simplicity): re-run
@@ -21,7 +21,7 @@ function run(cmd: string[]): void {
 
 const buildFlags = process.argv
   .slice(2)
-  .filter((a) => a === "--no-config" || a.startsWith("--framework=") || a.startsWith("--config=") || a.startsWith("--extra-chars="));
+  .filter((a) => a.startsWith("--framework=") || a.startsWith("--extra-chars="));
 const demos = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 if (demos.length === 0) demos.push("hero-main");
 
@@ -30,4 +30,4 @@ for (const demo of demos) {
   run([process.execPath, "tools/build.ts", demo, ...buildFlags]);
 }
 
-await import("../hosts/web/serve.ts");
+await import("../tools/dev/web/serve.ts");

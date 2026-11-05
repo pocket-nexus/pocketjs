@@ -1,7 +1,7 @@
 // framework/compiler/bake-svg.ts — tiny offline SVG rasterizer for baked UI icons.
 //
 // This is deliberately scoped to the assets we want to ship in pak today:
-// pow2-sized SVGs containing filled <circle> and axis-aligned <rect>
+// SVGs containing filled <circle> and axis-aligned <rect>
 // elements, composited in document order. Edges are supersampled before
 // being written as straight-alpha RGBA, so icons keep subpixel coverage on
 // both the wasm rasterizer and the PSP texture path.
@@ -12,6 +12,7 @@
 // animation (scale the mask up and the hole grows).
 
 import type { DecodedImage } from "./pak.ts";
+import { TEX_MAX_DIM } from "../../contracts/spec/spec.ts";
 
 export const SVG_SUPERSAMPLE = 4;
 
@@ -19,7 +20,8 @@ interface Circle {
   kind: "circle";
   cx: number;
   cy: number;
-  r: number;
+  rx: number;
+  ry: number;
   hole: boolean;
   rgba: [number, number, number, number];
 }
@@ -320,8 +322,18 @@ export function bakeSvg(svg: string, rasterDensity = 1): DecodedImage {
   if (logicalWidth <= 0 || logicalHeight <= 0) {
     throw new Error(`svg bake: bad dimensions ${logicalWidth}x${logicalHeight}`);
   }
-  const width = logicalWidth * rasterDensity;
-  const height = logicalHeight * rasterDensity;
+  const requestedWidth = logicalWidth * rasterDensity;
+  const requestedHeight = logicalHeight * rasterDensity;
+  if (requestedWidth > TEX_MAX_DIM || requestedHeight > TEX_MAX_DIM) {
+    throw new RangeError(
+      `svg bake: requested raster ${requestedWidth}x${requestedHeight} exceeds texture limit ${TEX_MAX_DIM}`,
+    );
+  }
+  // Textures use full UV bounds. Rasterize the whole viewBox into the next
+  // power of two instead of adding transparent padding, which would shrink
+  // the artwork when the texture is mapped onto its logical layout bounds.
+  const width = 2 ** Math.ceil(Math.log2(requestedWidth));
+  const height = 2 ** Math.ceil(Math.log2(requestedHeight));
   const viewBox = (root.viewBox ?? `0 0 ${logicalWidth} ${logicalHeight}`).trim().split(/\s+/).map(Number);
   if (viewBox.length !== 4 || viewBox.some((n) => !Number.isFinite(n))) {
     throw new Error(`svg bake: invalid viewBox="${root.viewBox}"`);
@@ -391,11 +403,16 @@ export function bakeSvg(svg: string, rasterDensity = 1): DecodedImage {
     const op = parseOpacity(a.opacity) * parseOpacity(a["fill-opacity"]);
     rgba[3] = Math.round(rgba[3] * op);
     if (tag === "circle") {
+      // Preserve the requested raster's circle geometry when the two storage
+      // axes expand by different amounts. Mapping full UVs back to the same
+      // logical bounds cancels this storage-space ellipse.
+      const radius = num(a.r, "r") * Math.min(requestedWidth / vbW, requestedHeight / vbH);
       shapes.push({
         kind: "circle",
         cx: (num(a.cx, "cx") - vbX) * sx,
         cy: (num(a.cy, "cy") - vbY) * sy,
-        r: num(a.r, "r") * Math.min(sx, sy),
+        rx: radius * (width / requestedWidth),
+        ry: radius * (height / requestedHeight),
         hole,
         rgba,
       });
@@ -419,7 +436,7 @@ export function bakeSvg(svg: string, rasterDensity = 1): DecodedImage {
   for (const s of shapes) {
     const [bx0, by0, bx1, by1] =
       s.kind === "circle"
-        ? [s.cx - s.r - 1, s.cy - s.r - 1, s.cx + s.r + 1, s.cy + s.r + 1]
+        ? [s.cx - s.rx - 1, s.cy - s.ry - 1, s.cx + s.rx + 1, s.cy + s.ry + 1]
         : s.kind === "rect"
           ? [s.x - 1, s.y - 1, s.x + s.w + 1, s.y + s.h + 1]
           : [s.bbox[0] - 1, s.bbox[1] - 1, s.bbox[2] + 1, s.bbox[3] + 1];
@@ -431,14 +448,18 @@ export function bakeSvg(svg: string, rasterDensity = 1): DecodedImage {
       for (let x = x0; x < x1; x++) {
         let covered = 0;
         if (s.kind === "circle") {
-          const rr = s.r * s.r;
+          const rr = s.rx * s.rx;
           for (let yy = 0; yy < ss; yy++) {
             const py = y + (yy + 0.5) / ss;
             for (let xx = 0; xx < ss; xx++) {
               const px = x + (xx + 0.5) / ss;
               const dx = px - s.cx;
               const dy = py - s.cy;
-              if (dx * dx + dy * dy <= rr) covered++;
+              // Keep the original arithmetic for equal scales so existing
+              // power-of-two bakes retain their exact coverage bytes.
+              if (s.rx === s.ry
+                ? dx * dx + dy * dy <= rr
+                : (dx / s.rx) ** 2 + (dy / s.ry) ** 2 <= 1) covered++;
             }
           }
         } else if (s.kind === "rect") {

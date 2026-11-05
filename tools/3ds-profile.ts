@@ -1,3 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { targetProfile } from "../hosts/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -5,6 +8,7 @@ import {
 } from "../contracts/spec/platforms.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+const softwareProfile = POCKET_PROFILES["3ds-dev"];
 
 /**
  * Transitional Nintendo 3DS profile used only by `bun run 3ds`.
@@ -17,42 +21,15 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * are native at density 1. The resistive panel reports contacts only through
  * input.touch.auxiliary.
  */
-export const THREE_DS_DEV_TARGET_ID = "3ds-dev";
-export const THREE_DS_DEV_HOST_ABI = 10;
-export const THREE_DS_VIEWPORT = [400, 240] as const;
-export const THREE_DS_AUXILIARY_VIEWPORT = [320, 240] as const;
+export const THREE_DS_DEV_TARGET_ID = softwareProfile.id;
+export const THREE_DS_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
+export const THREE_DS_VIEWPORT = softwareProfile.display.logicalViewports[0];
+export const THREE_DS_AUXILIARY_VIEWPORT = softwareProfile.display.auxiliary!.logicalViewports[0];
 
 export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [THREE_DS_DEV_TARGET_ID]: {
-      hostAbi: THREE_DS_DEV_HOST_ABI,
-      platform: "3ds",
-      form: "takeover",
-      display: {
-        physicalViewport: THREE_DS_VIEWPORT,
-        logicalViewports: [THREE_DS_VIEWPORT],
-        presentations: ["native"],
-        rasterDensity: 1,
-        auxiliary: {
-          physicalViewport: THREE_DS_AUXILIARY_VIEWPORT,
-          logicalViewports: [THREE_DS_AUXILIARY_VIEWPORT],
-          presentations: ["native"],
-          rasterDensity: 1,
-        },
-      },
-      capabilities: [
-        "io.offload",
-        "media.playback",
-        "input.analog.left",
-        "input.analog.right",
-        "input.buttons",
-        "input.cursor",
-        "input.touch.auxiliary",
-        "display.auxiliary",
-        "text.glyphs.baked",
-      ],
-    },
+    [THREE_DS_DEV_TARGET_ID]: targetProfile(softwareProfile),
   }),
 );
 

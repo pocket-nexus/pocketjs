@@ -1,8 +1,8 @@
 import { Show } from "solid-js";
-import { ActionHandler, AxisHandler, For, Text, View } from "@pocketjs/framework/solid/components";
+import { ActionHandler, AxisHandler, For, MotionHandler, Text, View } from "@pocketjs/framework/solid/components";
 import { onCleanup, onMount } from "@pocketjs/framework/solid/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
-import { rows, open, setOpen, late, live, angle, removeNext, load, release, replace, reverse, rename, record, event, remove, armRemoval, restore, adjust } from "./App";
+import { rows, open, setOpen, late, live, angle, removeNext, load, release, replace, reverse, rename, record, event, remove, armRemoval, restore, adjust, upright, spin } from "./App";
 import Row from "./Row.tsx";
 export default function App() {
   onMount(() => load());
@@ -18,11 +18,14 @@ export default function App() {
     <ActionHandler button={BTN.RTRIGGER} onPress={() => restore()} />
     <ActionHandler button={BTN.CROSS} active={removeNext()} onPress={() => remove()} />
     <AxisHandler axis="primary" onDelta={(delta) => adjust(delta)} />
+    <MotionHandler value="screenRotation" minQuality="medium" onUpdate={(degrees, quality, timestamp) => upright(degrees, quality, timestamp)} />
+    <MotionHandler value="rotationRate" minQuality="high" onUpdate={spin} />
     <Show when={late()}><Row label="late" /></Show>
     <Show when={open()}><Row label="branch" /></Show>
     <For each={rows()} by={(item) => item.id}>{(item, index) => <View>
       <Text>{index()}:{item().id}</Text>
       <ActionHandler button={BTN.SQUARE} onPress={() => record(item().label)} />
+      <MotionHandler value="tilt" onUpdate={() => record(`tilt:${item().label}`)} />
       <ActionHandler button={BTN.CROSS} onPress={() => { rename(item().id); record(item().label); }} />
       <ActionHandler button={BTN.CROSS} onPress={() => record(item().label)} />
       <Row label={item().label} onSaved={(value) => { event(value); record(value); record(value); }} />

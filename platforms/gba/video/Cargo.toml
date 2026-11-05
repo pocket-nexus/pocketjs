@@ -1,0 +1,10 @@
+[package]
+name = "pocket-gba-video"
+edition = "2021"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "GBA Mode 0 tile and sprite hardware presenter"
+
+[dependencies]

@@ -9,7 +9,7 @@ The Sony PSP has WiFi. It is 802.11b, it tops out around 100 KB/s on a good day,
 
 But look at the machine sitting next to it. During development, a PSP is tethered to a laptop anyway — [PSPLINK](https://github.com/pspdev/psplinkusb) mounts a directory of your machine as the device's `host0:` drive over USB 2.0. That cable moves about a megabyte per second of file I/O. A megabyte per second is not much by any modern standard, and it is also, if you are careful, *exactly enough to stream video*.
 
-So that became the project: **YouTube on the PSP, where the network is a USB cable.** Search with an on-screen keyboard, browse real results — thumbnails, Chinese titles, view counts — pick one, and watch it, with sound, with pause and seek, on 2004 hardware. A Mac companion process owns everything the PSP cannot do (DNS, TLS, yt-dlp, H.264), and the handheld owns everything it *can*: a 60 Hz UI, a texture, and an audio ring. If you are new here, the device side is [PocketJS](/blog/introducing-pocketjs/) — our runtime that runs real Solid JSX on the PSP — and this app is one more entry in its [growing](/blog/shipping-openstrike/) [family](/blog/pocket-figma/) of proofs, merged as [#113](https://github.com/pocket-stack/pocketjs/pull/113).
+So that became the project: **YouTube on the PSP, where the network is a USB cable.** Search with an on-screen keyboard, browse real results — thumbnails, Chinese titles, view counts — pick one, and watch it, with sound, with pause and seek, on 2004 hardware. A Mac companion process owns everything the PSP cannot do (DNS, TLS, yt-dlp, H.264), and the handheld owns everything it *can*: a 60 Hz UI, a texture, and an audio ring. If you are new here, the device side is [PocketJS](/blog/introducing-pocketjs/) — our runtime that runs real Solid JSX on the PSP — and this app is one more entry in its [growing](/blog/shipping-openstrike/) [family](/blog/pocket-figma/) of proofs, merged as [#113](https://github.com/pocket-nexus/pocketjs/pull/113).
 
 This post is the whole story: a stream container you can `ls`, a 256-color video plane, an audio thread with no allocator, and the three bugs — a GPU race, a leaked hardware channel, a build system that lied — that only a real device would ever have shown us.
 
@@ -291,4 +291,4 @@ The device never parses the world. It just plays whatever the world writes into 
 
 ---
 
-*Pocket YouTube is open source at [pocket-stack/pocket-youtube](https://github.com/pocket-stack/pocket-youtube), host service included — a PSP, a USB cable, and `bun run serve` away. Follow [@pocket_js](https://x.com/pocket_js) for what the Media Engine says back.*
+*Pocket YouTube is open source at [pocket-nexus/pocket-youtube](https://github.com/pocket-nexus/pocket-youtube), host service included — a PSP, a USB cable, and `bun run serve` away. Follow [@pocket_js](https://x.com/pocket_js) for what the Media Engine says back.*

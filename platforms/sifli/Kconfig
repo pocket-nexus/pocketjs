@@ -1,0 +1,122 @@
+menuconfig POCKETJS
+    bool "PocketJS runtime and SiFli platform"
+    default n
+    help
+      Link one PocketJS Rust archive and the RT-Thread host hooks. The
+      program's main registers each selected driver with its runtime
+      instance. Viewport, scale, density and tick rate come from the exported
+      profile (pocket_profile.h).
+
+if POCKETJS
+
+config POCKETJS_HEAP_KB
+    int "Shared Rust and QuickJS heap in cached PSRAM (KB)"
+    default 7168
+
+config POCKETJS_MPU_OVERRIDE
+    bool "SF32LB58x MPU table: PSRAM1 cached, PSRAM2 non-cacheable"
+    default n
+    help
+      Replaces the SDK's weak mpu_config. The framebuffers live in PSRAM2;
+      marking that window normal non-cacheable at startup lets EPIC and the
+      LCD controller read them without cache maintenance. Adding the region
+      after the SDK table is live raises DACCVIOL on the first framebuffer
+      write. The chip is a compiler define, not a Kconfig symbol: mpu.c
+      refuses chips other than SF32LB58x.
+
+config POCKETJS_RUST_FROM_SOURCE
+    bool "Build programs/sifli/archive with cargo"
+    default n
+    help
+      Runs cargo for thumbv8m.main-none-eabihf with the toolchain pinned in
+      rust-toolchain.toml. Without it, POCKET_RUNTIME_ARCHIVE names a
+      prebuilt libpocket_sifli_runtime.a.
+
+config POCKETJS_DISPLAY
+    bool "Framebuffer ring over the RT-Thread LCD device"
+    default y
+    depends on BSP_USING_LCD
+
+config POCKETJS_INPUT_KEYS
+    bool "Board keys as PocketJS buttons"
+    default y
+    depends on RT_USING_PIN
+
+config POCKETJS_INPUT_TOUCH
+    bool "Touch contacts"
+    default y
+    depends on BSP_USING_TOUCHD
+
+config POCKETJS_GUEST_QUICKJS
+    bool "Generated QuickJS guest"
+    default y
+    depends on PKG_USING_QUICKJS
+
+config POCKETJS_QUICKJS_BELLARD
+    bool "The SDK's QuickJS is Bellard's engine"
+    default y
+    depends on POCKETJS_GUEST_QUICKJS
+    help
+      Selects the JSMallocState allocator and JS_BOOL rejection tracker
+      signatures and defines POCKET_QJS_BELLARD for the generated guest.
+      Turn off for a QuickJS-NG package.
+
+config POCKETJS_RUNNER
+    bool "Runner thread"
+    default y
+
+menuconfig POCKETJS_EPIC
+    bool "EPIC executor for the PocketJS renderer"
+    default y
+    depends on BF0_HCPU && !BSP_USING_EPIC
+    help
+      Owns EPIC_IRQHandler; keep the SDK's drv_epic (BSP_USING_EPIC) and
+      LVGL out of the build.
+
+if POCKETJS_EPIC
+
+config POCKETJS_EPIC_MASK_TILE_KB
+    int "A8 plane per slot (KB, two slots in SRAM)"
+    default 64
+    range 4 512
+
+config POCKETJS_EPIC_CPU_TILE_KB
+    int "RGB565 fallback tile per slot (KB, two slots in SRAM)"
+    default 64
+    range 4 512
+
+config POCKETJS_EPIC_MAX_TEXTURES
+    int "Registered textures"
+    default 32
+    range 1 256
+
+config POCKETJS_EPIC_MIN_PIXELS
+    int "Smallest rectangle (physical pixels) worth a hardware transaction"
+    default 64
+    range 1 1048576
+
+config POCKETJS_EPIC_VGLITE
+    bool "VG Lite for quads, tinted and portable-layout blits (SF32LB58)"
+    default y
+    depends on USING_VGLITE
+    help
+      A second engine for what EPIC cannot run on 58x: four-point texture
+      quads, RGB-modulated blits and textures in PocketJS portable layouts.
+      A command for the other engine drains the one in use; the profile
+      counts the switches.
+
+config POCKETJS_EPIC_VGLITE_POOL_KB
+    int "VG Lite contiguous pool in SRAM (KB)"
+    default 320
+    range 128 1024
+    depends on POCKETJS_EPIC_VGLITE
+
+config POCKETJS_EPIC_VGLITE_CMD_KB
+    int "VG Lite command buffer (KB, two come from the pool)"
+    default 64
+    range 16 256
+    depends on POCKETJS_EPIC_VGLITE
+
+endif
+
+endif

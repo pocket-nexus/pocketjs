@@ -1,6 +1,6 @@
 /** Build the test-only event sender after `bun ipodtouch4 build`. */
 import { resolve, join } from "node:path";
-import { ipodtouch4SysrootPath } from "../ipodtouch4-toolchain.ts";
+import { ipodtouch4SysrootPath } from "../build/toolchains/ipodtouch4.ts";
 const root = resolve(import.meta.dir, "../..");
 const directory = join(root, ".pocket-build/ipodtouch4/clear/runtime");
 const output = join(root, ".pocket-build/pocket-ime-gstap");

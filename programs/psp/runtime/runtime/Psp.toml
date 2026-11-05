@@ -1,0 +1,4 @@
+# XMB metadata for the generic PSP runtime (tools/psp.ts --runtime). A
+# repacked game replaces PARAM.SFO and ICON0 (tools/repack/psp.ts); this
+# title shows only for the runtime on its own.
+title = "PocketJS Runtime"

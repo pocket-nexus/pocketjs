@@ -1,7 +1,9 @@
 /** Executable JS lowering of the Model IR. No interpreter or Promise runs in this class. */
-import type { ModelAwaitable, ModelBlock, ModelExpr, ModelFunction, ModelModule, ModelProgram, ModelStmt } from "./aot-model-ir.ts";
+import type { ModelAwaitable, ModelBlock, ModelExpr, ModelFunction, ModelModule, ModelPathStep, ModelProgram, ModelStmt, ModelTarget } from "./aot-model-ir.ts";
+import { readFileSync } from "node:fs";
 import { checkModelVersion } from "./aot-model-ir.ts";
 import { assertModelProgram } from "./aot-model-tasks.ts";
+import { MICROTS_NUMERIC_TYPES } from "../../contracts/spec/microts.ts";
 
 export interface ModelJsOptions { vue?: boolean; development?: boolean; runtimeImport?: string; stdImport?: string; tasksImport?: string; reservedNames?: string[] }
 export function generateModelJavaScript(program: ModelProgram, module: ModelModule = program.modules[0]!, options: ModelJsOptions = {}): string {
@@ -16,6 +18,7 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
     const declaration = type.kind === "named" && program.types.find(d => d.name === type.name);
     return declaration && declaration.kind === "newtype" ? baseType(declaration.base) : type;
   };
+  const integer = (type: ModelExpr["type"]): boolean => { const base = baseType(type); return base.kind === "number" && !base.name.startsWith("f"); };
   const colorType = (type: ModelExpr["type"]): boolean => type.kind === "named" && program.types.some(d => d.name === type.name && d.kind === "newtype" && d.unit === "Color");
   const publicNames = new Set([...(options.reservedNames ?? []), module.factory, ...module.signals.flatMap(s => [s.name, s.setter]), ...module.memos.map(m => m.name), ...module.functions.map(f => f.name), ...(module.constants ?? []).map(c => c.name), ...module.refs.map(r => r.name), ...program.types.map(t => t.name)]);
   let prefix = "__pocketModel"; while ([...publicNames].some(name => name?.startsWith(prefix))) prefix += "_";
@@ -27,6 +30,25 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
   let lambdaLocals = new Set<number>();
   const local = (id: number) => taskBody && !lambdaLocals.has(id) ? `__locals[${id}]` : `v${id}`;
   let capacityContext = "value";
+  const constants = new Map<number, ModelExpr>(), continued = new Set<number>();
+  const collect = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(collect); return; }
+    const node = value as { kind?: string; id?: number; loop?: number; value?: ModelExpr };
+    if (node.kind === "constant" && node.id !== undefined && node.value) constants.set(node.id, node.value);
+    if (node.kind === "continue" && node.loop !== undefined) continued.add(node.loop);
+    for (const [key, child] of Object.entries(value)) if (!["loc", "ledger", "type"].includes(key)) collect(child);
+  };
+  collect(program.modules);
+  const bodyLabels = new Set<number>();
+  /** Reads a place without copying; undefined when an index is out of range. */
+  const place = (target: ModelTarget, steps: ModelPathStep[]): string => {
+    const root = target.kind === "path" ? target.root : target.kind === "element" || target.kind === "member" ? { kind: "local" as const, id: target.owner } : { kind: target.kind, id: target.id };
+    let value = root.kind === "field" ? `__fields[${root.id}]` : local(root.id);
+    for (const step of steps) value = step.kind === "member" ? `(${value})?.[${q(step.name)}]` : `((a,i)=>a!==undefined&&Number.isInteger(i)&&i>=0&&i<a.length?a[i]:undefined)(${value},${expr(step.index)})`;
+    return value;
+  };
+  const steps = (target: ModelTarget): ModelPathStep[] => target.kind === "path" ? target.steps : target.kind === "element" ? [{ kind: "index", index: target.index }] : target.kind === "member" ? [{ kind: "member", name: target.name }] : [];
   const expr = (e: ModelExpr, context?: string): string => {
     const before = capacityContext; if (context) capacityContext = context;
     try {
@@ -50,7 +72,12 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
       case "cast": return numeric(expr(e.value), e.type);
       case "unary": return numeric(`(${e.operator}${expr(e.operand)})`, e.type);
       case "binary": {
-        if (e.operator === "*" && e.type.kind === "number" && e.type.name === "i32") return `Math.imul(${expr(e.left)}, ${expr(e.right)})`;
+        // Newtypes compute in their base number type.
+        const base = baseType(e.type);
+        if (e.operator === "*" && base.kind === "number" && base.name === "i32") return numeric(`Math.imul(${expr(e.left)}, ${expr(e.right)})`, e.type);
+        if (e.operator === ">>>" && base.kind === "number" && ["i8", "u8", "i16", "u16"].includes(base.name)) return numeric(`((${expr(e.left)} & ${base.name.endsWith("8") ? 255 : 65535}) >>> ${expr(e.right)})`, e.type);
+        // An integer remainder by zero is zero, as in Rust.
+        if (e.operator === "%" && integer(e.type)) return numeric(`${stdAlias}.imod(${expr(e.left)}, ${expr(e.right)})`, e.type);
         return numeric(`(${expr(e.left)} ${e.operator} ${expr(e.right)})`, e.type);
       }
       case "conditional": return `(${expr(e.condition)} ? ${expr(e.consequent)} : ${expr(e.alternate)})`;
@@ -58,7 +85,11 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
       case "struct": return `({${e.fields.map(field => `${q(field.name)}: ${expr(field.value)}`).join(", ")}})`;
       case "array": return `[${e.items.map(value => expr(value)).join(", ")}]`;
       case "invoke": return `f${e.callee}(${e.args.map(arg => `${stdAlias}.copy(${expr(arg)})`).join(", ")})`;
-      case "builtin": return numeric(`${["String", "Number", "Boolean"].includes(e.name) ? e.name : `${stdAlias}.${e.name}`}(${e.args.map(value => expr(value)).join(", ")})`, e.type);
+      case "builtin":
+        if (e.name === "embedBytes") return q([...readFileSync(String((e.args[0] as Extract<ModelExpr, { kind: "literal" }>).value))]);
+        // Conversions follow the argument's static type: a float saturates, an integer wraps.
+        if ((MICROTS_NUMERIC_TYPES as readonly string[]).includes(e.name)) return numeric(`${stdAlias}.__convert(${expr(e.args[0]!)},${q(e.name)},${!integer(e.args[0]!.type)})`, e.type);
+        return numeric(`${["String", "Number", "Boolean"].includes(e.name) ? e.name : `${stdAlias}.${e.name}`}(${e.args.map(value => expr(value)).join(", ")})`, e.type);
       case "lambda": {
         const outer = lambdaLocals; lambdaLocals = new Set([...outer, ...e.params.map(p => p.id)]);
         const collect = (value: any): void => { if (!value || typeof value !== "object") return; if (value.binder) lambdaLocals.add(value.binder.id); for (const [key, child] of Object.entries(value)) if (!["loc", "type", "ledger"].includes(key)) { if (Array.isArray(child)) child.forEach(collect); else collect(child); } };
@@ -67,6 +98,17 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
         lambdaDepth--; lambdaLocals = outer; return value;
       }
       case "sequence": return `(() => {${block(e.body)}return ${expr(e.value)};})()`;
+      case "constant": return `${stdAlias}.copy(__c${e.id})`;
+      case "mutate": {
+        // As in Rust and the interpreter, the arguments run first and the target place is read
+        // after them; a missing target then skips the change.
+        const missing = defaultValue(e.type), params = e.args.map((_, index) => `__a${index}`);
+        const values = e.args.map(value => e.op === "removeAt" ? expr(value) : `${stdAlias}.copy(${expr(value)})`);
+        const call = e.op === "removeAt" ? `(__a0>=0&&__a0<__t.length?__t.splice(__a0,1)[0]:${missing})` : e.op === "pop" ? `(__t.length?__t.pop():${missing})` : `${stdAlias}.${e.op}(__t,${params.join(",")})`;
+        // A change below a field reaches guest views through the field revision.
+        const field = e.target.kind === "field" || e.target.kind === "path" && e.target.root.kind === "field";
+        return `((${params.join(",")})=>{const __t=${place(e.target, steps(e.target))};if(__t===undefined)return ${missing};${field ? `const __v=${call};__r.fieldChanged();return __v;` : `return ${call};`}})(${values.join(",")})`;
+      }
     }
   };
   function defaultValue(type: ModelExpr["type"]): string {
@@ -117,12 +159,26 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
         const target = s.target;
         if (target.kind === "field") return `__fields[${target.id}] = ${stdAlias}.copy(${expr(s.value)});__r.fieldChanged();`;
         if (target.kind === "element") return `{const __index=${expr(target.index)};const __value=${stdAlias}.copy(${expr(s.value)});if(Number.isInteger(__index)&&__index>=0&&__index<${local(target.owner)}.length)${local(target.owner)}[__index]=__value;}`;
+        if (target.kind === "path") {
+          const last = target.steps.at(-1)!;
+          // The value runs before the owner is read, as in Rust and the interpreter.
+          return `{const __value=${stdAlias}.copy(${expr(s.value)});const __owner=${place(target, target.steps.slice(0, -1))};${last.kind === "index" ? `const __index=${expr(last.index)};` : ""}${last.kind === "member" ? `if(__owner!==undefined)__owner[${q(last.name)}]=__value;` : "if(__owner!==undefined&&Number.isInteger(__index)&&__index>=0&&__index<__owner.length)__owner[__index]=__value;"}${target.root.kind === "field" ? "__r.fieldChanged();" : ""}}`;
+        }
         return `${"id" in target ? target.kind === "local" ? local(target.id) : `__fields[${target.id}]` : `${local(target.owner)}[${q(target.name)}]`} = ${stdAlias}.copy(${expr(s.value)});`;
       }
       case "set": return `{${s.pre ? `${taskBody ? "" : "const "}${local(s.pre.id)} = __r.read(${s.signal});` : ""}__r.write(${s.signal}, ${expr(s.value, module.signals.find(signal => signal.id === s.signal)?.name)}, ${!!s.writeBack});}`;
       case "if": return `if (${expr(s.condition)}) {${block(s.then)}}${s.else ? ` else {${block(s.else)}}` : ""}`;
-      case "for": { const n = `__bound${temporary++}`, start = `__start${temporary++}`; return `{const ${start} = ${s.start ? expr(s.start) : 0};const ${n} = ${expr(s.bound)};for (${taskBody ? "" : "let "}${local(s.binder.id)} = ${start}; ${local(s.binder.id)} ${s.inclusive ? "<=" : "<"} ${n}; ${local(s.binder.id)}++) {${block(s.body)}}}`; }
-      case "forOf": return `for (${taskBody ? "" : "const "}${local(s.binder.id)} of ${expr(s.source)}) {${block(s.body)}}`;
+      case "for": { const n = `__bound${temporary++}`, start = `__start${temporary++}`; return `{const ${start} = ${s.start ? expr(s.start) : 0};const ${n} = ${expr(s.bound)};${s.loop !== undefined ? `L${s.loop}: ` : ""}for (${taskBody ? "" : "let "}${local(s.binder.id)} = ${start}; ${local(s.binder.id)} ${s.inclusive ? "<=" : "<"} ${n}; ${local(s.binder.id)}++) {${block(s.body)}}}`; }
+      // The loop reads a copy of its source, so the body may change the array.
+      case "forOf": return `${s.loop !== undefined ? `L${s.loop}: ` : ""}for (${taskBody ? "" : "const "}${local(s.binder.id)} of ${stdAlias}.copy(${expr(s.source)})) {${block(s.body)}}`;
+      case "while": {
+        if (s.post) return `L${s.loop}: do {${block(s.body)}} while (${expr(s.condition)});`;
+        const labeled = !!s.update && continued.has(s.loop);
+        if (labeled) bodyLabels.add(s.loop);
+        return `L${s.loop}: while (${expr(s.condition)}) {${labeled ? `B${s.loop}: {${block(s.body)}}` : block(s.body)}${s.update ? block(s.update) : ""}}`;
+      }
+      case "break": return `break L${s.loop};`;
+      case "continue": return bodyLabels.has(s.loop) ? `break B${s.loop};` : `continue L${s.loop};`;
       case "switch": return `switch (${expr(s.value)}) {${s.cases.map(c => `${c.value ? `case ${expr(c.value)}` : "default"}: {${block(c.body)}break;}`).join("\n")}}`;
       case "return": return taskBody && !lambdaDepth ? `return {done:true,result:${s.value ? expr(s.value) : "undefined"}};` : `return ${s.value ? `${stdAlias}.copy(${expr(s.value)})` : ""};`;
       case "call": case "start": return `f${s.kind === "call" ? s.callee : s.task}(${s.args.map(arg => `${stdAlias}.copy(${expr(arg)})`).join(",")});`;
@@ -154,6 +210,7 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
   const setup = [
     `const __r = ${regionAlias}(${options.development !== false}, ${program.recursionLimit ?? 256});`,
     `const __tasks = new ${tasksAlias}(__r); const __fields = {};`,
+    ...[...constants].map(([id, value]) => `const __c${id} = ${expr(value)};`),
     ...module.fields.map(field => `__fields[${field.id}] = ${expr(field.seed, field.name)};__r.fields.set(${q(field.name)},()=>__fields[${field.id}]);`),
     ...module.refs.map(ref => `__r.refs.set(${q(ref.name)},${refAlias}());`),
     ...module.signals.map(signal => `__r.signal(${signal.id},${q(signal.name)},${expr(signal.seed, signal.name)},${signal.capacity ?? ("capacity" in signal.type ? signal.type.capacity : undefined) ?? "undefined"},${scalar(signal.type)});`),

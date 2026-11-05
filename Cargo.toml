@@ -1,0 +1,321 @@
+# One dependency graph and lock file for all PocketJS mechanisms and programs.
+# Cross targets are selected by program recipes; cargo test uses portable defaults.
+[workspace]
+resolver = "2"
+members = [
+    "platforms/gba/video",
+    "platforms/posix/svc-wire",
+    "platforms/rockbox/input",
+    "platforms/psp/alloc",
+    "platforms/psp/quickjs-alloc",
+    "platforms/psp/audio",
+    "platforms/psp/display",
+    "platforms/psp/system",
+    "platforms/psp/input",
+    "platforms/psp/io",
+    "platforms/vita/audio",
+    "platforms/vita/input",
+    "platforms/vita/net",
+    "platforms/vita/io",
+    "platforms/vita/system",
+
+    "apps/solid-aot-lab",
+    "apps/vue-sfc-lab",
+    "devices/gles/pocket-gles",
+    "devices/gles/pocket-gles1",
+    "devices/gles/pocket-gles2",
+    "devices/psp/pocket-psp-ge",
+    "devices/psp/pocket-psp-render",
+    "devices/vita/pocket-vita-gxm",
+    "devices/vita/pocket-vita-render",
+    "devices/wgpu/pocket-wgpu-render",
+    "engine/pocket3d/crates/pocket-web-wgpu",
+    "programs/desktop/gpui",
+    "engine/core",
+    "engine/microts-runtime",
+    "engine/mod",
+    "engine/sim",
+    "engine/text",
+    "engine/ui-surface",
+    "engine/ui-wgpu",
+    "engine/vrm",
+    "engine/widget",
+    "engine/drivers",
+    "engine/driver-kit",
+    "engine/guest-rquickjs",
+    "platforms/apple",
+    "engine/modules/media",
+    "engine/package",
+    "engine/physics",
+    "engine/pocket3d/crates/pocket3d",
+    "engine/pocket3d/crates/pocket3d-anim",
+    "engine/pocket3d/crates/pocket3d-mesh",
+    "engine/pocket3d/crates/pocket3d-packs",
+    "engine/pocket3d/crates/pocket3d-title",
+    "engine/pocket3d/crates/pocket3d-world",
+    "engine/pocket3d/examples/handheld",
+    "engine/pocket3d/examples/note-widget",
+    "engine/pocket3d/examples/uihost",
+    "engine/present",
+    "engine/profile-build",
+    "engine/raster",
+    "engine/relay",
+    "engine/render",
+    "engine/render/draw-ops",
+    "engine/render/glyph-pages",
+    "engine/render/tex-cache",
+    "engine/runtime",
+    "programs/sdk/archive",
+    "engine/spec",
+    "programs/native/runtime",
+    "programs/web/wasm",
+    "products/3ds/core",
+    "programs/desktop",
+    "programs/esp-idf/archive",
+    "programs/gba",
+    "tools/build/gba/bake",
+    "programs/ipodnano",
+    "programs/ipodnano/preview",
+    "programs/psp",
+    "programs/vita",
+    "devices/esp-idf/render-ppa",
+    "devices/sifli/render-epic",
+    "programs/sifli/archive",
+    "platforms/linux/alsa",
+    "platforms/linux/drm",
+    "platforms/linux/evdev",
+    "platforms/linux/fbdev",
+    "platforms/linux/hooks",
+    "platforms/linux/worker",
+    "programs/linux-kms",
+    "programs/rg-ds-plus",
+    "programs/pocketbook",
+]
+default-members = [
+    "platforms/vita/input",
+    "platforms/vita/io",
+    "devices/gles/pocket-gles",
+    "devices/gles/pocket-gles1",
+    "devices/gles/pocket-gles2",
+    "devices/psp/pocket-psp-render",
+    "devices/vita/pocket-vita-render",
+    "devices/wgpu/pocket-wgpu-render",
+    "engine/pocket3d/crates/pocket-web-wgpu",
+    "engine/core",
+    "engine/microts-runtime",
+    "engine/mod",
+    "engine/sim",
+    "engine/text",
+    "engine/ui-surface",
+    "engine/ui-wgpu",
+    "engine/vrm",
+    "engine/widget",
+    "engine/drivers",
+    "engine/driver-kit",
+    "engine/guest-rquickjs",
+    "engine/modules/media",
+    "engine/package",
+    "engine/physics",
+    "engine/pocket3d/crates/pocket3d",
+    "engine/pocket3d/crates/pocket3d-anim",
+    "engine/pocket3d/crates/pocket3d-mesh",
+    "engine/pocket3d/crates/pocket3d-packs",
+    "engine/pocket3d/crates/pocket3d-world",
+    "engine/pocket3d/examples/handheld",
+    "engine/pocket3d/examples/note-widget",
+    "engine/pocket3d/examples/uihost",
+    "engine/present",
+    "engine/profile-build",
+    "engine/raster",
+    "engine/relay",
+    "engine/render",
+    "engine/render/draw-ops",
+    "engine/render/glyph-pages",
+    "engine/render/tex-cache",
+    "engine/runtime",
+    "programs/sdk/archive",
+    "engine/spec",
+    "devices/esp-idf/render-ppa",
+    "devices/sifli/render-epic",
+]
+# Test/fuzzer harnesses keep isolated dependency graphs.
+exclude = [
+    "engine/package/fuzz",
+    "tests/fixtures/psp-runtime",
+    "tests/fixtures/vita-dev",
+    "tests/fixtures/vita-runtime",
+    "tools/bench-desktop/tauri/src-tauri",
+]
+
+[workspace.package]
+version = "0.16.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+
+[workspace.dependencies]
+pocket-vita-system = { path = "platforms/vita/system", version = "0.16.0", default-features = false }
+pocket-vita-io = { path = "platforms/vita/io", version = "0.16.0", default-features = false }
+pocket-vita-net = { path = "platforms/vita/net", version = "0.16.0", default-features = false }
+pocket-vita-input = { path = "platforms/vita/input", version = "0.16.0", default-features = false }
+pocket-vita-audio = { path = "platforms/vita/audio", version = "0.16.0", default-features = false }
+pocket-psp-io = { path = "platforms/psp/io", version = "0.16.0", default-features = false }
+pocket-psp-input = { path = "platforms/psp/input", version = "0.16.0", default-features = false }
+pocket-psp-system = { path = "platforms/psp/system", version = "0.16.0", default-features = false }
+pocket-psp-display = { path = "platforms/psp/display", version = "0.16.0", default-features = false }
+pocket-psp-audio = { path = "platforms/psp/audio", version = "0.16.0", default-features = false }
+pocket-psp-quickjs-alloc = { path = "platforms/psp/quickjs-alloc", version = "0.16.0", default-features = false }
+pocket-psp-alloc = { path = "platforms/psp/alloc", version = "0.16.0", default-features = false }
+pocket-rockbox-input = { path = "platforms/rockbox/input", version = "0.16.0", default-features = false }
+pocket-posix-svc-wire = { path = "platforms/posix/svc-wire", version = "0.16.0", default-features = false }
+pocket-gba-video = { path = "platforms/gba/video", version = "0.16.0", default-features = false }
+microts = { path = "engine/microts-runtime", version = "0.16.0", default-features = false }
+note-widget = { path = "engine/pocket3d/examples/note-widget", version = "0.16.0", default-features = false }
+pocket-apple = { path = "platforms/apple", version = "0.16.0", default-features = false }
+pocket-desktop-host = { path = "programs/desktop", version = "0.16.0", default-features = false }
+pocket-draw-ops = { path = "engine/render/draw-ops", version = "0.16.0", default-features = false }
+pocket-drivers = { path = "engine/drivers", version = "0.16.0", default-features = false }
+pocket-driver-kit = { path = "engine/driver-kit", version = "0.16.0", default-features = false }
+pocket-gles = { path = "devices/gles/pocket-gles", version = "0.16.0", default-features = false }
+pocket-gles1 = { path = "devices/gles/pocket-gles1", version = "0.16.0", default-features = false }
+pocket-gles2 = { path = "devices/gles/pocket-gles2", version = "0.16.0", default-features = false }
+pocket-glyph-pages = { path = "engine/render/glyph-pages", version = "0.16.0", default-features = false }
+pocket-guest-rquickjs = { path = "engine/guest-rquickjs", version = "0.16.0", default-features = false }
+pocket-idf-runtime = { path = "programs/esp-idf/archive", version = "0.16.0", default-features = false }
+pocket-linux-alsa = { path = "platforms/linux/alsa", version = "0.16.0", default-features = false }
+pocket-linux-drm = { path = "platforms/linux/drm", version = "0.16.0", default-features = false }
+pocket-linux-evdev = { path = "platforms/linux/evdev", version = "0.16.0", default-features = false }
+pocket-linux-fbdev = { path = "platforms/linux/fbdev", version = "0.16.0", default-features = false }
+pocket-linux-hooks = { path = "platforms/linux/hooks", version = "0.16.0", default-features = false }
+pocket-linux-worker = { path = "platforms/linux/worker", version = "0.16.0", default-features = false }
+pocket-linux-kms = { path = "programs/linux-kms", version = "0.16.0", default-features = false }
+pocket-rg-ds-plus = { path = "programs/rg-ds-plus", version = "0.16.0", default-features = false }
+pocketbook-host = { path = "programs/pocketbook", version = "0.16.0", default-features = false }
+pocket-media = { path = "engine/modules/media", version = "0.16.0", default-features = false }
+pocket-mod = { path = "engine/mod", version = "0.16.0", default-features = false }
+pocket-relay = { path = "engine/relay", version = "0.16.0", default-features = false }
+pocket-package = { path = "engine/package", version = "0.16.0", default-features = false }
+pocket-physics = { path = "engine/physics", version = "0.16.0", default-features = false }
+pocket-present = { path = "engine/present", version = "0.16.0", default-features = false }
+pocket-profile-build = { path = "engine/profile-build", version = "0.16.0", default-features = false }
+pocket-psp-ge = { path = "devices/psp/pocket-psp-ge", version = "0.16.0", default-features = false }
+pocket-psp-render = { path = "devices/psp/pocket-psp-render", version = "0.16.0", default-features = false }
+pocket-raster = { path = "engine/raster", version = "0.16.0", default-features = false }
+pocket-render = { path = "engine/render", version = "0.16.0", default-features = false }
+pocket-render-esp-ppa = { path = "devices/esp-idf/render-ppa", version = "0.16.0", default-features = false }
+pocket-render-sifli-epic = { path = "devices/sifli/render-epic", version = "0.16.0", default-features = false }
+pocket-runtime = { path = "engine/runtime", version = "0.16.0", default-features = false }
+pocket-archive = { path = "programs/sdk/archive", version = "0.16.0", default-features = false }
+pocket-sifli-runtime = { path = "programs/sifli/archive", version = "0.16.0", default-features = false }
+pocket-sim = { path = "engine/sim", version = "0.16.0", default-features = false }
+pocket-solid-aot-lab = { path = "apps/solid-aot-lab", version = "0.16.0", default-features = false }
+pocket-spec = { path = "engine/spec", version = "0.16.0", default-features = false }
+pocket-stage = { path = "engine/pocket3d/examples/handheld", version = "0.16.0", default-features = false }
+pocket-tex-cache = { path = "engine/render/tex-cache", version = "0.16.0", default-features = false }
+pocket-text = { path = "engine/text", version = "0.16.0", default-features = false }
+pocket-ui-gpui = { path = "programs/desktop/gpui", version = "0.16.0", default-features = false }
+pocket-ui-surface = { path = "engine/ui-surface", version = "0.16.0", default-features = false }
+pocket-ui-wgpu = { path = "engine/ui-wgpu", version = "0.16.0", default-features = false }
+pocket-vita-gxm = { path = "devices/vita/pocket-vita-gxm", version = "0.16.0", default-features = false }
+pocket-vita-render = { path = "devices/vita/pocket-vita-render", version = "0.16.0", default-features = false }
+pocket-vrm = { path = "engine/vrm", version = "0.16.0", default-features = false }
+pocket-vue-sfc-lab = { path = "apps/vue-sfc-lab", version = "0.16.0", default-features = false }
+pocket-wgpu-render = { path = "devices/wgpu/pocket-wgpu-render", version = "0.16.0", default-features = false }
+pocket-web-wgpu = { path = "engine/pocket3d/crates/pocket-web-wgpu", version = "0.16.0", default-features = false }
+pocket-widget = { path = "engine/widget", version = "0.16.0", default-features = false }
+pocket3d = { path = "engine/pocket3d/crates/pocket3d", version = "0.16.0", default-features = false }
+pocket3d-anim = { path = "engine/pocket3d/crates/pocket3d-anim", version = "0.16.0", default-features = false }
+pocket3d-mesh = { path = "engine/pocket3d/crates/pocket3d-mesh", version = "0.16.0", default-features = false }
+pocket3d-packs = { path = "engine/pocket3d/crates/pocket3d-packs", version = "0.16.0", default-features = false }
+pocket3d-title = { path = "engine/pocket3d/crates/pocket3d-title", version = "0.16.0", default-features = false }
+pocket3d-world = { path = "engine/pocket3d/crates/pocket3d-world", version = "0.16.0", default-features = false }
+pocketjs-3ds-core = { path = "products/3ds/core", version = "0.16.0", default-features = false }
+pocketjs-core = { path = "engine/core", version = "0.16.0", default-features = false }
+pocketjs-gba = { path = "programs/gba", version = "0.16.0", default-features = false }
+pocketjs-gba-bake = { path = "tools/build/gba/bake", version = "0.16.0", default-features = false }
+pocketjs-ipodnano = { path = "programs/ipodnano", version = "0.16.0", default-features = false }
+pocketjs-ipodnano-preview = { path = "programs/ipodnano/preview", version = "0.16.0", default-features = false }
+pocketjs-psp = { path = "programs/psp", version = "0.16.0", default-features = false }
+pocket-native-program = { path = "programs/native/runtime", version = "0.16.0", default-features = false }
+pocketjs-vita = { path = "programs/vita", version = "0.16.0", default-features = false }
+pocketjs-wasm = { path = "programs/web/wasm", version = "0.16.0", default-features = false }
+uihost = { path = "engine/pocket3d/examples/uihost", version = "0.16.0", default-features = false }
+
+rquickjs = "0.12"
+
+wgpu = "25"
+winit = "0.30"
+# Shared math also serves no_std consumers; desktop crates re-enable std.
+glam = { version = "0.33", default-features = false }
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+gltf = { version = "1.4", features = ["extras"] }
+png = "0.18"
+anyhow = "1"
+log = "0.4"
+ab_glyph = "0.2"
+memmap2 = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.23"
+env_logger = "0.11"
+font8x8 = "0.3"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package."pocket-solid-aot-lab"]
+overflow-checks = false
+
+[profile.release.package."pocket-solid-aot-lab"]
+overflow-checks = false
+
+[profile.dev.package."pocket-vue-sfc-lab"]
+overflow-checks = false
+
+[profile.release.package."pocket-vue-sfc-lab"]
+overflow-checks = false
+
+[profile.release.package."pocket-text"]
+opt-level = "s"
+
+[profile.release.package."pocket-native-program"]
+opt-level = "s"
+codegen-units = 1
+
+[profile.release.package."pocketjs-wasm"]
+opt-level = "s"
+
+[profile.release.package."pocketjs-3ds-core"]
+opt-level = 3
+codegen-units = 1
+
+[profile.release.package."pocket-desktop-host"]
+debug = false
+
+[profile.release.package."pocket-idf-runtime"]
+codegen-units = 16
+opt-level = 3
+
+[profile.release.package."pocketjs-gba"]
+opt-level = 3
+codegen-units = 1
+overflow-checks = false
+debug = 1
+
+[profile.release.package."pocketjs-gba-bake"]
+opt-level = 3
+codegen-units = 1
+
+[profile.release.package."pocketjs-ipodnano"]
+opt-level = "s"
+codegen-units = 1
+overflow-checks = false
+debug = 1
+
+[profile.release.package."pocketjs-ipodnano-preview"]
+opt-level = 3

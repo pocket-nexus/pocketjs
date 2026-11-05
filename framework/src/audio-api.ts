@@ -15,14 +15,22 @@
 // the app's tick-driven UI is byte-identical either way.
 
 import {
+  AUDIO_INPUT_SOURCE,
   AUDIO_MAX_CHANNELS,
   AUDIO_PAK_WAV_PREFIX,
   AUDIO_RATES,
   AUDIO_RING_FRAMES,
+  type AudioInputSource,
 } from "../../contracts/spec/audio.ts";
 import { get as pakGet, hasPack } from "./pak.ts";
 
-export { AUDIO_RATES, AUDIO_RING_FRAMES } from "../../contracts/spec/audio.ts";
+export {
+  AUDIO_INPUT_RING_FRAMES,
+  AUDIO_INPUT_SOURCE,
+  AUDIO_RATES,
+  AUDIO_RING_FRAMES,
+} from "../../contracts/spec/audio.ts";
+export type { AudioInputSource } from "../../contracts/spec/audio.ts";
 
 /** The mounted audio namespace — one method per spec op (AUDIO_OP codes). */
 export interface AudioOps {
@@ -36,6 +44,10 @@ export interface AudioOps {
   setVolume(handle: number, volume: number): void;
   endStream(handle: number): void;
   poll(): string | undefined;
+  /** audio.capture: absent on hosts without inputs. */
+  openInput?(sampleRate: number, channels: number, source: number): number;
+  readInput?(handle: number, pcm: ArrayBuffer): number;
+  closeInput?(handle: number): void;
 }
 
 /** The audio module namespace, or null where the host doesn't mount one.
@@ -293,6 +305,62 @@ export function createWavPlayer(): WavPlayer {
       dropStream();
       pcm = null;
       isPlaying = false;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AudioInput — audio.capture, drained by the guest each tick
+// ---------------------------------------------------------------------------
+
+export interface AudioInput {
+  readonly sampleRate: number;
+  readonly channels: number;
+  /** Copy the oldest captured frames into `into` (interleaved s16); returns
+   *  the frames copied, 0 when nothing is waiting or the input is closed. */
+  read(into: Int16Array): number;
+  close(): void;
+}
+
+/** The host records from its inputs (audio.capture). */
+export function audioCanCapture(): boolean {
+  const ns = audioHost();
+  return typeof ns?.openInput === "function" && typeof ns.readInput === "function" &&
+    typeof ns.closeInput === "function";
+}
+
+/** Start recording `source`; null when the host lacks capture or refused the
+ *  format or source. */
+export function openAudioInput(
+  source: AudioInputSource,
+  sampleRate: number = AUDIO_RATES[1],
+  channels = 1,
+): AudioInput | null {
+  const ns = audioHost();
+  if (!ns || !audioCanCapture()) return null;
+  if (!(AUDIO_RATES as readonly number[]).includes(sampleRate)) return null;
+  if (channels < 1 || channels > AUDIO_MAX_CHANNELS) return null;
+  const handle = ns.openInput!(sampleRate, channels, AUDIO_INPUT_SOURCE[source]);
+  if (handle < 0) return null;
+  let open = true;
+  return {
+    sampleRate,
+    channels,
+    read(into: Int16Array): number {
+      if (!open) return 0;
+      // The host fills a whole ArrayBuffer; a view into a larger buffer
+      // reads through a scratch buffer of its own size.
+      const whole = into.byteOffset === 0 && into.byteLength === into.buffer.byteLength;
+      const target = whole ? into : new Int16Array(into.length);
+      const frames = ns.readInput!(handle, target.buffer as ArrayBuffer);
+      if (frames <= 0) return 0;
+      if (!whole) into.set(target.subarray(0, frames * channels));
+      return frames;
+    },
+    close(): void {
+      if (!open) return;
+      open = false;
+      ns.closeInput!(handle);
     },
   };
 }

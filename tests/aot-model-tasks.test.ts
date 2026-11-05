@@ -5,7 +5,7 @@ import { ModelTasks, resumeModelTasks, registerModelService as installModelServi
 const storage = <T>(value: T): [() => T, (next: T) => void] => [() => value, next => { value = next; }];
 const regions: ModelRegion[] = [];
 const registrations: (() => void)[] = [];
-function setup(development = true) { const region = new ModelRegion(storage, development); regions.push(region); region.signal(1,"n",0); region.finish([]); return { region, tasks: new ModelTasks(region) }; }
+function setup(development = true) { const region = new ModelRegion(storage, development); region.traceEnabled = true; regions.push(region); region.signal(1,"n",0); region.finish([]); return { region, tasks: new ModelTasks(region) }; }
 function registerModelService(...args: Parameters<typeof installModelService>) {
   const unregister = installModelService(...args); registrations.push(unregister); return unregister;
 }

@@ -1,0 +1,12 @@
+[package]
+name = "pocket-psp-quickjs-alloc"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PocketJS psp quickjs-alloc driver"
+
+[dependencies]
+libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
+pocket-psp-alloc.workspace = true

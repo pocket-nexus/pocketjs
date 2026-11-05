@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test";
 import { BTN } from "../contracts/spec/spec.ts";
 import { RelativeAxis } from "../contracts/spec/microts.ts";
+import { MOTION_VALUES, MotionLevel } from "../contracts/spec/motion.ts";
 import { admitAotBoard, requireAotBoard, aotBoardAdmission } from "../microts/compiler/aot-admission.ts";
 import { listAotInputProfiles, loadAotInputProfile } from "../microts/compiler/aot-input-profiles.ts";
 
 const meowbit = loadAotInputProfile("meowbit");
-const demand = (buttons: number[] = [], axes: number[] = [], capabilities: string[] = []) => ({
-  demands: { buttons, axes, capabilities },
+const demand = (buttons: number[] = [], axes: number[] = [], capabilities: string[] = [], motion: number[] = []) => ({
+  demands: { buttons, axes, motion, capabilities },
 });
 
 test("native board admission retains direct button coverage and profile selection", () => {
@@ -14,7 +15,8 @@ test("native board admission retains direct button coverage and profile selectio
   const expected = { board: "meowbit", chip: "esp32", ok: true, issues: [] };
   expect(listAotInputProfiles()).toEqual(["meowbit"]);
   expect(requireAotBoard(program, "meowbit")).toEqual(expected);
-  expect(aotBoardAdmission(program, undefined, true)).toEqual([expected]);
+  const all = aotBoardAdmission(program, undefined, true);
+  expect(all).toEqual([expected]);
   expect(aotBoardAdmission(program)).toEqual([]);
 });
 
@@ -40,6 +42,20 @@ test("missing buttons, relative axes and touch reject the board", () => {
     ],
   });
   expect(() => requireAotBoard(program, "meowbit")).toThrow("VB104");
+});
+
+test("motion values require a board driver at their fusion level", () => {
+  const program = demand([BTN.CIRCLE], [], ["motion"], [MOTION_VALUES.screenRotation.id, MOTION_VALUES.rotationRate.id]);
+  const inertial = { board: "inertial", chip: "esp32s3", direct: ["a"], chorded: {}, axes: [], touch: false, motion: MotionLevel.Inertial } as const;
+  expect(admitAotBoard(program, inertial)).toEqual({ board: "inertial", chip: "esp32s3", ok: true, issues: [] });
+  expect(admitAotBoard(program, meowbit).issues).toEqual([
+    { code: "VB106", severity: "error", message: "meowbit has no gravity motion driver for screenRotation" },
+    { code: "VB106", severity: "error", message: "meowbit has no inertial motion driver for rotationRate" },
+  ]);
+  expect(admitAotBoard(demand([], [], ["motion"], [MOTION_VALUES.heading.id]), inertial).issues).toEqual([
+    { code: "VB106", severity: "error", message: "inertial has no geomagnetic motion driver for heading" },
+  ]);
+  expect(() => requireAotBoard(program, "meowbit")).toThrow("VB106");
 });
 
 test("unknown profiles fail with the available names", () => {

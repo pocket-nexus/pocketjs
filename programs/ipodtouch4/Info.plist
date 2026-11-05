@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>English</string>
+  <key>CFBundleExecutable</key>
+  <string>PocketJSiPodTouch4</string>
+  <key>CFBundleIdentifier</key>
+  <string>dev.pocket-nexus.clear</string>
+  <key>CFBundleDisplayName</key>
+  <string>Pocket Clear</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>PocketJS iPod touch 4</string>
+  <key>CFBundleIconFile</key>
+  <string>PocketClassic-User-v7.png</string>
+  <key>CFBundleIconFiles</key>
+  <array>
+    <string>PocketClassic-User-v7</string>
+  </array>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.5</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.5</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>dev.pocket-nexus.clear.launch</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>pocketjs-ipodtouch4</string>
+      </array>
+    </dict>
+  </array>
+  <key>CFBundleSupportedPlatforms</key>
+  <array>
+    <string>iPhoneOS</string>
+  </array>
+  <key>LSRequiresIPhoneOS</key>
+  <true/>
+  <key>MinimumOSVersion</key>
+  <string>6.0</string>
+  <key>UIDeviceFamily</key>
+  <array>
+    <integer>1</integer>
+  </array>
+  <key>UILaunchImageFile</key>
+  <string>Default</string>
+  <key>UIPrerenderedIcon</key>
+  <true/>
+  <key>UIRequiresFullScreen</key>
+  <true/>
+  <key>UIStatusBarHidden</key>
+  <true/>
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+  </array>
+</dict>
+</plist>
