@@ -34,6 +34,7 @@ export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, 
   "pocket3d-title": {}, "pocket3d-world": {}, "pocket-vrm": {},
   "pocket-ui-gpui": {}, "pocket-ui-surface": {}, "pocket-ui-wgpu": {}, "pocket-widget": {},
   "pocket-mod": {}, "pocket-sim": {}, "pocket-text": {},
+  "pocket-relay": { default: ["std"], std: [] },
 };
 
 /** Validate both feature edges and resolved active features from cargo tree. */
