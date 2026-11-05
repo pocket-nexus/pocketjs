@@ -233,12 +233,17 @@ test("B-3 loopback: the frame whose send() returns busy is never delivered to th
   // Real node:net, peer paused (Review 937 busy-896 invariant). If "busy"
   // meant not-admitted, the peer can never receive the busy frame.
   let serverSocket: Socket | undefined;
-  const server = createServer((s) => { serverSocket = s; s.pause(); });
+  // The client's connect callback can run before the server's connection
+  // callback, so the writes below wait until the server holds its paused end.
+  let accepted!: () => void;
+  const serverPaused = new Promise<void>((r) => { accepted = r; });
+  const server = createServer((s) => { serverSocket = s; s.pause(); accepted(); });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const port = (server.address() as { port: number }).port;
   const client = await new Promise<Socket>((r) => {
     const c = connect(port, "127.0.0.1", () => r(c));
   });
+  await serverPaused;
   const channel = relaySocketChannel(client, { id: "peer", grants: [] });
 
   let total = 0;
