@@ -81,11 +81,7 @@ impl RxLimits {
     /// field. R5-P02.
     pub const fn negotiate(self, peer: Self) -> Self {
         const fn min(a: u32, b: u32) -> u32 {
-            if a < b {
-                a
-            } else {
-                b
-            }
+            if a < b { a } else { b }
         }
         Self {
             max_wire_bytes: min(self.max_wire_bytes, peer.max_wire_bytes),
@@ -117,23 +113,43 @@ mod tests {
 
     #[test]
     fn negotiation_takes_the_minimum_of_each_field() {
-        let mine = RxLimits { max_wire_bytes: 4096, max_meta_bytes: 2048, ..RxLimits::BULK };
-        let peer = RxLimits { max_wire_bytes: 65536, max_meta_bytes: 512, ..RxLimits::CONTROL };
+        let mine = RxLimits {
+            max_wire_bytes: 4096,
+            max_meta_bytes: 2048,
+            ..RxLimits::BULK
+        };
+        let peer = RxLimits {
+            max_wire_bytes: 65536,
+            max_meta_bytes: 512,
+            ..RxLimits::CONTROL
+        };
         let agreed = mine.negotiate(peer);
         assert_eq!(agreed.max_wire_bytes, 4096);
         assert_eq!(agreed.max_meta_bytes, 512);
-        assert_eq!(agreed.window_frames, RxLimits::BULK.window_frames.min(peer.window_frames));
+        assert_eq!(
+            agreed.window_frames,
+            RxLimits::BULK.window_frames.min(peer.window_frames)
+        );
         // Order does not matter.
         assert_eq!(agreed, peer.negotiate(mine));
     }
 
     #[test]
     fn an_unbounded_field_takes_the_peers_value() {
-        let mine = RxLimits { max_object_bytes: RxLimits::UNBOUNDED_FIELD, ..RxLimits::CONTROL };
-        let peer = RxLimits { max_object_bytes: 131_072, ..RxLimits::CONTROL };
+        let mine = RxLimits {
+            max_object_bytes: RxLimits::UNBOUNDED_FIELD,
+            ..RxLimits::CONTROL
+        };
+        let peer = RxLimits {
+            max_object_bytes: 131_072,
+            ..RxLimits::CONTROL
+        };
         assert_eq!(mine.negotiate(peer).max_object_bytes, 131_072);
         // Negotiating with oneself changes nothing.
-        assert_eq!(RxLimits::CONTROL.negotiate(RxLimits::CONTROL), RxLimits::CONTROL);
+        assert_eq!(
+            RxLimits::CONTROL.negotiate(RxLimits::CONTROL),
+            RxLimits::CONTROL
+        );
     }
 
     #[test]

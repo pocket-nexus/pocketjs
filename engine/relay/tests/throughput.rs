@@ -13,7 +13,7 @@
 mod common;
 
 use common::VECTORS;
-use pocket_relay::{decode, encode_into, FrameInput, FrameOptions};
+use pocket_relay::{FrameInput, FrameOptions, decode, encode_into};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -108,8 +108,8 @@ fn encodes_one_million_frames() {
     let start = Instant::now();
     let mut written = 0usize;
     for _ in 0..FRAMES {
-        written += encode_into(black_box(&input), black_box(&mut out), &case.options)
-            .expect("it encodes");
+        written +=
+            encode_into(black_box(&input), black_box(&mut out), &case.options).expect("it encodes");
     }
     let elapsed = start.elapsed();
     assert_eq!(written, FRAMES * case.bin.len());
@@ -153,5 +153,10 @@ fn reassembles_one_million_frames() {
     }
     let elapsed = start.elapsed();
     assert_eq!(seen, FRAMES);
-    report("reassemble + decode (64 B chunks)", FRAMES, FRAMES * case.bin.len(), elapsed);
+    report(
+        "reassemble + decode (64 B chunks)",
+        FRAMES,
+        FRAMES * case.bin.len(),
+        elapsed,
+    );
 }

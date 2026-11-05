@@ -87,7 +87,11 @@ impl Seq {
             return Err(CounterError::SeqReplay);
         }
         if seq != self.last + 1 {
-            return Err(if self.last == 0 { CounterError::SeqStart } else { CounterError::SeqGap });
+            return Err(if self.last == 0 {
+                CounterError::SeqStart
+            } else {
+                CounterError::SeqGap
+            });
         }
         self.last = seq;
         Ok(())
@@ -207,7 +211,11 @@ mod tests {
     fn receiver_refuses_zero_gaps_and_repeats() {
         let mut seq = Seq::new();
         assert_eq!(seq.accept(0), Err(CounterError::SeqStart));
-        assert_eq!(seq.accept(2), Err(CounterError::SeqStart), "a stream must open at 1");
+        assert_eq!(
+            seq.accept(2),
+            Err(CounterError::SeqStart),
+            "a stream must open at 1"
+        );
         assert_eq!(seq.accept(1), Ok(()));
         assert_eq!(seq.accept(3), Err(CounterError::SeqGap));
         assert_eq!(seq.accept(1), Err(CounterError::SeqReplay));
@@ -237,10 +245,20 @@ mod tests {
     #[test]
     fn credit_separates_backpressure_from_an_unusable_window() {
         let mut credit = Credit::new(8, 4096);
-        assert_eq!(credit.on_send(4097), Err(CounterError::CreditWindowTooSmall));
-        assert_eq!(credit.on_send(4096), Ok(()), "a frame the size of the window still fits");
+        assert_eq!(
+            credit.on_send(4097),
+            Err(CounterError::CreditWindowTooSmall)
+        );
+        assert_eq!(
+            credit.on_send(4096),
+            Ok(()),
+            "a frame the size of the window still fits"
+        );
         assert_eq!(credit.on_send(1), Err(CounterError::CreditExhausted));
-        assert_eq!(Credit::new(0, 4096).on_send(1), Err(CounterError::CreditWindowTooSmall));
+        assert_eq!(
+            Credit::new(0, 4096).on_send(1),
+            Err(CounterError::CreditWindowTooSmall)
+        );
     }
 
     #[test]
@@ -250,11 +268,20 @@ mod tests {
             credit.on_send(100).unwrap();
         }
         credit.on_release(2, 200).unwrap();
-        assert_eq!((credit.released_frames(), credit.released_bytes()), (2, 200));
+        assert_eq!(
+            (credit.released_frames(), credit.released_bytes()),
+            (2, 200)
+        );
         // A repeat of the same cumulative value is not a regression.
         assert_eq!(credit.on_release(2, 200), Ok(()));
-        assert_eq!(credit.on_release(1, 200), Err(CounterError::CreditRegression));
-        assert_eq!(credit.on_release(2, 100), Err(CounterError::CreditRegression));
+        assert_eq!(
+            credit.on_release(1, 200),
+            Err(CounterError::CreditRegression)
+        );
+        assert_eq!(
+            credit.on_release(2, 100),
+            Err(CounterError::CreditRegression)
+        );
         assert_eq!(credit.on_release(5, 200), Err(CounterError::CreditOverrun));
         assert_eq!(credit.on_release(4, 500), Err(CounterError::CreditOverrun));
         assert_eq!(credit.on_release(4, 400), Ok(()));

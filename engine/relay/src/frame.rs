@@ -162,14 +162,40 @@ impl CodecSet {
             c::INDEXED8_ABGR,
             c::FONT3,
             c::OPAQUE_BYTES,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         ];
         Self { values, len: 8 }
     };
 
     /// An empty set. Every codec, including 0, is refused until added.
     pub const fn new() -> Self {
-        Self { values: [0; Self::CAPACITY], len: 0 }
+        Self {
+            values: [0; Self::CAPACITY],
+            len: 0,
+        }
     }
 
     /// Builds a set from a slice, refusing more than [`CodecSet::CAPACITY`]
@@ -259,7 +285,12 @@ impl FrameOptions {
     /// Options with no wire or metadata ceiling and no session pin. Every
     /// structural rule still applies.
     pub const fn unbounded() -> Self {
-        Self { max_wire_bytes: None, max_meta_bytes: None, codecs: CodecSet::DEFINED, session: None }
+        Self {
+            max_wire_bytes: None,
+            max_meta_bytes: None,
+            codecs: CodecSet::DEFINED,
+            session: None,
+        }
     }
 
     /// Pins the session every decoded frame must carry.
@@ -366,7 +397,14 @@ const fn u32_at(b: &[u8], off: usize) -> u32 {
 
 const fn u64_at(b: &[u8], off: usize) -> u64 {
     u64::from_le_bytes([
-        b[off], b[off + 1], b[off + 2], b[off + 3], b[off + 4], b[off + 5], b[off + 6], b[off + 7],
+        b[off],
+        b[off + 1],
+        b[off + 2],
+        b[off + 3],
+        b[off + 4],
+        b[off + 5],
+        b[off + 6],
+        b[off + 7],
     ])
 }
 
@@ -752,7 +790,10 @@ mod tests {
         let input = request(spec::codec::JSON, b"ab");
         let n = encode(&input, &mut out).unwrap();
         assert_eq!(&out[h::MAGIC_OFFSET..][..4], b"PRLY");
-        assert_eq!(u32_at(&out, h::FRAME_BYTES_OFFSET) as usize, n - LENGTH_PREFIX_BYTES);
+        assert_eq!(
+            u32_at(&out, h::FRAME_BYTES_OFFSET) as usize,
+            n - LENGTH_PREFIX_BYTES
+        );
         assert_eq!(u16_at(&out, h::HEADER_BYTES_OFFSET) as usize, HEADER_BYTES);
         assert_eq!(u64_at(&out, h::SESSION_OFFSET), input.session);
         // The session's low byte sits first: little-endian, not the hex order.
@@ -766,33 +807,75 @@ mod tests {
     #[test]
     fn encode_applies_every_rule_decode_applies() {
         let mut out = [0u8; 256];
-        let bad_type = FrameInput { kind: 0, ..request(spec::codec::NONE, b"") };
+        let bad_type = FrameInput {
+            kind: 0,
+            ..request(spec::codec::NONE, b"")
+        };
         assert_eq!(encode(&bad_type, &mut out), Err(FrameError::BadType.into()));
-        let bad_type = FrameInput { kind: 6, ..request(spec::codec::NONE, b"") };
+        let bad_type = FrameInput {
+            kind: 6,
+            ..request(spec::codec::NONE, b"")
+        };
         assert_eq!(encode(&bad_type, &mut out), Err(FrameError::BadType.into()));
 
-        let zero_seq = FrameInput { seq: 0, ..request(spec::codec::NONE, b"") };
+        let zero_seq = FrameInput {
+            seq: 0,
+            ..request(spec::codec::NONE, b"")
+        };
         assert_eq!(encode(&zero_seq, &mut out), Err(FrameError::BadSeq.into()));
 
-        let no_correlation = FrameInput { correlation: 0, ..request(spec::codec::NONE, b"") };
-        assert_eq!(encode(&no_correlation, &mut out), Err(FrameError::BadCorrelation.into()));
+        let no_correlation = FrameInput {
+            correlation: 0,
+            ..request(spec::codec::NONE, b"")
+        };
+        assert_eq!(
+            encode(&no_correlation, &mut out),
+            Err(FrameError::BadCorrelation.into())
+        );
 
         let push = FrameInput {
             kind: spec::type_::PUSH,
             correlation: 7,
             ..request(spec::codec::NONE, b"")
         };
-        assert_eq!(encode(&push, &mut out), Err(FrameError::BadCorrelation.into()));
-        let push = FrameInput { correlation: 0, ..push };
-        assert!(encode(&push, &mut out).is_ok(), "PUSH carries no correlation");
+        assert_eq!(
+            encode(&push, &mut out),
+            Err(FrameError::BadCorrelation.into())
+        );
+        let push = FrameInput {
+            correlation: 0,
+            ..push
+        };
+        assert!(
+            encode(&push, &mut out).is_ok(),
+            "PUSH carries no correlation"
+        );
 
         // R5 §3.6: a CANCEL rides stream 0; its target stream is metadata.
-        let cancel = FrameInput { kind: spec::type_::CANCEL, ..request(spec::codec::NONE, b"") };
-        assert!(encode(&cancel, &mut out).is_ok(), "CANCEL on the control stream");
-        let off_stream = FrameInput { stream: 1, ..cancel };
-        assert_eq!(encode(&off_stream, &mut out), Err(FrameError::BadCorrelation.into()));
-        let request_off_stream = FrameInput { stream: 1, ..request(spec::codec::NONE, b"") };
-        assert!(encode(&request_off_stream, &mut out).is_ok(), "only CANCEL is bound to stream 0");
+        let cancel = FrameInput {
+            kind: spec::type_::CANCEL,
+            ..request(spec::codec::NONE, b"")
+        };
+        assert!(
+            encode(&cancel, &mut out).is_ok(),
+            "CANCEL on the control stream"
+        );
+        let off_stream = FrameInput {
+            stream: 1,
+            ..cancel
+        };
+        assert_eq!(
+            encode(&off_stream, &mut out),
+            Err(FrameError::BadCorrelation.into())
+        );
+        let request_off_stream = FrameInput {
+            stream: 1,
+            ..request(spec::codec::NONE, b"")
+        };
+        assert!(
+            encode(&request_off_stream, &mut out).is_ok(),
+            "only CANCEL is bound to stream 0"
+        );
 
         // Codec 0 means "no data region"; data with it is a contradiction.
         assert_eq!(
@@ -807,11 +890,19 @@ mod tests {
 
         // R5 §3.3: metadata is strict UTF-8. A stray byte is refused before
         // anything is written, as the peer's decoder would refuse the record.
-        let not_utf8 =
-            FrameInput { meta: b"{\"op\":\"relay.p\xffng\"}", ..request(spec::codec::NONE, b"") };
+        let not_utf8 = FrameInput {
+            meta: b"{\"op\":\"relay.p\xffng\"}",
+            ..request(spec::codec::NONE, b"")
+        };
         let mut untouched = [0u8; 256];
-        assert_eq!(encode(&not_utf8, &mut untouched), Err(FrameError::BadMetadata.into()));
-        assert!(untouched.iter().all(|&b| b == 0), "a refused frame wrote nothing");
+        assert_eq!(
+            encode(&not_utf8, &mut untouched),
+            Err(FrameError::BadMetadata.into())
+        );
+        assert!(
+            untouched.iter().all(|&b| b == 0),
+            "a refused frame wrote nothing"
+        );
     }
 
     /// R5 §3.6: a CANCEL rides the control stream. Review 965 built this
@@ -820,11 +911,17 @@ mod tests {
     #[test]
     fn decode_refuses_a_cancel_off_the_control_stream() {
         let mut out = [0u8; 256];
-        let cancel = FrameInput { kind: spec::type_::CANCEL, ..request(spec::codec::NONE, b"") };
+        let cancel = FrameInput {
+            kind: spec::type_::CANCEL,
+            ..request(spec::codec::NONE, b"")
+        };
         let n = encode(&cancel, &mut out).unwrap();
         assert!(decode(&out[..n], &FrameOptions::unbounded()).is_ok());
         out[h::STREAM_OFFSET..][..4].copy_from_slice(&1u32.to_le_bytes());
-        assert_eq!(decode(&out[..n], &FrameOptions::unbounded()), Err(FrameError::BadCorrelation));
+        assert_eq!(
+            decode(&out[..n], &FrameOptions::unbounded()),
+            Err(FrameError::BadCorrelation)
+        );
         out[h::TYPE_OFFSET] = spec::type_::REQUEST;
         let frame = decode(&out[..n], &FrameOptions::unbounded()).unwrap();
         assert_eq!(frame.header.stream, 1);
@@ -843,14 +940,20 @@ mod tests {
         // One metadata byte is not UTF-8; the header is intact.
         let mut stray = out;
         stray[HEADER_BYTES + 2] = 0xff;
-        assert_eq!(decode(&stray[..n], &FrameOptions::unbounded()), Err(FrameError::BadMetadata));
+        assert_eq!(
+            decode(&stray[..n], &FrameOptions::unbounded()),
+            Err(FrameError::BadMetadata)
+        );
 
         // The last metadata byte becomes a two-byte lead; the data region
         // already opens with the continuation byte 0xa9. Valid across the
         // boundary, invalid within the region.
         let mut cut = out;
         cut[HEADER_BYTES + META.len() - 1] = 0xc3;
-        assert_eq!(decode(&cut[..n], &FrameOptions::unbounded()), Err(FrameError::BadMetadata));
+        assert_eq!(
+            decode(&cut[..n], &FrameOptions::unbounded()),
+            Err(FrameError::BadMetadata)
+        );
 
         // Multibyte UTF-8 passes: the rule is validity, not ASCII.
         let unicode = FrameInput {
@@ -870,7 +973,10 @@ mod tests {
         let opts = FrameOptions::unbounded().with_codecs(codecs);
         let input = request(spec::codec::EXTENSION_MIN, b"x");
         let n = encode_into(&input, &mut out, &opts).unwrap();
-        assert_eq!(decode(&out[..n], &opts).unwrap().header.codec, spec::codec::EXTENSION_MIN);
+        assert_eq!(
+            decode(&out[..n], &opts).unwrap().header.codec,
+            spec::codec::EXTENSION_MIN
+        );
         // The same bytes are refused by a peer that did not negotiate it.
         assert_eq!(
             decode(&out[..n], &FrameOptions::unbounded()),
@@ -885,13 +991,22 @@ mod tests {
 
         let mut out = [0u8; 256];
         let tight = FrameOptions::unbounded().with_limits(wire as u32, META.len() as u32);
-        assert!(encode_into(&input, &mut out, &tight).is_ok(), "the ceiling is inclusive");
+        assert!(
+            encode_into(&input, &mut out, &tight).is_ok(),
+            "the ceiling is inclusive"
+        );
 
         let narrow = FrameOptions::unbounded().with_limits(wire as u32 - 1, 2048);
-        assert_eq!(encode_into(&input, &mut out, &narrow), Err(FrameError::WireTooLarge.into()));
+        assert_eq!(
+            encode_into(&input, &mut out, &narrow),
+            Err(FrameError::WireTooLarge.into())
+        );
 
         let thin = FrameOptions::unbounded().with_limits(65536, META.len() as u32 - 1);
-        assert_eq!(encode_into(&input, &mut out, &thin), Err(FrameError::MetaTooLarge.into()));
+        assert_eq!(
+            encode_into(&input, &mut out, &thin),
+            Err(FrameError::MetaTooLarge.into())
+        );
 
         let mut small = [0u8; 8];
         assert_eq!(
@@ -909,7 +1024,10 @@ mod tests {
     fn encode_leaves_a_longer_buffer_untouched_past_the_record() {
         let mut out = [0xaau8; 512];
         let n = encode(&request(spec::codec::JSON, b"xy"), &mut out).unwrap();
-        assert!(out[n..].iter().all(|&b| b == 0xaa), "encode wrote past the record");
+        assert!(
+            out[n..].iter().all(|&b| b == 0xaa),
+            "encode wrote past the record"
+        );
     }
 
     #[test]
@@ -918,7 +1036,10 @@ mod tests {
         // The largest frameBytes the u32 field can name still needs four more
         // bytes of prefix, so the last representable record is short of it.
         let max_payload = u32::MAX as usize - HEADER_BODY_BYTES;
-        assert_eq!(encoded_len(0, max_payload - LENGTH_PREFIX_BYTES), Some(u32::MAX as usize));
+        assert_eq!(
+            encoded_len(0, max_payload - LENGTH_PREFIX_BYTES),
+            Some(u32::MAX as usize)
+        );
         assert_eq!(encoded_len(0, max_payload + 1), None, "past the u32 field");
         // Sizes no slice could have must report None, not wrap to a small one.
         assert_eq!(encoded_len(usize::MAX / 2, usize::MAX / 2), None);
@@ -938,7 +1059,10 @@ mod tests {
         let record = &out[..n];
 
         let exact = FrameOptions::unbounded().with_limits(n as u32, META.len() as u32);
-        assert!(decode(record, &exact).is_ok(), "a record at the ceiling is admitted");
+        assert!(
+            decode(record, &exact).is_ok(),
+            "a record at the ceiling is admitted"
+        );
 
         let narrow = FrameOptions::unbounded().with_limits(n as u32 - 1, META.len() as u32);
         assert_eq!(decode(record, &narrow), Err(FrameError::WireTooLarge));
@@ -952,7 +1076,10 @@ mod tests {
     #[test]
     fn the_smallest_legal_frame_bytes_is_the_header_body() {
         let mut out = [0u8; 64];
-        let empty = FrameInput { meta: b"", ..request(spec::codec::NONE, b"") };
+        let empty = FrameInput {
+            meta: b"",
+            ..request(spec::codec::NONE, b"")
+        };
         let n = encode(&empty, &mut out).unwrap();
         assert_eq!(n, HEADER_BYTES, "an empty frame is the header alone");
         assert_eq!(
@@ -983,7 +1110,10 @@ mod tests {
     #[test]
     fn a_session_pin_refuses_the_bootstrap_session() {
         let mut out = [0u8; 256];
-        let input = FrameInput { session: 0, ..request(spec::codec::NONE, b"") };
+        let input = FrameInput {
+            session: 0,
+            ..request(spec::codec::NONE, b"")
+        };
         let n = encode(&input, &mut out).unwrap();
         let pinned = FrameOptions::unbounded().with_session(0x0102_0304_0506_0708);
         assert_eq!(decode(&out[..n], &pinned), Err(FrameError::BadSession));
@@ -995,7 +1125,10 @@ mod tests {
     fn codec_set_holds_its_capacity_and_collapses_duplicates() {
         let mut set = CodecSet::new();
         assert!(set.is_empty());
-        assert!(!set.contains(spec::codec::NONE), "an empty set accepts nothing");
+        assert!(
+            !set.contains(spec::codec::NONE),
+            "an empty set accepts nothing"
+        );
         for i in 0..CodecSet::CAPACITY as u16 {
             set.insert(i).unwrap();
             set.insert(i).unwrap();
@@ -1080,7 +1213,11 @@ mod tests {
                 codec,
                 session: next(),
                 seq: (next() as u32).max(1),
-                stream: if kind == spec::type_::CANCEL { 0 } else { next() as u32 },
+                stream: if kind == spec::type_::CANCEL {
+                    0
+                } else {
+                    next() as u32
+                },
                 correlation: if Header::correlation_required(kind) {
                     (next() as u32).max(1)
                 } else {
@@ -1109,15 +1246,30 @@ mod tests {
     #[test]
     fn error_codes_are_the_shared_wire_spellings() {
         assert_eq!(FrameError::BadMagic.as_str(), "BAD_MAGIC");
-        assert_eq!(FrameError::WireTooLarge.as_str(), spec::frame_error::WIRE_TOO_LARGE);
+        assert_eq!(
+            FrameError::WireTooLarge.as_str(),
+            spec::frame_error::WIRE_TOO_LARGE
+        );
         // Distinct variants must not collapse onto one code.
         let all = [
-            FrameError::ShortHeader, FrameError::BadPrefix, FrameError::BadMagic,
-            FrameError::BadVersion, FrameError::BadType, FrameError::BadFlags,
-            FrameError::BadHeaderSize, FrameError::BadReserved, FrameError::BadLength,
-            FrameError::Truncated, FrameError::WireTooLarge, FrameError::MetaTooLarge,
-            FrameError::BadCodec, FrameError::BadSession, FrameError::BadSeq,
-            FrameError::BadCorrelation, FrameError::BadMetadata, FrameError::BadEnvelope,
+            FrameError::ShortHeader,
+            FrameError::BadPrefix,
+            FrameError::BadMagic,
+            FrameError::BadVersion,
+            FrameError::BadType,
+            FrameError::BadFlags,
+            FrameError::BadHeaderSize,
+            FrameError::BadReserved,
+            FrameError::BadLength,
+            FrameError::Truncated,
+            FrameError::WireTooLarge,
+            FrameError::MetaTooLarge,
+            FrameError::BadCodec,
+            FrameError::BadSession,
+            FrameError::BadSeq,
+            FrameError::BadCorrelation,
+            FrameError::BadMetadata,
+            FrameError::BadEnvelope,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {

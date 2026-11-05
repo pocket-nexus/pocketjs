@@ -41,9 +41,9 @@ mod limits;
 /// `tests/contract.ts`; regenerate with `bun run gen`.
 pub use generated::relay as spec;
 
-pub use counters::{Credit, CounterError, Seq};
+pub use counters::{CounterError, Credit, Seq};
 pub use frame::{
-    decode, encode_into, encoded_len, CodecSet, EncodeError, Frame, FrameError, FrameInput,
-    FrameOptions, Header, RecordReader, HEADER_BODY_BYTES, HEADER_BYTES, LENGTH_PREFIX_BYTES,
+    CodecSet, EncodeError, Frame, FrameError, FrameInput, FrameOptions, HEADER_BODY_BYTES,
+    HEADER_BYTES, Header, LENGTH_PREFIX_BYTES, RecordReader, decode, encode_into, encoded_len,
 };
 pub use limits::RxLimits;

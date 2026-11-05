@@ -9,8 +9,10 @@ mod common;
 
 use common::{Case, UPPER_LAYER_ONLY, VECTORS};
 use pocket_relay::spec::header as h;
-use pocket_relay::{decode, encode_into, EncodeError, FrameError, FrameInput, FrameOptions,
-    RecordReader, HEADER_BYTES};
+use pocket_relay::{
+    EncodeError, FrameError, FrameInput, FrameOptions, HEADER_BYTES, RecordReader, decode,
+    encode_into,
+};
 
 #[test]
 fn links_every_vector_in_the_index() {
@@ -46,16 +48,40 @@ fn decodes_every_vector_to_its_pinned_outcome() {
                 assert_eq!(h.session, want.session, "{}: session", case.name);
                 assert_eq!(h.seq, want.seq, "{}: seq", case.name);
                 assert_eq!(h.stream, want.stream, "{}: stream", case.name);
-                assert_eq!(h.correlation, want.correlation, "{}: correlation", case.name);
+                assert_eq!(
+                    h.correlation, want.correlation,
+                    "{}: correlation",
+                    case.name
+                );
                 assert_eq!(h.meta_bytes, want.meta_bytes, "{}: metaBytes", case.name);
                 assert_eq!(h.data_bytes, want.data_bytes, "{}: dataBytes", case.name);
                 // The two regions are views straight into the record.
-                assert_eq!(frame.meta.len(), want.meta_bytes as usize, "{}: meta len", case.name);
-                assert_eq!(frame.data.len(), want.data_bytes as usize, "{}: data len", case.name);
+                assert_eq!(
+                    frame.meta.len(),
+                    want.meta_bytes as usize,
+                    "{}: meta len",
+                    case.name
+                );
+                assert_eq!(
+                    frame.data.len(),
+                    want.data_bytes as usize,
+                    "{}: data len",
+                    case.name
+                );
                 let meta_end = HEADER_BYTES + want.meta_bytes as usize;
-                assert_eq!(frame.meta, &case.bin[HEADER_BYTES..meta_end], "{}: meta", case.name);
+                assert_eq!(
+                    frame.meta,
+                    &case.bin[HEADER_BYTES..meta_end],
+                    "{}: meta",
+                    case.name
+                );
                 assert_eq!(frame.data, &case.bin[meta_end..], "{}: data", case.name);
-                assert_eq!(h.wire_bytes(), case.wire_bytes as u64, "{}: wireBytes", case.name);
+                assert_eq!(
+                    h.wire_bytes(),
+                    case.wire_bytes as u64,
+                    "{}: wireBytes",
+                    case.name
+                );
                 legal += 1;
             }
             Err(code) if UPPER_LAYER_ONLY.contains(&case.name) => {
@@ -76,7 +102,11 @@ fn decodes_every_vector_to_its_pinned_outcome() {
                         e.as_str()
                     )
                 });
-                assert!(!frame.meta.is_empty(), "{}: a metadata defect implies metadata", case.name);
+                assert!(
+                    !frame.meta.is_empty(),
+                    "{}: a metadata defect implies metadata",
+                    case.name
+                );
                 assert!(
                     std::str::from_utf8(frame.meta).is_ok(),
                     "{}: the layer above receives valid UTF-8",
@@ -160,13 +190,28 @@ fn encode_refuses_every_vector_decode_refuses() {
 /// record is now the committed `cancel-nonzero-stream` vector.
 #[test]
 fn refuses_a_cancel_off_the_control_stream_on_both_paths() {
-    let legal = VECTORS.iter().find(|v| v.name == "cancel").expect("cancel").case();
+    let legal = VECTORS
+        .iter()
+        .find(|v| v.name == "cancel")
+        .expect("cancel")
+        .case();
     let mut forged = legal.bin.to_vec();
     forged[h::STREAM_OFFSET..h::STREAM_OFFSET + 4].copy_from_slice(&1u32.to_le_bytes());
-    let case = VECTORS.iter().find(|v| v.name == "cancel-nonzero-stream").expect("vector").case();
-    assert_eq!(case.bin, &forged[..], "the vector is the legal cancel with stream 1");
+    let case = VECTORS
+        .iter()
+        .find(|v| v.name == "cancel-nonzero-stream")
+        .expect("vector")
+        .case();
+    assert_eq!(
+        case.bin,
+        &forged[..],
+        "the vector is the legal cancel with stream 1"
+    );
 
-    assert_eq!(decode(case.bin, &case.options), Err(FrameError::BadCorrelation));
+    assert_eq!(
+        decode(case.bin, &case.options),
+        Err(FrameError::BadCorrelation)
+    );
     let mut out = vec![0u8; 4096];
     let input = common::raw_input(case.bin);
     assert_eq!(input.stream, 1);
@@ -188,9 +233,16 @@ fn refuses_metadata_that_is_not_utf8_on_both_paths() {
     let mut out = vec![0u8; 4096];
     for name in ["meta-not-utf8", "meta-utf8-cut-at-data"] {
         let case = VECTORS.iter().find(|v| v.name == name).expect(name).case();
-        assert_eq!(decode(case.bin, &case.options), Err(FrameError::BadMetadata), "{name}");
+        assert_eq!(
+            decode(case.bin, &case.options),
+            Err(FrameError::BadMetadata),
+            "{name}"
+        );
         let input = common::raw_input(case.bin);
-        assert!(std::str::from_utf8(input.meta).is_err(), "{name}: the fixture is not UTF-8");
+        assert!(
+            std::str::from_utf8(input.meta).is_err(),
+            "{name}: the fixture is not UTF-8"
+        );
         assert_eq!(
             encode_into(&input, &mut out, &case.options),
             Err(EncodeError::Frame(FrameError::BadMetadata)),
@@ -198,7 +250,11 @@ fn refuses_metadata_that_is_not_utf8_on_both_paths() {
         );
     }
     // The boundary vector is one well-formed sequence when read past the region.
-    let case = VECTORS.iter().find(|v| v.name == "meta-utf8-cut-at-data").unwrap().case();
+    let case = VECTORS
+        .iter()
+        .find(|v| v.name == "meta-utf8-cut-at-data")
+        .unwrap()
+        .case();
     let input = common::raw_input(case.bin);
     let meta_end = HEADER_BYTES + input.meta.len();
     assert!(std::str::from_utf8(&case.bin[HEADER_BYTES..meta_end + 1]).is_ok());
@@ -227,7 +283,12 @@ fn re_encodes_every_legal_vector_byte_for_byte() {
         let n = encode_into(&input, &mut out, &case.options)
             .unwrap_or_else(|e| panic!("{}: encode failed with {e}", case.name));
         assert_eq!(n, case.bin.len(), "{}: encoded length", case.name);
-        assert_eq!(&out[..n], case.bin, "{}: encoded bytes differ from the fixture", case.name);
+        assert_eq!(
+            &out[..n],
+            case.bin,
+            "{}: encoded bytes differ from the fixture",
+            case.name
+        );
         count += 1;
     }
     assert_eq!(count, 23);
@@ -314,14 +375,20 @@ fn reader_refuses_a_prefix_larger_than_its_buffer() {
     let mut storage = [0u8; 256];
     let mut reader = RecordReader::new(&mut storage).unwrap();
     assert_eq!(reader.max_wire_bytes(), 256);
-    assert_eq!(reader.feed(&u32::MAX.to_le_bytes()), Err(FrameError::WireTooLarge));
+    assert_eq!(
+        reader.feed(&u32::MAX.to_le_bytes()),
+        Err(FrameError::WireTooLarge)
+    );
     assert!(reader.record().is_none());
 
     let mut reader = RecordReader::new(&mut storage).unwrap();
     assert_eq!(reader.feed(&0u32.to_le_bytes()), Err(FrameError::BadPrefix));
 
     let mut tiny = [0u8; 47];
-    assert_eq!(RecordReader::new(&mut tiny).unwrap_err(), FrameError::ShortHeader);
+    assert_eq!(
+        RecordReader::new(&mut tiny).unwrap_err(),
+        FrameError::ShortHeader
+    );
 }
 
 /// A record handed to `decode` must be exactly one record.
@@ -335,6 +402,12 @@ fn decode_rejects_a_slice_that_is_not_one_record() {
     long.push(0);
     assert_eq!(decode(&long, &case.options), Err(FrameError::BadLength));
 
-    assert_eq!(decode(&[], &FrameOptions::default()), Err(FrameError::ShortHeader));
-    assert_eq!(decode(&[0u8; 47], &FrameOptions::default()), Err(FrameError::ShortHeader));
+    assert_eq!(
+        decode(&[], &FrameOptions::default()),
+        Err(FrameError::ShortHeader)
+    );
+    assert_eq!(
+        decode(&[0u8; 47], &FrameOptions::default()),
+        Err(FrameError::ShortHeader)
+    );
 }

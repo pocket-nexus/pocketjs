@@ -44,7 +44,10 @@ fn magic_and_version_match_the_fixture() {
         .map(|v| v.as_u64().expect("magic byte") as u8)
         .collect();
     assert_eq!(magic.as_slice(), spec::MAGIC.as_slice());
-    assert_eq!(core::str::from_utf8(&spec::MAGIC).unwrap(), spec::MAGIC_TEXT);
+    assert_eq!(
+        core::str::from_utf8(&spec::MAGIC).unwrap(),
+        spec::MAGIC_TEXT
+    );
 }
 
 #[test]
@@ -52,9 +55,18 @@ fn frame_geometry_matches_the_fixture() {
     let c = constants();
     assert_eq!(num(&c, "frame.major"), spec::frame::MAJOR as u64);
     assert_eq!(num(&c, "frame.minor"), spec::frame::MINOR as u64);
-    assert_eq!(num(&c, "frame.headerBytes"), spec::frame::HEADER_BYTES as u64);
-    assert_eq!(num(&c, "frame.lengthPrefixBytes"), spec::frame::LENGTH_PREFIX_BYTES as u64);
-    assert_eq!(num(&c, "frame.headerBodyBytes"), spec::frame::HEADER_BODY_BYTES as u64);
+    assert_eq!(
+        num(&c, "frame.headerBytes"),
+        spec::frame::HEADER_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "frame.lengthPrefixBytes"),
+        spec::frame::LENGTH_PREFIX_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "frame.headerBodyBytes"),
+        spec::frame::HEADER_BODY_BYTES as u64
+    );
     // The identity every receiver checks: the prefix is not counted by
     // frameBytes, and the two add back up to the fixed header.
     assert_eq!(
@@ -93,12 +105,24 @@ fn header_field_offsets_match_the_fixture() {
 
     let mut covered = 0;
     for (name, offset, width) in fields {
-        assert_eq!(num(&c, &format!("header.{name}.offset")), *offset as u64, "{name} offset");
-        assert_eq!(num(&c, &format!("header.{name}.width")), *width as u64, "{name} width");
+        assert_eq!(
+            num(&c, &format!("header.{name}.offset")),
+            *offset as u64,
+            "{name} offset"
+        );
+        assert_eq!(
+            num(&c, &format!("header.{name}.width")),
+            *width as u64,
+            "{name} width"
+        );
         covered += width;
     }
     // Contiguous and exactly 48 bytes: no gap a sender could fill unchecked.
-    assert_eq!(covered, pocket_relay::HEADER_BYTES, "header fields must tile the 48 bytes");
+    assert_eq!(
+        covered,
+        pocket_relay::HEADER_BYTES,
+        "header fields must tile the 48 bytes"
+    );
 }
 
 #[test]
@@ -162,8 +186,16 @@ fn codecs_match_the_fixture() {
     // codecs; the extension range is negotiated, never assumed.
     let defined = pocket_relay::CodecSet::DEFINED;
     assert_eq!(defined.len(), 8);
-    for codec in [k::NONE, k::JSON, k::R5G6B5LE, k::PMH1, k::COVERAGE2_LSB, k::INDEXED8_ABGR,
-                  k::FONT3, k::OPAQUE_BYTES] {
+    for codec in [
+        k::NONE,
+        k::JSON,
+        k::R5G6B5LE,
+        k::PMH1,
+        k::COVERAGE2_LSB,
+        k::INDEXED8_ABGR,
+        k::FONT3,
+        k::OPAQUE_BYTES,
+    ] {
         assert!(defined.contains(codec), "{codec} missing from the v1 set");
     }
     assert!(!defined.contains(k::EXTENSION_MIN));
@@ -213,15 +245,42 @@ fn limits_match_the_fixture() {
 #[test]
 fn resource_handshake_and_op_bounds_match_the_fixture() {
     let c = constants();
-    assert_eq!(num(&c, "resource.nsMaxBytes"), spec::resource::NS_MAX_BYTES as u64);
-    assert_eq!(num(&c, "resource.keyMaxBytes"), spec::resource::KEY_MAX_BYTES as u64);
-    assert_eq!(num(&c, "resource.revisionMaxBytes"), spec::resource::REVISION_MAX_BYTES as u64);
-    assert_eq!(num(&c, "resource.renditionMaxBytes"), spec::resource::RENDITION_MAX_BYTES as u64);
-    assert_eq!(num(&c, "handshake.nonceBytes"), spec::handshake::NONCE_BYTES as u64);
-    assert_eq!(num(&c, "handshake.sessionHexLength"), spec::handshake::SESSION_HEX_LENGTH as u64);
-    assert_eq!(num(&c, "handshake.appMaxBytes"), spec::handshake::APP_MAX_BYTES as u64);
-    assert_eq!(num(&c, "handshake.versionsMax"), spec::handshake::VERSIONS_MAX as u64);
-    assert_eq!(num(&c, "handshake.profilesMax"), spec::handshake::PROFILES_MAX as u64);
+    assert_eq!(
+        num(&c, "resource.nsMaxBytes"),
+        spec::resource::NS_MAX_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "resource.keyMaxBytes"),
+        spec::resource::KEY_MAX_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "resource.revisionMaxBytes"),
+        spec::resource::REVISION_MAX_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "resource.renditionMaxBytes"),
+        spec::resource::RENDITION_MAX_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "handshake.nonceBytes"),
+        spec::handshake::NONCE_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "handshake.sessionHexLength"),
+        spec::handshake::SESSION_HEX_LENGTH as u64
+    );
+    assert_eq!(
+        num(&c, "handshake.appMaxBytes"),
+        spec::handshake::APP_MAX_BYTES as u64
+    );
+    assert_eq!(
+        num(&c, "handshake.versionsMax"),
+        spec::handshake::VERSIONS_MAX as u64
+    );
+    assert_eq!(
+        num(&c, "handshake.profilesMax"),
+        spec::handshake::PROFILES_MAX as u64
+    );
     assert_eq!(text(&c, "opPattern"), spec::OP_PATTERN);
     // A u64 session renders as 16 hex characters; the handshake constant and
     // the header width are two statements of the same fact.
@@ -235,12 +294,30 @@ fn resource_handshake_and_op_bounds_match_the_fixture() {
 fn preset_limits_come_from_the_fixture() {
     use pocket_relay::RxLimits;
     let c = constants();
-    assert_eq!(RxLimits::CONTROL.max_wire_bytes as u64, num(&c, "limits.controlMaxWireBytes"));
-    assert_eq!(RxLimits::CONTROL.window_frames as u64, num(&c, "limits.controlWindowFrames"));
-    assert_eq!(RxLimits::CONTROL.window_bytes as u64, num(&c, "limits.controlWindowBytes"));
-    assert_eq!(RxLimits::BULK.max_wire_bytes as u64, num(&c, "limits.bulkMaxWireBytes"));
-    assert_eq!(RxLimits::BULK.max_meta_bytes as u64, num(&c, "limits.bulkMaxMetaBytes"));
-    assert_eq!(RxLimits::BULK.max_assemblies as u64, num(&c, "limits.bulkMaxAssemblies"));
+    assert_eq!(
+        RxLimits::CONTROL.max_wire_bytes as u64,
+        num(&c, "limits.controlMaxWireBytes")
+    );
+    assert_eq!(
+        RxLimits::CONTROL.window_frames as u64,
+        num(&c, "limits.controlWindowFrames")
+    );
+    assert_eq!(
+        RxLimits::CONTROL.window_bytes as u64,
+        num(&c, "limits.controlWindowBytes")
+    );
+    assert_eq!(
+        RxLimits::BULK.max_wire_bytes as u64,
+        num(&c, "limits.bulkMaxWireBytes")
+    );
+    assert_eq!(
+        RxLimits::BULK.max_meta_bytes as u64,
+        num(&c, "limits.bulkMaxMetaBytes")
+    );
+    assert_eq!(
+        RxLimits::BULK.max_assemblies as u64,
+        num(&c, "limits.bulkMaxAssemblies")
+    );
     assert_eq!(
         RxLimits::BOOTSTRAP.max_wire_bytes as u64,
         num(&c, "limits.bootstrapMaxWireBytes")

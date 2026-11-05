@@ -12,7 +12,7 @@
 pub mod json;
 
 use json::Json;
-use pocket_relay::{spec::header as h, CodecSet, FrameInput, FrameOptions, HEADER_BYTES};
+use pocket_relay::{CodecSet, FrameInput, FrameOptions, HEADER_BYTES, spec::header as h};
 
 pub struct Vector {
     pub name: &'static str,
@@ -98,7 +98,10 @@ pub fn assert_covers_index() {
         .map(|v| v.as_str().expect("vector name is a string"))
         .collect();
     let linked: Vec<&str> = VECTORS.iter().map(|v| v.name).collect();
-    assert_eq!(listed, linked, "tests/common/mod.rs must link every vector in index.json");
+    assert_eq!(
+        listed, linked,
+        "tests/common/mod.rs must link every vector in index.json"
+    );
 }
 
 /// Vectors this crate accepts and the layer above refuses: JSON semantics
@@ -124,9 +127,15 @@ pub fn raw_input(record: &[u8]) -> FrameInput<'_> {
     let meta_end = HEADER_BYTES + u32_at(h::META_BYTES_OFFSET) as usize;
     FrameInput {
         kind: record[h::TYPE_OFFSET],
-        codec: u16::from_le_bytes(record[h::CODEC_OFFSET..h::CODEC_OFFSET + 2].try_into().unwrap()),
+        codec: u16::from_le_bytes(
+            record[h::CODEC_OFFSET..h::CODEC_OFFSET + 2]
+                .try_into()
+                .unwrap(),
+        ),
         session: u64::from_le_bytes(
-            record[h::SESSION_OFFSET..h::SESSION_OFFSET + 8].try_into().unwrap(),
+            record[h::SESSION_OFFSET..h::SESSION_OFFSET + 8]
+                .try_into()
+                .unwrap(),
         ),
         seq: u32_at(h::SEQ_OFFSET),
         stream: u32_at(h::STREAM_OFFSET),
@@ -185,13 +194,27 @@ impl Vector {
         let kind = meta.at("kind").and_then(Json::as_str).expect("vector kind");
         let outcome = match kind {
             "valid" => Ok(Expect {
-                kind: meta.at("expect.type").and_then(Json::as_u32).expect("expect.type") as u8,
-                codec: meta.at("expect.codec").and_then(Json::as_u32).expect("expect.codec") as u16,
+                kind: meta
+                    .at("expect.type")
+                    .and_then(Json::as_u32)
+                    .expect("expect.type") as u8,
+                codec: meta
+                    .at("expect.codec")
+                    .and_then(Json::as_u32)
+                    .expect("expect.codec") as u16,
                 session: hex_u64(
-                    meta.at("expect.session").and_then(Json::as_str).expect("expect.session"),
+                    meta.at("expect.session")
+                        .and_then(Json::as_str)
+                        .expect("expect.session"),
                 ),
-                seq: meta.at("expect.seq").and_then(Json::as_u32).expect("expect.seq"),
-                stream: meta.at("expect.stream").and_then(Json::as_u32).expect("expect.stream"),
+                seq: meta
+                    .at("expect.seq")
+                    .and_then(Json::as_u32)
+                    .expect("expect.seq"),
+                stream: meta
+                    .at("expect.stream")
+                    .and_then(Json::as_u32)
+                    .expect("expect.stream"),
                 correlation: meta
                     .at("expect.correlation")
                     .and_then(Json::as_u32)
@@ -217,7 +240,10 @@ impl Vector {
             name: self.name,
             bin: self.bin,
             options,
-            wire_bytes: meta.at("wireBytes").and_then(Json::as_u32).expect("wireBytes") as usize,
+            wire_bytes: meta
+                .at("wireBytes")
+                .and_then(Json::as_u32)
+                .expect("wireBytes") as usize,
             outcome,
         }
     }
