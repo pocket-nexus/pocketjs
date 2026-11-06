@@ -1607,6 +1607,19 @@ impl<'a> Walker<'a> {
             scissored = true;
         }
 
+        // -- draw items (setDrawItems): images and solid rects in local space,
+        //    inside the view's own clip like its children ---------------------
+        if !node.draw_items.is_empty() {
+            let tree = self.tree;
+            self.emit_draw_items(
+                dl,
+                &tree.slots[slot as usize].draw_items,
+                &world,
+                op,
+                &child_clip,
+            );
+        }
+
         if r.perspective > 0.0 {
             // 3D context root: the subtree composes 3x4 matrices, projects
             // through r.perspective about this node's center and painter-sorts.
@@ -3267,6 +3280,55 @@ impl<'a> Walker<'a> {
         dl.words.push(u1.to_bits());
         dl.words.push(v1.to_bits());
         dl.words.push(scale_alpha(0xffff_ffff, op));
+    }
+
+    /// Paint `setDrawItems` records under `world`. Each item emits what an
+    /// image node or a background box of its size would: TEX_QUAD (TEX_TRI when
+    /// mirrored or rotated), RECT (TRI when rotated).
+    fn emit_draw_items(
+        &self,
+        dl: &mut DrawList,
+        items: &[u32],
+        world: &Affine,
+        op: f32,
+        clip: &Clip,
+    ) {
+        for item in items.as_chunks::<{ spec::draw_item::WORDS }>().0 {
+            let (x, y) = (
+                (item[2] as u16 as i16) as f32,
+                ((item[2] >> 16) as u16 as i16) as f32,
+            );
+            let (w, h) = ((item[3] & 0xffff) as f32, (item[3] >> 16) as f32);
+            let a = clampf(op * ((item[0] >> 8) & 0xff) as f32 / 255.0, 0.0, 1.0);
+            if w <= 0.0 || h <= 0.0 || a <= 0.0 {
+                continue;
+            }
+            let kind = item[0] & 0xff;
+            let local = if item[0] & spec::draw_item::FLAG_FLIP_X != 0 {
+                Affine {
+                    a: -1.0,
+                    tx: x + w,
+                    ty: y,
+                    ..Affine::IDENTITY
+                }
+            } else {
+                Affine::translate(x, y)
+            };
+            let at = world.then(&local);
+            if kind == spec::draw_item::KIND_IMAGE {
+                // A freed or stale handle draws nothing; skip it here rather
+                // than hand every backend a quad it must drop.
+                if crate::tex_resolve(&self.textures[..], item[1] as i32).is_none() {
+                    continue;
+                }
+                self.emit_tex_quad(dl, &at, w, h, item[1], a, clip, 0.0, 0.0, 1.0, 1.0);
+            } else if kind == spec::draw_item::KIND_RECT {
+                let color = scale_alpha(item[1], a);
+                if alpha(color) > 0 {
+                    self.emit_box(dl, &at, 0.0, 0.0, w, h, Fill::Flat(color), clip);
+                }
+            }
+        }
     }
 
     /// Emit a native-compositor surface instruction. Unlike TEX_QUAD, full

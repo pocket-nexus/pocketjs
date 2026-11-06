@@ -9,7 +9,7 @@ handhelds with a GPU. Everything is built from public PocketJS primitives; the o
 
 | Module | What it gives you | Why it is shaped this way |
 | --- | --- | --- |
-| `createStage` → `Gfx` | Immediate-mode drawing: `begin`, `cell`/`sprite`/`texture`/`rect`/`text`, `end`, on a retained node pool | Game code stays a draw loop. The i-th call reuses the i-th node, so an unchanged scene issues no native calls. Boxes are 1×1 and sized with `scaleX/Y`, so drawing never relayouts; a negative scale mirrors |
+| `createStage` → `Gfx` | Immediate-mode drawing: `begin`, `cell`/`sprite`/`texture`/`rect`/`text`, `end` | Game code stays a draw loop. On a host with `setDrawItems` an image or rect is a 16-byte integer record, and `end()` sends each run of records between two texts to a view in **one native call**; text stays on pooled text nodes. On other hosts the i-th call reuses the i-th node: boxes are 1×1 and sized with `scaleX/Y`, so drawing never relayouts, and a negative scale mirrors. `drawItems: false` keeps the node pool |
 | `createTexturePool` | `get(image)` loads on first use, LRU eviction against a byte budget | A handheld that runs out of arena hangs with no message. Nothing loads without accounting |
 | `createPackStore` | `mount(name, path)`: a file with a manifest and many images, read on demand | Content can exceed RAM. Only the image table and the data and live textures occupy memory |
 | `createLightMask` | Darkness with several moving lights, as a low-resolution CLUT8 texture | Bands of concentric ellipses painted with `TypedArray.fill`: hundreds of native fills instead of a per-pixel interpreter loop |
@@ -62,6 +62,10 @@ A bake tool writes this with `PackWriter` (`framework/src/game2d/pack-writer.ts`
 
 Give each image its own exact palette. A CLUT8 texture costs `w×h + 1 KB`, so trimming to the smallest power-of-two
 box matters far more than the palette.
+
+## Draw items and nodes
+
+`apps/game2d-sprites` draws moving, mirrored, animated sprites with name tags between them, and SELECT switches the stage between its two paths. On the sim host the two paths produce **identical frames**; at 80 sprites a frame makes 3 `setDrawItems` and 5 `setProp` calls instead of 127 `setProp` and 20 `setImage` calls. Under QuickJS on an Apple M-series machine, 200 sprites cost 220 µs of JS per frame instead of 300 µs, and 12 µs of core drawing instead of 33 µs. Most of the remaining JS is the draw calls themselves, about 0.9 µs a sprite against 0.15 µs for the sprite's own movement. PSP times for either path are not measured yet.
 
 ## Costs on a real PSP
 
