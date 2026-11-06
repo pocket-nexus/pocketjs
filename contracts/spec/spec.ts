@@ -308,6 +308,10 @@ export const OP = {
   fontStreamBatch: 59,
   captureTexts: 60,
   capturedTexts: 61,
+  setDrawItems: 62, // (id, items: DRAW_ITEM records) — replace the ordered
+  //                   list of images and solid rects a view paints in its
+  //                   local space, inside its clip and before its children.
+  //                   Empty clears it. See DRAW_ITEM below.
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -1504,6 +1508,34 @@ export const DRAW_OP = {
   textRun: 9,
   surfaceQuad: 10,
 } as const;
+
+// ---------------------------------------------------------------------------
+// Draw items (`setDrawItems`)
+// ---------------------------------------------------------------------------
+// A view can carry an ordered list of items that the core paints in the
+// view's local space, after the view's own box and before its children, under
+// the view's transform and opacity and inside its overflow clip. Each item is
+// DRAW_ITEM_WORDS little-endian u32 words (16 bytes), all integers, so a guest
+// writes them without floating point:
+//
+//   word 0  bits 0-7 kind (DRAW_ITEM_KIND), bits 8-15 alpha (0..255,
+//           multiplied by the view's opacity), bits 16-31 flags (DRAW_ITEM_FLAG)
+//   word 1  image: texture handle; rect: ABGR color
+//   word 2  bits 0-15 x, bits 16-31 y: i16 local px, the top-left of the
+//           unmirrored box
+//   word 3  bits 0-15 w, bits 16-31 h: u16 in 1/16 px, > 0 (at most
+//           4095.9375 px), so a scaled image keeps the size a node would have
+//
+// An image samples its whole texture over (x, y, w, h); FLIP_X mirrors it
+// about the box's vertical centre line. Items emit the same DrawList ops an
+// image node or a background box of that size would, so backends need nothing
+// new. A trailing partial record and items with unknown kinds, freed
+// textures, zero alpha or empty boxes are skipped. Items are not painted
+// inside a perspective subtree. The list replaces the previous one on every
+// call; the core copies it.
+export const DRAW_ITEM_WORDS = 4;
+export const DRAW_ITEM_KIND = { image: 1, rect: 2 } as const;
+export const DRAW_ITEM_FLAG = { flipX: 0x10000 } as const;
 
 // ---------------------------------------------------------------------------
 // PAK container constants

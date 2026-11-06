@@ -94,6 +94,9 @@ pub struct Node {
     /// plays from frame 0 the moment the node is displayed, and is a pure
     /// function of (Ui.frame - sprite_start), so goldens stay byte-exact.
     pub sprite_start: u64,
+    /// `setDrawItems` records (spec::draw_item::WORDS u32 words each), painted
+    /// in local space after this node's box and before its children.
+    pub draw_items: Vec<u32>,
     pub focused: bool,
     pub active: bool,
     /// taffy handle of the last layout build (None = excluded from layout).
@@ -135,6 +138,7 @@ impl Node {
             sprite_cols: 0,
             sprite_step: 0,
             sprite_start: 0,
+            draw_items: Vec::new(),
             focused: false,
             active: false,
             taffy: None,

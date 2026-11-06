@@ -1,23 +1,24 @@
-// @pocketjs/framework/game2d — a HUD kit for story-driven 2D games.
+// @pocketjs/framework/game2d — the story UI: dialogue, choices, transitions and notices.
 //
-// Panels (dialogue, choices, command menu, unit plates) are ordinary components on signals, so
-// they cost nothing per frame while idle. Transient overlays (veil, card, banner, toast, labels)
-// are drawn immediate-mode into a top stage (`over`), because they animate and need images.
-// Every wait returns a Promise resolved on the frame clock; every menu goes through the input
-// nav stack, so all of it works from buttons alone.
+// Panels (dialogue, choices, the objective tracker, an info panel) are ordinary components on
+// signals, so they cost nothing per frame while idle. Transient overlays (veil, card, banner,
+// toast, labels) are drawn into a dynamic layer (`over`), because they animate and need images;
+// with nothing showing they draw nothing. Every wait returns a Promise resolved on the frame
+// clock; every menu goes through the input nav stack, so all of it works from buttons alone.
+// Genre widgets, a battle's unit plates or a command grid, belong to the game.
 
-import { createSignal, For, Index, Show, type JSX } from "solid-js";
+import { createSignal, For, Show, type JSX } from "solid-js";
 import { Text, View } from "../components.ts";
 import * as hot from "../hot.ts";
 import { getOps } from "../index.ts";
 import type { NodeMirror } from "../index.ts";
 import type { GameClock } from "./clock.ts";
-import type { Input, Nav } from "./input.ts";
-import { rgb, type Gfx } from "./stage.tsx";
+import type { Input } from "./input.ts";
+import { rgb, type Gfx } from "./layer.tsx";
 
 /** Design tokens. Hex strings for components; `rgb(0x…)` for the immediate layer. */
-export interface HudTheme { ink: string; panel: string; panelHot: string; line: string; lineDim: string; gold: string; paper: string; paperDim: string; paperOff: string; red: string; green: string; jade: string; seal: string }
-export const DEFAULT_THEME: HudTheme = { ink: "#05060c", panel: "#0c1228", panelHot: "#24305e", line: "#c8b070", lineDim: "#5c4c24", gold: "#ffd860", paper: "#f4efdc", paperDim: "#b4b09c", paperOff: "#8c8a7a", red: "#d84830", green: "#a8e6b4", jade: "#a0dbe3", seal: "#b4282a" };
+export interface StoryTheme { ink: string; panel: string; panelHot: string; line: string; lineDim: string; gold: string; paper: string; paperDim: string; paperOff: string; red: string; green: string; jade: string; seal: string }
+export const DEFAULT_THEME: StoryTheme = { ink: "#05060c", panel: "#0c1228", panelHot: "#24305e", line: "#c8b070", lineDim: "#5c4c24", gold: "#ffd860", paper: "#f4efdc", paperDim: "#b4b09c", paperOff: "#8c8a7a", red: "#d84830", green: "#a8e6b4", jade: "#a0dbe3", seal: "#b4282a" };
 // Overlays draw every frame and parseInt is slow on a PSP, so colors resolve once.
 const hexCache = new Map<string, number>();
 const hex = (s: string, a = 255) => {
@@ -28,14 +29,11 @@ const hex = (s: string, a = 255) => {
 };
 
 export interface ChoiceOption { id: string; text: string; note?: string; disabled?: boolean }
-export interface CommandItem { id: string; label: string; cost?: string; note?: string; ok: boolean; bad?: boolean; hot?: boolean; desc?: string; why?: string }
-export interface Plate { id: string; side: "party" | "foe"; name: string; hp: number; maxHp: number; hideHp?: boolean; mp?: number; maxMp?: number; status: string[]; intent?: string; targetable?: boolean; hot?: boolean }
 export interface VeilOptions { kind?: "ink" | "fade" | "light"; time?: string; sub?: string; hold?: number; swap?: () => void; place?: string; placeSub?: string }
 export interface BannerOptions { label: string; title: string; sub?: string; tone?: "battle" | "win" | "lose" }
 
-export interface HudConfig {
-  width: number; height: number; clock: GameClock; input: Input; over: Gfx; theme?: Partial<HudTheme>;
-  confirm: number; back: number;
+export interface StoryConfig {
+  width: number; height: number; clock: GameClock; input: Input<string>; over: Gfx; theme?: Partial<StoryTheme>;
   /** Draw a calligraphic word centred on x if the game baked one; return false to fall back to plain text. */
   display?: (s: string, x: number, y: number, alpha: number) => boolean;
   /** Draw a speaker's portrait with its top-left at (x, y); false if this speaker has none. */
@@ -43,7 +41,7 @@ export interface HudConfig {
   sound?: (name: "line" | "pick" | "move" | "bell" | "place") => void;
 }
 
-export interface Hud {
+export interface StoryUI {
   View: () => JSX.Element;
   /** Call once per frame after input, before the over stage ends. */
   frame(dtMs: number): void;
@@ -64,15 +62,12 @@ export interface Hud {
   progress(text: string): void;
   label(text: string, x: number, y: number): void;
   showWorldHud(on: boolean): void;
-  command: {
-    open(o: { who: string; items: CommandItem[]; defaultId?: string; onPick: (x: CommandItem, i: number) => void }): void;
-    close(): void; suspend(): void; resume(): void; status(s: string): void; desc(s: string): void; visible(on: boolean): void; hotIndex(): number; nav(): Nav | null;
-  };
-  battle: { show(on: boolean, title?: string): void; plates(p: Plate[]): void; timeline(t: { label: string; foe: boolean }[]): void; hint(s: string): void; getHint(): string };
+  /** Take down the place card now (a battle opening over it). */
+  dismissPlace(): void;
   panel(content: { title: string; rows: [string, string][]; list?: [string, string][] } | null): void;
   panelOpen(): boolean;
   reset(): void;
-  theme: HudTheme;
+  theme: StoryTheme;
 }
 
 /** Wrap through the engine's own text metrics. */
@@ -90,8 +85,8 @@ export function wrapText(s: string, px: 12 | 16, maxW: number): string[] {
 
 const PAGE_LINES = 3, LINE_H = 20, CHARS_PER_MS = 0.045;
 
-export function createHud(cfg: HudConfig): Hud {
-  const T: HudTheme = { ...DEFAULT_THEME, ...cfg.theme };
+export function createStoryUI(cfg: StoryConfig): StoryUI {
+  const T: StoryTheme = { ...DEFAULT_THEME, ...cfg.theme };
   const { clock, input, over, width: W, height: H } = cfg;
   const sound = (n: "line" | "pick" | "move" | "bell" | "place") => cfg.sound?.(n);
 
@@ -135,19 +130,9 @@ export function createHud(cfg: HudConfig): Hud {
   const [progressText, setProgress] = createSignal("");
   const [choice, setChoice] = createSignal<{ opts: ChoiceOption[]; prompt: string; modal: boolean } | null>(null);
   const [choiceHot, setChoiceHot] = createSignal(0);
-  const [cmd, setCmd] = createSignal<{ who: string; items: CommandItem[] } | null>(null);
-  const [cmdHot, setCmdHot] = createSignal(0);
-  const [cmdVisible, setCmdVisible] = createSignal(true);
-  const [cmdStatus, setCmdStatus] = createSignal("");
-  const [cmdDesc, setCmdDesc] = createSignal("");
-  const [batOn, setBatOn] = createSignal(false);
-  const [plates, setPlates] = createSignal<Plate[]>([]);
-  const [tl, setTl] = createSignal<{ label: string; foe: boolean }[]>([]);
-  const [hint, setHint] = createSignal("");
   const [panelData, setPanelData] = createSignal<{ title: string; rows: [string, string][]; list?: [string, string][] } | null>(null);
-  let cmdNav: Nav | null = null;
 
-  const hud: Hud = {
+  const hud: StoryUI = {
     theme: T,
     say(who, text) {
       hud.veilOpen();
@@ -230,38 +215,11 @@ export function createHud(cfg: HudConfig): Hud {
     progress: setProgress,
     label(text, x, y) { labelS = text; labelX = x; labelY = y; },
     showWorldHud: setWorldOn,
-    command: {
-      open(o) {
-        setCmd({ who: o.who, items: o.items }); setCmdVisible(true); setCmdStatus("");
-        const def = Math.max(0, o.items.findIndex((x) => x.id === o.defaultId));
-        cmdNav = input.nav(o.items.length, {
-          mode: "grid", cols: 3, index: def, disabled: (i) => !o.items[i].ok,
-          onChange: (i) => { setCmdHot(i); const x = o.items[i]; setCmdDesc(x.desc ?? ""); sound("move"); },
-          onPick: (i) => { o.onPick(o.items[i], i); },
-        });
-        setCmdHot(cmdNav.index);
-        setCmdDesc(o.items[cmdNav.index]?.desc ?? "");
-      },
-      close() { cmdNav?.close(); cmdNav = null; setCmd(null); },
-      suspend() { cmdNav?.suspend(); },
-      resume() { cmdNav?.resume(); },
-      status: setCmdStatus,
-      desc: setCmdDesc,
-      visible: setCmdVisible,
-      hotIndex: () => cmdNav?.index ?? -1,
-      nav: () => cmdNav,
-    },
-    battle: {
-      show(on) { setBatOn(on); placeT = 0; },
-      plates: setPlates,
-      timeline: setTl,
-      hint: setHint,
-      getHint: hint,
-    },
+    dismissPlace() { placeT = 0; },
     panel: setPanelData,
     panelOpen: () => panelData() != null,
     reset() {
-      gate.fn = null; dlgResolve = null; setDlgOn(false); setChoice(null); cmdNav = null; setCmd(null); setBatOn(false); setPanelData(null);
+      gate.fn = null; dlgResolve = null; setDlgOn(false); setChoice(null); setPanelData(null);
       setWorldOn(false); setTrackText(null); veil = { on: false, alpha: 0, color: hex(T.ink), time: "", sub: "", busy: false }; cardS = null; ban = null; toastT = objT = placeT = 0;
     },
     frame(dt) {
@@ -292,7 +250,7 @@ export function createHud(cfg: HudConfig): Hud {
         over.rect(W / 2 - 110, 70, 220, 22, dim, a);
         over.text(toastS, W / 2, 73, { align: "center", color: hex(T.paper), alpha: a });
       }
-      if (labelS) {
+      if (labelS !== null) {
         over.rect(labelX - 60, labelY - 1, 120, 16, dim, 1);
         over.text(labelS, labelX, labelY, { align: "center", color: hex(T.paper) });
         labelS = null;
@@ -324,11 +282,6 @@ export function createHud(cfg: HudConfig): Hud {
     },
     View() {
       const frame = { borderWidth: 1, borderColor: T.line, bgColor: T.panel };
-      const Bar = (p: { value: number; max: number; color: string; w: number }) => (
-        <View class="relative" style={{ width: p.w, height: 3, bgColor: "#00000080" }}>
-          <View class="absolute left-0 top-0" style={{ width: Math.max(0, Math.round((p.w * p.value) / Math.max(1, p.max))), height: 3, bgColor: p.color }} />
-        </View>
-      );
       return (
         <View class="absolute left-0 top-0" style={{ width: W, height: H }}>
           <Show when={worldOn()}>
@@ -343,30 +296,6 @@ export function createHud(cfg: HudConfig): Hud {
             </View>
           </Show>
 
-          <Show when={batOn()}>
-            <Index each={plates().filter((p) => p.side === "party")}>{(p, i) => <PlateView p={p()} x={3} y={3 + i * 36} T={T} Bar={Bar} />}</Index>
-            <Index each={plates().filter((p) => p.side === "foe")}>{(p, i) => <PlateView p={p()} x={W - 133} y={3 + i * 36} T={T} Bar={Bar} />}</Index>
-            <View class="absolute flex-row items-center justify-center" style={{ insetL: 136, insetT: 3, width: 208, height: 16, gap: 1 }}>
-              <Index each={tl()}>{(x) => <View class="items-center justify-center" style={{ width: 22, height: 16, bgColor: x().foe ? "#5c2010" : "#24305e" }}><Text class="text-xs" style={{ textColor: T.paper }}>{x().label}</Text></View>}</Index>
-            </View>
-            <View class="absolute" style={{ insetL: 136, insetT: 21, width: 208 }}><Text class="text-xs text-center" style={{ width: 208, textColor: T.paper, lineHeight: 15 }}>{wrapText(hint(), 12, 204).slice(0, 4).join("\n")}</Text></View>
-            <Show when={cmd() && cmdVisible()}>
-              <View class="absolute" style={{ insetL: 3, insetT: H - 83, width: W - 6, height: 80, ...frame }}>
-                <Text class="absolute text-xs" style={{ insetL: 6, insetT: 1, textColor: T.gold }}>{cmd()!.who}</Text>
-                <Text class="absolute text-xs" style={{ insetL: 120, insetT: 1, width: 180, textColor: T.paperDim }}>{cmdStatus()}</Text>
-                <Index each={cmd()!.items}>{(x, i) => (
-                  <View class="absolute flex-row items-center justify-between px-1" style={{ insetL: 3 + (i % 3) * 98, insetT: 17 + Math.floor(i / 3) * 15, width: 96, height: 15, bgColor: cmdHot() === i ? T.panelHot : "#00000000" }}>
-                    <Text class="text-xs" style={{ textColor: !x().ok ? T.paperOff : cmdHot() === i ? T.gold : x().hot ? "#ffd98a" : T.paper }}>{x().label}</Text>
-                    <Text class="text-xs" style={{ textColor: T.paperDim }}>{x().cost ?? ""}</Text>
-                  </View>
-                )}</Index>
-                <View class="absolute flex-col" style={{ insetL: 300, insetT: 16, width: W - 6 - 304, height: 62 }}>
-                  <Show when={cmd()!.items[cmdHot()]?.note}><Text class="text-xs" style={{ textColor: cmd()!.items[cmdHot()]?.bad ? T.red : T.jade }}>{cmd()!.items[cmdHot()]?.note}</Text></Show>
-                  <Text class="text-xs" style={{ width: W - 6 - 306, textColor: T.paperDim, lineHeight: 15 }}>{wrapText(cmdDesc(), 12, W - 6 - 308).slice(0, 4).join("\n")}</Text>
-                </View>
-              </View>
-            </Show>
-          </Show>
 
           <Show when={dlgOn()}>
             <View class="absolute" style={{ insetL: 6, insetT: H - 86, width: W - 12, height: 82, ...frame }}>
@@ -403,17 +332,3 @@ export function createHud(cfg: HudConfig): Hud {
   return hud;
 }
 
-function PlateView(p: { p: Plate; x: number; y: number; T: HudTheme; Bar: (b: { value: number; max: number; color: string; w: number }) => JSX.Element }) {
-  const u = () => p.p;
-  return (
-    <View class="absolute flex-col" style={{ insetL: p.x, insetT: p.y, width: 130, height: 34, bgColor: u().hot ? p.T.panelHot : "#05060cc8", borderWidth: 1, borderColor: u().hot ? p.T.gold : p.T.lineDim }}>
-      <View class="flex-row justify-between px-1" style={{ height: 14 }}>
-        <Text class="text-xs" style={{ textColor: p.T.paper }}>{u().name}</Text>
-        <Text class="text-xs" style={{ textColor: p.T.paperDim }}>{u().hideHp ? "" : `${Math.max(0, u().hp)}/${u().maxHp}`}</Text>
-      </View>
-      <View style={{ marginL: 3 }}><p.Bar value={u().hideHp ? 1 : u().hp} max={u().hideHp ? 1 : u().maxHp} color={p.T.red} w={122} /></View>
-      <Show when={u().maxMp}><View style={{ marginL: 3, marginT: 1 }}><p.Bar value={u().mp ?? 0} max={u().maxMp ?? 1} color="#4c9cc8" w={122} /></View></Show>
-      <Text class="absolute text-xs" style={{ insetL: 3, insetT: 19, width: 124, height: 14, textColor: u().intent ? "#ffa890" : "#a9dd8e" }}>{u().intent || u().status.join(" ")}</Text>
-    </View>
-  );
-}
