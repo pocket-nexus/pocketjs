@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  __cancelledTouches,
   __packTouch,
+  __packTouchCancel,
   __packTouchWide,
   __resetTouches,
   __setTouches,
@@ -30,6 +32,28 @@ describe("touch frame snapshot", () => {
     expect(touches()).toEqual([
       { surface: "primary", id: 9, x: 639, y: 359 },
       { surface: "primary", id: 3, x: 479, y: 271 },
+    ]);
+  });
+
+  test("exact positions replace the word's clamped whole pixels", () => {
+    __setTouches(
+      [__packTouchWide(9, 1023, 1023), __packTouch(3, 20, 40), __packTouchCancel(5)],
+      [11, 22, 0],
+      [0, 0, 0],
+      [1500.5, 1100.25, 20.75, 40.5, 0, 0],
+    );
+    expect(touches()).toEqual([
+      { surface: "primary", id: 9, x: 1500.5, y: 1100.25, hit: 11 },
+      { surface: "primary", id: 3, x: 20.75, y: 40.5, hit: 22 },
+    ]);
+    expect(__cancelledTouches()).toEqual([{ surface: "primary", id: 5, x: 0, y: 0, hit: 0 }]);
+  });
+
+  test("a short or non-finite position pair keeps the word's coordinates", () => {
+    __setTouches([__packTouch(1, 10, 20), __packTouch(2, 30, 40)], undefined, undefined, [Number.NaN, 5, 31.5]);
+    expect(touches()).toEqual([
+      { surface: "primary", id: 1, x: 10, y: 20 },
+      { surface: "primary", id: 2, x: 30, y: 40 },
     ]);
   });
 

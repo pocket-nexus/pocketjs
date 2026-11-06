@@ -14,6 +14,7 @@ import type { AxisDelta } from "./relative-axis.ts";
 import { __takeAxisDeltas, EMPTY_AXIS_DELTAS } from "./relative-axis.ts";
 import { __copyMotionState, __takeMotionState, type MotionState } from "./motion.ts";
 import type { TextEventRecord } from "./text-input.ts";
+import type { PointerRecord } from "./pointer.ts";
 import { ANALOG_CENTER } from "../../contracts/spec/spec.ts";
 import type { HostOps } from "./host.ts";
 import { rootMirror, setTreeMutationHook, type NodeMirror } from "./native-tree.ts";
@@ -306,6 +307,8 @@ export function wrapFrameHandler(
     axisDeltas?: readonly AxisDelta[],
     motion?: MotionState | null,
     text?: readonly TextEventRecord[],
+    pointer?: PointerRecord | null,
+    touchPositions?: readonly number[],
   ) => void,
 ): (
   buttons: number,
@@ -317,6 +320,8 @@ export function wrapFrameHandler(
   axisDeltas?: readonly AxisDelta[],
   motion?: MotionState | null,
   text?: readonly TextEventRecord[],
+  pointer?: PointerRecord | null,
+  touchPositions?: readonly number[],
 ) => void {
   return (
     buttons: number,
@@ -328,6 +333,8 @@ export function wrapFrameHandler(
     axisDeltasArg?: readonly AxisDelta[],
     motionArg?: MotionState | null,
     textArg?: readonly TextEventRecord[],
+    pointerArg?: PointerRecord | null,
+    touchPositionsArg?: readonly number[],
   ) => {
     state.hostCalls++;
     if (state.transport) {
@@ -342,6 +349,8 @@ export function wrapFrameHandler(
     let touchSurfaces = touchSurfacesArg;
     let axisDeltas = axisDeltasArg;
     let motion = motionArg;
+    let pointer = pointerArg;
+    let touchPositions = touchPositionsArg;
     if (state.replayMasks) {
       if (state.replayAt < state.replayMasks.length) {
         // Paused host polls must not consume queued replay input.
@@ -364,6 +373,11 @@ export function wrapFrameHandler(
         // (op 42/27 against the same committed layout — the same answer the
         // recording host computed).
         hits = undefined;
+        // The tape holds no pointer track: live hover and scrolling stay
+        // out of the replay. Its touch words carry whole-pixel coordinates,
+        // so the live exact positions stay out too.
+        pointer = null;
+        touchPositions = undefined;
         state.replayAt++;
       } else {
         state.replayMasks = null; // tape exhausted: back to live input
@@ -386,7 +400,7 @@ export function wrapFrameHandler(
     recordMask(mask, analog, touch, touchSurfaces, rightAnalog, axisDeltas, motion);
     state.frame++;
     try {
-      h(mask, analog, touch, hits, touchSurfaces, rightAnalog, axisDeltas, motion, textArg);
+      h(mask, analog, touch, hits, touchSurfaces, rightAnalog, axisDeltas, motion, textArg, pointer, touchPositions);
     } catch (e) {
       send({
         t: "error",

@@ -1005,6 +1005,13 @@ impl Runtime {
             axis_deltas: &self.input.relative,
             motion: self.input.motion.as_ref(),
             text: &self.input.text,
+            pointer: self.input.pointer,
+            // Scroll belongs to the pointer's position and surface.
+            scroll: match self.input.pointer {
+                Some(_) => self.input.scroll,
+                None => [0.0; 2],
+            },
+            touch_positions: &encoded.positions,
         };
         if let Err(error) = self
             .guest

@@ -1127,6 +1127,8 @@ struct pocket_input_frame {
   const pocket_text_event * text;
   size_t text_count;
   const pocket_motion_state * motion;
+  /* Wheel and trackpad scrolling since the previous sample in logical px of the pointer's surface, x then y. Positive y moves the view toward the content's end, as WheelEvent.deltaY. The runtime sums the sources' scroll and delivers it with the frame's pointer. */
+float scroll[2];
 };
 enum {
   POCKET_LAYOUT_POCKET_INPUT_FRAME_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -1157,10 +1159,12 @@ enum {
   POCKET_LAYOUT_POCKET_INPUT_FRAME_12_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_INPUT_FRAME_11_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
   POCKET_LAYOUT_POCKET_INPUT_FRAME_13_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_INPUT_FRAME_12_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const pocket_motion_state *)),
   POCKET_LAYOUT_POCKET_INPUT_FRAME_13_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_INPUT_FRAME_12_ALIGN, POCKET_ABI_ALIGNOF(const pocket_motion_state *)),
-  POCKET_LAYOUT_POCKET_INPUT_FRAME_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_INPUT_FRAME_13_OFFSET + sizeof(const pocket_motion_state *), POCKET_LAYOUT_POCKET_INPUT_FRAME_13_ALIGN)
+  POCKET_LAYOUT_POCKET_INPUT_FRAME_14_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_INPUT_FRAME_13_OFFSET + sizeof(const pocket_motion_state *), POCKET_ABI_ALIGNOF(float)),
+  POCKET_LAYOUT_POCKET_INPUT_FRAME_14_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_INPUT_FRAME_13_ALIGN, POCKET_ABI_ALIGNOF(float)),
+  POCKET_LAYOUT_POCKET_INPUT_FRAME_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_INPUT_FRAME_14_OFFSET + 4 * 2, POCKET_LAYOUT_POCKET_INPUT_FRAME_14_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_input_frame) == POCKET_LAYOUT_POCKET_INPUT_FRAME_SIZE, "pocket_input_frame size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_input_frame) == POCKET_LAYOUT_POCKET_INPUT_FRAME_13_ALIGN, "pocket_input_frame alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_input_frame) == POCKET_LAYOUT_POCKET_INPUT_FRAME_14_ALIGN, "pocket_input_frame alignment");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, struct_size) == POCKET_LAYOUT_POCKET_INPUT_FRAME_0_OFFSET, "pocket_input_frame.struct_size");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, buttons) == POCKET_LAYOUT_POCKET_INPUT_FRAME_1_OFFSET, "pocket_input_frame.buttons");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, axes) == POCKET_LAYOUT_POCKET_INPUT_FRAME_2_OFFSET, "pocket_input_frame.axes");
@@ -1175,6 +1179,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, cancelled_count) == PO
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, text) == POCKET_LAYOUT_POCKET_INPUT_FRAME_11_OFFSET, "pocket_input_frame.text");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, text_count) == POCKET_LAYOUT_POCKET_INPUT_FRAME_12_OFFSET, "pocket_input_frame.text_count");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, motion) == POCKET_LAYOUT_POCKET_INPUT_FRAME_13_OFFSET, "pocket_input_frame.motion");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_frame, scroll) == POCKET_LAYOUT_POCKET_INPUT_FRAME_14_OFFSET, "pocket_input_frame.scroll");
 
 /* append copies a driver's contribution before returning; the driver need not retain borrowed input memory. Runtime merges sources and resolves hit facts once. */
 struct pocket_input_frame_builder {

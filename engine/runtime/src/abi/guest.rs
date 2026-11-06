@@ -156,6 +156,13 @@ impl Guest for CGuest {
             .collect();
         let motion = frame.motion.map(motion_header);
         let text: Vec<_> = frame.text.iter().filter_map(text_record).collect();
+        let pointer = frame.pointer.map(|pointer| PocketPointer {
+            surface: pointer.surface,
+            x: pointer.x,
+            y: pointer.y,
+            buttons: pointer.buttons,
+            ..PocketPointer::empty()
+        });
         let frame = PocketGuestFrame {
             buttons: frame.buttons,
             analog: frame.analog,
@@ -169,6 +176,9 @@ impl Guest for CGuest {
             motion: motion.as_ref().map_or(ptr::null(), |motion| motion),
             text: text.as_ptr(),
             text_count: text.len(),
+            pointer: pointer.as_ref().map_or(ptr::null(), |pointer| pointer),
+            scroll: frame.scroll,
+            touch_positions: frame.touch_positions.as_ptr(),
             ..PocketGuestFrame::empty()
         };
         result(unsafe { self.table.frame.unwrap()(self.context, &frame) })
