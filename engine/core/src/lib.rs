@@ -2617,7 +2617,7 @@ impl Ui {
     }
 
     /// Resize the logical viewport (root node + layout bounds + draw clip).
-    /// Defaults to the PSP's 480x272; desktop hosts call this with their
+    /// Defaults to the PSP's 480x272; resizable hosts call this with their
     /// surface size. Values are clamped to the DrawList's i16 coordinate
     /// range. PSP/wasm hosts never call this, so goldens are unaffected.
     pub fn set_viewport(&mut self, w: f32, h: f32) {

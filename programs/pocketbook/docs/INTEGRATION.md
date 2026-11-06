@@ -1339,7 +1339,7 @@ feature-detects optional HostOps methods.
 | `programs/psp/src/scene.rs` | PSP's DrawList walker (reference for a GPU backend) |
 | `programs/psp/src/main.rs` | PSP's frame loop ordering |
 | `engine/mod/src/lib.rs` | QuickJS hosting library |
-| `engine/ui-wgpu/src/surface.rs` | Desktop host using pocket-mod |
+| `engine/ui-surface/src/surface.rs` | UI embedding using pocket-mod |
 | `site/content/docs/platform-contracts.md` | Custom host build API |
 
 ### inkview-rs Source Files

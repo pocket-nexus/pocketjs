@@ -4,7 +4,7 @@ import {
   validateAndResolveBuildPlan,
   validateAndResolveSystemPlan,
 } from "@pocketjs/framework/manifest";
-import systemInput from "./fixtures/systems/managed-desktop.json";
+import systemInput from "./fixtures/systems/managed-web.json";
 
 const SYSTEM_UI = "dev.pocket-nexus.test-system-ui";
 const HERO = "dev.pocket-nexus.hero";
@@ -41,7 +41,7 @@ describe("Pocket System resolution", () => {
   test("preserves each installed package's complete resolved plan", async () => {
     const packages = await packageInputs();
     const resolution = validateAndResolveSystemPlan(systemInput, {
-      target: "macos-app",
+      target: "web-app",
       packages,
     });
     expect(resolution.ok).toBe(true);
@@ -58,7 +58,7 @@ describe("Pocket System resolution", () => {
     for (const entry of systemInput.applications.catalog) {
       const input = packages.find((item) => item.source === entry.manifest)!;
       const packageResolution = validateAndResolveBuildPlan(input.manifest, {
-        target: "macos-app",
+        target: "web-app",
         role: entry.package === SYSTEM_UI ? "systemUI" : "application",
       });
       expect(packageResolution.ok).toBe(true);
@@ -74,7 +74,7 @@ describe("Pocket System resolution", () => {
     const hero = packages.find((entry) => entry.source === "apps/hero/pocket.app.json")!;
     hero.manifest.app.output = "settings-main";
     const result = validateAndResolveSystemPlan(systemInput, {
-      target: "macos-app",
+      target: "web-app",
       packages,
     });
     expect(result.ok).toBe(false);
@@ -93,7 +93,7 @@ describe("Pocket System resolution", () => {
       (entry) => entry.source !== "apps/hero/pocket.app.json",
     );
     const result = validateAndResolveSystemPlan(system, {
-      target: "macos-app",
+      target: "web-app",
       packages,
     });
     expect(result.ok).toBe(true);
@@ -114,7 +114,7 @@ describe("Pocket System resolution", () => {
         (id) => id !== SYSTEM_UI,
       );
     const missing = validateAndResolveSystemPlan(missingSystemUI, {
-      target: "macos-app",
+      target: "web-app",
       packages: (await packageInputs()).filter(
         (entry) => entry.source !== "tests/fixtures/manifests/system-ui.json",
       ),
@@ -129,7 +129,7 @@ describe("Pocket System resolution", () => {
     const unknownSystem = structuredClone(systemInput);
     unknownSystem.installation.installedPackages.push("dev.pocket-nexus.unknown");
     const unknown = validateAndResolveSystemPlan(unknownSystem, {
-      target: "macos-app",
+      target: "web-app",
       packages: await packageInputs(),
     });
     expect(unknown.ok).toBe(false);
@@ -149,7 +149,7 @@ describe("Pocket System resolution", () => {
       "ui.compositor-surfaces",
     );
     const rejected = validateAndResolveSystemPlan(systemInput, {
-      target: "macos-app",
+      target: "web-app",
       packages: required,
     });
     expect(rejected.ok).toBe(false);
@@ -167,7 +167,7 @@ describe("Pocket System resolution", () => {
       "ui.compositor-surfaces",
     );
     const accepted = validateAndResolveSystemPlan(systemInput, {
-      target: "macos-app",
+      target: "web-app",
       packages: enhanced,
     });
     expect(accepted.ok).toBe(true);
@@ -190,7 +190,7 @@ describe("Pocket System resolution", () => {
     );
     capabilities.enhances.push("ui.compositor-surfaces");
     const result = validateAndResolveSystemPlan(systemInput, {
-      target: "macos-app",
+      target: "web-app",
       packages,
     });
     expect(result.ok).toBe(false);
@@ -206,7 +206,7 @@ describe("Pocket System resolution", () => {
     const hero = packages.find((entry) => entry.source === "apps/hero/pocket.app.json")!;
     hero.manifest.app.companions = ["note"];
     const result = validateAndResolveSystemPlan(systemInput, {
-      target: "macos-app",
+      target: "web-app",
       packages,
     });
     expect(result.ok).toBe(false);

@@ -196,9 +196,9 @@ describe("pocket.app.json v2 schema", () => {
 
 describe("Pocket System v1 schema", () => {
 
-  test("validates a managed desktop installation model", async () => {
+  test("validates a managed browser installation model", async () => {
     const system = await Bun.file(
-      new URL("./fixtures/systems/managed-desktop.json", import.meta.url),
+      new URL("./fixtures/systems/managed-web.json", import.meta.url),
     ).json();
     expect(validatePocketSystem(system).ok).toBe(true);
   });
@@ -221,8 +221,6 @@ describe("platform registry", () => {
       "vita",
       "pocketbook",
       "macos-widget",
-      "macos-app",
-      "linux-app",
       "web-app",
     ]);
     expect(validatePlatformContractRegistry(POCKET_PLATFORM_CONTRACTS)).toEqual([]);
@@ -284,56 +282,6 @@ describe("platform registry", () => {
     expect(POCKET_TARGETS["macos-widget"].display.dynamicViewport).toEqual({
       min: [240, 180],
       max: [4096, 4096],
-    });
-    // The gpui app frame: same desktop wire generation as the widget shell
-    // A general window also hosts fixed-viewport apps and compositor surfaces.
-    // (acceptsFixed), and host text layout instead of runtime glyph baking.
-    // Deliberately NARROW: only host-generic behavior registers — pointer/
-    // text/IME/clipboard reach the note via its companion svc adapter and
-    // are not target capabilities here (the platforms.ts header rule).
-    expect(POCKET_TARGETS["macos-app"].hostAbi).toBe(POCKET_BINDING_GENERATION);
-    expect(POCKET_TARGETS["macos-app"].form).toBe("window");
-    expect(POCKET_TARGETS["macos-app"].capabilities).toEqual([
-      "display.viewport.live",
-      "input.buttons",
-      "io.offload",
-      "text.glyphs.baked",
-      "text.layout.offload",
-    ]);
-    expect(POCKET_TARGETS["macos-app"].roleCapabilities).toEqual({
-      systemUI: ["ui.compositor-surfaces"],
-    });
-    expect(POCKET_TARGETS["macos-app"].display.dynamicViewport).toEqual({
-      min: [240, 180],
-      max: [4096, 4096],
-      acceptsFixed: true,
-    });
-    expect(POCKET_TARGETS["linux-app"]).toEqual({
-      cadences: [60, 30],
-      hostAbi: POCKET_BINDING_GENERATION,
-      platform: "linux",
-      form: "window",
-      display: {
-        physicalViewport: [1280, 800],
-        logicalViewports: [[800, 600]],
-        dynamicViewport: {
-          min: [240, 180],
-          max: [4096, 4096],
-          acceptsFixed: true,
-        },
-        presentations: ["native"],
-        rasterDensity: 1,
-        animation: "composited",
-      },
-      capabilities: [
-        "display.viewport.live",
-        "input.buttons",
-        "io.offload",
-        "text.glyphs.baked",
-        "text.layout.offload",
-      ],
-      roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
-      source: POCKET_PROFILES["linux-app"],
     });
     expect(POCKET_TARGETS["web-app"]).toEqual({
       cadences: [60],
@@ -398,14 +346,14 @@ describe("platform registry", () => {
 });
 
 describe("semantic resolution", () => {
-  test("the legacy note uses baked text on portable desktop hosts", async () => {
+  test("the note resolves runtime glyphs and companions for browser and widget hosts", async () => {
     // Portable hosts never advertise OS text layout. Async text is explicit.
     const note = readPocketManifest(fileURLToPath(new URL("../apps/note/pocket.app.json", import.meta.url))).manifest as any;
-    const onApp = validateAndResolveBuildPlan(note, { target: "macos-app" });
+    const onApp = validateAndResolveBuildPlan(note, { target: "web-app" });
     expect(onApp.ok).toBe(true);
     if (!onApp.ok) return;
     expect(onApp.plan.features["text.layout.native"]).toBe(false);
-    expect(onApp.plan.features["text.glyphs.runtime"]).toBe(false);
+    expect(onApp.plan.features["text.glyphs.runtime"]).toBe(true);
     expect(onApp.plan.target.hostAbi).toBe(POCKET_BINDING_GENERATION);
 
     const onWidget = validateAndResolveBuildPlan(note, { target: "macos-widget" });
@@ -421,7 +369,7 @@ describe("semantic resolution", () => {
     expect(onApp.plan.companions).toEqual(["note"]);
     expect(onApp.plan.viewport.policy).toBe("dynamic");
     const hero = await Bun.file(new URL("../apps/hero/pocket.app.json", import.meta.url)).json();
-    const heroOnApp = validateAndResolveBuildPlan(hero, { target: "macos-app" });
+    const heroOnApp = validateAndResolveBuildPlan(hero, { target: "web-app" });
     expect(heroOnApp.ok).toBe(true);
     if (!heroOnApp.ok) return;
     expect(heroOnApp.plan.companions).toEqual([]);
@@ -566,13 +514,9 @@ describe("semantic resolution", () => {
 
   test("every committed demo manifest lands on the expected admission matrix", async () => {
     const { readdirSync, existsSync } = await import("node:fs");
-    // demo -> [psp, vita, macos-widget, macos-app] admission. Fixed-only
-    // console demos stay off the desktop widget (its profile presents
-    // "native" over a dynamic viewport, not the console integer-fit
-    // contract) but land on the macos-app frame, which hosts fixed apps
-    // size-locked (acceptsFixed); Hero declares both policies, while the
-    // note is dynamic-only. A new demo missing here fails the test on
-    // purpose.
+    // Demo admission on console, widget and browser profiles. Fixed-only
+    // console demos require acceptsFixed on a window profile. Hero offers
+    // both viewport policies; Note requires a dynamic viewport.
     const expected: Record<string, [boolean, boolean, boolean, boolean]> = {
       "3ds-demo": [false, false, false, false], // requires the private 3ds-dev profile's auxiliary display and touch contracts
       cafe: [true, true, false, true],
@@ -606,7 +550,7 @@ describe("semantic resolution", () => {
       "vue-sfc-lab": [true, true, false, true],
       zoomlab: [true, true, false, true],
     };
-    const targets = ["psp", "vita", "macos-widget", "macos-app"] as const;
+    const targets = ["psp", "vita", "macos-widget", "web-app"] as const;
     for (const demo of readdirSync(new URL("../apps/", import.meta.url)).sort()) {
       const url = new URL(`../apps/${demo}/pocket.app.json`, import.meta.url);
       if (!existsSync(url)) continue;
@@ -623,7 +567,7 @@ describe("semantic resolution", () => {
     ).json();
     expect(
       validateAndResolveBuildPlan(systemUI, {
-        target: "macos-app",
+        target: "web-app",
         role: "systemUI",
       }).ok,
     ).toBe(true);
@@ -636,7 +580,7 @@ describe("semantic resolution", () => {
   test("portable text admission requires its offload transport declaration", async () => {
     const manifest = await Bun.file(new URL("../apps/text-offload/pocket.app.json", import.meta.url)).json();
     manifest.engine.capabilities.requires = manifest.engine.capabilities.requires.filter((cap: string) => cap !== "io.offload");
-    for (const target of ["psp", "macos-app"] as const) {
+    for (const target of ["psp", "web-app"] as const) {
       expect(validateAndResolveBuildPlan(manifest, { target }).ok).toBe(false);
     }
   });

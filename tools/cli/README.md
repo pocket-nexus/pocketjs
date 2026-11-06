@@ -28,8 +28,7 @@ Outside a framework checkout this creates a standalone project with
 `pocket.app.json`, `main.tsx`, `app.tsx`, `package.json`, `tsconfig.json`, a README
 and `.gitignore`. Inside a checkout it creates the application files under
 `apps/<name>/`. `--framework` accepts `solid`, `vue-vapor` and `octane`.
-Application scaffold targets are `psp`, `vita`, `web-app`,
-`macos-app` and `linux-app`.
+Application scaffold targets are `psp`, `vita`, `web-app` and `esp-idf`.
 
 **`compile` produces a version 2 `.pocket` application package.** It validates
 the app contract and TypeScript, resolves capabilities and viewport against the

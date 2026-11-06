@@ -219,7 +219,7 @@ admission requires the package's class to equal the host's.
 
 | Class | Frame cost | Built-in host contracts |
 | --- | --- | --- |
-| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds-dev`, the iOS, macOS, web and Linux host contracts |
+| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds-dev`, iOS, macOS widgets and web host contracts |
 | `repaint` | A CPU repaints the pixels a change touched, so a frame costs in proportion to that area; the host moves the pixels of a translated opaque region instead of repainting them. | `gba`, `ipodnano`, `symbian-e7-dev` |
 | `still` | The display shows one change per refresh. `animate()` and `spring()` set the end value and return no animation. | `pocketbook` |
 
@@ -272,7 +272,7 @@ iPod touch 4 and Nokia E7 from one app contract. `resolveViewport` in
   size to logical × `rasterDensity`. The app's own `dynamic.min`/`dynamic.max`
   are schema-valid and unread — the admitted range belongs to the target.
 - A fixed-only app resolves on a dynamic-form target when its host contract
-  sets `dynamicViewport.acceptsFixed` (`macos-app`, `linux-app`, `web-app` do;
+  sets `dynamicViewport.acceptsFixed` (`web-app` does;
   `macos-widget` does not), and runs size-locked in the window.
 - A fixed-screen target rejects a dynamic-only app, and a dynamic-form target
   without `acceptsFixed` rejects a fixed-only app, both before compilation.
@@ -285,8 +285,8 @@ and takes new sizes through the framework's `resizeViewport` hook.
 `app.companions` lists the exact strings the app passes to `svcOpen` — the
 service names its adapters speak. The resolver copies the list into
 `plan.companions` unchanged, and a host builds its svc allowlist from that copy
-instead of an app-name convention: `programs/desktop` calls
-`set_svc_allowlist(plan.companions)`, and `svcOpen` denies everything else.
+instead of an app-name convention. `UiSurface::set_svc_allowlist` installs
+this list, and `svcOpen` denies everything else.
 **A host with no adapter for those services rejects a plan whose `companions`
 list is non-empty** rather than starting an app whose services answer false.
 
@@ -351,8 +351,6 @@ generation, 12.**
 | `vita`         | vita / takeover   | 480×272 (`integer-fit`)                  | 2       | `input.analog.left`, `input.buttons`, `input.cursor`, `input.touch`, `text.glyphs.baked` |
 | `pocketbook`   | pocketbook / takeover | 480×272 (`integer-fit`)              | 2       | `input.buttons`, `input.touch`, `text.glyphs.baked` |
 | `macos-widget` | macos / widget    | 420×560 default, 240×180…4096×4096       | 2       | `input.buttons`, `input.ime`, `input.pointer`, `input.text`, `host.clipboard`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime` |
-| `macos-app`    | macos / window    | 720×480 default, 240×180…4096×4096, accepts fixed | 2 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.layout.native`; systemUI role adds `ui.compositor-surfaces` |
-| `linux-app`    | linux / window    | 800×600 default, 240×180…4096×4096, accepts fixed | 1 | same as `macos-app` |
 | `web-app`      | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime`; systemUI role adds `ui.compositor-surfaces` |
 
 `roleCapabilities.systemUI` is the one conditional column: those APIs reach a
@@ -554,7 +552,7 @@ agent read a runtime's `pocket.host.json` and apply the same rules.
 **`app.tickHz` is the package rate; the cadences are the host's.** A host
 presents a package at the largest cadence its rate is a whole multiple of,
 advances the core by rate ÷ cadence ticks per frame and publishes the cadence
-as `__simHz`. A desktop with cadences [60, 30] presents a 30 Hz package at
+as `__simHz`. A host offering cadences [60, 30] presents a 30 Hz package at
 30 Hz and a 60 Hz package at 60 Hz; a panel with cadence 30 presents a 60 Hz
 package at 30 Hz with two core ticks per frame. `after(1.5)` fires 1.5 wall
 seconds after the first frame in each case. `pocket_runtime_get_timing`

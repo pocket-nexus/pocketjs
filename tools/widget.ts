@@ -36,7 +36,7 @@ const root = new URL("..", import.meta.url).pathname;
 
 /** Transitional embedded target shared by the bundled PSP and iPod stages. */
 export const STAGE_TARGET_ID = softwareProfile.id;
-// Same current desktop HostOps wire generation as macos-widget; form and
+// Same current HostOps wire generation as macos-widget; form and
 // capabilities differ even though the native UI surface implementation is shared.
 export const STAGE_HOST_ABI = POCKET_BINDING_GENERATION;
 export type WidgetStage = "psp" | "ipod";

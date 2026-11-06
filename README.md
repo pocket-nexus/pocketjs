@@ -194,25 +194,6 @@ Seven samples per application. The two hero-demo rows come from separate runs
 with different toolchain versions, so each row is comparable internally but not
 against the other.
 
-### On a desktop
-
-Historical August 2026 results for the previous gpui host: the same markdown
-editor built three ways on an Apple M3 Max
-([full report](./docs/bench/gpui-vs-tauri-electron-2026-08-18.md), reproduced by
-`bun tools/bench-desktop.ts`):
-
-| | pocket | Tauri v2 | Electron |
-| --- | --- | --- | --- |
-| Processes | **1** | 4 | 5 |
-| Cold start to first painted frame | **149 ms** | 380 ms | 301 ms |
-| Idle resident memory | **83 MB** | 193 MB | 382 MB |
-| On disk | 10 MB | 9 MB | 242 MB |
-
-With a document open and no input, the pocket build redraws **about twice a
-second**, for the blinking caret. The report also records where the pocket
-build loses: its storm CPU rises with document length, because the editor
-re-wraps the whole document through the QuickJS interpreter on every keystroke.
-
 See also: [Shipping OpenStrike](https://pocketjs.pocket.nexus/blog/shipping-openstrike/) ·
 [Pocket Character](https://pocketjs.pocket.nexus/blog/pocket-character/) ·
 [Twice the pixels, zero forks](https://pocketjs.pocket.nexus/blog/pocketjs-on-ps-vita/) ·
@@ -291,7 +272,7 @@ contracts and build tools are maintained in this repository; see
 | PS Vita system software | ARM, GXM | [Twice the pixels, zero forks](https://pocketjs.pocket.nexus/blog/pocketjs-on-ps-vita/) |
 | iOS 12.5.8 | arm64 | [#278](https://github.com/pocket-nexus/pocketjs/pull/278) |
 | iOS, current | NativeScript host | [#256](https://github.com/pocket-nexus/pocketjs/pull/256) |
-| macOS | Metal window and widget | [#293](https://github.com/pocket-nexus/pocketjs/pull/293) |
+| macOS | Metal widgets | [Pocket Character](https://pocketjs.pocket.nexus/blog/pocket-character/) |
 | Symbian Belle | Qt, GLES2 | [Symbian wanted a frame function](https://pocketjs.pocket.nexus/blog/pocketjs-on-symbian/) |
 | PocketBook e-ink | inkview, partial refresh | [#172](https://github.com/pocket-nexus/pocketjs/pull/172) |
 | ESP-IDF 6.0/6.1 | P4 PPA or S3 software RGB565 | [ESP-IDF components](https://pocketjs.pocket.nexus/docs/esp-idf/) |

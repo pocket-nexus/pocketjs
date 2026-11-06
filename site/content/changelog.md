@@ -331,8 +331,7 @@ without characters arriving a few at a time.
   buffering. Media support adds local downloads and timed captions. Clear's
   companion input uses reusable glyph resources, revision-checked candidate
   windows and text layouts that preserve cached characters across edits.
-- **Desktop rendering and native integrations expand.** Desktop hosts gain
-  portable GPU rendering and offloaded text. ESP-IDF integrations provide
+- **Native integrations expand.** ESP-IDF integrations provide
   separate package, guest, UI and renderer components for ESP32-P4 and S3.
   The 3DS runtime isolates application state, returns to the Homebrew Launcher,
   and acquires native sources without PSP dependencies. Legacy iPod touch
@@ -346,11 +345,9 @@ without characters arriving a few at a time.
 
 ## 0.11.0 — August 30, 2026
 
-**Two more device families run PocketJS, a second backend class paints through gpui and measures text on the host, and a paired Nintendo 3DS takes new guests over Wi-Fi.**
-0.11.0 adds the Nintendo 3DS and the BlackBerry Classic to the host set, a
-backend class that hands text measurement to the platform instead of a baked
-atlas, and a System that supervises several guests behind one compositor on
-macOS, Linux and the browser. Both new device profiles remain private
+**Two more device families run PocketJS, and a paired Nintendo 3DS takes new guests over Wi-Fi.**
+0.11.0 adds the Nintendo 3DS and the BlackBerry Classic to the host set and
+a System that supervises several guests behind one browser compositor. Both new device profiles remain private
 development targets: each records an exact hardware and firmware tuple, and
 neither advertises a production capability from a build alone.
 
@@ -383,21 +380,9 @@ neither advertises a production capability from a build alone.
   The earlier Android compatibility host has been removed. First device run
   recorded on an SQC100-4 at 10.3.3.3216; the [port write-up](/blog/blackberry-classic/) walks the QNX
   route onto the square screen.
-- **A second backend class paints through gpui and measures text on the
-  host.** The portable family (wgpu, software raster, PPA, GLES2) keeps
-  executing the DrawList against compile-time baked font atlases.
-  `engine/backends/gpui` paints through Zed's gpui/Metal renderer instead, and
-  `text::MeasureFn` plus `DRAW_OP.TEXT_RUN` route measurement and shaping to
-  CoreText when an app opts in — a `styleHash` word keeps identical word
-  streams pixel-identical, so demand-render hashes stay truthful. The
-  `macos-app` target ships with it, together with a `wrapText` host op and a
-  Notepad whose word wrap, hit-testing, caret movement, selection and
-  undo/redo all read one visual-segment layout, so reflow on resize falls out
-  of the reactive width.
 - **A System supervises several guests behind one compositor.** Pocket System
   resolution, role-scoped compositor surfaces and isolated `AppInstance`
-  supervision arrive with a product-neutral macOS compositor host, and Linux
-  and browser System hosts run the same resolved plan.
+  supervision let the browser System host run one resolved plan.
 - **The manifest and the resolved plan carry companion adapters and viewport
   policy.** `app.companions` names the exact `svcOpen` service names an app's
   adapters speak, and the plan carries `companions` and `viewport.policy`, so
@@ -419,17 +404,7 @@ neither advertises a production capability from a build alone.
   where it was. `products/3ds/src/gfx.c` copies the spec's `GradDir` ordinals
   into C by hand and had `ToTop` and `ToBottom` swapped, which inverted every
   vertical gradient on the one backend that does not read the generated Rust
-  enum. The gpui raster fallback renders the full viewport and composites
-  transparently, and the compiler's path handling is portable on Windows
-  again.
-- **PocketJS 98 and a desktop benchmark measure the gpui host.** `apps/desk98`
-  is a Windows 98 desktop as one guest — draggable, resizable, z-ordered
-  windows, taskbar, Start menu, Notepad, Minesweeper and the classic
-  shortcuts — with window moves riding paint-only transform props so a drag
-  never relayouts and the idle desktop holds the demand-render governor at a
-  few frames a second. `tools/bench-desktop.ts` measures byte-identical web
-  editors shelled by Tauri v2 and Electron against the Pocket note on the same
-  host; the numbers and their fairness caveats ship with the report.
+  enum. The compiler's path handling is portable on Windows again.
 - **The site is one design system across a nine-chapter homepage.** Shared
   tokens, chrome and base stylesheets replace the per-page CSS, the landing
   carries compatibility receipts, and an icon family covers every surface from
@@ -491,7 +466,7 @@ a build or upload alone.
   while concrete material recipes remain application-owned. Pocket3D model
   sockets and the optional stylized scene path present that state without
   moving simulation policy into the renderer.
-- **Font and desktop-host regressions are closed.** The font baker now closes
+- **Font and widget regressions are closed.** The font baker now closes
   implicitly closed CFF contours before scanline filling, retaining their final
   edge, and the Note and widget launchers resolve their Cargo outputs from the
   current `engine/` workspace rather than the retired nested path.

@@ -140,8 +140,8 @@ without `listening` counts as always attached.
   listener exists, not that a client is attached. **Without a panel the guest
   serializes no tree snapshots: a full-tree snapshot measured about 30 ms of
   JS on an Old 3DS, once per 30 frames.**
-- **Native desktop (macOS et al., `pocket-ui-wgpu`):** the same file mailbox,
-  minus the USB cable — `engine/ui-wgpu/src/dbg.rs` is the
+- **Widget and Pocket3D embeddings (`pocket-ui-surface`):** the same file mailbox,
+  minus the USB cable — `engine/ui-surface/src/dbg.rs` is the
   std twin of the PSP transport. Probed once at `UiSurface::mount`: root =
   `$POCKETJS_DBG_DIR`, else the process cwd; active only if
   `pocketjs-dbg/enable` exists. Arm it with `bun run devtools --dir <root>`

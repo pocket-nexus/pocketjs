@@ -30,7 +30,6 @@ members = [
     "devices/vita/pocket-vita-render",
     "devices/wgpu/pocket-wgpu-render",
     "engine/pocket3d/crates/pocket-web-wgpu",
-    "programs/desktop/gpui",
     "engine/core",
     "engine/microts-runtime",
     "engine/mod",
@@ -69,7 +68,6 @@ members = [
     "programs/native/runtime",
     "programs/web/wasm",
     "products/3ds/core",
-    "programs/desktop",
     "programs/esp-idf/archive",
     "programs/gba",
     "tools/build/gba/bake",
@@ -142,7 +140,6 @@ exclude = [
     "tests/fixtures/psp-runtime",
     "tests/fixtures/vita-dev",
     "tests/fixtures/vita-runtime",
-    "tools/bench-desktop/tauri/src-tauri",
 ]
 
 [workspace.package]
@@ -171,7 +168,6 @@ pocket-gba-video = { path = "platforms/gba/video", version = "0.16.0", default-f
 microts = { path = "engine/microts-runtime", version = "0.16.0", default-features = false }
 note-widget = { path = "engine/pocket3d/examples/note-widget", version = "0.16.0", default-features = false }
 pocket-apple = { path = "platforms/apple", version = "0.16.0", default-features = false }
-pocket-desktop-host = { path = "programs/desktop", version = "0.16.0", default-features = false }
 pocket-draw-ops = { path = "engine/render/draw-ops", version = "0.16.0", default-features = false }
 pocket-drivers = { path = "engine/drivers", version = "0.16.0", default-features = false }
 pocket-driver-kit = { path = "engine/driver-kit", version = "0.16.0", default-features = false }
@@ -211,7 +207,6 @@ pocket-spec = { path = "engine/spec", version = "0.16.0", default-features = fal
 pocket-stage = { path = "engine/pocket3d/examples/handheld", version = "0.16.0", default-features = false }
 pocket-tex-cache = { path = "engine/render/tex-cache", version = "0.16.0", default-features = false }
 pocket-text = { path = "engine/text", version = "0.16.0", default-features = false }
-pocket-ui-gpui = { path = "programs/desktop/gpui", version = "0.16.0", default-features = false }
 pocket-ui-surface = { path = "engine/ui-surface", version = "0.16.0", default-features = false }
 pocket-ui-wgpu = { path = "engine/ui-wgpu", version = "0.16.0", default-features = false }
 pocket-vita-gxm = { path = "devices/vita/pocket-vita-gxm", version = "0.16.0", default-features = false }
@@ -290,9 +285,6 @@ opt-level = "s"
 [profile.release.package."pocketjs-3ds-core"]
 opt-level = 3
 codegen-units = 1
-
-[profile.release.package."pocket-desktop-host"]
-debug = false
 
 [profile.release.package."pocket-idf-runtime"]
 codegen-units = 16
