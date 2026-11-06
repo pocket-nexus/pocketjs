@@ -264,3 +264,9 @@ unsigned (JSON has no -0) as the eighth frame argument delivered them. Recording
 existing tape version and omit the track. Replay owns the track: frames
 without a recorded state receive none, so live driver estimates cannot enter
 the replay.
+
+**The pointer has no tape track.** The tenth frame argument carries the
+host's pointer position and its scroll; replay passes none in its place, so
+live hover and scrolling cannot enter the replay and `pointer()` reads `null`
+for the replayed frames. A pressed primary button still reaches the tape as
+the touch contact the runtime derives from it.

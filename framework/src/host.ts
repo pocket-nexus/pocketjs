@@ -20,6 +20,7 @@ import {
 import type { AxisDelta } from "./relative-axis.ts";
 import type { MotionState } from "./motion.ts";
 import type { TextEventRecord } from "./text-input.ts";
+import type { PointerRecord } from "./pointer.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
 // Replaced by tools/build.ts. A raw bundle has no target restriction but uses
@@ -465,6 +466,8 @@ export function reportAppAction(name: string, value: number): void {
 // via installFrameHandler. `motion` is the newest fused estimate the host's
 // motion driver published since the previous frame (contracts/spec/motion.ts);
 // null or absent means none, and a frame argument replaces a queued estimate.
+// The ninth argument carries the frame's text events (text-input.ts) and the
+// tenth the frame's pointer with its scroll (pointer.ts), null for none.
 
 export function installFrameHandler(
   fn: (
@@ -477,6 +480,7 @@ export function installFrameHandler(
     axisDeltas?: readonly AxisDelta[],
     motion?: MotionState | null,
     text?: readonly TextEventRecord[],
+    pointer?: PointerRecord | null,
   ) => void,
 ): void {
   (
@@ -491,6 +495,7 @@ export function installFrameHandler(
         axisDeltas?: readonly AxisDelta[],
         motion?: MotionState | null,
         text?: readonly TextEventRecord[],
+        pointer?: PointerRecord | null,
       ) => void;
     }
   ).frame = fn;

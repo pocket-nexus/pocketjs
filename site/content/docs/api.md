@@ -16,7 +16,7 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/animation` | `animate`, `spring`, `jump`, `cancelAnim`, `animationClass` |
 | `@pocketjs/framework/physics` | `createWorld`, `hasPhysics`, `World`, `Body`, `Collider`, `Zone`, `Emitter` and their option types — see [Physics](/docs/physics/) |
 | `@pocketjs/framework/lifecycle` | `onFrame`, `onButtonPress`, `analogX`, `analogY`, `analogRaw`, `createSpriteAnimation`, `pushButtonHandlerBlock` (Octane builds: `useFrame`, `useButtonPress`, `useSpriteAnimation`) |
-| `@pocketjs/framework/input` | `BTN`, `touches`, `auxiliaryTouches`, `onTextEvent`, `hasTextInput`, `focusNode`, `getFocused`, `pressNode`, `setActiveNode`, `pushFocusScope`, `pushFocusGrid`, `pushFocusController`, `hitFocusable`, `hitNode`, `enableCursor`, `cursorX`, `cursorY` |
+| `@pocketjs/framework/input` | `BTN`, `touches`, `auxiliaryTouches`, `onTextEvent`, `hasTextInput`, `pointer`, `onScroll`, `focusNode`, `getFocused`, `pressNode`, `setActiveNode`, `pushFocusScope`, `pushFocusGrid`, `pushFocusController`, `hitFocusable`, `hitNode`, `enableCursor`, `cursorX`, `cursorY` |
 | `@pocketjs/framework/gesture` | `createGesture`, `attachGesture`, `pushTouchBlock`, gesture types (Solid and Vue Vapor) |
 | `@pocketjs/framework/kinetics` | `createScroller`, `bindDpadScroll`, `Scroller` / `ScrollerOptions` / `ScrollerState` types (Solid and Vue Vapor) |
 | `@pocketjs/framework/osk` | `Osk`, `TextField`, `createOsk`, `OSK_H`, `OSK_LAYERS`, `OSK_LAYOUTS`, `oskPanelHeight`, `resetPanelMemory` (Solid) |
@@ -684,6 +684,35 @@ the host has no hit-fact channel at all — an older host, or a DevTools replay.
 Hosts derive the fact from the bounds hit test; see
 [Native contract](/docs/native-contract/) for the ops and the `frame()`
 argument that carries them.
+
+### `pointer` and `onScroll`
+
+```ts
+interface PointerState {
+  readonly surface: "primary" | "auxiliary";
+  readonly x: number;
+  readonly y: number;
+  readonly buttons: number;
+}
+interface ScrollEvent {
+  readonly surface: "primary" | "auxiliary";
+  readonly x: number;
+  readonly y: number;
+  readonly dx: number;
+  readonly dy: number;
+}
+function pointer(): PointerState | null
+function onScroll(handler: (event: ScrollEvent) => boolean | void): () => void
+```
+
+`pointer()` returns the frame's pointer, with or without a button down, or
+`null` when the host reports none. Coordinates are unclamped logical pixels of
+`surface`; bit 0 of `buttons` is the primary button. `onScroll` receives the
+frame's summed wheel and trackpad scrolling in logical pixels at the pointer's
+position; positive `dy` moves the view toward the content's end. Handlers run
+newest first, a `true` return consumes the event, and the returned function
+removes the handler. Declare `input.pointer`; see
+[Input & focus](/docs/input-focus/#pointer-position-and-scrolling).
 
 ### `focusNode`
 

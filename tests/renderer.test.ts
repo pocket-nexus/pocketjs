@@ -77,6 +77,7 @@ import {
   onFrame,
 } from "../framework/src/lifecycle.ts";
 import { rootMirror } from "../framework/src/renderer.ts";
+import { onScroll, pointer, type ScrollEvent } from "../framework/src/pointer.ts";
 import {
   ActionBar,
   ActionHandler,
@@ -1319,6 +1320,29 @@ describe("public render() (index.ts)", () => {
       appLayer.id,
       overlayLayer.id,
     ]);
+  });
+
+  test("frame argument 10 latches the pointer and dispatches its scroll before frame hooks", () => {
+    const order: string[] = [];
+    const events: ScrollEvent[] = [];
+    const dispose = publicRender(
+      () => {
+        onScroll((event) => {
+          order.push("scroll");
+          events.push(event);
+        });
+        onFrame(() => void order.push(`frame:${pointer()?.x ?? "none"}`));
+        return createElement("view");
+      },
+      { ops: host.ops, styles: { "p-2": 0 } },
+    );
+    const frame = (globalThis as { frame?: (...args: unknown[]) => void }).frame!;
+    frame(0, 0x8080, [], [], [], 0x8080, [], null, [], { surface: 0, x: 1200.5, y: 30, buttons: 0, scrollX: 0, scrollY: 24 });
+    frame(0, 0x8080, [], [], [], 0x8080, [], null, []);
+    expect(order).toEqual(["scroll", "frame:1200.5", "frame:none"]);
+    expect(events).toEqual([{ surface: "primary", x: 1200.5, y: 30, dx: 0, dy: 24 }]);
+    dispose();
+    expect(pointer()).toBeNull();
   });
 
   test("native resize hook reflows a live tree without remounting or losing state", () => {

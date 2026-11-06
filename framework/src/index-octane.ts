@@ -32,6 +32,7 @@ import { registerStyles, resolveStyle } from "./styles.ts";
 import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot } from "./input.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame-octane.tsx";
 import { __resetTouches, __setTouches } from "./touch.ts";
+import { __dispatchScroll, __resetPointer, __setPointer, type PointerRecord } from "./pointer.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
 import { __drainEffects, resetEffects } from "./effects.ts";
 import { runServicePumps } from "./services.ts";
@@ -214,12 +215,18 @@ export function render(code: OctaneRenderRoot, opts: RenderOptions = {}): () => 
       hits?: readonly number[],
       touchSurfaces?: readonly number[],
       rightAnalog?: number,
+      _axisDeltas?: unknown,
+      _motion?: unknown,
+      _text?: unknown,
+      pointer?: PointerRecord | null,
     ) => {
       __advanceClock();
       __setAnalog(analog, rightAnalog);
       __setTouches(touches, hits, touchSurfaces);
+      __setPointer(pointer);
       runServicePumps();
       __drainEffects();
+      __dispatchScroll();
       // Octane schedules re-renders on the microtask queue; the sync boundary
       // drains them before the sweep so a frame's commits land in that frame.
       flushUniversalSync(() => {
@@ -235,6 +242,7 @@ export function render(code: OctaneRenderRoot, opts: RenderOptions = {}): () => 
   return () => {
     removeResizeViewportHook();
     __resetTouches();
+    __resetPointer();
     dispose();
     setInputRoot(null);
     setHitRoot(null);

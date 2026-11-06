@@ -391,6 +391,46 @@ Escape, so a text field typed on by the keyboard fills as it does on screen.
 A key the session does not edit with passes on to the handlers below it.
 `hasTextInput` is the build-time fact, folded per target like `hasFeature`.
 
+## Pointer position and scrolling
+
+A target whose host contract declares `input.pointer` has a mouse or a
+trackpad. Each frame carries the pointer's position whether or not a button
+is down, and the wheel and trackpad scrolling since the previous frame.
+
+```ts
+import { hitNode, onScroll, pointer } from "@pocketjs/framework/input";
+import { onFrame } from "@pocketjs/framework/lifecycle";
+
+onFrame(() => {
+  const at = pointer(); // null when the host reports no pointer
+  setHovered(at ? hitNode(at.x, at.y) : null);
+});
+
+const release = onScroll((event) => {
+  if (!inside(viewport, event.x, event.y)) return false; // leave it to an outer view
+  scrollBy(event.dy);
+  return true;
+});
+```
+
+`pointer()` returns the frame's `{ surface, x, y, buttons }` or `null`.
+Coordinates are logical pixels of that surface and are not clamped: a pointer
+held past the window's edge reports positions outside the viewport. `buttons`
+holds the pressed buttons, bit 0 the primary one. **Hover is the position
+with no button down, separate from focus**: `hitNode` names the node under
+it. A pressed primary button also arrives as a touch contact with a hit fact,
+so `onPress`, gestures and drags follow it without reading `pointer()`.
+
+An `onScroll` event carries the pointer's `surface`, `x` and `y` and the
+frame's `dx` and `dy` in logical pixels. **Positive `dy` moves the view
+toward the content's end** (the content moves up), as `WheelEvent.deltaY`;
+the host applies the system's scroll direction and converts wheel lines to
+pixels. Scrolling arrives once per frame, summed. **Handlers run newest
+first after text handlers and before button handlers, and a handler that
+returns `true` consumes the frame's scroll**, so a scroll view nested in
+another, registered after it, takes the scroll first. A DevTools replay
+carries no pointer.
+
 ## Blocking background input
 
 When a modal or overlay owns input, the buttons behind it should go quiet.

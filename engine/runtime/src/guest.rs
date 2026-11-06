@@ -1,6 +1,6 @@
 use crate::{OpContext, RuntimeError};
 use alloc::{string::String, vec::Vec};
-use pocket_drivers::{AxisDelta, MotionState, TextEvent};
+use pocket_drivers::{AxisDelta, MotionState, Pointer, TextEvent};
 
 #[derive(Clone, Debug)]
 pub struct NamedTexture {
@@ -48,6 +48,7 @@ pub struct GuestEnvironment<'a> {
 
 /// The existing eight frame arguments; cancellation records are part of the
 /// touches array (bit 30), with corresponding zero hits and surface ids.
+/// The frame's text events, its pointer and the pointer's scroll follow.
 pub struct GuestFrame<'a> {
     pub buttons: u32,
     pub analog: u32,
@@ -58,6 +59,12 @@ pub struct GuestFrame<'a> {
     pub axis_deltas: &'a [AxisDelta],
     pub motion: Option<&'a MotionState>,
     pub text: &'a [TextEvent],
+    /// The frame's pointer, with or without a button down, in unclamped
+    /// logical px of its surface; `None` when no input source reported one.
+    pub pointer: Option<Pointer>,
+    /// The frame's summed wheel and trackpad scrolling in logical px of the
+    /// pointer's surface, x then y; zero when `pointer` is `None`.
+    pub scroll: [f32; 2],
 }
 
 pub trait Guest {

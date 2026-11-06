@@ -178,9 +178,11 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // input.text — a host can have a keyboard without an IME.
   "input.ime",
   // A REAL absolute pointer (mouse/trackpad): position plus press/drag/
-  // release edges, hover resolves focus. A different guarantee than
-  // input.cursor's synthesized nub-pointer, hence a different id (see the
-  // header rule).
+  // release edges, hover resolves focus. The position reaches the app with
+  // no button down as well (`pointer()`), and wheel/trackpad scrolling in
+  // logical px reaches `onScroll` when the device reports it. A different
+  // guarantee than input.cursor's synthesized nub-pointer, hence a different
+  // id (see the header rule).
   "input.pointer",
   // A hardware text stream: layout-applied characters plus named editing
   // keys (Backspace/Enter/arrows/Home/End/…), key repeat included. The OSK

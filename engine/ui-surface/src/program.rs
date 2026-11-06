@@ -241,7 +241,9 @@ impl UiProgram {
     /// axes, the pointer and contacts are levels: each advance samples them
     /// again until the next call replaces them. Text events are edges: the
     /// advance that samples them consumes them, so each reaches the guest
-    /// once. A pointer with button 0 down reaches the guest as a contact.
+    /// once. Scroll is a delta: the advance that samples it consumes it.
+    /// The pointer reaches the guest with or without a button down, with the
+    /// frame's scroll; button 0 down also makes it a contact.
     pub fn set_input(&self, facts: InputFrameBuilder) {
         *self.input.borrow_mut() = facts;
     }
@@ -287,6 +289,9 @@ impl InputSource for Input {
         output.contacts.extend_from_slice(&input.contacts);
         output.cancelled.extend_from_slice(&input.cancelled);
         output.text.append(&mut input.text);
+        output.scroll[0] += input.scroll[0];
+        output.scroll[1] += input.scroll[1];
+        input.scroll = [0.0; 2];
     }
 }
 struct NativeGuest {
@@ -635,6 +640,45 @@ mod tests {
             .eval(
                 "assert",
                 "if(JSON.stringify(seen)!=='[[2564,\"2:hi\"],[2564,\"\"],[0,\"\"]]')throw Error(JSON.stringify(seen));",
+            )
+            .unwrap();
+    }
+    #[test]
+    fn a_hover_position_and_its_scroll_reach_the_guest_as_the_tenth_argument() {
+        let (mut program, _) = program();
+        let guest = Rc::new(Guest::new().unwrap());
+        program
+            .boot(
+                guest.clone(),
+                "test",
+                "globalThis.seen=[];globalThis.frame=(...args)=>seen.push([args[2].length,args[9]])",
+                &[],
+            )
+            .unwrap();
+        let mut input = InputFrameBuilder::new();
+        input.pointer = Some(Pointer {
+            surface: 0,
+            x: 3.5,
+            y: 4.25,
+            buttons: 0,
+        });
+        input.scroll = [0., 30.];
+        program.set_input(input);
+        for _ in 0..2 {
+            program.advance().unwrap();
+            program.present().unwrap();
+        }
+        let mut scroll_only = InputFrameBuilder::new();
+        scroll_only.scroll = [5., 5.];
+        program.set_input(scroll_only);
+        program.advance().unwrap();
+        // The position is a level, the scroll a delta, and scroll without a
+        // pointer does not reach the guest.
+        guest
+            .eval(
+                "assert",
+                r#"const want=[[0,{surface:0,x:3.5,y:4.25,buttons:0,scrollX:0,scrollY:30}],[0,{surface:0,x:3.5,y:4.25,buttons:0,scrollX:0,scrollY:0}],[0,null]];
+                if(JSON.stringify(seen)!==JSON.stringify(want))throw Error(JSON.stringify(seen));"#,
             )
             .unwrap();
     }

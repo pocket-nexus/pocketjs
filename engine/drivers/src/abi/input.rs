@@ -64,6 +64,8 @@ fn merge(destination: &mut InputFrameBuilder, mut source: InputFrameBuilder) {
     if source.motion.is_some() {
         destination.motion = source.motion;
     }
+    destination.scroll[0] += source.scroll[0];
+    destination.scroll[1] += source.scroll[1];
 }
 struct Append {
     frame: InputFrameBuilder,
@@ -116,6 +118,11 @@ pub unsafe fn decode_input_frame(
     let raw = unsafe { PocketInputFrame::read_prefix(pointer) }.ok_or(AdapterError::Invalid)?;
     let mut result = InputFrameBuilder::new();
     result.buttons = raw.buttons;
+    // A frame written before the field existed reads zero scroll.
+    if raw.scroll.iter().any(|delta| !delta.is_finite()) {
+        return Err(AdapterError::Invalid);
+    }
+    result.scroll = raw.scroll;
     unsafe {
         record_array(raw.axes, raw.axis_count, |pointer| {
             let item = PocketAxisSample::read_prefix(pointer).ok_or(AdapterError::Invalid)?;

@@ -451,6 +451,7 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
     input.touches = contact?.touches;
     input.hits = undefined;
     input.surfaces = contact?.surfaces;
+    input.pointer = null;
   });
 
   // -- opening and closing ---------------------------------------------------

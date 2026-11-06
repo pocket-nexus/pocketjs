@@ -36,6 +36,7 @@ import type { MotionState } from "./motion.ts";
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
+import { __dispatchScroll, __resetPointer, __setPointer, type PointerRecord } from "./pointer.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
 import { __drainEffects, resetEffects } from "./effects.ts";
 import { runServicePumps } from "./services.ts";
@@ -232,12 +233,16 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
       rightAnalog?: number,
       axisDeltas?: readonly AxisDelta[],
       motion?: MotionState | null,
+      _text?: unknown,
+      pointer?: PointerRecord | null,
     ) => {
       __advanceClock();
       __setAnalog(analog, rightAnalog);
       __setTouches(touches, hits, touchSurfaces); // latch contacts + surface-specific hit facts
+      __setPointer(pointer);
       runServicePumps();
       __drainEffects();
+      __dispatchScroll();
       runFrameHooks(
         buttons,
         axisDeltas,
@@ -255,6 +260,7 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
   return () => {
     removeResizeViewportHook();
     __resetTouches();
+    __resetPointer();
     resetGestures();
     dispose();
     disposeRootModelRegions();
