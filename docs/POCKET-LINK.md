@@ -58,7 +58,7 @@ URIs, as version 1 does.
 ### What version 2 retires
 
 Pocket Link 1 (`contracts/spec/link.ts`, `tools/pocket-link/protocol.ts`,
-`engine/host-services/link.c`, Hub's `tools/companion/server.ts`):
+`engine/host-services/link.c`, and Pocket Hub's version 1 endpoint):
 
 | Version 1 | Version 2 |
 | --- | --- |
@@ -79,14 +79,14 @@ Pocket Link 1 (`contracts/spec/link.ts`, `tools/pocket-link/protocol.ts`,
 | `catalog`, its reply, `catalog.changed` | `catalog` request and reply, `catalog.changed` event (§6.4) |
 | `install`, `install.head`, `install.error` | `install` request, `install.head` event, stream, reply (§6.4) |
 | `agent.*` ctrl messages and streams, companion stream ids with bit 31 | Same JSON in `EVENT` frames; every stream credited (§6.6) |
-| `<feature>.*` messages of a `LinkExtensionFactory` (Hub `server.ts`) | Dropped: product extensions become Relay daemons on Hub |
+| `<feature>.*` messages of a product extension on Hub | Dropped: product extensions become Relay daemons on Hub |
 | Byte credit for `net.stream` only, sent as JSON per block | `CREDIT` frames for every stream and lane (§5.6) |
 | USB carrier (PSP) | Not part of Pocket Link 2 (§11, question 10) |
 | `globalThis.link` (status, pair, forget, catalog, install, remove, poll) | Kept as the guest API; not a wire matter |
 
 The development connection (`contracts/spec/pocket-runtime-wire.ts`,
 `products/3ds/src/devserver.c`, `tools/3ds-runtime-client.ts`,
-`tools/3ds-dev.ts`, Hub's `tools/companion/dev3ds.ts`):
+`tools/3ds-dev.ts`, and Pocket Hub's development bridge):
 
 | Development connection | Version 2 |
 | --- | --- |
@@ -121,7 +121,7 @@ The development connection (`contracts/spec/pocket-runtime-wire.ts`,
 | Port | Owner | Use |
 | --- | --- | --- |
 | UDP **8627** | device | receives Hub's beacons |
-| TCP **8628** | Hub | the link listener. **A Hub that cannot bind 8628 listens on an ephemeral port**; its beacons and pairing URIs carry the port in use (kept from version 1, `server.ts` `start`) |
+| TCP **8628** | Hub | the link listener. **A Hub that cannot bind 8628 listens on an ephemeral port**; its beacons and pairing URIs carry the port in use (kept from version 1) |
 
 ### 2.2 Beacon
 
@@ -143,7 +143,7 @@ Version 1's C parser checks the version (`link_proto.c`
 `link_parse_beacon`); its TypeScript decoder does not (`protocol.ts`
 `decodeBeacon`). Both check it in version 2.
 
-Targets, kept from version 1 (`server.ts` `beaconTargets`):
+Targets, kept from version 1:
 `255.255.255.255`, the broadcast address of each LAN interface (the list
 read again every **10 s**), and unicast to the last address of every paired
 device. macOS sends a `255.255.255.255` datagram out of the default route
@@ -183,10 +183,9 @@ All values are version 1's (`link.c`: `LINK_BACKOFF_MIN_MS`,
 `LINK_HANDSHAKE_TIMEOUT_MS`).
 
 **Hub keeps one link per device.** When a second connection of a device id
-reaches `ready`, Hub closes the older one with `CLOSE` `replaced` (version 1:
-`server.ts` `linked`), so a half-open connection left by a Wi-Fi drop does not
-block the new one. Hub accepts at most **32** connections at a time (version
-1: `server.maxConnections`).
+reaches `ready`, Hub closes the older one with `CLOSE` `replaced` (kept from
+version 1), so a half-open connection left by a Wi-Fi drop does not block the
+new one. **Hub accepts at most 32 connections at a time.**
 
 ## 3. Admission
 
@@ -230,8 +229,7 @@ URI").
 | Failures | **5** failed console proofs close the window |
 | Windows | one per Hub; opening a window replaces the previous one and its secret |
 
-All kept from version 1 (`server.ts` `openPairing`, `pairFailed`,
-`PAIR_MAX_FAILURES`). The beacon's flag bit 0 shows an open window.
+All kept from version 1. The beacon's flag bit 0 shows an open window.
 
 ### 3.3 Order of a connection
 
@@ -239,7 +237,7 @@ All kept from version 1 (`server.ts` `openPairing`, `pairFailed`,
 device                                   Hub
   | -- TCP connect ----------------------> |
   | -- preamble (8 bytes) ---------------> |
-  | -- HANDSHAKE hello ------------------> |   sent without waiting
+  | -- HANDSHAKE hello ------------------> |   same write: the device speaks one version (§4.1)
   | <------------------ preamble (8 bytes) |   selected version 2, or 0 and close
   | <------------- HANDSHAKE challenge     |   or refused
   |   device checks challenge.proof        |
@@ -324,8 +322,7 @@ in constant time** (`protocol.ts` `proofEquals`, `link.c`
 
 In mode `pair`, Hub mints the link key after the console proof verifies and
 consumes the window in the same step; a window that expired or was used
-between `hello` and `auth` gets `refused` `pairing_closed` (`server.ts`
-`auth`).
+between `hello` and `auth` gets `refused` `pairing_closed`.
 
 ### 3.6 What each side stores
 
@@ -338,7 +335,7 @@ between `hello` and `auth` gets `refused` `pairing_closed` (`server.ts`
 
 The device records are version 1's (`link.c` `save_companion`,
 `load_device_id`). **No key appears in a log line, a status answer or the
-IPC**, as the development bridge requires today (`docs/DEV-3DS.md` "Keys").
+IPC**.
 Forgetting a device deletes Hub's record and closes its connection with
 `CLOSE` `forgotten`; the device's next `connect` gets `refused`
 `unknown_device`.
@@ -357,7 +354,7 @@ holds no key, it answers `refused` `unknown_device` without a challenge. On
 | `unknown_device` | `challenge` | Hub holds no key for `device`, or `companion` names another Hub |
 | `pairing_closed` | `challenge` or `paired` | no window is open, it expired, or its secret was used |
 | `bad_proof` | `ready` / `paired` | `auth.proof` does not verify. In mode `pair` it counts toward the 5 failures |
-| `malformed` | `challenge` | a field is missing, has the wrong type or breaks its limit. Version 1 closed without a code (`server.ts` `hello`) |
+| `malformed` | `challenge` | a field is missing, has the wrong type or breaks its limit. Version 1 closed without a code |
 | `busy` | `challenge` | Hub is at its connection limit |
 
 **The device treats every refusal as an answer**: it closes, holds that Hub
@@ -445,17 +442,40 @@ off 6  u8   selected  device: 0. Hub: the version both will use, or 0 for none
 off 7  u8   reserved  0
 ```
 
-A version-2 device sends `highest = 2, lowest = 2, selected = 0` and its
-`hello` in the same write. Hub selects the highest version inside both
-ranges. **With no common version Hub sends its preamble with `selected = 0`
-and closes**, without reading the `hello`; the device reports "Hub speaks
-Pocket Link `lowest`–`highest`". The device closes when `selected` is outside
-its own range or the magic is wrong. A version-1 console's preamble
+Hub selects the highest version inside both ranges. **With no common
+version Hub sends its preamble with `selected = 0` and closes**, without
+reading further; the device reports "Hub speaks Pocket Link
+`lowest`–`highest`". The device closes when `selected` is outside its own
+range or the magic is wrong. A version-1 console's preamble
 (`PKLK`, 1, 0, 0, 0) reads as `highest = 1` and gets `selected = 0`.
 
+**When the device sends its `hello` depends on its range**, because the frame
+format and the `hello` belong to a version:
+
+- **A device whose range is one version (`lowest = highest`) sends its
+  preamble and its `hello` in the same write.** Only that version can be
+  selected, so the `hello` is in the right format whatever Hub answers. A
+  version-2 device sends `highest = 2, lowest = 2, selected = 0` this way.
+- **A device whose range spans several versions (`lowest < highest`) sends
+  its preamble alone, waits for Hub's preamble, and then sends the `hello` of
+  the selected version.** This costs one round trip, and only for such
+  devices.
+- **Hub reads nothing after the device's preamble until it has sent its own.**
+  For a one-version device, the bytes that follow are that version's `hello`;
+  for a several-version device, a byte that arrives before Hub's preamble is
+  written is a protocol error, and Hub closes without a `CLOSE` frame (no
+  frame format is agreed yet).
+- **Every later version keeps this 8-byte preamble and these rules
+  unchanged**, so a version-3 Hub can still serve a version-2 device and a
+  device that speaks versions 2 and 3 can still reach a version-2 Hub.
+
+Pipelining the `hello` of the device's highest version instead, and having
+Hub discard it when it selects a lower one, would need Hub to find the end of
+a message in a format it does not speak; waiting costs less.
+
 Version 1 sent a preamble from the console alone and answered a version
-mismatch with a JSON `refused` frame in version 1's own format
-(`server.ts` `hello`), which a console of another version may not parse. The
+mismatch with a JSON `refused` frame in version 1's own format, which a
+console of another version may not parse. The
 two-way preamble answers before any frame format is assumed.
 
 ### 4.2 Frame header
@@ -543,8 +563,7 @@ covers a 5.7 s stall measured on a small companion, `link.ts`
 reserve of its send buffer that bulk data does not use (§8.2).** The
 development connection answered a heartbeat only once its send queue was
 empty (`devserver.c` `send_client`), so a `.3dsx` upload held answers off for
-most of a minute and Hub had to allow 180 s of silence (`docs/DEV-3DS.md`
-"One client at a time").
+most of a minute and its client had to allow 180 s of silence.
 
 ### 4.7 Unknown and oversized frames
 
@@ -593,7 +612,7 @@ A receiver treats an unknown code as `going_away`.
 | `0`, `0x80000000` | never allocated; `0` means "no id" in `PING`, `PONG`, `CLOSE`, `HANDSHAKE` and id-less `EVENT` frames |
 
 The bit-31 rule is version 1's for streams the companion opens
-(`agent.ts` `AGENT_COMPANION_STREAM`), extended to every id Hub allocates.
+(`contracts/spec/agent.ts` `AGENT_COMPANION_STREAM`), extended to every id Hub allocates.
 **Each side allocates request ids, ids of streams it opens by an event, and
 lane ids from one counter, and never reuses an id within a connection**, so an
 id names at most one thing on a connection and `CREDIT` needs no type field.
@@ -648,6 +667,35 @@ messages), the id of an open request for progress, the id of a lane for
 `lane.close`, or **a fresh id of the sender when the event opens a stream**
 (`agent.screen`, `agent.glyphs`, `agent.audio`, `agent.shot`, an unsolicited
 `runtime.screenshot`).
+
+**An `EVENT`'s `t` defines what its header id means**, and a receiver reads
+the id by `t`, not by its value:
+
+| Header id | Events | Rule |
+| --- | --- | --- |
+| 0 | `catalog.changed`, `runtime.status`, `log`, `devtools.listen`, the agent messages that open no stream | the id is 0 |
+| an open request's id | `runtime.install`, `runtime.native`, `install.head`, `net.head`, `runtime.screenshot` answering a request | a request the receiver sent and that has no `REPLY` yet |
+| a lane's id | `lane.close` | a lane open on the connection |
+| a fresh id of the sender | `agent.audio`, `agent.shot`, `agent.screen`, `agent.glyphs`, an unsolicited `runtime.screenshot` | **an id from the sender's own range (§5.1) that the sender has not used on this connection**; the event opens a stream under it |
+
+`runtime.screenshot` is the one event with two kinds: the receiver reads it
+as progress when the id is one of its own open `runtime.screenshot`
+requests, and as an unsolicited stream otherwise.
+
+What a receiver does with an id that breaks the rule:
+
+- **A stream-opening event whose id is 0, outside the sender's range, or
+  already in use on the connection: `CLOSE` `protocol`.** The sender's id
+  allocation is broken, and taking the event would mix two streams. This is
+  the "bad id" row of §4.7.
+- An event of a kind that requires id 0 with another id, or an id of the
+  wrong range for a request or lane it names: `CLOSE` `protocol`, for the
+  same reason.
+- An event naming a request or lane id from the right range that the
+  receiver no longer holds (cancelled, replied, closed): **ignored**, as
+  §4.7 treats late frames for a released id.
+- An event with an unknown `t`: ignored whatever its id; the receiver does
+  not track an id it cannot read.
 
 ### 5.4 Cancellation
 
@@ -717,8 +765,7 @@ Recommended windows (bytes outstanding at a time):
 
 **Why credit on every stream.** Version 1 credited `net.stream` alone, with a
 JSON `net.credit` message per released block (`link_http.c` `control`), and
-let installs and agent streams wait on the socket's `drain`
-(`server.ts` `sendData`). On one TCP connection shared by several streams,
+let installs and agent streams wait on the socket's `drain`. On one TCP connection shared by several streams,
 TCP backpressure from one slow consumer (an SD write during an install)
 stops every other stream and the pings behind it. With credit, the bytes in
 flight on one stream are bounded by its window, and the frames of other
@@ -732,8 +779,8 @@ queues them (§8). The guarantees:
 1. **Frames one producer queues arrive in that order.** A message queued
    after a stream's `END` arrives after the whole stream. The agent relies on
    this: Hub sends a glyph atlas before the first message that needs it, and
-   the device loads the atlas when its stream completes (`agent.ts`
-   "Glyphs").
+   the device loads the atlas when its stream completes
+   (`contracts/spec/agent.ts` "Glyphs").
 2. A `REPLY` arrives after every `EVENT` and `DATA` frame of its request.
 3. Records of one lane arrive in order, and `lane.close` after the records
    queued before it.
@@ -782,7 +829,7 @@ request of a group the responder does not list gets `ERROR` `unsupported`.
 | `catalog` | it reads Hub's catalog | it offers one |
 | `install` | it installs from Hub | it streams packages |
 | `net.http` | it has a worker HTTP provider | it performs requests |
-| `agent` | it runs the agent stage | the agent is available (version 1: `codex` usable, `server.ts` `features`) |
+| `agent` | it runs the agent stage | the agent is available |
 | `lane` | it opens lanes for applets | it accepts lanes |
 
 ### 6.2 Runtime operations
@@ -876,8 +923,7 @@ and the start failed (outside the Homebrew Launcher, `hb:ldr` is absent).
 **With `phase: "launching"` the device sends the `REPLY`, then `CLOSE`
 `restart`, gives its send buffer up to 1 s to drain (`devserver_flush(1000)`
 today) and exits into the file through `hb:ldr`.** Hub keeps the mutex until
-the device links again or 60 s pass (the development bridge's wait,
-`docs/DEV-3DS.md` "Operations").
+the device links again or **60 s** pass.
 
 #### runtime.launch
 
@@ -934,8 +980,7 @@ While on, the device sends `EVENT` `log` (id 0):
 
 **The device drops a log event when its send buffer has no room outside the
 control reserve**, and counts it in the next event's `dropped`. The
-development connection dropped log records with no count (`docs/DEV-3DS.md`
-"Logs"). Guest lines need a host operation in the shim's console bridge;
+development connection dropped log records with no count. Guest lines need a host operation in the shim's console bridge;
 today the bridge writes to the DevTools channel and only while a panel
 listens (`docs/DEVTOOLS.md` §2–3). See §12.2.
 
@@ -999,7 +1044,7 @@ one per app id with the first folder winning. A row:
 **24 MiB**, then the file verbatim on the stream (Hub to device) under the
 device's credit, then `END`, then the reply `{bytes}`. Size and hash come
 from the open file descriptor, so a file replaced mid-install streams one
-consistent version (`server.ts`). Errors: `not_found`, `too_large`, `busy`.
+consistent version. Errors: `not_found`, `too_large`, `busy`.
 The device writes to `apps/<slot>/link-upload.pocket`, checks the footer hash
 against `install.head.hash`, admits the package for its target and ABI, and
 commits it (`link.c` `finish_install`); on a local failure it sends `CANCEL`.
@@ -1051,7 +1096,7 @@ checked; **every destination address checked** (loopback, link-local, RFC
 refused with `invalid_request` unless Hub runs with private destinations
 allowed); `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`, copied from the macOS
 proxy settings when unset. At most **8** `net.http` requests are open per
-connection (`server.ts` `LINK_MAX_NET`).
+connection (kept from version 1).
 
 Changes from version 1: `"stream": true` and the whole-response `net` mode are
 gone; credit is `CREDIT` frames; the end is `END` plus the reply instead of
@@ -1079,10 +1124,10 @@ one; it is not request/reply. Every message is at most LINK_MAX_CTRL.
   at once, or answers `RESET` `refused` when it cannot hold them. Hub grants
   the microphone and shot streams.
 - **Hub queues a message whose text needs new glyphs only after the atlas
-  stream's `END` is written** (version 1 awaited the atlas's `sendData`,
-  `agent.ts`), so §5.7 keeps glyphs ahead of text.
+  stream's `END` is written** (kept from version 1), so §5.7 keeps glyphs
+  ahead of text.
 - Hub starts an `agent.screen` stream only after the previous one ended
-  (`agent.ts` `pushScreen`); a superseded frame may end before its last byte with
+  (kept from version 1); a superseded frame may end before its last byte with
   `RESET` `superseded`.
 
 ## 7. Lanes
@@ -1246,9 +1291,8 @@ clients (its UI, its CLI, `3ds:dev`, the studio relay, the agent).
 
 - A client takes the mutex before Hub sends the request. **A second client is
   refused at once with `busy` and the holder**: `{client, operation, since}`.
-  Hub does not queue it. This is Hub's development bridge today (409 `busy`
-  with the holder, `docs/DEV-3DS.md` "Control API"); a client that wants to
-  wait retries.
+  Hub does not queue it; a client that wants to wait retries. Pocket Hub's
+  development bridge answers the same way today.
 - **The holder is visible** in Hub's device status and IPC, for the UI.
 - Release: at the request's `REPLY`; for `launching`, when the device links
   again or 60 s pass; when the connection closes; when the holder's local
@@ -1268,13 +1312,13 @@ contention shows; the queue and the mutex above are phase one.
 | Link port (TCP) | **8628**, ephemeral when taken | kept; beacons and URIs carry the port in use |
 | Beacon size | **64 bytes** | kept layout, version byte 2 |
 | Beacon interval | **1 s** | kept; the device's 2.5 s direct try covers a lost beacon |
-| Broadcast address list refresh | **10 s** | listing interfaces every second cost a small companion a tenth of a core (`server.ts`) |
+| Broadcast address list refresh | **10 s** | listing interfaces every second cost a small companion a tenth of a core (Pocket Hub's version 1 endpoint) |
 | Direct try after | **2.5 s** without a beacon | kept (`link.c` `LINK_SEARCH_DIRECT_MS`) |
 | Backoff | **1 s doubling to 8 s** | kept |
 | Refusal hold | **30 s** | kept |
 | Connect timeout | **4 s** | kept |
 | Handshake timeout | **6 s** | kept |
-| Connections held by Hub | **32** | kept (`server.maxConnections`) |
+| Connections held by Hub | **32** | kept from version 1 |
 | Pairings per device | **8**, oldest evicted | kept (`LINK_MAX_COMPANIONS`) |
 | Pairing secret | **16 bytes**, **10 min**, single use, **5** failures | kept; 128 bits is out of reach for guessing within the window, and the URI stays under 160 bytes |
 | Pairing URI | **< 160 bytes**, **≤ 3** hosts | kept: QR version 7–8 at level M, readable by the 3DS camera |
@@ -1294,7 +1338,7 @@ contention shows; the queue and the mutex above are phase one.
 | Request stall | **30 s** | kept (`LINK_REQUEST_STALL_MS`) |
 | Cancel grace | **10 s** | frees an id when no reply follows `CANCEL` |
 | Hub requests open at the device | **8**, of which **1** state-changing and **1** screenshot | the device holds one staging file of each kind and one pair of screenshot buffers |
-| Device requests open at Hub | **8** `net.http`, **4** catalog and install, **1** `devtools.open`, **4** lanes | `LINK_MAX_NET`, `LINK_MAX_REQUESTS`, §6.3, §7.5 |
+| Device requests open at Hub | **8** `net.http`, **4** catalog and install, **1** `devtools.open`, **4** lanes | kept from version 1 (`LINK_MAX_REQUESTS` in `link.ts`), §6.3, §7.5 |
 | Outstanding credit per stream direction | **16 MiB** | bounds arithmetic and a peer's buffering |
 | Device receive window, bulk | **64 KiB** | two frames; `LINK_RX_BUDGET` |
 | Device receive window, `net.http` | **8 KiB** | `LINK_HTTP_WINDOW` |
@@ -1343,7 +1387,7 @@ accept any key order and whitespace, and tests compare parsed values.
 | --- | --- |
 | `beacon.json` | beacons with the pairing flag on and off, a 40-byte name, a name cut inside a multi-byte character; refused datagrams: 63 and 65 bytes, wrong magic, version 1, port 0, an uppercase id |
 | `pair-uri.json` | URIs with 1 and 3 hosts, a name shortened to fit 160 bytes, percent-encoding; refused URIs: `v=1`, 4 hosts, a hostname, a 31-digit secret, 160 bytes; one URI's QR module matrix |
-| `preamble.json` | the device's preamble; Hub selecting 2; Hub answering a range 3–4 with `selected` 0; a version-1 console preamble and Hub's answer |
+| `preamble.json` | the device's preamble; Hub selecting 2; Hub answering a range 3–4 with `selected` 0; a version-1 console preamble and Hub's answer; a device with range 2–3 sending its preamble alone, Hub selecting 2, then the device's version-2 `hello`; the same device sending a byte before Hub's preamble and Hub closing |
 | `frames.json` | one encoding per frame type and flag; refused headers: non-zero `reserved`, an undefined flag, `length` 32,769, `REQUEST` with id 0, `DATA` of 0 bytes without `END`, `CREDIT` of 0, `PING` of 3 bytes |
 | `handshake-connect.json` | a full mode `connect` transcript from fixed ids, key and nonces: each frame's bytes, the two HMAC message strings and both proofs |
 | `handshake-pair.json` | a full mode `pair` transcript from a fixed secret and a fixed minted key: proofs, the mask message, the mask and `paired.key` |
