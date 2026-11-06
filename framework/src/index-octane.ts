@@ -219,10 +219,11 @@ export function render(code: OctaneRenderRoot, opts: RenderOptions = {}): () => 
       _motion?: unknown,
       _text?: unknown,
       pointer?: PointerRecord | null,
+      touchPositions?: readonly number[],
     ) => {
       __advanceClock();
       __setAnalog(analog, rightAnalog);
-      __setTouches(touches, hits, touchSurfaces);
+      __setTouches(touches, hits, touchSurfaces, touchPositions);
       __setPointer(pointer);
       runServicePumps();
       __drainEffects();

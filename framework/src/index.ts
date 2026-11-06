@@ -290,11 +290,14 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       motion?: MotionState | null,
       text?: readonly TextEventRecord[],
       pointer?: PointerRecord | null,
+      touchPositions?: readonly number[],
     ) => {
       __advanceClock(); // virtual frame++, fire due after() timers
       // A system layer may take the frame's input first (system-layers.ts).
       const filtered = filterFrameInput(buttons, touches, hits, touchSurfaces, pointer);
       if (filtered !== null) {
+        // Exact positions describe the host's words, not a layer's own.
+        if (filtered.touches !== touches) touchPositions = undefined;
         buttons = filtered.buttons;
         touches = filtered.touches;
         hits = filtered.hits;
@@ -302,7 +305,7 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
         pointer = filtered.pointer;
       }
       __setAnalog(analog, rightAnalog); // latch the nub before any app code reads it
-      __setTouches(touches, hits, touchSurfaces); // latch contacts + surface-specific hit facts
+      __setTouches(touches, hits, touchSurfaces, touchPositions); // latch contacts + surface-specific hit facts
       __setTextEvents(text); // the keyboard's events for this frame
       __setPointer(pointer); // the pointer position and its scroll
       runServicePumps(); // only modules with pending async work register here

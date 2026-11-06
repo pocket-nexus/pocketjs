@@ -269,4 +269,6 @@ the replay.
 host's pointer position and its scroll; replay passes none in its place, so
 live hover and scrolling cannot enter the replay and `pointer()` reads `null`
 for the replayed frames. A pressed primary button still reaches the tape as
-the touch contact the runtime derives from it.
+the touch contact the runtime derives from it. The eleventh argument, the
+exact position of each touch word, has no track either: replayed contacts
+carry the words' whole pixels, clamped at 1023.

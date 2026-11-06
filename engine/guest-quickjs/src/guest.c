@@ -308,9 +308,9 @@ static int32_t frame(void *opaque,const pocket_guest_frame *input) {
   pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context||!input||!HAS_FIELD(input,pocket_guest_frame,motion))return -1;JSContext *ctx=guest->context;
   JSValue global=JS_GetGlobalObject(ctx),function=JS_GetPropertyStr(ctx,global,"frame");JS_FreeValue(ctx,global);
   if(JS_IsUndefined(function)){JS_FreeValue(ctx,function);return collect(guest);}
-  JSValue argv[10]={JS_NewUint32(ctx,input->buttons),JS_NewUint32(ctx,input->analog),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewUint32(ctx,input->right_analog),JS_NewArray(ctx),motion_value(ctx,input->motion),JS_NewArray(ctx),JS_NULL};
+  JSValue argv[11]={JS_NewUint32(ctx,input->buttons),JS_NewUint32(ctx,input->analog),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewArray(ctx),JS_NewUint32(ctx,input->right_analog),JS_NewArray(ctx),motion_value(ctx,input->motion),JS_NewArray(ctx),JS_NULL,JS_NewArray(ctx)};
   int status=-1;
-  for(unsigned i=0;i<10;i++)if(JS_IsException(argv[i]))goto done;
+  for(unsigned i=0;i<11;i++)if(JS_IsException(argv[i]))goto done;
   if((input->axis_delta_count&&!input->axis_deltas)||(input->touch_count&&(!input->touches||!input->hits||!input->touch_surfaces))){JS_ThrowTypeError(ctx,"missing frame arrays");goto done;}
   for(size_t i=0;i<input->touch_count;i++) {if(JS_DefinePropertyValueUint32(ctx,argv[2],(uint32_t)i,JS_NewUint32(ctx,input->touches[i]),JS_PROP_C_W_E)<0||JS_DefinePropertyValueUint32(ctx,argv[3],(uint32_t)i,JS_NewInt32(ctx,input->hits[i]),JS_PROP_C_W_E)<0||JS_DefinePropertyValueUint32(ctx,argv[4],(uint32_t)i,JS_NewUint32(ctx,input->touch_surfaces[i]),JS_PROP_C_W_E)<0)goto done;}
   const pocket_axis_delta *delta=input->axis_deltas;
@@ -336,9 +336,14 @@ static int32_t frame(void *opaque,const pocket_guest_frame *input) {
     argv[9]=JS_NewObject(ctx);if(JS_IsException(argv[9]))goto done;
     if(set(ctx,argv[9],"surface",JS_NewUint32(ctx,pointer->surface))<0||set(ctx,argv[9],"x",JS_NewFloat64(ctx,pointer->x))<0||set(ctx,argv[9],"y",JS_NewFloat64(ctx,pointer->y))<0||set(ctx,argv[9],"buttons",JS_NewUint32(ctx,pointer->buttons))<0||set(ctx,argv[9],"scrollX",JS_NewFloat64(ctx,input->scroll[0]))<0||set(ctx,argv[9],"scrollY",JS_NewFloat64(ctx,input->scroll[1]))<0)goto done;
   }
+  /* The exact position of each touch word, the eleventh argument: x then y
+   * per word; empty from a runtime older than the field or without them. */
+  if(HAS_FIELD(input,pocket_guest_frame,touch_positions)&&input->touch_count&&input->touch_positions) {
+    for(size_t i=0;i<input->touch_count*2;i++)if(JS_DefinePropertyValueUint32(ctx,argv[10],(uint32_t)i,JS_NewFloat64(ctx,input->touch_positions[i]),JS_PROP_C_W_E)<0)goto done;
+  }
   phase(guest,POCKET_QJS_PHASE_FRAME);
-  JSValue result=JS_Call(ctx,function,JS_UNDEFINED,10,argv);phase(guest,POCKET_QJS_PHASE_IDLE);status=JS_IsException(result)?-1:0;JS_FreeValue(ctx,result);
-done:for(unsigned i=0;i<10;i++)JS_FreeValue(ctx,argv[i]);JS_FreeValue(ctx,function);return status<0?fail(guest):collect(guest);
+  JSValue result=JS_Call(ctx,function,JS_UNDEFINED,11,argv);phase(guest,POCKET_QJS_PHASE_IDLE);status=JS_IsException(result)?-1:0;JS_FreeValue(ctx,result);
+done:for(unsigned i=0;i<11;i++)JS_FreeValue(ctx,argv[i]);JS_FreeValue(ctx,function);return status<0?fail(guest):collect(guest);
 }
 static void shutdown(void *opaque) {
   pocket_guest_quickjs *guest=opaque;if(!guest)return;

@@ -422,7 +422,7 @@ operations into the registered runtime instance; see
 [ESP-IDF](/docs/esp-idf/).
 
 Every host drives frames through
-`globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?, motion?, text?, pointer?)`.
+`globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?, motion?, text?, pointer?, touchPositions?)`.
 Buttons use the shared PSP bitmask, analog is `(x << 8) | y` with centered
 bytes on stickless hosts, and touch contacts are packed snapshots in logical
 coordinates. `hits` carries parallel down-edge hit facts; `touchSurfaces` uses
@@ -433,7 +433,10 @@ relative-axis millidegrees, and `motion` is the motion driver's newest fused
 `{ surface, x, y, buttons, scrollX, scrollY }` or `null`: the host pointer's
 unclamped logical position with or without a button down, and the frame's
 summed wheel and trackpad scrolling in logical pixels; a host turns a pressed
-primary button into a touch contact as well. The runtime latches these inputs before app hooks, then performs
+primary button into a touch contact as well. A touch word holds whole pixels up
+to 1023 per axis; `touchPositions` lists x then y for each word, the contact's
+exact logical position, fractional and unclamped, with a zero pair for a
+cancellation. The framework reads contacts from it when it is present. The runtime latches these inputs before app hooks, then performs
 input edge detection and the end-of-frame sweep. See [Input & focus](/docs/input-focus/) and
 [Platform contracts](/docs/platform-contracts/).
 

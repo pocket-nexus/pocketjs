@@ -1,15 +1,19 @@
 // Target-neutral touch snapshot delivered at the start of each host frame.
 // Coordinates are logical PocketJS pixels, so applications never compensate
-// for a Vita panel's sampling grid or the target raster density.
+// for a Vita panel's sampling grid or the target raster density. A packed
+// word holds whole pixels up to 1023 per axis; a host that also sends the
+// exact positions (frame argument 11) gives contacts fractional coordinates
+// and coordinates past 1023.
 
 export interface TouchContact {
   /** UI output whose logical coordinate space contains this contact. */
   readonly surface: "primary" | "auxiliary";
   /** Stable while this contact remains down; ids may be reused after release. */
   readonly id: number;
-  /** Logical viewport X coordinate. */
+  /** Logical viewport X coordinate: the host's exact position when it sent
+   *  one, else the packed word's whole pixels. */
   readonly x: number;
-  /** Logical viewport Y coordinate. */
+  /** Logical viewport Y coordinate, as `x`. */
   readonly y: number;
   /**
    * Touch hit FACT: the node id the host bounds-hit at this contact's DOWN
@@ -44,11 +48,14 @@ let cancelledSnapshot: readonly TouchContact[] = EMPTY;
  * wider than 512 use the append-only wide form: bit31=1, x:10, y:10, id:8.
  * Bit 30 carries a terminal CANCEL; at most eight active contacts plus eight
  * cancellations fit in one frame. Existing words keep their byte encoding.
+ * `positions` holds x then y per word, unclamped logical pixels; an active
+ * contact takes them over its word's when both are finite numbers.
  */
 export function __setTouches(
   packed: readonly number[] | undefined,
   hits?: readonly number[],
   surfaces?: readonly number[],
+  positions?: readonly number[],
 ): void {
   cancelledSnapshot = EMPTY;
   if (!packed || packed.length === 0) {
@@ -66,11 +73,13 @@ export function __setTouches(
     const coordBits = wide ? WIDE_COORD_BITS : LEGACY_COORD_BITS;
     const coordMask = wide ? WIDE_COORD_MASK : LEGACY_COORD_MASK;
     const idShift = wide ? WIDE_ID_SHIFT : LEGACY_ID_SHIFT;
+    const px = positions?.[index * 2], py = positions?.[index * 2 + 1];
+    const exact = output === all && typeof px === "number" && typeof py === "number" && Number.isFinite(px) && Number.isFinite(py);
     output.push(Object.freeze({
       surface: surfaces?.[index] === 1 ? "auxiliary" as const : "primary" as const,
       id: (value >>> idShift) & 0xff,
-      x: value & coordMask,
-      y: (value >>> coordBits) & coordMask,
+      x: exact ? px : value & coordMask,
+      y: exact ? py : (value >>> coordBits) & coordMask,
       hit: hits?.[index],
     }));
   }

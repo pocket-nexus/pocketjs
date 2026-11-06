@@ -282,6 +282,12 @@ pub fn call_frame(ctx: &Ctx<'_>, frame: &GuestFrame<'_>) -> rquickjs::Result<()>
         }
         None => Value::new_null(ctx.clone()),
     };
+    // The exact position of each touches word, the eleventh argument:
+    // x then y per word, as the QuickJS C guest passes it.
+    let positions = Array::new(ctx.clone())?;
+    for (i, value) in frame.touch_positions.iter().enumerate() {
+        positions.set(i, *value as f64)?;
+    }
     function.call::<_, ()>((Rest(vec![
         frame.buttons.into_js(ctx)?,
         frame.analog.into_js(ctx)?,
@@ -293,6 +299,7 @@ pub fn call_frame(ctx: &Ctx<'_>, frame: &GuestFrame<'_>) -> rquickjs::Result<()>
         motion,
         text.into_value(),
         pointer,
+        positions.into_value(),
     ]),))
 }
 
@@ -884,7 +891,7 @@ mod tests {
         ));
     }
     #[test]
-    fn frame_passes_ten_arguments_and_drains_jobs() {
+    fn frame_passes_eleven_arguments_and_drains_jobs() {
         let (mut guest, _) = guest(BindingProfile::Canonical);
         guest.evaluate(b"globalThis.frame=(...args)=>{globalThis.received=args;Promise.resolve().then(()=>globalThis.drained=true)}").unwrap();
         let delta = pocket_drivers::AxisDelta { id: 1, delta: -5 };
@@ -915,11 +922,12 @@ mod tests {
                     buttons: 0,
                 }),
                 scroll: [0.0, -12.5],
+                touch_positions: &[0.0, 0.0],
             })
             .unwrap();
         assert!(evaluate::<bool>(
             &guest,
-            "received.length===10 && received[2][0]===0x40040000 && received[4][0]===1 && received[6][0].axis===1 && received[6][0].delta===-5 && received[7].timestamp===100 && received[8].length===2 && received[8][0].kind===2 && received[8][0].text==='hi' && received[8][1].kind===0 && received[8][1].text==='Enter' && received[8][1].repeat===false && JSON.stringify(received[9])==='{\"surface\":0,\"x\":1500.5,\"y\":7.25,\"buttons\":0,\"scrollX\":0,\"scrollY\":-12.5}' && drained"
+            "received.length===11 && received[10].length===2 && received[10][0]===0 && received[2][0]===0x40040000 && received[4][0]===1 && received[6][0].axis===1 && received[6][0].delta===-5 && received[7].timestamp===100 && received[8].length===2 && received[8][0].kind===2 && received[8][0].text==='hi' && received[8][1].kind===0 && received[8][1].text==='Enter' && received[8][1].repeat===false && JSON.stringify(received[9])==='{\"surface\":0,\"x\":1500.5,\"y\":7.25,\"buttons\":0,\"scrollX\":0,\"scrollY\":-12.5}' && drained"
         ));
     }
     #[test]
@@ -946,6 +954,7 @@ mod tests {
             text: &[],
             pointer: None,
             scroll: [0.0; 2],
+            touch_positions: &[],
         };
         for i in 0..40 {
             guest
@@ -993,6 +1002,7 @@ mod tests {
             text: &[],
             pointer: None,
             scroll: [0.0; 2],
+            touch_positions: &[],
         };
         assert!(guest.frame(&frame).is_err());
         assert!(guest.last_error().unwrap().contains("frame threw"));

@@ -178,6 +178,7 @@ impl Guest for CGuest {
             text_count: text.len(),
             pointer: pointer.as_ref().map_or(ptr::null(), |pointer| pointer),
             scroll: frame.scroll,
+            touch_positions: frame.touch_positions.as_ptr(),
             ..PocketGuestFrame::empty()
         };
         result(unsafe { self.table.frame.unwrap()(self.context, &frame) })

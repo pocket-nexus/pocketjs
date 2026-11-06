@@ -468,6 +468,8 @@ export function reportAppAction(name: string, value: number): void {
 // null or absent means none, and a frame argument replaces a queued estimate.
 // The ninth argument carries the frame's text events (text-input.ts) and the
 // tenth the frame's pointer with its scroll (pointer.ts), null for none.
+// The eleventh holds x then y for each touch word: the exact logical
+// position the word clamps to whole pixels in 0..1023 (touch.ts).
 
 export function installFrameHandler(
   fn: (
@@ -481,6 +483,7 @@ export function installFrameHandler(
     motion?: MotionState | null,
     text?: readonly TextEventRecord[],
     pointer?: PointerRecord | null,
+    touchPositions?: readonly number[],
   ) => void,
 ): void {
   (
@@ -496,6 +499,7 @@ export function installFrameHandler(
         motion?: MotionState | null,
         text?: readonly TextEventRecord[],
         pointer?: PointerRecord | null,
+        touchPositions?: readonly number[],
       ) => void;
     }
   ).frame = fn;

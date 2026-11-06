@@ -235,10 +235,11 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
       motion?: MotionState | null,
       _text?: unknown,
       pointer?: PointerRecord | null,
+      touchPositions?: readonly number[],
     ) => {
       __advanceClock();
       __setAnalog(analog, rightAnalog);
-      __setTouches(touches, hits, touchSurfaces); // latch contacts + surface-specific hit facts
+      __setTouches(touches, hits, touchSurfaces, touchPositions); // latch contacts + surface-specific hit facts
       __setPointer(pointer);
       runServicePumps();
       __drainEffects();

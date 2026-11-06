@@ -666,7 +666,9 @@ function auxiliaryTouches(): readonly TouchContact[]
 
 Each function returns an immutable snapshot for one surface. Coordinates are
 logical pixels in that surface, independent of the target raster density; at
-most eight contacts are delivered across both snapshots. No active touch is an
+most eight contacts are delivered across both snapshots. A host that sends
+exact positions gives fractional coordinates and coordinates past 1023;
+otherwise they are whole pixels from 0 to 1023. No active touch is an
 empty snapshot, not an unavailable API. Declare `input.touch` for `touches()`
 or `input.touch.auxiliary` plus `display.auxiliary` for
 `auxiliaryTouches()`. Guard optional enhancements with `hasFeature()`.

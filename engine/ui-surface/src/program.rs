@@ -683,6 +683,35 @@ mod tests {
             .unwrap();
     }
     #[test]
+    fn a_contact_beyond_1023_px_keeps_its_position_in_the_eleventh_argument() {
+        let (mut program, _) = program();
+        let guest = Rc::new(Guest::new().unwrap());
+        program
+            .boot(
+                guest.clone(),
+                "test",
+                "globalThis.seen=[];globalThis.frame=(...args)=>seen.push([args[2][0]&0x3ff,args[10]])",
+                &[],
+            )
+            .unwrap();
+        let mut input = InputFrameBuilder::new();
+        input.pointer = Some(Pointer {
+            surface: 0,
+            x: 1500.5,
+            y: 8.,
+            buttons: 1,
+        });
+        program.set_input(input);
+        program.advance().unwrap();
+        // The word clamps x to 1023; the positions keep 1500.5.
+        guest
+            .eval(
+                "assert",
+                "if(JSON.stringify(seen)!=='[[1023,[1500.5,8]]]')throw Error(JSON.stringify(seen));",
+            )
+            .unwrap();
+    }
+    #[test]
     fn guest_failure_stops_future_ticks_and_second_program_stays_independent() {
         let (mut first, _) = program();
         let (mut second, count) = program();
