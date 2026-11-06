@@ -45,7 +45,12 @@ URIs, as version 1 does.
 
 - **Media streams.** A service's `MediaSource` opens a separate TCP
   connection to the media provider (`docs/MEDIA.md` "Transport and
-  ownership"); phase one keeps that path.
+  ownership"); phase one keeps that path. **The source's `host` keeps its
+  meaning** ("Numeric IPv4 address of the paired companion's media
+  endpoint", `contracts/spec/media.ts` `MediaSource`): in the link's terms,
+  Hub fills it with **its own address on the device's link connection** (the
+  local address of that TCP connection on Hub's side), the address the device
+  is known to reach, and `port` with the media endpoint's port.
 - **The first install.** A 3DS without the runtime gets it through ftpd or
   through files on the SD card; Hub's core does that outside the link.
 - **The lane payload format.** Pocket Relay's records are specified with
@@ -197,8 +202,7 @@ connection proves.** Phase one has no encryption (§3.9).
 
 ### 3.1 The pairing URI
 
-Hub shows the URI as a QR code (byte mode, error correction level M,
-`tools/pocket-link/qr.ts`):
+Hub shows the URI as a QR code (`tools/pocket-link/qr.ts`):
 
 ```
 pocketlink://pair?v=2&c=<companion id>&h=<ipv4>[,<ipv4>…]&p=<port>&s=<secret>&n=<name>
@@ -219,6 +223,14 @@ fit, and the device receives the full name in `paired`. A one-address URI
 encodes as QR **version 7 or 8** (122 or 152 bytes at level M), which a 3DS
 outer camera reads from a laptop screen at arm's length (`link.ts` "Pairing
 URI").
+
+**What is normative about the code:** the URI's bytes, **byte mode**, error
+correction **level M**, and **the smallest QR version (1–10) that holds the
+URI at level M**. The mask pattern is the encoder's choice: two conforming
+encoders may draw different matrices for the same URI. **An encoder conforms
+when its code decodes to the same URI bytes in byte mode at level M and that
+version.** The reference encoder picks the mask with the lowest penalty score
+(`qr.ts`); its matrix is a test of that encoder, not a rule for others.
 
 ### 3.2 The pairing secret
 
@@ -1051,7 +1063,11 @@ The development connection took the request as the DevTools line
 (`framework/src/devtools.ts`); a guest without the shim, or a hung one, gave
 no screenshot. The dev menu's `X` (`main.c`, "SHOT QUEUED") sends the same
 event unsolicited, with a fresh stream id in the header; Hub keeps it as the
-device's latest screenshot.
+device's latest screenshot. Both surfaces are about 518 KB, twice Hub's
+suggested 256 KiB window; the stream completes by refills, as every stream
+longer than its window does (§5.6). **Hub may answer an unsolicited
+screenshot's stream with `RESET` `refused`** when it keeps no latest
+screenshot; the device then frees its buffers.
 
 #### runtime.logs
 
@@ -1099,6 +1115,22 @@ parse DevTools lines**; it moves bytes between the stream and the shim's
   and its answer `{"t":"evalResult","id",…}`. Hub writes the line under its
   device mutex and reads the answer from the device's lines; Hub's ids start
   with `hub-`. The shim evaluates between frames in the applet's global scope.
+  **The shim answers eval, and every explicit request, whether `devtools.listen`
+  is on or off**: it polls its transport in every frame callback, and
+  `listening()` gates only the tree and stats it sends unasked
+  (`framework/src/devtools.ts`: `pollTransport` runs before each frame,
+  `afterFrame` returns early when no panel listens; `docs/DEVTOOLS.md` §3). A
+  guest whose frame callback does not run (a hung guest, a guest without the
+  shim) answers nothing, and the eval ends at the 30 s timeout of §8.3.
+- **Guest switch notice.** When the host tears a guest down, it appends the
+  line `{"t":"guest.end","app":<id>,"output":<output>}` to the device-to-Hub
+  stream, after every line the old guest's shim queued, and drops the
+  undelivered Hub-to-device lines at the same moment. **Hub fails every eval
+  still pending on that device when it reads `guest.end`**, instead of
+  waiting 30 s for an answer the next guest will not give. Hub consumes the
+  line and does not forward it to panels. The development connection had no
+  such notice: the new guest's shim sends `hello` at its first poll, which
+  arrives only once that guest runs, and never from a guest without the shim.
 - A panel's `{"t":"screenshot"}` line is answered by Hub with
   `runtime.screenshot`, converted to the panel's PNG message; Hub does not
   forward it.
@@ -1155,13 +1187,18 @@ Request:
 
 | Field | Type | Limit |
 | --- | --- | --- |
-| `app` | string | the applet's manifest id, from the runtime |
+| `app` | string | the applet's manifest id: **the runtime's assertion**, taken from the running package, never from the guest, as for `lane.open` (§7.1) |
 | `url` | string | `http:` or `https:` |
 | `method` | string | `GET HEAD POST PUT PATCH DELETE OPTIONS` (`NET_METHODS`) |
 | `headers` | object | string values; at most 32 headers / 8 KiB |
 | `timeoutMs` | integer? | at most **120,000**; default 30,000 |
 | `maxBytes` | integer? | at most **256 KiB**; default 128 KiB |
 | `bytes` | integer | request body length, at most **64 KiB** |
+
+**`app` is what Hub's service checks rest on** while Hub still answers
+`https://companion.pocket/<service>` (§11, question 5): Hub checks that the
+applet named by `app` declares the service, so the field must come from the
+runtime and not from guest code.
 
 Streams, both on the request id: the request body, device to Hub (Hub grants
 credit for `bytes` on receipt); the response body, Hub to device (the device
@@ -1253,13 +1290,31 @@ Hub answers:
 - `REPLY` `{generation, maxRecord}`: `generation` is a u32 (§7.3);
   `maxRecord` is the largest record Hub accepts (LINK_MAX_PAYLOAD). Hub sends
   its first `CREDIT` for the lane right after.
-- `REPLY` `ERROR`: `unsupported` (Hub does not list `lane`), `busy` (the
-  connection has LINK_MAX_LANES lanes, or no consumer can start), `malformed`,
-  `rejected` (Hub's policy refuses the applet id).
+- `REPLY` `ERROR`, with the device's retry rule:
+
+| Code | Meaning | The device may open again for the same applet |
+| --- | --- | --- |
+| `no_consumer` | Hub has no consumer for this applet id; retrying changes nothing until something changes on Hub | not during this applet run; a new run (applet start, realm reset) or a new connection opens again |
+| `busy` | a consumer exists but could not start in time, or the connection has LINK_MAX_LANES lanes | after **2 s**, doubling at each further `busy` to **60 s**; the wait resets when a lane opens |
+| `rejected` | Hub's policy refuses the applet id | not during this applet run |
+| `unsupported` | Hub does not list `lane` | when `lane` comes into use again (§6.1) |
+| `malformed` | the request breaks its shape | not during this applet run |
 
 **Neither side sends `LANE` frames for a lane id before the `REPLY`.** The
 lane id outlives the `REPLY`: unlike other requests, `lane.open`'s reply
 opens the lane rather than ending activity on the id.
+
+**Hub may hold the `REPLY` while it starts the lane's consumer**, which can
+take about 10 s when the consumer is a program Hub starts on demand. **Hub
+answers within LINK_LANE_OPEN_MS (20 s)**, with `busy` if the consumer is not
+connected by then; that stays inside the requester's 30 s stall (§5.5), so the
+device never times out an open that Hub is still serving. Meanwhile the link
+carries everything else as usual; the device's endpoint keeps the applet's
+outgoing records itself, bounded by its own rules, and sends none. When the
+applet exits or its realm resets before the `REPLY`, the device sends
+`CANCEL` for the `lane.open` and Hub answers `cancelled` and stops the
+consumer it was starting. If Hub's accepting `REPLY` crosses the `CANCEL`
+(§5.4), the device closes the new lane at once with `lane.close` `exit`.
 
 ### 7.2 Records and flow control
 
@@ -1281,7 +1336,10 @@ opens the lane rather than ending activity on the id.
 
 `generation` is a **u32 that Hub assigns per device, larger than every
 generation before it, across connections and Hub restarts**; Hub stores the last value it gave in
-the device's record (`lastGeneration`, §3.6). A generation names one lane's
+the device's record (`lastGeneration`, §3.6). **Hub writes the new
+`lastGeneration` to its store before it sends the `REPLY` that carries it**,
+so a crash between the two cannot hand the same generation out twice; a
+generation stored and never sent is skipped. A generation names one lane's
 life to the consumer: **records of a generation are never delivered after
 that generation's close**, and a new open always gets a larger number. Hub
 assigns it so the device keeps no counter across reboots.
@@ -1381,7 +1439,8 @@ and `LANE`**: a chunk is queued only when it leaves the reserve free, so
 - **Hub has at most one state-changing request open per device.** It sends
   the next one only after the previous one's `REPLY`, or after the
   connection that carried it has closed. For eval, the `evalResult` line
-  stands for the `REPLY`, and 30 s without it (§5.5) end the eval.
+  stands for the `REPLY`; a `guest.end` line (§6.3) or 30 s without an
+  answer (§5.5) end the eval.
 - **After a reply with `phase: "launching"`, Hub sends no state-changing
   request to that device until the device links again or 60 s pass**: the
   device is exiting into another program (§6.2).
@@ -1468,6 +1527,8 @@ phase one.
 | Lanes per connection | **4**; 3DS opens **1** | one applet at a time on a 3DS |
 | Lane record | **≤ 32 KiB** | one frame, no fragmentation |
 | Lane generation | **u32**, larger than every earlier one of the device | §7.3 |
+| LINK_LANE_OPEN_MS | **20 s** | Hub's longest wait before answering `lane.open`: about 10 s for an on-demand consumer, inside the 30 s stall |
+| `lane.open` retry after `busy` | **2 s doubling to 60 s** | a consumer that failed to start is not restarted in a loop |
 
 Device memory for the link on a 3DS, against version 1's link (`link.c`:
 32 KiB receive, 48 KiB send) plus the development connection (`devserver.c`:
@@ -1491,7 +1552,7 @@ accept any key order and whitespace, and tests compare parsed values.
 | File | Contents |
 | --- | --- |
 | `beacon.json` | beacons with the pairing flag on and off, a 40-byte name, a name cut inside a multi-byte character; refused datagrams: 63 and 65 bytes, wrong magic, version 1, port 0, an uppercase id |
-| `pair-uri.json` | URIs with 1 and 3 hosts, a name shortened to fit 160 bytes, percent-encoding; refused URIs: `v=1`, 4 hosts, a hostname, a 31-digit secret, 160 bytes; one URI's QR module matrix |
+| `pair-uri.json` | URIs with 1 and 3 hosts, a name shortened to fit 160 bytes, percent-encoding; refused URIs: `v=1`, 4 hosts, a hostname, a 31-digit secret, 160 bytes; for each accepted URI its version at level M; one URI's QR module matrix from the reference encoder, which tests that encoder only (§3.1) |
 | `preamble.json` | the device's preamble; Hub selecting 2; Hub answering a range 3–4 with `selected` 0; a version-1 console preamble and Hub's answer; a device with range 2–3 sending its preamble alone, Hub selecting 2, then the device's version-2 `hello`; the same device sending a byte before Hub's preamble and Hub closing |
 | `frames.json` | one encoding per frame type and flag; refused headers: non-zero `reserved`, an undefined flag, `length` 32,769, `REQUEST` with id 0, `DATA` of 0 bytes without `END`, `CREDIT` of 0, `PING` of 3 bytes |
 | `handshake-connect.json` | a full mode `connect` transcript from fixed ids, key and nonces: each frame's bytes, the two HMAC message strings and both proofs |
@@ -1499,10 +1560,10 @@ accept any key order and whitespace, and tests compare parsed values.
 | `handshake-refusals.json` | `unknown_device` (no key; another companion id), `pairing_closed`, `bad_proof`, `malformed`, `busy`; the device's `CLOSE` `auth` after a wrong `challenge.proof`; a frame of type `DATA` before `ready` |
 | `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31 |
 | `streams.json` | a `runtime.push` of 100,000 bytes under 64 KiB credit with `END`; bytes past credit and the `CLOSE` `flow`; a grant over 16 MiB; `RESET` `refused` of an `agent.glyphs` stream; a stream short of its declared bytes |
-| `lane.json` | a lane's life: `lane.open`, the reply with generation 7, credit both ways, records both ways, a record of `maxRecord` bytes, `lane.close` `reset` and the reopen with generation 8, records after `lane.close` discarded, a fifth lane refused with `busy`, a record over `maxRecord` closing with `protocol`, a reconnect and the reopen with a larger generation |
+| `lane.json` | a lane's life: `lane.open`, the reply with generation 7, credit both ways, records both ways, a record of `maxRecord` bytes, `lane.close` `reset` and the reopen with generation 8, records after `lane.close` discarded, a fifth lane refused with `busy`, a record over `maxRecord` closing with `protocol`, a reconnect and the reopen with a larger generation; `no_consumer` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `lane.close` `exit` |
 | `features.json` | Hub dropping `agent` with a microphone stream open (the `RESET` before the `features` event) and adding it back; the device dropping `devtools` (stream reset) and adding it back (a new `devtools.open`); Hub dropping `lane` with a lane open (`lane.close` `feature`); a request of a dropped group crossing the event and answered `unsupported`; a second change inside one second sent at its end; a list of 17 entries closing with `protocol` |
 | `keepalive.json` | `PING` / `PONG` echo; a timeline with timestamps where a side closes with `silence` at 10 s, and one where `DATA` alone keeps the link up |
-| `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` event of 64 rows with every field at its limit, under LINK_MAX_CTRL |
+| `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` event of 64 rows with every field at its limit, under LINK_MAX_CTRL; a DevTools stream with a pending eval, then `guest.end` |
 
 The C client builds a POSIX variant of `link.c` on the build machine and runs
 the transcripts against itself; Hub's tests run its endpoint against the
@@ -1547,11 +1608,20 @@ Relay's cost (record handling, heap, bundle size, SHA-256 throughput).
    the same change as the 3DS client.
 7. **Pairing without the camera.** The first install writes files through
    ftpd or the SD card; the development connection's `dev.key` went the
-   same way. Options: QR pairing only; Hub also writes a pairing
-   (`sdmc:/pocketjs/link/companions/<hub id>.txt` and Hub's device record)
-   during the first install. Whoever writes the SD card already controls the
-   device. *Recommendation:* allow it; it keeps a 3DS without a working
-   camera usable.
+   same way. Options: QR pairing only; Hub also writes a pairing during the
+   first install. Whoever writes the SD card already controls the device.
+   The written pairing has to name the device id, because Hub looks the key
+   up by `hello.device` before it sends a proof (§3.7), so binding an unnamed
+   key to whichever device connects first would need a handshake change.
+   **The option therefore means: Hub writes
+   `sdmc:/pocketjs/link/companions/<hub id>.txt` (key, name, address, port)
+   and `sdmc:/pocketjs/link/device.txt`, and creates its device record under
+   that id.** Over ftpd, Hub reads an existing `device.txt` first and keeps
+   its id; it writes one only when the card has none. The SD card's files
+   always carry a `device.txt`, so copying them to a card that already has
+   one gives the device a new id, and other Hubs paired with that card must
+   pair again. *Recommendation:* allow it on these terms; it keeps a 3DS
+   without a working camera usable.
 8. **Pocket3D pack delivery.** `products/3ds/src/packs_delivery.c` takes
    `pocket3d.packs` control lines over the development connection, pumps
    `devserver_poll` while it fetches pieces from a temporary HTTP endpoint on
@@ -1656,7 +1726,9 @@ contract.
 1. Codec and vectors first: preamble, header, frame types, handshake proofs,
    checked against `tests/vectors/pocket-link-2/` from the submodule.
 2. Listener with the ephemeral fallback, beacon sender (targets of §2.2),
-   pairing windows and the QR (the matrix vector pins the encoder), the
+   pairing windows and the QR (every encoder Hub uses must decode back to the
+   URI at the version `pair-uri.json` gives; the matrix vector tests the
+   reference encoder alone, §3.1), the
    handshake, the device store (mode 0600, `lastGeneration`), one link per
    device.
 3. Keepalive and silence; the FIFO writer with the one-chunk rule; credit;
