@@ -1523,7 +1523,8 @@ export const DRAW_OP = {
 //   word 1  image: texture handle; rect: ABGR color
 //   word 2  bits 0-15 x, bits 16-31 y: i16 local px, the top-left of the
 //           unmirrored box
-//   word 3  bits 0-15 w, bits 16-31 h: u16 px, > 0
+//   word 3  bits 0-15 w, bits 16-31 h: u16 in 1/16 px, > 0 (at most
+//           4095.9375 px), so a scaled image keeps the size a node would have
 //
 // An image samples its whole texture over (x, y, w, h); FLIP_X mirrors it
 // about the box's vertical centre line. Items emit the same DrawList ops an

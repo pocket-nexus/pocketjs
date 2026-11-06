@@ -5350,15 +5350,15 @@ fn draw_item(
     reference: u32,
     x: i16,
     y: i16,
-    w: u16,
-    h: u16,
+    w16: u16,
+    h16: u16,
     alpha: u8,
 ) -> [u32; spec::draw_item::WORDS] {
     [
         kind | (alpha as u32) << 8 | flags,
         reference,
         (x as u16 as u32) | (y as u16 as u32) << 16,
-        w as u32 | (h as u32) << 16,
+        w16 as u32 | (h16 as u32) << 16,
     ]
 }
 
@@ -5387,11 +5387,29 @@ fn stage_container(ui: &mut Ui) -> i32 {
 fn draw_items_paint_what_equivalent_nodes_paint() {
     // (kind, flip, x, y, w, h, alpha): an image, a mirrored half-transparent
     // image, a translucent rect, and an image clipped by the stage's corner.
-    let scene: [(u32, bool, i16, i16, u16, u16, u8); 4] = [
-        (spec::draw_item::KIND_IMAGE, false, 10, 20, 32, 16, 255),
-        (spec::draw_item::KIND_IMAGE, true, 300, 200, 64, 32, 128),
-        (spec::draw_item::KIND_RECT, false, 5, 5, 100, 10, 153),
-        (spec::draw_item::KIND_IMAGE, false, 448, -16, 64, 64, 255),
+    // ... and a scaled image whose size is not a whole pixel.
+    let scene: [(u32, bool, i16, i16, f32, f32, u8); 5] = [
+        (spec::draw_item::KIND_IMAGE, false, 10, 20, 32.0, 16.0, 255),
+        (spec::draw_item::KIND_IMAGE, true, 300, 200, 64.0, 32.0, 128),
+        (spec::draw_item::KIND_RECT, false, 5, 5, 100.0, 10.0, 153),
+        (
+            spec::draw_item::KIND_IMAGE,
+            false,
+            448,
+            -16,
+            64.0,
+            64.0,
+            255,
+        ),
+        (
+            spec::draw_item::KIND_IMAGE,
+            false,
+            120,
+            60,
+            40.5,
+            20.25,
+            255,
+        ),
     ];
     let color = abgr(200, 40, 20, 255);
     let pixels = alloc::vec![0xffu8; 64 * 64 * 4];
@@ -5402,7 +5420,7 @@ fn draw_items_paint_what_equivalent_nodes_paint() {
     let tex = nodes.upload_texture(&pixels, 64, 64, spec::psm::PSM_8888);
     let stage = stage_container(&mut nodes);
     for &(kind, flip, x, y, w, h, alpha) in &scene {
-        let (x, y, w, h) = (x as f32, y as f32, w as f32, h as f32);
+        let (x, y) = (x as f32, y as f32);
         let ty = if kind == spec::draw_item::KIND_IMAGE {
             spec::NodeType::Image
         } else {
@@ -5448,7 +5466,16 @@ fn draw_items_paint_what_equivalent_nodes_paint() {
         } else {
             color
         };
-        for word in draw_item(kind, flags, reference, x, y, w, h, alpha) {
+        for word in draw_item(
+            kind,
+            flags,
+            reference,
+            x,
+            y,
+            (w * 16.0) as u16,
+            (h * 16.0) as u16,
+            alpha,
+        ) {
             bytes.extend_from_slice(&word.to_le_bytes());
         }
     }
@@ -5481,10 +5508,37 @@ fn draw_items_skip_bad_records_and_clear() {
             16,
             255,
         ),
-        draw_item(9, 0, tex as u32, 0, 0, 16, 16, 255),
-        draw_item(spec::draw_item::KIND_IMAGE, 0, tex as u32, 0, 0, 16, 0, 255),
-        draw_item(spec::draw_item::KIND_IMAGE, 0, tex as u32, 0, 0, 0, 16, 255),
-        draw_item(spec::draw_item::KIND_IMAGE, 0, tex as u32, 0, 0, 16, 16, 0),
+        draw_item(9, 0, tex as u32, 0, 0, 256, 256, 255),
+        draw_item(
+            spec::draw_item::KIND_IMAGE,
+            0,
+            tex as u32,
+            0,
+            0,
+            256,
+            0,
+            255,
+        ),
+        draw_item(
+            spec::draw_item::KIND_IMAGE,
+            0,
+            tex as u32,
+            0,
+            0,
+            0,
+            256,
+            255,
+        ),
+        draw_item(
+            spec::draw_item::KIND_IMAGE,
+            0,
+            tex as u32,
+            0,
+            0,
+            256,
+            256,
+            0,
+        ),
     ];
     for record in records {
         for word in record {

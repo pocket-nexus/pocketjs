@@ -3298,7 +3298,10 @@ impl<'a> Walker<'a> {
                 (item[2] as u16 as i16) as f32,
                 ((item[2] >> 16) as u16 as i16) as f32,
             );
-            let (w, h) = ((item[3] & 0xffff) as f32, (item[3] >> 16) as f32);
+            let (w, h) = (
+                (item[3] & 0xffff) as f32 / 16.0,
+                (item[3] >> 16) as f32 / 16.0,
+            );
             let a = clampf(op * ((item[0] >> 8) & 0xff) as f32 / 255.0, 0.0, 1.0);
             if w <= 0.0 || h <= 0.0 || a <= 0.0 {
                 continue;

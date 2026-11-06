@@ -272,7 +272,7 @@ describe("pack store", () => {
 });
 
 describe("texture pool out of memory", () => {
-  const imgs = (n: number) => Array.from({ length: n }, (_, i) => ({ pack: "p", name: `i${i}`, off: 0, len: 8, tw: 64, th: 64, w: 64, h: 64, ox: 0, oy: 0, fw: 64, fh: 64, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0 }));
+  const imgs = (n: number) => Array.from({ length: n }, (_, i) => ({ pack: "p", name: `i${i}`, off: 0, len: 8, tw: 64, th: 64, w: 64, h: 64, ox: 0, oy: 0, fw: 64, fh: 64, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0 }));
 
   test("a failed load evicts older images, keeps this frame's, and a later frame retries", () => {
     let failNext = false, next = 1;
@@ -395,7 +395,7 @@ describe("game2d pack writer", () => {
 });
 
 describe("game2d texture pool: images that fail to load", () => {
-  const image = (name: string): PackImage => ({ pack: "a", name, off: 0, len: 1, tw: 8, th: 8, w: 8, h: 8, ox: 0, oy: 0, fw: 8, fh: 8, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0 });
+  const image = (name: string): PackImage => ({ pack: "a", name, off: 0, len: 1, tw: 8, th: 8, w: 8, h: 8, ox: 0, oy: 0, fw: 8, fh: 8, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0 });
   const storeWith = (load: (img: PackImage) => number) => ({ loadImage: load }) as unknown as PackStore;
 
   test("a bad image stops hitting storage every frame", () => {

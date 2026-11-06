@@ -25,9 +25,10 @@ export type PackHost = PackOps;
 export interface PackImage {
   pack: string; name: string; off: number; len: number;
   tw: number; th: number; w: number; h: number; ox: number; oy: number; fw: number; fh: number; ax: number; ay: number;
-  /** Owned by the texture pool: live handle (-1 when not loaded), the frame it was last drawn on, and
-   *  the retry state after a failed load (failures in a row, first frame allowed to try again). */
-  handle: number; used: number; fails: number; retryAt: number;
+  /** Owned by the texture pool: live handle (-1 when not loaded), the frame it was last drawn on, the
+   *  retry state after a failed load (failures in a row, first frame allowed to try again), and how many
+   *  static layers hold it on screen. */
+  handle: number; used: number; fails: number; retryAt: number; pins: number;
 }
 
 export interface MountedPack { name: string; fh: number; rows: Int32Array; hashes: Uint32Array; base: number; data: Record<string, unknown> }
@@ -138,7 +139,7 @@ export function createPackStore(host: PackHost | null = packHost()): PackStore {
           const mid = (lo + hi) >>> 1, v = m.hashes[mid];
           if (v === h) {
             const r = m.rows, o = mid * 12;
-            const img: PackImage = { pack: m.name, name, off: r[o] + m.base, len: r[o + 1], tw: r[o + 2], th: r[o + 3], w: r[o + 4], h: r[o + 5], ox: r[o + 6], oy: r[o + 7], fw: r[o + 8], fh: r[o + 9], ax: r[o + 10], ay: r[o + 11], handle: -1, used: 0, fails: 0, retryAt: 0 };
+            const img: PackImage = { pack: m.name, name, off: r[o] + m.base, len: r[o + 1], tw: r[o + 2], th: r[o + 3], w: r[o + 4], h: r[o + 5], ox: r[o + 6], oy: r[o + 7], fw: r[o + 8], fh: r[o + 9], ax: r[o + 10], ay: r[o + 11], handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0 };
             cache.set(name, img);
             return img;
           }
