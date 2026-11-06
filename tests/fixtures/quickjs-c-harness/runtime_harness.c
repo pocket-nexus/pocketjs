@@ -74,13 +74,13 @@ int main(void) {
     "check(!('svcOpen' in ui));"
 #endif
     "globalThis.count=0;";
-  /* Function form tests the canonical ten-argument wire, with hits recomputed
+  /* Function form tests the canonical eleven-argument wire, with hits recomputed
    * by Runtime instead of trusting a caller's stale hit id. */
   const char *frame =
-    "globalThis.frame=function(buttons,analog,touches,hits,surfaces,right,deltas,motion,text,pointer){"
-    "if(arguments.length!==10||analog!==0x8080||right!==0x8080||!Array.isArray(text)||text.length)throw Error('wire '+JSON.stringify([...arguments]));"
+    "globalThis.frame=function(buttons,analog,touches,hits,surfaces,right,deltas,motion,text,pointer,positions){"
+    "if(arguments.length!==11||positions.length!==touches.length*2||analog!==0x8080||right!==0x8080||!Array.isArray(text)||text.length)throw Error('wire '+JSON.stringify([...arguments]));"
     "check(new Uint8Array(__pak)[0]===12);"
-    "if(buttons===7){if(touches.length!==1||hits[0]!==1||surfaces[0]!==0||pointer!==null)throw Error('touch '+JSON.stringify([...arguments]));check((touches[0]&255)===5)}"
+    "if(buttons===7){if(touches.length!==1||hits[0]!==1||surfaces[0]!==0||pointer!==null)throw Error('touch '+JSON.stringify([...arguments]));check((touches[0]&255)===5&&positions[0]===5&&positions[1]===6)}"
     "if(buttons===8){check(touches.length===1&&touches[0]===0x400c0000&&hits[0]===0)}"
     "if(buttons===9){check(touches.length===0&&JSON.stringify(pointer)==='{\"surface\":0,\"x\":40.5,\"y\":2,\"buttons\":0,\"scrollX\":0,\"scrollY\":3}')}"
     "count++;Promise.resolve().then(()=>ui.__reportAppAction('frame',count));};";

@@ -312,6 +312,7 @@ export function wrapFrameHandler(
     motion?: MotionState | null,
     text?: readonly TextEventRecord[],
     pointer?: PointerRecord | null,
+    touchPositions?: readonly number[],
   ) => void,
 ): (
   buttons: number,
@@ -324,6 +325,7 @@ export function wrapFrameHandler(
   motion?: MotionState | null,
   text?: readonly TextEventRecord[],
   pointer?: PointerRecord | null,
+  touchPositions?: readonly number[],
 ) => void {
   return (
     buttons: number,
@@ -336,6 +338,7 @@ export function wrapFrameHandler(
     motionArg?: MotionState | null,
     textArg?: readonly TextEventRecord[],
     pointerArg?: PointerRecord | null,
+    touchPositionsArg?: readonly number[],
   ) => {
     state.hostCalls++;
     if (state.transport) {
@@ -351,6 +354,7 @@ export function wrapFrameHandler(
     let axisDeltas = axisDeltasArg;
     let motion = motionArg;
     let pointer = pointerArg;
+    let touchPositions = touchPositionsArg;
     if (state.replayMasks) {
       if (state.replayAt < state.replayMasks.length) {
         // Paused host polls must not consume queued replay input.
@@ -374,8 +378,10 @@ export function wrapFrameHandler(
         // recording host computed).
         hits = undefined;
         // The tape holds no pointer track: live hover and scrolling stay
-        // out of the replay.
+        // out of the replay. Its touch words carry whole-pixel coordinates,
+        // so the live exact positions stay out too.
         pointer = null;
+        touchPositions = undefined;
         state.replayAt++;
       } else {
         state.replayMasks = null; // tape exhausted: back to live input
@@ -398,7 +404,7 @@ export function wrapFrameHandler(
     recordMask(mask, analog, touch, touchSurfaces, rightAnalog, axisDeltas, motion);
     state.frame++;
     try {
-      h(mask, analog, touch, hits, touchSurfaces, rightAnalog, axisDeltas, motion, textArg, pointer);
+      h(mask, analog, touch, hits, touchSurfaces, rightAnalog, axisDeltas, motion, textArg, pointer, touchPositions);
     } catch (e) {
       send({
         t: "error",

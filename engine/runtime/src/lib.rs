@@ -998,6 +998,7 @@ impl Runtime {
                 Some(_) => self.input.scroll,
                 None => [0.0; 2],
             },
+            touch_positions: &encoded.positions,
         };
         if let Err(error) = self
             .guest

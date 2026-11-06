@@ -48,7 +48,8 @@ pub struct GuestEnvironment<'a> {
 
 /// The existing eight frame arguments; cancellation records are part of the
 /// touches array (bit 30), with corresponding zero hits and surface ids.
-/// The frame's text events, its pointer and the pointer's scroll follow.
+/// The frame's text events, its pointer, the pointer's scroll and the exact
+/// position of each touches word follow.
 pub struct GuestFrame<'a> {
     pub buttons: u32,
     pub analog: u32,
@@ -65,6 +66,10 @@ pub struct GuestFrame<'a> {
     /// The frame's summed wheel and trackpad scrolling in logical px of the
     /// pointer's surface, x then y; zero when `pointer` is `None`.
     pub scroll: [f32; 2],
+    /// Two entries per `touches` word, x then y, in logical px of its
+    /// surface: the position the word clamps to whole px in 0..=1023. A
+    /// cancellation's pair is zero.
+    pub touch_positions: &'a [f32],
 }
 
 pub trait Guest {
