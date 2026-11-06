@@ -34,6 +34,7 @@ URIs, as version 1 does.
 | --- | --- | --- |
 | Admission | device | beacon, pairing, the handshake (§2, §3) |
 | Runtime operations | Hub | status, push a `.pocket`, install a `.3dsx`, launch, screenshot, logs (§6.2) |
+| Installed applets | device | the applets the device holds, sent after `ready` and on change (§6.2 `runtime.apps`) |
 | DevTools | both | the DevTools JSON-line protocol of `docs/DEVTOOLS.md` §4, eval included (§6.3) |
 | Catalog and install | device | Hub's app offer and a `.pocket` streamed into a slot (§6.4) |
 | `net.http` | device | an applet worker's HTTP request, performed by Hub (§6.5) |
@@ -673,7 +674,7 @@ the id by `t`, not by its value:
 
 | Header id | Events | Rule |
 | --- | --- | --- |
-| 0 | `catalog.changed`, `runtime.status`, `log`, `devtools.listen`, the agent messages that open no stream | the id is 0 |
+| 0 | `features`, `catalog.changed`, `runtime.status`, `runtime.apps`, `log`, `devtools.listen`, the agent messages that open no stream | the id is 0 |
 | an open request's id | `runtime.install`, `runtime.native`, `install.head`, `net.head`, `runtime.screenshot` answering a request | a request the receiver sent and that has no `REPLY` yet |
 | a lane's id | `lane.close` | a lane open on the connection |
 | a fresh id of the sender | `agent.audio`, `agent.shot`, `agent.screen`, `agent.glyphs`, an unsolicited `runtime.screenshot` | **an id from the sender's own range (§5.1) that the sender has not used on this connection**; the event opens a stream under it |
@@ -818,8 +819,9 @@ each message's fields; a field marked `?` may be absent.
 ### 6.1 Features
 
 `hello.features` lists what the device serves or uses; `ready.features`
-lists what Hub serves. **A group is in use only when both lists name it.** A
-request of a group the responder does not list gets `ERROR` `unsupported`.
+lists what Hub serves. **A group is in use only when both current lists name
+it.** A request of a group the responder does not list gets `ERROR`
+`unsupported`.
 
 | Feature | Device lists it when | Hub lists it when |
 | --- | --- | --- |
@@ -831,6 +833,52 @@ request of a group the responder does not list gets `ERROR` `unsupported`.
 | `net.http` | it has a worker HTTP provider | it performs requests |
 | `agent` | it runs the agent stage | the agent is available |
 | `lane` | it opens lanes for applets | it accepts lanes |
+| `apps` | it reports its installed applets (§6.2 `runtime.apps`) | it wants them |
+
+#### Changes after admission
+
+**Either side's list can change on a live link.** The side whose list
+changes sends `EVENT` `features` (id 0) `{features: [...]}` with its **whole
+current list**, at most 16 entries of 24 bytes as in `hello`. The new list
+replaces the one from the handshake or from the previous `features` event.
+A `features` event over these limits, or without a `features` array, closes
+the connection with `CLOSE` `protocol`: the receiver can no longer tell which
+groups are in use.
+**A side sends at most one `features` event a second**; a change inside the
+second goes out at its end, with the list as it stands then. Hub sends one
+when, for example, its agent becomes available or unavailable; the device
+sends one when a guest switch brings a guest with or without the DevTools
+shim, so `devtools` follows the running guest instead of the moment of
+connecting.
+
+**A group leaves use when either list drops it, and comes into use when both
+name it again.** The side that drops a group first ends its own part in it,
+and queues all of this before its `features` event, so the peer reads it
+first (§5.7):
+
+1. `REPLY` `ERROR` `unsupported` to each open request of the peer in the
+   group;
+2. `CANCEL` for each of its own open requests in the group;
+3. `RESET` `cancelled` for each stream of the group that belongs to no
+   request (the DevTools stream, agent streams);
+4. `lane.close` `feature` for each lane, when the group is `lane`.
+
+The receiver of a `features` event that drops a group stops sending
+requests, events and streams of the group, answers a request of the group
+that crosses the event with `ERROR` `unsupported`, and ignores events of the
+group that arrive after it. When a group comes into use again, its
+connection-start steps run again: the device sends `devtools.open` for
+`devtools` (§6.3), `runtime.apps` for `apps`, and `lane.open` for the running
+applet for `lane` (§7.1).
+
+**The agent stage.** When `agent` leaves use, the device does what it does
+today when the agent's channel goes away: the guest receives
+`{"t":"link","available":false}`, and the microphone and an open shot stop
+(`agent.c` `agent_pump`, which polls `link_feature_ready("agent")`). When
+`agent` comes into use again, the guest receives `available: true` and sends
+`agent.hello`, as after the link comes up (`contracts/spec/agent.ts`
+`agent.hello`). Hub sends the glyph atlas again after that `agent.hello`, as it
+does after every `agent.hello` (`contracts/spec/agent.ts` "Glyphs").
 
 ### 6.2 Runtime operations
 
@@ -865,6 +913,46 @@ sends **once after `ready` and at every runtime phase change**
 The fields are the development connection's `runtime.status` record
 (`devserver.c` `send_status`) without `ip`/`port` (renamed `address`; the
 device has no port) and with `app`.
+
+#### runtime.apps
+
+**Requires `apps`, not `runtime`**: a device that serves no development
+operation still reports its applets. Hub uses the set to match its
+computer-side programs to the applets a linked device holds.
+
+`EVENT` `runtime.apps` (id 0), device to Hub, sent when `apps` comes into use
+(after `ready`, or after a `features` event, §6.1) and **after every change
+of the installed set**: a package committed as a slot's active package (a
+catalog install, a push into another app's slot, an accepted push of the
+running app), and a removal (`link.remove`). At most one event a second; a
+change inside the second goes out at its end. **Each event carries the whole
+set**, so a lost or late event is repaired by the next one and Hub keeps no
+diff state.
+
+| Field | Type | Content |
+| --- | --- | --- |
+| `apps` | array | at most **64** rows |
+| `truncated` | boolean? | true when the device holds more applets than the rows sent |
+
+A row:
+
+| Field | Type | Limit | Content |
+| --- | --- | --- | --- |
+| `id` | string | 128 bytes | manifest id |
+| `output` | string | 64 bytes | build output name, the launcher key |
+| `version` | string | 32 bytes | the app contract's version |
+| `hash` | string | 16 hex | footer hash of the slot's active package |
+| `home` | boolean? | | true for the launcher (the embedded guest) |
+
+The 3DS's launcher holds at most **64** apps (`launcher.c`
+`LAUNCHER_MAX_APPS`). A row's values take at most 240 bytes and its keys and
+quotes about 60, so **64 rows stay under 20 KB, inside LINK_MAX_CTRL**; one
+frame carries the largest set. A device whose rows would not fit one frame
+(values that need JSON escapes, a host with a larger table) sends the rows
+that fit and `truncated: true`. The device builds the list from the
+launcher's cached table, which is rebuilt only after an install, a removal or
+a routed push (`launcher.h` `launcher_invalidate`), so the event reads no
+storage.
 
 #### runtime.push
 
@@ -993,7 +1081,7 @@ parse DevTools lines**; it moves bytes between the stream and the shim's
 
 | Message | Direction | Content |
 | --- | --- | --- |
-| `devtools.open` | device → Hub, `REQUEST` `{}` | sent once after `ready` when both list `devtools`. Hub replies `{}`. **The request id is the DevTools stream id for both directions until the connection ends** |
+| `devtools.open` | device → Hub, `REQUEST` `{}` | sent when `devtools` comes into use: after `ready`, or after a `features` event (§6.1). Hub replies `{}`. **The request id is the DevTools stream id for both directions until the connection ends or `devtools` leaves use** |
 | DevTools stream | both | UTF-8 lines, each ended by `\n`, cut across `DATA` frames at any byte |
 | `devtools.listen` | Hub → device, `EVENT` `{on: boolean}` (id 0) | the shim's `listening()` (today `ui.__dbgConnected`) returns `on`. Off at every new connection |
 
@@ -1005,7 +1093,8 @@ parse DevTools lines**; it moves bytes between the stream and the shim's
   **4 × (16 KiB + 1)** bytes (`devserver.c` `CTRL_IN_BYTES`). The device
   grants credit for the free bytes in the ring and hands the shim whole lines
   only (`devserver_recv_ctrl`). A guest switch drops undelivered lines; the
-  stream stays.
+  stream stays while the next guest has the shim, and is reset with `devtools`
+  leaving use otherwise (§6.1).
 - **Eval** is the DevTools line `{"t":"eval","id":<string>,"code":<≤ 16 KiB>}`
   and its answer `{"t":"evalResult","id",…}`. Hub writes the line under its
   device mutex and reads the answer from the device's lines; Hub's ids start
@@ -1211,6 +1300,7 @@ reused on a connection, so a late record cannot reach a new lane.
 | `consumer` | Hub | the lane's local consumer ended or failed to start |
 | `payload` | either | the receiving endpoint refused a record |
 | `policy` | Hub | the owner or Hub's policy ended the lane |
+| `feature` | either | `lane` left use (§6.1) |
 
 After Hub closes a lane, the device opens a new one for the same applet run
 only when its endpoint asks for one, **at most once a second**.
@@ -1280,29 +1370,41 @@ and `LANE`**: a chunk is queued only when it leaves the reserve free, so
 `PONG`, `PING`, `CREDIT`, `REPLY`, `RESET` and `CLOSE` can always be queued.
 `log` events do not use the reserve (§6.2).
 
-### 8.3 The device mutex
+### 8.3 State-changing requests and the device mutex
 
-The mutex belongs to Hub's endpoint, one per device; it arbitrates Hub's own
-clients (its UI, its CLI, `3ds:dev`, the studio relay, the agent).
+**On the wire:**
 
-| Takes the mutex | Takes no lock |
+| State-changing | Not state-changing |
 | --- | --- |
-| `runtime.push`, `runtime.native.install`, `runtime.launch`, eval (§6.3) | `runtime.status`, `runtime.screenshot`, `runtime.logs`, other DevTools lines, catalog and install (device-initiated), `net.http`, agent, lanes |
+| `runtime.push`, `runtime.native.install`, `runtime.launch`, eval (§6.3) | `runtime.status`, `runtime.screenshot`, `runtime.logs`, other DevTools lines, catalog and install (device-initiated), `net.http`, agent, lanes, `runtime.apps` |
 
-- A client takes the mutex before Hub sends the request. **A second client is
-  refused at once with `busy` and the holder**: `{client, operation, since}`.
-  Hub does not queue it; a client that wants to wait retries. Pocket Hub's
-  development bridge answers the same way today.
-- **The holder is visible** in Hub's device status and IPC, for the UI.
-- Release: at the request's `REPLY`; for `launching`, when the device links
-  again or 60 s pass; when the connection closes; when the holder's local
-  client goes away (Hub sends `CANCEL` for its open request).
-- The device does not see the mutex. It enforces its own single slot for
-  state-changing requests (§6.2), which also catches a second Hub process
-  that should not exist.
+- **Hub has at most one state-changing request open per device.** It sends
+  the next one only after the previous one's `REPLY`, or after the
+  connection that carried it has closed. For eval, the `evalResult` line
+  stands for the `REPLY`, and 30 s without it (§5.5) end the eval.
+- **After a reply with `phase: "launching"`, Hub sends no state-changing
+  request to that device until the device links again or 60 s pass**: the
+  device is exiting into another program (§6.2).
+- **The device keeps one slot for state-changing requests** and answers a
+  second one with `ERROR` `busy` (§6.2). This catches a Hub that breaks the
+  rule above, and a second Hub process that should not exist.
+- Not state-changing requests take no lock on either side.
+
+**Inside Hub.** Hub keeps the rule above with a mutex per device that its
+own clients (its UI, its CLI, `3ds:dev`, the studio relay, the agent) take
+before Hub sends a state-changing request; the holder is visible in Hub's
+device status for the UI, and the mutex is released at the request's
+`REPLY`, at the end of the `launching` hold, when the connection closes, or
+when the holder's local client goes away (Hub then sends `CANCEL` for its
+open request). The device never sees the mutex. **What Hub does with a second
+client while the mutex is held — refuse it at once with `busy` and the
+holder, or let it wait in a bounded queue and report the holder on timeout —
+is Hub's own choice and not part of this protocol** (§11, question 14).
+Pocket Hub's development bridge answers `busy` with the holder today.
 
 Priorities, in-flight slots per client and quotas are deferred until
-contention shows; the queue and the mutex above are phase one.
+contention shows; the write queue of §8.1 and the one-request rule above are
+phase one.
 
 ## 9. Limits and budgets
 
@@ -1332,6 +1434,9 @@ contention shows; the queue and the mutex above are phase one.
 | LINK_MAX_HANDSHAKE | **4,096 bytes** | handshake messages are under 1 KiB |
 | `CLOSE` reason | **120 bytes** | one status line |
 | Error `message` | **240 bytes** | |
+| `features` list | **16** entries of **24** bytes | as in `hello` |
+| `features` events | at most **1 a second** per side | a flapping agent sign-in does not flood the link |
+| `runtime.apps` | **64** rows, events at most **1 a second** | `LAUNCHER_MAX_APPS`; 64 rows fit LINK_MAX_CTRL (§6.2) |
 | Ping interval | **3 s** | kept |
 | Silence | **10 s** | kept; covers a measured 5.7 s stall |
 | Close drain | **1 s** | `devserver_flush(1000)` before a `.3dsx` start |
@@ -1395,8 +1500,9 @@ accept any key order and whitespace, and tests compare parsed values.
 | `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31 |
 | `streams.json` | a `runtime.push` of 100,000 bytes under 64 KiB credit with `END`; bytes past credit and the `CLOSE` `flow`; a grant over 16 MiB; `RESET` `refused` of an `agent.glyphs` stream; a stream short of its declared bytes |
 | `lane.json` | a lane's life: `lane.open`, the reply with generation 7, credit both ways, records both ways, a record of `maxRecord` bytes, `lane.close` `reset` and the reopen with generation 8, records after `lane.close` discarded, a fifth lane refused with `busy`, a record over `maxRecord` closing with `protocol`, a reconnect and the reopen with a larger generation |
+| `features.json` | Hub dropping `agent` with a microphone stream open (the `RESET` before the `features` event) and adding it back; the device dropping `devtools` (stream reset) and adding it back (a new `devtools.open`); Hub dropping `lane` with a lane open (`lane.close` `feature`); a request of a dropped group crossing the event and answered `unsupported`; a second change inside one second sent at its end; a list of 17 entries closing with `protocol` |
 | `keepalive.json` | `PING` / `PONG` echo; a timeline with timestamps where a side closes with `silence` at 10 s, and one where `DATA` alone keeps the link up |
-| `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it |
+| `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` event of 64 rows with every field at its limit, under LINK_MAX_CTRL |
 
 The C client builds a POSIX variant of `link.c` on the build machine and runs
 the transcripts against itself; Hub's tests run its endpoint against the
@@ -1476,10 +1582,13 @@ Relay's cost (record handling, heap, bundle size, SHA-256 throughput).
     on an Old 3DS exists. *Recommendation:* time the parse of a 64-row catalog
     reply and of an `agent.delta` in the same measurement run; move a message
     to a binary payload only if one takes more than a small part of a frame.
-14. **Hub's device mutex: refuse or queue.** §8.3 refuses a second client at
-    once. The studio relay pushes in the background and might prefer a short
-    queue. *Recommendation:* refuse in phase one; add a bounded wait for one
-    client type when contention shows.
+14. **Hub's device mutex: refuse or queue.** §8.3 leaves to Hub what it does
+    with a second client while a state-changing request is open; the wire
+    looks the same either way. Options: refuse at once with `busy` and the
+    holder (Pocket Hub's development bridge today); a bounded FIFO wait,
+    reporting the holder when the wait times out. The studio relay pushes in
+    the background and would otherwise poll. *Recommendation:* the bounded
+    FIFO wait, reporting the holder on timeout; it costs the device nothing.
 
 ## 12. Implementation notes
 
