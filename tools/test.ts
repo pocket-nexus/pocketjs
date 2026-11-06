@@ -131,6 +131,7 @@ const SUITE: readonly Stage[] = [
       "tests/svg-texture-size.test.ts",
       "tests/touch.test.ts",
       "tests/desktop-pointer.test.ts",
+      "tests/pointer.test.ts",
       "tests/keyboard-touch.test.ts",
       "tests/caret-blink.test.ts",
       "tests/gesture.test.ts",

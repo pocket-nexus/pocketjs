@@ -74,14 +74,15 @@ int main(void) {
     "check(!('svcOpen' in ui));"
 #endif
     "globalThis.count=0;";
-  /* Function form tests the canonical nine-argument wire, with hits recomputed
+  /* Function form tests the canonical ten-argument wire, with hits recomputed
    * by Runtime instead of trusting a caller's stale hit id. */
   const char *frame =
-    "globalThis.frame=function(buttons,analog,touches,hits,surfaces,right,deltas,motion,text){"
-    "if(arguments.length!==9||analog!==0x8080||right!==0x8080||!Array.isArray(text)||text.length)throw Error('wire '+JSON.stringify([...arguments]));"
+    "globalThis.frame=function(buttons,analog,touches,hits,surfaces,right,deltas,motion,text,pointer){"
+    "if(arguments.length!==10||analog!==0x8080||right!==0x8080||!Array.isArray(text)||text.length)throw Error('wire '+JSON.stringify([...arguments]));"
     "check(new Uint8Array(__pak)[0]===12);"
-    "if(buttons===7){if(touches.length!==1||hits[0]!==1||surfaces[0]!==0)throw Error('touch '+JSON.stringify([...arguments]));check((touches[0]&255)===5)}"
+    "if(buttons===7){if(touches.length!==1||hits[0]!==1||surfaces[0]!==0||pointer!==null)throw Error('touch '+JSON.stringify([...arguments]));check((touches[0]&255)===5)}"
     "if(buttons===8){check(touches.length===1&&touches[0]===0x400c0000&&hits[0]===0)}"
+    "if(buttons===9){check(touches.length===0&&JSON.stringify(pointer)==='{\"surface\":0,\"x\":40.5,\"y\":2,\"buttons\":0,\"scrollX\":0,\"scrollY\":3}')}"
     "count++;Promise.resolve().then(()=>ui.__reportAppAction('frame',count));};";
   char bundle[4096]; snprintf(bundle, sizeof bundle, "if(ui.__hostAbi!==%u)throw Error('generation');%s%s", (unsigned)POCKET_BINDING_GENERATION, source, frame);
   assert(boot(bundle));
@@ -95,8 +96,12 @@ int main(void) {
   if (!pocket_qjs_program_advance(program, &input, 1)) { fprintf(stderr,"frame: %s\n",pocket_qjs_program_error(program)); abort(); } expect_action("frame",1);
   input.buttons=8; input.contact_count=0; input.cancelled_count=1;
   assert(pocket_qjs_program_advance(program, &input, 2)); expect_action("frame",2);
-  input.buttons=0; input.cancelled_count=0;
-  assert(pocket_qjs_program_advance(program, &input,60)); expect_action("frame",3);
+  /* A pointer with no button down reaches the guest with its scroll. */
+  pocket_pointer pointer = {sizeof pointer, 0, 40.5f, 2, 0};
+  input.buttons=9; input.cancelled_count=0; input.pointer=&pointer; input.scroll[1]=3;
+  assert(pocket_qjs_program_advance(program, &input, 1)); expect_action("frame",3);
+  input.buttons=0; input.pointer=NULL; input.scroll[1]=0;
+  assert(pocket_qjs_program_advance(program, &input,60)); expect_action("frame",4);
   assert(!pocket_qjs_program_advance(program, &input,0));
   assert(!pocket_qjs_program_advance(program, &input,61));
   assert(pocket_qjs_program_render(program));

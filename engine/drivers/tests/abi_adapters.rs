@@ -227,6 +227,62 @@ fn input_adapter_copies_extended_records_and_discards_failed_poll_contributions(
     assert_eq!(input.last_error(), Some(AdapterError::Failed));
 }
 #[test]
+fn input_adapter_adds_scroll_and_reads_frames_written_before_it_as_zero() {
+    struct Context {
+        scroll: [f32; 2],
+    }
+    unsafe extern "C" fn classes(_: *mut c_void) -> u32 {
+        POCKET_INPUT_CLASS_POINTER
+    }
+    unsafe extern "C" fn poll(context: *mut c_void, builder: *mut PocketInputFrameBuilder) -> i32 {
+        let scroll = unsafe { &*context.cast::<Context>() }.scroll;
+        let pointer = PocketPointer {
+            x: 1500.5,
+            y: 20.,
+            ..PocketPointer::empty()
+        };
+        let current = PocketInputFrame {
+            pointer: &pointer,
+            scroll,
+            ..PocketInputFrame::empty()
+        };
+        // A source compiled before scroll existed announces a shorter record.
+        let older = PocketInputFrame {
+            struct_size: core::mem::offset_of!(PocketInputFrame, scroll),
+            scroll: [1000., 1000.],
+            ..PocketInputFrame::empty()
+        };
+        let builder = unsafe { PocketInputFrameBuilder::read_prefix(builder) }.unwrap();
+        for frame in [&current, &older, &current] {
+            let status = unsafe { builder.append.unwrap()(builder.context, frame) };
+            if status != 0 {
+                return status;
+            }
+        }
+        0
+    }
+    let mut context = Context { scroll: [2.5, -4.] };
+    let table = PocketInputSourceV1 {
+        classes: Some(classes),
+        poll: Some(poll),
+        ..PocketInputSourceV1::empty()
+    };
+    let mut input =
+        unsafe { CInputSource::new(&table, (&mut context as *mut Context).cast()) }.unwrap();
+    let mut frame = InputFrameBuilder::new();
+    frame.scroll = [1., 1.];
+    input.poll(&mut frame);
+    assert_eq!(frame.scroll, [6., -7.]);
+    assert_eq!(frame.pointer.map(|pointer| pointer.x), Some(1500.5));
+    frame.clear();
+    assert_eq!(frame.scroll, [0., 0.]);
+    context.scroll = [f32::NAN, 0.];
+    assert!(context.scroll[0].is_nan());
+    input.poll(&mut frame);
+    assert_eq!(frame.scroll, [0., 0.]);
+    assert_eq!(input.last_error(), Some(AdapterError::Invalid));
+}
+#[test]
 fn resource_bridge_writes_only_the_consumers_known_prefix() {
     #[repr(C)]
     struct Short {

@@ -33,7 +33,9 @@ impl InputEncoder {
         ui: &mut Ui,
         frame: &InputFrame<'_>,
     ) -> Result<EncodedInput, RuntimeError> {
-        if frame.axes.iter().any(|axis| !axis.value.is_finite()) {
+        if frame.axes.iter().any(|axis| !axis.value.is_finite())
+            || frame.scroll.iter().any(|delta| !delta.is_finite())
+        {
             return Err(RuntimeError::InvalidInput);
         }
         let mut contacts: Vec<Contact> = frame

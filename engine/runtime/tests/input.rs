@@ -64,7 +64,7 @@ fn cancellation_is_surface_scoped_and_axes_preserve_the_eight_argument_wire() {
     assert_eq!(frame.right_analog, 11 << 8 | 22);
 }
 #[test]
-fn rejects_duplicate_contacts_and_nonfinite_coordinates() {
+fn rejects_duplicate_contacts_and_nonfinite_coordinates_and_scroll() {
     let mut ui = Ui::new();
     let mut encoder = InputEncoder::new();
     let mut input = InputFrameBuilder::new();
@@ -85,6 +85,11 @@ fn rejects_duplicate_contacts_and_nonfinite_coordinates() {
     assert!(encoder.encode(&mut ui, &input.frame()).is_ok());
     input.pointer.as_mut().unwrap().surface = 2;
     assert!(encoder.encode(&mut ui, &input.frame()).is_err());
+    input.pointer.as_mut().unwrap().surface = 0;
+    input.scroll = [0., f32::INFINITY];
+    assert!(encoder.encode(&mut ui, &input.frame()).is_err());
+    input.scroll = [0., -40.];
+    assert!(encoder.encode(&mut ui, &input.frame()).is_ok());
 }
 
 #[test]

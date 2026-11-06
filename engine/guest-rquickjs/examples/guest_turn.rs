@@ -34,6 +34,8 @@ fn main() {
             axis_deltas: &[],
             motion: None,
             text: &[],
+            pointer: None,
+            scroll: [0.0; 2],
         })
         .unwrap();
     let turns = guest

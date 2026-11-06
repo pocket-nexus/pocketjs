@@ -60,6 +60,9 @@ pub struct AxisDelta {
     pub delta: i32,
 }
 
+/// An absolute pointer in logical px of `surface`. With no button down the
+/// position is a hover; the runtime delivers it to the guest either way and
+/// turns button 0 into a contact.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pointer {
     pub surface: u32,
@@ -128,11 +131,13 @@ pub struct InputFrame<'a> {
     pub cancelled: &'a [CancelledContact],
     pub text: &'a [TextEvent],
     pub motion: Option<&'a MotionState>,
+    pub scroll: [f32; 2],
 }
 
 /// One runtime-owned accumulator reused between ticks. Contributions append
-/// to vectors and OR button bits. The program chooses one pointer and motion
-/// provider; assigning either singleton replaces the previous contribution.
+/// to vectors, OR button bits and add scroll. The program chooses one pointer
+/// and motion provider; assigning either singleton replaces the previous
+/// contribution.
 #[derive(Default)]
 #[non_exhaustive]
 pub struct InputFrameBuilder {
@@ -144,6 +149,13 @@ pub struct InputFrameBuilder {
     pub cancelled: Vec<CancelledContact>,
     pub text: Vec<TextEvent>,
     pub motion: Option<MotionState>,
+    /// Wheel and trackpad scrolling since the previous sample, x then y, in
+    /// logical px of the pointer's surface; a source adds its deltas. Positive
+    /// y moves the view toward the content's end, as `WheelEvent.deltaY`: a
+    /// host applies the OS scroll direction and converts wheel lines to px
+    /// first. The guest receives it with the frame's pointer; a frame without
+    /// a pointer delivers no scroll.
+    pub scroll: [f32; 2],
 }
 
 impl InputFrameBuilder {
@@ -160,6 +172,7 @@ impl InputFrameBuilder {
             cancelled: &self.cancelled,
             text: &self.text,
             motion: self.motion.as_ref(),
+            scroll: self.scroll,
         }
     }
     pub fn clear(&mut self) {
@@ -171,6 +184,7 @@ impl InputFrameBuilder {
         self.cancelled.clear();
         self.text.clear();
         self.motion = None;
+        self.scroll = [0.0; 2];
     }
 }
 
