@@ -1,8 +1,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { fontSlotFor } from "./tailwind.ts";
+
+export interface SizedFallbackTtf {
+  path: string;
+  /** Logical font sizes whose used slots receive this fallback face. */
+  sizes: number[];
+}
+
+export type FallbackTtf = string | SizedFallbackTtf;
 
 export interface FontConfig {
-  fallbackTtfs: string[];
+  fallbackTtfs: FallbackTtf[];
   codepoints: number[];
 }
 
@@ -26,6 +35,42 @@ export function readFontConfig(path: string, onRead: (path: string) => void = ()
     onRead(absolute);
     return absolute;
   };
+  const fallback = (): FallbackTtf[] => {
+    const list = value.fallback === undefined ? [] : value.fallback;
+    if (!Array.isArray(list)) fail("fallback must be an array");
+    return list.map((entry: unknown, index: number) => {
+      if (typeof entry === "string" && entry) return file(entry);
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return fail(`fallback[${index}] must be a nonempty path string or an object`);
+      }
+      const record = entry as Record<string, unknown>;
+      for (const key of Object.keys(record)) {
+        if (!["path", "sizes"].includes(key)) fail(`unknown field fallback[${index}].${key}`);
+      }
+      const fallbackPath = record.path;
+      const fallbackSizes = record.sizes;
+      if (typeof fallbackPath !== "string" || !fallbackPath) {
+        return fail(`fallback[${index}].path must be a nonempty string`);
+      }
+      if (!Array.isArray(fallbackSizes) || !fallbackSizes.length) {
+        return fail(`fallback[${index}].sizes must be a nonempty array`);
+      }
+      const sizes: number[] = [];
+      const sizeValues = fallbackSizes as unknown[];
+      for (const size of sizeValues) {
+        if (typeof size !== "number" || !Number.isInteger(size)) {
+          return fail(`fallback[${index}].sizes must contain integer font sizes`);
+        }
+        try {
+          fontSlotFor(size, false);
+        } catch {
+          return fail(`fallback[${index}].sizes contains unsupported font size ${size}`);
+        }
+        sizes.push(size);
+      }
+      return { path: file(fallbackPath as string), sizes: [...new Set(sizes)].sort((a, b) => a - b) };
+    });
+  };
   const points = new Set<number>();
   const add = (cp: number) => {
     if (cp >= 32 && cp !== 127 && !(cp >= 0xd800 && cp <= 0xdfff)) points.add(cp);
@@ -46,5 +91,5 @@ export function readFontConfig(path: string, onRead: (path: string) => void = ()
     if (from > to || to > 0x10ffff || to - from >= 65534) fail(`invalid or oversized Unicode range: ${range}`);
     for (let cp = from; cp <= to; cp++) add(cp);
   }
-  return { fallbackTtfs: strings("fallback").map(file), codepoints: [...points].sort((a, b) => a - b) };
+  return { fallbackTtfs: fallback(), codepoints: [...points].sort((a, b) => a - b) };
 }
