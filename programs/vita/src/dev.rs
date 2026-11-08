@@ -133,7 +133,7 @@ impl Host {
             "menu":self.menu.visible,"usbEnabled":cfg!(feature="usb-debug"),
             "driverResult":self.link.driver.load(Ordering::Relaxed),
             "telemetry":self.link.telemetry.try_lock().map(|v|v.clone()).unwrap_or(Value::Null),
-            "engine":self.engine,
+            "engine":self.engine,"frameTiming":crate::frame_timing::json(),
             "usbDiagnostic":self.link.diagnostic.try_lock().map(|s|s.clone()).unwrap_or_default()})
     }
 

@@ -220,8 +220,9 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
             buttons &= !(spec::btn::SELECT as i32);
         }
 
+        let advance_at = pocketjs_vita::frame_timing::now_us();
         if let Some(guest) = runtime.as_mut() {
-            if let Err(error) = guest.frame_with_input(
+            let result = guest.frame_with_input(
                 buttons,
                 if dev.menu.visible {
                     spec::ANALOG_CENTER as i32
@@ -229,7 +230,9 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
                     analog
                 },
                 &touches,
-            ) {
+            );
+            pocketjs_vita::frame_timing::add(0, pocketjs_vita::frame_timing::now_us() - advance_at);
+            if let Err(error) = result {
                 runtime.take().unwrap().shutdown();
                 switch::cancel_pending();
                 if let Some((request, previous, hash)) = pending.take() {
@@ -267,6 +270,7 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
                 request.finish(Ok(serde_json::json!({"generation":dev.generation,"bundle":dev.active_hash,"frame":current_frame,"nativeBuild":dev::NATIVE_BUILD})));
             }
         }
+        pocketjs_vita::frame_timing::end_frame();
         dev.publish(GLOBAL_FRAME, switch::APPS[app_index].output);
         #[cfg(feature = "bench")]
         if let Err(error) = benchmark.end(GLOBAL_FRAME) {

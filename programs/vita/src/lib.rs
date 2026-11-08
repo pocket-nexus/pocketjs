@@ -10,6 +10,7 @@ pub mod dev;
 mod dev_delivery;
 pub mod dev_protocol;
 pub mod devmenu;
+pub mod frame_timing;
 pub mod scene;
 pub mod service_bindings;
 pub use pocket_vita_input as input;

@@ -241,8 +241,12 @@ impl Runtime {
     /// No scene is open. The closure may draw native geometry but must not
     /// mutate the UI or reenter this runtime while frame resources are borrowed.
     pub unsafe fn render_with_overlay(&mut self, overlay: impl FnMut()) {
+        let t0 = crate::frame_timing::now_us();
         graphics::begin_frame(0xff00_0000);
+        let t1 = crate::frame_timing::now_us();
         self.render_over_with(overlay);
+        crate::frame_timing::add(1, t1 - t0);
+        crate::frame_timing::add(2, crate::frame_timing::now_us() - t1);
     }
     /// # Safety
     /// A shared native scene is open. Commands after the UI pass belong in

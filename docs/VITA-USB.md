@@ -96,6 +96,12 @@ the startup diagnostics every five seconds, including when USB is disconnected.
 The latest write can be lost during a power failure; the snapshot does not
 identify the cause of a shutdown.
 
+**Status includes `frameTiming`, the frame's CPU time by segment, averaged
+over 120 frames, in microseconds.** `advance` is the guest turn and the core
+tick, `gpuWait` is `begin_frame` waiting for the previous scene's GPU work,
+`render` builds and submits the DrawList, and `frame` is the whole loop
+iteration. A frame whose `gpuWait` is most of `frame` is GPU-bound.
+
 ## JS and resource updates
 
 ```sh
