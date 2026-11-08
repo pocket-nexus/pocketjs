@@ -20,6 +20,8 @@ export interface TexturePool {
    *  layer begins its frame with the host frame's number, and draws earlier in that frame stay
    *  this frame's. */
   beginFrame(key?: number): void;
+  /** The current LRU frame. A layer that finds an image loaded marks `img.used` with it itself. */
+  frame(): number;
   /** Drop everything from one pack, or everything, pinned or not. Bumps `epoch`. */
   release(pack?: string): void;
   /** Keep an image's texture while a static layer shows it. Counted: each pin needs an unpin. */
@@ -100,6 +102,7 @@ export function createTexturePool(store: PackStore, budgetBytes: number, freeTex
       if (key !== undefined) { if (key === lastKey) return; lastKey = key; }
       frame++; st.loadsThisFrame = 0;
     },
+    frame: () => frame,
     release(pack) {
       const keep: PackImage[] = [];
       for (const img of live) { if (!pack || img.pack === pack) free(img); else keep.push(img); }

@@ -82,7 +82,8 @@ const shadow = (): Shadow => ({ handle: -2, x: NaN, y: NaN, sx: NaN, sy: NaN, al
 const P_TX = PROP.translateX, P_TY = PROP.translateY, P_SX = PROP.scaleX, P_SY = PROP.scaleY, P_OP = PROP.opacity, P_Z = PROP.zIndex, P_BG = PROP.bgColor, P_FG = PROP.textColor, P_ALIGN = PROP.textAlign;
 // Half up, and the same for every integer shift: round(v + k) === round(v) + k. Rounding in world
 // space and in screen space then agree, so a sprite does not move a pixel as it crosses an edge.
-const round = (v: number) => ((v + 32768.5) | 0) - 32768;
+// A whole number passes through: on a PSP adding 0.5 makes it a soft-float double.
+const round = (v: number) => ((v | 0) === v ? v : ((v + 32768.5) | 0) - 32768);
 const alphaByte = (a: number) => (a <= 0 ? 0 : a >= 1 ? 255 : (a * 255 + 0.5) | 0);
 
 /** Colors are ABGR u32 throughout, matching the native spec. */
@@ -135,16 +136,17 @@ function layer(cfg: LayerConfig, pinning: boolean): Layer & { missed(): number }
   const runNodes: (NodeMirror | undefined)[] = new Array(NS), runFrom = new Int32Array(NS + 1), runZ = new Int32Array(NS), runZSent = new Int32Array(NS).fill(-1), runSent = new Int32Array(NS);
   let n = 0, runs = 0, runOpen = false;
   const IMAGE = DRAW_ITEM_KIND.image, RECT = DRAW_ITEM_KIND.rect, FLIP = DRAW_ITEM_FLAG.flipX;
+  function openRun() {
+    runOpen = true;
+    if (runs < NS) { runFrom[runs] = n; runZ[runs] = z++; runs++; }
+  }
   /** One record; x and y are whole pixels, w and h go in 1/16 px. Positions outside the i16 range
    *  and sizes from 4096 px are skipped. */
   function record(word0: number, ref: number, x: number, y: number, w: number, h: number, alpha: number) {
     // A whole size shifts; only a scaled one multiplies.
     const w16 = (w | 0) === w ? w << 4 : (w * 16 + 0.5) | 0, h16 = (h | 0) === h ? h << 4 : (h * 16 + 0.5) | 0;
     if (x < -32768 || x > 32767 || y < -32768 || y > 32767 || w16 <= 0 || h16 <= 0 || w16 > 65535 || h16 > 65535) return;
-    if (!runOpen) {
-      runOpen = true;
-      if (runs < NS) { runFrom[runs] = n; runZ[runs] = z++; runs++; }
-    }
+    if (!runOpen) openRun();
     const o = n++ * W;
     i32[o] = word0 | (alpha === 1 ? 0xff00 : alphaByte(alpha) << 8); i32[o + 1] = ref;
     i32[o + 2] = (x & 0xffff) | (y << 16); i32[o + 3] = w16 | (h16 << 16);
@@ -199,12 +201,29 @@ function layer(cfg: LayerConfig, pinning: boolean): Layer & { missed(): number }
   };
 
   const pool = cfg.tex;
+  let useFrame = 0;
   function cell(img: PackImage | undefined, x: number, y: number, o?: DrawOpts) {
-    if (!img) return;
-    const h = pool.get(img);
-    if (h < 0) { missed++; return; }
+    if (img === undefined) return;
+    // A loaded image marks its own LRU frame: no call into the pool.
+    let h = img.handle;
+    if (h >= 0) img.used = useFrame;
+    else if ((h = pool.get(img)) < 0) { missed++; return; }
     if (pinning) { pool.pin(img); held.push(img); }
-    const X = round(x + ox), Y = round(y + oy);
+    let X = x + ox, Y = y + oy;
+    if ((X | 0) !== X) X = ((X + 32768.5) | 0) - 32768;
+    if ((Y | 0) !== Y) Y = ((Y + 32768.5) | 0) - 32768;
+    // The common draw: unscaled, opaque, unmirrored, in a list. Four integer writes; the size
+    // word was computed when the pack mounted.
+    if (o === undefined && list) {
+      const px = X + img.ox, py = Y + img.oy, wh = img.wh16;
+      if (ni >= NI) { dropped++; return; }
+      ni++;
+      if ((px + 32768) >>> 0 > 65535 || (py + 32768) >>> 0 > 65535 || wh === 0) return;
+      if (!runOpen) openRun();
+      const r = n++ << 2;
+      i32[r] = IMAGE | 0xff00; i32[r + 1] = h; i32[r + 2] = (px & 0xffff) | (py << 16); i32[r + 3] = wh;
+      return;
+    }
     if (o === undefined) { pushImage(h, X + img.ox, Y + img.oy, img.tw, img.th, false, 1); return; }
     const flip = !!o.flip;
     pushImage(h, flip ? X + img.fw - img.ox - img.tw : X + img.ox, Y + img.oy, o.sx === undefined ? img.tw : img.tw * o.sx, o.sy === undefined ? img.th : img.th * o.sy, flip, o.alpha === undefined ? 1 : o.alpha);
@@ -215,6 +234,7 @@ function layer(cfg: LayerConfig, pinning: boolean): Layer & { missed(): number }
       ni = 0; nr = 0; nt = 0; nb = 0; z = 1; ox = 0; oy = 0; dropped = 0; missed = 0; n = 0; runs = 0; runOpen = false; draws++;
       if (pinning) { for (let i = 0; i < held.length; i++) pool.unpin(held[i]); held.length = 0; }
       else cfg.tex.beginFrame(virtualFrame());
+      useFrame = pool.frame();
     },
     end() {
       if (list) submitRuns();

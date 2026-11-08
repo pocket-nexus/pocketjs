@@ -26,7 +26,7 @@ export interface Camera {
 const P_TX = PROP.translateX, P_TY = PROP.translateY;
 // Half up, and the same for every integer shift: round(v + k) === round(v) + k. Rounding in world
 // space and in screen space then agree, so a sprite does not move a pixel as it crosses an edge.
-const round = (v: number) => ((v + 32768.5) | 0) - 32768;
+const round = (v: number) => ((v | 0) === v ? v : ((v + 32768.5) | 0) - 32768);
 
 interface Group { node: NodeMirror | undefined; factor: number; tx: number; ty: number }
 

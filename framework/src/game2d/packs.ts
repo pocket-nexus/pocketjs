@@ -29,7 +29,12 @@ export interface PackImage {
    *  retry state after a failed load (failures in a row, first frame allowed to try again), and how many
    *  static layers hold it on screen. */
   handle: number; used: number; fails: number; retryAt: number; pins: number;
+  /** The draw-item size word for tw×th at scale 1 (1/16 px, w low, h high); 0 when a side is 4096 px or more. */
+  wh16: number;
 }
+
+/** The draw-item size word of an unscaled tw×th image (see `PackImage.wh16`). */
+export const sizeWord = (tw: number, th: number) => (tw > 0 && th > 0 && tw < 4096 && th < 4096 ? (tw << 4) | (th << 20) : 0);
 
 export interface MountedPack { name: string; fh: number; rows: Int32Array; hashes: Uint32Array; base: number; data: Record<string, unknown> }
 
@@ -139,7 +144,7 @@ export function createPackStore(host: PackHost | null = packHost()): PackStore {
           const mid = (lo + hi) >>> 1, v = m.hashes[mid];
           if (v === h) {
             const r = m.rows, o = mid * 12;
-            const img: PackImage = { pack: m.name, name, off: r[o] + m.base, len: r[o + 1], tw: r[o + 2], th: r[o + 3], w: r[o + 4], h: r[o + 5], ox: r[o + 6], oy: r[o + 7], fw: r[o + 8], fh: r[o + 9], ax: r[o + 10], ay: r[o + 11], handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0 };
+            const img: PackImage = { pack: m.name, name, off: r[o] + m.base, len: r[o + 1], tw: r[o + 2], th: r[o + 3], w: r[o + 4], h: r[o + 5], ox: r[o + 6], oy: r[o + 7], fw: r[o + 8], fh: r[o + 9], ax: r[o + 10], ay: r[o + 11], handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0, wh16: sizeWord(r[o + 2], r[o + 3]) };
             cache.set(name, img);
             return img;
           }

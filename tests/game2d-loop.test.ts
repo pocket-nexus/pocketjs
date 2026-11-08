@@ -40,7 +40,7 @@ test("the director enters, leaves, steps, follows a name kept elsewhere, and res
 });
 
 test("a pinned image survives eviction until unpinned; release drops it and changes the epoch", () => {
-  const imgs = Array.from({ length: 3 }, (_, i) => ({ pack: "p", name: `i${i}`, off: 0, len: 8, tw: 64, th: 64, w: 64, h: 64, ox: 0, oy: 0, fw: 64, fh: 64, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0 }));
+  const imgs = Array.from({ length: 3 }, (_, i) => ({ pack: "p", name: `i${i}`, off: 0, len: 8, tw: 64, th: 64, w: 64, h: 64, ox: 0, oy: 0, fw: 64, fh: 64, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0, wh16: 64 << 4 | 64 << 20 }));
   let next = 1;
   const pool = createTexturePool({ loadImage: () => next++ } as any, 2 * (64 * 64 + 1024 + 32), () => {});
   const [pinned, other, late] = imgs;
@@ -56,7 +56,7 @@ test("a pinned image survives eviction until unpinned; release drops it and chan
 });
 
 test("layers beginning one host frame mark one LRU frame", () => {
-  const img = { pack: "p", name: "a", off: 0, len: 8, tw: 64, th: 64, w: 64, h: 64, ox: 0, oy: 0, fw: 64, fh: 64, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0 };
+  const img = { pack: "p", name: "a", off: 0, len: 8, tw: 64, th: 64, w: 64, h: 64, ox: 0, oy: 0, fw: 64, fh: 64, ax: 0, ay: 0, handle: -1, used: 0, fails: 0, retryAt: 0, pins: 0, wh16: 64 << 4 | 64 << 20 };
   const pool = createTexturePool({ loadImage: () => 1 } as any, 1 << 20, () => {});
   pool.beginFrame(7); pool.get(img);
   const used = img.used;

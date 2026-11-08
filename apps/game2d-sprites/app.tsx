@@ -29,7 +29,7 @@ const plain = g.__spritesPlain === true;
 // Pictures are drawn into textures here, so the bench needs no pack. A PackImage whose handle is
 // already live is what the texture pool returns as is.
 function image(handle: number, size: number, ax: number, ay: number): PackImage {
-  return { pack: "bench", name: "", off: 0, len: 0, tw: size, th: size, w: size, h: size, ox: 0, oy: 0, fw: size, fh: size, ax, ay, handle, used: 0, fails: 0, retryAt: 0, pins: 0 };
+  return { pack: "bench", name: "", off: 0, len: 0, tw: size, th: size, w: size, h: size, ox: 0, oy: 0, fw: size, fh: size, ax, ay, handle, used: 0, fails: 0, retryAt: 0, pins: 0, wh16: size << 4 | size << 20 };
 }
 function upload(px: Uint32Array, size: number) {
   return getOps().uploadTexture(new Uint8Array(px.buffer), size, size, PSM.PSM_8888);
@@ -83,13 +83,22 @@ const report = { frame: 0, scene: "", path: "", count: 0, draws: 0, images: 0, d
 g.__sprites = report;
 const FLIP = { flip: true };
 const bands = [rgb(0x1c2a3a), rgb(0x22344a), rgb(0x2a405a), rgb(0x324c6a)];
-const label = (path: string, count: number) => (plain ? `${count} sprites` : `${path}  ${count} sprites`);
+// On a device the label also reports the scene's script time per frame and the frame interval,
+// averaged over 120 frames: Date.now has millisecond steps, so one frame cannot be timed alone.
+const timing = { acc: 0, gap: 0, n: 0, last: 0, js: 0, frame: 0 };
+function timed(t0: number) {
+  const t1 = Date.now();
+  timing.acc += t1 - t0; if (timing.last) timing.gap += t0 - timing.last; timing.last = t0;
+  if (++timing.n === 120) { timing.js = timing.acc / 120; timing.frame = timing.gap / 119; timing.acc = 0; timing.gap = 0; timing.n = 0; }
+}
+const label = (path: string, count: number) => (plain ? `${count} sprites` : `${count} js ${timing.js.toFixed(2)} f ${timing.frame.toFixed(1)}`);
 
 function Sprites(props: { items: boolean; count: () => number }) {
-  const layer = createLayer({ width: W, height: H, images: MAX + 8, rects: 16, texts: 8, tex, drawItems: props.items });
+  const layer = createLayer({ width: W, height: H, images: MAX + 8, rects: 16, texts: 24, tex, drawItems: props.items });
   const gfx = layer.gfx, birds = makeBirds();
   let frame = 0;
   onFrame(() => {
+    const t0 = Date.now();
     frame++;
     const count = props.count();
     bounce(count, W + 160, H);
@@ -109,6 +118,7 @@ function Sprites(props: { items: boolean; count: () => number }) {
     const s = layer.stats();
     report.frame++; report.scene = "sprites"; report.path = props.items ? "items" : "nodes"; report.count = count;
     report.draws = s.draws; report.images = s.images; report.dropped = s.dropped;
+    timed(t0);
   });
   return <layer.View />;
 }
