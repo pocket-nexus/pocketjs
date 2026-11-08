@@ -165,7 +165,9 @@ the development session and reboot before starting Pocket Runtime.
 runtime (cargo feature `runtime`): no embedded app, and the program reads
 `app0:app.pocket` at startup (docs/PLATFORM.md, "Generic runtimes and the
 repack step"). `bun tools/runtime.ts vita` runs it and collects
-`dist/runtime/vita/`. A file the runtime refuses leaves one line on screen.
+`dist/runtime/vita/`. A file the runtime refuses leaves one line on screen. A
+runtime that started without a package, or with one it refused, accepts a
+`push`.
 A USB-debug build for an installed container takes the container's title:
 
 ```sh

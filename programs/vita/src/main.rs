@@ -117,7 +117,9 @@ unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<R
         match switch::guest(app_index) {
             Ok(switch::GuestBytes::Package(bytes)) => runtime.eval_package(bytes),
             #[cfg(feature="runtime")]
-            Ok(switch::GuestBytes::File) => runtime.eval_source(pocketjs_vita::package_file::source()?),
+            // A missing app.pocket must still reach the shutdown below: a `?` here would drop
+            // the runtime with its guest still marked active, and every later push would fail.
+            Ok(switch::GuestBytes::File) => pocketjs_vita::package_file::source().and_then(|source| runtime.eval_source(source)),
             Err(error) => Err(error),
         }
     };
