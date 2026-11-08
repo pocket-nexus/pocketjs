@@ -59,6 +59,7 @@ unsafe impl Device for Mock {
         &mut self,
         vertices: &[Vertex],
         commands: &[Command],
+        _target: (i32, i32),
         clear: Option<u32>,
     ) -> Result<u32, RenderError> {
         let mut s = self.0.borrow_mut();

@@ -4,10 +4,6 @@ use super::*;
 use core::{mem::size_of, ptr, sync::atomic::AtomicBool};
 use pocket_vita_gxm::mem::{Block, Kind};
 use vita2d_sys::*;
-
-/// The display this device draws to; draw clips are in its pixels.
-const DISPLAY_W: i32 = 960;
-const DISPLAY_H: i32 = 544;
 static ACQUIRED: AtomicBool = AtomicBool::new(false);
 #[derive(Clone, Copy)]
 struct Texture {
@@ -380,6 +376,7 @@ unsafe impl Device for VitaDevice {
         &mut self,
         vertices: &[Vertex],
         commands: &[Command],
+        target: (i32, i32),
         clear: Option<u32>,
     ) -> Result<NativeFrame, RenderError> {
         if clear.is_none() && !self.scene_open {
@@ -406,7 +403,7 @@ unsafe impl Device for VitaDevice {
                 if draw.clip.w <= 0 || draw.clip.h <= 0 {
                     continue;
                 }
-                match clip_change(&mut clip, draw.clip, DISPLAY_W, DISPLAY_H) {
+                match clip_change(&mut clip, draw.clip, target.0, target.1) {
                     ClipChange::Keep => {}
                     ClipChange::Disable => vita2d_disable_clipping(),
                     ClipChange::Set(c) => {

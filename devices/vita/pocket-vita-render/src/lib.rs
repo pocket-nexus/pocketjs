@@ -84,10 +84,12 @@ pub unsafe trait Device {
         Err(RenderError::Unsupported)
     }
     fn release_texture(&mut self, id: u32);
+    /// `target` is the size in pixels of the target the commands' clips refer to.
     fn submit(
         &mut self,
         vertices: &[Vertex],
         commands: &[Command],
+        target: (i32, i32),
         clear: Option<u32>,
     ) -> Result<Self::Frame, RenderError>;
     fn wait(&mut self) -> Result<(), RenderError>;
@@ -583,6 +585,7 @@ impl<D: Device> GxmRenderer<D> {
         self.device.submit(
             &self.vertices,
             &self.commands,
+            (self.config.width as i32, self.config.height as i32),
             if self.external {
                 None
             } else {
