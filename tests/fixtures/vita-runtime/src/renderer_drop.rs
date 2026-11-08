@@ -27,7 +27,13 @@ unsafe impl Device for Mock {
         unreachable!("the fixture submits an empty DrawList")
     }
     fn release_texture(&mut self, _: u32) {}
-    fn submit(&mut self, _: &[Vertex], _: &[Command], _: Option<u32>) -> Result<(), RenderError> {
+    fn submit(
+        &mut self,
+        _: &[Vertex],
+        _: &[Command],
+        _: (i32, i32),
+        _: Option<u32>,
+    ) -> Result<(), RenderError> {
         let mut state = self.0.borrow_mut();
         state.events.push("submit");
         state.active = true;
