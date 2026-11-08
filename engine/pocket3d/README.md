@@ -120,7 +120,7 @@ API for other members of the family:
 
 | Path | Responsibility / consumers |
 | --- | --- |
-| `crates/pocket3d` | Desktop wgpu uploader, camera and render mechanisms; PocketJS desktop host, widgets and OpenStrike desktop |
+| `crates/pocket3d` | Desktop wgpu uploader, camera and render mechanisms; widgets and OpenStrike |
 | `crates/pocket3d-anim` | Skeletons, clips and pose sampling; desktop models and VRM |
 | `crates/pocket3d-mesh` | Mesh loading; desktop models and widgets |
 | `crates/pocket3d-world` | Shared physical simulation and its invariant tests |

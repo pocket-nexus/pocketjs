@@ -32,7 +32,7 @@ export const FEATURE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, 
   "pocket3d-packs": { default: [], std: [], cabi: [] },
   "pocket3d": {}, "pocket3d-anim": {}, "pocket3d-mesh": {},
   "pocket3d-title": {}, "pocket3d-world": {}, "pocket-vrm": {},
-  "pocket-ui-gpui": {}, "pocket-ui-surface": {}, "pocket-ui-wgpu": {}, "pocket-widget": {},
+  "pocket-ui-surface": {}, "pocket-ui-wgpu": {}, "pocket-widget": {},
   "pocket-mod": {}, "pocket-sim": {}, "pocket-text": {},
 };
 

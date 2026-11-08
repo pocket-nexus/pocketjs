@@ -260,7 +260,7 @@ export const OP = {
   //                      past maxW on the row they follow, a word wider than
   //                      a whole row splits at character level. Native-text
   //                      backends may install a host wrapper next to the
-  //                      measurer (Ui::set_text_wrap — gpui's LineWrapper)
+  //                      measurer (Ui::set_text_wrap)
   //                      and its break positions win. Wrapped-coordinate
   //                      bookkeeping (visual rows, caret/selection mapping)
   //                      stays app-side — this op is the "where may it

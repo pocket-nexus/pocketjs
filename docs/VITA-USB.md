@@ -96,6 +96,12 @@ the startup diagnostics every five seconds, including when USB is disconnected.
 The latest write can be lost during a power failure; the snapshot does not
 identify the cause of a shutdown.
 
+**Status includes `frameTiming`, the frame's CPU time by segment, averaged
+over 120 frames, in microseconds.** `advance` is the guest turn and the core
+tick, `gpuWait` is `begin_frame` waiting for the previous scene's GPU work,
+`render` builds and submits the DrawList, and `frame` is the whole loop
+iteration. A frame whose `gpuWait` is most of `frame` is GPU-bound.
+
 ## JS and resource updates
 
 ```sh
@@ -165,7 +171,9 @@ the development session and reboot before starting Pocket Runtime.
 runtime (cargo feature `runtime`): no embedded app, and the program reads
 `app0:app.pocket` at startup (docs/PLATFORM.md, "Generic runtimes and the
 repack step"). `bun tools/runtime.ts vita` runs it and collects
-`dist/runtime/vita/`. A file the runtime refuses leaves one line on screen.
+`dist/runtime/vita/`. A file the runtime refuses leaves one line on screen. A
+runtime that started without a package, or with one it refused, accepts a
+`push`.
 A USB-debug build for an installed container takes the container's title:
 
 ```sh

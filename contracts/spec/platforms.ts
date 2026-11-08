@@ -13,8 +13,6 @@ export const POCKET_TARGETS = defineTargetRegistry({
   vita: targetProfile(POCKET_PROFILES.vita),
   pocketbook: targetProfile(POCKET_PROFILES.pocketbook),
   "macos-widget": targetProfile(POCKET_PROFILES["macos-widget"]),
-  "macos-app": targetProfile(POCKET_PROFILES["macos-app"]),
-  "linux-app": targetProfile(POCKET_PROFILES["linux-app"]),
   "web-app": targetProfile(POCKET_PROFILES["web-app"]),
 });
 

@@ -108,8 +108,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "hosts/3ds-dev": { file: "hosts/3ds-dev/pocket.host.json" },
   "hosts/pocketbook": { file: "hosts/pocketbook/pocket.host.json" },
   "hosts/web-app": { file: "hosts/web-app/pocket.host.json" },
-  "hosts/macos-app": { file: "hosts/macos-app/pocket.host.json" },
-  "hosts/linux-app": { file: "hosts/linux-app/pocket.host.json" },
   "hosts/macos-widget": { file: "hosts/macos-widget/pocket.host.json" },
   "hosts/symbian-e7-dev": { file: "hosts/symbian-e7-dev/pocket.host.json" },
   "hosts/ios-dev": { file: "hosts/ios-dev/pocket.host.json" },

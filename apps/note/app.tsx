@@ -5,7 +5,7 @@
 // scroll — the IM thread contract: an untransformed overflow-hidden clip
 // around a translateY canvas that mounts only the visible slice. Edit mode
 // soft-wraps the raw source (editor.ts) with a real caret, drag selection
-// and an undo/redo stack. The desktop host feeds keys/mouse/resizes through
+// and an undo/redo stack. The widget host feeds keys/mouse/resizes through
 // the svc channel (svc.ts) and synthesizes CIRCLE for clicks, so
 // hover-focus + the stock onPress pipeline dispatch the chrome (toggle,
 // menu) while content pointer gestures (caret, drag-select) ride the svc
@@ -148,15 +148,12 @@ export default function Note(): ReturnType<typeof View> {
   const svc = connectSvc();
   // Editing and pointer gestures arrive over the COMPANION svc adapter
   // (svc.ts), so their gates track its runtime presence — never a target
-  // capability id (the macos-app profile deliberately registers neither:
-  // pointer/text there are companion-delivered, not host-generic). Without
-  // a companion (PSP, sim, goldens) the note is a read-only d-pad note —
+  // capability id. Without a companion, the note is read-only —
   // the unmodified-app base case, unchanged.
   const canEdit = svc !== null;
   const hasPointer = svc !== null;
   // Widget chrome (card corners, resize grip, the Close menu item) belongs
-  // to the frameless always-on-top shell; on a real window (macos-app) the
-  // OS provides corners, resizing and closing.
+  // to the frameless always-on-top widget shell.
   const widgetChrome = platform.target === "macos-widget";
   const [vp, setVp] = createSignal({ w: 480, h: 272 });
   const [doc, setDoc] = createSignal(SAMPLE_DOC);

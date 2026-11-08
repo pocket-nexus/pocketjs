@@ -461,7 +461,7 @@ mod tests {
     fn svc_open_denies_by_default() {
         // Truthful-by-default: a host that never declares a companion must
         // answer false — apps otherwise enable UI over a channel nobody
-        // feeds (the macos-app --editor regression, review round 3).
+        // feeds.
         let guest = Guest::new().unwrap();
         let surface = UiSurface::new((16.0, 16.0));
         surface.mount(&guest).unwrap();

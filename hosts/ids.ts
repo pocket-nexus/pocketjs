@@ -1,6 +1,6 @@
 /** Names reserved by the profiles shipped with this framework distribution. */
 export const BUILTIN_PROFILE_IDS: readonly string[] = [
-  "psp", "psp-runtime", "3ds-runtime", "vita", "3ds-dev", "web-app", "macos-app", "linux-app", "macos-widget",
+  "psp", "psp-runtime", "3ds-runtime", "vita", "3ds-dev", "web-app", "macos-widget",
   "macos-embedded", "gba", "ipodnano",
   "pocketbook",
   "symbian-e7-dev", "ios-dev", "ipodtouch-dev", "ipodtouch4-dev",

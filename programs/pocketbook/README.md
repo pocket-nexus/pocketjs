@@ -149,7 +149,7 @@ Run on both a grayscale and a color device to exercise both blit paths.
   scale-to-fit centering, @2x text, and animated partial updates all confirmed
   via photo + video, **re-confirmed after the switch to incremental DrawList
   damage** (`render_scaled_incremental`). The progress-bar animation now runs
-  at its intended cadence — closer to the desktop host — because the tick loop
+  at its intended cadence because the tick loop
   no longer re-rasterizes and re-scans the whole 960×544 frame every 33 ms.
   Input (touch / hardware keys), idle ghosting, and background-return still
   need a hands-on pass.

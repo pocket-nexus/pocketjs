@@ -56,7 +56,6 @@ pocketjs/
 │  ├─ psp/ vita/ 3ds/       console entries and host configs
 │  ├─ gba/ ipodnano/        fixed-console programs
 │  ├─ web/ sim/             reference programs and their composition
-│  ├─ desktop/              desktop program and its gpui/ renderer
 │  ├─ ipodtouch4/ ipodtouch6/ music-player programs
 │  ├─ ios-simulator/        NativeScript shell and UIKit integration
 │  ├─ nokia-e7/             Symbian program
