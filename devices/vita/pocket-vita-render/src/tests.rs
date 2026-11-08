@@ -570,3 +570,53 @@ fn registered_display_queues_the_swap_and_completion_never_drains_the_display_qu
         ]
     );
 }
+
+#[test]
+fn clip_state_changes_only_when_the_clip_does() {
+    let mut previous = None;
+    let layer = Clip {
+        x: 0,
+        y: 36,
+        w: 960,
+        h: 508,
+    };
+    let screen = Clip {
+        x: 0,
+        y: 0,
+        w: 960,
+        h: 544,
+    };
+    assert_eq!(
+        clip_change(&mut previous, layer, 960, 544),
+        ClipChange::Set(layer)
+    );
+    // A run of sprites under one clip sets it once.
+    for _ in 0..200 {
+        assert_eq!(
+            clip_change(&mut previous, layer, 960, 544),
+            ClipChange::Keep
+        );
+    }
+    assert_eq!(
+        clip_change(&mut previous, screen, 960, 544),
+        ClipChange::Disable
+    );
+    assert_eq!(
+        clip_change(&mut previous, screen, 960, 544),
+        ClipChange::Keep
+    );
+    let wider = Clip {
+        x: -4,
+        y: -4,
+        w: 970,
+        h: 560,
+    };
+    assert_eq!(
+        clip_change(&mut previous, wider, 960, 544),
+        ClipChange::Disable
+    );
+    assert_eq!(
+        clip_change(&mut previous, layer, 960, 544),
+        ClipChange::Set(layer)
+    );
+}
