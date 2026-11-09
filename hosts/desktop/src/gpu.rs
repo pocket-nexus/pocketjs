@@ -189,7 +189,7 @@ impl Presentation {
         let gpu = Arc::new(Gpu::from_instance_for_surface_with_power_preference(
             instance,
             &surface,
-            wgpu::PowerPreference::LowPower,
+            wgpu::PowerPreference::HighPerformance,
         )?);
         let caps = surface.get_capabilities(&gpu.adapter);
         // Encoded byte-space color matches package colors and the portable
