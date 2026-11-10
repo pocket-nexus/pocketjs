@@ -66,6 +66,7 @@ options
   --name <text>           this Hub's display name (stored; 40 bytes at most)
   --port <n>              the link port (8628; an ephemeral port when it is taken; 0 asks for one)
   --unicast <ip[:port]>   one more beacon target (repeatable)
+  --no-broadcast          beacons go to the --unicast targets only, not to the LAN
   --address <ip>          this computer's address for a pairing written with --card (repeatable)
   --link-dir <path>       the link directory on the device's storage (pocketjs/link)
   --device <id>           the device, when several are paired
@@ -79,7 +80,7 @@ exit codes: 0 done, 1 an error answer, 2 usage, 3 no device linked, 4 setup not 
 // ---------------------------------------------------------------------------
 
 const VALUE_FLAGS = new Set(["--home", "--name", "--port", "--unicast", "--address", "--link-dir", "--device", "--wait", "--host", "--ftp-port", "--card", "--out", "--seconds", "--apps", "--daemon", "--panel-port", "--resolve"]);
-const BOOLEAN_FLAGS = new Set(["--json", "--follow", "--no-launch", "--allow-private", "--no-http", "--panel", "--help"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--follow", "--no-launch", "--allow-private", "--no-http", "--panel", "--help", "--no-broadcast"]);
 
 export class UsageError extends Error {}
 
@@ -220,7 +221,7 @@ function openSession(args: Parsed, options: { features?: string[]; serving?: boo
     store,
     port: portText === undefined ? undefined : integerOption(args, "--port", 0, 65535, LINK2_PORT),
     features: options.features ?? ["runtime", "runtime.native", "devtools", "apps"],
-    beaconTargets: lanBeaconTargets({ store, unicast: unicastTargets(args) }),
+    beaconTargets: lanBeaconTargets({ store, unicast: unicastTargets(args), lan: !args.flags.has("--no-broadcast") }),
     onRefusal: (refusal) => {
       session.refusals.push(refusal);
       if (session.refusals.length > 32) session.refusals.shift();

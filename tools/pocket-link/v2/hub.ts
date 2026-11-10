@@ -293,6 +293,9 @@ export function lanBeaconTargets(options: {
   interfaces?: () => LanInterface[];
   now?: () => number;
   rereadMs?: number;
+  /** False: only the named unicast targets, no broadcast and no last addresses. A run that
+   *  must stay off the LAN (the tests) reaches its own device and nothing else. */
+  lan?: boolean;
 }): () => BeaconTarget[] {
   const port = options.port ?? LINK2_BEACON_PORT;
   const now = options.now ?? (() => Date.now());
@@ -314,9 +317,11 @@ export function lanBeaconTargets(options: {
       seen.add(key);
       targets.push({ address, port: to });
     };
-    add("255.255.255.255", port);
-    for (const address of broadcasts) add(address, port);
-    for (const record of options.store.list()) add(record.lastAddress, port);
+    if (options.lan !== false) {
+      add("255.255.255.255", port);
+      for (const address of broadcasts) add(address, port);
+      for (const record of options.store.list()) add(record.lastAddress, port);
+    }
     for (const target of options.unicast ?? []) add(target.address, target.port);
     return targets;
   };

@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { createSocket } from "node:dgram";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { LINK2_BEACON_PORT } from "../contracts/spec/link2.ts";
@@ -45,6 +46,17 @@ function freeUdpPort(): Promise<number> {
     socket.bind(0, "127.0.0.1", () => {
       const port = socket.address().port;
       socket.close(() => done(port));
+    });
+  });
+}
+
+/** A TCP port nothing listens on now: this run's own link port. */
+function freeTcpPort(): Promise<number> {
+  return new Promise((done) => {
+    const server = createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const port = (server.address() as { port: number }).port;
+      server.close(() => done(port));
     });
   });
 }
@@ -168,8 +180,12 @@ async function world(): Promise<World> {
   const card = join(base, "card");
   mkdirSync(card);
   const beaconPort = await freeUdpPort();
+  // The link port is this run's own, never 8628: a setup writes it into the key file, and the
+  // device's direct try of that address must reach this run's Hub, not a Pocket Hub that happens
+  // to run on the machine. The beacon port is this run's own for the same reason.
+  const port = await freeTcpPort();
   // A command's own `--wait` follows these and wins.
-  const common = ["--wait", "20", "--home", home, "--port", "0", "--unicast", `127.0.0.1:${beaconPort}`];
+  const common = ["--wait", "20", "--home", home, "--port", String(port), "--no-broadcast", "--unicast", `127.0.0.1:${beaconPort}`];
   const env = { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost" };
   return {
     home,
@@ -450,7 +466,8 @@ describe("pieces of the command line", () => {
 describe("the commands, against the C client", () => {
   it("setup --card writes the pairing and prints no key; devices lists it; a second setup keeps it; forget drops the record", async () => {
     const w = await world();
-    const first = await w.cli("setup", "--card", w.card, "--address", "127.0.0.1", "--name", "Studio Mac");
+    // No device runs in this test: the default port (`--port 0` offline) is what the file must say.
+    const first = await w.cli("setup", "--card", w.card, "--address", "127.0.0.1", "--name", "Studio Mac", "--port", "0");
     expect(first.code, first.err).toBe(EXIT.ok);
     const store = new LinkStore(w.home);
     const [record] = store.list();
@@ -467,7 +484,7 @@ describe("the commands, against the C client", () => {
     const json = JSON.parse((await w.cli("devices", "--json")).out);
     expect(json.devices).toEqual([{ id: record.id, name: "", model: "", target: "", hostAbi: 0, lastAddress: "", lastSeen: 0, paired: true, unconfirmed: false, linked: false }]);
 
-    const second = await w.cli("setup", "--card", w.card, "--address", "127.0.0.1", "--json");
+    const second = await w.cli("setup", "--card", w.card, "--address", "127.0.0.1", "--json", "--port", "0");
     expect(second.code).toBe(EXIT.ok);
     expect(JSON.parse(second.out)).toEqual({ outcome: "kept", failed: false, device: record.id, message: "the pairing is in place" });
     expect(new LinkStore(w.home).get(record.id)?.key).toBe(record.key);
