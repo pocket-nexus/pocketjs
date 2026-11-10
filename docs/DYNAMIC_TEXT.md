@@ -202,7 +202,7 @@ performance measurements. Captures and per-run logs belong under
 
 ## Packaged fonts and GPU pages
 
-`fonts.json` beside the app entry still declares baked coverage:
+`fonts.json` beside the app entry declares baked coverage:
 
 ```json
 {
@@ -212,6 +212,27 @@ performance measurements. Captures and per-run logs belong under
   "ranges": ["U+3040-30FF"]
 }
 ```
+
+A fallback path string applies to every font slot used by the application. An
+object can restrict a fallback face to a set of logical pixel sizes:
+
+```json
+{
+  "fallback": [
+    { "path": "fonts/MyCjkFont.otf", "sizes": [16] }
+  ],
+  "characters": "你好気迫"
+}
+```
+
+**A size matches every used slot with that logical pixel size**, including its
+regular, bold, and monospace variants. The build omits the fallback glyphs from
+other sizes. A missing scalar in those slots keeps the existing portable-text
+contract: the slot measures and draws its hollow replacement box at that slot's
+metrics. It does not produce blank output or scale a glyph from another slot.
+This preserves deterministic layout and avoids a cross-slot reference in the
+draw-list format. String entries retain the all-size behavior for existing
+applications.
 
 Paths are relative to that file. Character files have a 4 MiB limit; the declared
 set has a 65,534-scalar limit before adding ASCII and the missing-glyph cell.
