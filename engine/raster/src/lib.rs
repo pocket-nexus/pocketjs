@@ -846,16 +846,18 @@ fn render_scaled_clipped<T: RenderTarget>(
                 i += 12;
             }
             draw_op::TEXT_RUN => {
-                // Native-text op (host text system shapes the run); the
-                // software rasterizer has no shaper, so hosts that raster run
-                // with baked measurement and never receive it. Skipped, not a
-                // stop: the op is a known member of the closed set. Variable
-                // length: 8 header words + the packed UTF-8 payload.
-                if i + 8 > words.len() {
+                // Provider-text op (the host's text provider paints the
+                // run); the software rasterizer has no provider, so hosts
+                // that raster run with baked measurement and never receive
+                // it. Skipped, not a stop: the op is a known member of the
+                // closed set. Variable length: the header words + the packed
+                // UTF-8 payload.
+                let header = spec::text_run::HEADER_WORDS;
+                if i + header > words.len() {
                     return;
                 }
-                let payload = (words[i + 7] as usize).div_ceil(4);
-                i += 8 + payload;
+                let payload = (words[i + spec::text_run::BYTE_LENGTH] as usize).div_ceil(4);
+                i += header + payload;
             }
             // The op set is closed per DrawList version; anything else means
             // corrupt data — stop instead of misinterpreting the stream.

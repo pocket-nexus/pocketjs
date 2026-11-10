@@ -29,7 +29,7 @@
 #define POCKET_ANALOG_CENTER 0x8080U
 
 /* Closed DrawList operation set; word layouts are specified in spec.ts. */
-#define POCKET_DRAW_LIST_VERSION 1U
+#define POCKET_DRAW_LIST_VERSION 2U
 #define POCKET_DRAW_OP_RECT 1U
 #define POCKET_DRAW_OP_GRAD_RECT 2U
 #define POCKET_DRAW_OP_GLYPH_RUN 3U

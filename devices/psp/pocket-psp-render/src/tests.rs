@@ -209,7 +209,8 @@ fn unsupported_operations_are_rejected_even_when_clipped_out() {
     let resources = Resources::default();
     let mut surface = texture();
     surface[0] = pocket_spec::draw_op::SURFACE_QUAD;
-    let text = vec![pocket_spec::draw_op::TEXT_RUN, 0, 0, 0, 0, 0, 0, 0];
+    let mut text = vec![0; pocket_spec::text_run::HEADER_WORDS];
+    text[0] = pocket_spec::draw_op::TEXT_RUN;
     for operation in [surface, text] {
         let mut words = vec![pocket_spec::draw_op::SCISSOR, xy(500, 300), xy(1, 1)];
         words.extend(operation);

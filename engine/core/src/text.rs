@@ -347,13 +347,28 @@ pub struct GlyphPos {
     pub y: f32,
 }
 
-/// A host-installed native text measurer: `(text, slot, tracking,
-/// line_h_override) -> (max line width, total height)` in logical px, with the
-/// same `'\n'`-only line-break contract as [`Fonts::measure_run`]
-/// (`line_h_override` NAN = the measurer's default for the slot). Installed by
-/// native-text backends (docs/BACKENDS.md) through `Ui::set_text_measure`
-/// before the guest mounts; fixed-function hosts never install one.
+/// A host-installed text measurer: `(text, slot, tracking, line_h_override)
+/// -> (max line width, total height)` in logical px, with the same
+/// `'\n'`-only line-break contract as [`Fonts::measure_run`]
+/// (`tracking` = px added after every character, the last one included,
+/// and 0 when the style's value is not finite; `line_h_override` NAN = the
+/// measurer's default for the slot; `spec::font_slot::TABLE` gives the
+/// slot's px, weight and family). Once one is installed it measures every
+/// text run the layout solver places, and the core emits TEXT_RUN for each
+/// (docs/BACKENDS.md); a LAYOUT_STATIC text node keeps the atlas. Installed
+/// through `Ui::set_text_measure`; fixed-function hosts never install one.
 pub type MeasureFn = alloc::boxed::Box<dyn Fn(&str, u8, f32, f32) -> (f32, f32)>;
+
+/// The tracking a text provider receives, in its measurer and in TEXT_RUN:
+/// a non-finite value is 0.
+#[inline]
+pub fn run_tracking(tracking: f32) -> f32 {
+    if tracking.is_finite() {
+        tracking
+    } else {
+        0.0
+    }
+}
 
 /// A host-installed native line wrapper: `(text, slot, max_w) -> soft-break
 /// columns` (ascending, in UTF-16 code units — the guest slices JS strings
@@ -369,13 +384,15 @@ pub struct Fonts {
     /// cmap-miss counter (Cell: measurement is `&self` per the pinned `Ui`
     /// signature but a miss must still count).
     pub misses: Cell<u32>,
-    /// Native measurer; when present, tracking-0 runs measure through it
-    /// (and draw.rs emits TEXT_RUN instead of GLYPH_RUN for them). Tracked
-    /// runs keep the baked path on BOTH sides so a node's measured metrics
-    /// always match its painted glyphs.
+    /// Native measurer; when present, every run measures through it and
+    /// draw.rs emits TEXT_RUN instead of GLYPH_RUN, so the provider that
+    /// sized a node's box paints its text.
     native: Option<MeasureFn>,
     /// Native line wrapper (OP wrapText); absent = greedy over `measure_run`.
     wrap_native: Option<WrapFn>,
+    /// The text provider generation TEXT_RUN carries: bumped when the
+    /// measurer is replaced or the host reports a provider change.
+    generation: u32,
 }
 
 impl Default for Fonts {
@@ -399,6 +416,7 @@ impl Fonts {
             misses: Cell::new(0),
             native: None,
             wrap_native: None,
+            generation: 0,
         }
     }
 
@@ -406,6 +424,19 @@ impl Fonts {
     /// every text leaf's metrics change provider.
     pub fn set_native_measure(&mut self, f: Option<MeasureFn>) {
         self.native = f;
+        self.bump_generation();
+    }
+
+    /// Advance the provider generation (a new font behind the same
+    /// measurer). Callers relayout afterwards.
+    pub fn bump_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// The provider generation TEXT_RUN records carry.
+    #[inline]
+    pub fn native_generation(&self) -> u32 {
+        self.generation
     }
 
     /// Install (or clear) the native line wrapper (OP wrapText).
@@ -470,9 +501,9 @@ impl Fonts {
 
     /// Measure a run: (max line width, line count x line height). Empty text
     /// or an unregistered slot measures (0, 0). With a native measurer
-    /// installed, tracking-0 runs route to it — the auto-gate the JS-facing
-    /// `measureText` op uses. Layout does NOT call this: it picks a provider
-    /// per node and records it (`measure_run_provider`; layout.rs build()).
+    /// installed every run routes to it — the JS-facing `measureText` op
+    /// answers from the provider layout uses. Layout records its choice per
+    /// node (`measure_run_provider`; layout.rs build()).
     pub fn measure_run(
         &self,
         text: &str,
@@ -480,13 +511,7 @@ impl Fonts {
         tracking: f32,
         line_h_override: f32,
     ) -> (f32, f32) {
-        self.measure_run_provider(
-            self.native.is_some() && tracking == 0.0,
-            text,
-            slot,
-            tracking,
-            line_h_override,
-        )
+        self.measure_run_provider(self.native.is_some(), text, slot, tracking, line_h_override)
     }
 
     /// Measure with an EXPLICIT provider choice. `native: true` requires an
@@ -506,7 +531,7 @@ impl Fonts {
         }
         if native {
             if let Some(f) = &self.native {
-                return f(text, slot, tracking, line_h_override);
+                return f(text, slot, run_tracking(tracking), line_h_override);
             }
         }
         let Some(atlas) = self.atlas(slot) else {
@@ -538,8 +563,8 @@ impl Fonts {
     /// (ascending, UTF-16 code units; empty = the line fits). With a native
     /// wrapper installed it decides; otherwise greedy word wrap over
     /// whatever provider `measure_run` resolves to (atlas advances, or the
-    /// native measurer for tracking-0 native apps) — break positions always
-    /// derive from the metrics that size and paint the text.
+    /// native measurer) — break positions always derive from the metrics
+    /// that size and paint the text.
     ///
     /// Greedy rules (pinned by the JS-fallback parity test): break BEFORE
     /// the word that overflows; space runs never break — they hang past

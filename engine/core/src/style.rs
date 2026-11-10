@@ -380,22 +380,6 @@ impl Default for Resolved {
 }
 
 impl Resolved {
-    /// True when this style declares any non-translation transform — THE
-    /// text-provider gate, shared verbatim by layout build (recording) and
-    /// the draw walk (divergence detection), so the two sides can never
-    /// disagree on what a subtree's transforms call for. Pure translations
-    /// don't count: TEXT_RUN places its box exactly under them.
-    pub fn declares_transform(&self) -> bool {
-        self.rotate != 0.0
-            || self.skew_x != 0.0
-            || self.scale != 1.0
-            || self.scale_x != 1.0
-            || self.scale_y != 1.0
-            || self.rotate_x != 0.0
-            || self.rotate_y != 0.0
-            || self.perspective > 0.0
-    }
-
     /// Apply one (prop id, raw u32 payload). Unknown props are ignored.
     pub fn apply(&mut self, prop: u8, bits: u32) {
         use spec::prop as p;

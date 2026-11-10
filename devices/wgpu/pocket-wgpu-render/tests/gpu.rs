@@ -321,7 +321,8 @@ fn invalid_targets_words_and_resources_do_not_leave_submissions() {
         ));
     }
     let mut text = DrawList::new();
-    text.words = vec![op::TEXT_RUN, 0, 0, 0, 0, 0, 0, 0];
+    text.words = vec![0; pocket_spec::text_run::HEADER_WORDS];
+    text.words[0] = op::TEXT_RUN;
     assert!(matches!(
         render(&mut renderer, target, &text, &resources),
         Err(RenderError::Unsupported)

@@ -1454,30 +1454,56 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           perspective variation (projectively correct UVs
 //                           at every cell corner), so interior texture lines
 //                           do not kink at triangle diagonals.
-//   TEXT_RUN    (8 + ceil(n/4) words):
+//   TEXT_RUN    (14 + ceil(n/4) words; word offsets in TEXT_RUN_WORD):
 //                           op,
 //                           word1: bits 0-7 fontSlot,
 //                                  bits 8-15 TextAlign ordinal,
+//                                  bits 16-31 reserved(0),
 //                           originX, originY, boxW, lineHeight (f32 bits;
-//                           content-box top-left + width in logical px;
-//                           lineHeight NaN = the slot's default),
+//                           the text box's top-left on screen and its
+//                           width in logical px; boxW is the node's
+//                           rounded layout width, the width alignment
+//                           places lines in, and can be smaller than the
+//                           width the measurer returned, so it is not a
+//                           wrap width; lineHeight NaN = the slot's
+//                           default),
 //                           color,
+//                           tracking (f32 bits; px added after every
+//                           character, the last one included, the value
+//                           the measurer received; a style value that is
+//                           not finite is carried and measured as 0),
+//                           a, b, c, d (f32 bits; the linear part of the
+//                           run's 2D transform: a box-local point (x, y)
+//                           lands on screen at (originX + a*x + c*y,
+//                           originY + b*x + d*y); identity = 1, 0, 0, 1;
+//                           a run whose a*d - b*c is 0 is culled and never
+//                           emitted),
+//                           generation (u32; the text provider generation,
+//                           a counter per Ui that advances when the host
+//                           installs a measurer or reports a new font),
 //                           byteLen (u32), then ceil(n/4) words of the run
 //                           string's UTF-8 bytes packed little-endian and
-//                           zero-padded. Emitted ONLY when the host installed
-//                           a native text measurer (docs/BACKENDS.md) and the
-//                           node's recorded provider is native; every other
-//                           run keeps GLYPH_RUN, so fixed-function backends
-//                           (PSP GE, PPA, software raster) never see this op.
-//                           The backend decodes and shapes the bytes with the
-//                           host text system. The words alone are the COMPLETE
-//                           pixel truth — no side table — so DrawList
-//                           snapshots, demand-render hashes and damage diffs
-//                           stay exact by construction. originX/Y are f32
-//                           (NOT the i16 XY packing) and are exempt from the
-//                           i16 clip guarantee: a run may start off-viewport,
-//                           and the core brackets any partially-clipped run
-//                           in SCISSOR/SCISSOR_POP.
+//                           zero-padded. Emitted for every text run the
+//                           layout solver placed once the host installed a
+//                           text measurer (docs/BACKENDS.md) — tracked,
+//                           rotated, scaled and skewed runs included; a
+//                           LAYOUT_STATIC text node keeps GLYPH_RUN. A run
+//                           inside a perspective subtree carries its
+//                           projected anchor as the origin and the identity
+//                           linear part. Without a measurer every run is
+//                           GLYPH_RUN, so fixed-function backends (PSP GE,
+//                           PPA, software raster) never see this op. The
+//                           backend paints the bytes with the provider that
+//                           measured them. Within one Ui and its provider
+//                           the words alone are the COMPLETE pixel truth —
+//                           no side table — so DrawList snapshots,
+//                           demand-render hashes and damage diffs stay exact
+//                           by construction. originX/Y are f32 (NOT the i16
+//                           XY packing) and are exempt from the i16 clip
+//                           guarantee: a run may start off-viewport, and the
+//                           core brackets any run whose transformed box is
+//                           not inside the current clip in
+//                           SCISSOR/SCISSOR_POP.
 //   SURFACE_QUAD (9 words): op, surfaceHandle,
 //                           fullX, fullY, fullW, fullH (f32 bits; the shell
 //                           node's unclipped logical bounds), clipXY, clipWH
@@ -1490,7 +1516,26 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           above the child surface.
 
 /** Closed DrawList operation generation; drivers and archives use matching headers. */
-export const DRAW_LIST_VERSION = 1;
+export const DRAW_LIST_VERSION = 2;
+
+/** Word offsets inside one TEXT_RUN record (0 = the op word) and its header
+ *  length; the packed UTF-8 bytes start at `headerWords`. */
+export const TEXT_RUN_WORD = {
+  slotAlign: 1,
+  originX: 2,
+  originY: 3,
+  boxWidth: 4,
+  lineHeight: 5,
+  color: 6,
+  tracking: 7,
+  a: 8,
+  b: 9,
+  c: 10,
+  d: 11,
+  generation: 12,
+  byteLength: 13,
+  headerWords: 14,
+} as const;
 
 export const DRAW_OP = {
   rect: 1,

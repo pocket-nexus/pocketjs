@@ -116,7 +116,6 @@ struct LayoutEntry {
     id: i32,
     handle: taffy::NodeId,
     active: bool,
-    declares_transform: bool,
 }
 
 /// One `contain` subtree (`Node::region_root`): its children form their own
@@ -555,10 +554,9 @@ pub fn to_taffy(r: &Resolved) -> taffy::Style {
 }
 
 /// Build the taffy node for `slot`'s subtree. Returns None for excluded
-/// nodes (empty text runs). `in_transform` accumulates declared transforms
-/// down the tree: text under one keeps the baked measurement pair, and the
-/// choice is RECORDED on the node (`Node::text_native`) so paint follows
-/// the provider that sized the box — never a mid-frame re-decision.
+/// nodes (empty text runs). A text leaf measures with the installed
+/// measurer when there is one, and the choice is RECORDED on the node
+/// (`Node::text_native`) so paint follows the provider that sized the box.
 /// Ignores layout modes and regions: the full-tree oracle.
 #[cfg(feature = "counters")]
 fn build(
@@ -567,11 +565,9 @@ fn build(
     fonts: &Fonts,
     taffy: &mut TaffyTree<MeasureCtx>,
     slot: u32,
-    in_transform: bool,
     counters: &mut crate::counters::LayoutCounters,
 ) -> Option<taffy::NodeId> {
     let resolved = style::resolve(&tree.slots[slot as usize], styles, true);
-    let in_transform = in_transform || resolved.declares_transform();
     let node_type = tree.slots[slot as usize].node_type;
     if node_type == spec::NodeType::Text as u8 {
         let mut run = String::new();
@@ -581,7 +577,7 @@ fn build(
             tree.slots[slot as usize].text_native = false;
             return None; // empty text nodes never consume gap/flex space [R]
         }
-        let native = fonts.native_active() && resolved.tracking == 0.0 && !in_transform;
+        let native = fonts.native_active();
         tree.slots[slot as usize].text_native = native;
         let ctx = MeasureCtx::shaped(
             fonts,
@@ -602,7 +598,7 @@ fn build(
     let mut kids: Vec<taffy::NodeId> = Vec::with_capacity(children.len());
     for c in children {
         if let Some(cs) = tree.resolve(c) {
-            if let Some(k) = build(tree, styles, fonts, taffy, cs, in_transform, counters) {
+            if let Some(k) = build(tree, styles, fonts, taffy, cs, counters) {
                 kids.push(k);
             }
         }
@@ -751,7 +747,6 @@ fn sync_node(
     fonts: &Fonts,
     eng: &mut LayoutEngine,
     slot: u32,
-    in_transform: bool,
     replay_all_misses: bool,
     style_dirty: &[u32],
 ) -> Option<taffy::NodeId> {
@@ -759,8 +754,6 @@ fn sync_node(
         return None; // externally placed: the subtree has no solver nodes
     }
     let resolved = style::resolve(&tree.slots[slot as usize], styles, true);
-    let declares_transform = resolved.declares_transform();
-    let in_transform = in_transform || declares_transform;
     let is_text = tree.slots[slot as usize].node_type == spec::NodeType::Text as u8;
     let mut run = String::new();
     if is_text {
@@ -769,7 +762,7 @@ fn sync_node(
             return None;
         }
     }
-    let native = is_text && fonts.native_active() && resolved.tracking == 0.0 && !in_transform;
+    let native = is_text && fonts.native_active();
     let old = entry(eng, tree, slot);
     let handle = if let Some(old) = old {
         update_style(eng, old.handle, &resolved);
@@ -817,7 +810,6 @@ fn sync_node(
         id: tree.slots[slot as usize].id(slot),
         handle,
         active: true,
-        declares_transform,
     });
     if is_text {
         tree.slots[slot as usize].text_native = native;
@@ -839,7 +831,6 @@ fn sync_node(
                     fonts,
                     eng,
                     child_slot,
-                    in_transform,
                     replay_all_misses,
                     style_dirty,
                 ) {
@@ -870,21 +861,6 @@ fn invalidate_ancestors(taffy: &mut TaffyTree<MeasureCtx>, node: taffy::NodeId) 
     }
 }
 
-fn in_transform(tree: &Tree, styles: &StyleTable, slot: u32, root_id: i32) -> bool {
-    let mut current = Some(slot);
-    while let Some(slot) = current {
-        let node = &tree.slots[slot as usize];
-        if style::resolve(node, styles, true).declares_transform() {
-            return true;
-        }
-        if node.id(slot) == root_id {
-            break;
-        }
-        current = tree.resolve(node.parent);
-    }
-    false
-}
-
 /// Assign `slot`'s rounded rect from its active solver node (the zero rect
 /// without one) and return its cumulative unrounded origin and box.
 /// Node::taffy remains a compatibility view, never an input to another output.
@@ -911,9 +887,9 @@ fn assign_rect(
     node.taffy = handle;
     node.layout = rect;
     if node.node_type == spec::NodeType::Text as u8 {
-        node.text_native = handle
-            .and_then(|handle| eng.taffy.get_node_context(handle))
-            .is_some_and(|context| context.native);
+        let context = handle.and_then(|handle| eng.taffy.get_node_context(handle));
+        node.text_native = context.is_some_and(|context| context.native);
+        node.text_measured = context.map_or((0.0, 0.0), |context| context.size);
     }
     (child_cum, size)
 }
@@ -1041,25 +1017,7 @@ pub fn relayout_root(
             index += 1;
         }
     }
-    // An ancestor's transform changes the text measurement provider. Revisit
-    // that projection even when its own normalized flex style is unchanged.
-    let transform_changed = |dirty: &[u32], eng: &LayoutEngine| {
-        dirty.iter().any(|&slot| {
-            entry(eng, tree, slot).is_some_and(|old| {
-                old.active
-                    && old.declares_transform
-                        != style::resolve(&tree.slots[slot as usize], styles, true)
-                            .declares_transform()
-            })
-        })
-    };
-    let full = eng.dirty
-        || !eng.built
-        || transform_changed(&dirty, eng)
-        || eng
-            .regions
-            .iter()
-            .any(|region| transform_changed(&region.style_dirty, eng));
+    let full = eng.dirty || !eng.built;
     if full {
         #[cfg(feature = "counters")]
         {
@@ -1077,20 +1035,11 @@ pub fn relayout_root(
         for item in eng.entries.iter_mut().flatten() {
             item.active = false;
         }
-        eng.root = tree.resolve(root_id).and_then(|slot| {
-            sync_node(
-                tree,
-                styles,
-                fonts,
-                eng,
-                slot,
-                false,
-                replay_all_misses,
-                &dirty,
-            )
-        });
+        eng.root = tree
+            .resolve(root_id)
+            .and_then(|slot| sync_node(tree, styles, fonts, eng, slot, replay_all_misses, &dirty));
         for index in 0..eng.regions.len() {
-            sync_region(tree, styles, fonts, eng, index, root_id, replay_all_misses, &dirty);
+            sync_region(tree, styles, fonts, eng, index, replay_all_misses, &dirty);
         }
         retire_unprojected(tree, eng, root_id);
         if let Some(handle) = eng.root {
@@ -1104,7 +1053,7 @@ pub fn relayout_root(
     } else {
         dirty.sort_unstable();
         dirty.dedup();
-        restyle(tree, styles, fonts, eng, root_id, &dirty);
+        restyle(tree, styles, fonts, eng, &dirty);
         for index in 0..eng.regions.len() {
             if eng.regions[index].dirty {
                 #[cfg(feature = "counters")]
@@ -1125,7 +1074,7 @@ pub fn relayout_root(
                         item.active = false;
                     }
                 }
-                sync_region(tree, styles, fonts, eng, index, root_id, replay_all_misses, &region_dirty);
+                sync_region(tree, styles, fonts, eng, index, replay_all_misses, &region_dirty);
                 for slot in owned {
                     if let Some(old) = eng.entries[slot as usize] {
                         if !old.active {
@@ -1137,7 +1086,7 @@ pub fn relayout_root(
                 let mut region_dirty = core::mem::take(&mut eng.regions[index].style_dirty);
                 region_dirty.sort_unstable();
                 region_dirty.dedup();
-                restyle(tree, styles, fonts, eng, root_id, &region_dirty);
+                restyle(tree, styles, fonts, eng, &region_dirty);
             }
         }
     }
@@ -1168,7 +1117,6 @@ fn restyle(
     styles: &StyleTable,
     fonts: &Fonts,
     eng: &mut LayoutEngine,
-    root_id: i32,
     dirty: &[u32],
 ) {
     for &slot in dirty {
@@ -1180,9 +1128,7 @@ fn restyle(
         if tree.slots[slot as usize].node_type == spec::NodeType::Text as u8 {
             let mut run = String::new();
             tree.collect_run(slot, &mut run);
-            let native = fonts.native_active()
-                && resolved.tracking == 0.0
-                && !in_transform(tree, styles, slot, root_id);
+            let native = fonts.native_active();
             update_measure(eng, fonts, old.handle, run, &resolved, native, true);
         } else if tree.slots[slot as usize].region_root {
             // The region's own root carries the structural half of this style.
@@ -1230,7 +1176,6 @@ fn sync_region(
     fonts: &Fonts,
     eng: &mut LayoutEngine,
     index: usize,
-    root_id: i32,
     replay_all_misses: bool,
     style_dirty: &[u32],
 ) {
@@ -1255,7 +1200,6 @@ fn sync_region(
             root
         }
     };
-    let in_transform = in_transform(tree, styles, slot, root_id);
     let children = tree.slots[slot as usize].children.clone();
     let mut projected = Vec::with_capacity(children.len());
     for child in children {
@@ -1266,7 +1210,6 @@ fn sync_region(
                 fonts,
                 eng,
                 child_slot,
-                in_transform,
                 replay_all_misses,
                 style_dirty,
             ) {
@@ -1414,7 +1357,7 @@ pub fn reference_mismatches(
     let mut taffy = new_taffy();
     let mut out = Vec::new();
     if let Some(root_slot) = tree.resolve(root_id) {
-        if let Some(root) = build(tree, styles, fonts, &mut taffy, root_slot, false, &mut counters) {
+        if let Some(root) = build(tree, styles, fonts, &mut taffy, root_slot, &mut counters) {
             let _ = taffy.compute_layout_with_measure(
                 root,
                 Size {
@@ -1485,7 +1428,6 @@ fn reference_rebuild(
             fonts,
             &mut eng.taffy,
             slot,
-            false,
             &mut eng.counters,
         )
     });
@@ -1497,7 +1439,6 @@ fn reference_rebuild(
                 id: node.id(slot),
                 handle,
                 active: true,
-                declares_transform: style::resolve(node, styles, true).declares_transform(),
             });
         }
     }

@@ -458,8 +458,8 @@ pub mod font_atlas {
 /// DrawList op codes (core -> backend `Vec<u32>` words; layout in spec.ts).
 /// Word counts incl. header: RECT 4, GRAD_RECT 6, GLYPH_RUN 3+2n,
 /// TEX_QUAD 9, SCISSOR 3, SCISSOR_POP 1, TRI 7, TEX_TRI 12,
-/// TEXT_RUN 8+ceil(bytes/4), SURFACE_QUAD 9.
-pub const DRAW_LIST_VERSION: u32 = 1;
+/// TEXT_RUN 14+ceil(bytes/4), SURFACE_QUAD 9.
+pub const DRAW_LIST_VERSION: u32 = 2;
 pub mod draw_op {
     pub const RECT: u32 = 1;
     pub const GRAD_RECT: u32 = 2;
@@ -471,6 +471,25 @@ pub mod draw_op {
     pub const TEX_TRI: u32 = 8;
     pub const TEXT_RUN: u32 = 9;
     pub const SURFACE_QUAD: u32 = 10;
+}
+
+/// Word offsets inside one TEXT_RUN record (0 = the op word); the packed
+/// UTF-8 bytes start at HEADER_WORDS. Field meanings in spec.ts.
+pub mod text_run {
+    pub const SLOT_ALIGN: usize = 1;
+    pub const ORIGIN_X: usize = 2;
+    pub const ORIGIN_Y: usize = 3;
+    pub const BOX_WIDTH: usize = 4;
+    pub const LINE_HEIGHT: usize = 5;
+    pub const COLOR: usize = 6;
+    pub const TRACKING: usize = 7;
+    pub const A: usize = 8;
+    pub const B: usize = 9;
+    pub const C: usize = 10;
+    pub const D: usize = 11;
+    pub const GENERATION: usize = 12;
+    pub const BYTE_LENGTH: usize = 13;
+    pub const HEADER_WORDS: usize = 14;
 }
 
 /// .pak container constants (byte-compatible with dreamcart's format;

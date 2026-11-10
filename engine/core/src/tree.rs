@@ -107,11 +107,15 @@ pub struct Node {
     /// projection. Kept in sync by `Ui::refresh_region`.
     pub region_root: bool,
     /// Text nodes: the measurement provider RECORDED at the last layout
-    /// build — true = the host's native measurer sized this box, so paint
-    /// MUST emit TEXT_RUN; false = baked atlas metrics, GLYPH_RUN. One
-    /// provider per node per layout, never re-decided at paint time
+    /// build — true = the host's measurer sized this box, so paint MUST
+    /// emit TEXT_RUN; false = baked atlas metrics, GLYPH_RUN. One provider
+    /// per node per layout, never re-decided at paint time
     /// (docs/BACKENDS.md).
     pub text_native: bool,
+    /// Text nodes: the (widest line, total height) the provider returned
+    /// for the run at the last layout readback. Paint culls a TEXT_RUN with
+    /// it instead of measuring again.
+    pub text_measured: (f32, f32),
 }
 
 impl Node {
@@ -142,6 +146,7 @@ impl Node {
             layout_mode: LAYOUT_LIVE,
             region_root: false,
             text_native: false,
+            text_measured: (0.0, 0.0),
         }
     }
 

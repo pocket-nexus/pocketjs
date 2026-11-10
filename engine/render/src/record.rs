@@ -7,7 +7,7 @@
 
 use crate::{wh, word_len, xy, DecodeError, Operation};
 use pocket_drivers::DamageRect;
-use pocket_spec::{draw_op, GradDir};
+use pocket_spec::{draw_op, text_run, GradDir};
 
 /// A solid rectangle in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,15 +188,35 @@ pub struct TexTri {
     pub color: u32,
 }
 
-/// A run of text shaped by the host text system.
+/// A run of text measured and painted by the host's text provider.
+///
+/// Box-local coordinates have their origin at the text box's top-left;
+/// [`TextRun::to_screen`] maps them through the run's transform.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextRun<'a> {
     pub slot: u8,
+    /// `TextAlign` ordinal: where each line sits inside `box_width`.
     pub align: u8,
+    /// The box's top-left in logical screen pixels.
     pub origin: [f32; 2],
+    /// The node's rounded layout width: the width alignment places lines
+    /// in. It can be smaller than the width the measurer returned, so it is
+    /// not a wrap width.
     pub box_width: f32,
+    /// Line advance in logical pixels; NaN is the slot's default.
     pub line_height: f32,
     pub color: u32,
+    /// Pixels added after every character, the last one included (the
+    /// value the measurer received; finite).
+    pub tracking: f32,
+    /// The linear part `[a, b, c, d]` of the run's transform: box-local
+    /// `(x, y)` lands at `origin + (a*x + c*y, b*x + d*y)`. The core
+    /// emits no run whose `a*d - b*c` is 0.
+    pub transform: [f32; 4],
+    /// The provider generation the run was measured under: a counter per
+    /// `Ui`, advanced when the host installs a measurer or reports a new
+    /// font.
+    pub generation: u32,
     /// UTF-8 byte count of the run string.
     pub bytes: usize,
     payload: &'a [u32],
@@ -206,6 +226,26 @@ impl<'a> TextRun<'a> {
     /// The run string's bytes packed little-endian, zero-padded to words.
     pub fn payload_words(&self) -> &'a [u32] {
         self.payload
+    }
+
+    /// Copy the run string into `buffer` and borrow it; None when the bytes
+    /// are not UTF-8.
+    pub fn text<'b>(&self, buffer: &'b mut alloc::vec::Vec<u8>) -> Option<&'b str> {
+        buffer.clear();
+        for word in self.payload {
+            buffer.extend_from_slice(&word.to_le_bytes());
+        }
+        buffer.truncate(self.bytes);
+        core::str::from_utf8(buffer).ok()
+    }
+
+    /// The screen position of the box-local point `[x, y]`.
+    pub fn to_screen(&self, [x, y]: [f32; 2]) -> [f32; 2] {
+        let [a, b, c, d] = self.transform;
+        [
+            self.origin[0] + a * x + c * y,
+            self.origin[1] + b * x + d * y,
+        ]
     }
 }
 
@@ -329,16 +369,27 @@ pub fn record(words: &[u32]) -> Result<Record<'_>, DecodeError> {
             }),
             color: words[11],
         }),
-        draw_op::TEXT_RUN => Record::TextRun(TextRun {
-            slot: (words[1] & 0xff) as u8,
-            align: ((words[1] >> 8) & 0xff) as u8,
-            origin: [f32::from_bits(words[2]), f32::from_bits(words[3])],
-            box_width: f32::from_bits(words[4]),
-            line_height: f32::from_bits(words[5]),
-            color: words[6],
-            bytes: words[7] as usize,
-            payload: &words[8..],
-        }),
+        draw_op::TEXT_RUN => {
+            let float = |at: usize| f32::from_bits(words[at]);
+            Record::TextRun(TextRun {
+                slot: (words[text_run::SLOT_ALIGN] & 0xff) as u8,
+                align: ((words[text_run::SLOT_ALIGN] >> 8) & 0xff) as u8,
+                origin: [float(text_run::ORIGIN_X), float(text_run::ORIGIN_Y)],
+                box_width: float(text_run::BOX_WIDTH),
+                line_height: float(text_run::LINE_HEIGHT),
+                color: words[text_run::COLOR],
+                tracking: float(text_run::TRACKING),
+                transform: [
+                    float(text_run::A),
+                    float(text_run::B),
+                    float(text_run::C),
+                    float(text_run::D),
+                ],
+                generation: words[text_run::GENERATION],
+                bytes: words[text_run::BYTE_LENGTH] as usize,
+                payload: &words[text_run::HEADER_WORDS..],
+            })
+        }
         draw_op::SURFACE_QUAD => {
             let (clip_x, clip_y) = xy(words[6]);
             let (clip_width, clip_height) = wh(words[7]);

@@ -358,8 +358,8 @@ fn measure(char_width: f32) -> pocketjs_core::text::MeasureFn {
 }
 
 #[test]
-fn transformed_ancestors_and_provider_replacement_select_the_measurer() {
-    // The native provider measures 12 px lines; transformed text uses the 9 px atlas.
+fn transformed_ancestors_keep_the_measurer_and_provider_changes_remeasure() {
+    // The provider measures 12 px lines; the atlas measures 9 px lines.
     let mut pair = Pair::new();
     let (plain, transformed, label) = pair.edit(|ui| {
         ui.set_text_measure(Some(measure(7.0)));
@@ -368,20 +368,22 @@ fn transformed_ancestors_and_provider_replacement_select_the_measurer() {
         ui.set_prop(transformed, SCALE, 0.75);
         (plain, transformed, text(ui, plain, "ab"))
     });
-    pair.check("native provider");
+    pair.check("provider");
     assert_eq!(pair.height(label), 12.0);
     pair.edit(|ui| ui.insert_before(transformed, label, 0));
     pair.check("moved beneath a transform");
-    assert_eq!(pair.height(label), 9.0);
+    assert_eq!(pair.height(label), 12.0);
     pair.edit(|ui| ui.insert_before(plain, label, 0));
     pair.check("moved back");
     for angle in [25.0, 0.0, -15.0, 0.0] {
         pair.edit(|ui| ui.set_prop(plain, ROTATE, angle));
         pair.check("ancestor rotation");
-        assert_eq!(pair.height(label), if angle == 0.0 { 12.0 } else { 9.0 });
+        assert_eq!(pair.height(label), 12.0);
     }
     pair.edit(|ui| ui.set_text_measure(Some(measure(11.0))));
     pair.check("provider replaced");
+    pair.edit(|ui| ui.text_provider_changed());
+    pair.check("provider changed");
     pair.edit(|ui| ui.set_text_measure(None));
     pair.check("provider removed");
     assert_eq!(pair.height(label), 9.0);

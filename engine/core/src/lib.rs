@@ -1689,8 +1689,10 @@ impl Ui {
                 x if x == spec::draw_op::TRI => 7,
                 x if x == spec::draw_op::TEX_TRI => 12,
                 x if x == spec::draw_op::TEXT_RUN => {
-                    let Some(bytes) = words.get(i + 7) else { break };
-                    8 + (*bytes as usize).div_ceil(4)
+                    let Some(bytes) = words.get(i + spec::text_run::BYTE_LENGTH) else {
+                        break;
+                    };
+                    spec::text_run::HEADER_WORDS + (*bytes as usize).div_ceil(4)
                 }
                 x if x == spec::draw_op::SURFACE_QUAD => 9,
                 _ => break,
@@ -2465,7 +2467,7 @@ impl Ui {
         } else {
             None
         };
-        let (target, drawn, provider_stale) = draw::build(
+        let (target, drawn) = draw::build(
             &self.tree,
             &self.styles,
             &self.fonts,
@@ -2481,37 +2483,6 @@ impl Ui {
             self.inspect_drawn,
             cursor,
         );
-        let (mut target, mut drawn) = (target, drawn);
-        if provider_stale {
-            // A paint-only transform change (rotate/scale never relayout)
-            // left some text node's recorded provider stale. Re-decide and
-            // REPAINT within this same draw — the frame that leaves here is
-            // always provider-correct. One retry suffices: the draw walk
-            // and layout build share one gate (Resolved::declares_transform
-            // accumulated down identical recursions), so the rebuilt record
-            // matches the repaint's expectation by construction.
-            self.mark_layout_dirty();
-            layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
-            let retry = draw::build(
-                &self.tree,
-                &self.styles,
-                &self.fonts,
-                &self.font_revisions,
-                self.frame,
-                self.layout.viewport,
-                &mut self.textures,
-                &mut self.tex_free,
-                &mut self.paint_cache,
-                self.raster_density,
-                &mut self.draw_list,
-                self.inspect_id,
-                self.inspect_drawn,
-                cursor,
-            );
-            target = retry.0;
-            drawn = retry.1;
-            debug_assert!(!retry.2, "provider gate must be stable after re-decision");
-        }
         self.inspect_drawn = drawn;
         if self.inspect_id != 0 {
             self.inspect_rect = target;
@@ -2540,7 +2511,7 @@ impl Ui {
             );
         }
         auxiliary.draw_list.stable_motion_paint = self.stable_motion_paint;
-        let (target, drawn, provider_stale) = draw::build_root(
+        let (target, drawn) = draw::build_root(
             &self.tree,
             &self.styles,
             &self.fonts,
@@ -2557,37 +2528,6 @@ impl Ui {
             auxiliary.inspect_drawn,
             None,
         );
-        let (mut target, mut drawn) = (target, drawn);
-        if provider_stale {
-            auxiliary.layout.invalidate_measurements();
-            layout::relayout_root(
-                &mut self.tree,
-                &self.styles,
-                &self.fonts,
-                &mut auxiliary.layout,
-                auxiliary.root,
-            );
-            let retry = draw::build_root(
-                &self.tree,
-                &self.styles,
-                &self.fonts,
-                &self.font_revisions,
-                self.frame,
-                auxiliary.root,
-                auxiliary.layout.viewport,
-                &mut self.textures,
-                &mut self.tex_free,
-                &mut self.paint_cache,
-                self.raster_density,
-                &mut auxiliary.draw_list,
-                self.inspect_id,
-                auxiliary.inspect_drawn,
-                None,
-            );
-            target = retry.0;
-            drawn = retry.1;
-            debug_assert!(!retry.2, "provider gate must be stable after re-decision");
-        }
         auxiliary.inspect_drawn = drawn;
         if target.is_some() {
             self.inspect_rect = target;
@@ -2599,11 +2539,12 @@ impl Ui {
         self.auxiliary.as_ref().map(|surface| &surface.draw_list)
     }
 
-    /// Install (or clear) a native text measurer (text::MeasureFn). Native-
-    /// text backends (docs/BACKENDS.md) call this BEFORE the guest mounts:
-    /// every text leaf's metrics change provider, so the layout tree is
-    /// rebuilt. Fixed-function hosts never call this, so goldens are
-    /// unaffected.
+    /// Install (or clear) a text measurer (text::MeasureFn). With one
+    /// installed every text run measures through it and draws as TEXT_RUN,
+    /// which the host's renderer paints with the same provider
+    /// (docs/BACKENDS.md). Every text leaf's metrics change provider, so the
+    /// layout tree is re-measured at the next draw. Fixed-function hosts
+    /// never call this, so goldens are unaffected.
     pub fn set_text_measure(&mut self, f: Option<text::MeasureFn>) {
         self.fonts.set_native_measure(f);
         self.mark_layout_dirty();
@@ -2614,6 +2555,15 @@ impl Ui {
     /// A pure query: no layout state depends on it.
     pub fn set_text_wrap(&mut self, f: Option<text::WrapFn>) {
         self.fonts.set_native_wrap(f);
+    }
+
+    /// Report that the installed text provider changed what it measures (a
+    /// new font behind the same measurer). Every text leaf is re-measured
+    /// at the next draw, and the TEXT_RUN generation word changes, so a
+    /// DrawList that repeats geometry under the new font still differs.
+    pub fn text_provider_changed(&mut self) {
+        self.fonts.bump_generation();
+        self.mark_layout_dirty();
     }
 
     /// Resize the logical viewport (root node + layout bounds + draw clip).

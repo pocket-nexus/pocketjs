@@ -23,7 +23,24 @@ fn all_ten_records_preserve_the_original_words_and_offsets() {
         &[SCISSOR_POP],
         &[TRI, 0, 0, 0, 1, 2, 3],
         &[TEX_TRI, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        &[TEXT_RUN, 0, 0, 0, 0, 0, 0, 5, 0x6463_6261, 0x65],
+        &[
+            TEXT_RUN,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            5,
+            0x6463_6261,
+            0x65,
+        ],
         &[SURFACE_QUAD, 0, 0, 0, 0, 0, 0, 0, 0],
     ];
     let words: Vec<u32> = records
@@ -94,7 +111,7 @@ fn absolute_scissors_restore_the_previous_clip_and_guard_the_viewport() {
 fn truncated_variable_records_and_unknown_opcodes_end_iteration() {
     for words in [
         vec![GLYPH_RUN, 1 << 16, 0, 0],
-        vec![TEXT_RUN, 0, 0, 0, 0, 0, 0, u32::MAX],
+        vec![TEXT_RUN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, u32::MAX],
         vec![TEX_TRI, 0],
         vec![SCISSOR, 0],
     ] {
@@ -123,7 +140,7 @@ fn every_short_prefix_of_a_record_is_rejected() {
         &[SCISSOR_POP],
         &[TRI, 0, 0, 0, 0, 0, 0],
         &[TEX_TRI, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        &[TEXT_RUN, 0, 0, 0, 0, 0, 0, 4, 0],
+        &[TEXT_RUN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0],
         &[SURFACE_QUAD, 0, 0, 0, 0, 0, 0, 0, 0],
     ];
     for record in records {

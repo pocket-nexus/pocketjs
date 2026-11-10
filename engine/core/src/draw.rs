@@ -1088,15 +1088,9 @@ struct Walker<'a> {
     /// [0, screen.0] x [0, screen.1] (i16-safe; hosts cap it well under 32k).
     screen: (f32, f32),
     glyph_scratch: Vec<crate::text::GlyphPos>,
-    /// Inside a perspective subtree (paint_3d): text always uses the baked
-    /// pair there, so the provider-divergence check must not fire.
+    /// Inside a perspective subtree (paint_3d): text runs anchor at their
+    /// projected origin, and scaled baked glyph cells clip to the 3D clip.
     in_3d: bool,
-    /// Set when a text node's RECORDED provider no longer matches what the
-    /// declared-transform path calls for (a paint-only transform changed
-    /// since the last relayout, in either direction). Ui::draw() re-decides
-    /// and REPAINTS before returning, so no frame with a stale pair ever
-    /// leaves draw() (see lib.rs draw()).
-    provider_stale: bool,
     /// Core texture slots + free list (baked corner discs allocate lazily
     /// during the walk, through the same slot storage as uploads).
     textures: &'a mut Vec<crate::TexSlot>,
@@ -1135,11 +1129,7 @@ pub fn build(
     inspect_id: i32,
     inspect_prev: Option<(f32, f32, f32, f32)>,
     cursor: Option<(u32, f32, f32, f32, f32)>,
-) -> (
-    Option<(f32, f32, f32, f32)>,
-    Option<(f32, f32, f32, f32)>,
-    bool,
-) {
+) -> (Option<(f32, f32, f32, f32)>, Option<(f32, f32, f32, f32)>) {
     build_root(
         tree,
         styles,
@@ -1178,11 +1168,7 @@ pub fn build_root(
     inspect_id: i32,
     inspect_prev: Option<(f32, f32, f32, f32)>,
     cursor: Option<(u32, f32, f32, f32, f32)>,
-) -> (
-    Option<(f32, f32, f32, f32)>,
-    Option<(f32, f32, f32, f32)>,
-    bool,
-) {
+) -> (Option<(f32, f32, f32, f32)>, Option<(f32, f32, f32, f32)>) {
     dl.words.clear();
     // DevTools (docs/DEVTOOLS.md): slot of the inspected node, u32::MAX = none.
     // Nodes inside a perspective subtree take the paint_3d path and are not
@@ -1218,26 +1204,14 @@ pub fn build_root(
         },
         capturing: false,
         in_3d: false,
-        provider_stale: false,
     };
     let Some(root_slot) = tree.resolve(root_id) else {
-        return (None, None, false);
+        return (None, None);
     };
-    w.paint(
-        root_slot,
-        Affine::IDENTITY,
-        1.0,
-        Clip::viewport(screen),
-        false,
-        dl,
-    );
-    let provider_stale = w.provider_stale;
-    // A stale provider repaints this list; the capture waits for that pass.
+    w.paint(root_slot, Affine::IDENTITY, 1.0, Clip::viewport(screen), dl);
     if let Some(texts) = w.texts.take() {
-        if !provider_stale {
-            dl.texts = texts;
-            dl.capture_texts = 0;
-        }
+        dl.texts = texts;
+        dl.capture_texts = 0;
     }
     let target = w
         .inspect_hit
@@ -1293,7 +1267,7 @@ pub fn build_root(
             1.0,
         );
     }
-    (target, drawn, provider_stale)
+    (target, drawn)
 }
 
 impl<'a> Walker<'a> {
@@ -1303,18 +1277,17 @@ impl<'a> Walker<'a> {
         parent_world: Affine,
         opacity: f32,
         clip: Clip,
-        in_transform: bool,
         dl: &mut DrawList,
     ) {
         // A text capture reads one subtree: the walk is inside it from its
         // root down.
         if slot == self.capture_slot && !self.capturing {
             self.capturing = true;
-            self.paint_node(slot, parent_world, opacity, clip, in_transform, dl);
+            self.paint_node(slot, parent_world, opacity, clip, dl);
             self.capturing = false;
             return;
         }
-        self.paint_node(slot, parent_world, opacity, clip, in_transform, dl);
+        self.paint_node(slot, parent_world, opacity, clip, dl);
     }
 
     fn paint_node(
@@ -1323,7 +1296,6 @@ impl<'a> Walker<'a> {
         parent_world: Affine,
         opacity: f32,
         clip: Clip,
-        in_transform: bool,
         dl: &mut DrawList,
     ) {
         let node = &self.tree.slots[slot as usize];
@@ -1344,13 +1316,6 @@ impl<'a> Walker<'a> {
             style::resolve_opacity(node, self.styles).to_bits(),
             r.opacity.to_bits()
         );
-        // The provider gate accumulates EXACTLY like layout.rs build() —
-        // one shared predicate (Resolved::declares_transform), so the draw
-        // walk and the layout record can only diverge when a transform
-        // VALUE changed since the last relayout, never on equivalent-but-
-        // differently-composed matrices (a scale canceled by a child's
-        // inverse must not oscillate the record).
-        let in_transform = in_transform || r.declares_transform();
         if r.display == spec::Display::None as u8 {
             return;
         }
@@ -1533,7 +1498,7 @@ impl<'a> Walker<'a> {
 
         // -- text run ----------------------------------------------------------
         if node.node_type == spec::NodeType::Text as u8 {
-            self.emit_text(dl, slot, node, &r, &world, op, &clip, l.w, in_transform);
+            self.emit_text(dl, slot, node, &r, &world, op, &clip, l.w);
             // Text children are absorbed into the run — do not recurse.
             return;
         }
@@ -1621,7 +1586,7 @@ impl<'a> Walker<'a> {
         // never disagree with painted stacking.
         let (tree, styles) = (self.tree, self.styles);
         for_children_in_paint_order(tree, styles, slot, |cs| {
-            self.paint(cs, world, op, child_clip, in_transform, dl);
+            self.paint(cs, world, op, child_clip, dl);
         });
 
         if scissored {
@@ -1647,8 +1612,6 @@ impl<'a> Walker<'a> {
         w: f32,
         h: f32,
     ) {
-        // Text under a perspective root always uses the baked pair; the
-        // provider-divergence check is suspended for the subtree.
         let was_3d = self.in_3d;
         self.in_3d = true;
         let (cx, cy) = (w * 0.5, h * 0.5);
@@ -1722,18 +1685,11 @@ impl<'a> Walker<'a> {
                     // node ref is not tied to &mut self)
                     let node = &self.tree.slots[slot as usize];
                     let r = style::resolve(node, self.styles, true);
+                    // Both providers place the run upright and unscaled at
+                    // its projected anchor: baked glyph cells, or a TEXT_RUN
+                    // whose linear part is the identity.
                     let anchor = Affine::translate(origin.0, origin.1);
-                    self.emit_text(
-                        dl,
-                        slot,
-                        node,
-                        &r,
-                        &anchor,
-                        opacity,
-                        clip,
-                        node.layout.w,
-                        true,
-                    );
+                    self.emit_text(dl, slot, node, &r, &anchor, opacity, clip, node.layout.w);
                 }
             }
         }
@@ -3323,7 +3279,6 @@ impl<'a> Walker<'a> {
         op: f32,
         clip: &Clip,
         box_w: f32,
-        in_transform: bool,
     ) {
         let color = scale_alpha(r.text_color, op);
         if alpha(color) == 0 {
@@ -3354,21 +3309,12 @@ impl<'a> Walker<'a> {
             }
         }
         // The node's measurement provider was RECORDED at layout time
-        // (layout.rs build(): native iff a measurer is installed, tracking
-        // is 0 and the subtree declared no transform). Paint follows the
-        // record — a node's painted glyphs always come from the provider
-        // that sized its box — but a paint-only transform (rotate/scale
-        // don't relayout) can leave the record stale in either direction:
-        // flag it, and Ui::draw() relayouts and REPAINTS within this same
-        // draw, so the frame that leaves is provider-correct. An animation
-        // crossing exact identity re-decides twice per cycle.
-        let desired_native =
-            !self.in_3d && self.fonts.native_active() && r.tracking == 0.0 && !in_transform;
-        if desired_native != node.text_native {
-            self.provider_stale = true;
-        }
+        // (layout.rs build(): native iff a measurer is installed). Paint
+        // follows the record, so a node's text is painted by the provider
+        // that sized its box; transforms are paint-only and never change it.
         if node.text_native {
-            self.emit_text_native(dl, run, r, world, color, clip, box_w);
+            let measured = node.text_measured;
+            self.emit_text_native(dl, run, measured, r, world, color, clip, box_w);
             return;
         }
         let Some(atlas) = self.fonts.atlas(slot) else {
@@ -3561,16 +3507,23 @@ impl<'a> Walker<'a> {
         self.paint_cache.layouts = layouts;
     }
 
-    /// Emit one TEXT_RUN (native text path; format in spec.ts): header words
-    /// plus the run string's UTF-8 bytes packed into the stream — the words
-    /// alone are the complete pixel truth. The origin is f32 and may sit
-    /// off-viewport, so a run not fully inside the clip is bracketed in
-    /// SCISSOR/SCISSOR_POP — the one place the core emits a scissor for its
-    /// own op rather than for children.
+    /// Emit one TEXT_RUN (provider text path; format in spec.ts): header
+    /// words plus the run string's UTF-8 bytes packed into the stream — the
+    /// words alone are the complete pixel truth. `world` maps the text box
+    /// to the screen: its translation is the origin and its linear part
+    /// rides in the record, so rotated, scaled and skewed runs reach the
+    /// provider whole (inside a perspective subtree `world` is the projected
+    /// anchor's translation). `measured` is the provider's size for the run,
+    /// recorded at layout readback (`Node::text_measured`). The origin is f32
+    /// and may sit off-viewport, so a run whose transformed box is not inside
+    /// the clip is bracketed in SCISSOR/SCISSOR_POP — the one place the core
+    /// emits a scissor for its own op rather than for children.
+    #[allow(clippy::too_many_arguments)]
     fn emit_text_native(
         &mut self,
         dl: &mut DrawList,
         run: alloc::string::String,
+        measured: (f32, f32),
         r: &style::Resolved,
         world: &Affine,
         color: u32,
@@ -3578,22 +3531,43 @@ impl<'a> Walker<'a> {
         box_w: f32,
     ) {
         let slot = r.font_slot as u8;
-        // Routes to the native measurer (the recorded-provider gate holds
-        // tracking at 0 on this path).
-        let (mw, mh) = self
-            .fonts
-            .measure_run(&run, slot, r.tracking, r.line_height);
-        if mw <= 0.0 || mh <= 0.0 {
+        let (mw, mh) = measured;
+        // A degenerate linear part (scale 0) maps the run to a line or a
+        // point: nothing to paint.
+        if mw <= 0.0 || mh <= 0.0 || world.a * world.d - world.b * world.c == 0.0 {
             return;
         }
-        let (ox, oy) = world.apply(0.0, 0.0);
-        // Alignment places lines inside box_w, so box_w ∪ measured width
-        // bounds every glyph the backend can paint.
+        // Alignment places each line inside box_w, at box_w - line width for
+        // Right and half that for Center, so a line wider than the box starts
+        // left of 0: [box_w - ext_w, ext_w] bounds every glyph the backend
+        // can paint, and its transformed corners bound the run on screen.
         let ext_w = box_w.max(mw);
-        if ox + ext_w <= clip.x0 || ox >= clip.x1 || oy + mh <= clip.y0 || oy >= clip.y1 {
+        let x0 = box_w - ext_w;
+        let (ox, oy) = world.apply(0.0, 0.0);
+        let mut bounds = Clip {
+            x0: f32::INFINITY,
+            y0: f32::INFINITY,
+            x1: f32::NEG_INFINITY,
+            y1: f32::NEG_INFINITY,
+        };
+        for (x, y) in [(x0, 0.0), (ext_w, 0.0), (ext_w, mh), (x0, mh)] {
+            let (sx, sy) = world.apply(x, y);
+            bounds.x0 = bounds.x0.min(sx);
+            bounds.y0 = bounds.y0.min(sy);
+            bounds.x1 = bounds.x1.max(sx);
+            bounds.y1 = bounds.y1.max(sy);
+        }
+        if !(bounds.x1 > clip.x0
+            && bounds.x0 < clip.x1
+            && bounds.y1 > clip.y0
+            && bounds.y0 < clip.y1)
+        {
             return;
         }
-        let clipped = ox < clip.x0 || oy < clip.y0 || ox + ext_w > clip.x1 || oy + mh > clip.y1;
+        let clipped = bounds.x0 < clip.x0
+            || bounds.y0 < clip.y0
+            || bounds.x1 > clip.x1
+            || bounds.y1 > clip.y1;
         if clipped {
             dl.words.push(spec::draw_op::SCISSOR);
             dl.words.push(xy_word(clip.x0, clip.y0));
@@ -3607,6 +3581,13 @@ impl<'a> Walker<'a> {
         dl.words.push(box_w.to_bits());
         dl.words.push(r.line_height.to_bits());
         dl.words.push(color);
+        let tracking = crate::text::run_tracking(r.tracking);
+        dl.words.push(tracking.to_bits());
+        dl.words.push(world.a.to_bits());
+        dl.words.push(world.b.to_bits());
+        dl.words.push(world.c.to_bits());
+        dl.words.push(world.d.to_bits());
+        dl.words.push(self.fonts.native_generation());
         dl.words.push(bytes.len() as u32);
         for chunk in bytes.chunks(4) {
             let mut w = [0u8; 4];

@@ -297,13 +297,24 @@ fn validate_drawlist(words: &[u32]) -> [u32; 11] {
                 i += 12;
             }
             spec::draw_op::TEXT_RUN => {
-                // Native-text op: origin is f32 (exempt from the i16 clip
-                // guarantee), box width is finite and non-negative, and the
-                // packed payload decodes as valid UTF-8.
-                for f in [f32::from_bits(words[i + 2]), f32::from_bits(words[i + 3])] {
-                    assert!(f.is_finite(), "TEXT_RUN origin not finite: {f}");
+                // Provider-text op: origin and transform are f32 (exempt
+                // from the i16 clip guarantee) and finite, box width is
+                // finite and non-negative, and the packed payload decodes as
+                // valid UTF-8.
+                use spec::text_run as w;
+                for at in [
+                    w::ORIGIN_X,
+                    w::ORIGIN_Y,
+                    w::TRACKING,
+                    w::A,
+                    w::B,
+                    w::C,
+                    w::D,
+                ] {
+                    let f = f32::from_bits(words[i + at]);
+                    assert!(f.is_finite(), "TEXT_RUN word {at} not finite: {f}");
                 }
-                let box_w = f32::from_bits(words[i + 4]);
+                let box_w = f32::from_bits(words[i + w::BOX_WIDTH]);
                 assert!(
                     box_w.is_finite() && box_w >= 0.0,
                     "bad TEXT_RUN boxW: {box_w}"
@@ -371,7 +382,7 @@ fn tex_tri_runs(words: &[u32]) -> Vec<(u32, usize)> {
             }
             spec::draw_op::TEXT_RUN => {
                 previous_was_tex_tri = false;
-                i += 8 + (words[i + 7] as usize).div_ceil(4);
+                i = decode_text_run_text(words, i).1;
             }
             other => panic!("unknown draw op {other} at word {i}"),
         }
@@ -4267,15 +4278,16 @@ fn hit_pass_layers_never_swallow_bounds_hits() {
 /// Decode a TEXT_RUN's packed UTF-8 payload at op index `i`; returns the
 /// string and the index past the op (spec.ts word format).
 fn decode_text_run_text(words: &[u32], i: usize) -> (alloc::string::String, usize) {
-    let len = words[i + 7] as usize;
+    let len = words[i + spec::text_run::BYTE_LENGTH] as usize;
+    let start = i + spec::text_run::HEADER_WORDS;
     let mut bytes = Vec::with_capacity(len);
-    for w in &words[i + 8..i + 8 + len.div_ceil(4)] {
+    for w in &words[start..start + len.div_ceil(4)] {
         bytes.extend_from_slice(&w.to_le_bytes());
     }
     bytes.truncate(len);
     (
         alloc::string::String::from_utf8(bytes).expect("TEXT_RUN payload is UTF-8"),
-        i + 8 + len.div_ceil(4),
+        start + len.div_ceil(4),
     )
 }
 
@@ -4348,9 +4360,35 @@ fn native_measure_routes_layout_and_emits_text_run() {
     assert_eq!((l.2, l.3), (30.0, 12.0));
 }
 
+/// Word index of every TEXT_RUN record, in DrawList order.
+fn text_run_offsets(words: &[u32]) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        i += match words[i] {
+            spec::draw_op::RECT => 4,
+            spec::draw_op::GRAD_RECT => 6,
+            spec::draw_op::GLYPH_RUN => 3 + 2 * ((words[i + 1] >> 16) as usize),
+            spec::draw_op::TEX_QUAD | spec::draw_op::SURFACE_QUAD => 9,
+            spec::draw_op::SCISSOR => 3,
+            spec::draw_op::SCISSOR_POP => 1,
+            spec::draw_op::TRI => 7,
+            spec::draw_op::TEX_TRI => 12,
+            spec::draw_op::TEXT_RUN => {
+                offsets.push(i);
+                decode_text_run_text(words, i).1 - i
+            }
+            other => panic!("unknown draw op {other} at word {i}"),
+        };
+    }
+    offsets
+}
+
 #[test]
-fn tracked_and_transformed_runs_use_the_baked_pair_on_both_sides() {
+fn tracked_transformed_and_perspective_runs_go_to_the_provider() {
+    use spec::text_run as w;
     let mut ui = Ui::new();
+    // An atlas is registered so a baked fallback would be observable.
     ui.load_font_atlas(&encode_atlas(
         0,
         8,
@@ -4360,47 +4398,126 @@ fn tracked_and_transformed_runs_use_the_baked_pair_on_both_sides() {
         3,
         &[(0xfffd, 0, 8), ('A' as u32, 1, 6), ('B' as u32, 2, 5)],
     ));
-    ui.set_text_measure(Some(fake_native_measure()));
-    // Tracked run: baked measurement AND baked glyphs (consistent pair).
+    let calls = alloc::rc::Rc::new(core::cell::Cell::new(0u32));
+    let (counter, measure) = (calls.clone(), fake_native_measure());
+    ui.set_text_measure(Some(alloc::boxed::Box::new(
+        move |text: &str, slot, tracking, line_h| {
+            counter.set(counter.get() + 1);
+            measure(text, slot, tracking, line_h)
+        },
+    )));
     let tracked = ui.create_node(spec::NodeType::Text as u8);
     ui.set_prop(tracked, spec::prop::TRACKING, 2.0);
     ui.set_text(tracked, "AB");
     ui.insert_before(spec::ROOT_ID, tracked, 0);
-    // Rotated run: ONE provider on both sides — layout records the baked
-    // pair (transformed subtree), so the box AND the glyphs are atlas
-    // metrics. Never native box + baked glyphs.
     let rotated = ui.create_node(spec::NodeType::Text as u8);
-    // Small explicit width keeps the rotated cells on-screen (off-screen
-    // cells are dropped, which would empty the run).
     ui.set_prop(rotated, spec::prop::WIDTH, 20.0);
-    ui.set_prop(rotated, spec::prop::ROTATE, 45.0);
+    ui.set_prop(rotated, spec::prop::ROTATE, 30.0);
     ui.set_text(rotated, "AB");
     ui.insert_before(spec::ROOT_ID, rotated, 0);
-    // Text under a transformed ANCESTOR takes the baked pair too. (Scale
-    // DOWN so the transformed glyph anchors stay on-screen — off-screen
-    // cells are dropped, which would empty the run.)
-    let wrap = ui.create_node(spec::NodeType::View as u8);
-    ui.set_prop(wrap, spec::prop::SCALE, 0.5);
-    let nested = ui.create_node(spec::NodeType::Text as u8);
-    ui.set_text(nested, "A");
-    ui.insert_before(wrap, nested, 0);
-    ui.insert_before(spec::ROOT_ID, wrap, 0);
+    // A perspective subtree: the run sits upright at its projected anchor.
+    let stage = ui.create_node(spec::NodeType::View as u8);
+    ui.set_prop(stage, spec::prop::WIDTH, 100.0);
+    ui.set_prop(stage, spec::prop::HEIGHT, 40.0);
+    ui.set_prop(stage, spec::prop::PERSPECTIVE, 200.0);
+    let tilted = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(tilted, spec::prop::ROTATE_Y, 30.0);
+    ui.set_text(tilted, "A");
+    ui.insert_before(stage, tilted, 0);
+    ui.insert_before(spec::ROOT_ID, stage, 0);
     ui.tick();
     let words = ui.draw().words.clone();
     let counts = validate_drawlist(&words);
-    assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 0);
-    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 2);
+    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 0);
     assert_eq!(
         counts[spec::draw_op::TEX_QUAD as usize],
-        1,
-        "scaled baked glyph uses a textured cell"
+        0,
+        "no baked glyph cells"
     );
-    // Column layout: width cross-stretches, so the measurement provider is
-    // observable through the main-axis HEIGHT. All three leaves measured
-    // with the atlas (10 px line), matching their painted glyphs.
-    assert_eq!(ui.layout_of(tracked).unwrap().3, 10.0);
-    assert_eq!(ui.layout_of(rotated).unwrap().3, 10.0);
-    assert_eq!(ui.layout_of(nested).unwrap().3, 10.0);
+    let runs = text_run_offsets(&words);
+    assert_eq!(runs.len(), 3);
+    let float = |at: usize| f32::from_bits(words[at]);
+    let linear = |i: usize| {
+        [
+            float(i + w::A),
+            float(i + w::B),
+            float(i + w::C),
+            float(i + w::D),
+        ]
+    };
+    // The tracked run carries its letter spacing and no transform.
+    let t = runs[0];
+    assert_eq!(decode_text_run_text(&words, t).0, "AB");
+    assert_eq!(float(t + w::TRACKING), 2.0);
+    assert_eq!(linear(t), [1.0, 0.0, 0.0, 1.0]);
+    // The rotated run carries the rotation's linear part.
+    let r = runs[1];
+    let (sin, cos) = (0.5f32, 0.75f32.sqrt());
+    for (got, want) in linear(r).into_iter().zip([cos, sin, -sin, cos]) {
+        assert!((got - want).abs() < 1e-5, "{:?}", linear(r));
+    }
+    assert_eq!(float(r + w::TRACKING), 0.0);
+    let p = runs[2];
+    assert_eq!(decode_text_run_text(&words, p).0, "A");
+    assert_eq!(linear(p), [1.0, 0.0, 0.0, 1.0]);
+    // The column's boxes were measured by the provider (12 px lines, not the
+    // atlas's 10).
+    for node in [tracked, rotated] {
+        assert_eq!(ui.layout_of(node).unwrap().3, 12.0);
+    }
+    // Rotation is paint-only: removing it changes the words, not the layout,
+    // and the repaint culls with the sizes layout recorded, measuring
+    // nothing.
+    let measured = calls.get();
+    ui.set_prop(rotated, spec::prop::ROTATE, 0.0);
+    ui.tick();
+    let words = ui.draw().words.clone();
+    let r = text_run_offsets(&words)[1];
+    assert_eq!(
+        [r + w::A, r + w::B, r + w::C, r + w::D].map(|at| f32::from_bits(words[at])),
+        [1.0, 0.0, 0.0, 1.0]
+    );
+    assert_eq!(ui.layout_of(rotated).unwrap().3, 12.0);
+    assert_eq!(calls.get(), measured);
+
+    // A right-aligned run wider than its box starts left of the box: a box
+    // past the right edge still shows its first 45 px. A non-finite
+    // tracking reaches the provider as 0.
+    let wide = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(wide, spec::prop::WIDTH, 20.0);
+    ui.set_prop(
+        wide,
+        spec::prop::TEXT_ALIGN,
+        spec::TextAlign::Right as u8 as f64,
+    );
+    ui.set_prop(wide, spec::prop::TRANSLATE_X, 485.0);
+    ui.set_prop(wide, spec::prop::TRACKING, f64::NAN);
+    ui.set_text(wide, "AAAAAAAAAA");
+    ui.insert_before(spec::ROOT_ID, wide, 0);
+    // A run scaled to nothing has a singular linear part and is culled.
+    let flat = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(flat, spec::prop::SCALE, 0.0);
+    ui.set_text(flat, "flat");
+    ui.insert_before(spec::ROOT_ID, flat, 0);
+    ui.tick();
+    let words = ui.draw().words.clone();
+    validate_drawlist(&words);
+    let texts: Vec<_> = text_run_offsets(&words)
+        .into_iter()
+        .map(|i| (decode_text_run_text(&words, i).0, i))
+        .collect();
+    assert!(texts.iter().all(|(text, _)| text != "flat"));
+    let &(_, k) = texts
+        .iter()
+        .find(|(text, _)| text == "AAAAAAAAAA")
+        .expect("the visible part of the wide run is drawn");
+    assert_eq!(f32::from_bits(words[k + w::ORIGIN_X]), 485.0);
+    assert_eq!(f32::from_bits(words[k + w::TRACKING]), 0.0);
+    assert_eq!(
+        words[k - 3],
+        spec::draw_op::SCISSOR,
+        "bracketed: it crosses the viewport edge"
+    );
 }
 
 #[test]
@@ -4435,105 +4552,6 @@ fn clipped_text_run_is_scissor_bracketed() {
     assert_eq!(decode_wh(words[i - 1]), (20, 10), "scissor = current clip");
     let (_, end) = decode_text_run_text(&words, i);
     assert_eq!(words[end], spec::draw_op::SCISSOR_POP);
-}
-
-#[test]
-fn provider_re_decides_within_the_same_draw_after_a_paint_only_transform() {
-    // rotate/scale are paint-only (no relayout), so a transform set after
-    // layout leaves the recorded provider stale. The draw walk detects the
-    // divergence and Ui::draw re-decides + REPAINTS before returning: every
-    // frame that leaves draw() is provider-correct, in both directions —
-    // zero stale frames.
-    let mut ui = Ui::new();
-    ui.load_font_atlas(&encode_atlas(
-        0,
-        8,
-        8,
-        7,
-        10,
-        3,
-        &[(0xfffd, 0, 8), ('A' as u32, 1, 6), ('B' as u32, 2, 5)],
-    ));
-    ui.set_text_measure(Some(fake_native_measure()));
-    let t = ui.create_node(spec::NodeType::Text as u8);
-    ui.set_prop(t, spec::prop::WIDTH, 20.0);
-    ui.set_text(t, "AB");
-    ui.insert_before(spec::ROOT_ID, t, 0);
-    ui.tick();
-    let counts = validate_drawlist(&ui.draw().words.clone());
-    assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 1);
-    assert_eq!(
-        ui.layout_of(t).unwrap().3,
-        12.0,
-        "native line height sized the box"
-    );
-
-    // Into the transform: the VERY NEXT draw is already the baked pair.
-    ui.set_prop(t, spec::prop::ROTATE, 30.0);
-    ui.tick();
-    let counts = validate_drawlist(&ui.draw().words.clone());
-    assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 0);
-    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 1);
-    assert_eq!(
-        ui.layout_of(t).unwrap().3,
-        10.0,
-        "box re-measured with the atlas"
-    );
-
-    // Out of the transform: same, back to the native pair immediately.
-    ui.set_prop(t, spec::prop::ROTATE, 0.0);
-    ui.tick();
-    let counts = validate_drawlist(&ui.draw().words.clone());
-    assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 1);
-    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 0);
-    assert_eq!(ui.layout_of(t).unwrap().3, 12.0, "box re-measured natively");
-}
-
-#[test]
-fn canceling_transforms_do_not_oscillate_the_provider() {
-    // Parent scale 0.5, child text scale 2.0: the composed world matrix is
-    // numerically a translation again, but BOTH the layout build and the
-    // draw walk gate on the same declared-transform path predicate — the
-    // node stays on the baked pair with no divergence flag, so repeated
-    // draws never schedule spurious relayouts.
-    let mut ui = Ui::new();
-    ui.load_font_atlas(&encode_atlas(
-        0,
-        8,
-        8,
-        7,
-        10,
-        3,
-        &[(0xfffd, 0, 8), ('A' as u32, 1, 6), ('B' as u32, 2, 5)],
-    ));
-    ui.set_text_measure(Some(fake_native_measure()));
-    let wrap = ui.create_node(spec::NodeType::View as u8);
-    ui.set_prop(wrap, spec::prop::WIDTH, 40.0);
-    ui.set_prop(wrap, spec::prop::SCALE, 0.5);
-    let t = ui.create_node(spec::NodeType::Text as u8);
-    ui.set_prop(t, spec::prop::SCALE, 2.0);
-    ui.set_text(t, "AB");
-    ui.insert_before(wrap, t, 0);
-    ui.insert_before(spec::ROOT_ID, wrap, 0);
-    ui.tick();
-    let counts = validate_drawlist(&ui.draw().words.clone());
-    assert_eq!(
-        counts[spec::draw_op::TEXT_RUN as usize],
-        0,
-        "declared path wins"
-    );
-    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 1);
-    assert_eq!(
-        ui.layout_of(t).unwrap().3,
-        10.0,
-        "baked metrics sized the box"
-    );
-    // The killer assertion: a second and third draw must not have been
-    // dirtied by a provider oscillation.
-    let _ = ui.draw();
-    assert!(!ui.layout.needs(), "no spurious relayout scheduled");
-    let _ = ui.draw();
-    assert!(!ui.layout.needs());
 }
 
 #[test]
@@ -4575,6 +4593,14 @@ fn text_run_words_are_the_complete_pixel_truth() {
         .unwrap();
     assert_eq!(decode_text_run_text(&words, k).0, "hello 中文");
     validate_drawlist(&words);
+    // A new font behind the same measurer: same text and geometry, and the
+    // generation word still makes the words differ.
+    ui.text_provider_changed();
+    let changed = ui.draw().words.clone();
+    let g = k + spec::text_run::GENERATION;
+    assert_ne!(changed[g], words[g]);
+    assert_eq!(changed[..g], words[..g]);
+    assert_eq!(changed[g + 1..], words[g + 1..]);
 }
 
 #[test]
