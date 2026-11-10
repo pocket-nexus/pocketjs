@@ -22,6 +22,9 @@ export interface WifiOps {
   scan?(): boolean;
   join?(ssid: string, passphrase: string): boolean;
   forget?(slot: number): boolean;
+  /** Hosts on a general operating system (contracts/spec/wifi.ts). */
+  disconnect?(): boolean;
+  openSettings?(): boolean;
   /** Hosts that serve an access point (contracts/spec/wifi.ts). */
   startAccessPoint?(ssid: string): boolean;
   stopAccessPoint?(): boolean;
@@ -53,10 +56,19 @@ export function setWifiEnabled(on: boolean): boolean {
   return wifiHost()?.setEnabled(on) ?? false;
 }
 
-/** Connect through a saved connection (0..2). */
+/** A saved connection's index: 0..2 on a console, any of `saved` on a host
+ *  whose system keeps more; the host refuses one it does not hold. */
+const savedSlot = (slot: number) => Number.isInteger(slot) && slot >= 0 && slot < 0x10000;
+
+/** Connect through a saved connection. */
 export function connectSavedNetwork(slot: number): boolean {
-  if (!Number.isInteger(slot) || slot < 0 || slot >= WIFI_SAVED_SLOTS) return false;
+  if (!savedSlot(slot)) return false;
   return wifiHost()?.connect(slot) ?? false;
+}
+
+/** The saved connection for `ssid` in a status, or -1. */
+export function savedSlotOf(status: WifiStatus, ssid: string): number {
+  return status.saved.find((saved) => saved.ssid === ssid)?.slot ?? -1;
 }
 
 /** The host lets the launcher scan, join and forget networks itself. */
@@ -78,8 +90,27 @@ export function joinNetwork(ssid: string, passphrase: string): boolean {
 }
 
 export function forgetNetwork(slot: number): boolean {
-  if (!Number.isInteger(slot) || slot < 0 || slot >= WIFI_SAVED_SLOTS) return false;
+  if (!savedSlot(slot)) return false;
   return wifiHost()?.forget?.(slot) ?? false;
+}
+
+/** The host can leave the network in use with the radio on. */
+export function wifiCanDisconnect(): boolean {
+  return typeof wifiHost()?.disconnect === "function";
+}
+
+export function disconnectNetwork(): boolean {
+  return wifiHost()?.disconnect?.() ?? false;
+}
+
+/** The host's system has Wi-Fi settings of its own to show. */
+export function wifiHasSettings(): boolean {
+  return typeof wifiHost()?.openSettings === "function";
+}
+
+/** Show the system's own Wi-Fi settings. */
+export function openWifiSettings(): boolean {
+  return wifiHost()?.openSettings?.() ?? false;
 }
 
 /** The host can serve an access point beside the station connection. */
