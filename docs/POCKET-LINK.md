@@ -2427,12 +2427,11 @@ accept any key order and whitespace, and tests compare parsed values.
 | `keepalive.json` | `PING` / `PONG` echo; a timeline with timestamps where a side closes with `silence` at 10 s, one where a 100 ms gap changes nothing, and one where `DATA` alone keeps the link up |
 | `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` report of 64 rows of ordinary size in one 16 KiB frame, one with every field at its limit in two pages, one cut short by a change and restarted under the next `set`, a page with a wrong `at` after which Hub ignores the rest of that `set`, and a page of an older `set` ignored; a catalog of 64 rows fetched in pages with `after` and `rev` while the offer changes (served from the snapshot), a page request 31 s after the last one answered `changed`, and an offer of 70 apps of which the first 64 by `id` are served; a DevTools stream with a pending eval, then `guest.end`; a Hub-to-device line cut by a guest switch whose tail is discarded up to its `\n`; a `net.http` request and a `net.head` at their encoded limits, a response whose headers Hub drops to fit with `truncated: true`, a `log` event at the 1 KiB floor with `frame` at 2^32 − 1, and a second catalog fetch asked for while one runs, started after it |
 
-**Scenarios that need two live endpoints are tests, not vector files.** A
-vector fixes bytes and the decisions a single side takes; these rows of the
-table are run by the two TypeScript reference endpoints against each other
-on loopback, with injected clocks (`tests/pocket-link-2-endpoints.test.ts`),
-and the C client and Hub's endpoint each repeat them against the reference
-peer:
+**Scenarios that need two live endpoints are not vector files.** A vector
+fixes bytes and the decisions a single side takes; these rows of the table
+are run by an endpoint against the reference peer of the other side (the C
+client against `hub.ts` in `tests/pocket-link-2-client.test.ts`, Hub's
+endpoint against `device.ts` in its own repository):
 
 - counted replacements, the `refused` `busy` after the third and the three
   uncounted ones (`handshake-refusals.json`);
@@ -2648,7 +2647,6 @@ against them. The version-1 files go in the change that replaces `link.c`.
    injected fetch, applet channels handed to an injected daemon. **They are
    the reference peers**: the C client is tested against `hub.ts`, Hub's
    Rust endpoint against `device.ts`, and both against the vectors.
-   `tests/pocket-link-2-endpoints.test.ts` runs the two against each other.
 5. Hub's policy for `net.http` is version 1's `fetch.ts` with the URL limit
    at 2 KiB and the header limit counting encoded bytes (§6.5); the
    reference Hub takes the fetch as a function and Hub's Rust endpoint
@@ -2700,8 +2698,7 @@ against them. The version-1 files go in the change that replaces `link.c`.
    `--daemon <applet id>=<module.ts>` (`daemon.ts`; `daemon-sample.ts` is
    one). **While a `serve` runs for a store, the other commands go through
    it** over a socket in the store's folder, because a device links to one
-   Hub at a time. `tests/pocket-link-2-cli.test.ts` runs every command as a
-   process against the C client.
+   Hub at a time.
 
 ### 12.2 3DS C client (`engine/host-services`, `products/3ds`)
 
@@ -2773,9 +2770,7 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   `link2_channel_*` / `link2_stream_*`. The ids it gives the guest are
   handles that carry the channel's generation (§7.4); **a call converts its
   handle before it takes a buffer's address**, because the conversion can run
-  the guest's `valueOf`, which may detach the buffer;
-  `tests/pocket-link-2-channel-qjs.test.ts` runs the bindings in a real
-  QuickJS under ASan.
+  the guest's `valueOf`, which may detach the buffer.
   **`@pocketjs/framework/channel`** (`framework/src/channel.ts`) gives the
   shape of §7.3 on top: `request(t, args, {body, onProgress})`,
   `onRequest(t, handler)`, `emit`, `emitStream`, `onEvent`,
