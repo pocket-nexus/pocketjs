@@ -56,7 +56,7 @@
           "name": "http",
           "kind": "snapshot",
           "direction": "worker-to-ui",
-          "recordBytes": 96,
+          "recordBytes": 240,
           "capacity": 1
         }
       ]

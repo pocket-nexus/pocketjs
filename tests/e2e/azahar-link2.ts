@@ -22,6 +22,7 @@ import { discoverPocketRuntimes } from "../../tools/3ds-runtime-client.ts";
 import { LinkHub, MemoryStore, directoryStorage, type HubDevice, type HubOffer } from "../../tools/pocket-link/v2/hub.ts";
 import { LINK2_BEACON_PORT } from "../../contracts/spec/link2.ts";
 import { LINK_CHANNEL_APP, linkChannelDaemon } from "../../apps/link-channel/daemon.ts";
+import { fixtureFetch, patternBytes } from "../../apps/link-channel/http-fixture.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const OUT = evidenceDirectory(ROOT, "azahar-link2");
@@ -167,10 +168,8 @@ try {
     port: 0,
     beaconTargets: [{ address: "127.0.0.1", port: LINK2_BEACON_PORT }],
     catalog: () => offers,
-    fetch: async (request) => {
-      fetched.push(`${request.app} ${request.method} ${request.url}`);
-      return { status: 200, url: request.url, headers: [["content-type", "text/plain"]], body: new TextEncoder().encode("hello from Hub") };
-    },
+    // The worker's origin (apps/link-channel/http-fixture.ts), answered without a socket.
+    fetch: fixtureFetch((line) => fetched.push(line)),
     daemons: (app) => (app === LINK_CHANNEL_APP ? daemon : null),
     keepScreenshots: true,
     onDevice: (device) => {
@@ -219,11 +218,21 @@ try {
   pass(`applet channel generation ${seen.generation}: request, a 48,000-byte response stream, a 3,000-byte event stream, cancel, the daemon's request, ${report.ticks} tick event(s)`);
 
   // The applet's worker fetched through the link: Hub performed the request.
-  await until(() => seen.http?.startsWith("200"), `the worker's net.http outcome`, 30_000).catch((error) => {
+  await until(() => seen.http?.startsWith("200"), `the worker's net.http outcome`, 60_000).catch((error) => {
     throw new Error(`${(error as Error).message}; last ${JSON.stringify(seen.http)}, Hub fetched ${JSON.stringify(fetched)}`);
   });
-  if (seen.http !== "200 14 hello from Hub" || fetched[0] !== `${LINK_CHANNEL_APP} GET http://link-channel.test/hello?from=worker`) {
-    throw new Error(`wrong net.http: ${JSON.stringify(seen.http)} for ${JSON.stringify(fetched)}`);
+  // Five requests: a small GET, a body of several frames, a POST with a body, one the worker
+  // cancels (its request ends `unknown`, -3: the origin was still working) and one that
+  // outlives its own timeout.
+  const expected = [
+    "200 14 hello from Hub",
+    `big 200 100000 ${fnv(patternBytes(100_000)).toString(16)}`,
+    `post 200 POST 700 ${fnv(new TextEncoder().encode("p".repeat(700))).toString(16)}`,
+    "cancel -3",
+    "timeout -3",
+  ].join(" | ");
+  if (seen.http !== expected || fetched[0] !== `${LINK_CHANNEL_APP} GET http://link-channel.test/hello?from=worker`) {
+    throw new Error(`wrong net.http: ${JSON.stringify(seen.http)}, expected ${JSON.stringify(expected)}, for ${JSON.stringify(fetched)}`);
   }
   pass(`net.http from the worker: ${fetched[0]} gave ${seen.http}`);
 

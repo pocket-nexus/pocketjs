@@ -53,8 +53,11 @@ const USAGE = `Pocket Link 2 reference Hub
   logs [--follow] [--seconds <n>]       the program's log lines; 5 s without --follow
 
   serve [--apps <dir>]… [--daemon <applet id>=<module.ts>]… [--allow-private] [--no-http]
+        [--resolve <host>=<address>:<port>]…
                                         stay linked: the catalog of the folders, net.http,
-                                        applet channels to the named daemon modules, log lines
+                                        applet channels to the named daemon modules, log lines;
+                                        --resolve sends an applet's requests for <host> to a
+                                        server of this computer's choosing, as curl's does
 
 options
   --home <dir>            the store ($POCKETJS_LINK_HOME, else ~/.pocketjs/link)
@@ -73,7 +76,7 @@ exit codes: 0 done, 1 an error answer, 2 usage, 3 no device linked, 4 setup not 
 // Arguments
 // ---------------------------------------------------------------------------
 
-const VALUE_FLAGS = new Set(["--home", "--name", "--port", "--unicast", "--address", "--link-dir", "--device", "--wait", "--host", "--ftp-port", "--card", "--out", "--seconds", "--apps", "--daemon"]);
+const VALUE_FLAGS = new Set(["--home", "--name", "--port", "--unicast", "--address", "--link-dir", "--device", "--wait", "--host", "--ftp-port", "--card", "--out", "--seconds", "--apps", "--daemon", "--resolve"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--follow", "--no-launch", "--allow-private", "--no-http", "--help"]);
 
 export class UsageError extends Error {}
@@ -612,21 +615,44 @@ export async function run(call: Invocation): Promise<number> {
 
 const socketPath = (home: string) => join(home, "serve.sock");
 
-function netFetch(allowPrivate: boolean): HttpFetch {
+/** `--resolve <host>=<address>:<port>`: where requests for a host go instead of its own address. */
+export function parseResolve(spec: string): { host: string; address: string; port: number } | null {
+  const match = /^([A-Za-z0-9.-]+)=(\d{1,3}(?:\.\d{1,3}){3}|localhost):(\d{1,5})$/.exec(spec);
+  if (match === null) return null;
+  const port = Number(match[3]);
+  if (port < 1 || port > 65535) return null;
+  return { host: match[1].toLowerCase(), address: match[2], port };
+}
+
+function netFetch(allowPrivate: boolean, resolves: Map<string, { address: string; port: number }> = new Map(), log: (line: string) => void = () => {}): HttpFetch {
   return async (request, body) => {
     if (!(NET_METHODS as readonly string[]).includes(request.method)) throw new LinkError("invalid_request", `the method ${request.method} is not one net.http carries`);
-    let host = "";
+    let url: URL;
     try {
-      host = new URL(request.url).hostname;
+      url = new URL(request.url);
     } catch {
       throw new LinkError("invalid_request", "the URL does not parse");
     }
     // This Hub runs no services: the origin Pocket Hub answers itself has nothing behind it here.
-    if (host === "companion.pocket") throw new LinkError("unavailable", "this Hub runs no services");
+    if (url.hostname === "companion.pocket") throw new LinkError("unavailable", "this Hub runs no services");
+    // A host named with --resolve goes to the server the owner chose, private address or not.
+    const mapped = resolves.get(url.hostname.toLowerCase());
+    const target = new URL(url.href);
+    if (mapped !== undefined) {
+      target.protocol = "http:";
+      target.hostname = mapped.address;
+      target.port = String(mapped.port);
+    }
+    const started = Date.now();
     try {
-      const response = await performNet({ url: request.url, method: request.method as NetMethod, headers: request.headers, timeoutMs: request.timeoutMs, maxBytes: request.maxBytes, body }, { allowPrivate });
-      return { status: response.status, url: response.url, headers: Object.entries(response.headers), body: response.body };
+      const response = await performNet(
+        { url: target.href, method: request.method as NetMethod, headers: request.headers, timeoutMs: request.timeoutMs, maxBytes: request.maxBytes, body },
+        { allowPrivate: allowPrivate || mapped !== undefined },
+      );
+      log(`net.http: ${request.app} ${request.method} ${request.url} -> ${response.status}, ${response.body.length} bytes in ${Date.now() - started} ms`);
+      return { status: response.status, url: mapped !== undefined ? request.url : response.url, headers: Object.entries(response.headers), body: response.body };
     } catch (error) {
+      log(`net.http: ${request.app} ${request.method} ${request.url} -> ${error instanceof NetFailure ? error.code : "error"} after ${Date.now() - started} ms`);
       if (error instanceof NetFailure) throw new LinkError(error.code, error.message);
       throw error;
     }
@@ -717,6 +743,12 @@ async function serve(args: Parsed, io: Io, signal: AbortSignal): Promise<number>
     if (parsed === null) throw new UsageError(`--daemon takes <applet id>=<module.ts>, not ${spec}`);
     return parsed;
   });
+  const resolves = new Map<string, { address: string; port: number }>();
+  for (const spec of args.values.get("--resolve") ?? []) {
+    const parsed = parseResolve(spec);
+    if (parsed === null) throw new UsageError(`--resolve takes <host>=<address>:<port>, not ${spec}`);
+    resolves.set(parsed.host, { address: parsed.address, port: parsed.port });
+  }
   const features = ["runtime", "runtime.native", "devtools", "apps", ...(appDirs.length > 0 ? ["catalog", "install"] : []), ...(args.flags.has("--no-http") ? [] : ["net.http"]), ...(specs.length > 0 ? ["channel"] : [])];
 
   let offer: FolderOffer | null = null;
@@ -726,7 +758,7 @@ async function serve(args: Parsed, io: Io, signal: AbortSignal): Promise<number>
     features,
     hub: {
       catalog: () => offer?.offer() ?? [],
-      fetch: args.flags.has("--no-http") ? undefined : netFetch(args.flags.has("--allow-private")),
+      fetch: args.flags.has("--no-http") ? undefined : netFetch(args.flags.has("--allow-private"), resolves, log),
       daemons: (app) => daemons.get(app) ?? null,
     },
   });

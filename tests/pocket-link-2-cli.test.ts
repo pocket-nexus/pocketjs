@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { LINK2_BEACON_PORT } from "../contracts/spec/link2.ts";
 import { POCKET_SECTION, encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { decodePNG } from "../tools/png.ts";
-import { EXIT, parseArguments, screenshotPng } from "../tools/pocket-link/v2/cli.ts";
+import { EXIT, parseArguments, parseResolve, screenshotPng } from "../tools/pocket-link/v2/cli.ts";
 import { parseDaemonSpec } from "../tools/pocket-link/v2/daemon.ts";
 import { pattern } from "../tools/pocket-link/v2/daemon-sample.ts";
 import { ftpStorage } from "../tools/pocket-link/v2/ftp-storage.ts";
@@ -223,6 +223,16 @@ afterAll(() => {
 const it = (name: string, run: () => Promise<void>, ms = 90_000) => test(name, run, ms);
 
 // ---------------------------------------------------------------------------
+
+describe("--resolve", () => {
+  it("takes <host>=<address>:<port> and nothing else", async () => {
+    expect(parseResolve("link-channel.test=127.0.0.1:9742")).toEqual({ host: "link-channel.test", address: "127.0.0.1", port: 9742 });
+    expect(parseResolve("Origin.Test=localhost:80")).toEqual({ host: "origin.test", address: "localhost", port: 80 });
+    for (const bad of ["origin.test", "origin.test=127.0.0.1", "origin.test=127.0.0.1:0", "origin.test=127.0.0.1:70000", "=127.0.0.1:80", "a b=127.0.0.1:80", "origin.test=example.org:80"]) {
+      expect(parseResolve(bad)).toBe(null);
+    }
+  });
+});
 
 describe("the store on disk", () => {
   test("folders 0700 and files 0600, an identity made once, records through a rename, one counter for the Hub", () => {
@@ -622,7 +632,7 @@ describe("the commands, against the C client", () => {
     cleanups.push(() => void http.close());
     const httpPort = (http.address() as { port: number }).port;
 
-    const serve = w.start("serve", "--apps", appsDir, "--daemon", `dev.example.sample=${samplePath}`, "--allow-private");
+    const serve = w.start("serve", "--apps", appsDir, "--daemon", `dev.example.sample=${samplePath}`, "--allow-private", "--resolve", `origin.test=127.0.0.1:${httpPort}`);
     await serve.line(/Hub [0-9a-f]{16} ".*" on port \d+; features runtime runtime\.native devtools apps catalog install net\.http channel$/);
     await serve.any(/catalog: 1 rows from /);
     await serve.any(/daemon: dev\.example\.sample$/);
@@ -733,6 +743,15 @@ describe("the commands, against the C client", () => {
     harness.send("http dev.example.one https://companion.pocket/store/x GET 0");
     await harness.line(/^http (\d+)$/);
     expect((await harness.line(/^http-end (\d+) (\S+) /))[2]).toBe("unavailable");
+    // --resolve: a host that does not resolve goes to the server the owner named, and the applet
+    // sees the URL it asked for; the serve prints one line per request.
+    harness.send("http dev.example.one http://origin.test/mapped GET 0");
+    const mapped = (await harness.line(/^http (\d+)$/))[1];
+    const mappedHead = (await harness.line(/^http-head (\d+) (.*)$/))[2];
+    expect(mappedHead).toContain('"url":"http://origin.test/mapped"');
+    expect(mappedHead).toContain('"x-path":"/mapped"');
+    expect((await harness.line(/^http-end (\d+) (\S+) (\d+) (\d+)$/)).slice(1, 4)).toEqual([mapped, "ok", "18"]);
+    await serve.any(/net\.http: dev\.example\.one GET http:\/\/origin\.test\/mapped -> 200, 18 bytes in \d+ ms$/);
 
     // The sample daemon: a request, a stream behind its head event, events, a cancelled request.
     harness.send("channel-open dev.example.sample 0123456789abcdef");
