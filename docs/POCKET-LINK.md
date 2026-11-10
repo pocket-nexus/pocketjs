@@ -2741,6 +2741,17 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   and its reply took two frames: **34 ms mean for a round trip, 18 ms with
   both** (§13.6). One pump took **0.14 ms mean on a link carrying one
   request a second and 0.44 ms mean across the transfer runs** on a New 3DS.
+- **A guest's stop with a worker request in flight**
+  (`platforms/3ds/worker.c`). The worker thread's destroy retries while the
+  main thread still has a request of that worker to end, and each retry
+  signalled the thread's own wake event, so its wait returned at once and
+  the retry never yielded. **The worker thread and the main thread run at
+  priority 0x30 on one core, where a thread that does not yield is not
+  preempted by its equal**: the main thread did not run again, and the
+  program stood still with no link pump and no development connection. A
+  `runtime.launch` of another app or a push in the seconds after the demo's
+  worker started reached it (`tests/e2e/azahar-link2.ts`, its launch step).
+  The wait sleeps 1 ms once stop was asked for.
 - **Guest console lines are `runtime.logs` lines** (`qjs.c` `ui.__dbgLog`,
   question 6), and `runtime.status` carries the frame the loop is on
   (`link2_host_set_frame`). For measurements, `ui.__dbgMemory()` reports the
@@ -3043,6 +3054,12 @@ server answered 20 s later on Hub's side, with nothing sent to the device.
 At every install and launch in Hub's log (8 of them) the command printed
 its `launching` reply and Hub logged the `CLOSE` `restart` before the
 program left: the device's last two frames reached Hub each time.
+
+**A guest switch under a worker's requests** hung the program until the
+change of §12.2 (the worker thread's stop). With it, two pushes of the demo
+on the device, one while the demo's worker was in its requests (2 s after
+the program started) and one 5 s after the next guest started, each left
+the device answering an eval in the second that followed.
 
 **A soak of 21 minutes**: one bench of one request started each second
 (1,239 requests, each followed by the demo's report request) with the
