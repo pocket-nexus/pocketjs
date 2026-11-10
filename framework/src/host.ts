@@ -241,6 +241,9 @@ export interface HostOps {
   __dbgConnected?(): boolean;
   __dbgPoll?(): string | undefined;
   __dbgSend?(line: string): void;
+  /** One console line of the guest for the host's own log path (the 3DS's
+   *  `runtime.logs` over Pocket Link 2), whether a panel listens or not. */
+  __dbgLog?(level: string, text: string): void;
   /** On-demand native screenshot. The host transports bulk pixels outside
    *  the JSON control channel and its bridge converts them to PNG. */
   __dbgShot?(): boolean;

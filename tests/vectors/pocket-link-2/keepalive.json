@@ -1,0 +1,49 @@
+{
+  "ping": "01000000040000000000000029000000",
+  "pong": "02000000040000000000000029000000",
+  "pingMs": 3000,
+  "silenceMs": 10000,
+  "timelines": [
+    {
+      "name": "nothing arrives: silence at 10 s",
+      "received": [],
+      "until": 12000,
+      "silenceAt": 10000
+    },
+    {
+      "name": "a 100 ms gap between frames changes nothing",
+      "received": [
+        3000,
+        3100,
+        6000,
+        9000,
+        12000
+      ],
+      "until": 12000,
+      "silenceAt": null
+    },
+    {
+      "name": "DATA alone keeps the link up",
+      "received": [
+        2000,
+        5000,
+        8000,
+        11000,
+        14000,
+        17000,
+        20000
+      ],
+      "until": 20000,
+      "silenceAt": null
+    },
+    {
+      "name": "frames stop at 4 s: silence at 14 s",
+      "received": [
+        1000,
+        4000
+      ],
+      "until": 20000,
+      "silenceAt": 14000
+    }
+  ]
+}

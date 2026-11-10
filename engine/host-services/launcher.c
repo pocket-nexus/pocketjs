@@ -86,6 +86,20 @@ bool launcher_package_app_id(const LauncherPackage *package, char *out, size_t c
   return facts.id[0] != '\0';
 }
 
+void launcher_package_title(const LauncherPackage *package, char *out, size_t capacity) {
+  LauncherApp facts;
+  memset(&facts, 0, sizeof facts);
+  if (package != NULL) read_plan(package, &facts);
+  snprintf(out, capacity, "%s", facts.title);
+}
+
+void launcher_package_version(const LauncherPackage *package, char *out, size_t capacity) {
+  LauncherApp facts;
+  memset(&facts, 0, sizeof facts);
+  if (package != NULL) read_plan(package, &facts);
+  snprintf(out, capacity, "%s", facts.version);
+}
+
 // ---------------------------------------------------------------------------
 // app.txt cache
 // ---------------------------------------------------------------------------
@@ -234,6 +248,21 @@ static const LauncherApp *find_output(const char *output) {
     if (strcmp(apps[i].output, output) == 0) return &apps[i];
   }
   return NULL;
+}
+
+bool launcher_row(size_t index, LauncherRow *out) {
+  if (table_dirty) rebuild_table();
+  if (apps == NULL || index >= app_count) return false;
+  const LauncherApp *app = &apps[index];
+  *out = (LauncherRow){
+    .slot = app->slot,
+    .output = app->output,
+    .id = app->id,
+    .title = app->title,
+    .version = app->version,
+    .hash = app->hash,
+  };
+  return true;
 }
 
 void launcher_init(const char *slot, const LauncherPackage *embedded) {

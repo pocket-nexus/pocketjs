@@ -19,7 +19,7 @@ size_t svcwire_recv_lines(char *out, size_t size) {
   (void)size;
   return 0;
 }
-const char *devserver_debug_stats(void) { return "{\"host\":\"3ds\"}"; }
+const char *devstats_json(void) { return "{\"host\":\"3ds\"}"; }
 const char *launcher_table_json(void) { return "{\"apps\":[]}"; }
 bool launcher_launch(const char *text) { return !strcmp(text, "fixture"); }
 

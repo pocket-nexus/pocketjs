@@ -3,7 +3,7 @@
 // removed. The console's side is products/3ds/src/packs_delivery.c; the format
 // and the steps are in docs/POCKET3D-PACKS.md.
 //
-// The paired connection (PocketRuntimeClient) carries one control line a step.
+// A connection to the console (DeliveryClient) carries one control line a step.
 // The bytes go over a temporary HTTP endpoint on this computer that serves the
 // manifest's pieces and its text under a random token, and nothing else.
 
@@ -12,12 +12,20 @@ import { createSocket } from "node:dgram";
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { join } from "node:path";
-import { pocketRuntimeCrc32 } from "../contracts/spec/pocket-runtime-wire.ts";
-import type { PocketRuntimeClient } from "./3ds-runtime-client.ts";
 import { checkPacks, PACKS_FILE, parseManifest, pieceFile, piecesOf } from "./pocket3d-packs.ts";
 
-/** The part of a paired client the delivery uses. */
-export type DeliveryClient = Pick<PocketRuntimeClient, "host" | "sendCtrl" | "waitForCtrl">;
+/** zlib's CRC-32 of a file or a text, as the console computes it. */
+const zlibCrc32 = (data: Uint8Array | string): number => Bun.hash.crc32(data) >>> 0;
+
+/** The connection the delivery's control lines travel on: the console's
+ *  address, one line toward it, and the next line from it that matches. The
+ *  development connection carried them; Pocket Link 2 has no message for them
+ *  yet (docs/POCKET-LINK.md §11), so a caller supplies its own. */
+export interface DeliveryClient {
+  readonly host: string;
+  sendCtrl(message: string | object): Promise<void>;
+  waitForCtrl<T extends Record<string, unknown> = Record<string, unknown>>(predicate: (message: Record<string, unknown>) => boolean, timeoutMs?: number): Promise<T>;
+}
 
 export interface DeliverOptions {
   /** This computer's IPv4 address as the console reaches it. Default: the interface the route to the console leaves by. */
@@ -55,7 +63,7 @@ export async function hostFor(device: string): Promise<string> {
   try {
     await new Promise<void>((resolve, reject) => {
       socket.once("error", reject);
-      socket.connect(8131, device, resolve);
+      socket.connect(9, device, resolve);
     });
     return socket.address().address;
   } finally {
@@ -103,7 +111,7 @@ export async function deliver(client: DeliveryClient, directory: string, manifes
   const result: Delivered = { sent: 0, bytes: 0, had: 0, removed: 0, ms: 0 };
   try {
     for (const [index, piece] of pieces.entries()) {
-      const crc32 = pocketRuntimeCrc32(readFileSync(files.get(pieceFile(piece))!));
+      const crc32 = zlibCrc32(readFileSync(files.get(pieceFile(piece))!));
       const message = await step("pocket3d.piece", { piece: { ...from, name: piece.name, bytes: piece.bytes, crc32, ...(options.verify ? { verify: true } : {}) } }, (m) => m.name === piece.name);
       const had = message.cached === true;
       if (had) result.had++;
@@ -114,7 +122,7 @@ export async function deliver(client: DeliveryClient, directory: string, manifes
       options.onPiece?.({ name: piece.name, bytes: piece.bytes, had }, index + 1, pieces.length);
     }
     // The list last: a console that lost the connection half way still reads its old list and the pieces it names.
-    await step("pocket3d.manifest", { manifest: { ...from, bytes: text.length, crc32: pocketRuntimeCrc32(text) } });
+    await step("pocket3d.manifest", { manifest: { ...from, bytes: text.length, crc32: zlibCrc32(text) } });
     if (options.prune) result.removed = Number((await step("pocket3d.pruned", { prune: true })).removed ?? 0);
   } finally {
     await server.stop(true);

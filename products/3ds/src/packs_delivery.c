@@ -1,5 +1,5 @@
 #include "packs_delivery.h"
-#include "dev_protocol.h"
+#include "link2_proto.h"
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
@@ -16,7 +16,6 @@
 #include <unistd.h>
 
 #ifdef __3DS__
-#include "devserver.h"
 #include <3ds.h>
 #else
 #include <time.h>
@@ -55,8 +54,7 @@ static bool fail(char *error, size_t capacity, const char *format, ...) {
 
 static bool pump(char *error, size_t capacity) {
 #ifdef __3DS__
-  devserver_poll();
-  if (!devserver_connected())
+  if (!p3d_delivery_pump())
     return fail(error, capacity, "cancelled: the computer disconnected");
   hidScanInput();
   const uint32_t exit_keys = KEY_L | KEY_R | KEY_START;
@@ -180,7 +178,7 @@ static int there(const char *path, uint32_t bytes, bool verify,
       count = BUFFER_BYTES;
     if (fread(buffer, 1, count, file) != count)
       break;
-    crc = pocket_runtime_crc32(crc, buffer, count);
+    crc = link2_crc32(crc, buffer, count);
     total += count;
   }
   if (file && buffer && total == bytes && crc == expected_crc)
@@ -368,7 +366,7 @@ static bool fetch(const char *host, uint32_t port, const char *token,
       fail(error, capacity, "the card refused a write");
       goto done;
     }
-    crc = pocket_runtime_crc32(crc, buffer + body, count);
+    crc = link2_crc32(crc, buffer + body, count);
     total += count;
   }
   if (crc != expected_crc) {

@@ -4,22 +4,19 @@
 #include <string.h>
 
 #include "devmenu.h"
-#include "devserver.h"
 
-void devserver_snapshot(DevserverSnapshot *out) {
+void devmenu_snapshot(DevmenuSnapshot *out) {
   memset(out, 0, sizeof *out);
-  out->enabled = true;
-  out->discoverable = true;
-  out->connected = true;
+  out->paired = true;
+  out->linked = true;
   strcpy(out->ip, "192.168.8.102");
   strcpy(out->phase, "booted");
-  out->port = 8131;
-  out->host_abi = 8;
+  strcpy(out->device, "0378379ee5fb5a94");
+  out->host_abi = 12;
   out->generation = 3;
   out->running_hash = 0xe01adc15327d4203ULL;
-  out->device_id = 0x0378379ee5fb5a94ULL;
-  out->connects = 2;
-  out->uploads = 1;
+  out->links = 2;
+  out->pushes = 1;
   out->screenshots = 4;
 }
 

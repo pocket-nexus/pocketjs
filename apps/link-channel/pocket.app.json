@@ -1,0 +1,65 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.link-channel",
+  "title": "PocketJS: Link Channel",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "display.auxiliary",
+        "input.touch.auxiliary",
+        "link.channel",
+        "runtime.worker",
+        "net.http"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/link-channel/main.tsx",
+    "output": "link-channel",
+    "framework": "solid",
+    "surfaces": {
+      "auxiliary": {
+        "fixed": {
+          "logical": [
+            320,
+            240
+          ],
+          "presentation": "native"
+        }
+      }
+    },
+    "viewport": {
+      "fixed": {
+        "logical": [
+          400,
+          240
+        ],
+        "presentation": "native"
+      }
+    }
+  },
+  "domains": {
+    "worker": {
+      "entry": "apps/link-channel/worker.ts",
+      "nodes": [
+        {
+          "name": "http",
+          "kind": "http"
+        }
+      ],
+      "channels": [
+        {
+          "name": "http",
+          "kind": "snapshot",
+          "direction": "worker-to-ui",
+          "recordBytes": 240,
+          "capacity": 1
+        }
+      ]
+    }
+  }
+}

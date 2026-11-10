@@ -6,7 +6,9 @@
 #include "fs.h"
 #include "instance.h"
 #include "launcher.h"
-#include "link.h"
+#include "link2_channel_qjs.h"
+#include "link2_guest.h"
+#include "link2_host.h"
 #include "media.h"
 #include "offload.h"
 #include "offload_coverage.h"
@@ -19,10 +21,11 @@
 #include "pocket/worker.h"
 #include "pocket/worker_ui.h"
 
+#include <malloc.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "devserver.h"
+#include "devstats.h"
 #include "pocket_core.h"
 #include "quickjs.h"
 #include "svcwire.h"
@@ -67,6 +70,8 @@ typedef enum {
   HostDbgConnected,
   HostDbgPoll,
   HostDbgSend,
+  HostDbgLog,
+  HostDbgMemory,
   HostDbgShot,
   HostLinkStatus,
   HostLinkPair,
@@ -75,6 +80,17 @@ typedef enum {
   HostLinkInstall,
   HostLinkRemove,
   HostLinkPoll,
+  HostChannelState,
+  HostChannelPoll,
+  HostChannelRequest,
+  HostChannelCancel,
+  HostChannelEmit,
+  HostChannelProgress,
+  HostChannelReply,
+  HostChannelRead,
+  HostChannelWrite,
+  HostChannelEnd,
+  HostChannelClose,
   HostWifiStatus,
   HostWifiSetEnabled,
   HostWifiConnect,
@@ -176,7 +192,7 @@ static void take_exception(void) {
       size_t room = sizeof last_error - 1 - used - 1;
       size_t copy = stack_length < room ? stack_length : room;
       last_error[used] = ' ';
-      /* Flattened: the error travels as one line, over the dev wire and into
+      /* Flattened: the error travels as one line, over the link and into
        * error.txt alike. */
       for (size_t i = 0; i < copy; i += 1)
         last_error[used + 1 + i] = frames[i] == '\n' ? ' ' : frames[i];
@@ -226,38 +242,28 @@ static void free_text(JSContext *ctx, const char *text) {
     JS_FreeCString(ctx, text);
 }
 
-/* Native typed-array access bypasses script getters and retains the backing
- * allocation until the synchronous product service has consumed the slice. */
-static int argument_bytes(JSContext *ctx, int argc, JSValueConst *argv,
-                          int index, const uint8_t **bytes, size_t *length,
-                          JSValue *lease) {
-  if (index >= argc)
-    return 0;
-  size_t size = 0;
-  uint8_t *data = JS_GetArrayBuffer(ctx, &size, argv[index]);
-  if (data) {
-    *lease = JS_DupValue(ctx, argv[index]);
-    *bytes = data;
-    *length = size;
-    return 1;
+// ---------------------------------------------------------------------------
+// link.channel
+// ---------------------------------------------------------------------------
+
+/* The bindings are link2_channel_qjs.c, which the host tests compile too. */
+static JSValue channel_operation(JSContext *ctx, int argc, JSValueConst *argv, HostOperation operation) {
+  Link2QjsOperation call;
+  switch (operation) {
+  case HostChannelState: call = LINK2_QJS_STATE; break;
+  case HostChannelPoll: call = LINK2_QJS_POLL; break;
+  case HostChannelRequest: call = LINK2_QJS_REQUEST; break;
+  case HostChannelCancel: call = LINK2_QJS_CANCEL; break;
+  case HostChannelEmit: call = LINK2_QJS_EMIT; break;
+  case HostChannelProgress: call = LINK2_QJS_PROGRESS; break;
+  case HostChannelReply: call = LINK2_QJS_REPLY; break;
+  case HostChannelRead: call = LINK2_QJS_READ; break;
+  case HostChannelWrite: call = LINK2_QJS_WRITE; break;
+  case HostChannelEnd: call = LINK2_QJS_END; break;
+  case HostChannelClose: call = LINK2_QJS_CLOSE; break;
+  default: return JS_UNDEFINED;
   }
-  JS_FreeValue(ctx, JS_GetException(ctx));
-  size_t offset = 0, view_length = 0, element = 0;
-  JSValue buffer =
-      JS_GetTypedArrayBuffer(ctx, argv[index], &offset, &view_length, &element);
-  if (JS_IsException(buffer)) {
-    JS_FreeValue(ctx, JS_GetException(ctx));
-    return 0;
-  }
-  data = JS_GetArrayBuffer(ctx, &size, buffer);
-  if (!data || offset > size || view_length > size - offset) {
-    JS_FreeValue(ctx, buffer);
-    return 0;
-  }
-  *lease = buffer;
-  *bytes = data + offset;
-  *length = view_length;
-  return 1;
+  return link2_channel_qjs(ctx, link2_host_client(), link2_host_channel(), call, argc, argv, debug_poll_buffer, sizeof debug_poll_buffer);
 }
 
 // ---------------------------------------------------------------------------
@@ -308,14 +314,16 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
   }
 #endif
   case HostDebugFrames:
-    return JS_NewString(ctx, devserver_debug_frames());
+    return JS_NewString(ctx, devstats_frames());
+  /* DevTools reaches the shim over the link's stream
+   * (docs/POCKET-LINK.md §6.3). The shim asks `active` once as it installs,
+   * which is how the program learns this guest has one. */
   case HostDbgActive:
-    return JS_NewBool(ctx, devserver_active());
+    return JS_NewBool(ctx, link2_host_devtools_active());
   case HostDbgConnected:
-    return JS_NewBool(ctx, devserver_connected());
+    return JS_NewBool(ctx, link2_host_devtools_listening());
   case HostDbgPoll: {
-    size_t length =
-        devserver_recv_ctrl(debug_poll_buffer, sizeof debug_poll_buffer);
+    size_t length = link2_host_devtools_poll(debug_poll_buffer, sizeof debug_poll_buffer);
     return length == 0 ? JS_UNDEFINED
                        : JS_NewStringLen(ctx, debug_poll_buffer, length);
   }
@@ -324,10 +332,75 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
       return JS_UNDEFINED;
     text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
     if (text != NULL) {
-      devserver_send_ctrl(text, text_length);
+      link2_host_devtools_send(text, text_length);
       JS_FreeCString(ctx, text);
+    } else {
+      JS_FreeValue(ctx, JS_GetException(ctx));
     }
     return JS_UNDEFINED;
+  /* A console line of the guest, for runtime.logs: it travels as a `log`
+   * event whether a DevTools panel listens or not. */
+  case HostDbgLog: {
+    if (argc < 2)
+      return JS_UNDEFINED;
+    const char *level = JS_ToCString(ctx, argv[0]);
+    text = JS_ToCStringLen2(ctx, &text_length, argv[1], 0);
+    /* A value that does not convert leaves no exception behind this call. */
+    if (level == NULL || text == NULL)
+      JS_FreeValue(ctx, JS_GetException(ctx));
+    if (level != NULL && text != NULL)
+      link2_host_report_guest_log(level, text, text_length);
+    if (level != NULL)
+      JS_FreeCString(ctx, level);
+    if (text != NULL)
+      JS_FreeCString(ctx, text);
+    return JS_UNDEFINED;
+  }
+  /* The process's memory, for a soak: newlib's heap in use and free, and the
+   * linear heap's free bytes. */
+  case HostDbgMemory: {
+    struct mallinfo heap = mallinfo();
+    char memory[360];
+    uint32_t pumps = 0, pump_mean = 0, pump_max = 0;
+    link2_host_pump_cost(&pumps, &pump_mean, &pump_max);
+    /* The guest's own heap as QuickJS counts it. With a true argument the
+     * cycle collector runs first and both figures are given: what falls
+     * between them was garbage waiting for a collection, not a leak. */
+    JSMemoryUsage usage;
+    int32_t detail = 0;
+    if (argc > 0 && JS_IsNumber(argv[0])) JS_ToInt32(ctx, &detail, argv[0]);
+    if (detail == 2) {
+      /* What the guest's heap holds by kind, after a collection: which kind
+       * grows says where a growth lives (strings, atoms, shapes, objects). */
+      JS_RunGC(JS_GetRuntime(ctx));
+      JS_ComputeMemoryUsage(JS_GetRuntime(ctx), &usage);
+      snprintf(memory, sizeof memory,
+               "{\"js\":%lu,\"used\":%lu,\"obj\":[%lu,%lu],\"prop\":[%lu,%lu],\"shape\":[%lu,%lu],\"str\":[%lu,%lu],\"atom\":[%lu,%lu],"
+               "\"func\":[%lu,%lu],\"array\":[%lu,%lu],\"binary\":[%lu,%lu]}",
+               (unsigned long)usage.malloc_size, (unsigned long)usage.memory_used_size,
+               (unsigned long)usage.obj_count, (unsigned long)usage.obj_size, (unsigned long)usage.prop_count, (unsigned long)usage.prop_size,
+               (unsigned long)usage.shape_count, (unsigned long)usage.shape_size, (unsigned long)usage.str_count, (unsigned long)usage.str_size,
+               (unsigned long)usage.atom_count, (unsigned long)usage.atom_size, (unsigned long)usage.js_func_count, (unsigned long)usage.js_func_size,
+               (unsigned long)usage.array_count, (unsigned long)usage.fast_array_elements, (unsigned long)usage.binary_object_count, (unsigned long)usage.binary_object_size);
+      return JS_NewString(ctx, memory);
+    }
+    JS_ComputeMemoryUsage(JS_GetRuntime(ctx), &usage);
+    unsigned long js = (unsigned long)usage.malloc_size, js_objects = (unsigned long)usage.obj_count;
+    unsigned long js_collected = js, js_objects_collected = js_objects;
+    if (argc > 0 && JS_ToBool(ctx, argv[0])) {
+      JS_RunGC(JS_GetRuntime(ctx));
+      JS_ComputeMemoryUsage(JS_GetRuntime(ctx), &usage);
+      js_collected = (unsigned long)usage.malloc_size;
+      js_objects_collected = (unsigned long)usage.obj_count;
+      heap = mallinfo();
+    }
+    snprintf(memory, sizeof memory,
+             "{\"heapUsed\":%lu,\"heapFree\":%lu,\"heapArena\":%lu,\"linearFree\":%lu,\"pumps\":%lu,\"pumpUs\":%lu,\"pumpMaxUs\":%lu,"
+             "\"js\":%lu,\"jsObjects\":%lu,\"jsAfterGc\":%lu,\"jsObjectsAfterGc\":%lu}",
+             (unsigned long)heap.uordblks, (unsigned long)heap.fordblks, (unsigned long)heap.arena, (unsigned long)linearSpaceFree(),
+             (unsigned long)pumps, (unsigned long)pump_mean, (unsigned long)pump_max, js, js_objects, js_collected, js_objects_collected);
+    return JS_NewString(ctx, memory);
+  }
   case HostOffloadCoverage: {
     if (coverage_used || argc < 4 || !JS_IsString(argv[0]))
       return JS_NewInt32(ctx, -1);
@@ -404,9 +477,9 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
                   : JS_UNDEFINED;
   }
   case HostDbgShot:
-    return JS_NewBool(ctx, devserver_request_screenshot());
+    return JS_NewBool(ctx, link2_host_request_screenshot());
   case HostLinkStatus:
-    return JS_NewString(ctx, link_status_json());
+    return JS_NewString(ctx, link2_guest_status_json());
   case HostLinkPair:
   case HostLinkForget:
   case HostLinkInstall:
@@ -418,23 +491,40 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
     if (text == NULL)
       return is_bool ? JS_FALSE : JS_NewInt32(ctx, -1);
     JSValue result;
+    /* Pairing is written at the first install (docs/POCKET-LINK.md §3):
+     * `pair` stays for packages that call it and starts nothing. */
     if (magic == HostLinkPair)
-      result = JS_NewBool(ctx, link_pair(text, text_length));
+      result = JS_FALSE;
     else if (magic == HostLinkForget)
-      result = JS_NewBool(ctx, link_forget(text));
+      result = JS_NewBool(ctx, link2_guest_forget(text));
     else if (magic == HostLinkRemove)
-      result = JS_NewBool(ctx, link_remove(text, text_length));
+      result = JS_NewBool(ctx, link2_guest_remove(text, text_length));
     else
-      result = JS_NewInt32(ctx, link_install(text, text_length));
+      result = JS_NewInt32(ctx, link2_guest_install(text, text_length));
     JS_FreeCString(ctx, text);
     return result;
   }
   case HostLinkCatalog:
-    return JS_NewInt32(ctx, link_catalog());
+    return JS_NewInt32(ctx, link2_guest_catalog());
   case HostLinkPoll: {
-    const char *batch = link_poll();
+    const char *batch = link2_guest_poll();
     return batch == NULL ? JS_UNDEFINED : JS_NewString(ctx, batch);
   }
+  /* `link.channel`: the running applet's channel to its daemon
+   * (docs/POCKET-LINK.md §7.3). The client keeps the ids, the windows and the
+   * per-frame budgets; these calls move whole JSON objects and byte chunks. */
+  case HostChannelState:
+  case HostChannelPoll:
+  case HostChannelRequest:
+  case HostChannelCancel:
+  case HostChannelEmit:
+  case HostChannelProgress:
+  case HostChannelReply:
+  case HostChannelRead:
+  case HostChannelWrite:
+  case HostChannelEnd:
+  case HostChannelClose:
+    return channel_operation(ctx, argc, argv, (HostOperation)magic);
   case HostWifiStatus:
     return JS_NewString(ctx, wifi_status_json());
   case HostWifiSetEnabled:
@@ -636,6 +726,8 @@ static int32_t install_host(void) {
   add_operation(ui, "__dbgConnected", 0, HostDbgConnected);
   add_operation(ui, "__dbgPoll", 0, HostDbgPoll);
   add_operation(ui, "__dbgSend", 1, HostDbgSend);
+  add_operation(ui, "__dbgLog", 2, HostDbgLog);
+  add_operation(ui, "__dbgMemory", 0, HostDbgMemory);
   add_operation(ui, "__dbgShot", 0, HostDbgShot);
   JS_FreeValue(context, ui);
 
@@ -647,6 +739,22 @@ static int32_t install_host(void) {
   add_operation(link, "install", 1, HostLinkInstall);
   add_operation(link, "remove", 1, HostLinkRemove);
   add_operation(link, "poll", 0, HostLinkPoll);
+  /* Only a guest that declared "link.channel" has its applet channel. */
+  if (link2_host_channel_declared()) {
+    JSValue channel = JS_NewObject(context);
+    add_operation(channel, "state", 0, HostChannelState);
+    add_operation(channel, "poll", 0, HostChannelPoll);
+    add_operation(channel, "request", 2, HostChannelRequest);
+    add_operation(channel, "cancel", 1, HostChannelCancel);
+    add_operation(channel, "emit", 2, HostChannelEmit);
+    add_operation(channel, "progress", 2, HostChannelProgress);
+    add_operation(channel, "reply", 3, HostChannelReply);
+    add_operation(channel, "read", 2, HostChannelRead);
+    add_operation(channel, "write", 2, HostChannelWrite);
+    add_operation(channel, "end", 1, HostChannelEnd);
+    add_operation(channel, "close", 1, HostChannelClose);
+    JS_SetPropertyStr(context, link, "channel", channel);
+  }
   JS_SetPropertyStr(context, global, "link", link);
 
   /* The worker declared its channels during bootstrap, before this realm

@@ -531,6 +531,7 @@ describe("semantic resolution", () => {
       im: [true, true, false, true],
       "iphone16-demo": [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
       "ipodtouch-demo": [false, false, false, false], // admitted only by the private ipodtouch-dev profile
+      "link-channel": [false, false, false, false], // requires the private 3ds-dev profile: its auxiliary display and the link.channel capability
       nexus: [false, false, false, false], // requires the private 3ds-dev profile's auxiliary display, auxiliary touch and ui.physics
       "nexus-touch": [false, false, false, false], // touch + ui.physics on a fixed 320x480 surface: the private ipodtouch4-dev profile
       nsengine: [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract

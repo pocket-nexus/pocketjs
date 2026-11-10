@@ -30,6 +30,7 @@
     "input.cursor",
     "input.touch.auxiliary",
     "io.offload",
+    "link.channel",
     "link.companion",
     "media.playback",
     "net.http",

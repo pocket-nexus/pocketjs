@@ -51,7 +51,7 @@
 #include "worker.h"
 #include "offload.h"
 #include "media.h"
-#include "devserver.h"
+#include "devstats.h"
 #include "devmenu.h"
 #include "hbldr.h"
 #include "native.h"
@@ -61,7 +61,8 @@
 #include "camera.h"
 #include "fs.h"
 #include "launcher.h"
-#include "link.h"
+#include "link2_guest.h"
+#include "link2_host.h"
 #include "services_host.h"
 #include "wifi.h"
 #include "transition.h"
@@ -180,6 +181,26 @@ static bool stage_ready;
 #else
 #define LOOP_STEP(name) ((void)0)
 #endif
+
+/* The runtime's lifecycle goes to the Pocket Link (link2_host.h) and to the
+ * counters a DevTools panel reads (devstats.h). */
+static void report_runtime(
+  const PocketRuntimeState *state,
+  const PocketRuntimePackage *package,
+  const char *phase,
+  uint32_t frame
+) {
+  devstats_set_runtime(state, package, frame);
+  link2_host_set_runtime(state, package, phase, frame);
+}
+
+static void report_install(const char *phase, uint64_t hash, const char *message) {
+  link2_host_report_install(phase, hash, message);
+}
+
+static void report_log(const char *level, const char *message) {
+  link2_host_report_log(level, message);
+}
 
 /* Set around qjs_frame, for the interrupt hook (guest_interrupt). */
 static bool guest_frame_running;
@@ -543,6 +564,9 @@ static bool boot_guest(
    * qjs_boot and may fetch: the launcher learns the app before it starts. */
   LauncherPackage facts = launcher_package(package);
   launcher_set_current(runtime_slot(), &facts);
+  /* The guest's first lines may use its applet channel: it opens before
+   * qjs_boot publishes `globalThis.channel`. */
+  link2_host_guest_begin(package);
   /* data.fs: the guest's tree is its own slot's data directory, bound before
    * qjs_boot publishes `globalThis.fs`. A card that cannot hold it leaves
    * the namespace out, as on a host without the capability; so does a
@@ -577,6 +601,7 @@ static bool boot_guest(
   agent_set_enabled(agent);
   if (!run_bundle(package, error, error_length)) {
     qjs_shutdown();
+    link2_host_guest_end();
     gfx_reset_resources();
     fs_unbind();
     return false;
@@ -590,7 +615,7 @@ static void teardown_guest(void) {
    * install still streaming) and drop what belonged to this guest. */
   camera_teardown();
   qjs_shutdown();
-  link_reset_guest();
+  link2_host_guest_end();
   fs_unbind();
   agent_set_enabled(false);
   gfx_reset_resources();
@@ -741,8 +766,8 @@ static void accept_guest(
   choice->commit_on_accept = false;
   runtime_failure_lineage_reset(failures);
   runtime_write_status(state, choice->package, "accepted");
-  devserver_set_runtime(state, choice->package, "accepted", frame);
-  devserver_report_install("accepted", accepted_hash, "first PICA command list retired");
+  report_runtime(state, choice->package, "accepted", frame);
+  report_install("accepted", accepted_hash, "first PICA command list retired");
 }
 
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
@@ -849,8 +874,8 @@ static void recover_running_guest(
   *choice = recovery_choice(state, embedded, failures);
   char fatal[256] = {0};
   if (!boot_with_recovery(choice, state, embedded, failures, fatal, sizeof fatal)) fail(fatal);
-  devserver_set_runtime(state, choice->package, "recovered", run_frame);
-  devserver_report_install(
+  report_runtime(state, choice->package, "recovered", run_frame);
+  report_install(
     candidate ? "rejected" : "recovered",
     rejected,
     message
@@ -906,15 +931,15 @@ static void install_candidate(
   if (!boot_with_recovery(choice, state, embedded, failures, error, error_length)) fail(error);
   if (choice->state_hash == candidate_hash) {
     if (choice->commit_on_accept) {
-      devserver_set_runtime(state, choice->package, "candidate", *run_frame);
-      devserver_report_install("staged", candidate_hash, "guest booted; waiting for retired frame");
+      report_runtime(state, choice->package, "candidate", *run_frame);
+      report_install("staged", candidate_hash, "guest booted; waiting for retired frame");
     } else {
-      devserver_set_runtime(state, choice->package, "booted", *run_frame);
-      devserver_report_install("accepted", candidate_hash, "package already active; guest restarted");
+      report_runtime(state, choice->package, "booted", *run_frame);
+      report_install("accepted", candidate_hash, "package already active; guest restarted");
     }
   } else {
-    devserver_set_runtime(state, choice->package, "recovered", *run_frame);
-    devserver_report_install("rejected", candidate_hash, error);
+    report_runtime(state, choice->package, "recovered", *run_frame);
+    report_install("rejected", candidate_hash, error);
   }
   *run_frame += 1;
 }
@@ -1062,30 +1087,33 @@ static void switch_guest(
   teardown_guest();
   release_choice(choice, embedded);
   runtime_failure_lineage_reset(failures);
+  /* The install's report follows the runtime's: its reply names the guest
+   * that runs now (generation, app), not the one that just left. */
+  const char *install_phase = NULL;
+  const char *install_message = "";
+  char error[256] = {0};
+  bool rejected = false;
   if (target->home) {
     runtime_package_free(candidate);
     boot_home(choice, state, embedded, failures);
-    if (report_hash != 0) devserver_report_install("accepted", report_hash, "launcher package committed and booted");
+    install_phase = "accepted";
+    install_message = "launcher package committed and booted";
+  } else if (boot_app(choice, state, target, candidate, error, sizeof error)) {
+    install_phase = choice->commit_on_accept ? "staged" : "accepted";
+    install_message = choice->commit_on_accept ? "app booted in its own slot; waiting for retired frame" : "app committed in its own slot and launched";
   } else {
-    char error[256] = {0};
-    if (boot_app(choice, state, target, candidate, error, sizeof error)) {
-      if (report_hash != 0) {
-        if (choice->commit_on_accept) {
-          devserver_report_install("staged", report_hash, "app booted in its own slot; waiting for retired frame");
-        } else {
-          devserver_report_install("accepted", report_hash, "app committed in its own slot and launched");
-        }
-      }
-    } else {
-      /* The app's slot is still selected when boot_app got that far. */
-      if (strcmp(runtime_slot(), target->slot) == 0) runtime_write_error("boot-guest", error);
-      launcher_report_failure(target->output, error);
-      if (report_hash != 0) devserver_report_install("rejected", report_hash, error);
-      boot_home(choice, state, embedded, failures);
-    }
+    /* The app's slot is still selected when boot_app got that far. */
+    if (strcmp(runtime_slot(), target->slot) == 0) runtime_write_error("boot-guest", error);
+    launcher_report_failure(target->output, error);
+    rejected = true;
+    boot_home(choice, state, embedded, failures);
   }
   select_latched = true;
-  devserver_set_runtime(state, choice->package, choice->commit_on_accept ? "candidate" : "booted", *run_frame);
+  /* A rejected package is reported before the home that replaces it boots
+   * into the status: its reply carries no guest. */
+  if (rejected && report_hash != 0) report_install("rejected", report_hash, error);
+  report_runtime(state, choice->package, choice->commit_on_accept ? "candidate" : "booted", *run_frame);
+  if (!rejected && report_hash != 0) report_install(install_phase, report_hash, install_message);
   *run_frame += 1;
 }
 
@@ -1102,6 +1130,8 @@ static void fail_to_home(
 ) {
   runtime_write_error(phase, message);
   launcher_report_failure(launcher_current_output(), message);
+  /* The guest's own exception, for a client that follows the logs. */
+  report_log("error", message);
   bool candidate = choice->commit_on_accept;
   uint64_t rejected = choice->state_hash;
   /* A failing candidate is never accepted on the way out. */
@@ -1111,7 +1141,7 @@ static void fail_to_home(
   snprintf(home.slot, sizeof home.slot, "%s", launcher_home_slot());
   home.home = true;
   switch_guest(choice, state, embedded, failures, &home, NULL, 0, run_frame);
-  if (candidate) devserver_report_install("rejected", rejected, message);
+  if (candidate) report_install("rejected", rejected, message);
 }
 
 /* A dev-wire package for an app other than the running one: commit it in
@@ -1135,7 +1165,7 @@ static bool route_upload(
   PocketRuntimePackage *installed = runtime_slot_install(slot, POCKET_RUNTIME_UPLOAD, upload_hash, state, error, sizeof error);
   if (installed == NULL) {
     runtime_write_error("network-package", error);
-    devserver_report_install("rejected", upload_hash, error);
+    report_install("rejected", upload_hash, error);
     return true;
   }
   LauncherPackage facts = launcher_package(installed);
@@ -1232,22 +1262,17 @@ int main(void) {
     fail(runtime_error);
   }
   native_set_running_path(__system_argc > 0 ? __system_argv[0] : NULL);
-  DevserverInitResult devserver_result = devserver_init(
-    &runtime_state,
-    runtime_error,
-    sizeof runtime_error
-  );
-  if (devserver_result == DEVSERVER_ERROR) {
-    /* Pairing/network failure must not make the accepted guest unbootable.
-     * Persist it for the next FTP inspection and continue without DevTools.
-     * The main loop retries: socInit fails transiently when the app starts
-     * while WiFi is still re-associating (e.g. right after ftpd exits). */
-    runtime_write_error("devserver-init", runtime_error);
-  }
+  /* The sockets the link, the service wire and the worker use. A failure
+   * must not make the accepted guest unbootable: it is kept for the next
+   * inspection of the card, and the main loop asks again, because socInit
+   * fails for a moment when the program starts while Wi-Fi is still
+   * re-associating (right after ftpd exits, for one). */
+  bool soc_up = soc_ensure(runtime_error, sizeof runtime_error);
+  if (!soc_up) runtime_write_error("soc-init", runtime_error);
   LauncherPackage home = launcher_package(embedded);
   launcher_init(embedded->guest.slot, &home);
   services_host_bind_runtime(&runtime_state);
-  link_init();
+  link2_host_init(embedded);
   qjs_set_interrupt(guest_interrupt);
 #endif
   PocketRuntimeFailureLineage failures = {0};
@@ -1273,7 +1298,7 @@ int main(void) {
     fail(runtime_error);
   }
 #ifndef POCKETJS_CAPTURE
-  devserver_set_runtime(
+  report_runtime(
     &runtime_state,
     guest.package,
     guest.commit_on_accept ? "candidate" : "booted",
@@ -1316,45 +1341,25 @@ int main(void) {
 #ifdef POCKETJS_EXTENSION
     if (pocket_extension_quit_requested()) break;
 #endif
-    if (devserver_result == DEVSERVER_ERROR && run_frame % 300 == 299) {
+    if (!soc_up && run_frame % 300 == 299) {
       /* One retry every ~5 s until the transient boot-time failure clears. */
-      devserver_result = devserver_init(&runtime_state, runtime_error, sizeof runtime_error);
-      if (devserver_result == DEVSERVER_READY) {
-        devserver_set_runtime(
-          &runtime_state,
-          guest.package,
-          guest.commit_on_accept ? "candidate" : "booted",
-          run_frame
-        );
-      }
+      soc_up = soc_ensure(runtime_error, sizeof runtime_error);
     }
-    LOOP_STEP("dev connection");
-    devserver_poll();
     LOOP_STEP("service wire");
     svcwire_pump();
     LOOP_STEP("worker service");
     pocket_3ds_worker_service();
     LOOP_STEP("link");
-    link_pump();
+    link2_host_pump();
     LOOP_STEP("worker service 2");
     pocket_3ds_worker_service();
     LOOP_STEP("wifi");
     wifi_pump();
     LOOP_STEP("loop");
-    {
-      /* An installed or named .3dsx starts when this process exits: the same
-       * hand-off the Homebrew Launcher makes, so the loop ends here. */
-      char launch_name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
-      char launch_path[POCKET_NATIVE_PATH_BYTES];
-      if (devserver_take_launch(launch_name) && native_path_for(launch_name, launch_path)) {
-        if (hbldr_launch_on_exit(launch_path, runtime_error, sizeof runtime_error)) {
-          devserver_report_native("launching", launch_name, "exiting to start it");
-          devserver_flush(1000);
-          break;
-        }
-        devserver_report_native("launch-error", launch_name, runtime_error);
-      }
-    }
+    /* A .3dsx armed over the link starts when this process exits, the same
+     * hand-off the Homebrew Launcher makes; its reply and the CLOSE have
+     * left (link2_host.c). */
+    if (link2_host_exit_requested()) break;
     if (launcher_pending()) {
       /* A switch starts once the leaving scrim covers the old guest. */
       u64 now = osGetTime();
@@ -1372,12 +1377,12 @@ int main(void) {
     if (devmenu_visible() && input_devmenu_close_requested()) devmenu_hide();
     if (devmenu_visible() && input_devmenu_screenshot_requested()) {
       devmenu_set_notice(
-        devserver_request_screenshot() ? "SHOT QUEUED" : "NO DEV CLIENT"
+        link2_host_request_screenshot() ? "SHOT QUEUED" : "NOT LINKED"
       );
     }
     bool devmenu_blocks_guest = input_devmenu_blocks_guest(devmenu_visible());
     uint64_t upload_hash = 0;
-    if (devserver_take_upload(&upload_hash)) {
+    if (link2_host_take_upload(&upload_hash)) {
       if (route_upload(&guest, &runtime_state, embedded, &failures, upload_hash, &run_frame)) continue;
       PocketRuntimePackage *uploaded = NULL;
       RuntimePendingResult result = runtime_prepare_file(
@@ -1397,7 +1402,7 @@ int main(void) {
           );
         }
         runtime_write_error("network-package", runtime_error);
-        devserver_report_install("rejected", upload_hash, runtime_error);
+        report_install("rejected", upload_hash, runtime_error);
       } else {
         install_candidate(
           &guest,
@@ -1489,7 +1494,7 @@ int main(void) {
 #ifndef POCKETJS_CAPTURE
     if (devmenu_visible()) {
       char link_line[48];
-      link_describe(link_line, sizeof link_line);
+      link2_guest_describe(link_line, sizeof link_line);
       devmenu_set_link_line(link_line);
     }
 #endif
@@ -1501,6 +1506,8 @@ int main(void) {
     if (transition == TRANSITION_ARRIVING) transition_advance(transition_now);
     u64 offload_cpu_start = svcGetSystemTick();
     u64 phase_js __attribute__((unused)) = offload_cpu_start;
+    LOOP_STEP("link before the frame");
+    link2_host_before_frame();
     guest_frame_started = svcGetSystemTick();
     guest_frame_running = true;
     LOOP_STEP("guest frame");
@@ -1550,7 +1557,7 @@ int main(void) {
       static u64 previous_js;
       static uint32_t previous_frame = UINT32_MAX;
       if (previous_frame != UINT32_MAX && run_frame == previous_frame + 1) {
-        devserver_set_frame_timing(
+        devstats_set_frame_timing(
           ticks_to_us(phase_tick - phase_js),
           0, /* Internal tick/layout/render phases belong to the runtime. */
           0,
@@ -1566,37 +1573,27 @@ int main(void) {
       previous_frame = run_frame;
     }
     guest.submitted_frames += 1;
-    devserver_set_frame_stats(
+    devstats_set_frame_stats(
       run_frame,
       gfx_frame_commands(),
       gfx_frame_vertices(),
       gfx_dropped_vertices()
     );
-    if (devserver_take_screenshot_request()) {
+    link2_host_set_frame(run_frame);
+    if (link2_host_take_screenshot_request()) {
+      /* runtime.screenshot, asked for by Hub or sent from the dev menu: the
+       * canonical tick has retired both surfaces, and both targets are
+       * copied into buffers the link streams and frees before the next tick
+       * can overwrite either. */
       uint8_t *top_rgb = NULL;
       uint8_t *auxiliary_rgb = NULL;
-      if (devserver_screenshot_begin(
-            run_frame,
-            VIEW_W,
-            VIEW_H,
-            AUX_VIEW_W,
-            AUX_VIEW_H,
-            &top_rgb,
-            &auxiliary_rgb
-          )) {
-        /* Canonical tick has retired both surfaces. Copy both targets before
-         * the next tick can overwrite either. */
+      if (link2_host_screenshot_begin(run_frame, VIEW_W, VIEW_H, AUX_VIEW_W, AUX_VIEW_H, &top_rgb, &auxiliary_rgb)) {
         gspWaitForVBlank();
         read_surface_rgb8(primary_target, VIEW_W, VIEW_H, top_rgb);
-        read_surface_rgb8(
-          auxiliary_target,
-          AUX_VIEW_W,
-          AUX_VIEW_H,
-          auxiliary_rgb
-        );
-        devserver_screenshot_ready();
+        read_surface_rgb8(auxiliary_target, AUX_VIEW_W, AUX_VIEW_H, auxiliary_rgb);
+        link2_host_screenshot_ready();
       } else {
-        devserver_report_log("error", "screenshot: linear buffer allocation failed");
+        report_log("error", "screenshot: linear buffer allocation failed");
       }
     }
     run_frame += 1;
@@ -1652,10 +1649,9 @@ int main(void) {
   release_choice(&guest, embedded);
   runtime_package_free(embedded);
 #ifndef POCKETJS_CAPTURE
-  link_shutdown();
+  link2_host_shutdown();
   wifi_shutdown();
   svcwire_shutdown();
-  devserver_shutdown();
   soc_shutdown();
   devmenu_shutdown();
 #endif

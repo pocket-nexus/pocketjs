@@ -19,7 +19,7 @@
  *
  * Like the Vita transport this host never blocks a frame on the network:
  * every socket is non-blocking and svcwire_pump does a bounded amount of
- * work per call. Unlike the Vita there are no threads — the devserver.c
+ * work per call. Unlike the Vita there are no threads — the link's
  * discipline, because the pump already runs at 60 Hz next to it.
  *
  * Under POCKETJS_CAPTURE the whole transport is compiled out to inert
@@ -45,8 +45,21 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "dev_protocol.h"
 #include "soc.h"
+
+/* Little-endian fields of the beacon and the wire's header. */
+static uint16_t svc_read_u16(const uint8_t *bytes) {
+  return (uint16_t)(bytes[0] | (bytes[1] << 8));
+}
+static uint32_t svc_read_u32(const uint8_t *bytes) {
+  return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+}
+static void svc_write_u32(uint8_t *bytes, uint32_t value) {
+  bytes[0] = (uint8_t)value;
+  bytes[1] = (uint8_t)(value >> 8);
+  bytes[2] = (uint8_t)(value >> 16);
+  bytes[3] = (uint8_t)(value >> 24);
+}
 
 #define SVC_WIRE_MAGIC 0x544e4b50u /* 'PKNT' little-endian */
 #define SVC_BEACON_MAGIC 0x42444b50u /* 'PKDB' little-endian */
@@ -183,9 +196,9 @@ static bool poll_beacon(struct sockaddr_in *out) {
     if (length <= 0) break;
     if (found || out == NULL) continue;
     if ((size_t)length < 10) continue;
-    if (pocket_runtime_read_u32(datagram) != SVC_BEACON_MAGIC) continue;
+    if (svc_read_u32(datagram) != SVC_BEACON_MAGIC) continue;
     if (datagram[4] != SVC_WIRE_VERSION) continue;
-    uint16_t port = pocket_runtime_read_u16(datagram + 6);
+    uint16_t port = svc_read_u16(datagram + 6);
     size_t app_length = datagram[8];
     if (9 + app_length > (size_t)length) continue;
     if (app_length != strlen(app_id)) continue;
@@ -280,7 +293,7 @@ static void pump_discover(void) {
 static void queue_hello(void) {
   size_t app_length = strlen(app_id);
   uint8_t hello[7 + sizeof app_id];
-  pocket_runtime_write_u32(hello, SVC_WIRE_MAGIC);
+  svc_write_u32(hello, SVC_WIRE_MAGIC);
   hello[4] = SVC_WIRE_VERSION;
   hello[5] = 0;
   hello[6] = (uint8_t)app_length;
@@ -321,7 +334,7 @@ static bool queue_frame(uint8_t type, const uint8_t *payload, size_t length) {
   at[1] = 0;
   at[2] = 0;
   at[3] = 0;
-  pocket_runtime_write_u32(at + 4, (uint32_t)length);
+  svc_write_u32(at + 4, (uint32_t)length);
   if (length > 0) memcpy(at + SVC_WIRE_HEADER_BYTES, payload, length);
   tx_length += SVC_WIRE_HEADER_BYTES + length;
   return true;
@@ -394,7 +407,7 @@ static void pump_rx(void) {
 
     if (state == SVC_STATE_HELLO_WAIT) {
       if (rx_length < 8) return;
-      if (pocket_runtime_read_u32(rx_buffer) != SVC_WIRE_MAGIC ||
+      if (svc_read_u32(rx_buffer) != SVC_WIRE_MAGIC ||
           rx_buffer[4] != SVC_WIRE_VERSION) {
         drop_to_backoff();
         return;
@@ -406,7 +419,7 @@ static void pump_rx(void) {
 
     bool progressed = false;
     while (rx_length >= SVC_WIRE_HEADER_BYTES) {
-      uint32_t payload_length = pocket_runtime_read_u32(rx_buffer + 4);
+      uint32_t payload_length = svc_read_u32(rx_buffer + 4);
       if (rx_buffer[2] != 0 || rx_buffer[3] != 0 || payload_length > SVC_WIRE_MAX_PAYLOAD) {
         drop_to_backoff();
         return;

@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "native.h"
+#include "link2_proto.h"
 
 /* A 3DSX header is 0x20 bytes: every fixture file is at least that long. */
 #define BODY "................................"
@@ -36,7 +37,7 @@ static PocketRuntimeNativeBegin header(const char *name, const char *bytes, uint
   PocketRuntimeNativeBegin begin;
   memset(&begin, 0, sizeof begin);
   begin.length = (uint32_t)strlen(bytes);
-  begin.crc32 = pocket_runtime_crc32(0, (const uint8_t *)bytes, strlen(bytes));
+  begin.crc32 = link2_crc32(0, (const uint8_t *)bytes, strlen(bytes));
   begin.flags = flags;
   snprintf(begin.name, sizeof begin.name, "%s", name);
   return begin;

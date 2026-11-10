@@ -1,5 +1,5 @@
 /*
- * .3dsx installation for the Pocket Runtime development connection.
+ * .3dsx installation for the Pocket Link's runtime.native.install.
  *
  * Plain stdio and rename: the same file compiles on the host for tests
  * (tests/fixtures/3ds-native-install.c), where "sdmc:" is a directory.
@@ -7,6 +7,7 @@
 
 #include "native.h"
 #include "error_text.h"
+#include "link2_proto.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -47,7 +48,7 @@ void native_set_running_path(const char *path) {
 }
 
 bool native_path_for(const char *name, char out[POCKET_NATIVE_PATH_BYTES]) {
-  if (name == NULL || !pocket_runtime_native_name_valid(name, strlen(name))) return false;
+  if (name == NULL || !link2_valid_native_name(name, strlen(name))) return false;
   int written = snprintf(out, POCKET_NATIVE_PATH_BYTES, "%s/%s", POCKET_NATIVE_DIR, name);
   return written > 0 && (size_t)written < POCKET_NATIVE_PATH_BYTES;
 }
@@ -115,7 +116,7 @@ bool native_write(
   for (size_t index = 0; index < length && offset + index < sizeof upload_magic; index += 1) {
     upload_magic[offset + index] = bytes[index];
   }
-  upload_crc = pocket_runtime_crc32(upload_crc, bytes, length);
+  upload_crc = link2_crc32(upload_crc, bytes, length);
   upload_received += (uint32_t)length;
   return true;
 }

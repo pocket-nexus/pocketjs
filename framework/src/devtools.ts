@@ -30,6 +30,9 @@ export interface DevtoolsTransport {
    *  false the shim sends no tree or stats snapshots and no console lines;
    *  the first frame after a panel attaches sends the tree. */
   listening?: () => boolean;
+  /** A host that carries console lines apart from a panel: every console
+   *  line goes here, whether a panel listens or not. */
+  log?: (level: string, text: string) => void;
 }
 
 /** Input tape: the complete session input, RLE-encoded (docs/DEVTOOLS.md §4). */
@@ -276,6 +279,7 @@ export function initDevtools(ops: HostOps): void {
       recv: () => ops.__dbgPoll!(),
       everyFrames: 10,
       listening: ops.__dbgConnected ? () => ops.__dbgConnected!() : undefined,
+      log: ops.__dbgLog ? (level, text) => ops.__dbgLog!(level, text) : undefined,
     };
   } else {
     state.transport = null;
@@ -910,7 +914,7 @@ function bridgeConsole(): void {
   if (!g.console) g.console = {};
   const c = g.console as Record<string, (...a: unknown[]) => void> & { __pocketBridge?: { current: ConsoleBridge } };
   const bridge: ConsoleBridge = state.transport
-    ? { send, listening: panelListening }
+    ? { send, listening: panelListening, log: state.transport.log }
     : { send() {}, listening: () => false };
   // A second bundle in the same realm takes over the existing mirror or
   // detaches it when no transport is present, releasing the retired shim.
@@ -926,6 +930,7 @@ function bridgeConsole(): void {
     const original = c[level];
     c[level] = (...args: unknown[]) => {
       if (holder.current.listening()) holder.current.send({ t: "log", level, args: args.map((a) => fmt(a)) });
+      holder.current.log?.(level, args.map((a) => fmt(a)).join(" "));
       // On PSP the original is prelude.ts's no-op stub; elsewhere keep the
       // native console working too.
       original?.apply(c, args);
@@ -937,6 +942,7 @@ function bridgeConsole(): void {
 interface ConsoleBridge {
   send(msg: unknown): void;
   listening(): boolean;
+  log?: (level: string, text: string) => void;
 }
 
 /** Depth/size-capped repr for eval results and console args. */

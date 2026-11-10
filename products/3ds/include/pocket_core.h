@@ -37,6 +37,7 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_FS 8u      /* features["data.fs"] */
 #define POCKET_GUEST_FEATURE_CAMERA_QR 16u    /* features["camera.qr"] */
 #define POCKET_GUEST_FEATURE_EXTENSION 64u  /* features["system.extension"] */
+#define POCKET_GUEST_FEATURE_CHANNEL 128u   /* features["link.channel"] */
 #define POCKET_GUEST_FEATURE_CAMERA_PHOTO 32u /* features["camera.photo"] */
 
 /* Returns the POCKET_PACKAGE_OPEN_* codes of pocket_runtime.h.

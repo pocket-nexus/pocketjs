@@ -11,7 +11,6 @@
 #include <ctype.h>
 #include <stdio.h>
 
-#include "devserver.h"
 
 #define DRAW_RECT 1u
 #define MENU_WORD_CAPACITY 12288u
@@ -179,16 +178,16 @@ const uint32_t *devmenu_draw_list(size_t *length) {
   *length = 0;
   if (!devmenu_visible()) return NULL;
 
-  DevserverSnapshot state;
-  devserver_snapshot(&state);
-  if (!link_state_known || state.connected != last_connected) {
+  DevmenuSnapshot state;
+  devmenu_snapshot(&state);
+  if (!link_state_known || state.linked != last_connected) {
     snprintf(
       notice,
       sizeof notice,
       "%s",
-      state.connected ? "CLIENT READY" : "WAITING FOR CLIENT"
+      state.linked ? "LINKED" : "NOT LINKED"
     );
-    last_connected = state.connected;
+    last_connected = state.linked;
     link_state_known = true;
   }
   word_count = 0;
@@ -196,9 +195,9 @@ const uint32_t *devmenu_draw_list(size_t *length) {
   const uint32_t white = ABGR(248, 250, 252, 255);
   const uint32_t muted = ABGR(148, 163, 184, 255);
   const uint32_t cyan = ABGR(103, 232, 249, 255);
-  const uint32_t link = state.connected
+  const uint32_t link = state.linked
     ? ABGR(74, 222, 128, 255)
-    : state.discoverable
+    : state.paired
       ? ABGR(250, 204, 21, 255)
       : ABGR(248, 113, 113, 255);
 
@@ -210,30 +209,31 @@ const uint32_t *devmenu_draw_list(size_t *length) {
   char line[96];
   snprintf(line, sizeof line, "3DS ABI %u", (unsigned)state.host_abi);
   text(238, 12, 1, cyan, line);
-  text(14, 43, 1, muted, "DEV LINK");
+  text(14, 43, 1, muted, "LINK");
   text(
     94,
     39,
     2,
     link,
-    state.connected
-      ? "CONNECTED"
-      : state.discoverable
-        ? "DISCOVERABLE"
-        : state.enabled
-          ? "TCP ONLY"
-          : "NOT PAIRED"
+    state.linked ? "LINKED" : state.paired ? "SEARCHING" : "NOT PAIRED"
   );
 
-  if (state.enabled) snprintf(line, sizeof line, "%s:%u", state.ip, (unsigned)state.port);
-  else snprintf(line, sizeof line, "START FTPD THEN PAIR --HOST IP");
-  text(14, 67, state.enabled ? 2 : 1, white, line);
+  if (state.paired) snprintf(line, sizeof line, "%s", state.ip);
+  else snprintf(line, sizeof line, "START FTPD THEN SETUP --HOST IP");
+  text(14, 67, state.paired ? 2 : 1, white, line);
 
+  /* The font has capitals only. */
+  char device[17];
+  for (size_t i = 0; i < sizeof device; i += 1) {
+    char c = state.device[i];
+    device[i] = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
+  }
+  device[sizeof device - 1] = '\0';
   snprintf(
     line,
     sizeof line,
-    "ID %016llX  GEN %lu",
-    (unsigned long long)state.device_id,
+    "ID %s  GEN %lu",
+    device,
     (unsigned long)state.generation
   );
   text(14, 91, 1, muted, line);
@@ -248,19 +248,18 @@ const uint32_t *devmenu_draw_list(size_t *length) {
   snprintf(
     line,
     sizeof line,
-    "UP %lu SHOT %lu CONN %lu ERR %lu",
-    (unsigned long)state.uploads,
+    "PUSH %lu SHOT %lu LINKS %lu",
+    (unsigned long)state.pushes,
     (unsigned long)state.screenshots,
-    (unsigned long)state.connects,
-    (unsigned long)(state.auth_failures + state.timeouts)
+    (unsigned long)state.links
   );
   text(14, 119, 1, muted, line);
   snprintf(line, sizeof line, "POCKET LINK %s", link_line);
   text(14, 131, 1, cyan, line);
 
   rect(12, 143, 296, 58, ABGR(15, 23, 42, 255));
-  text(20, 151, 1, cyan, "ON YOUR MAC AUTO DISCOVERY");
-  text(20, 169, 1, white, "BUN RUN 3DS:DEV DEV --NO-PUSH");
+  text(20, 151, 1, cyan, state.paired ? "ON YOUR COMPUTER" : "ON YOUR COMPUTER WHILE FTPD RUNS");
+  text(20, 169, 1, white, state.paired ? "BUN RUN 3DS:DEV SERVE" : "BUN RUN 3DS:DEV SETUP --HOST IP");
   text(14, 217, 1, muted, "X SCREENSHOT  B CLOSE");
   text(188, 217, 1, cyan, notice);
 

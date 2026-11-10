@@ -24,9 +24,12 @@ describe("Nintendo 3DS .3dsx installation", () => {
       `-I${join(ROOT, "products/3ds/include")}`,
       `-I${join(ROOT, "contracts/generated")}`,
       `-I${join(ROOT, "products/3ds/src")}`,
+      `-I${join(ROOT, "engine/host-services")}`,
       join(ROOT, "tests/fixtures/3ds-native-install.c"),
       join(ROOT, "products/3ds/src/native.c"),
-      join(ROOT, "products/3ds/src/dev_protocol.c"),
+      join(ROOT, "engine/host-services/link2_proto.c"),
+      join(ROOT, "engine/host-services/jscan.c"),
+      join(ROOT, "engine/host-services/sha256.c"),
       "-o",
       binary,
     ]);

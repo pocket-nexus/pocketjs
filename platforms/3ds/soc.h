@@ -1,4 +1,4 @@
-/* Process-wide libctru socket service ownership for devserver, companion
+/* Process-wide libctru socket service ownership for the link, companion
  * transport and the offload worker. Transport shutdown never closes SOC. */
 #ifndef POCKETJS_3DS_SOC_H
 #define POCKETJS_3DS_SOC_H

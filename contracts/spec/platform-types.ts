@@ -235,6 +235,12 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // companion's app catalog and app installs. The 3ds-dev host owns the link
   // and also routes net.http over it.
   "link.companion",
+  // The running applet's channel to its computer side over the Pocket Link
+  // (`globalThis.link.channel`, docs/POCKET-LINK.md §7): requests, events and
+  // byte streams that Hub routes to the applet's daemon. The host opens the
+  // channel for a package that declares it and closes it when the applet
+  // ends.
+  "link.channel",
   // The console's wireless radio and saved connections (`globalThis.wifi`,
   // contracts/spec/wifi.ts). Reads and selects; never writes a connection.
   "system.wifi",

@@ -7,7 +7,13 @@ every program implements once.
 
 | Source | Contract | What it does |
 | --- | --- | --- |
-| `link.c`, `link.h` | `contracts/spec/link.ts` | The Pocket Link client: beacons, the handshake, pairing, catalog and install requests, and the frames of the worker HTTP stream. One state machine pumped once per frame; every socket is non-blocking. |
+| `link2.c`, `link2.h` | `contracts/spec/link2.ts`, `docs/POCKET-LINK.md` | The Pocket Link 2 client: discovery, the handshake from the pairing files, both request tables, streams with credit, catalog and install, `net.http`, the runtime operations, the DevTools stream and the host half of applet channels. The program supplies its operations as `Link2Host` callbacks and its sockets, clock and randomness as `Link2Platform`. |
+| `link2_proto.c`, `link2_proto.h` | `contracts/spec/link2.ts` | The socket-free half of version 2: preamble, the 12-byte header, the streaming frame reader, control frames, proofs, the pairing files' readers, a bounded JSON writer. |
+| `link2_bsd.c` | | The socket half of a `Link2Platform` from BSD sockets (POSIX, the 3DS). |
+| `link2_guest.c`, `link2_guest.h` | `contracts/spec/link.ts` `LinkStatus`, `LinkEvent` | `globalThis.link` on the version 2 client, in version 1's shape: status, forget, catalog, install into the app's slot, remove, poll. |
+| `link2_channel_qjs.c`, `link2_channel_qjs.h` | `docs/POCKET-LINK.md` §7.3, §7.4 | `globalThis.link.channel` for a QuickJS guest over `link2.h`'s channel calls: handles that carry the channel's generation, a buffer taken after the handle beside it, one side of an id closed. |
+| `link2_http.c` | `link_http.h`, `engine/worker/include/pocket/worker_protocol.h` | The worker's HTTP stream on version 2's `net.http`: the same calls and facts as `link_http.c`. A program links one of the two. |
+| `link.c`, `link.h` | `contracts/spec/link.ts` | Version 1 of the Pocket Link client, for programs that have not moved to `link2.c`: beacons, the handshake, pairing, catalog and install requests, and the frames of the worker HTTP stream. One state machine pumped once per frame; every socket is non-blocking. |
 | `link_http.c`, `link_http.h` | `engine/worker/include/pocket/worker_protocol.h`, `contracts/spec/link.ts` `net.stream` | Bounded streaming HTTP over the system Link, with an 8 KiB receive window, byte credit, separate headers and terminal state. Fact kinds, statuses and the block size come from the worker protocol header. All calls run on the Link owner task. |
 | `link_proto.c`, `link_proto.h` | `contracts/spec/link.ts` | The socket-free half: constants, beacon and frame layouts, the pairing URI, HMAC proofs. |
 | `launcher.c`, `launcher.h` | the `applications` operations, `docs/LAUNCHER.md` | The app table of a console with installed apps, the switch request, SELECT summons, `resume` and `lastError`. The program's main loop performs the switch. |

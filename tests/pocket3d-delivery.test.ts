@@ -28,7 +28,7 @@ function build(): string | null {
   if (!Bun.which("cc")) return null;
   const binary = join(work, "console");
   const source = join(ROOT, "products/3ds/src");
-  const made = Bun.spawnSync(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-I", source, "-o", binary, join(source, "packs_delivery.c"), join(source, "dev_protocol.c"), join(ROOT, "tests/fixtures/pocket3d-delivery-console.c")]);
+  const made = Bun.spawnSync(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-I", source, "-I", join(ROOT, "engine/host-services"), "-o", binary, join(source, "packs_delivery.c"), join(ROOT, "engine/host-services/link2_proto.c"), join(ROOT, "engine/host-services/jscan.c"), join(ROOT, "engine/host-services/sha256.c"), join(ROOT, "tests/fixtures/pocket3d-delivery-console.c")]);
   if (made.exitCode !== 0) throw new Error(made.stderr.toString());
   return binary;
 }

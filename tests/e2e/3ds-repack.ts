@@ -7,15 +7,15 @@
 // --touches '160,140;160,180' chooses auxiliary touch points (external input).
 // --window-rect x,y,w,h accepts external window PNGs when native capture fails.
 // Keep the pointer outside that rectangle while capturing each window PNG.
-// --device retains the paired product's wire replay validation.
+// --device replays the input on a paired console over Pocket Link 2 (bun run 3ds:dev setup).
 
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { pocketRuntimeDeviceId } from "../../contracts/spec/pocket-runtime-wire.ts";
-import { PocketRuntimeClient, discoverPocketRuntimes, parsePocketRuntimeToken } from "../../tools/3ds-runtime-client.ts";
-import { findKey, legacyKeyDirectory, sharedKeyDirectory } from "../../tools/3ds-keys.ts";
+import { screenshotPng } from "../../tools/pocket-link/v2/cli.ts";
+import { LinkHub, lanBeaconTargets, type HubDevice } from "../../tools/pocket-link/v2/hub.ts";
+import { LinkStore, linkHome } from "../../tools/pocket-link/v2/store.ts";
 import { readRuntimeDirectory } from "../../tools/repack.ts";
 import { repack3ds } from "../../tools/repack/3ds.ts";
 import { decodePng, encodePng } from "../../tools/repack/shared/png.ts";
@@ -163,70 +163,71 @@ async function nativeScreenshot(name: string, key?: string): Promise<string> {
   throw new Error(`no native screenshot for ${name}`);
 }
 
-async function connect(host: string, token: Uint8Array, timeoutMs: number): Promise<PocketRuntimeClient> {
-  const started = Date.now();
-  let last = "not listening";
-  while (Date.now() - started < timeoutMs) {
-    const client = new PocketRuntimeClient({ host, token, timeoutMs: 10_000 });
-    try {
-      await client.connect();
-      return client;
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
-      client.close();
-      await Bun.sleep(250);
-    }
+/** The paired console's link: this computer's reference Hub waits for the
+ *  console to dial it (docs/POCKET-LINK.md §2), with `host` as one more beacon target. */
+async function connect(host: string, timeoutMs: number): Promise<{ hub: LinkHub; device: HubDevice }> {
+  const store = new LinkStore(linkHome());
+  let linked: HubDevice | null = null;
+  const hub = new LinkHub({
+    name: store.name,
+    store,
+    features: ["runtime", "devtools", "apps"],
+    beaconTargets: lanBeaconTargets({ store, unicast: [{ address: host, port: 8627 }] }),
+    onDevice: (device) => (linked = device),
+  });
+  await hub.listen();
+  hub.start(50);
+  for (const end = Date.now() + timeoutMs; Date.now() < end; ) {
+    const device = linked as HubDevice | null;
+    if (device !== null && device.closed === null) return { hub, device };
+    await Bun.sleep(100);
   }
-  throw new Error(`no Pocket Runtime at ${host}: ${last}`);
+  hub.stop();
+  throw new Error(`no console linked from ${host}: pair it with bun run 3ds:dev setup --host ${host}, and start a program built for Pocket Link 2`);
 }
 
-async function screenshot(client: PocketRuntimeClient, name: string): Promise<string> {
-  const pending = client.waitForScreenshot(30_000);
-  await client.sendCtrl({ t: "screenshot" });
-  const shot = await pending;
-  writeFileSync(join(OUT, `${name}.png`), shot.png);
-  const digest = createHash("sha256").update(shot.png).digest("hex").slice(0, 16);
-  log(`screenshot ${name}.png frame ${shot.frame} ${shot.metadata.topWidth}x${shot.metadata.topHeight} + ${shot.metadata.auxiliaryWidth}x${shot.metadata.auxiliaryHeight} sha256 ${digest}`);
+async function screenshot(device: HubDevice, name: string): Promise<string> {
+  const shot = await device.screenshot();
+  const { png } = screenshotPng(shot);
+  writeFileSync(join(OUT, `${name}.png`), png);
+  const digest = createHash("sha256").update(png).digest("hex").slice(0, 16);
+  const [top, bottom] = shot.surfaces;
+  log(`screenshot ${name}.png frame ${shot.frame} ${top!.width}x${top!.height} + ${bottom!.width}x${bottom!.height} sha256 ${digest}`);
   return digest;
 }
 
-async function play(client: PocketRuntimeClient): Promise<void> {
-  const statusPromise = client.waitForCtrl((message) => message.t === "runtime.status");
-  await client.requestStatus();
-  const status = await statusPromise;
+async function play(device: HubDevice): Promise<void> {
+  const status = await device.runtimeStatus() as unknown as Record<string, unknown>;
   const slot = createHash("sha256").update(id!).digest("hex").slice(0, 16);
   log(`status ${JSON.stringify(status)}`);
   if (status.target !== "3ds-dev" || status.slot !== slot) {
     throw new Error(`runtime.status is not this game's: expected slot ${slot}`);
   }
-  let previous = await screenshot(client, "00-start");
+  // The replay tape is a DevTools line: the stream opens once the guest's shim runs.
+  for (const end = Date.now() + 10_000; !device.devtoolsOpen && Date.now() < end; ) await Bun.sleep(50);
+  if (!device.devtoolsOpen) throw new Error("the running guest has no DevTools shim to replay input through");
+  let previous = await screenshot(device, "00-start");
   let index = 1;
   for (const [name, mask] of STEPS) {
     // Two idle frames, the button held for four, then 40 frames for the slide.
-    await client.sendCtrl({ t: "replay", tape: { v: 1, app: id, frames: 46, masks: [[0, 2], [mask, 4], [0, 40]] } });
+    device.sendLine(JSON.stringify({ t: "replay", tape: { v: 1, app: id, frames: 46, masks: [[0, 2], [mask, 4], [0, 40]] } }));
     await Bun.sleep(1500);
-    const digest = await screenshot(client, `${String(index).padStart(2, "0")}-${name}`);
+    const digest = await screenshot(device, `${String(index).padStart(2, "0")}-${name}`);
     if (digest === previous) throw new Error(`pressing ${name} changed nothing on screen`);
     previous = digest;
     index += 1;
   }
 }
 
-let client: PocketRuntimeClient | null = null;
+let hub: LinkHub | null = null;
 try {
   if (device) {
     const host = option("host");
     if (!host) throw new Error("--device needs --host");
-    // A key paired before the shared directory is named by its host; any other is found by the device id the console announces.
-    const legacy = join(legacyKeyDirectory(ROOT), `${host}-8131.key`);
-    const announced = existsSync(legacy) ? null : (await discoverPocketRuntimes({ addresses: [host] })).find((found) => found.address === host);
-    const token = existsSync(legacy)
-      ? parsePocketRuntimeToken(readFileSync(legacy, "utf8"))
-      : announced ? findKey(announced.deviceId, [sharedKeyDirectory(), legacyKeyDirectory(ROOT)])?.token : undefined;
-    if (!token) throw new Error(`no development key for ${host}; pair it with bun run 3ds:dev pair --host ${host}`);
-    client = await connect(host, token, 30_000);
-    log(`connected to ${host} (device ${pocketRuntimeDeviceId(token).toString(16)})`);
-    await play(client);
+    const link = await connect(host, 30_000);
+    hub = link.hub;
+    log(`linked ${link.device.id} "${link.device.name}" from ${host}`);
+    await play(link.device);
   } else {
     preflight();
     if (argv.includes("--preflight")) { log("preflight passed; emulator not started"); }
@@ -264,7 +265,7 @@ try {
   log(`FAIL ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 } finally {
-  client?.close();
+  hub?.stop();
   if (!device) killEmulator();
   writeFileSync(join(OUT, "transcript.txt"), `${transcript.join("\n")}\n`);
 }

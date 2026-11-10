@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-const productPrefixes = ["pocket_package_open", "devserver_", "launcher_", "camera_", "agent_", "link_", "stage_", "runtime_slot"];
+const productPrefixes = ["pocket_package_open", "devstats_", "link2_", "launcher_", "camera_", "agent_", "link_", "stage_", "runtime_slot"];
 /** Inspect arm-none-eabi-nm --defined-only output from the actual linked ELFs. */
 export function check3dsSymbols(minimal: string, product: string): void {
   const names = (text: string) => text.split(/\r?\n/).map(line => line.trim().split(/\s+/).at(-1) ?? "");
@@ -12,7 +12,7 @@ export function check3dsSymbols(minimal: string, product: string): void {
   // program creates and boots the Runtime, the program ticks it.
   for (const symbol of ["pocket_qjs_program_create_host", "pocket_qjs_program_boot_source", "pocket_native_program_create_source", "pocket_native_program_boot", "pocket_runtime_tick", "pocket_qjs_program_destroy", "pocket_guest_quickjs_attach", "pocket_3ds_file_source_open"])
     if (!small.includes(symbol)) throw new Error(`minimal program lacks ${symbol}`);
-  console.log("3DS ELFs: minimal facade/Runtime/file/guest present; eight product symbol groups excluded and retained by product");
+  console.log("3DS ELFs: minimal facade/Runtime/file/guest present; nine product symbol groups excluded and retained by product");
 }
 if (import.meta.main) {
   if (process.argv.length !== 4) throw new Error("usage: check-3ds-symbols.ts minimal.nm product.nm");
