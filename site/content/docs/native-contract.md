@@ -483,9 +483,9 @@ Key properties:
   resolved UI output, in that output's logical coordinates. Single-screen hosts
   consume the primary list; a host with an auxiliary display consumes a second
   after both roots have shared the same state update and resource generation.
-  The one semantic a backend can change is text: an app that enhances with
-  `text.layout.native` gets a host measurer installed before mount, and taffy
-  leaf sizes come from it ([Render backends](https://github.com/pocket-nexus/pocketjs/blob/main/docs/BACKENDS.md)).
+  The one semantic a backend can change is text: on a target that provides
+  `text.layout.native` the host installs its text provider for every app
+  before mount, and taffy leaf sizes come from it ([Render backends](https://github.com/pocket-nexus/pocketjs/blob/main/docs/BACKENDS.md)).
 
 In steady state — no reactive values changed — `frame()` emits **no** mutation
 ops, the sweep set is empty, and the only JS boundary crossing is the single

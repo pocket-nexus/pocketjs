@@ -379,13 +379,14 @@ rate (`--hz=N`, 1–240, default 60).
 
 ## Native text layout
 
-Baked atlases are the portable path. An app that lists `text.layout.native` in
-the `enhances` block of its `pocket.app.json` gets host measurement and shaping
-instead, on any target whose host contract declares that capability
-(`hosts/<id>/pocket.host.json` for the built-in hosts) — read the contracts,
-not a list of hosts. The host installs a core text measurer before the guest
-mounts (`Ui::set_text_measure`), and one provider then feeds taffy leaf sizes, the `measureText` op and the
-painted glyphs. What changes for your classes:
+Baked atlases are the portable path. A target whose host contract declares
+`text.layout.native` (`hosts/<id>/pocket.host.json` for the built-in hosts)
+gives every app host measurement and shaping instead: the target decides, and
+an app's `requires` or `enhances` entry for the capability does not change
+what its host installs — read the contracts, not a list of hosts. The host
+installs a text provider before the guest mounts, and that provider then
+feeds taffy leaf sizes, the `measureText` and `wrapText` ops and the painted
+glyphs of every text run. What changes for your classes:
 
 - Text-size, `font-bold` and `font-mono` still pick the slot; the host resolves
   the family and the metrics for it (Inter and JetBrains Mono from
@@ -394,8 +395,13 @@ painted glyphs. What changes for your classes:
   atlas baking and no tofu.
 - A literal with no `leading-N` takes its line height from the host font, not
   from the baked cell.
-- Tracked (`tracking-wide`), scaled and rotated runs keep the baked glyph pair,
-  so measurement and glyphs come from one provider per node.
+- Tracked (`tracking-wide`), scaled, rotated and skewed runs go to the same
+  provider, which receives the letter spacing and the transform; inside a
+  `perspective` subtree a run stays upright at its projected anchor, as baked
+  text does.
+- On a target that provides `text.layout.native` and not `text.glyphs.baked`,
+  the package carries no font atlas, and an app that requires
+  `text.glyphs.baked` does not resolve for it.
 
 Pixels stay deterministic per host but are not byte-comparable across hosts in
 this mode: rasterization, metrics and fallback fonts belong to the OS. That is

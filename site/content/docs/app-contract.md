@@ -121,7 +121,7 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `text.glyphs.baked` | The glyph atlases the package bakes. |
 | `text.glyphs.runtime` | Codepoints outside the baked charset still render; the host extends the atlases at run time. Required by an app that accepts arbitrary text input. |
 | `text.glyphs.streamed` | A bounded external glyph cache fed through `io.offload` (ops 47 to 50). |
-| `text.layout.native` | Measurement and shaping come from the host text system with full Unicode coverage; pixels are deterministic per host, not byte-exact across hosts. |
+| `text.layout.native` | Measurement and shaping come from the host text system with full Unicode coverage; pixels are deterministic per host, not byte-exact across hosts. A target that provides it without `text.glyphs.baked` gets packages with no font atlas. |
 | `text.layout.offload` | Layout from an asynchronous worker or paired companion service; availability is session scoped. |
 | `io.offload` | The host's offload channel to a worker or a paired companion; `text.glyphs.streamed` and `text.layout.offload` run on it. |
 | `runtime.worker` | A second QuickJS runtime for `domains.worker`. |

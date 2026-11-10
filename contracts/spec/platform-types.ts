@@ -302,9 +302,15 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // beyond the baked charset, and `measureText` observes the same provider
   // layout does. A different guarantee than text.glyphs.baked — pixels are
   // deterministic per host, not byte-exact across hosts — hence a different
-  // id (see the header rule). Apps opt in per plan (`enhances`); a host
-  // grants it by installing a core text measurer before the guest mounts
-  // (docs/BACKENDS.md).
+  // id (see the header rule). The target decides, not the app: a host
+  // whose target provides it installs its text provider (measurer, wrapper
+  // and painter) for every app before the guest mounts, and every text run
+  // then draws as TEXT_RUN (docs/BACKENDS.md). On a target that provides it
+  // and not text.glyphs.baked every app is built without a font atlas; an
+  // app's requires or enhances entry for it changes neither the build nor
+  // what the host installs. The one exception is a role grant: a System UI
+  // app whose plan resolves text.glyphs.baked through roleCapabilities is
+  // built with atlases and drawn from them.
   "text.layout.native",
   // Asynchronous worker or paired companion service; availability is session scoped.
   "text.layout.offload",
