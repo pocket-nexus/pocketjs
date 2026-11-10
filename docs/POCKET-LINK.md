@@ -19,7 +19,7 @@ The first device is the Nintendo 3DS over Wi-Fi, the Old 3DS included
 (**64 MB RAM**, a QuickJS guest, a worker realm with a **512 KiB heap**,
 `products/3ds/README.md` "Worker scheduling"). Limits are chosen for it. **The
 numbers of §13 were measured on a New 3DS XL; an Old 3DS is slower and has
-not been measured** (§11, question 3).
+not been measured** (§11).
 
 ## 1. Scope and roles
 
@@ -56,7 +56,7 @@ endpoint (§12).
   is the end state (§2.0); the side connection is a bulk path that the TCP
   carrier's own network already provides, opened with a one-use ticket that
   the service hands out over the link, so no device reaches media without
-  the link. When media moves onto the link is §11, question 15.
+  the link. When media moves onto the link is open (§11).
   **The source's `host` keeps its
   meaning** ("Numeric IPv4 address of the paired companion's media
   endpoint", `contracts/spec/media.ts` `MediaSource`): in the link's terms,
@@ -67,14 +67,10 @@ endpoint (§12).
   program through ftpd or through files on the SD card; **Hub writes the
   pairing the same way** (§3.2). Hub does both outside the link.
 - **Hub's local IPC** to its UI, CLI and daemons.
-- **A second protocol inside an applet channel.** An earlier draft carried
-  Pocket Relay records (PocketJS #437, #456) in opaque lanes. Version 2
-  carries the link's own requests, events and streams in the channel (§7).
 - **The SVC wire** (`PKNT`, `products/3ds/src/svcwire.c`, `contracts/spec/spec.ts`
   "SVC WIRE protocol") and the PSP USB carrier of version 1
   (`contracts/spec/link.ts` "USB carrier"). **Neither stays outside for
-  good**: each becomes a carrier of this protocol or is retired (§2.0; §11,
-  question 10).
+  good**: each becomes a carrier of this protocol or is retired (§2.0, §11).
 
 ### What version 2 retires
 
@@ -98,13 +94,13 @@ Pocket Link 1 (`contracts/spec/link.ts`, `tools/pocket-link/protocol.ts`,
 | `clock` in `ready` / `paired` | Kept in `ready` |
 | `net` with `"stream":true`, `net.head`, `net.credit`, `net.end`, `net.error`, `net.cancel` | `net.http` request, `net.head` event, `CREDIT` frame, `END` flag and reply, error reply, `CANCEL` frame (§6.5) |
 | `net` without `stream` (feature `net`, whole response) | Dropped: it serves firmware from before the worker domain (`LINK_FEATURE.net` in `link.ts`) |
-| `https://companion.pocket/<service>` answered over `net` | Replaced by applet channels and daemons; when Hub stops answering it is open (§11, question 5) |
+| `https://companion.pocket/<service>` answered over `net` | Replaced by applet channels and daemons; when Hub stops answering it is open (§11) |
 | `catalog`, its reply, `catalog.changed` | `catalog` request and reply, `catalog.changed` event (§6.4) |
 | `install`, `install.head`, `install.error` | `install` request, `install.head` event, stream, reply (§6.4) |
 | `agent.*` ctrl messages and streams, companion stream ids with bit 31 | Same JSON in `EVENT` frames; every stream credited (§6.6) |
 | `<feature>.*` messages of a product extension on Hub | Dropped: a product's computer side is a daemon behind an applet channel (§7) |
 | Byte credit for `net.stream` only, sent as JSON per block | `CREDIT` frames for every stream, an applet channel's included (§5.6) |
-| USB carrier (PSP), its own record format | Not in phase one; to become a carrier of this protocol or be retired (§2.0; §11, question 10) |
+| USB carrier (PSP), its own record format | Not in phase one; to become a carrier of this protocol or be retired (§2.0, §11) |
 | Fixed frame limit of 32 KiB + 4 | A limit negotiated per connection, **16 KiB** by default on TCP (§4.4) |
 | `globalThis.link` (status, pair, forget, catalog, install, remove, poll) | Kept as the guest API without `pair`; not a wire matter |
 
@@ -137,7 +133,7 @@ has no listener (§12.2).
 | `log` records (`devserver_report_log`, the shim's console bridge) | `log` events while `runtime.logs` is on (§6.2) |
 | `eval`, `getTree`, `inspect`, `pause`, `resume`, `step`, `dumpTape`, `devStats`, `replay` | DevTools lines, unchanged |
 | `ui.__dbgActive` / `ui.__dbgConnected` | The shim's question as it installs, which lists `devtools` for that guest (§12.2) / `devtools.listen` is on |
-| `pocket3d.packs` control lines (`products/3ds/src/packs_delivery.c`) | Not mapped: §11, question 8 |
+| `pocket3d.packs` control lines (`products/3ds/src/packs_delivery.c`) | Not carried in this version: the C and the tool remain and take their connection from the program that uses them (§12.2) |
 | `bun run 3ds:dev pair / discover / push / install / launch / probe / dev` | The same commands on the reference Hub's command line (`tools/3ds-dev.ts` over `tools/pocket-link/v2/cli.ts`): `setup` writes the pairing, `devices` lists the records, the rest are the runtime operations. A thin client of Pocket Hub's own command line once Hub has an endpoint (§12.1 item 6) |
 
 ## 2. Carriers and discovery
@@ -173,7 +169,7 @@ UART at that speed would offer **1 KiB** (about 90 ms).
 discovery. The other carriers are named here so that nothing in §3 to §8
 depends on TCP: the handshake carries no address, no message carries a port,
 and the limits that depend on speed are negotiated. What is undecided about
-them is in §11, question 10.
+them is in §11.
 
 ### 2.1 Ports
 
@@ -274,8 +270,8 @@ same 32-byte link key.** Version 1 paired through a QR code that the console
 read with its camera (`link.ts` "Pairing URI"). **Version 2 has no pairing on
 the wire: no QR code, no camera, no pairing window, no pairing secret and no
 mode `pair`.** Phase one has no encryption (§3.9). **Hub writes the key
-itself; no secret is exchanged on the wire to mint one.** §11, question 7
-lists what this costs.
+itself; no secret is exchanged on the wire to mint one.** Pairing another computer, or pairing again
+after a forget, needs ftpd on the device or its SD card in a reader (§3.7).
 
 ### 3.1 The pairing record
 
@@ -594,7 +590,7 @@ when it observes the setup**: the pairing file crosses the LAN in plain FTP
 key masked with an HMAC of a secret shown in the QR code, so an observer
 needed the screen as well as the network; version 2 gives that up with the
 camera, on the same assumption of a trusted LAN that leaves the frames in
-plaintext (§11, question 7). The development connection's `dev.key` crossed
+plaintext. The development connection's `dev.key` crossed
 the LAN the same way and then travelled in every hello.
 
 An **active** attacker (ARP spoofing, a hostile access point) can, after a
@@ -752,7 +748,7 @@ connection's records do. **Receivers ignore unknown JSON fields.**
 | LINK_MAX_HANDSHAKE | **1,024** | the largest handshake message is `hello`, about 800 bytes at every limit; this limit holds before `ready` on every carrier and equals the smallest buffer a device may offer |
 | LINK_PAYLOAD_CEILING | **32,768** | no carrier negotiates more. The device keeps one receive buffer that holds a whole frame (`link.c` `LINK_RX_BYTES`, comment in `pump_rx`), and version 1's link already allocates 32 KiB + header there. **A 64 KiB write stalled one socket call for 660 ms** on the 3DS (§13), and the development connection's 64 KiB frame cost `devserver.c` a static 64 KiB receive buffer |
 | LINK_TCP_PAYLOAD | **16,384** | what both sides offer on the TCP carrier (below) |
-| LINK_MIN_PAYLOAD | **1,024** | the least a carrier may offer. The handshake, the two paged row lists (§6.2, §6.4) and a `log` event fit it. **`net.http` does not**: it is in use from a payload limit of **12,288** up (§6.5). The other messages of §6 have not been checked against the floor field by field (§11, question 13) |
+| LINK_MIN_PAYLOAD | **1,024** | the least a carrier may offer. The handshake, the two paged row lists (§6.2, §6.4) and a `log` event fit it. **`net.http` does not**: it is in use from a payload limit of **12,288** up (§6.5). The other messages of §6 have not been checked against the floor field by field (§11) |
 
 **The payload limit of a connection is `min(hello.maxPayload,
 ready.maxPayload)`**, each between LINK_MIN_PAYLOAD and LINK_PAYLOAD_CEILING,
@@ -1719,7 +1715,7 @@ Request:
 | `bytes` | integer | request body length, at most **64 KiB** |
 
 **`app` is what Hub's service checks rest on** while Hub still answers
-`https://companion.pocket/<service>` (§11, question 5): Hub checks that the
+`https://companion.pocket/<service>` (§11): Hub checks that the
 applet named by `app` declares the service, so the field must come from the
 runtime and not from guest code.
 
@@ -1745,8 +1741,7 @@ bytes joined with `\n` takes 5,415.
   12,288 bytes.** Under that, the device's host fails a worker's request
   locally with `unavailable` and Hub answers one that arrives with
   `unsupported`, whatever the two `features` lists say. A carrier that slow needs a paged or streamed form
-  of the request head, which this version does not define (§11,
-  question 13).
+  of the request head, which this version does not define (§11).
 - The device's host checks the request against these limits and fails it
   locally with `invalid_request` before it queues a frame.
 - **When a response's head does not fit**, Hub drops response headers, the
@@ -1813,18 +1808,10 @@ Hub's endpoint routes them between the device and the daemon and reads none
 of their content. **No second protocol runs inside a channel**: the frames,
 ids, credit, timeouts and ordering are those of §4 and §5.
 
-An earlier draft carried Pocket Relay records in opaque "lanes". Relay
-brings a session layer of its own (a length prefix and a 48-byte header per
-record, sequence numbers, a heartbeat, credit, streams); with the link as
-the only transport on every carrier (§2.0), each of those repeats what the
-link already does. Its endpoint also ran in guest JavaScript, where work per
-byte costs what §13 shows. What applets need from it beyond the link's
-primitives is a convention (§7.8), not a wire format.
-
 ### 7.1 Open
 
 When an applet's guest starts and its package declares the channel
-capability (its name is set in the PocketJS spec, §11 question 2), the device
+capability (`link.channel`, §12.2), the device
 runtime sends:
 
 `REQUEST` `channel.open`, **header id = the channel id**:
@@ -1944,7 +1931,7 @@ progress events as it likes.
   guest parses 2 KiB in about 0.6 ms and
   16 KiB in about 4.8 ms on a New 3DS (§13), against a worker turn of 5 ms
   (`products/3ds/README.md` "Worker scheduling"); a message is meant to stay
-  under 2 KiB (§11, question 1).
+  under 2 KiB (§11).
 - A frame for a channel that is not open, or for an id of a closed channel,
   follows §4.7: an `APP` request gets `ERROR` `no_channel`, the rest is
   ignored.
@@ -1968,7 +1955,7 @@ spend the frame budget on bookkeeping.
 
 The guest API is small. **The capability is `link.channel`, the host
 namespace `globalThis.link.channel`, and the framework module
-`@pocketjs/framework/channel`** (§11, question 2, and §12.2 for the names of
+`@pocketjs/framework/channel`** (§12.2 for the names of
 its functions); its shape:
 
 | Guest call | Link |
@@ -2286,7 +2273,7 @@ when the holder's local client goes away (Hub then sends `CANCEL` for its
 open request). The device never sees the mutex. **What Hub does with a second
 client while the mutex is held — refuse it at once with `busy` and the
 holder, or let it wait in a bounded queue and report the holder on timeout —
-is Hub's own choice and not part of this protocol** (§11, question 14).
+is Hub's own choice and not part of this protocol** (§11).
 Pocket Hub's development bridge answers `busy` with the holder today.
 
 Priorities, in-flight slots per client and quotas are deferred until
@@ -2453,153 +2440,104 @@ TypeScript console client, as Hub's version 1 tests do with
 
 ## 11. Open questions
 
-1. **The size limit of a JSON object in an applet channel.** §7.2 sets
-   8 KiB and aims at 2 KiB, from parse times on a New 3DS (§13). The worker
-   realm's turn is 5 ms and an Old 3DS is slower by a factor nobody has
-   measured, so 8 KiB may cost more than a turn there. Options: keep 8 KiB;
-   lower it to 4 KiB; let the device state its limit in `channel.open`.
-   *Recommendation:* keep 8 KiB until the Old 3DS number exists (question 3).
-2. **The channel capability's name and the guest API's names.** Built as
-   the recommendation said: capability `link.channel`, in the capability
-   registry, the 3DS host contract and the applet whitelist; the host
-   namespace `globalThis.link.channel`; the framework module
-   `@pocketjs/framework/channel` with `request`, `onRequest`, `emit`,
-   `emitStream`, `onEvent` and `channelState` (§12.2). **The names are in
-   one build on one host and no released package uses them**: they stay
-   open to change until this version merges. Still to decide: whether a
-   worker realm gets the same module (today only the UI realm has it), and
-   the page of the app contract's reference that documents it.
-3. **No Old 3DS measurement.** Every number of §13 comes from a New 3DS XL.
-   The limits that rest on guest speed (LINK_APP_MSG, the 16 messages or
-   8 KiB of JSON and the 16 KiB of stream bytes handed over per frame) and on socket-call cost (about 550 `recv`
-   calls a second at full speed) need the same runs on an Old 3DS.
-   *Recommendation:* run the probe of §13 on an Old 3DS before the C client
-   merges.
-4. **The cause of the 100 ms stall** (§13) is not known. It appears as the
-   worst single socket call in every run, in both directions. Nothing here
-   depends on its cause, only on its size. A stall of that length does bound
-   how responsive an applet can promise to be: a round trip is about 8 ms
-   and now and then about 100 ms. **Over the link it shows the same way**:
-   of 1,000 requests back to back, 2 to 4 took over 100 ms and the worst
-   took 117 to 435 ms across runs (§13.6). *Recommendation:* find the cause when the
-   C client is rebuilt; if a socket or power option removes it, set it.
-5. **`https://companion.pocket/<service>` over `net.http`.** Applet channels
-   and daemons replace this path, and `net.http` then reaches the internet
-   alone; until an applet's daemon exists, an applet that uses a service
-   loses it if Hub stops answering the origin. Options: keep answering it in
-   phase one; drop it with version 2. *Recommendation:* keep it until the
-   first daemons run; removing it is one check in Hub. Applets whose needs
-   are a request and a reply may keep this shape for good: whether it stays
-   beside channels is undecided.
-6. **Guest log lines: built.** The shim's console bridge calls a host
-   operation, `ui.__dbgLog(level, text)`, for every console line, whether a
-   panel listens or not (`framework/src/devtools.ts`), and the 3DS host
-   sends it as a `runtime.logs` line (`qjs.c`, `link2_host.c`
-   `link2_host_report_guest_log`). On the device `logs --follow` printed
-   the guest's lines with no panel open (§13.6). A host without the
-   operation keeps the earlier behaviour: guest lines inside the DevTools
-   stream while a panel listens.
-7. **Pairing without the camera: decided.** The QR scan with the console's
-   camera goes away, and Hub writes the pairing, the key included, during
-   the first install (§3.1, §3.2). A variant in which Hub writes a one-time
-   secret and the first connection mints the key was considered and
-   declined: the LAN is trusted in this version (§3.9), and the variant
-   keeps a pairing mode in the C client. What the decision costs:
-   - **Pairing another computer, or pairing again after a forget, needs ftpd
-     running on the device or the SD card in a reader.** Version 1 needed
-     the camera and Hub's screen.
-   - **The key crosses the LAN in plain FTP during the setup** (§3.9).
-     Version 1's key was masked with the secret in the QR code.
-   - The device loses `link.pair`, `quirc` and the camera path of pairing;
-     `camera.qr` as an applet capability is not affected.
-   - A carrier without a file channel (a UART on a device with no storage
-     access from the computer) needs another way to place the two files.
-   **Still open:** that way for a carrier without a file channel, decided
-   with the carrier (question 10).
-8. **Pocket3D pack delivery.** `products/3ds/src/packs_delivery.c` took
-   `pocket3d.packs` control lines over the development connection and pumped
-   it while it fetched pieces from a temporary HTTP endpoint on the computer
-   (`tools/pocket3d-delivery.ts`). `products/3ds` itself does not call it.
-   **With the development connection gone its lines have no carrier**: the C
-   and the tool remain, the C asks the program that calls it for its pump
-   (`p3d_delivery_pump`), and the tool takes its connection as an interface
-   (`DeliveryClient`); `tests/pocket3d-delivery.test.ts` runs the two
-   against each other as before.
-   Options: three Hub-to-device requests (`packs.piece`, `packs.manifest`,
-   `packs.prune`) streaming the bytes over the link; an applet channel of
-   the program that uses the packs; leave it out of version 2.
-   *Recommendation:* leave it out of phase one and carry it on that
-   program's channel when it moves to version 2.
-9. **Other users of version 1's C client.** pocket-m5's M5Stack Tab5 firmware
-   compiles `engine/host-services/link.c` (`engine/host-services/README.md`
-   "Programs") and sends `companion.pocket` over the whole-response `net`
-   mode (`docs/WORKER.md`). How Hub writes a pairing to it is not defined. *Recommendation:* replace `link.c` in place;
-   pocket-m5 pins a PocketJS commit before the change until it moves, and
-   its way to receive the pairing files is decided with its carrier.
-10. **The carriers beyond TCP.** §2.0 says the link is the only transport,
-    and phase one specifies TCP. Still outside it, and each to become a
-    carrier of this protocol or be retired:
-    - **The PSP's USB carrier** (`link.ts` "USB carrier"): files in a
-      PSPLINK share with its own records. As a carrier it needs an adapter
-      that turns the share into an ordered byte stream, and a payload limit
-      for its polling rate. Undecided: adapt it or retire it with version 1.
-    - **The SVC wire** (`PKNT`, UDP 8621 and its TCP connection), which the
-      3DS pumps every frame as a third connection to a computer. Its users
-      would move to an applet channel. Undecided: who moves them and when.
-    - **`io.offload` over TCP 8741** and the PSP's USB offload provider
-      (`docs/OFFLOAD.md`): a per-app connection from the computer to the
-      device with its own key. An applet channel covers the same ground.
-      Undecided: whether offload becomes a channel or stays for worker
-      compute.
-    - **The Vita's USB share** (`docs/VITA-USB.md`), which carries updates,
-      status and captures and is no link host today.
-    - **Bluetooth and UART** themselves: no adapter is specified, and the
-      UART adapter's framing, checksum and retransmission are not designed.
-    *Recommendation:* leave all of them as they are in the change that lands
-    the TCP carrier, and write each adapter when a device needs it.
-11. **Ports.** Keeping 8627 and 8628 means a version-1 Hub and a version-2
-    Hub on one computer collide (the second takes an ephemeral port, its
-    beacons say so). *Recommendation:* keep them; there is no migration.
-12. **Which Hub a device prefers.** With several paired Hubs answering, the
-    first beacon wins. Option: prefer the Hub linked last.
-    *Recommendation:* keep the first-beacon rule until an owner with two Macs
-    reports a problem.
-13. **Control messages larger than the payload limit.** The two row lists
-    are paged: `runtime.apps` with `set`, `at`, `more` (§6.2) and the
-    catalog with `after`, `rev`, `more` (§6.4), so no carrier loses rows.
-    The JSON cost is settled as well: scanning in C takes microseconds
-    (§13), so no message moves to a binary payload. `net.http` and
-    `net.head` are bounded on their encoded size and fit 16 KiB; **they do
-    not fit under 12,288 bytes, and `net.http` is out of use there** (§6.5).
-    **Still open:** the
-    other control messages are bounded by their fields and fit 16 KiB, and
-    whether each fits the 1 KiB floor has not been checked field by field
-    (an `agent` message and a `runtime.status` reply are the candidates);
-    a carrier that negotiates a limit under their size, or under 12,288 with
-    applets that need `net.http`, needs either a higher floor or a paged or
-    streamed form of the message. *Recommendation:* check them when the
-    first carrier under 4 KiB is designed, and raise the floor before
-    paging a third message.
-14. **Hub's device mutex: refuse or queue.** §8.3 leaves to Hub what it does
-    with a second client while a state-changing request is open; the wire
-    looks the same either way. Options: refuse at once with `busy` and the
-    holder (Pocket Hub's development bridge today); a bounded FIFO wait,
-    reporting the holder when the wait times out. The studio relay pushes in
-    the background and would otherwise poll. *Recommendation:* the bounded
-    FIFO wait, reporting the holder on timeout; it costs the device nothing.
-15. **When media moves onto the link.** Version 2 keeps the side TCP
-    connection (§1, decided). It exists on the TCP carrier alone, so a
-    device on Bluetooth or a UART has nothing to play from until media is a
-    credited stream of the link, at the link's rate shared with everything
-    else (700–900 KB/s on the measured 3DS, §13). *Recommendation:* decide
-    with the second carrier, and measure a media stream beside an install
-    on one link before moving it.
-16. **Programs built on record formats of their own.** pocket-map and
-    pocket-term have pilots on Pocket Relay (PocketJS #456) and ship on
-    `io.offload` records today. With no Relay in the link they move to an
-    applet channel and the conventions of §7.8, or stay on offload
-    (question 10). Who ports them, and what becomes of #456, is the
-    owner's and its author's decision and is not made here.
+- **The size limit of a JSON object in an applet channel.** §7.2 sets
+  8 KiB and aims at 2 KiB, from parse times on a New 3DS (§13). The worker
+  realm's turn is 5 ms and an Old 3DS is slower by a factor nobody has
+  measured, so 8 KiB may cost more than a turn there. Options: keep 8 KiB;
+  lower it to 4 KiB; let the device state its limit in `channel.open`.
+  *Recommendation:* keep 8 KiB until the Old 3DS number exists.
+- **The guest API's names.** The capability `link.channel`, the host
+  namespace `globalThis.link.channel` and the functions of
+  `@pocketjs/framework/channel` (§12.2) are in one build on one host and no
+  released package uses them: they can change until this version merges.
+  Undecided: whether a worker realm gets the same module (only the UI realm
+  has it), and the page of the app contract's reference that documents it.
+- **No Old 3DS measurement.** Every number of §13 comes from a New 3DS XL.
+  The limits that rest on guest speed (LINK_APP_MSG, the 16 messages or
+  8 KiB of JSON and the 16 KiB of stream bytes handed over per frame) and on socket-call cost (about 550 `recv`
+  calls a second at full speed) need the same runs on an Old 3DS.
+  *Recommendation:* run the probe of §13 on an Old 3DS before the C client
+  merges.
+- **The cause of the 100 ms stall** (§13) is not known. It appears as the
+  worst single socket call in every run, in both directions. Nothing here
+  depends on its cause, only on its size. A stall of that length does bound
+  how responsive an applet can promise to be: a round trip is about 8 ms
+  and now and then about 100 ms. **Over the link it shows the same way**:
+  of 1,000 requests back to back, 2 to 4 took over 100 ms and the worst
+  took 117 to 435 ms across runs (§13.6). *Recommendation:* find the cause when the
+  C client is rebuilt; if a socket or power option removes it, set it.
+- **`https://companion.pocket/<service>` over `net.http`.** Applet channels
+  and daemons replace this path, and `net.http` then reaches the internet
+  alone; until an applet's daemon exists, an applet that uses a service
+  loses it if Hub stops answering the origin. Options: keep answering it in
+  phase one; drop it with version 2. *Recommendation:* keep it until the
+  first daemons run; removing it is one check in Hub. Applets whose needs
+  are a request and a reply may keep this shape for good: whether it stays
+  beside channels is undecided.
+- **Other users of version 1's C client.** pocket-m5's M5Stack Tab5 firmware
+  compiles `engine/host-services/link.c` (`engine/host-services/README.md`
+  "Programs") and sends `companion.pocket` over the whole-response `net`
+  mode (`docs/WORKER.md`). How Hub writes a pairing to it is not defined. *Recommendation:* replace `link.c` in place;
+  pocket-m5 pins a PocketJS commit before the change until it moves, and
+  its way to receive the pairing files is decided with its carrier.
+- **The carriers beyond TCP.** §2.0 says the link is the only transport,
+  and phase one specifies TCP. Still outside it, and each to become a
+  carrier of this protocol or be retired:
+  - **The PSP's USB carrier** (`link.ts` "USB carrier"): files in a
+    PSPLINK share with its own records. As a carrier it needs an adapter
+    that turns the share into an ordered byte stream, and a payload limit
+    for its polling rate. Undecided: adapt it or retire it with version 1.
+  - **The SVC wire** (`PKNT`, UDP 8621 and its TCP connection), which the
+    3DS pumps every frame as a third connection to a computer. Its users
+    would move to an applet channel. Undecided: who moves them and when.
+  - **`io.offload` over TCP 8741** and the PSP's USB offload provider
+    (`docs/OFFLOAD.md`): a per-app connection from the computer to the
+    device with its own key. An applet channel covers the same ground.
+    Undecided: whether offload becomes a channel or stays for worker
+    compute.
+  - **The Vita's USB share** (`docs/VITA-USB.md`), which carries updates,
+    status and captures and is no link host today.
+  - **Bluetooth and UART** themselves: no adapter is specified, and the
+    UART adapter's framing, checksum and retransmission are not designed.
+  - **Pairing on a carrier without a file channel**: a UART on a device
+    whose storage the computer cannot reach needs another way to place the
+    two pairing files of §3.2.
+  *Recommendation:* leave all of them as they are in the change that lands
+  the TCP carrier, and write each adapter when a device needs it.
+- **Which Hub a device prefers.** With several paired Hubs answering, the
+  first beacon wins. Option: prefer the Hub linked last.
+  *Recommendation:* keep the first-beacon rule until an owner with two Macs
+  reports a problem.
+- **Control messages larger than the payload limit.** The two row lists
+  are paged: `runtime.apps` with `set`, `at`, `more` (§6.2) and the
+  catalog with `after`, `rev`, `more` (§6.4), so no carrier loses rows.
+  The JSON cost is settled as well: scanning in C takes microseconds
+  (§13), so no message moves to a binary payload. `net.http` and
+  `net.head` are bounded on their encoded size and fit 16 KiB; **they do
+  not fit under 12,288 bytes, and `net.http` is out of use there** (§6.5).
+  **Still open:** the
+  other control messages are bounded by their fields and fit 16 KiB, and
+  whether each fits the 1 KiB floor has not been checked field by field
+  (an `agent` message and a `runtime.status` reply are the candidates);
+  a carrier that negotiates a limit under their size, or under 12,288 with
+  applets that need `net.http`, needs either a higher floor or a paged or
+  streamed form of the message. *Recommendation:* check them when the
+  first carrier under 4 KiB is designed, and raise the floor before
+  paging a third message.
+- **Hub's device mutex: refuse or queue.** §8.3 leaves to Hub what it does
+  with a second client while a state-changing request is open; the wire
+  looks the same either way. Options: refuse at once with `busy` and the
+  holder (Pocket Hub's development bridge today); a bounded FIFO wait,
+  reporting the holder when the wait times out. The studio relay pushes in
+  the background and would otherwise poll. *Recommendation:* the bounded
+  FIFO wait, reporting the holder on timeout; it costs the device nothing.
+- **When media moves onto the link.** Version 2 keeps the side TCP
+  connection (§1). It exists on the TCP carrier alone, so a
+  device on Bluetooth or a UART has nothing to play from until media is a
+  credited stream of the link, at the link's rate shared with everything
+  else (700–900 KB/s on the measured 3DS, §13). *Recommendation:* decide
+  with the second carrier, and measure a media stream beside an install
+  on one link before moving it.
 
 ## 12. Implementation notes
 
@@ -2619,7 +2557,7 @@ against them. The version-1 files go in the change that replaces `link.c`.
 1. `contracts/spec/link2.ts`: version-2 constants (ports, preamble, header,
    frame types, flags, close codes, labels, limits of §9), the message types
    of §6 and §7, the features. It has no pairing URI and no USB carrier
-   records (question 10).
+   records (§11).
 2. `tools/pocket-link/v2/protocol.ts`: the codec. Beacon, preamble and
    version selection, the 12-byte header with a streaming decoder that
    checks the limit in force before it buffers a payload (§4.7), the binary
@@ -2795,8 +2733,7 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   `runtime.launch` of another app or a push in the seconds after the demo's
   worker started reached it (`tests/e2e/azahar-link2.ts`, its launch step).
   The wait sleeps 1 ms once stop was asked for.
-- **Guest console lines are `runtime.logs` lines** (`qjs.c` `ui.__dbgLog`,
-  question 6), and `runtime.status` carries the frame the loop is on
+- **Guest console lines are `runtime.logs` lines** (`qjs.c` `ui.__dbgLog`), and `runtime.status` carries the frame the loop is on
   (`link2_host_set_frame`). For measurements, `ui.__dbgMemory()` reports the
   heap (`mallinfo`), the linear heap's free bytes and the pump's cost, and
   `link.status()` carries the client's counters in `stats` (`txPeak`,
@@ -2854,7 +2791,7 @@ development server did beyond the connection has a place:
   `<feature>.audio`) is in use only when Hub lists that feature; the
   reference Hub lists none, and extensions' messages move to applet
   channels.
-- **Pocket3D pack delivery** has no carrier (question 8).
+- **Pocket3D pack delivery** has no carrier in this version.
 
 **The whole change, as planned** (every item of this list is covered by the
 modules above):
@@ -2889,7 +2826,7 @@ modules above):
    stream), status, logs, `devserver_debug_stats` / `devserver_debug_frames`,
    the DevTools line ring and out buffer, the dev menu snapshot
    (`devmenu.c`). `qjs.c`'s `__dbg*` operations call it. `packs_delivery.c`
-   uses `devserver_poll` and `devserver_connected` (question 8).
+   uses `devserver_poll` and `devserver_connected`.
 4. Remove `devserver.c/h`, the `dev.key` load and UDP 8131. From
    `dev_protocol.c` keep the CRC-32 and `.3dsx` name check that `native.c`
    uses; drop the hello, ack, discovery and frame codecs.
@@ -2899,7 +2836,7 @@ modules above):
 6. `agent.c`: grant the declared bytes of `agent.screen` and `agent.glyphs`
    or `RESET` `refused`; send microphone and shot data within credit.
 7. `framework/src/devtools.ts`: the console bridge's host operation for
-   `runtime.logs` (question 6).
+   `runtime.logs`.
 
 ### 12.3 Hub's Rust endpoint
 
@@ -2948,7 +2885,7 @@ over local IPC (§7.7).
 
 **One device was measured: a New Nintendo 3DS XL (model 4) on Wi-Fi, on
 2026-11-10, against a computer on the same LAN. An Old 3DS is slower and was
-not measured** (§11, question 3). The numbers come from a test program built
+not measured** (§11). The numbers come from a test program built
 from this repository's 3DS product with native test functions linked in as a
 product extension and called from the guest; timings are the device's system
 tick. Each row is one run or the range of a few; none is a statistic.
@@ -2974,7 +2911,7 @@ protocol in between:
 - **`recv` returns about one segment (1.5 KiB) per call whatever the buffer
   size**: 684 to 1,532 calls for 1 MiB.
 - **The worst single call of every run took 95–105 ms**, in both directions
-  and in the round trips below. The cause is not known (§11, question 4).
+  and in the round trips below. The cause is not known (§11).
 
 Round trip of a message (the device sends n bytes and reads n bytes back,
 100 times):

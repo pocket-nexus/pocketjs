@@ -19,7 +19,7 @@
  * cancels and removes the partial file). SOC must be initialized.
  *
  * The delivery's control lines rode the development connection, which is
- * gone; Pocket Link 2 carries none yet (docs/POCKET-LINK.md §11), so no
+ * gone; Pocket Link 2 carries none in this version (docs/POCKET-LINK.md §12.2), so no
  * program calls this today. A program that does supplies the pump.
  *
  * Returns false when `line` is not the delivery's. Otherwise writes the
