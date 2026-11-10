@@ -47,7 +47,7 @@ bool runtime_select_slot(const char *slot) {
   snprintf(packages_dir, sizeof packages_dir, POCKET_RUNTIME_APPS "/%s/packages", slot_name);
   snprintf(state_dir, sizeof state_dir, POCKET_RUNTIME_APPS "/%s/state", slot_name);
   snprintf(pending_path, sizeof pending_path, POCKET_RUNTIME_APPS "/%s/pending.pocket", slot_name);
-  /* The dev wire's staging file stays in the FIRST selected slot (the
+  /* A pushed package's staging file stays in the FIRST selected slot (the
    * embedded guest's) for the process lifetime: a transfer that is in flight
    * when the launcher switches apps lands where it started, and main.c routes
    * the finished package to the slot its app id names. */

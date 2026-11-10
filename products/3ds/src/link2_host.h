@@ -5,11 +5,10 @@
  * operations, the agent's events and streams, DevTools lines, and the
  * running applet's channel.
  *
- * The runtime operations share the program's machinery with the development
- * connection (devserver.c), which stays beside the link until it is removed:
- * a pushed package goes into the same staging file and through the same
- * admission in main.c, a .3dsx through native.c, a screenshot through the
- * same GPU-idle transfer. main.c reports each lifecycle step to both.
+ * The runtime operations run on the program's machinery: a pushed package
+ * goes into the staging file and through the admission in main.c, a .3dsx
+ * through native.c, a screenshot through the GPU-idle transfer in main.c.
+ * main.c reports each lifecycle step here.
  *
  * Capture and offload builds have no link: every call here is inert, and the
  * guest namespace reports an unpaired console (link2_guest.h).
@@ -22,7 +21,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "dev_protocol.h"
 #include "link2.h"
 #include "runtime.h"
 
@@ -62,8 +60,8 @@ bool link2_host_clock(int64_t *utc_ms, int32_t *offset_min);
  * reply has left: the main loop ends. */
 bool link2_host_exit_requested(void);
 
-/* The runtime's facts, at the call sites of devserver_set_runtime,
- * devserver_report_install and devserver_report_log. */
+/* The runtime's facts at each lifecycle step, an install's phases, and the
+ * host's own log lines. */
 void link2_host_set_runtime(
   const PocketRuntimeState *state,
   const PocketRuntimePackage *package,
@@ -81,13 +79,16 @@ void link2_host_report_guest_log(const char *level, const char *text, size_t len
 void link2_host_set_frame(uint32_t frame);
 
 /* A package pushed over the link is whole in POCKET_RUNTIME_UPLOAD: the
- * caller admits it as it admits the development connection's. */
+ * caller admits it. */
 bool link2_host_take_upload(uint64_t *declared_hash);
 
 /* runtime.screenshot: main owns the GPU-idle transfer into the returned
- * linear buffers, as for the development connection; the link frees them
- * after the stream. */
+ * linear buffers; the link frees them after the stream. */
 bool link2_host_take_screenshot_request(void);
+/* The dev menu's X and ui.__dbgShot: the same capture sent unsolicited, as a
+ * `runtime.screenshot` event with a stream of its own (§6.2). False without
+ * a link that uses `runtime`, or while a capture is on its way. */
+bool link2_host_request_screenshot(void);
 bool link2_host_screenshot_begin(
   uint32_t frame,
   uint16_t top_width,
@@ -99,7 +100,9 @@ bool link2_host_screenshot_begin(
 );
 void link2_host_screenshot_ready(void);
 
-/* The DevTools stream, for ui.__dbg*. */
+/* The DevTools stream, for ui.__dbg*. A guest's shim asks `active` once as
+ * it installs: from then until that guest ends the program lists `devtools`
+ * (§6.1), so a guest without the shim is not offered an eval it cannot run. */
 bool link2_host_devtools_active(void);
 bool link2_host_devtools_listening(void);
 size_t link2_host_devtools_poll(char *out, size_t capacity);

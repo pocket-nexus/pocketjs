@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "devmenu.h"
+
 #ifdef POCKETJS_LINK
 
 #include <3ds.h>
@@ -14,7 +16,7 @@
 #include <unistd.h>
 
 #include "agent.h"
-#include "devserver.h"
+#include "devstats.h"
 #include "hbldr.h"
 #include "host_services.h"
 #include "jscan.h"
@@ -28,10 +30,16 @@
 
 /* What this program serves or uses (§6.1). `runtime.native` is listed
  * whatever started the process: outside the Homebrew Launcher a launch
- * answers the error `launch`, as the development connection's does. */
+ * answers the error `launch`. `devtools` is listed while the running guest
+ * has the DevTools shim (link2_host_devtools_active), and stands last so the
+ * list without it is the same array, one shorter. */
 static const char *const FEATURES[] = {
-  "apps", "runtime", "runtime.native", "devtools", "catalog", "install", "net.http", "agent", "channel",
+  "apps", "runtime", "runtime.native", "catalog", "install", "net.http", "agent", "channel", "devtools",
 };
+enum { FEATURE_COUNT = sizeof FEATURES / sizeof FEATURES[0] };
+/* The running guest's shim asked for the transport; and what Hub was told. */
+static bool shim_present;
+static bool devtools_listed;
 
 static Link2 *client;
 static char device_name[LINK2_NAME_BYTES];
@@ -51,12 +59,13 @@ static char home_version[40];
 static char home_hash[17];
 static char row_hashes[LINK2_APPS_MAX_ROWS][17];
 
-/* runtime.push: the one staging file, shared with the development connection. */
+/* runtime.push: the one staging file. */
 static FILE *push_file;
 static uint64_t push_hash;
 static bool push_ready;   /* whole, and not yet taken by the main loop */
 static bool push_pending; /* taken: the admission's report is due */
 static uint64_t push_taken_ms;
+static uint32_t pushes_taken;
 /* An admission reports within a boot and a frame; past this the staging file
  * is free again, so one lost report cannot refuse every later push. */
 #define PUSH_REPORT_MS 60000u
@@ -78,6 +87,11 @@ static uint32_t shot_auxiliary_bytes;
 static uint32_t shot_offset;
 static uint32_t shot_frame;
 static uint16_t shot_size[4];
+/* The capture in hand goes out unsolicited (the dev menu, ui.__dbgShot), on
+ * the event stream `shot_stream` once it is open. */
+static bool shot_unsolicited;
+static uint32_t shot_stream;
+static uint32_t shots_taken;
 
 /* The guest that runs. */
 static int channel = -1;
@@ -222,13 +236,10 @@ static void push_close(void) {
   push_file = NULL;
 }
 
-/* The development connection writes the same staging file: it takes no
- * package while one of the link's is on its way to a guest. */
 static void push_release(void) {
   push_close();
   push_ready = false;
   push_pending = false;
-  devserver_allow_packages(true);
 }
 
 static bool on_push_begin(void *context, uint32_t bytes, const char *hash, Link2Failure *failure) {
@@ -247,11 +258,9 @@ static bool on_push_begin(void *context, uint32_t bytes, const char *hash, Link2
   }
   push_hash = 0;
   for (size_t i = 0; i < 8; i += 1) push_hash = (push_hash << 8) | raw[i];
-  devserver_allow_packages(false);
   push_close();
   push_file = fopen(POCKET_RUNTIME_UPLOAD, "wb");
   if (push_file == NULL) {
-    devserver_allow_packages(true);
     snprintf(failure->code, sizeof failure->code, "storage");
     snprintf(failure->message, sizeof failure->message, "the staging file did not open");
     return false;
@@ -291,6 +300,7 @@ bool link2_host_take_upload(uint64_t *declared_hash) {
   push_ready = false;
   push_pending = true;
   push_taken_ms = services_host_ms();
+  pushes_taken += 1;
   *declared_hash = push_hash;
   return true;
 }
@@ -456,13 +466,51 @@ static void shot_free(void) {
   shot_auxiliary_bytes = 0;
   shot_offset = 0;
   shot_capturing = false;
+  shot_stream = 0;
 }
 
 static bool on_screenshot_request(void *context) {
   (void)context;
   if (shot_requested || shot_capturing || shot_top != NULL) return false;
   shot_requested = true;
+  shot_unsolicited = false;
   return true;
+}
+
+bool link2_host_request_screenshot(void) {
+  if (client == NULL || !link2_in_use(client, "runtime")) return false;
+  if (shot_requested || shot_capturing || shot_top != NULL) return false;
+  shot_requested = true;
+  shot_unsolicited = true;
+  return true;
+}
+
+/* The next bytes of the capture, top surface then bottom: a pointer into the
+ * surface that holds byte `shot_offset`, and how many follow in it. */
+static const uint8_t *shot_at(uint32_t *left) {
+  bool top = shot_offset < shot_top_bytes;
+  uint32_t at = top ? shot_offset : shot_offset - shot_top_bytes;
+  *left = (top ? shot_top_bytes : shot_auxiliary_bytes) - at;
+  return (top ? shot_top : shot_auxiliary) + at;
+}
+
+/* An unsolicited capture leaves as its stream's credit and the send buffer
+ * allow, a part each pump; Hub's RESET or a dropped link frees it. */
+static void shot_pump(void) {
+  if (shot_stream == 0) return;
+  uint32_t total = shot_top_bytes + shot_auxiliary_bytes;
+  while (shot_offset < total) {
+    if (!link2_event_stream_live(client, shot_stream)) {
+      shot_free();
+      return;
+    }
+    uint32_t left = 0;
+    const uint8_t *bytes = shot_at(&left);
+    size_t taken = link2_event_stream_send(client, shot_stream, bytes, left, shot_offset + left == total);
+    if (taken == 0) return;
+    shot_offset += (uint32_t)taken;
+  }
+  shot_free();
 }
 
 static size_t on_screenshot_read(void *context, uint8_t *into, size_t capacity) {
@@ -470,12 +518,10 @@ static size_t on_screenshot_read(void *context, uint8_t *into, size_t capacity) 
   uint32_t total = shot_top_bytes + shot_auxiliary_bytes;
   size_t done = 0;
   while (done < capacity && shot_offset < total) {
-    bool top = shot_offset < shot_top_bytes;
-    const uint8_t *surface = top ? shot_top : shot_auxiliary;
-    uint32_t at = top ? shot_offset : shot_offset - shot_top_bytes;
-    uint32_t left = (top ? shot_top_bytes : shot_auxiliary_bytes) - at;
+    uint32_t left = 0;
+    const uint8_t *bytes = shot_at(&left);
     size_t take = capacity - done < left ? capacity - done : left;
-    memcpy(into + done, surface + at, take);
+    memcpy(into + done, bytes, take);
     done += take;
     shot_offset += (uint32_t)take;
   }
@@ -508,8 +554,9 @@ bool link2_host_screenshot_begin(
   shot_top = linearAlloc(shot_top_bytes);
   shot_auxiliary = linearAlloc(shot_auxiliary_bytes);
   if (shot_top == NULL || shot_auxiliary == NULL) {
+    bool unsolicited = shot_unsolicited;
     shot_free();
-    if (client != NULL) link2_screenshot_failed(client, "storage", "the linear buffers could not be allocated");
+    if (client != NULL && !unsolicited) link2_screenshot_failed(client, "storage", "the linear buffers could not be allocated");
     return false;
   }
   shot_frame = frame;
@@ -526,9 +573,11 @@ bool link2_host_screenshot_begin(
 void link2_host_screenshot_ready(void) {
   if (!shot_capturing) return;
   shot_capturing = false;
-  char members[320];
+  char members[352];
   Link2Json json;
   link2_json_init(&json, members, sizeof members);
+  /* Unsolicited, the members are a whole event; asked for, the client wraps them. */
+  if (shot_unsolicited) link2_json_text(&json, "{\"t\":\"runtime.screenshot\",");
   link2_json_text(&json, "\"frame\":");
   link2_json_u64(&json, shot_frame);
   link2_json_text(&json, ",\"format\":\"bgr8-rotated\",\"surfaces\":[{\"name\":\"top\",\"width\":");
@@ -545,6 +594,14 @@ void link2_host_screenshot_ready(void) {
   link2_json_u64(&json, shot_auxiliary_bytes);
   link2_json_text(&json, "}]");
   shot_offset = 0;
+  shots_taken += 1;
+  if (shot_unsolicited) {
+    link2_json_text(&json, "}");
+    /* 0 when the link dropped or the event found no room: the capture is dropped. */
+    shot_stream = client == NULL || json.failed ? 0 : link2_event_stream(client, members, json.length);
+    if (shot_stream == 0) shot_free();
+    return;
+  }
   /* False when the link dropped meanwhile: nobody reads the capture. */
   if (client == NULL || json.failed ||
       !link2_screenshot_ready(client, members, json.length, shot_frame, shot_top_bytes + shot_auxiliary_bytes)) {
@@ -616,8 +673,18 @@ bool link2_host_stream_live(uint32_t id) {
 // DevTools, logs
 // ---------------------------------------------------------------------------
 
+/* What Hub is told this program serves: `devtools` only for a guest with the shim. */
+static void features_apply(void) {
+  if (client == NULL || devtools_listed == shim_present) return;
+  devtools_listed = shim_present;
+  link2_set_features(client, FEATURES, devtools_listed ? FEATURE_COUNT : FEATURE_COUNT - 1);
+}
+
 bool link2_host_devtools_active(void) {
-  return client != NULL && link2_in_use(client, "devtools");
+  if (client == NULL) return false;
+  shim_present = true;
+  features_apply();
+  return true;
 }
 
 bool link2_host_devtools_listening(void) {
@@ -693,6 +760,10 @@ void link2_host_guest_end(void) {
   channel = -1;
   channel_declared = false;
   guest_running = false;
+  /* The next guest's shim asks again as it installs; a guest without one
+   * drops `devtools` at its first frame (link2_host_before_frame), so a
+   * switch between two guests with the shim sends no `features` event. */
+  shim_present = false;
 }
 
 int link2_host_channel(void) {
@@ -749,7 +820,9 @@ void link2_host_init(const PocketRuntimePackage *embedded) {
   host.host_abi = POCKETJS_HOST_ABI;
   host.directory = link_host_directory();
   host.features = FEATURES;
-  host.feature_count = sizeof FEATURES / sizeof FEATURES[0];
+  host.feature_count = FEATURE_COUNT - 1;
+  shim_present = false;
+  devtools_listed = false;
   host.max_channels = 1;
   host.linked = on_linked;
   host.runtime_status = on_runtime_status;
@@ -803,7 +876,33 @@ static void pump_timed(void) {
 void link2_host_pump(void) {
   if (client == NULL) return;
   pump_timed();
+  shot_pump();
   if (push_pending && services_host_ms() - push_taken_ms > PUSH_REPORT_MS) push_release();
+  devstats_set_link(link2_linked(client), link2_stats(client)->links, pushes_taken, shots_taken);
+}
+
+/* The dev menu's page: the link and the runtime as this file knows them. */
+void devmenu_snapshot(DevmenuSnapshot *out) {
+  memset(out, 0, sizeof *out);
+  if (client == NULL) return;
+  char status[1024];
+  Link2Json json;
+  link2_json_init(&json, status, sizeof status);
+  link2_status_json(client, &json);
+  JsonSpan root = { status, json.failed ? 0 : json.length }, paired;
+  /* `paired` is an array of objects: one `{` per pairing. */
+  out->paired = json_find(root, "paired", &paired) && memchr(paired.start, '{', paired.length) != NULL;
+  out->linked = link2_linked(client);
+  snprintf(out->device, sizeof out->device, "%s", link2_device_id(client));
+  snprintf(out->phase, sizeof out->phase, "%s", runtime_phase);
+  u32 address = soc_active() ? (u32)gethostid() : 0;
+  snprintf(out->ip, sizeof out->ip, "%u.%u.%u.%u", (unsigned)(address & 0xff), (unsigned)((address >> 8) & 0xff), (unsigned)((address >> 16) & 0xff), (unsigned)(address >> 24));
+  out->host_abi = POCKETJS_HOST_ABI;
+  out->generation = runtime_state.generation;
+  out->running_hash = running_hash;
+  out->links = link2_stats(client)->links;
+  out->pushes = pushes_taken;
+  out->screenshots = shots_taken;
 }
 
 /* The second pump of a loop, after the wait for the display and right before
@@ -813,6 +912,7 @@ void link2_host_pump(void) {
 void link2_host_before_frame(void) {
   if (client == NULL) return;
   pump_timed();
+  features_apply();
   if (channel >= 0) link2_channel_frame(client, channel);
 }
 
@@ -893,6 +993,8 @@ bool link2_host_take_upload(uint64_t *declared_hash) {
   return false;
 }
 bool link2_host_take_screenshot_request(void) { return false; }
+bool link2_host_request_screenshot(void) { return false; }
+void devmenu_snapshot(DevmenuSnapshot *out) { memset(out, 0, sizeof *out); }
 bool link2_host_screenshot_begin(uint32_t frame, uint16_t top_width, uint16_t top_height, uint16_t auxiliary_width, uint16_t auxiliary_height, uint8_t **top, uint8_t **auxiliary) {
   (void)frame;
   (void)top_width;

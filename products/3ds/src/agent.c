@@ -287,8 +287,8 @@ void agent_capture(C3D_RenderTarget *auxiliary) {
       GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO)
   );
   GSPGPU_InvalidateDataCache(shot_rgb8, AGENT_SHOT_W * AGENT_SHOT_H * 3);
-  /* B,G,R in rotated column-major order (tools/3ds-runtime-client.ts
-   * decodePocketRuntimeSurface) to row-major RGB565, little-endian. */
+  /* B,G,R in rotated column-major order (tools/pocket-link/v2/cli.ts
+   * screenshotPng) to row-major RGB565, little-endian. */
   for (uint32_t y = 0; y < AGENT_SHOT_H; y += 1) {
     for (uint32_t x = 0; x < AGENT_SHOT_W; x += 1) {
       const uint8_t *source = shot_rgb8 + (x * AGENT_SHOT_H + (AGENT_SHOT_H - 1 - y)) * 3;

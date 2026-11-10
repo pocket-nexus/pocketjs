@@ -3,7 +3,7 @@
  * 30..32) over one TCP connection to a companion process on the tethered
  * machine, discovered through its UDP beacon (contracts/spec/spec.ts
  * "SVC WIRE protocol"; platforms/vita/net/src/lib.rs is the reference
- * implementation, threaded — this one is the devserver.c shape instead:
+ * implementation, threaded — this one is the link client's shape instead:
  * non-blocking sockets pumped once per frame by the main thread).
  *
  * The guest contract is the PSP mailbox, unchanged: svcOpen is a

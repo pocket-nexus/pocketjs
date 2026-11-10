@@ -51,7 +51,7 @@
 #include "worker.h"
 #include "offload.h"
 #include "media.h"
-#include "devserver.h"
+#include "devstats.h"
 #include "devmenu.h"
 #include "hbldr.h"
 #include "native.h"
@@ -182,26 +182,24 @@ static bool stage_ready;
 #define LOOP_STEP(name) ((void)0)
 #endif
 
-/* The runtime's lifecycle goes to both transports that report it: the
- * development connection and the Pocket Link (link2_host.h). */
+/* The runtime's lifecycle goes to the Pocket Link (link2_host.h) and to the
+ * counters a DevTools panel reads (devstats.h). */
 static void report_runtime(
   const PocketRuntimeState *state,
   const PocketRuntimePackage *package,
   const char *phase,
   uint32_t frame
 ) {
-  devserver_set_runtime(state, package, phase, frame);
+  devstats_set_runtime(state, package, frame);
   link2_host_set_runtime(state, package, phase, frame);
 }
 
 static void report_install(const char *phase, uint64_t hash, const char *message) {
-  devserver_report_install(phase, hash, message);
   link2_host_report_install(phase, hash, message);
 }
 
 static void report_log(const char *level, const char *message) __attribute__((unused));
 static void report_log(const char *level, const char *message) {
-  devserver_report_log(level, message);
   link2_host_report_log(level, message);
 }
 
@@ -1260,18 +1258,13 @@ int main(void) {
     fail(runtime_error);
   }
   native_set_running_path(__system_argc > 0 ? __system_argv[0] : NULL);
-  DevserverInitResult devserver_result = devserver_init(
-    &runtime_state,
-    runtime_error,
-    sizeof runtime_error
-  );
-  if (devserver_result == DEVSERVER_ERROR) {
-    /* Pairing/network failure must not make the accepted guest unbootable.
-     * Persist it for the next FTP inspection and continue without DevTools.
-     * The main loop retries: socInit fails transiently when the app starts
-     * while WiFi is still re-associating (e.g. right after ftpd exits). */
-    runtime_write_error("devserver-init", runtime_error);
-  }
+  /* The sockets the link, the service wire and the worker use. A failure
+   * must not make the accepted guest unbootable: it is kept for the next
+   * inspection of the card, and the main loop asks again, because socInit
+   * fails for a moment when the program starts while Wi-Fi is still
+   * re-associating (right after ftpd exits, for one). */
+  bool soc_up = soc_ensure(runtime_error, sizeof runtime_error);
+  if (!soc_up) runtime_write_error("soc-init", runtime_error);
   LauncherPackage home = launcher_package(embedded);
   launcher_init(embedded->guest.slot, &home);
   services_host_bind_runtime(&runtime_state);
@@ -1344,20 +1337,10 @@ int main(void) {
 #ifdef POCKETJS_EXTENSION
     if (pocket_extension_quit_requested()) break;
 #endif
-    if (devserver_result == DEVSERVER_ERROR && run_frame % 300 == 299) {
+    if (!soc_up && run_frame % 300 == 299) {
       /* One retry every ~5 s until the transient boot-time failure clears. */
-      devserver_result = devserver_init(&runtime_state, runtime_error, sizeof runtime_error);
-      if (devserver_result == DEVSERVER_READY) {
-        report_runtime(
-          &runtime_state,
-          guest.package,
-          guest.commit_on_accept ? "candidate" : "booted",
-          run_frame
-        );
-      }
+      soc_up = soc_ensure(runtime_error, sizeof runtime_error);
     }
-    LOOP_STEP("dev connection");
-    devserver_poll();
     LOOP_STEP("service wire");
     svcwire_pump();
     LOOP_STEP("worker service");
@@ -1369,22 +1352,9 @@ int main(void) {
     LOOP_STEP("wifi");
     wifi_pump();
     LOOP_STEP("loop");
-    {
-      /* An installed or named .3dsx starts when this process exits: the same
-       * hand-off the Homebrew Launcher makes, so the loop ends here. */
-      char launch_name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
-      char launch_path[POCKET_NATIVE_PATH_BYTES];
-      if (devserver_take_launch(launch_name) && native_path_for(launch_name, launch_path)) {
-        if (hbldr_launch_on_exit(launch_path, runtime_error, sizeof runtime_error)) {
-          devserver_report_native("launching", launch_name, "exiting to start it");
-          devserver_flush(1000);
-          break;
-        }
-        devserver_report_native("launch-error", launch_name, runtime_error);
-      }
-    }
-    /* A .3dsx armed over the link starts when this process exits; its reply
-     * and the CLOSE have left (link2_host.c). */
+    /* A .3dsx armed over the link starts when this process exits, the same
+     * hand-off the Homebrew Launcher makes; its reply and the CLOSE have
+     * left (link2_host.c). */
     if (link2_host_exit_requested()) break;
     if (launcher_pending()) {
       /* A switch starts once the leaving scrim covers the old guest. */
@@ -1403,12 +1373,12 @@ int main(void) {
     if (devmenu_visible() && input_devmenu_close_requested()) devmenu_hide();
     if (devmenu_visible() && input_devmenu_screenshot_requested()) {
       devmenu_set_notice(
-        devserver_request_screenshot() ? "SHOT QUEUED" : "NO DEV CLIENT"
+        link2_host_request_screenshot() ? "SHOT QUEUED" : "NOT LINKED"
       );
     }
     bool devmenu_blocks_guest = input_devmenu_blocks_guest(devmenu_visible());
     uint64_t upload_hash = 0;
-    if (devserver_take_upload(&upload_hash) || link2_host_take_upload(&upload_hash)) {
+    if (link2_host_take_upload(&upload_hash)) {
       if (route_upload(&guest, &runtime_state, embedded, &failures, upload_hash, &run_frame)) continue;
       PocketRuntimePackage *uploaded = NULL;
       RuntimePendingResult result = runtime_prepare_file(
@@ -1583,7 +1553,7 @@ int main(void) {
       static u64 previous_js;
       static uint32_t previous_frame = UINT32_MAX;
       if (previous_frame != UINT32_MAX && run_frame == previous_frame + 1) {
-        devserver_set_frame_timing(
+        devstats_set_frame_timing(
           ticks_to_us(phase_tick - phase_js),
           0, /* Internal tick/layout/render phases belong to the runtime. */
           0,
@@ -1599,43 +1569,18 @@ int main(void) {
       previous_frame = run_frame;
     }
     guest.submitted_frames += 1;
-    devserver_set_frame_stats(
+    devstats_set_frame_stats(
       run_frame,
       gfx_frame_commands(),
       gfx_frame_vertices(),
       gfx_dropped_vertices()
     );
     link2_host_set_frame(run_frame);
-    if (devserver_take_screenshot_request()) {
-      uint8_t *top_rgb = NULL;
-      uint8_t *auxiliary_rgb = NULL;
-      if (devserver_screenshot_begin(
-            run_frame,
-            VIEW_W,
-            VIEW_H,
-            AUX_VIEW_W,
-            AUX_VIEW_H,
-            &top_rgb,
-            &auxiliary_rgb
-          )) {
-        /* Canonical tick has retired both surfaces. Copy both targets before
-         * the next tick can overwrite either. */
-        gspWaitForVBlank();
-        read_surface_rgb8(primary_target, VIEW_W, VIEW_H, top_rgb);
-        read_surface_rgb8(
-          auxiliary_target,
-          AUX_VIEW_W,
-          AUX_VIEW_H,
-          auxiliary_rgb
-        );
-        devserver_screenshot_ready();
-      } else {
-        report_log("error", "screenshot: linear buffer allocation failed");
-      }
-    }
     if (link2_host_take_screenshot_request()) {
-      /* runtime.screenshot over the link: the same transfer into buffers the
-       * link streams and frees. */
+      /* runtime.screenshot, asked for by Hub or sent from the dev menu: the
+       * canonical tick has retired both surfaces, and both targets are
+       * copied into buffers the link streams and frees before the next tick
+       * can overwrite either. */
       uint8_t *top_rgb = NULL;
       uint8_t *auxiliary_rgb = NULL;
       if (link2_host_screenshot_begin(run_frame, VIEW_W, VIEW_H, AUX_VIEW_W, AUX_VIEW_H, &top_rgb, &auxiliary_rgb)) {
@@ -1643,6 +1588,8 @@ int main(void) {
         read_surface_rgb8(primary_target, VIEW_W, VIEW_H, top_rgb);
         read_surface_rgb8(auxiliary_target, AUX_VIEW_W, AUX_VIEW_H, auxiliary_rgb);
         link2_host_screenshot_ready();
+      } else {
+        report_log("error", "screenshot: linear buffer allocation failed");
       }
     }
     run_frame += 1;
@@ -1701,7 +1648,6 @@ int main(void) {
   link2_host_shutdown();
   wifi_shutdown();
   svcwire_shutdown();
-  devserver_shutdown();
   soc_shutdown();
   devmenu_shutdown();
 #endif

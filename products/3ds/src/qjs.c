@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "devserver.h"
+#include "devstats.h"
 #include "pocket_core.h"
 #include "quickjs.h"
 #include "svcwire.h"
@@ -191,7 +191,7 @@ static void take_exception(void) {
       size_t room = sizeof last_error - 1 - used - 1;
       size_t copy = stack_length < room ? stack_length : room;
       last_error[used] = ' ';
-      /* Flattened: the error travels as one line, over the dev wire and into
+      /* Flattened: the error travels as one line, over the link and into
        * error.txt alike. */
       for (size_t i = 0; i < copy; i += 1)
         last_error[used + 1 + i] = frames[i] == '\n' ? ' ' : frames[i];
@@ -441,18 +441,16 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
   }
 #endif
   case HostDebugFrames:
-    return JS_NewString(ctx, devserver_debug_frames());
-  /* DevTools reaches the shim over the development connection or over the
-   * link's stream (docs/POCKET-LINK.md §6.3), whichever has a peer. */
+    return JS_NewString(ctx, devstats_frames());
+  /* DevTools reaches the shim over the link's stream
+   * (docs/POCKET-LINK.md §6.3). The shim asks `active` once as it installs,
+   * which is how the program learns this guest has one. */
   case HostDbgActive:
-    return JS_NewBool(ctx, devserver_active() || link2_host_devtools_active());
+    return JS_NewBool(ctx, link2_host_devtools_active());
   case HostDbgConnected:
-    return JS_NewBool(ctx, devserver_connected() || link2_host_devtools_listening());
+    return JS_NewBool(ctx, link2_host_devtools_listening());
   case HostDbgPoll: {
-    size_t length =
-        devserver_recv_ctrl(debug_poll_buffer, sizeof debug_poll_buffer);
-    if (length == 0)
-      length = link2_host_devtools_poll(debug_poll_buffer, sizeof debug_poll_buffer);
+    size_t length = link2_host_devtools_poll(debug_poll_buffer, sizeof debug_poll_buffer);
     return length == 0 ? JS_UNDEFINED
                        : JS_NewStringLen(ctx, debug_poll_buffer, length);
   }
@@ -461,7 +459,6 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
       return JS_UNDEFINED;
     text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
     if (text != NULL) {
-      devserver_send_ctrl(text, text_length);
       link2_host_devtools_send(text, text_length);
       JS_FreeCString(ctx, text);
     }
@@ -570,7 +567,7 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
                   : JS_UNDEFINED;
   }
   case HostDbgShot:
-    return JS_NewBool(ctx, devserver_request_screenshot());
+    return JS_NewBool(ctx, link2_host_request_screenshot());
   case HostLinkStatus:
     return JS_NewString(ctx, link2_guest_status_json());
   case HostLinkPair:

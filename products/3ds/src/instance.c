@@ -8,7 +8,7 @@
  * these before boot. */
 #include "instance.h"
 #include "input_source.h"
-#include "devserver.h"
+#include "devstats.h"
 #include "gfx.h"
 #include "launcher.h"
 #include "link2_host.h"
@@ -88,7 +88,7 @@ static int32_t provider(void *context, uint16_t op, const pocket_op_arg *args,
     }
     break;
   case POCKET_3DS_OP_debugStats:
-    text = devserver_debug_stats();
+    text = devstats_json();
     out->tag = POCKET_RESULT_BYTES;
     out->bytes = (const uint8_t *)text;
     out->byte_length = strlen(text);

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-const productPrefixes = ["pocket_package_open", "devserver_", "launcher_", "camera_", "agent_", "link_", "stage_", "runtime_slot"];
+const productPrefixes = ["pocket_package_open", "devstats_", "link2_", "launcher_", "camera_", "agent_", "link_", "stage_", "runtime_slot"];
 /** Inspect arm-none-eabi-nm --defined-only output from the actual linked ELFs. */
 export function check3dsSymbols(minimal: string, product: string): void {
   const names = (text: string) => text.split(/\r?\n/).map(line => line.trim().split(/\s+/).at(-1) ?? "");

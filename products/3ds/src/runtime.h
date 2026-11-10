@@ -12,7 +12,6 @@
  * recover or hot-load one another's package. */
 #define POCKET_RUNTIME_ROOT "sdmc:/pocketjs/runtime"
 #define POCKET_RUNTIME_APPS POCKET_RUNTIME_ROOT "/apps"
-#define POCKET_RUNTIME_DEV_KEY POCKET_RUNTIME_ROOT "/dev.key"
 
 /* The application's directory below POCKET_RUNTIME_APPS is named at boot from
  * the package in the .3dsx's RomFS (PocketGuestPackage.slot, the first 16 hex

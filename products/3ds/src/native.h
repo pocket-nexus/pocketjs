@@ -5,11 +5,25 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "dev_protocol.h"
 #include "runtime.h"
 
+/* A .3dsx travels under a bare file name and lands at sdmc:/3ds/<name>
+ * (docs/POCKET-LINK.md §6.2 runtime.native.install). */
+#define POCKET_RUNTIME_NATIVE_NAME_BYTES 64u
+/* A 3DSX header alone is 0x20 bytes. */
+#define POCKET_RUNTIME_NATIVE_MIN_BYTES 0x20u
+#define POCKET_RUNTIME_NATIVE_MAX_BYTES (32u * 1024u * 1024u)
+#define POCKET_RUNTIME_NATIVE_FLAG_LAUNCH 1u
+
+typedef struct {
+  uint32_t length;
+  uint32_t crc32;
+  uint8_t flags;
+  char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
+} PocketRuntimeNativeBegin;
+
 /*
- * .3dsx files installed over the development connection.
+ * .3dsx files installed over the Pocket Link (runtime.native.install).
  *
  * One transfer at a time streams to a device-wide staging file, is checked
  * against its declared length, CRC-32 and 3DSX magic, and then replaces

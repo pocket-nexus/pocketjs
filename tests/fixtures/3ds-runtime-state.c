@@ -85,7 +85,6 @@ int main(int argc, char **argv) {
   assert(runtime_storage_init(&state, error, sizeof error));
   assert(state.generation == 0 && state.active_hash == 0 && state.last_good_hash == 0);
   assert(strcmp(POCKET_RUNTIME_APP_ROOT, "sdmc:/pocketjs/runtime/apps/0123456789abcdef") == 0);
-  assert(strcmp(POCKET_RUNTIME_DEV_KEY, "sdmc:/pocketjs/runtime/dev.key") == 0);
 
   const uint64_t first_hash = 0x1111222233334444ULL;
   write_package(POCKET_RUNTIME_PENDING, first_hash, 1);
