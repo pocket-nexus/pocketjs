@@ -418,44 +418,39 @@ static void s11(void) {
   set_features("runtime", NULL);
   hex_encode(HUB_KEY, 32, key);
   snprintf(text, sizeof text, "key=%s\nname=Other\naddress=10.0.0.3\nport=8628\n", key);
-  /* Decoys until one sorts ahead of the Hub in directory order. A directory lists its
-   * entries by name, by a hash of the name seeded per file system, oldest first or
-   * newest first: 64 names are tried, each written after the Hub's file and then
-   * before it, so one comes first whatever the order is. */
-  static char decoy_name[17];
-  const char *decoy = NULL;
-  char hub_path[400], hub_text[400];
-  snprintf(hub_path, sizeof hub_path, "%s/companions/%s.txt", sim_dir, HUB_ID);
-  snprintf(hub_text, sizeof hub_text, "key=%s\nname=Sim Hub\naddress=10.0.0.2\nport=8628\n", key);
-  for (int hub_last = 0; hub_last < 2 && decoy == NULL; hub_last += 1) {
-    for (unsigned k = 0; k < 64 && decoy == NULL; k += 1) {
-      snprintf(decoy_name, sizeof decoy_name, "%016llx", (unsigned long long)(0x1000u + k) * 0x9e3779b97f4a7c15ULL);
-      if (strcmp(decoy_name, HUB_ID) == 0) continue;
-      snprintf(path, sizeof path, "%s/companions/%s.txt", sim_dir, decoy_name);
-      if (hub_last) remove(hub_path);
-      write_text(path, text);
-      if (hub_last) write_text(hub_path, hub_text);
-      Link2 *probe = sim_create(0, 1);
-      if (probe->companions.count == 2 && strcmp(probe->companions.list[0].id, decoy_name) == 0) decoy = decoy_name;
-      link2_destroy(probe);
-      if (decoy == NULL) remove(path);
-    }
-  }
-  if (decoy == NULL) {
-    printf("S11 no decoy sorts ahead of the Hub in this directory's order: not run\n");
+  /* A second pairing beside the Hub's. The finding needs the Hub at index 1 while it is
+   * linked, and the order a directory lists two files in depends on the file system
+   * (by name, by a seeded hash, by age), so the scenario does not rely on it: when the
+   * Hub loaded first, the two entries change places in memory, as a card that listed the
+   * other file first would have loaded them. */
+  static const char DECOY[] = "0123456789abcdef";
+  snprintf(path, sizeof path, "%s/companions/%s.txt", sim_dir, DECOY);
+  write_text(path, text);
+  up(0, 1);
+  if (L->companions.count != 2 || L->phase != PHASE_LINKED) {
+    printf("S11 the two pairings did not load or the link is not up (count %u): not run\n", (unsigned)L->companions.count);
     return;
   }
-  up(0, 1);
+  if (strcmp(L->companions.list[L->target].id, HUB_ID) != 0) {
+    printf("S11 the link is not to the Hub: not run\n");
+    return;
+  }
+  if (L->target == 0) {
+    Link2Companion first = L->companions.list[0];
+    L->companions.list[0] = L->companions.list[1];
+    L->companions.list[1] = first;
+    L->target = 1;
+  }
   link2_json_init(&json, status, sizeof status);
   link2_status_json(L, &json);
   status[json.length] = '\0';
   char before[120];
   snprintf(before, sizeof before, "%.60s", strstr(status, "\"hub\":"));
-  bool removed = link2_forget(L, decoy);
+  bool removed = link2_forget(L, DECOY);
   link2_json_init(&json, status, sizeof status);
   link2_status_json(L, &json);
   status[json.length] = '\0';
-  printf("S11 linked to %s (index %u of 2); link2_forget(\"%s\") = %d; status before: %s | after: %.60s\n", HUB_ID, (unsigned)L->target, decoy, (int)removed, before, strstr(status, "\"hub\":"));
+  printf("S11 linked to %s at index 1 of 2; link2_forget(\"%s\") = %d; index now %u; status before: %s | after: %.60s\n", HUB_ID, DECOY, (int)removed, (unsigned)L->target, before, strstr(status, "\"hub\":"));
   printf("  => %s\n", strstr(strstr(status, "\"hub\":"), HUB_ID) == NULL || strstr(status, "\"hub\":{\"id\":\"\"") != NULL ? "REPRODUCED: the link is up and the status names another (or no) Hub: `target` is an index into a list that was reloaded" : "not reproduced");
 }
 
