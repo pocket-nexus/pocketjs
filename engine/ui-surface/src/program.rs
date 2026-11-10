@@ -157,6 +157,18 @@ impl UiProgram {
     pub fn surface(&self) -> UiSurface {
         self.surface.clone()
     }
+    /// Install a text provider: every text run measures and wraps through it
+    /// and draws as TEXT_RUN, which the registered renderer paints with the
+    /// same provider (docs/BACKENDS.md). Call before boot so the first frame
+    /// lays out with it.
+    pub fn set_text_provider(&mut self, measure: crate::MeasureFn, wrap: crate::WrapFn) {
+        self.surface.set_text_provider(measure, wrap);
+    }
+    /// Report that the installed text provider measures differently (a new
+    /// font); the next frame re-measures every run.
+    pub fn text_provider_changed(&mut self) {
+        self.surface.text_provider_changed();
+    }
     /// Driver registration is available only before boot, as enforced by Runtime.
     pub fn runtime_mut(&mut self) -> &mut Runtime {
         &mut self.runtime

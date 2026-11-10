@@ -4,7 +4,9 @@ use pocket_drivers::{
     Renderer, Target, TexView,
 };
 use pocket_spec::{draw_op as op, psm};
-use pocket_wgpu_render::{CacheLimits, TargetId, WgpuRenderer};
+use pocket_wgpu_render::{
+    CacheLimits, TargetId, TextInk, TextPaintContext, TextPainter, TextQuad, TextRun, WgpuRenderer,
+};
 
 struct Gpu {
     device: wgpu::Device,
@@ -361,6 +363,160 @@ fn invalid_targets_words_and_resources_do_not_leave_submissions() {
     let retry = render(&mut renderer, target, &image(4), &resources).unwrap();
     renderer.retire(retry);
     assert_eq!(gpu.read(&output), [255, 0, 0, 255].repeat(16));
+}
+
+/// What the painter saw, in order: frame hooks and one entry per run with
+/// its text, slot, tracking, generation, scale and box-local clip.
+#[derive(Debug, PartialEq)]
+enum PainterEvent {
+    Begin,
+    Paint(String, u8, f32, u32, f32, [f32; 4]),
+    End,
+}
+
+/// A painter that owns one 1x1 full-coverage texture and records each call.
+struct FakePainter {
+    texture: wgpu::TextureView,
+    events: std::rc::Rc<std::cell::RefCell<Vec<PainterEvent>>>,
+}
+impl TextPainter for FakePainter {
+    fn begin_frame(&mut self) {
+        self.events.borrow_mut().push(PainterEvent::Begin);
+    }
+    fn paint(
+        &mut self,
+        run: &TextRun<'_>,
+        text: &str,
+        context: &TextPaintContext,
+        quads: &mut Vec<TextQuad>,
+    ) -> Result<(), RenderError> {
+        self.events.borrow_mut().push(PainterEvent::Paint(
+            text.to_owned(),
+            run.slot,
+            run.tracking,
+            run.generation,
+            context.scale,
+            context.clip,
+        ));
+        // "hi" covers a 2x2 box; "rot" a 4x2 box before its rotation.
+        let rect = if text == "hi" {
+            [0.0, 0.0, 2.0, 2.0]
+        } else {
+            [0.0, 0.0, 4.0, 2.0]
+        };
+        quads.push(TextQuad {
+            texture: self.texture.clone(),
+            ink: TextInk::Coverage,
+            rect,
+            uv: [0.0, 0.0, 1.0, 1.0],
+        });
+        Ok(())
+    }
+    fn end_frame(&mut self) {
+        self.events.borrow_mut().push(PainterEvent::End);
+    }
+}
+
+/// One TEXT_RUN record (spec.ts layout) with the linear part `[a, b, c, d]`.
+fn text_run(text: &str, origin: [f32; 2], linear: [f32; 4], color: u32) -> Vec<u32> {
+    let mut words = vec![
+        op::TEXT_RUN,
+        3,
+        origin[0].to_bits(),
+        origin[1].to_bits(),
+        2.0f32.to_bits(),
+        f32::NAN.to_bits(),
+        color,
+        1.5f32.to_bits(),
+    ];
+    words.extend(linear.map(f32::to_bits));
+    words.extend([7, text.len() as u32]);
+    for chunk in text.as_bytes().chunks(4) {
+        let mut word = [0u8; 4];
+        word[..chunk.len()].copy_from_slice(chunk);
+        words.push(u32::from_le_bytes(word));
+    }
+    words
+}
+
+#[test]
+fn text_runs_draw_through_the_installed_painter_in_order_under_the_scissor() {
+    let gpu = Gpu::new();
+    let mut renderer = gpu.renderer();
+    let output = gpu.output();
+    let target = gpu.register(&mut renderer, &output);
+    let coverage = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("painter coverage"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    gpu.queue.write_texture(
+        coverage.as_image_copy(),
+        &[255],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(1),
+            rows_per_image: None,
+        },
+        coverage.size(),
+    );
+    let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let mut list = DrawList::new();
+    // Red "hi" at (1, 1); green "rot" rotated 90 degrees about (4, 0),
+    // inside a scissor that keeps only row 0.
+    list.words = text_run("hi", [1.0, 1.0], [1.0, 0.0, 0.0, 1.0], 0xff00_00ff);
+    list.words.extend([op::SCISSOR, 0, 4 | (1 << 16)]);
+    list.words.extend(text_run(
+        "rot",
+        [4.0, 0.0],
+        [0.0, 1.0, -1.0, 0.0],
+        0xff00_ff00,
+    ));
+    list.words.push(op::SCISSOR_POP);
+    let resources = Resources::red();
+    assert!(matches!(
+        render(&mut renderer, target, &list, &resources),
+        Err(RenderError::Unsupported)
+    ));
+    renderer
+        .set_text_painter(Some(Box::new(FakePainter {
+            texture: coverage.create_view(&Default::default()),
+            events: events.clone(),
+        })))
+        .unwrap();
+    let submission = render(&mut renderer, target, &list, &resources).unwrap();
+    renderer.retire(submission);
+    let (black, red, green) = ([0, 0, 0, 255], [255, 0, 0, 255], [0, 255, 0, 255]);
+    let expected: Vec<u8> = [
+        [black, black, green, green],
+        [black, red, red, black],
+        [black, red, red, black],
+        [black; 4],
+    ]
+    .concat()
+    .concat();
+    assert_eq!(gpu.read(&output), expected);
+    // One frame between the hooks. "hi" sees the whole 4x4 viewport from
+    // its box at (1, 1); "rot" sees row 0 mapped back through its rotation:
+    // screen (4 - y, x) for box-local (x, y), so x in [0, 1], y in [0, 4].
+    assert_eq!(
+        *events.borrow(),
+        [
+            PainterEvent::Begin,
+            PainterEvent::Paint("hi".to_owned(), 3, 1.5, 7, 1.0, [-1.0, -1.0, 3.0, 3.0]),
+            PainterEvent::Paint("rot".to_owned(), 3, 1.5, 7, 1.0, [0.0, 0.0, 1.0, 4.0]),
+            PainterEvent::End,
+        ]
+    );
 }
 
 #[test]

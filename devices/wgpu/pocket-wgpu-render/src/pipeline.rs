@@ -159,6 +159,7 @@ impl WgpuRenderer {
             pending: HashMap::new(),
             images: TextureCache::new(limits.image_entries, limits.image_bytes),
             fonts: TextureCache::new(limits.font_entries, limits.font_bytes),
+            text_painter: None,
         }
     }
 }

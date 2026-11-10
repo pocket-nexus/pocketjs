@@ -16,6 +16,8 @@ mod surface;
 pub use program::{ProgramConfig, UiProgram, embedded_profile};
 
 pub use pak::{find_pak, walk_pak, PakEntry};
+pub use pocketjs_core::spec::font_slot;
+pub use pocketjs_core::text::{MeasureFn, WrapFn};
 pub use surface::UiSurface;
 
 pub mod offload;

@@ -63,6 +63,8 @@ pub struct ProgramOutput {
 struct OutputState {
     device: wgpu::Device,
     format: wgpu::TextureFormat,
+    /// The renderer's image format, for `TextInk::Color` painter textures.
+    image_format: wgpu::TextureFormat,
     pixel_format: PixelFormat,
     clear: wgpu::Color,
     fixed: bool,
@@ -114,6 +116,7 @@ impl ProgramOutput {
         let driver = WgpuRenderer::new(&gpu.device, &gpu.queue, format)
             .map_err(|error| anyhow!("wgpu renderer: {error:?}"))?;
         let pixel_format = driver.descriptor().formats()[0];
+        let image_format = driver.image_format();
         let renderer = RendererCell::new(driver);
         // Validate size before runtime admission, even before the first acquire.
         let texture = Arc::new(new_target(&gpu.device, size, format)?);
@@ -131,6 +134,7 @@ impl ProgramOutput {
             state: Rc::new(RefCell::new(OutputState {
                 device: gpu.device.clone(),
                 format,
+                image_format,
                 pixel_format,
                 clear,
                 fixed,
@@ -253,6 +257,25 @@ impl ProgramOutput {
         let _ = self
             .renderer
             .with(|renderer| renderer.set_surface(handle, &target.view, logical));
+    }
+    /// Install the painter `TEXT_RUN` records draw through
+    /// ([`WgpuRenderer::set_text_painter`]); pair it with the measurer
+    /// installed by [`UiProgram::set_text_provider`](pocket_ui_surface::UiProgram::set_text_provider).
+    /// An error, and the painter dropped, when the renderer is shut down,
+    /// taken, or in use (a call from inside a painter's own `paint`).
+    pub fn set_text_painter(
+        &self,
+        painter: Box<dyn pocket_wgpu_render::TextPainter>,
+    ) -> Result<()> {
+        self.renderer
+            .with(|renderer| renderer.set_text_painter(Some(painter)))
+            .and_then(|installed| installed)
+            .map_err(|error| anyhow!("text painter not installed: {error:?}"))
+    }
+    /// The format a `TextInk::Color` painter texture uses
+    /// ([`WgpuRenderer::image_format`]).
+    pub fn image_format(&self) -> wgpu::TextureFormat {
+        self.state.borrow().image_format
     }
     pub fn retain_surfaces(&self, mut keep: impl FnMut(u32) -> bool) {
         // A host filter may drop its UiProgram. Do not hold the renderer

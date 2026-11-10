@@ -231,18 +231,37 @@ impl UiSurface {
         self.with_ui(Ui::tick);
     }
 
-    /// Install a native text measurer (docs/BACKENDS.md). Call before
-    /// `mount`, like `set_tick_rate`: measurement feeds layout, so the guest
-    /// must never observe a provider swap mid-run.
+    /// Install a text measurer (docs/BACKENDS.md): every text run then
+    /// measures through it and draws as TEXT_RUN, which the renderer paints
+    /// with the same provider. Install it before `mount` so the first frame
+    /// lays out with it; a later call re-measures every run.
     pub fn set_text_measure(&self, f: pocketjs_core::text::MeasureFn) {
         self.with_ui(|ui| ui.set_text_measure(Some(f)));
     }
 
-    /// Install a native line wrapper next to the measurer (OP wrapText —
-    /// break positions then come from the host text system). Same call-
-    /// before-`mount` rule so the guest never observes a provider swap.
+    /// Install a line wrapper next to the measurer (OP wrapText — break
+    /// positions then come from the host text system).
     pub fn set_text_wrap(&self, f: pocketjs_core::text::WrapFn) {
         self.with_ui(|ui| ui.set_text_wrap(Some(f)));
+    }
+
+    /// Install a text provider's measurer and wrapper together.
+    pub fn set_text_provider(
+        &self,
+        measure: pocketjs_core::text::MeasureFn,
+        wrap: pocketjs_core::text::WrapFn,
+    ) {
+        self.with_ui(|ui| {
+            ui.set_text_measure(Some(measure));
+            ui.set_text_wrap(Some(wrap));
+        });
+    }
+
+    /// Report that the installed provider measures differently (a new
+    /// font): every run is re-measured at the next frame and the TEXT_RUN
+    /// records carry a new generation.
+    pub fn text_provider_changed(&self) {
+        self.with_ui(|ui| ui.text_provider_changed());
     }
 
     /// Borrow the core (the renderer reads the DrawList/textures/atlases

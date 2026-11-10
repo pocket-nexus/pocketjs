@@ -25,8 +25,11 @@ pub use render::UiRenderer;
 // The backend-agnostic surface (UiSurface + pak walk) — re-exported so desktop
 // consumers (uihost, OpenStrike) stay source-compatible after the split.
 pub use pocket_ui_surface::{
-    PakEntry, ProgramConfig, UiProgram, UiSurface, embedded_profile, walk_pak,
+    MeasureFn, PakEntry, ProgramConfig, UiProgram, UiSurface, WrapFn, embedded_profile, font_slot,
+    walk_pak,
 };
+// A text provider's painting half (docs/BACKENDS.md).
+pub use pocket_wgpu_render::{TextInk, TextPaintContext, TextPainter, TextQuad, TextRun};
 
 #[cfg(test)]
 mod gpu_tests;

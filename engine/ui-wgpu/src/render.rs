@@ -28,6 +28,20 @@ impl UiRenderer {
     pub fn retain_surfaces(&mut self, keep: impl FnMut(u32) -> bool) {
         self.driver.retain_surfaces(keep);
     }
+    /// Install the painter `TEXT_RUN` records draw through; an error, and
+    /// the painter dropped, after shutdown.
+    pub fn set_text_painter(
+        &mut self,
+        painter: Box<dyn pocket_wgpu_render::TextPainter>,
+    ) -> Result<()> {
+        self.driver
+            .set_text_painter(Some(painter))
+            .map_err(|error| anyhow!("text painter not installed: {error:?}"))
+    }
+    /// The format a `TextInk::Color` painter texture uses.
+    pub fn image_format(&self) -> wgpu::TextureFormat {
+        self.driver.image_format()
+    }
     pub fn render(
         &mut self,
         gpu: &Gpu,

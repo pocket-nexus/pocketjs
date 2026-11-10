@@ -2,7 +2,7 @@ use crate::*;
 use pocket_drivers::DamageRect;
 use pocket_render::glyph_pages::GlyphSource;
 use pocket_render::record::SurfaceQuad;
-use pocket_render::{Backend, Emit, Fill, GlyphCell, Record, Source};
+use pocket_render::{Backend, Emit, Fill, GlyphCell, Record, Source, Vertex};
 
 fn cache_error(error: pocket_render::tex_cache::CacheError<RenderError>) -> RenderError {
     match error {
@@ -25,6 +25,10 @@ fn clip(rect: DamageRect, size: (u32, u32), scale: f32) -> (u32, u32, u32, u32) 
     let y1 = ((rect.y1 as f32 * scale).max(0.0) as u32).min(size.1);
     (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
 }
+/// A frame's vertices, its draw batches, and the bindings of the painter
+/// textures `TexBind::Text` indexes.
+type FrameBatches = (Vec<UiVertex>, Vec<DrawCmd>, Vec<wgpu::BindGroup>);
+
 impl WgpuRenderer {
     fn image(
         &mut self,
@@ -187,7 +191,7 @@ impl WgpuRenderer {
         scale: f32,
         viewport: DamageRect,
         submission: Option<u64>,
-    ) -> Result<(Vec<UiVertex>, Vec<DrawCmd>), RenderError> {
+    ) -> Result<FrameBatches, RenderError> {
         let mut vertices = Vec::new();
         let mut commands = Vec::new();
         let mut frame = Frame {
@@ -196,8 +200,13 @@ impl WgpuRenderer {
             size,
             scale,
             submission,
+            text_bindings: Vec::new(),
+            text_views: HashMap::new(),
+            text_quads: Vec::new(),
+            text_bytes: Vec::new(),
         };
         pocket_render::build(&mut frame, words, viewport, &mut vertices, &mut commands)?;
+        let text_bindings = frame.text_bindings;
         // The walk emits logical positions; the shader takes NDC.
         for vertex in &mut vertices {
             let [x, y] = vertex.pos;
@@ -206,7 +215,7 @@ impl WgpuRenderer {
                 1.0 - y * scale / size.1 as f32 * 2.0,
             ];
         }
-        Ok((vertices, commands))
+        Ok((vertices, commands, text_bindings))
     }
 }
 
@@ -219,6 +228,79 @@ struct Frame<'a> {
     size: (u32, u32),
     scale: f32,
     submission: Option<u64>,
+    /// Bindings of the painter textures met in this frame; `TexBind::Text`
+    /// indexes this list.
+    text_bindings: Vec<wgpu::BindGroup>,
+    /// Each painter texture view's index in `text_bindings`.
+    text_views: HashMap<wgpu::TextureView, usize>,
+    text_quads: Vec<TextQuad>,
+    text_bytes: Vec<u8>,
+}
+
+impl Frame<'_> {
+    /// The `TexBind::Text` index of a painter texture, binding it on first use.
+    fn text_binding(&mut self, texture: &wgpu::TextureView) -> usize {
+        if let Some(&index) = self.text_views.get(texture) {
+            return index;
+        }
+        let renderer = &*self.renderer;
+        let bind = renderer
+            .gpu
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pocket text painter texture"),
+                layout: &renderer.bind_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(texture),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&renderer.sampler),
+                    },
+                ],
+            });
+        let index = self.text_bindings.len();
+        self.text_bindings.push(bind);
+        self.text_views.insert(texture.clone(), index);
+        index
+    }
+}
+
+/// The box-local bounding box of the screen rectangle `clip` under `run`'s
+/// transform; None when the transform is singular or the clip empty.
+fn box_clip(run: &TextRun<'_>, clip: DamageRect) -> Option<[f32; 4]> {
+    let [a, b, c, d] = run.transform;
+    let determinant = a * d - b * c;
+    if determinant == 0.0 || !determinant.is_finite() || clip.x1 <= clip.x0 || clip.y1 <= clip.y0 {
+        return None;
+    }
+    let mut bounds = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
+    for (x, y) in [
+        (clip.x0, clip.y0),
+        (clip.x1, clip.y0),
+        (clip.x1, clip.y1),
+        (clip.x0, clip.y1),
+    ] {
+        let (dx, dy) = (x as f32 - run.origin[0], y as f32 - run.origin[1]);
+        let (u, v) = (
+            (d * dx - c * dy) / determinant,
+            (a * dy - b * dx) / determinant,
+        );
+        bounds = [
+            bounds[0].min(u),
+            bounds[1].min(v),
+            bounds[2].max(u),
+            bounds[3].max(v),
+        ];
+    }
+    Some(bounds)
 }
 
 fn finite<'a>(values: impl IntoIterator<Item = &'a f32>) -> Result<bool, RenderError> {
@@ -355,5 +437,68 @@ impl Backend for Frame<'_> {
         );
         self.emitted(vertices, Source::Surface);
         Ok(())
+    }
+
+    /// The installed painter supplies box-local quads; each lands on screen
+    /// through the run's transform, in painter order, under `clip`.
+    fn text_run(
+        &mut self,
+        emit: &mut Emit<'_, UiVertex, TexBind, Self::Clip>,
+        run: &TextRun<'_>,
+        clip: DamageRect,
+    ) -> Result<(), RenderError> {
+        finite(run.origin.iter().chain(&run.transform))?;
+        // Nothing of a run under a singular transform or an empty clip is
+        // visible; the core culls the first.
+        let Some(clip_box) = box_clip(run, clip) else {
+            return Ok(());
+        };
+        let context = TextPaintContext {
+            scale: self.scale,
+            clip: clip_box,
+        };
+        let mut bytes = core::mem::take(&mut self.text_bytes);
+        let mut quads = core::mem::take(&mut self.text_quads);
+        quads.clear();
+        let painted = match run.text(&mut bytes) {
+            None => Err(RenderError::InvalidFrame),
+            Some(text) => match self.renderer.text_painter.as_mut() {
+                None => Err(RenderError::Unsupported),
+                Some(painter) => painter.paint(run, text, &context, &mut quads),
+            },
+        };
+        let scissor = self.clip(clip);
+        let result = painted.and_then(|()| {
+            for quad in &quads {
+                finite(quad.rect.iter().chain(&quad.uv))?;
+                let [x0, y0, x1, y1] = quad.rect;
+                let [u0, v0, u1, v1] = quad.uv;
+                let color = match quad.ink {
+                    TextInk::Coverage => run.color,
+                    TextInk::Color => run.color | 0x00ff_ffff,
+                };
+                let corner = |x: f32, y: f32, u: f32, v: f32| {
+                    UiVertex::from_components(run.to_screen([x, y]), [u, v], color)
+                };
+                let (tl, tr) = (corner(x0, y0, u0, v0), corner(x1, y0, u1, v0));
+                let (br, bl) = (corner(x1, y1, u1, v1), corner(x0, y1, u0, v1));
+                let texture = TexBind::Text(self.text_binding(&quad.texture));
+                let vertices = emit.detached(texture, scissor, &[tl, tr, br, tl, br, bl]);
+                let bounds = [u0.min(u1), v0.min(v1), u0.max(u1), v0.max(v1)];
+                for vertex in vertices {
+                    match quad.ink {
+                        TextInk::Coverage => {
+                            vertex.mode = 2;
+                            vertex.bounds = bounds;
+                        }
+                        TextInk::Color => vertex.mode = 1,
+                    }
+                }
+            }
+            Ok(())
+        });
+        self.text_bytes = bytes;
+        self.text_quads = quads;
+        result
     }
 }

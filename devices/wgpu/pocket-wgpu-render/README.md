@@ -17,8 +17,16 @@ obtain its `DeviceTarget`. Target IDs belong to one renderer instance and are
 never reused. Unknown, foreign, removed, partial-region, and format-mismatched
 targets are rejected. The driver supports RGBA8/BGRA8, UNORM or sRGB attachments,
 and preserves the previous compositor's color encoding and fractional scale.
-Native `TEXT_RUN` is unsupported; glyph atlas, image, gradient, triangle, scissor,
-and registered compositor-surface operations use the shared DrawList vocabulary.
+Glyph atlas, image, gradient, triangle, scissor, and registered
+compositor-surface operations use the shared DrawList vocabulary. `TEXT_RUN`
+draws through the `TextPainter` a host installs with `set_text_painter`: the
+painter receives each run with the target scale and the run's clip in
+box-local coordinates, returns quads in those coordinates over textures it
+owns, and the renderer applies the run's transform and draws them in DrawList
+order under the run's scissor ([docs/BACKENDS.md](../../../docs/BACKENDS.md)).
+`begin_frame` and `end_frame` bracket each frame's runs. Without a painter, a
+frame containing `TEXT_RUN` is `Unsupported`. A renderer that holds a painter
+is not `Send`.
 
 Each render copies borrowed resources and allocates an **independent vertex
 buffer**. Image and glyph-page versions use handle plus revision cache keys.
@@ -63,5 +71,6 @@ cargo clippy --locked --manifest-path devices/wgpu/pocket-wgpu-render/Cargo.toml
 These tests require a native GPU adapter; Mesa Vulkan is sufficient on CI. They
 read back two encoders submitted after resource mutation and driver destruction,
 two targets with reversed retirement, capacity failure and retry, foreign/stale
-handles, font replacement, native attachment-validation failure, and shutdown
-after untracked submission or a resource callback panic.
+handles, font replacement, text runs drawn through a painter, native
+attachment-validation failure, and shutdown after untracked submission or a
+resource callback panic.

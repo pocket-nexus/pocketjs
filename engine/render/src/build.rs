@@ -3,8 +3,8 @@
 //! The walk owns the order of vertices and the boundaries of batches; the
 //! [`Backend`] supplies what differs between drivers: the vertex type, the
 //! texture and clip keys, where solid fills sample, how image handles and
-//! glyph cells resolve to textures, which decoded records draw, and the quad
-//! diagonal.
+//! glyph cells resolve to textures, which decoded records draw, the quad
+//! diagonal, and the geometry of surface quads and text runs.
 //!
 //! A batch is a contiguous vertex range drawn with one texture under one
 //! clip. The walk binds a texture per record, flushes the pending range when
@@ -17,7 +17,7 @@
 //! when the bound texture differs from the fill's texture, so a backend can
 //! keep a batch open by sampling an opaque patch of the bound image.
 
-use crate::record::SurfaceQuad;
+use crate::record::{SurfaceQuad, TextRun};
 use crate::{append_batch, quad, triangle, Batch, DrawOps, Record, Vertex};
 use alloc::vec::Vec;
 use pocket_drivers::{DamageRect, RenderError};
@@ -122,6 +122,18 @@ pub trait Backend {
         let _ = (emit, surface, clip);
         Ok(())
     }
+    /// A text run under `clip`, appended in record order through
+    /// [`Emit::detached`]. The default rejects it: a backend without a text
+    /// painter does not draw `TEXT_RUN`.
+    fn text_run(
+        &mut self,
+        emit: &mut Emit<'_, Self::Vertex, Self::Texture, Self::Clip>,
+        run: &TextRun<'_>,
+        clip: DamageRect,
+    ) -> Result<(), RenderError> {
+        let _ = (emit, run, clip);
+        Err(RenderError::Unsupported)
+    }
 }
 
 /// The vertex stream and batches under construction.
@@ -176,7 +188,7 @@ impl<V: Copy, T: Copy + PartialEq, C: Copy + PartialEq> Emit<'_, V, T, C> {
 
 /// Walk `words` under `viewport` into `vertices` and `batches`, clearing both
 /// first. A record the decoder rejects is an invalid frame; a text run is
-/// unsupported.
+/// unsupported unless the backend paints it ([`Backend::text_run`]).
 pub fn build<B: Backend>(
     backend: &mut B,
     words: &[u32],
@@ -291,7 +303,9 @@ pub fn build<B: Backend>(
             Record::SurfaceQuad(surface) => {
                 backend.surface_quad(&mut emit, &surface, operation.clip)?;
             }
-            Record::TextRun(_) => return Err(RenderError::Unsupported),
+            Record::TextRun(run) => {
+                backend.text_run(&mut emit, &run, operation.clip)?;
+            }
         }
     }
     emit.flush();

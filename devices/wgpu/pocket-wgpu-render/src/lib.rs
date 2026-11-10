@@ -7,6 +7,9 @@
 //! does not destroy those resources. This driver never calls resource `destroy`.
 //! Browser WebGPU cannot implement a blocking terminal wait; construction is
 //! rejected on wasm until the runtime has an asynchronous presentation contract.
+//!
+//! `TEXT_RUN` records draw through a [`TextPainter`] the host installs with
+//! [`WgpuRenderer::set_text_painter`]; without one they are `Unsupported`.
 
 mod batch;
 mod pipeline;
@@ -16,6 +19,7 @@ use pocket_drivers::{
     DeviceTarget, FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer,
     RendererDescriptor, Synchronization, Target, TargetOwnership,
 };
+pub use pocket_render::TextRun;
 use pocket_render::glyph_pages::GlyphPageLayout;
 use pocket_render::tex_cache::{TextureCache, TextureKey};
 use pocket_spec as spec;
@@ -105,6 +109,92 @@ enum TexBind {
     Image(TextureKey),
     Font(TextureKey),
     Surface(u32),
+    /// Index into the frame's painter texture bindings.
+    Text(usize),
+}
+
+/// What a [`TextQuad`]'s texture holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextInk {
+    /// Coverage in the red channel (an `R8Unorm` atlas page or line
+    /// texture), painted in the run's color.
+    Coverage,
+    /// Straight-alpha color in the format [`WgpuRenderer::image_format`]
+    /// names (color glyphs), multiplied by the run color's alpha.
+    Color,
+}
+
+/// One textured quad of a painted run. Coordinates are box-local logical
+/// pixels: `(0, 0)` is the text box's top-left before the run's transform,
+/// which the renderer applies.
+#[derive(Clone, Debug)]
+pub struct TextQuad {
+    /// A view of a texture the painter owns. Several quads may share one;
+    /// filtering samples up to half a texel outside `uv`, so a texture that
+    /// packs several glyphs keeps a transparent texel between them. The
+    /// renderer batches consecutive quads by view identity and binds each
+    /// distinct view once per frame: reuse one view per texture rather than
+    /// calling `create_view` per quad.
+    pub texture: wgpu::TextureView,
+    pub ink: TextInk,
+    /// `[x0, y0, x1, y1]` in box-local logical pixels.
+    pub rect: [f32; 4],
+    /// `[u0, v0, u1, v1]`, normalized texture coordinates of the rect's
+    /// top-left and bottom-right corners.
+    pub uv: [f32; 4],
+}
+
+/// What the renderer tells a painter about one run besides the record.
+/// Fields may be added; read them by name.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct TextPaintContext {
+    /// The target's physical pixels per logical pixel. A painter that
+    /// rasterizes for the target multiplies it with the run's transform.
+    pub scale: f32,
+    /// `[x0, y0, x1, y1]` in box-local logical pixels: the bounding box of
+    /// the screen area the run's scissor leaves visible, mapped back through
+    /// the run's transform. A quad outside it draws nothing, so a painter
+    /// may skip the lines and glyphs that fall outside it.
+    pub clip: [f32; 4],
+}
+
+/// Paints `TEXT_RUN` records with the provider that measured them.
+///
+/// For every frame the renderer calls `begin_frame`, then `paint` once per
+/// run in DrawList order, then `end_frame`. The painter appends quads over
+/// textures it owns; the renderer maps them through the run's transform
+/// and draws them in that order under the run's scissor.
+///
+/// A texture's content must stay what the frame's quads sample until the
+/// frame is submitted. Writes on the renderer's queue (`write_texture`)
+/// execute at the next `submit`, ahead of the frame's commands, so a region
+/// rewritten twice before then shows the last write in every run that
+/// samples it: an atlas evicts and reuses space in `begin_frame`, or after
+/// `end_frame`, never between two runs of one frame. Through
+/// [`Renderer::render`] the renderer submits the frame before `end_frame`;
+/// through [`WgpuRenderer::encode`] the host submits the encoder after
+/// `end_frame`, and keeps the painter's textures unchanged until it does.
+///
+/// A renderer that holds a painter is not `Send`, since the painter is not
+/// required to be (it may share an `Rc` font system with the measurer).
+pub trait TextPainter {
+    /// Called before the first `paint` of a frame.
+    fn begin_frame(&mut self) {}
+
+    /// Append the quads of `run`, whose string is `text`. An error fails
+    /// the frame.
+    fn paint(
+        &mut self,
+        run: &TextRun<'_>,
+        text: &str,
+        context: &TextPaintContext,
+        quads: &mut Vec<TextQuad>,
+    ) -> Result<(), RenderError>;
+
+    /// Called after the last `paint` of a frame, also when the frame
+    /// failed.
+    fn end_frame(&mut self) {}
 }
 type DrawCmd = pocket_render::Batch<TexBind, (u32, u32, u32, u32)>;
 
@@ -165,6 +255,7 @@ pub struct WgpuRenderer {
     pending: HashMap<u64, Pending>,
     images: TextureCache<wgpu::BindGroup>,
     fonts: TextureCache<FontTexture>,
+    text_painter: Option<Box<dyn TextPainter>>,
 }
 
 impl WgpuRenderer {
@@ -293,6 +384,36 @@ impl WgpuRenderer {
         self.fonts = TextureCache::new(0, 0);
         self.surfaces.clear();
         self.targets.clear();
+        self.text_painter = None;
+    }
+
+    /// Install the painter `TEXT_RUN` records draw through, or remove it.
+    /// Without a painter a frame containing one is `Unsupported`. `Failed`
+    /// after shutdown, when the painter is dropped uninstalled.
+    pub fn set_text_painter(
+        &mut self,
+        painter: Option<Box<dyn TextPainter>>,
+    ) -> Result<(), RenderError> {
+        if self.shutdown {
+            return Err(RenderError::Failed);
+        }
+        self.text_painter = painter;
+        Ok(())
+    }
+
+    /// The texture format of images, and of [`TextInk::Color`] text textures.
+    pub fn image_format(&self) -> wgpu::TextureFormat {
+        self.image_format
+    }
+
+    fn text_frame(&mut self, begin: bool) {
+        if let Some(painter) = self.text_painter.as_mut() {
+            if begin {
+                painter.begin_frame();
+            } else {
+                painter.end_frame();
+            }
+        }
     }
 
     pub fn resident_images(&self) -> usize {
@@ -350,8 +471,10 @@ impl WgpuRenderer {
             return Err(RenderError::Failed);
         }
         let id = next_id()?;
+        self.text_frame(true);
         let result =
             self.encode_inner(resources, words, encoder, view, size, scale, load, Some(id));
+        self.text_frame(false);
         // A completed pass has transferred native references to the encoder.
         // Keep the returned Rust lease as well if the host tracks submissions.
         self.release(id);
@@ -386,6 +509,8 @@ impl WgpuRenderer {
         for operation in pocket_render::DrawOps::new(words, viewport) {
             let operation = operation.map_err(|_| RenderError::InvalidFrame)?;
             let count = match operation.opcode {
+                // Painted quads are counted after the walk.
+                spec::draw_op::TEXT_RUN if self.text_painter.is_some() => 0,
                 spec::draw_op::TEXT_RUN => return Err(RenderError::Unsupported),
                 spec::draw_op::TRI | spec::draw_op::TEX_TRI => 3,
                 spec::draw_op::GLYPH_RUN => (operation.words[1] >> 16) as u64 * 6,
@@ -399,7 +524,7 @@ impl WgpuRenderer {
         }
         let scope = ValidationScope::new(&self.gpu.device);
         let result = (|| {
-            let (vertices, commands) =
+            let (vertices, commands, text_bindings) =
                 self.build_batches(resources, words, size, scale, viewport, submission)?;
             if vertices.len() > u32::MAX as usize
                 || vertices
@@ -438,6 +563,7 @@ impl WgpuRenderer {
                             .bind
                             .clone(),
                         TexBind::Surface(handle) => self.surfaces[&handle].bind.clone(),
+                        TexBind::Text(index) => text_bindings[index].clone(),
                     })
                 })
                 .collect::<Result<_, RenderError>>()?;
@@ -544,6 +670,7 @@ impl Renderer for WgpuRenderer {
         );
         let id = next_id()?;
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        self.text_frame(true);
         let lease = self.encode_inner(
             frame.resources,
             &frame.list.words,
@@ -553,9 +680,18 @@ impl Renderer for WgpuRenderer {
             scale,
             load,
             Some(id),
-        )?;
+        );
+        let lease = match lease {
+            Ok(lease) => lease,
+            Err(error) => {
+                self.text_frame(false);
+                return Err(error);
+            }
+        };
         let scope = ValidationScope::new(&self.gpu.device);
         let index = self.gpu.queue.submit([encoder.finish()]);
+        // The painter's texture writes have executed with this submission.
+        self.text_frame(false);
         if scope.finish().is_some() {
             self.wait_native(index);
             self.release(id);
