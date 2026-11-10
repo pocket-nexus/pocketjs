@@ -259,6 +259,12 @@ struct Link2 {
   /* send */
   uint8_t *tx;
   uint32_t tx_capacity;
+  /* A frame is being built in place after tx_tail, perhaps with a host
+   * callback inside it: nothing else is queued until it ends. tx_epoch
+   * changes when the buffer's content was replaced under an open frame (a
+   * CLOSE, a lost connection), and the open frame is then not committed. */
+  bool building;
+  uint32_t tx_epoch;
   uint32_t tx_head;
   uint32_t tx_tail;
   uint64_t tx_queued;
@@ -382,6 +388,9 @@ static uint32_t tx_used(const Link2 *link) {
 static uint32_t tx_room(const Link2 *link, bool control) {
   uint32_t room = link->tx_capacity - tx_used(link);
   if (control) return room;
+  /* An open frame owns the bytes after the tail: a call made from inside
+   * the host callback that fills it finds no room, as with a full buffer. */
+  if (link->building) return 0;
   return room > LINK2_TX_RESERVE ? room - LINK2_TX_RESERVE : 0;
 }
 
@@ -404,6 +413,9 @@ static void tx_commit(Link2 *link, uint32_t length) {
 
 static bool tx_put(Link2 *link, const uint8_t *frame, uint32_t length, bool control) {
   if (tx_room(link, control) < length) return false;
+  /* A PING, PONG or CLOSE queued under an open frame takes its place: the
+   * open frame is abandoned (frame_end and the data pump test the epoch). */
+  if (link->building) link->tx_epoch += 1;
   memcpy(tx_at(link, length), frame, length);
   tx_commit(link, length);
   return true;
@@ -430,13 +442,14 @@ typedef struct {
   uint8_t *base;
   uint32_t prefix;
   uint32_t channel;
+  uint32_t epoch;
 } FrameWriter;
 
 /* False when the buffer has no room for a frame now. `app` puts the channel
  * id before the object and bounds it by LINK_APP_MSG. */
 static bool frame_begin(Link2 *link, FrameWriter *writer, bool app, uint32_t channel) {
   uint32_t prefix = app ? LINK2_APP_CHANNEL_PREFIX : 0;
-  uint32_t room = tx_room(link, false);
+  uint32_t room = tx_room(link, false); /* 0 while another frame is open */
   if (room < LINK2_HEADER_BYTES + prefix + 2) return false;
   uint32_t capacity = room - LINK2_HEADER_BYTES - prefix;
   uint32_t most = app ? link2_app_message_limit(link->limit) : link->limit;
@@ -444,12 +457,25 @@ static bool frame_begin(Link2 *link, FrameWriter *writer, bool app, uint32_t cha
   writer->base = tx_at(link, room);
   writer->prefix = prefix;
   writer->channel = channel;
+  writer->epoch = link->tx_epoch;
+  link->building = true;
   link2_json_init(&writer->json, (char *)writer->base + LINK2_HEADER_BYTES + prefix, capacity);
   return true;
 }
 
+/* The open frame is given up: every path that leaves frame_begin's frame
+ * without frame_end calls this. */
+static void frame_drop(Link2 *link, FrameWriter *writer) {
+  (void)writer;
+  link->building = false;
+}
+
 /* False when the object did not fit the room there was; nothing is queued. */
 static bool frame_end(Link2 *link, FrameWriter *writer, uint8_t type, uint8_t flags, uint32_t id) {
+  link->building = false;
+  /* The buffer changed under the frame (a callback inside it closed the
+   * link, or the connection went): the frame is not queued. */
+  if (writer->epoch != link->tx_epoch) return false;
   if (writer->json.failed) return false;
   uint32_t length = writer->prefix + (uint32_t)writer->json.length;
   if (writer->prefix != 0) {
@@ -942,7 +968,10 @@ static void channel_pump(Link2 *link, Channel *channel) {
   if (now < channel->next_open_ms) return;
   if (!frame_begin(link, &writer, false, 0)) return;
   OutRequest *request = new_out(link, OR_CHANNEL_OPEN, channel_index(link, channel), true);
-  if (request == NULL) return;
+  if (request == NULL) {
+    frame_drop(link, &writer);
+    return;
+  }
   link2_json_text(&writer.json, "{\"t\":\"channel.open\",\"app\":");
   link2_json_cstring(&writer.json, channel->app);
   link2_json_text(&writer.json, ",\"hash\":");
@@ -1033,6 +1062,9 @@ static void teardown(Link2 *link) {
 static void socket_gone(Link2 *link) {
   if (link->tcp >= 0) link->platform.tcp_close(link->platform.context, link->tcp);
   link->tcp = -1;
+  /* A frame open in the buffer is gone with it. */
+  link->tx_epoch += 1;
+  link->building = false;
   /* What the buffer still held is gone with the socket: the count of bytes
    * sent catches up, so a later stream's one-chunk mark can be reached. */
   link->tx_head = 0;
@@ -1058,7 +1090,14 @@ static void dropped(Link2 *link, const char *why) {
  * side's CLOSE has left. */
 static void link_down(Link2 *link, const char *why, bool restart) {
   bool was_linked = link->phase == PHASE_LINKED;
-  if (was_linked) teardown(link);
+  /* The phase leaves `linked` first: a host callback of the teardown that
+   * calls back (a worker that retries its request at http_end, a host that
+   * asks for the catalog at linked(NULL)) is refused as on a link that is
+   * down, and leaves nothing in the tables this connection's ids named. */
+  if (was_linked) {
+    link->phase = PHASE_CLOSING;
+    teardown(link);
+  }
   socket_gone(link);
   copy_text(link->close_why, sizeof link->close_why, why);
   if (link->host.linked != NULL) link->host.linked(link->host.context, NULL, why);
@@ -1078,7 +1117,10 @@ static void link_down(Link2 *link, const char *why, bool restart) {
 static void close_link(Link2 *link, uint32_t code, const char *reason, bool restart) {
   uint8_t frame[LINK2_CLOSE_FRAME_MAX];
   if (link->phase != PHASE_LINKED && link->phase != PHASE_HANDSHAKE) return;
-  if (link->phase == PHASE_LINKED) teardown(link);
+  bool was_linked = link->phase == PHASE_LINKED;
+  /* As in link_down: not linked before the tables end. */
+  link->phase = PHASE_CLOSING;
+  if (was_linked) teardown(link);
   tx_put(link, frame, (uint32_t)link2_write_close(frame, code, reason), true);
   copy_text(link->close_why, sizeof link->close_why, link2_close_name(code));
   link->restart_after_close = restart;
@@ -1646,7 +1688,9 @@ static void pump_runtime_events(Link2 *link) {
     size_t count = link->host.runtime_apps(link->host.context, link->apps, LINK2_APPS_MAX_ROWS);
     size_t at = link->apps_at;
     if (!frame_begin(link, &writer, false, 0)) return;
-    if (!link2_write_apps_page(&writer.json, link->apps, count, &at, link->apps_set, link->limit) || !frame_end(link, &writer, LINK2_FRAME_EVENT, 0, 0)) {
+    bool page = link2_write_apps_page(&writer.json, link->apps, count, &at, link->apps_set, link->limit);
+    if (!page) frame_drop(link, &writer);
+    if (!page || !frame_end(link, &writer, LINK2_FRAME_EVENT, 0, 0)) {
       /* No room for this page now; a row that fits no frame ends the report. */
       if (tx_used(link) == 0) link->apps_sending = false;
       return;
@@ -1833,7 +1877,10 @@ static void catalog_pump(Link2 *link) {
   FrameWriter writer;
   if (!link->catalog_send_due || !frame_begin(link, &writer, false, 0)) return;
   OutRequest *request = new_out(link, OR_CATALOG, -1, false);
-  if (request == NULL) return;
+  if (request == NULL) {
+    frame_drop(link, &writer);
+    return;
+  }
   link2_json_text(&writer.json, "{\"t\":\"catalog\"");
   if (link->catalog_has_after) {
     link2_json_text(&writer.json, ",\"after\":");
@@ -1898,7 +1945,10 @@ uint32_t link2_install(Link2 *link, const char *app) {
   if (!link2_in_use(link, "install") || count_out(link, OR_INSTALL) + count_out(link, OR_CATALOG) >= LINK2_MAX_CATALOG_REQUESTS) return 0;
   if (!frame_begin(link, &writer, false, 0)) return 0;
   OutRequest *request = new_out(link, OR_INSTALL, -1, false);
-  if (request == NULL) return 0;
+  if (request == NULL) {
+    frame_drop(link, &writer);
+    return 0;
+  }
   link2_json_text(&writer.json, "{\"t\":\"install\",\"app\":");
   link2_json_cstring(&writer.json, app);
   link2_json_text(&writer.json, "}");
@@ -1973,6 +2023,7 @@ uint32_t link2_http(Link2 *link, const Link2HttpRequest *http) {
   link2_json_text(json, ",\"bytes\":");
   link2_json_u64(json, http->body_bytes);
   link2_json_text(json, "}");
+  if (out == NULL) frame_drop(link, &writer);
   if (out == NULL || !frame_end(link, &writer, LINK2_FRAME_REQUEST, 0, request->id)) {
     if (out != NULL) free_out_stream(link, out);
     if (in != NULL) free_in_stream(link, in);
@@ -2153,6 +2204,9 @@ static void pump_out_streams(Link2 *link) {
       uint8_t *frame = tx_at(link, LINK2_HEADER_BYTES + n);
       uint8_t *payload = frame + LINK2_HEADER_BYTES;
       bool end = false;
+      /* The host fills the frame in place: it is open across the callback. */
+      uint32_t epoch = link->tx_epoch;
+      link->building = true;
       switch (stream->kind) {
         case OS_SCREENSHOT:
           n = (uint32_t)link->host.screenshot_read(link->host.context, payload, n);
@@ -2172,6 +2226,9 @@ static void pump_out_streams(Link2 *link) {
           end = stream->ending && stream->fill == 0;
           break;
       }
+      link->building = false;
+      /* The callback ended the link: its tables are gone with this frame. */
+      if (epoch != link->tx_epoch) return;
       if (n == 0) {
         /* The source has fewer bytes than it declared: the stream is abandoned. */
         send_reset(link, stream->id, LINK2_RESET_LENGTH);
