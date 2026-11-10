@@ -121,10 +121,16 @@ typedef struct {
   bool (*push_commit)(void *context, Link2Json *members, Link2Failure *failure);
   void (*push_abort)(void *context);
 
+  /* The deferred form of push_commit, for a program that admits a package at
+   * its own frame boundary: when set it replaces push_commit. True when the
+   * admission began; link2_push_staged and link2_push_result report it. */
+  bool (*push_admit)(void *context, Link2Failure *failure);
+
   /* runtime.native.install: the same for a .3dsx whose length, CRC-32 and
-   * magic the client checked. `phase` gets "installed", "staged" or
-   * "launching", `path` the file's path. */
-  bool (*native_begin)(void *context, const char *name, uint32_t bytes, Link2Failure *failure);
+   * magic the client checks; `crc32` and `launch` are the request's, for a
+   * host whose own install code takes them at the start. `phase` gets
+   * "installed", "staged" or "launching", `path` the file's path. */
+  bool (*native_begin)(void *context, const char *name, uint32_t bytes, uint32_t crc32, bool launch, Link2Failure *failure);
   bool (*native_data)(void *context, const uint8_t *bytes, size_t length);
   bool (*native_commit)(void *context, const char *name, bool launch, char phase[16], char path[128], Link2Failure *failure);
   void (*native_abort)(void *context);
@@ -141,6 +147,10 @@ typedef struct {
   bool (*screenshot_begin)(void *context, Link2Json *members, uint32_t *frame, uint32_t *bytes);
   size_t (*screenshot_read)(void *context, uint8_t *into, size_t capacity);
   void (*screenshot_end)(void *context);
+  /* The deferred form of screenshot_begin: when set it replaces it. True when
+   * a capture is due at the program's next frame boundary;
+   * link2_screenshot_ready or link2_screenshot_failed reports it. */
+  bool (*screenshot_request)(void *context);
 
   /* --- catalog and install (§6.4) --------------------------------------- */
 
@@ -220,6 +230,18 @@ void link2_apps_changed(Link2 *link);
  * that found no room in the send buffer is counted as dropped. */
 bool link2_log(Link2 *link, const char *level, const char *source, const char *text, size_t length, uint32_t frame);
 
+/* runtime.push after push_admit: the package booted and waits for its first
+ * retired frame, the `staged` event. */
+void link2_push_staged(Link2 *link, const char *message);
+/* The admission's outcome: `members` as push_commit's when accepted, else
+ * `failure` (NULL reads as `rejected`). Ignored when no push waits for it. */
+void link2_push_result(Link2 *link, bool accepted, const char *members, size_t length, const Link2Failure *failure);
+/* runtime.screenshot after screenshot_request: `members` as
+ * screenshot_begin's. False when no request waits for the capture (the link
+ * dropped): the program frees it. After true, screenshot_end frees it. */
+bool link2_screenshot_ready(Link2 *link, const char *members, size_t length, uint32_t frame, uint32_t bytes);
+void link2_screenshot_failed(Link2 *link, const char *code, const char *message);
+
 /* --- DevTools (§6.3) ---------------------------------------------------- */
 
 /* devtools.listen: the shim's `listening()`. */
@@ -269,6 +291,11 @@ void link2_http_cancel(Link2 *link, uint32_t request);
 bool link2_event(Link2 *link, const char *json, size_t length);
 /* An event that opens a stream toward Hub: the stream's id, or 0. */
 uint32_t link2_event_stream(Link2 *link, const char *json, size_t length);
+/* The same for an event whose JSON names its stream (agent.audio, agent.shot,
+ * §6.6): link2_new_id gives a fresh id of this side's range (0 without a
+ * link), and the event then opens the stream under it. */
+uint32_t link2_new_id(Link2 *link);
+bool link2_event_stream_as(Link2 *link, uint32_t id, const char *json, size_t length);
 /* Bytes of that stream inside its credit and the send buffer's room; the
  * count taken. `end` closes the stream once every byte is taken. */
 size_t link2_event_stream_send(Link2 *link, uint32_t id, const uint8_t *bytes, size_t length, bool end);

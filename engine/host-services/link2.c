@@ -47,6 +47,7 @@
 #define ANSWER_OTHER 64u
 /* The members a state-changing reply or a screenshot head carries. */
 #define MEMBERS_BYTES 2048u
+#define SHOT_MEMBERS_BYTES 384u
 #define HELLO_LINE_BYTES 1024u
 /* A channel's message queue: events under the event window (48 units of
  * 512 bytes), daemon requests waiting for the guest (8 KiB), and a 16-byte
@@ -67,7 +68,9 @@ enum {
   P_RECEIVING,       /* the body streams in */
   P_EVENT_RECEIVED,
   P_COMMIT,          /* the host admits what arrived */
+  P_ADMITTING,       /* a deferred admission: the host reports its outcome */
   P_EVENT_STAGED,
+  P_CAPTURING,       /* a deferred capture: the host reports the frame */
   P_HEAD,            /* a screenshot's head event is due */
   P_STREAMING,       /* a screenshot's pixels stream out */
   P_REPLY,           /* the REPLY is due */
@@ -108,6 +111,8 @@ typedef struct {
   bool restart;
   bool ending; /* applet request: its response stream was told to end */
   bool staged; /* the host holds an open staging file for it */
+  bool staged_event_due; /* a deferred admission reported `staged` */
+  bool captured;         /* a screenshot's pixels exist at the host */
   uint32_t total;
   uint32_t received;
   uint32_t crc;
@@ -279,6 +284,11 @@ struct Link2 {
   uint32_t logs_dropped;
   char members[MEMBERS_BYTES];
   size_t members_length;
+  /* A screenshot's head has members of its own: a state-changing request's
+   * reply may wait in `members` while a capture is made. */
+  char shot_members[SHOT_MEMBERS_BYTES];
+  size_t shot_members_length;
+  char push_note[LINK2_MESSAGE_BYTES];
   bool apps_dirty;
   bool apps_sending;
   uint64_t apps_sent_ms;
@@ -991,7 +1001,7 @@ static void teardown(Link2 *link) {
     InRequest *request = &link->in[i];
     if (request->kind == IR_PUSH && request->staged && link->host.push_abort != NULL) link->host.push_abort(link->host.context);
     if (request->kind == IR_NATIVE && request->staged && link->host.native_abort != NULL) link->host.native_abort(link->host.context);
-    if (request->kind == IR_SCREENSHOT && request->phase == P_STREAMING && link->host.screenshot_end != NULL) link->host.screenshot_end(link->host.context);
+    if (request->kind == IR_SCREENSHOT && request->captured && link->host.screenshot_end != NULL) link->host.screenshot_end(link->host.context);
     memset(request, 0, sizeof *request);
   }
   for (size_t i = 0; i < link->in_stream_count; i += 1) {
@@ -1140,7 +1150,7 @@ static void free_in(Link2 *link, InRequest *request) {
   OutStream *out = find_out_stream(link, request->id);
   if (request->kind == IR_PUSH || request->kind == IR_NATIVE || request->kind == IR_LAUNCH) link->state_busy = false;
   if (request->kind == IR_SCREENSHOT) {
-    if (request->head && link->host.screenshot_end != NULL) link->host.screenshot_end(link->host.context);
+    if (request->captured && link->host.screenshot_end != NULL) link->host.screenshot_end(link->host.context);
     link->shot_busy = false;
   }
   if (request->staged) {
@@ -1162,7 +1172,9 @@ static bool send_install_event(Link2 *link, InRequest *request, const char *phas
     link2_json_cstring(&writer.json, request->hash);
     link2_json_text(&writer.json, ",\"generation\":");
     link2_json_u64(&writer.json, link->host.runtime_generation != NULL ? link->host.runtime_generation(link->host.context) : 0);
-    link2_json_text(&writer.json, ",\"message\":\"\"}");
+    link2_json_text(&writer.json, ",\"message\":");
+    link2_json_cstring(&writer.json, strcmp(phase, "staged") == 0 ? link->push_note : "");
+    link2_json_text(&writer.json, "}");
   } else {
     link2_json_text(&writer.json, "{\"t\":\"runtime.native\",\"phase\":");
     link2_json_cstring(&writer.json, phase);
@@ -1232,7 +1244,7 @@ static void advance_request(Link2 *link, InRequest *request) {
         if (!send_install_event(link, request, "receiving")) return;
         Link2Failure failure = {"storage", "the staging file did not open"};
         bool opened = push ? link->host.push_begin(link->host.context, request->total, request->hash, &failure)
-                           : link->host.native_begin(link->host.context, request->name, request->total, &failure);
+                           : link->host.native_begin(link->host.context, request->name, request->total, request->want_crc, request->launch, &failure);
         if (!opened) {
           in_fail(request, failure.code, failure.message);
           break;
@@ -1259,8 +1271,18 @@ static void advance_request(Link2 *link, InRequest *request) {
       case P_COMMIT: {
         Link2Failure failure = {"rejected", ""};
         request->staged = false;
+        if (request->kind == IR_PUSH && link->host.push_admit != NULL) {
+          link->push_note[0] = '\0';
+          if (!link->host.push_admit(link->host.context, &failure)) {
+            in_fail(request, failure.code, failure.message);
+            break;
+          }
+          request->phase = P_ADMITTING;
+          return;
+        }
         if (request->kind == IR_PUSH) {
           Link2Json members;
+          link->push_note[0] = '\0';
           link2_json_init(&members, link->members, sizeof link->members);
           if (!link->host.push_commit(link->host.context, &members, &failure) || members.failed) {
             in_fail(request, failure.code, failure.message);
@@ -1282,20 +1304,35 @@ static void advance_request(Link2 *link, InRequest *request) {
         if (!send_install_event(link, request, "staged")) return;
         request->phase = P_REPLY;
         break;
+      case P_ADMITTING:
+        /* The host's link2_push_staged and link2_push_result move it on. */
+        if (request->staged_event_due && send_install_event(link, request, "staged")) request->staged_event_due = false;
+        return;
+      case P_CAPTURING:
+        return;
       case P_HEAD: {
+        if (!request->head && link->host.screenshot_request != NULL) {
+          if (!link->host.screenshot_request(link->host.context)) {
+            in_fail(request, "storage", "the capture could not start");
+            break;
+          }
+          request->phase = P_CAPTURING;
+          return;
+        }
         if (!request->head) {
           Link2Json members;
           uint32_t bytes = 0;
-          link2_json_init(&members, link->members, sizeof link->members);
+          link2_json_init(&members, link->shot_members, sizeof link->shot_members);
           if (!link->host.screenshot_begin(link->host.context, &members, &request->frame, &bytes) || members.failed) {
             in_fail(request, "internal", "the capture failed");
             break;
           }
           request->head = true;
+          request->captured = true;
           request->total = bytes;
-          link->members_length = members.length;
+          link->shot_members_length = members.length;
         }
-        if (!send_members(link, LINK2_FRAME_EVENT, request->id, "runtime.screenshot", link->members, link->members_length)) return;
+        if (!send_members(link, LINK2_FRAME_EVENT, request->id, "runtime.screenshot", link->shot_members, link->shot_members_length)) return;
         OutStream *stream = new_out_stream(link, request->id, OS_SCREENSHOT, -1);
         if (stream == NULL) {
           in_fail(request, "internal", "no stream is free");
@@ -1398,7 +1435,7 @@ static void system_request(Link2 *link, uint32_t id, JsonSpan object, const char
         break;
       }
       link->state_busy = true;
-      if (push ? (host->push_begin == NULL || host->push_data == NULL || host->push_commit == NULL)
+      if (push ? (host->push_begin == NULL || host->push_data == NULL || (host->push_commit == NULL && host->push_admit == NULL))
                : (host->native_begin == NULL || host->native_data == NULL || host->native_commit == NULL)) {
         in_fail(request, "unsupported", "this device accepts none");
         break;
@@ -1456,7 +1493,7 @@ static void system_request(Link2 *link, uint32_t id, JsonSpan object, const char
       break;
     }
     case IR_SCREENSHOT:
-      if (host->screenshot_begin == NULL || host->screenshot_read == NULL) {
+      if ((host->screenshot_begin == NULL && host->screenshot_request == NULL) || host->screenshot_read == NULL) {
         request->kind = IR_STATUS;
         in_fail(request, "unsupported", "this device captures nothing");
       } else if (link->shot_busy) {
@@ -1509,6 +1546,68 @@ static void body_data(Link2 *link, InStream *stream, InRequest *request, const u
   } else {
     request->phase = push ? P_EVENT_RECEIVED : P_COMMIT;
   }
+}
+
+// ---------------------------------------------------------------------------
+// deferred admission and capture: the host reports at its frame boundary
+// ---------------------------------------------------------------------------
+
+static InRequest *waiting_request(Link2 *link, uint8_t kind, uint8_t phase) {
+  for (size_t i = 0; i < link->in_count; i += 1) {
+    if (link->in[i].kind == kind && link->in[i].phase == phase) return &link->in[i];
+  }
+  return NULL;
+}
+
+void link2_push_staged(Link2 *link, const char *message) {
+  InRequest *request = waiting_request(link, IR_PUSH, P_ADMITTING);
+  if (request == NULL) return;
+  snprintf(link->push_note, sizeof link->push_note, "%s", message == NULL ? "" : message);
+  request->staged_event_due = true;
+  advance_request(link, request);
+}
+
+void link2_push_result(Link2 *link, bool accepted, const char *members, size_t length, const Link2Failure *failure) {
+  InRequest *request = waiting_request(link, IR_PUSH, P_ADMITTING);
+  if (request == NULL) return;
+  if (!accepted) {
+    in_fail(request, failure != NULL && failure->code[0] != '\0' ? failure->code : "rejected", failure != NULL ? failure->message : "");
+  } else if (members == NULL || length > sizeof link->members) {
+    in_fail(request, "internal", "the reply does not fit");
+  } else {
+    memcpy(link->members, members, length);
+    link->members_length = length;
+    /* A `staged` that found no room goes out ahead of the REPLY. */
+    request->phase = request->staged_event_due ? P_EVENT_STAGED : P_REPLY;
+    request->staged_event_due = false;
+  }
+  advance_request(link, request);
+}
+
+bool link2_screenshot_ready(Link2 *link, const char *members, size_t length, uint32_t frame, uint32_t bytes) {
+  InRequest *request = waiting_request(link, IR_SCREENSHOT, P_CAPTURING);
+  if (request == NULL) return false;
+  /* From here the host's pixels are the request's: screenshot_end frees them. */
+  request->captured = true;
+  if (members == NULL || length > sizeof link->shot_members || bytes == 0) {
+    in_fail(request, "internal", "the capture failed");
+  } else {
+    memcpy(link->shot_members, members, length);
+    link->shot_members_length = length;
+    request->head = true;
+    request->frame = frame;
+    request->total = bytes;
+    request->phase = P_HEAD;
+  }
+  advance_request(link, request);
+  return true;
+}
+
+void link2_screenshot_failed(Link2 *link, const char *code, const char *message) {
+  InRequest *request = waiting_request(link, IR_SCREENSHOT, P_CAPTURING);
+  if (request == NULL) return;
+  in_fail(request, code != NULL && code[0] != '\0' ? code : "storage", message != NULL ? message : "");
+  advance_request(link, request);
 }
 
 // ---------------------------------------------------------------------------
@@ -1913,13 +2012,23 @@ bool link2_event(Link2 *link, const char *json, size_t length) {
   return link->phase == PHASE_LINKED && send_json(link, LINK2_FRAME_EVENT, 0, 0, json, length, false, 0);
 }
 
-uint32_t link2_event_stream(Link2 *link, const char *json, size_t length) {
-  if (link->phase != PHASE_LINKED || tx_room(link, false) < LINK2_HEADER_BYTES + length) return 0;
-  uint32_t id = take_id(link);
-  OutStream *stream = id != 0 ? new_out_stream(link, id, OS_SYSTEM, -1) : NULL;
-  if (stream == NULL) return 0;
+uint32_t link2_new_id(Link2 *link) {
+  return link->phase == PHASE_LINKED ? take_id(link) : 0;
+}
+
+bool link2_event_stream_as(Link2 *link, uint32_t id, const char *json, size_t length) {
+  if (link->phase != PHASE_LINKED || id == 0 || tx_room(link, false) < LINK2_HEADER_BYTES + length) return false;
+  /* An id of this side that nothing holds yet. */
+  if ((id & 0x80000000u) != 0 || find_out(link, id) != NULL || find_out_stream(link, id) != NULL) return false;
+  OutStream *stream = new_out_stream(link, id, OS_SYSTEM, -1);
+  if (stream == NULL) return false;
   send_json(link, LINK2_FRAME_EVENT, 0, id, json, length, false, 0);
-  return id;
+  return true;
+}
+
+uint32_t link2_event_stream(Link2 *link, const char *json, size_t length) {
+  uint32_t id = link2_new_id(link);
+  return id != 0 && link2_event_stream_as(link, id, json, length) ? id : 0;
 }
 
 /* One DATA frame of a stream, built in the send buffer: `fill` writes the

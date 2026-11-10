@@ -150,7 +150,9 @@ static void on_push_abort(void *context) {
   say("push-abort %u", staged.bytes);
 }
 
-static bool on_native_begin(void *context, const char *name, uint32_t bytes, Link2Failure *failure) {
+static bool on_native_begin(void *context, const char *name, uint32_t bytes, uint32_t crc32, bool launch, Link2Failure *failure) {
+  (void)crc32;
+  (void)launch;
   (void)context;
   (void)failure;
   staged.bytes = 0;
