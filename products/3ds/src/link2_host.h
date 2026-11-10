@@ -44,8 +44,11 @@ Link2 *link2_host_client(void);
  * DevTools gets `guest.end`, and what belonged to it is dropped. */
 void link2_host_guest_begin(const PocketRuntimePackage *package);
 void link2_host_guest_end(void);
-/* The running guest's applet channel, or -1 (link2_channel_*). */
+/* The running guest's applet channel, or -1 (link2_channel_*); and whether
+ * its package declared "link.channel", which decides whether it sees
+ * `link.channel` at all. */
 int link2_host_channel(void);
+bool link2_host_channel_declared(void);
 
 /* The link is up and both sides list the group. */
 bool link2_host_in_use(const char *feature);

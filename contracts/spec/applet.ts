@@ -101,6 +101,7 @@ const APPLET_CAPABILITIES = [
   "display.auxiliary",
   "input.touch.auxiliary",
   "net.http",
+  "link.channel",
   "ui.physics",
   "audio.pcm",
   "media.playback",

@@ -139,6 +139,7 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `camera.qr` | Outer-camera preview texture and an on-device QR decoder. |
 | `camera.photo` | Stills kept as JPEG under the storage's DCIM folder: list, decode, delete. |
 | `link.companion` | The console's link to a paired companion computer: pairing, status, catalog, installs. |
+| `link.channel` | The running applet's channel to its computer side over the link, behind `globalThis.link.channel`: requests, events and byte streams (`docs/POCKET-LINK.md` §7). |
 | `system.wifi` | The console's radio and saved connections; reads and selects, never writes. |
 | `system.agent` | The system mascot on the top screen and the agent channel to the companion. |
 | `system.extension` | A product extension linked into the program: it draws the primary display and publishes its own global, and the guest's interface stays on the auxiliary surface. |

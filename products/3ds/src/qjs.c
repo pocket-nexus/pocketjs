@@ -76,6 +76,17 @@ typedef enum {
   HostLinkInstall,
   HostLinkRemove,
   HostLinkPoll,
+  HostChannelState,
+  HostChannelPoll,
+  HostChannelRequest,
+  HostChannelCancel,
+  HostChannelEmit,
+  HostChannelProgress,
+  HostChannelReply,
+  HostChannelRead,
+  HostChannelWrite,
+  HostChannelEnd,
+  HostChannelClose,
   HostWifiStatus,
   HostWifiSetEnabled,
   HostWifiConnect,
@@ -262,6 +273,124 @@ static int argument_bytes(JSContext *ctx, int argc, JSValueConst *argv,
 }
 
 // ---------------------------------------------------------------------------
+// link.channel
+// ---------------------------------------------------------------------------
+
+static uint32_t argument_id(JSContext *ctx, int argc, JSValueConst *argv, int index) {
+  int64_t value = 0;
+  if (index < argc)
+    JS_ToInt64(ctx, &value, argv[index]);
+  return value > 0 && value <= UINT32_MAX ? (uint32_t)value : 0;
+}
+
+static JSValue channel_operation(JSContext *ctx, int argc, JSValueConst *argv, HostOperation operation) {
+  Link2 *client = link2_host_client();
+  int channel = link2_host_channel();
+  bool usable = client != NULL && channel >= 0;
+  const uint8_t *bytes = NULL;
+  size_t byte_length = 0, text_length = 0;
+  const char *text = NULL;
+  JSValue lease = JS_UNDEFINED;
+
+  switch (operation) {
+  case HostChannelState: {
+    const char *reason = "";
+    int state = usable ? link2_channel_state(client, channel, &reason) : LINK2_CHANNEL_CLOSED;
+    char status[160];
+    /* A close reason is a name of §7.5: letters, digits, "_", "." and "-". */
+    char name[48];
+    size_t used = 0;
+    for (const char *at = usable && reason != NULL ? reason : client != NULL ? "" : "no_link"; *at != '\0' && used + 1 < sizeof name; at += 1) {
+      char c = *at;
+      if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-')
+        name[used++] = c;
+    }
+    name[used] = '\0';
+    snprintf(status, sizeof status, "{\"state\":\"%s\",\"reason\":\"%s\",\"generation\":%lu}",
+             state == LINK2_CHANNEL_OPEN ? "open" : state == LINK2_CHANNEL_OPENING ? "opening" : "closed", name,
+             (unsigned long)(usable ? link2_channel_generation(client, channel) : 0));
+    return JS_NewString(ctx, status);
+  }
+  case HostChannelPoll: {
+    Link2Message message;
+    if (!usable || !link2_channel_poll(client, channel, &message))
+      return JS_UNDEFINED;
+    /* {"k":kind,"id":id,"s":stream,"e":error,"m":<the object>}: one parse in the guest. */
+    int head = snprintf(debug_poll_buffer, sizeof debug_poll_buffer, "{\"k\":%d,\"id\":%lu,\"s\":%lu,\"e\":%s,\"m\":",
+                        message.kind, (unsigned long)message.id, (unsigned long)message.stream, message.error ? "true" : "false");
+    bool has_json = message.json != NULL && message.length > 0;
+    size_t body = has_json ? message.length : 4;
+    if (head < 0 || (size_t)head + body + 1 > sizeof debug_poll_buffer)
+      return JS_UNDEFINED;
+    memcpy(debug_poll_buffer + head, has_json ? message.json : "null", body);
+    debug_poll_buffer[(size_t)head + body] = '}';
+    return JS_NewStringLen(ctx, debug_poll_buffer, (size_t)head + body + 1);
+  }
+  case HostChannelRequest: {
+    if (argc < 1 || !usable)
+      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
+    text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
+    if (text == NULL)
+      return JS_NewInt32(ctx, LINK2_MALFORMED);
+    uint32_t id = 0;
+    int status = link2_channel_request(client, channel, text, text_length, argc > 1 && JS_ToBool(ctx, argv[1]), &id);
+    JS_FreeCString(ctx, text);
+    return status == LINK2_OK ? JS_NewInt64(ctx, id) : JS_NewInt32(ctx, status);
+  }
+  case HostChannelCancel:
+    return JS_NewInt32(ctx, usable ? link2_channel_cancel(client, channel, argument_id(ctx, argc, argv, 0)) : LINK2_NO_CHANNEL);
+  case HostChannelEmit: {
+    if (argc < 1 || !usable)
+      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
+    text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
+    if (text == NULL)
+      return JS_NewInt32(ctx, LINK2_MALFORMED);
+    bool opens = argc > 1 && JS_ToBool(ctx, argv[1]);
+    uint32_t stream = 0;
+    int status = link2_channel_emit(client, channel, text, text_length, opens ? &stream : NULL);
+    JS_FreeCString(ctx, text);
+    return status == LINK2_OK && opens ? JS_NewInt64(ctx, stream) : JS_NewInt32(ctx, status);
+  }
+  case HostChannelProgress:
+  case HostChannelReply: {
+    if (argc < 2 || !usable)
+      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
+    uint32_t id = argument_id(ctx, argc, argv, 0);
+    text = JS_ToCStringLen2(ctx, &text_length, argv[1], 0);
+    if (text == NULL)
+      return JS_NewInt32(ctx, LINK2_MALFORMED);
+    int status = operation == HostChannelProgress
+                     ? link2_channel_progress(client, channel, id, text, text_length)
+                     : link2_channel_reply(client, channel, id, text, text_length, argc > 2 && JS_ToBool(ctx, argv[2]));
+    JS_FreeCString(ctx, text);
+    return JS_NewInt32(ctx, status);
+  }
+  case HostChannelRead:
+  case HostChannelWrite: {
+    if (!usable)
+      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
+    if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length, &lease))
+      return JS_NewInt32(ctx, LINK2_MALFORMED);
+    uint32_t id = argument_id(ctx, argc, argv, 0);
+    /* A read fills the guest's own buffer: the lease keeps it alive here. */
+    long count = operation == HostChannelRead
+                     ? link2_stream_read(client, channel, id, (uint8_t *)(uintptr_t)bytes, byte_length)
+                     : link2_stream_write(client, channel, id, bytes, byte_length);
+    JS_FreeValue(ctx, lease);
+    return JS_NewInt32(ctx, (int32_t)count);
+  }
+  case HostChannelEnd:
+    return JS_NewInt32(ctx, usable ? link2_stream_end(client, channel, argument_id(ctx, argc, argv, 0)) : LINK2_NO_CHANNEL);
+  case HostChannelClose:
+    if (usable)
+      link2_stream_close(client, channel, argument_id(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+  default:
+    return JS_UNDEFINED;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ops
 // ---------------------------------------------------------------------------
 
@@ -443,6 +572,21 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
     const char *batch = link2_guest_poll();
     return batch == NULL ? JS_UNDEFINED : JS_NewString(ctx, batch);
   }
+  /* `link.channel`: the running applet's channel to its daemon
+   * (docs/POCKET-LINK.md §7.3). The client keeps the ids, the windows and the
+   * per-frame budgets; these calls move whole JSON objects and byte chunks. */
+  case HostChannelState:
+  case HostChannelPoll:
+  case HostChannelRequest:
+  case HostChannelCancel:
+  case HostChannelEmit:
+  case HostChannelProgress:
+  case HostChannelReply:
+  case HostChannelRead:
+  case HostChannelWrite:
+  case HostChannelEnd:
+  case HostChannelClose:
+    return channel_operation(ctx, argc, argv, (HostOperation)magic);
   case HostWifiStatus:
     return JS_NewString(ctx, wifi_status_json());
   case HostWifiSetEnabled:
@@ -655,6 +799,22 @@ static int32_t install_host(void) {
   add_operation(link, "install", 1, HostLinkInstall);
   add_operation(link, "remove", 1, HostLinkRemove);
   add_operation(link, "poll", 0, HostLinkPoll);
+  /* Only a guest that declared "link.channel" has its applet channel. */
+  if (link2_host_channel_declared()) {
+    JSValue channel = JS_NewObject(context);
+    add_operation(channel, "state", 0, HostChannelState);
+    add_operation(channel, "poll", 0, HostChannelPoll);
+    add_operation(channel, "request", 2, HostChannelRequest);
+    add_operation(channel, "cancel", 1, HostChannelCancel);
+    add_operation(channel, "emit", 2, HostChannelEmit);
+    add_operation(channel, "progress", 2, HostChannelProgress);
+    add_operation(channel, "reply", 3, HostChannelReply);
+    add_operation(channel, "read", 2, HostChannelRead);
+    add_operation(channel, "write", 2, HostChannelWrite);
+    add_operation(channel, "end", 1, HostChannelEnd);
+    add_operation(channel, "close", 1, HostChannelClose);
+    JS_SetPropertyStr(context, link, "channel", channel);
+  }
   JS_SetPropertyStr(context, global, "link", link);
 
   /* The worker declared its channels during bootstrap, before this realm

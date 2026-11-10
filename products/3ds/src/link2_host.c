@@ -77,6 +77,7 @@ static uint16_t shot_size[4];
 
 /* The guest that runs. */
 static int channel = -1;
+static bool channel_declared;
 static bool guest_running;
 static char guest_app[LAUNCHER_ID_BYTES];
 static char guest_output[LAUNCHER_OUTPUT_BYTES];
@@ -655,7 +656,8 @@ void link2_host_guest_begin(const PocketRuntimePackage *package) {
   snprintf(guest_app, sizeof guest_app, "%s", launcher_current_app_id());
   snprintf(guest_output, sizeof guest_output, "%s", launcher_current_output());
   channel = -1;
-  if (client == NULL || package == NULL || (package->guest.features & POCKET_GUEST_FEATURE_CHANNEL) == 0) return;
+  channel_declared = package != NULL && (package->guest.features & POCKET_GUEST_FEATURE_CHANNEL) != 0;
+  if (client == NULL || !channel_declared) return;
   char hash[17];
   hex16(package->guest.package_hash, hash);
   channel = link2_channel_open(client, guest_app, hash);
@@ -669,11 +671,16 @@ void link2_host_guest_end(void) {
     link2_guest_switch(client, guest_app, guest_output);
   }
   channel = -1;
+  channel_declared = false;
   guest_running = false;
 }
 
 int link2_host_channel(void) {
   return channel;
+}
+
+bool link2_host_channel_declared(void) {
+  return channel_declared;
 }
 
 bool link2_host_in_use(const char *feature) {
@@ -790,6 +797,7 @@ Link2 *link2_host_client(void) { return NULL; }
 void link2_host_guest_begin(const PocketRuntimePackage *package) { (void)package; }
 void link2_host_guest_end(void) {}
 int link2_host_channel(void) { return -1; }
+bool link2_host_channel_declared(void) { return false; }
 bool link2_host_in_use(const char *feature) {
   (void)feature;
   return false;

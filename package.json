@@ -156,6 +156,7 @@
     "./physics": "./framework/src/physics.ts",
     "./game2d": "./framework/src/game2d/index.ts",
     "./link": "./framework/src/link.ts",
+    "./channel": "./framework/src/channel.ts",
     "./wifi": "./framework/src/wifi.ts",
     "./device": "./framework/src/device.ts",
     "./camera": "./framework/src/camera.ts",
