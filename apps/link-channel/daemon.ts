@@ -94,3 +94,16 @@ export function linkChannelDaemon(): { daemon: LinkDaemon; seen: LinkChannelSeen
   };
   return { daemon, seen };
 }
+
+/** The module form `bun run link2 serve --daemon <applet id>=apps/link-channel/daemon.ts` loads. */
+export default function linkChannelModule({ log }: { log(line: string): void }): LinkDaemon {
+  const { daemon, seen } = linkChannelDaemon();
+  return {
+    ...daemon,
+    attach(channel, info) {
+      log(`channel open: generation ${info.generation}`);
+      channel.onClose((reason) => log(`closed (${reason}): report ${JSON.stringify(seen.report)}, note ${JSON.stringify(seen.note)}, http ${seen.http}`));
+      daemon.attach(channel, info);
+    },
+  };
+}
