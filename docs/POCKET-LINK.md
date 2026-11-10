@@ -2578,6 +2578,31 @@ against them. The version-1 files go in the change that replaces `link.c`.
    `tools/3ds-runtime-client.ts`, `tests/3ds-runtime-wire.test.ts`,
    `tools/3ds-keys.ts` and the `3ds:wire` lease. `tools/3ds-dev.ts` becomes
    a client of Hub's CLI.
+7. **Built: a command line on the reference Hub**, `bun run link2`
+   (`tools/pocket-link/v2/cli.ts`), which drives a real device until Hub's
+   own endpoint exists and stands alone meanwhile; item 6's switch of
+   `3ds:dev` is a later change. `store.ts` keeps the Hub's identity and one
+   record per device under `$POCKETJS_LINK_HOME`, else `~/.pocketjs/link/`
+   (folders **0700**, files **0600**, each written through a temporary file
+   and a rename; no command prints a key). `ftp-storage.ts` is the setup's
+   storage over ftpd, one `curl` run per operation: exit codes 78 and 9 read
+   as "absent", any other failure as a failed read, a delete confirmed by a
+   read that answers "absent", and the FTP connection's local address as
+   the address written into the pairing (§3.2). `hub.ts` gains the beacon
+   targets of a LAN (the limited broadcast address, each interface's
+   broadcast address read again every **10 s**, every paired device's last
+   address, named unicast targets) and persists "setup not confirmed" in the
+   record. Commands: `setup --host <ip> | --card <dir>`, `devices`,
+   `forget`, then `status`, `apps`, `push`, `install`, `launch`, `shot`,
+   `eval` and `logs`, each of which starts the endpoint, waits for the
+   paired device, acts and leaves, and `serve`, which stays: the catalog of
+   folders of `.pocket` files (`offer.ts`), `net.http` through `fetch.ts`'s
+   policy, and applet channels handed to daemon modules named as
+   `--daemon <applet id>=<module.ts>` (`daemon.ts`; `daemon-sample.ts` is
+   one). **While a `serve` runs for a store, the other commands go through
+   it** over a socket in the store's folder, because a device links to one
+   Hub at a time. `tests/pocket-link-2-cli.test.ts` runs every command as a
+   process against the C client.
 
 ### 12.2 3DS C client (`engine/host-services`, `products/3ds`)
 
