@@ -403,7 +403,7 @@ same string as the spec namespace and the pak prefix: `audio.pcm` means
 name covers the app contract, the runtime namespace, and the asset key.
 `contracts/spec/` holds the shipped specs — `audio`, `db`, `fs`, `net`,
 `physics`, `platforms`, `spec`, plus the app contract (`pocket-manifest.ts`),
-host contract (`profile.ts`), package, system and runtime-wire files.
+host contract (`profile.ts`), package, system and link files.
 They are plain TypeScript data: `gen-rust.ts` generates
 `engine/spec/src/lib.rs`, `gen-c.ts` generates
 `contracts/generated/pocket_spec.h`, and `tests/generated-contracts.test.ts`
