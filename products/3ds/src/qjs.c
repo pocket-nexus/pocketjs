@@ -367,6 +367,23 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
      * cycle collector runs first and both figures are given: what falls
      * between them was garbage waiting for a collection, not a leak. */
     JSMemoryUsage usage;
+    int32_t detail = 0;
+    if (argc > 0 && JS_IsNumber(argv[0])) JS_ToInt32(ctx, &detail, argv[0]);
+    if (detail == 2) {
+      /* What the guest's heap holds by kind, after a collection: which kind
+       * grows says where a growth lives (strings, atoms, shapes, objects). */
+      JS_RunGC(JS_GetRuntime(ctx));
+      JS_ComputeMemoryUsage(JS_GetRuntime(ctx), &usage);
+      snprintf(memory, sizeof memory,
+               "{\"js\":%lu,\"used\":%lu,\"obj\":[%lu,%lu],\"prop\":[%lu,%lu],\"shape\":[%lu,%lu],\"str\":[%lu,%lu],\"atom\":[%lu,%lu],"
+               "\"func\":[%lu,%lu],\"array\":[%lu,%lu],\"binary\":[%lu,%lu]}",
+               (unsigned long)usage.malloc_size, (unsigned long)usage.memory_used_size,
+               (unsigned long)usage.obj_count, (unsigned long)usage.obj_size, (unsigned long)usage.prop_count, (unsigned long)usage.prop_size,
+               (unsigned long)usage.shape_count, (unsigned long)usage.shape_size, (unsigned long)usage.str_count, (unsigned long)usage.str_size,
+               (unsigned long)usage.atom_count, (unsigned long)usage.atom_size, (unsigned long)usage.js_func_count, (unsigned long)usage.js_func_size,
+               (unsigned long)usage.array_count, (unsigned long)usage.fast_array_elements, (unsigned long)usage.binary_object_count, (unsigned long)usage.binary_object_size);
+      return JS_NewString(ctx, memory);
+    }
     JS_ComputeMemoryUsage(JS_GetRuntime(ctx), &usage);
     unsigned long js = (unsigned long)usage.malloc_size, js_objects = (unsigned long)usage.obj_count;
     unsigned long js_collected = js, js_objects_collected = js_objects;
