@@ -2078,6 +2078,11 @@ size_t link2_event_stream_send(Link2 *link, uint32_t id, const uint8_t *bytes, s
   return n;
 }
 
+bool link2_event_stream_live(Link2 *link, uint32_t id) {
+  OutStream *stream = find_out_stream(link, id);
+  return stream != NULL && stream->kind == OS_SYSTEM && !stream->end_sent;
+}
+
 bool link2_event_stream_end(Link2 *link, uint32_t id) {
   OutStream *stream = find_out_stream(link, id);
   if (stream == NULL || stream->kind != OS_SYSTEM || stream->end_sent) return true;

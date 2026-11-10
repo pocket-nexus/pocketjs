@@ -302,6 +302,8 @@ size_t link2_event_stream_send(Link2 *link, uint32_t id, const uint8_t *bytes, s
 /* Closes the stream with an empty END frame. True when the END is queued or
  * the stream is already gone; false when it has to be asked again. */
 bool link2_event_stream_end(Link2 *link, uint32_t id);
+/* The stream is open: false once its END left, Hub reset it or the link dropped. */
+bool link2_event_stream_live(Link2 *link, uint32_t id);
 
 // ---------------------------------------------------------------------------
 // Applet channels: the host half of §7.3
