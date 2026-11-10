@@ -300,12 +300,18 @@ device, the one the development connection's `dev.key` travelled
 Hub runs **one procedure against the device's storage, reached over ftpd or
 as the SD card mounted in the computer's reader**:
 
-1. **Read `device.txt`.** A file that holds 16 lowercase hex digits and at
-   most one newline is kept, and its id is the device's; a missing file or
-   another content gets a new id, written with its folders.
+1. **Read `device.txt`.** A file that holds 16 lowercase hex digits,
+   followed by nothing or by a run of newline, carriage return and space
+   bytes, is kept, and its id is the device's; a missing file or another
+   content gets a new id, written with its folders. **This is the set of
+   files the device's own reader takes as an id** (`link.c`
+   `load_device_id` strips that run): a Hub stricter than the device would
+   replace an id the device still reads, and a new id costs every other
+   pairing of the card (§3.7).
 2. **List `companions/`.** Hub counts the files the device would load
    (§3.6): a name of 16 lowercase hex digits and `.txt`, with a `key=` line
-   of 64 hex digits. When **8** of them exist and none is this Hub's, Hub
+   of 64 hex digits. When **8** of them exist and this Hub's own key file is
+   not among those loadable files, Hub
    writes nothing and tells the owner to remove a computer on the device
    (`link.forget`) or to delete one of the files: the device reads at most 8.
    A leftover `<hub id>.new` of this Hub (step 4) is deleted here.
@@ -333,10 +339,15 @@ as the SD card mounted in the computer's reader**:
    Hub's current interface addresses and the port matches**: that address
    may be the one a `ready` proved. Hub **writes
    `companions/<hub id>.last` with the name, address and port it has now**
-   (to a temporary file renamed over the old one, then read back) only when
+   (to `<hub id>.last.tmp`, renamed over the old file and then read back; a
+   device loads no `.tmp` file) only when
    the port differs or the address is none of them (over ftpd: when it is
    not the FTP connection's local address), so the device's next start
-   tries an address Hub holds. **An address change never
+   tries an address Hub holds. **On a mounted card the address Hub writes,
+   here and into a new key file (step 4), is the first of its interface
+   addresses, the interface of its default route first**: the console is
+   most often on the network the computer uses, and a wrong guess costs the
+   direct try alone until a beacon arrives. **An address change never
    rewrites the key file**, so it cannot cost the pairing.
 4. Otherwise Hub mints a key and **stores it in its record as a candidate
    before it writes** (below). **The write goes to `companions/<hub id>.new`,
@@ -415,8 +426,10 @@ Before `ready`, only `HANDSHAKE`, `PING`, `PONG` and `CLOSE` are valid; any
 other frame type closes the connection with `protocol`. `HANDSHAKE` frames
 carry id 0 and one JSON object of at most **1,024 bytes**
 (LINK_MAX_HANDSHAKE), on every carrier: the smallest receive buffer a device
-may offer (§4.4) holds every handshake message. **A `HANDSHAKE` frame after
-`ready` closes the connection with `protocol`.**
+may offer (§4.4) holds every handshake message. **Before `ready` that limit
+holds for every frame**: a `PING`, `PONG` or `CLOSE` is smaller by its own
+rule, and a header with a longer `length` closes with `too_large`. **A
+`HANDSHAKE` frame after `ready` closes the connection with `protocol`.**
 
 ### 3.4 Handshake messages
 
@@ -490,7 +503,7 @@ the key learns no proof it can replay.
 | --- | --- | --- |
 | Device | `device.txt` | the device id (§3.1). A device that starts without the file makes one, as version 1 does; Hub's setup reads it before it writes a pairing (§3.2) |
 | Device | `companions/<companion id>.txt`, at most 8 | `key=` (64 hex), and the `name=`, `address=`, `port=` Hub knew when it wrote the file. **Written by Hub's setup alone; the device opens it for reading only** |
-| Device | `companions/<companion id>.last` | `name=`, `address=` (last IPv4), `port=`: what the last `ready` gave. **The device writes it only when a value changed**, to a temporary file that it renames over the old one. Its values replace the key file's when it exists and parses; a missing or damaged `.last` falls back to the key file's. **Hub's setup writes it with Hub's current name, address and port when the device would use an address that is none of Hub's own, or another port** (§3.2 step 3; over ftpd the test is the FTP connection's local address), and a new key file's write (§3.2 step 4) deletes it first |
+| Device | `companions/<companion id>.last` | `name=`, `address=` (last IPv4), `port=`: what the last `ready` gave. **The device writes it only when a value changed**, to a temporary file that it renames over the old one. Its values replace the key file's when it exists and parses, which takes an IPv4 `address=` and a `port=` of 1 to 65535 (a missing `name=` reads as an empty name); a missing or damaged `.last` falls back to the key file's. **Hub's setup writes it with Hub's current name, address and port when the device would use an address that is none of Hub's own, or another port** (§3.2 step 3; over ftpd the test is the FTP connection's local address), and a new key file's write (§3.2 step 4) deletes it first |
 | Hub | its id | 8 random bytes as 16 lowercase hex digits, made once |
 | Hub | one record per paired device, in a file of mode **0600** | `id`, `name`, `model`, `key` (64 hex), a second candidate key while a setup is unconfirmed (§3.2), `target`, `hostAbi`, `lastAddress`, `lastSeen` |
 | Hub | one counter for the whole Hub, stored beside the records | `lastGeneration` (§7.4) |
@@ -650,7 +663,9 @@ Hub selects the highest version inside both ranges. **With no common
 version Hub sends its preamble with `selected = 0` and closes**, without
 reading further; the device reports "Hub speaks Pocket Link
 `lowest`–`highest`". The device closes when `selected` is outside its own
-range or the magic is wrong. A version-1 console's preamble
+range or the magic is wrong. **A receiver does not check the `reserved`
+byte**: a later version may give it a meaning, and a version-2 side must
+still read that preamble. A version-1 console's preamble
 (`PKLK`, 1, 0, 0, 0) reads as `highest = 1` and gets `selected = 0`.
 
 **When the device sends its `hello` depends on its range**, because the frame
@@ -754,7 +769,9 @@ one frame of that size (LINK_MAX_CTRL = LINK_MAX_PAYLOAD; with the `APP`
 flag the 4-byte channel id comes out of it, §7.2); the device parses it in
 place in its receive buffer. **Every size limit of a JSON field on this page
 counts the bytes of its encoded form in the frame**, escapes included, so a
-limit read off the wire is the limit checked.
+limit read off the wire is the limit checked. **A string's limit counts the
+escaped bytes between its two quotes; an object's limit (`headers`, §6.5)
+counts the whole encoded object, braces included.**
 
 **Why 16 KiB on TCP.** Throughput on the 3DS does not depend on the write
 size: **700–900 KB/s for writes of 1 KiB to 32 KiB** in both directions
@@ -810,6 +827,7 @@ most of a minute and its client had to allow 180 s of silence.
 | Any type but `HANDSHAKE`, `PING`, `PONG`, `CLOSE` before `ready` | `CLOSE` `protocol` |
 | `length` > LINK_MAX_PAYLOAD | `CLOSE` `too_large`, without reading the payload |
 | Undefined flag bit (`BODY` without `APP` among them), non-zero `reserved`, bad id, bad payload size | `CLOSE` `protocol` |
+| `CREDIT` of 0; a non-zero second u16 in a `CLOSE` or `RESET` payload | `CLOSE` `protocol`: both are fixed values of §4.3 |
 | `HANDSHAKE` after `ready` | `CLOSE` `protocol` |
 | `REQUEST` whose payload is not a JSON object with string `t` | `REPLY` `ERROR` `malformed` |
 | `REQUEST` with an unknown `t` | `REPLY` `ERROR` `unknown_message`. Version 1 ignored unknown `t` values (`link.c` `handle_ctrl`), which left the requester waiting for its timeout |
@@ -979,6 +997,16 @@ What a receiver does with an id that breaks the rule:
   id or a fresh id of the sender: `CLOSE` `protocol`, for the same reason.
   An id of the receiver's own range that names nothing held never reaches
   this rule: step 3 ignored the event.
+- **An event of a kind that names an open request** (`runtime.install`,
+  `runtime.native`, `install.head`, `net.head`) **with id 0, with a fresh id
+  of the sender, or with a held id that is not a request the receiver
+  sent: `CLOSE` `protocol`.** No request of the receiver has such an id, so
+  the sender's bookkeeping is broken.
+- **A `channel.close` with id 0, or with a held id that is not a channel:
+  `CLOSE` `protocol`.**
+- **An `EVENT` with the `APP` flag whose non-zero id is not a fresh id of
+  the sender** (an id of the receiver's range, or one in use): `CLOSE`
+  `protocol`, by the stream-opening rule above.
 - An event naming a request id that the receiver no longer holds
   (cancelled, replied, closed with its channel): **ignored** (step 3), as
   §4.7 treats late frames for a released id. A `channel.close` whose id
@@ -997,7 +1025,10 @@ operation, drops what it would still send on the request's stream, and sends
 the final `REPLY`: `ERROR` `cancelled`, or its normal reply if it had
 finished. The requester discards `EVENT` and `DATA` frames for the id after
 `CANCEL` and frees the id at the `REPLY`, or **10 s** after `CANCEL` when no
-reply comes. Version 1 had `net.cancel` for HTTP alone and no answer to it
+reply comes. **A request freed this way reports the cause of its `CANCEL`
+on the requester's own side**: `cancelled` when the caller cancelled it,
+`timeout` when the 30 s stall of §5.5 sent the `CANCEL`, since the caller
+asked for no cancel and the stall is what it has to learn of. Version 1 had `net.cancel` for HTTP alone and no answer to it
 (`link.ts` "Requests").
 
 **For a request of an applet channel, the endpoint next to the responder
@@ -1328,7 +1359,9 @@ Paging rules:
 - **Rows keep the order of the launcher's table for the length of one
   `set`**, and `at` of a page equals the number of rows in the pages before
   it. The device fills each page with as many whole rows as the payload
-  limit holds; a row never spans two pages, and one row at every limit
+  limit holds, **sized as if its `more` were `false`** (the longer form), so
+  a page that turns out to be the last never grows past the limit; a row
+  never spans two pages, and one row at every limit
   (about 300 bytes) fits the smallest payload limit (1 KiB, §4.4).
 - The pages of a `set` are consecutive `EVENT` frames of id 0 in the
   device's write queue; other frames may sit between them (§8.2).
@@ -1567,7 +1600,8 @@ Device to Hub; kept from version 1 in version 2's frames (`link.ts`
 
 **catalog**: request `{after?, rev?}`. Reply `{apps: [LinkCatalogApp], rev,
 more}`: every `.pocket` in Hub's apps folders with a variant for
-`hello.target`, one per app id with the first folder winning, **the first 64
+`hello.target`, one per app id with the first folder winning (the first
+occurrence in the order Hub lists its folders and their files), **the first 64
 by `id`** when more qualify, **paged when the rows do not fit one frame**:
 
 | Field | In | Type | Content |
@@ -1592,7 +1626,8 @@ by `id`** when more qualify, **paged when the rows do not fit one frame**:
   newer first page replaced it, or the connection is new) **is answered with
   the error `changed`**; the device discards the pages it holds and asks for
   the first page again. An `after` that names no row of the snapshot is
-  `malformed`.
+  `malformed`, and so is a request with one of `after` and `rev` and not
+  the other: a cursor without its revision names no position.
 - Each page is its own request, counted in the 4 open requests below; the
   device asks for the next page after it has consumed the one before, so
   pages are not in flight together.
@@ -1915,7 +1950,7 @@ question 2); its shape:
 | `onProgress(t, args, stream?)`, called for each progress event of the call; `stream` is the response stream, present from the head step on (§7.2) | `EVENT` on the request id; `DATA` on it |
 | `on(t, handler)` for the daemon's requests; the handler gets `(args, call)` and its result is the reply. `call.progress(t, args)` sends a progress event, `call.respond()` returns the stream to write response bytes to after a progress event, `call.body` is the request's body stream | the daemon's `REQUEST` `APP`; the guest's `EVENT`, `DATA` and `REPLY` on its id |
 | `emit(t, args)` and `onEvent(t, handler)`; a handler for an event that opens a stream gets `(args, stream)` | `EVENT` `APP` with id 0, or with a fresh id and its stream; `CREDIT` on the channel id as the guest takes events |
-| a stream handle with `read(into)` / `write(bytes)` / `close()` | `DATA`, `END`, `RESET`; **the host grants `CREDIT` for a stream only while a `read` is pending on it**, for at most the bytes that `read` asked for and the stream's 16 KiB window allows (§5.6) |
+| a stream handle with `read(into)` / `write(bytes)` / `close()` | `DATA`, `END`, `RESET`; **the host grants `CREDIT` for a stream only while a `read` is pending on it**, for at most the bytes that `read` asked for and the stream's 16 KiB window allows (§5.6). **One `read` is pending per stream at a time, and it completes as soon as any bytes are handed over**, with fewer than it asked for when fewer came; the next `read` opens the window again |
 | `state()`: `closed`, `opening`, `open`, with the close reason | `channel.open`, `channel.close` |
 
 - **`call.reply` resolves at the `REPLY`, after the response stream's last
@@ -2269,12 +2304,16 @@ buffers come on top while a capture is in flight, as today.
 ## 10. Conformance and test vectors
 
 The reference implementation ships vectors as JSON files in
-`tests/vectors/pocket-link-2/`, generated by `tools/pocket-link/vectors.ts`
-from fixed inputs and checked by three suites: the TypeScript codec and
-console client (`tests/pocket-link.test.ts`), the device's socket-free C
-compiled on the build machine (`tests/3ds-link.test.ts`), and Hub's Rust
-endpoint (from the PocketJS submodule). **Bytes are given in hex; each
-transcript step names its sender.** For handshake frames and binary frames the
+`tests/vectors/pocket-link-2/`, generated by
+`tools/pocket-link/v2/vectors.ts` from fixed inputs (`--check` fails when a
+file would change) and checked by three suites: the TypeScript codec and
+its state machines (`tests/pocket-link-2.test.ts`), the device's
+socket-free C compiled on the build machine (`tests/3ds-link.test.ts`), and
+Hub's Rust endpoint (from the PocketJS submodule). **Bytes are given in hex;
+each transcript step names its sender.** A bulk `DATA` frame is stored as
+its 12 header bytes in hex with `fill` (the byte every payload byte holds)
+and `bytes` (the payload length), so a 518,400-byte stream does not put a
+megabyte of hex in a file. For handshake frames and binary frames the
 sender's bytes must match byte for byte; for JSON control messages the vectors fix
 one byte form (no whitespace, keys in the order listed in §6), receivers must
 accept any key order and whitespace, and tests compare parsed values.
@@ -2294,10 +2333,30 @@ accept any key order and whitespace, and tests compare parsed values.
 | `keepalive.json` | `PING` / `PONG` echo; a timeline with timestamps where a side closes with `silence` at 10 s, one where a 100 ms gap changes nothing, and one where `DATA` alone keeps the link up |
 | `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` report of 64 rows of ordinary size in one 16 KiB frame, one with every field at its limit in two pages, one cut short by a change and restarted under the next `set`, a page with a wrong `at` after which Hub ignores the rest of that `set`, and a page of an older `set` ignored; a catalog of 64 rows fetched in pages with `after` and `rev` while the offer changes (served from the snapshot), a page request 31 s after the last one answered `changed`, and an offer of 70 apps of which the first 64 by `id` are served; a DevTools stream with a pending eval, then `guest.end`; a Hub-to-device line cut by a guest switch whose tail is discarded up to its `\n`; a `net.http` request and a `net.head` at their encoded limits, a response whose headers Hub drops to fit with `truncated: true`, a `log` event at the 1 KiB floor with `frame` at 2^32 − 1, and a second catalog fetch asked for while one runs, started after it |
 
+**Scenarios that need two live endpoints are tests, not vector files.** A
+vector fixes bytes and the decisions a single side takes; these rows of the
+table are run by the two TypeScript reference endpoints against each other
+on loopback, with injected clocks (`tests/pocket-link-2-endpoints.test.ts`),
+and the C client and Hub's endpoint each repeat them against the reference
+peer:
+
+- counted replacements, the `refused` `busy` after the third and the three
+  uncounted ones (`handshake-refusals.json`);
+- a group dropped and added back on a live link (`features.json`, which
+  holds the list validation, the in-use rule and the queue order as data);
+- the fifth stream and fifth channel refusals, a `channel.open` `REPLY`
+  held while the daemon starts, `CANCEL` crossing an accepting `REPLY`, the
+  reconnect and reopen, and the retry times after `no_daemon` and `busy`
+  (`channel.json`);
+- the DevTools stream with `guest.end` and a line cut by a guest switch
+  (`messages.json`);
+- the 30 s rules as transcripts (`streams.json` holds their values; the
+  timers are tested on an injected clock).
+
 The C client builds a POSIX variant of `link.c` on the build machine and runs
 the transcripts against itself; Hub's tests run its endpoint against the
 TypeScript console client, as Hub's version 1 tests do with
-`console-client.ts`.
+`tools/pocket-link/v2/device.ts`.
 
 ## 11. Open questions
 
@@ -2445,33 +2504,53 @@ contract.
 
 ### 12.1 TypeScript reference (this repository)
 
-1. `contracts/spec/link.ts`: version-2 constants (ports, preamble, header,
+**Version 2 lives beside version 1 until the C client moves**:
+`contracts/spec/link.ts` and `tools/pocket-link/{protocol,catalog,fetch,
+stream-credit,qr,console-client}.ts` stay as they are, because the 3DS
+firmware in `main` speaks version 1 and `tests/3ds-link.test.ts` checks its C
+against them. The version-1 files go in the change that replaces `link.c`.
+
+1. `contracts/spec/link2.ts`: version-2 constants (ports, preamble, header,
    frame types, flags, close codes, labels, limits of §9), the message types
-   of §6 and §7, the features. The USB carrier's records stay until question
-   10 is decided. The pairing URI's constants go.
-2. `tools/pocket-link/protocol.ts`: the version-2 codec. **Reuse** the
-   beacon and HMAC functions with the new labels and version; replace the
-   frame decoder (12-byte header, the negotiated limit, the checks of §4.7)
-   and add the preamble exchange. **Remove** `buildPairUri`, `maskKey` and
-   the pairing-window code; add the reader and writer of the two pairing
-   files (§3.1).
-3. `tools/pocket-link/vectors.ts` and `tests/vectors/pocket-link-2/` (§10);
-   `tests/pocket-link.test.ts` against them.
-4. `tools/pocket-link/console-client.ts`: the device side in TypeScript —
-   the handshake from a pairing record, credit, requests in both directions,
-   a runtime operation responder with fakes, the DevTools stream, applet
-   channels with requests, events and streams — for Hub's tests and desktop
-   hosts. **It is the reference peer**: the C client and Hub's Rust endpoint
-   are each tested against it and against the vectors.
-5. `stream-credit.ts`: lift the 1–8,192 byte capacity bound to the windows of
-   §5.6. `fetch.ts`: the URL limit drops from 8 KiB to 2 KiB and the header
-   limit counts encoded bytes (§6.5); the rest is kept, and Hub's Rust
-   endpoint ports its policy. **`catalog.ts` changes**: rows ordered by `id`
-   in byte order before the cut to 64 (today by title, then 64), a limit on
-   `title`, `version`, `output` and `id` beside the one on `summary`, a
-   revision counter, and pages with `after`, `rev`, `more` from a snapshot
-   (§6.4). `qr.ts` is no longer part of the link.
-6. Retire with the 3DS client: `contracts/spec/pocket-runtime-wire.ts`,
+   of §6 and §7, the features. It has no pairing URI and no USB carrier
+   records (question 10).
+2. `tools/pocket-link/v2/protocol.ts`: the codec. Beacon, preamble and
+   version selection, the 12-byte header with a streaming decoder that
+   checks the limit in force before it buffers a payload (§4.7), the binary
+   control frames, JSON frames with the `APP` prefix, the handshake messages
+   and their proofs. `pairing.ts`: the three file formats, the device's load
+   of `companions/`, Hub's setup as a plan of storage operations and the
+   candidate keys (§3.2). `credit.ts`, `requests.ts`, `paging.ts`: the state
+   machines of §5 and the two paged lists, without sockets and on an
+   injected clock.
+3. `tools/pocket-link/v2/vectors.ts` and `tests/vectors/pocket-link-2/`
+   (§10); `tests/pocket-link-2.test.ts` against them.
+4. The two reference endpoints over a carrier (`carrier.ts`: a reliable
+   ordered byte stream with the payload limit it offers; TCP is the one
+   adapter). `peer.ts` holds what both sides share after `ready`: the FIFO
+   write queue with the one-chunk rule, request tables in both directions,
+   the reading of events, streams with credit, applet channels and the
+   guest-shaped API of §7.3. **`device.ts` is the device side**: discovery
+   by beacon or a direct address, the handshake from pairing files in a
+   directory, keepalive, backoff and holds, the runtime operations answered
+   by injectable handlers, the DevTools stream, catalog and install,
+   `net.http`, applet channels. **`hub.ts` is a minimal Hub side**: listener
+   and beacon sender, the handshake against a store of device records with
+   candidate keys, the counted replacement, runtime operations as methods
+   under the device mutex, the catalog snapshot, `net.http` through an
+   injected fetch, applet channels handed to an injected daemon. **They are
+   the reference peers**: the C client is tested against `hub.ts`, Hub's
+   Rust endpoint against `device.ts`, and both against the vectors.
+   `tests/pocket-link-2-endpoints.test.ts` runs the two against each other.
+5. Hub's policy for `net.http` is version 1's `fetch.ts` with the URL limit
+   at 2 KiB and the header limit counting encoded bytes (§6.5); the
+   reference Hub takes the fetch as a function and Hub's Rust endpoint
+   ports the policy. The catalog's rows are ordered by `id` in byte order
+   before the cut to 64 (version 1: by title, then 64), every row field is
+   bounded, and pages come from a snapshot with a revision (§6.4,
+   `paging.ts`). `qr.ts` is no longer part of the link.
+6. Retire with the 3DS client: version 1's files above,
+   `contracts/spec/pocket-runtime-wire.ts`,
    `tools/3ds-runtime-client.ts`, `tests/3ds-runtime-wire.test.ts`,
    `tools/3ds-keys.ts` and the `3ds:wire` lease. `tools/3ds-dev.ts` becomes
    a client of Hub's CLI.
@@ -2560,7 +2639,7 @@ over local IPC (§7.7).
    credit and event units passed through to the daemon's reads, `CANCEL`
    answered by Hub itself (§5.4), the head step enforced on a daemon's
    writes, and a reader that never waits on the write queue (§8.1).
-8. Tests: the endpoint against `console-client.ts` on loopback, and against
+8. Tests: the endpoint against `tools/pocket-link/v2/device.ts` on loopback, and against
    the POSIX build of the C client (Hub's version 1 tests build `link.c` the
    same way, `engine/host-services/README.md`).
 
