@@ -69,5 +69,22 @@ void launcher_note_installed(const char *slot, const LauncherPackage *package);
 bool launcher_package_output(const LauncherPackage *package, char *out, size_t capacity);
 /* `id` read from the same object. */
 bool launcher_package_app_id(const LauncherPackage *package, char *out, size_t capacity);
+/* `title` and `version` read from the same object; "" when absent. */
+void launcher_package_title(const LauncherPackage *package, char *out, size_t capacity);
+void launcher_package_version(const LauncherPackage *package, char *out, size_t capacity);
+
+/* One installed app of the table, for a report of the installed set
+ * (docs/POCKET-LINK.md §6.2 runtime.apps). The launcher itself is not a row. */
+typedef struct {
+  const char *slot;
+  const char *output;
+  const char *id;
+  const char *title;
+  const char *version;
+  uint64_t hash;
+} LauncherRow;
+/* Row `index` in the table's order; false past its end. The table is rebuilt
+ * first when it is dirty, and the strings live until its next rebuild. */
+bool launcher_row(size_t index, LauncherRow *out);
 
 #endif
