@@ -41,6 +41,8 @@
 
 /* One socket read; a 3DS returns about one segment (1.5 KiB) per call. */
 #define RX_CHUNK 4096u
+/* How often a linked client reads its beacon socket. */
+#define LINK2_BEACON_DRAIN_MS 1000u
 /* Room the send buffer must have, outside the reserve, before a frame is
  * read: for an error REPLY to a REQUEST or a CANCEL, and for a RESET. */
 #define ANSWER_REQUEST 640u
@@ -145,6 +147,7 @@ typedef struct {
   uint32_t outstanding;   /* granted (sent or pending) and not yet received */
   uint32_t unconsumed;    /* received and still held by the consumer (net.http) */
   uint32_t pending_grant; /* credit owed: goes out as one CREDIT */
+  uint32_t read_frame;    /* applet stream: the channel's frame count at the guest's last read */
   /* applet streams */
   Link2AppWindow app;
   uint8_t *buffer;
@@ -273,6 +276,7 @@ struct Link2 {
    * CLOSE, a lost connection), and the open frame is then not committed. */
   bool building;
   uint32_t tx_epoch;
+  uint64_t beacons_ms; /* the last drain of the beacon socket */
   uint32_t tx_head;
   uint32_t tx_tail;
   uint64_t tx_queued;
@@ -3297,7 +3301,12 @@ void link2_pump(Link2 *link) {
   if (link->udp < 0 && link->companions.count > 0 && !link->stopped) {
     link->udp = link->platform.udp_open(link->platform.context, link->host.beacon_port != 0 ? link->host.beacon_port : LINK2_BEACON_PORT);
   }
-  pump_beacons(link);
+  /* Beacons matter while searching. Linked, the socket is drained once a
+   * second: a host that pumps twice a frame pays no datagram call for it. */
+  if (link->phase != PHASE_LINKED || now_ms(link) - link->beacons_ms >= LINK2_BEACON_DRAIN_MS) {
+    link->beacons_ms = now_ms(link);
+    pump_beacons(link);
+  }
   /* Read after the beacons: a dial they start stamps the phase with a later time. */
   uint64_t now = now_ms(link);
   switch (link->phase) {
@@ -3692,8 +3701,15 @@ bool link2_channel_poll(Link2 *link, int index, Link2Message *message) {
           inbox_pop(channel, &entry);
           continue;
         }
-        /* The REPLY is the trailer: it reaches the applet after the bytes a pending read is still owed. */
-        if (stream != NULL && stream->kind == IS_APP && stream->app.wanted > 0 && stream->app.held > 0) return false;
+        /* The REPLY is the trailer: it reaches the applet after the response's
+         * bytes while the applet reads them. The window is granted whole, so
+         * bytes can wait here between two reads: a stream the guest read in
+         * this frame or the one before keeps the REPLY behind what it still
+         * holds; one the guest stopped reading does not. */
+        if (stream != NULL && stream->kind == IS_APP && !stream->reserved && (stream->ready > 0 || stream->app.held > 0) &&
+            channel->frames - stream->read_frame <= 1) {
+          return false;
+        }
         if (stream != NULL && stream->kind == IS_APP && stream->reserved && (stream->ended || stream->failed)) {
           if (!stream->failed) {
             channel->ended_streams[channel->ended_next % LINK2_CHANNEL_STREAMS] = stream->id;
@@ -3851,6 +3867,7 @@ long link2_stream_read(Link2 *link, int index, uint32_t id, uint8_t *into, size_
     channel_bytes(link, (long)LINK2_APP_STREAM_WINDOW);
     stream->reserved = false;
   }
+  stream->read_frame = channel->frames;
   if (stream->ready > 0) {
     uint32_t n = stream->ready < capacity ? stream->ready : (uint32_t)capacity;
     memcpy(into, stream->buffer + stream->head, n);
@@ -3863,7 +3880,7 @@ long link2_stream_read(Link2 *link, int index, uint32_t id, uint8_t *into, size_
     free_in_stream(link, stream);
     return LINK2_STREAM_END;
   }
-  /* The read is pending: credit goes out for at most what it asked for. */
+  /* The read is pending: the stream's window is granted while it is. */
   stream->app.wanted = capacity < LINK2_APP_STREAM_WINDOW ? (uint32_t)capacity : LINK2_APP_STREAM_WINDOW;
   if (!stream->ended) {
     stream->pending_grant += link2_app_window_grant(&stream->app);

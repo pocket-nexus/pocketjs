@@ -297,6 +297,7 @@ export class StreamReader {
     if (this.failure !== null) return Promise.reject(this.failure);
     if (this.ended && this.held.length === 0) return Promise.resolve(null);
     const size = Math.max(1, Math.min(max ?? intake.read.window, intake.read.window));
+    this.readFrame = intake.read.channel?.frameCount ?? 0;
     return new Promise((resolve, reject) => {
       this.pending = { max: size, resolve, reject };
       this.window!.read(size);
@@ -315,6 +316,8 @@ export class StreamReader {
   get wantsBytes(): boolean {
     return this.pending !== null;
   }
+  /** @internal The channel's frame count at this reader's last `read`. */
+  readFrame = 0;
   get heldBytes(): number {
     return this.window?.heldBytes ?? this.unconsumed;
   }
@@ -759,10 +762,13 @@ export class AppletChannel {
       bytes += n;
     }
     for (const reader of this.readers) if (reader.wantsBytes && reader.heldBytes === 0) reader.handOver(0);
-    // A REPLY is the trailer: it reaches the applet after the bytes a pending read is still owed.
+    // A REPLY is the trailer: it reaches the applet after the response's bytes while the applet
+    // reads them. The window is granted whole, so bytes can wait here between two reads: a stream
+    // read in this frame or the one before keeps the REPLY behind what it still holds; one the
+    // applet stopped reading does not.
     for (const trailer of this.trailers.splice(0)) {
       const reader = trailer.call.response;
-      if (reader !== null && reader.wantsBytes && reader.heldBytes > 0) this.trailers.push(trailer);
+      if (reader !== null && reader.heldBytes > 0 && this.frames - reader.readFrame <= 1) this.trailers.push(trailer);
       else this.peer.settleReply(trailer.call, trailer.outcome);
     }
     this.frames += 1;
@@ -772,6 +778,10 @@ export class AppletChannel {
 
   // --- the peer's frames ---------------------------------------------------
 
+  /** @internal Frames this channel has run. */
+  get frameCount(): number {
+    return this.frames;
+  }
   /** @internal Schedules a hand-over when the channel runs its own frames. */
   wake(): void {
     if (!this.config.auto || this.scheduled || this.status !== "open") return;

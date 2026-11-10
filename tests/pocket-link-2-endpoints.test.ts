@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   LINK2_APP_EVENT_WINDOW,
+  LINK2_APP_FRAME_MESSAGES,
+  LINK2_APP_STREAM_WINDOW,
   LINK2_APP_EVENT_WINDOW_HUB,
   LINK2_CHANNEL_OPEN_MS,
   LINK2_DEVTOOLS_LINE_IN,
@@ -991,7 +993,7 @@ describe("applet channels", () => {
     expect((await fails(guest.request("echo").reply)).code).toBe("no_channel");
   });
 
-  test("a response of 518,400 bytes: the head event hands the stream over, the bytes pass the 16 KiB window, the REPLY is the trailer", async () => {
+  test("a response of 518,400 bytes: the head event hands the stream over, the bytes pass the stream's window, the REPLY is the trailer", async () => {
     const echo = echoDaemon((channel) => {
       channel.on("tile.get", async (_args, call) => {
         // Bytes before a progress event are refused before they reach the wire.
@@ -1014,8 +1016,8 @@ describe("applet channels", () => {
         heads.push(`${t} ${args.bytes} ${stream !== undefined}`);
         void (async () => {
           for (let bytes = await stream!.read(); bytes !== null; bytes = await stream!.read()) {
-            // One read never hands over more than the stream's 16 KiB window.
-            expect(bytes.length).toBeLessThanOrEqual(16_384);
+            // One read never hands over more than the stream's window.
+            expect(bytes.length).toBeLessThanOrEqual(LINK2_APP_STREAM_WINDOW);
             chunks.push(bytes);
             received += bytes.length;
           }
@@ -1218,13 +1220,13 @@ describe("applet channels", () => {
     expect(guest.state().state).toBe("open");
     // An event of 600 bytes costs 2 units: with none granted it is not sent.
     expect(daemon.units).toBe(0);
-    // One frame: at most 4 messages. Their units come back in one CREDIT.
-    expect(guest.frame().messages).toBe(4);
-    await until(() => daemon.units === 4, "the regrant");
-    expect(seen).toEqual([0, 1, 2, 3]);
+    // One frame: at most 16 messages. Their units come back in one CREDIT.
+    expect(guest.frame().messages).toBe(LINK2_APP_FRAME_MESSAGES);
+    await until(() => daemon.units === LINK2_APP_FRAME_MESSAGES, "the regrant");
+    expect(seen).toEqual(Array.from({ length: LINK2_APP_FRAME_MESSAGES }, (_, i) => i));
     expect(daemon.emit("tick", { pad: "p".repeat(600) })).toBe(true);
-    expect(daemon.units).toBe(2);
-    await until(() => guest.channel!.waiting === LINK2_APP_EVENT_WINDOW - 4 + 1, "the 600-byte event at the device");
+    expect(daemon.units).toBe(LINK2_APP_FRAME_MESSAGES - 2);
+    await until(() => guest.channel!.waiting === LINK2_APP_EVENT_WINDOW - LINK2_APP_FRAME_MESSAGES + 1, "the 600-byte event at the device");
     for (let i = 0; i < 20; i++) guest.frame();
     await until(() => daemon.units === LINK2_APP_EVENT_WINDOW, "every unit back");
     expect(seen.length).toBe(LINK2_APP_EVENT_WINDOW + 1);
@@ -1344,7 +1346,8 @@ describe("applet channels", () => {
     const w = await world({ hub: { daemons: echo.factory }, device: { maxPayload: 8192 } });
     await w.link();
     const guest = w.device.openChannel(APP, HASH);
-    await until(() => guest.state().state === "open", "the channel");
+    // The daemon's units arrive in a CREDIT after the REPLY that opened the channel.
+    await until(() => guest.state().state === "open" && echo.channels[0]?.units === LINK2_APP_EVENT_WINDOW, "the channel and its units");
     const daemon = echo.channels[0];
     const stream = daemon.emitStream("nobody.listens")!;
     stream.write(pattern(64));

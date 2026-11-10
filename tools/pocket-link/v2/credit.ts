@@ -69,10 +69,13 @@ export class AppletStreamWindow {
   read(bytes: number): void {
     this.wanted = Math.max(0, bytes);
   }
-  /** Bytes to grant now with a CREDIT frame; 0 when nothing is due. */
+  /** Bytes to grant now with a CREDIT frame; 0 when nothing is due. While a
+   *  read is pending the whole window is granted, not the read's size alone:
+   *  the bytes of the next reads are in flight while the guest takes this
+   *  one's. A stream nobody reads is granted nothing. */
   grant(): number {
-    const room = this.window - this.outstanding - this.held;
-    const due = Math.min(this.wanted - this.outstanding - this.held, room);
+    if (this.wanted <= 0) return 0;
+    const due = this.window - this.outstanding - this.held;
     if (due <= 0) return 0;
     this.outstanding += due;
     return due;

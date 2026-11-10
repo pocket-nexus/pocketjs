@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   LINK2_APP_EVENT_WINDOW,
+  LINK2_APP_FRAME_STREAM,
   LINK2_APP_STREAM_WINDOW,
   LINK2_ERROR,
   LINK2_FLAG,
@@ -508,8 +509,10 @@ function streams() {
   };
 }
 
-/** The response of 18,244 bytes of §7.8 as frames, with the device's grants
- *  following the guest's reads of 16 KiB, one read per frame. */
+/** The response of 18,244 bytes of §7.8 as frames. The guest reads 16 KiB a
+ *  frame (the per-frame hand-over); while its read is pending the device
+ *  grants the stream's whole window, so the first CREDIT covers the response
+ *  and the next ones return what each read took. */
 function appletResponse(total: number, request: number) {
   const window = new AppletStreamWindow();
   const credit = new SendCredit();
@@ -518,7 +521,7 @@ function appletResponse(total: number, request: number) {
   let taken = 0;
   let guard = 0;
   while (taken < total && guard++ < 1000) {
-    window.read(LINK2_APP_STREAM_WINDOW);
+    window.read(LINK2_APP_FRAME_STREAM);
     const grant = window.grant();
     if (grant > 0) {
       credit.grant(grant);
@@ -531,7 +534,7 @@ function appletResponse(total: number, request: number) {
       const frame = encodeData(request, new Uint8Array(n).fill(0x5a), sent === total);
       steps.push({ from: "hub", what: sent === total ? "DATA with END" : "DATA", header: hex(frame.subarray(0, 12)), fill: "5a", bytes: n });
     }
-    taken += window.take();
+    taken += window.take(LINK2_APP_FRAME_STREAM);
   }
   return { steps, taken };
 }

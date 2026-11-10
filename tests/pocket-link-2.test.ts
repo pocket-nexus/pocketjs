@@ -759,7 +759,7 @@ describe("applet channels (§7)", () => {
     expect(result.held[0]).toBe(0);
     expect(result.taken[1]).toBe(18_244);
   });
-  test("four streams read together: at most 64 KiB held, the first served changes each frame", () => {
+  test("four streams read together: at most four windows held, the first served changes each frame", () => {
     const result = run(Array.from({ length: 4 }, () => ({ total: 262_144, reads: true, handleAt: "head" as const })));
     expect(result.taken).toEqual([262_144, 262_144, 262_144, 262_144]);
     expect(result.peak).toBeLessThanOrEqual(4 * LINK2_APP_STREAM_WINDOW);
@@ -768,10 +768,13 @@ describe("applet channels (§7)", () => {
   });
   test("DATA past an applet stream's credit closes with flow", () => {
     const window = new AppletStreamWindow();
-    window.read(100);
-    expect(window.grant()).toBe(100);
+    // No read pending: nothing is granted.
     expect(window.grant()).toBe(0);
-    expect(() => window.received(101)).toThrow(LinkCloseError);
+    // A read of any size opens the whole window (the next reads' bytes are in flight meanwhile).
+    window.read(100);
+    expect(window.grant()).toBe(LINK2_APP_STREAM_WINDOW);
+    expect(window.grant()).toBe(0);
+    expect(() => window.received(LINK2_APP_STREAM_WINDOW + 1)).toThrow(LinkCloseError);
   });
 
   test("the event window: units of 512 bytes, 48 from the device, 256 from Hub", () => {

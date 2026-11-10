@@ -81,7 +81,7 @@
   ],
   "response": {
     "bytes": 18244,
-    "window": 16384,
+    "window": 32768,
     "steps": [
       {
         "from": "device",
@@ -96,7 +96,7 @@
       {
         "from": "device",
         "what": "CREDIT after the guest's read",
-        "hex": "21000000040000000900000000400000"
+        "hex": "21000000040000000900000000800000"
       },
       {
         "from": "hub",

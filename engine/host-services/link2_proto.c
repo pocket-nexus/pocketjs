@@ -914,10 +914,11 @@ bool link2_credit_received(uint32_t *outstanding, uint32_t bytes) {
 
 uint32_t link2_app_window_grant(Link2AppWindow *window) {
   uint32_t occupied = window->outstanding + window->held;
-  if (occupied >= window->window || window->wanted <= occupied) return 0;
-  uint32_t room = window->window - occupied;
-  uint32_t due = window->wanted - occupied;
-  if (due > room) due = room;
+  /* While a read is pending the whole window is granted, not the read's
+   * size alone: the bytes of the next reads are in flight while the guest
+   * takes this one's. A stream nobody reads is granted nothing. */
+  if (window->wanted == 0 || occupied >= window->window) return 0;
+  uint32_t due = window->window - occupied;
   window->outstanding += due;
   return due;
 }

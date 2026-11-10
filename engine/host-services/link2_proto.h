@@ -121,7 +121,7 @@ const char *link2_close_name(uint32_t code);
 #define LINK2_MAX_CREDIT (16u * 1024u * 1024u)
 #define LINK2_WINDOW_BULK (64u * 1024u)
 #define LINK2_WINDOW_HTTP (8u * 1024u)
-#define LINK2_APP_STREAM_WINDOW (16u * 1024u)
+#define LINK2_APP_STREAM_WINDOW (32u * 1024u)
 #define LINK2_APP_EVENT_UNIT 512u
 #define LINK2_APP_EVENT_WINDOW 48u
 
@@ -160,10 +160,10 @@ const char *link2_close_name(uint32_t code);
 #define LINK2_APP_CHANNEL_PREFIX 4u
 #define LINK2_APP_NAME_BYTES 64u
 #define LINK2_APP_WAITING_REQUESTS 8192u
-#define LINK2_APP_FRAME_MESSAGES 4u
+#define LINK2_APP_FRAME_MESSAGES 16u
 #define LINK2_APP_FRAME_JSON 8192u
 #define LINK2_APP_FRAME_STREAM (16u * 1024u)
-#define LINK2_APP_OUTBOUND (16u * 1024u)
+#define LINK2_APP_OUTBOUND (64u * 1024u)
 
 #define LINK2_TX_RESERVE 64u
 #define LINK2_HUB_REQUESTS 8u

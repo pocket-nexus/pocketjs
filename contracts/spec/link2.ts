@@ -241,8 +241,12 @@ export const LINK2_WINDOW = {
   hub: 256 * 1024,
 } as const;
 /** Each inbound stream of an applet channel, at the device: granted and not
- *  yet received plus held for the guest. */
-export const LINK2_APP_STREAM_WINDOW = 16 * 1024;
+ *  yet received plus held for the guest. Granted whole while a read is
+ *  pending, so the bytes of the next reads are in flight while the guest takes
+ *  this one's: measured on a New 3DS XL, 32 KiB carries the stream at the
+ *  carrier's speed and 16 KiB granted per read at under a third of it
+ *  (docs/POCKET-LINK.md §13). */
+export const LINK2_APP_STREAM_WINDOW = 32 * 1024;
 /** An applet event costs one unit per started LINK2_APP_EVENT_UNIT bytes of JSON. */
 export const LINK2_APP_EVENT_UNIT = 512;
 export const LINK2_APP_EVENT_WINDOW = 48;
@@ -384,11 +388,12 @@ export const LINK2_APP_ERROR_CODE_BYTES = 32;
 /** Daemon requests not yet handed to the guest, per channel, as JSON bytes. */
 export const LINK2_APP_WAITING_REQUESTS = 8192;
 /** Per frame toward the guest: messages, JSON bytes and stream bytes (§7.3). */
-export const LINK2_APP_FRAME_MESSAGES = 4;
+export const LINK2_APP_FRAME_MESSAGES = 16;
 export const LINK2_APP_FRAME_JSON = 8192;
 export const LINK2_APP_FRAME_STREAM = 16 * 1024;
-/** Bytes and messages queued from the guest toward the wire, per channel. */
-export const LINK2_APP_OUTBOUND = 16 * 1024;
+/** Bytes queued from the guest toward the wire, per channel: 16 KiB for each
+ *  of its 4 outbound streams. */
+export const LINK2_APP_OUTBOUND = 64 * 1024;
 
 export interface Link2ChannelOpen { t: "channel.open"; app: string; hash: string }
 export interface Link2ChannelOpenReply { generation: number }
