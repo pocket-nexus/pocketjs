@@ -306,10 +306,10 @@ describe("admission", () => {
     expect(w.carriers.length).toBeGreaterThan(attempts);
   });
 
-  test("a setup whose final readback fails is reported as failed and keeps its candidate; the first ready confirms it", async () => {
+  test("a setup whose final readback fails is reported as failed and keeps the key it wrote; the first ready confirms it", async () => {
     const w = await world();
     await w.link();
-    const first = w.store.get(w.device.id)?.keys[0] as string;
+    const first = w.store.get(w.device.id)?.key as string;
     // The device forgot this Hub; a new setup mints a key, and its final readback fails.
     rmSync(join(w.dir, "companions", `${w.hub.id}.txt`));
     const real = directoryStorage(w.dir);
@@ -321,21 +321,21 @@ describe("admission", () => {
     expect(setup.outcome).toBe("key");
     expect(setup.failed).toBe(true);
     expect(w.hub.unconfirmed.has(w.device.id)).toBe(true);
-    // The file was absent, so the old key was discarded before the new one was minted: the candidate stays alone.
-    const candidate = w.store.get(w.device.id)?.keys as string[];
-    expect(candidate).toHaveLength(1);
-    expect(candidate[0]).not.toBe(first);
+    // The file was absent, so the old key opened nothing: the minted key replaced it before the first write.
+    const minted = w.store.get(w.device.id)?.key as string;
+    expect(minted).toMatch(/^[0-9a-f]{64}$/);
+    expect(minted).not.toBe(first);
     w.device.reload();
     await w.advance(1000);
     await w.link();
-    expect(w.store.get(w.device.id)?.keys).toEqual(candidate);
+    expect(w.store.get(w.device.id)?.key).toBe(minted);
     expect(w.hub.unconfirmed.has(w.device.id)).toBe(false);
   });
 
   test("a write cut before the key file is replaced: the old key file stays whole beside a .new, the device answers CLOSE auth, and the next setup repairs it", async () => {
     const w = await world();
     await w.link();
-    const cardKey = w.store.get(w.device.id)?.keys[0] as string;
+    const cardKey = w.store.get(w.device.id)?.key as string;
     // Hub lost its record; the card still holds the key of the old pairing.
     w.hub.forget(w.device.id);
     await until(() => w.device.status.phase === "backoff", "the forgotten close");
@@ -349,52 +349,23 @@ describe("admission", () => {
     // The card: the old key file whole, and a whole `.new` that the device never loads.
     expect(readFileSync(join(w.dir, "companions", `${w.hub.id}.txt`), "utf8")).toContain(`key=${cardKey}`);
     expect(existsSync(join(w.dir, "companions", `${w.hub.id}.new`))).toBe(true);
-    const candidate = w.store.get(w.device.id)?.keys as string[];
-    expect(candidate).toHaveLength(1);
-    expect(candidate[0]).not.toBe(cardKey);
+    const minted = w.store.get(w.device.id)?.key as string;
+    expect(minted).not.toBe(cardKey);
     w.device.reload();
     expect(w.device.paired).toHaveLength(1);
-    // Hub proves with its candidate, which the card does not hold: the device answers CLOSE auth and holds Hub 30 s.
+    // Hub proves with the key it minted, which the card does not hold: the device answers CLOSE auth and holds Hub 30 s.
     await w.advance(1000);
     w.device.connectTo(w.hub.id, "127.0.0.1", w.hub.port);
     await until(() => w.device.status.closes.includes("auth"), "the device's CLOSE auth");
-    // A later setup reads the file, discards the candidate it does not hold, removes the `.new` and writes again.
+    // A later setup reads the file, finds another key than the record's, removes the `.new` and writes again.
     const fixed = await w.hub.setup(real, { kind: "card", addresses: ["127.0.0.1"] });
     expect(fixed.failed).toBe(false);
     expect(existsSync(join(w.dir, "companions", `${w.hub.id}.new`))).toBe(false);
-    expect(w.store.get(w.device.id)?.keys).toHaveLength(1);
+    expect(w.store.get(w.device.id)?.key).not.toBe(minted);
     w.device.reload();
     await w.advance(LINK2_REFUSED_HOLD_MS + 1000);
     if (w.device.status.phase !== "linked") await w.link();
     expect(w.device.status.phase).toBe("linked");
-  });
-
-  test("a record with two keys: Hub proves with the newer, then with the other after CLOSE auth, and keeps the one that reaches ready", async () => {
-    const w = await world();
-    await w.link();
-    const cardKey = w.store.get(w.device.id)?.keys[0] as string;
-    w.linked().peer.close("going_away");
-    await until(() => w.device.status.phase === "backoff", "the close");
-    // A setup that could not write: the record holds its candidate. The old key is put back beside it, as a
-    // record imported from outside the procedure would hold two.
-    const real = directoryStorage(w.dir);
-    const cut: SetupStorage = { ...real, write: async () => Promise.reject(new Error("the transfer was cut")) };
-    rmSync(join(w.dir, "companions", `${w.hub.id}.txt`));
-    const setup = await w.hub.setup(cut, { kind: "card", addresses: ["127.0.0.1"] });
-    expect(setup.failed).toBe(true);
-    const candidate = w.store.get(w.device.id)?.keys[0] as string;
-    // Put the old key file back as the card still held it, and both keys in Hub's record.
-    writeFileSync(join(w.dir, "companions", `${w.hub.id}.txt`), `key=${cardKey}\nname=Studio Mac\naddress=127.0.0.1\nport=${w.hub.port}\n`);
-    const record = { ...w.store.get(w.device.id)!, keys: [candidate, cardKey] };
-    w.hub.forget(w.device.id);
-    w.store.put(record);
-    w.device.reload();
-    await w.advance(1000);
-    w.device.connectTo(w.hub.id, "127.0.0.1", w.hub.port);
-    await until(() => w.device.status.closes.includes("auth"), "CLOSE auth for the newer candidate");
-    await w.advance(LINK2_REFUSED_HOLD_MS + 1000);
-    if (w.device.status.phase !== "linked") await w.link();
-    expect(w.store.get(w.device.id)?.keys).toEqual([cardKey]);
   });
 
   test("replacements: a live older connection is counted, and the third within 30 s is answered refused busy", async () => {

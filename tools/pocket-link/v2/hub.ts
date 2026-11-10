@@ -1,7 +1,7 @@
 // Pocket Link 2, a minimal Hub side in TypeScript (docs/POCKET-LINK.md): the
 // reference peer for the device's C client and the endpoint that drives a
 // real device from this repository's tools. Listener and beacon sender (§2),
-// the handshake against a store of device records with candidate keys (§3),
+// the handshake against a store of device records (§3),
 // the counted replacement (§2.4), the setup that writes a pairing (§3.2),
 // runtime operations as methods under a device mutex (§6.2, §8.3), DevTools
 // lines and eval (§6.3), the catalog snapshot and install (§6.4), `net.http`
@@ -57,7 +57,7 @@ import {
 } from "../../../contracts/spec/link2.ts";
 import { type Carrier, tcpCarrier } from "./carrier.ts";
 import { CatalogPager, RuntimeAppsAssembler } from "./paging.ts";
-import { CandidateKeys, type DirectoryEntry, type ReadOutcome, type SetupPlan, type StorageOp, parseDeviceFile, planSetup, settleSetup } from "./pairing.ts";
+import { type DirectoryEntry, type ReadOutcome, type SetupPlan, type StorageOp, parseDeviceFile, planSetup, settleSetup } from "./pairing.ts";
 import { type AppletChannel, type CloseInfo, HUB_CHANNEL, type IncomingCall, type Json, LinkError, Peer, type StreamReader, type StreamWriter } from "./peer.ts";
 import {
   Link2FrameDecoder,
@@ -93,8 +93,8 @@ export interface DeviceRecord {
   id: string;
   name: string;
   model: string;
-  /** The link key; two while a setup is unconfirmed, the newer first (§3.2). */
-  keys: string[];
+  /** The link key, 64 lowercase hex digits; "" before a setup stored one (§3.2). */
+  key: string;
   target: string;
   hostAbi: number;
   lastAddress: string;
@@ -118,7 +118,7 @@ export class MemoryStore implements HubStore {
     return this.devices.get(device);
   }
   put(record: DeviceRecord) {
-    this.devices.set(record.id, { ...record, keys: [...record.keys] });
+    this.devices.set(record.id, { ...record });
   }
   remove(device: string) {
     this.devices.delete(device);
@@ -143,7 +143,7 @@ export class FileStore implements HubStore {
     return this.state.devices.find((record) => record.id === device);
   }
   put(record: DeviceRecord) {
-    this.state.devices = [...this.state.devices.filter((other) => other.id !== record.id), { ...record, keys: [...record.keys] }];
+    this.state.devices = [...this.state.devices.filter((other) => other.id !== record.id), { ...record }];
     this.save();
   }
   remove(device: string) {
@@ -711,7 +711,6 @@ export class LinkHub {
   private timer: ReturnType<typeof setInterval> | null = null;
   private beaconAt = Number.NEGATIVE_INFINITY;
   private readonly pending = new Set<Pending>();
-  private readonly candidates = new Map<string, CandidateKeys>();
   private readonly replaced: { device: HubDevice; at: number }[] = [];
   private readonly counted = new Map<string, number[]>();
   private readonly mutex = new Map<string, { holder: string; until: number | null }>();
@@ -798,7 +797,6 @@ export class LinkHub {
   /** The owner forgets a device: the record goes, and its link closes with `forgotten`. */
   forget(device: string): void {
     this.store.remove(device);
-    this.candidates.delete(device);
     this.devices.get(device)?.peer.close("forgotten");
   }
 
@@ -827,9 +825,8 @@ export class LinkHub {
 
   /**
    * One procedure against the device's storage, over ftpd or on the mounted
-   * card. The candidate key is stored in Hub's record before anything is
-   * written; a setup without a matching final readback is reported as failed
-   * and leaves two candidates for the first `ready` to settle.
+   * card. A minted key is stored in Hub's record before anything is
+   * written; a setup without a matching final readback is reported as failed.
    */
   async setup(storage: SetupStorage, via: { kind: "ftp"; localAddress: string } | { kind: "card"; addresses: string[] }, port: number = this.port || LINK2_PORT): Promise<SetupResult> {
     const own = this.id + LINK2_KEY_SUFFIX;
@@ -852,7 +849,7 @@ export class LinkHub {
     const record = known !== null ? this.store.get(known) : undefined;
     const plan = planSetup({
       hubId: this.id,
-      keys: record?.keys ?? [],
+      key: record?.key || null,
       hub: { name: this.options.name, port },
       via,
       device,
@@ -866,13 +863,12 @@ export class LinkHub {
       return { outcome: plan.outcome, failed: true, failedAt: null, deviceId: plan.deviceId, message: plan.message };
     }
     const id = plan.deviceId;
-    const save = (keys: string[]) => {
+    const save = (key: string | null) => {
       const before = this.store.get(id);
-      this.store.put({ id, name: before?.name ?? "", model: before?.model ?? "", keys, target: before?.target ?? "", hostAbi: before?.hostAbi ?? 0, lastAddress: before?.lastAddress ?? "", lastSeen: before?.lastSeen ?? 0 });
-      this.candidates.set(id, new CandidateKeys([...keys]));
+      this.store.put({ id, name: before?.name ?? "", model: before?.model ?? "", key: key ?? "", target: before?.target ?? "", hostAbi: before?.hostAbi ?? 0, lastAddress: before?.lastAddress ?? "", lastSeen: before?.lastSeen ?? 0 });
     };
-    // The candidate is in the record before the first write.
-    save(plan.keys);
+    // The minted key is the record's key before the first write.
+    save(plan.key);
     let completed = 0;
     for (const op of plan.ops) {
       try {
@@ -889,7 +885,6 @@ export class LinkHub {
       completed += 1;
     }
     const settled = settleSetup(plan, completed);
-    save(settled.keys);
     if (settled.failed) this.unconfirmed.add(id);
     else this.unconfirmed.delete(id);
     return { outcome: plan.outcome, failed: settled.failed, failedAt: settled.failedAt, deviceId: id, message: settled.failed ? `the setup failed at ${settled.failedAt?.op ?? "a read"}` : plan.message };
@@ -946,8 +941,6 @@ export class LinkHub {
     for (let index = 0; index < frames.length; index++) {
       const frame = frames[index];
       if (frame.type === LINK2_FRAME.close) {
-        // The device's own CLOSE `auth`: with two candidates, Hub proves with the other one next (§3.2).
-        if (pending.hello !== null && parseClose(frame).code === "auth") this.candidates.get(pending.hello.device)?.closedAuth();
         return this.drop(pending);
       }
       if (frame.type !== LINK2_FRAME.handshake) continue;
@@ -965,13 +958,8 @@ export class LinkHub {
           return this.refuse(pending, "busy", "two consoles use this device id");
         }
         const record = this.store.get(hello.device);
-        let keys = this.candidates.get(hello.device);
-        if (keys === undefined && record !== undefined) {
-          keys = new CandidateKeys([...record.keys]);
-          this.candidates.set(hello.device, keys);
-        }
-        const key = keys?.toProve() ?? null;
-        if (hello.companion !== this.id || record === undefined || key === null) return this.refuse(pending, "unknown_device", "this computer has to set the device up");
+        const key = record?.key ?? "";
+        if (hello.companion !== this.id || record === undefined || key === "") return this.refuse(pending, "unknown_device", "this computer has to set the device up");
         pending.hello = hello;
         pending.nonce = newNonce();
         pending.key = key;
@@ -992,13 +980,8 @@ export class LinkHub {
     const { carrier } = pending;
     pending.done = true;
     this.pending.delete(pending);
-    // The first `ready` settles the candidates: the key that passed is the record's key.
-    const keys = this.candidates.get(hello.device) ?? new CandidateKeys([pending.key]);
-    keys.keys = [pending.key];
-    keys.ready();
-    this.candidates.set(hello.device, keys);
     this.unconfirmed.delete(hello.device);
-    this.store.put({ id: hello.device, name: hello.name, model: hello.model, keys: [pending.key], target: hello.target, hostAbi: hello.hostAbi, lastAddress: carrier.remoteAddress, lastSeen: this.now() });
+    this.store.put({ id: hello.device, name: hello.name, model: hello.model, key: pending.key, target: hello.target, hostAbi: hello.hostAbi, lastAddress: carrier.remoteAddress, lastSeen: this.now() });
     const wall = Date.now();
     const offer = this.options.maxPayload ?? carrier.maxPayload;
     carrier.write(encodeHandshake({ t: "ready", name: this.options.name, features: this.features, maxPayload: offer, clock: { utc: wall, local: wall - new Date(wall).getTimezoneOffset() * 60_000 } }));

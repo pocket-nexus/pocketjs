@@ -269,8 +269,8 @@ function handshakeRefusals() {
       wrong("hostAbi as a string", { hostAbi: "12" }),
     ],
     unknownDevice: [
-      { name: "Hub holds no key for the device", hello: base, hubId: FIXED.hub, keys: [], refused: "unknown_device" },
-      { name: "companion names another Hub", hello: { ...base, companion: FIXED.otherHub }, hubId: FIXED.hub, keys: [FIXED.key], refused: "unknown_device" },
+      { name: "Hub holds no key for the device", hello: base, hubId: FIXED.hub, key: null, refused: "unknown_device" },
+      { name: "companion names another Hub", hello: { ...base, companion: FIXED.otherHub }, hubId: FIXED.hub, key: FIXED.key, refused: "unknown_device" },
     ],
     badProof: {
       auth: { t: "auth", proof: consoleProof(FIXED.otherKey, FIXED.deviceNonce, FIXED.hubNonce, FIXED.device, FIXED.hub) },
@@ -283,16 +283,6 @@ function handshakeRefusals() {
       holdMs: 30_000,
     },
     readyOutOfRange: { json: { ...ready(512) }, close: "protocol" },
-    twoCandidates: {
-      keys: [FIXED.otherKey, FIXED.key],
-      // Hub proves with the newer first; after the device's CLOSE auth, with the other; the one that reaches ready stays.
-      steps: [
-        { event: "connect", proves: FIXED.otherKey },
-        { event: "close-auth" },
-        { event: "connect", proves: FIXED.key },
-        { event: "ready", keeps: [FIXED.key] },
-      ],
-    },
     dataBeforeReady: { hex: hex(encodeRawFrame(LINK2_FRAME.data, 0, 0, 5, new Uint8Array(1))), close: "protocol" },
   };
 }
@@ -307,7 +297,7 @@ function pairingFiles() {
     let keys = 0;
     const input: SetupInput = {
       hubId: FIXED.hub,
-      keys: [],
+      key: null,
       hub: { name: "Studio Mac", port: 8628 },
       via: { kind: "ftp", localAddress: "192.168.1.5" },
       device: { kind: "file", text: formatDeviceFile(FIXED.device) },
@@ -378,33 +368,23 @@ function pairingFiles() {
       setup("a card with device.txt and no key file", {}, { outcome: "key", deviceId: FIXED.device }),
       setup(
         "the key file's key is the record's and the address is the FTP connection's: nothing written",
-        { keys: [FIXED.key], listing: [ownFile], companion: { kind: "file", text: keyText } },
+        { key: FIXED.key, listing: [ownFile], companion: { kind: "file", text: keyText } },
         { outcome: "kept", ops: 0 },
       ),
       setup(
         "the key matches and the device would use another address: .last rewritten, the key file untouched",
-        { keys: [FIXED.key], listing: [ownFile], companion: { kind: "file", text: keyText }, via: { kind: "ftp", localAddress: "192.168.7.7" } },
+        { key: FIXED.key, listing: [ownFile], companion: { kind: "file", text: keyText }, via: { kind: "ftp", localAddress: "192.168.7.7" } },
         { outcome: "address" },
       ),
       setup(
         "on a mounted card an address that is one of Hub's own is left alone",
-        { keys: [FIXED.key], listing: [ownFile], companion: { kind: "file", text: keyText }, via: { kind: "card", addresses: ["10.0.0.5", "192.168.1.5"] } },
+        { key: FIXED.key, listing: [ownFile], companion: { kind: "file", text: keyText }, via: { kind: "card", addresses: ["10.0.0.5", "192.168.1.5"] } },
         { outcome: "kept", ops: 0 },
       ),
       setup(
-        "the key file's key is not the record's: a new key, the old candidate discarded",
-        { keys: ["bb".repeat(32)], listing: [ownFile], companion: { kind: "file", text: keyText } },
-        { outcome: "key", keys: [FIXED.otherKey] },
-      ),
-      setup(
-        "a file that holds neither candidate: both discarded before a key is minted",
-        { keys: ["bb".repeat(32), "cc".repeat(32)], listing: [ownFile], companion: { kind: "file", text: keyText } },
-        { outcome: "key", keys: [FIXED.otherKey] },
-      ),
-      setup(
-        "the file holds one of two candidates: that one is kept and nothing is minted",
-        { keys: ["bb".repeat(32), FIXED.key], listing: [ownFile], companion: { kind: "file", text: keyText } },
-        { outcome: "kept", keys: [FIXED.key] },
+        "the key file's key is not the record's: a new key replaces the record's before the first write",
+        { key: "bb".repeat(32), listing: [ownFile], companion: { kind: "file", text: keyText } },
+        { outcome: "key", key: FIXED.otherKey },
       ),
       setup(
         "eight files of other Hubs: nothing written",
@@ -417,12 +397,12 @@ function pairingFiles() {
         { outcome: "key" },
       ),
       setup("a leftover .new of this Hub is removed first", { listing: [{ name: `${FIXED.hub}.new`, text: "key=" }] }, { outcome: "key", firstOp: "delete" }),
-      setup("the read of the key file failed: the setup ends and the record stays", { keys: [FIXED.key], companion: { kind: "failed" } }, { outcome: "failed-read", keys: [FIXED.key], ops: 0 }),
+      setup("the read of the key file failed: the setup ends and the record stays", { key: FIXED.key, companion: { kind: "failed" } }, { outcome: "failed-read", key: FIXED.key, ops: 0 }),
     ],
     // What the card holds after a cut that let N operations of the second setup above through.
     powerCut: {
       before: { "device.txt": formatDeviceFile(FIXED.device), [`companions/${FIXED.hub}.txt`]: keyText, [`companions/${FIXED.hub}.last`]: lastText },
-      keys: ["bb".repeat(32)],
+      key: "bb".repeat(32),
       cuts: [
         { completed: 0, holds: ["device.txt", `companions/${FIXED.hub}.last`, `companions/${FIXED.hub}.txt`], pairing: "unchanged" },
         { completed: 3, holds: ["device.txt", `companions/${FIXED.hub}.new`, `companions/${FIXED.hub}.txt`], pairing: "unchanged, no .last" },

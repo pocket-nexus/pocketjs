@@ -138,36 +138,6 @@ export function lastFileUpdate(current: LoadedCompanion, ready: LastFile): strin
 }
 
 // ---------------------------------------------------------------------------
-// Hub: candidate keys
-// ---------------------------------------------------------------------------
-
-/** The keys Hub holds for one device: one, or two while a setup is
- *  unconfirmed (§3.2). `keys[0]` is the newer. */
-export class CandidateKeys {
-  private next = 0;
-  constructor(public keys: string[] = []) {}
-
-  /** The key Hub proves with at this connection, or null: `unknown_device`. */
-  toProve(): string | null {
-    return this.keys.length === 0 ? null : this.keys[this.next % this.keys.length];
-  }
-  /** The device answered CLOSE `auth`: with two candidates, the other one is
-   *  next; a single key stays. */
-  closedAuth(): void {
-    if (this.keys.length > 1) this.next = (this.next + 1) % this.keys.length;
-  }
-  /** The first `ready` settles it: the key that passed stays alone. */
-  ready(): void {
-    const passed = this.toProve();
-    if (passed !== null) this.keys = [passed];
-    this.next = 0;
-  }
-  get unconfirmed(): boolean {
-    return this.keys.length > 1;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Hub: the setup (§3.2)
 // ---------------------------------------------------------------------------
 
@@ -176,8 +146,8 @@ export type ReadOutcome = { kind: "failed" } | { kind: "absent" } | { kind: "fil
 
 export interface SetupInput {
   hubId: string;
-  /** Hub's keys for this device before the setup, the newer first. */
-  keys: readonly string[];
+  /** Hub's key for this device before the setup, or null. */
+  key: string | null;
   hub: { name: string; port: number };
   /** Over ftpd: the FTP connection's local address. On a mounted card: every
    *  current interface address of Hub, the one to write first. */
@@ -207,10 +177,11 @@ export interface SetupPlan {
   deviceId: string | null;
   /** In order; the caller stops at the first that fails and reports the setup as failed. */
   ops: StorageOp[];
-  /** Hub's keys once the plan is stored, before any write: the candidate first. */
-  keys: string[];
-  /** The key the final readback confirms, when the plan writes one. */
-  candidate: string | null;
+  /** Hub's key for the device once the plan is stored, before any write:
+   *  the minted key when the plan writes one. */
+  key: string | null;
+  /** The key this plan mints and its final readback confirms, or null. */
+  minted: string | null;
   message: string;
 }
 
@@ -218,10 +189,12 @@ const companionPath = (hubId: string, suffix: string) => `${LINK2_COMPANIONS_DIR
 
 /** Hub's procedure against the device's storage as a plan. The record is
  *  touched only after completed reads: a failed read ends the setup with the
- *  keys as they were. */
+ *  key as it was. A key is minted only when the card holds no key file with
+ *  the record's key, so the key it replaces opens nothing; the minted key is
+ *  the record's key before the first write. */
 export function planSetup(input: SetupInput): SetupPlan {
-  const keep = [...input.keys];
-  const failed = (message: string): SetupPlan => ({ outcome: "failed-read", deviceId: null, ops: [], keys: keep, candidate: null, message });
+  const keep = input.key;
+  const failed = (message: string): SetupPlan => ({ outcome: "failed-read", deviceId: null, ops: [], key: keep, minted: null, message });
   if (input.device.kind === "failed") return failed("device.txt could not be read");
   if (input.companion.kind === "failed") return failed("the key file could not be read");
   if (input.last.kind === "failed") return failed("the last-address file could not be read");
@@ -241,8 +214,8 @@ export function planSetup(input: SetupInput): SetupPlan {
       outcome: "eight-computers",
       deviceId,
       ops: [],
-      keys: keep,
-      candidate: null,
+      key: keep,
+      minted: null,
       message: "the device already holds 8 computers: remove one on the device, or delete one of its files",
     };
   }
@@ -251,27 +224,26 @@ export function planSetup(input: SetupInput): SetupPlan {
   }
 
   const onCard = input.companion.kind === "file" ? parseCompanionFile(input.companion.text) : null;
-  // After a completed read Hub discards every candidate the file does not hold.
-  const held = onCard !== null && keep.includes(onCard.key) ? [onCard.key] : [];
+  const held = onCard !== null && keep !== null && onCard.key === keep;
   const address = input.via.kind === "ftp" ? input.via.localAddress : (input.via.addresses[0] ?? "");
 
-  if (onCard !== null && held.length === 1) {
+  if (onCard !== null && held) {
     const last = input.last.kind === "file" ? parseLastFile(input.last.text) : null;
     const used = last ?? { name: onCard.name, address: onCard.address, port: onCard.port };
     const own = input.via.kind === "ftp" ? used.address === input.via.localAddress : input.via.addresses.includes(used.address);
     if (own && used.port === input.hub.port) {
-      return { outcome: "kept", deviceId, ops, keys: held, candidate: null, message: "the pairing is in place" };
+      return { outcome: "kept", deviceId, ops, key: keep, minted: null, message: "the pairing is in place" };
     }
     const text = formatLastFile({ name: input.hub.name, address, port: input.hub.port });
     const temporary = companionPath(input.hubId, `${LINK2_LAST_SUFFIX}.tmp`);
     ops.push({ op: "write", path: temporary, text });
     ops.push({ op: "rename", from: temporary, to: companionPath(input.hubId, LINK2_LAST_SUFFIX) });
     ops.push({ op: "readback", path: companionPath(input.hubId, LINK2_LAST_SUFFIX), text });
-    return { outcome: "address", deviceId, ops, keys: held, candidate: null, message: "the last address was rewritten; the key file is untouched" };
+    return { outcome: "address", deviceId, ops, key: keep, minted: null, message: "the last address was rewritten; the key file is untouched" };
   }
 
-  const candidate = input.mintKey();
-  const text = formatCompanionFile({ key: candidate, name: input.hub.name, address, port: input.hub.port });
+  const minted = input.mintKey();
+  const text = formatCompanionFile({ key: minted, name: input.hub.name, address, port: input.hub.port });
   const fresh = companionPath(input.hubId, LINK2_NEW_SUFFIX);
   const final = companionPath(input.hubId, LINK2_KEY_SUFFIX);
   ops.push({ op: "write", path: fresh, text });
@@ -281,18 +253,17 @@ export function planSetup(input: SetupInput): SetupPlan {
   ops.push({ op: "rename", from: fresh, to: final });
   ops.push({ op: "readback", path: final, text });
   ops.push({ op: "readback", path: LINK2_DEVICE_FILE, text: formatDeviceFile(deviceId) });
-  return { outcome: "key", deviceId, ops, keys: [candidate, ...held], candidate, message: "a new key is written" };
+  return { outcome: "key", deviceId, ops, key: minted, minted, message: "a new key is written" };
 }
 
-/** Hub's keys after the plan's operations ran. `completed` is how many of
- *  `plan.ops` succeeded. A plan that wrote a key and whose every operation
- *  succeeded settles on the candidate; any other end keeps both candidates
- *  and is reported as failed ("setup not confirmed"). */
-export function settleSetup(plan: SetupPlan, completed: number): { keys: string[]; failed: boolean; failedAt: StorageOp | null } {
-  const done = completed >= plan.ops.length;
-  if (plan.outcome === "failed-read" || plan.outcome === "eight-computers") return { keys: plan.keys, failed: true, failedAt: null };
-  if (done) return { keys: plan.candidate !== null ? [plan.candidate] : plan.keys, failed: false, failedAt: null };
-  return { keys: plan.keys, failed: true, failedAt: plan.ops[completed] };
+/** How a plan ended. `completed` is how many of `plan.ops` succeeded. A plan
+ *  whose every operation succeeded is done; any other end is reported as
+ *  failed ("setup not confirmed"). The record's key is `plan.key` either way:
+ *  after a cut the card holds the minted key or no key Hub knows. */
+export function settleSetup(plan: SetupPlan, completed: number): { key: string | null; failed: boolean; failedAt: StorageOp | null } {
+  if (plan.outcome === "failed-read" || plan.outcome === "eight-computers") return { key: plan.key, failed: true, failedAt: null };
+  if (completed >= plan.ops.length) return { key: plan.key, failed: false, failedAt: null };
+  return { key: plan.key, failed: true, failedAt: plan.ops[completed] };
 }
 
 /** What the card holds after a cut that let `completed` operations of a

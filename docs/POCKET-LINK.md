@@ -320,16 +320,13 @@ as the SD card mounted in the computer's reader**:
    - **The read failed** (the FTP data connection dropped, the transfer
      timed out, the card reported an I/O error): **the setup ends here,
      reported as failed, and Hub's record stays as it was.** A failed read
-     says nothing about the file, so no candidate is discarded for it.
+     says nothing about the file, so the record's key is not replaced for it.
    - **The storage answered that the file is absent** (ftpd's reply to a
      missing file, "no such file" from the mounted card), or the file was
-     read whole and holds no valid `key=` line: the file holds no
-     candidate.
+     read whole and holds no valid `key=` line: the file holds no key.
    - The file was read whole and holds a key.
 
-   **After a completed read Hub discards every candidate of its record that
-   the file does not hold**; a file that is absent or holds no candidate
-   leaves the record without a key. When the file's key is the record's key,
+   **A record holds one key.** When the file's key is the record's key,
    the key file is left alone: Hub compares the `address=` and `port=` the
    device would use (the `.last` file's when it exists and parses, else the
    key file's, §3.6) with its own. **Over ftpd, "its own" is the local
@@ -349,12 +346,13 @@ as the SD card mounted in the computer's reader**:
    most often on the network the computer uses, and a wrong guess costs the
    direct try alone until a beacon arrives. **An address change never
    rewrites the key file**, so it cannot cost the pairing.
-4. Otherwise Hub mints a key and **stores it in its record as a candidate
-   before it writes** (below). **The write goes to `companions/<hub id>.new`,
+4. Otherwise (the file is absent, holds no key, or holds another key than
+   the record's) Hub mints a key and **stores it as the record's key before
+   it writes**, in place of the key it had (below). **The write goes to `companions/<hub id>.new`,
    which Hub reads back and compares byte for byte; only after a match does
    it delete `companions/<hub id>.last`, then delete `<hub id>.txt` and
    rename `.new` to it**, then read `<hub id>.txt` and `device.txt` back
-   once more. A match makes the candidate the record's key. **The new key
+   once more. **The new key
    file carries Hub's current address, and `.last` goes before the key file
    is replaced** (§3.6): a cut after the rename then leaves no stale last
    address to shadow the new file. The device never loads a `.new` file (its
@@ -365,42 +363,26 @@ as the SD card mounted in the computer's reader**:
 failed**, with the step that failed, and Hub's device status shows the
 device as "setup not confirmed" until a `ready` or a later setup settles it.
 
-**A write whose outcome Hub cannot read back leaves two candidate keys.**
-What a power cut or a lost connection leaves on the card, by the step it
-falls in:
+**The key Hub replaces in step 4 opens nothing.** Step 4 runs only when the
+card holds no key file with the record's key, so the device cannot prove
+with the key Hub had, and replacing it before the write loses no pairing.
+**Storing the minted key first covers the write whose outcome Hub cannot
+read back**: when the write reached the card and the readback did not
+return, the device holds the key Hub's record holds, and the next connection
+reaches `ready`. What a power cut or a lost connection leaves on the card,
+by the step it falls in:
 
 | Cut during | The card holds | Result |
 | --- | --- | --- |
-| the write of `<hub id>.new` | the old key file whole (or none, at a first setup), and a partial `.new` | the pairing is unchanged; the next setup's step 2 removes the `.new` |
-| after `.last` is deleted, before the key file is | the old key file whole, a whole `.new`, no `.last` | the pairing is unchanged; the device's direct try uses the old key file's address until a beacon or a `ready` writes `.last` again; the next setup's step 2 removes the `.new` |
-| between the delete and the rename | no `<hub id>.txt`, no `.last`, and a whole `.new` | **no pairing with this Hub until the next setup**, whose step 2 removes the `.new` and whose step 4 writes again; this setup is reported as failed |
-| after the rename | the new key, no `.last` | the two candidates settle at the first `ready` (below) |
+| the write of `<hub id>.new` | the old key file whole (or none, at a first setup), and a partial `.new` | no pairing with this Hub, as before the setup (the old file's key was not the record's); the next setup's step 2 removes the `.new` and its step 4 writes again |
+| after `.last` is deleted, before the key file is | the old key file whole, a whole `.new`, no `.last` | the same; the device answers Hub's proof with `CLOSE` `auth` and holds Hub 30 s (§3.8) |
+| between the delete and the rename | no `<hub id>.txt`, no `.last`, and a whole `.new` | **no pairing with this Hub until the next setup**, whose step 2 removes the `.new` and whose step 4 writes again |
+| after the rename | the new key, no `.last` | the pairing is in place: the record holds that key, and the first `ready` clears "setup not confirmed" |
 
-**A setup of this procedure leaves its candidate alone in the record.**
-Step 3 has discarded every key the card did not hold before step 4 mints,
-and step 4 runs only when the card holds none of the record's keys, so the
-key Hub had is never one the device could still prove with. When the cut
-left the old key file on the card (the first two rows), the device answers
-`CLOSE` `auth` at each connection and holds Hub 30 s (§3.8) until the next
-setup, which reads the file, drops the candidate and writes again. **A
-record holds two keys only when one reached it outside this procedure** (a
-record imported from another store, a key rotation a later version may
-add); the three rules below settle that case and cost a one-key record
-nothing.
-
-- At a connection of that device Hub proves with **one** candidate, the
-  newer first.
-- **When the device answers `CLOSE` `auth`, Hub proves with the other
-  candidate at that device's next connection**, and alternates from there.
-  The device holds Hub for 30 s after its own `CLOSE` `auth` (§3.8), so the
-  second try comes 30 s after the first.
-- **The first `ready` settles it**: the key that passed is the record's key
-  and the other candidate is deleted. A later setup that reads the file
-  settles it as well: step 3 keeps the candidate the file holds and drops
-  the rest before anything is minted, so no rerun adds a third key.
-
-A record with a single key behaves as before: a `CLOSE` `auth` changes
-nothing in Hub.
+Every row but the last is reported as a failed setup, and the last is
+reported as failed when the final readback did not return. **A later setup
+needs no memory of the failed one**: step 3 reads the file, keeps the
+record's key when the file holds it, and mints again when it does not.
 
 - **There is no folder of files for the owner to copy.** A copy that merges
   folders can keep the card's `device.txt` and take the new companion file,
@@ -514,7 +496,7 @@ the key learns no proof it can replay.
 | Device | `companions/<companion id>.txt`, at most 8 | `key=` (64 hex), and the `name=`, `address=`, `port=` Hub knew when it wrote the file. **Written by Hub's setup alone; the device opens it for reading only** |
 | Device | `companions/<companion id>.last` | `name=`, `address=` (last IPv4), `port=`: what the last `ready` gave. **The device writes it only when a value changed**, to a temporary file that it renames over the old one. Its values replace the key file's when it exists and parses, which takes an IPv4 `address=` and a `port=` of 1 to 65535 (a missing `name=` reads as an empty name); a missing or damaged `.last` falls back to the key file's. **Hub's setup writes it with Hub's current name, address and port when the device would use an address that is none of Hub's own, or another port** (§3.2 step 3; over ftpd the test is the FTP connection's local address), and a new key file's write (§3.2 step 4) deletes it first |
 | Hub | its id | 8 random bytes as 16 lowercase hex digits, made once |
-| Hub | one record per paired device, in a file of mode **0600** | `id`, `name`, `model`, `key` (64 hex), a second candidate key while a setup is unconfirmed (§3.2), `target`, `hostAbi`, `lastAddress`, `lastSeen` |
+| Hub | one record per paired device, in a file of mode **0600** | `id`, `name`, `model`, `key` (64 hex), `target`, `hostAbi`, `lastAddress`, `lastSeen` |
 | Hub | one counter for the whole Hub, stored beside the records | `lastGeneration` (§7.4) |
 
 **No key appears in a log line, a status answer or the IPC.**
@@ -582,8 +564,7 @@ the preamble (§4.1). Version 1's `pairing_closed` has no use without a
 pairing window.
 
 When `challenge.proof` does not verify, the device sends `CLOSE` `auth` and
-closes: the Hub at that address does not hold this device's key, or holds
-two candidates and tried the other one (§3.2). **The device holds that Hub
+closes: the Hub at that address does not hold this device's key (§3.2). **The device holds that Hub
 for 30 s after its own `CLOSE` `auth`**, as after a refusal, so a key
 mismatch costs two connections a minute instead of one every 1 to 8 s.
 
@@ -2347,11 +2328,11 @@ accept any key order and whitespace, and tests compare parsed values.
 | File | Contents |
 | --- | --- |
 | `beacon.json` | beacons with a 40-byte name, a name cut inside a multi-byte character; refused datagrams: 63 and 65 bytes, wrong magic, version 1, port 0, an uppercase id; a beacon with flag bit 0 set, which a version-2 receiver accepts and whose flag it ignores |
-| `pairing-files.json` | a `device.txt` and a `companions/<hub id>.txt` as Hub writes them, byte for byte; files the device accepts (a missing final newline, fields in another order) and refuses (a 63-digit key, an uppercase id, a missing `key=`); Hub's decision for a card with and without `device.txt`, and for a companion file whose key matches and does not match its record, for a `companions/` folder that holds 8 files of other Hubs (nothing written), and for a write whose readback fails (two candidates kept, the setup reported as failed) (§3.2); a transfer cut before the rename, which leaves a `.new` and the old key file whole, and the next setup that removes the `.new`; a setup that finds a file holding neither candidate and discards both before it mints; a file whose key matches and whose address differs, rewritten with the `.last` deleted; a folder with 8 loadable key files and two files the device would not load, which does not count the two; a `.last` file, a damaged one that falls back to the key file, and nine key files of which the device reads eight and reports the error |
+| `pairing-files.json` | a `device.txt` and a `companions/<hub id>.txt` as Hub writes them, byte for byte; files the device accepts (a missing final newline, fields in another order) and refuses (a 63-digit key, an uppercase id, a missing `key=`); Hub's decision for a card with and without `device.txt`, and for a companion file whose key matches and does not match its record, for a `companions/` folder that holds 8 files of other Hubs (nothing written), and for a write whose readback fails (the minted key kept as the record's key, the setup reported as failed) (§3.2); a transfer cut before the rename, which leaves a `.new` and the old key file whole, and the next setup that removes the `.new`; a setup that finds a file holding neither candidate and discards both before it mints; a file whose key matches and whose address differs, rewritten with the `.last` deleted; a folder with 8 loadable key files and two files the device would not load, which does not count the two; a `.last` file, a damaged one that falls back to the key file, and nine key files of which the device reads eight and reports the error |
 | `preamble.json` | the device's preamble; Hub selecting 2; Hub answering a range 3–4 with `selected` 0; a version-1 console preamble and Hub's answer; a device with range 2–3 sending its preamble alone, Hub selecting 2, then the device's version-2 `hello`; the same device sending a version-3 `hello` without waiting, and the `CLOSE` `protocol` that version 2's frame checks give it |
 | `frames.json` | one encoding per frame type and flag, the `APP` frames with their channel id; refused headers: non-zero `reserved`, an undefined flag, `length` one over the negotiated limit (16,385 and 1,025), `REQUEST` with id 0, `DATA` of 0 bytes without `END`, `CREDIT` of 0, `PING` of 3 bytes, `REQUEST` with `BODY` and no `APP`, a `HANDSHAKE` after `ready` |
 | `handshake.json` | a full transcript from fixed ids, key and nonces: each frame's bytes, the two HMAC message strings and both proofs; `maxPayload` 16,384 and 1,024 offered and the limit each pair gives |
-| `handshake-refusals.json` | `unknown_device` (no key; another companion id), `bad_proof`, `malformed` (a `maxPayload` of 512 among them), `busy`; the device's `CLOSE` `auth` after a wrong `challenge.proof` and its 30 s hold; a `ready` with `maxPayload` 512 and the device's `CLOSE` `protocol`; Hub with two candidate keys proving with the newer, then with the other after a `CLOSE` `auth`, and keeping the one that reaches `ready`; a third replacement within 30 s of a connection that answered Hub's `PING`, and the `refused` `busy` that follows; three replacements of connections that answered nothing, after which the device still links; a frame of type `DATA` before `ready` |
+| `handshake-refusals.json` | `unknown_device` (no key; another companion id), `bad_proof`, `malformed` (a `maxPayload` of 512 among them), `busy`; the device's `CLOSE` `auth` after a wrong `challenge.proof` and its 30 s hold; a `ready` with `maxPayload` 512 and the device's `CLOSE` `protocol`; a third replacement within 30 s of a connection that answered Hub's `PING`, and the `refused` `busy` that follows; three replacements of connections that answered nothing, after which the device still links; a frame of type `DATA` before `ready` |
 | `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31 |
 | `streams.json` | a `runtime.push` of 100,000 bytes under 64 KiB credit with `END`; bytes past credit and the `CLOSE` `flow`; a grant over 16 MiB; `RESET` `refused` of an `agent.glyphs` stream; a stream short of its declared bytes; an event with an unknown `t` and a fresh id answered `RESET` `refused`; an event stream never granted and its sender's `RESET` `cancelled` at 30 s; a DevTools line held 30 s without credit, dropped with its eval failed and the stream kept |
 | `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY`; **a response of 18,244 bytes: the head event, `DATA` under the stream's 16 KiB window, a second grant after the guest's read, `END`, then the `REPLY`**; the same response completing while a `read` of 16 KiB stays pending on an idle event stream, which holds its own window and none of the response's; four streams read together with at most 64 KiB held; a request cancelled with its head event on the wire, the event discarded and its unit regranted; a progress event on an id of the receiver's range that names nothing held, ignored; `agent.glyphs` queued after a daemon request with a larger id and its stream still opened; a progress event named `log` and one named `features` read as progress; an event that opens a stream; a fifth stream refused with `RESET` `refused` and the request's `REPLY` after it; `CANCEL` answered `cancelled` by Hub for a daemon that does not answer; a JSON object of 8,193 bytes answered `too_large`, and one of 8,189 bytes refused on a connection whose payload limit is 8,192 (LINK_APP_MSG 8,188); the event window: `CREDIT` on the channel id for 48 units, an event of 600 bytes costing 2, progress events counted, the regrant after the guest takes events, a daemon held back with no units and no close, and an event past the units answered `channel.close` `overflow`; a progress event named `log` that crosses the applet's `channel.close` and is ignored; a stream-opening event with no handler answered `RESET` `refused`; two response streams of which the applet reads one, which completes while the other gets no credit; a daemon's bytes refused before any progress event; a daemon request refused `busy` with 8 KiB of requests waiting; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
@@ -2545,8 +2526,8 @@ against them. The version-1 files go in the change that replaces `link.c`.
    checks the limit in force before it buffers a payload (§4.7), the binary
    control frames, JSON frames with the `APP` prefix, the handshake messages
    and their proofs. `pairing.ts`: the three file formats, the device's load
-   of `companions/`, Hub's setup as a plan of storage operations and the
-   candidate keys (§3.2). `credit.ts`, `requests.ts`, `paging.ts`: the state
+   of `companions/`, Hub's setup as a plan of storage operations
+   (§3.2). `credit.ts`, `requests.ts`, `paging.ts`: the state
    machines of §5 and the two paged lists, without sockets and on an
    injected clock.
 3. `tools/pocket-link/v2/vectors.ts` and `tests/vectors/pocket-link-2/`
@@ -2561,8 +2542,8 @@ against them. The version-1 files go in the change that replaces `link.c`.
    directory, keepalive, backoff and holds, the runtime operations answered
    by injectable handlers, the DevTools stream, catalog and install,
    `net.http`, applet channels. **`hub.ts` is a minimal Hub side**: listener
-   and beacon sender, the handshake against a store of device records with
-   candidate keys, the counted replacement, runtime operations as methods
+   and beacon sender, the handshake against a store of device records,
+   the counted replacement, runtime operations as methods
    under the device mutex, the catalog snapshot, `net.http` through an
    injected fetch, applet channels handed to an injected daemon. **They are
    the reference peers**: the C client is tested against `hub.ts`, Hub's
@@ -2639,13 +2620,12 @@ over local IPC (§7.7).
    and the duplicate-id refusal (§2.4). **The setup that writes a
    pairing** (§3.2): one procedure over ftpd or on the mounted SD card:
    read `device.txt`, list `companions/` and refuse at 8 loadable files,
-   discard the candidates the key file does not hold, store the minted key
-   as a candidate, write `<hub id>.new`, read it back, delete `.last`, delete and rename,
+   keep the record's key when the key file holds it, else store a minted key
+   as the record's key, write `<hub id>.new`, read it back, delete `.last`, delete and rename,
    read back again, report a setup without a final match
    as failed, end a setup whose read failed with the record untouched, write
    `.last` alone for an address that is none of Hub's own (over ftpd, not
-   the FTP connection's local address); and the two-candidate handshake
-   until the first `ready`. A new `ready` of a device id ends the older connection's requests, streams and channels at once; the duplicate-id count needs the `PING` to the
+   the FTP connection's local address). A new `ready` of a device id ends the older connection's requests, streams and channels at once; the duplicate-id count needs the `PING` to the
    replaced connection (§2.4). It runs beside the step that installs the
    program.
 3. Keepalive and silence; the FIFO writer with the one-chunk rule; credit;

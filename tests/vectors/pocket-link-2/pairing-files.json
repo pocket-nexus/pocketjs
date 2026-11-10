@@ -313,7 +313,7 @@
       "name": "a card without device.txt: a new id and a new key",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [],
+        "key": null,
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -386,10 +386,8 @@
             "text": "1111111111111111\n"
           }
         ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ],
-        "candidate": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "key": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "minted": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
         "message": "a new key is written"
       },
       "expect": {
@@ -401,7 +399,7 @@
       "name": "a card with device.txt and no key file",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [],
+        "key": null,
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -470,10 +468,8 @@
             "text": "0123456789abcdef\n"
           }
         ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ],
-        "candidate": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "key": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "minted": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
         "message": "a new key is written"
       },
       "expect": {
@@ -485,9 +481,7 @@
       "name": "the key file's key is the record's and the address is the FTP connection's: nothing written",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -528,10 +522,8 @@
         "outcome": "kept",
         "deviceId": "0123456789abcdef",
         "ops": [],
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
-        "candidate": null,
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "minted": null,
         "message": "the pairing is in place"
       },
       "expect": {
@@ -543,9 +535,7 @@
       "name": "the key matches and the device would use another address: .last rewritten, the key file untouched",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -602,10 +592,8 @@
             "text": "name=Studio Mac\naddress=192.168.7.7\nport=8628\n"
           }
         ],
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
-        "candidate": null,
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "minted": null,
         "message": "the last address was rewritten; the key file is untouched"
       },
       "expect": {
@@ -616,9 +604,7 @@
       "name": "on a mounted card an address that is one of Hub's own is left alone",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -662,10 +648,8 @@
         "outcome": "kept",
         "deviceId": "0123456789abcdef",
         "ops": [],
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
-        "candidate": null,
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "minted": null,
         "message": "the pairing is in place"
       },
       "expect": {
@@ -674,12 +658,10 @@
       }
     },
     {
-      "name": "the key file's key is not the record's: a new key, the old candidate discarded",
+      "name": "the key file's key is not the record's: a new key replaces the record's before the first write",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [
-          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-        ],
+        "key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -754,180 +736,20 @@
             "text": "0123456789abcdef\n"
           }
         ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ],
-        "candidate": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "key": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "minted": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
         "message": "a new key is written"
       },
       "expect": {
         "outcome": "key",
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ]
-      }
-    },
-    {
-      "name": "a file that holds neither candidate: both discarded before a key is minted",
-      "input": {
-        "hubId": "fedcba9876543210",
-        "keys": [
-          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-        ],
-        "hub": {
-          "name": "Studio Mac",
-          "port": 8628
-        },
-        "via": {
-          "kind": "ftp",
-          "localAddress": "192.168.1.5"
-        },
-        "device": {
-          "kind": "file",
-          "text": "0123456789abcdef\n"
-        },
-        "listing": [
-          {
-            "name": "fedcba9876543210.txt",
-            "text": "key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
-          }
-        ],
-        "companion": {
-          "kind": "file",
-          "text": "key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
-        },
-        "last": {
-          "kind": "absent"
-        }
-      },
-      "minted": {
-        "deviceIds": [
-          "1111111111111111",
-          "2222222222222222"
-        ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
-          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        ]
-      },
-      "plan": {
-        "outcome": "key",
-        "deviceId": "0123456789abcdef",
-        "ops": [
-          {
-            "op": "write",
-            "path": "companions/fedcba9876543210.new",
-            "text": "key=ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
-          },
-          {
-            "op": "readback",
-            "path": "companions/fedcba9876543210.new",
-            "text": "key=ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
-          },
-          {
-            "op": "delete",
-            "path": "companions/fedcba9876543210.last"
-          },
-          {
-            "op": "delete",
-            "path": "companions/fedcba9876543210.txt"
-          },
-          {
-            "op": "rename",
-            "from": "companions/fedcba9876543210.new",
-            "to": "companions/fedcba9876543210.txt"
-          },
-          {
-            "op": "readback",
-            "path": "companions/fedcba9876543210.txt",
-            "text": "key=ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
-          },
-          {
-            "op": "readback",
-            "path": "device.txt",
-            "text": "0123456789abcdef\n"
-          }
-        ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ],
-        "candidate": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
-        "message": "a new key is written"
-      },
-      "expect": {
-        "outcome": "key",
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ]
-      }
-    },
-    {
-      "name": "the file holds one of two candidates: that one is kept and nothing is minted",
-      "input": {
-        "hubId": "fedcba9876543210",
-        "keys": [
-          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
-        "hub": {
-          "name": "Studio Mac",
-          "port": 8628
-        },
-        "via": {
-          "kind": "ftp",
-          "localAddress": "192.168.1.5"
-        },
-        "device": {
-          "kind": "file",
-          "text": "0123456789abcdef\n"
-        },
-        "listing": [
-          {
-            "name": "fedcba9876543210.txt",
-            "text": "key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
-          }
-        ],
-        "companion": {
-          "kind": "file",
-          "text": "key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
-        },
-        "last": {
-          "kind": "absent"
-        }
-      },
-      "minted": {
-        "deviceIds": [
-          "1111111111111111",
-          "2222222222222222"
-        ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
-          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        ]
-      },
-      "plan": {
-        "outcome": "kept",
-        "deviceId": "0123456789abcdef",
-        "ops": [],
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
-        "candidate": null,
-        "message": "the pairing is in place"
-      },
-      "expect": {
-        "outcome": "kept",
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ]
+        "key": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
       }
     },
     {
       "name": "eight files of other Hubs: nothing written",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [],
+        "key": null,
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -995,8 +817,8 @@
         "outcome": "eight-computers",
         "deviceId": "0123456789abcdef",
         "ops": [],
-        "keys": [],
-        "candidate": null,
+        "key": null,
+        "minted": null,
         "message": "the device already holds 8 computers: remove one on the device, or delete one of its files"
       },
       "expect": {
@@ -1008,7 +830,7 @@
       "name": "eight loadable key files and two the device would not load: the two are not counted",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [],
+        "key": null,
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -1114,10 +936,8 @@
             "text": "0123456789abcdef\n"
           }
         ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ],
-        "candidate": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "key": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "minted": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
         "message": "a new key is written"
       },
       "expect": {
@@ -1128,7 +948,7 @@
       "name": "a leftover .new of this Hub is removed first",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [],
+        "key": null,
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -1206,10 +1026,8 @@
             "text": "0123456789abcdef\n"
           }
         ],
-        "keys": [
-          "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-        ],
-        "candidate": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "key": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+        "minted": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
         "message": "a new key is written"
       },
       "expect": {
@@ -1221,9 +1039,7 @@
       "name": "the read of the key file failed: the setup ends and the record stays",
       "input": {
         "hubId": "fedcba9876543210",
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
         "hub": {
           "name": "Studio Mac",
           "port": 8628
@@ -1258,17 +1074,13 @@
         "outcome": "failed-read",
         "deviceId": null,
         "ops": [],
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
-        "candidate": null,
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "minted": null,
         "message": "the key file could not be read"
       },
       "expect": {
         "outcome": "failed-read",
-        "keys": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ],
+        "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
         "ops": 0
       }
     }
@@ -1279,9 +1091,7 @@
       "companions/fedcba9876543210.txt": "key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n",
       "companions/fedcba9876543210.last": "name=Studio Mac\naddress=192.168.1.9\nport=50123\n"
     },
-    "keys": [
-      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    ],
+    "key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "cuts": [
       {
         "completed": 0,

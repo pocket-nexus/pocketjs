@@ -324,7 +324,7 @@
         "maxPayload": 16384
       },
       "hubId": "fedcba9876543210",
-      "keys": [],
+      "key": null,
       "refused": "unknown_device"
     },
     {
@@ -352,9 +352,7 @@
         "maxPayload": 16384
       },
       "hubId": "fedcba9876543210",
-      "keys": [
-        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-      ],
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "refused": "unknown_device"
     }
   ],
@@ -396,31 +394,6 @@
       }
     },
     "close": "protocol"
-  },
-  "twoCandidates": {
-    "keys": [
-      "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
-      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-    ],
-    "steps": [
-      {
-        "event": "connect",
-        "proves": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-      },
-      {
-        "event": "close-auth"
-      },
-      {
-        "event": "connect",
-        "proves": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-      },
-      {
-        "event": "ready",
-        "keeps": [
-          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-        ]
-      }
-    ]
   },
   "dataBeforeReady": {
     "hex": "20000000010000000500000000",

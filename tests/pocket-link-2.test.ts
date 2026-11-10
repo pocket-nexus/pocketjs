@@ -25,7 +25,7 @@ import {
 } from "../contracts/spec/link2.ts";
 import { AppletStreamWindow, EventReceiver, EventSender, ReceiveCredit, ResponseGate, SendCredit, eventUnits, shareFrameBytes } from "../tools/pocket-link/v2/credit.ts";
 import { CatalogFetch, CatalogPager, RuntimeAppsAssembler, catalogRows, compareIdBytes, pageRuntimeApps } from "../tools/pocket-link/v2/paging.ts";
-import { CandidateKeys, cardAfter, lastFileUpdate, loadCompanions, parseCompanionFile, parseDeviceFile, parseLastFile, planSetup, settleSetup, type SetupInput } from "../tools/pocket-link/v2/pairing.ts";
+import { cardAfter, lastFileUpdate, loadCompanions, parseCompanionFile, parseDeviceFile, parseLastFile, planSetup, settleSetup, type SetupInput } from "../tools/pocket-link/v2/pairing.ts";
 import {
   Link2FrameDecoder,
   LinkCloseError,
@@ -301,7 +301,7 @@ describe("refusals (§3.8)", () => {
     for (const c of v.unknownDevice) {
       const hello = parseHello(c.hello);
       expect("refused" in hello).toBe(false);
-      const known = !("refused" in hello) && hello.companion === c.hubId && new CandidateKeys(c.keys).toProve() !== null;
+      const known = !("refused" in hello) && hello.companion === c.hubId && c.key !== null;
       expect(known ? null : "unknown_device").toBe(c.refused);
     }
   });
@@ -319,22 +319,6 @@ describe("refusals (§3.8)", () => {
       code = (error as LinkCloseError).code;
     }
     expect(code).toBe(v.readyOutOfRange.close);
-  });
-  test("two candidate keys: the newer first, the other after CLOSE auth, the one that reaches ready stays", () => {
-    const keys = new CandidateKeys([...v.twoCandidates.keys]);
-    expect(keys.unconfirmed).toBe(true);
-    for (const step of v.twoCandidates.steps) {
-      if (step.event === "connect") expect(keys.toProve()).toBe(step.proves);
-      if (step.event === "close-auth") keys.closedAuth();
-      if (step.event === "ready") {
-        keys.ready();
-        expect(keys.keys).toEqual(step.keeps);
-      }
-    }
-    const single = new CandidateKeys([FIXED.key]);
-    single.closedAuth();
-    expect(single.toProve()).toBe(FIXED.key);
-    expect(new CandidateKeys([]).toProve()).toBeNull();
   });
   test("DATA before ready closes with protocol", () => {
     expect(decode(v.dataBeforeReady.hex, LINK2_TCP_PAYLOAD, false).close).toBe(v.dataBeforeReady.close);
@@ -377,7 +361,7 @@ describe("pairing files (§3.1, §3.2, §3.6)", () => {
       expect(`${c.name}: ${plan.outcome}`).toBe(`${c.name}: ${c.expect.outcome}`);
       if (c.expect.deviceId !== undefined) expect(plan.deviceId).toBe(c.expect.deviceId);
       if (c.expect.ops !== undefined) expect(plan.ops.length).toBe(c.expect.ops);
-      if (c.expect.keys !== undefined) expect(plan.keys).toEqual(c.expect.keys);
+      if (c.expect.key !== undefined) expect(plan.key).toBe(c.expect.key);
       if (c.expect.firstOp !== undefined) expect(plan.ops[0].op).toBe(c.expect.firstOp);
     }
   });
@@ -396,21 +380,24 @@ describe("pairing files (§3.1, §3.2, §3.6)", () => {
     const address = replay(v.setups[3]);
     expect(address.ops.some((op: { path?: string; to?: string }) => (op.path ?? op.to) === `companions/${FIXED.hub}.txt`)).toBe(false);
   });
-  test("a setup whose readback fails keeps two candidates and is reported as failed", () => {
+  test("a minted key is the record's key before the first write; a setup whose readback fails is reported as failed", () => {
     const rotate = replay(v.setups[5]);
+    expect(rotate.minted).not.toBeNull();
+    expect(rotate.key).toBe(rotate.minted);
     const cut = settleSetup(rotate, 5);
     expect(cut.failed).toBe(true);
     expect(cut.failedAt?.op).toBe("readback");
-    expect(cut.keys).toEqual(rotate.keys);
-    const done = settleSetup(rotate, rotate.ops.length);
-    expect(done).toEqual({ keys: [rotate.candidate!], failed: false, failedAt: null });
-    expect(settleSetup(replay(v.setups[11]), 0).failed).toBe(true);
+    expect(cut.key).toBe(rotate.minted);
+    expect(settleSetup(rotate, rotate.ops.length)).toEqual({ key: rotate.minted, failed: false, failedAt: null });
+    const failedRead = replay(v.setups[9]);
+    expect(failedRead.outcome).toBe("failed-read");
+    expect(settleSetup(failedRead, 0)).toEqual({ key: FIXED.key, failed: true, failedAt: null });
   });
   test("what a cut leaves on the card, by the step it falls in", () => {
     const before = new Map<string, string>(Object.entries(v.powerCut.before));
     const plan = planSetup({
       hubId: FIXED.hub,
-      keys: v.powerCut.keys,
+      key: v.powerCut.key,
       hub: { name: "Studio Mac", port: 8628 },
       via: { kind: "ftp", localAddress: "192.168.1.5" },
       device: { kind: "file", text: before.get("device.txt")! },
