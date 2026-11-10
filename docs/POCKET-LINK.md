@@ -48,10 +48,15 @@ endpoint (§12).
 
 ### What does not run on the link
 
-- **Media streams, in phase one.** A service's `MediaSource` opens a separate TCP
+- **Media streams, in this version.** A service's `MediaSource` opens a separate TCP
   connection to the media provider (`docs/MEDIA.md` "Transport and
-  ownership"); phase one keeps that path, which exists on the TCP carrier
-  alone (§11, question 15). **The source's `host` keeps its
+  ownership"), and **version 2 keeps that side connection: decided, not
+  open**. It exists on the TCP carrier alone. The link as the only transport
+  is the end state (§2.0); the side connection is a bulk path that the TCP
+  carrier's own network already provides, opened with a one-use ticket that
+  the service hands out over the link, so no device reaches media without
+  the link. When media moves onto the link is §11, question 15.
+  **The source's `host` keeps its
   meaning** ("Numeric IPv4 address of the paired companion's media
   endpoint", `contracts/spec/media.ts` `MediaSource`): in the link's terms,
   Hub fills it with **its own address on the device's link connection** (the
@@ -246,8 +251,9 @@ an HMAC-SHA256 handshake proves at every connection that both ends hold the
 same 32-byte link key.** Version 1 paired through a QR code that the console
 read with its camera (`link.ts` "Pairing URI"). **Version 2 has no pairing on
 the wire: no QR code, no camera, no pairing window, no pairing secret and no
-mode `pair`.** Phase one has no encryption (§3.9). §11, question 7 says what
-this reading rests on and what it costs.
+mode `pair`.** Phase one has no encryption (§3.9). **Hub writes the key
+itself; no secret is exchanged on the wire to mint one.** §11, question 7
+lists what this costs.
 
 ### 3.1 The pairing record
 
@@ -456,7 +462,8 @@ when it observes the setup**: the pairing file crosses the LAN in plain FTP
 (§3.2), and anyone who reads the SD card reads the key. Version 1 sent the
 key masked with an HMAC of a secret shown in the QR code, so an observer
 needed the screen as well as the network; version 2 gives that up with the
-camera (§11, question 7). The development connection's `dev.key` crossed
+camera, on the same assumption of a trusted LAN that leaves the frames in
+plaintext (§11, question 7). The development connection's `dev.key` crossed
 the LAN the same way and then travelled in every hello.
 
 An **active** attacker (ARP spoofing, a hostile access point) can, after a
@@ -629,7 +636,8 @@ frame occupies the connection for about 20 ms**, a 32 KiB frame for about
 40 ms, against a round trip of **about 8 ms** for a small message. 16 KiB
 keeps the wait behind one chunk near two round trips and halves the device's
 receive buffer. An 8 KiB limit would halve the wait again and leave less
-room for one-frame control messages (§11, question 13).
+room for one-frame control messages; the two row lists that can exceed a
+frame are paged (§6.2, §6.4).
 
 ### 4.5 No fragmentation
 
@@ -760,6 +768,7 @@ Error codes every group uses:
 | `transfer` | the stream ended short, long, or out of order |
 | `storage` | the device could not write or flush |
 | `no_channel` | an `APP` request names a channel that is not open (§7.2) |
+| `changed` | a paged request names a revision that is no longer current; the requester starts again from the first page (§6.4) |
 | `internal` | anything else |
 
 `closed` is not sent: it is what a side reports on its own side for requests open
@@ -1043,14 +1052,38 @@ to the applets a linked device holds.
 of the installed set**: a package committed as a slot's active package (a
 catalog install, a push into another app's slot, an accepted push of the
 running app), and a removal (`link.remove`). At most one event a second; a
-change inside the second goes out at its end. **Each event carries the whole
-set**, so a lost or late event is repaired by the next one and Hub keeps no
-diff state.
+change inside the second goes out at its end. **Each report carries the whole
+set**, so a lost or late report is repaired by the next one and Hub keeps no
+diff state. **A report is one event, or several pages when its rows do not
+fit one frame of the connection's payload limit.**
 
 | Field | Type | Content |
 | --- | --- | --- |
-| `apps` | array | at most **64** rows |
-| `truncated` | boolean? | true when the device holds more applets than the rows sent |
+| `set` | integer | u32 the device raises by one for each report on a connection, starting at 1 |
+| `at` | integer | index of this page's first row in the report, **0** on the first page |
+| `apps` | array | this page's rows, at least **1** unless the device holds no applet; **64** rows at most in a whole report |
+| `more` | boolean | true when a further page of the same `set` follows |
+
+Paging rules:
+
+- **Rows keep the order of the launcher's table for the length of one
+  `set`**, and `at` of a page equals the number of rows in the pages before
+  it. The device fills each page with as many whole rows as the payload
+  limit holds; a row never spans two pages, and one row at every limit
+  (about 300 bytes) fits the smallest payload limit (1 KiB, §4.4).
+- The pages of a `set` are consecutive `EVENT` frames of id 0 in the
+  device's write queue; other frames may sit between them (§8.2).
+- **Hub replaces the set it holds when the page with `more: false` arrives
+  and every page of that `set` from `at` 0 arrived before it in order.**
+  Until then it keeps the earlier set.
+- **A change of the installed set while pages are still unsent ends that
+  `set`**: the device sends no further page of it and starts the report
+  again under the next `set` at `at` 0, within the one-a-second rule. Hub
+  drops a partial set when a page with a larger `set` arrives, and when a
+  page's `at` is not the count it holds; in the second case it waits for the
+  next report.
+- A page that breaks its shape (`at` not 0 on a new `set`, more than 64
+  rows in a report) closes the link with `protocol`.
 
 A row:
 
@@ -1067,9 +1100,8 @@ The 3DS's launcher holds at most **64** apps (`launcher.c`
 quotes about 60, so 64 rows at every limit take about 20 KB, which fits a
 32 KiB frame and **not the 16 KiB of the TCP carrier**; rows of ordinary
 size (an id of 30 bytes, an output of 12) take about 150 bytes, and 64 of
-them about 10 KB. **A device whose rows do not fit one frame of the
-connection's payload limit sends the rows that fit and `truncated: true`**
-(§11, question 13). The device builds the list from the
+them about 10 KB. **A report of ordinary size is one page on TCP; one at
+every limit takes two.** The device builds the list from the
 launcher's cached table, which is rebuilt only after an install, a removal or
 a routed push (`launcher.h` `launcher_invalidate`), so the event reads no
 storage.
@@ -1256,10 +1288,33 @@ parse DevTools lines**; it moves bytes between the stream and the shim's
 Device to Hub; kept from version 1 in version 2's frames (`link.ts`
 "Requests", `catalog.ts`).
 
-**catalog**: request `{}`. Reply `{apps: [LinkCatalogApp]}`: every `.pocket`
-in Hub's apps folders with a variant for `hello.target`, at most **64** rows,
-one per app id with the first folder winning, and `truncated: true` when
-the rows did not fit one frame (§11, question 13). A row:
+**catalog**: request `{after?, rev?}`. Reply `{apps: [LinkCatalogApp], rev,
+more}`: every `.pocket` in Hub's apps folders with a variant for
+`hello.target`, at most **64** rows in the whole offer, one per app id with
+the first folder winning, **paged when the rows do not fit one frame**:
+
+| Field | In | Type | Content |
+| --- | --- | --- | --- |
+| `after` | request | string? ≤ 128 bytes | the `id` of the last row of the page before; absent for the first page |
+| `rev` | request | integer? | the `rev` of the page before; absent for the first page, required with `after` |
+| `apps` | reply | array | the rows after `after`, as many whole rows as the payload limit holds |
+| `rev` | reply | integer | u32 revision of Hub's offer, raised at every change that sends `catalog.changed` |
+| `more` | reply | boolean | true when rows remain after this page's last row |
+
+- **Rows are ordered by `id`, ascending by byte value**, so the order does
+  not depend on Hub's folders and a cursor names one position.
+- **A page request whose `rev` is not the offer's revision is answered with
+  the error `changed`**; the device discards the pages it holds and asks for
+  the first page again. An `after` that names no row of the offer at the
+  same `rev` is `malformed`.
+- Each page is its own request, counted in the 4 open requests below; the
+  device asks for the next page after it has consumed the one before, so
+  pages are not in flight together.
+- A row at every limit of `catalog.ts` fits the smallest payload limit
+  (1 KiB) when its `summary` is cut to what remains; Hub cuts `summary`
+  first and no other field.
+
+A row:
 
 | Field | Type | Content |
 | --- | --- | --- |
@@ -1707,7 +1762,8 @@ phase one.
 | Error `message` | **240 bytes** | |
 | `features` list | **16** entries of **24** bytes | as in `hello` |
 | `features` events | at most **1 a second** per side | a flapping agent sign-in does not flood the link |
-| `runtime.apps` | **64** rows, events at most **1 a second** | `LAUNCHER_MAX_APPS`; rows that do not fit one frame are cut with `truncated` (§6.2) |
+| `runtime.apps` | **64** rows in a report, reports at most **1 a second**, pages of whole rows | `LAUNCHER_MAX_APPS`; a report that does not fit one frame is paged with `set`, `at`, `more` (§6.2) |
+| `catalog` | **64** rows in the offer, pages of whole rows, one page per request | paged with `after`, `rev`, `more`; a stale `rev` answers `changed` (§6.4) |
 | Ping interval | **3 s** | kept |
 | Silence | **10 s** | kept; covers a measured 5.7 s stall on a small companion and the 100 ms stalls of the 3DS (§13) |
 | Close drain | **1 s** | `devserver_flush(1000)` before a `.3dsx` start |
@@ -1776,7 +1832,7 @@ accept any key order and whitespace, and tests compare parsed values.
 | `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY` and a response stream under 16 KiB credit; an event that opens a stream; `CANCEL` answered by `cancelled`; a JSON object of 8,193 bytes refused; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
 | `features.json` | Hub dropping `agent` with a microphone stream open (the `RESET` before the `features` event) and adding it back; the device dropping `devtools` (stream reset) and adding it back (a new `devtools.open`); Hub dropping `channel` with a channel open (`channel.close` `feature`); a request of a dropped group crossing the event and answered `unsupported`; a second change inside one second sent at its end; a list of 17 entries closing with `protocol` |
 | `keepalive.json` | `PING` / `PONG` echo; a timeline with timestamps where a side closes with `silence` at 10 s, one where a 100 ms gap changes nothing, and one where `DATA` alone keeps the link up |
-| `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` event of 64 rows of ordinary size in one 16 KiB frame, and one with every field at its limit cut with `truncated`; a DevTools stream with a pending eval, then `guest.end` |
+| `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` report of 64 rows of ordinary size in one 16 KiB frame, one with every field at its limit in two pages, one cut short by a change and restarted under the next `set`, and a page with a wrong `at` that Hub drops; a catalog of 64 rows fetched in pages with `after` and `rev`, and a page request answered `changed`; a DevTools stream with a pending eval, then `guest.end` |
 
 The C client builds a POSIX variant of `link.c` on the build machine and runs
 the transcripts against itself; Hub's tests run its endpoint against the
@@ -1822,11 +1878,12 @@ TypeScript console client, as Hub's version 1 tests do with
    keeping `listening` on and paying the tree snapshots (§6.3).
    *Recommendation:* add the host operation (for example `ui.__dbgLog`) in
    the same change as the 3DS client.
-7. **Pairing without the camera is this draft's reading of the owner's
-   decision** ("不要摄像头配对了"): the QR scan with the console's camera
-   goes away, and Hub writes the pairing during the first install (§3.1,
-   §3.2). The other reading, keeping the camera and not adding a written
-   pairing, was not taken. What the reading costs:
+7. **Pairing without the camera: decided.** The QR scan with the console's
+   camera goes away, and Hub writes the pairing, the key included, during
+   the first install (§3.1, §3.2). A variant in which Hub writes a one-time
+   secret and the first connection mints the key was considered and
+   declined: the LAN is trusted in this version (§3.9), and the variant
+   keeps a pairing mode in the C client. What the decision costs:
    - **Pairing another computer, or pairing again after a forget, needs ftpd
      running on the device or the SD card in a reader.** Version 1 needed
      the camera and Hub's screen.
@@ -1836,10 +1893,8 @@ TypeScript console client, as Hub's version 1 tests do with
      `camera.qr` as an applet capability is not affected.
    - A carrier without a file channel (a UART on a device with no storage
      access from the computer) needs another way to place the two files.
-   A middle path that keeps both properties is undecided: Hub writes a
-   one-time secret instead of the key, and the first connection mints the
-   key as version 1's mode `pair` did. *Recommendation:* confirm the
-   reading with the owner before the C client drops mode `pair`.
+   **Still open:** that way for a carrier without a file channel, decided
+   with the carrier (question 10).
 8. **Pocket3D pack delivery.** `products/3ds/src/packs_delivery.c` takes
    `pocket3d.packs` control lines over the development connection, pumps
    `devserver_poll` while it fetches pieces from a temporary HTTP endpoint on
@@ -1884,16 +1939,18 @@ TypeScript console client, as Hub's version 1 tests do with
     first beacon wins. Option: prefer the Hub linked last.
     *Recommendation:* keep the first-beacon rule until an owner with two Macs
     reports a problem.
-13. **Control messages larger than the payload limit.** With 16 KiB on TCP,
-    a `runtime.apps` event or a catalog reply of 64 rows at every field's
-    limit does not fit one frame (§6.2, §6.4), and on a 1 KiB carrier few
-    rows fit. This draft cuts the rows and sets `truncated`. Options: that;
-    a separate, higher limit for control frames on TCP (32 KiB, the buffer
-    version 1 has); paging both messages; sending them as streams of lines.
-    The JSON cost itself is settled: scanning in C takes microseconds (§13),
-    so no message moves to a binary payload. *Recommendation:* page the two
-    row lists (`after`, `more`) so that no carrier loses rows; until then
-    `truncated`.
+13. **Control messages larger than the payload limit.** The two row lists
+    are paged: `runtime.apps` with `set`, `at`, `more` (§6.2) and the
+    catalog with `after`, `rev`, `more` (§6.4), so no carrier loses rows.
+    The JSON cost is settled as well: scanning in C takes microseconds
+    (§13), so no message moves to a binary payload. **Still open:** the
+    other control messages are bounded by their fields and fit 16 KiB, and
+    whether each fits the 1 KiB floor has not been checked field by field
+    (an `agent` message and a `runtime.status` reply are the candidates);
+    a carrier that negotiates a limit under their size needs either a
+    higher floor or a paged form. *Recommendation:* check them when the
+    first carrier under 4 KiB is designed, and raise the floor before
+    paging a third message.
 14. **Hub's device mutex: refuse or queue.** §8.3 leaves to Hub what it does
     with a second client while a state-changing request is open; the wire
     looks the same either way. Options: refuse at once with `busy` and the
@@ -1901,13 +1958,13 @@ TypeScript console client, as Hub's version 1 tests do with
     reporting the holder when the wait times out. The studio relay pushes in
     the background and would otherwise poll. *Recommendation:* the bounded
     FIFO wait, reporting the holder on timeout; it costs the device nothing.
-15. **Media streams contradict "the only transport".** A `MediaSource` opens
-    its own TCP connection with a one-use ticket (§1), which exists on the
-    TCP carrier alone, and nothing here says what a device on Bluetooth or a
-    UART plays from. Options: keep the side connection as a TCP-only bulk
-    path; carry media as a credited stream of the link, at the link's
-    700–900 KB/s shared with everything else. *Recommendation:* keep the
-    side connection in phase one and decide with the second carrier.
+15. **When media moves onto the link.** Version 2 keeps the side TCP
+    connection (§1, decided). It exists on the TCP carrier alone, so a
+    device on Bluetooth or a UART has nothing to play from until media is a
+    credited stream of the link, at the link's rate shared with everything
+    else (700–900 KB/s on the measured 3DS, §13). *Recommendation:* decide
+    with the second carrier, and measure a media stream beside an install
+    on one link before moving it.
 16. **Programs built on record formats of their own.** pocket-map and
     pocket-term have pilots on Pocket Relay (PocketJS #456) and ship on
     `io.offload` records today. With no Relay in the link they move to an
