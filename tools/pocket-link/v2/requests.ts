@@ -150,6 +150,8 @@ export type RequesterAction =
 interface OpenRequest {
   lastFrame: number;
   cancelledAt: number | null;
+  /** Why it was cancelled: this side's own cancel, or the stall. */
+  cause: "timeout" | "cancelled";
   /** `devtools.open`, `channel.open`: the id stays in use after its REPLY and no timer runs on it. */
   outlives: boolean;
   replied: boolean;
@@ -163,7 +165,7 @@ export class Requester {
 
   /** A REQUEST frame is queued. */
   sent(id: number, options: { outlives?: boolean } = {}): void {
-    this.open.set(id, { lastFrame: this.now(), cancelledAt: null, outlives: options.outlives ?? false, replied: false });
+    this.open.set(id, { lastFrame: this.now(), cancelledAt: null, cause: "cancelled", outlives: options.outlives ?? false, replied: false });
   }
   holds(id: number): boolean {
     return this.open.has(id);
@@ -211,10 +213,11 @@ export class Requester {
       if (request.cancelledAt !== null) {
         if (now - request.cancelledAt >= LINK2_CANCEL_GRACE_MS) {
           this.open.delete(id);
-          actions.push({ action: "free", id, error: "cancelled" });
+          actions.push({ action: "free", id, error: request.cause });
         }
       } else if (now - request.lastFrame >= LINK2_REQUEST_STALL_MS) {
         request.cancelledAt = now;
+        request.cause = "timeout";
         actions.push({ action: "cancel", id, error: "timeout" });
       }
     }
@@ -288,5 +291,35 @@ export class StreamSendTimer {
     if (this.since === null || this.now() - this.since < LINK2_REQUEST_STALL_MS) return "ok";
     this.since = null;
     return this.exempt ? "drop-line" : "give-up";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §4.6 Keepalive
+// ---------------------------------------------------------------------------
+
+/** One side's keepalive on an injected clock: a frame of any type counts as
+ *  life, the device pings every 3 s, and 10 s without a frame closes with
+ *  `silence`. */
+export class Keepalive {
+  private lastReceived: number;
+  private lastPing: number;
+  constructor(private readonly now: () => number, private readonly pingMs: number, private readonly silenceMs: number) {
+    this.lastReceived = now();
+    this.lastPing = now();
+  }
+  /** Any frame arrived. */
+  received(): void {
+    this.lastReceived = this.now();
+  }
+  /** "silence": close. "ping": send a PING now. */
+  tick(): "ok" | "ping" | "silence" {
+    const now = this.now();
+    if (now - this.lastReceived >= this.silenceMs) return "silence";
+    if (now - this.lastPing >= this.pingMs) {
+      this.lastPing = now;
+      return "ping";
+    }
+    return "ok";
   }
 }
