@@ -477,6 +477,25 @@ export function bakeSlot(
   };
 }
 
+/** Whether a package built for a target with these capabilities carries
+ *  font atlases. A target that lays text out with its own provider
+ *  (`text.layout.native`) and does not provide `text.glyphs.baked` gets none:
+ *  its host measures and paints every run, so an atlas would never be read. */
+export function targetBakesAtlases(capabilities: readonly string[]): boolean {
+  return capabilities.includes("text.glyphs.baked") || !capabilities.includes("text.layout.native");
+}
+
+/** Whether a package built from this resolved plan carries font atlases: the
+ *  target decides (`targetBakesAtlases` over the profile's capabilities), and
+ *  a `text.glyphs.baked` the plan resolved through a role grant (the System UI
+ *  role's `roleCapabilities`) counts as provided. */
+export function planBakesAtlases(plan: {
+  readonly profile: { readonly capabilities: readonly string[] };
+  readonly features: Readonly<Record<string, boolean>>;
+}): boolean {
+  return plan.features["text.glyphs.baked"] === true || targetBakesAtlases(plan.profile.capabilities);
+}
+
 /** Bake every requested slot. Charset = collected + ASCII 32..126 + extraChars. */
 export async function bakeAtlases(opts: BakeOptions): Promise<BakedAtlas[]> {
   const rasterDensity = checkedRasterDensity(opts.rasterDensity ?? 1);

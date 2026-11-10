@@ -5,7 +5,7 @@ import ts from "typescript";
 import { analyzeAot, buildAot, type AotBuildResult } from "../microts/compiler/aot-build.ts";
 import { getSolidAotDependencyVersions } from "../microts/compiler/aot-solid-frontend.ts";
 import { getAotDependencyVersions } from "../microts/compiler/aot-frontend.ts";
-import { bakeAtlases } from "../framework/compiler/bake-font.ts";
+import { bakeAtlases, planBakesAtlases } from "../framework/compiler/bake-font.ts";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import { decodePng } from "../framework/compiler/pak.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
@@ -83,6 +83,10 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   if (!verifyPlanHash(plan) || !verifyPlanProfile(plan)) throw new Error("AOT: invalid plan/profile hash");
   if (plan.target.hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`AOT: unsupported plan binding generation ${plan.target.hostAbi}`);
   if (plan.app.aot !== true) throw new Error("AOT: app.aot must be true in pocket.app.json");
+  // Ahead-of-time layout measures text with the baked atlases.
+  if (!planBakesAtlases(plan)) {
+    throw new Error(`AOT: target ${plan.target.id} paints text with its host text provider and bakes no atlas; ahead-of-time layout needs text.glyphs.baked`);
+  }
   const projectRoot = resolve(options.projectRoot), outdir = resolve(options.outdir);
   const inputs = new BuildInputs();
   inputs.add(options.manifestPath);

@@ -20,6 +20,7 @@
 
 import {
   ENUMS,
+  FONT_SLOT_TABLE,
   PROP,
   SIZE_FULL,
   TRANSITION_MASK_ALL,
@@ -37,22 +38,15 @@ import {
 import { bakedTimelines, loopToFrames, resolveAnimation } from "./animation.ts";
 
 // ---------------------------------------------------------------------------
-// Font slots (build-assigned, pinned here — bake-font.ts uses the same table)
+// Font slots (build-assigned from spec.ts FONT_SLOT_TABLE — bake-font.ts and
+// host text providers read the same table)
 // ---------------------------------------------------------------------------
 
 /** Legacy baked px sizes, index-aligned with slots 0..6 and 7..13. */
 export const FONT_PX = [12, 14, 16, 18, 20, 24, 36] as const;
-const LARGE_FONT_PX = 54;
-const LARGE_FONT_REGULAR_SLOT = 14;
-const LARGE_FONT_BOLD_SLOT = 15;
 /** Monospace sizes (`font-mono`; code spans). Regular weight only — a bold
  *  request under font-mono still lands on the mono slot for its size. */
 export const MONO_FONT_PX = [12, 14, 16] as const;
-const MONO_SLOT_BASE = 16;
-/** The small pair (`text-2xs`): labels under icons on low-density screens. */
-const SMALL_FONT_PX = 10;
-const SMALL_FONT_REGULAR_SLOT = 19;
-const SMALL_FONT_BOLD_SLOT = 20;
 const TEXT_SIZE_PX: Record<string, number> = {
   "2xs": 10, xs: 12, sm: 14, base: 16, lg: 18, xl: 20, "2xl": 24, "4xl": 36, "5xl": 54,
 };
@@ -60,37 +54,17 @@ const TEXT_SIZE_PX: Record<string, number> = {
 /** Slot index for a (px, weight, family) triple: 0..6 regular, 7..13 bold,
  *  14/15 the 54 px pair, 16..18 monospace, 19/20 the 10 px pair. */
 export function fontSlotFor(px: number, bold: boolean, mono = false): number {
-  if (mono) {
-    const i = (MONO_FONT_PX as readonly number[]).indexOf(px);
-    if (i < 0) throw new Error(`PocketJS tailwind: no monospace font slot for ${px}px`);
-    return MONO_SLOT_BASE + i;
-  }
-  if (px === LARGE_FONT_PX) {
-    return bold ? LARGE_FONT_BOLD_SLOT : LARGE_FONT_REGULAR_SLOT;
-  }
-  if (px === SMALL_FONT_PX) {
-    return bold ? SMALL_FONT_BOLD_SLOT : SMALL_FONT_REGULAR_SLOT;
-  }
-  const i = (FONT_PX as readonly number[]).indexOf(px);
-  if (i < 0) throw new Error(`PocketJS tailwind: no font slot for ${px}px`);
-  return bold ? 7 + i : i;
+  const slot = FONT_SLOT_TABLE.findIndex(info =>
+    info.px === px && info.mono === mono && (mono || info.bold === bold));
+  if (slot < 0) throw new Error(`PocketJS tailwind: no ${mono ? "monospace " : ""}font slot for ${px}px`);
+  return slot;
 }
 
 /** (px, bold, mono) for a slot index — inverse of fontSlotFor. */
 export function fontSlotInfo(slot: number): { px: number; bold: boolean; mono: boolean } {
-  if (slot === SMALL_FONT_REGULAR_SLOT) return { px: SMALL_FONT_PX, bold: false, mono: false };
-  if (slot === SMALL_FONT_BOLD_SLOT) return { px: SMALL_FONT_PX, bold: true, mono: false };
-  if (slot >= MONO_SLOT_BASE) {
-    const px = MONO_FONT_PX[slot - MONO_SLOT_BASE];
-    if (px === undefined) throw new Error(`PocketJS tailwind: bad font slot ${slot}`);
-    return { px, bold: false, mono: true };
-  }
-  if (slot === LARGE_FONT_REGULAR_SLOT) return { px: LARGE_FONT_PX, bold: false, mono: false };
-  if (slot === LARGE_FONT_BOLD_SLOT) return { px: LARGE_FONT_PX, bold: true, mono: false };
-  const bold = slot >= 7;
-  const px = FONT_PX[bold ? slot - 7 : slot];
-  if (px === undefined) throw new Error(`PocketJS tailwind: bad font slot ${slot}`);
-  return { px, bold, mono: false };
+  const info = Number.isInteger(slot) ? FONT_SLOT_TABLE[slot] : undefined;
+  if (info === undefined) throw new Error(`PocketJS tailwind: bad font slot ${slot}`);
+  return { px: info.px, bold: info.bold, mono: info.mono };
 }
 
 /** Default text style when no text-size/weight utility applies: 16px regular. */

@@ -492,6 +492,49 @@ pub mod text_run {
     pub const HEADER_WORDS: usize = 14;
 }
 
+/// The font slot table (spec.ts FONT_SLOT_TABLE): the pixel size, weight and
+/// family the compiler assigns each slot. Host text providers resolve a
+/// slot to a face and size through it.
+pub mod font_slot {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct FontSlot {
+        pub px: u16,
+        pub bold: bool,
+        pub mono: bool,
+    }
+    pub const TABLE: [FontSlot; 21] = [
+        FontSlot { px: 12, bold: false, mono: false },
+        FontSlot { px: 14, bold: false, mono: false },
+        FontSlot { px: 16, bold: false, mono: false },
+        FontSlot { px: 18, bold: false, mono: false },
+        FontSlot { px: 20, bold: false, mono: false },
+        FontSlot { px: 24, bold: false, mono: false },
+        FontSlot { px: 36, bold: false, mono: false },
+        FontSlot { px: 12, bold: true, mono: false },
+        FontSlot { px: 14, bold: true, mono: false },
+        FontSlot { px: 16, bold: true, mono: false },
+        FontSlot { px: 18, bold: true, mono: false },
+        FontSlot { px: 20, bold: true, mono: false },
+        FontSlot { px: 24, bold: true, mono: false },
+        FontSlot { px: 36, bold: true, mono: false },
+        FontSlot { px: 54, bold: false, mono: false },
+        FontSlot { px: 54, bold: true, mono: false },
+        FontSlot { px: 12, bold: false, mono: true },
+        FontSlot { px: 14, bold: false, mono: true },
+        FontSlot { px: 16, bold: false, mono: true },
+        FontSlot { px: 10, bold: false, mono: false },
+        FontSlot { px: 10, bold: true, mono: false },
+    ];
+    /// The slot's entry; None past the table.
+    pub const fn get(slot: u8) -> Option<FontSlot> {
+        if (slot as usize) < TABLE.len() {
+            Some(TABLE[slot as usize])
+        } else {
+            None
+        }
+    }
+}
+
 /// .pak container constants (byte-compatible with dreamcart's format;
 /// implemented by framework/compiler/pak.ts and framework/src/pak.ts).
 pub mod pak {

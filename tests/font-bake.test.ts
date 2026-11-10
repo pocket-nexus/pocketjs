@@ -194,3 +194,57 @@ describe("glyph raster cache", () => {
     }
   });
 });
+
+describe("targets without baked glyphs", () => {
+  test("the target decides: every app gets a package without atlases, a role grant of baked glyphs gets them", async () => {
+    const { mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const { KEY_STYLES, unpack } = await import("../framework/compiler/pak.ts");
+    const { validateAndResolveBuildPlan } = await import("../framework/src/manifest/resolve.ts");
+    const { profileRegistry } = await import("../tools/profile-resolver.ts");
+    const { POCKET_PROFILES } = await import("../hosts/index.ts");
+    const registry = profileRegistry({
+      ...POCKET_PROFILES["macos-embedded"],
+      id: "provider-host",
+      capabilities: ["input.buttons", "text.layout.native"],
+      roleCapabilities: { systemUI: ["text.glyphs.baked"] },
+    });
+    const manifest = (requires: string[]) => ({
+      $schema: "https://pocketjs.dev/schema/pocket-2.json",
+      pocket: 2,
+      id: "dev.pocket-nexus.provider-text",
+      title: "Provider Text",
+      version: "0.1.0",
+      engine: { capabilities: { requires } },
+      app: { entry: "main.tsx", framework: "solid", viewport: { logical: [480, 272], presentation: "native" } },
+    });
+    // An application that requires baked glyphs fails resolution like any
+    // missing capability.
+    const baked = validateAndResolveBuildPlan(manifest(["text.glyphs.baked"]), { target: "provider-host" }, registry);
+    expect(baked.ok ? [] : baked.diagnostics.map(item => item.code)).toContain("capability.unavailable");
+    const fontEntries = (label: string, requires: string[], role: "application" | "systemUI") => {
+      const result = validateAndResolveBuildPlan(manifest(requires), { target: "provider-host", role }, registry);
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+      const directory = resolve(".pocket-build/validation/font-bake", `provider-${label}-${process.pid}`);
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(resolve(directory, "plan.json"), JSON.stringify(result.plan));
+      writeFileSync(resolve(directory, "main.tsx"), [
+        'import { mount } from "@pocketjs/framework/solid";',
+        'import { Text } from "@pocketjs/framework/solid/components";',
+        'mount(() => <Text class="text-lg font-bold">Provider text</Text>);',
+      ].join("\n"));
+      const run = Bun.spawnSync([
+        process.execPath, resolve("tools/build.ts"), `--plan=${directory}/plan.json`, `--project-root=${directory}`, `--outdir=${directory}/out`,
+      ], { stdout: "pipe", stderr: "pipe" });
+      expect(run.success, run.stderr.toString()).toBe(true);
+      const keys = unpack(readFileSync(resolve(directory, "out", result.plan.app.output + ".pak"))).map(item => item.key);
+      expect(keys).toContain(KEY_STYLES);
+      return keys.filter(key => key.startsWith("ui:font."));
+    };
+    // An app that declares nothing about text is built for the provider.
+    expect(fontEntries("app", ["input.buttons"], "application")).toEqual([]);
+    // The System UI role grants baked glyphs; an app that resolves them
+    // gets its atlases.
+    expect(fontEntries("system", ["text.glyphs.baked"], "systemUI")).not.toEqual([]);
+  });
+});

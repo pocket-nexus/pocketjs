@@ -53,7 +53,7 @@ import { profileResponseBytes } from "../contracts/spec/profile.ts";
 import { resolveWorkerChannels } from "../contracts/spec/worker.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
 import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
-import { bakeAtlases } from "../framework/compiler/bake-font.ts";
+import { bakeAtlases, planBakesAtlases } from "../framework/compiler/bake-font.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import {
@@ -352,7 +352,13 @@ const { fallbackTtfs } = fontConfig;
 if (fallbackTtfs.length || fontConfig.codepoints.length)
   console.log(`  fonts: ${fallbackTtfs.length} fallback face(s), ${fontConfig.codepoints.length} declared characters`);
 
-const atlases = await bakeAtlases({
+// A target whose host text provider measures and paints every run gets no
+// atlas; a plan-less source build bakes as before.
+const bakesAtlases = !buildPlan || planBakesAtlases(buildPlan);
+if (!bakesAtlases) {
+  console.log(`  fonts: target ${buildPlan!.target.id} paints text with its host text provider; no atlas baked`);
+}
+const atlases = !bakesAtlases ? [] : await bakeAtlases({
   codepoints: new Set([...codepoints, ...fontConfig.codepoints]),
   slots: styles.usedFontSlots,
   extraChars,

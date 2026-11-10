@@ -93,6 +93,7 @@ import {
   FIXED_DT,
   FONT_CMAP_ENTRY_SIZE,
   FONT_FLAG_BOLD,
+  FONT_SLOT_TABLE,
   FONT_HEADER_SIZE,
   FONT_MAGIC,
   FONT_VERSION,
@@ -477,6 +478,33 @@ export function generateRust(): string {
   for (const [name, v] of Object.entries(TEXT_RUN_WORD)) {
     put(`    pub const ${screaming(name)}: usize = ${v};`);
   }
+  put("}");
+  put("");
+
+  // --- font slots -----------------------------------------------------------------
+  put("/// The font slot table (spec.ts FONT_SLOT_TABLE): the pixel size, weight and");
+  put("/// family the compiler assigns each slot. Host text providers resolve a");
+  put("/// slot to a face and size through it.");
+  put("pub mod font_slot {");
+  put("    #[derive(Clone, Copy, Debug, PartialEq, Eq)]");
+  put("    pub struct FontSlot {");
+  put("        pub px: u16,");
+  put("        pub bold: bool,");
+  put("        pub mono: bool,");
+  put("    }");
+  put(`    pub const TABLE: [FontSlot; ${FONT_SLOT_TABLE.length}] = [`);
+  for (const { px, bold, mono } of FONT_SLOT_TABLE) {
+    put(`        FontSlot { px: ${px}, bold: ${bold}, mono: ${mono} },`);
+  }
+  put("    ];");
+  put("    /// The slot's entry; None past the table.");
+  put("    pub const fn get(slot: u8) -> Option<FontSlot> {");
+  put("        if (slot as usize) < TABLE.len() {");
+  put("            Some(TABLE[slot as usize])");
+  put("        } else {");
+  put("            None");
+  put("        }");
+  put("    }");
   put("}");
   put("");
 

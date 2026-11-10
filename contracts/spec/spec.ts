@@ -944,8 +944,45 @@ export const WIRE_MARK_FLAG_ENDED = 1 << 0;
 // carried in each atlas header; the core just indexes a table.
 
 // 0..6 regular / 7..13 bold (FONT_PX sizes), 14/15 the 54 px display pair,
-// 16..18 monospace regular (12/14/16 px — `font-mono`, code spans).
+// 16..18 monospace regular (12/14/16 px — `font-mono`, code spans), 19/20 the
+// 10 px pair (`text-2xs`).
 export const MAX_FONT_SLOTS = 24;
+
+/** One font slot: its pixel size, weight and family. */
+export interface FontSlotInfo {
+  readonly px: number;
+  readonly bold: boolean;
+  readonly mono: boolean;
+}
+
+/** The slot table, indexed by slot. The compiler assigns slots from it
+ *  (framework/compiler/tailwind.ts fontSlotFor) and bakes atlases for them;
+ *  a host text provider reads the same table to resolve a slot to a face
+ *  and size (Rust: pocket_spec::font_slot). Literal rows, no computed
+ *  expression: a bundle that does not read the table drops it. */
+export const FONT_SLOT_TABLE: readonly FontSlotInfo[] = [
+  { px: 12, bold: false, mono: false },
+  { px: 14, bold: false, mono: false },
+  { px: 16, bold: false, mono: false },
+  { px: 18, bold: false, mono: false },
+  { px: 20, bold: false, mono: false },
+  { px: 24, bold: false, mono: false },
+  { px: 36, bold: false, mono: false },
+  { px: 12, bold: true, mono: false },
+  { px: 14, bold: true, mono: false },
+  { px: 16, bold: true, mono: false },
+  { px: 18, bold: true, mono: false },
+  { px: 20, bold: true, mono: false },
+  { px: 24, bold: true, mono: false },
+  { px: 36, bold: true, mono: false },
+  { px: 54, bold: false, mono: false },
+  { px: 54, bold: true, mono: false },
+  { px: 12, bold: false, mono: true },
+  { px: 14, bold: false, mono: true },
+  { px: 16, bold: false, mono: true },
+  { px: 10, bold: false, mono: false },
+  { px: 10, bold: true, mono: false },
+];
 
 // ---------------------------------------------------------------------------
 // STYLE TABLE binary format — styles.bin  (version 2)
