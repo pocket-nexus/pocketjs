@@ -10,6 +10,7 @@
 //   4. a request it cancels                         slow
 //   5. the daemon's request to the applet           applet.sum
 //   6. the daemon's events                          tick
+//   7. an HTTP request from its worker (worker.ts)  net.http
 //
 // It then reports what it saw in one request (`report`), which is what
 // tests/e2e/azahar-link2.ts reads. A re-run needs no button: the script
@@ -18,6 +19,7 @@
 import { createSignal, For } from "solid-js";
 import { AuxiliarySurface, Text, View } from "@pocketjs/framework/components";
 import { onFrame } from "@pocketjs/framework/lifecycle";
+import { worker } from "@pocketjs/framework/worker/channels";
 import {
   CHANNEL_STATE,
   ChannelError,
@@ -46,6 +48,9 @@ export default function LinkChannelDemo() {
   let generation = 0;
   let running = false;
   let sums = 0;
+  /** What the worker's HTTP request gave: "<status> <bytes> <body>". */
+  let http = "";
+  const fetched = worker.channel("http");
 
   const say = (line: string) => setLines((all) => [...all.slice(-9), line]);
 
@@ -106,11 +111,21 @@ export default function LinkChannelDemo() {
 
     report.ticks = ticks();
     report.sums = sums;
+    report.http = http;
     const done = await request("report", report).reply;
     say(`report ${JSON.stringify(done)}`);
   }
 
   onFrame(() => {
+    for (const record of fetched.observe()) {
+      const text = String.fromCharCode(...record.copy());
+      if (text !== http) {
+        http = text;
+        say(`http ${http}`);
+        // The worker may finish after the script reported: tell the daemon.
+        emit("http", { result: http });
+      }
+    }
     const now = channelState();
     setStatus(now.reason ? `${now.state} (${now.reason})` : now.state);
     if (now.state !== CHANNEL_STATE.open || now.generation === generation || running) return;

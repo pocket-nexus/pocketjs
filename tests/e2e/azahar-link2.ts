@@ -160,13 +160,17 @@ try {
   const devices: HubDevice[] = [];
   let apps: { id: string; output: string; hash: string; home?: boolean }[] = [];
   const devtools: string[] = [];
+  const fetched: string[] = [];
   hub = new LinkHub({
     name: "E2E Hub",
     store: new MemoryStore(),
     port: 0,
     beaconTargets: [{ address: "127.0.0.1", port: LINK2_BEACON_PORT }],
     catalog: () => offers,
-    fetch: async (request) => ({ status: 200, url: request.url, headers: [["content-type", "text/plain"]], body: new TextEncoder().encode("ok") }),
+    fetch: async (request) => {
+      fetched.push(`${request.app} ${request.method} ${request.url}`);
+      return { status: 200, url: request.url, headers: [["content-type", "text/plain"]], body: new TextEncoder().encode("hello from Hub") };
+    },
     daemons: (app) => (app === LINK_CHANNEL_APP ? daemon : null),
     keepScreenshots: true,
     onDevice: (device) => {
@@ -213,6 +217,15 @@ try {
   if (JSON.stringify(seen.sum) !== JSON.stringify({ sum: 42 })) throw new Error(`wrong reply from the applet: ${JSON.stringify(seen.sum)}`);
   if (seen.generation < 1 || typeof report.ticks !== "number") throw new Error(`wrong channel facts: ${JSON.stringify({ generation: seen.generation, ticks: report.ticks })}`);
   pass(`applet channel generation ${seen.generation}: request, a 48,000-byte response stream, a 3,000-byte event stream, cancel, the daemon's request, ${report.ticks} tick event(s)`);
+
+  // The applet's worker fetched through the link: Hub performed the request.
+  await until(() => seen.http?.startsWith("200"), `the worker's net.http outcome`, 30_000).catch((error) => {
+    throw new Error(`${(error as Error).message}; last ${JSON.stringify(seen.http)}, Hub fetched ${JSON.stringify(fetched)}`);
+  });
+  if (seen.http !== "200 14 hello from Hub" || fetched[0] !== `${LINK_CHANNEL_APP} GET http://link-channel.test/hello?from=worker`) {
+    throw new Error(`wrong net.http: ${JSON.stringify(seen.http)} for ${JSON.stringify(fetched)}`);
+  }
+  pass(`net.http from the worker: ${fetched[0]} gave ${seen.http}`);
 
   const shot = await device.screenshot();
   const [top, bottom] = shot.surfaces;

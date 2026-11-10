@@ -31,10 +31,12 @@ export interface LinkChannelSeen {
   report: Record<string, unknown> | null;
   sum: unknown;
   blobHash: number;
+  /** The worker's HTTP outcome, "<status> <bytes> <body>". */
+  http: string | null;
 }
 
 export function linkChannelDaemon(): { daemon: LinkDaemon; seen: LinkChannelSeen } {
-  const seen: LinkChannelSeen = { channels: 0, generation: 0, hello: null, note: null, report: null, sum: null, blobHash: 0 };
+  const seen: LinkChannelSeen = { channels: 0, generation: 0, hello: null, note: null, report: null, sum: null, blobHash: 0, http: null };
   const daemon: LinkDaemon = {
     attach(channel: AppletChannel, info) {
       seen.channels += 1;
@@ -53,6 +55,9 @@ export function linkChannelDaemon(): { daemon: LinkDaemon; seen: LinkChannelSeen
           (value) => (seen.sum = value),
           (error) => (seen.sum = { error: String(error) }),
         );
+      });
+      channel.onEvent("http", (args) => {
+        seen.http = typeof args.result === "string" ? args.result : null;
       });
       channel.onEvent("note", (_args, stream) => {
         if (!stream) return;

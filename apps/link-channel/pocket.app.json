@@ -11,7 +11,9 @@
         "input.buttons",
         "display.auxiliary",
         "input.touch.auxiliary",
-        "link.channel"
+        "link.channel",
+        "runtime.worker",
+        "net.http"
       ]
     }
   },
@@ -22,16 +24,42 @@
     "surfaces": {
       "auxiliary": {
         "fixed": {
-          "logical": [320, 240],
+          "logical": [
+            320,
+            240
+          ],
           "presentation": "native"
         }
       }
     },
     "viewport": {
       "fixed": {
-        "logical": [400, 240],
+        "logical": [
+          400,
+          240
+        ],
         "presentation": "native"
       }
+    }
+  },
+  "domains": {
+    "worker": {
+      "entry": "apps/link-channel/worker.ts",
+      "nodes": [
+        {
+          "name": "http",
+          "kind": "http"
+        }
+      ],
+      "channels": [
+        {
+          "name": "http",
+          "kind": "snapshot",
+          "direction": "worker-to-ui",
+          "recordBytes": 96,
+          "capacity": 1
+        }
+      ]
     }
   }
 }
