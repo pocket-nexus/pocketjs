@@ -312,7 +312,12 @@ static void drain_shot(void) {
     uint32_t take = AGENT_SHOT_BYTES - shot_sent;
     if (take > DATA_CHUNK) take = DATA_CHUNK;
     size_t sent = link2_host_stream_send(shot_stream, shot_pixels + shot_sent, take, shot_sent + take == AGENT_SHOT_BYTES);
-    if (sent == 0) return;
+    if (sent == 0) {
+      /* No credit or room now: next frame. A stream Hub reset, or one the
+       * link dropped under, takes no more and the shot ends here. */
+      if (!link2_host_stream_live(shot_stream)) shot_streaming = false;
+      return;
+    }
     shot_sent += (uint32_t)sent;
   }
   shot_streaming = false;

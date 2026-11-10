@@ -56,6 +56,10 @@ static FILE *push_file;
 static uint64_t push_hash;
 static bool push_ready;   /* whole, and not yet taken by the main loop */
 static bool push_pending; /* taken: the admission's report is due */
+static uint64_t push_taken_ms;
+/* An admission reports within a boot and a frame; past this the staging file
+ * is free again, so one lost report cannot refuse every later push. */
+#define PUSH_REPORT_MS 60000u
 
 /* runtime.native.install */
 static uint32_t native_offset;
@@ -284,6 +288,7 @@ bool link2_host_take_upload(uint64_t *declared_hash) {
   if (!push_ready) return false;
   push_ready = false;
   push_pending = true;
+  push_taken_ms = services_host_ms();
   *declared_hash = push_hash;
   return true;
 }
@@ -601,6 +606,10 @@ bool link2_host_stream_end(uint32_t id) {
   return client == NULL || link2_event_stream_end(client, id);
 }
 
+bool link2_host_stream_live(uint32_t id) {
+  return client != NULL && link2_event_stream_live(client, id);
+}
+
 // ---------------------------------------------------------------------------
 // DevTools, logs
 // ---------------------------------------------------------------------------
@@ -770,6 +779,7 @@ void link2_host_pump(void) {
   link2_pump(client);
   link_http_pump();
   if (channel >= 0) link2_channel_frame(client, channel);
+  if (push_pending && services_host_ms() - push_taken_ms > PUSH_REPORT_MS) push_release();
 }
 
 void link2_host_shutdown(void) {
@@ -872,6 +882,10 @@ size_t link2_host_stream_send(uint32_t id, const uint8_t *bytes, size_t length, 
 bool link2_host_stream_end(uint32_t id) {
   (void)id;
   return true;
+}
+bool link2_host_stream_live(uint32_t id) {
+  (void)id;
+  return false;
 }
 
 #endif /* POCKETJS_LINK */

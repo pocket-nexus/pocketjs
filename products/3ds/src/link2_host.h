@@ -101,5 +101,7 @@ bool link2_host_stream_open(uint32_t id, const char *json, size_t length);
 size_t link2_host_stream_send(uint32_t id, const uint8_t *bytes, size_t length, bool end);
 /* True when the END is queued or the stream is gone. */
 bool link2_host_stream_end(uint32_t id);
+/* False once the stream ended, Hub reset it or the link dropped. */
+bool link2_host_stream_live(uint32_t id);
 
 #endif
