@@ -145,6 +145,53 @@ static bool on_push_commit(void *context, Link2Json *members, Link2Failure *fail
   return true;
 }
 
+/* --deferred: the host admits a package and captures a frame at a later
+ * pump, as a program does at its own frame boundary, and reports through
+ * link2_push_staged, link2_push_result and link2_screenshot_ready. */
+static bool deferred;
+static int admit_in;
+static int capture_in;
+
+static bool on_push_admit(void *context, Link2Failure *failure) {
+  (void)context;
+  (void)failure;
+  say("push-admit %u %u", staged.bytes, staged.crc);
+  admit_in = 6;
+  return true;
+}
+
+static bool on_shot_request(void *context) {
+  (void)context;
+  say("shot-request");
+  capture_in = 4;
+  return true;
+}
+
+static uint32_t shot_at;
+static void deferred_tick(Link2 *link) {
+  if (admit_in > 0) {
+    admit_in -= 1;
+    if (admit_in == 3) link2_push_staged(link, "guest booted; waiting for retired frame");
+    if (admit_in == 0) {
+      if (staged.reject) {
+        Link2Failure failure = {"rejected", "the guest threw from its first frame"};
+        link2_push_result(link, false, NULL, 0, &failure);
+      } else {
+        static const char members[] = "\"generation\":5,\"message\":\"first frame retired\",\"app\":{\"id\":\"dev.example.pushed\",\"output\":\"pushed\",\"title\":\"Pushed\"}";
+        link2_push_result(link, true, members, sizeof members - 1, NULL);
+      }
+      say("push-result %s", staged.reject ? "rejected" : "accepted");
+    }
+  }
+  if (capture_in > 0 && --capture_in == 0) {
+    static const char members[] =
+      "\"frame\":778,\"format\":\"bgr8-rotated\",\"surfaces\":[{\"name\":\"top\",\"width\":400,\"height\":240,\"bytes\":288000},"
+      "{\"name\":\"bottom\",\"width\":320,\"height\":240,\"bytes\":230400}]";
+    shot_at = 0;
+    say("shot-ready %d", link2_screenshot_ready(link, members, sizeof members - 1, 778, SHOT_BYTES) ? 1 : 0);
+  }
+}
+
 static void on_push_abort(void *context) {
   (void)context;
   say("push-abort %u", staged.bytes);
@@ -200,7 +247,6 @@ static void on_restart(void *context) {
   say("restart");
 }
 
-static uint32_t shot_at;
 static bool on_shot_begin(void *context, Link2Json *members, uint32_t *frame, uint32_t *bytes) {
   (void)context;
   shot_at = 0;
@@ -823,6 +869,7 @@ int main(int argc, char **argv) {
   for (int i = 3; i + 1 < argc; i += 2) {
     if (strcmp(argv[i], "--payload") == 0) host.max_payload = (uint32_t)atoi(argv[i + 1]);
     if (strcmp(argv[i], "--speed") == 0) speed = (unsigned)atoi(argv[i + 1]);
+    if (strcmp(argv[i], "--deferred") == 0) deferred = true;
     if (strcmp(argv[i], "--channels") == 0) host.max_channels = (uint32_t)atoi(argv[i + 1]);
     if (strcmp(argv[i], "--features") == 0) {
       feature_count = 0;
@@ -857,6 +904,10 @@ int main(int argc, char **argv) {
   host.launch = on_launch;
   host.restart = on_restart;
   host.screenshot_begin = on_shot_begin;
+  if (deferred) {
+    host.push_admit = on_push_admit;
+    host.screenshot_request = on_shot_request;
+  }
   host.screenshot_read = on_shot_read;
   host.screenshot_end = on_shot_end;
   host.catalog_page = on_catalog_page;
@@ -882,6 +933,7 @@ int main(int argc, char **argv) {
   while (!quit) {
     read_commands();
     link2_pump(client);
+    deferred_tick(client);
     size_t length = 0;
     for (const char *line = link2_devtools_poll(client, &length); line != NULL; line = link2_devtools_poll(client, &length)) {
       char t[16] = "", id[40] = "";

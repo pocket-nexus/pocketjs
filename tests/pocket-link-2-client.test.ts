@@ -361,6 +361,39 @@ describe("Pocket Link 2 C client against the reference Hub", () => {
     await c.quit();
   });
 
+  it("a host that admits and captures at its own frame boundary: the push replies at the admission's outcome, the screenshot at the capture", async () => {
+    const c = await start({ args: ["--deferred", "1"] });
+    await c.line(/^linked /);
+    const device = await c.device();
+    const file = pattern(300_000, 4);
+    const events: Json[] = [];
+    const pushed = await device.push(file, "00000000000000aa", (event) => events.push(event));
+    // The REPLY waits for the host's report; `staged` carries the host's message.
+    expect(pushed).toMatchObject({ phase: "accepted", hash: "00000000000000aa", generation: 5, message: "first frame retired", app: { id: "dev.example.pushed" } });
+    expect(events.map((event) => event.phase)).toEqual(["receiving", "received", "staged"]);
+    expect(events[2]).toMatchObject({ message: "guest booted; waiting for retired frame" });
+    expect((await c.line(/^push-admit (\d+) (\d+)$/)).slice(1)).toEqual([String(file.length), String(crc(file))]);
+    await c.line(/^push-result accepted$/);
+
+    c.send("stage reject");
+    await pause(50);
+    await expect(device.push(pattern(5000, 4), "00000000000000bb")).rejects.toMatchObject({ code: "rejected", message: "the guest threw from its first frame" });
+    c.send("stage ok");
+    await pause(50);
+    // The slot of the state-changing request is free again.
+    expect(await device.push(pattern(2000, 4), "00000000000000cc")).toMatchObject({ phase: "accepted" });
+
+    const shot = await device.screenshot();
+    expect(shot.frame).toBe(778);
+    expect(shot.surfaces.map((surface) => surface.bytes)).toEqual([288_000, 230_400]);
+    expect(crc(shot.pixels)).toBe(crc(pattern(518_400, 9)));
+    await c.line(/^shot-ready 1$/);
+    await c.any(/^shot-end 518400$/);
+    // A second capture after the first was freed.
+    expect((await device.screenshot()).frame).toBe(778);
+    await c.quit();
+  });
+
   it("runtime operations through the host's callbacks: push, a refused push, a .3dsx, launch, a screenshot, logs, the apps report", async () => {
     const c = await start();
     await c.line(/^linked /);
