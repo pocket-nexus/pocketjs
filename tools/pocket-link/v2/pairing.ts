@@ -36,10 +36,13 @@ const oneLine = (text: string) => text.replace(/[\r\n]/g, " ");
 
 export const formatDeviceFile = (id: string) => `${id}\n`;
 
-/** Hub's reading at a setup (§3.2 step 1): 16 lowercase hex digits and at
- *  most one newline. Anything else gets a new id. */
+/** Hub's reading at a setup (§3.2 step 1): 16 lowercase hex digits, with any
+ *  trailing run of newline, carriage return and space, which is what the
+ *  device's own reader strips (`link.c` `load_device_id`). Hub keeps every
+ *  file the device reads as an id: minting a new id for one would cost every
+ *  other pairing of the card. Anything else gets a new id. */
 export function parseDeviceFile(text: string): string | null {
-  const id = text.endsWith("\n") ? text.slice(0, -1) : text;
+  const id = text.replace(/[\n\r ]+$/, "");
   return isLinkId(id) ? id : null;
 }
 

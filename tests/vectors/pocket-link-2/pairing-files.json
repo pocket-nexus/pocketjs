@@ -36,8 +36,18 @@
       "id": "0123456789abcdef"
     },
     {
-      "name": "two newlines",
+      "name": "two newlines, as the device's reader strips them",
       "text": "0123456789abcdef\n\n",
+      "id": "0123456789abcdef"
+    },
+    {
+      "name": "a CRLF line end and a space",
+      "text": "0123456789abcdef \r\n",
+      "id": "0123456789abcdef"
+    },
+    {
+      "name": "a space inside",
+      "text": "01234567 89abcdef\n",
       "id": null
     },
     {

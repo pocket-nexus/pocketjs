@@ -330,7 +330,9 @@ function pairingFiles() {
     deviceFileReads: [
       { name: "with its newline", text: `${FIXED.device}\n`, id: FIXED.device },
       { name: "without a newline", text: FIXED.device, id: FIXED.device },
-      { name: "two newlines", text: `${FIXED.device}\n\n`, id: null },
+      { name: "two newlines, as the device's reader strips them", text: `${FIXED.device}\n\n`, id: FIXED.device },
+      { name: "a CRLF line end and a space", text: `${FIXED.device} \r\n`, id: FIXED.device },
+      { name: "a space inside", text: "01234567 89abcdef\n", id: null },
       { name: "an uppercase id", text: "0123456789ABCDEF\n", id: null },
       { name: "15 digits", text: "0123456789abcde\n", id: null },
       { name: "empty", text: "", id: null },
