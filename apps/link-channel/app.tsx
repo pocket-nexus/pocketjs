@@ -69,7 +69,9 @@ export default function LinkChannelDemo() {
   const nextFrame = () => new Promise<void>((resolve) => frameWaiters.push(resolve));
   let benchRunning = "";
   let benchTicks = 0;
+  const BENCH_RESULTS = 32;
   const benchResults: BenchResult[] = [];
+  let benchCount = 0;
   onEvent("bench.tick", () => {
     benchTicks += 1;
   });
@@ -161,16 +163,15 @@ export default function LinkChannelDemo() {
         }
       }
       const sentMs = Date.now() - started;
-      let seen: ChannelArgs = {};
-      for (let tries = 0; tries < 600; tries++) {
-        seen = await ask("bench.events.result", {});
-        if (Number(seen.count ?? 0) >= n) break;
-        // The count is read and cleared: put it back by asking until the tail arrives.
-        n -= Number(seen.count ?? 0);
-        await nextFrame();
+      // The daemon's count is read and cleared by each answer: they add up to `n`.
+      let counted = 0;
+      for (let tries = 0; tries < 600 && counted < n; tries++) {
+        const seen = await ask("bench.events.result", {});
+        counted += Number(seen.count ?? 0);
+        if (counted < n) await nextFrame();
       }
       const ms = Date.now() - started;
-      return { k: "eventsUp", n, ms, sentMs, waits, perS: Math.round(n / (ms / 1000)) };
+      return { k: "eventsUp", n, ms, sentMs, waits, got: counted, perS: Math.round(counted / (ms / 1000)) };
     },
     /** `n` events from the daemon, counted as the guest takes them. */
     async eventsDown(n) {
@@ -192,7 +193,10 @@ export default function LinkChannelDemo() {
       bench(n)
         .catch((error) => ({ k: kind, n, ms: 0, error: error instanceof ChannelError ? error.code : String(error).slice(0, 60) }) as BenchResult)
         .then((result) => {
+          // The last results only: a soak that starts a bench a second must not grow the heap.
           benchResults.push(result);
+          if (benchResults.length > BENCH_RESULTS) benchResults.shift();
+          benchCount += 1;
           benchRunning = "";
           say(`bench ${JSON.stringify(result)}`.slice(0, 64));
           request("bench.report", result as unknown as ChannelArgs).reply.catch(() => {});
@@ -200,9 +204,10 @@ export default function LinkChannelDemo() {
       return "started";
     },
     running: () => benchRunning,
-    count: () => benchResults.length,
-    /** One result as JSON, the last when no index is given. */
-    result: (index?: number) => JSON.stringify(benchResults[index ?? benchResults.length - 1] ?? null),
+    /** Benches finished since the applet started. */
+    count: () => benchCount,
+    /** One result as JSON by its number (0 is the first bench), the last when none is given; null once it has left the list. */
+    result: (index?: number) => JSON.stringify(benchResults[index === undefined ? benchResults.length - 1 : index - (benchCount - benchResults.length)] ?? null),
   };
 
   onEvent("tick", () => setTicks((count) => count + 1));

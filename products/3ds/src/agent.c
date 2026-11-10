@@ -250,7 +250,23 @@ static void drain_mic(void) {
     for (uint32_t i = 0; i < take; i += 1) chunk[i] = ring[(ring_tail + i) % MIC_RING_BYTES];
     /* Inside Hub's credit and the send buffer's room: the rest next frame. */
     size_t sent = link2_host_stream_send(mic_stream, chunk, take, false);
-    if (sent == 0) return;
+    if (sent == 0) {
+      /* No credit or room now: next frame. A stream Hub reset, or one that
+       * went 30 s without credit, takes no more: the recording ends here with
+       * nothing sent, so the agent can listen again. */
+      if (!link2_host_stream_live(mic_stream)) {
+        if (listening) {
+          MICU_StopSampling();
+          listening = false;
+          mic_level = 0;
+          stage_set_level(0.0f);
+        }
+        closing = false;
+        ring_tail = ring_head;
+        mic_close();
+      }
+      return;
+    }
     ring_tail += (uint32_t)sent;
   }
   if (closing) {

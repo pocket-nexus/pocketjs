@@ -99,6 +99,7 @@ static bool channel_declared;
 static bool guest_running;
 static char guest_app[LAUNCHER_ID_BYTES];
 static char guest_output[LAUNCHER_OUTPUT_BYTES];
+static char guest_hash[17];
 
 // ---------------------------------------------------------------------------
 // the platform
@@ -292,7 +293,11 @@ static bool on_push_admit(void *context, Link2Failure *failure) {
 
 static void on_push_abort(void *context) {
   (void)context;
+  /* A transfer that stopped part way leaves no staging file; one the main
+   * loop has taken is its to remove. */
+  bool partial = push_file != NULL || push_ready;
   push_release();
+  if (partial) remove(POCKET_RUNTIME_UPLOAD);
 }
 
 bool link2_host_take_upload(uint64_t *declared_hash) {
@@ -307,8 +312,12 @@ bool link2_host_take_upload(uint64_t *declared_hash) {
 
 void link2_host_report_install(const char *phase, uint64_t hash, const char *message) {
   if (client == NULL || phase == NULL) return;
-  /* A package committed as a slot's active one changes the installed set. */
-  if (strcmp(phase, "accepted") == 0) link2_apps_changed(client);
+  /* A package committed as a slot's active one changes the installed set:
+   * the launcher's cached table is read again for the report. */
+  if (strcmp(phase, "accepted") == 0) {
+    launcher_invalidate();
+    link2_apps_changed(client);
+  }
   if (!push_pending || hash != push_hash) return;
   if (strcmp(phase, "staged") == 0) {
     link2_push_staged(client, message);
@@ -339,6 +348,8 @@ void link2_host_report_install(const char *phase, uint64_t hash, const char *mes
   memset(&failure, 0, sizeof failure);
   snprintf(failure.code, sizeof failure.code, "rejected");
   snprintf(failure.message, sizeof failure.message, "%s", message == NULL ? "" : message);
+  /* §6.2: `rejected` says whether the device went back to its last good package. */
+  snprintf(failure.members, sizeof failure.members, "\"phase\":\"%s\"", strcmp(phase, "recovered") == 0 ? "recovered" : "rejected");
   link2_push_result(client, false, NULL, 0, &failure);
   push_release();
 }
@@ -407,7 +418,11 @@ static bool on_native_commit(void *context, const char *name, bool launch, char 
   if (install.launch) {
     /* A file that replaces the running .3dsx is installed as the process
      * exits, and then starts. */
-    if (!arm_launch(install.path, failure)) return false;
+    if (!arm_launch(install.path, failure)) {
+      /* §6.2: the file is on the card and only its start failed. */
+      snprintf(failure->members, sizeof failure->members, "\"installed\":true");
+      return false;
+    }
     snprintf(phase, 16, "launching");
   }
   return true;
@@ -710,7 +725,9 @@ void link2_host_report_log(const char *level, const char *message) {
 
 void link2_host_report_guest_log(const char *level, const char *text, size_t length) {
   if (client == NULL || text == NULL) return;
-  link2_log(client, level == NULL ? "log" : level, "guest", text, length, runtime_frame);
+  /* §6.2 knows debug, info, warn and error: the console's `log` is `info`. */
+  if (level == NULL || (strcmp(level, "debug") != 0 && strcmp(level, "warn") != 0 && strcmp(level, "error") != 0)) level = "info";
+  link2_log(client, level, "guest", text, length, runtime_frame);
 }
 
 void link2_host_set_frame(uint32_t frame) {
@@ -734,6 +751,15 @@ void link2_host_set_runtime(
     LauncherPackage facts = launcher_package(package);
     running_hash = package->guest.package_hash;
     launcher_package_title(&facts, running_title, sizeof running_title);
+    /* The home row of runtime.apps is the home package that runs: a pushed
+     * launcher replaces the embedded one's version and hash. */
+    char id[LAUNCHER_ID_BYTES];
+    launcher_package_app_id(&facts, id, sizeof id);
+    if (home_id[0] != '\0' && strcmp(id, home_id) == 0) {
+      launcher_package_output(&facts, home_output, sizeof home_output);
+      launcher_package_version(&facts, home_version, sizeof home_version);
+      hex16(package->guest.package_hash, home_hash);
+    }
   }
   if (client != NULL) link2_status_changed(client);
 }
@@ -744,10 +770,11 @@ void link2_host_guest_begin(const PocketRuntimePackage *package) {
   snprintf(guest_output, sizeof guest_output, "%s", launcher_current_output());
   channel = -1;
   channel_declared = package != NULL && (package->guest.features & POCKET_GUEST_FEATURE_CHANNEL) != 0;
+  if (package != NULL) hex16(package->guest.package_hash, guest_hash);
   if (client == NULL || !channel_declared) return;
-  char hash[17];
-  hex16(package->guest.package_hash, hash);
-  channel = link2_channel_open(client, guest_app, hash);
+  /* The one place may still be held by the previous guest's close waiting
+   * for room: link2_host_before_frame asks again until it is free. */
+  channel = link2_channel_open(client, guest_app, guest_hash);
 }
 
 void link2_host_guest_end(void) {
@@ -881,7 +908,14 @@ void link2_host_pump(void) {
   if (client == NULL) return;
   pump_timed();
   shot_pump();
-  if (push_pending && services_host_ms() - push_taken_ms > PUSH_REPORT_MS) push_release();
+  if (push_pending && services_host_ms() - push_taken_ms > PUSH_REPORT_MS) {
+    /* The admission never reported: Hub's request ends here, not at its own timeout. */
+    Link2Failure failure;
+    memset(&failure, 0, sizeof failure);
+    fail_with(&failure, "timeout", "the package's admission did not report");
+    link2_push_result(client, false, NULL, 0, &failure);
+    push_release();
+  }
   devstats_set_link(link2_linked(client), link2_stats(client)->links, pushes_taken, shots_taken);
 }
 
@@ -917,6 +951,9 @@ void link2_host_before_frame(void) {
   if (client == NULL) return;
   pump_timed();
   features_apply();
+  /* A guest whose open found the place taken gets its channel once the
+   * previous guest's close has left. */
+  if (channel < 0 && channel_declared && guest_running) channel = link2_channel_open(client, guest_app, guest_hash);
   if (channel >= 0) link2_channel_frame(client, channel);
 }
 

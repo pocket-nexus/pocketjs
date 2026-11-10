@@ -22,7 +22,11 @@
 #define HTTP_BLOCKS (LINK_HTTP_WINDOW / LINK_HTTP_CHUNK)
 
 typedef struct {
-  uint32_t id, head, count;
+  /* `id` is what the worker holds: a number of this file's own counter. `wire`
+   * is the request's id on the link, 0 before it is known and after the
+   * connection it belonged to is gone: the next connection's ids start again,
+   * and a slot the worker has not finished reading must not take them. */
+  uint32_t id, wire, head, count;
   uint64_t received, deadline, max_bytes;
   bool headers, terminal, started, taken;
   int32_t status;
@@ -42,11 +46,30 @@ static Http requests[LINK_HTTP_SLOTS];
  * before link2_http returns the id. */
 static Http *starting;
 
+static uint32_t next_handle;
+
+/* The worker's handle. */
 static Http *find(uint32_t id) {
   for (size_t i = 0; i < LINK_HTTP_SLOTS; ++i)
     if (requests[i].taken && requests[i].id == id && id)
       return &requests[i];
-  return starting != NULL && starting->id == 0 ? starting : NULL;
+  return NULL;
+}
+
+/* The client's id of a request on the connection that is up. */
+static Http *find_wire(uint32_t wire) {
+  for (size_t i = 0; i < LINK_HTTP_SLOTS; ++i)
+    if (requests[i].taken && requests[i].wire == wire && wire)
+      return &requests[i];
+  return starting != NULL && starting->wire == 0 ? starting : NULL;
+}
+
+static uint32_t new_handle(void) {
+  for (;;) {
+    next_handle = next_handle >= (uint32_t)INT32_MAX ? 1 : next_handle + 1;
+    if (find(next_handle) == NULL)
+      return next_handle;
+  }
 }
 
 static void finish(Http *r, int32_t status) {
@@ -57,8 +80,8 @@ static void finish(Http *r, int32_t status) {
 }
 
 static void cancel(Http *r) {
-  if (bound != NULL && r->id != 0)
-    link2_http_cancel(bound, r->id);
+  if (bound != NULL && r->wire != 0)
+    link2_http_cancel(bound, r->wire);
 }
 
 bool link_http_validate(const uint8_t *descriptor, size_t length) {
@@ -142,17 +165,16 @@ int32_t link_http_start(const uint8_t *descriptor, size_t length) {
   starting = r;
   uint32_t id = link2_http(bound, &request);
   starting = NULL;
-  if (id == 0 || id > INT32_MAX) {
-    if (id != 0)
-      link2_http_cancel(bound, id);
+  if (id == 0) {
     memset(r, 0, sizeof *r);
     return -1;
   }
-  r->id = id;
+  r->wire = id;
+  r->id = new_handle();
   r->taken = true;
   r->max_bytes = max_bytes;
   r->deadline = services_host_ms() + timeout + 5000;
-  return (int32_t)id;
+  return (int32_t)r->id;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +184,7 @@ int32_t link_http_start(const uint8_t *descriptor, size_t length) {
 static size_t on_body(void *context, uint32_t request, size_t offset,
                       uint8_t *into, size_t capacity) {
   (void)context;
-  Http *r = find(request);
+  Http *r = find_wire(request);
   if (!r || offset >= r->body_length)
     return 0;
   size_t take = r->body_length - offset;
@@ -175,7 +197,7 @@ static size_t on_body(void *context, uint32_t request, size_t offset,
 static void on_head(void *context, uint32_t request, const char *json,
                     size_t length) {
   (void)context;
-  Http *r = find(request);
+  Http *r = find_wire(request);
   if (!r || r->terminal)
     return;
   JsonSpan object = json_span(json, length), headers, url;
@@ -212,7 +234,7 @@ static void on_head(void *context, uint32_t request, const char *json,
 static void on_data(void *context, uint32_t request, const uint8_t *bytes,
                     size_t length) {
   (void)context;
-  Http *r = find(request);
+  Http *r = find_wire(request);
   if (!r || r->terminal)
     return;
   if (!r->started || length > r->max_bytes - r->received) {
@@ -247,7 +269,7 @@ static void on_data(void *context, uint32_t request, const uint8_t *bytes,
 
 static void on_end(void *context, uint32_t request, const char *error) {
   (void)context;
-  Http *r = find(request);
+  Http *r = find_wire(request);
   if (!r)
     return;
   finish(r, error == NULL && r->started ? POCKET_WORKER_OK
@@ -308,8 +330,8 @@ void link_http_consume(uint32_t id) {
     uint32_t bytes = (uint32_t)r->chunks[r->head].length;
     r->head = (r->head + 1) % HTTP_BLOCKS;
     --r->count;
-    if (bound != NULL && !r->terminal)
-      link2_http_consumed(bound, id, bytes);
+    if (bound != NULL && !r->terminal && r->wire != 0)
+      link2_http_consumed(bound, r->wire, bytes);
   } else if (r->terminal)
     memset(r, 0, sizeof *r);
 }
@@ -337,8 +359,12 @@ void link_http_pump(void) {
 
 void link_http_disconnected(void) {
   for (size_t i = 0; i < LINK_HTTP_SLOTS; ++i)
-    if (requests[i].taken)
+    if (requests[i].taken) {
       finish(&requests[i], POCKET_WORKER_UNKNOWN);
+      /* What the worker has not read yet stays for it; the wire id is the
+       * next connection's to give out again. */
+      requests[i].wire = 0;
+    }
 }
 
 void link_http_reset(void) {

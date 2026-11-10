@@ -1088,30 +1088,33 @@ static void switch_guest(
   teardown_guest();
   release_choice(choice, embedded);
   runtime_failure_lineage_reset(failures);
+  /* The install's report follows the runtime's: its reply names the guest
+   * that runs now (generation, app), not the one that just left. */
+  const char *install_phase = NULL;
+  const char *install_message = "";
+  char error[256] = {0};
+  bool rejected = false;
   if (target->home) {
     runtime_package_free(candidate);
     boot_home(choice, state, embedded, failures);
-    if (report_hash != 0) report_install("accepted", report_hash, "launcher package committed and booted");
+    install_phase = "accepted";
+    install_message = "launcher package committed and booted";
+  } else if (boot_app(choice, state, target, candidate, error, sizeof error)) {
+    install_phase = choice->commit_on_accept ? "staged" : "accepted";
+    install_message = choice->commit_on_accept ? "app booted in its own slot; waiting for retired frame" : "app committed in its own slot and launched";
   } else {
-    char error[256] = {0};
-    if (boot_app(choice, state, target, candidate, error, sizeof error)) {
-      if (report_hash != 0) {
-        if (choice->commit_on_accept) {
-          report_install("staged", report_hash, "app booted in its own slot; waiting for retired frame");
-        } else {
-          report_install("accepted", report_hash, "app committed in its own slot and launched");
-        }
-      }
-    } else {
-      /* The app's slot is still selected when boot_app got that far. */
-      if (strcmp(runtime_slot(), target->slot) == 0) runtime_write_error("boot-guest", error);
-      launcher_report_failure(target->output, error);
-      if (report_hash != 0) report_install("rejected", report_hash, error);
-      boot_home(choice, state, embedded, failures);
-    }
+    /* The app's slot is still selected when boot_app got that far. */
+    if (strcmp(runtime_slot(), target->slot) == 0) runtime_write_error("boot-guest", error);
+    launcher_report_failure(target->output, error);
+    rejected = true;
+    boot_home(choice, state, embedded, failures);
   }
   select_latched = true;
+  /* A rejected package is reported before the home that replaces it boots
+   * into the status: its reply carries no guest. */
+  if (rejected && report_hash != 0) report_install("rejected", report_hash, error);
   report_runtime(state, choice->package, choice->commit_on_accept ? "candidate" : "booted", *run_frame);
+  if (!rejected && report_hash != 0) report_install(install_phase, report_hash, install_message);
   *run_frame += 1;
 }
 

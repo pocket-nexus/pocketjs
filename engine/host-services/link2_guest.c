@@ -116,8 +116,11 @@ static void on_catalog_done(void *context, const char *error) {
   for (size_t i = 0; i < GUEST_CATALOG_WAITERS; i += 1) {
     CatalogWaiter *waiter = &waiters[i];
     if (waiter->id == 0) continue;
-    if (waiter->waits > 1 && error == NULL) {
-      /* The fetch that ended began before this request: the next one answers it. */
+    if (waiter->waits > 1 && (error == NULL || strcmp(error, "closed") != 0)) {
+      /* The fetch that ended began before this request, whether it gave rows
+       * or failed: the client starts the next one now, and that one answers
+       * it. `fetching` stays set, so a call during that fetch waits for one
+       * of its own. Only a link that dropped ends them all: no fetch follows. */
       waiter->waits -= 1;
       more = true;
       continue;
