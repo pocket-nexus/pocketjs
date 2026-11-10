@@ -398,7 +398,7 @@ pocket create my-product --target esp-idf --framework vue-vapor
 | Argument | Accepted values | Default |
 | --- | --- | --- |
 | name | lowercase kebab-case, such as `my-app` | required |
-| `--target` | `psp`, `vita`, `pocketbook`, `web-app`, `macos-app`, `linux-app`, `esp-idf` | `psp` |
+| `--target` | `psp`, `vita`, `web-app`, `esp-idf` | `psp` |
 | `--framework` | `solid`, `vue-vapor`, `octane` | `solid` |
 
 An existing destination is an error. In a checkout, output goes to

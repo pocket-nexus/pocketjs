@@ -9,9 +9,18 @@
 // its only settings (the M5Stack Tab5) also offers scan, join and forget;
 // they are absent elsewhere.
 //
+// A host on a general operating system (Linux with NetworkManager, Android)
+// adapts the same module to it: the system keeps any number of saved
+// connections and reports them all in `saved` (WIFI_SAVED_SLOTS bounds the
+// consoles' own), marks the scanned networks it holds a connection for, and
+// may offer disconnect and its own settings. An op the system refuses its
+// apps returns false with the reason in `error`; openSettings shows the
+// system's own Wi-Fi settings, where that action is done.
+//
 //   status() -> string        JSON WifiStatus, read this call
 //   setEnabled(on) -> bool    turn the radio on or off; false when refused
-//   connect(slot) -> bool     connect through saved connection `slot` (0..2);
+//   connect(slot) -> bool     connect through saved connection `slot`
+//                             (WifiSavedNetwork.slot);
 //                             the result shows in later status() reads
 //   scan() -> bool            start a scan; WifiStatus.networks holds the
 //                             result once WifiStatus.scanning is false
@@ -20,6 +29,10 @@
 //                             network) and save it in a slot once connected,
 //                             replacing the least recently used slot
 //   forget(slot) -> bool      clear saved connection `slot`
+//   disconnect() -> bool      leave the network in use; the radio stays on
+//                             and its saved connection stays
+//   openSettings() -> bool    show the system's own Wi-Fi settings; hosts
+//                             on a system that has them
 //   startAccessPoint(ssid) -> bool
 //                             also serve an open access point named `ssid`
 //                             (1..32 bytes) beside the station connection,
@@ -42,6 +55,8 @@ export const WIFI_STATE = {
 export type WifiState = (typeof WIFI_STATE)[keyof typeof WIFI_STATE];
 
 export interface WifiSavedNetwork {
+  /** The index connect(slot) and forget(slot) take: 0..2 on a console,
+   *  0..saved.length - 1 on a host whose system keeps more. */
   slot: number;
   /** "" when the slot holds no connection. */
   ssid: string;
@@ -83,4 +98,9 @@ export interface WifiNetwork {
   strength: number;
   /** A passphrase is required. */
   secure: boolean;
+  /** Hosts that measure it: the signal, 0..100. */
+  signal?: number;
+  /** Hosts that report it: the system holds a saved connection for this
+   *  network, so connect(slot) reaches it with no passphrase. */
+  saved?: boolean;
 }

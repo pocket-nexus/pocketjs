@@ -84,10 +84,12 @@ pub unsafe trait Device {
         Err(RenderError::Unsupported)
     }
     fn release_texture(&mut self, id: u32);
+    /// `target` is the size in pixels of the target the commands' clips refer to.
     fn submit(
         &mut self,
         vertices: &[Vertex],
         commands: &[Command],
+        target: (i32, i32),
         clear: Option<u32>,
     ) -> Result<Self::Frame, RenderError>;
     fn wait(&mut self) -> Result<(), RenderError>;
@@ -583,6 +585,7 @@ impl<D: Device> GxmRenderer<D> {
         self.device.submit(
             &self.vertices,
             &self.commands,
+            (self.config.width as i32, self.config.height as i32),
             if self.external {
                 None
             } else {
@@ -716,6 +719,31 @@ impl<D: Device> Drop for GxmRenderer<D> {
 
 #[cfg(test)]
 mod tests;
+
+/// What a draw does to vita2d's clip state. vita2d writes the clip rectangle into
+/// the stencil buffer each time it is set or enabled, which costs the GPU a
+/// pass per call, so a draw changes the state only when its clip differs from
+/// the previous draw's, and a clip covering the whole target turns clipping off.
+#[cfg(any(target_os = "vita", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClipChange {
+    Keep,
+    Disable,
+    Set(Clip),
+}
+
+#[cfg(any(target_os = "vita", test))]
+fn clip_change(previous: &mut Option<Clip>, clip: Clip, width: i32, height: i32) -> ClipChange {
+    if *previous == Some(clip) {
+        return ClipChange::Keep;
+    }
+    *previous = Some(clip);
+    if clip.x <= 0 && clip.y <= 0 && clip.x + clip.w >= width && clip.y + clip.h >= height {
+        ClipChange::Disable
+    } else {
+        ClipChange::Set(clip)
+    }
+}
 
 // UINT16_MAX is divisible by three; every native draw stays within vita2d's
 // 16-bit linear index storage and starts at the next complete triangle.

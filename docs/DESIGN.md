@@ -283,7 +283,7 @@ children[], …}`) so reconciler *reads* never cross the FFI. Handles are `i32`
 | setFocus | `(idOr0)` | applies `focus:` variant natively |
 | loadStyles / loadFontAtlas | `(buf …)` | **web/test hosts only** — on PSP, Runtime admits the package and loads its assets into the shared core |
 | measureText | `(str, fontSlot) → width` | JS convenience; layout measures natively |
-| wrapText | `(str, fontSlot, maxW) → u32[]` | soft-wrap break columns for one line (ascending UTF-16 indices, empty = fits): greedy word wrap over the slot's measure provider; native-text hosts install the host text system's wrapper (gpui LineWrapper) and its positions win. Optional — apps fall back to the same greedy rules over measureText |
+| wrapText | `(str, fontSlot, maxW) → u32[]` | soft-wrap break columns for one line (ascending UTF-16 indices, empty = fits): greedy word wrap over the slot's measure provider; native-text hosts install the host text system's wrapper and its positions win. Optional — apps fall back to the same greedy rules over measureText |
 | loadTileTexture | `(pakKey, tileIndex) → handle` | decode ONE tile of a TILESET pak entry (spec.ts) into a CLUT8 texture, host-side — on PSP straight from `.rodata`, zero JS-heap transit. Hosts without it: the runtime falls back to `__pak` + uploadTexture (framework/src/tiles.ts) |
 | freeTexture | `(handle)` | releases a texture slot. Texture handles are **generation-tagged** like node ids (spec `TEX_SLOT_BITS`): a stale handle resolves to nothing and draws nothing — tile churn cannot sample a stranger's texture |
 | uploadImgEntry | `(blob) → handle` | self-contained IMG entry upload (v2: PSM_T8 palette, PackBits-RLE + linear-filter flags parsed core-side) |

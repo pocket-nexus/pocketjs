@@ -107,7 +107,7 @@ jobs:
       - name: Install headless GPU and media libraries
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libasound2-dev libjpeg-turbo8-dev pkg-config
       - name: Format
-        run: cargo fmt --manifest-path Cargo.toml -p pocket-text -p pocket-desktop-host -p pocket3d -p pocket3d-world -p pocket3d-anim -p pocket3d-mesh -p pocket-ui-wgpu -p pocket-wgpu-render -p pocket-sim -- --check
+        run: cargo fmt --manifest-path Cargo.toml -p pocket-text -p pocket3d -p pocket3d-world -p pocket3d-anim -p pocket3d-mesh -p pocket-ui-wgpu -p pocket-wgpu-render -p pocket-sim -- --check
       - name: Test the workspace default members
         run: cargo test --locked --manifest-path Cargo.toml
       # Device crates outside default-members that build on a host, and the

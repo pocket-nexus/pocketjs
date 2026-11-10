@@ -31,7 +31,7 @@ platform-agnostic `#![no_std]` library that owns the retained node tree,
 [taffy](https://github.com/DioxusLabs/taffy) flexbox layout, the style table,
 animation tracks, baked text, and a `DrawList`. Each host compiles that core
 for its architecture and pairs it with a backend: sceGu on PSP, vita2d/GXM on
-Vita, gpui on macOS and Linux, and one deterministic software rasterizer shared
+Vita, wgpu for widgets and Pocket3D overlays, and one software rasterizer shared
 by the browser host and headless Bun.
 
 Two places in the repo decide what you can build for:

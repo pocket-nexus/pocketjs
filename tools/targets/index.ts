@@ -16,7 +16,6 @@ import { TOOLCHAIN_SCHEMA, type ToolchainManifest } from "./toolchain.ts";
 import { HOST_IDS, type HostId, type TargetDescriptor } from "./types.ts";
 
 const MACOS: readonly HostId[] = ["darwin-arm64", "darwin-x64"];
-const LINUX: readonly HostId[] = ["linux-x64", "linux-arm64"];
 
 function registered(
   id: string,
@@ -58,8 +57,6 @@ export const CATALOG: readonly TargetDescriptor[] = [
   registered("vita", "PlayStation Vita"),
   profile("3ds", "Nintendo 3DS", THREE_DS_DEV_TARGET_ID, THREE_DS_DEV_CONTRACTS, HOST_IDS),
   registered("web-app", "Browser", HOST_IDS, compilerOnly("web-app")),
-  registered("macos-app", "macOS app", MACOS, compilerOnly("macos-app")),
-  registered("linux-app", "Linux app", LINUX, compilerOnly("linux-app")),
   registered("macos-widget", "macOS widget", MACOS, compilerOnly("macos-widget")),
 ];
 

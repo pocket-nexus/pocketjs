@@ -376,6 +376,7 @@ unsafe impl Device for VitaDevice {
         &mut self,
         vertices: &[Vertex],
         commands: &[Command],
+        target: (i32, i32),
         clear: Option<u32>,
     ) -> Result<NativeFrame, RenderError> {
         if clear.is_none() && !self.scene_open {
@@ -396,17 +397,20 @@ unsafe impl Device for VitaDevice {
                     self.active_textures.push(command.texture);
                 }
             }
+            // A run of sprites shares one clip: set it once, not once per draw (clip_change).
+            let mut clip = None;
             for draw in draws {
                 if draw.clip.w <= 0 || draw.clip.h <= 0 {
                     continue;
                 }
-                vita2d_set_clip_rectangle(
-                    draw.clip.x,
-                    draw.clip.y,
-                    draw.clip.x + draw.clip.w,
-                    draw.clip.y + draw.clip.h,
-                );
-                vita2d_enable_clipping();
+                match clip_change(&mut clip, draw.clip, target.0, target.1) {
+                    ClipChange::Keep => {}
+                    ClipChange::Disable => vita2d_disable_clipping(),
+                    ClipChange::Set(c) => {
+                        vita2d_set_clip_rectangle(c.x, c.y, c.x + c.w, c.y + c.h);
+                        vita2d_enable_clipping();
+                    }
+                }
                 // vita2d uses a fixed 16-bit ascending index buffer. Split
                 // without breaking triangles or changing painter order.
                 for range in triangle_ranges(draw.count) {

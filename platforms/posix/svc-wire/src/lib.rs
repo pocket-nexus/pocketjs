@@ -1,21 +1,9 @@
-//! SVC WIRE (PKNT) client for the desktop host — the companion channel over
-//! TCP (contracts/spec/spec.ts "SVC WIRE protocol").
+//! SVC WIRE (PKNT) client for POSIX programs over TCP.
+//! Uses the console wire format from contracts/spec/spec.ts and pocket_media::wire.
 //!
-//! `programs/desktop` already answers `svcOpen` from an allowlist and moves
-//! lines through two in-process queues, which is all the note editor needs
-//! because its companion IS the host. An app whose companion is a separate
-//! program — Pocket Term, whose daemon holds the PTYs — needs those queues fed
-//! from a socket instead. That is this module: the same wire the console
-//! speaks (`products/3ds/src/svcwire.c`), the same codec
-//! (`pocket_media::wire`), so one companion serves a 3DS and a desktop
-//! window without knowing which is which.
-//!
-//! Threading follows `platforms/vita/net/src/lib.rs`: a supervisor thread owns
-//! connect/handshake/read and a writer thread owns the socket's send side,
-//! so the fixed-step tick on the main thread only ever moves queues. The
-//! address is given (`--svc-connect host:port`) rather than discovered — a
-//! window opened by the companion already knows where it came from, and UDP
-//! discovery is for consoles that do not.
+//! A supervisor thread owns connect/handshake/read and a writer thread owns
+//! the socket's send side. The fixed-step tick exchanges bounded queues.
+//! The caller supplies the companion address.
 
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -149,14 +137,14 @@ fn supervisor(
     while !shutdown.load(Ordering::Acquire) {
         match connect(addr, app) {
             Ok(stream) => {
-                log::info!("pocket-desktop-host: svc wire connected to {addr}");
+                log::info!("pocket-posix-svc-wire: svc wire connected to {addr}");
                 // Whatever piled up while disconnected is stale input, and a
                 // shell should not receive a keystroke from a minute ago.
                 outbox.clear();
                 let why = serve(stream, lines, outbox, shutdown);
-                log::info!("pocket-desktop-host: svc wire disconnected: {why}");
+                log::info!("pocket-posix-svc-wire: svc wire disconnected: {why}");
             }
-            Err(error) => log::debug!("pocket-desktop-host: svc wire connect {addr}: {error}"),
+            Err(error) => log::debug!("pocket-posix-svc-wire: svc wire connect {addr}: {error}"),
         }
         std::thread::sleep(BACKOFF);
     }
