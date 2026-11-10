@@ -66,7 +66,7 @@ The same functions are exports: `writePacks`, `checkPacks`, `lacking`, `bring`, 
 
 ## LAN delivery to a 3DS
 
-`deliver(client, directory, manifest, { prune, verify })` in `tools/pocket3d-delivery.ts` takes a paired `PocketRuntimeClient`. It checks every piece against its name, opens an HTTP endpoint on the computer that serves the manifest's pieces and its text under a **random 256-bit token**, and sends one control line a step:
+`deliver(client, directory, manifest, { prune, verify })` in `tools/pocket3d-delivery.ts` takes a `DeliveryClient`: the console's address, a control line toward it and the next line from it. **The development connection carried these lines and is gone; Pocket Link 2 has no message for them yet** (`docs/POCKET-LINK.md` §11, question 8), so a program that delivers packs supplies the connection, and on the console the pump (`p3d_delivery_pump`). It checks every piece against its name, opens an HTTP endpoint on the computer that serves the manifest's pieces and its text under a **random 256-bit token**, and sends one control line a step:
 
 | Line (`"t":"pocket3d.packs"`) | The console | Answer |
 | --- | --- | --- |

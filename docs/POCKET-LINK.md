@@ -4,14 +4,15 @@ Pocket Link is the one link between a device's runtime and Pocket Hub on its
 owner's computer, **on every device and every carrier** (§2.0). **The device
 opens one connection to Hub; system messages and one channel per running
 applet share it.** Version 2 replaces Pocket Link 1 and absorbs the 3DS
-development connection (TCP 8131, `products/3ds/src/devserver.c`). It is
-**not compatible with version 1**: version 1's wire, the current 3DS firmware
-and the development connection stop working against it.
+development connection (TCP 8131, `products/3ds/src/devserver.c`), **which is
+removed from the 3DS program and from this repository**. It is **not
+compatible with version 1**: version 1's wire and a 3DS program built for the
+development connection do not work against it.
 
-This page is the specification. The wire constants and types move to
-`contracts/spec/link.ts`, the reference codec, console client and test vectors
-to `tools/pocket-link/` and `tests/vectors/pocket-link-2/`; until those land on
-this branch, this page is the only definition. Statements about version 1 and
+This page is the specification. The wire constants and types are
+`contracts/spec/link2.ts`, the reference codec, endpoints and command line
+`tools/pocket-link/v2/`, the vectors `tests/vectors/pocket-link-2/`, the C
+client `engine/host-services/link2*.c` (§12). Statements about version 1 and
 the development connection cite the code at `becc0e21`.
 
 The first device is the Nintendo 3DS over Wi-Fi, the Old 3DS included
@@ -109,7 +110,9 @@ Pocket Link 1 (`contracts/spec/link.ts`, `tools/pocket-link/protocol.ts`,
 
 The development connection (`contracts/spec/pocket-runtime-wire.ts`,
 `products/3ds/src/devserver.c`, `tools/3ds-runtime-client.ts`,
-`tools/3ds-dev.ts`, and Pocket Hub's development bridge):
+`tools/3ds-dev.ts`, and Pocket Hub's development bridge). **In this
+repository every row is done**: those files are deleted, and the 3DS program
+has no listener (§12.2).
 
 | Development connection | Version 2 |
 | --- | --- |
@@ -133,9 +136,9 @@ The development connection (`contracts/spec/pocket-runtime-wire.ts`,
 | `runtime.native` records | `runtime.native` events and the install reply |
 | `log` records (`devserver_report_log`, the shim's console bridge) | `log` events while `runtime.logs` is on (§6.2) |
 | `eval`, `getTree`, `inspect`, `pause`, `resume`, `step`, `dumpTape`, `devStats`, `replay` | DevTools lines, unchanged |
-| `ui.__dbgActive` / `ui.__dbgConnected` | The DevTools stream exists / `devtools.listen` is on |
+| `ui.__dbgActive` / `ui.__dbgConnected` | The shim's question as it installs, which lists `devtools` for that guest (§12.2) / `devtools.listen` is on |
 | `pocket3d.packs` control lines (`products/3ds/src/packs_delivery.c`) | Not mapped: §11, question 8 |
-| `bun run 3ds:dev pair / discover / push / install / launch / probe / dev` | A thin client of Hub's CLI: Hub's setup writes the pairing, Hub's device list, Hub's runtime operations |
+| `bun run 3ds:dev pair / discover / push / install / launch / probe / dev` | The same commands on the reference Hub's command line (`tools/3ds-dev.ts` over `tools/pocket-link/v2/cli.ts`): `setup` writes the pairing, `devices` lists the records, the rest are the runtime operations. A thin client of Pocket Hub's own command line once Hub has an endpoint (§12.1 item 6) |
 
 ## 2. Carriers and discovery
 
@@ -2492,11 +2495,15 @@ TypeScript console client, as Hub's version 1 tests do with
      access from the computer) needs another way to place the two files.
    **Still open:** that way for a carrier without a file channel, decided
    with the carrier (question 10).
-8. **Pocket3D pack delivery.** `products/3ds/src/packs_delivery.c` takes
-   `pocket3d.packs` control lines over the development connection, pumps
-   `devserver_poll` while it fetches pieces from a temporary HTTP endpoint on
-   the computer, and gives up when `devserver_connected()` turns false
+8. **Pocket3D pack delivery.** `products/3ds/src/packs_delivery.c` took
+   `pocket3d.packs` control lines over the development connection and pumped
+   it while it fetched pieces from a temporary HTTP endpoint on the computer
    (`tools/pocket3d-delivery.ts`). `products/3ds` itself does not call it.
+   **With the development connection gone its lines have no carrier**: the C
+   and the tool remain, the C asks the program that calls it for its pump
+   (`p3d_delivery_pump`), and the tool takes its connection as an interface
+   (`DeliveryClient`); `tests/pocket3d-delivery.test.ts` runs the two
+   against each other as before.
    Options: three Hub-to-device requests (`packs.piece`, `packs.manifest`,
    `packs.prune`) streaming the bytes over the link; an applet channel of
    the program that uses the packs; leave it out of version 2.
@@ -2627,15 +2634,28 @@ against them. The version-1 files go in the change that replaces `link.c`.
    before the cut to 64 (version 1: by title, then 64), every row field is
    bounded, and pages come from a snapshot with a revision (§6.4,
    `paging.ts`). `qr.ts` is no longer part of the link.
-6. Retire with the 3DS client: version 1's files above,
-   `contracts/spec/pocket-runtime-wire.ts`,
-   `tools/3ds-runtime-client.ts`, `tests/3ds-runtime-wire.test.ts`,
-   `tools/3ds-keys.ts` and the `3ds:wire` lease. `tools/3ds-dev.ts` becomes
-   a client of Hub's CLI.
+6. **Done: the development connection's files are retired.**
+   `contracts/spec/pocket-runtime-wire.ts`, `tools/3ds-runtime-client.ts`,
+   `tools/3ds-keys.ts`, `tests/3ds-runtime-wire.test.ts` and
+   `tests/e2e/azahar-devserver.ts` are deleted, and nothing takes the
+   `3ds:wire` lease (`tools/device-lease.ts` stays for the PSP and the Vita).
+   **`bun run 3ds:dev` is `tools/3ds-dev.ts` over the reference Hub's command
+   line**: `setup` (also spelled `pair`), `devices` (`discover`), `push`
+   (`--app` builds first, `--package` names a file), `install` (`--app`,
+   `--file`), `launch`, `probe` (a status and a screenshot) and `dev`
+   (`serve --panel` with `r`, `i`, `s`, `o`, `q` on keys); every other
+   command goes through unchanged, and a console that never links is told
+   that a program built before Pocket Link 2 cannot. It becomes a client of
+   Hub's own command line when Hub has an endpoint. **Version 1 of the link
+   stays in the tree** (`contracts/spec/link.ts`, `tools/pocket-link/*.ts`,
+   `engine/host-services/link.c`): the PSP's USB carrier and pocket-m5 use
+   it (questions 9 and 10).
 7. **Built: a command line on the reference Hub**, `bun run link2`
    (`tools/pocket-link/v2/cli.ts`), which drives a real device until Hub's
-   own endpoint exists and stands alone meanwhile; item 6's switch of
-   `3ds:dev` is a later change. `store.ts` keeps the Hub's identity and one
+   own endpoint exists and stands alone meanwhile (`bun run 3ds:dev` is
+   built on it, item 6). `serve --panel` serves the Pocket DevTools panel
+   and carries its lines on the device's DevTools stream; an unsolicited
+   screenshot reaches the panel as a PNG. `store.ts` keeps the Hub's identity and one
    record per device under `$POCKETJS_LINK_HOME`, else `~/.pocketjs/link/`
    (folders **0700**, files **0600**, each written through a temporary file
    and a rename; no command prints a key). `ftp-storage.ts` is the setup's
@@ -2768,23 +2788,53 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   installed app. It needs Azahar and a window, so it stays out of
   `bun tools/test.ts`.
 
+**The program has no development connection.** `devserver.c`,
+`dev_protocol.c`, the `dev.key` load and the listener on TCP and UDP 8131 are
+removed; the link is its only connection to a computer for development, and
+`tests/e2e/azahar-link2.ts` checks that port 8131 is closed. What the
+development server did beyond the connection has a place:
+
+- **Frame timing and counters** (`OP.debugStats`, `ui.__dbgFrames`) are
+  `products/3ds/src/devstats.c`; `net` in the snapshot holds the link's
+  `connected`, `connects`, `uploads` and `screenshots`.
+- **The dev menu** reads a snapshot `link2_host.c` fills (linked, paired,
+  the console's address and device id, generation, running hash, counts).
+- **The dev menu's `X` and the shim's `ui.__dbgShot`** send the capture as
+  an unsolicited `runtime.screenshot` event with a stream of its own (§6.2):
+  `link2_host_request_screenshot` takes the same GPU-idle transfer, opens
+  the stream with `link2_event_stream` and sends as credit allows; Hub's
+  `RESET` or a dropped link frees the linear buffers.
+- **`devtools` is listed while the running guest has the shim.** The shim
+  asks `ui.__dbgActive` once as it installs, which is how the program
+  learns of it (`link2_host_devtools_active`); a guest that has not asked by
+  its first frame drops the group (`link2_host_before_frame`), so a switch
+  between two guests with the shim sends no `features` event, and an eval
+  toward a guest without one is not left to its 30 s timeout. **The client
+  allocates the DevTools buffers only when the list given to `link2_create`
+  names `devtools`**, so the program creates it with the group and takes it
+  out before the first `hello`.
+- **`native.c`** takes its name check and CRC-32 from `link2_proto`
+  (`link2_valid_native_name`, `link2_crc32`); the service wire reads its own
+  little-endian fields; the sockets come up in `main.c` (`soc_ensure`), with
+  the retry every 5 s the development server's start had.
+- **Run on a New 3DS XL (2026-11-10):** the build was installed over the
+  link under a second file name and linked 3 s after its restart; a UDP
+  discovery request to port 8131 got no answer; status, apps, eval, a
+  screenshot, a push, log lines, a catalog install, the demo's channel
+  script with its five HTTP requests, 1 MiB each way on the channel (**589
+  and 567 KB/s**) and a panel's screenshot through the shim (**1.3 s** from
+  the panel's line to its PNG) all passed.
+
 **Not yet done in the program:**
 
-- **The development connection is still there** (item 4): runtime
-  operations exist on both paths until a real device has run on the link
-  alone.
-- **`devtools` is listed whatever guest runs.** The `features` event at a
-  guest switch (§6.1) is not sent; an eval toward a guest without the shim
-  ends at its 30 s timeout.
-- **The dev menu's unsolicited screenshot** goes to the development
-  connection only.
 - **A product extension's own link feature** (`pocket_extension_link_feature`,
   `<feature>.audio`) is in use only when Hub lists that feature; the
   reference Hub lists none, and extensions' messages move to applet
   channels.
+- **Pocket3D pack delivery** has no carrier (question 8).
 
-**The whole change, as planned** (of this list, the modules above cover
-items 1, 2, 3, 5 and 6; items 4 and 7 remain):
+**The whole change, as planned** (every item of this list is covered by the
+modules above):
 
 1. `link_proto.c/h`: version-2 constants, preamble, header read and write,
    beacon, proofs; the URI parser goes; tested from the vectors in `tests/3ds-link.test.ts`
