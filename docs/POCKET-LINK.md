@@ -250,7 +250,12 @@ console gives two consoles the same `device.txt` and key; each reaches
 `ready` and replaces the other about once a second. **Hub counts a
 replacement only when the older connection is alive**: at the replacement it
 sends the older connection a `PING` and waits **2 s** for the `PONG` before
-it writes `CLOSE` `replaced`; the new connection is in use meanwhile. A
+it writes `CLOSE` `replaced`. **At the new connection's `ready` the older
+connection's requests, streams and channels end** as they do at a
+connection loss (§7.5: one close notice per channel to its daemon), and
+frames that still arrive on the older socket are discarded; **only its
+socket stays open, for the `PONG`**. A daemon therefore never holds two
+generations of one applet of one device id. A
 half-open connection left by a Wi-Fi drop answers nothing and is not
 counted, so one console at the edge of its range is never taken for two.
 **After 3 counted replacements of one device id within 30 s, Hub answers
@@ -304,20 +309,36 @@ as the SD card mounted in the computer's reader**:
    writes nothing and tells the owner to remove a computer on the device
    (`link.forget`) or to delete one of the files: the device reads at most 8.
    A leftover `<hub id>.new` of this Hub (step 4) is deleted here.
-3. **Read `companions/<hub id>.txt`.** **Hub first discards every candidate
-   of its record that the file does not hold**; a file that holds no
-   candidate, or is missing or damaged, leaves the record without a key.
-   When the file's key is the record's key, the key is not written again:
-   Hub compares the file's `address=` and `port=` with its own, and **when
-   either differs it rewrites the file with the same key and the new values
-   (step 4's write) and deletes `companions/<hub id>.last`** (§3.6), so the
-   device's next start tries the address Hub has now.
+3. **Read `companions/<hub id>.txt`.** The read has three outcomes, and Hub
+   tells them apart:
+   - **The read failed** (the FTP data connection dropped, the transfer
+     timed out, the card reported an I/O error): **the setup ends here,
+     reported as failed, and Hub's record stays as it was.** A failed read
+     says nothing about the file, so no candidate is discarded for it.
+   - **The storage answered that the file is absent** (ftpd's reply to a
+     missing file, "no such file" from the mounted card), or the file was
+     read whole and holds no valid `key=` line: the file holds no
+     candidate.
+   - The file was read whole and holds a key.
+
+   **After a completed read Hub discards every candidate of its record that
+   the file does not hold**; a file that is absent or holds no candidate
+   leaves the record without a key. When the file's key is the record's key,
+   the key file is left alone: Hub compares the `address=` and `port=` the
+   device would use (the `.last` file's when it exists and parses, else the
+   key file's, §3.6) with its own, and **when either differs it writes
+   `companions/<hub id>.last` with the name, address and port it has now**
+   (to a temporary file renamed over the old one, then read back), so the
+   device's next start tries that address. **An address change never
+   rewrites the key file**, so it cannot cost the pairing.
 4. Otherwise Hub mints a key and **stores it in its record as a candidate
    before it writes** (below). **The write goes to `companions/<hub id>.new`,
    which Hub reads back and compares byte for byte; only after a match does
    it delete `<hub id>.txt` and rename `.new` to it**, then read
    `<hub id>.txt` and `device.txt` back once more. A match makes the
-   candidate the record's key. The device never loads a `.new` file (its
+   candidate the record's key. **A new key file carries Hub's current
+   address, so this step ends by deleting `companions/<hub id>.last`**
+   (§3.6): a stale last address must not shadow it. The device never loads a `.new` file (its
    name does not end in `.txt`), so a transfer cut midway leaves the old key
    file whole.
 
@@ -326,13 +347,17 @@ failed**, with the step that failed, and Hub's device status shows the
 device as "setup not confirmed" until a `ready` or a later setup settles it.
 
 **A write whose outcome Hub cannot read back leaves two candidate keys.**
-The interruption can fall in three places: before the rename (the file
-holds the old key, or no file exists yet), between the delete and the rename
-(no `.txt` file exists; the device has no pairing with this Hub until the
-next setup, whose step 2 removes the `.new` and whose step 4 writes again),
-or after the rename (the file holds the new key while Hub cannot confirm
-it). Hub's record keeps both keys meanwhile: the key it had, when it had
-one, and the candidate.
+What a power cut or a lost connection leaves on the card, by the step it
+falls in:
+
+| Cut during | The card holds | Result |
+| --- | --- | --- |
+| the write of `<hub id>.new` | the old key file whole (or none, at a first setup), and a partial `.new` | the pairing is unchanged; the next setup's step 2 removes the `.new` |
+| between the delete and the rename | no `<hub id>.txt`, and a whole `.new` | **no pairing with this Hub until the next setup**, whose step 2 removes the `.new` and whose step 4 writes again; this setup is reported as failed |
+| after the rename | the new key | the two candidates settle at the first `ready` (below) |
+
+Hub's record keeps both keys meanwhile: the key it had, when it had one,
+and the candidate.
 
 - At a connection of that device Hub proves with **one** candidate, the
   newer first.
@@ -456,7 +481,7 @@ the key learns no proof it can replay.
 | --- | --- | --- |
 | Device | `device.txt` | the device id (§3.1). A device that starts without the file makes one, as version 1 does; Hub's setup reads it before it writes a pairing (§3.2) |
 | Device | `companions/<companion id>.txt`, at most 8 | `key=` (64 hex), and the `name=`, `address=`, `port=` Hub knew when it wrote the file. **Written by Hub's setup alone; the device opens it for reading only** |
-| Device | `companions/<companion id>.last` | `name=`, `address=` (last IPv4), `port=`: what the last `ready` gave. **The device writes it only when a value changed**, to a temporary file that it renames over the old one. Its values replace the key file's when it exists and parses; a missing or damaged `.last` falls back to the key file's. **Hub's setup deletes it when it rewrites the key file's address or port** (§3.2 step 3), so a stale last address never outlives a setup |
+| Device | `companions/<companion id>.last` | `name=`, `address=` (last IPv4), `port=`: what the last `ready` gave. **The device writes it only when a value changed**, to a temporary file that it renames over the old one. Its values replace the key file's when it exists and parses; a missing or damaged `.last` falls back to the key file's. **Hub's setup writes it with Hub's current name, address and port when the device would use another address** (§3.2 step 3), so a stale last address never outlives a setup, and a new key file's write (§3.2 step 4) deletes it |
 | Hub | its id | 8 random bytes as 16 lowercase hex digits, made once |
 | Hub | one record per paired device, in a file of mode **0600** | `id`, `name`, `model`, `key` (64 hex), a second candidate key while a setup is unconfirmed (§3.2), `target`, `hostAbi`, `lastAddress`, `lastSeen` |
 | Hub | one counter for the whole Hub, stored beside the records | `lastGeneration` (§7.4) |
@@ -781,7 +806,7 @@ most of a minute and its client had to allow 180 s of silence.
 | `REQUEST` with an unknown `t` | `REPLY` `ERROR` `unknown_message`. Version 1 ignored unknown `t` values (`link.c` `handle_ctrl`), which left the requester waiting for its timeout |
 | `EVENT` with an unknown `t`, or unparsable | ignored; **when its header id is a fresh id of the sender's range, the receiver answers `RESET` `refused` for that id**, so a sender that opened a stream with it does not wait for credit (§5.3) |
 | `REPLY`, `CANCEL`, `DATA`, `CREDIT`, `RESET` for an id the receiver does not hold | ignored (a cancelled or closed id, or one of a closed channel); `DATA` past credit for a held id closes with `flow` |
-| `EVENT` without `APP` whose non-zero id names nothing held and is not a fresh id of the sender | ignored whatever its `t`: late progress, for instance one that crossed a `channel.close` (§5.3, step 3) |
+| `EVENT` without `APP` whose non-zero id is of the receiver's own range and names nothing held | ignored whatever its `t`: late progress, for instance one that crossed a `channel.close` (§5.3, step 3) |
 | `EVENT` of a channel past the event units its receiver granted | `channel.close` `overflow` for that channel; the link stays (§5.6) |
 | `REQUEST` with `APP` naming a channel that is not open | `REPLY` `ERROR` `no_channel` |
 | `EVENT` with `APP` naming a channel that is not open | ignored; when it opens a stream, `RESET` `refused` |
@@ -818,7 +843,7 @@ A receiver treats an unknown code as `going_away`.
 | --- | --- |
 | `0x00000001`–`0x7fffffff` | the device |
 | `0x80000001`–`0xffffffff` (bit 31 set) | Hub |
-| `0`, `0x80000000` | never allocated; `0` means "no id" in `PING`, `PONG`, `CLOSE`, `HANDSHAKE` and id-less `EVENT` frames |
+| `0`, `0x80000000` | never allocated and **in neither range**; `0` means "no id" in `PING`, `PONG`, `CLOSE`, `HANDSHAKE` and id-less `EVENT` frames. A receiver that tests bit 31 to find an id's range tests for `0x80000000` first: a frame that carries it has a bad id (§4.7) |
 
 The bit-31 rule is version 1's for streams the companion opens
 (`contracts/spec/agent.ts` `AGENT_COMPANION_STREAM`), extended to every id Hub allocates.
@@ -826,9 +851,10 @@ The bit-31 rule is version 1's for streams the companion opens
 from one counter, an applet channel's requests and streams included; the
 device takes channel ids from the same counter, and never reuses an id within a connection**, so an
 id names at most one thing on a connection and `CREDIT` needs no type field.
-**The counter ascends, and a side queues the first frame of each id in the
-order it allocated them**, so the ids a receiver sees first from one range
-only grow; §5.3 uses this to tell a fresh id from a late one.
+**The order in which a side queues the first frames of its ids is free**: a
+stream id that a process allocated before a later request's id may reach
+the wire after it (the agent's stream ids travel inside JSON composed ahead
+of the frame, §6.6), and no receiver rule depends on ids growing.
 A side that exhausts its 2^31 − 1 ids closes with `going_away` and
 reconnects. Version 1's device took request and stream ids from one sequence
 too (`link.c` `take_id`).
@@ -899,17 +925,19 @@ messages), the id of an open request for progress, the id of a channel for
    applet's and is never read as the system event of that name.
 2. **The frame carries the `APP` flag**: it is read by its flag and its
    channel id (below).
-3. **The header id is not 0, names nothing the receiver holds (no open
-   request, channel or stream) and is not a fresh id of the sender's range:
-   the event is ignored, whatever its `t`.** This is a late frame: progress
-   for a request the receiver has released, by a reply, a cancel or a
+3. **The header id is a non-zero id of the receiver's own range (§5.1) and
+   names nothing the receiver holds (no open request or channel): the event
+   is ignored, whatever its `t`.** This is a late frame: progress for a
+   request the receiver sent and has released, by a reply, a cancel or a
    `channel.close` that crossed it. Its `t` may be an applet's name that
    equals a system event's (`log`, `features`), so the receiver must not
-   reach step 4 with it. **Each side keeps the highest id it has seen from
-   each range (§5.1)**: an id of the sender's range above that mark is
-   fresh, and an id at or below it, or any id of the receiver's own range,
-   that names nothing held is late. Two u32 values decide it; no per-id
-   memory is kept.
+   reach step 4 with it. **One test of the id's range decides it; the
+   receiver keeps no mark and no per-id memory.** Every late progress event
+   carries an id of the receiver's own range, because progress travels on
+   the id of a request the receiver allocated. **An id of the sender's range
+   that names nothing held goes on to step 4**: the sender never reuses an
+   id (§5.1), so it is fresh and can open a stream, in whatever order the
+   sender queued its first frames.
 4. **Otherwise the event is a system event and its `t` defines what its
    header id means:**
 
@@ -940,11 +968,14 @@ What a receiver does with an id that breaks the rule:
   the "bad id" row of §4.7.
 - An event that reached step 4, of a kind that requires id 0, with a held
   id or a fresh id of the sender: `CLOSE` `protocol`, for the same reason.
-  An id that names nothing held and is not fresh never reaches this rule:
-  step 3 ignored the event.
-- An event naming a request or channel id that the receiver no longer holds
-  (cancelled, replied, closed): **ignored** (step 3), as §4.7 treats late
-  frames for a released id.
+  An id of the receiver's own range that names nothing held never reaches
+  this rule: step 3 ignored the event.
+- An event naming a request id that the receiver no longer holds
+  (cancelled, replied, closed with its channel): **ignored** (step 3), as
+  §4.7 treats late frames for a released id. A `channel.close` whose id
+  names no open channel reaches step 4 when the id is of the sender's range
+  (the device's close crossing Hub's) and is **ignored** there as well: the
+  channel is already closed.
 - A system event with an unknown `t`: ignored. **When its header id is a
   fresh id of the sender's range, the receiver also sends `RESET` `refused`
   for that id**: the sender may have opened a stream with the event, and
@@ -1041,7 +1072,7 @@ Recommended windows (bytes outstanding at a time), against the measured
 | device | `agent.screen`, `agent.glyphs` | the declared `bytes` | the device holds the whole frame or atlas (`agent.c` `own_pixels`, `glyph_bytes`) |
 | device | `net.http` response body | **8 KiB** | `link_http.c` `LINK_HTTP_WINDOW` (8 × 1 KiB worker slots) |
 | device | DevTools stream | free bytes in its line ring | §6.3 |
-| device | the streams of one applet channel, together | **one pool of 16 KiB per channel**, refilled as the guest takes bytes | one frame; the guest takes at most 16 KiB of stream bytes per frame (§7.3), so a larger window would sit in the host's buffer. **The host grants a stream pool bytes only against a `read` the guest has pending on that stream** (§7.3), up to what the pool has free, and returns the bytes to the pool as the guest takes them. A stream nobody reads holds no pool bytes, so it cannot starve a stream the applet is reading, and the device holds 16 KiB per channel however many streams are open |
+| device | the streams of one applet channel, together | **one pool of 16 KiB per channel, and at most 4 KiB outstanding on one stream** (LINK_APP_STREAM_GRANT: the pool divided by the 4 inbound streams of §7.6), refilled as the guest takes bytes | one frame for the pool; the guest takes at most 16 KiB of stream bytes per frame (§7.3), so a larger pool would sit in the host's buffer. **The host grants a stream pool bytes only against a `read` the guest has pending on that stream** (§7.3), for at most what that `read` asked for, what the pool has free and **what keeps the stream's outstanding grant (bytes granted and not yet taken by the guest) at 4 KiB or less**, and returns the bytes to the pool as the guest takes them. A stream nobody reads holds no pool bytes, and **a `read` left pending on a stream whose sender has nothing to send holds 4 KiB, never the pool**, so neither starves a stream the applet is reading. The device holds 16 KiB per channel however many streams are open |
 | Hub | any device stream | **256 KiB**, refilled as it consumes | about 320 ms of bytes at 800 KB/s; Hub's memory is not the limit |
 
 **A window below about 16 KiB caps throughput on this carrier**: with an
@@ -1049,6 +1080,19 @@ Recommended windows (bytes outstanding at a time), against the measured
 most window ÷ 8 ms, which is 1 MB/s for 8 KiB and falls under the carrier's
 speed when a stall of 100 ms delays the grant. The `net.http` window stays
 8 KiB because its consumer is the worker's slots, not the carrier.
+
+**An applet stream runs under the carrier's speed, by this arithmetic and
+not by a measurement.** Its grants follow the guest's reads, and the guest
+reads once per frame: a grant, its bytes and the guest's next turn make a
+cycle of one round trip plus the wait for a frame, about **33 ms** at
+8 ms and a 60 Hz loop. A single stream with the 4 KiB cap then moves about
+4 KiB ÷ 33 ms = **120 KB/s**, and four streams read together share the
+16 KiB pool at about **490 KB/s**, against the carrier's 800 KB/s. A host
+that regrants within a turn as the guest drains (several grants per frame)
+raises the single-stream figure toward the pool's. The pool, the cap and
+the regrant timing are values to calibrate on a device (§13.5); bulk
+transfers that need the carrier's speed are the system streams above, not
+applet streams.
 
 **Applet events are credited by count.** `EVENT` frames take no byte
 credit, and an applet channel's events have no request bound of their own,
@@ -1064,13 +1108,21 @@ direction of a channel has an event window, counted in units:**
   N × 512 bytes of JSON.
 - **A `CREDIT` frame whose id is the channel id grants units, not bytes.**
   No stream carries a channel id (§5.1), so the frame is unambiguous.
-- Credit starts at 0. Hub sends its first grant in the same write as the
-  `REPLY` of `channel.open`; the device sends its own right after it reads
-  that `REPLY`.
+- Credit starts at 0. **Hub queues its first grant after the `REPLY` of
+  `channel.open`, never before it**: a `CREDIT` on that id ahead of the
+  `REPLY` would name a request still open and read as byte credit on it.
+  The device sends its own grant right after it reads that `REPLY`.
 - **The device grants 48 units** (LINK_APP_EVENT_WINDOW, 24 KiB of JSON at
-  most) and regrants the units of each event once the guest has taken it,
-  batched into one `CREDIT` per turn of the device's loop. Hub grants
-  **256 units**, regranted as the daemon reads.
+  most). Hub grants **256 units**.
+- **A receiver regrants an event's units when the event leaves its queue,
+  for any reason**: the guest or daemon took it, the endpoint discarded it
+  (a progress event for a request already cancelled, §5.4; an event of a
+  channel that closed), or the endpoint refused it (an object over
+  LINK_APP_MSG, §4.7; a stream-opening event with no handler, §7.2). The
+  sender spent the units when it sent the event, so a unit that returned
+  only on "taken" would leak with every cancelled request and leave the
+  daemon without units on an open channel. The device batches its regrants
+  into one `CREDIT` per turn of its loop.
 - A sender with too few units for an event keeps it on its own side: Hub
   stops reading that daemon's events from its IPC, and the device's host
   reports "full" to the guest's `emit` or `progress` (§7.3). **A guest that
@@ -1853,7 +1905,7 @@ question 2); its shape:
 | `onProgress(t, args, stream?)`, called for each progress event of the call; `stream` is the response stream, present from the head step on (§7.2) | `EVENT` on the request id; `DATA` on it |
 | `on(t, handler)` for the daemon's requests; the handler gets `(args, call)` and its result is the reply. `call.progress(t, args)` sends a progress event, `call.respond()` returns the stream to write response bytes to after a progress event, `call.body` is the request's body stream | the daemon's `REQUEST` `APP`; the guest's `EVENT`, `DATA` and `REPLY` on its id |
 | `emit(t, args)` and `onEvent(t, handler)`; a handler for an event that opens a stream gets `(args, stream)` | `EVENT` `APP` with id 0, or with a fresh id and its stream; `CREDIT` on the channel id as the guest takes events |
-| a stream handle with `read(into)` / `write(bytes)` / `close()` | `DATA`, `END`, `RESET`; **the host grants `CREDIT` for a stream only while a `read` is pending on it**, for at most the bytes that `read` asked for and the pool has free |
+| a stream handle with `read(into)` / `write(bytes)` / `close()` | `DATA`, `END`, `RESET`; **the host grants `CREDIT` for a stream only while a `read` is pending on it**, for at most the bytes that `read` asked for, the pool has free and the 4 KiB per-stream cap allows (§5.6) |
 | `state()`: `closed`, `opening`, `open`, with the close reason | `channel.open`, `channel.close` |
 
 - **`call.reply` resolves at the `REPLY`, after the response stream's last
@@ -1861,8 +1913,9 @@ question 2); its shape:
   `stream` as they come. A call whose response stream the applet does not
   read receives no bytes: no `read` is pending, so no credit is granted,
   and the call ends at the 30 s limit of §5.5. Its stream holds none of the
-  channel's pool meanwhile, so the applet's other streams run at full
-  speed.
+  channel's pool meanwhile. **A `read` left pending on an idle stream (a
+  log tail the daemon has nothing to send on) holds at most 4 KiB of the
+  pool**, so a response the applet reads beside it still gets credit.
 - **A stream the applet has no handler for is reset.** When an event that
   opens a stream names a `t` with no `onEvent` handler, or a handler that
   takes no stream, the guest library closes the stream at once and the host
@@ -1879,9 +1932,11 @@ question 2); its shape:
 - **Three bounded queues hold what waits, per channel** (§7.6), and each
   has a rule for "full":
   - **Stream bytes** sit in the channel's 16 KiB pool, granted against
-    pending reads (§5.6); a stream the guest does not read gets no credit.
+    pending reads with at most 4 KiB outstanding per stream (§5.6); a
+    stream the guest does not read gets no credit.
   - **Events** are bounded by the channel's event window (§5.6): the host
-    regrants units as the guest takes events, so a daemon that outruns the
+    regrants units as events leave its queue (taken, discarded or refused,
+    §5.6), so a daemon that outruns the
     guest waits on Hub's side. **A paused or hung guest keeps its channel**;
     its daemon's events wait at Hub. `channel.close` `overflow` (§7.5)
     answers only an event sent past the granted units.
@@ -1963,10 +2018,10 @@ applet that is running, which gets a new generation. Phases:
 | Open requests per channel, each direction | **8**; one more gets `ERROR` `busy` (§5.2) |
 | Open streams per channel, each direction | **4**, counting every stream that carries bytes in that direction: request bodies, response streams and streams opened by events. One more gets `RESET` `refused`; a request whose body or response stream is refused still ends with its `REPLY` (the daemon's or applet's own, or `busy`) |
 | JSON object in a channel | LINK_APP_MSG = **min(8,192, the payload limit − 4)** bytes |
-| Event window toward the guest, per channel | **48 units** (LINK_APP_EVENT_WINDOW) of one unit per started 512 bytes of JSON, at most 24 KiB held; regranted as the guest takes events; an event past it closes the channel with `overflow` (§5.6) |
-| Event window toward the daemon, per channel | **256 units**, regranted as the daemon reads |
+| Event window toward the guest, per channel | **48 units** (LINK_APP_EVENT_WINDOW) of one unit per started 512 bytes of JSON, at most 24 KiB held; regranted as events leave the host's queue, taken, discarded or refused; an event past it closes the channel with `overflow` (§5.6) |
+| Event window toward the daemon, per channel | **256 units**, regranted as events leave Hub's queue for that daemon |
 | Daemon requests not yet handed to the guest, per channel | **8 KiB** of JSON together, one request whatever its size; one more gets `ERROR` `busy` |
-| Stream bytes held for the guest, per channel | **16 KiB**, one pool for all its inbound streams, granted against pending reads (§5.6) |
+| Stream bytes held for the guest, per channel | **16 KiB**, one pool for all its inbound streams, granted against pending reads, **at most 4 KiB outstanding on one stream** (LINK_APP_STREAM_GRANT, §5.6) |
 | Bytes and messages queued from the guest toward the wire, per channel | **16 KiB**; `write` and `emit` report "full" to the guest past it |
 | Operation name `t` | **64 bytes** |
 | Credit | §5.6; outstanding at most 16 MiB per direction |
@@ -2152,9 +2207,9 @@ phase one.
 | Outstanding credit per stream direction | **16 MiB** | bounds arithmetic and a peer's buffering |
 | Device receive window, bulk | **64 KiB** | four frames on TCP; `LINK_RX_BUDGET` |
 | Device receive window, `net.http` | **8 KiB** | `LINK_HTTP_WINDOW` |
-| Device receive window, applet streams | **16 KiB per channel**, one pool for all its inbound streams | one frame; the guest takes 16 KiB per frame (§7.3) |
+| Device receive window, applet streams | **16 KiB per channel**, one pool for all its inbound streams; **4 KiB** outstanding per stream (LINK_APP_STREAM_GRANT) | one frame; the guest takes 16 KiB per frame (§7.3); the cap keeps a pending read on an idle stream from holding the pool (§5.6) |
 | Stream sender without credit | gives up after **30 s**; the DevTools stream is exempt: Hub drops the held line and keeps the stream | §5.5, §6.3 |
-| LINK_APP_EVENT_WINDOW | **48 units** granted by the device per channel, **256** by Hub; one unit per started 512 bytes of an event's JSON | holds the about 20 events a 100 ms stall releases at 200 events a second; bounds the device's event memory at 24 KiB (§5.6) |
+| LINK_APP_EVENT_WINDOW | **48 units** granted by the device per channel, **256** by Hub; one unit per started 512 bytes of an event's JSON, returned when the event leaves the receiver's queue for any reason | holds the about 20 events a 100 ms stall releases at 200 events a second; bounds the device's event memory at 24 KiB (§5.6) |
 | Hub receive window | **256 KiB** | about 320 ms at 800 KB/s |
 | Device received bytes per pump | **64 KiB** | kept (`LINK_RX_BUDGET`): bounds a frame's link work and SD writes |
 | Device receive buffer | **12 + 16,384 bytes** on TCP | one whole frame of the payload limit it offers |
@@ -2215,7 +2270,7 @@ accept any key order and whitespace, and tests compare parsed values.
 | `handshake-refusals.json` | `unknown_device` (no key; another companion id), `bad_proof`, `malformed` (a `maxPayload` of 512 among them), `busy`; the device's `CLOSE` `auth` after a wrong `challenge.proof` and its 30 s hold; a `ready` with `maxPayload` 512 and the device's `CLOSE` `protocol`; Hub with two candidate keys proving with the newer, then with the other after a `CLOSE` `auth`, and keeping the one that reaches `ready`; a third replacement within 30 s of a connection that answered Hub's `PING`, and the `refused` `busy` that follows; three replacements of connections that answered nothing, after which the device still links; a frame of type `DATA` before `ready` |
 | `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31 |
 | `streams.json` | a `runtime.push` of 100,000 bytes under 64 KiB credit with `END`; bytes past credit and the `CLOSE` `flow`; a grant over 16 MiB; `RESET` `refused` of an `agent.glyphs` stream; a stream short of its declared bytes; an event with an unknown `t` and a fresh id answered `RESET` `refused`; an event stream never granted and its sender's `RESET` `cancelled` at 30 s; a DevTools line held 30 s without credit, dropped with its eval failed and the stream kept |
-| `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY`; **a response of 18,244 bytes: the head event, `DATA` under the 16 KiB pool with one refill, `END`, then the `REPLY`**; a progress event named `log` and one named `features` read as progress; an event that opens a stream; a fifth stream refused with `RESET` `refused` and the request's `REPLY` after it; `CANCEL` answered `cancelled` by Hub for a daemon that does not answer; a JSON object of 8,193 bytes answered `too_large`, and one of 8,189 bytes refused on a connection whose payload limit is 8,192 (LINK_APP_MSG 8,188); the event window: `CREDIT` on the channel id for 48 units, an event of 600 bytes costing 2, progress events counted, the regrant after the guest takes events, a daemon held back with no units and no close, and an event past the units answered `channel.close` `overflow`; a progress event named `log` that crosses the applet's `channel.close` and is ignored; a stream-opening event with no handler answered `RESET` `refused`; two response streams of which the applet reads one, which completes while the other gets no credit; a daemon's bytes refused before any progress event; a daemon request refused `busy` with 8 KiB of requests waiting; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
+| `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY`; **a response of 18,244 bytes: the head event, `DATA` under the 16 KiB pool in grants of at most 4 KiB, `END`, then the `REPLY`**; the same response completing while a `read` of 16 KiB stays pending on an idle event stream, which holds 4 KiB; a request cancelled with its head event on the wire, the event discarded and its unit regranted; a progress event on an id of the receiver's range that names nothing held, ignored; `agent.glyphs` queued after a daemon request with a larger id and its stream still opened; a progress event named `log` and one named `features` read as progress; an event that opens a stream; a fifth stream refused with `RESET` `refused` and the request's `REPLY` after it; `CANCEL` answered `cancelled` by Hub for a daemon that does not answer; a JSON object of 8,193 bytes answered `too_large`, and one of 8,189 bytes refused on a connection whose payload limit is 8,192 (LINK_APP_MSG 8,188); the event window: `CREDIT` on the channel id for 48 units, an event of 600 bytes costing 2, progress events counted, the regrant after the guest takes events, a daemon held back with no units and no close, and an event past the units answered `channel.close` `overflow`; a progress event named `log` that crosses the applet's `channel.close` and is ignored; a stream-opening event with no handler answered `RESET` `refused`; two response streams of which the applet reads one, which completes while the other gets no credit; a daemon's bytes refused before any progress event; a daemon request refused `busy` with 8 KiB of requests waiting; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
 | `features.json` | Hub dropping `agent` with a microphone stream open (the `RESET` before the `features` event) and adding it back; the device dropping `devtools` (stream reset) and adding it back (a new `devtools.open`); Hub dropping `channel` with a channel open (`channel.close` `feature`); a request of a dropped group crossing the event and answered `unsupported`; a second change inside one second sent at its end; a list of 17 entries closing with `protocol` |
 | `keepalive.json` | `PING` / `PONG` echo; a timeline with timestamps where a side closes with `silence` at 10 s, one where a 100 ms gap changes nothing, and one where `DATA` alone keeps the link up |
 | `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` report of 64 rows of ordinary size in one 16 KiB frame, one with every field at its limit in two pages, one cut short by a change and restarted under the next `set`, a page with a wrong `at` after which Hub ignores the rest of that `set`, and a page of an older `set` ignored; a catalog of 64 rows fetched in pages with `after` and `rev` while the offer changes (served from the snapshot), a page request 31 s after the last one answered `changed`, and an offer of 70 apps of which the first 64 by `id` are served; a DevTools stream with a pending eval, then `guest.end`; a Hub-to-device line cut by a guest switch whose tail is discarded up to its `\n`; a `net.http` request and a `net.head` at their encoded limits, a response whose headers Hub drops to fit with `truncated: true`, a `log` event at the 1 KiB floor with `frame` at 2^32 − 1, and a second catalog fetch asked for while one runs, started after it |
@@ -2421,10 +2476,11 @@ contract.
    in both directions with each id's channel, per-stream credit, the
    send-buffer reserve and one-chunk rule (§8.2), `CLOSE`, features, and the
    channel module: `channel.open` / `channel.close`, the `APP` frames, the
-   event lookup by header id with the two highest-id marks (§5.3), the
+   event lookup by header id and by the id's range, with no mark kept (§5.3), the
    mandatory head step, the event window with its `CREDIT` on the channel
-   id and `overflow` past it, the per-channel credit pool granted against
-   pending reads, the `busy` bound on waiting daemon requests, the read
+   id, units returned when an event is taken, discarded or refused, and
+   `overflow` past it, the per-channel credit pool granted against
+   pending reads with 4 KiB outstanding per stream, the `busy` bound on waiting daemon requests, the read
    pause of §8.2, and the guest operations of §7.3. **All of it is C; the guest's part is the calls of
    §7.3.**
 3. A runtime-operations module (for example `products/3ds/src/link_runtime.c`)
@@ -2461,9 +2517,10 @@ over local IPC (§7.7).
    read `device.txt`, list `companions/` and refuse at 8 loadable files,
    discard the candidates the key file does not hold, store the minted key
    as a candidate, write `<hub id>.new`, read it back, delete and rename,
-   read back again, report a setup without a final match as failed, rewrite
-   a changed address and delete `.last`; and the two-candidate handshake
-   until the first `ready`. The duplicate-id count needs the `PING` to the
+   read back again and delete `.last`, report a setup without a final match
+   as failed, end a setup whose read failed with the record untouched, write
+   `.last` alone for a changed address; and the two-candidate handshake
+   until the first `ready`. A new `ready` of a device id ends the older connection's requests, streams and channels at once; the duplicate-id count needs the `PING` to the
    replaced connection (§2.4). It runs beside the step that installs the
    program.
 3. Keepalive and silence; the FIFO writer with the one-chunk rule; credit;
@@ -2567,4 +2624,21 @@ not the carrier's limit; they run at a fifth to a third of §13.1.
 | Microseconds per scan in C | JSON control messages stay (§6.0) |
 | Guest parse times against a 5 ms worker turn | LINK_APP_MSG and the aim of 2 KiB (§7.2); the hand-over of 4 messages or 8 KiB of JSON a frame (§7.3) |
 | 52 ms of JavaScript against 0.083 ms of C for 32 KiB; one segment per `recv` | the endpoint in C, whole messages to the guest (§7.3) |
+
+### 13.5 Values to calibrate on a device
+
+These values were chosen by arithmetic or kept from version 1; none was
+tuned against a running client. An implementation measures each and changes
+it in this page with its number.
+
+| Value | Set at | What to measure |
+| --- | --- | --- |
+| The applet stream pool and the per-stream cap | **16 KiB** and **4 KiB** (§5.6) | throughput of one stream and of four read together, against the estimates of about 120 KB/s and 490 KB/s; whether regranting within a turn lifts the single stream |
+| The event window and its unit | **48** units from the device, **256** from Hub, **512 bytes** a unit (§5.6) | the largest burst a stall releases for a real daemon; device memory held |
+| Daemon requests waiting for the guest | **8 KiB** of JSON per channel (§7.6) | how often two requests back to back meet `busy` (two of 5 KiB do) |
+| The `PING` wait before a replacement counts | **2 s** (§2.4) | the longest `PONG` delay of a live device under load, against the 100 ms stall |
+| Replacements before the duplicate-id refusal | **3 in 30 s** (§2.4) | reconnect rates of one console at the edge of its range |
+| The catalog snapshot's life | **30 s** (§6.4) | the time a device takes to page a full catalog at the 1 KiB floor |
+| The 30 s request stall and stream limit against a guest at a breakpoint | **30 s** (§5.5) | whether a paused guest's open requests should outlive the pause |
+| Every limit that rests on guest speed | LINK_APP_MSG **8 KiB**, the hand-over of **4 messages or 8 KiB** a frame, **16 KiB** of stream bytes a frame (§7.3) | the same parse and copy times on an **Old 3DS**, which this section does not hold |
 
