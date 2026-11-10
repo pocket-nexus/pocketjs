@@ -492,8 +492,8 @@ the key learns no proof it can replay.
 
 | Side | Record | Content |
 | --- | --- | --- |
-| Device | `device.txt` | the device id (§3.1). A device that starts without the file makes one, as version 1 does; Hub's setup reads it before it writes a pairing (§3.2) |
-| Device | `companions/<companion id>.txt`, at most 8 | `key=` (64 hex), and the `name=`, `address=`, `port=` Hub knew when it wrote the file. **Written by Hub's setup alone; the device opens it for reading only** |
+| Device | `device.txt` | the device id (§3.1). A device that starts without the file makes one, as version 1 does; Hub's setup reads it before it writes a pairing (§3.2). **A file that is there and cannot be read, or holds no id, is left as it is**: the device keeps the id it loaded earlier in this run, or holds none and tries no pairing, and its status names the error. A new id would cost every pairing of the card (§3.7); Hub's setup is what replaces such a file (§3.2, step 1) |
+| Device | `companions/<companion id>.txt`, at most 8 | `key=` (64 hex), and the `name=`, `address=`, `port=` Hub knew when it wrote the file. **Written by Hub's setup alone; the device opens it for reading only.** A key file that gives the device no pairing (no `key=` line of 64 hex digits, or more than the 1,023 bytes the C client reads) is named in the device's status |
 | Device | `companions/<companion id>.last` | `name=`, `address=` (last IPv4), `port=`: what the last `ready` gave. **The device writes it only when a value changed**, to a temporary file that it renames over the old one. Its values replace the key file's when it exists and parses, which takes an IPv4 `address=` and a `port=` of 1 to 65535 (a missing `name=` reads as an empty name); a missing or damaged `.last` falls back to the key file's. **Hub's setup writes it with Hub's current name, address and port when the device would use an address that is none of Hub's own, or another port** (§3.2 step 3; over ftpd the test is the FTP connection's local address), and a new key file's write (§3.2 step 4) deletes it first |
 | Hub | its id | 8 random bytes as 16 lowercase hex digits, made once |
 | Hub | one record per paired device, in a file of mode **0600** | `id`, `name`, `model`, `key` (64 hex), `target`, `hostAbi`, `lastAddress`, `lastSeen` |
@@ -793,7 +793,8 @@ reassembly buffer per open message on the device.
   the device measure the round trip with pings outstanding (`link.c` reports
   `rttMs`).
 - **Either side closes with `CLOSE` `silence` after 10 s without receiving a
-  frame of any type.** Any frame counts, so a long transfer keeps the link
+  frame of any type.** Any frame counts, **a frame of an unknown type that
+  the receiver skips (§4.7) among them**, so a long transfer keeps the link
   alive in both directions: the receiver of a stream sends `CREDIT` frames.
 
 The intervals are version 1's (`LINK_PING_MS`, `LINK_SILENCE_MS`; the 10 s
@@ -808,6 +809,10 @@ reserve of its send buffer that no other frame uses (§8.2).** The
 development connection answered a heartbeat only once its send queue was
 empty (`devserver.c` `send_client`), so a `.3dsx` upload held answers off for
 most of a minute and its client had to allow 180 s of silence.
+**On the device the two limits held**: no run closed with `silence`, the
+worst round trip of a request in 21 minutes of one request a second was
+185 ms, and the worst of 1,000 requests back to back was 117 to 435 ms
+across runs (§13.6).
 
 ### 4.7 Unknown and oversized frames
 
@@ -828,6 +833,8 @@ most of a minute and its client had to allow 180 s of silence.
 | `REQUEST` with `APP` naming a channel that is not open | `REPLY` `ERROR` `no_channel` |
 | `EVENT` with `APP` naming a channel that is not open | ignored; when it opens a stream, `RESET` `refused` |
 | `REQUEST` or `EVENT` with `APP` whose JSON object is over LINK_APP_MSG (§7.6) | the request gets `REPLY` `ERROR` `too_large`; the event is dropped, and `RESET` `refused` answers the stream it opens |
+| `REPLY` to a channel's request whose JSON object is over LINK_APP_MSG | the requester's endpoint keeps none of it and gives its caller the error `too_large` in its place |
+| Progress `EVENT` of a channel's request without a string `t`, or over LINK_APP_MSG | dropped, and **its units are returned** as for any event that leaves the queue (§5.6): a sender that counts units would otherwise run out of them |
 
 ### 4.8 Closing the link
 
@@ -1108,7 +1115,7 @@ Recommended windows (bytes outstanding at a time), against the measured
 | device | `agent.screen`, `agent.glyphs` | the declared `bytes` | the device holds the whole frame or atlas (`agent.c` `own_pixels`, `glyph_bytes`) |
 | device | `net.http` response body | **8 KiB** | `link_http.c` `LINK_HTTP_WINDOW` (8 × 1 KiB worker slots) |
 | device | DevTools stream | free bytes in its line ring | §6.3 |
-| device | each inbound stream of an applet channel | **16 KiB per stream** (LINK_APP_STREAM_WINDOW): the bytes granted and not yet received plus the bytes the host holds for the guest never exceed 16 KiB on one stream | one frame; the guest takes at most 16 KiB of stream bytes per frame (§7.3), so a larger window would sit in the host's buffer. **The host grants a stream credit only against a `read` the guest has pending on that stream** (§7.3), for at most what that `read` asked for and what keeps the stream inside its window, and the window opens again as the guest takes bytes. **Each stream has its own window; streams share nothing.** A stream nobody reads is granted nothing, and a `read` left pending on a stream whose sender has nothing to send holds that stream's own 16 KiB of credit and no other stream's, so neither starves a stream the applet is reading. With the 4 inbound streams of §7.6 the device holds **at most 64 KiB** of stream bytes per channel |
+| device | each inbound stream of an applet channel | **32 KiB per stream** (LINK_APP_STREAM_WINDOW): the bytes granted and not yet received plus the bytes the host holds for the guest never exceed 32 KiB on one stream | two frames of the guest's hand-over, which is at most 16 KiB of stream bytes per frame (§7.3): one frame's bytes wait at the host while the next are on the wire. **The host grants a stream credit only while a `read` of the guest is pending on that stream** (§7.3), and it then grants **all the window has free**, whatever length that `read` asked for; the window opens again as the guest takes bytes. A 16 KiB window granted for one `read` at a time measured 227 KB/s on a New 3DS, this rule 618 to 766 KB/s (§13.6). **Each stream has its own window; streams share nothing.** A stream nobody reads is granted nothing, and a `read` left pending on a stream whose sender has nothing to send holds that stream's own 32 KiB of credit and no other stream's, so neither starves a stream the applet is reading. With the 4 inbound streams of §7.6 the device holds **at most 128 KiB** of stream bytes per channel |
 | Hub | any device stream | **256 KiB**, refilled as it consumes | about 320 ms of bytes at 800 KB/s; Hub's memory is not the limit |
 
 **A window below about 16 KiB caps throughput on this carrier**: with an
@@ -1117,19 +1124,22 @@ most window ÷ 8 ms, which is 1 MB/s for 8 KiB and falls under the carrier's
 speed when a stall of 100 ms delays the grant. The `net.http` window stays
 8 KiB because its consumer is the worker's slots, not the carrier.
 
-**An applet stream runs under the carrier's speed, by this arithmetic and
-not by a measurement.** Its grants follow the guest's reads, and the guest
-reads once per frame: a grant, its bytes and the guest's next turn make a
-cycle of one round trip plus the wait for a frame, about **33 ms** at
-8 ms and a 60 Hz loop. A stream then moves about 16 KiB ÷ 33 ms =
-**490 KB/s**, against the carrier's 800 KB/s. **Several streams read
-together share that figure**: the guest takes 16 KiB of stream bytes per
-frame across all of them (§7.3), so four streams move about 490 KB/s
-between them, not each. A host that regrants within a turn as the guest
-drains (several grants per frame) raises the figure toward the carrier's.
-The window, the per-frame hand-over and the regrant timing are values to
-calibrate on a device (§13.5); bulk transfers that need the carrier's
-speed are the system streams above, not applet streams.
+**An applet stream runs near the carrier's speed: a response of 1 MiB and
+of 4 MiB measured 618 to 766 KB/s on a New 3DS, against 700 to 900 KB/s of
+raw TCP (§13.6).** Its grants follow the guest's reads, and the guest reads
+once per frame, so two rules set the rate. **The host pumps the link twice
+a frame**, before the wait for the display and again before the guest's
+turn (§12.2), so bytes that arrived during the wait reach the guest in the
+same frame. **The window is two hand-overs**, so the sender holds credit
+for the next frame's bytes while the guest takes the current ones. With one
+pump and a window of one hand-over granted per `read`, each 16 KiB took a
+grant, a round trip and up to two frames: 227 KB/s measured. **Several
+streams read together share the per-frame hand-over** of 16 KiB of stream
+bytes (§7.3), about 980 KB/s at 60 frames a second, so the carrier bounds
+them together and not the hand-over; four streams read together were not
+measured. The window, the hand-over's message count and the outbound queue
+were set on the device (§13.5 says which values stay estimates). A push,
+an install and a screenshot are system streams with the windows above.
 
 **Applet events are credited by count.** `EVENT` frames take no byte
 credit, and an applet channel's events have no request bound of their own,
@@ -1171,8 +1181,9 @@ direction of a channel has an event window, counted in units:**
 
 The device's window holds what a carrier stall releases at once: a daemon
 that emits 200 events of 200 bytes a second has about 20 waiting after a
-100 ms stall (§13), under the 48 units, and the guest takes 4 messages a
-frame, 240 a second (§7.3).
+100 ms stall (§13), under the 48 units, and the guest takes up to 16
+messages a frame (§7.3): **786 and 818 events a second reached the guest in
+the two measured runs** (§13.6).
 
 **Why credit on every stream.** Version 1 credited `net.stream` alone, with a
 JSON `net.credit` message per released block (`link_http.c` `control`), and
@@ -1227,6 +1238,17 @@ code, and binary where cost scales with bytes moved. Conventions: field names
 in lower camel case; strings UTF-8 with the stated byte limits; 64-bit hashes
 as 16 lowercase hex digits; unknown fields ignored. The tables below list
 each message's fields; a field marked `?` may be absent.
+
+**An object names each key once.** A receiver may take either value of a
+repeated key: the C client's scanner takes the first, an endpoint that
+parses the whole payload (`JSON.parse`) the last, so a sender that repeats a
+key is read differently by the two. **The C client reads the members a
+message defines and does not validate the bytes after the last member it
+reads**; a payload that stops being JSON past that point is acted on by the
+device and answered `malformed` by an endpoint that parses it whole. A `t`
+or a code that holds an escaped NUL (`\u0000`) is read by the C client up
+to that character. None of the three passes admission (§3): the peer that
+sends such a payload holds the pairing key.
 
 ### 6.1 Features
 
@@ -1903,7 +1925,7 @@ progress events as it likes.
   therefore refuses the bytes before they reach the wire**: Hub fails a
   daemon's write on a request it has sent no progress event for, and the
   device's host fails the guest's `call.respond()` the same way. The `REPLY`
-  is queued after the stream's `END` (§5.2) and acts as the trailer. Without this step a response longer than the 16 KiB window would
+  is queued after the stream's `END` (§5.2) and acts as the trailer. Without this step a response longer than the 32 KiB window would
   never complete: the responder would wait for credit, the requester for the
   `REPLY` that sits behind the bytes, and the request would end at the 30 s
   stall.
@@ -1952,7 +1974,7 @@ its functions); its shape:
 | `onProgress(t, args, stream?)`, called for each progress event of the call; `stream` is the response stream, present from the head step on (§7.2) | `EVENT` on the request id; `DATA` on it |
 | `on(t, handler)` for the daemon's requests; the handler gets `(args, call)` and its result is the reply. `call.progress(t, args)` sends a progress event, `call.respond()` returns the stream to write response bytes to after a progress event, `call.body` is the request's body stream | the daemon's `REQUEST` `APP`; the guest's `EVENT`, `DATA` and `REPLY` on its id |
 | `emit(t, args)` and `onEvent(t, handler)`; a handler for an event that opens a stream gets `(args, stream)` | `EVENT` `APP` with id 0, or with a fresh id and its stream; `CREDIT` on the channel id as the guest takes events |
-| a stream handle with `read(into)` / `write(bytes)` / `close()` | `DATA`, `END`, `RESET`; **the host grants `CREDIT` for a stream only while a `read` is pending on it**, for at most the bytes that `read` asked for and the stream's 16 KiB window allows (§5.6). **One `read` is pending per stream at a time, and it completes as soon as any bytes are handed over**, with fewer than it asked for when fewer came; the next `read` opens the window again |
+| a stream handle with `read(into)` / `write(bytes)` / `close()` | `DATA`, `END`, `RESET`; **the host grants `CREDIT` for a stream only while a `read` is pending on it**, for all that the stream's 32 KiB window has free, whatever length that `read` asked for (§5.6). **One `read` is pending per stream at a time, and it completes as soon as any bytes are handed over**, with fewer than it asked for when fewer came; the next `read` opens the window again |
 | `state()`: `closed`, `opening`, `open`, with the close reason | `channel.open`, `channel.close` |
 
 - **`call.reply` resolves at the `REPLY`, after the response stream's last
@@ -1974,7 +1996,7 @@ its functions); its shape:
   opens a stream names a `t` with no `onEvent` handler, or a handler that
   takes no stream, the guest library closes the stream at once and the host
   sends `RESET` `refused` (§7.2).
-- **The host hands the guest, per frame, at most 4 messages (events,
+- **The host hands the guest, per frame, at most 16 messages (events,
   progress events, the daemon's requests and replies) or 8 KiB of
   JSON, whichever comes first, and at most 16 KiB of stream bytes**, and
   takes as much from it. **The host shares the per-frame stream bytes among
@@ -1982,16 +2004,34 @@ its functions); its shape:
   changes each frame, so one saturating stream cannot keep another's held
   bytes untaken until its sender gives up (§5.5). A first message is handed over whatever its size.
   `emit`, `progress` and `write` report "full" when the event window or the
-  16 KiB outbound queue has no room, and the applet tries again in a later
+  stream's 16 KiB outbound queue has no room, and the applet tries again in a later
   frame.
   8 KiB of JSON costs the guest about 2.4 ms of `JSON.parse` on the measured
-  New 3DS (§13) against a worker turn of 5 ms; 4 messages of 8 KiB each
-  would cost about 9.6 ms.
+  New 3DS (§13) against a worker turn of 5 ms. **The JSON bound keeps a
+  frame's parse time, not the message count**: a second message that would
+  take the frame past 8 KiB waits for the next frame. The count was 4 until
+  the device run, where 1,000 small events from a daemon reached the guest
+  at 237 a second with it and at 786 and 818 a second with 16 (§13.6).
+- **A `REPLY` that arrives behind bytes of its response stream waits for
+  them.** The host hands the guest the reply once the stream holds no bytes
+  for it, or once a frame has passed in which the guest did not read the
+  stream; a guest that stops reading gets its reply in the next frame and
+  can still read the rest. **An `END` or a `RESET` that arrives before the
+  guest has taken the head event is kept with the request** and applied
+  when the stream is handed over, so an empty response ends at its first
+  `read`.
+- **Three outcomes of an applet's request are made by the device's host,
+  not by a `REPLY`**: `timeout` after the 30 s stall (§5.5), `cancelled`
+  when no `REPLY` follows the guest's `CANCEL` within 10 s (§5.4), and
+  `too_large` for a `REPLY` over LINK_APP_MSG (§4.7). Each waits in the
+  channel's queue as a reply does; a `REPLY` that arrives after one of them
+  is discarded. **When its channel closes, every pending call of the guest
+  library ends with the error `closed`** (`framework/src/channel.ts`).
 - **Four bounded stores hold what waits, per channel** (§7.6), and each
   has a rule for "full":
-  - **Stream bytes** sit in each stream's own 16 KiB window, granted
-    against pending reads (§5.6); a stream the guest does not read gets no
-    credit, and 4 inbound streams hold at most 64 KiB.
+  - **Stream bytes** sit in each stream's own 32 KiB window, granted
+    while a read is pending (§5.6); a stream the guest does not read gets no
+    credit, and 4 inbound streams hold at most 128 KiB.
   - **Events** are bounded by the channel's event window (§5.6): the host
     regrants units as events leave its queue (taken, discarded or refused,
     §5.6), so a daemon that outruns the
@@ -2085,9 +2125,9 @@ applet that is running, which gets a new generation. Phases:
 | Event window toward the guest, per channel | **48 units** (LINK_APP_EVENT_WINDOW) of one unit per started 512 bytes of JSON, at most 24 KiB held; regranted as events leave the host's queue, taken, discarded or refused; an event past it closes the channel with `overflow` (§5.6) |
 | Event window toward the daemon, per channel | **256 units**, regranted as events leave Hub's queue for that daemon |
 | Daemon requests not yet handed to the guest, per channel | **8 KiB** of JSON together, one request whatever its size; one more gets `ERROR` `busy` |
-| Stream bytes held for the guest, per channel | **16 KiB per inbound stream** (LINK_APP_STREAM_WINDOW, §5.6), granted against pending reads; **64 KiB at most** with 4 inbound streams. Streams share no window |
+| Stream bytes held for the guest, per channel | **32 KiB per inbound stream** (LINK_APP_STREAM_WINDOW, §5.6), granted while a read is pending; **128 KiB at most** with 4 inbound streams. Streams share no window |
 | Replies waiting for the guest, per channel | one copy of each `REPLY` of the applet's open requests: **at most 8 of LINK_APP_MSG, 64 KiB**, allocated as each arrives and freed when the guest takes it |
-| Bytes queued from the guest toward the wire, per channel | **16 KiB** of stream bytes: **4 KiB per outbound stream** in the C client. A JSON message of the guest (a request, an event, a progress event, a reply) is not queued per channel: it goes into the device's send buffer at once, or the call reports "full" and the guest makes it again in a later frame (§8.2) |
+| Bytes queued from the guest toward the wire, per channel | **64 KiB** of stream bytes (LINK_APP_OUTBOUND): **16 KiB per outbound stream** in the C client, allocated when the stream opens. With 4 KiB per stream an upload of 1 MiB moved at 193 KB/s on a New 3DS, with 16 KiB at 606 to 696 KB/s (§13.6). A JSON message of the guest (a request, an event, a progress event, a reply) is not queued per channel: it goes into the device's send buffer at once, or the call reports "full" and the guest makes it again in a later frame (§8.2) |
 | Operation name `t` | **64 bytes** |
 | Credit | §5.6; outstanding at most 16 MiB per direction |
 
@@ -2131,8 +2171,8 @@ REPLY               {"rev":"r42"}                 the trailer, after the last by
 ```
 
 The applet reads the tile from the stream that `onProgress` hands it at
-`tile.head`; the 18,244 bytes pass the 16 KiB window because the applet
-takes them while they arrive.
+`tile.head`; the 18,244 bytes fit the stream's 32 KiB window, and a longer
+tile passes it because the applet takes the bytes while they arrive.
 
 A change the daemon wants the applet to learn of is an event
 (`{"t":"tile.stale","z":12,…}`). An operation that must not run twice
@@ -2272,7 +2312,7 @@ phase one.
 | Outstanding credit per stream direction | **16 MiB** | bounds arithmetic and a peer's buffering |
 | Device receive window, bulk | **64 KiB** | four frames on TCP; `LINK_RX_BUDGET` |
 | Device receive window, `net.http` | **8 KiB** | `LINK_HTTP_WINDOW` |
-| Device receive window, applet streams | **16 KiB per stream** (LINK_APP_STREAM_WINDOW), **64 KiB per channel** with 4 inbound streams | one frame per stream; the guest takes 16 KiB of stream bytes per frame across its streams (§7.3); a window of its own keeps a pending read on an idle stream from holding another stream's credit (§5.6) |
+| Device receive window, applet streams | **32 KiB per stream** (LINK_APP_STREAM_WINDOW), **128 KiB per channel** with 4 inbound streams | two frames of hand-over per stream, set by the device run (§13.6); the guest takes 16 KiB of stream bytes per frame across its streams (§7.3); a window of its own keeps a pending read on an idle stream from holding another stream's credit (§5.6) |
 | Stream sender without credit | gives up after **30 s**; the DevTools stream is exempt: Hub drops the held line and keeps the stream | §5.5, §6.3 |
 | LINK_APP_EVENT_WINDOW | **48 units** granted by the device per channel, **256** by Hub; one unit per started 512 bytes of an event's JSON, returned when the event leaves the receiver's queue for any reason | holds the about 20 events a 100 ms stall releases at 200 events a second; bounds the device's event memory at 24 KiB (§5.6) |
 | Hub receive window | **256 KiB** | about 320 ms at 800 KB/s |
@@ -2294,7 +2334,7 @@ phase one.
 | Agent atlas | **333,616 bytes** | `GLYPHS_MAX_BYTES` |
 | Microphone | **30 s** at **16,360 Hz** s16le | `AGENT_MIC_MAX_MS`, `AGENT_MIC_RATE` |
 | Channels per connection | **4**; 3DS opens **1** | one applet at a time on a 3DS |
-| Per channel | **8** open requests and **4** streams each direction; an event window of **48 units** (24 KiB) and **8 KiB** of waiting daemon requests toward the guest; guest hand-over **4 messages or 8 KiB of JSON, and 16 KiB of stream bytes, a frame** | §7.3, §7.6 |
+| Per channel | **8** open requests and **4** streams each direction; an event window of **48 units** (24 KiB) and **8 KiB** of waiting daemon requests toward the guest; guest hand-over **16 messages or 8 KiB of JSON, and 16 KiB of stream bytes, a frame**; **16 KiB** queued per outbound stream | §7.3, §7.6 |
 | Channel generation | **u32** from one counter for the whole Hub, larger than every earlier one | §7.4 |
 | LINK_CHANNEL_OPEN_MS | **20 s** | Hub's longest wait before answering `channel.open`: about 10 s for a daemon started on demand, inside the 30 s stall |
 | `channel.open` retry after `busy` | **2 s doubling to 60 s** | a daemon that failed to start is not restarted in a loop |
@@ -2308,18 +2348,21 @@ bytes** for the four (16,384 + 32,780 + 65,540 + 65,536) and keeps about
 **24 KiB** of state beside them on a 64-bit build: its own record with a
 4 KiB socket read chunk, and the request, stream and channel tables sized
 for one channel. **Each open applet channel adds
-at most 176 KiB**: 64 KiB of stream bytes (4 inbound streams of 16 KiB),
+at most 288 KiB**: 128 KiB of stream bytes (4 inbound streams of 32 KiB),
 24 KiB of events under the event window, 8 KiB of daemon requests waiting
-for the guest, 16 KiB of stream bytes queued from the guest, and **64 KiB
+for the guest, 64 KiB of stream bytes queued from the guest (4 outbound
+streams of 16 KiB), and **64 KiB
 of replies waiting for the guest** (8 open requests whose replies are all
 LINK_APP_MSG long and all unread, §7.6). A 3DS opens one
-channel, so the link holds **at most about 352 KiB** with it, against the
+channel, so the link holds **at most about 464 KiB** with it, against the
 272 KiB of version 1's link and the development connection together. That
 worst case needs every inbound stream full, every outbound stream full and
-eight maximal replies unread at once; a
-channel with one inbound stream open and no reply waiting holds 64 KiB and
-the link 240 KiB.
-Four channels, the connection's bound, would hold up to 880 KiB, which is
+eight maximal replies unread at once. **Measured on a New 3DS (§13.6):
+180,240 bytes for the link's four buffers, 34,816 bytes for an open channel
+with nothing waiting (its queue of events and requests), and 67,617 bytes
+at most for the channel across the runs**, which had one stream open at a
+time: about 242 KiB for the link at its fullest.
+Four channels, the connection's bound, would hold up to 1,328 KiB, which is
 why a device that runs one applet opens one. The stream windows, the
 outbound stream buffers and the reply copies are
 allocated as they come into use, not with the channel. **A stream whose window
@@ -2354,7 +2397,7 @@ accept any key order and whitespace, and tests compare parsed values.
 | `handshake-refusals.json` | `unknown_device` (no key; another companion id), `bad_proof`, `malformed` (a `maxPayload` of 512 among them), `busy`; the device's `CLOSE` `auth` after a wrong `challenge.proof` and its 30 s hold; a `ready` with `maxPayload` 512 and the device's `CLOSE` `protocol`; a third replacement within 30 s of a connection that answered Hub's `PING`, and the `refused` `busy` that follows; three replacements of connections that answered nothing, after which the device still links; a frame of type `DATA` before `ready` |
 | `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31 |
 | `streams.json` | a `runtime.push` of 100,000 bytes under 64 KiB credit with `END`; bytes past credit and the `CLOSE` `flow`; a grant over 16 MiB; `RESET` `refused` of an `agent.glyphs` stream; a stream short of its declared bytes; an event with an unknown `t` and a fresh id answered `RESET` `refused`; an event stream never granted and its sender's `RESET` `cancelled` at 30 s; a DevTools line held 30 s without credit, dropped with its eval failed and the stream kept |
-| `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY`; **a response of 18,244 bytes: the head event, `DATA` under the stream's 16 KiB window, a second grant after the guest's read, `END`, then the `REPLY`**; the same response completing while a `read` of 16 KiB stays pending on an idle event stream, which holds its own window and none of the response's; four streams read together with at most 64 KiB held; a request cancelled with its head event on the wire, the event discarded and its unit regranted; a progress event on an id of the receiver's range that names nothing held, ignored; `agent.glyphs` queued after a daemon request with a larger id and its stream still opened; a progress event named `log` and one named `features` read as progress; an event that opens a stream; a fifth stream refused with `RESET` `refused` and the request's `REPLY` after it; `CANCEL` answered `cancelled` by Hub for a daemon that does not answer; a JSON object of 8,193 bytes answered `too_large`, and one of 8,189 bytes refused on a connection whose payload limit is 8,192 (LINK_APP_MSG 8,188); the event window: `CREDIT` on the channel id for 48 units, an event of 600 bytes costing 2, progress events counted, the regrant after the guest takes events, a daemon held back with no units and no close, and an event past the units answered `channel.close` `overflow`; a progress event named `log` that crosses the applet's `channel.close` and is ignored; a stream-opening event with no handler answered `RESET` `refused`; two response streams of which the applet reads one, which completes while the other gets no credit; a daemon's bytes refused before any progress event; a daemon request refused `busy` with 8 KiB of requests waiting; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
+| `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY`; **a response of 18,244 bytes: the head event, `DATA` under the stream's 32 KiB window with the grants that follow the guest's reads, `END`, then the `REPLY`**; the same response completing while a `read` of 16 KiB stays pending on an idle event stream, which holds its own window and none of the response's; four streams read together with at most 128 KiB held; a request cancelled with its head event on the wire, the event discarded and its unit regranted; a progress event on an id of the receiver's range that names nothing held, ignored; `agent.glyphs` queued after a daemon request with a larger id and its stream still opened; a progress event named `log` and one named `features` read as progress; an event that opens a stream; a fifth stream refused with `RESET` `refused` and the request's `REPLY` after it; `CANCEL` answered `cancelled` by Hub for a daemon that does not answer; a JSON object of 8,193 bytes answered `too_large`, and one of 8,189 bytes refused on a connection whose payload limit is 8,192 (LINK_APP_MSG 8,188); the event window: `CREDIT` on the channel id for 48 units, an event of 600 bytes costing 2, progress events counted, the regrant after the guest takes events, a daemon held back with no units and no close, and an event past the units answered `channel.close` `overflow`; a progress event named `log` that crosses the applet's `channel.close` and is ignored; a stream-opening event with no handler answered `RESET` `refused`; two response streams of which the applet reads one, which completes while the other gets no credit; a daemon's bytes refused before any progress event; a daemon request refused `busy` with 8 KiB of requests waiting; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
 | `features.json` | Hub dropping `agent` with a microphone stream open (the `RESET` before the `features` event) and adding it back; the device dropping `devtools` (stream reset) and adding it back (a new `devtools.open`); Hub dropping `channel` with a channel open (`channel.close` `feature`); a request of a dropped group crossing the event and answered `unsupported`; a second change inside one second sent at its end; a list of 17 entries closing with `protocol` |
 | `keepalive.json` | `PING` / `PONG` echo; a timeline with timestamps where a side closes with `silence` at 10 s, one where a 100 ms gap changes nothing, and one where `DATA` alone keeps the link up |
 | `messages.json` | one golden JSON per message of §6 (requests, replies, events, errors), with each field at its limit and one past it; a `runtime.apps` report of 64 rows of ordinary size in one 16 KiB frame, one with every field at its limit in two pages, one cut short by a change and restarted under the next `set`, a page with a wrong `at` after which Hub ignores the rest of that `set`, and a page of an older `set` ignored; a catalog of 64 rows fetched in pages with `after` and `rev` while the offer changes (served from the snapshot), a page request 31 s after the last one answered `changed`, and an offer of 70 apps of which the first 64 by `id` are served; a DevTools stream with a pending eval, then `guest.end`; a Hub-to-device line cut by a guest switch whose tail is discarded up to its `\n`; a `net.http` request and a `net.head` at their encoded limits, a response whose headers Hub drops to fit with `truncated: true`, a `log` event at the 1 KiB floor with `frame` at 2^32 − 1, and a second catalog fetch asked for while one runs, started after it |
@@ -2403,7 +2446,7 @@ TypeScript console client, as Hub's version 1 tests do with
    worker realm gets the same module (today only the UI realm has it), and
    the page of the app contract's reference that documents it.
 3. **No Old 3DS measurement.** Every number of §13 comes from a New 3DS XL.
-   The limits that rest on guest speed (LINK_APP_MSG, the 4 messages or
+   The limits that rest on guest speed (LINK_APP_MSG, the 16 messages or
    8 KiB of JSON and the 16 KiB of stream bytes handed over per frame) and on socket-call cost (about 550 `recv`
    calls a second at full speed) need the same runs on an Old 3DS.
    *Recommendation:* run the probe of §13 on an Old 3DS before the C client
@@ -2412,7 +2455,9 @@ TypeScript console client, as Hub's version 1 tests do with
    worst single socket call in every run, in both directions. Nothing here
    depends on its cause, only on its size. A stall of that length does bound
    how responsive an applet can promise to be: a round trip is about 8 ms
-   and now and then about 100 ms. *Recommendation:* find the cause when the
+   and now and then about 100 ms. **Over the link it shows the same way**:
+   of 1,000 requests back to back, 2 to 4 took over 100 ms and the worst
+   took 117 to 435 ms across runs (§13.6). *Recommendation:* find the cause when the
    C client is rebuilt; if a socket or power option removes it, set it.
 5. **`https://companion.pocket/<service>` over `net.http`.** Applet channels
    and daemons replace this path, and `net.http` then reaches the internet
@@ -2422,13 +2467,14 @@ TypeScript console client, as Hub's version 1 tests do with
    first daemons run; removing it is one check in Hub. Applets whose needs
    are a request and a reply may keep this shape for good: whether it stays
    beside channels is undecided.
-6. **Guest log lines.** `runtime.logs` needs the shim's console bridge to
-   emit through a host operation regardless of a panel
-   (`framework/src/devtools.ts`). Option: leave guest lines inside the
-   DevTools stream and have Hub filter `{"t":"log"}` lines, which means
-   keeping `listening` on and paying the tree snapshots (§6.3).
-   *Recommendation:* add the host operation (for example `ui.__dbgLog`) in
-   the same change as the 3DS client.
+6. **Guest log lines: built.** The shim's console bridge calls a host
+   operation, `ui.__dbgLog(level, text)`, for every console line, whether a
+   panel listens or not (`framework/src/devtools.ts`), and the 3DS host
+   sends it as a `runtime.logs` line (`qjs.c`, `link2_host.c`
+   `link2_host_report_guest_log`). On the device `logs --follow` printed
+   the guest's lines with no panel open (§13.6). A host without the
+   operation keeps the earlier behaviour: guest lines inside the DevTools
+   stream while a panel listens.
 7. **Pairing without the camera: decided.** The QR scan with the console's
    camera goes away, and Hub writes the pairing, the key included, during
    the first install (§3.1, §3.2). A variant in which Hub writes a one-time
@@ -2605,7 +2651,10 @@ against them. The version-1 files go in the change that replaces `link.c`.
    `eval` and `logs`, each of which starts the endpoint, waits for the
    paired device, acts and leaves, and `serve`, which stays: the catalog of
    folders of `.pocket` files (`offer.ts`), `net.http` through `fetch.ts`'s
-   policy, and applet channels handed to daemon modules named as
+   policy (**`--resolve <host>=<address>:<port>`** sends one host's
+   requests to a named server, with private addresses allowed for that host
+   alone, and every request is logged as `net.http: <app> <method> <url> ->
+   <status>, <bytes> bytes in <ms> ms`), and applet channels handed to daemon modules named as
    `--daemon <applet id>=<module.ts>` (`daemon.ts`; `daemon-sample.ts` is
    one). **While a `serve` runs for a store, the other commands go through
    it** over a socket in the store's folder, because a device links to one
@@ -2685,6 +2734,19 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   `channelState()`, and `ChannelReader` / `ChannelWriter` driven by the
   framework's service pump. `apps/link-channel` and its daemon
   (`apps/link-channel/daemon.ts`) exercise every one.
+- **The link is pumped twice a frame** (`main.c`): with the other
+  services before the wait for the display, and again right before the
+  guest's frame (`link2_host_before_frame`), so what arrived during the
+  wait reaches the guest in that frame. With the first pump alone a request
+  and its reply took two frames: **34 ms mean for a round trip, 18 ms with
+  both** (§13.6). One pump took **0.14 ms mean on a link carrying one
+  request a second and 0.44 ms mean across the transfer runs** on a New 3DS.
+- **Guest console lines are `runtime.logs` lines** (`qjs.c` `ui.__dbgLog`,
+  question 6), and `runtime.status` carries the frame the loop is on
+  (`link2_host_set_frame`). For measurements, `ui.__dbgMemory()` reports the
+  heap (`mallinfo`), the linear heap's free bytes and the pump's cost, and
+  `link.status()` carries the client's counters in `stats` (`txPeak`,
+  `readPauses`, `fixedBytes`, `channelBytes`, `channelPeak`).
 - `tests/e2e/azahar-link2.ts` boots that applet in Azahar with pairing
   files the reference Hub's setup wrote, and checks the handshake,
   `runtime.status`, `runtime.apps`, the channel (a request, a 48,000-byte
@@ -2705,8 +2767,6 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   ends at its 30 s timeout.
 - **The dev menu's unsolicited screenshot** goes to the development
   connection only.
-- **Guest log lines** reach Hub as DevTools lines while a panel listens;
-  `runtime.logs` carries the host's own lines (question 6).
 - **A product extension's own link feature** (`pocket_extension_link_feature`,
   `<feature>.audio`) is in use only when Hub lists that feature; the
   reference Hub lists none, and extensions' messages move to applet
@@ -2735,8 +2795,8 @@ items 1, 2, 3, 5 and 6; items 4 and 7 remain):
    event lookup by header id and by the id's range, with no mark kept (§5.3), the
    mandatory head step, the event window with its `CREDIT` on the channel
    id, units returned when an event is taken, discarded or refused, and
-   `overflow` past it, the 16 KiB window of each inbound stream granted against
-   pending reads, the `busy` bound on waiting daemon requests, the read
+   `overflow` past it, the 32 KiB window of each inbound stream granted while
+   a read is pending, the `busy` bound on waiting daemon requests, the read
    pause of §8.2, and the guest operations of §7.3. **All of it is C; the guest's part is the calls of
    §7.3.**
 3. A runtime-operations module (for example `products/3ds/src/link_runtime.c`)
@@ -2808,6 +2868,8 @@ not measured** (§11, question 3). The numbers come from a test program built
 from this repository's 3DS product with native test functions linked in as a
 product extension and called from the guest; timings are the device's system
 tick. Each row is one run or the range of a few; none is a statistic.
+**§13.1 to §13.3 are that probe; §13.6 is the link itself**, the 3DS program
+of §12.2 against the reference Hub.
 
 ### 13.1 The carrier
 
@@ -2878,23 +2940,138 @@ not the carrier's limit; they run at a fifth to a third of §13.1.
 | 8 ms round trip, 800 KB/s | the windows of §5.6 |
 | 100 ms stalls | the keepalive check (§4.6), the timers of §2.4 |
 | Microseconds per scan in C | JSON control messages stay (§6.0) |
-| Guest parse times against a 5 ms worker turn | LINK_APP_MSG and the aim of 2 KiB (§7.2); the hand-over of 4 messages or 8 KiB of JSON a frame (§7.3) |
+| Guest parse times against a 5 ms worker turn | LINK_APP_MSG and the aim of 2 KiB (§7.2); the hand-over's 8 KiB of JSON a frame (§7.3) |
 | 52 ms of JavaScript against 0.083 ms of C for 32 KiB; one segment per `recv` | the endpoint in C, whole messages to the guest (§7.3) |
 
 ### 13.5 Values to calibrate on a device
 
-These values were chosen by arithmetic or kept from version 1; none was
-tuned against a running client. An implementation measures each and changes
-it in this page with its number.
+**The device run of §13.6 set three of these values and left the others as
+they were chosen**, by arithmetic or from version 1. Each row says which.
 
-| Value | Set at | What to measure |
+| Value | Set at | State after the device run |
 | --- | --- | --- |
-| The applet stream window and the per-frame hand-over | **16 KiB** per stream, **16 KiB** of stream bytes a frame (§5.6, §7.3) | throughput of one stream and of four read together, against the estimate of about 490 KB/s shared; whether regranting within a turn lifts it; the 176 KiB a channel can hold (§9) against the memory of an Old 3DS |
-| The event window and its unit | **48** units from the device, **256** from Hub, **512 bytes** a unit (§5.6) | the largest burst a stall releases for a real daemon; device memory held |
-| Daemon requests waiting for the guest | **8 KiB** of JSON per channel (§7.6) | how often two requests back to back meet `busy` (two of 5 KiB do) |
-| The `PING` wait before a replacement counts | **2 s** (§2.4) | the longest `PONG` delay of a live device under load, against the 100 ms stall |
-| Replacements before the duplicate-id refusal | **3 in 30 s** (§2.4) | reconnect rates of one console at the edge of its range |
-| The catalog snapshot's life | **30 s** (§6.4) | the time a device takes to page a full catalog at the 1 KiB floor |
-| The 30 s request stall and stream limit against a guest at a breakpoint | **30 s** (§5.5) | whether a paused guest's open requests should outlive the pause |
-| Every limit that rests on guest speed | LINK_APP_MSG **8 KiB**, the hand-over of **4 messages or 8 KiB** a frame, **16 KiB** of stream bytes a frame (§7.3) | the same parse and copy times on an **Old 3DS**, which this section does not hold |
+| The applet stream window | **32 KiB** per stream (§5.6) | **measured**: 16 KiB granted for one `read` at a time gave 227 KB/s, 32 KiB granted whole 618 to 766 KB/s, 64 KiB no more than 32 KiB. Not measured: four streams read together; the 288 KiB a channel can hold (§9) against the memory of an Old 3DS |
+| The per-frame hand-over | **16 messages or 8 KiB of JSON, and 16 KiB of stream bytes** (§7.3) | **the message count is measured** (4 gave 237 events a second, 16 gave 786 and 818). The 8 KiB and the 16 KiB are the arithmetic of §13.2 and were not varied |
+| The outbound stream queue | **16 KiB per stream** (§7.6) | **measured**: 4 KiB gave 193 KB/s for an upload, 16 KiB 606 to 696 KB/s |
+| The event window and its unit | **48** units from the device, **256** from Hub, **512 bytes** a unit (§5.6) | estimate. 1,000 events each way passed with no `overflow`; no run looked for the largest burst a stall releases for a real daemon |
+| Daemon requests waiting for the guest | **8 KiB** of JSON per channel (§7.6) | estimate; the demo's daemon sends one request at a time |
+| `PING` every 3 s, `silence` after 10 s (§4.6) | version 1's values | **held**: no run closed with `silence`; the worst round trip of a request was 435 ms |
+| The `PING` wait before a replacement counts | **2 s** (§2.4) | estimate. The worst round trip seen is under a quarter of it; no run made two connections with one device id |
+| Replacements before the duplicate-id refusal | **3 in 30 s** (§2.4) | estimate; not exercised on the device |
+| The receive windows of a push and of an install | as in §5.6 | not varied. A push of 312 KB took 1.44 s; an install of 2.93 MB took 5.55 s with its SD writes |
+| The catalog snapshot's life | **30 s** (§6.4) | estimate. The 3DS program offers a payload limit of 16,384 and has no setting for a smaller one, so a catalog paged at a small limit ran on the POSIX build of the client alone (`tests/pocket-link-2-client.test.ts`) |
+| The 30 s request stall and stream limit against a guest at a breakpoint | **30 s** (§5.5) | estimate; no run paused the guest |
+| Every limit that rests on guest speed | LINK_APP_MSG **8 KiB**, the hand-over of **16 messages or 8 KiB** a frame, **16 KiB** of stream bytes a frame (§7.3) | the same runs on an **Old 3DS**, which this section does not hold |
 
+### 13.6 The link on the device
+
+The same New 3DS XL on the same day, running the 3DS program of §12.2 with
+the Link Channel demo (`apps/link-channel`) as its guest, linked to the
+reference Hub (`bun run link2 serve`) on a computer of the same LAN, payload
+limit 16,384. **The demo's bench (`globalThis.linkBench`, started with a
+DevTools eval) times a run with the guest's clock; its daemon is the other
+end.** A cell is one run, or the values or range of the runs it names.
+
+| Run | Before the changes below | After |
+| --- | --- | --- |
+| Response stream of 1 MiB, daemon to applet | 225 to 235 KB/s (3 runs) | **618 to 738 KB/s** (5 runs) |
+| Response stream of 4 MiB | 227 KB/s | **719 to 766 KB/s** (4 runs) |
+| Upload stream of 1 MiB, applet to daemon | 193 KB/s (2 runs) | **606 to 696 KB/s** (5 runs) |
+| 1,000 requests with their replies, one after another | mean 34.1 and 34.4 ms; worst 234 and 301 ms; 9 and 11 over 50 ms; 3 and 4 over 100 ms | **mean 17.1 to 18.1 ms** (4 runs); worst 117 and 318 ms, 6 and 8 over 50 ms, 2 and 1 over 100 ms (the 2 runs of the last builds) |
+| 1,000 events, daemon to applet | 237 a second | **786 and 818 a second** |
+| 1,000 events, applet to daemon | 4,587 a second | 5,405 and 5,000 a second |
+
+"Before" is the client as the emulator run left it. Four changes separate
+the columns, and each was measured by itself:
+
+- **A second pump of the link before the guest's frame** (§12.2). A round
+  trip went from 34 ms to 17 ms mean; the response stream from 227 to
+  434 KB/s.
+- **The stream window of 32 KiB, granted whole while a `read` is pending**
+  (§5.6), in place of 16 KiB granted for one `read` at a time. The response
+  stream went from 434 to 712 KB/s for 1 MiB and 766 KB/s for 4 MiB. A
+  window of 64 KiB gave 644 to 665 KB/s and 763 KB/s.
+- **16 KiB queued per outbound stream** in place of 4 KiB (§7.6). The
+  upload went from 193 KB/s (224 KB/s with the second pump) to 606 to
+  696 KB/s.
+- **16 messages a frame toward the guest** in place of 4 (§7.3). Events
+  toward the applet went from 237 to 786 a second.
+
+**A transfer beside the requests** (600 requests one after another, alone
+and with a `.3dsx` install of 2.93 MB running on the same link; the install
+took 5.55 s, about 528 KB/s with its SD writes):
+
+| 600 round trips | Mean | Worst | Over 50 ms | Over 100 ms |
+| --- | --- | --- | --- | --- |
+| alone | 20.3 ms | 435 ms | 10 | 3 |
+| beside the install | 27.2 ms | 406 ms | 48 | 27 |
+
+A response stream of 2 MiB beside the same install moved at 246 KB/s.
+
+**Operations**, through a running `serve`:
+
+| Command | Wall time of the command |
+| --- | --- |
+| `status` | 24 to 31 ms (5 runs) |
+| `apps` | 17 to 18 ms (5 runs) |
+| `eval 1+1` | 134 to 168 ms (5 runs): the eval waits for a frame of the guest |
+| `shot`, both screens, 518,400 bytes | 0.9 to 1.5 s (3 runs) |
+| `push` of a bundle of 312 KB | 1.44 s |
+| `install` of a `.3dsx` of 2.94 MB, with the restart, until the device is linked again | 8 to 11 s (4 runs) |
+| The guest's `link.catalog()` and `link.install()` of an applet of 439 KB | about 2 s |
+| `eval` of 16,008 bytes of source | answered; a source over the payload limit is refused `too_large` |
+| `eval` while a push runs | refused after 28 ms: `busy: the device is held by runtime.push` |
+| `logs --follow` | the guest's console lines as they are written, with no DevTools panel open |
+
+**`net.http` from the demo's worker**, answered by a real HTTP server
+(`serve --resolve`, §12.1): a 14-byte body, a body of 100,000 bytes whose
+FNV-1a matched, a `POST` of 700 bytes whose echo matched, a request the
+worker cancelled after 0.5 s and one that outlived its own 1.5 s timeout
+(Hub logged the timeout after 1,502 and 1,503 ms). **The reference Hub does
+not abort its own fetch when the device cancels**: the cancelled request's
+server answered 20 s later on Hub's side, with nothing sent to the device.
+
+**Reconnects**:
+
+| What was done | What followed |
+| --- | --- |
+| `serve` stopped and started again | linked in the second it started |
+| `serve` killed (`SIGKILL`) during a 4 MiB response, twice, and started again after 76 s and 12 s | linked 2 s after the first start and in the second of the other; the channel opened with a larger generation each time (10, then 12); the applet's pending request ended with the error `closed`; the device held no channel bytes while unlinked |
+| A second `serve` for the same store | refused: "a serve already runs for the store" |
+| `launch` of a `.3dsx` during a response stream | Hub logged `unlinked: restart starting a .3dsx` and `linked` 3 s later; generation 13 |
+
+At every install and launch in Hub's log (8 of them) the command printed
+its `launching` reply and Hub logged the `CLOSE` `restart` before the
+program left: the device's last two frames reached Hub each time.
+
+**A soak of 21 minutes**: one bench of one request started each second
+(1,239 requests, each followed by the demo's report request) with the
+daemon's tick events beside them. **No request failed, the worst round trip
+was 185 ms, and the link stayed up**: Hub logged no `unlinked`, and the
+generation was 13 at the start and at the end. The client's counters read 0
+read pauses, 0 late events and 0 dropped log lines, and the send buffer
+peaked at 3,012 of its 32,780 bytes (16,479 during the transfer runs).
+
+**Memory and the pump's cost**:
+
+| What | Measured |
+| --- | --- |
+| The link's four buffers | 180,240 bytes, allocated once |
+| An open channel with nothing waiting | 34,816 bytes |
+| The channel at its fullest across the runs | 67,617 bytes |
+| Free bytes of the linear heap | 29,900,416 before and after every run |
+| One pump of the link | 0.14 ms mean in the soak (120 pumps a second), 0.44 to 0.53 ms mean across the transfer runs; worst 1.2 to 1.8 ms in the soak and 9.6 ms in the transfer runs |
+| Heap in use (`mallinfo`) across the soak | 3,577,488 bytes at the start; 4,660,528, 5,249,736, 4,821,040 and 5,867,024 at the 5-minute marks; 5,023,936 at the end |
+| Heap in use by what ran, on the last build, from 3,588,320 after start-up | the eight runs of the first table (1,000 requests, 2,000 events, 8 MiB of streams): +96,088; 400 evals: +0; 3,000 requests in one bench: +5,448; **400 benches of one request each: +817,176** |
+
+**The heap grows with the number of bench runs the demo starts, 1 to 2 KB
+each, and not with requests, stream bytes or evals.** Each run keeps its
+result, writes a line on the demo's screen and sends a report request. The
+link's own allocations stayed at the three figures of the table. **What
+holds that memory was not found**; the demo's list of screen lines, which
+makes and drops a text node per line, is the first place to look.
+
+**Not run on the device**: a catalog paged at a small payload limit (the
+program offers 16,384 only); four streams read together; two connections
+with one device id; the radio switched off and on under a link, which
+needs a person at the console; anything on an Old 3DS.
