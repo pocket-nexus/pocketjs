@@ -1532,6 +1532,8 @@ int main(void) {
     if (transition == TRANSITION_ARRIVING) transition_advance(transition_now);
     u64 offload_cpu_start = svcGetSystemTick();
     u64 phase_js __attribute__((unused)) = offload_cpu_start;
+    LOOP_STEP("link before the frame");
+    link2_host_before_frame();
     guest_frame_started = svcGetSystemTick();
     guest_frame_running = true;
     LOOP_STEP("guest frame");
@@ -1603,6 +1605,7 @@ int main(void) {
       gfx_frame_vertices(),
       gfx_dropped_vertices()
     );
+    link2_host_set_frame(run_frame);
     if (devserver_take_screenshot_request()) {
       uint8_t *top_rgb = NULL;
       uint8_t *auxiliary_rgb = NULL;

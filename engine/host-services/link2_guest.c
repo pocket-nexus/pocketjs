@@ -483,7 +483,21 @@ const char *link2_guest_status_json(void) {
   jbuf_u64(out, stats->rtt_ms);
   jbuf_text(out, ",\"links\":");
   jbuf_u64(out, stats->links);
-  jbuf_text(out, "}");
+  jbuf_text(out, ",\"stats\":{\"txPeak\":");
+  jbuf_u64(out, stats->tx_peak);
+  jbuf_text(out, ",\"readPauses\":");
+  jbuf_u64(out, stats->read_pauses);
+  jbuf_text(out, ",\"lateEvents\":");
+  jbuf_u64(out, stats->late_events);
+  jbuf_text(out, ",\"logsDropped\":");
+  jbuf_u64(out, stats->logs_dropped);
+  jbuf_text(out, ",\"fixedBytes\":");
+  jbuf_u64(out, stats->fixed_bytes);
+  jbuf_text(out, ",\"channelBytes\":");
+  jbuf_u64(out, stats->channel_bytes);
+  jbuf_text(out, ",\"channelPeak\":");
+  jbuf_u64(out, stats->channel_peak);
+  jbuf_text(out, "}}");
   const char *text = jbuf_cstr(out);
   return text == NULL ? "{\"state\":\"unpaired\",\"error\":\"link: status overflow\"}" : text;
 }

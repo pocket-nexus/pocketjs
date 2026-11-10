@@ -639,6 +639,15 @@ void link2_host_report_log(const char *level, const char *message) {
   link2_log(client, level == NULL ? "info" : level, "host", message, strlen(message), runtime_frame);
 }
 
+void link2_host_report_guest_log(const char *level, const char *text, size_t length) {
+  if (client == NULL || text == NULL) return;
+  link2_log(client, level == NULL ? "log" : level, "guest", text, length, runtime_frame);
+}
+
+void link2_host_set_frame(uint32_t frame) {
+  runtime_frame = frame;
+}
+
 // ---------------------------------------------------------------------------
 // the runtime's facts and the guest's life
 // ---------------------------------------------------------------------------
@@ -774,12 +783,44 @@ void link2_host_init(const PocketRuntimePackage *embedded) {
   link2_http_bind(client);
 }
 
-void link2_host_pump(void) {
-  if (client == NULL) return;
+/* What the pumps cost, for a status page: microseconds since the last read. */
+static uint32_t pump_count;
+static uint64_t pump_ticks;
+static uint64_t pump_ticks_max;
+
+static void pump_timed(void) {
+  uint64_t started = svcGetSystemTick();
   link2_pump(client);
   link_http_pump();
-  if (channel >= 0) link2_channel_frame(client, channel);
+  uint64_t took = svcGetSystemTick() - started;
+  pump_count += 1;
+  pump_ticks += took;
+  if (took > pump_ticks_max) pump_ticks_max = took;
+}
+
+void link2_host_pump(void) {
+  if (client == NULL) return;
+  pump_timed();
   if (push_pending && services_host_ms() - push_taken_ms > PUSH_REPORT_MS) push_release();
+}
+
+/* The second pump of a loop, after the wait for the display and right before
+ * the guest's frame: what arrived during the wait reaches the guest in this
+ * frame, not the next (a reply 8 ms after its request is taken one frame
+ * after it, not two), and the channel's per-frame hand-over starts. */
+void link2_host_before_frame(void) {
+  if (client == NULL) return;
+  pump_timed();
+  if (channel >= 0) link2_channel_frame(client, channel);
+}
+
+void link2_host_pump_cost(uint32_t *count, uint32_t *mean_us, uint32_t *max_us) {
+  *count = pump_count;
+  *mean_us = pump_count == 0 ? 0 : (uint32_t)(pump_ticks / pump_count * 1000000ull / SYSCLOCK_ARM11);
+  *max_us = (uint32_t)(pump_ticks_max * 1000000ull / SYSCLOCK_ARM11);
+  pump_count = 0;
+  pump_ticks = 0;
+  pump_ticks_max = 0;
 }
 
 void link2_host_shutdown(void) {
@@ -802,6 +843,12 @@ void link2_host_shutdown(void) {
 
 void link2_host_init(const PocketRuntimePackage *embedded) { (void)embedded; }
 void link2_host_pump(void) {}
+void link2_host_before_frame(void) {}
+void link2_host_pump_cost(uint32_t *count, uint32_t *mean_us, uint32_t *max_us) {
+  *count = 0;
+  *mean_us = 0;
+  *max_us = 0;
+}
 void link2_host_shutdown(void) {}
 Link2 *link2_host_client(void) { return NULL; }
 void link2_host_guest_begin(const PocketRuntimePackage *package) { (void)package; }
@@ -833,6 +880,12 @@ void link2_host_report_log(const char *level, const char *message) {
   (void)level;
   (void)message;
 }
+void link2_host_report_guest_log(const char *level, const char *text, size_t length) {
+  (void)level;
+  (void)text;
+  (void)length;
+}
+void link2_host_set_frame(uint32_t frame) { (void)frame; }
 bool link2_host_take_upload(uint64_t *declared_hash) {
   (void)declared_hash;
   return false;

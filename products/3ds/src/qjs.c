@@ -20,6 +20,7 @@
 #include "pocket/worker.h"
 #include "pocket/worker_ui.h"
 
+#include <malloc.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -68,6 +69,8 @@ typedef enum {
   HostDbgConnected,
   HostDbgPoll,
   HostDbgSend,
+  HostDbgLog,
+  HostDbgMemory,
   HostDbgShot,
   HostLinkStatus,
   HostLinkPair,
@@ -463,6 +466,34 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
       JS_FreeCString(ctx, text);
     }
     return JS_UNDEFINED;
+  /* A console line of the guest, for runtime.logs: it travels as a `log`
+   * event whether a DevTools panel listens or not. */
+  case HostDbgLog: {
+    if (argc < 2)
+      return JS_UNDEFINED;
+    const char *level = JS_ToCString(ctx, argv[0]);
+    text = JS_ToCStringLen2(ctx, &text_length, argv[1], 0);
+    if (level != NULL && text != NULL)
+      link2_host_report_guest_log(level, text, text_length);
+    if (level != NULL)
+      JS_FreeCString(ctx, level);
+    if (text != NULL)
+      JS_FreeCString(ctx, text);
+    return JS_UNDEFINED;
+  }
+  /* The process's memory, for a soak: newlib's heap in use and free, and the
+   * linear heap's free bytes. */
+  case HostDbgMemory: {
+    struct mallinfo heap = mallinfo();
+    char memory[240];
+    uint32_t pumps = 0, pump_mean = 0, pump_max = 0;
+    link2_host_pump_cost(&pumps, &pump_mean, &pump_max);
+    snprintf(memory, sizeof memory,
+             "{\"heapUsed\":%lu,\"heapFree\":%lu,\"heapArena\":%lu,\"linearFree\":%lu,\"pumps\":%lu,\"pumpUs\":%lu,\"pumpMaxUs\":%lu}",
+             (unsigned long)heap.uordblks, (unsigned long)heap.fordblks, (unsigned long)heap.arena, (unsigned long)linearSpaceFree(),
+             (unsigned long)pumps, (unsigned long)pump_mean, (unsigned long)pump_max);
+    return JS_NewString(ctx, memory);
+  }
   case HostOffloadCoverage: {
     if (coverage_used || argc < 4 || !JS_IsString(argv[0]))
       return JS_NewInt32(ctx, -1);
@@ -788,6 +819,8 @@ static int32_t install_host(void) {
   add_operation(ui, "__dbgConnected", 0, HostDbgConnected);
   add_operation(ui, "__dbgPoll", 0, HostDbgPoll);
   add_operation(ui, "__dbgSend", 1, HostDbgSend);
+  add_operation(ui, "__dbgLog", 2, HostDbgLog);
+  add_operation(ui, "__dbgMemory", 0, HostDbgMemory);
   add_operation(ui, "__dbgShot", 0, HostDbgShot);
   JS_FreeValue(context, ui);
 

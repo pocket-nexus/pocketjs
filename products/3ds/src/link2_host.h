@@ -35,6 +35,11 @@
 void link2_host_init(const PocketRuntimePackage *embedded);
 /* Once per frame. */
 void link2_host_pump(void);
+/* Right before the guest's frame: a second pump for what arrived while the
+ * loop waited for the display, then the channel's per-frame hand-over. */
+void link2_host_before_frame(void);
+/* The pumps since the last call: their count, mean and longest, in microseconds. */
+void link2_host_pump_cost(uint32_t *count, uint32_t *mean_us, uint32_t *max_us);
 void link2_host_shutdown(void);
 /* The client, NULL in a build without the link. */
 Link2 *link2_host_client(void);
@@ -67,6 +72,13 @@ void link2_host_set_runtime(
 );
 void link2_host_report_install(const char *phase, uint64_t hash, const char *message);
 void link2_host_report_log(const char *level, const char *message);
+/* A console line of the running guest (ui.__dbgLog): a `log` event with
+ * source "guest" while Hub has runtime.logs on, whether a DevTools panel
+ * listens or not (docs/POCKET-LINK.md §6.2). */
+void link2_host_report_guest_log(const char *level, const char *text, size_t length);
+/* The frame the main loop submitted last: runtime.status and log events
+ * carry it. */
+void link2_host_set_frame(uint32_t frame);
 
 /* A package pushed over the link is whole in POCKET_RUNTIME_UPLOAD: the
  * caller admits it as it admits the development connection's. */

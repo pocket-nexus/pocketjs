@@ -282,6 +282,29 @@ describe("listening", () => {
     expect(sent("log").map((m) => m.args)).toEqual([["heard"]]);
   });
 
+  test("a transport with a log path gets every console line, whether a panel listens or not", () => {
+    const lines: string[] = [];
+    let listening = false;
+    g.__pocketDevtoolsTransport = {
+      send: (l: string) => outbox.push(l),
+      recv: () => (inbox.length ? inbox.shift() : null),
+      listening: () => listening,
+      log: (level: string, text: string) => lines.push(`${level}: ${text}`),
+    };
+    mountApp(() => View({ debugName: "Scene", children: Text({ children: "idle" }) }));
+    frame();
+    const out = (globalThis as { console: Record<"log" | "warn" | "error", (...a: unknown[]) => void> }).console;
+    out.log("no panel", 7);
+    out.error("still none");
+    // The panel's channel carried nothing; the host's log path carried both lines.
+    expect(sent("log")).toHaveLength(0);
+    expect(lines).toEqual(["log: no panel 7", "error: still none"]);
+    listening = true;
+    out.warn("both");
+    expect(sent("log").map((m) => m.args)).toEqual([["both"]]);
+    expect(lines[2]).toBe("warn: both");
+  });
+
   test("a panel that reattaches to an unchanged tree gets it again", () => {
     let listening = true;
     mountQuiet(() => listening);
