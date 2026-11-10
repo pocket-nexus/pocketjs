@@ -616,6 +616,34 @@ describe("the commands, against the C client", () => {
     await harness.quit();
   });
 
+  it("serve --panel: a panel's line reaches the applet's DevTools shim and the answer comes back on the panel's socket", async () => {
+    const w = await world();
+    expect((await w.cli("setup", "--card", w.card, "--address", "127.0.0.1")).code).toBe(EXIT.ok);
+    const panelPort = await freeUdpPort();
+    const serve = w.start("serve", "--panel", "--panel-port", String(panelPort));
+    const announced = await serve.any(/panel: http:\/\/127\.0\.0\.1:(\d+)\/devtools/);
+    const port = Number(announced[1]);
+    const panel = new WebSocket(`ws://127.0.0.1:${port}/ws?role=panel`);
+    const got: string[] = [];
+    panel.onmessage = (event) => void got.push(String(event.data));
+    await new Promise<void>((done, fail) => {
+      panel.onopen = () => done();
+      panel.onerror = () => fail(new Error("the panel's socket did not open"));
+    });
+    // At the clock's own speed the first beacon arrives before the direct try of the key file's address.
+    const harness = startHarness(w.linkDir, w.beaconPort, ["--speed", "1"]);
+    await serve.any(/^\S+ linked /);
+    // The harness answers an eval line as the shim does, with an evalResult line.
+    for (const end = Date.now() + 15_000; Date.now() < end && !got.some((line) => line.includes('"evalResult"')); ) {
+      panel.send(JSON.stringify({ t: "eval", id: "panel-1", code: "1 + 1" }));
+      await pause(300);
+    }
+    panel.close();
+    expect(got.some((line) => line.includes('"evalResult"') && line.includes("panel-1"))).toBe(true);
+    await harness.any(/^devtools-line \{"t":"eval","id":"panel-1"/);
+    await harness.quit();
+  });
+
   it("serve: the other commands go through it; push, a .3dsx, launch, a screenshot, logs, the catalog, net.http and a daemon module", async () => {
     const w = await world();
     expect((await w.cli("setup", "--card", w.card, "--address", "127.0.0.1")).code).toBe(EXIT.ok);

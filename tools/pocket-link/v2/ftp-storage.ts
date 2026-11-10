@@ -1,6 +1,6 @@
 // A device's link directory reached over ftpd, as the storage Hub's setup
 // writes a pairing through (docs/POCKET-LINK.md §3.2). Every operation is one
-// `curl` run, the way tools/3ds-dev.ts reaches ftpd for `dev.key`: 3 s to
+// `curl` run, the way the development tool reached ftpd for its key file: 3 s to
 // connect, 15 s for a read or a listing, 30 s for a write, no proxy.
 //
 // A read tells its three outcomes apart, as §3.2 step 3 needs: curl's exit

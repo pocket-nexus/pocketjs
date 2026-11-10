@@ -366,6 +366,8 @@ export class HubDevice {
   onLog: ((event: Link2LogEvent) => void) | null = null;
   /** A DevTools line from the device that Hub does not consume itself. */
   onDevtoolsLine: ((line: string) => void) | null = null;
+  /** An unsolicited screenshot arrived whole (the dev menu's, or the shim's `ui.__dbgShot`). */
+  onScreenshot: ((shot: Screenshot) => void) | null = null;
   onGuestEnd: ((app: string, output: string) => void) | null = null;
   /** A system event with no handler here (the agent's messages). */
   onSystemEvent: ((object: Json) => void) | null = null;
@@ -584,6 +586,7 @@ export class HubDevice {
       const reader = open({ window: LINK2_WINDOW.hub, total: surfaceBytes(object.surfaces), onData: (bytes) => void chunks.push(bytes.slice()) });
       reader.finished.then(() => {
         this.latestScreenshot = shot(object, chunks);
+        this.onScreenshot?.(this.latestScreenshot);
       }, () => {});
     }, { feature: "runtime" });
     for (const t of ["agent.hello", "agent.turn", "agent.audio.end", "agent.cancel", "agent.reset", "agent.result"]) {

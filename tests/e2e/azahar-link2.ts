@@ -7,18 +7,19 @@
 // install into another slot, a push of a changed package, and a switch to
 // the installed app.
 //
-// The development connection runs beside the link in this build: the script
-// also checks that it still answers discovery.
+// The program has no development connection: the script also asks the shim
+// for the dev menu's unsolicited screenshot, and checks that nothing listens
+// on the port that connection used.
 
 import { $ } from "bun";
 import { evidenceDirectory } from "./build.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 import { POCKET_SECTION, decodePocketPackage, encodePocketPackage } from "../../contracts/spec/pocket-package.ts";
-import { pocketPackageFooterHash } from "../../contracts/spec/pocket-runtime-wire.ts";
-import { discoverPocketRuntimes } from "../../tools/3ds-runtime-client.ts";
+import { packageFooter } from "../../tools/pocket-link/v2/offer.ts";
 import { LinkHub, MemoryStore, directoryStorage, type HubDevice, type HubOffer } from "../../tools/pocket-link/v2/hub.ts";
 import { LINK2_BEACON_PORT } from "../../contracts/spec/link2.ts";
 import { LINK_CHANNEL_APP, linkChannelDaemon } from "../../apps/link-channel/daemon.ts";
@@ -37,7 +38,6 @@ const azaharBinary = join(azaharApp, "Contents/MacOS/azahar");
 const sourceConfig = process.env.AZAHAR_CONFIG || join(homedir(), "Library/Application Support/Azahar/config/qt-config.ini");
 const sourceUserDir = sourceConfig.replace(/\/config\/[^/]+$/, "");
 const timeoutMs = Number(process.env.E2E_AZAHAR_TIMEOUT_MS ?? 60_000);
-const devKey = Uint8Array.from({ length: 32 }, (_, index) => index * 5 + 9);
 const DEMO_APP = "dev.pocket-nexus.3ds-demo";
 const DEMO_OUTPUT = "pocket3ds-demo-main";
 
@@ -82,7 +82,6 @@ function writeFixture(): void {
   config = setConfig(config, "frame_limit", "1000");
   config = setConfig(config, "check_for_update_on_start", "false");
   writeFileSync(CONFIG, config);
-  writeFileSync(join(RUNTIME_DIR, "dev.key"), `${Buffer.from(devKey).toString("hex")}\n`);
 }
 
 function killEmulator(): void {
@@ -109,7 +108,9 @@ async function until<T>(read: () => T | null | undefined | false, what: string, 
 }
 
 function hexHash(bytes: Uint8Array): string {
-  return pocketPackageFooterHash(bytes).toString(16).padStart(16, "0");
+  const footer = packageFooter(bytes);
+  if (footer === null) throw new Error("the package holds no footer");
+  return footer.stored;
 }
 
 function withProbe(good: Uint8Array, marker: string): Uint8Array {
@@ -299,10 +300,25 @@ try {
   await until(() => seen.channels > before, "the pushed guest's channel", 15_000);
   pass(`runtime.push: ${hexHash(changed)} accepted after ${events.join(", ")}; the new guest's channel is generation ${seen.generation}`);
 
-  // The development connection still answers beside the link.
-  const dev = await discoverPocketRuntimes({ addresses: ["127.0.0.1"], timeoutMs: 500 });
-  if (dev.length !== 1 || dev[0]!.target !== "3ds-dev") throw new Error("the development connection did not answer discovery");
-  pass("the development connection answers discovery beside the link");
+  // The dev menu's screenshot: the shim's ui.__dbgShot sends the same capture
+  // unsolicited, as a runtime.screenshot event with a stream of its own (§6.2).
+  device.latestScreenshot = null;
+  const shotAsked = await device.eval("ui.__dbgShot()");
+  if (!evalValue(shotAsked).includes("true")) throw new Error(`ui.__dbgShot did not queue a screenshot: ${JSON.stringify(shotAsked)}`);
+  const unsolicited = await until(() => device.latestScreenshot, "the unsolicited screenshot", 15_000);
+  if (unsolicited.surfaces.length !== 2 || unsolicited.pixels.length !== (400 * 240 + 320 * 240) * 3) {
+    throw new Error("the unsolicited screenshot does not hold both surfaces");
+  }
+  pass(`an unsolicited runtime.screenshot of frame ${unsolicited.frame} arrived whole`);
+
+  // No development connection: nothing listens on its port.
+  const refused = await new Promise<boolean>((done) => {
+    const socket = createConnection({ host: "127.0.0.1", port: 8131 });
+    socket.once("connect", () => { socket.destroy(); done(false); });
+    socket.once("error", () => done(true));
+  });
+  if (!refused) throw new Error("something still listens on port 8131");
+  pass("no development connection: port 8131 is closed");
 
   // A switch to the installed app through the launcher.
   const switched = await device.launch({ app: DEMO_OUTPUT });

@@ -237,7 +237,7 @@
     "e2e:vita": "bun tests/e2e/vita3k.ts",
     "e2e:3ds": "bun tests/e2e/azahar.ts",
     "e2e:3ds-runtime": "bun tests/e2e/azahar-runtime.ts",
-    "e2e:3ds-dev": "bun tests/e2e/azahar-devserver.ts",
+    "e2e:3ds-link": "bun tests/e2e/azahar-link2.ts",
     "e2e:install": "bun tests/e2e/framework-install.ts",
     "3ds:dev": "bun tools/3ds-dev.ts",
     "link2": "bun tools/pocket-link/v2/cli.ts",

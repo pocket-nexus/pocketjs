@@ -53,11 +53,13 @@ const USAGE = `Pocket Link 2 reference Hub
   logs [--follow] [--seconds <n>]       the program's log lines; 5 s without --follow
 
   serve [--apps <dir>]… [--daemon <applet id>=<module.ts>]… [--allow-private] [--no-http]
-        [--resolve <host>=<address>:<port>]…
+        [--resolve <host>=<address>:<port>]… [--panel [--panel-port 8130]]
                                         stay linked: the catalog of the folders, net.http,
                                         applet channels to the named daemon modules, log lines;
                                         --resolve sends an applet's requests for <host> to a
-                                        server of this computer's choosing, as curl's does
+                                        server of this computer's choosing, as curl's does;
+                                        --panel serves the Pocket DevTools panel and carries
+                                        its lines to and from the running applet
 
 options
   --home <dir>            the store ($POCKETJS_LINK_HOME, else ~/.pocketjs/link)
@@ -76,8 +78,8 @@ exit codes: 0 done, 1 an error answer, 2 usage, 3 no device linked, 4 setup not 
 // Arguments
 // ---------------------------------------------------------------------------
 
-const VALUE_FLAGS = new Set(["--home", "--name", "--port", "--unicast", "--address", "--link-dir", "--device", "--wait", "--host", "--ftp-port", "--card", "--out", "--seconds", "--apps", "--daemon", "--resolve"]);
-const BOOLEAN_FLAGS = new Set(["--json", "--follow", "--no-launch", "--allow-private", "--no-http", "--help"]);
+const VALUE_FLAGS = new Set(["--home", "--name", "--port", "--unicast", "--address", "--link-dir", "--device", "--wait", "--host", "--ftp-port", "--card", "--out", "--seconds", "--apps", "--daemon", "--panel-port", "--resolve"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--follow", "--no-launch", "--allow-private", "--no-http", "--panel", "--help"]);
 
 export class UsageError extends Error {}
 
@@ -813,6 +815,36 @@ async function serve(args: Parsed, io: Io, signal: AbortSignal): Promise<number>
     }
   }, 500);
 
+  // The Pocket DevTools panel: a web page on this computer whose lines travel
+  // on the device's DevTools stream (§6.3), both ways, while a device is linked.
+  let panel: { stop(): void } | null = null;
+  if (args.flags.has("--panel")) {
+    const { startDevServer } = await import("../../dev/web/server.ts");
+    const web = startDevServer({ port: integerOption(args, "--panel-port", 1, 65535, Number(process.env.PORT ?? 8130)), portRetries: 10 });
+    const bridge = new WebSocket(`ws://127.0.0.1:${web.port}/ws?role=device`);
+    const send = (text: string) => {
+      if (bridge.readyState === WebSocket.OPEN) bridge.send(text);
+    };
+    const linked = new Set<HubDevice>();
+    bridge.onmessage = (event) => {
+      if (typeof event.data !== "string") return;
+      for (const device of linked) if (device.closed === null && device.devtoolsOpen) device.sendLine(event.data);
+    };
+    session.linkListeners.add((device) => {
+      linked.add(device);
+      device.listen(true);
+      device.onDevtoolsLine = send;
+      // The panel's screenshot button reaches the shim as a line; the shim's
+      // answer is the device's unsolicited runtime.screenshot (§6.2).
+      device.onScreenshot = (shot) => {
+        const { png } = screenshotPng(shot);
+        send(JSON.stringify({ t: "screenshot", frame: shot.frame, data: `data:image/png;base64,${png.toString("base64")}` }));
+      };
+    });
+    panel = { stop: () => { bridge.close(); web.stop(); } };
+    log(`panel: ${web.panelUrl}`);
+  }
+
   await goOnline(session);
   let server: Server | null = null;
   try {
@@ -824,6 +856,7 @@ async function serve(args: Parsed, io: Io, signal: AbortSignal): Promise<number>
   } catch (error) {
     clearInterval(refusalTimer);
     offer?.close();
+    panel?.stop();
     await closeSession(session);
     io.err(`the socket ${socketPath(home)} could not be bound (${describeError(error)}); a socket path holds about 100 bytes, so name a shorter --home`);
     return EXIT.failed;
@@ -837,6 +870,7 @@ async function serve(args: Parsed, io: Io, signal: AbortSignal): Promise<number>
   await new Promise<void>((done) => (signal.aborted ? done() : signal.addEventListener("abort", () => done(), { once: true })));
   clearInterval(refusalTimer);
   offer?.close();
+  panel?.stop();
   (server as Server | null)?.close();
   rmSync(socketPath(home), { force: true });
   await closeSession(session);
