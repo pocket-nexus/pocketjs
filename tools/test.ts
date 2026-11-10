@@ -187,6 +187,8 @@ const SUITE: readonly Stage[] = [
       "tests/pocket-link-2-c.test.ts",
       "tests/pocket-link-2-client.test.ts",
       "tests/pocket-link-2-cli.test.ts",
+      "tests/pocket-link-2-scenarios.test.ts",
+      "tests/framework-channel.test.ts",
       "tests/resource-cache.test.ts",
       "tests/font-config.test.ts",
       "tests/font-archive.test.ts",

@@ -281,6 +281,8 @@ interface OpenCall {
   resolve: (value: ChannelJson) => void;
   reject: (error: ChannelError) => void;
   onProgress?: RequestOptions["onProgress"];
+  /** The channel's generation when the request was made. */
+  generation: number;
 }
 const calls = new Map<number, OpenCall>();
 
@@ -310,8 +312,9 @@ export function request(t: string, args?: ChannelArgs, options: RequestOptions =
     reply.catch(() => {});
     return { id: 0, reply, cancel() {} };
   }
+  const generation = channelState().generation;
   const reply = new Promise<ChannelJson>((resolve, reject) => {
-    calls.set(id, { resolve, reject, onProgress: options.onProgress });
+    calls.set(id, { resolve, reject, onProgress: options.onProgress, generation });
   });
   if (options.body !== undefined) {
     const body = new ChannelWriter(id);
@@ -461,7 +464,17 @@ function pump(): void {
     for (const call of calls.values()) call.reject(new ChannelError("no_channel"));
     calls.clear();
   } else {
-    // The host hands over this frame's budget: 4 messages or 8 KiB of JSON.
+    if (calls.size > 0) {
+      // The channel closed, or closed and opened again, under a request: the host dropped it
+      // with the channel and sends nothing for it (§7.5), so the call fails here with `closed`.
+      const now = channelState();
+      for (const [id, call] of calls) {
+        if (now.state === CHANNEL_STATE.open && now.generation === call.generation) continue;
+        calls.delete(id);
+        call.reject(new ChannelError("closed", `the channel closed${now.reason ? `: ${now.reason}` : ""}`));
+      }
+    }
+    // The host hands over this frame's budget of messages and of JSON bytes.
     for (;;) {
       const raw = ops.poll();
       if (raw === undefined) break;
