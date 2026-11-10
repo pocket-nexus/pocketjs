@@ -1,0 +1,279 @@
+{
+  "open": [
+    {
+      "from": "device",
+      "what": "REQUEST channel.open, header id = the channel id",
+      "hex": "1000000046000000030000007b2274223a226368616e6e656c2e6f70656e222c22617070223a226465762e6578616d706c652e6d6170222c2268617368223a2230303030303030303030303030306363227d"
+    },
+    {
+      "from": "hub",
+      "what": "REPLY with generation 7",
+      "hex": "1100000010000000030000007b2267656e65726174696f6e223a377d"
+    },
+    {
+      "from": "hub",
+      "what": "CREDIT on the channel id: 256 units, queued after the REPLY",
+      "hex": "21000000040000000300000000010000"
+    },
+    {
+      "from": "device",
+      "what": "CREDIT on the channel id: 48 units",
+      "hex": "21000000040000000300000030000000"
+    }
+  ],
+  "appletRequest": [
+    {
+      "from": "device",
+      "what": "REQUEST APP",
+      "hex": "100200003a00000004000000030000007b2274223a2274696c652e676574222c227a223a31322c2278223a333330312c2279223a313631322c2268617665223a22723431227d"
+    },
+    {
+      "from": "hub",
+      "what": "REPLY",
+      "hex": "110000000d000000040000007b2273616d65223a747275657d"
+    }
+  ],
+  "daemonRequest": [
+    {
+      "from": "hub",
+      "what": "REQUEST APP",
+      "hex": "100200001400000002000080030000007b2274223a22766965772e676574227d"
+    },
+    {
+      "from": "device",
+      "what": "REPLY",
+      "hex": "1100000008000000020000807b227a223a31327d"
+    }
+  ],
+  "events": [
+    {
+      "from": "device",
+      "what": "EVENT APP, id 0",
+      "hex": "120200001d00000000000000030000007b2274223a22766965772e6d6f766564222c227a223a31327d"
+    },
+    {
+      "from": "hub",
+      "what": "EVENT APP, id 0",
+      "hex": "120200001d00000000000000030000007b2274223a2274696c652e7374616c65222c227a223a31327d"
+    }
+  ],
+  "body": [
+    {
+      "from": "device",
+      "what": "REQUEST APP with BODY",
+      "hex": "100600001e00000006000000030000007b2274223a226e6f74652e707574222c226279746573223a337d"
+    },
+    {
+      "from": "hub",
+      "what": "CREDIT for the body",
+      "hex": "21000000040000000600000003000000"
+    },
+    {
+      "from": "device",
+      "what": "DATA with END",
+      "hex": "200100000300000006000000010203"
+    },
+    {
+      "from": "hub",
+      "what": "REPLY",
+      "hex": "110000000b000000060000007b226f6b223a747275657d"
+    }
+  ],
+  "response": {
+    "bytes": 18244,
+    "window": 16384,
+    "steps": [
+      {
+        "from": "device",
+        "what": "REQUEST APP tile.get",
+        "hex": "100200003a00000009000000030000007b2274223a2274696c652e676574222c227a223a31322c2278223a333330312c2279223a313631322c2268617665223a22723431227d"
+      },
+      {
+        "from": "hub",
+        "what": "EVENT tile.head on the request's id: the head step",
+        "hex": "120000002b000000090000007b2274223a2274696c652e68656164222c22726576223a22723432222c226279746573223a31383234347d"
+      },
+      {
+        "from": "device",
+        "what": "CREDIT after the guest's read",
+        "hex": "21000000040000000900000000400000"
+      },
+      {
+        "from": "hub",
+        "what": "DATA",
+        "header": "200000000040000009000000",
+        "fill": "5a",
+        "bytes": 16384
+      },
+      {
+        "from": "device",
+        "what": "CREDIT after the guest's read",
+        "hex": "21000000040000000900000000400000"
+      },
+      {
+        "from": "hub",
+        "what": "DATA with END",
+        "header": "200100004407000009000000",
+        "fill": "5a",
+        "bytes": 1860
+      },
+      {
+        "from": "hub",
+        "what": "REPLY, the trailer",
+        "hex": "110000000d000000090000007b22726576223a22723432227d"
+      }
+    ]
+  },
+  "progressNames": [
+    {
+      "from": "hub",
+      "what": "progress named log: read as progress of request 9, never as the system event",
+      "hex": "120000001d000000090000007b2274223a226c6f67222c2274657874223a226465636f64696e67227d"
+    },
+    {
+      "from": "hub",
+      "what": "progress named features",
+      "hex": "120000001e000000090000007b2274223a226665617475726573222c226665617475726573223a5b5d7d"
+    }
+  ],
+  "lateProgress": {
+    "frame": {
+      "from": "hub",
+      "what": "EVENT log on an id of the device's range that names nothing held",
+      "hex": "1200000019000000090000007b2274223a226c6f67222c2274657874223a226c617465227d"
+    },
+    "receiver": "device",
+    "reading": "ignore"
+  },
+  "streamEvent": [
+    {
+      "from": "hub",
+      "what": "EVENT APP that opens a stream",
+      "hex": "120200001400000011000080030000007b2274223a226c6f672e7461696c227d"
+    },
+    {
+      "from": "device",
+      "what": "RESET refused: no handler for log.tail",
+      "hex": "22000000040000001100008002000000"
+    }
+  ],
+  "sizes": [
+    {
+      "payloadLimit": 16384,
+      "appMessage": 8192
+    },
+    {
+      "payloadLimit": 8192,
+      "appMessage": 8188
+    },
+    {
+      "payloadLimit": 1024,
+      "appMessage": 1020
+    }
+  ],
+  "tooLarge": [
+    {
+      "name": "an object of 8,193 bytes on a 16,384 limit",
+      "payloadLimit": 16384,
+      "objectBytes": 8193,
+      "refusedBy": "sender",
+      "answer": "too_large"
+    },
+    {
+      "name": "an object of 8,189 bytes on an 8,192 limit (LINK_APP_MSG 8,188)",
+      "payloadLimit": 8192,
+      "objectBytes": 8189,
+      "refusedBy": "sender",
+      "answer": "too_large"
+    },
+    {
+      "name": "an object of 8,188 bytes on an 8,192 limit",
+      "payloadLimit": 8192,
+      "objectBytes": 8188,
+      "refusedBy": null,
+      "answer": null
+    }
+  ],
+  "eventWindow": {
+    "deviceGrants": 48,
+    "hubGrants": 256,
+    "costs": [
+      {
+        "jsonBytes": 1,
+        "units": 1
+      },
+      {
+        "jsonBytes": 512,
+        "units": 1
+      },
+      {
+        "jsonBytes": 513,
+        "units": 2
+      },
+      {
+        "jsonBytes": 600,
+        "units": 2
+      },
+      {
+        "jsonBytes": 8192,
+        "units": 16
+      }
+    ],
+    "afterOneOf600": 46,
+    "overflow": {
+      "granted": 1,
+      "eventJsonBytes": 600,
+      "answer": "1200000029000000030000007b2274223a226368616e6e656c2e636c6f7365222c22726561736f6e223a226f766572666c6f77227d"
+    }
+  },
+  "noChannel": [
+    {
+      "from": "device",
+      "what": "REQUEST APP for a channel that is not open",
+      "hex": "10020000140000001e0000001d0000007b2274223a2274696c652e676574227d"
+    },
+    {
+      "from": "hub",
+      "what": "REPLY ERROR no_channel",
+      "hex": "11010000220000001e0000007b22636f6465223a226e6f5f6368616e6e656c222c226d657373616765223a22227d"
+    }
+  ],
+  "close": [
+    {
+      "from": "device",
+      "what": "EVENT channel.close reset, header id = the channel id",
+      "hex": "1200000026000000030000007b2274223a226368616e6e656c2e636c6f7365222c22726561736f6e223a227265736574227d"
+    },
+    {
+      "from": "device",
+      "what": "REQUEST channel.open for the new realm",
+      "hex": "10000000460000001f0000007b2274223a226368616e6e656c2e6f70656e222c22617070223a226465762e6578616d706c652e6d6170222c2268617368223a2230303030303030303030303030306363227d"
+    },
+    {
+      "from": "hub",
+      "what": "REPLY with generation 8",
+      "hex": "11000000100000001f0000007b2267656e65726174696f6e223a387d"
+    }
+  ],
+  "openRefusals": [
+    {
+      "code": "no_daemon",
+      "retry": "not during this applet run",
+      "hex": "1101000021000000030000007b22636f6465223a226e6f5f6461656d6f6e222c226d657373616765223a22227d"
+    },
+    {
+      "code": "busy",
+      "retryMs": [
+        2000,
+        4000,
+        8000,
+        16000,
+        32000,
+        60000,
+        60000
+      ],
+      "hex": "110100001c000000030000007b22636f6465223a2262757379222c226d657373616765223a22227d"
+    }
+  ],
+  "limitNote": 16384
+}

@@ -1,0 +1,119 @@
+{
+  "device": "504b4c4b02020000",
+  "selection": [
+    {
+      "name": "a version-2 device",
+      "device": {
+        "highest": 2,
+        "lowest": 2,
+        "selected": 0
+      },
+      "hub": {
+        "highest": 2,
+        "lowest": 2
+      },
+      "deviceHex": "504b4c4b02020000",
+      "selected": 2,
+      "hubHex": "504b4c4b02020200",
+      "hubCloses": false
+    },
+    {
+      "name": "a version-1 console (PKLK, 1, 0, 0, 0)",
+      "device": {
+        "highest": 1,
+        "lowest": 0,
+        "selected": 0
+      },
+      "hub": {
+        "highest": 2,
+        "lowest": 2
+      },
+      "deviceHex": "504b4c4b01000000",
+      "selected": 0,
+      "hubHex": "504b4c4b02020000",
+      "hubCloses": true
+    },
+    {
+      "name": "a device with range 2 to 3",
+      "device": {
+        "highest": 3,
+        "lowest": 2,
+        "selected": 0
+      },
+      "hub": {
+        "highest": 2,
+        "lowest": 2
+      },
+      "deviceHex": "504b4c4b03020000",
+      "selected": 2,
+      "hubHex": "504b4c4b02020200",
+      "hubCloses": false
+    },
+    {
+      "name": "a device with range 3 to 4",
+      "device": {
+        "highest": 4,
+        "lowest": 3,
+        "selected": 0
+      },
+      "hub": {
+        "highest": 2,
+        "lowest": 2
+      },
+      "deviceHex": "504b4c4b04030000",
+      "selected": 0,
+      "hubHex": "504b4c4b02020000",
+      "hubCloses": true
+    },
+    {
+      "name": "a Hub with range 2 to 3 and a version-2 device",
+      "device": {
+        "highest": 2,
+        "lowest": 2,
+        "selected": 0
+      },
+      "hub": {
+        "highest": 3,
+        "lowest": 2
+      },
+      "deviceHex": "504b4c4b02020000",
+      "selected": 2,
+      "hubHex": "504b4c4b03020200",
+      "hubCloses": false
+    }
+  ],
+  "deviceAccepts": [
+    {
+      "name": "selected 2 inside 2..2",
+      "device": {
+        "highest": 2,
+        "lowest": 2
+      },
+      "hubHex": "504b4c4b02020200",
+      "version": 2
+    },
+    {
+      "name": "selected 0: no common version",
+      "device": {
+        "highest": 2,
+        "lowest": 2
+      },
+      "hubHex": "504b4c4b04030000",
+      "version": null
+    },
+    {
+      "name": "selected 3 outside 2..2",
+      "device": {
+        "highest": 2,
+        "lowest": 2
+      },
+      "hubHex": "504b4c4b03020300",
+      "version": null
+    }
+  ],
+  "wrongMagic": "504b4c4202020000",
+  "notWaiting": {
+    "hex": "0400030002000000000000007b7d",
+    "close": "protocol"
+  }
+}

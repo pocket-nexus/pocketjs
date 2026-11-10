@@ -1,0 +1,136 @@
+{
+  "push": {
+    "bytes": 100000,
+    "window": 65536,
+    "limit": 16384,
+    "steps": [
+      {
+        "from": "hub",
+        "what": "REQUEST runtime.push",
+        "hex": "100000003d000000030000807b2274223a2272756e74696d652e70757368222c226279746573223a3130303030302c2268617368223a2230303030303030303030303030306262227d"
+      },
+      {
+        "from": "device",
+        "what": "CREDIT",
+        "hex": "21000000040000000300008000000100"
+      },
+      {
+        "from": "hub",
+        "what": "DATA",
+        "header": "200000000040000003000080",
+        "fill": "5a",
+        "bytes": 16384
+      },
+      {
+        "from": "device",
+        "what": "CREDIT",
+        "hex": "21000000040000000300008000400000"
+      },
+      {
+        "from": "hub",
+        "what": "DATA",
+        "header": "200000000040000003000080",
+        "fill": "5a",
+        "bytes": 16384
+      },
+      {
+        "from": "device",
+        "what": "CREDIT",
+        "hex": "21000000040000000300008000400000"
+      },
+      {
+        "from": "hub",
+        "what": "DATA",
+        "header": "200000000040000003000080",
+        "fill": "5a",
+        "bytes": 16384
+      },
+      {
+        "from": "device",
+        "what": "CREDIT",
+        "hex": "210000000400000003000080a0060000"
+      },
+      {
+        "from": "hub",
+        "what": "DATA",
+        "header": "200000000040000003000080",
+        "fill": "5a",
+        "bytes": 16384
+      },
+      {
+        "from": "hub",
+        "what": "DATA",
+        "header": "200000000040000003000080",
+        "fill": "5a",
+        "bytes": 16384
+      },
+      {
+        "from": "hub",
+        "what": "DATA",
+        "header": "200000000040000003000080",
+        "fill": "5a",
+        "bytes": 16384
+      },
+      {
+        "from": "hub",
+        "what": "DATA with END",
+        "header": "20010000a006000003000080",
+        "fill": "5a",
+        "bytes": 1696
+      }
+    ]
+  },
+  "pastCredit": {
+    "granted": 1000,
+    "data": 1001,
+    "close": "flow"
+  },
+  "grantOver16MiB": {
+    "grants": [
+      16777216,
+      1
+    ],
+    "close": "flow"
+  },
+  "grantAt16MiB": {
+    "grants": [
+      16777216
+    ],
+    "close": null
+  },
+  "resetRefused": [
+    {
+      "from": "hub",
+      "what": "EVENT agent.glyphs opening a stream",
+      "hex": "1200000037000000050000807b2274223a226167656e742e676c79706873222c2273747265616d223a323134373438333635332c226279746573223a3333333631367d"
+    },
+    {
+      "from": "device",
+      "what": "RESET refused",
+      "hex": "22000000040000000500008002000000"
+    }
+  ],
+  "unknownEventWithFreshId": [
+    {
+      "from": "hub",
+      "what": "EVENT of an unknown t on a fresh id",
+      "hex": "1200000021000000070000807b2274223a226167656e742e686f6c6f6772616d222c226279746573223a31307d"
+    },
+    {
+      "from": "device",
+      "what": "RESET refused",
+      "hex": "22000000040000000700008002000000"
+    }
+  ],
+  "shortOfDeclared": {
+    "declared": 100,
+    "sentBeforeEnd": 99,
+    "request": "transfer",
+    "eventStream": "length"
+  },
+  "senderWithoutCredit": {
+    "waitsMs": 30000,
+    "eventStream": "22000000040000002100000001000000",
+    "devtools": "drop-line"
+  }
+}

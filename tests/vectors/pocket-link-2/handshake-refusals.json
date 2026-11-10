@@ -1,0 +1,429 @@
+{
+  "refusals": [
+    {
+      "code": "unknown_device",
+      "hex": "040000005d000000000000007b2274223a2272656675736564222c22636f6465223a22756e6b6e6f776e5f646576696365222c226d657373616765223a227468697320636f6d707574657220686f6c6473206e6f206b657920666f722074686520646576696365227d",
+      "json": {
+        "t": "refused",
+        "code": "unknown_device",
+        "message": "this computer holds no key for the device"
+      }
+    },
+    {
+      "code": "bad_proof",
+      "hex": "0400000048000000000000007b2274223a2272656675736564222c22636f6465223a226261645f70726f6f66222c226d657373616765223a227468652070726f6f6620646f6573206e6f7420766572696679227d",
+      "json": {
+        "t": "refused",
+        "code": "bad_proof",
+        "message": "the proof does not verify"
+      }
+    },
+    {
+      "code": "malformed",
+      "hex": "0400000039000000000000007b2274223a2272656675736564222c22636f6465223a226d616c666f726d6564222c226d657373616765223a226d61785061796c6f6164227d",
+      "json": {
+        "t": "refused",
+        "code": "malformed",
+        "message": "maxPayload"
+      }
+    },
+    {
+      "code": "busy",
+      "hex": "0400000041000000000000007b2274223a2272656675736564222c22636f6465223a2262757379222c226d657373616765223a22333220636f6e6e656374696f6e7320617265206f70656e227d",
+      "json": {
+        "t": "refused",
+        "code": "busy",
+        "message": "32 connections are open"
+      }
+    }
+  ],
+  "malformedHello": [
+    {
+      "name": "maxPayload 512",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 512
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "maxPayload 32,769",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 32769
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "an uppercase device id",
+      "json": {
+        "t": "hello",
+        "device": "0123456789ABCDEF",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a 31-digit nonce",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "17 features",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "f0",
+          "f1",
+          "f2",
+          "f3",
+          "f4",
+          "f5",
+          "f6",
+          "f7",
+          "f8",
+          "f9",
+          "f10",
+          "f11",
+          "f12",
+          "f13",
+          "f14",
+          "f15",
+          "f16"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a feature of 25 bytes",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "fffffffffffffffffffffffff"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a name of 65 bytes",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a target of 16 bytes",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "tttttttttttttttt",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "no model",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "hostAbi as a string",
+      "json": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": "12",
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "refused": "malformed"
+    }
+  ],
+  "unknownDevice": [
+    {
+      "name": "Hub holds no key for the device",
+      "hello": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "fedcba9876543210",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "hubId": "fedcba9876543210",
+      "keys": [],
+      "refused": "unknown_device"
+    },
+    {
+      "name": "companion names another Hub",
+      "hello": {
+        "t": "hello",
+        "device": "0123456789abcdef",
+        "companion": "00112233445566ff",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "New Nintendo 3DS XL",
+        "target": "3ds-dev",
+        "hostAbi": 12,
+        "features": [
+          "runtime",
+          "runtime.native",
+          "devtools",
+          "catalog",
+          "install",
+          "net.http",
+          "agent",
+          "channel",
+          "apps"
+        ],
+        "maxPayload": 16384
+      },
+      "hubId": "fedcba9876543210",
+      "keys": [
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      ],
+      "refused": "unknown_device"
+    }
+  ],
+  "badProof": {
+    "auth": {
+      "t": "auth",
+      "proof": "9ec1ed5b0bbf0fb5ada996ed59011d2b0adfa86c2a93776629fb262600c58f93"
+    },
+    "expected": "bc87dafa9f5390ba55fb52b9415e3f3d6579294a6c91b91e1556084d28e7b10e",
+    "refused": "bad_proof"
+  },
+  "deviceCloseAuth": {
+    "challenge": {
+      "t": "challenge",
+      "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "proof": "126376ae1817c7a1accd11e232d2120b5b2421e85241d3cd9782b498ec3a03a0"
+    },
+    "close": "030000001d00000000000000060000007468652070726f6f6620646f6573206e6f7420766572696679",
+    "holdMs": 30000
+  },
+  "readyOutOfRange": {
+    "json": {
+      "t": "ready",
+      "name": "Studio Mac",
+      "features": [
+        "runtime",
+        "runtime.native",
+        "devtools",
+        "catalog",
+        "install",
+        "net.http",
+        "channel",
+        "apps"
+      ],
+      "maxPayload": 512,
+      "clock": {
+        "utc": 1794312000000,
+        "local": 1794340800000
+      }
+    },
+    "close": "protocol"
+  },
+  "twoCandidates": {
+    "keys": [
+      "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    ],
+    "steps": [
+      {
+        "event": "connect",
+        "proves": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      {
+        "event": "close-auth"
+      },
+      {
+        "event": "connect",
+        "proves": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      },
+      {
+        "event": "ready",
+        "keeps": [
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        ]
+      }
+    ]
+  },
+  "dataBeforeReady": {
+    "hex": "20000000010000000500000000",
+    "close": "protocol"
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "valid": [
+    {
+      "name": "Hub drops agent",
+      "list": [
+        "runtime",
+        "runtime.native",
+        "devtools",
+        "catalog",
+        "install",
+        "net.http",
+        "channel",
+        "apps"
+      ],
+      "hex": "1200000073000000000000007b2274223a226665617475726573222c226665617475726573223a5b2272756e74696d65222c2272756e74696d652e6e6174697665222c22646576746f6f6c73222c22636174616c6f67222c22696e7374616c6c222c226e65742e68747470222c226368616e6e656c222c2261707073225d7d"
+    },
+    {
+      "name": "16 entries of 24 bytes",
+      "list": [
+        "ffffffffffffffffffffff00",
+        "ffffffffffffffffffffff01",
+        "ffffffffffffffffffffff02",
+        "ffffffffffffffffffffff03",
+        "ffffffffffffffffffffff04",
+        "ffffffffffffffffffffff05",
+        "ffffffffffffffffffffff06",
+        "ffffffffffffffffffffff07",
+        "ffffffffffffffffffffff08",
+        "ffffffffffffffffffffff09",
+        "ffffffffffffffffffffff10",
+        "ffffffffffffffffffffff11",
+        "ffffffffffffffffffffff12",
+        "ffffffffffffffffffffff13",
+        "ffffffffffffffffffffff14",
+        "ffffffffffffffffffffff15"
+      ],
+      "hex": "12000000cd010000000000007b2274223a226665617475726573222c226665617475726573223a5b22666666666666666666666666666666666666666666663030222c22666666666666666666666666666666666666666666663031222c22666666666666666666666666666666666666666666663032222c22666666666666666666666666666666666666666666663033222c22666666666666666666666666666666666666666666663034222c22666666666666666666666666666666666666666666663035222c22666666666666666666666666666666666666666666663036222c22666666666666666666666666666666666666666666663037222c22666666666666666666666666666666666666666666663038222c22666666666666666666666666666666666666666666663039222c22666666666666666666666666666666666666666666663130222c22666666666666666666666666666666666666666666663131222c22666666666666666666666666666666666666666666663132222c22666666666666666666666666666666666666666666663133222c22666666666666666666666666666666666666666666663134222c22666666666666666666666666666666666666666666663135225d7d"
+    },
+    {
+      "name": "an empty list",
+      "list": [],
+      "hex": "120000001e000000000000007b2274223a226665617475726573222c226665617475726573223a5b5d7d"
+    }
+  ],
+  "protocol": [
+    {
+      "name": "17 entries",
+      "json": {
+        "t": "features",
+        "features": [
+          "f0",
+          "f1",
+          "f2",
+          "f3",
+          "f4",
+          "f5",
+          "f6",
+          "f7",
+          "f8",
+          "f9",
+          "f10",
+          "f11",
+          "f12",
+          "f13",
+          "f14",
+          "f15",
+          "f16"
+        ]
+      }
+    },
+    {
+      "name": "an entry of 25 bytes",
+      "json": {
+        "t": "features",
+        "features": [
+          "fffffffffffffffffffffffff"
+        ]
+      }
+    },
+    {
+      "name": "no features array",
+      "json": {
+        "t": "features"
+      }
+    },
+    {
+      "name": "an entry that is not a string",
+      "json": {
+        "t": "features",
+        "features": [
+          1
+        ]
+      }
+    }
+  ],
+  "inUse": [
+    {
+      "device": [
+        "runtime",
+        "agent"
+      ],
+      "hub": [
+        "runtime",
+        "catalog"
+      ],
+      "inUse": [
+        "runtime"
+      ]
+    },
+    {
+      "device": [
+        "channel"
+      ],
+      "hub": [],
+      "inUse": []
+    }
+  ],
+  "dropOrder": [
+    "REPLY ERROR unsupported for the peer's open requests",
+    "CANCEL for its own open requests",
+    "RESET cancelled for streams of no request",
+    "channel.close feature",
+    "EVENT features"
+  ]
+}
