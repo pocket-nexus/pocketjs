@@ -4,10 +4,11 @@
 // connect, 15 s for a read or a listing, 30 s for a write, no proxy.
 //
 // A read tells its three outcomes apart, as §3.2 step 3 needs: curl's exit
-// codes 78 (the server answered "no such file" to RETR) and 9 (it refused to
-// enter the folder, which a card that never held the folder answers) are
-// "absent"; any other failure is a failed read, which says nothing about the
-// file. A delete is confirmed by a read that answers "absent".
+// codes 78 (the server answered "no such file" to SIZE or to RETR; curl 8
+// stops at the SIZE) and 9 (it refused to enter the folder, which a card that
+// never held the folder answers) are "absent"; any other failure is a failed
+// read, which says nothing about the file. A delete is confirmed by a read
+// that answers "absent".
 
 import type { SetupStorage } from "./hub.ts";
 import type { ReadOutcome } from "./pairing.ts";
