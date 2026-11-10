@@ -53,6 +53,17 @@ static void wait_until(void *opaque, uint64_t deadline) {
   int64_t timeout = deadline == UINT64_MAX ? INT64_MAX
                     : deadline > current ? (int64_t)(deadline - current) * 1000
                                          : 0;
+  /* Once stop was asked for, the caller is destroy's retry
+   * (pocket_worker_runner_destroy), and every retry signals this thread's
+   * own wake event through pocket_worker_close. A wait on the event would
+   * return at once: the retry would spin without yielding, and the main
+   * thread, which runs at the same priority and has to service the mailbox
+   * before destroy can succeed, would never run again. The thread sleeps
+   * instead. */
+  if (atomic_load(&w->shutdown)) {
+    svcSleepThread(1000000);
+    return;
+  }
   LightEvent_WaitTimeout(&w->wake, timeout);
 }
 static HttpResource *resource(Worker *w, uint32_t handle) {
