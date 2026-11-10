@@ -130,7 +130,9 @@ static int platform_udp_open(void *context, uint16_t port) {
 }
 
 static long platform_udp_recv(void *context, int handle, uint8_t *into, size_t capacity, char address[16]) {
-  return soc_active() ? bsd.udp_recv(context, handle, into, capacity, address) : 0;
+  /* With soc:U down the handle is gone (a later socket may take its number):
+   * the client drops it and opens another once the service is back. */
+  return soc_active() ? bsd.udp_recv(context, handle, into, capacity, address) : -1;
 }
 
 static void platform_udp_close(void *context, int handle) {

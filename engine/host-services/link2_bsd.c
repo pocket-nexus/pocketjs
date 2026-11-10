@@ -118,7 +118,9 @@ static long bsd_udp_recv(void *context, int fd, uint8_t *into, size_t capacity, 
   struct sockaddr_in from;
   socklen_t length = sizeof from;
   ssize_t n = recvfrom(fd, into, capacity, 0, (struct sockaddr *)&from, &length);
-  if (n <= 0) return 0;
+  /* No datagram is 0; a socket that failed is -1, and the client opens another. */
+  if (n < 0) return would_block() ? 0 : -1;
+  if (n == 0) return 0;
   if (inet_ntop(AF_INET, &from.sin_addr, address, 16) == NULL) return 0;
   return (long)n;
 }

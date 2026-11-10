@@ -236,6 +236,7 @@ typedef struct {
   uint32_t fill;
   uint32_t want;
   uint32_t skip;
+  uint32_t skipped; /* frames of an unknown type skipped so far */
   bool in_payload;
   bool linked;
   bool dead;

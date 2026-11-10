@@ -255,6 +255,7 @@ int link2_reader_push(Link2Reader *reader, const uint8_t *bytes, size_t length, 
     reader->header_fill = 0;
     if (known_flags(type) < 0) {
       reader->skip = payload;
+      reader->skipped += 1;
       continue;
     }
     uint32_t bad = link2_check_frame(type, flags, id, payload);

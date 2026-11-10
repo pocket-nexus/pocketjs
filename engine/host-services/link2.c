@@ -42,6 +42,8 @@
 
 /* One socket read; a 3DS returns about one segment (1.5 KiB) per call. */
 #define RX_CHUNK 4096u
+/* RESET frames that can wait for room in the send buffer. */
+#define RESETS_DUE 16u
 /* How often a linked client reads its beacon socket. */
 #define LINK2_BEACON_DRAIN_MS 1000u
 /* Room the send buffer must have, outside the reserve, before a frame is
@@ -96,6 +98,7 @@ typedef struct {
   bool timeout;    /* cancelled by the 30 s stall */
   bool head;       /* applet request: the response stream was handed over or refused */
   bool queued;     /* applet request: its outcome waits in the channel's queue for the guest */
+  bool orphan_close; /* channel.open whose applet left: `channel.close` exit is owed for the id */
   bool early_end;  /* applet request: the response's END came before the guest took the head event */
   bool early_reset; /* the same for a RESET */
   bool reply_error;
@@ -277,6 +280,14 @@ struct Link2 {
    * CLOSE, a lost connection), and the open frame is then not committed. */
   bool building;
   uint32_t tx_epoch;
+  struct {
+    uint32_t id;
+    uint32_t code;
+  } resets[RESETS_DUE]; /* RESET frames that wait for room */
+  uint32_t resets_due;
+  uint32_t skipped_seen; /* the reader's count of skipped frames at the last pump */
+  uint64_t udp_retry_ms; /* the beacon socket is not opened again before this */
+  bool ids_spent;
   uint64_t beacons_ms; /* the last drain of the beacon socket */
   uint32_t tx_head;
   uint32_t tx_tail;
@@ -442,9 +453,30 @@ static bool send_credit(Link2 *link, uint32_t id, uint32_t amount) {
   return tx_put(link, frame, (uint32_t)link2_write_credit(frame, id, amount), false);
 }
 
-static bool send_reset(Link2 *link, uint32_t id, uint32_t code) {
+static bool send_reset_now(Link2 *link, uint32_t id, uint32_t code) {
   uint8_t frame[LINK2_RESET_FRAME_BYTES];
   return tx_put(link, frame, (uint32_t)link2_write_reset(frame, id, code), false);
+}
+
+/* A RESET that finds no room waits here and leaves at a later pump: the
+ * peer would otherwise keep the stream until its own 30 s without credit. */
+static void send_reset(Link2 *link, uint32_t id, uint32_t code) {
+  if (link->resets_due == 0 && send_reset_now(link, id, code)) return;
+  if (link->resets_due == RESETS_DUE) {
+    /* More than the table holds: the oldest gives way. */
+    memmove(link->resets, link->resets + 1, (RESETS_DUE - 1) * sizeof link->resets[0]);
+    link->resets_due -= 1;
+  }
+  link->resets[link->resets_due].id = id;
+  link->resets[link->resets_due].code = code;
+  link->resets_due += 1;
+}
+
+static void flush_resets(Link2 *link) {
+  while (link->resets_due > 0 && send_reset_now(link, link->resets[0].id, link->resets[0].code)) {
+    link->resets_due -= 1;
+    memmove(link->resets, link->resets + 1, link->resets_due * sizeof link->resets[0]);
+  }
 }
 
 static bool send_cancel(Link2 *link, uint32_t id) {
@@ -586,7 +618,11 @@ static bool id_in_use(Link2 *link, uint32_t id) {
 }
 
 static uint32_t take_id(Link2 *link) {
-  if (link->next_id > LINK2_ID_DEVICE_MAX) return 0;
+  if (link->next_id > LINK2_ID_DEVICE_MAX) {
+    /* §5.1: the pump closes the link with going_away; ids start again on the next. */
+    link->ids_spent = true;
+    return 0;
+  }
   return link->next_id++;
 }
 
@@ -1002,6 +1038,12 @@ static void channel_close(Link2 *link, Channel *channel, const char *reason) {
   channel->close_due = true;
   copy_text(channel->close_reason, sizeof channel->close_reason, reason);
   channel_ended(link, channel, reason);
+  /* After its own `overflow` the device opens the channel again when the
+   * applet uses it, under the once-a-second rule (§7.5). */
+  if (strcmp(reason, "overflow") == 0) {
+    channel->wanted = false;
+    channel->next_open_ms = now_ms(link) + LINK2_CHANNEL_REOPEN_MS;
+  }
 }
 
 static void channel_flush_close(Link2 *link, Channel *channel) {
@@ -1017,7 +1059,9 @@ static void channel_flush_close(Link2 *link, Channel *channel) {
 /* The accepting REPLY of `channel.open`: the channel exists from this turn,
  * so the CREDIT Hub queues right behind the REPLY finds it (§7.1). */
 static void channel_opened(Link2 *link, Channel *channel, uint32_t generation) {
+  uint32_t waited = channel->busy_wait_ms;
   channel->inbox = malloc(INBOX_BYTES);
+  if (channel->inbox != NULL) channel_bytes(link, (long)INBOX_BYTES);
   channel->state = LINK2_CHANNEL_OPEN;
   channel->generation = generation;
   channel->busy_wait_ms = 0;
@@ -1026,11 +1070,18 @@ static void channel_opened(Link2 *link, Channel *channel, uint32_t generation) {
   channel->frame_json = 0;
   if (channel->inbox == NULL || channel->cancel_open) {
     /* No memory for its queue, or the open was cancelled and the REPLY crossed the CANCEL. */
+    bool no_memory = channel->inbox == NULL;
     channel->cancel_open = false;
     channel_close(link, channel, "exit");
+    if (no_memory) {
+      /* Opened again as after `busy`, not once a second: each open starts a
+       * daemon and takes a generation. */
+      channel->busy_wait_ms = waited == 0 ? LINK2_CHANNEL_BUSY_RETRY_MIN_MS : waited * 2 > LINK2_CHANNEL_BUSY_RETRY_MAX_MS ? LINK2_CHANNEL_BUSY_RETRY_MAX_MS : waited * 2;
+      channel->next_open_ms = now_ms(link) + channel->busy_wait_ms;
+      copy_text(channel->reason, sizeof channel->reason, "memory");
+    }
     return;
   }
-  channel_bytes(link, (long)INBOX_BYTES);
   channel->ev_outstanding = LINK2_APP_EVENT_WINDOW;
   channel->first_grant_due = true;
 }
@@ -1146,7 +1197,11 @@ static void teardown(Link2 *link) {
   link->dt_in_tail = 0;
   link->dt_skip = false;
   link->dt_out_fill = 0;
+  /* A features change that waited for its second is not lost: the next hello carries the list. */
+  link->local = link->wanted_features;
   link->features_due = false;
+  link->resets_due = 0;
+  link->ids_spent = false;
   link->frame_held = false;
   link->rx_chunk_at = 0;
   link->rx_chunk_fill = 0;
@@ -1174,6 +1229,9 @@ static void back_off(Link2 *link) {
 /* A connection attempt or a handshake failed. */
 static void dropped(Link2 *link, const char *why) {
   socket_gone(link);
+  /* A list set during the handshake goes into the next hello. */
+  link->local = link->wanted_features;
+  link->features_due = false;
   copy_text(link->close_why, sizeof link->close_why, why);
   if (link->host.linked != NULL) link->host.linked(link->host.context, NULL, why);
   back_off(link);
@@ -1214,7 +1272,9 @@ static void close_link(Link2 *link, uint32_t code, const char *reason, bool rest
   /* As in link_down: not linked before the tables end. */
   link->phase = PHASE_CLOSING;
   if (was_linked) teardown(link);
-  tx_put(link, frame, (uint32_t)link2_write_close(frame, code, reason), true);
+  /* With its reason the CLOSE may not fit what the reserve has left beside
+   * a PING: the code alone does. */
+  if (!tx_put(link, frame, (uint32_t)link2_write_close(frame, code, reason), true)) tx_put(link, frame, (uint32_t)link2_write_close(frame, code, NULL), true);
   copy_text(link->close_why, sizeof link->close_why, link2_close_name(code));
   link->restart_after_close = restart;
   link->close_deadline = now_ms(link) + LINK2_CLOSE_DRAIN_MS;
@@ -1778,6 +1838,8 @@ static void pump_runtime_events(Link2 *link) {
   }
   while (link->apps_sending) {
     FrameWriter writer;
+    /* A page waits for room without asking the host for its rows at every pump. */
+    if (tx_room(link, false) < LINK2_HEADER_BYTES + LINK2_MIN_PAYLOAD) return;
     size_t count = link->host.runtime_apps(link->host.context, link->apps, LINK2_APPS_MAX_ROWS);
     size_t at = link->apps_at;
     if (!frame_begin(link, &writer, false, 0)) return;
@@ -2175,7 +2237,11 @@ bool link2_event_stream_as(Link2 *link, uint32_t id, const char *json, size_t le
   if ((id & 0x80000000u) != 0 || find_out(link, id) != NULL || find_out_stream(link, id) != NULL) return false;
   OutStream *stream = new_out_stream(link, id, OS_SYSTEM, -1);
   if (stream == NULL) return false;
-  send_json(link, LINK2_FRAME_EVENT, 0, id, json, length, false, 0);
+  if (!send_json(link, LINK2_FRAME_EVENT, 0, id, json, length, false, 0)) {
+    /* The event fits no frame now (an object over the payload limit never will): no stream. */
+    free_out_stream(link, stream);
+    return false;
+  }
   return true;
 }
 
@@ -2278,7 +2344,7 @@ static void pump_out_streams(Link2 *link) {
     OutStream *stream = &link->out_streams[i];
     if (stream->kind == OS_SYSTEM) {
       /* Its owner sends the bytes; without credit for 30 s the stream is abandoned (§5.5). */
-      if (stream->wait_since != 0 && now - stream->wait_since >= LINK2_REQUEST_STALL_MS && send_reset(link, stream->id, LINK2_RESET_CANCELLED)) free_out_stream(link, stream);
+      if (stream->wait_since != 0 && now - stream->wait_since >= LINK2_REQUEST_STALL_MS && send_reset_now(link, stream->id, LINK2_RESET_CANCELLED)) free_out_stream(link, stream);
       continue;
     }
     if (stream->kind == OS_FREE || stream->end_sent || stream->failed) continue;
@@ -2405,7 +2471,9 @@ void link2_set_features(Link2 *link, const char *const *features, size_t count) 
     copy_text(link->wanted_features.features[i], sizeof link->wanted_features.features[i], features[i]);
     link->wanted_features.count += 1;
   }
-  if (link->phase == PHASE_LINKED) link->features_due = true;
+  /* Linked, or with hello on its way: Hub holds the list hello carried, so
+   * the change goes out as a features event (after `ready`). */
+  if (link->phase == PHASE_LINKED || link->phase == PHASE_HANDSHAKE) link->features_due = true;
   else link->local = link->wanted_features;
 }
 
@@ -2424,8 +2492,30 @@ static void drop_group(Link2 *link, const char *feature) {
     OutRequest *request = &link->out[i];
     const char *group = request->kind == OR_CATALOG ? "catalog" : request->kind == OR_INSTALL ? "install" : request->kind == OR_HTTP ? "net.http" : "";
     if (request->kind == OR_FREE || strcmp(group, feature) != 0 || request->cancelled) continue;
-    request->cancel_due = true;
+    /* The CANCEL leaves before the features event (§6.1): features_pump saw room for it. */
+    if (send_cancel(link, request->id)) {
+      request->cancelled = true;
+      request->cancelled_ms = now_ms(link);
+    } else {
+      request->cancel_due = true;
+    }
     settle_out(link, request, "unsupported");
+  }
+  if (strcmp(feature, "agent") == 0) {
+    /* The agent's streams in both directions end with RESET. */
+    for (size_t i = 0; i < link->in_stream_count; i += 1) {
+      InStream *stream = &link->in_streams[i];
+      if (stream->kind != IS_SYSTEM) continue;
+      send_reset(link, stream->id, LINK2_RESET_CANCELLED);
+      if (link->host.stream_end != NULL) link->host.stream_end(link->host.context, stream->id, false);
+      free_in_stream(link, stream);
+    }
+    for (size_t i = 0; i < link->out_stream_count; i += 1) {
+      OutStream *stream = &link->out_streams[i];
+      if (stream->kind != OS_SYSTEM) continue;
+      if (!stream->end_sent) send_reset(link, stream->id, LINK2_RESET_CANCELLED);
+      free_out_stream(link, stream);
+    }
   }
   if (strcmp(feature, "devtools") == 0 && link->devtools_id != 0) {
     send_reset(link, link->devtools_id, LINK2_RESET_CANCELLED);
@@ -2623,6 +2713,18 @@ static void app_reply(Link2 *link, OutRequest *request, const Link2Frame *frame)
 }
 
 static void channel_open_reply(Link2 *link, OutRequest *request, JsonSpan object, bool error) {
+  if (request->channel < 0) {
+    /* The applet left while its open was in flight (link2_channel_exit). An
+     * accepting REPLY that crossed the CANCEL opened a channel nobody holds:
+     * it is closed at once with `exit` (§7.1). */
+    if (error) {
+      free_out(link, request);
+    } else {
+      request->replied = true;
+      request->orphan_close = true;
+    }
+    return;
+  }
   Channel *channel = &link->channels[request->channel];
   uint64_t generation = 0;
   if (!error) {
@@ -2736,6 +2838,8 @@ static void system_event(Link2 *link, const Link2Frame *frame, JsonSpan object, 
     InStream *stream = bytes > 0 && bytes <= LINK2_MAX_CREDIT ? new_in_stream(link, frame->id, IS_SYSTEM, -1) : NULL;
     if (stream == NULL) {
       send_reset(link, frame->id, LINK2_RESET_REFUSED);
+      /* The host took the stream and this side has no place for it: the host is told. */
+      if (bytes > 0 && link->host.stream_end != NULL) link->host.stream_end(link->host.context, frame->id, false);
       return;
     }
     stream->window = bytes;
@@ -2854,7 +2958,8 @@ static void on_data(Link2 *link, const Link2Frame *frame) {
   bool end = (frame->flags & LINK2_FLAG_END) != 0;
   if (out != NULL) {
     out->last_frame_ms = now_ms(link);
-    if (out->cancelled) return;
+    /* Cancelled, or about to be (the CANCEL waits for room): its bytes go nowhere. */
+    if (out->cancelled || out->cancel_due) return;
     /* An applet response's END can reach this side before the guest took
      * the head event that hands the stream over: an empty response, with
      * its head, END and REPLY in one write. It is kept for the hand-over. */
@@ -3245,7 +3350,14 @@ static void pump_beacons(Link2 *link) {
   for (int i = 0; i < 8; i += 1) {
     long n = link->platform.udp_recv(link->platform.context, link->udp, datagram, sizeof datagram, address);
     Link2Beacon beacon;
-    if (n <= 0) return;
+    if (n < 0) {
+      /* The socket is gone (the radio went off under it): the next pump opens another. */
+      link->platform.udp_close(link->platform.context, link->udp);
+      link->udp = -1;
+      link->udp_retry_ms = now_ms(link) + LINK2_BEACON_DRAIN_MS;
+      return;
+    }
+    if (n == 0) return;
     if (link->phase != PHASE_SEARCH || !link2_parse_beacon(datagram, (size_t)n, &beacon)) continue;
     for (size_t c = 0; c < link->companions.count; c += 1) {
       if (strcmp(link->companions.list[c].id, beacon.companion) != 0 || held(link, c)) continue;
@@ -3271,6 +3383,11 @@ static void pump_requests(Link2 *link) {
   }
   for (size_t i = 0; i < link->out_count; i += 1) {
     OutRequest *request = &link->out[i];
+    if (request->kind == OR_CHANNEL_OPEN && request->orphan_close) {
+      static const char CLOSE_EXIT[] = "{\"t\":\"channel.close\",\"reason\":\"exit\"}";
+      if (send_json(link, LINK2_FRAME_EVENT, 0, request->id, CLOSE_EXIT, sizeof CLOSE_EXIT - 1, false, 0)) free_out(link, request);
+      continue;
+    }
     if (request->kind == OR_FREE || request->replied) continue;
     if (!request->cancelled && !request->cancel_due && now - request->last_frame_ms >= LINK2_REQUEST_STALL_MS) {
       /* 30 s without a frame for the request: CANCEL, and this side has its outcome (§5.5). */
@@ -3305,11 +3422,13 @@ static void pump_requests(Link2 *link) {
       settle_out(link, request, request->timeout ? "timeout" : "cancelled");
       if (kind == OR_DEVTOOLS) {
         devtools_close(link);
+        /* Asked for again on this connection while the group is in use. */
+        link->devtools_due = true;
         continue;
       }
       if (in != NULL && in->kind != IS_APP) free_in_stream(link, in);
       if (out != NULL && out->kind != OS_APP) free_out_stream(link, out);
-      if (kind == OR_CHANNEL_OPEN) {
+      if (kind == OR_CHANNEL_OPEN && channel >= 0) {
         link->channels[channel].state = LINK2_CHANNEL_CLOSED;
         copy_text(link->channels[channel].reason, sizeof link->channels[channel].reason, "timeout");
       }
@@ -3322,10 +3441,15 @@ static void pump_requests(Link2 *link) {
 static void pump_linked(Link2 *link) {
   uint32_t budget = LINK2_RX_BUDGET;
   bool paused = false;
+  if (link->ids_spent) {
+    close_link(link, LINK2_CLOSE_GOING_AWAY, "this connection's ids are used up", false);
+    return;
+  }
   if (!tx_flush(link)) {
     link_down(link, "carrier", false);
     return;
   }
+  flush_resets(link);
   for (;;) {
     if (link->frame_held) {
       /* A frame is handled when the send buffer has room for its answer (§8.2). */
@@ -3354,6 +3478,11 @@ static void pump_linked(Link2 *link) {
     if (state == LINK2_READ_FRAME) {
       link2_keepalive_received(&link->alive, now_ms(link));
       link->frame_held = true;
+    }
+    /* A frame of a type this side does not know is skipped, and is a frame for the 10 s rule. */
+    if (link->reader.skipped != link->skipped_seen) {
+      link->skipped_seen = link->reader.skipped;
+      link2_keepalive_received(&link->alive, now_ms(link));
     }
   }
   if (paused) link->stats.read_pauses += 1;
@@ -3384,8 +3513,10 @@ static void pump_linked(Link2 *link) {
 }
 
 void link2_pump(Link2 *link) {
-  if (link->udp < 0 && link->companions.count > 0 && !link->stopped) {
+  if (link->udp < 0 && link->companions.count > 0 && !link->stopped && now_ms(link) >= link->udp_retry_ms) {
     link->udp = link->platform.udp_open(link->platform.context, link->host.beacon_port != 0 ? link->host.beacon_port : LINK2_BEACON_PORT);
+    /* A socket that does not open, or one that failed, is tried again once a second. */
+    if (link->udp < 0) link->udp_retry_ms = now_ms(link) + LINK2_BEACON_DRAIN_MS;
   }
   /* Beacons matter while searching. Linked, the socket is drained once a
    * second: a host that pumps twice a frame pays no datagram call for it. */
@@ -3663,6 +3794,17 @@ static void cancel_opening(Link2 *link, Channel *channel) {
 void link2_channel_exit(Link2 *link, int index) {
   Channel *channel = channel_at(link, index);
   if (channel == NULL) return;
+  if (channel->state == LINK2_CHANNEL_OPENING) {
+    /* The open in flight is cancelled and no longer holds the channel's
+     * place: the next applet takes it now, not after the REPLY or the grace. */
+    OutRequest *request = find_out(link, channel->id);
+    if (request != NULL) {
+      if (!request->cancelled) request->cancel_due = true;
+      request->channel = -1;
+    }
+    memset(channel, 0, sizeof *channel);
+    return;
+  }
   cancel_opening(link, channel);
   channel_close(link, channel, "exit");
   channel->wanted = false;
@@ -3768,7 +3910,7 @@ bool link2_channel_poll(Link2 *link, int index, Link2Message *message) {
           /* The head step: the response stream is handed over at the first progress event (§7.2). */
           InStream *stream = count_in_streams(link, index) >= LINK2_CHANNEL_STREAMS ? NULL : new_in_stream(link, entry.id, IS_APP, index);
           if (stream == NULL) {
-            if (!send_reset(link, entry.id, LINK2_RESET_REFUSED)) return false;
+            if (!send_reset_now(link, entry.id, LINK2_RESET_REFUSED)) return false;
           } else {
             stream->reserved = true;
             stream->app.window = LINK2_APP_STREAM_WINDOW;

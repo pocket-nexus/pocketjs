@@ -1466,11 +1466,14 @@ export class Peer {
   private feed(bytes: Uint8Array): void {
     if (this.closeInfo !== null) return;
     let frames: Link2Frame[];
+    const skipped = this.decoder.skipped;
     try {
       frames = this.decoder.push(bytes);
     } catch (error) {
       return this.broke(error);
     }
+    // A frame of an unknown type is skipped by its length and is a frame for the 10 s rule.
+    if (this.decoder.skipped !== skipped) this.keepalive.received();
     for (const frame of frames) {
       if (this.closeInfo !== null) return;
       this.stats.framesIn += 1;

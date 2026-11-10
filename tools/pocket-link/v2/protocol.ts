@@ -334,6 +334,8 @@ export class Link2FrameDecoder {
   private payload: Uint8Array | null = null;
   private payloadFill = 0;
   private skip = 0;
+  /** Frames of an unknown type skipped so far: a peer counts each as a frame received (§4.6). */
+  skipped = 0;
   private limit = LINK2_MAX_HANDSHAKE;
   private linked = false;
   private dead = false;
@@ -404,6 +406,7 @@ export class Link2FrameDecoder {
     this.headerFill = 0;
     if (KNOWN_FLAGS[type] === undefined) {
       this.skip = length;
+      this.skipped += 1;
       return null;
     }
     checkFrame(type, flags, id, length);

@@ -174,6 +174,17 @@ describe("frames (§4.2, §4.3, §4.7)", () => {
       expect(toHex(encodeFrame(frames[0]))).toBe(c.hex);
     }
   });
+  test("a frame of an unknown type is skipped and counted, so a peer takes it as a frame received", () => {
+    const decoder = new Link2FrameDecoder();
+    decoder.ready(16384);
+    const header = new Uint8Array(12);
+    header[0] = 0x7e;
+    header[4] = 3;
+    expect(decoder.push(new Uint8Array([...header, 1, 2, 3]))).toEqual([]);
+    expect(decoder.skipped).toBe(1);
+    expect(decoder.push(new Uint8Array([...header, 1, 2]))).toEqual([]);
+    expect(decoder.skipped).toBe(2);
+  });
   test("every refused frame closes with its code", () => {
     for (const c of v.refused) expect(`${c.name}: ${decode(c.hex, c.limit, c.linked).close}`).toBe(`${c.name}: ${c.close}`);
   });
