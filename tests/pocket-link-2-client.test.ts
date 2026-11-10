@@ -657,11 +657,20 @@ describe("Pocket Link 2 C client against the reference Hub", () => {
   });
 
   it("a connection that ends: the channel closes with it, and the next ready opens it with a larger generation", async () => {
-    const { daemon, channels } = daemonOf(() => {});
+    const { daemon, channels } = daemonOf((channel) => {
+      channel.on("put", async (_args, call) => {
+        const body = await readAll(call.body as StreamReader);
+        return { bytes: body.length, crc: crc(body) };
+      });
+    });
     const c = await start({ hub: { daemons: () => daemon } });
     await c.line(/^linked /);
     c.send("channel-open dev.example.map 00000000000000dd");
     const first = Number((await c.line(/^channel-state 0 open - (\d+)$/))[1]);
+    // The connection ends while the device's send buffer still holds frames it could not send.
+    c.send("block-send 400");
+    c.send("emit-count 0 20");
+    await c.line(/^emitted 0 20$/);
     (await c.device()).peer.close("going_away", "Hub restarts");
     await c.line(/^unlinked going_away$/);
     await c.line(/^channel-state 0 closed connection 0$/);
@@ -670,6 +679,36 @@ describe("Pocket Link 2 C client against the reference Hub", () => {
     expect(second).toBeGreaterThan(first);
     expect(channels.length).toBe(2);
     expect(channels[0].state()).toEqual({ state: "closed", reason: "connection" });
+    // Streams of the new connection are not held behind bytes the old one never sent.
+    c.send('request 0 40000 {"t":"put"}');
+    const put = (await c.line(/^request 0 (\d+)$/))[1];
+    expect((await c.any(new RegExp(`^message 0 reply ${put} 0 0 (.*)$`)))[1]).toBe(JSON.stringify({ bytes: 40_000, crc: crc(pattern(40_000, 3)) }));
+    await c.quit();
+  });
+
+  it("the device's timers, on a clock 20 times as fast: the direct try without a beacon, and a request that gets no frame for 30 s", async () => {
+    let cancelled = 0;
+    const { daemon } = daemonOf((channel) => {
+      channel.on("echo", (args) => ({ echo: args }));
+      channel.on("never", (_args, call) => new Promise<Json>((_resolve, reject) => call.onCancel(() => (cancelled++, reject(new LinkError("cancelled"))))));
+    });
+    // No beacon reaches the device: after 2.5 s of its clock it tries the address of its pairing.
+    const c = await start({ hub: { daemons: () => daemon, beaconTargets: [] }, args: ["--speed", "20"] });
+    await c.line(/^linked /);
+    c.send("channel-open dev.example.map 00000000000000af");
+    await c.line(/^channel-state 0 open /);
+    const before = Date.now();
+    c.send('request 0 0 {"t":"never"}');
+    const never = (await c.line(/^request 0 (\d+)$/))[1];
+    // 30 s of the device's clock without a frame for the request: the applet gets `timeout`, and Hub a CANCEL.
+    const reply = await c.any(new RegExp(`^message 0 reply ${never} 0 1 (.*)$`));
+    expect(JSON.parse(reply[1]).code).toBe("timeout");
+    expect(Date.now() - before).toBeGreaterThan(1200);
+    await until(() => cancelled === 1, "the CANCEL at the daemon");
+    // The channel and the link outlive the request.
+    c.send('request 0 0 {"t":"echo","after":true}');
+    const echo = (await c.line(/^request 0 (\d+)$/))[1];
+    expect((await c.any(new RegExp(`^message 0 reply ${echo} 0 0 (.*)$`)))[1]).toBe('{"echo":{"after":true}}');
     await c.quit();
   });
 

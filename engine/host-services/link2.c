@@ -1023,8 +1023,11 @@ static void teardown(Link2 *link) {
 static void socket_gone(Link2 *link) {
   if (link->tcp >= 0) link->platform.tcp_close(link->platform.context, link->tcp);
   link->tcp = -1;
+  /* What the buffer still held is gone with the socket: the count of bytes
+   * sent catches up, so a later stream's one-chunk mark can be reached. */
   link->tx_head = 0;
   link->tx_tail = 0;
+  link->tx_sent = link->tx_queued;
 }
 
 static void back_off(Link2 *link) {

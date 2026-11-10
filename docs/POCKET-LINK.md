@@ -2301,7 +2301,11 @@ Device memory for the link on a 3DS, against version 1's link (`link.c`:
 32 KiB receive, 48 KiB send) plus the development connection (`devserver.c`:
 64 KiB receive, 64 KiB line ring, 64 KiB send): **about 16 + 32 + 64 + 64 =
 176 KiB of buffers on TCP instead of about 272 KiB** (receive, send, the
-DevTools line ring and its out buffer). **Each open applet channel adds
+DevTools line ring and its out buffer). The C client allocates **180,240
+bytes** for the four (16,384 + 32,780 + 65,540 + 65,536) and keeps about
+**24 KiB** of state beside them on a 64-bit build: its own record with a
+4 KiB socket read chunk, and the request, stream and channel tables sized
+for one channel. **Each open applet channel adds
 at most 176 KiB**: 64 KiB of stream bytes (4 inbound streams of 16 KiB),
 24 KiB of events under the event window, 8 KiB of daemon requests waiting
 for the guest, 16 KiB of stream bytes queued from the guest, and **64 KiB
