@@ -39,7 +39,7 @@
 
 #include "launcher.h"
 #include "agent.h"
-#include "link.h"
+#include "link2_host.h"
 #include "stage_hint.h"
 #include "stage_saver.h"
 #include "stage_shbin.h"
@@ -1209,7 +1209,7 @@ static void upload_bones(void) {
     int64_t utc = 0;
     int32_t offset_min = 0;
     uint64_t ms;
-    if (link_clock_now(&utc, &offset_min)) ms = (uint64_t)(utc + (int64_t)offset_min * 60000);
+    if (link2_host_clock(&utc, &offset_min)) ms = (uint64_t)(utc + (int64_t)offset_min * 60000);
     else ms = osGetTime() - 2208988800000ull;
     float minutes = (float)((ms / 1000) % 3600) / 60.0f;
     float hours = (float)((ms / 60000) % 720) / 60.0f;

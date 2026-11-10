@@ -14,8 +14,9 @@
  *     stage's monitor without passing through the guest;
  *   - `globalThis.agent` (qjs.c): poll/send/stage/listen/level/shot/status.
  *
- * The link hands every ctrl message whose `t` starts with "agent." and every
- * data frame of an agent stream to agent_link_ctrl / agent_link_data.
+ * The link hands every event whose `t` starts with "agent." to
+ * agent_link_ctrl, an event that opens a stream toward the console to
+ * agent_link_stream_open, and that stream's bytes to agent_link_data.
  */
 
 #include <citro3d.h>
@@ -40,10 +41,14 @@ void agent_pump(void);
  * from its last frame. */
 void agent_capture(C3D_RenderTarget *auxiliary);
 
-/* From link.c. Return whether the message or bytes were the agent's. */
+/* From the link (link2_host.c). Return whether the message or bytes were the agent's. */
 bool agent_link_ctrl(const char *json, size_t length);
 bool agent_link_data(uint32_t stream, const uint8_t *bytes, size_t length);
 void agent_link_changed(bool up);
+/* agent.screen and agent.glyphs open a stream toward the console: the bytes
+ * to grant, or 0 to refuse it; and its end. */
+uint32_t agent_link_stream_open(uint32_t stream, const char *type, const char *json, size_t length);
+void agent_link_stream_end(uint32_t stream, bool complete);
 
 /* `globalThis.agent`. Returned strings live until the next call. */
 const char *agent_poll(void);

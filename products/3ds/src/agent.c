@@ -18,7 +18,7 @@
 #include <string.h>
 
 #include "jscan.h"
-#include "link.h"
+#include "link2_host.h"
 #include "pocket_core.h"
 #include "runtime.h"
 #include "stage.h"
@@ -104,8 +104,13 @@ static uint32_t own_stream;
 static uint32_t own_received;
 static bool own_receiving;
 
+/* The agent's group is in use on the link (docs/POCKET-LINK.md §6.1). */
+static bool link_agent_ready(void) {
+  return link2_host_in_use("agent");
+}
+
 static bool channel_ready(void) {
-  return channel_name != NULL ? link_feature_ready(channel_name) : link_agent_ready();
+  return channel_name != NULL ? link2_host_in_use(channel_name) : link_agent_ready();
 }
 
 void agent_use_channel(const char *name) {
@@ -243,14 +248,18 @@ static void drain_mic(void) {
     if (take > MIC_CHUNK_BYTES) take = MIC_CHUNK_BYTES;
     uint8_t chunk[MIC_CHUNK_BYTES];
     for (uint32_t i = 0; i < take; i += 1) chunk[i] = ring[(ring_tail + i) % MIC_RING_BYTES];
-    if (!link_send_data(mic_stream, chunk, take)) return; /* no room: next frame */
-    ring_tail += take;
+    /* Inside Hub's credit and the send buffer's room: the rest next frame. */
+    size_t sent = link2_host_stream_send(mic_stream, chunk, take, false);
+    if (sent == 0) return;
+    ring_tail += (uint32_t)sent;
   }
   if (closing) {
+    /* The stream's END, then the event that says whether to send the turn. */
+    if (!link2_host_stream_end(mic_stream)) return;
     char end[96];
     int length = snprintf(end, sizeof end, "{\"t\":\"%s.audio.end\",\"id\":%lu,\"send\":%s}", channel_name != NULL ? channel_name : "agent",
                           (unsigned long)mic_stream, close_send ? "true" : "false");
-    if (link_send_ctrl(end, (size_t)length)) {
+    if (link2_host_event(end, (size_t)length)) {
       closing = false;
       mic_close();
     }
@@ -293,7 +302,7 @@ void agent_capture(C3D_RenderTarget *auxiliary) {
   int length = snprintf(head, sizeof head,
                         "{\"t\":\"agent.shot\",\"id\":%lu,\"width\":%u,\"height\":%u,\"format\":\"rgb565\",\"bytes\":%u}",
                         (unsigned long)shot_stream, AGENT_SHOT_W, AGENT_SHOT_H, AGENT_SHOT_BYTES);
-  if (!link_send_ctrl(head, (size_t)length)) return;
+  if (!link2_host_stream_open(shot_stream, head, (size_t)length)) return;
   shot_sent = 0;
   shot_streaming = true;
 }
@@ -302,8 +311,9 @@ static void drain_shot(void) {
   while (shot_streaming && shot_sent < AGENT_SHOT_BYTES) {
     uint32_t take = AGENT_SHOT_BYTES - shot_sent;
     if (take > DATA_CHUNK) take = DATA_CHUNK;
-    if (!link_send_data(shot_stream, shot_pixels + shot_sent, take)) return;
-    shot_sent += take;
+    size_t sent = link2_host_stream_send(shot_stream, shot_pixels + shot_sent, take, shot_sent + take == AGENT_SHOT_BYTES);
+    if (sent == 0) return;
+    shot_sent += (uint32_t)sent;
   }
   shot_streaming = false;
 }
@@ -528,38 +538,51 @@ bool agent_link_ctrl(const char *json, size_t length) {
   JsonSpan message = json_span(json, length);
   char type[32];
   if (!json_find_string(message, "t", type, sizeof type) || strncmp(type, "agent.", 6) != 0) return false;
-  if (strcmp(type, "agent.screen") == 0) {
-    uint64_t stream = 0, bytes = 0, width = 0, height = 0;
-    if (json_find_u64(message, "stream", &stream) && json_find_u64(message, "bytes", &bytes) &&
-        json_find_u64(message, "width", &width) && json_find_u64(message, "height", &height) &&
-        width == AGENT_SHOT_W && height == AGENT_SHOT_H && bytes == AGENT_SHOT_BYTES) {
-      if (own_pixels == NULL) own_pixels = malloc(AGENT_SHOT_BYTES);
-      if (own_pixels != NULL) {
-        own_stream = (uint32_t)stream;
-        own_received = 0;
-        own_receiving = true;
-      }
-    }
-    return true;
-  }
-  if (strcmp(type, "agent.glyphs") == 0) {
-    uint64_t stream = 0, bytes = 0, slot = 0;
-    if (json_find_u64(message, "stream", &stream) && json_find_u64(message, "bytes", &bytes) &&
-        json_find_u64(message, "slot", &slot) && slot == AGENT_FONT_SLOT && bytes > 16 &&
-        bytes <= GLYPHS_MAX_BYTES) {
-      if (glyph_bytes == NULL) glyph_bytes = malloc(GLYPHS_MAX_BYTES);
-      if (glyph_bytes != NULL) {
-        glyph_stream = (uint32_t)stream;
-        glyph_expected = (uint32_t)bytes;
-        glyph_received = 0;
-        glyph_receiving = true;
-      }
-    }
-    return true;
-  }
   if (strcmp(type, "agent.delta") == 0) stage_pulse();
   event_raw(json, length);
   return true;
+}
+
+/* An event that opens a stream toward the console (docs/POCKET-LINK.md §6.6):
+ * the bytes to grant, the whole of what it declares, or 0 to refuse it. */
+uint32_t agent_link_stream_open(uint32_t stream, const char *type, const char *json, size_t length) {
+  JsonSpan message = json_span(json, length);
+  if (strcmp(type, "agent.screen") == 0) {
+    uint64_t bytes = 0, width = 0, height = 0;
+    if (!json_find_u64(message, "bytes", &bytes) || !json_find_u64(message, "width", &width) ||
+        !json_find_u64(message, "height", &height) || width != AGENT_SHOT_W || height != AGENT_SHOT_H ||
+        bytes != AGENT_SHOT_BYTES) {
+      return 0;
+    }
+    if (own_pixels == NULL) own_pixels = malloc(AGENT_SHOT_BYTES);
+    if (own_pixels == NULL) return 0;
+    own_stream = stream;
+    own_received = 0;
+    own_receiving = true;
+    return AGENT_SHOT_BYTES;
+  }
+  if (strcmp(type, "agent.glyphs") == 0) {
+    uint64_t bytes = 0, slot = 0;
+    if (!json_find_u64(message, "bytes", &bytes) || !json_find_u64(message, "slot", &slot) ||
+        slot != AGENT_FONT_SLOT || bytes <= 16 || bytes > GLYPHS_MAX_BYTES) {
+      return 0;
+    }
+    if (glyph_bytes == NULL) glyph_bytes = malloc(GLYPHS_MAX_BYTES);
+    if (glyph_bytes == NULL) return 0;
+    glyph_stream = stream;
+    glyph_expected = (uint32_t)bytes;
+    glyph_received = 0;
+    glyph_receiving = true;
+    return (uint32_t)bytes;
+  }
+  return 0;
+}
+
+/* The stream ended; one that stopped short of its bytes is dropped. */
+void agent_link_stream_end(uint32_t stream, bool complete) {
+  (void)complete;
+  if (glyph_receiving && stream == glyph_stream) glyph_receiving = false;
+  if (own_receiving && stream == own_stream) own_receiving = false;
 }
 
 bool agent_link_data(uint32_t stream, const uint8_t *bytes, size_t length) {
@@ -619,7 +642,7 @@ bool agent_send(const char *json, size_t length) {
   JsonSpan message = json_span(json, length);
   char type[32];
   if (!json_find_string(message, "t", type, sizeof type) || strncmp(type, "agent.", 6) != 0) return false;
-  return link_send_ctrl(json, length);
+  return link2_host_event(json, length);
 }
 
 void agent_stage(int mode, int screen) {
@@ -635,11 +658,11 @@ int32_t agent_listen(int32_t command) {
       mic_close();
       return 0;
     }
-    mic_stream = link_new_stream();
+    mic_stream = link2_host_new_stream();
     char head[128];
     int length = snprintf(head, sizeof head, "{\"t\":\"%s.audio\",\"id\":%lu,\"rate\":%u,\"format\":\"s16le\"}", channel_name != NULL ? channel_name : "agent",
                           (unsigned long)mic_stream, AGENT_MIC_RATE);
-    if (!link_send_ctrl(head, (size_t)length)) {
+    if (mic_stream == 0 || !link2_host_stream_open(mic_stream, head, (size_t)length)) {
       MICU_StopSampling();
       mic_close();
       return 0;
@@ -662,7 +685,8 @@ int32_t agent_level(void) {
 
 int32_t agent_shot(void) {
   if (!enabled || shot_wanted || shot_streaming || !link_agent_ready()) return 0;
-  shot_stream = link_new_stream();
+  shot_stream = link2_host_new_stream();
+  if (shot_stream == 0) return 0;
   shot_wanted = true;
   return (int32_t)shot_stream;
 }

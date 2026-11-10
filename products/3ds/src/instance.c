@@ -11,7 +11,7 @@
 #include "devserver.h"
 #include "gfx.h"
 #include "launcher.h"
-#include "link.h"
+#include "link2_host.h"
 #include "pocket_profile.h"
 #include "svcwire.h"
 #include <malloc.h>

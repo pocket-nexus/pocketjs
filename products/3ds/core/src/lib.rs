@@ -59,6 +59,9 @@ pub const POCKET_GUEST_FEATURE_CAMERA_QR: u32 = 16;
 /// `features.camera.photo` is true in the plan: both cameras, capture and
 /// the photo store.
 pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
+/// `features.link.channel` is true in the plan: the guest gets
+/// `globalThis.channel`, its applet channel to its daemon over the Pocket Link.
+pub const POCKET_GUEST_FEATURE_CHANNEL: u32 = 128;
 
 /// Verify a complete `.pocket` and admit the first variant the exported
 /// profile facts satisfy (`pocket_package::admission`). Returns the generated
@@ -132,6 +135,10 @@ pub unsafe extern "C" fn pocket_package_open(
             0
         } | if facts.feature("camera.photo") {
             POCKET_GUEST_FEATURE_CAMERA_PHOTO
+        } else {
+            0
+        } | if facts.feature("link.channel") {
+            POCKET_GUEST_FEATURE_CHANNEL
         } else {
             0
         },

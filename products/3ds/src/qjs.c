@@ -6,7 +6,8 @@
 #include "fs.h"
 #include "instance.h"
 #include "launcher.h"
-#include "link.h"
+#include "link2_guest.h"
+#include "link2_host.h"
 #include "media.h"
 #include "offload.h"
 #include "offload_coverage.h"
@@ -309,13 +310,17 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
 #endif
   case HostDebugFrames:
     return JS_NewString(ctx, devserver_debug_frames());
+  /* DevTools reaches the shim over the development connection or over the
+   * link's stream (docs/POCKET-LINK.md §6.3), whichever has a peer. */
   case HostDbgActive:
-    return JS_NewBool(ctx, devserver_active());
+    return JS_NewBool(ctx, devserver_active() || link2_host_devtools_active());
   case HostDbgConnected:
-    return JS_NewBool(ctx, devserver_connected());
+    return JS_NewBool(ctx, devserver_connected() || link2_host_devtools_listening());
   case HostDbgPoll: {
     size_t length =
         devserver_recv_ctrl(debug_poll_buffer, sizeof debug_poll_buffer);
+    if (length == 0)
+      length = link2_host_devtools_poll(debug_poll_buffer, sizeof debug_poll_buffer);
     return length == 0 ? JS_UNDEFINED
                        : JS_NewStringLen(ctx, debug_poll_buffer, length);
   }
@@ -325,6 +330,7 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
     text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
     if (text != NULL) {
       devserver_send_ctrl(text, text_length);
+      link2_host_devtools_send(text, text_length);
       JS_FreeCString(ctx, text);
     }
     return JS_UNDEFINED;
@@ -406,7 +412,7 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
   case HostDbgShot:
     return JS_NewBool(ctx, devserver_request_screenshot());
   case HostLinkStatus:
-    return JS_NewString(ctx, link_status_json());
+    return JS_NewString(ctx, link2_guest_status_json());
   case HostLinkPair:
   case HostLinkForget:
   case HostLinkInstall:
@@ -418,21 +424,23 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
     if (text == NULL)
       return is_bool ? JS_FALSE : JS_NewInt32(ctx, -1);
     JSValue result;
+    /* Pairing is written at the first install (docs/POCKET-LINK.md §3):
+     * `pair` stays for packages that call it and starts nothing. */
     if (magic == HostLinkPair)
-      result = JS_NewBool(ctx, link_pair(text, text_length));
+      result = JS_FALSE;
     else if (magic == HostLinkForget)
-      result = JS_NewBool(ctx, link_forget(text));
+      result = JS_NewBool(ctx, link2_guest_forget(text));
     else if (magic == HostLinkRemove)
-      result = JS_NewBool(ctx, link_remove(text, text_length));
+      result = JS_NewBool(ctx, link2_guest_remove(text, text_length));
     else
-      result = JS_NewInt32(ctx, link_install(text, text_length));
+      result = JS_NewInt32(ctx, link2_guest_install(text, text_length));
     JS_FreeCString(ctx, text);
     return result;
   }
   case HostLinkCatalog:
-    return JS_NewInt32(ctx, link_catalog());
+    return JS_NewInt32(ctx, link2_guest_catalog());
   case HostLinkPoll: {
-    const char *batch = link_poll();
+    const char *batch = link2_guest_poll();
     return batch == NULL ? JS_UNDEFINED : JS_NewString(ctx, batch);
   }
   case HostWifiStatus:
