@@ -217,7 +217,9 @@ bool link2_clock(const Link2 *link, int64_t *utc_ms, int32_t *offset_min);
 void link2_status_json(const Link2 *link, Link2Json *json);
 /* Removes a pairing: its key file and its .last file; a link to that Hub closes. */
 bool link2_forget(Link2 *link, const char *companion);
-/* This device's list changes on a live link: at most one `features` event a second. */
+/* This device's list changes on a live link: at most one `features` event a second.
+ * `devtools` can be listed later only when the list given to link2_create had
+ * it: the client allocates the DevTools buffers there and nowhere else. */
 void link2_set_features(Link2 *link, const char *const *features, size_t count);
 
 /* --- runtime (§6.2) ----------------------------------------------------- */

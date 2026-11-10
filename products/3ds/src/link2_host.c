@@ -819,8 +819,11 @@ void link2_host_init(const PocketRuntimePackage *embedded) {
   host.target = link_host_target();
   host.host_abi = POCKETJS_HOST_ABI;
   host.directory = link_host_directory();
+  /* The whole list at create, so the client allocates the DevTools buffers
+   * (link2.h link2_set_features); no guest with the shim runs yet, so the
+   * list Hub first sees is without `devtools` (below). */
   host.features = FEATURES;
-  host.feature_count = FEATURE_COUNT - 1;
+  host.feature_count = FEATURE_COUNT;
   shim_present = false;
   devtools_listed = false;
   host.max_channels = 1;
@@ -854,6 +857,7 @@ void link2_host_init(const PocketRuntimePackage *embedded) {
   mkdir(companions, 0777);
 
   client = link2_create(&platform, &host);
+  if (client != NULL) link2_set_features(client, FEATURES, FEATURE_COUNT - 1);
   link2_guest_bind(client);
   link2_http_bind(client);
 }
