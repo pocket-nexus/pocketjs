@@ -1985,7 +1985,7 @@ question 2); its shape:
   8 KiB of JSON costs the guest about 2.4 ms of `JSON.parse` on the measured
   New 3DS (§13) against a worker turn of 5 ms; 4 messages of 8 KiB each
   would cost about 9.6 ms.
-- **Three bounded queues hold what waits, per channel** (§7.6), and each
+- **Four bounded stores hold what waits, per channel** (§7.6), and each
   has a rule for "full":
   - **Stream bytes** sit in each stream's own 16 KiB window, granted
     against pending reads (§5.6); a stream the guest does not read gets no
@@ -2000,9 +2000,15 @@ question 2); its shape:
     handed to the guest at **8 KiB of JSON together** (one request is held
     whatever its size); **a request that finds either bound reached gets
     `REPLY` `ERROR` `busy`** from the host.
+  - **Replies to the applet's own requests** are bounded by its 8 open
+    requests: the host keeps **one copy of each `REPLY`, at most
+    LINK_APP_MSG bytes, from its arrival until the guest takes it**, so at
+    most 64 KiB, allocated as replies arrive. A `REPLY` has no "full": it
+    ends a request the applet opened, and the bound on open requests is the
+    bound on replies.
   The host never drops an event in silence and never stops reading the
   connection for a channel's sake, which would stall every other group and
-  end in `silence`. Hub applies the same three rules toward a daemon.
+  end in `silence`. Hub applies the same rules toward a daemon.
 - **Stream bytes cross as `ArrayBuffer` contents the host copies**, never as
   text and never through JSON. The applet does not hash, checksum or
   reassemble them: the carrier delivers the bytes in order and whole.
@@ -2078,7 +2084,8 @@ applet that is running, which gets a new generation. Phases:
 | Event window toward the daemon, per channel | **256 units**, regranted as events leave Hub's queue for that daemon |
 | Daemon requests not yet handed to the guest, per channel | **8 KiB** of JSON together, one request whatever its size; one more gets `ERROR` `busy` |
 | Stream bytes held for the guest, per channel | **16 KiB per inbound stream** (LINK_APP_STREAM_WINDOW, §5.6), granted against pending reads; **64 KiB at most** with 4 inbound streams. Streams share no window |
-| Bytes and messages queued from the guest toward the wire, per channel | **16 KiB**; `write` and `emit` report "full" to the guest past it |
+| Replies waiting for the guest, per channel | one copy of each `REPLY` of the applet's open requests: **at most 8 of LINK_APP_MSG, 64 KiB**, allocated as each arrives and freed when the guest takes it |
+| Bytes queued from the guest toward the wire, per channel | **16 KiB** of stream bytes: **4 KiB per outbound stream** in the C client. A JSON message of the guest (a request, an event, a progress event, a reply) is not queued per channel: it goes into the device's send buffer at once, or the call reports "full" and the guest makes it again in a later frame (§8.2) |
 | Operation name `t` | **64 bytes** |
 | Credit | §5.6; outstanding at most 16 MiB per direction |
 
@@ -2295,15 +2302,21 @@ Device memory for the link on a 3DS, against version 1's link (`link.c`:
 64 KiB receive, 64 KiB line ring, 64 KiB send): **about 16 + 32 + 64 + 64 =
 176 KiB of buffers on TCP instead of about 272 KiB** (receive, send, the
 DevTools line ring and its out buffer). **Each open applet channel adds
-at most 112 KiB**: 64 KiB of stream bytes (4 inbound streams of 16 KiB),
+at most 176 KiB**: 64 KiB of stream bytes (4 inbound streams of 16 KiB),
 24 KiB of events under the event window, 8 KiB of daemon requests waiting
-for the guest and 16 KiB queued from the guest (§7.6). A 3DS opens one
-channel, so the link holds **at most about 288 KiB** with it, against the
-272 KiB of version 1's link and the development connection together; a
-channel with one inbound stream open holds 64 KiB and the link 240 KiB.
-Four channels, the connection's bound, would hold up to 624 KiB, which is
-why a device that runs one applet opens one. The stream windows are
-allocated as streams open, not with the channel. **A stream whose window
+for the guest, 16 KiB of stream bytes queued from the guest, and **64 KiB
+of replies waiting for the guest** (8 open requests whose replies are all
+LINK_APP_MSG long and all unread, §7.6). A 3DS opens one
+channel, so the link holds **at most about 352 KiB** with it, against the
+272 KiB of version 1's link and the development connection together. That
+worst case needs every inbound stream full, every outbound stream full and
+eight maximal replies unread at once; a
+channel with one inbound stream open and no reply waiting holds 64 KiB and
+the link 240 KiB.
+Four channels, the connection's bound, would hold up to 880 KiB, which is
+why a device that runs one applet opens one. The stream windows, the
+outbound stream buffers and the reply copies are
+allocated as they come into use, not with the channel. **A stream whose window
 the host cannot allocate is answered `RESET` `refused`**, as a stream past
 the channel's bound is (§7.6); its request still gets its `REPLY`. The screenshot's linear
 buffers come on top while a capture is in flight, as today.
@@ -2564,6 +2577,40 @@ against them. The version-1 files go in the change that replaces `link.c`.
 
 ### 12.2 3DS C client (`engine/host-services`, `products/3ds`)
 
+**Built, beside version 1 and not yet wired into the 3DS program**
+(version 1's `link.c`, `link_proto.c` and `link_http.c` stay until the
+program switches, items 3 to 7 below):
+
+- `engine/host-services/link2_proto.{h,c}`: the wire layer, with no socket,
+  clock or allocation: beacon, preamble, the 12-byte header and a streaming
+  reader that checks the limit in force before it buffers a payload, the
+  binary control frames, a bounded JSON writer, the handshake messages and
+  proofs, the pairing files' readers and the load of `companions/`, the
+  four steps of reading an `EVENT`, keepalive, credit, the applet stream
+  window, the `runtime.apps` pages and the `log` event.
+  `tests/pocket-link-2-c.test.ts` compiles it with `tests/fixtures/link2-proto-harness.c`
+  under ASan and UBSan and checks it against every vector file and the
+  reference codec.
+- `engine/host-services/link2.{h,c}`: the client, items 1 and 2 below as
+  one module with the host's operations as callbacks (`Link2Host`): the
+  phase machine, the handshake from the pairing files, the fixed buffers of
+  §9 allocated once, the send buffer with its reserve and the read pause
+  (§8.2), both request tables, streams with credit, catalog and install,
+  `net.http` as the worker sees it, the runtime operations (status, apps,
+  push, `.3dsx`, launch, screenshot, logs), the DevTools stream with its
+  line ring, and applet channels with the calls of §7.3
+  (`link2_channel_*`, `link2_stream_*`) for a QuickJS binding to sit on.
+  Sockets, the clock and randomness come through `Link2Platform`;
+  `link2_bsd.c` fills the socket half from BSD sockets, which POSIX and the
+  3DS both have.
+- `tests/pocket-link-2-client.test.ts` runs the client as a process
+  (`tests/fixtures/link2-client-harness.c`, ASan and UBSan) against
+  `tools/pocket-link/v2/hub.ts` on loopback.
+
+**Left for the 3DS program** (the list that follows describes the whole
+change; of it, the module above replaces items 1, 2 and the client's part
+of 5):
+
 1. `link_proto.c/h`: version-2 constants, preamble, header read and write,
    beacon, proofs; the URI parser goes; tested from the vectors in `tests/3ds-link.test.ts`
    first.
@@ -2738,7 +2785,7 @@ it in this page with its number.
 
 | Value | Set at | What to measure |
 | --- | --- | --- |
-| The applet stream window and the per-frame hand-over | **16 KiB** per stream, **16 KiB** of stream bytes a frame (§5.6, §7.3) | throughput of one stream and of four read together, against the estimate of about 490 KB/s shared; whether regranting within a turn lifts it; the 112 KiB a channel can hold against the memory of an Old 3DS |
+| The applet stream window and the per-frame hand-over | **16 KiB** per stream, **16 KiB** of stream bytes a frame (§5.6, §7.3) | throughput of one stream and of four read together, against the estimate of about 490 KB/s shared; whether regranting within a turn lifts it; the 176 KiB a channel can hold (§9) against the memory of an Old 3DS |
 | The event window and its unit | **48** units from the device, **256** from Hub, **512 bytes** a unit (§5.6) | the largest burst a stall releases for a real daemon; device memory held |
 | Daemon requests waiting for the guest | **8 KiB** of JSON per channel (§7.6) | how often two requests back to back meet `busy` (two of 5 KiB do) |
 | The `PING` wait before a replacement counts | **2 s** (§2.4) | the longest `PONG` delay of a live device under load, against the 100 ms stall |
