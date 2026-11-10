@@ -376,8 +376,17 @@ falls in:
 | between the delete and the rename | no `<hub id>.txt`, no `.last`, and a whole `.new` | **no pairing with this Hub until the next setup**, whose step 2 removes the `.new` and whose step 4 writes again; this setup is reported as failed |
 | after the rename | the new key, no `.last` | the two candidates settle at the first `ready` (below) |
 
-Hub's record keeps both keys meanwhile: the key it had, when it had one,
-and the candidate.
+**A setup of this procedure leaves its candidate alone in the record.**
+Step 3 has discarded every key the card did not hold before step 4 mints,
+and step 4 runs only when the card holds none of the record's keys, so the
+key Hub had is never one the device could still prove with. When the cut
+left the old key file on the card (the first two rows), the device answers
+`CLOSE` `auth` at each connection and holds Hub 30 s (§3.8) until the next
+setup, which reads the file, drops the candidate and writes again. **A
+record holds two keys only when one reached it outside this procedure** (a
+record imported from another store, a key rotation a later version may
+add); the three rules below settle that case and cost a one-key record
+nothing.
 
 - At a connection of that device Hub proves with **one** candidate, the
   newer first.
@@ -1090,7 +1099,13 @@ applet's alike.**
 
 - **Credit starts at 0.** The receiver grants with `CREDIT` (u32 bytes). It
   may grant before the first byte, in the same write as the message that
-  opens the stream.
+  opens the stream. **A responder therefore keeps what arrives for an open
+  request before it has taken the request's stream**: a `CREDIT` for the
+  response direction (the device grants its `net.http` window with the
+  request, §6.5) is added to the stream's credit when the responder opens
+  it, and the `END` of an empty body, which needs no credit, ends the body
+  when the responder reads it. Neither is a frame "for an id the receiver
+  does not hold" (§4.7): the request is open.
 - The sender sends `DATA` payload bytes up to the bytes granted and not yet
   used. **Bytes past credit close the connection with `flow`.**
 - A grant that raises the outstanding credit of one direction above
@@ -1833,7 +1848,11 @@ Hub answers:
 
 **Neither side sends a frame of the channel before the `REPLY`.** The
 channel id outlives the `REPLY`: unlike other requests, `channel.open`'s
-reply opens the channel rather than ending activity on the id.
+reply opens the channel rather than ending activity on the id. **The device
+registers the channel in the same turn in which it reads the accepting
+`REPLY`**: Hub queues its first grant of event units right behind that
+`REPLY` (§5.6), the two can share a segment, and a `CREDIT` read before the
+channel exists would be taken for byte credit on the request and lost.
 
 **Hub may hold the `REPLY` while it starts the daemon**, which can take
 about 10 s for a program Hub starts on demand. **Hub answers within
@@ -1955,7 +1974,13 @@ question 2); its shape:
 
 - **`call.reply` resolves at the `REPLY`, after the response stream's last
   byte**; an applet that wants the bytes reads them from `onProgress`'s
-  `stream` as they come. A call whose response stream the applet does not
+  `stream` as they come. **The host hands the `REPLY` over in the channel's
+  order**: behind the request's progress events that still wait for a frame
+  of the guest, and behind the stream bytes a pending `read` is still owed,
+  so a reply read off the wire never overtakes what was sent before it. A
+  reply counts as one of the frame's messages. When bytes are held and no
+  `read` is pending, the applet has stopped reading and the reply is handed
+  over without them. A call whose response stream the applet does not
   read receives no bytes: no `read` is pending, so no credit is granted,
   and the call ends at the 30 s limit of §5.5. Its stream holds no bytes
   meanwhile. **A `read` left pending on an idle stream (a log tail the
@@ -1966,7 +1991,8 @@ question 2); its shape:
   opens a stream names a `t` with no `onEvent` handler, or a handler that
   takes no stream, the guest library closes the stream at once and the host
   sends `RESET` `refused` (§7.2).
-- **The host hands the guest, per frame, at most 4 messages or 8 KiB of
+- **The host hands the guest, per frame, at most 4 messages (events,
+  progress events, the daemon's requests and replies) or 8 KiB of
   JSON, whichever comes first, and at most 16 KiB of stream bytes**, and
   takes as much from it. **The host shares the per-frame stream bytes among
   the streams with a pending `read` in turn**: the stream served first
