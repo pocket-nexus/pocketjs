@@ -481,38 +481,58 @@ launcher, a failing candidate returns to the launcher instead of a rollback.
 
 ## Pocket Link
 
-`engine/host-services/link.c` is the console side of
-`contracts/spec/link.ts`: **one
-authenticated TCP connection to a paired companion computer, owned by the
-host and kept across every app switch.** A guest switch drops the guest's net
-handles, undelivered events and catalog replies; an install that is streaming
-keeps writing to storage. Like `svcwire.c` it is non-blocking and pumped once
-per frame, at most 64 KiB received (and therefore written to the SD card) per
-pump.
+`engine/host-services/link2.c` is the console side of Pocket Link 2
+(`docs/POCKET-LINK.md`, `contracts/spec/link2.ts`): **one authenticated TCP
+connection to a paired Hub, owned by the host and kept across every app
+switch.** `src/link2_host.c` creates the client and supplies the program's
+side: its identity, the runtime operations, the agent's events and streams,
+DevTools lines and the running applet's channel. A guest switch drops the
+guest's HTTP streams, undelivered events and catalog waiters, closes its
+channel and sends DevTools `guest.end`; an install that is streaming keeps
+writing to storage. The client is non-blocking and pumped once per frame.
 
-- **Identity.** `sdmc:/pocketjs/link/device.txt` holds a random 16-hex device
-  id; the name is the CFG user name and the model comes from
-  `CFGU_GetSystemModel`. Each paired companion is
-  `sdmc:/pocketjs/link/companions/<id>.txt` (key, name, last address, port).
+**The development connection (below) still runs beside the link.** Runtime
+operations exist on both until the link has run alone on a console: a push
+goes into the same staging file and through the same admission in `main.c`,
+a `.3dsx` through `native.c`, and `main.c` reports each lifecycle step to
+both.
+
+- **Identity and pairing.** `sdmc:/pocketjs/link/device.txt` holds the
+  16-hex device id and `sdmc:/pocketjs/link/companions/<hub id>.txt` each
+  paired Hub's key, name, address and port. **Hub writes both at the first
+  install**, over ftpd or onto the card; the console never writes a key file
+  and has no pairing step of its own. `<hub id>.last` beside a key file
+  holds the address the console last linked at. The name is the CFG user
+  name and the model comes from `CFGU_GetSystemModel`.
 - **Discovery.** The console listens on UDP 8627 and follows a beacon only from
-  a companion it holds a key for, connecting to the datagram's source address.
-  After 2.5 s without one it tries a paired companion's last address directly.
-  Failures back off from 1 s to 8 s; a refusal holds that companion off for
+  a Hub it holds a key for, connecting to the datagram's source address.
+  After 2.5 s without one it tries a paired Hub's last address directly.
+  Failures back off from 1 s to 8 s; a refusal holds that Hub off for
   30 s. Pings every 3 s; 10 s of silence drops the link.
-- **Handshake.** The HMAC key is the raw bytes of the secret (32-byte key,
-  16-byte pairing secret). The console checks the companion's proof with a
-  constant-time compare before it sends its own.
-- **Pairing.** `link.pair(uri)` parses `pocketlink://pair?…`, replaces the
-  current connection, tries each `h` host in order in mode `pair`, unmasks and
-  stores the key on `paired` and stays linked.
+- **Handshake.** Each side proves the key with an HMAC over both nonces and
+  both ids; the console checks Hub's proof with a constant-time compare
+  before it sends its own. Frames after it are neither encrypted nor
+  authenticated (`docs/POCKET-LINK.md` §3.9).
+- **`globalThis.link`** keeps version 1's shape (`link2_guest.c`): `status`,
+  `forget`, `catalog`, `install`, `remove`, `poll`. **`pair` stays as a name
+  and answers false**: packages built against version 1 require it to see
+  the namespace at all.
+- **`globalThis.link.channel`**, for a package that declares
+  `link.channel`: the applet's channel to its daemon, read through
+  `@pocketjs/framework/channel` (`docs/POCKET-LINK.md` §7.3).
+- **Memory.** The client allocates **180,240 bytes** once (16 KiB receive,
+  32 KiB send, the 64 KiB DevTools line ring and 64 KiB out buffer) and
+  about 24 KiB of tables; an open applet channel adds its queues and
+  windows, at most 176 KiB (`docs/POCKET-LINK.md` §9).
 - **Worker HTTP.** A package with `domains.worker` starts an independent QuickJS
   runtime on a libctru thread. `io.http("http")` submits through a bounded
-  mailbox to the system Link owner. The `net.stream` companion feature sends
-  response headers, body blocks and an end offset. **Each request has an
-  8 KiB receive window, 1 KiB blocks, and separate header and terminal storage.**
-  Credit returns after the resource queue accepts a block. The companion
-  stops reading upstream while credit is exhausted. TLS certificates, redirect
-  policy and destination checks use the companion's existing HTTP stack.
+  mailbox to the system Link owner (`link2_http.c`). Hub's `net.http` sends
+  a `net.head` event, the body on the request's stream and a reply with the
+  body length. **Each request has an 8 KiB receive window, 1 KiB blocks, and
+  separate header and terminal storage.** A block's credit returns to Hub
+  when the resource queue accepts it. Hub stops reading upstream while
+  credit is exhausted. TLS certificates, redirect policy and destination
+  checks use Hub's HTTP stack.
   Request descriptors, including an optional UTF-8 text body, are limited to
   1 KiB; response headers must fit 1 KiB; the response limit is 256 KiB. Two
   HTTP resources can exist, subject to the shared resource queue's capacity.

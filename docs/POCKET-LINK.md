@@ -1941,8 +1941,10 @@ On a New 3DS a JavaScript loop over 32 KiB of bytes takes **52 ms**, a
 **550 calls a second at 800 KB/s**. A protocol endpoint in the guest would
 spend the frame budget on bookkeeping.
 
-The guest API is small. Its names are set with the capability (§11,
-question 2); its shape:
+The guest API is small. **The capability is `link.channel`, the host
+namespace `globalThis.link.channel`, and the framework module
+`@pocketjs/framework/channel`** (§11, question 2, and §12.2 for the names of
+its functions); its shape:
 
 | Guest call | Link |
 | --- | --- |
@@ -2390,10 +2392,16 @@ TypeScript console client, as Hub's version 1 tests do with
    measured, so 8 KiB may cost more than a turn there. Options: keep 8 KiB;
    lower it to 4 KiB; let the device state its limit in `channel.open`.
    *Recommendation:* keep 8 KiB until the Old 3DS number exists (question 3).
-2. **The channel capability's name and the guest API's names**, set in the
-   PocketJS spec and added to the applet whitelist. §7.3 fixes the shape.
-   *Recommendation:* capability `link.channel`, beside `link.companion`; the
-   API under `globalThis.link.channel`.
+2. **The channel capability's name and the guest API's names.** Built as
+   the recommendation said: capability `link.channel`, in the capability
+   registry, the 3DS host contract and the applet whitelist; the host
+   namespace `globalThis.link.channel`; the framework module
+   `@pocketjs/framework/channel` with `request`, `onRequest`, `emit`,
+   `emitStream`, `onEvent` and `channelState` (§12.2). **The names are in
+   one build on one host and no released package uses them**: they stay
+   open to change until this version merges. Still to decide: whether a
+   worker realm gets the same module (today only the UI realm has it), and
+   the page of the app contract's reference that documents it.
 3. **No Old 3DS measurement.** Every number of §13 comes from a New 3DS XL.
    The limits that rest on guest speed (LINK_APP_MSG, the 4 messages or
    8 KiB of JSON and the 16 KiB of stream bytes handed over per frame) and on socket-call cost (about 550 `recv`
@@ -2581,9 +2589,10 @@ against them. The version-1 files go in the change that replaces `link.c`.
 
 ### 12.2 3DS C client (`engine/host-services`, `products/3ds`)
 
-**Built, beside version 1 and not yet wired into the 3DS program**
-(version 1's `link.c`, `link_proto.c` and `link_http.c` stay until the
-program switches, items 3 to 7 below):
+**Built, and wired into the 3DS program beside the development
+connection.** Version 1's `link.c`, `link_proto.c` and `link_http.c` stay in
+`engine/host-services` for the programs that still compile them and are out
+of the 3DS build; `devserver.c` stays in it until item 4 below.
 
 - `engine/host-services/link2_proto.{h,c}`: the wire layer, with no socket,
   clock or allocation: beacon, preamble, the 12-byte header and a streaming
@@ -2610,10 +2619,76 @@ program switches, items 3 to 7 below):
 - `tests/pocket-link-2-client.test.ts` runs the client as a process
   (`tests/fixtures/link2-client-harness.c`, ASan and UBSan) against
   `tools/pocket-link/v2/hub.ts` on loopback.
+- **A host that admits a package or captures a frame at its own frame
+  boundary reports later.** `Link2Host.push_admit` and
+  `Link2Host.screenshot_request` replace `push_commit` and
+  `screenshot_begin` when set: the client keeps the request open, and the
+  host calls `link2_push_staged`, `link2_push_result`,
+  `link2_screenshot_ready` or `link2_screenshot_failed` from its loop. The
+  `REPLY` of `runtime.push` therefore leaves at the admission's outcome
+  (§6.2), and the harness's `--deferred` mode tests both.
+- `engine/host-services/link2_guest.{h,c}`: `globalThis.link` on the
+  client, in version 1's shape (`contracts/spec/link.ts` `LinkStatus`,
+  `LinkEvent`): the pages of a catalog fetch gathered into one `catalog`
+  event, an install streamed into the app's own slot and committed through
+  `link_host_install`, `forget`, `remove`, `poll`. **`pair` has nothing to
+  start** (§3): the host keeps the name, because the framework's
+  `linkHost()` of packages already built requires it, and answers false.
+- `engine/host-services/link2_http.c`: the worker's HTTP stream
+  (`link_http.h`: validate, start, peek, consume, close) on `net.http`.
+  A consumed block returns its bytes with `link2_http_consumed`, so the
+  8 KiB window is the stream's whole credit.
+- `products/3ds/src/link2_host.{h,c}`: the program's side. libctru's clock,
+  randomness and `soc:U` sockets as the platform (a socket call answers
+  "gone" while the service is down, so turning the radio off drops the
+  link at once); `runtime.status` and `runtime.apps` from the runtime's
+  facts and the launcher's table (`launcher_row`); `runtime.push` into
+  `POCKET_RUNTIME_UPLOAD`, which `main.c` admits as it admits the
+  development connection's upload and reports to both; a `.3dsx` through
+  `native.c` and `hb:ldr`; `runtime.screenshot` through the same GPU-idle
+  transfer into linear buffers the link streams and frees; the agent's
+  events and streams; DevTools lines for `ui.__dbg*`; `log` events for the
+  host's own lines.
+- **Applet channels for guests.** A package that declares the capability
+  **`link.channel`** gets its channel opened before it boots and sees
+  **`globalThis.link.channel`** (`qjs.c`): `state`, `poll`, `request`,
+  `cancel`, `emit`, `progress`, `reply`, `read`, `write`, `end`, `close`,
+  each one call into `link2_channel_*` / `link2_stream_*`.
+  **`@pocketjs/framework/channel`** (`framework/src/channel.ts`) gives the
+  shape of §7.3 on top: `request(t, args, {body, onProgress})`,
+  `onRequest(t, handler)`, `emit`, `emitStream`, `onEvent`,
+  `channelState()`, and `ChannelReader` / `ChannelWriter` driven by the
+  framework's service pump. `apps/link-channel` and its daemon
+  (`apps/link-channel/daemon.ts`) exercise every one.
+- `tests/e2e/azahar-link2.ts` boots that applet in Azahar with pairing
+  files the reference Hub's setup wrote, and checks the handshake,
+  `runtime.status`, `runtime.apps`, the channel (a request, a 48,000-byte
+  response stream, an event stream, a cancel, the daemon's request and
+  events), `net.http` from the applet's worker, a screenshot, DevTools eval
+  and a console line, a catalog fetch and an install, a push, the
+  development connection answering beside the link, and a switch to the
+  installed app. It needs Azahar and a window, so it stays out of
+  `bun tools/test.ts`.
 
-**Left for the 3DS program** (the list that follows describes the whole
-change; of it, the module above replaces items 1, 2 and the client's part
-of 5):
+**Not yet done in the program:**
+
+- **The development connection is still there** (item 4): runtime
+  operations exist on both paths until a real device has run on the link
+  alone.
+- **`devtools` is listed whatever guest runs.** The `features` event at a
+  guest switch (§6.1) is not sent; an eval toward a guest without the shim
+  ends at its 30 s timeout.
+- **The dev menu's unsolicited screenshot** goes to the development
+  connection only.
+- **Guest log lines** reach Hub as DevTools lines while a panel listens;
+  `runtime.logs` carries the host's own lines (question 6).
+- **A product extension's own link feature** (`pocket_extension_link_feature`,
+  `<feature>.audio`) is in use only when Hub lists that feature; the
+  reference Hub lists none, and extensions' messages move to applet
+  channels.
+
+**The whole change, as planned** (of this list, the modules above cover
+items 1, 2, 3, 5 and 6; items 4 and 7 remain):
 
 1. `link_proto.c/h`: version-2 constants, preamble, header read and write,
    beacon, proofs; the URI parser goes; tested from the vectors in `tests/3ds-link.test.ts`
