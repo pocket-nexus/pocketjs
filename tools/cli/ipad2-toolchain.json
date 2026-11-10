@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "toolchainVersion": "iphoneos-6.1.3-armv7-v1",
+  "cachePath": "ipad2",
+  "device": {
+    "productType": "iPhone4,1",
+    "hardwareModel": "N94AP",
+    "productVersion": "6.1.3",
+    "buildVersion": "10B329"
+  },
+  "deployment": {
+    "devicePort": 22,
+    "localPort": 22442,
+    "bootstrapUser": "root"
+  },
+  "compiler": {
+    "target": "armv7-apple-ios",
+    "minimumVersion": "6.0",
+    "linker": "ld-classic",
+    "rustToolchain": "nightly-2026-07-02",
+    "sysrootFiles": {},
+    "csu": {
+      "repository": "https://github.com/apple-oss-distributions/Csu.git",
+      "tag": "Csu-76",
+      "revision": "a02bd5830f6fbe841d5b0bd54b90ee5f35b99a4e",
+      "startSha256": "369cc46f111d096262348579bd854e7a27dfbf4ed94585384cf9ab744100fd21",
+      "dyldGlueSha256": "9efab347c6ed3c66780991f0dfd24bed80e81ed101ad5f7dbecf598afde8e685"
+    },
+    "quickJsRepository": "https://github.com/pocket-stack/quickjs-rs.git",
+    "quickJsRevision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
+    "quickJsVersion": "2026-06-04"
+  },
+  "firmware": {
+    "asset": "iPhone4,1_6.1.3_10B329_Restore.ipsw",
+    "sha1": "7a62ee60b574301a6aafc48dcc9cccf0894ffb27",
+    "rootFilesystemAsset": "048-2475-005.dmg",
+    "sharedCachePath": "System/Library/Caches/com.apple.dyld/dyld_shared_cache_armv7",
+    "sharedCacheSha256": "f95a4874fc523e081326be137a4a070914a20dc4acb0ffa9336e25e310558ac3"
+  },
+  "dyld": {
+    "repository": "https://github.com/apple-oss-distributions/dyld.git",
+    "tag": "dyld-210.2.3",
+    "revision": "cdf4fbef74ae11db03d585cfa3bda237f6505785"
+  }
+}

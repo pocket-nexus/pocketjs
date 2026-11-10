@@ -250,6 +250,7 @@
     "ios": "bun tools/ios.ts",
     "iphone2g": "bun tools/iphone2g.ts",
     "iphone4s": "bun tools/iphone4s.ts",
+    "ipad2": "bun tools/ipad2.ts",
     "ipodtouch": "bun tools/ipodtouch.ts",
     "ipodtouch4": "bun tools/ipodtouch4.ts",
     "meizu-m8": "bun tools/meizu-m8.ts",
