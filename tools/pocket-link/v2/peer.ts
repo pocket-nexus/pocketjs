@@ -1041,6 +1041,8 @@ export class Peer {
   private readonly earlyCredit = new Map<number, number>();
   /** Request ids whose empty body ended before this side opened its reader. */
   private readonly earlyEnd = new Set<number>();
+  /** A RESET that came for a stream this side has not taken yet (see earlyEnd). */
+  private readonly earlyReset = new Map<number, LinkError>();
   private readonly keepalive: Keepalive;
   private pings = new Map<number, number>();
   private pingCounter = 0;
@@ -1239,6 +1241,8 @@ export class Peer {
     const error = outcome instanceof LinkError ? outcome : new LinkError("closed");
     if (!call.outlives || outcome instanceof LinkError) {
       this.outCalls.delete(call.id);
+      this.earlyEnd.delete(call.id);
+      this.earlyReset.delete(call.id);
       call.body?.dead(error);
       if (outcome instanceof LinkError) call.response?.dead(error);
     }
@@ -1283,7 +1287,10 @@ export class Peer {
     const reader = new StreamReader(this, id, intake);
     this.readers.set(id, reader);
     if (feature) this.streamFeature.set(id, feature);
-    if (this.earlyEnd.delete(id)) queueMicrotask(() => reader.data(new Uint8Array(0), true));
+    const reset = this.earlyReset.get(id);
+    this.earlyReset.delete(id);
+    if (reset !== undefined) queueMicrotask(() => reader.dead(reset));
+    else if (this.earlyEnd.delete(id)) queueMicrotask(() => reader.data(new Uint8Array(0), true));
     return reader;
   }
   /** @internal */
@@ -1304,6 +1311,7 @@ export class Peer {
     if (this.inCalls.get(call.id) === call) this.inCalls.delete(call.id);
     this.earlyCredit.delete(call.id);
     this.earlyEnd.delete(call.id);
+    this.earlyReset.delete(call.id);
   }
 
   // --- channels ------------------------------------------------------------
@@ -1633,7 +1641,12 @@ export class Peer {
         const call = this.outCalls.get(id);
         if (call === undefined || call.channel === null) return;
         const deliver = this.requester.frame(id) === "deliver";
-        if (object === null || t === null) return;
+        if (object === null || t === null || bytes > appMessageLimit(this.limit)) {
+          // No name, or over LINK_APP_MSG: dropped, and the units its sender spent return (§5.6).
+          const cost = call.channel.eventArrived(bytes);
+          if (cost !== null) call.channel.unitsLeft(cost);
+          return;
+        }
         const { t: _t, ...args } = object;
         return call.channel.progressArrived(call, t, args, bytes, !deliver);
       }
@@ -1703,8 +1716,10 @@ export class Peer {
     const reader = this.readers.get(frame.id);
     const end = (frame.flags & LINK2_FLAG.end) !== 0;
     if (reader === undefined) {
-      // An empty body's END needs no credit and may arrive before the responder takes the stream.
-      if (end && frame.payload.length === 0 && this.inCalls.has(frame.id)) this.earlyEnd.add(frame.id);
+      // An empty stream's END needs no credit and may arrive before this side takes the stream: a
+      // request's body before the responder's handler runs, or an applet's response whose head
+      // event, END and REPLY came in one write, before the applet took the head event (§7.2).
+      if (end && frame.payload.length === 0 && (this.inCalls.has(frame.id) || this.outCalls.has(frame.id))) this.earlyEnd.add(frame.id);
       return;
     }
     reader.data(frame.payload, end);
@@ -1725,7 +1740,10 @@ export class Peer {
     const { code } = parseReset(frame);
     const error = new LinkError("transfer", `reset by the peer: ${code ?? "unknown"}`, { reset: code });
     this.streamFeature.delete(frame.id);
-    this.readers.get(frame.id)?.dead(error);
+    const reader = this.readers.get(frame.id);
+    // As for an early END: kept for the stream's hand-over.
+    if (reader === undefined && (this.inCalls.has(frame.id) || this.outCalls.has(frame.id))) this.earlyReset.set(frame.id, error);
+    reader?.dead(error);
     this.writers.get(frame.id)?.dead(error);
   }
 }

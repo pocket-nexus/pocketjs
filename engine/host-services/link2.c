@@ -92,6 +92,9 @@ typedef struct {
   bool settled;    /* the host or the guest has the outcome */
   bool timeout;    /* cancelled by the 30 s stall */
   bool head;       /* applet request: the response stream was handed over or refused */
+  bool queued;     /* applet request: its outcome waits in the channel's queue for the guest */
+  bool early_end;  /* applet request: the response's END came before the guest took the head event */
+  bool early_reset; /* the same for a RESET */
   bool reply_error;
   uint64_t last_frame_ms;
   uint64_t cancelled_ms;
@@ -194,6 +197,11 @@ typedef struct {
   uint32_t frame_json;
   uint32_t frames;
   char *handed_reply;
+  /* Response streams that ended clean and gave their place back when the
+   * REPLY was handed over before the guest read them: a read of one says
+   * END once (the last LINK2_CHANNEL_STREAMS ids). */
+  uint32_t ended_streams[LINK2_CHANNEL_STREAMS];
+  uint32_t ended_next;
 } Channel;
 
 struct Link2 {
@@ -848,19 +856,26 @@ static void inbox_pop(Channel *channel, const Entry *entry) {
   }
 }
 
-/* A queued request of the daemon is withdrawn: its entry stays in place as
- * a cancel notice the guest never sees a request for. */
+/* A queued request of the daemon is withdrawn by its CANCEL before the
+ * guest saw it: its entry leaves the queue, so a paused guest's queue holds
+ * no bytes of requests that no longer exist. */
 static void inbox_withdraw(Channel *channel, uint32_t id) {
   uint32_t at = channel->in_head;
   while (channel->inbox != NULL && at < channel->in_tail) {
     uint8_t *entry = channel->inbox + at;
     uint32_t length = link2_read_u32(entry + 12);
+    uint32_t size = ENTRY_HEADER + length;
     if (entry[0] == LINK2_MESSAGE_REQUEST && link2_read_u32(entry + 4) == id) {
-      entry[0] = 0; /* skipped at the poll */
+      memmove(entry, entry + size, channel->in_tail - at - size);
+      channel->in_tail -= size;
+      if (channel->in_head == channel->in_tail) {
+        channel->in_head = 0;
+        channel->in_tail = 0;
+      }
       channel->waiting_requests -= length;
       return;
     }
-    at += ENTRY_HEADER + length;
+    at += size;
   }
 }
 
@@ -894,6 +909,7 @@ static void channel_ended(Link2 *link, Channel *channel, const char *reason) {
   channel->in_head = 0;
   channel->in_tail = 0;
   channel->waiting_requests = 0;
+  memset(channel->ended_streams, 0, sizeof channel->ended_streams);
   channel->units = 0;
   channel->ev_outstanding = 0;
   channel->ev_owed = 0;
@@ -2463,16 +2479,49 @@ static void on_request(Link2 *link, const Link2Frame *frame) {
   system_request(link, frame->id, object, t);
 }
 
+/* An outcome this side makes for an applet's request (the 30 s stall, a
+ * CANCEL that got no REPLY, a REPLY over LINK_APP_MSG): held for the guest
+ * as a REPLY is. The request may be gone on return: a queue with no room
+ * closes the channel. */
+static void app_local_outcome(Link2 *link, OutRequest *request, const char *code, const char *message) {
+  Channel *channel = &link->channels[request->channel];
+  char json[LINK2_CODE_BYTES + LINK2_ERROR_MESSAGE_BYTES + 32];
+  int length = snprintf(json, sizeof json, "{\"code\":\"%s\",\"message\":\"%s\"}", code, message);
+  if (request->reply != NULL) {
+    channel_bytes(link, -(long)request->reply_length);
+    free(request->reply);
+  }
+  request->reply = length > 0 && (size_t)length < sizeof json ? malloc((size_t)length + 1) : NULL;
+  if (request->reply != NULL) {
+    memcpy(request->reply, json, (size_t)length + 1);
+    request->reply_length = (uint32_t)length;
+    channel_bytes(link, (long)request->reply_length);
+  } else {
+    request->reply_length = 0;
+  }
+  request->reply_error = true;
+  request->settled = true;
+  request->queued = true;
+  if (!inbox_push(channel, LINK2_MESSAGE_REPLY, ENTRY_ERROR, 0, request->id, 0, NULL, 0)) channel_close(link, channel, "overflow");
+}
+
 /* A REPLY for a request of an applet: held for the guest, behind the
  * progress events that came before it (§7.3). */
 static void app_reply(Link2 *link, OutRequest *request, const Link2Frame *frame) {
   Channel *channel = &link->channels[request->channel];
   if (request->settled) {
-    /* The guest already has an outcome (the 30 s stall): the REPLY frees the id. */
-    free_out(link, request);
+    /* This side already made the outcome (the 30 s stall): the REPLY frees
+     * the id, and the request stays while its outcome waits for the guest. */
+    if (request->queued) request->replied = true;
+    else free_out(link, request);
     return;
   }
   request->replied = true;
+  if (frame->length > link2_app_message_limit(link->limit)) {
+    /* Over LINK_APP_MSG: the guest gets `too_large` in its place (§7.2). */
+    app_local_outcome(link, request, "too_large", "the reply is over the channel's message limit");
+    return;
+  }
   request->reply_error = (frame->flags & LINK2_FLAG_ERROR) != 0;
   request->reply = malloc(frame->length + 1);
   if (request->reply != NULL) {
@@ -2483,6 +2532,7 @@ static void app_reply(Link2 *link, OutRequest *request, const Link2Frame *frame)
     request->reply_length = 0;
     request->reply_error = true;
   }
+  request->queued = true;
   if (!inbox_push(channel, LINK2_MESSAGE_REPLY, request->reply_error ? ENTRY_ERROR : 0, 0, request->id, 0, NULL, 0)) channel_close(link, channel, "overflow");
 }
 
@@ -2640,13 +2690,15 @@ static void on_event(Link2 *link, const Link2Frame *frame) {
     case LINK2_EVENT_APP_PROGRESS: {
       /* Progress on an applet's request, whatever its `t` (§5.3 step 1). */
       OutRequest *request = find_out(link, frame->id);
-      if (request == NULL || request->kind != OR_APP || !named) return;
+      if (request == NULL || request->kind != OR_APP) return;
       Channel *channel = &link->channels[request->channel];
       uint32_t cost = 0;
       request->last_frame_ms = now_ms(link);
+      /* The sender spent the event's units whatever it holds: they are
+       * counted first, and return when the event is discarded. */
       if (!channel_event_cost(link, channel, length, &cost)) return;
-      if (request->cancelled || request->settled) {
-        /* The request was cancelled: the event is discarded and its units return (§5.6). */
+      if (!named || length > link2_app_message_limit(link->limit) || request->cancelled || request->settled) {
+        /* No name, over LINK_APP_MSG, or its request was cancelled: discarded, and its units return (§5.6). */
         channel->ev_owed += cost;
       } else if (!inbox_push(channel, LINK2_MESSAGE_PROGRESS, 0, cost, frame->id, 0, json, length)) {
         channel_close(link, channel, "overflow");
@@ -2717,6 +2769,10 @@ static void on_data(Link2 *link, const Link2Frame *frame) {
   if (out != NULL) {
     out->last_frame_ms = now_ms(link);
     if (out->cancelled) return;
+    /* An applet response's END can reach this side before the guest took
+     * the head event that hands the stream over: an empty response, with
+     * its head, END and REPLY in one write. It is kept for the hand-over. */
+    if (stream == NULL && out->kind == OR_APP && !out->head && end && frame->length == 0) out->early_end = true;
   }
   if (stream == NULL || stream->ended || stream->failed) return;
   uint32_t *outstanding = stream->kind == IS_APP ? &stream->app.outstanding : &stream->outstanding;
@@ -2812,6 +2868,11 @@ static void on_credit(Link2 *link, const Link2Frame *frame) {
 static void on_reset(Link2 *link, const Link2Frame *frame) {
   InStream *in = find_in_stream(link, frame->id);
   OutStream *out = find_out_stream(link, frame->id);
+  if (in == NULL) {
+    /* As for an early END: the response stream is not handed over yet. */
+    OutRequest *own = find_out(link, frame->id);
+    if (own != NULL && own->kind == OR_APP && !own->head) own->early_reset = true;
+  }
   if (in != NULL) {
     InRequest *request = find_in(link, frame->id);
     switch (in->kind) {
@@ -3126,17 +3187,8 @@ static void pump_requests(Link2 *link) {
       request->cancel_due = true;
       request->timeout = true;
       if (request->kind == OR_APP && !request->settled) {
-        static const char TIMEOUT[] = "{\"code\":\"timeout\",\"message\":\"30 s without a frame for the request\"}";
-        Channel *channel = &link->channels[request->channel];
-        request->reply = malloc(sizeof TIMEOUT);
-        if (request->reply != NULL) {
-          memcpy(request->reply, TIMEOUT, sizeof TIMEOUT);
-          request->reply_length = sizeof TIMEOUT - 1;
-          channel_bytes(link, (long)request->reply_length);
-        }
-        request->reply_error = true;
-        request->settled = true;
-        inbox_push(channel, LINK2_MESSAGE_REPLY, ENTRY_ERROR, 0, request->id, 0, NULL, 0);
+        app_local_outcome(link, request, "timeout", "30 s without a frame for the request");
+        if (request->kind == OR_FREE) continue; /* the channel closed under it */
       } else {
         settle_out(link, request, "timeout");
       }
@@ -3152,6 +3204,14 @@ static void pump_requests(Link2 *link) {
       int channel = request->channel;
       InStream *in = find_in_stream(link, request->id);
       OutStream *out = find_out_stream(link, request->id);
+      if (kind == OR_APP) {
+        /* The applet's call ends `cancelled` (§5.4), unless the stall gave it `timeout` already. */
+        if (!request->settled) app_local_outcome(link, request, "cancelled", "no reply followed the CANCEL");
+        if (request->kind == OR_FREE) continue;
+        if (request->queued) request->replied = true; /* the guest has yet to take its outcome */
+        else free_out(link, request);
+        continue;
+      }
       settle_out(link, request, request->timeout ? "timeout" : "cancelled");
       if (kind == OR_DEVTOOLS) {
         devtools_close(link);
@@ -3617,6 +3677,9 @@ bool link2_channel_poll(Link2 *link, int index, Link2Message *message) {
           } else {
             stream->reserved = true;
             stream->app.window = LINK2_APP_STREAM_WINDOW;
+            /* What ended the stream before this hand-over (on_data, on_reset). */
+            if (out->early_end) stream->ended = true;
+            if (out->early_reset) stream->failed = true;
             message->stream = entry.id;
           }
           out->head = true;
@@ -3631,7 +3694,13 @@ bool link2_channel_poll(Link2 *link, int index, Link2Message *message) {
         }
         /* The REPLY is the trailer: it reaches the applet after the bytes a pending read is still owed. */
         if (stream != NULL && stream->kind == IS_APP && stream->app.wanted > 0 && stream->app.held > 0) return false;
-        if (stream != NULL && stream->kind == IS_APP && stream->reserved && (stream->ended || stream->failed)) free_in_stream(link, stream);
+        if (stream != NULL && stream->kind == IS_APP && stream->reserved && (stream->ended || stream->failed)) {
+          if (!stream->failed) {
+            channel->ended_streams[channel->ended_next % LINK2_CHANNEL_STREAMS] = stream->id;
+            channel->ended_next += 1;
+          }
+          free_in_stream(link, stream);
+        }
         channel->handed_reply = out->reply;
         message->json = out->reply != NULL ? out->reply : "{\"code\":\"internal\",\"message\":\"no memory for the reply\"}";
         message->length = out->reply != NULL ? out->reply_length : strlen(message->json);
@@ -3639,6 +3708,7 @@ bool link2_channel_poll(Link2 *link, int index, Link2Message *message) {
         channel_bytes(link, -(long)out->reply_length);
         out->reply = NULL;
         out->reply_length = 0;
+        out->queued = false;
         /* A reply this side made for a stalled request: the id stays until Hub's REPLY or the grace ends. */
         if (out->replied) free_out(link, out);
         break;
@@ -3755,7 +3825,16 @@ int link2_channel_reply(Link2 *link, int index, uint32_t id, const char *json, s
 
 long link2_stream_read(Link2 *link, int index, uint32_t id, uint8_t *into, size_t capacity) {
   InStream *stream = find_in_stream(link, id);
-  if (channel_at(link, index) == NULL || stream == NULL || stream->kind != IS_APP || stream->channel != index || capacity == 0) return LINK2_MALFORMED;
+  Channel *channel = channel_at(link, index);
+  if (channel != NULL && stream == NULL && id != 0) {
+    /* A stream that ended before its first read, and left at its REPLY. */
+    for (size_t i = 0; i < LINK2_CHANNEL_STREAMS; i += 1) {
+      if (channel->ended_streams[i] != id) continue;
+      channel->ended_streams[i] = 0;
+      return LINK2_STREAM_END;
+    }
+  }
+  if (channel == NULL || stream == NULL || stream->kind != IS_APP || stream->channel != index || capacity == 0) return LINK2_MALFORMED;
   if (stream->failed) {
     free_in_stream(link, stream);
     return LINK2_STREAM_FAILED;

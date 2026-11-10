@@ -39,6 +39,13 @@ const SCENARIOS: [number, string][] = [
   [7, "a host callback inside an open frame logs: the stream stays well formed"],
   [107, "the same with the send buffer nearly full: the tail stays inside the buffer"],
   [8, "a worker that retries from http_end at a teardown leaves no request behind"],
+  [1, "requests of 8,000 bytes withdrawn by CANCEL leave a paused guest's queue: no overflow"],
+  [101, "the same with 3,000 requests of 9 bytes"],
+  [2, "an empty response whose END comes before the guest takes the head event: its read ends"],
+  [3, "48 progress events without a name return their units"],
+  [5, "a request stalled 30 s whose CANCEL Hub answers before the guest polls still reports timeout"],
+  [10, "a request the guest cancelled and Hub never answered reports cancelled after the grace"],
+  [13, "replies over LINK_APP_MSG are not kept whole: the guest gets too_large"],
 ];
 
 describe("the C client under the review's scenarios", () => {

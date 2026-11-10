@@ -1251,6 +1251,64 @@ describe("applet channels", () => {
     expect(guest.state().state).toBe("open");
   });
 
+  test("an empty response whose head event, END and REPLY arrive before the applet takes the head event: the read ends, and so does one that was reset", async () => {
+    const echo = echoDaemon((channel) => {
+      channel.on("tile.get", (args, call) => {
+        call.progress("tile.head", { bytes: 0 });
+        const out = call.respond();
+        if (args.reset === true) out.close("cancelled");
+        else out.end();
+        return { rev: "r0" };
+      });
+    });
+    const w = await world({ hub: { daemons: echo.factory }, device: { channel: { auto: false } } });
+    await w.link();
+    const guest = w.device.openChannel(APP, HASH);
+    await until(() => guest.state().state === "open", "the channel");
+    for (const reset of [false, true]) {
+      let stream: StreamReader | undefined;
+      const call = guest.request("tile.get", { reset }, { onProgress: (_t, _args, given) => (stream = given) });
+      // The guest takes nothing until the head event and the REPLY both wait for it: the END (or the
+      // RESET) reached the device before the applet held the stream.
+      await until(() => guest.channel!.waiting === 2, "the head event and the REPLY at the device");
+      await pause(20);
+      for (let i = 0; i < 4; i++) guest.frame();
+      expect(await call.reply).toEqual({ rev: "r0" });
+      expect(stream).toBeDefined();
+      if (reset) expect((await fails(stream!.read())).code).toBe("transfer");
+      else expect(await stream!.read()).toBe(null);
+    }
+    expect(guest.state().state).toBe("open");
+  });
+
+  test("progress events without a name return their units: 100 of them leave the daemon's window whole", async () => {
+    const echo = echoDaemon((channel) => {
+      channel.on("work", async (_args, call) => {
+        await new Promise<void>((resolve) => call.onCancel(resolve));
+        return {};
+      });
+    });
+    const w = await world({ hub: { daemons: echo.factory } });
+    const hubDevice = await w.link();
+    const guest = w.device.openChannel(APP, HASH);
+    await until(() => guest.state().state === "open" && echo.channels[0]?.units === LINK2_APP_EVENT_WINDOW, "the channel and its units");
+    const seen: string[] = [];
+    const call = guest.request("work", {}, { onProgress: (t) => seen.push(t) });
+    await pause(20);
+    // Sent raw: the daemon's API refuses an event without a name. Each costs its sender one unit.
+    const daemon = echo.channels[0];
+    for (let i = 0; i < 100; i++) {
+      await until(() => daemon.units > 0, "a unit");
+      expect(daemon.spendUnits({ n: i })).toBe(true);
+      hubDevice.peer.event({ n: i } as unknown as Json & { t: string }, call.id);
+    }
+    await until(() => daemon.units === LINK2_APP_EVENT_WINDOW, "48 of 48 units");
+    expect(seen).toEqual([]);
+    expect(guest.state().state).toBe("open");
+    call.cancel();
+    await fails(call.reply);
+  });
+
   test("a progress event named log that crosses the applet's channel.close is ignored and does not close the link", async () => {
     const echo = echoDaemon((channel) => {
       channel.on("work", async (_args, call) => {
