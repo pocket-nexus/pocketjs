@@ -2078,6 +2078,15 @@ size_t link2_event_stream_send(Link2 *link, uint32_t id, const uint8_t *bytes, s
   return n;
 }
 
+bool link2_event_stream_end(Link2 *link, uint32_t id) {
+  OutStream *stream = find_out_stream(link, id);
+  if (stream == NULL || stream->kind != OS_SYSTEM || stream->end_sent) return true;
+  if (link->tx_sent < stream->tx_mark || tx_room(link, false) < LINK2_HEADER_BYTES) return false;
+  data_commit(link, stream, tx_at(link, LINK2_HEADER_BYTES), 0, true);
+  free_out_stream(link, stream);
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // streams this side sends
 // ---------------------------------------------------------------------------

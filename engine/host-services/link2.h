@@ -299,6 +299,9 @@ bool link2_event_stream_as(Link2 *link, uint32_t id, const char *json, size_t le
 /* Bytes of that stream inside its credit and the send buffer's room; the
  * count taken. `end` closes the stream once every byte is taken. */
 size_t link2_event_stream_send(Link2 *link, uint32_t id, const uint8_t *bytes, size_t length, bool end);
+/* Closes the stream with an empty END frame. True when the END is queued or
+ * the stream is already gone; false when it has to be asked again. */
+bool link2_event_stream_end(Link2 *link, uint32_t id);
 
 // ---------------------------------------------------------------------------
 // Applet channels: the host half of §7.3
