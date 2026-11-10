@@ -326,19 +326,27 @@ as the SD card mounted in the computer's reader**:
    leaves the record without a key. When the file's key is the record's key,
    the key file is left alone: Hub compares the `address=` and `port=` the
    device would use (the `.last` file's when it exists and parses, else the
-   key file's, §3.6) with its own, and **when either differs it writes
+   key file's, §3.6) with its own. **Over ftpd, "its own" is the local
+   address of the FTP connection**, the address this console reaches Hub at.
+   **On a mounted card Hub cannot tell which of its interfaces faces the
+   console, so it leaves `.last` alone when the address there is any of
+   Hub's current interface addresses and the port matches**: that address
+   may be the one a `ready` proved. Hub **writes
    `companions/<hub id>.last` with the name, address and port it has now**
-   (to a temporary file renamed over the old one, then read back), so the
-   device's next start tries that address. **An address change never
+   (to a temporary file renamed over the old one, then read back) only when
+   the port differs or the address is none of them (over ftpd: when it is
+   not the FTP connection's local address), so the device's next start
+   tries an address Hub holds. **An address change never
    rewrites the key file**, so it cannot cost the pairing.
 4. Otherwise Hub mints a key and **stores it in its record as a candidate
    before it writes** (below). **The write goes to `companions/<hub id>.new`,
    which Hub reads back and compares byte for byte; only after a match does
-   it delete `<hub id>.txt` and rename `.new` to it**, then read
-   `<hub id>.txt` and `device.txt` back once more. A match makes the
-   candidate the record's key. **A new key file carries Hub's current
-   address, so this step ends by deleting `companions/<hub id>.last`**
-   (§3.6): a stale last address must not shadow it. The device never loads a `.new` file (its
+   it delete `companions/<hub id>.last`, then delete `<hub id>.txt` and
+   rename `.new` to it**, then read `<hub id>.txt` and `device.txt` back
+   once more. A match makes the candidate the record's key. **The new key
+   file carries Hub's current address, and `.last` goes before the key file
+   is replaced** (§3.6): a cut after the rename then leaves no stale last
+   address to shadow the new file. The device never loads a `.new` file (its
    name does not end in `.txt`), so a transfer cut midway leaves the old key
    file whole.
 
@@ -353,8 +361,9 @@ falls in:
 | Cut during | The card holds | Result |
 | --- | --- | --- |
 | the write of `<hub id>.new` | the old key file whole (or none, at a first setup), and a partial `.new` | the pairing is unchanged; the next setup's step 2 removes the `.new` |
-| between the delete and the rename | no `<hub id>.txt`, and a whole `.new` | **no pairing with this Hub until the next setup**, whose step 2 removes the `.new` and whose step 4 writes again; this setup is reported as failed |
-| after the rename | the new key | the two candidates settle at the first `ready` (below) |
+| after `.last` is deleted, before the key file is | the old key file whole, a whole `.new`, no `.last` | the pairing is unchanged; the device's direct try uses the old key file's address until a beacon or a `ready` writes `.last` again; the next setup's step 2 removes the `.new` |
+| between the delete and the rename | no `<hub id>.txt`, no `.last`, and a whole `.new` | **no pairing with this Hub until the next setup**, whose step 2 removes the `.new` and whose step 4 writes again; this setup is reported as failed |
+| after the rename | the new key, no `.last` | the two candidates settle at the first `ready` (below) |
 
 Hub's record keeps both keys meanwhile: the key it had, when it had one,
 and the candidate.
@@ -1924,7 +1933,10 @@ question 2); its shape:
   sends `RESET` `refused` (§7.2).
 - **The host hands the guest, per frame, at most 4 messages or 8 KiB of
   JSON, whichever comes first, and at most 16 KiB of stream bytes**, and
-  takes as much from it. A first message is handed over whatever its size.
+  takes as much from it. **The host shares the per-frame stream bytes among
+  the streams with a pending `read` in turn**: the stream served first
+  changes each frame, so one saturating stream cannot keep another's held
+  bytes untaken until its sender gives up (§5.5). A first message is handed over whatever its size.
   `emit`, `progress` and `write` report "full" when the event window or the
   16 KiB outbound queue has no room, and the applet tries again in a later
   frame.
@@ -2249,7 +2261,9 @@ channel, so the link holds **at most about 288 KiB** with it, against the
 channel with one inbound stream open holds 64 KiB and the link 240 KiB.
 Four channels, the connection's bound, would hold up to 624 KiB, which is
 why a device that runs one applet opens one. The stream windows are
-allocated as streams open, not with the channel. The screenshot's linear
+allocated as streams open, not with the channel. **A stream whose window
+the host cannot allocate is answered `RESET` `refused`**, as a stream past
+the channel's bound is (§7.6); its request still gets its `REPLY`. The screenshot's linear
 buffers come on top while a capture is in flight, as today.
 
 ## 10. Conformance and test vectors
@@ -2521,10 +2535,11 @@ over local IPC (§7.7).
    pairing** (§3.2): one procedure over ftpd or on the mounted SD card:
    read `device.txt`, list `companions/` and refuse at 8 loadable files,
    discard the candidates the key file does not hold, store the minted key
-   as a candidate, write `<hub id>.new`, read it back, delete and rename,
-   read back again and delete `.last`, report a setup without a final match
+   as a candidate, write `<hub id>.new`, read it back, delete `.last`, delete and rename,
+   read back again, report a setup without a final match
    as failed, end a setup whose read failed with the record untouched, write
-   `.last` alone for a changed address; and the two-candidate handshake
+   `.last` alone for an address that is none of Hub's own (over ftpd, not
+   the FTP connection's local address); and the two-candidate handshake
    until the first `ready`. A new `ready` of a device id ends the older connection's requests, streams and channels at once; the duplicate-id count needs the `PING` to the
    replaced connection (§2.4). It runs beside the step that installs the
    program.
