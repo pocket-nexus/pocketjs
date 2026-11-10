@@ -418,16 +418,28 @@ static void s11(void) {
   set_features("runtime", NULL);
   hex_encode(HUB_KEY, 32, key);
   snprintf(text, sizeof text, "key=%s\nname=Other\naddress=10.0.0.3\nport=8628\n", key);
-  /* Decoys until one sorts ahead of the Hub in directory order. */
-  static const char *const DECOYS[] = {"0000000000000001", "ffffffffffffffff", "00000000000000ab", "9999999999999999", "0123456789abcdef", "00000000000000a9"};
+  /* Decoys until one sorts ahead of the Hub in directory order. A directory lists its
+   * entries by name, by a hash of the name seeded per file system, oldest first or
+   * newest first: 64 names are tried, each written after the Hub's file and then
+   * before it, so one comes first whatever the order is. */
+  static char decoy_name[17];
   const char *decoy = NULL;
-  for (size_t k = 0; k < 6 && decoy == NULL; k += 1) {
-    snprintf(path, sizeof path, "%s/companions/%s.txt", sim_dir, DECOYS[k]);
-    write_text(path, text);
-    Link2 *probe = sim_create(0, 1);
-    if (probe->companions.count == 2 && strcmp(probe->companions.list[0].id, DECOYS[k]) == 0) decoy = DECOYS[k];
-    link2_destroy(probe);
-    if (decoy == NULL) remove(path);
+  char hub_path[400], hub_text[400];
+  snprintf(hub_path, sizeof hub_path, "%s/companions/%s.txt", sim_dir, HUB_ID);
+  snprintf(hub_text, sizeof hub_text, "key=%s\nname=Sim Hub\naddress=10.0.0.2\nport=8628\n", key);
+  for (int hub_last = 0; hub_last < 2 && decoy == NULL; hub_last += 1) {
+    for (unsigned k = 0; k < 64 && decoy == NULL; k += 1) {
+      snprintf(decoy_name, sizeof decoy_name, "%016llx", (unsigned long long)(0x1000u + k) * 0x9e3779b97f4a7c15ULL);
+      if (strcmp(decoy_name, HUB_ID) == 0) continue;
+      snprintf(path, sizeof path, "%s/companions/%s.txt", sim_dir, decoy_name);
+      if (hub_last) remove(hub_path);
+      write_text(path, text);
+      if (hub_last) write_text(hub_path, hub_text);
+      Link2 *probe = sim_create(0, 1);
+      if (probe->companions.count == 2 && strcmp(probe->companions.list[0].id, decoy_name) == 0) decoy = decoy_name;
+      link2_destroy(probe);
+      if (decoy == NULL) remove(path);
+    }
   }
   if (decoy == NULL) {
     printf("S11 no decoy sorts ahead of the Hub in this directory's order: not run\n");
