@@ -12,7 +12,12 @@ import { registerServicePump } from "./services.ts";
 export type ChannelJson = null | boolean | number | string | ChannelJson[] | { [key: string]: ChannelJson };
 export type ChannelArgs = { [key: string]: ChannelJson };
 
-/** The host's calls. Numbers below zero are the codes of CHANNEL_CODE. */
+/** The host's calls. Numbers below zero are the codes of CHANNEL_CODE.
+ *
+ *  An id is a handle the host gives out for one request or stream of one
+ *  generation of the channel (§7.4). The host refuses a handle of an earlier
+ *  generation with `stale`, so a handle kept across a reconnect reaches
+ *  nothing of the channel that is open now. */
 export interface ChannelOps {
   /** `{"state":"open"|"opening"|"closed","reason":"…","generation":n}` */
   state(): string;
@@ -29,7 +34,10 @@ export interface ChannelOps {
   /** Bytes taken; 0 when the stream's buffer is full. */
   write(id: number, bytes: Uint8Array): number;
   end(id: number): number;
-  close(id: number): void;
+  /** Abandons one side of `id`: the stream toward the applet, or with
+   *  `outbound` the stream toward the daemon. A request's id names both its
+   *  body and its response. */
+  close(id: number, outbound?: boolean): void;
 }
 
 export const CHANNEL_CODE = {
@@ -42,6 +50,8 @@ export const CHANNEL_CODE = {
   noHead: -5,
   streamEnd: -6,
   streamFailed: -7,
+  /** The handle is of an earlier generation of the channel. */
+  stale: -8,
 } as const;
 
 const KIND = { event: 1, progress: 2, reply: 3, request: 4, cancel: 5 } as const;
@@ -93,6 +103,31 @@ export function channelState(): ChannelStatus {
   }
 }
 
+/** The open channel's generation as this module last read it; 0 while the
+ *  channel is not open. Every reader, writer and call remembers the
+ *  generation it was made in and fails with `closed` once it differs: the
+ *  host's own check (CHANNEL_CODE.stale) covers what happens between two reads. */
+let liveGeneration = 0;
+
+function readGeneration(): ChannelStatus {
+  const now = channelState();
+  liveGeneration = now.state === CHANNEL_STATE.open ? now.generation : 0;
+  return now;
+}
+
+function closedError(): ChannelError {
+  return new ChannelError("closed", "the channel closed");
+}
+
+/** A handler's own exception: reported, never thrown into the pump. */
+function reportHandlerError(error: unknown): void {
+  try {
+    (globalThis as { console?: { error?: (...args: unknown[]) => void } }).console?.error?.(`channel handler: ${String((error as Error)?.message ?? error)}`);
+  } catch {
+    // A console that throws has nothing more to say.
+  }
+}
+
 // ---- streams ------------------------------------------------------------------
 
 const READ_CHUNK = 16 * 1024;
@@ -103,15 +138,22 @@ const READ_CHUNK = 16 * 1024;
 export class ChannelReader {
   private pending: { into: Uint8Array; resolve: (count: number | null) => void; reject: (error: ChannelError) => void } | null = null;
   private done = false;
+  /** Why the stream failed; every later read rejects with it. */
+  private failure: ChannelError | null = null;
 
   /** @internal */
-  constructor(readonly id: number) {}
+  constructor(
+    readonly id: number,
+    private readonly generation: number = liveGeneration,
+  ) {}
 
   /** Resolves with the bytes written into `into` (at least 1), or null at the
-   *  stream's end. One read is pending at a time. */
+   *  stream's end. One read is pending at a time. `into` holds at least one byte. */
   read(into: Uint8Array): Promise<number | null> {
     if (this.pending) return Promise.reject(new ChannelError("busy", "a read is already pending on this stream"));
+    if (this.failure) return Promise.reject(this.failure);
     if (this.done) return Promise.resolve(null);
+    if (into.length === 0) return Promise.reject(new ChannelError("malformed", "a read needs room for at least one byte"));
     return new Promise((resolve, reject) => {
       this.pending = { into, resolve, reject };
       readers.add(this);
@@ -149,7 +191,7 @@ export class ChannelReader {
     if (this.done) return;
     this.done = true;
     readers.delete(this);
-    channelHost()?.close(this.id);
+    if (this.generation === liveGeneration) channelHost()?.close(this.id, false);
     const pending = this.pending;
     this.pending = null;
     pending?.resolve(null);
@@ -160,7 +202,8 @@ export class ChannelReader {
     const pending = this.pending;
     const ops = channelHost();
     if (!pending) return;
-    const count = ops ? ops.read(this.id, pending.into) : CHANNEL_CODE.noChannel;
+    // A stream of an earlier generation went with its channel: no call reaches the host for it.
+    const count = !ops ? CHANNEL_CODE.noChannel : this.generation !== liveGeneration ? CHANNEL_CODE.stale : ops.read(this.id, pending.into);
     if (count === 0) return;
     this.pending = null;
     readers.delete(this);
@@ -168,8 +211,13 @@ export class ChannelReader {
       pending.resolve(count);
     } else {
       this.done = true;
-      if (count === CHANNEL_CODE.streamEnd) pending.resolve(null);
-      else pending.reject(new ChannelError(count === CHANNEL_CODE.noChannel ? "no_channel" : "stream", "the stream was reset"));
+      if (count === CHANNEL_CODE.streamEnd) {
+        pending.resolve(null);
+        return;
+      }
+      this.failure = count === CHANNEL_CODE.stale ? closedError()
+        : new ChannelError(count === CHANNEL_CODE.noChannel ? "no_channel" : "stream", "the stream was reset");
+      pending.reject(this.failure);
     }
   }
 }
@@ -182,7 +230,15 @@ export class ChannelWriter {
   private done = false;
 
   /** @internal */
-  constructor(readonly id: number) {}
+  constructor(
+    readonly id: number,
+    private readonly generation: number = liveGeneration,
+  ) {}
+
+  /** True once the stream has ended, failed or been closed. */
+  get finished(): boolean {
+    return this.done;
+  }
 
   /** Resolves when the host has taken every byte. */
   write(bytes: Uint8Array): Promise<void> {
@@ -211,7 +267,7 @@ export class ChannelWriter {
   /** Abandons the stream; the host resets it. */
   close(): void {
     if (this.done) return;
-    channelHost()?.close(this.id);
+    if (this.generation === liveGeneration) channelHost()?.close(this.id, true);
     this.fail(new ChannelError("closed", "the stream was closed"));
   }
 
@@ -231,12 +287,17 @@ export class ChannelWriter {
       this.fail(new ChannelError("no_channel"));
       return;
     }
+    if (this.generation !== liveGeneration) {
+      this.fail(closedError());
+      return;
+    }
     while (this.queue.length > 0) {
       const item = this.queue[0]!;
       const taken = ops.write(this.id, item.at === 0 ? item.bytes : item.bytes.subarray(item.at));
       if (taken === 0 || taken === CHANNEL_CODE.full) return;
       if (taken < 0) {
-        this.fail(new ChannelError(taken === CHANNEL_CODE.noHead ? "no_head" : "stream", "the stream took no bytes"));
+        this.fail(taken === CHANNEL_CODE.stale ? closedError()
+          : new ChannelError(taken === CHANNEL_CODE.noHead ? "no_head" : taken === CHANNEL_CODE.noChannel ? "no_channel" : "stream", "the stream took no bytes"));
         return;
       }
       item.at += taken;
@@ -252,7 +313,7 @@ export class ChannelWriter {
       this.done = true;
       writers.delete(this);
       if (status === CHANNEL_CODE.ok) ending.resolve();
-      else ending.reject(new ChannelError("stream", "the stream did not end"));
+      else ending.reject(status === CHANNEL_CODE.stale ? closedError() : new ChannelError("stream", "the stream did not end"));
       return;
     }
     writers.delete(this);
@@ -292,6 +353,7 @@ function failed(code: number): ChannelError {
     case CHANNEL_CODE.noChannel: return new ChannelError("no_channel", "the channel is not open");
     case CHANNEL_CODE.tooLarge: return new ChannelError("too_large", "the message is over the channel's limit");
     case CHANNEL_CODE.noHead: return new ChannelError("no_head", "a response needs a progress event first");
+    case CHANNEL_CODE.stale: return closedError();
     default: return new ChannelError("malformed", "the host refused the message");
   }
 }
@@ -312,12 +374,14 @@ export function request(t: string, args?: ChannelArgs, options: RequestOptions =
     reply.catch(() => {});
     return { id: 0, reply, cancel() {} };
   }
-  const generation = channelState().generation;
+  const generation = readGeneration().generation;
+  let open: OpenCall | undefined;
   const reply = new Promise<ChannelJson>((resolve, reject) => {
-    calls.set(id, { resolve, reject, onProgress: options.onProgress, generation });
+    open = { resolve, reject, onProgress: options.onProgress, generation };
+    calls.set(id, open);
   });
   if (options.body !== undefined) {
-    const body = new ChannelWriter(id);
+    const body = new ChannelWriter(id, generation);
     body.write(options.body).then(() => body.end()).catch(() => {});
   }
   wake();
@@ -325,7 +389,9 @@ export function request(t: string, args?: ChannelArgs, options: RequestOptions =
     id,
     reply,
     cancel() {
-      if (calls.has(id)) ops.cancel(id);
+      // A call that ended, or went with an earlier generation of the channel, cancels nothing:
+      // its id may name another call now.
+      if (calls.get(id) === open && generation === liveGeneration) ops.cancel(id);
     },
   };
 }
@@ -350,9 +416,9 @@ export type EventHandler = (args: ChannelArgs, stream?: ChannelReader) => void;
 
 const requestHandlers = new Map<string, RequestHandler>();
 const eventHandlers = new Map<string, EventHandler>();
-const incoming = new Map<number, { cancelled: boolean }>();
+const incoming = new Map<number, { cancelled: boolean; generation: number }>();
 /** Replies the host had no room for: sent again each tick. */
-const replies: { id: number; json: string; error: boolean }[] = [];
+const replies: { id: number; json: string; error: boolean; generation: number }[] = [];
 
 /** Answers the daemon's requests named `t`; the handler's result is the reply. */
 export function onRequest(t: string, handler: RequestHandler): () => void {
@@ -384,14 +450,31 @@ export function emit(t: string, args?: ChannelArgs): boolean {
 export function emitStream(t: string, args?: ChannelArgs): ChannelWriter | null {
   const ops = channelHost();
   const id = ops ? ops.emit(message(t, args), true) : CHANNEL_CODE.noChannel;
-  return id > 0 ? new ChannelWriter(id) : null;
+  return id > 0 ? new ChannelWriter(id, readGeneration().generation) : null;
 }
 
-function sendReply(id: number, json: string, error: boolean): void {
+function errorJson(code: string, error: unknown): string {
+  return JSON.stringify({ code, message: String((error as Error)?.message ?? error).slice(0, 160) });
+}
+
+/** One REPLY of a daemon's request. True when it needs no further try: sent,
+ *  or the channel it belonged to is gone. A reply the host refuses for what it
+ *  holds (too large, not an object) is answered with an error in its place, so
+ *  the daemon's request always ends. */
+function deliverReply(reply: { id: number; json: string; error: boolean; generation: number }, substitute = true): boolean {
   const ops = channelHost();
-  if (!ops) return;
-  if (ops.reply(id, json, error) === CHANNEL_CODE.full) {
-    replies.push({ id, json, error });
+  if (!ops || reply.generation !== liveGeneration) return true;
+  const status = ops.reply(reply.id, reply.json, reply.error);
+  if (status === CHANNEL_CODE.full) return false;
+  if (status === CHANNEL_CODE.ok || status === CHANNEL_CODE.noChannel || status === CHANNEL_CODE.stale || !substitute) return true;
+  const code = status === CHANNEL_CODE.tooLarge ? "too_large" : "internal";
+  return deliverReply({ ...reply, json: JSON.stringify({ code, message: "the handler's reply could not be sent" }), error: true }, false);
+}
+
+function sendReply(id: number, json: string, error: boolean, generation: number): void {
+  const reply = { id, json, error, generation };
+  if (!deliverReply(reply)) {
+    replies.push(reply);
     wake();
   }
 }
@@ -401,12 +484,13 @@ function serve(id: number, object: ChannelArgs, stream: number): void {
   const handler = requestHandlers.get(t);
   const ops = channelHost();
   if (!ops) return;
+  const generation = liveGeneration;
   if (!handler) {
-    if (stream) ops.close(stream);
-    sendReply(id, JSON.stringify({ code: "unknown_message", message: `no handler for ${t}` }), true);
+    if (stream) ops.close(stream, false);
+    sendReply(id, JSON.stringify({ code: "unknown_message", message: `no handler for ${t}` }), true, generation);
     return;
   }
-  const state = { cancelled: false };
+  const state = { cancelled: false, generation };
   incoming.set(id, state);
   const call: IncomingCall = {
     t,
@@ -414,31 +498,38 @@ function serve(id: number, object: ChannelArgs, stream: number): void {
     get cancelled() {
       return state.cancelled;
     },
-    body: stream ? new ChannelReader(stream) : null,
+    body: stream ? new ChannelReader(stream, generation) : null,
     progress(name, args) {
-      return ops.progress(id, message(name, args)) === CHANNEL_CODE.ok;
+      return generation === liveGeneration && ops.progress(id, message(name, args)) === CHANNEL_CODE.ok;
     },
     respond() {
-      return new ChannelWriter(id);
+      return new ChannelWriter(id, generation);
     },
   };
   let result: ChannelJson | void | Promise<ChannelJson | void>;
   try {
     result = handler(object, call);
   } catch (error) {
-    incoming.delete(id);
-    sendReply(id, JSON.stringify({ code: "internal", message: String((error as Error)?.message ?? error).slice(0, 160) }), true);
+    if (incoming.get(id) === state) incoming.delete(id);
+    sendReply(id, errorJson("internal", error), true, generation);
     return;
   }
   Promise.resolve(result).then(
     (value) => {
-      incoming.delete(id);
-      sendReply(id, JSON.stringify(value === undefined || value === null || typeof value !== "object" || Array.isArray(value) ? {} : value), false);
+      if (incoming.get(id) === state) incoming.delete(id);
+      let json: string;
+      try {
+        // A value JSON cannot carry (a BigInt, a cycle) ends the request as an error, not in silence.
+        json = JSON.stringify(value === undefined || value === null || typeof value !== "object" || Array.isArray(value) ? {} : value);
+      } catch (error) {
+        sendReply(id, errorJson("internal", error), true, generation);
+        return;
+      }
+      sendReply(id, json, false, generation);
     },
     (error) => {
-      incoming.delete(id);
-      const code = error instanceof ChannelError ? error.code : "internal";
-      sendReply(id, JSON.stringify({ code, message: String((error as Error)?.message ?? error).slice(0, 160) }), true);
+      if (incoming.get(id) === state) incoming.delete(id);
+      sendReply(id, errorJson(error instanceof ChannelError ? error.code : "internal", error), true, generation);
     },
   );
 }
@@ -458,60 +549,100 @@ function wake(): void {
   if (!stopPump) stopPump = registerServicePump(pump);
 }
 
+/** The head of a polled entry whose object did not parse: what it was for. */
+const ENTRY_HEAD = /^\{"k":(\d+),"id":(\d+),"s":(\d+),"e":(true|false),"m":/;
+
+interface Entry {
+  k: number;
+  id: number;
+  s: number;
+  e: boolean;
+  m: ChannelArgs | null;
+  /** The object is not JSON: the entry is answered or dropped, never handed on. */
+  bad?: boolean;
+}
+
+function parseEntry(raw: string): Entry | null {
+  try {
+    return JSON.parse(raw) as Entry;
+  } catch {
+    const head = ENTRY_HEAD.exec(raw);
+    return head ? { k: Number(head[1]), id: Number(head[2]), s: Number(head[3]), e: head[4] === "true", m: null, bad: true } : null;
+  }
+}
+
 function pump(): void {
   const ops = channelHost();
   if (!ops) {
+    liveGeneration = 0;
     for (const call of calls.values()) call.reject(new ChannelError("no_channel"));
     calls.clear();
+    incoming.clear();
+    replies.length = 0;
   } else {
-    if (calls.size > 0) {
-      // The channel closed, or closed and opened again, under a request: the host dropped it
-      // with the channel and sends nothing for it (§7.5), so the call fails here with `closed`.
-      const now = channelState();
-      for (const [id, call] of calls) {
-        if (now.state === CHANNEL_STATE.open && now.generation === call.generation) continue;
-        calls.delete(id);
-        call.reject(new ChannelError("closed", `the channel closed${now.reason ? `: ${now.reason}` : ""}`));
-      }
+    const now = readGeneration();
+    // The channel closed, or closed and opened again: the host dropped what it held for the
+    // earlier generation and sends nothing for it (§7.5). Calls fail with `closed`; requests
+    // of the daemon and replies waiting for room belong to a channel that is gone.
+    for (const [id, call] of calls) {
+      if (call.generation === liveGeneration) continue;
+      calls.delete(id);
+      call.reject(new ChannelError("closed", `the channel closed${now.reason ? `: ${now.reason}` : ""}`));
+    }
+    for (const [id, state] of incoming) {
+      if (state.generation === liveGeneration) continue;
+      state.cancelled = true;
+      incoming.delete(id);
     }
     // The host hands over this frame's budget of messages and of JSON bytes.
     for (;;) {
       const raw = ops.poll();
       if (raw === undefined) break;
-      let entry: { k: number; id: number; s: number; e: boolean; m: ChannelArgs | null };
-      try {
-        entry = JSON.parse(raw);
-      } catch {
-        continue;
-      }
+      const entry = parseEntry(raw);
+      if (!entry) continue;
       const object = entry.m ?? {};
       const t = typeof object.t === "string" ? object.t : "";
       if (entry.k === KIND.reply) {
         const call = calls.get(entry.id);
         calls.delete(entry.id);
         if (!call) continue;
-        if (entry.e) call.reject(new ChannelError(typeof object.code === "string" ? object.code : "internal", typeof object.message === "string" ? object.message : undefined));
+        if (entry.bad) call.reject(new ChannelError("malformed", "the reply is not JSON"));
+        else if (entry.e) call.reject(new ChannelError(typeof object.code === "string" ? object.code : "internal", typeof object.message === "string" ? object.message : undefined));
         else call.resolve(object);
       } else if (entry.k === KIND.progress) {
         const call = calls.get(entry.id);
-        const stream = entry.s ? new ChannelReader(entry.s) : undefined;
-        if (call?.onProgress) call.onProgress(t, object, stream);
-        // A response nobody reads is given back to the host at once.
-        else stream?.close();
-      } else if (entry.k === KIND.event) {
-        const handler = eventHandlers.get(t);
-        if (entry.s) {
-          // An event that opens a stream needs a handler that takes it (§7.3).
-          if (handler && handler.length >= 2) handler(object, new ChannelReader(entry.s));
-          else {
-            ops.close(entry.s);
-            handler?.(object);
+        const stream = entry.s ? new ChannelReader(entry.s, liveGeneration) : undefined;
+        if (call?.onProgress && !entry.bad) {
+          try {
+            call.onProgress(t, object, stream);
+          } catch (error) {
+            stream?.close();
+            reportHandlerError(error);
           }
         } else {
-          handler?.(object);
+          // A response nobody reads is given back to the host at once. Only the
+          // response: the call's body, on the same id, keeps going out.
+          stream?.close();
+        }
+      } else if (entry.k === KIND.event) {
+        const handler = entry.bad ? undefined : eventHandlers.get(t);
+        // An event that opens a stream needs a handler that takes it (§7.3).
+        const stream = entry.s && handler && handler.length >= 2 ? new ChannelReader(entry.s, liveGeneration) : undefined;
+        if (entry.s && !stream) ops.close(entry.s, false);
+        try {
+          if (stream) handler!(object, stream);
+          else handler?.(object);
+        } catch (error) {
+          stream?.close();
+          reportHandlerError(error);
         }
       } else if (entry.k === KIND.request) {
-        serve(entry.id, object, entry.s);
+        if (entry.bad) {
+          if (entry.s) ops.close(entry.s, false);
+          sendReply(entry.id, JSON.stringify({ code: "malformed", message: "the request is not JSON" }), true, liveGeneration);
+        } else {
+          serve(entry.id, object, entry.s);
+        }
       } else if (entry.k === KIND.cancel) {
         const state = incoming.get(entry.id);
         if (state) state.cancelled = true;
@@ -519,7 +650,7 @@ function pump(): void {
     }
     for (let i = replies.length; i > 0; i -= 1) {
       const reply = replies.shift()!;
-      if (ops.reply(reply.id, reply.json, reply.error) === CHANNEL_CODE.full) replies.push(reply);
+      if (!deliverReply(reply)) replies.push(reply);
     }
   }
   for (const reader of [...readers]) reader.service();
