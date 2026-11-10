@@ -80,6 +80,9 @@ void link2_bsd_sockets(Link2Platform *platform);
 typedef struct {
   char code[LINK2_CODE_BYTES];
   char message[LINK2_MESSAGE_BYTES];
+  /* Further members of the error reply, as JSON without braces and without a
+   * leading comma (`"installed":true`, `"phase":"recovered"`); "" for none. */
+  char members[48];
 } Link2Failure;
 
 typedef struct {
@@ -324,6 +327,7 @@ bool link2_event_stream_live(Link2 *link, uint32_t id);
 #define LINK2_NO_HEAD (-5)     /* response bytes before a progress event (§7.2) */
 #define LINK2_STREAM_END (-6)  /* the stream ended and every byte was taken */
 #define LINK2_STREAM_FAILED (-7) /* the stream was reset */
+#define LINK2_STALE (-8)       /* a handle of an earlier generation of the channel (link2_channel_qjs.h) */
 
 /* The running applet's channel: opened now when the link is up, and again
  * after every `ready` while the applet runs. `hash` is the running package's
@@ -387,8 +391,12 @@ long link2_stream_read(Link2 *link, int channel, uint32_t id, uint8_t *into, siz
 long link2_stream_write(Link2 *link, int channel, uint32_t id, const uint8_t *bytes, size_t length);
 /* No more bytes on an outbound stream. */
 int link2_stream_end(Link2 *link, int channel, uint32_t id);
-/* Abandons a stream in either direction with RESET. */
-void link2_stream_close(Link2 *link, int channel, uint32_t id);
+/* Abandons the streams of `id` on the sides named, each with RESET. A request's
+ * id carries its body outbound and its response inbound: the applet that drops
+ * a response it does not read keeps sending its body. */
+#define LINK2_STREAM_IN 1
+#define LINK2_STREAM_OUT 2
+void link2_stream_close(Link2 *link, int channel, uint32_t id, int sides);
 
 /* Counters for a status page and for tests. */
 typedef struct {

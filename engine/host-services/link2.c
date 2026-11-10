@@ -144,6 +144,7 @@ typedef struct {
   bool ended;     /* END arrived */
   bool failed;    /* reset by the peer */
   bool reserved;  /* applet stream: counted, not yet read by the guest */
+  bool abandon_due; /* applet stream: given back while the request's body still goes out; its RESET waits for the body's end */
   bool has_total;
   uint32_t window;
   uint32_t total;
@@ -561,7 +562,8 @@ static bool send_members(Link2 *link, uint8_t type, uint32_t id, const char *t, 
   return frame_end(link, &writer, type, 0, id);
 }
 
-static bool reply_error(Link2 *link, uint32_t id, const char *code, const char *message) {
+/* `members`: further members of the error object (Link2Failure.members), or NULL. */
+static bool reply_error_with(Link2 *link, uint32_t id, const char *code, const char *message, const char *members) {
   FrameWriter writer;
   if (!frame_begin(link, &writer, false, 0)) return false;
   if (code[0] == '\0') code = "internal";
@@ -569,8 +571,16 @@ static bool reply_error(Link2 *link, uint32_t id, const char *code, const char *
   link2_json_cstring(&writer.json, code);
   link2_json_text(&writer.json, ",\"message\":");
   link2_json_string(&writer.json, message, link2_encoded_prefix(message, strlen(message), LINK2_ERROR_MESSAGE_BYTES));
+  if (members != NULL && members[0] != '\0') {
+    link2_json_text(&writer.json, ",");
+    link2_json_text(&writer.json, members);
+  }
   link2_json_text(&writer.json, "}");
   return frame_end(link, &writer, LINK2_FRAME_REPLY, LINK2_FLAG_ERROR, id);
+}
+
+static bool reply_error(Link2 *link, uint32_t id, const char *code, const char *message) {
+  return reply_error_with(link, id, code, message, NULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,7 +1347,14 @@ static void flush_grants(Link2 *link) {
 
 static void in_fail(InRequest *request, const char *code, const char *message) {
   fail_with(&request->failure, code, message);
+  request->failure.members[0] = '\0';
   request->phase = P_ERROR;
+}
+
+/* The host's own failure, with the members it adds to the error reply. */
+static void in_fail_host(InRequest *request, const Link2Failure *failure, const char *fallback) {
+  in_fail(request, failure->code[0] != '\0' ? failure->code : fallback, failure->message);
+  copy_text(request->failure.members, sizeof request->failure.members, failure->members);
 }
 
 static void free_in(Link2 *link, InRequest *request) {
@@ -1431,17 +1448,17 @@ static void advance_request(Link2 *link, InRequest *request) {
   for (;;) {
     switch (request->phase) {
       case P_ERROR:
-        if (!reply_error(link, request->id, request->failure.code, request->failure.message)) return;
+        if (!reply_error_with(link, request->id, request->failure.code, request->failure.message, request->failure.members)) return;
         free_in(link, request);
         return;
       case P_EVENT_RECEIVING: {
         bool push = request->kind == IR_PUSH;
         if (!send_install_event(link, request, "receiving")) return;
-        Link2Failure failure = {"storage", "the staging file did not open"};
+        Link2Failure failure = {"storage", "the staging file did not open", ""};
         bool opened = push ? link->host.push_begin(link->host.context, request->total, request->hash, &failure)
                            : link->host.native_begin(link->host.context, request->name, request->total, request->want_crc, request->launch, &failure);
         if (!opened) {
-          in_fail(request, failure.code, failure.message);
+          in_fail_host(request, &failure, "internal");
           break;
         }
         request->staged = true;
@@ -1464,12 +1481,12 @@ static void advance_request(Link2 *link, InRequest *request) {
         request->phase = P_COMMIT;
         break;
       case P_COMMIT: {
-        Link2Failure failure = {"rejected", ""};
+        Link2Failure failure = {"rejected", "", ""};
         request->staged = false;
         if (request->kind == IR_PUSH && link->host.push_admit != NULL) {
           link->push_note[0] = '\0';
           if (!link->host.push_admit(link->host.context, &failure)) {
-            in_fail(request, failure.code, failure.message);
+            in_fail_host(request, &failure, "internal");
             break;
           }
           request->phase = P_ADMITTING;
@@ -1480,14 +1497,14 @@ static void advance_request(Link2 *link, InRequest *request) {
           link->push_note[0] = '\0';
           link2_json_init(&members, link->members, sizeof link->members);
           if (!link->host.push_commit(link->host.context, &members, &failure) || members.failed) {
-            in_fail(request, failure.code, failure.message);
+            in_fail_host(request, &failure, "internal");
             break;
           }
           link->members_length = members.length;
           request->phase = P_EVENT_STAGED;
         } else {
           if (!link->host.native_commit(link->host.context, request->name, request->launch, request->native_phase, request->native_path, &failure)) {
-            in_fail(request, failure.code, failure.message);
+            in_fail_host(request, &failure, "internal");
             break;
           }
           request->restart = strcmp(request->native_phase, "launching") == 0;
@@ -1674,11 +1691,11 @@ static void system_request(Link2 *link, uint32_t id, JsonSpan object, const char
         in_fail(request, "malformed", "not a .3dsx name");
       } else {
         Link2Json members;
-        Link2Failure failure = {"rejected", ""};
+        Link2Failure failure = {"rejected", "", ""};
         bool launching = false;
         link2_json_init(&members, link->members, sizeof link->members);
         if (!host->launch(host->context, has_native ? native : NULL, has_app ? app : NULL, &members, &launching, &failure) || members.failed) {
-          in_fail(request, failure.code, failure.message);
+          in_fail_host(request, &failure, "internal");
         } else {
           link->members_length = members.length;
           request->restart = launching;
@@ -1766,7 +1783,8 @@ void link2_push_result(Link2 *link, bool accepted, const char *members, size_t l
   InRequest *request = waiting_request(link, IR_PUSH, P_ADMITTING);
   if (request == NULL) return;
   if (!accepted) {
-    in_fail(request, failure != NULL && failure->code[0] != '\0' ? failure->code : "rejected", failure != NULL ? failure->message : "");
+    if (failure != NULL) in_fail_host(request, failure, "rejected");
+    else in_fail(request, "rejected", "");
   } else if (members == NULL || length > sizeof link->members) {
     in_fail(request, "internal", "the reply does not fit");
   } else {
@@ -3848,6 +3866,16 @@ void link2_channel_frame(Link2 *link, int index) {
   channel->handed_reply = NULL;
   channel->frame_messages = 0;
   channel->frame_json = 0;
+  /* A response the applet gave back while its request's body went out:
+   * the body has ended, so the RESET no longer costs it anything. */
+  for (size_t i = 0; i < link->in_stream_count; i += 1) {
+    InStream *stream = &link->in_streams[i];
+    if (stream->kind != IS_APP || stream->channel != index || !stream->abandon_due) continue;
+    OutStream *body = find_out_stream(link, stream->id);
+    if (body != NULL && body->kind == OS_APP && !body->end_sent && !body->failed) continue;
+    if (!stream->ended && !stream->failed) send_reset(link, stream->id, stream->reserved ? LINK2_RESET_REFUSED : LINK2_RESET_CANCELLED);
+    free_in_stream(link, stream);
+  }
   /* At most 16 KiB of stream bytes a frame, shared in turn among the streams
    * with a pending read: the stream served first changes each frame. */
   for (size_t i = 0; i < link->in_stream_count && count < LINK2_CHANNEL_STREAMS; i += 1) {
@@ -3874,6 +3902,10 @@ void link2_channel_frame(Link2 *link, int index) {
 bool link2_channel_poll(Link2 *link, int index, Link2Message *message) {
   Channel *channel = channel_at(link, index);
   Entry entry;
+  /* An applet that polls a closed channel is listening on it: that asks for
+   * the channel as a request or an event does (§7.5), so an applet that only
+   * registers handlers gets its channel back after Hub closed it. */
+  if (channel != NULL && channel->state == LINK2_CHANNEL_CLOSED && !channel->exiting) channel->wanted = true;
   if (channel == NULL || channel->state != LINK2_CHANNEL_OPEN) return false;
   /* The message handed at the last poll was valid until this call. */
   free(channel->handed_reply);
@@ -4147,13 +4179,22 @@ int link2_stream_end(Link2 *link, int index, uint32_t id) {
   return LINK2_OK;
 }
 
-void link2_stream_close(Link2 *link, int index, uint32_t id) {
-  InStream *in = find_in_stream(link, id);
-  OutStream *out = find_out_stream(link, id);
+void link2_stream_close(Link2 *link, int index, uint32_t id, int sides) {
+  InStream *in = (sides & LINK2_STREAM_IN) != 0 ? find_in_stream(link, id) : NULL;
+  OutStream *out = (sides & LINK2_STREAM_OUT) != 0 ? find_out_stream(link, id) : NULL;
   if (channel_at(link, index) == NULL) return;
   if (in != NULL && in->kind == IS_APP && in->channel == index) {
-    if (!in->ended && !in->failed) send_reset(link, id, in->reserved ? LINK2_RESET_REFUSED : LINK2_RESET_CANCELLED);
-    free_in_stream(link, in);
+    OutStream *body = (sides & LINK2_STREAM_OUT) == 0 ? find_out_stream(link, id) : NULL;
+    if (body != NULL && body->kind == OS_APP && body->channel == index && !body->end_sent && !body->failed) {
+      /* A RESET abandons both directions of an id (§5.6): sent now, it would
+       * cut the request's body. The response waits unread, holding no credit
+       * and no bytes, and is given back when the body has ended
+       * (link2_channel_frame). */
+      in->abandon_due = true;
+    } else {
+      if (!in->ended && !in->failed) send_reset(link, id, in->reserved ? LINK2_RESET_REFUSED : LINK2_RESET_CANCELLED);
+      free_in_stream(link, in);
+    }
   }
   if (out != NULL && out->kind == OS_APP && out->channel == index) {
     if (!out->end_sent && !out->failed) send_reset(link, id, LINK2_RESET_CANCELLED);

@@ -130,7 +130,7 @@ LIBS := -ljpeg -lcitro3d -lctru -lm
 # codes for camera.c.
 QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
 OBJECTS := $(BUILD)/worker.o $(BUILD)/worker_core.o $(BUILD)/worker_quickjs.o $(BUILD)/worker_quickjs_ui.o $(BUILD)/worker_runner.o $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/qjs_program.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/devstats.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/input_policy.o $(BUILD)/input_source.o $(BUILD)/hooks.o \
-  $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link2_proto.o $(BUILD)/link2.o $(BUILD)/link2_bsd.o $(BUILD)/link2_guest.o $(BUILD)/link2_http.o $(BUILD)/link2_host.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
+  $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link2_proto.o $(BUILD)/link2.o $(BUILD)/link2_bsd.o $(BUILD)/link2_guest.o $(BUILD)/link2_channel_qjs.o $(BUILD)/link2_http.o $(BUILD)/link2_host.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
   $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
   $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o

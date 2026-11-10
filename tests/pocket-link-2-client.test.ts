@@ -591,6 +591,37 @@ describe("Pocket Link 2 C client against the reference Hub", () => {
     await c.quit();
   });
 
+  it("a response the applet gives back at its head event leaves the request's body going out; a listening applet gets its channel back after the daemon's close", async () => {
+    const { daemon, channels } = daemonOf((channel) => {
+      channel.on("upload", async (_args, call) => {
+        // The daemon reports progress while it receives: the applet has no use for a response stream.
+        call.progress("receiving", {});
+        const body = await readAll(call.body as StreamReader);
+        return { bytes: body.length };
+      });
+    });
+    const c = await start({ hub: { daemons: () => daemon } });
+    await c.line(/^linked /);
+    c.send("channel-open dev.example.map 00000000000000aa");
+    await c.line(/^channel 0$/);
+    const first = Number((await c.line(/^channel-state 0 open - (\d+)$/))[1]);
+    await until(() => channels.length === 1, "the daemon's end");
+    c.send('request 0 200000 {"t":"upload"}');
+    const id = (await c.line(/^request 0 (\d+)$/))[1];
+    await c.line(new RegExp(`^message 0 progress ${id} `));
+    c.send(`close-in 0 ${id}`);
+    const reply = await c.line(new RegExp(`^message 0 reply ${id} 0 0 (.*)$`));
+    expect(JSON.parse(reply[1])).toEqual({ bytes: 200000 });
+
+    // Hub closes the channel under an applet that only listens: its polling asks for the channel again (§7.5).
+    c.send("listen 0");
+    channels[0].close("daemon");
+    await c.line(/^channel-state 0 closed daemon/);
+    const again = Number((await c.line(/^channel-state 0 open - (\d+)$/))[1]);
+    expect(again).toBeGreaterThan(first);
+    await c.quit();
+  });
+
   it("events through a stalled guest: the window holds them at the daemon, none is lost, and the channel stays open", async () => {
     const { daemon, channels } = daemonOf(() => {});
     const c = await start({ hub: { daemons: () => daemon } });

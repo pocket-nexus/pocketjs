@@ -6,6 +6,7 @@
 #include "fs.h"
 #include "instance.h"
 #include "launcher.h"
+#include "link2_channel_qjs.h"
 #include "link2_guest.h"
 #include "link2_host.h"
 #include "media.h"
@@ -241,156 +242,28 @@ static void free_text(JSContext *ctx, const char *text) {
     JS_FreeCString(ctx, text);
 }
 
-/* Native typed-array access bypasses script getters and retains the backing
- * allocation until the synchronous product service has consumed the slice. */
-static int argument_bytes(JSContext *ctx, int argc, JSValueConst *argv,
-                          int index, const uint8_t **bytes, size_t *length,
-                          JSValue *lease) {
-  if (index >= argc)
-    return 0;
-  size_t size = 0;
-  uint8_t *data = JS_GetArrayBuffer(ctx, &size, argv[index]);
-  if (data) {
-    *lease = JS_DupValue(ctx, argv[index]);
-    *bytes = data;
-    *length = size;
-    return 1;
-  }
-  JS_FreeValue(ctx, JS_GetException(ctx));
-  size_t offset = 0, view_length = 0, element = 0;
-  JSValue buffer =
-      JS_GetTypedArrayBuffer(ctx, argv[index], &offset, &view_length, &element);
-  if (JS_IsException(buffer)) {
-    JS_FreeValue(ctx, JS_GetException(ctx));
-    return 0;
-  }
-  data = JS_GetArrayBuffer(ctx, &size, buffer);
-  if (!data || offset > size || view_length > size - offset) {
-    JS_FreeValue(ctx, buffer);
-    return 0;
-  }
-  *lease = buffer;
-  *bytes = data + offset;
-  *length = view_length;
-  return 1;
-}
-
 // ---------------------------------------------------------------------------
 // link.channel
 // ---------------------------------------------------------------------------
 
-static uint32_t argument_id(JSContext *ctx, int argc, JSValueConst *argv, int index) {
-  int64_t value = 0;
-  if (index < argc)
-    JS_ToInt64(ctx, &value, argv[index]);
-  return value > 0 && value <= UINT32_MAX ? (uint32_t)value : 0;
-}
-
+/* The bindings are link2_channel_qjs.c, which the host tests compile too. */
 static JSValue channel_operation(JSContext *ctx, int argc, JSValueConst *argv, HostOperation operation) {
-  Link2 *client = link2_host_client();
-  int channel = link2_host_channel();
-  bool usable = client != NULL && channel >= 0;
-  const uint8_t *bytes = NULL;
-  size_t byte_length = 0, text_length = 0;
-  const char *text = NULL;
-  JSValue lease = JS_UNDEFINED;
-
+  Link2QjsOperation call;
   switch (operation) {
-  case HostChannelState: {
-    const char *reason = "";
-    int state = usable ? link2_channel_state(client, channel, &reason) : LINK2_CHANNEL_CLOSED;
-    char status[160];
-    /* A close reason is a name of §7.5: letters, digits, "_", "." and "-". */
-    char name[48];
-    size_t used = 0;
-    for (const char *at = usable && reason != NULL ? reason : client != NULL ? "" : "no_link"; *at != '\0' && used + 1 < sizeof name; at += 1) {
-      char c = *at;
-      if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-')
-        name[used++] = c;
-    }
-    name[used] = '\0';
-    snprintf(status, sizeof status, "{\"state\":\"%s\",\"reason\":\"%s\",\"generation\":%lu}",
-             state == LINK2_CHANNEL_OPEN ? "open" : state == LINK2_CHANNEL_OPENING ? "opening" : "closed", name,
-             (unsigned long)(usable ? link2_channel_generation(client, channel) : 0));
-    return JS_NewString(ctx, status);
+  case HostChannelState: call = LINK2_QJS_STATE; break;
+  case HostChannelPoll: call = LINK2_QJS_POLL; break;
+  case HostChannelRequest: call = LINK2_QJS_REQUEST; break;
+  case HostChannelCancel: call = LINK2_QJS_CANCEL; break;
+  case HostChannelEmit: call = LINK2_QJS_EMIT; break;
+  case HostChannelProgress: call = LINK2_QJS_PROGRESS; break;
+  case HostChannelReply: call = LINK2_QJS_REPLY; break;
+  case HostChannelRead: call = LINK2_QJS_READ; break;
+  case HostChannelWrite: call = LINK2_QJS_WRITE; break;
+  case HostChannelEnd: call = LINK2_QJS_END; break;
+  case HostChannelClose: call = LINK2_QJS_CLOSE; break;
+  default: return JS_UNDEFINED;
   }
-  case HostChannelPoll: {
-    Link2Message message;
-    if (!usable || !link2_channel_poll(client, channel, &message))
-      return JS_UNDEFINED;
-    /* {"k":kind,"id":id,"s":stream,"e":error,"m":<the object>}: one parse in the guest. */
-    int head = snprintf(debug_poll_buffer, sizeof debug_poll_buffer, "{\"k\":%d,\"id\":%lu,\"s\":%lu,\"e\":%s,\"m\":",
-                        message.kind, (unsigned long)message.id, (unsigned long)message.stream, message.error ? "true" : "false");
-    bool has_json = message.json != NULL && message.length > 0;
-    size_t body = has_json ? message.length : 4;
-    if (head < 0 || (size_t)head + body + 1 > sizeof debug_poll_buffer)
-      return JS_UNDEFINED;
-    memcpy(debug_poll_buffer + head, has_json ? message.json : "null", body);
-    debug_poll_buffer[(size_t)head + body] = '}';
-    return JS_NewStringLen(ctx, debug_poll_buffer, (size_t)head + body + 1);
-  }
-  case HostChannelRequest: {
-    if (argc < 1 || !usable)
-      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
-    text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
-    if (text == NULL)
-      return JS_NewInt32(ctx, LINK2_MALFORMED);
-    uint32_t id = 0;
-    int status = link2_channel_request(client, channel, text, text_length, argc > 1 && JS_ToBool(ctx, argv[1]), &id);
-    JS_FreeCString(ctx, text);
-    return status == LINK2_OK ? JS_NewInt64(ctx, id) : JS_NewInt32(ctx, status);
-  }
-  case HostChannelCancel:
-    return JS_NewInt32(ctx, usable ? link2_channel_cancel(client, channel, argument_id(ctx, argc, argv, 0)) : LINK2_NO_CHANNEL);
-  case HostChannelEmit: {
-    if (argc < 1 || !usable)
-      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
-    text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
-    if (text == NULL)
-      return JS_NewInt32(ctx, LINK2_MALFORMED);
-    bool opens = argc > 1 && JS_ToBool(ctx, argv[1]);
-    uint32_t stream = 0;
-    int status = link2_channel_emit(client, channel, text, text_length, opens ? &stream : NULL);
-    JS_FreeCString(ctx, text);
-    return status == LINK2_OK && opens ? JS_NewInt64(ctx, stream) : JS_NewInt32(ctx, status);
-  }
-  case HostChannelProgress:
-  case HostChannelReply: {
-    if (argc < 2 || !usable)
-      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
-    uint32_t id = argument_id(ctx, argc, argv, 0);
-    text = JS_ToCStringLen2(ctx, &text_length, argv[1], 0);
-    if (text == NULL)
-      return JS_NewInt32(ctx, LINK2_MALFORMED);
-    int status = operation == HostChannelProgress
-                     ? link2_channel_progress(client, channel, id, text, text_length)
-                     : link2_channel_reply(client, channel, id, text, text_length, argc > 2 && JS_ToBool(ctx, argv[2]));
-    JS_FreeCString(ctx, text);
-    return JS_NewInt32(ctx, status);
-  }
-  case HostChannelRead:
-  case HostChannelWrite: {
-    if (!usable)
-      return JS_NewInt32(ctx, LINK2_NO_CHANNEL);
-    if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length, &lease))
-      return JS_NewInt32(ctx, LINK2_MALFORMED);
-    uint32_t id = argument_id(ctx, argc, argv, 0);
-    /* A read fills the guest's own buffer: the lease keeps it alive here. */
-    long count = operation == HostChannelRead
-                     ? link2_stream_read(client, channel, id, (uint8_t *)(uintptr_t)bytes, byte_length)
-                     : link2_stream_write(client, channel, id, bytes, byte_length);
-    JS_FreeValue(ctx, lease);
-    return JS_NewInt32(ctx, (int32_t)count);
-  }
-  case HostChannelEnd:
-    return JS_NewInt32(ctx, usable ? link2_stream_end(client, channel, argument_id(ctx, argc, argv, 0)) : LINK2_NO_CHANNEL);
-  case HostChannelClose:
-    if (usable)
-      link2_stream_close(client, channel, argument_id(ctx, argc, argv, 0));
-    return JS_UNDEFINED;
-  default:
-    return JS_UNDEFINED;
-  }
+  return link2_channel_qjs(ctx, link2_host_client(), link2_host_channel(), call, argc, argv, debug_poll_buffer, sizeof debug_poll_buffer);
 }
 
 // ---------------------------------------------------------------------------
@@ -461,6 +334,8 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
     if (text != NULL) {
       link2_host_devtools_send(text, text_length);
       JS_FreeCString(ctx, text);
+    } else {
+      JS_FreeValue(ctx, JS_GetException(ctx));
     }
     return JS_UNDEFINED;
   /* A console line of the guest, for runtime.logs: it travels as a `log`
@@ -470,6 +345,9 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
       return JS_UNDEFINED;
     const char *level = JS_ToCString(ctx, argv[0]);
     text = JS_ToCStringLen2(ctx, &text_length, argv[1], 0);
+    /* A value that does not convert leaves no exception behind this call. */
+    if (level == NULL || text == NULL)
+      JS_FreeValue(ctx, JS_GetException(ctx));
     if (level != NULL && text != NULL)
       link2_host_report_guest_log(level, text, text_length);
     if (level != NULL)
@@ -482,13 +360,28 @@ static JSValue host_operation(JSContext *ctx, JSValueConst this_value, int argc,
    * linear heap's free bytes. */
   case HostDbgMemory: {
     struct mallinfo heap = mallinfo();
-    char memory[240];
+    char memory[360];
     uint32_t pumps = 0, pump_mean = 0, pump_max = 0;
     link2_host_pump_cost(&pumps, &pump_mean, &pump_max);
+    /* The guest's own heap as QuickJS counts it. With a true argument the
+     * cycle collector runs first and both figures are given: what falls
+     * between them was garbage waiting for a collection, not a leak. */
+    JSMemoryUsage usage;
+    JS_ComputeMemoryUsage(JS_GetRuntime(ctx), &usage);
+    unsigned long js = (unsigned long)usage.malloc_size, js_objects = (unsigned long)usage.obj_count;
+    unsigned long js_collected = js, js_objects_collected = js_objects;
+    if (argc > 0 && JS_ToBool(ctx, argv[0])) {
+      JS_RunGC(JS_GetRuntime(ctx));
+      JS_ComputeMemoryUsage(JS_GetRuntime(ctx), &usage);
+      js_collected = (unsigned long)usage.malloc_size;
+      js_objects_collected = (unsigned long)usage.obj_count;
+      heap = mallinfo();
+    }
     snprintf(memory, sizeof memory,
-             "{\"heapUsed\":%lu,\"heapFree\":%lu,\"heapArena\":%lu,\"linearFree\":%lu,\"pumps\":%lu,\"pumpUs\":%lu,\"pumpMaxUs\":%lu}",
+             "{\"heapUsed\":%lu,\"heapFree\":%lu,\"heapArena\":%lu,\"linearFree\":%lu,\"pumps\":%lu,\"pumpUs\":%lu,\"pumpMaxUs\":%lu,"
+             "\"js\":%lu,\"jsObjects\":%lu,\"jsAfterGc\":%lu,\"jsObjectsAfterGc\":%lu}",
              (unsigned long)heap.uordblks, (unsigned long)heap.fordblks, (unsigned long)heap.arena, (unsigned long)linearSpaceFree(),
-             (unsigned long)pumps, (unsigned long)pump_mean, (unsigned long)pump_max);
+             (unsigned long)pumps, (unsigned long)pump_mean, (unsigned long)pump_max, js, js_objects, js_collected, js_objects_collected);
     return JS_NewString(ctx, memory);
   }
   case HostOffloadCoverage: {

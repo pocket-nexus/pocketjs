@@ -174,7 +174,7 @@ static void deferred_tick(Link2 *link) {
     if (admit_in == 3) link2_push_staged(link, "guest booted; waiting for retired frame");
     if (admit_in == 0) {
       if (staged.reject) {
-        Link2Failure failure = {"rejected", "the guest threw from its first frame"};
+        Link2Failure failure = {"rejected", "the guest threw from its first frame", ""};
         link2_push_result(link, false, NULL, 0, &failure);
       } else {
         static const char members[] = "\"generation\":5,\"message\":\"first frame retired\",\"app\":{\"id\":\"dev.example.pushed\",\"output\":\"pushed\",\"title\":\"Pushed\"}";
@@ -614,6 +614,8 @@ static void guest_streams(void) {
   }
 }
 
+static bool channel_listens[LINK2_MAX_CHANNELS];
+
 static void guest_frame(void) {
   for (int channel = 0; channel < (int)LINK2_MAX_CHANNELS; channel += 1) {
     if (!channel_used[channel]) continue;
@@ -632,8 +634,12 @@ static void guest_frame(void) {
         }
       }
     }
-    if (state != LINK2_CHANNEL_OPEN) continue;
     Link2Message message;
+    if (state != LINK2_CHANNEL_OPEN) {
+      /* An applet with handlers registered polls every frame, open or not. */
+      if (channel_listens[channel]) link2_channel_poll(client, channel, &message);
+      continue;
+    }
     link2_channel_frame(client, channel);
     while (link2_channel_poll(client, channel, &message)) guest_message(channel, &message);
   }
@@ -823,9 +829,17 @@ static bool command(char *line) {
       sent += 1;
     }
     say("emitted %d %u", channel, sent);
+  } else if (strcmp(name, "listen") == 0) {
+    /* listen <channel>: the applet has handlers registered, so it polls a closed channel too. */
+    int channel = atoi(field(&cursor));
+    if (channel >= 0 && channel < (int)LINK2_MAX_CHANNELS) channel_listens[channel] = true;
+  } else if (strcmp(name, "close-in") == 0) {
+    /* close-in <channel> <id>: the applet gives back the stream toward it; a body on the same id goes on. */
+    int channel = atoi(field(&cursor));
+    link2_stream_close(client, channel, (uint32_t)strtoul(field(&cursor), NULL, 10), LINK2_STREAM_IN);
   } else if (strcmp(name, "close-stream") == 0) {
     int channel = atoi(field(&cursor));
-    link2_stream_close(client, channel, (uint32_t)strtoul(field(&cursor), NULL, 10));
+    link2_stream_close(client, channel, (uint32_t)strtoul(field(&cursor), NULL, 10), LINK2_STREAM_IN | LINK2_STREAM_OUT);
   } else {
     say("unknown-command %s", name);
   }

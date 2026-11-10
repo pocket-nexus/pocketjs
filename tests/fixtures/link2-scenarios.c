@@ -642,7 +642,7 @@ static void s24(void) {
   for (int k = 0; k < 20; k += 1) link2_event(L, "{}", 2);
   int from = cap_n;
   uint32_t room = tx_room(L, false);
-  link2_stream_close(L, handle, got);
+  link2_stream_close(L, handle, got, LINK2_STREAM_IN);
   accept_mode = 0;
   pump(10, 16);
   printf("S24 link2_stream_close on inbound stream %08x with %u bytes free in the send buffer: RESET frames for it afterwards: %d; the stream is %s on this side\n", got, room, count_cap(from, LINK2_FRAME_RESET, got, NULL),
