@@ -180,6 +180,7 @@ static uint32_t hub_next_id = 0x80000001u;
 static uint32_t last_dev_request, last_channel, last_dev_app_request, last_hub_request, last_hub_app_request, last_dev_stream, last_http, last_install, last_devtools, last_catalog;
 static bool device_sent_close;
 static uint32_t device_close_code;
+static uint32_t device_closes;
 static bool lenient; /* untracked frames went out on this connection: reply counting is off */
 static bool (*hello_hook)(void); /* true when the driver answered the hello itself */
 static bool (*auth_hook)(void);
@@ -335,6 +336,8 @@ static void hub_on_frame(uint8_t type, uint8_t flags, uint32_t id, const uint8_t
   if (type == LINK2_FRAME_CLOSE) {
     device_sent_close = true;
     device_close_code = link2_read_u16(payload);
+    /* Counted across connections: a scenario asks whether a CLOSE ever left. */
+    device_closes += 1;
     return;
   }
   if (hub_state < 3) {
@@ -556,16 +559,23 @@ static void p_tcp_close(void *context, int handle) {
   trace("-- tcp close");
 }
 static bool udp_open_now;
+static int udp_opens;     /* sockets opened so far */
+static int udp_fail_next; /* this many udp_recv calls report a failed socket */
 static int p_udp_open(void *context, uint16_t port) {
   (void)context;
   (void)port;
   if (udp_open_now) die("udp_open with the socket still open");
   udp_open_now = true;
+  udp_opens += 1;
   return 9;
 }
 static long p_udp_recv(void *context, int handle, uint8_t *into, size_t capacity, char address[16]) {
   (void)context;
   if (handle != 9 || !udp_open_now) die("udp_recv on a closed handle");
+  if (udp_fail_next > 0) {
+    udp_fail_next -= 1;
+    return -1;
+  }
   if (!beacon_on || rn(4) != 0 || capacity < 64) return 0;
   memset(into, 0, 64);
   put_u32(into, LINK2_BEACON_MAGIC);
@@ -627,8 +637,10 @@ static uint32_t h_generation(void *c) {
   return 3;
 }
 static char app_text[64][4][140];
+static uint32_t apps_calls;
 static size_t h_apps(void *c, Link2InstalledApp *rows, size_t capacity) {
   (void)c;
+  apps_calls += 1;
   size_t count = app_rows < capacity ? app_rows : capacity;
   for (size_t i = 0; i < count; i += 1) {
     rows[i].id = app_text[i][0];

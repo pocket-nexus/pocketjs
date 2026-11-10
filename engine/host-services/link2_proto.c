@@ -642,8 +642,10 @@ bool link2_parse_ready(JsonSpan object, Link2Ready *out) {
   if (!json_find_u64(object, "maxPayload", &number) || !valid_offer(number)) return false;
   out->max_payload = (uint32_t)number;
   if (!json_find(object, "clock", &clock) || !json_is_object(clock)) return false;
-  if (!json_find_u64(clock, "utc", &out->clock_utc)) return false;
-  if (!json_find_u64(clock, "local", &number)) return false;
+  /* Milliseconds since 1970 as JSON numbers: within 2^53, so the device's
+   * signed arithmetic on them cannot overflow. */
+  if (!json_find_u64(clock, "utc", &out->clock_utc) || out->clock_utc > LINK2_MAX_CLOCK_MS) return false;
+  if (!json_find_u64(clock, "local", &number) || number > LINK2_MAX_CLOCK_MS) return false;
   out->clock_local = (int64_t)number;
   return true;
 }

@@ -119,6 +119,8 @@ const char *link2_close_name(uint32_t code);
 #define LINK2_RESET_SUPERSEDED 5u
 
 #define LINK2_MAX_CREDIT (16u * 1024u * 1024u)
+/* The largest clock value of `ready`: 2^53 - 1 ms. */
+#define LINK2_MAX_CLOCK_MS 9007199254740991ull
 #define LINK2_WINDOW_BULK (64u * 1024u)
 #define LINK2_WINDOW_HTTP (8u * 1024u)
 #define LINK2_APP_STREAM_WINDOW (32u * 1024u)

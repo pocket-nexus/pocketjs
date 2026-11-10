@@ -457,11 +457,18 @@ static void s12(void) {
   auth_hook = wild_clock;
   printf("S12 ready with clock.utc = 2^64 - 1 and clock.local = 2^63 - 1 (UBSan reports below when the subtraction overflows)\n");
   fflush(stdout);
-  up(0, 1);
-  int64_t utc;
-  int32_t offset;
-  link2_clock(L, &utc, &offset);
-  printf("  linked; link2_clock gives utc=%lld offset=%d\n", (long long)utc, offset);
+  on_device_frame = capture;
+  L = sim_create(0, 1);
+  for (int i = 0; i < 600 && !linked_now && device_closes == 0; i += 1) pump(1, 16);
+  if (linked_now) {
+    int64_t utc;
+    int32_t offset;
+    link2_clock(L, &utc, &offset);
+    printf("  linked; link2_clock gives utc=%lld offset=%d\n", (long long)utc, offset);
+  } else {
+    printf("  the device refused that ready: CLOSE frames %u (code %u)\n", (unsigned)device_closes, (unsigned)device_close_code);
+  }
+  printf("  => %s\n", linked_now ? "REPRODUCED: a clock past 2^53 ms is taken into the device's signed arithmetic" : "not reproduced");
 }
 
 // --- S13: replies of the applet's requests larger than LINK_APP_MSG ---
@@ -678,6 +685,8 @@ static void s26(void) {
   L = sim_create(0, 1);
   long got = read_file(path, text, 64);
   printf("S26d device.txt with a second line: the client's id is %s; the file now holds %.16s (%ld bytes)\n", link2_device_id(L), text, got);
+  printf("  status error: \"%s\", phase %s\n", L->error, PHASE_NAMES[L->phase]);
+  printf("  => %s\n", got != 28 || L->error[0] == '\0' || L->phase != PHASE_IDLE ? "REPRODUCED: a device.txt that holds no id is replaced by a new id, or the status says nothing" : "not reproduced");
   link2_destroy(L);
   L = NULL;
 }
@@ -770,8 +779,8 @@ static void s30(void) {
   hub_rx_fill = 0;
   pump(80, 16);
   printf("S30 send buffer full (%u bytes free in all, %u outside the reserve) when a frame breaks a rule: phase after is %s (%s); CLOSE frames the device queued: %d\n", free_all, free_other, PHASE_NAMES[L->phase], last_why,
-         count_cap(from, LINK2_FRAME_CLOSE, 0xffffffffu, NULL));
-  printf("  => %s\n", count_cap(from, LINK2_FRAME_CLOSE, 0xffffffffu, NULL) == 0 ? "REPRODUCED: the CLOSE with its reason did not fit what the reserve had left and was dropped; the peer sees the socket close with no code" : "not reproduced");
+         (int)device_closes);
+  printf("  => %s\n", device_closes == 0 || device_close_code != LINK2_CLOSE_PROTOCOL ? "REPRODUCED: the CLOSE with its reason did not fit what the reserve had left and was dropped; the peer sees the socket close with no code" : "not reproduced");
 }
 
 // --- S31: the id counter at its end ---
@@ -790,7 +799,9 @@ static void s31(void) {
   for (int s = 0; s < 100; s += 1) pump(1, 250);
   printf("S31 next id 0x7fffffff: request -> %d (id %08x); the one after -> %d; 25 s later: link %s, CLOSE frames %d, catalog requests sent %d, catalog_done calls %u\n", first, last, second, linked_now ? "up" : "down",
          count_cap(from, LINK2_FRAME_CLOSE, 0xffffffffu, NULL), count_cap(from, LINK2_FRAME_REQUEST, 0xffffffffu, "catalog"), ev_catalog_done);
-  printf("  => %s\n", second == LINK2_FULL && linked_now ? "REPRODUCED: with its ids used up the client stays linked and every new request reports `full` for good; §5.1 closes with going_away and reconnects" : "not reproduced");
+  /* The link closes with going_away and comes up again with ids from 1. */
+  printf("  closes the device sent: %u (last code %u); linked again: %d; the next id is %08x\n", (unsigned)device_closes, (unsigned)device_close_code, (int)linked_now, (unsigned)L->next_id);
+  printf("  => %s\n", device_closes == 0 || device_close_code != LINK2_CLOSE_GOING_AWAY || !linked_now || L->next_id > 1000 ? "REPRODUCED: with its ids used up the client stays linked and every new request reports `full` for good; §5.1 closes with going_away and reconnects" : "not reproduced");
 }
 
 // --- S32: a link directory whose parent does not exist ---
@@ -868,6 +879,122 @@ static void s35(void) {
   printf("  => %s\n", linked_now && L->local.count == 1 && count_cap(0, LINK2_FRAME_EVENT, 0, "\"t\":\"features\"") == 0 ? "REPRODUCED: Hub was told three groups, the device uses one, and no features event corrects it" : "not reproduced");
 }
 
+// --- S36: a grant of event units past what a u32 holds ---
+static void s36(void) {
+  int handle;
+  set_features("channel", NULL);
+  up(0, 1);
+  uint32_t channel = open_channel(&handle);
+  pump(3, 16);
+  uint32_t before = L->channels[0].units;
+  hub_credit(channel, 0xffffffffu);
+  hub_credit(channel, 0xffffffffu);
+  pump(3, 16);
+  printf("S36 two CREDIT frames of 4,294,967,295 units on a channel that holds %u: link %s, units now %u, CLOSE frames the device sent %u (code %u)\n", (unsigned)before, linked_now ? "up" : "down",
+         (unsigned)L->channels[0].units, (unsigned)device_closes, (unsigned)device_close_code);
+  printf("  => %s\n", device_closes == 0 || device_close_code != LINK2_CLOSE_FLOW ? "REPRODUCED: the unit count wrapped and the link stayed" : "not reproduced");
+}
+
+// --- S37: frames of a type this version does not know, and the 10 s rule ---
+static void s37(void) {
+  set_features("runtime", NULL);
+  up(0, 1);
+  hub_mute = true;
+  for (int k = 0; k < 60 && linked_now; k += 1) {
+    hub_frame(0x7e, 0, 0, "", 0);
+    pump(1, 250);
+  }
+  printf("S37 15 s in which Hub sends frames of an unknown type alone and answers no PING: link %s; CLOSE frames the device sent %u (code %u)\n", linked_now ? "up" : "down", (unsigned)device_closes,
+         (unsigned)device_close_code);
+  printf("  => %s\n", !linked_now || device_closes != 0 ? "REPRODUCED: a skipped frame does not count as a frame received, and the device closes with silence" : "not reproduced");
+}
+
+// --- S38: the beacon socket fails under the client ---
+static void s38(void) {
+  set_features("runtime", NULL);
+  on_device_frame = capture;
+  L = sim_create(0, 1);
+  pump(10, 16);
+  int opens = udp_opens;
+  udp_fail_next = 1;
+  for (int s = 0; s < 16; s += 1) pump(1, 250);
+  printf("S38 udp_recv reports a failed socket once: sockets opened before %d, after %d; a socket is open now: %d\n", opens, udp_opens, (int)udp_open_now);
+  printf("  => %s\n", udp_opens == opens || !udp_open_now ? "REPRODUCED: the failure reads as no datagram and the dead socket is kept" : "not reproduced");
+}
+
+// --- S39: an apps page that waits for room ---
+static void s39(void) {
+  set_features("runtime", "apps", NULL);
+  up(0, 1);
+  hub_request(hub_fresh_id(), "{\"t\":\"runtime.logs\",\"on\":true}");
+  for (int s = 0; s < 8; s += 1) pump(1, 250);
+  accept_mode = 2;
+  memset(big, 'l', 900);
+  for (int k = 0; k < 200; k += 1) link2_log(L, "info", "guest", big, 900, 1);
+  for (int k = 0; k < 200; k += 1) link2_log(L, "info", "guest", big, 1, 1);
+  uint32_t before = apps_calls;
+  link2_apps_changed(L);
+  for (int k = 0; k < 120; k += 1) {
+    hub_json(LINK2_FRAME_EVENT, 0, 0, "{\"t\":\"agent.turn\"}");
+    pump(1, 16);
+  }
+  uint32_t waiting = apps_calls - before;
+  accept_mode = 0;
+  hub_rx_fill = 0;
+  pump(200, 16);
+  printf("S39 an apps report is due with the send buffer full for 120 pumps: runtime_apps calls while it waited: %u; once room came back: %u\n", (unsigned)waiting, (unsigned)(apps_calls - before));
+  printf("  => %s\n", waiting > 4 || apps_calls == before ? "REPRODUCED: the host lists its apps at every pump while the page waits for room" : "not reproduced");
+}
+
+// --- S40: the device drops `agent` with streams open in both directions ---
+static void s40(void) {
+  static const char *const LIST[] = {"runtime"};
+  static const char OPEN[] = "{\"t\":\"agent.audio\"}";
+  set_features("runtime", "agent", NULL);
+  up(0, 1);
+  uint32_t in_id = hub_fresh_id();
+  hub_json(LINK2_FRAME_EVENT, 0, in_id, "{\"t\":\"agent.screen\",\"bytes\":1000}");
+  pump(2, 16);
+  uint32_t out_id = link2_event_stream(L, OPEN, sizeof OPEN - 1);
+  for (int s = 0; s < 8; s += 1) pump(1, 250);
+  int from = cap_n, reset_in = -1, reset_out = -1, features = -1;
+  int held = sys_streams_open;
+  link2_set_features(L, LIST, 1);
+  pump(4, 16);
+  for (int i = from; i < cap_n; i += 1) {
+    if (caps[i].type == LINK2_FRAME_RESET && caps[i].id == in_id && reset_in < 0) reset_in = i;
+    if (caps[i].type == LINK2_FRAME_RESET && caps[i].id == out_id && reset_out < 0) reset_out = i;
+    if (caps[i].type == LINK2_FRAME_EVENT && strstr(caps[i].text, "\"features\"") != NULL && features < 0) features = i;
+  }
+  printf("S40 the device drops `agent` holding an inbound stream %u and an outbound stream %u (the host held %d): features event at %d, RESET of the inbound at %d, of the outbound at %d; the host holds %d now\n",
+         (unsigned)in_id, (unsigned)out_id, held, features - from, reset_in - from, reset_out - from, sys_streams_open);
+  printf("  => %s\n", out_id == 0 || held != 1 ? "the scenario did not set up" : features < 0 || reset_in < 0 || reset_out < 0 || reset_in > features || reset_out > features || sys_streams_open != 0
+                          ? "REPRODUCED: the agent's streams of a dropped group get no RESET ahead of the features event"
+                          : "not reproduced");
+}
+
+// --- S41: the device's own `overflow` close, and when it opens the channel again ---
+static void s41(void) {
+  int handle;
+  uint32_t id = 0;
+  set_features("channel", NULL);
+  up(0, 1);
+  uint32_t channel = open_channel(&handle);
+  pump(3, 16);
+  int from = cap_n;
+  /* 60 events against the device's 48 units, and no guest that takes them. */
+  for (int k = 0; k < 60; k += 1) hub_app_json(LINK2_FRAME_EVENT, 0, 0, channel, "{\"t\":\"tick\"}", 12);
+  pump(4, 16);
+  int closes = count_cap(from, LINK2_FRAME_EVENT, 0xffffffffu, "overflow");
+  for (int s = 0; s < 20; s += 1) pump(1, 250);
+  int opens_idle = count_cap(from, LINK2_FRAME_REQUEST, 0xffffffffu, "channel.open");
+  link2_channel_request(L, handle, "{\"t\":\"a\"}", 9, false, &id);
+  for (int s = 0; s < 8; s += 1) pump(1, 250);
+  int opens_used = count_cap(from, LINK2_FRAME_REQUEST, 0xffffffffu, "channel.open") - opens_idle;
+  printf("S41 60 events past the device's 48 units: channel.close overflow sent %d; channel.open sent in the next 5 s with the applet idle: %d; after the applet used the channel: %d\n", closes, opens_idle, opens_used);
+  printf("  => %s\n", closes == 0 ? "the scenario did not set up" : opens_idle > 0 ? "REPRODUCED: after its own overflow close the device opens the channel again without the applet using it" : opens_used != 1 ? "REPRODUCED: the applet's use did not open the channel" : "not reproduced");
+}
+
 int main(int argc, char **argv) {
   int which = argc > 1 ? atoi(argv[1]) : 0;
   sim_trace = argc > 2;
@@ -909,6 +1036,12 @@ int main(int argc, char **argv) {
     case 34: s34(); break;
     case 35: s35(); break;
     case 31: s31(); break;
+    case 36: s36(); break;
+    case 37: s37(); break;
+    case 38: s38(); break;
+    case 39: s39(); break;
+    case 40: s40(); break;
+    case 41: s41(); break;
     default: printf("no such scenario\n"); return 2;
   }
   fflush(stdout);

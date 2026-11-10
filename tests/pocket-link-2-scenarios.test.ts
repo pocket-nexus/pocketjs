@@ -46,6 +46,17 @@ const SCENARIOS: [number, string][] = [
   [5, "a request stalled 30 s whose CANCEL Hub answers before the guest polls still reports timeout"],
   [10, "a request the guest cancelled and Hub never answered reports cancelled after the grace"],
   [13, "replies over LINK_APP_MSG are not kept whole: the guest gets too_large"],
+  [16, "a link that drops with a screenshot's last bytes or its reply waiting ends the capture"],
+  [6, "a push reply that waits for room is not overwritten by a screenshot's head"],
+  [14, "a screenshot head over the payload limit is answered, not held for good"],
+  [15, "a push committed with the send buffer nearly full keeps its own reply"],
+  [9, "a DevTools line longer than a line may be is dropped and the stream keeps its credit"],
+  [25, "a device.txt that cannot be read for one reload keeps the device's id"],
+  [26, "a key file of 696 bytes loads; a device.txt that holds no id is kept and reported"],
+  [32, "a link directory whose parent is missing is created with its device.txt"],
+  [11, "forgetting another pairing while linked keeps the linked Hub in the status"],
+  [12, "a ready whose clock is past 2^53 ms is refused"],
+  [36, "event units past what a u32 holds close the link with flow"],
 ];
 
 describe("the C client under the review's scenarios", () => {

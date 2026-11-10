@@ -26,6 +26,7 @@
 #include "link2.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -345,6 +346,9 @@ struct Link2 {
 static uint64_t now_ms(const Link2 *link) {
   return link->platform.now_ms(link->platform.context);
 }
+
+static void dropped(Link2 *link, const char *why);
+static void close_link(Link2 *link, uint32_t code, const char *reason, bool restart);
 
 static void copy_text(char *out, size_t capacity, const char *text) {
   size_t length = strlen(text);
@@ -701,13 +705,33 @@ static int channel_index(const Link2 *link, const Channel *channel) {
 // the pairing files (§3.6)
 // ---------------------------------------------------------------------------
 
+/* The file's bytes, -1 when there is no such file, -2 when it is there and
+ * could not be read whole (an error, or more bytes than `out` takes). */
+#define READ_ABSENT (-1)
+#define READ_FAILED (-2)
 static long read_file(const char *path, char *out, size_t capacity) {
   FILE *file = fopen(path, "rb");
-  if (file == NULL) return -1;
+  if (file == NULL) return errno == ENOENT || errno == ENOTDIR ? READ_ABSENT : READ_FAILED;
   size_t length = fread(out, 1, capacity - 1, file);
+  bool whole = !ferror(file) && (length < capacity - 1 || fgetc(file) == EOF);
   fclose(file);
   out[length] = '\0';
-  return (long)length;
+  return whole ? (long)length : READ_FAILED;
+}
+
+/* Every level of a directory path, as `mkdir -p`. */
+static void make_directories(const char *path) {
+  char partial[300];
+  size_t length = strlen(path);
+  if (length >= sizeof partial) return;
+  for (size_t i = 1; i <= length; i += 1) {
+    if (path[i] != '/' && path[i] != '\0') continue;
+    /* A drive prefix such as "sdmc:" is not a directory. */
+    if (i > 0 && path[i - 1] == ':') continue;
+    memcpy(partial, path, i);
+    partial[i] = '\0';
+    mkdir(partial, 0755);
+  }
 }
 
 static bool write_file(const char *path, const char *text, size_t length) {
@@ -726,31 +750,56 @@ static bool write_file(const char *path, const char *text, size_t length) {
   return rename(temporary, path) == 0;
 }
 
-static void load_device_id(Link2 *link) {
+/* The device's id (§3.6). An id is minted only when the card has no
+ * device.txt: a file that is there and cannot be read, or does not hold an
+ * id, keeps the id this run already has (every pairing on the card names it)
+ * and says so in the status. False when the status carries an error. */
+static bool load_device_id(Link2 *link) {
   char path[300];
   char text[64];
+  char id[LINK2_ID_HEX + 1];
   snprintf(path, sizeof path, "%s/device.txt", link->host.directory);
   long length = read_file(path, text, sizeof text);
-  if (length >= 0 && link2_parse_device_file(text, (size_t)length, link->device)) return;
-  uint8_t bytes[LINK2_ID_HEX / 2];
-  link->platform.random(link->platform.context, bytes, sizeof bytes);
-  hex_encode(bytes, sizeof bytes, link->device);
-  mkdir(link->host.directory, 0755);
+  if (length >= 0 && link2_parse_device_file(text, (size_t)length, id)) {
+    memcpy(link->device, id, sizeof id);
+    return true;
+  }
+  if (length != READ_ABSENT) {
+    copy_text(link->error, sizeof link->error, length == READ_FAILED ? "device.txt cannot be read" : "device.txt holds no device id");
+    return false;
+  }
+  if (link->device[0] == '\0') {
+    uint8_t bytes[LINK2_ID_HEX / 2];
+    link->platform.random(link->platform.context, bytes, sizeof bytes);
+    hex_encode(bytes, sizeof bytes, link->device);
+  }
+  make_directories(link->host.directory);
   snprintf(path, sizeof path, "%s/companions", link->host.directory);
   mkdir(path, 0755);
   snprintf(path, sizeof path, "%s/device.txt", link->host.directory);
   snprintf(text, sizeof text, "%s\n", link->device);
-  write_file(path, text, strlen(text));
+  if (!write_file(path, text, strlen(text))) {
+    /* The id holds for this run; the next start mints another. */
+    copy_text(link->error, sizeof link->error, "device.txt cannot be written");
+    return false;
+  }
+  return true;
 }
 
 void link2_reload(Link2 *link) {
   char directory[300];
   char path[600];
-  char text[512];
-  load_device_id(link);
+  char text[1024];
+  /* `target` is an index into the list this call replaces: the Hub it named
+   * is looked up again by its id below. */
+  char target_id[LINK2_ID_HEX + 1] = "";
+  bool targeted = (link->phase == PHASE_CONNECTING || link->phase == PHASE_HANDSHAKE || link->phase == PHASE_LINKED || link->phase == PHASE_CLOSING) &&
+                  link->target < link->companions.count;
+  if (targeted) memcpy(target_id, link->companions.list[link->target].id, sizeof target_id);
+  link->error[0] = '\0';
+  bool id_ok = load_device_id(link);
   memset(&link->companions, 0, sizeof link->companions);
   memset(link->held_until, 0, sizeof link->held_until);
-  link->error[0] = '\0';
   snprintf(directory, sizeof directory, "%s/companions", link->host.directory);
   DIR *dir = opendir(directory);
   if (dir != NULL) {
@@ -760,7 +809,13 @@ void link2_reload(Link2 *link) {
       if (!link2_key_file_id(entry->d_name, id)) continue;
       snprintf(path, sizeof path, "%s/%s", directory, entry->d_name);
       long length = read_file(path, text, sizeof text);
+      size_t before = link->companions.count;
+      bool full = link->companions.overflow;
       if (length > 0) link2_companions_add(&link->companions, entry->d_name, text, (size_t)length);
+      /* A key file that gives no pairing is named in the status, not passed over. */
+      if (id_ok && link->error[0] == '\0' && link->companions.count == before && link->companions.overflow == full) {
+        snprintf(link->error, sizeof link->error, "the pairing file %.16s.txt cannot be read", id);
+      }
     }
     closedir(dir);
   }
@@ -769,7 +824,25 @@ void link2_reload(Link2 *link) {
     long length = read_file(path, text, sizeof text);
     if (length > 0) link2_companions_last(&link->companions, link->companions.list[i].id, text, (size_t)length);
   }
-  if (link->companions.overflow) copy_text(link->error, sizeof link->error, "more than 8 computers");
+  /* Without an id hello has nothing to carry: no pairing is tried. */
+  if (link->device[0] == '\0') memset(&link->companions, 0, sizeof link->companions);
+  if (link->companions.overflow && link->error[0] == '\0') copy_text(link->error, sizeof link->error, "more than 8 computers");
+  if (targeted) {
+    size_t found = link->companions.count;
+    for (size_t i = 0; i < link->companions.count; i += 1) {
+      if (strcmp(link->companions.list[i].id, target_id) == 0) found = i;
+    }
+    if (found < link->companions.count) {
+      link->target = found;
+    } else if (link->phase == PHASE_LINKED) {
+      /* The pairing this link stands on left the card. */
+      link->target = 0;
+      close_link(link, LINK2_CLOSE_GOING_AWAY, "the pairing was removed", false);
+    } else if (link->phase == PHASE_CONNECTING || link->phase == PHASE_HANDSHAKE) {
+      link->target = 0;
+      dropped(link, "the pairing was removed");
+    }
+  }
   if (link->phase == PHASE_IDLE && link->companions.count > 0 && !link->stopped) {
     link->phase = PHASE_SEARCH;
     link->phase_since = now_ms(link);
@@ -1863,6 +1936,15 @@ static void devtools_data(Link2 *link, InStream *stream, const uint8_t *bytes, u
     }
     if (link->dt_in_tail < LINK2_DEVTOOLS_RING) link->dt_in[link->dt_in_tail++] = bytes[i];
   }
+  /* A line is at most LINK2_DEVTOOLS_LINE_IN bytes: bytes with no newline
+   * past that would hold the ring, and its credit, for good. They are
+   * dropped, and the rest of that line with them up to its newline. */
+  uint32_t tail = link->dt_in_tail;
+  while (tail > link->dt_in_head && link->dt_in[tail - 1] != '\n') tail -= 1;
+  if (link->dt_in_tail - tail > LINK2_DEVTOOLS_LINE_IN) {
+    link->dt_in_tail = tail;
+    link->dt_skip = true;
+  }
   stream->unconsumed = link->dt_in_tail - link->dt_in_head;
   auto_grant(stream);
 }
@@ -2855,7 +2937,11 @@ static void on_credit(Link2 *link, const Link2Frame *frame) {
   InRequest *in = find_in(link, frame->id);
   OutStream *stream = find_out_stream(link, frame->id);
   if (channel != NULL) {
-    /* Units of the channel's event window (§5.6). */
+    /* Units of the channel's event window (§5.6); a grant past what a u32 holds is a flow error. */
+    if (amount > UINT32_MAX - channel->units) {
+      close_link(link, LINK2_CLOSE_FLOW, "event units past 2^32", false);
+      return;
+    }
     channel->units += amount;
     return;
   }
