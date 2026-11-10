@@ -240,6 +240,7 @@
     "e2e:3ds-dev": "bun tests/e2e/azahar-devserver.ts",
     "e2e:install": "bun tests/e2e/framework-install.ts",
     "3ds:dev": "bun tools/3ds-dev.ts",
+    "link2": "bun tools/pocket-link/v2/cli.ts",
     "hw": "bun tools/hw.ts",
     "dev": "bun tools/dev.ts",
     "wasm": "bun tools/wasm.ts",

@@ -12,11 +12,13 @@
 // Time comes from `now()`; `tick()` runs every timed rule.
 
 import { createSocket, type Socket as UdpSocket } from "node:dgram";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { type Server, createServer } from "node:net";
+import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import {
   LINK2_BEACON_INTERVAL_MS,
+  LINK2_BEACON_PORT,
   LINK2_CHANNEL_OPEN_MS,
   LINK2_COMPANIONS_DIR,
   LINK2_DEVICE_FILE,
@@ -99,11 +101,15 @@ export interface DeviceRecord {
   hostAbi: number;
   lastAddress: string;
   lastSeen: number;
+  /** True from a setup without a matching final readback until a `ready` or a later setup settles it (§3.2). */
+  unconfirmed?: boolean;
 }
 export interface HubStore {
   /** Hub's id: 8 random bytes as 16 lowercase hex digits, made once. */
   readonly id: string;
   get(device: string): DeviceRecord | undefined;
+  /** Every record, in no stated order. */
+  list(): DeviceRecord[];
   put(record: DeviceRecord): void;
   remove(device: string): void;
   /** One counter for the whole Hub, stored before the value is returned (§7.4). */
@@ -117,6 +123,9 @@ export class MemoryStore implements HubStore {
   get(device: string) {
     return this.devices.get(device);
   }
+  list() {
+    return [...this.devices.values()];
+  }
   put(record: DeviceRecord) {
     this.devices.set(record.id, { ...record });
   }
@@ -126,40 +135,6 @@ export class MemoryStore implements HubStore {
   nextGeneration() {
     this.lastGeneration = (this.lastGeneration + 1) >>> 0;
     return this.lastGeneration;
-  }
-}
-
-/** The records in one JSON file of mode 0600, written whole at each change. */
-export class FileStore implements HubStore {
-  private state: { id: string; lastGeneration: number; devices: DeviceRecord[] };
-  constructor(private readonly path: string) {
-    this.state = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : { id: newLinkId(), lastGeneration: 0, devices: [] };
-    if (!existsSync(path)) this.save();
-  }
-  get id() {
-    return this.state.id;
-  }
-  get(device: string) {
-    return this.state.devices.find((record) => record.id === device);
-  }
-  put(record: DeviceRecord) {
-    this.state.devices = [...this.state.devices.filter((other) => other.id !== record.id), { ...record }];
-    this.save();
-  }
-  remove(device: string) {
-    this.state.devices = this.state.devices.filter((record) => record.id !== device);
-    this.save();
-  }
-  nextGeneration() {
-    this.state.lastGeneration = (this.state.lastGeneration + 1) >>> 0;
-    this.save();
-    return this.state.lastGeneration;
-  }
-  private save() {
-    mkdirSync(dirname(this.path), { recursive: true });
-    writeFileSync(`${this.path}.tmp`, JSON.stringify(this.state, null, 2), { mode: 0o600 });
-    renameSync(`${this.path}.tmp`, this.path);
-    chmodSync(this.path, 0o600);
   }
 }
 
@@ -262,8 +237,8 @@ export interface HubOptions {
   /** The groups Hub serves (§6.1). Default: every group. */
   features?: string[];
   maxPayload?: number;
-  /** Where beacons go, once a second; none when empty. */
-  beaconTargets?: { address: string; port: number }[];
+  /** Where beacons go, once a second; none when empty. A function is asked at each beacon (`lanBeaconTargets`). */
+  beaconTargets?: BeaconTarget[] | (() => BeaconTarget[]);
   catalog?: () => HubOffer[];
   fetch?: HttpFetch;
   /** The daemon of an applet id: null for none, "rejected" when policy refuses the id. */
@@ -271,6 +246,80 @@ export interface HubOptions {
   /** Keep an unsolicited screenshot as the device's latest; false resets its stream `refused`. */
   keepScreenshots?: boolean;
   onDevice?: (device: HubDevice) => void;
+  /** A connection that ended before `ready`: what a status line says about a device that does not link. */
+  onRefusal?: (refusal: Refusal) => void;
+}
+
+export interface BeaconTarget {
+  address: string;
+  port: number;
+}
+
+/** Why a connection ended before `ready`. `device` is the id its `hello` named, when it sent one. */
+export interface Refusal {
+  address: string;
+  device: string | null;
+  /** `refused`: Hub's refusal code. `closed`: the device's CLOSE code (`auth` when it rejected Hub's proof). */
+  kind: "refused" | "closed";
+  code: string;
+}
+
+export interface LanInterface {
+  address: string;
+  netmask: string;
+  family: string | number;
+  internal: boolean;
+}
+
+/** The directed broadcast address of an IPv4 interface. */
+export function broadcastAddress(address: string, netmask: string): string {
+  const a = address.split(".").map(Number);
+  const m = netmask.split(".").map(Number);
+  return a.map((octet, index) => ((octet & m[index]) | (~m[index] & 255)) >>> 0).join(".");
+}
+
+/**
+ * Where a Hub on a LAN sends its beacons (§2.2): the limited broadcast
+ * address, each interface's directed broadcast address (the interfaces are
+ * read again after `rereadMs`, 10 s), the last address of every paired
+ * device, and the extra unicast targets the owner named. A device follows
+ * only a Hub whose key file it holds, so a beacon that reaches another
+ * console costs it one datagram.
+ */
+export function lanBeaconTargets(options: {
+  store: HubStore;
+  unicast?: BeaconTarget[];
+  port?: number;
+  interfaces?: () => LanInterface[];
+  now?: () => number;
+  rereadMs?: number;
+}): () => BeaconTarget[] {
+  const port = options.port ?? LINK2_BEACON_PORT;
+  const now = options.now ?? (() => Date.now());
+  const read = options.interfaces ?? (() => Object.values(networkInterfaces()).flatMap((list) => list ?? []));
+  let broadcasts: string[] = [];
+  let readAt = Number.NEGATIVE_INFINITY;
+  return () => {
+    if (now() - readAt >= (options.rereadMs ?? 10_000)) {
+      readAt = now();
+      broadcasts = read()
+        .filter((entry) => !entry.internal && (entry.family === "IPv4" || entry.family === 4))
+        .map((entry) => broadcastAddress(entry.address, entry.netmask));
+    }
+    const seen = new Set<string>();
+    const targets: BeaconTarget[] = [];
+    const add = (address: string, to: number) => {
+      const key = `${address}:${to}`;
+      if (address === "" || seen.has(key)) return;
+      seen.add(key);
+      targets.push({ address, port: to });
+    };
+    add("255.255.255.255", port);
+    for (const address of broadcasts) add(address, port);
+    for (const record of options.store.list()) add(record.lastAddress, port);
+    for (const target of options.unicast ?? []) add(target.address, target.port);
+    return targets;
+  };
 }
 
 interface Pending {
@@ -708,6 +757,7 @@ export class LinkHub {
   private features: string[];
   private server: Server | null = null;
   private udp: UdpSocket | null = null;
+  private udpBound = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private beaconAt = Number.NEGATIVE_INFINITY;
   private readonly pending = new Set<Pending>();
@@ -759,11 +809,31 @@ export class LinkHub {
 
   tick(): void {
     const now = this.now();
-    if ((this.options.beaconTargets?.length ?? 0) > 0 && this.port !== 0 && now - this.beaconAt >= LINK2_BEACON_INTERVAL_MS) {
-      this.beaconAt = now;
-      this.udp ??= createSocket("udp4").on("error", () => {});
-      const beacon = encodeBeacon({ port: this.port, companion: this.id, name: this.options.name });
-      for (const target of this.options.beaconTargets!) this.udp.send(beacon, target.port, target.address);
+    if (this.options.beaconTargets !== undefined && this.port !== 0 && now - this.beaconAt >= LINK2_BEACON_INTERVAL_MS) {
+      const targets = typeof this.options.beaconTargets === "function" ? this.options.beaconTargets() : this.options.beaconTargets;
+      if (targets.length > 0) {
+        this.beaconAt = now;
+        const send = () => {
+          if (this.udp === null) return;
+          const beacon = encodeBeacon({ port: this.port, companion: this.id, name: this.options.name });
+          // A target the network refuses (no route, an interface that went away) fails alone.
+          for (const target of targets) this.udp.send(beacon, target.port, target.address, () => {});
+        };
+        if (this.udp === null) {
+          // A broadcast address needs SO_BROADCAST, which a socket takes once it is bound:
+          // the first beacon leaves when the bind completes.
+          const udp = createSocket("udp4").on("error", () => {});
+          this.udp = udp;
+          this.udpBound = false;
+          udp.bind(0, () => {
+            try {
+              udp.setBroadcast(true);
+            } catch {}
+            this.udpBound = true;
+            send();
+          });
+        } else if (this.udpBound) send();
+      }
     }
     for (const pending of [...this.pending]) {
       if (now - pending.since < LINK2_HANDSHAKE_TIMEOUT_MS) continue;
@@ -863,12 +933,13 @@ export class LinkHub {
       return { outcome: plan.outcome, failed: true, failedAt: null, deviceId: plan.deviceId, message: plan.message };
     }
     const id = plan.deviceId;
-    const save = (key: string | null) => {
+    const save = (key: string | null, unconfirmed: boolean) => {
       const before = this.store.get(id);
-      this.store.put({ id, name: before?.name ?? "", model: before?.model ?? "", key: key ?? "", target: before?.target ?? "", hostAbi: before?.hostAbi ?? 0, lastAddress: before?.lastAddress ?? "", lastSeen: before?.lastSeen ?? 0 });
+      this.store.put({ id, name: before?.name ?? "", model: before?.model ?? "", key: key ?? "", target: before?.target ?? "", hostAbi: before?.hostAbi ?? 0, lastAddress: before?.lastAddress ?? "", lastSeen: before?.lastSeen ?? 0, unconfirmed });
     };
-    // The minted key is the record's key before the first write.
-    save(plan.key);
+    // The minted key is the record's key before the first write; the record
+    // says "setup not confirmed" until the plan's last readback returns.
+    save(plan.key, plan.ops.length > 0);
     let completed = 0;
     for (const op of plan.ops) {
       try {
@@ -887,6 +958,7 @@ export class LinkHub {
     const settled = settleSetup(plan, completed);
     if (settled.failed) this.unconfirmed.add(id);
     else this.unconfirmed.delete(id);
+    save(plan.key, settled.failed);
     return { outcome: plan.outcome, failed: settled.failed, failedAt: settled.failedAt, deviceId: id, message: settled.failed ? `the setup failed at ${settled.failedAt?.op ?? "a read"}` : plan.message };
   }
 
@@ -905,8 +977,9 @@ export class LinkHub {
     this.pending.delete(pending);
     if (close) pending.carrier.close();
   }
-  private refuse(pending: Pending, code: Parameters<typeof refused>[0], message: string): void {
+  private refuse(pending: Pending, code: Parameters<typeof refused>[0], message: string, device: string | null = pending.hello?.device ?? null): void {
     pending.carrier.write(encodeHandshake(refused(code, message)));
+    this.options.onRefusal?.({ address: pending.carrier.remoteAddress, device, kind: "refused", code });
     this.drop(pending);
   }
 
@@ -941,6 +1014,8 @@ export class LinkHub {
     for (let index = 0; index < frames.length; index++) {
       const frame = frames[index];
       if (frame.type === LINK2_FRAME.close) {
+        // The device ended the handshake: `auth` when Hub's proof did not verify against its key file.
+        this.options.onRefusal?.({ address: carrier.remoteAddress, device: pending.hello?.device ?? null, kind: "closed", code: frame.payload.length >= 4 ? parseClose(frame).code : "protocol" });
         return this.drop(pending);
       }
       if (frame.type !== LINK2_FRAME.handshake) continue;
@@ -948,18 +1023,18 @@ export class LinkHub {
       if (pending.hello === null) {
         const hello = parseHello(object);
         if ("refused" in hello) return this.refuse(pending, "malformed", `hello: ${hello.why}`);
-        if (this.devices.size + this.pending.size > LINK2_MAX_CONNECTIONS) return this.refuse(pending, "busy", "Hub is at its connection limit");
+        if (this.devices.size + this.pending.size > LINK2_MAX_CONNECTIONS) return this.refuse(pending, "busy", "Hub is at its connection limit", hello.device);
         const now = this.now();
         const counted = (this.counted.get(hello.device) ?? []).filter((at) => now - at < LINK2_REPLACED_WINDOW_MS);
         if (counted.length >= LINK2_REPLACED_COUNT) {
           // Two consoles share this device id; the count starts again after the hold.
           this.counted.delete(hello.device);
           this.duplicates.add(hello.device);
-          return this.refuse(pending, "busy", "two consoles use this device id");
+          return this.refuse(pending, "busy", "two consoles use this device id", hello.device);
         }
         const record = this.store.get(hello.device);
         const key = record?.key ?? "";
-        if (hello.companion !== this.id || record === undefined || key === "") return this.refuse(pending, "unknown_device", "this computer has to set the device up");
+        if (hello.companion !== this.id || record === undefined || key === "") return this.refuse(pending, "unknown_device", "this computer has to set the device up", hello.device);
         pending.hello = hello;
         pending.nonce = newNonce();
         pending.key = key;
@@ -981,7 +1056,7 @@ export class LinkHub {
     pending.done = true;
     this.pending.delete(pending);
     this.unconfirmed.delete(hello.device);
-    this.store.put({ id: hello.device, name: hello.name, model: hello.model, key: pending.key, target: hello.target, hostAbi: hello.hostAbi, lastAddress: carrier.remoteAddress, lastSeen: this.now() });
+    this.store.put({ id: hello.device, name: hello.name, model: hello.model, key: pending.key, target: hello.target, hostAbi: hello.hostAbi, lastAddress: carrier.remoteAddress, lastSeen: this.now(), unconfirmed: false });
     const wall = Date.now();
     const offer = this.options.maxPayload ?? carrier.maxPayload;
     carrier.write(encodeHandshake({ t: "ready", name: this.options.name, features: this.features, maxPayload: offer, clock: { utc: wall, local: wall - new Date(wall).getTimezoneOffset() * 60_000 } }));
