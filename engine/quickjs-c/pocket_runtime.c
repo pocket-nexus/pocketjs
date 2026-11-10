@@ -10,6 +10,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
+#include <objc/runtime.h>
+#include <objc/message.h>
 
 #ifndef POCKETJS_TARGET_ID
 #error "POCKETJS_TARGET_ID must come from the verified ResolvedBuildPlan"
@@ -487,6 +490,210 @@ static int add_host_operation(
   return JS_SetPropertyStr(ctx, object, name, function) >= 0;
 }
 
+
+#define NET_SLOTS 2
+#define NET_MAX_BODY (256 * 1024)
+
+typedef struct {
+  int active, done, handle, status;
+  uint8_t *body;
+  size_t body_len;
+  char url[512], err_code[32], err_msg[256];
+} NetSlot;
+
+static NetSlot g_ns[NET_SLOTS];
+static int g_nh = 1;
+static char g_nle[256] = "";
+
+static inline id _ms_0(id s, SEL sel) { return ((id(*)(id,SEL))objc_msgSend)(s,sel); }
+static inline id _ms_id(id s, SEL sel, id a) { return ((id(*)(id,SEL,id))objc_msgSend)(s,sel,a); }
+static inline id _ms_cstr(id s, SEL sel, const char *a) { return ((id(*)(id,SEL,const char*))objc_msgSend)(s,sel,a); }
+static inline void _ms_v_id(id s, SEL sel, id a) { ((void(*)(id,SEL,id))objc_msgSend)(s,sel,a); }
+static inline id _ms_3arg(id s, SEL sel, id a, id *b, id *c) { return ((id(*)(id,SEL,id,id*,id*))objc_msgSend)(s,sel,a,b,c); }
+static inline unsigned long _ms_ul(id s, SEL sel) { return ((unsigned long(*)(id,SEL))objc_msgSend)(s,sel); }
+static inline int _ms_i(id s, SEL sel) { return ((int(*)(id,SEL))objc_msgSend)(s,sel); }
+static inline const char *_ms_cs(id s, SEL sel) { return ((const char*(*)(id,SEL))objc_msgSend)(s,sel); }
+static inline const void *_ms_pv(id s, SEL sel) { return ((const void*(*)(id,SEL))objc_msgSend)(s,sel); }
+static inline id _ms_dl(id s, SEL sel, const void *a, unsigned long b) { return ((id(*)(id,SEL,const void*,unsigned long))objc_msgSend)(s,sel,a,b); }
+
+static NetSlot *ns_alloc(void) {
+  for (int i = 0; i < NET_SLOTS; i++)
+    if (!g_ns[i].active) {
+      memset(&g_ns[i], 0, sizeof(NetSlot));
+      g_ns[i].active = 1;
+      g_ns[i].handle = g_nh++;
+      return &g_ns[i];
+    }
+  return NULL;
+}
+
+static NetSlot *ns_find(int h) {
+  for (int i = 0; i < NET_SLOTS; i++)
+    if (g_ns[i].active && g_ns[i].handle == h) return &g_ns[i];
+  return NULL;
+}
+
+static JSValue js_net_start(JSContext *c, JSValueConst t, int argc, JSValueConst *a) {
+  (void)t;
+  if (argc < 1) { strncpy(g_nle, "invalid_request: missing meta", 255); return JS_NewInt32(c, -1); }
+  NetSlot *s = ns_alloc();
+  if (!s) { strncpy(g_nle, "busy", 255); return JS_NewInt32(c, -1); }
+
+  const char *m = JS_ToCString(c, a[0]);
+  if (!m) { s->active = 0; return JS_EXCEPTION; }
+
+  const char *us = strstr(m, "\"url\"");
+  if (!us) { JS_FreeCString(c, m); s->active = 0; strncpy(g_nle, "invalid_request: no url", 255); return JS_NewInt32(c, -1); }
+  us = strchr(us + 5, ':');
+  if (!us) { JS_FreeCString(c, m); s->active = 0; strncpy(g_nle, "invalid_request: bad url", 255); return JS_NewInt32(c, -1); }
+  us++;
+  while (*us == ' ' || *us == '\t') us++;
+  if (*us != '"') { JS_FreeCString(c, m); s->active = 0; strncpy(g_nle, "invalid_request: bad url", 255); return JS_NewInt32(c, -1); }
+  us++;
+  const char *ue = strchr(us, '"');
+  if (!ue) { JS_FreeCString(c, m); s->active = 0; strncpy(g_nle, "invalid_request: bad url", 255); return JS_NewInt32(c, -1); }
+  size_t ul = (size_t)(ue - us);
+  if (ul >= 512) ul = 511;
+  memcpy(s->url, us, ul);
+  s->url[ul] = 0;
+  JS_FreeCString(c, m);
+
+  size_t blen = 0;
+  uint8_t *bptr = 0;
+  if (argc >= 2) {
+    size_t tl = 0;
+    bptr = JS_GetArrayBuffer(c, &tl, a[1]);
+    if (bptr) blen = tl;
+  }
+
+  Class cns = objc_getClass("NSString");
+  Class cu = objc_getClass("NSURL");
+  Class cmr = objc_getClass("NSMutableURLRequest");
+  Class cc = objc_getClass("NSURLConnection");
+  if (!cns || !cu || !cmr || !cc) {
+    s->active = 0;
+    strncpy(g_nle, "unavailable: NSURL not found", 255);
+    return JS_NewInt32(c, -1);
+  }
+
+  id nstr = _ms_cstr((id)cns, sel_registerName("stringWithUTF8String:"), s->url);
+  if (!nstr) { s->active = 0; strncpy(g_nle, "invalid_request: bad url", 255); return JS_NewInt32(c, -1); }
+  id nurl = _ms_id((id)cu, sel_registerName("URLWithString:"), nstr);
+  if (!nurl) { s->active = 0; strncpy(g_nle, "invalid_request: bad url", 255); return JS_NewInt32(c, -1); }
+
+  id req = _ms_id((id)cmr, sel_registerName("requestWithURL:"), nurl);
+  if (blen > 0) {
+    id mstr = _ms_cstr((id)cns, sel_registerName("stringWithUTF8String:"), "POST");
+    _ms_v_id(req, sel_registerName("setHTTPMethod:"), mstr);
+    id bdata = _ms_dl((id)objc_getClass("NSData"), sel_registerName("dataWithBytes:length:"), bptr, blen);
+    _ms_v_id(req, sel_registerName("setHTTPBody:"), bdata);
+  }
+
+  id resp = 0, err = 0;
+  id data = _ms_3arg((id)cc, sel_registerName("sendSynchronousRequest:returningResponse:error:"), req, &resp, &err);
+
+  if (err) {
+    s->done = 1;
+    s->status = 0;
+    strncpy(s->err_code, "connect", 31);
+    id desc = _ms_0(err, sel_registerName("description"));
+    const char *ed = _ms_cs(desc, sel_registerName("UTF8String"));
+    if (ed) strncpy(s->err_msg, ed, 255);
+    else strncpy(s->err_msg, "connection failed", 255);
+  } else {
+    size_t dlen = (size_t)_ms_ul(data, sel_registerName("length"));
+    if (dlen > NET_MAX_BODY) dlen = NET_MAX_BODY;
+    s->body = (uint8_t *)malloc(dlen > 0 ? dlen : 1);
+    memcpy(s->body, _ms_pv(data, sel_registerName("bytes")), dlen);
+    s->body_len = dlen;
+    s->status = _ms_i(resp, sel_registerName("statusCode"));
+    s->done = 1;
+  }
+  { FILE *f = fopen(getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp/net_result.txt", "w"); if (f) { fprintf(f, "handle=%d status=%d len=%zu err=%s\n", s->handle, s->status, s->body_len, s->err_msg); fclose(f); } }
+  return JS_NewInt32(c, s->handle);
+}
+
+static JSValue js_net_take(JSContext *c, JSValueConst t, int argc, JSValueConst *a) {
+  (void)t;
+  if (argc < 2) return JS_NewInt32(c, -1);
+  int32_t h = 0;
+  if (JS_ToInt32(c, &h, a[0]) < 0) return JS_EXCEPTION;
+  NetSlot *s = ns_find(h);
+  if (!s || !s->done || !s->body) return JS_NewInt32(c, -1);
+  size_t il = 0;
+  uint8_t *ip = JS_GetArrayBuffer(c, &il, a[1]);
+  if (!ip) return JS_EXCEPTION;
+  if (il != s->body_len) return JS_NewInt32(c, -1);
+  memcpy(ip, s->body, s->body_len);
+  free(s->body);
+  s->body = 0;
+  s->body_len = 0;
+  return JS_NewInt32(c, (int32_t)il);
+}
+
+static JSValue js_net_cancel(JSContext *c, JSValueConst t, int argc, JSValueConst *a) {
+  (void)t;
+  if (argc < 1) return JS_UNDEFINED;
+  int32_t h = 0;
+  if (JS_ToInt32(c, &h, a[0]) < 0) return JS_EXCEPTION;
+  NetSlot *s = ns_find(h);
+  if (s) { if (s->body) free(s->body); s->active = 0; }
+  return JS_UNDEFINED;
+}
+
+static JSValue js_net_poll(JSContext *c, JSValueConst t, int argc, JSValueConst *a) {
+  (void)t; (void)argc; (void)a;
+  char buf[4096];
+  int pos = 0, cnt = 0;
+  buf[pos++] = '[';
+  for (int i = 0; i < NET_SLOTS; i++) {
+    NetSlot *s = &g_ns[i];
+    if (!s->active || !s->done) continue;
+    if (cnt++) buf[pos++] = ',';
+    if (s->status > 0)
+      pos += snprintf(buf + pos, sizeof(buf) - pos,
+        "{\"t\":\"done\",\"h\":%d,\"status\":%d,\"url\":\"%s\",\"headers\":{},\"bytes\":%d}",
+        s->handle, s->status, s->url, (int)s->body_len);
+    else
+      pos += snprintf(buf + pos, sizeof(buf) - pos,
+        "{\"t\":\"error\",\"h\":%d,\"code\":\"%s\",\"message\":\"%s\"}",
+        s->handle, s->err_code, s->err_msg);
+    if (s->body) free(s->body);
+    s->body = 0;
+    s->active = 0;
+  }
+  buf[pos++] = ']';
+  buf[pos] = 0;
+  if (!cnt) return JS_UNDEFINED;
+  return JS_NewString(c, buf);
+}
+
+static JSValue js_net_lasterr(JSContext *c, JSValueConst t, int argc, JSValueConst *a) {
+  (void)t; (void)argc; (void)a;
+  return JS_NewString(c, g_nle);
+}
+
+static int install_net(void) {
+  JSValue n = JS_NewObject(context);
+  if (JS_IsException(n)) return 0;
+  JSValue f1 = JS_NewCFunction(context, js_net_start, "start", 2);
+  JSValue f2 = JS_NewCFunction(context, js_net_take, "take", 2);
+  JSValue f3 = JS_NewCFunction(context, js_net_cancel, "cancel", 1);
+  JSValue f4 = JS_NewCFunction(context, js_net_poll, "poll", 0);
+  JSValue f5 = JS_NewCFunction(context, js_net_lasterr, "lastError", 0);
+  if (JS_IsException(f1) || JS_IsException(f2) || JS_IsException(f3) || JS_IsException(f4) || JS_IsException(f5)) {
+    JS_FreeValue(context, n); return 0;
+  }
+  if (JS_SetPropertyStr(context, n, "start", f1) < 0 ||
+      JS_SetPropertyStr(context, n, "take", f2) < 0 ||
+      JS_SetPropertyStr(context, n, "cancel", f3) < 0 ||
+      JS_SetPropertyStr(context, n, "poll", f4) < 0 ||
+      JS_SetPropertyStr(context, n, "lastError", f5) < 0) {
+    JS_FreeValue(context, n); return 0;
+  }
+  return JS_SetPropertyStr(context, global, "net", n) >= 0;
+}
+
 static int install_host(int width, int height) {
   JSValue ui = JS_NewObject(context);
   if (JS_IsException(ui)) return 0;
@@ -631,6 +838,11 @@ int pocket_runtime_boot(
   REPORT_BOOT_STAGE(5);
   global = JS_GetGlobalObject(context);
   if (!install_host(width, height)) {
+    take_exception(context);
+    pocket_runtime_shutdown();
+    return 0;
+  }
+  if (!install_net()) {
     take_exception(context);
     pocket_runtime_shutdown();
     return 0;
