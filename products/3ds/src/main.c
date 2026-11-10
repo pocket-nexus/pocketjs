@@ -198,7 +198,6 @@ static void report_install(const char *phase, uint64_t hash, const char *message
   link2_host_report_install(phase, hash, message);
 }
 
-static void report_log(const char *level, const char *message) __attribute__((unused));
 static void report_log(const char *level, const char *message) {
   link2_host_report_log(level, message);
 }
@@ -1131,6 +1130,8 @@ static void fail_to_home(
 ) {
   runtime_write_error(phase, message);
   launcher_report_failure(launcher_current_output(), message);
+  /* The guest's own exception, for a client that follows the logs. */
+  report_log("error", message);
   bool candidate = choice->commit_on_accept;
   uint64_t rejected = choice->state_hash;
   /* A failing candidate is never accepted on the way out. */

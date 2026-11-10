@@ -520,7 +520,14 @@ A push goes into the staging file and through the admission in `main.c`, a
   the namespace at all.
 - **`globalThis.link.channel`**, for a package that declares
   `link.channel`: the applet's channel to its daemon, read through
-  `@pocketjs/framework/channel` (`docs/POCKET-LINK.md` §7.3).
+  `@pocketjs/framework/channel` (`docs/POCKET-LINK.md` §7.3). The bindings
+  are `engine/host-services/link2_channel_qjs.c`; the program asks for the
+  channel each frame until it opens, so a guest that boots while the
+  previous guest's close still waits for room gets its channel.
+- **`ui.__dbgMemory(collect)`** reports the process heap, the linear heap
+  and the guest's own heap as QuickJS counts it (`js`, `jsObjects`); with a
+  true argument the cycle collector runs first and `jsAfterGc` /
+  `jsObjectsAfterGc` say what was garbage waiting for it.
 - **Memory.** The client allocates **180,240 bytes** once (16 KiB receive,
   32 KiB send, the 64 KiB DevTools line ring and 64 KiB out buffer) and
   about 24 KiB of tables; an open applet channel adds its queues and

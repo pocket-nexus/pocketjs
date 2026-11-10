@@ -1540,7 +1540,7 @@ While on, the device sends `EVENT` `log` (id 0):
 | Field | Type | Content |
 | --- | --- | --- |
 | `level` | string | `debug`, `info`, `warn`, `error` |
-| `source` | string | `host` (the runtime's own lines, today `devserver_report_log`) or `guest` (the applet's `console` and the errors thrown from its frames) |
+| `source` | string | `host` (the runtime's own lines, and the exception of a guest that threw from a frame) or `guest` (the applet's `console`; its `console.log` travels as `info`) |
 | `text` | string | at most **1 KiB**, and at most **the payload limit minus 96 bytes** (928 at the 1 KiB floor), counted as encoded; cut on a code point. The 96 bytes hold the other fields |
 | `frame` | integer | the frame counter as a **u32**, wrapping to 0 after 2^32 − 1 (828 days at 60 frames a second); 10 digits at most, which the 96 bytes count |
 | `dropped` | integer? | log events dropped since the last one sent, a u32 that stays at its maximum |
@@ -1991,7 +1991,13 @@ its functions); its shape:
   over without them. A call whose response stream the applet does not
   read receives no bytes: no `read` is pending, so no credit is granted,
   and the call ends at the 30 s limit of §5.5. Its stream holds no bytes
-  meanwhile. **A `read` left pending on an idle stream (a log tail the
+  meanwhile. **Closing a stream names its side**: `close()` of a reader
+  gives back the bytes toward the applet, `close()` of a writer the bytes
+  toward the daemon. A request's id carries its body one way and its
+  response the other, and `RESET` abandons both (§5.6): **a response the
+  applet gives back while the request's body still goes out is kept unread,
+  with no credit, and reset when the body has ended**, so a daemon that
+  reports progress while it receives does not cut the upload it reports on. **A `read` left pending on an idle stream (a log tail the
   daemon has nothing to send on) holds that stream's own window and
   nothing of another's**, so a response the applet reads beside it still
   gets credit.
@@ -2077,6 +2083,18 @@ generation names one channel's life to the daemon: **nothing of a generation
 is delivered after that generation's close**, and a new open always gets a
 larger number. Hub assigns it so the device keeps no counter across reboots.
 
+**On the device the generation is part of every handle the guest holds.**
+Wire ids start again at each connection (§5.1), so the id of a request or a
+stream alone would name another one after a reconnect. The host gives the
+guest a handle for each request and stream: **the wire id in its low 32 bits
+and the low 21 bits of the channel's generation above them** (a number a
+guest's double holds exactly). A call with a handle of another generation is
+refused with the code `stale` (-8) and reaches nothing of the channel that is
+open now; the guest library reports it as `closed`, and fails a reader, a
+writer or a call of an earlier generation itself before it calls the host. A
+handle 2,097,152 generations old would pass the host's check; no applet run
+keeps one that long.
+
 ### 7.5 Close
 
 `EVENT` `channel.close`, header id = the channel id, `{reason}`, from either
@@ -2103,7 +2121,11 @@ new channel.
 **After a close by either side that leaves the applet running** (Hub's
 `daemon`, `policy` or `overflow`, or the device's own `overflow`), the
 device opens a new channel for the same applet run only when the applet
-uses the channel again, **at most once a second**.
+uses the channel again, **at most once a second**. Using it is a request,
+an event, or **polling it: an applet with a request or event handler
+registered polls every frame, so an applet that only listens gets its
+channel back** after Hub closed it, and a refusal (`no_daemon`, `rejected`)
+still ends the asking for that applet run.
 
 **Connection loss closes every channel, with no `channel.close` and no
 resumption.** After the next `ready` the device sends `channel.open` for the
@@ -2745,9 +2767,15 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   host's own lines.
 - **Applet channels for guests.** A package that declares the capability
   **`link.channel`** gets its channel opened before it boots and sees
-  **`globalThis.link.channel`** (`qjs.c`): `state`, `poll`, `request`,
-  `cancel`, `emit`, `progress`, `reply`, `read`, `write`, `end`, `close`,
-  each one call into `link2_channel_*` / `link2_stream_*`.
+  **`globalThis.link.channel`** (`engine/host-services/link2_channel_qjs.c`,
+  called from `qjs.c`): `state`, `poll`, `request`, `cancel`, `emit`,
+  `progress`, `reply`, `read`, `write`, `end`, `close`, each one call into
+  `link2_channel_*` / `link2_stream_*`. The ids it gives the guest are
+  handles that carry the channel's generation (§7.4); **a call converts its
+  handle before it takes a buffer's address**, because the conversion can run
+  the guest's `valueOf`, which may detach the buffer;
+  `tests/pocket-link-2-channel-qjs.test.ts` runs the bindings in a real
+  QuickJS under ASan.
   **`@pocketjs/framework/channel`** (`framework/src/channel.ts`) gives the
   shape of §7.3 on top: `request(t, args, {body, onProgress})`,
   `onRequest(t, handler)`, `emit`, `emitStream`, `onEvent`,
