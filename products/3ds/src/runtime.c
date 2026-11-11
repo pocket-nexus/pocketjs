@@ -12,6 +12,7 @@
 #include "pocket_profile.h"
 #include "error_text.h"
 #include "fs.h"
+#include "push_timing.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -152,6 +153,7 @@ bool runtime_storage_init(PocketRuntimeState *state, char *error, size_t error_l
     pocket_set_error(error, error_length, "runtime slot not selected");
     return false;
   }
+  uint64_t step = push_timing_now();
   if (!ensure_directory("sdmc:/pocketjs", error, error_length) ||
       !ensure_directory(POCKET_RUNTIME_ROOT, error, error_length) ||
       !ensure_directory(POCKET_RUNTIME_APPS, error, error_length) ||
@@ -161,10 +163,13 @@ bool runtime_storage_init(PocketRuntimeState *state, char *error, size_t error_l
     return false;
   }
 
+  push_timing_step("storage-mkdirs", step, "%s", POCKET_RUNTIME_APP_ROOT);
+  step = push_timing_now();
   if (!scan_state(STATE_DIR, state)) {
     pocket_set_error(error, error_length, "opendir %s failed (%d)", STATE_DIR, errno);
     return false;
   }
+  push_timing_step("storage-scan-state", step, "generation %lu", (unsigned long)state->generation);
   return true;
 }
 
@@ -203,9 +208,12 @@ PocketRuntimePackage *runtime_package_load(
   char *error,
   size_t error_length
 ) {
+  uint64_t step = push_timing_now();
   FILE *file = fopen(path, "rb");
+  int open_errno = errno;
+  push_timing_step("package-fopen", step, "%s", path);
   if (file == NULL) {
-    pocket_set_error(error, error_length, "open %s failed (%d)", path, errno);
+    pocket_set_error(error, error_length, "open %s failed (%d)", path, open_errno);
     return NULL;
   }
   if (fseek(file, 0, SEEK_END) != 0) {
@@ -235,14 +243,17 @@ PocketRuntimePackage *runtime_package_load(
     free(package);
     return NULL;
   }
+  step = push_timing_now();
   size_t read = fread(package->bytes, 1, package->length, file);
   int close_result = fclose(file);
+  push_timing_step("package-fread", step, "%lu bytes of %s", (unsigned long)read, path);
   if (read != package->length || close_result != 0) {
     pocket_set_error(error, error_length, "read %s was incomplete", path);
     runtime_package_free(package);
     return NULL;
   }
 
+  step = push_timing_now();
   int32_t result = pocket_package_open(
     package->bytes,
     package->length,
@@ -251,6 +262,8 @@ PocketRuntimePackage *runtime_package_load(
     pocket_3ds_profile_hash,
     &package->guest
   );
+  push_timing_step("package-open-verify", step, "%lu bytes, js %lu, pak %lu, result %ld", (unsigned long)package->length,
+                   (unsigned long)package->guest.javascript_length, (unsigned long)package->guest.pak_length, (long)result);
   if (result != 0 || package->guest.package_hash == 0) {
     pocket_set_error(
       error,
@@ -346,7 +359,11 @@ RuntimePendingResult runtime_prepare_file(
 
   char destination[192];
   blob_path(pending->guest.package_hash, destination, sizeof destination);
-  if (stat(destination, &info) == 0) {
+  uint64_t step = push_timing_now();
+  bool exists = stat(destination, &info) == 0;
+  int stat_errno = errno;
+  push_timing_step("blob-stat", step, "%s exists=%d", destination, exists);
+  if (exists) {
     char duplicate_error[192] = {0};
     PocketRuntimePackage *existing = runtime_package_load_hash(
       pending->guest.package_hash,
@@ -359,19 +376,29 @@ RuntimePendingResult runtime_prepare_file(
       return RUNTIME_PENDING_ERROR;
     }
     runtime_package_free(existing);
-    if (remove(path) != 0) {
-      pocket_set_error(error, error_length, "remove duplicate staged package failed (%d)", errno);
+    step = push_timing_now();
+    int removed = remove(path);
+    int remove_errno = errno;
+    push_timing_step("staging-remove", step, "%s", path);
+    if (removed != 0) {
+      pocket_set_error(error, error_length, "remove duplicate staged package failed (%d)", remove_errno);
       runtime_package_free(pending);
       return RUNTIME_PENDING_ERROR;
     }
-  } else if (errno != ENOENT) {
-    pocket_set_error(error, error_length, "stat %s failed (%d)", destination, errno);
+  } else if (stat_errno != ENOENT) {
+    pocket_set_error(error, error_length, "stat %s failed (%d)", destination, stat_errno);
     runtime_package_free(pending);
     return RUNTIME_PENDING_ERROR;
-  } else if (rename(path, destination) != 0) {
-    pocket_set_error(error, error_length, "commit staged package failed (%d)", errno);
-    runtime_package_free(pending);
-    return RUNTIME_PENDING_ERROR;
+  } else {
+    step = push_timing_now();
+    int renamed = rename(path, destination);
+    int rename_errno = errno;
+    push_timing_step("staging-rename-to-blob", step, "%s -> %s, %lu bytes", path, destination, (unsigned long)pending->length);
+    if (renamed != 0) {
+      pocket_set_error(error, error_length, "commit staged package failed (%d)", rename_errno);
+      runtime_package_free(pending);
+      return RUNTIME_PENDING_ERROR;
+    }
   }
   snprintf(pending->origin, sizeof pending->origin, "%s", destination);
   *out = pending;
@@ -402,6 +429,7 @@ bool runtime_commit(
     (unsigned long long)active_hash,
     (unsigned long long)last_good_hash
   );
+  uint64_t step = push_timing_now();
   remove(temporary_path);
   FILE *file = fopen(temporary_path, "wb");
   if (file == NULL) {
@@ -416,6 +444,7 @@ bool runtime_commit(
     remove(temporary_path);
     return false;
   }
+  push_timing_step("state-commit", step, "%s", final_path);
   state->generation = generation;
   state->active_hash = active_hash;
   state->last_good_hash = last_good_hash;

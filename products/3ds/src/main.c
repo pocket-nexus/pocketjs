@@ -70,6 +70,7 @@
 #include "transition.h"
 #include "bytecode.h"
 #include "bundle_compile.h"
+#include "push_timing.h"
 #include "instance.h"
 #ifdef POCKETJS_EXTENSION
 #include "pocket_extension.h"
@@ -635,15 +636,21 @@ static bool run_bundle(PocketRuntimePackage *package, char *error, size_t error_
   bool named = runtime_slot_path(package->guest.slot, "bundle.qbc", path, sizeof path);
   uint64_t hash = package->guest.package_hash;
   size_t length = 0;
+  uint64_t step = push_timing_now();
   uint8_t *bytecode = named ? bytecode_load(path, hash, &length) : NULL;
+  push_timing_step("bytecode-load", step, "%s %lu bytes", bytecode != NULL ? "hit" : "miss", (unsigned long)length);
   if (bytecode == NULL) {
+    step = push_timing_now();
     bytecode = compile_serviced(package, named ? path : NULL, &length, error, error_length);
+    push_timing_step("compile-serviced", step, "%lu bytes of bytecode", (unsigned long)length);
     /* The source does not compile: the boot fails with QuickJS's message, as qjs_boot's would. */
     if (bytecode == NULL && error[0] != '\0') return false;
   }
   bool booted;
   if (bytecode != NULL) {
+    step = push_timing_now();
     booted = qjs_boot(package, bytecode, length, NULL, NULL);
+    push_timing_step("qjs-boot", step, "from bytecode, ok=%d", booted);
   } else {
     booted = qjs_boot(package, NULL, 0, &bytecode, &length);
     if (booted && named && bytecode != NULL) bytecode_store(path, hash, bytecode, length);
@@ -663,7 +670,10 @@ static bool boot_guest(
     snprintf(error, error_length, "guest package has no JavaScript");
     return false;
   }
+  uint64_t step = push_timing_now();
   if (!surfaces_admit(package, error, error_length)) return false;
+  push_timing_step("boot-surfaces-admit", step, "-");
+  step = push_timing_now();
   /* link.c names the running app in every NET request, and the guest's
    * first code (a module's top level, the first effects) runs inside
    * qjs_boot and may fetch: the launcher learns the app before it starts. */
@@ -676,6 +686,8 @@ static bool boot_guest(
    * qjs_boot publishes `globalThis.fs`. A card that cannot hold it leaves
    * the namespace out, as on a host without the capability; so does a
    * capture build, whose goldens must not read an earlier run's files. */
+  push_timing_step("boot-launcher-and-channel", step, "-");
+  step = push_timing_now();
   fs_unbind();
 #ifndef POCKETJS_CAPTURE
   if ((package->guest.features & POCKET_GUEST_FEATURE_FS) != 0) {
@@ -687,6 +699,8 @@ static bool boot_guest(
     }
   }
 #endif
+  push_timing_step("boot-fs-bind", step, "data.fs=%d", (package->guest.features & POCKET_GUEST_FEATURE_FS) != 0);
+  step = push_timing_now();
   camera_admit(
     (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_QR) != 0,
     (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_PHOTO) != 0
@@ -704,7 +718,11 @@ static bool boot_guest(
 #endif
   /* Also sets 3D and the top backlight from the console's display mode. */
   agent_set_enabled(agent);
-  if (!run_bundle(package, error, error_length)) {
+  push_timing_step("boot-camera-agent", step, "-");
+  step = push_timing_now();
+  bool ran = run_bundle(package, error, error_length);
+  push_timing_step("run-bundle", step, "ok=%d", ran);
+  if (!ran) {
     qjs_shutdown();
     link2_host_guest_end();
     gfx_reset_resources();
@@ -870,6 +888,7 @@ static void accept_guest(
   }
   choice->commit_on_accept = false;
   runtime_failure_lineage_reset(failures);
+  push_timing_step("accept-commit", push_timing_now(), "frames submitted %lu", (unsigned long)choice->submitted_frames);
   runtime_write_status(state, choice->package, "accepted");
   report_runtime(state, choice->package, "accepted", frame);
   report_install("accepted", accepted_hash, "first PICA command list retired");
@@ -1148,10 +1167,12 @@ static bool boot_app(
   char *error,
   size_t error_length
 ) {
+  uint64_t step = push_timing_now();
   if (!runtime_select_slot(target->slot) || !runtime_storage_init(state, error, error_length)) {
     runtime_package_free(candidate);
     return false;
   }
+  push_timing_step("boot-app-storage", step, "slot %s", target->slot);
   if (candidate != NULL) {
     *choice = package_choice(candidate, candidate->guest.package_hash, state);
   } else {
@@ -1163,11 +1184,16 @@ static bool boot_app(
     if (active == NULL) return false;
     *choice = package_choice(active, state->active_hash, state);
   }
-  if (!boot_guest(choice->package, error, error_length)) {
+  step = push_timing_now();
+  bool booted = boot_guest(choice->package, error, error_length);
+  push_timing_step("boot-guest", step, "ok=%d", booted);
+  if (!booted) {
     release_choice(choice, NULL);
     return false;
   }
+  step = push_timing_now();
   runtime_write_status(state, choice->package, choice->commit_on_accept ? "candidate" : "booted");
+  push_timing_step("write-status", step, "-");
   return true;
 }
 
@@ -1184,14 +1210,20 @@ static void switch_guest(
   uint64_t report_hash,
   uint32_t *run_frame
 ) {
+  uint64_t step = push_timing_now();
   begin_frame_wait(*run_frame);
+  push_timing_step("switch-frame-wait", step, "-");
+  step = push_timing_now();
   accept_guest(choice, state, failures, *run_frame);
   /* The old guest's last frame has retired. From here to the new guest's
    * first frame the loading thread draws the transition, and the teardown
    * releases nothing its frames use. */
   transition_load(osGetTime());
   loading_start();
+  push_timing_step("switch-accept-and-loading-start", step, "-");
+  step = push_timing_now();
   teardown_guest();
+  push_timing_step("switch-teardown", step, "the old guest");
   release_choice(choice, embedded);
   runtime_failure_lineage_reset(failures);
   /* The install's report follows the runtime's: its reply names the guest
@@ -1263,20 +1295,26 @@ static bool route_upload(
   uint32_t *run_frame
 ) {
   char error[256] = {0};
+  uint64_t step = push_timing_now();
   PocketRuntimePackage *peek = runtime_package_load(POCKET_RUNTIME_UPLOAD, error, sizeof error);
+  push_timing_step("route-peek", step, "read and opened the staging file to learn its slot");
   if (peek == NULL) return false; /* the ordinary path reports the error */
   char slot[17];
   snprintf(slot, sizeof slot, "%s", peek->guest.slot);
   runtime_package_free(peek);
   if (strcmp(slot, runtime_slot()) == 0) return false;
+  step = push_timing_now();
   PocketRuntimePackage *installed = runtime_slot_install(slot, POCKET_RUNTIME_UPLOAD, upload_hash, state, error, sizeof error);
+  push_timing_step("slot-install", step, "slot %s, ok=%d", slot, installed != NULL);
   if (installed == NULL) {
     runtime_write_error("network-package", error);
     report_install("rejected", upload_hash, error);
     return true;
   }
   LauncherPackage facts = launcher_package(installed);
+  step = push_timing_now();
   launcher_note_installed(slot, &facts);
+  push_timing_step("launcher-note-installed", step, "app.txt of slot %s", slot);
   LauncherTarget target;
   memset(&target, 0, sizeof target);
   snprintf(target.slot, sizeof target.slot, "%s", slot);
@@ -1286,7 +1324,9 @@ static bool route_upload(
     runtime_package_free(installed);
     installed = NULL;
   }
+  step = push_timing_now();
   switch_guest(choice, state, embedded, failures, &target, installed, upload_hash, run_frame);
+  push_timing_step("switch-guest", step, "the whole switch");
   return true;
 }
 #endif /* POCKETJS_LINK */
@@ -1580,6 +1620,13 @@ int main(void) {
       stage_tick();
     }
 
+#if defined(POCKETJS_PUSH_TIMING)
+    /* DIAGNOSTIC: the first frames of a pushed guest, until its `accepted`. */
+    static uint32_t frames_timed;
+    if (!push_timing_active()) frames_timed = 0;
+    bool time_frame = push_timing_active() && frames_timed < 8;
+    if (time_frame) frames_timed += 1;
+#endif
     u64 phase_wait __attribute__((unused)) = svcGetSystemTick();
     uint32_t gpu_late __attribute__((unused)) = begin_frame_wait(
 #ifdef POCKETJS_CAPTURE
@@ -1623,6 +1670,12 @@ int main(void) {
     LOOP_STEP("guest frame");
     bool frame_ran = qjs_frame(buttons, analog, &touch, touch_count, right_analog);
     guest_frame_running = false;
+#if defined(POCKETJS_PUSH_TIMING)
+    if (time_frame) {
+      push_timing_step("frame-total", phase_wait, "from the frame wait to the guest frame's end, frame %lu, vblanks late %lu", (unsigned long)run_frame, (unsigned long)gpu_late);
+      push_timing_step("guest-frame", guest_frame_started, "frame %lu, ran=%d", (unsigned long)run_frame, frame_ran);
+    }
+#endif
 #ifdef POCKETJS_EXTENSION
     if (frame_ran && pocket_extension_enabled()) pocket_extension_after_frame();
 #endif

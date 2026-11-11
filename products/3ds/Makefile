@@ -133,7 +133,7 @@ OBJECTS := $(BUILD)/worker.o $(BUILD)/worker_core.o $(BUILD)/worker_quickjs.o $(
   $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link2_proto.o $(BUILD)/link2.o $(BUILD)/link2_bsd.o $(BUILD)/link2_guest.o $(BUILD)/link2_channel_qjs.o $(BUILD)/link2_http.o $(BUILD)/link2_host.o $(BUILD)/launcher.o $(BUILD)/services_host.o \
   $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
-  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o $(BUILD)/bundle_compile.o
+  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/photos_jpeg.o $(BUILD)/fs.o $(BUILD)/transition.o $(BUILD)/bytecode.o $(BUILD)/bundle_compile.o $(BUILD)/push_timing.o
 # A product extension's extension.mk adds to OBJECTS and LIBS, sets EXTENSION_HEADERS
 # to what its objects include, and writes its own rules for generated files.
 .DEFAULT_GOAL := all

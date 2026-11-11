@@ -29,6 +29,7 @@
 #include "pocket_core.h"
 #include "quickjs.h"
 #include "svcwire.h"
+#include "push_timing.h"
 #ifdef POCKETJS_EXTENSION
 #include "pocket_extension.h"
 #endif
@@ -844,9 +845,11 @@ static int32_t guest_evaluate(void *self, pocket_runtime *owner,
       (boot_compiled == NULL || length == 0 || code[length - 1] != 0))
     return pocket_guest_quickjs_vtable()->evaluate(guest, owner, code, length);
   JSValue function;
+  uint64_t step = push_timing_now();
   if (boot_bytecode != NULL) {
     function = JS_ReadObject(context, boot_bytecode, boot_bytecode_length,
                              JS_READ_OBJ_BYTECODE);
+    push_timing_step("evaluate-read-bytecode", step, "%lu bytes", (unsigned long)boot_bytecode_length);
   } else {
     /* Package sections carry their terminal NUL; JS_Eval takes the length
      * without it. */
@@ -873,13 +876,18 @@ static int32_t guest_evaluate(void *self, pocket_runtime *owner,
     return -1;
   }
   /* JS_EvalFunction takes ownership of the function. */
+  step = push_timing_now();
   JSValue result = JS_EvalFunction(context, function);
+  push_timing_step("evaluate-top-level", step, "the bundle's top level");
   if (JS_IsException(result)) {
     take_exception();
     return -1;
   }
   JS_FreeValue(context, result);
-  return pocket_guest_quickjs_vtable()->collect(guest);
+  step = push_timing_now();
+  int32_t collected = pocket_guest_quickjs_vtable()->collect(guest);
+  push_timing_step("evaluate-collect", step, "-");
+  return collected;
 }
 static int32_t guest_frame(void *self, const pocket_guest_frame *frame) {
   (void)self;
@@ -911,16 +919,19 @@ static const char *guest_error(void *self) {
 static int32_t compose(void *context, pocket_runtime *runtime) {
   const PocketRuntimePackage *package = context;
   composed = true;
+  push_timing_step("compose-begin", push_timing_now(), "marker: the facade attached the guest; admission and assets follow compose");
   instance = runtime;
   if (!instance_attach(runtime)) {
     set_error("3DS runtime composition failed");
     return -1;
   }
+  uint64_t step = push_timing_now();
   if (package->guest.worker_javascript_length && !pocket_3ds_worker_start(
         package->guest.worker_javascript, package->guest.worker_javascript_length, mount_worker_services)) {
     set_error(pocket_3ds_worker_error());
     return -1;
   }
+  push_timing_step("compose-worker-start", step, "worker js %lu bytes", (unsigned long)package->guest.worker_javascript_length);
   return 0;
 }
 /* Before the facade destroys the program: the bridge detaches before the
@@ -998,17 +1009,21 @@ bool qjs_boot(PocketRuntimePackage *package, const uint8_t *bytecode,
                                   .release = release,
                                   .context = package};
   composed = false;
+  uint64_t step = push_timing_now();
   program = pocket_qjs_program_create_host(&host);
+  push_timing_step("qjs-program-create", step, "-");
   if (!program) {
     set_error("3DS runtime composition failed");
     return false;
   }
   /* Runtime reads and admits the package from the source at boot and loads
    * its assets natively, as the archive's default does. */
+  step = push_timing_now();
   int booted = pocket_qjs_program_boot_source(
       program, instance_package_source(), package, package->guest.view_width,
       package->guest.view_height, package->guest.raster_density,
       INSTANCE_HEAP_LIMIT, INSTANCE_FRAME_BUFFER_BUDGET);
+  push_timing_step("qjs-program-boot-source", step, "admission, assets, worker start and evaluate together, ok=%d", booted);
   boot_bytecode = NULL;
   boot_compiled = NULL;
   boot_compiled_length = NULL;
