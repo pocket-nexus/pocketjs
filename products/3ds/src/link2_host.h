@@ -69,7 +69,7 @@ void link2_host_set_runtime(
   uint32_t frame
 );
 void link2_host_report_install(const char *phase, uint64_t hash, const char *message);
-void link2_host_report_log(const char *level, const char *message);
+bool link2_host_report_log(const char *level, const char *message);
 /* A console line of the running guest (ui.__dbgLog): a `log` event with
  * source "guest" while Hub has runtime.logs on, whether a DevTools panel
  * listens or not (docs/POCKET-LINK.md §6.2). */

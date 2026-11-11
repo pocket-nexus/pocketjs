@@ -60,9 +60,9 @@ int push_timing_active(void) {
   return active ? 1 : 0;
 }
 
+/* With the runtime's frame number, as every other host line. */
 static bool send_line(const char *text) {
-  Link2 *client = link2_host_client();
-  return client != NULL && link2_log(client, "info", "host", text, strlen(text), 0);
+  return link2_host_report_log("info", text);
 }
 
 /* A line kept for the replay, and sent now. */

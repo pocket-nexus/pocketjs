@@ -740,9 +740,9 @@ void link2_host_devtools_send(const char *line, size_t length) {
   if (client != NULL) link2_devtools_send(client, line, length);
 }
 
-void link2_host_report_log(const char *level, const char *message) {
-  if (client == NULL || message == NULL) return;
-  link2_log(client, level == NULL ? "info" : level, "host", message, strlen(message), runtime_frame);
+bool link2_host_report_log(const char *level, const char *message) {
+  if (client == NULL || message == NULL) return false;
+  return link2_log(client, level == NULL ? "info" : level, "host", message, strlen(message), runtime_frame);
 }
 
 void link2_host_report_guest_log(const char *level, const char *text, size_t length) {
@@ -1045,9 +1045,10 @@ void link2_host_report_install(const char *phase, uint64_t hash, const char *mes
   (void)hash;
   (void)message;
 }
-void link2_host_report_log(const char *level, const char *message) {
+bool link2_host_report_log(const char *level, const char *message) {
   (void)level;
   (void)message;
+  return false;
 }
 void link2_host_report_guest_log(const char *level, const char *text, size_t length) {
   (void)level;

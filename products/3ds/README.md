@@ -483,8 +483,8 @@ compile from source on every boot.
 
 **A new slot's folders are created on a thread of their own**
 (`src/slot_folders.c`). On the measured New 3DS XL, `mkdir` of a new slot's
-`apps/<slot>`, `packages/` and `state/` took 12.6 s together, 14 ms once
-they exist; on the main loop that left the link without a pump past its
+`apps/<slot>`, `packages/` and `state/` took about 4.2 s each, 12.6 s
+together, and 14 ms once they exist; on the main loop that left the link without a pump past its
 10 s limit on every first install. A push, a boot and an install from the
 store wait for them while the link is pumped.
 

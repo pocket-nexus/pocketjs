@@ -6,8 +6,8 @@
 /*
  * A slot's folders, created on a thread of their own. On the SD card of the
  * New 3DS XL that was measured, creating the three folders of a new slot
- * (POCKET_RUNTIME_APPS/<slot>, packages/, state/) took 12.5 s; the same
- * calls take 14 ms once the folders exist. On the main thread that left the
+ * (POCKET_RUNTIME_APPS/<slot>, packages/, state/) took 12.5 s, about 4.2 s
+ * per folder; the same calls take 14 ms once the folders exist. On the main thread that left the
  * link without a pump past the 10 s silence limit (docs/POCKET-LINK.md §4.6).
  *
  * slot_folders_ready() is true when every folder the slot needs exists:
