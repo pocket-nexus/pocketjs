@@ -48,6 +48,9 @@ int32_t link2_guest_install(const char *app_id, size_t length);
 bool link2_guest_remove(const char *app_id, size_t length);
 /* NULL when no event is waiting. */
 const char *link2_guest_poll(void);
+/* Once a pump, outside it: finishes an install whose last byte came before
+ * its slot's folders existed (link_host_slot_ready). */
+void link2_guest_service(void);
 
 /* One line for a status page, e.g. "LINKED MACBOOK". */
 void link2_guest_describe(char *out, size_t capacity);

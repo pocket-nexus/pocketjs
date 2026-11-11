@@ -71,6 +71,7 @@
 #include "bytecode.h"
 #include "bundle_compile.h"
 #include "push_timing.h"
+#include "slot_folders.h"
 #include "instance.h"
 #ifdef POCKETJS_EXTENSION
 #include "pocket_extension.h"
@@ -544,15 +545,25 @@ typedef struct {
  * `silence` (docs/POCKET-LINK.md §4.6). The compile and the write of its
  * file run on a thread of their own, one priority step below this one, in a
  * QuickJS runtime of their own (bundle_compile.h). This thread pumps the link
- * every COMPILE_PUMP_NS and sleeps between pumps, and the compile runs while
- * it sleeps. Nothing else touches the link meanwhile, so the client stays on
+ * every SERVICE_PUMP_NS and sleeps between pumps (pump_wait), and the
+ * compile runs while it sleeps. Nothing else touches the link meanwhile, so the client stays on
  * one thread; each pump holds loading_gpu, so a handler that uses the GPU
  * never runs beside a loading frame. The guest then boots from the bytecode
  * as from the cache.
  */
-#define COMPILE_PUMP_NS 8000000LL
+#define SERVICE_PUMP_NS 8000000LL
 /* QuickJS's limit and the frames above the compile's runtime. */
 #define COMPILE_STACK (QJS_STACK_BYTES + 64 * 1024)
+
+/* One turn of a wait for another thread's work (the compile, a slot's
+ * folders): a pump of the link, under loading_gpu, then a sleep in which
+ * that thread runs. */
+static void pump_wait(void) {
+  LightLock_Lock(&loading_gpu);
+  link2_host_pump();
+  LightLock_Unlock(&loading_gpu);
+  svcSleepThread(SERVICE_PUMP_NS);
+}
 
 typedef struct {
   const uint8_t *code;
@@ -602,12 +613,7 @@ static uint8_t *compile_serviced(const PocketRuntimePackage *package, const char
    * at this thread's priority and its pumps wait for the compile's end. */
   Thread thread = threadCreate(compile_run, &job, COMPILE_STACK, priority < 0x3f ? priority + 1 : priority, -2, false);
   if (thread == NULL) return NULL;
-  while (!atomic_load(&job.done)) {
-    LightLock_Lock(&loading_gpu);
-    link2_host_pump();
-    LightLock_Unlock(&loading_gpu);
-    svcSleepThread(COMPILE_PUMP_NS);
-  }
+  while (!atomic_load(&job.done)) pump_wait();
   threadJoin(thread, U64_MAX);
   threadFree(thread);
   if (job.bytecode == NULL) {
@@ -691,6 +697,8 @@ static bool boot_guest(
   fs_unbind();
 #ifndef POCKETJS_CAPTURE
   if ((package->guest.features & POCKET_GUEST_FEATURE_FS) != 0) {
+    /* data/ and fs-tmp/ of a slot's first boot, created off this thread (slot_folders.h). */
+    while (!slot_folders_ready(package->guest.slot, true)) pump_wait();
     char root[128];
     char temp[128];
     if (runtime_slot_path(package->guest.slot, "data", root, sizeof root) &&
@@ -1168,6 +1176,7 @@ static bool boot_app(
   size_t error_length
 ) {
   uint64_t step = push_timing_now();
+  while (!slot_folders_ready(target->slot, false)) pump_wait();
   if (!runtime_select_slot(target->slot) || !runtime_storage_init(state, error, error_length)) {
     runtime_package_free(candidate);
     return false;
@@ -1301,8 +1310,15 @@ static bool route_upload(
   if (peek == NULL) return false; /* the ordinary path reports the error */
   char slot[17];
   snprintf(slot, sizeof slot, "%s", peek->guest.slot);
+  bool data_fs = (peek->guest.features & POCKET_GUEST_FEATURE_FS) != 0;
   runtime_package_free(peek);
   if (strcmp(slot, runtime_slot()) == 0) return false;
+  /* A new slot's folders cost seconds on some cards: created on their own
+   * thread while the link is pumped, before the install and the boot ask
+   * for them (slot_folders.h). */
+  step = push_timing_now();
+  while (!slot_folders_ready(slot, data_fs)) pump_wait();
+  push_timing_step("slot-folders", step, "slot %s, data.fs=%d", slot, data_fs);
   step = push_timing_now();
   PocketRuntimePackage *installed = runtime_slot_install(slot, POCKET_RUNTIME_UPLOAD, upload_hash, state, error, sizeof error);
   push_timing_step("slot-install", step, "slot %s, ok=%d", slot, installed != NULL);

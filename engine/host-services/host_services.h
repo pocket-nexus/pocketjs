@@ -66,9 +66,14 @@ bool link_host_net_ready(void);
 /* The console's IPv4 address, "" without one. */
 void link_host_address(char *out, size_t capacity);
 
-/* The staging file an install of `slot` streams into; creates the slot
- * directory. */
+/* The staging file an install of `slot` streams into, in a folder that
+ * exists already (the 3DS: outside the slot, whose folders may not exist
+ * yet). */
 bool link_host_staging_path(const char *slot, char *out, size_t capacity);
+/* True once `slot`'s folders exist. Where creating a folder takes long (the
+ * 3DS: seconds on some SD cards), a call starts that work elsewhere and
+ * answers false, and the caller asks again later; it never blocks on it. */
+bool link_host_slot_ready(const char *slot);
 /* Admit the completed staging file as the slot's package (`hash` is the
  * footer the companion declared) and commit it. On success `out`/`held` are
  * the installed package's facts, as from launcher_host_load. */

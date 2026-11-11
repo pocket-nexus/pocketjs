@@ -18,6 +18,7 @@
 #include "pocket_extension.h"
 #endif
 #include "sha256.h"
+#include "slot_folders.h"
 #include "soc.h"
 
 #define LINK_DIR "sdmc:/pocketjs/link"
@@ -193,12 +194,19 @@ void link_host_address(char *out, size_t capacity) {
 }
 
 bool link_host_staging_path(const char *slot, char *out, size_t capacity) {
+  /* Beside the slots, not in the slot: a new slot's folders cost seconds on
+   * some cards and are made on their own thread meanwhile (slot_folders.h).
+   * runtime_prepare_file renames the file into the slot's packages/. */
   char path[96];
+  if (!runtime_slot_path(slot, NULL, path, sizeof path)) return false;
   mkdir("sdmc:/pocketjs", 0777);
   mkdir(POCKET_RUNTIME_ROOT, 0777);
-  mkdir(POCKET_RUNTIME_APPS, 0777);
-  if (runtime_slot_path(slot, NULL, path, sizeof path)) mkdir(path, 0777);
-  return runtime_slot_path(slot, "link-upload.pocket", out, capacity);
+  int written = snprintf(out, capacity, "%s/link-upload-%s.pocket", POCKET_RUNTIME_ROOT, slot);
+  return written > 0 && (size_t)written < capacity;
+}
+
+bool link_host_slot_ready(const char *slot) {
+  return slot_folders_ready(slot, false);
 }
 
 bool link_host_install(

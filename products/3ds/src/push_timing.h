@@ -2,19 +2,22 @@
 #define POCKETJS_3DS_PUSH_TIMING_H
 
 /*
- * DIAGNOSTIC (pocket-nexus/pocketjs#690): the time each step of a
- * runtime.push takes on the console, from the transfer's first byte to the
- * `accepted` reply, and how long the link went without a pump meanwhile.
+ * The time a runtime.push takes on the console, from the transfer's first
+ * byte to the `accepted` reply, and the longest stretch the link went
+ * without a pump meanwhile. When the push ends, one host `log` line
+ * (runtime.logs) sums it up:
  *
- * Every step is one host `log` line (runtime.logs), sent as it ends:
+ *   push <hash> accepted: <bytes> bytes, transfer <ms> ms, <ms> ms after
+ *     received, longest pump gap <ms> ms at t=<ms>; longest steps <step>
+ *     <ms> ms, ...
  *
- *   push-timing <hash> <step> <ms> ms | t=<ms since the push began>
- *     rx=<ms since `received`> gap=<ms since the link's last pump> | <detail>
+ * and is sent again after the next `ready` when it may have been lost.
  *
- * The lines are also kept in memory. When the push ends they are appended
- * to sdmc:/pocketjs/runtime/push-timing.txt, and if any line could not be
- * sent (the link was down or logs were off), all of them are sent again
- * once log lines go out again (after the next `ready` and runtime.logs).
+ * Built with -DPOCKETJS_PUSH_TRACE, every step is a line of its own as it
+ * ends ("push-timing <hash> <step> <ms> ms | t=<ms since the push began>
+ * rx=<ms since `received`> gap=<ms since the link's last pump> | <detail>"),
+ * and the lines are appended to sdmc:/pocketjs/runtime/push-timing.txt.
+ * That trace found the 12.5 s of a new slot's folders (slot_folders.h).
  *
  * Builds without the link (capture, offload) and the build machine's tests
  * compile every call here to nothing.

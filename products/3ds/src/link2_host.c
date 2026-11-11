@@ -940,6 +940,7 @@ void link2_host_pump(void) {
     push_release();
     push_timing_finish("timeout");
   }
+  link2_guest_service();
   push_timing_service();
   devstats_set_link(link2_linked(client), link2_stats(client)->links, pushes_taken, shots_taken);
 }
