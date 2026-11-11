@@ -300,6 +300,32 @@ export function hostViewport(ops: HostOps): { w: number; h: number } | null {
   );
 }
 
+/** Subscribers to the logical viewport size (`onViewport`). */
+const viewportListeners = new Set<(w: number, h: number) => void>();
+
+/**
+ * Tell app code that the logical viewport is now `w` × `h`. Each framework
+ * entry calls this at the end of its `resizeViewport`, after the root layers
+ * and `ui.__viewport` carry the new size, so a listener that lays out from
+ * `hostViewport` reads the size it was called with.
+ */
+export function publishViewport(w: number, h: number): void {
+  for (const listener of [...viewportListeners]) listener(w, h);
+}
+
+/**
+ * Call `listener` with the new logical size on every live-viewport resize.
+ * Returns the function that removes it. A host without
+ * `display.viewport.live` never calls it: the size an app mounted at is the
+ * size it keeps.
+ */
+export function onViewport(listener: (w: number, h: number) => void): () => void {
+  viewportListeners.add(listener);
+  return () => {
+    viewportListeners.delete(listener);
+  };
+}
+
 export interface Host {
   ops: HostOps;
   /** Transport/ownership, deliberately independent from the target name. */

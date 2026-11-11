@@ -253,6 +253,7 @@ const SUITE: readonly Stage[] = [
       "tests/aot-differential.test.ts",
       "tests/microts-layout-baked.test.ts",
       "tests/solid-for.test.ts",
+      "tests/solid-viewport.test.ts",
       "tests/solid-aot-lab.test.ts",
       "tests/vue-vapor-frame-flush.test.ts",
     ],

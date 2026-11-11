@@ -9,6 +9,7 @@ import {
   installFrameHandler,
   installHost,
   installResizeViewportHook,
+  publishViewport,
   type HostOps,
 } from "./host.ts";
 import { initDevtools, wrapFrameHandler } from "./devtools.ts";
@@ -138,6 +139,7 @@ export function resizeViewport(w: number, h: number): void {
   );
   const ops = getOps() as HostOps & { __viewport?: { w: number; h: number } };
   ops.__viewport = { w, h };
+  publishViewport(w, h);
 }
 
 export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => void {
@@ -290,7 +292,7 @@ export function mount(code: VaporRenderRoot, opts: MountOptions = {}): () => voi
 }
 
 export type { HostOps, Host } from "./host.ts";
-export { detectHost, installHost, getOps } from "./host.ts";
+export { detectHost, installHost, getOps, onViewport } from "./host.ts";
 export type { NodeMirror } from "./renderer-vue-vapor.ts";
 export { retain, release, runSweep, registerTexture, registerSprite, missCounters } from "./renderer-vue-vapor.ts";
 export { registerStyles, resolveStyle } from "./styles.ts";

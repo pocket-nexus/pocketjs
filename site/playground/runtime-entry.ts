@@ -36,6 +36,7 @@ export {
   Grid,
   Lazy,
   Gallery,
+  useViewport,
 } from "../../framework/src/components.ts";
 export {
   animate,

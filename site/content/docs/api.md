@@ -9,7 +9,7 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | Import path | Exports |
 | --- | --- |
 | `@pocketjs/framework` | `mount`, `render`, host/runtime helpers, types |
-| `@pocketjs/framework/components` | `View`, `Text`, `Image`, `Sprite`, `CompositorSurface`, `Screen`, `Focusable`, `FocusScope`, `FocusGrid`, `ActionHandler`, `Portal`, `AuxiliarySurface`, `AuxiliaryPortal`, `Modal`, `ActionBar`, `Named`, `Grid`, `Lazy`, `Gallery`, `DeepZoom` (Solid) |
+| `@pocketjs/framework/components` | `View`, `Text`, `Image`, `Sprite`, `CompositorSurface`, `Screen`, `Focusable`, `FocusScope`, `FocusGrid`, `ActionHandler`, `Portal`, `AuxiliarySurface`, `AuxiliaryPortal`, `Modal`, `ActionBar`, `Named`, `Grid`, `Lazy`, `Gallery`, `DeepZoom`, `useViewport` (Solid) |
 | `solid-js` | `createSignal`, `createEffect`, `createMemo`, `onMount`, `onCleanup`, `batch`, `untrack`, `Show`, `For`, `Index`, `Switch`, `Match` |
 | `vue` | `defineComponent`, `ref`, `computed`, `watchEffect`, `onMounted`, `onScopeDispose` |
 | `octane` | `useState`, `useEffect`, `useMemo`, `useRef`, `useLayoutEffect`, `useEffectEvent` |
@@ -86,6 +86,7 @@ Lower-level mount: detects and installs the host, wires the style resolver, regi
 function detectHost(injected?: HostOps): Host
 function installHost(host: Host): void
 function getOps(): HostOps
+function onViewport(listener: (w: number, h: number) => void): () => void
 ```
 
 `detectHost` resolves the active host — injected ops win, otherwise
@@ -94,6 +95,12 @@ sets the active host (called by `render`). `getOps` returns the installed op
 surface. Native bundles built from an app contract validate `ui.__host` and
 `ui.__hostAbi` before mounting. See [Native contract](/docs/native-contract/)
 for the full `HostOps` surface.
+
+`onViewport` calls `listener` with the new logical size on **every
+`resizeViewport`**, after the root layers and `ui.__viewport` carry that size,
+and returns the function that removes it. It is the framework-neutral form of
+[`useViewport`](#useviewport-solid). A host without `display.viewport.live`
+never calls it.
 
 ### `HostOps`
 
@@ -413,6 +420,33 @@ supply logical-coordinate pan/pinch gestures with an anchored zoom point.
 
 `DeepZoom` is currently exported by the Solid components adapter. The tile
 wire format and texture-streaming HostOps remain framework-neutral.
+
+### `useViewport` (Solid)
+
+```ts
+interface ViewportSize { w: number; h: number }
+function useViewport(): Accessor<ViewportSize>
+```
+
+The logical viewport as a signal, in logical pixels. The first value is the
+size the host published at mount (`ui.__viewport`), or **the spec screen
+(480×272) on a host that publishes none**. Each `resizeViewport` sets the next
+value; a resize to the same size does not notify. The subscription ends with
+the owner that called the hook.
+
+A component reads it to pick a layout from the width: the number of columns in
+a grid, or whether two panels sit in a row or in a column.
+
+```tsx
+const viewport = useViewport();
+const columns = () => Math.max(1, Math.min(4, Math.floor((viewport().w - 48 + 16) / (240 + 16))));
+const card = () => (Math.min(1124, viewport().w - 48) - (columns() - 1) * 16) / columns();
+<For each={games()}>{(g) => <View style={{ width: card() }}>…</View>}</For>
+```
+
+The size changes only on targets with `display.viewport.live` (windows and
+widgets). An app that declares the capability and a `dynamic` viewport variant
+gets every window size inside the declared `min`…`max` range.
 
 ## `solid-js`
 
