@@ -1012,15 +1012,17 @@ export class LinkHub {
       pending.preamble = null;
       bytes = joined.subarray(LINK2_PREAMBLE_BYTES);
     }
-    let frames;
-    try {
-      frames = pending.decoder.push(bytes);
-    } catch (error) {
-      carrier.write(encodeClose(error instanceof LinkCloseError ? error.code : "protocol"));
-      return this.drop(pending);
-    }
-    for (let index = 0; index < frames.length; index++) {
-      const frame = frames[index];
+    pending.decoder.write(bytes);
+    // One frame at a time: from `auth` on, the bytes behind it are read after `ready` is written (§3.3).
+    for (;;) {
+      let frame;
+      try {
+        frame = pending.decoder.next();
+      } catch (error) {
+        carrier.write(encodeClose(error instanceof LinkCloseError ? error.code : "protocol"));
+        return this.drop(pending);
+      }
+      if (frame === null) return;
       if (frame.type === LINK2_FRAME.close) {
         // The device ended the handshake: `auth` when Hub's proof did not verify against its key file.
         this.options.onRefusal?.({ address: carrier.remoteAddress, device: pending.hello?.device ?? null, kind: "closed", code: frame.payload.length >= 4 ? parseClose(frame).code : "protocol" });
@@ -1054,11 +1056,11 @@ export class LinkHub {
       if (auth === null || !proofEquals(consoleProof(pending.key, hello.nonce, pending.nonce, hello.device, this.id), auth.proof)) {
         return this.refuse(pending, "bad_proof", "the proof did not verify");
       }
-      return this.ready(pending, frames.slice(index + 1));
+      return this.ready(pending);
     }
   }
 
-  private ready(pending: Pending, rest: Parameters<Peer["replay"]>[0]): void {
+  private ready(pending: Pending): void {
     const hello = pending.hello as Link2Hello;
     const { carrier } = pending;
     pending.done = true;
@@ -1109,7 +1111,8 @@ export class LinkHub {
     const lock = this.mutex.get(device.id);
     if (lock !== undefined && lock.until !== null) this.mutex.delete(device.id);
     this.options.onDevice?.(device);
-    peer.replay(rest);
+    // Bytes the device sent behind `auth` that came in its read.
+    peer.readBuffered();
   }
 }
 

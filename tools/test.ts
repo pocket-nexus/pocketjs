@@ -183,6 +183,7 @@ const SUITE: readonly Stage[] = [
       "tests/companion-session.test.ts",
       "tests/pocket-link.test.ts",
       "tests/pocket-link-2.test.ts",
+      "tests/pocket-link-2-reference.test.ts",
       "tests/pocket-link-2-c.test.ts",
       "tests/pocket-link-2-client.test.ts",
       "tests/resource-cache.test.ts",
