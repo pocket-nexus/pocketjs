@@ -23,6 +23,7 @@ import {
   installFrameHandler,
   installHost,
   installResizeViewportHook,
+  publishViewport,
   type HostOps,
 } from "./host.ts";
 import { initDevtools, wrapFrameHandler } from "./devtools.ts";
@@ -169,6 +170,7 @@ export function resizeViewport(w: number, h: number): void {
   );
   const ops = getOps() as HostOps & { __viewport?: { w: number; h: number } };
   ops.__viewport = { w, h };
+  publishViewport(w, h);
 }
 
 /** Gesture recognition for one frame's deferred presses; shared across frames. */
@@ -364,7 +366,7 @@ export function mount(code: () => unknown, opts: MountOptions = {}): () => void 
 // ---- runtime re-exports -------------------------------------------------------
 
 export type { HostOps, Host } from "./host.ts";
-export { detectHost, installHost, getOps } from "./host.ts";
+export { detectHost, installHost, getOps, onViewport } from "./host.ts";
 export { expandTape, type Tape, type DevtoolsTransport } from "./devtools.ts";
 export type { NodeMirror } from "./renderer.ts";
 export { retain, release, runSweep, registerTexture, missCounters } from "./renderer.ts";
