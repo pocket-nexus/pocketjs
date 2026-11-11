@@ -813,6 +813,16 @@ worst round trip of a request in 21 minutes of one request a second was
 185 ms, and the worst of 1,000 requests back to back was 117 to 435 ms
 across runs (§13.6).
 
+**The limit is not raised for a device's own long work; the device pumps
+the link through it.** A package's first boot on the 3DS compiled its whole
+bundle in one QuickJS call between two pumps of the main loop, and a first
+push of a 2.9 MB store package left the link without a frame for more than
+10 s after `received`: Hub closed it with `silence` (§13.6). The program
+of §12.2 compiles on a thread of its own and pumps the link meanwhile.
+A device that does stall past 10 s also closes the link itself at its next
+pump unless a frame from Hub waits in its socket, since the client reads
+the socket before it checks its own timer (`link2.c`).
+
 ### 4.7 Unknown and oversized frames
 
 | Case | Receiver |
@@ -2722,6 +2732,23 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   and its reply took two frames: **34 ms mean for a round trip, 18 ms with
   both** (§13.6). One pump took **0.14 ms mean on a link carrying one
   request a second and 0.44 ms mean across the transfer runs** on a New 3DS.
+- **A package's first boot compiles its bundle on a thread of its own**
+  (`main.c` `run_bundle`, `bundle_compile.c`). The slot's bytecode file
+  (`bytecode.c`) exists from the second boot of a package on; on the first,
+  the compile of the whole bundle was one QuickJS call between two pumps,
+  and nothing read or wrote the link meanwhile (§4.6, §13.6). **The compile
+  runs in a QuickJS runtime of its own on a thread one priority step below
+  the main thread, and writes the bytecode file; the main thread pumps the
+  link every 8 ms and sleeps between pumps**, which is when the compile
+  runs, then boots the guest from the bytecode as from the file. The client
+  stays on the main thread. A push (`route_upload`), an app opened from the
+  launcher and a cold boot take this path alike, and the program sends a
+  `log` line with the compile's and the write's durations. **Still on the
+  main loop without a pump**: reading and checking the package, the slot's
+  install and the guest's first evaluation. A launch of an installed applet
+  reads, checks and evaluates its package in 1.0 to 1.6 s on a New 3DS XL,
+  and a second push of the same package goes through all three within its
+  7 to 8 s (§13.6); none was timed alone, and none on an Old 3DS.
 - **A guest's stop with a worker request in flight**
   (`platforms/3ds/worker.c`). The worker thread's destroy retries while the
   main thread still has a request of that worker to end, and each retry
@@ -2976,7 +3003,7 @@ they were chosen**, by arithmetic or from version 1. Each row says which.
 | The outbound stream queue | **16 KiB per stream** (§7.6) | **measured**: 4 KiB gave 193 KB/s for an upload, 16 KiB 606 to 696 KB/s |
 | The event window and its unit | **48** units from the device, **256** from Hub, **512 bytes** a unit (§5.6) | estimate. 1,000 events each way passed with no `overflow`; no run looked for the largest burst a stall releases for a real daemon |
 | Daemon requests waiting for the guest | **8 KiB** of JSON per channel (§7.6) | estimate; the demo's daemon sends one request at a time |
-| `PING` every 3 s, `silence` after 10 s (§4.6) | version 1's values | **held**: no run closed with `silence`; the worst round trip of a request was 435 ms |
+| `PING` every 3 s, `silence` after 10 s (§4.6) | version 1's values | **held in the runs of §13.6**: none closed with `silence`; the worst round trip of a request was 435 ms. **A first push of a 2.9 MB store package closed with `silence`** (§13.6, 2026-11-11): the device compiled the bundle on its main loop. The compile moved off it (§12.2); not measured on a device since |
 | The `PING` wait before a replacement counts | **2 s** (§2.4) | estimate. The worst round trip seen is under a quarter of it; no run made two connections with one device id |
 | Replacements before the duplicate-id refusal | **3 in 30 s** (§2.4) | estimate; not exercised on the device |
 | The receive windows of a push and of an install | as in §5.6 | not varied. A push of 312 KB took 1.44 s; an install of 2.93 MB took 5.55 s with its SD writes |
@@ -3097,6 +3124,26 @@ result, writes a line on the demo's screen and sends a report request. The
 link's own allocations stayed at the three figures of the table. **What
 holds that memory was not found**; the demo's list of screen lines, which
 makes and drops a text node per line, is the first place to look.
+
+**A package's first boot** (2026-11-11): the same model of console running
+Pocket Shell built from `db995a4`, linked over Wi-Fi to a Pocket Hub
+endpoint under development, not the reference Hub; measured with that
+endpoint's runs:
+
+| What was done | What followed |
+| --- | --- |
+| First `runtime.push` of a store package of 2.6 to 2.9 MB holding three target variants (`dev.pocket-nexus.maps` among them) | **more than 10 s without a frame from the device after `received`**; Hub closed with `silence`. The device had installed the applet and linked again about 5 s later |
+| The same package pushed again | 7 to 8 s in all, no drop |
+| A launch of the installed applet | 1.0 to 1.6 s |
+
+Of the device's steps after `received`, one runs on the first push and not
+on the second: the compile of the bundle and the write of its bytecode file
+(`main.c` `run_bundle`); the second push finds the file. Whether the
+applet's own first run, in an empty data folder, added work of its own was
+not measured. **The program of §12.2 compiles the bundle off the main loop;
+it has not run on a device yet.** Opening an applet from the console's own
+store page for the first time takes the same path with no request of Hub's
+open.
 
 **Not run on the device**: a catalog paged at a small payload limit (the
 program offers 16,384 only); four streams read together; two connections

@@ -34,6 +34,7 @@ src/qjs.c             facade host guest: realm, product namespaces, bytecode,
                       worker start and stop around the program
 src/transition.c      app-switch overlay: scrim and activity indicator lists
 src/bytecode.c        a slot's bundle bytecode on the SD card
+src/bundle_compile.c  a bundle compiled to bytecode in a QuickJS runtime of its own, off the main thread
 src/services_host.c   host_services.h: clocks, owner name, sockets, SD slots
 src/wifi.c            globalThis.wifi over AC and nwm::EXT
 src/camera.c          camera texture, QR decode and stills
@@ -461,11 +462,16 @@ uncatchable error, and the app is torn down without another frame. The scan
 moves the press edges `hidKeysDown` reports (the dev menu chords) from the
 next frame's scan to this one.
 
-**A bundle boots from bytecode after its first boot** (`src/bytecode.c`).
-`qjs_boot` compiles the source (`JS_EVAL_FLAG_COMPILE_ONLY`) and hands back
-the bytecode (`JS_WriteObject`), which main.c writes to
-`<slot>/bundle.qbc`; the next boot of the same package runs it with
-`JS_ReadObject`. The file's header carries the package hash, the first 16
+**A bundle boots from bytecode** (`src/bytecode.c`). On a package's first
+boot, main.c compiles the source (`JS_EVAL_FLAG_COMPILE_ONLY`,
+`JS_WriteObject`) in a QuickJS runtime of its own on a thread one priority
+step below the main thread (`src/bundle_compile.c`) and writes
+`<slot>/bundle.qbc`, while the main thread pumps the link every 8 ms
+(`docs/POCKET-LINK.md` §4.6, §12.2); the compile was one call of seconds
+between two pumps, and a first push of a large package lost the link to
+`silence`. That boot and every later boot of the same package run the
+bytecode with `JS_ReadObject`. When the thread cannot start, `qjs_boot`
+compiles in the guest's own runtime and hands the bytecode back, as before. The file's header carries the package hash, the first 16
 hex digits of the QuickJS build stamp (`POCKETJS_QUICKJS_STAMP`, from
 `dist/3ds/quickjs/.stamp`) and an FNV-1a checksum; a mismatch compiles again.
 On an Old 3DS, compiling Pocket Shell's 477 KB bundle takes 2.3 s and reading

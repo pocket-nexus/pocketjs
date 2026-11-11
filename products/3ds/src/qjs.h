@@ -1,6 +1,16 @@
 #ifndef POCKETJS_3DS_QJS_H
 #define POCKETJS_3DS_QJS_H
 #include "runtime.h"
+/* QuickJS's stack limit for the guest, and for a compile of its bundle on
+ * another thread (bundle_compile.h). QuickJS recurses; the 3DS main thread's
+ * stack is set in main.c. A QuickJS call frame is expensive and mounting a
+ * UI descends the tree, so this budget is spent on JSX NESTING DEPTH rather
+ * than node count. 192 KiB was not enough for an ordinary windowed app:
+ * opening one Pocket Shell applet whose rows carried a wrapper view
+ * overflowed it mid-frame, and the runtime rolled the whole guest back to
+ * last-good. The main thread's own stack is 1 MiB (main.c) and this limit
+ * costs nothing until it is used. */
+#define QJS_STACK_BYTES (384 * 1024)
 /* One canonical Runtime; generated QuickJS Ui bindings share its state.
  * The caller retains the package until qjs_shutdown has completed.
  *

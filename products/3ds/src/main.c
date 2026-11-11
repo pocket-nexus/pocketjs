@@ -22,9 +22,11 @@
  * A requested switch runs under a host-drawn transition (transition.c): the
  * old guest stops and a scrim covers its last frame; a thread of its own
  * draws loading frames with a turning indicator through the teardown, the
- * new guest's bytecode (bytecode.c: cached per slot, else compiled) and its
- * mount; the scrim falls away over the new guest's first frames. QuickJS's interrupt hook reads SELECT inside an installed app's
- * long frame, so the launcher answers without waiting for the frame.
+ * new guest's bytecode (bytecode.c: cached per slot, else compiled on a
+ * thread of its own while the link is pumped, run_bundle) and its mount;
+ * the scrim falls away over the new guest's first frames. QuickJS's
+ * interrupt hook reads SELECT inside an installed app's long frame, so the
+ * launcher answers without waiting for the frame.
  *
  * Building with -DPOCKETJS_CAPTURE turns this into the deterministic e2e
  * binary: input comes from a baked tape instead of the hardware, the listed
@@ -67,6 +69,8 @@
 #include "wifi.h"
 #include "transition.h"
 #include "bytecode.h"
+#include "bundle_compile.h"
+#include "instance.h"
 #ifdef POCKETJS_EXTENSION
 #include "pocket_extension.h"
 #endif
@@ -207,6 +211,11 @@ static bool guest_frame_running;
 static u64 guest_frame_started;
 #ifndef POCKETJS_CAPTURE
 static void loading_end(void);
+/* Held by the loading thread while it draws a frame and by compile_serviced
+ * while it pumps the link: a pump's handlers may use the GPU (agent.c hands
+ * an agent.screen frame to stage.c, which transfers it into a texture), and
+ * citro3d is not thread-safe. Initialized in main(). */
+static LightLock loading_gpu;
 #endif
 
 /* Read one completed rotated PICA target as tightly packed RGB8. `width` and
@@ -524,9 +533,100 @@ typedef struct {
   uint32_t submitted_frames;
 } GuestChoice;
 
+#ifndef POCKETJS_CAPTURE
+/*
+ * A package's first boot compiles its bundle: bytecode.c has no file for it
+ * yet. The compile is one QuickJS call, seconds long for a large bundle, and
+ * on the main thread it held off every pump of the link: after the
+ * `received` event of a first push of a 2.9 MB store package the console
+ * sent and read nothing for more than 10 s, and Hub closed the link with
+ * `silence` (docs/POCKET-LINK.md §4.6). The compile and the write of its
+ * file run on a thread of their own, one priority step below this one, in a
+ * QuickJS runtime of their own (bundle_compile.h). This thread pumps the link
+ * every COMPILE_PUMP_NS and sleeps between pumps, and the compile runs while
+ * it sleeps. Nothing else touches the link meanwhile, so the client stays on
+ * one thread; each pump holds loading_gpu, so a handler that uses the GPU
+ * never runs beside a loading frame. The guest then boots from the bytecode
+ * as from the cache.
+ */
+#define COMPILE_PUMP_NS 8000000LL
+/* QuickJS's limit and the frames above the compile's runtime. */
+#define COMPILE_STACK (QJS_STACK_BYTES + 64 * 1024)
+
+typedef struct {
+  const uint8_t *code;
+  size_t length;
+  /* bundle.qbc of the package's slot, or NULL. */
+  const char *path;
+  uint64_t hash;
+  uint8_t *bytecode;
+  size_t bytecode_length;
+  u64 compile_ticks;
+  u64 store_ticks;
+  char error[256];
+  atomic_bool done;
+} CompileJob;
+
+static void compile_run(void *opaque) {
+  CompileJob *job = opaque;
+  u64 start = svcGetSystemTick();
+  job->bytecode = bundle_compile(job->code, job->length, QJS_STACK_BYTES, INSTANCE_HEAP_LIMIT, &job->bytecode_length, job->error, sizeof job->error);
+  u64 compiled = svcGetSystemTick();
+  job->compile_ticks = compiled - start;
+  if (job->bytecode != NULL && job->path != NULL) bytecode_store(job->path, job->hash, job->bytecode, job->bytecode_length);
+  job->store_ticks = svcGetSystemTick() - compiled;
+  atomic_store(&job->done, true);
+}
+
+static unsigned long ticks_ms(u64 ticks) {
+  return (unsigned long)(ticks * 1000 / SYSCLOCK_ARM11);
+}
+
+/* The bundle's bytecode, compiled and stored at `path` on the compile thread
+ * while this thread pumps the link. NULL leaves `error`: the compile's
+ * exception, or "" when nothing was compiled (no thread, no runtime) and
+ * qjs_boot compiles in the guest's runtime as before. */
+static uint8_t *compile_serviced(const PocketRuntimePackage *package, const char *path, size_t *length, char *error, size_t error_length) {
+  CompileJob job;
+  memset(&job, 0, sizeof job);
+  job.code = package->guest.javascript;
+  job.length = package->guest.javascript_length;
+  job.path = path;
+  job.hash = package->guest.package_hash;
+  atomic_init(&job.done, false);
+  error[0] = '\0';
+  s32 priority = 0x30;
+  svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+  /* 0x3F is the lowest an application thread takes: at it the compile runs
+   * at this thread's priority and its pumps wait for the compile's end. */
+  Thread thread = threadCreate(compile_run, &job, COMPILE_STACK, priority < 0x3f ? priority + 1 : priority, -2, false);
+  if (thread == NULL) return NULL;
+  while (!atomic_load(&job.done)) {
+    LightLock_Lock(&loading_gpu);
+    link2_host_pump();
+    LightLock_Unlock(&loading_gpu);
+    svcSleepThread(COMPILE_PUMP_NS);
+  }
+  threadJoin(thread, U64_MAX);
+  threadFree(thread);
+  if (job.bytecode == NULL) {
+    snprintf(error, error_length, "%s", job.error);
+    return NULL;
+  }
+  /* What a slow first boot took, as a `log` line of the link (runtime.logs). */
+  char line[160];
+  snprintf(line, sizeof line, "first boot of %016llx: %lu bytes of source compiled to %lu bytes of bytecode in %lu ms, stored in %lu ms, with the link pumped",
+           (unsigned long long)job.hash, (unsigned long)job.length, (unsigned long)job.bytecode_length, ticks_ms(job.compile_ticks), ticks_ms(job.store_ticks));
+  report_log("info", line);
+  *length = job.bytecode_length;
+  return job.bytecode;
+}
+#endif
+
 /* The bundle into the guest's runtime. Outside a capture build, from the
- * slot's bytecode when bytecode.c has it for this package, else from the
- * source, keeping the bytecode for the next boot. False leaves `error`. */
+ * slot's bytecode when bytecode.c has it for this package; else compiled and
+ * stored first, with the link serviced meanwhile (compile_serviced), then
+ * run from that bytecode. False leaves `error`. */
 static bool run_bundle(PocketRuntimePackage *package, char *error, size_t error_length) {
 #ifdef POCKETJS_CAPTURE
   bool booted = qjs_boot(package, NULL, 0, NULL, NULL);
@@ -536,6 +636,11 @@ static bool run_bundle(PocketRuntimePackage *package, char *error, size_t error_
   uint64_t hash = package->guest.package_hash;
   size_t length = 0;
   uint8_t *bytecode = named ? bytecode_load(path, hash, &length) : NULL;
+  if (bytecode == NULL) {
+    bytecode = compile_serviced(package, named ? path : NULL, &length, error, error_length);
+    /* The source does not compile: the boot fails with QuickJS's message, as qjs_boot's would. */
+    if (bytecode == NULL && error[0] != '\0') return false;
+  }
   bool booted;
   if (bytecode != NULL) {
     booted = qjs_boot(package, bytecode, length, NULL, NULL);
@@ -831,7 +936,9 @@ static void loading_run(void *unused) {
   (void)unused;
   while (!atomic_load(&loading_stop)) {
     /* A GPU still busy with the previous frame skips this one. */
+    LightLock_Lock(&loading_gpu);
     gfx_present_overlays();
+    LightLock_Unlock(&loading_gpu);
     svcSleepThread(LOADING_FRAME_NS);
   }
 }
@@ -1190,6 +1297,9 @@ static bool route_upload(
 
 int main(void) {
   gfxInitDefault();
+#ifndef POCKETJS_CAPTURE
+  LightLock_Init(&loading_gpu);
+#endif
   /* No-op on an Old 3DS; on a New 3DS it unlocks the faster clock and the
    * extra cache, which the QuickJS guest feels directly. */
   osSetSpeedupEnable(true);
