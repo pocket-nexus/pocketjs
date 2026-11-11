@@ -52,7 +52,7 @@ int push_timing_active(void) {
   return active ? 1 : 0;
 }
 
-static bool send(const char *text) {
+static bool send_line(const char *text) {
   Link2 *client = link2_host_client();
   return client != NULL && link2_log(client, "info", "host", text, strlen(text), 0);
 }
@@ -60,7 +60,7 @@ static bool send(const char *text) {
 static void keep(const char *text) {
   if (line_count < MAX_LINES) snprintf(lines[line_count++], LINE_BYTES, "%s", text);
   else lines_dropped += 1;
-  if (!send(text)) lost = true;
+  if (!send_line(text)) lost = true;
 }
 
 void push_timing_begin(uint64_t package_hash, uint32_t bytes) {
@@ -171,10 +171,10 @@ void push_timing_service(void) {
   if (replay_next == 0) {
     char text[LINE_BYTES];
     snprintf(text, sizeof text, "push-timing %016llx again: the %lu lines of the last push, kept while the link was down or logs were off", (unsigned long long)hash, (unsigned long)line_count);
-    if (!send(text)) return;
+    if (!send_line(text)) return;
   }
   for (int sent = 0; sent < REPLAY_PER_PUMP && replay_next < line_count; sent += 1) {
-    if (!send(lines[replay_next])) return;
+    if (!send_line(lines[replay_next])) return;
     replay_next += 1;
   }
   if (replay_next >= line_count) replay_due = false;
