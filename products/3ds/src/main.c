@@ -538,18 +538,17 @@ typedef struct {
 #ifndef POCKETJS_CAPTURE
 /*
  * A package's first boot compiles its bundle: bytecode.c has no file for it
- * yet. The compile is one QuickJS call, seconds long for a large bundle, and
- * on the main thread it held off every pump of the link: after the
- * `received` event of a first push of a 2.9 MB store package the console
- * sent and read nothing for more than 10 s, and Hub closed the link with
- * `silence` (docs/POCKET-LINK.md §4.6). The compile and the write of its
- * file run on a thread of their own, one priority step below this one, in a
- * QuickJS runtime of their own (bundle_compile.h). This thread pumps the link
- * every SERVICE_PUMP_NS and sleeps between pumps (pump_wait), and the
- * compile runs while it sleeps. Nothing else touches the link meanwhile, so the client stays on
- * one thread; each pump holds loading_gpu, so a handler that uses the GPU
- * never runs beside a loading frame. The guest then boots from the bytecode
- * as from the cache.
+ * yet. The compile is one QuickJS call: 754 ms for a 449 KB bundle on a New
+ * 3DS XL and, by bytecode.h, 2.3 s for 477 KB on an Old 3DS, longer than the
+ * link should go without a pump (docs/POCKET-LINK.md §4.6). The compile and
+ * the write of its file run on a thread of their own, one priority step
+ * below this one, in a QuickJS runtime of their own (bundle_compile.h). This
+ * thread pumps the link every SERVICE_PUMP_NS and sleeps between pumps
+ * (pump_wait), and the compile runs while it sleeps. Nothing else touches
+ * the link meanwhile, so the client stays on one thread; each pump holds
+ * loading_gpu, so a handler that uses the GPU never runs beside a loading
+ * frame. The guest then boots from the bytecode as from the cache. A new
+ * slot's folders take the same path (slot_folders.h).
  */
 #define SERVICE_PUMP_NS 8000000LL
 /* QuickJS's limit and the frames above the compile's runtime. */
