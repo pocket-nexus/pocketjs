@@ -80,8 +80,8 @@ errors, not silent no-ops. See [Styling](/docs/styling/).
 
 Text draws from atlases baked at build time. The default faces in
 `assets/fonts/` are **Inter** for the regular and bold slots and **JetBrains
-Mono** for the mono slots; `bun tools/build.ts --font-regular=` and
-`--font-bold=` swap the proportional faces. The build scans your source for the
+Mono** for the mono slots; `bun tools/build.ts --font-regular=`,
+`--font-bold=` and `--font-mono=` swap them. The build scans your source for the
 characters and font sizes you use and rasterizes only those atlas slots —
 supersampled 8-bit coverage cells with proportional advances and a cmap.
 Drawing text composites pre-baked coverage; the bundle carries no rasterizer.

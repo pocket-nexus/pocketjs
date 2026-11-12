@@ -286,6 +286,27 @@ describe("handshake (§3.4, §3.5)", () => {
       if (step.what === "ready") expect(parseReady(object)).toEqual(step.json);
     }
   });
+  test("a frame behind ready in the same read is read by the rules after ready (§3.3)", () => {
+    const ready = fromHex(v.transcript.find((step: { what: string }) => step.what === "ready").hex);
+    const request = encodeJsonFrame(LINK2_FRAME.request, 0x8000_0001, { t: "runtime.status" }, { limit: LINK2_TCP_PAYLOAD });
+    const credit = encodeCredit(0x8000_0002, 20_000);
+    const bytes = new Uint8Array([...ready, ...request, ...credit]);
+    for (const size of [bytes.length, 1, 7, 13]) {
+      const decoder = new Link2FrameDecoder();
+      const got: Link2Frame[] = [];
+      for (let at = 0; at < bytes.length; at += size) {
+        decoder.write(bytes.subarray(at, at + size));
+        for (let frame = decoder.next(); frame !== null; frame = decoder.next()) {
+          got.push(frame);
+          if (frame.type === LINK2_FRAME.handshake) decoder.ready(LINK2_TCP_PAYLOAD);
+        }
+      }
+      expect(got.map((f) => f.type)).toEqual([LINK2_FRAME.handshake, LINK2_FRAME.request, LINK2_FRAME.credit]);
+      expect(decoder.buffered).toBe(0);
+    }
+    // push() reads a whole chunk by one set of rules: the request behind ready breaks the rules before it.
+    expect(decode(toHex(bytes), LINK2_TCP_PAYLOAD, false).close).toBe("protocol");
+  });
   test("the payload limit is the smaller offer", () => {
     for (const c of v.limits) expect(payloadLimit(c.hello, c.ready)).toBe(c.limit);
     expect(() => payloadLimit(512, 16_384)).toThrow(LinkEncodeError);

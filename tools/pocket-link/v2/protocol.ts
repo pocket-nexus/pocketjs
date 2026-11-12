@@ -320,13 +320,18 @@ export function encodeRawFrame(type: number, flags: number, reserved: number, id
 }
 
 /**
- * Streaming frame decoder. Feed it bytes as they arrive; it returns whole
- * frames. Before `ready()` only HANDSHAKE, PING, PONG and CLOSE are valid and
+ * Streaming frame decoder. `write()` takes bytes as they arrive and `next()`
+ * reads one whole frame of them at a time, by the rules in force when it is
+ * called. Before `ready()` only HANDSHAKE, PING, PONG and CLOSE are valid and
  * the payload limit is LINK_MAX_HANDSHAKE; `ready(limit)` puts the negotiated
- * limit in force. **A header whose `length` is over the limit throws before a
- * payload byte is buffered**, so a forged length cannot drive an allocation.
- * Unknown types after ready are skipped by length. A thrown LinkCloseError
- * carries the code to close with; the decoder is dead after it.
+ * limit in force. **The handshake reads with `next()` and calls `ready()` on
+ * the frame that changes the rules before it asks for the next one**, so
+ * bytes behind `ready` that came in the same read are judged by the rules
+ * after `ready` (§3.3). `push()` reads every frame of a chunk by one set of
+ * rules. **A header whose `length` is over the limit throws before a payload
+ * byte is buffered**, so a forged length cannot drive an allocation. Unknown
+ * types after ready are skipped by length. A thrown LinkCloseError carries
+ * the code to close with; the decoder is dead after it.
  */
 export class Link2FrameDecoder {
   private header = new Uint8Array(LINK2_HEADER_BYTES);
@@ -339,6 +344,8 @@ export class Link2FrameDecoder {
   private limit = LINK2_MAX_HANDSHAKE;
   private linked = false;
   private dead = false;
+  /** Bytes written and not yet read, in order. */
+  private input: Uint8Array[] = [];
 
   /** `ready` was sent or read: the negotiated payload limit applies from here. */
   ready(limit: number): void {
@@ -349,44 +356,72 @@ export class Link2FrameDecoder {
     this.linked = true;
   }
 
-  /** Bytes this decoder holds: at most one header and one payload of the limit. */
+  /** Bytes this decoder holds: the bytes written and not yet read, and at
+   *  most one header and one payload of the limit. */
   get buffered(): number {
-    return this.headerFill + this.payloadFill;
+    let unread = 0;
+    for (const chunk of this.input) unread += chunk.length;
+    return this.headerFill + this.payloadFill + unread;
   }
 
-  push(chunk: Uint8Array): Link2Frame[] {
+  /** Takes bytes as they arrive and reads none of them; `next()` reads. The
+   *  chunk is kept by reference until it is read. Ignored once the decoder is dead. */
+  write(chunk: Uint8Array): void {
+    if (this.dead || chunk.length === 0) return;
+    this.input.push(chunk);
+  }
+
+  /** The next whole frame of the bytes written so far, read by the rules in
+   *  force now; null when they hold no whole frame yet. */
+  next(): Link2Frame | null {
     if (this.dead) throw new LinkCloseError("protocol", "decoder used after an error");
-    const frames: Link2Frame[] = [];
-    let at = 0;
     try {
-      while (at < chunk.length) {
+      while (this.input.length > 0) {
+        const chunk = this.input[0];
         if (this.skip > 0) {
-          const n = Math.min(this.skip, chunk.length - at);
+          const n = Math.min(this.skip, chunk.length);
           this.skip -= n;
-          at += n;
+          this.consume(n);
           continue;
         }
         if (this.payload === null) {
-          const n = Math.min(LINK2_HEADER_BYTES - this.headerFill, chunk.length - at);
-          this.header.set(chunk.subarray(at, at + n), this.headerFill);
+          const n = Math.min(LINK2_HEADER_BYTES - this.headerFill, chunk.length);
+          this.header.set(chunk.subarray(0, n), this.headerFill);
           this.headerFill += n;
-          at += n;
-          if (this.headerFill < LINK2_HEADER_BYTES) break;
+          this.consume(n);
+          if (this.headerFill < LINK2_HEADER_BYTES) continue;
           const frame = this.readHeader();
-          if (frame !== null) frames.push(frame);
+          if (frame !== null) return frame;
           continue;
         }
-        const n = Math.min(this.payload.length - this.payloadFill, chunk.length - at);
-        this.payload.set(chunk.subarray(at, at + n), this.payloadFill);
+        const n = Math.min(this.payload.length - this.payloadFill, chunk.length);
+        this.payload.set(chunk.subarray(0, n), this.payloadFill);
         this.payloadFill += n;
-        at += n;
-        if (this.payloadFill === this.payload.length) frames.push(this.finish());
+        this.consume(n);
+        if (this.payloadFill === this.payload.length) return this.finish();
       }
+      return null;
     } catch (error) {
       this.dead = true;
+      this.input = [];
       throw error;
     }
+  }
+
+  /** Writes a chunk and reads every frame in it by the rules in force now.
+   *  Not for the handshake, where `ready` changes the rules inside a chunk. */
+  push(chunk: Uint8Array): Link2Frame[] {
+    if (this.dead) throw new LinkCloseError("protocol", "decoder used after an error");
+    this.write(chunk);
+    const frames: Link2Frame[] = [];
+    for (let frame = this.next(); frame !== null; frame = this.next()) frames.push(frame);
     return frames;
+  }
+
+  private consume(n: number): void {
+    const chunk = this.input[0];
+    if (n === chunk.length) this.input.shift();
+    else this.input[0] = chunk.subarray(n);
   }
 
   /** Validates a complete header. Returns a frame when its payload is empty. */

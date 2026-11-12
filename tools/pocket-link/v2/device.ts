@@ -588,15 +588,18 @@ export class LinkDevice {
         preamble = null;
         bytes = joined.subarray(LINK2_PREAMBLE_BYTES);
       }
-      let frames;
-      try {
-        frames = decoder.push(bytes);
-      } catch (error) {
-        carrier.write(encodeClose(error instanceof LinkCloseError ? error.code : "protocol"));
-        return this.dropped("a bad frame in the handshake");
-      }
-      for (let index = 0; index < frames.length; index++) {
-        const frame = frames[index];
+      decoder.write(bytes);
+      // One frame at a time: `ready` puts the negotiated limit in force before the
+      // bytes behind it are read, also when Hub's first frame came in the same read (§3.3).
+      for (;;) {
+        let frame;
+        try {
+          frame = decoder.next();
+        } catch (error) {
+          carrier.write(encodeClose(error instanceof LinkCloseError ? error.code : "protocol"));
+          return this.dropped("a bad frame in the handshake");
+        }
+        if (frame === null) return;
         if (frame.type === LINK2_FRAME.close) return this.dropped("Hub closed the handshake");
         if (frame.type !== LINK2_FRAME.handshake) continue;
         const object = parseJsonPayload(frame).object;
@@ -629,7 +632,7 @@ export class LinkDevice {
           }
           const limit = payloadLimit(hello.maxPayload, ready.maxPayload);
           decoder.ready(limit);
-          return this.linked(companion, carrier, decoder, limit, ready, address, port, frames.slice(index + 1));
+          return this.linked(companion, carrier, decoder, limit, ready, address, port);
         }
         carrier.write(encodeClose("protocol"));
         return this.dropped("an unexpected handshake message");
@@ -644,7 +647,7 @@ export class LinkDevice {
     carrier.write(both);
   }
 
-  private linked(companion: LoadedCompanion, carrier: Carrier, decoder: Link2FrameDecoder, limit: number, ready: ReturnType<typeof parseReady>, address: string, port: number, rest: Parameters<Peer["replay"]>[0]): void {
+  private linked(companion: LoadedCompanion, carrier: Carrier, decoder: Link2FrameDecoder, limit: number, ready: ReturnType<typeof parseReady>, address: string, port: number): void {
     this.backoff = LINK2_BACKOFF_MIN_MS;
     this.status.links += 1;
     this.hub = { id: companion.id, name: ready.name, clock: ready.clock };
@@ -675,7 +678,8 @@ export class LinkDevice {
     this.wire(peer);
     this.options.onLinked?.({ id: companion.id, name: ready.name });
     this.groupsCame(this.features.filter((f) => peer.inUse(f)), true);
-    peer.replay(rest);
+    // Bytes behind `ready` that came in its read: Hub may send as soon as it has written `ready`.
+    peer.readBuffered();
   }
 
   private unlinked(peer: Peer, info: CloseInfo): void {

@@ -122,6 +122,7 @@ See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 | `--hz=N` | Bake this virtual tick rate into the bundle — an integer 1 through 240, default 60. The host must drive the surface at the same rate; a bundle whose baked rate differs from the host's `ui.__tickHz` throws before it mounts. |
 | `--font-regular=<path>` | Use this TTF instead of Inter Regular for the regular slots. |
 | `--font-bold=<path>` | Use this TTF instead of Inter Bold for the bold slots. |
+| `--font-mono=<path>` | Use this TTF instead of JetBrains Mono for the `font-mono` slots. |
 
 ```sh
 bun tools/build.ts settings --extra-chars="←→↑↓✓✕"

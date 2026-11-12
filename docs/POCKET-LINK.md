@@ -421,6 +421,16 @@ holds for every frame**: a `PING`, `PONG` or `CLOSE` is smaller by its own
 rule, and a header with a longer `length` closes with `too_large`. **A
 `HANDSHAKE` frame after `ready` closes the connection with `protocol`.**
 
+**The rules after `ready` hold from the first byte behind the `ready` frame,
+whatever read of the carrier brings it.** Hub may write its first §5 frame
+in the same write as `ready`, so a receiver puts the negotiated limit in
+force on the `ready` frame before it reads the next header (`link2.c`
+`link_up` calls `link2_reader_ready`; the reference decoder reads one frame
+per `next()`), not after the read that carried `ready`. Hub applies the same rules
+from the first byte behind `auth`: a device sends nothing but `PING`, `PONG`
+and `CLOSE` until it reads `ready`, and Hub cannot tell from a socket whether
+a byte was sent before or after its `ready` arrived (§4.1).
+
 ### 3.4 Handshake messages
 
 **hello** (device to Hub):
@@ -2571,7 +2581,9 @@ against them. The version-1 files go in the change that replaces `link.c`.
    records (§11).
 2. `tools/pocket-link/v2/protocol.ts`: the codec. Beacon, preamble and
    version selection, the 12-byte header with a streaming decoder that
-   checks the limit in force before it buffers a payload (§4.7), the binary
+   checks the limit in force before it buffers a payload (§4.7) and reads
+   one frame per call, so the handshake changes the rules at `ready` for the
+   bytes behind it in the same read (§3.3), the binary
    control frames, JSON frames with the `APP` prefix, the handshake messages
    and their proofs. `pairing.ts`: the three file formats, the device's load
    of `companions/`, Hub's setup as a plan of storage operations

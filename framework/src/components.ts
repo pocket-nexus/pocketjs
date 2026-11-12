@@ -23,7 +23,7 @@ import { MOTION_DEFAULT_MIN_QUALITY } from "./motion.ts";
 import type { MicroTsMotionHandlerProps } from "./component-types-microts.ts";
 import type { i32 } from "./numeric-microts.ts";
 import { RowContext, captureNodeRow, type RowContextValue } from "./solid-row.ts";
-import { getOps, hostViewport } from "./host.ts";
+import { getOps, hostViewport, onViewport } from "./host.ts";
 import { pushFocusGrid, pushFocusScope, type FocusGridOptions, type FocusScopeOptions } from "./input.ts";
 import { getOverlayRoot } from "./overlay.ts";
 import { getAuxiliarySurfaceRoots } from "./display.ts";
@@ -59,6 +59,30 @@ export {
   type TileLevel,
 } from "./deepzoom.ts";
 export type { NodeMirror } from "./renderer.ts";
+
+/** The logical viewport an app lays out in, in logical pixels. */
+export interface ViewportSize {
+  w: number;
+  h: number;
+}
+
+/**
+ * The logical viewport as a signal: the size the host published at mount
+ * (the spec screen on a host that publishes none), then each size the host
+ * resizes to. Read it in a component to choose a layout from the width: the
+ * columns of a grid, a row that becomes a column. Needs
+ * `display.viewport.live` to change; on a fixed screen the first value is the
+ * only one.
+ */
+export function useViewport(): Accessor<ViewportSize> {
+  const now = hostViewport(getOps());
+  const [size, setSize] = createSignal<ViewportSize>(
+    { w: now?.w ?? SCREEN_W, h: now?.h ?? SCREEN_H },
+    { equals: (a, b) => a.w === b.w && a.h === b.h },
+  );
+  onCleanup(onViewport((w, h) => setSize({ w, h })));
+  return size;
+}
 
 type RefProp = ViewProps["ref"];
 

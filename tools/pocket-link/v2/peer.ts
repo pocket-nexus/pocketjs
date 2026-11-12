@@ -79,6 +79,52 @@ const validAppName = (t: unknown): t is string => typeof t === "string" && t.len
 // Streams
 // ---------------------------------------------------------------------------
 
+/**
+ * Stream bytes an applet channel's writers hold toward the wire, under the
+ * channel's bound (§7.6: LINK_APP_OUTBOUND at the device), and the writers
+ * waiting for room in it. **Room comes back whenever any writer of the
+ * channel has a DATA frame written or ends**, so every waiting writer is
+ * woken then, not only the one whose frame left. JSON messages do not count
+ * here (§7.6).
+ */
+export class OutboundQueue {
+  /** Bytes written to the channel's streams and not yet handed to the carrier. */
+  bytes = 0;
+  private waiters: (() => void)[] = [];
+  constructor(readonly bound: number) {}
+
+  /** Bytes one write may take now: the whole bound while the queue is empty. */
+  get room(): number {
+    return this.bytes === 0 ? this.bound : Math.max(0, this.bound - this.bytes);
+  }
+  /** False when `n` bytes would pass the bound and the queue holds some already. */
+  fits(n: number): boolean {
+    return this.bytes === 0 || this.bytes + n <= this.bound;
+  }
+  /** @internal */
+  add(n: number): void {
+    this.bytes += n;
+  }
+  /** @internal Bytes left the queue: written to the carrier, or dropped with their stream. */
+  release(n: number): void {
+    this.bytes -= n;
+    this.wake();
+  }
+  /** @internal Wakes every waiting writer; each checks for room again. */
+  wake(): void {
+    for (const wake of this.waiters.splice(0)) wake();
+  }
+  /** Resolves at the next release. `first`: ahead of the writers already
+   *  waiting, for a writer that was woken and found no room, so writers of one
+   *  channel take the room in turn. */
+  wait(first = false): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (first) this.waiters.unshift(resolve);
+      else this.waiters.push(resolve);
+    });
+  }
+}
+
 /** The sending end of one stream direction. Bytes wait here for credit; at
  *  most one DATA frame of the stream sits in the write queue at a time. */
 export class StreamWriter {
@@ -88,7 +134,8 @@ export class StreamWriter {
   private ending = false;
   private queued = false;
   private settled = false;
-  private drains: (() => void)[] = [];
+  /** The bound these bytes count against: the channel's, else none. */
+  private readonly outbound: OutboundQueue | null;
   private readonly timer: StreamSendTimer;
   private finish!: () => void;
   private abort!: (error: LinkError) => void;
@@ -102,9 +149,10 @@ export class StreamWriter {
   constructor(
     private readonly peer: Peer,
     readonly id: number,
-    private readonly options: { exempt?: boolean; bound?: number; onGiveUp?: () => void; onCredit?: () => void; channel?: AppletChannel } = {},
+    private readonly options: { exempt?: boolean; onGiveUp?: () => void; onCredit?: () => void; channel?: AppletChannel } = {},
   ) {
     this.channel = options.channel ?? null;
+    this.outbound = this.channel?.outbound ?? null;
     this.timer = new StreamSendTimer(peer.now, options.exempt ?? false);
     this.finished = new Promise<void>((resolve, reject) => {
       this.finish = resolve;
@@ -123,28 +171,33 @@ export class StreamWriter {
   get done(): boolean {
     return this.settled;
   }
-  /** False ("full") when the bytes would pass the writer's bound; nothing is taken then. */
+  /** False ("full") when the bytes would pass the channel's outbound bound
+   *  and it holds bytes already; nothing is taken then. */
   write(bytes: Uint8Array): boolean {
     if (this.settled || this.ending) return false;
     if (bytes.length === 0) return true;
-    if (this.options.bound !== undefined && this.queuedBytes() + bytes.length > this.options.bound && this.queuedBytes() > 0) return false;
+    if (this.outbound !== null && !this.outbound.fits(bytes.length)) return false;
     this.chunks.push(bytes);
     this.pendingBytes += bytes.length;
-    if (this.options.channel) this.options.channel.outboundBytes += bytes.length;
+    this.outbound?.add(bytes.length);
     this.pump();
     return true;
   }
-  private queuedBytes(): number {
-    return this.options.channel ? this.options.channel.outboundBytes : this.pendingBytes;
-  }
-  /** Writes every byte, waiting for room when the writer is bounded. */
+  /** Writes every byte: as much as the channel's queue has room for, then
+   *  the rest as room comes back. Throws when the stream ends first. */
   async writeAll(bytes: Uint8Array): Promise<void> {
-    const step = this.options.bound ?? bytes.length;
+    let woken = false;
     for (let at = 0; at < bytes.length; ) {
-      const piece = bytes.subarray(at, Math.min(bytes.length, at + step));
-      if (this.settled) throw new LinkError("transfer", "the stream ended");
-      if (this.write(piece)) at += piece.length;
-      else await new Promise<void>((resolve) => this.drains.push(resolve));
+      if (this.settled || this.ending) throw new LinkError("transfer", "the stream ended");
+      const room = this.outbound === null ? bytes.length - at : this.outbound.room;
+      if (room > 0 && this.write(bytes.subarray(at, Math.min(bytes.length, at + room)))) {
+        at = Math.min(bytes.length, at + room);
+        woken = false;
+        continue;
+      }
+      // Woken and still no room: the next room goes to this writer before the ones that just wrote.
+      await this.outbound!.wait(woken);
+      woken = true;
     }
   }
   /** No more bytes: the last DATA frame carries END. */
@@ -172,12 +225,13 @@ export class StreamWriter {
   dead(error: LinkError): void {
     if (this.settled) return;
     this.settled = true;
-    if (this.options.channel) this.options.channel.outboundBytes -= this.pendingBytes;
+    const dropped = this.pendingBytes;
     this.chunks.length = 0;
     this.pendingBytes = 0;
     this.peer.forgetWriter(this);
     this.abort(error);
-    for (const wake of this.drains.splice(0)) wake();
+    // Its own writeAll ends, and the bytes it held are room for the channel's other writers.
+    this.outbound?.release(dropped);
   }
   /** @internal */
   tick(): void {
@@ -215,8 +269,7 @@ export class StreamWriter {
     this.queued = true;
     this.peer.enqueue(encodeData(this.id, out, last, limit), () => {
       this.sent += n;
-      if (this.options.channel) this.options.channel.outboundBytes -= n;
-      for (const wake of this.drains.splice(0)) wake();
+      this.outbound?.release(n);
       if (last) this.complete();
       else {
         this.queued = false;
@@ -519,7 +572,6 @@ export class IncomingCall {
     this.gate.write();
     this.out = this.peer.newWriter(this.id, {
       channel: this.channel ?? undefined,
-      bound: this.channel?.config.outbound,
       onGiveUp: () => this.fail(new LinkError("timeout", "no credit for the response in 30 s")),
     });
     return this.out;
@@ -594,7 +646,7 @@ export interface ChannelConfig {
   frameMessages: number;
   frameJson: number;
   frameStream: number;
-  /** Bytes queued from the applet or daemon toward the wire. */
+  /** Stream bytes queued from the applet or daemon toward the wire, all streams of the channel together. */
   outbound: number;
   /** Hand messages over as they arrive; false leaves it to `frame()` calls. */
   auto: boolean;
@@ -664,8 +716,8 @@ export class AppletChannel {
   private waitingRequests = 0;
   private frames = 0;
   private scheduled = false;
-  /** @internal Bytes and messages queued toward the wire. */
-  outboundBytes = 0;
+  /** @internal Stream bytes queued toward the wire, shared by the channel's writers. */
+  readonly outbound: OutboundQueue;
   /** Counters a test or a status page reads. */
   readonly stats = { eventsIn: 0, eventsOut: 0, unitsRegranted: 0 };
 
@@ -678,6 +730,7 @@ export class AppletChannel {
     readonly config: ChannelConfig,
   ) {
     this.receiver = new EventReceiver(config.eventWindow);
+    this.outbound = new OutboundQueue(config.outbound);
   }
 
   /** `open` or `closed`, with the close reason. A channel object exists from its accepting REPLY. */
@@ -714,7 +767,7 @@ export class AppletChannel {
     this.handlers.set(t, handler);
   }
   /** False when the channel is not open, the object is over LINK_APP_MSG, or
-   *  the event window or the outbound queue is full. */
+   *  the event window is full. */
   emit(t: string, args: Json = {}): boolean {
     return this.send(t, args, 0);
   }
@@ -722,7 +775,7 @@ export class AppletChannel {
   emitStream(t: string, args: Json = {}): StreamWriter | null {
     const id = this.peer.ids.take();
     if (!this.send(t, args, id)) return null;
-    return this.peer.newWriter(id, { channel: this, bound: this.config.outbound });
+    return this.peer.newWriter(id, { channel: this });
   }
   onEvent(t: string, handler: AppletEventHandler): void {
     this.eventHandlers.set(t, handler);
@@ -912,13 +965,10 @@ export class AppletChannel {
     const object = { t, ...args };
     const bytes = jsonBytes(object);
     if (bytes > appMessageLimit(this.peer.limit)) return false;
-    if (this.outboundBytes > 0 && this.outboundBytes + bytes > this.config.outbound) return false;
     if (!this.sender.send(bytes)) return false;
     this.stats.eventsOut += 1;
-    this.outboundBytes += bytes;
-    this.peer.enqueue(encodeJsonFrame(LINK2_FRAME.event, id, object, { channel: this.id, limit: this.peer.limit }), () => {
-      this.outboundBytes -= bytes;
-    });
+    // A JSON message goes to the write queue at once; the outbound bound counts stream bytes alone (§7.6).
+    this.peer.enqueue(encodeJsonFrame(LINK2_FRAME.event, id, object, { channel: this.id, limit: this.peer.limit }));
     return true;
   }
   private settle(): void {
@@ -1214,7 +1264,6 @@ export class Peer {
     if (options.body) {
       call.body = this.newWriter(id, {
         channel: call.channel ?? undefined,
-        bound: call.channel?.config.outbound,
         onGiveUp: () => this.stall(call),
       });
     }
@@ -1465,17 +1514,26 @@ export class Peer {
 
   private feed(bytes: Uint8Array): void {
     if (this.closeInfo !== null) return;
-    let frames: Link2Frame[];
+    this.decoder.write(bytes);
+    this.read();
+  }
+  /** Reads what the handshake's decoder holds behind `ready`: bytes of the
+   *  read that carried `ready` (device) or `auth` (Hub), read by the linked rules. */
+  readBuffered(): void {
+    if (this.closeInfo !== null) return;
+    this.read();
+  }
+  private read(): void {
     const skipped = this.decoder.skipped;
-    try {
-      frames = this.decoder.push(bytes);
-    } catch (error) {
-      return this.broke(error);
-    }
-    // A frame of an unknown type is skipped by its length and is a frame for the 10 s rule.
-    if (this.decoder.skipped !== skipped) this.keepalive.received();
-    for (const frame of frames) {
+    for (;;) {
       if (this.closeInfo !== null) return;
+      let frame: Link2Frame | null;
+      try {
+        frame = this.decoder.next();
+      } catch (error) {
+        return this.broke(error);
+      }
+      if (frame === null) break;
       this.stats.framesIn += 1;
       this.keepalive.received();
       try {
@@ -1484,16 +1542,8 @@ export class Peer {
         return this.broke(error);
       }
     }
-  }
-  /** Frames the handshake's decoder had already produced. */
-  replay(frames: Link2Frame[]): void {
-    for (const frame of frames) {
-      try {
-        this.frame(frame);
-      } catch (error) {
-        return this.broke(error);
-      }
-    }
+    // A frame of an unknown type is skipped by its length and is a frame for the 10 s rule.
+    if (this.decoder.skipped !== skipped) this.keepalive.received();
   }
   private broke(error: unknown): void {
     if (error instanceof LinkCloseError) this.close(error.code, error.message);
