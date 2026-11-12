@@ -987,7 +987,7 @@ messages), the id of an open request for progress, the id of a channel for
 
 | Header id | Events | Rule |
 | --- | --- | --- |
-| 0 | `features`, `catalog.changed`, `runtime.status`, `runtime.apps`, `log`, `devtools.listen`, the agent messages that open no stream | the id is 0 |
+| 0 | `features`, `catalog.changed`, `runtime.status`, `runtime.apps`, `log`, `devtools.listen`, the agent messages that open no stream; **proposed**: `device.accepts` (§7.9) | the id is 0 |
 | an open request's id | `runtime.install`, `runtime.native`, `install.head`, `net.head`, `runtime.screenshot` answering a request | a request the receiver sent and that has no `REPLY` yet |
 | a channel's id | `channel.close` | a channel open on the connection |
 | a fresh id of the sender | `agent.audio`, `agent.shot`, `agent.screen`, `agent.glyphs`, an unsolicited `runtime.screenshot` | **an id from the sender's own range (§5.1) that the sender has not used on this connection**; the event opens a stream under it |
@@ -1316,7 +1316,9 @@ first (§5.7):
 2. `CANCEL` for each of its own open requests in the group;
 3. `RESET` `cancelled` for each stream of the group that belongs to no
    request (the DevTools stream, agent streams);
-4. `channel.close` `feature` for each channel, when the group is `channel`.
+4. `channel.close` `feature` for each channel, when the group is `channel`;
+   **proposed**: for the system channel alone, when the group is `system`
+   (§7.9).
 
 The receiver of a `features` event that drops a group stops sending
 requests, events and streams of the group, answers a request of the group
@@ -1324,7 +1326,9 @@ that crosses the event with `ERROR` `unsupported`, and ignores events of the
 group that arrive after it. When a group comes into use again, its
 connection-start steps run again: the device sends `devtools.open` for
 `devtools` (§6.3), `runtime.apps` for `apps`, and `channel.open` for the running
-applet for `channel` (§7.1).
+applet for `channel` (§7.1); **proposed**: `device.accepts` and, when the running
+applet's plan asks for it, the system channel's `channel.open` for `system`
+(§7.9).
 
 **The agent stage.** When `agent` leaves use, the device does what it does
 today when the agent's channel goes away: the guest receives
@@ -2226,7 +2230,11 @@ messages; Hub reads none of them.
 Hub's side of the same proposal (its service contract, the capabilities a
 daemon may ask its host for, the sandbox and the signed releases) is in
 Hub's repository, `docs/services/`; this section decides the wire, and the
-names of §7.10 apply once they are accepted.
+names of §7.10 apply once they are accepted. **The applet's channel and the
+system channel are the same on every device that runs the applets**; under
+them is the link when the host is another machine (the 3DS, and the M5Stack
+Tab5 once it speaks this version) and a local connection when the host runs
+on the device itself (Omarchy Pocket), §7.11.
 
 **A device opens a second channel, to the system service: a service the host
 provides itself, with no applet code behind it.** It carries what the
@@ -2242,9 +2250,9 @@ work), a channel already ties messages, streams and their end to one applet
 run, and §7's bounds and credit then hold for it with no new rule. Why the
 host and not the applet's daemon: an applet without a daemon (Hacker News,
 GitHub, Weather in pocket-nexus/applets) needs pictures and glyphs as much as
-one with a daemon, and today reaches them through the `images` and `glyphs`
-services at `https://companion.pocket/` over `net.http`, an origin Pocket Hub
-no longer answers (§11).
+one with a daemon, and on a 3DS today reaches them through the `images` and
+`glyphs` services at `https://companion.pocket/` over `net.http`, an origin
+Pocket Hub no longer answers (§11).
 
 #### Open and close
 
@@ -2259,9 +2267,17 @@ the `applet.hosts` of the package that `app` and `hash` name.
   only while both lists name `channel` and `system` (§6.1).
 - It closes and reopens with the applet's channel: `exit` when the applet
   exits, `reset` and a new open when the realm resets, a new open after a
-  reconnect, and the retry rules of §7.1 and §7.5.
+  reconnect, and the retry rules of §7.1 and §7.5. When `system` leaves use,
+  the device's or Hub's side closes it with `feature` (§6.1).
 - Refusals are those of §7.1. A daemon's refusals (`no_daemon`, `capability`,
   `consent`) do not apply to it.
+- **The binding is the runtime's assertion, nothing more.** The footer hash
+  is FNV-1a64 (`contracts/spec/pocket-package.ts`), which anyone can match
+  with a package of their own, and an active attacker on the LAN can open
+  channels asserting any applet id (§3.9): through the system channel it
+  reaches the named applet's own hosts, and through an applet's channel it
+  drives that applet's daemon, sign-ins included. Phase one accepts this on
+  the owner's LAN; encryption is §3.10.
 
 #### What the device states: `device.accepts`
 
@@ -2272,30 +2288,30 @@ because whether a 3DS has the H.264 decoder, or whether its sound starts, is
 known on that console alone (`contracts/spec/media.ts` `MediaStatus.h264`,
 `audio`).
 
-`EVENT` `device.accepts` (id 0, no `APP` flag), device to Hub, **queued once
-after `ready` and before the first `channel.open`, and again when a value
-changes**, at most once a second; at most 1,020 bytes; the receiver keeps the
-latest per connection. Part of the group `system`.
+`EVENT` `device.accepts` (id 0, no `APP` flag, §5.3), device to Hub,
+**queued once after `ready` and before the first `channel.open`, and again
+when a value changes**, at most once a second; at most 1,020 bytes; the
+receiver keeps the latest per connection. Part of the group `system`.
 
 | Field | Type | Content |
 | --- | --- | --- |
 | `density` | number | device pixels per logical pixel of the applet's surface |
-| `image` | object? | `{formats, rle, maxSide}`: the IMG entry formats `uploadImgEntry` takes on this device, of `rgb565`, `rgba4444`, `rgba8888`, `t8`; whether PackBits (`IMG_FLAG_RLE`) is taken; the largest texture side in device pixels |
+| `image` | object? | `{formats, rle, maxSide}`: the IMG entry formats `uploadImgEntry` takes on this device, of `rgb565`, `rgba4444`, `rgba8888`, `t8`; whether PackBits (`IMG_FLAG_RLE`) is taken; the largest texture side in device pixels, **a power of two no larger than TEX_MAX_DIM (512, `contracts/spec/spec.ts`)** |
 | `text` | object? | `{atlas}`: the version of the `ui.loadFontAtlas` format the device loads (1) |
-| `media` | object? | `{codecs, width, height, audio}`: the `MEDIA_CODEC` names the device plays (`h264` only where the decoder is present), the largest picture (512 × 256 on a 3DS), whether its sound starts (absent until known) |
+| `media` | object? | `{codecs, width, height, audio}`: the `MEDIA_CODEC` names the device plays (`h264` only where the decoder is present), the largest picture (512 × 256 on a 3DS), whether its sound starts (absent until known). **Present only where the device can open a TCP connection to its host's media endpoint**: on the TCP carrier, and to a host on the same machine (§7.11). The media stream travels on that side connection (§1), which no other carrier has |
 
 A member that is absent means the device takes nothing of that kind; a
-request for it is answered `unavailable`.
+request for it is answered `not_accepted`.
 
 #### What it carries
 
-| Request `t` | Arguments | Head event, then bytes | Reply |
-| --- | --- | --- | --- |
-| `image.render` | `url` (`http:`/`https:`, at most 2 KiB encoded), `width`, `height` (1 to 1,024 logical pixels), `fit?` (`contain` default, `cover`, `fill`), `round?` (a circle cut from the box), `background?` (`#rrggbb`) | `image.head` `{width, height, format, bytes}`, then **one IMG entry** in the layout `uploadImgEntry` takes, in a format of `device.accepts.image` the host chooses | `{bytes}` |
-| `text.atlas` | `px` (6 to 64), `bold?`, `text` (the codepoints wanted, at most 2,048) | `text.head` `{bytes, glyphs, missing}`, then **the atlas** in the format `ui.loadFontAtlas` takes, the one `agent.glyphs` carries (§6.6), drawn at `device.accepts.density` | `{bytes}` |
-| `media.open` | `url` (at most 2 KiB), `at?` (milliseconds) | none | `{session, source: {host, port, token}, codec, width, height, fps, durationMs, audio}`: a `MediaSource` (`contracts/spec/media.ts`) and the stream's facts |
-| `media.seek` | `session`, `at` | none | as `media.open`, with a new `source`; the previous stream ends |
-| `media.close` | `session` | none | `{}` |
+| Request `t` | Arguments | Request body | Head event, then bytes | Reply |
+| --- | --- | --- | --- | --- |
+| `image.render` | `url` (`http:`/`https:`, at most 2 KiB encoded), `width`, `height` (the box, 1 to 512 logical pixels), `fit?` (`contain` default, `cover`, `fill`), `round?` (a circle cut from the box), `background?` (`#rrggbb`) | none | `image.head` `{width, height, contentWidth, contentHeight, format, bytes}`, then **one IMG entry** in the layout `uploadImgEntry` takes | `{bytes}` |
+| `text.atlas` | `px` (6 to 64), `bold?`, `bytes` (the body's length) | **the codepoints wanted, as UTF-8**, at most 4,096 codepoints and 16 KiB | `text.head` `{bytes, glyphs, missing, omitted}`, then **the atlas** in the format `ui.loadFontAtlas` takes, the one `agent.glyphs` carries (§6.6), drawn at `device.accepts.density` | `{bytes}` |
+| `media.open` | `url` (at most 2 KiB), `at?` (milliseconds), `video?` (false for sound alone), `durationMs?` (the length the applet knows, for a source that does not state it) | none | none | `{session, source: {host, port, token}, codec, width, height, fps, durationMs, audio}`: a `MediaSource` (`contracts/spec/media.ts`) and the stream's facts |
+| `media.seek` | `session`, `at` | none | none | as `media.open`, with a new `source`; the previous stream ends |
+| `media.close` | `session` | none | none | `{}` |
 
 | Event `t` | Direction | Object |
 | --- | --- | --- |
@@ -2303,32 +2319,43 @@ request for it is answered `unavailable`.
 
 - **An image** is decoded from JPEG, PNG, GIF (its first frame) or WebP,
   at most 16 MiB and 50 megapixels, scaled into the box at the device's
-  density, and encoded in the format the host picks among those the device
-  stated (an opaque photo as `rgb565`, a round avatar with alpha). Sizes: a
-  24 × 24 RGBA4444 avatar is 1,160 bytes, a 256 × 256 RGB565 map tile
-  131,080; the largest, 512 × 512 RGBA8888, 1 MiB. The bytes travel under
-  the stream's 32 KiB window (§5.6), like any response.
-- **An atlas** holds printable ASCII and the codepoints asked for, at most
-  4,096 glyphs and 1 MiB; **a codepoint keeps its advance in every atlas of
-  the same `px` and `bold`**, so text laid out with one atlas keeps its
-  layout when a later atlas replaces it. `missing` names the codepoints no
-  font of the host has.
+  density, and placed at the top-left corner of **a texture whose sides are
+  powers of two, no larger than `device.accepts.image.maxSide`**:
+  `uploadImgEntry` refuses any other size (`framework/compiler/pak.ts`
+  "pow2, <= TEX_MAX_DIM"). `width` and `height` in `image.head` are the
+  texture's; `contentWidth` and `contentHeight` are the picture's, which the
+  applet draws as a sub-rectangle. The format is the host's choice among
+  those the device stated (an opaque photo as `rgb565`, a round avatar with
+  alpha). Sizes: a 32 × 32 RGBA4444 avatar is 2,056 bytes, a 256 × 256 RGB565
+  map tile 131,080; the largest, 512 × 512 RGBA8888, 1 MiB. The bytes travel
+  under the stream's 32 KiB window (§5.6).
+- **An atlas**: the codepoints travel as the request's body because 4,096
+  of them do not fit LINK_APP_MSG (8,192 bytes; 1,020 at the 1 KiB floor);
+  the applets' `ui/glyphs.ts` splits its requests today for that reason. The
+  atlas holds printable ASCII and as many of the codepoints as fit **4,096
+  glyphs and 1 MiB at that `px`**; `omitted` names those that did not fit
+  (the applet asks again for fewer), `missing` those no font of the host has.
+  **A codepoint keeps its advance in every atlas of the same `px` and
+  `bold`**, so text laid out with one atlas keeps its layout when a later
+  atlas replaces it.
 - **Media**: the reply carries a source, not the stream. **The stream goes
   from Hub to the device on the side TCP connection of §1**, with the ticket,
   codecs and limits of `docs/MEDIA.md`; the channel carries the commands.
   The codec is the host's choice from `device.accepts.media`, never the
-  applet's. One session per channel: a new `media.open` ends the previous,
-  as a new source ends the previous generation on the device. Pause stays
-  on the device (`MediaOps.paused`).
+  applet's. `video: false` asks for sound alone (a podcast). One session per
+  channel: a new `media.open` ends the previous, as a new source ends the
+  previous generation on the device. Pause stays on the device
+  (`MediaOps.paused`).
 - **Errors**: `denied` (the URL's host is not in the applet's
-  `applet.hosts`, or the host does not know the package `app` and `hash`
-  name), `unavailable` (the device stated nothing of that kind),
-  `unsupported_input`, `http` (the source answered a status outside 2xx; the
-  error object carries `status`), the `NET_ERROR` codes of the fetch,
-  `too_large`, `busy`.
-- **Bounds**, beside §7.6's: the system service runs at most 4
-  `image.render`, 1 `text.atlas` and 1 media session per channel, and
-  answers `busy` past them.
+  `applet.hosts`, the destination policy of §6.5 refuses its address, or the
+  host does not know the package `app` and `hash` name), `not_accepted` (the
+  device's `device.accepts` names nothing of that kind), `unsupported_input`,
+  `http` (the source answered a status outside 2xx; the error object carries
+  `status`), the `NET_ERROR` codes of the fetch, `too_large`, `busy`.
+- **Bounds**, within §7.6's: the system service runs at most **3
+  `image.render` and 1 `text.atlas`** per channel, so its response streams
+  stay within the 4 that §7.6 allows toward the guest, and **1 media
+  session**; it answers `busy` past them.
 
 #### What the guest sees
 
@@ -2342,21 +2369,31 @@ with `createResourceScheduler`; `createTextLayout` already has this shape
 would add or extend: `@pocketjs/framework/image` (a cache of
 `image.render` results as textures), `@pocketjs/framework/glyphs` (an atlas
 per face slot, in the shape of the applets' `ui/glyphs.ts`), and
-`@pocketjs/framework/media` (a source for `createMediaService` from
-`media.open`). The guest's host namespace is `globalThis.channels.system`,
-with the twelve operations of `globalThis.channels.service` (§7.10).
+`@pocketjs/framework/media` (a source for `createMediaService`,
+`framework/src/media-service.ts`, from `media.open`). The guest's host
+namespace is `globalThis.channels.system`, with the twelve operations of
+`globalThis.channels.service` (§7.10).
+
+**`text.glyphs.deferred` and the glyph ids the registry has**
+(`contracts/spec/platform-types.ts`): `text.glyphs.runtime` is the host
+extending its atlases from system fonts as text renders, with no state the
+applet sees; `text.glyphs.streamed` is glyph cells streamed from a font
+archive through `io.offload` (`docs/DYNAMIC_TEXT.md`). `text.glyphs.deferred`
+is an atlas the applet asks for and loads itself, with the three states.
+Whether one of the two existing ids should carry this meaning instead of a
+new one is a question of §11.
 
 #### Memory on the device
 
 The system channel's traffic is responses to the guest's own requests:
 inbound streams and replies. **By §7.6's bounds it can hold 288 KiB like any
-channel; by its own bounds** (4 images and 1 atlas at a time, each stream in
-its 32 KiB window, small replies) **it holds at most about 160 KiB of streams
-and replies beside the 34 KiB of an idle channel** (§9). With the applet's
-channel, the link on a 3DS holds at most about 752 KiB by §7.6's bounds,
-against 464 KiB with one channel. The C client's request and stream tables
-grow with `max_channels` (`link2_create`); `stats.fixedBytes` reports the
-result. **None of this is measured.**
+channel; by its own bounds** (3 images and 1 atlas at a time, each stream in
+its 32 KiB window, replies of a few hundred bytes) **it holds at most 128 KiB
+of streams and a few KiB of replies beside the 34 KiB of an idle channel**
+(§9). With the applet's channel, the link on a 3DS holds at most about
+752 KiB by §7.6's bounds, against 464 KiB with one channel. The C client's
+request and stream tables grow with `max_channels` (`link2_create`);
+`stats.fixedBytes` reports the result. **None of this is measured.**
 
 #### Not carried, and where the host is
 
@@ -2392,6 +2429,7 @@ first).
 | none | `image.url`, `text.glyphs.deferred`, `media.url` | capabilities the system channel serves (§7.9) |
 | `tools/pocket-link/v2/daemon.ts`, `daemon-sample.ts`, `serve --daemon` | `service.ts`, `service-sample.ts`, `serve --service` | reference |
 | the role name `companion` in fields and file names (§1) | unchanged | |
+| capability `link.companion`, `globalThis.link`, `@pocketjs/framework/link` | unchanged: they are the console's link itself (pairing, status, the catalog and installs), where "link" names the thing and not where an applet's computer side runs; whether they are renamed anyway is a question of §11 | |
 
 Files a rename touches, at `48ca98b4`:
 
@@ -2415,10 +2453,96 @@ Files a rename touches, at `48ca98b4`:
   `framework/src/channel.ts`, `apps/link-channel/{app.tsx,daemon.ts,http-fixture.ts}`,
   `tests/pocket-link-2{,-client,-reference}.test.ts`, `tests/pocket-link.test.ts`,
   `tests/fixtures/link2-client-harness.c`, `tests/e2e/azahar-link2.ts`.
-- **`applet.services`**: `contracts/spec/applet.ts` (schema and the rule
-  "`applet.services` needs `net.http`"), `docs/APPLETS.md`,
-  `contracts/spec/link.ts` (`LINK_SERVICES_ORIGIN`),
-  `site/content/docs/app-contract.md`.
+- **`applet.services` and the origin** (`git grep` of `applet.services`,
+  `companion.pocket` and `LINK_SERVICES_ORIGIN`): `contracts/spec/applet.ts`
+  (schema and the rule "`applet.services` needs `net.http`"),
+  `contracts/spec/link.ts` (`LINK_SERVICES_ORIGIN`), `docs/APPLETS.md`,
+  `docs/WORKER.md`, `site/content/docs/app-contract.md`,
+  `site/content/docs/applets.md`, `tools/pocket-link/catalog.ts`,
+  `tools/pocket-link/v2/cli.ts`, this page.
+
+### 7.11 A host on the device, and the three devices
+
+**Proposed in this change; nothing in this section is implemented.**
+
+#### The local transport
+
+**When the host runs on the device itself, a channel travels on a local
+connection instead of the link, with the same frames and rules.** A local
+connection is **a Unix domain socket the host listens on, which the device
+program connects to, one connection per running applet**, carrying the frames
+of §4.2 to §5 and §7 unchanged. What the link adds for a remote host is not
+there:
+
+| Link | Local connection |
+| --- | --- |
+| carriers, beacons, the direct try and backoff (§2) | none: the socket's path is fixed by the device |
+| the pairing, the handshake's proofs (§3) | none: **the socket's owner and mode (0600, the device user's) admit the peer** |
+| the preamble (§4.1) | none |
+| `HANDSHAKE hello` / `ready` | `HANDSHAKE local.hello {hostAbi, features, maxPayload, app, hash}` from the device program; `HANDSHAKE local.ready {features, maxPayload}` or `local.refused {reason}` from the host. `maxPayload` as §4.4 (16,384 by default) |
+| keepalive (§4.6) | none: the socket's end is the connection's end |
+| groups (§6.1) | `channel`, `system`, `net.http`; no `runtime`, `devtools`, `catalog`, `install`, `apps` or `agent`, which belong to the device's own system |
+| §7 | unchanged: `channel.open` for the applet's channel and the system channel, ids, credit, event units, LINK_APP_MSG, the head step, close |
+
+**What the guest sees is identical**: the same host namespace
+(`globalThis.channels`), the same framework modules, the same limits and the
+same three states. An applet cannot tell a local host from a remote one
+except by the state's `local` flag, which exists for the words it shows.
+
+- **One connection per running applet**, because a device that hosts its own
+  services runs several applets at once (Omarchy Pocket's windows): each has
+  its applet's channel and its system channel, within the 4 channels of a
+  connection.
+- **`net.http` on a local connection**: the device's worker HTTP goes to the
+  host on the device, which applies the destination policy of §6.5 and the
+  applet's `applet.hosts` as Hub does for a remote device. The response limit
+  is the device's host contract's `worker.http.responseBytes` (4 MiB on
+  Omarchy Pocket), not §6.5's 256 KiB, which comes from the 3DS.
+- **Media**: the source names `127.0.0.1` and the host's media port; the side
+  connection is a TCP connection on the device, so `device.accepts.media` is
+  present (§7.9).
+- **`app` and `hash` in `local.hello`** are the device program's assertion
+  about the package it runs, as on the link; on Omarchy Pocket the device
+  program and the host run as the same user, so the assertion is as strong
+  as that user's account.
+
+#### The three devices
+
+| | Nintendo 3DS | M5Stack Tab5 | Omarchy Pocket |
+| --- | --- | --- | --- |
+| Program | Pocket Shell (`products/3ds`) | pocket-m5's firmware (ESP32-P4) | omarchy-pocket-host on an RG DS Plus, an AYN Thor or a uConsole (Linux, aarch64) |
+| Where its host is | Hub on a paired Mac | Hub on a paired Mac | **on the device** |
+| Channels travel on | this link (TCP over Wi-Fi) | this link, once its firmware speaks version 2 (it compiles version 1's `link.c` today, §11) | the local transport above |
+| Worker HTTP (`net.http`) | over this link; Hub performs it and applies `applet.hosts` | **the firmware's own HTTP stack**: Hub never sees it, so the firmware applies `applet.hosts` and the destination policy itself (§11) | over the local connection; the host on the device performs it |
+| `data.fs` | yes (`engine/host-services/fs.c`) | yes (on the microSD card) | **not in its host contract today**; proposed below |
+| Surface | 320 × 240, raster density 1 | 640 × 360; its host contract states raster density 1 | the window's size; the applets ask glyph atlases at density 2 there today |
+| `media` side connection | TCP to Hub | TCP to Hub | TCP to 127.0.0.1 |
+
+**Host contracts** (each program's `pocket.host.json`) gain `service.channel`
+(for `link.channel`, §7.10), `image.url`, `text.glyphs.deferred` and
+`media.url` where the device's runtime opens the system channel; Omarchy
+Pocket's also gains `data.fs`, so an applet's state (a token, a list of
+places) lives in one place on all three devices. The 3DS's contract is in
+this repository (`hosts/3ds-dev`); the others are in pocket-nexus/pocket-m5
+and pocket-nexus/omarchy-pocket.
+
+#### One applet source for all three
+
+What the guest API needs so one source builds for every device:
+
+- **No branch on the device for the back end.** The applet reaches its daemon
+  and the system service through `@pocketjs/framework/service`,
+  `@pocketjs/framework/image`, `@pocketjs/framework/glyphs` and
+  `@pocketjs/framework/media` alone, whatever the transport. The applets'
+  `ui/companion.ts` keeps only the words ("this device" or "your Mac"), read
+  from the channel state's `local` flag (`channelState().local`, proposed).
+- **Pictures in sizes every device uploads**: power-of-two textures within
+  TEX_MAX_DIM, with the content size beside them (§7.9).
+- **Density from the device**, never from the applet: `device.accepts.density`
+  decides an atlas's and a picture's pixels.
+- **Persistent state in `data.fs`** on all three.
+- **Limits from the host contract**: a worker's response limit and ring sizes
+  come from `worker` in each host contract, as they do today.
 
 ## 8. Arbitration
 
@@ -2710,17 +2834,28 @@ TypeScript console client, as Hub's version 1 tests do with
   phase one; drop it with version 2. *Recommendation:* keep it until the
   first daemons run; removing it is one check in Hub. Applets whose needs
   are a request and a reply may keep this shape for good: whether it stays
-  beside channels is undecided. **Settled by Pocket Hub, and by the proposal
-  of §7.9**: Hub does not answer the origin (`unavailable`, no compatibility),
-  the applets are rewritten, the system channel carries what the `images` and
-  `glyphs` services did, and an applet's daemon carries the rest.
-  `applet.services` leaves the app contract (§7.10).
+  beside channels is undecided. **Decided by the owners of Pocket Hub and
+  of the applets, with the proposal of §7.9 and §7.11**: no device keeps the
+  origin. Every device that runs the applets takes the channels: the 3DS
+  and the M5Stack Tab5 to Hub over this link, Omarchy Pocket to a host on
+  the device itself, which takes the place of omarchy-pocketd's answers to
+  `companion.pocket` (`ui/companion.ts` in pocket-nexus/applets). The system
+  channel carries what the `images` and `glyphs` services did, an applet's
+  daemon the rest, and `applet.services` leaves the app contract (§7.10).
+  Still open: who implements the host on Omarchy Pocket, and the Tab5's way
+  to this version (next item); Pocket Hub's `docs/services/` sets out both.
 - **Other users of version 1's C client.** pocket-m5's M5Stack Tab5 firmware
   compiles `engine/host-services/link.c` (`engine/host-services/README.md`
   "Programs") and sends `companion.pocket` over the whole-response `net`
   mode (`docs/WORKER.md`). How Hub writes a pairing to it is not defined. *Recommendation:* replace `link.c` in place;
   pocket-m5 pins a PocketJS commit before the change until it moves, and
   its way to receive the pairing files is decided with its carrier.
+  **Decided with §7.11: the Tab5 moves to this version** and reaches its
+  applets' daemons through Hub. Open: the pairing on a device without ftpd
+  (the Tab5 keeps `data.fs` on a microSD card, so the card setup of §3.2
+  fits; a USB path is the alternative), the first install of its firmware
+  (over USB), and who applies `applet.hosts` to its worker's HTTP, which
+  its own stack performs and Hub never sees.
 - **The carriers beyond TCP.** §2.0 says the link is the only transport,
   and phase one specifies TCP. Still outside it, and each to become a
   carrier of this protocol or be retired:
@@ -2821,6 +2956,17 @@ TypeScript console client, as Hub's version 1 tests do with
   code to the guest as the close reason (`link2.c` `channel_open_reply`), so
   `no_service`, `capability` and `consent` keep the retry rule §7.1 gives
   them even there.
+- **Proposed with §7.9: `text.glyphs.deferred` beside `text.glyphs.runtime`
+  and `text.glyphs.streamed`.** Options: a new id (§7.10); give
+  `text.glyphs.streamed` this meaning and move it from `io.offload` to the
+  system channel; serve `text.glyphs.runtime` with the system service.
+  *Recommendation:* the new id: `runtime` promises glyphs with no state the
+  applet sees, which a computer over the LAN cannot keep, and `streamed`
+  is a font archive's cell protocol with its own leases.
+- **Proposed with §7.10: names that keep "link".** `link.companion`,
+  `globalThis.link` and `@pocketjs/framework/link` stay, because they are
+  the console's link itself. Option: rename them with the rest.
+  *Recommendation:* keep them.
 
 ## 12. Implementation notes
 
@@ -3197,7 +3343,7 @@ over local IPC (§7.7).
    the POSIX build of the C client (Hub's version 1 tests build `link.c` the
    same way, `engine/host-services/README.md`).
 
-### 12.4 What an implementation of §7.9 and §7.10 touches
+### 12.4 What an implementation of §7.9 to §7.11 touches
 
 **A list for the change that implements the proposal; nothing in it is
 done.** As for the rest of this page, the specification, the reference, the
@@ -3219,10 +3365,16 @@ vectors and the C client merge together.
 - `tools/pocket-link/v2/vectors.ts` and `tests/vectors/pocket-link-2/`:
   `channel.json` gains the system channel's open, two channels on one
   connection, a `service` value that is `malformed`, an `image.render` with
-  its head, stream and reply, a `denied` image, a `capability` refusal with
+  its head (a 32 × 32 texture holding a 24 × 24 picture), stream and reply, a
+  fourth `image.render` answered `busy`, a `text.atlas` with its body and an
+  `omitted` list, a `denied` image, a `capability` refusal with
   `missing`, a `consent` refusal; `features.json` gains `system` dropped with
   the system channel open; `messages.json` gains `device.accepts` at 1,020
   bytes and one byte past, and `net.http` with `hash`.
+- **The local transport** (§7.11): `local.hello`, `local.ready` and
+  `local.refused` in `contracts/spec/link2.ts`; a local endpoint in the
+  reference (`tools/pocket-link/v2/`) over a Unix socket, sharing `peer.ts`;
+  vectors for the local handshake and its refusals.
 - `tests/pocket-link-2.test.ts`, `tests/pocket-link-2-reference.test.ts`,
   `tests/pocket-link-2-client.test.ts`.
 
@@ -3230,7 +3382,7 @@ vectors and the C client merge together.
 
 - `link2.{h,c}`: `link2_channel_open` takes the service name and writes it in
   `channel.open`; `device.accepts` built and queued after `ready` and on
-  change; the feature `system`; **the per-frame hand-over budget of §7.3
+  change, without `media` on a carrier other than TCP; the feature `system`; **the per-frame hand-over budget of §7.3
   held per guest across its channels**; the renamed codes. The generic
   refusal rule of `channel_open_reply` already covers `capability` and
   `consent`.
@@ -3271,6 +3423,15 @@ vectors and the C client merge together.
 - `docs/APPLETS.md`, `site/content/docs/app-contract.md`,
   `apps/link-channel` (renamed names), and a demo applet with a picture and
   an atlas for `tests/e2e/azahar-link2.ts`.
+- `channelState().local` in the framework's service module (§7.11).
+
+**Outside this repository**, for the record of the same change:
+pocket-nexus/omarchy-pocket's device program (`host/src/net.rs`,
+`host/src/children.rs`: a local connection per applet window, the channel
+namespace, the worker's HTTP over it) and its host contract; pocket-nexus/pocket-m5's
+firmware (version 2's C client in place of `link.c` and `link_http.c`, the
+channel namespace, `applet.hosts` in its HTTP node) and its host contract;
+Pocket Hub's endpoint and services. Each is designed in its own repository.
 
 ## 13. Measurements
 
