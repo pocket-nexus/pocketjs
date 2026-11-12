@@ -579,7 +579,9 @@ A push goes into the staging file and through the admission in `main.c`, a
   against the head's hash and commits it as that slot's active package. The
   admission reads the package back once, which costs one long frame per install
   (about 1.6 s for a 4.3 MB package on an Old 3DS). `link.remove` refuses the
-  running app and the launcher.
+  running app, the launcher, an app with an install under way and an id the
+  launcher's table does not list. Hub's `runtime.remove` takes the same path
+  and answers each refusal with its own error (`docs/POCKET-LINK.md` §6.2).
 
 `link.status()` carries four diagnostics beyond `LinkStatus`: `connectMs`
 (TCP connect + handshake), `rttMs` (last ping), and `rxBytes` / `rxUs` /

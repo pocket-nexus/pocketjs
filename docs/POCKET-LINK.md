@@ -39,7 +39,7 @@ endpoint (§12).
 | Group | Initiator | Content |
 | --- | --- | --- |
 | Admission | device | beacon, the handshake of a paired device (§2, §3). Pairing itself is written to the device's storage, not sent on the link (§3.2) |
-| Runtime operations | Hub | status, push a `.pocket`, install a `.3dsx`, launch, screenshot, logs (§6.2) |
+| Runtime operations | Hub | status, push a `.pocket`, install a `.3dsx`, launch, remove an installed applet, screenshot, logs (§6.2) |
 | Installed applets | device | the applets the device holds, sent after `ready` and on change (§6.2 `runtime.apps`) |
 | DevTools | both | the DevTools JSON-line protocol of `docs/DEVTOOLS.md` §4, eval included (§6.3) |
 | Catalog and install | device | Hub's app offer and a `.pocket` streamed into a slot (§6.4) |
@@ -941,7 +941,7 @@ Error codes every group uses:
 | `timeout` | the responder waited 30 s on a stream of the request |
 | `too_large` | a declared size is over its limit |
 | `not_found` | the named app, file or package does not exist |
-| `rejected` | the device checked the content and refused it; `message` says why |
+| `rejected` | the device checked the content, or the applet a request names, and refused it; `message` says why |
 | `transfer` | the stream ended short, long, or out of order |
 | `storage` | the device could not write or flush |
 | `no_channel` | an `APP` request names a channel that is not open (§7.2) |
@@ -1281,6 +1281,7 @@ it.** A request of a group the responder does not list gets `ERROR`
 | --- | --- | --- |
 | `runtime` | it answers `runtime.status`, `runtime.push`, `runtime.launch` (app), `runtime.screenshot`, `runtime.logs` | always (Hub sends them) |
 | `runtime.native` | it installs and starts `.3dsx` files (the development connection's ack flag `NATIVE`) | always |
+| `runtime.remove` | it removes an installed applet at Hub's request (§6.2 `runtime.remove`) | always (Hub sends it) |
 | `devtools` | the guest's DevTools shim is reachable | it relays DevTools |
 | `catalog` | it reads Hub's catalog | it offers one |
 | `install` | it installs from Hub | it streams packages |
@@ -1336,12 +1337,14 @@ does after every `agent.hello` (`contracts/spec/agent.ts` "Glyphs").
 
 ### 6.2 Runtime operations
 
-Hub sends these to a device that lists `runtime`. **`runtime.push`,
-`runtime.native.install`, `runtime.launch` and eval change device state and
-take Hub's device mutex (§8.3); the others take no lock.** The device also
+Hub sends these to a device that lists `runtime`, except where a message
+names another group (`runtime.apps`, `runtime.native.install`,
+`runtime.remove`). **`runtime.push`, `runtime.native.install`,
+`runtime.launch`, `runtime.remove` and eval change device state and take
+Hub's device mutex (§8.3); the others take no lock.** The device also
 refuses a second state-changing request while one is open (`busy`): it has one
 package staging file and one `.3dsx` staging file (`devserver.c`,
-`native.h`).
+`native.h`), and a removal would delete the slot a push commits into.
 
 The runtime state's `generation` in these messages counts package commits
 (`PocketRuntimeState`); it is not the channel generation of §7.4.
@@ -1378,7 +1381,8 @@ to the applets a linked device holds.
 (after `ready`, or after a `features` event, §6.1) and **after every change
 of the installed set**: a package committed as a slot's active package (a
 catalog install, a push into another app's slot, an accepted push of the
-running app), and a removal (`link.remove`). **At most one report a second**
+running app), a removal on the device (`link.remove`), and a removal at
+Hub's request (`runtime.remove`). **At most one report a second**
 (a report's pages go out together, below); a change inside the second goes
 out at its end. **Each report carries the whole
 set**, so a lost or late report is repaired by the next one and Hub keeps no
@@ -1516,6 +1520,57 @@ Reply for `native`: `{phase: "launching", name, path}`, then `CLOSE`
 `restart` as above. Reply for `app`: `{phase: "switching", output}`; the
 switch happens at the next frame boundary and a `runtime.status` event
 follows. Errors: `not_found` (no such file or output), `busy`, `launch`.
+
+#### runtime.remove
+
+Delete an installed applet from the device: its slot, which holds **the
+package and the applet's own data**, as the device's own Delete does (the
+guest's `link.remove`, `link2_guest.c`, which Pocket Shell calls after the
+owner confirms "Deleting this applet also deletes its data"). **Requires
+`runtime.remove`, not `runtime`.** A device that does not list the group,
+every device built before this request, is never sent it: Hub reads
+`hello.features` and the `features` events (§6.1) to know whether it can
+offer removal for a device.
+
+Request:
+
+| Field | Type | Limit |
+| --- | --- | --- |
+| `id` | string | **1 to 128 bytes**, counted as encoded: the applet's manifest id, as its `runtime.apps` row gives it |
+
+The device answers the first of these that holds:
+
+| Case | Answer |
+| --- | --- |
+| another state-changing request is open | `busy` |
+| `id` is absent, not a string, empty or over 128 bytes | `malformed` |
+| `id` is the launcher's (the row with `home: true`) | `rejected` with `reason: "home"`: the launcher is never removed |
+| `id` is the running applet's (`app.id` of `runtime.status`) | `rejected` with `reason: "running"`: the removal can succeed once the owner has switched to another applet |
+| no installed applet has `id` | `not_found` |
+| an install into the applet's slot streams or waits to commit (a catalog install, §6.4) | `busy` |
+| the slot could not be deleted | `storage` |
+
+Otherwise the device deletes the slot and replies `{id}` with the id it
+removed; **the `REPLY` leaves after the slot is deleted.** The installed set
+changed, so a `runtime.apps` report without the row follows under the
+one-a-second rule. The `REPLY` and that report are not ordered: Hub takes
+the set from the report. A push into the applet's slot is a state-changing
+request, so it meets the first case. A device that lists the group with no
+removal behind it answers `unsupported`.
+
+`reason` is the one member `runtime.remove`'s errors add to `code` and
+`message` (§5.2), and `rejected` alone carries it; `message` is an English
+line for a log, and Hub words what the owner sees from `code` and `reason`.
+On the 3DS the request and `link.remove` run one function
+(`link2_guest_remove_app`), which reads whether the id is installed from the
+launcher's table, the set `runtime.apps` reports, so a slot that would not
+delete is `storage` and not `not_found`.
+
+| Message | JSON as the vectors write it |
+| --- | --- |
+| Request | `{"t":"runtime.remove","id":"dev.example.notes"}` |
+| Reply | `{"id":"dev.example.notes"}` |
+| An error | `{"code":"rejected","message":"the applet is running; switch to another one first","reason":"running"}` |
 
 #### runtime.screenshot
 
@@ -2270,7 +2325,7 @@ queued frame**, so credit owed while the buffer is full is merged into one
 
 | State-changing | Not state-changing |
 | --- | --- |
-| `runtime.push`, `runtime.native.install`, `runtime.launch`, eval (§6.3) | `runtime.status`, `runtime.screenshot`, `runtime.logs`, other DevTools lines, catalog and install (device-initiated), `net.http`, agent, applet channels, `runtime.apps` |
+| `runtime.push`, `runtime.native.install`, `runtime.launch`, `runtime.remove`, eval (§6.3) | `runtime.status`, `runtime.screenshot`, `runtime.logs`, other DevTools lines, catalog and install (device-initiated), `net.http`, agent, applet channels, `runtime.apps` |
 
 - **Hub has at most one state-changing request open per device.** It sends
   the next one only after the previous one's `REPLY`, or after the
@@ -2360,6 +2415,7 @@ phase one.
 | Eval | the whole line **16 KiB**; the code is what remains, about 16,340 escaped bytes | one Hub → device line (§6.3) |
 | `runtime.push` | **1 byte to 24 MiB** | kept |
 | `.3dsx` | **32 bytes to 32 MiB**, name **6–64** bytes | kept |
+| `runtime.remove` | `id` **1 to 128** bytes, counted as encoded | a manifest id, the limit of a `runtime.apps` row (§6.2) |
 | `install` | **24 MiB**, **64** catalog rows | kept |
 | `net.http` | body **64 KiB**, response **256 KiB**, **32 headers**, encoded `headers` **8 KiB**, encoded `url` **2 KiB**, timeout **120 s**, **3** redirects; in use from a payload limit of **12,288** | kept (`net.ts`) but for the URL, 8 KiB in version 1, and the limits now counting encoded bytes (§6.5) |
 | Log text | **1 KiB**, and at most the payload limit − 96; `frame` and `dropped` are u32 | §6.2 |
@@ -2428,7 +2484,7 @@ accept any key order and whitespace, and tests compare parsed values.
 | `frames.json` | one encoding per frame type and flag, the `APP` frames with their channel id; refused headers: non-zero `reserved`, an undefined flag, `length` one over the negotiated limit (16,385 and 1,025), `REQUEST` with id 0, `DATA` of 0 bytes without `END`, `CREDIT` of 0, `PING` of 3 bytes, `REQUEST` with `BODY` and no `APP`, a `HANDSHAKE` after `ready` |
 | `handshake.json` | a full transcript from fixed ids, key and nonces: each frame's bytes, the two HMAC message strings and both proofs; `maxPayload` 16,384 and 1,024 offered and the limit each pair gives |
 | `handshake-refusals.json` | `unknown_device` (no key; another companion id), `bad_proof`, `malformed` (a `maxPayload` of 512 among them), `busy`; the device's `CLOSE` `auth` after a wrong `challenge.proof` and its 30 s hold; a `ready` with `maxPayload` 512 and the device's `CLOSE` `protocol`; a third replacement within 30 s of a connection that answered Hub's `PING`, and the `refused` `busy` that follows; three replacements of connections that answered nothing, after which the device still links; a frame of type `DATA` before `ready` |
-| `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31 |
+| `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31; **`runtimeRemove`**: an installed set, its running applet, a removal with its `REPLY` and the report without the row, each error with the case that gives it (`rejected` with `reason` `home` and `running`, `not_found`, `busy` for an install under way and for a second state-changing request, `storage`, `unsupported`), and ids at and past 128 bytes counted as encoded |
 | `streams.json` | a `runtime.push` of 100,000 bytes under 64 KiB credit with `END`; bytes past credit and the `CLOSE` `flow`; a grant over 16 MiB; `RESET` `refused` of an `agent.glyphs` stream; a stream short of its declared bytes; an event with an unknown `t` and a fresh id answered `RESET` `refused`; an event stream never granted and its sender's `RESET` `cancelled` at 30 s; a DevTools line held 30 s without credit, dropped with its eval failed and the stream kept |
 | `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY`; **a response of 18,244 bytes: the head event, `DATA` under the stream's 32 KiB window with the grants that follow the guest's reads, `END`, then the `REPLY`**; the same response completing while a `read` of 16 KiB stays pending on an idle event stream, which holds its own window and none of the response's; four streams read together with at most 128 KiB held; a request cancelled with its head event on the wire, the event discarded and its unit regranted; a progress event on an id of the receiver's range that names nothing held, ignored; `agent.glyphs` queued after a daemon request with a larger id and its stream still opened; a progress event named `log` and one named `features` read as progress; an event that opens a stream; a fifth stream refused with `RESET` `refused` and the request's `REPLY` after it; `CANCEL` answered `cancelled` by Hub for a daemon that does not answer; a JSON object of 8,193 bytes answered `too_large`, and one of 8,189 bytes refused on a connection whose payload limit is 8,192 (LINK_APP_MSG 8,188); the event window: `CREDIT` on the channel id for 48 units, an event of 600 bytes costing 2, progress events counted, the regrant after the guest takes events, a daemon held back with no units and no close, and an event past the units answered `channel.close` `overflow`; a progress event named `log` that crosses the applet's `channel.close` and is ignored; a stream-opening event with no handler answered `RESET` `refused`; two response streams of which the applet reads one, which completes while the other gets no credit; a daemon's bytes refused before any progress event; a daemon request refused `busy` with 8 KiB of requests waiting; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
 | `features.json` | Hub dropping `agent` with a microphone stream open (the `RESET` before the `features` event) and adding it back; the device dropping `devtools` (stream reset) and adding it back (a new `devtools.open`); Hub dropping `channel` with a channel open (`channel.close` `feature`); a request of a dropped group crossing the event and answered `unsupported`; a second change inside one second sent at its end; a list of 17 entries closing with `protocol` |
@@ -2648,8 +2704,8 @@ against them. The version-1 files go in the change that replaces `link.c`.
    broadcast address read again every **10 s**, every paired device's last
    address, named unicast targets) and persists "setup not confirmed" in the
    record. Commands: `setup --host <ip> | --card <dir>`, `devices`,
-   `forget`, then `status`, `apps`, `push`, `install`, `launch`, `shot`,
-   `eval` and `logs`, each of which starts the endpoint, waits for the
+   `forget`, then `status`, `apps`, `push`, `install`, `launch`, `remove`,
+   `shot`, `eval` and `logs`, each of which starts the endpoint, waits for the
    paired device, acts and leaves, and `serve`, which stays: the catalog of
    folders of `.pocket` files (`offer.ts`), `net.http` through `fetch.ts`'s
    policy (**`--resolve <host>=<address>:<port>`** sends one host's
@@ -2684,7 +2740,7 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   §9 allocated once, the send buffer with its reserve and the read pause
   (§8.2), both request tables, streams with credit, catalog and install,
   `net.http` as the worker sees it, the runtime operations (status, apps,
-  push, `.3dsx`, launch, screenshot, logs), the DevTools stream with its
+  push, `.3dsx`, launch, remove, screenshot, logs), the DevTools stream with its
   line ring, and applet channels with the calls of §7.3
   (`link2_channel_*`, `link2_stream_*`) for a QuickJS binding to sit on.
   Sockets, the clock and randomness come through `Link2Platform`;
@@ -2719,7 +2775,11 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   facts and the launcher's table (`launcher_row`); `runtime.push` into
   `POCKET_RUNTIME_UPLOAD`, which `main.c` admits as it admits the
   development connection's upload and reports to both; a `.3dsx` through
-  `native.c` and `hb:ldr`; `runtime.screenshot` through the same GPU-idle
+  `native.c` and `hb:ldr`; `runtime.remove` through the guest's own removal
+  (`link2_guest_remove_app`, the callback `link2_guest_host` fills), with
+  its refusals, deleting the slot inside the pump as `link.remove` deletes
+  it inside the guest's call (the time a delete takes on a card is not
+  measured); `runtime.screenshot` through the same GPU-idle
   transfer into linear buffers the link streams and frees; the agent's
   events and streams; DevTools lines for `ui.__dbg*`; `log` events for the
   host's own lines.

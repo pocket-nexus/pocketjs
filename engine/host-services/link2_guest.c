@@ -1,7 +1,8 @@
 /*
  * `globalThis.link` on Pocket Link 2: see link2_guest.h. The client
  * (link2.c) owns the connection, the request ids and the paging; this file
- * owns what the guest sees and where an install's bytes go.
+ * owns what the guest sees, where an install's bytes go, and which removals
+ * it refuses, for the guest and for Hub's runtime.remove alike.
  */
 
 #include "link2_guest.h"
@@ -351,18 +352,69 @@ int32_t link2_guest_install(const char *app_id, size_t length) {
   return (int32_t)request;
 }
 
-bool link2_guest_remove(const char *app_id, size_t length) {
-  if (app_id == NULL || length == 0 || length >= LAUNCHER_ID_BYTES) return false;
+/* A package's slot is the hash of its manifest id (sha256_slot; the slot
+ * install refuses a package whose id names another slot), so the checks below
+ * compare slots. The launcher is not a row of its own table: its slot is
+ * checked first. Whether the id is installed is read from the table, the set
+ * runtime.apps reports, so an id Hub never saw is `not_found` and a failed
+ * delete is `storage`. */
+Link2RemoveOutcome link2_guest_remove_app(const char *app_id, size_t length) {
+  if (app_id == NULL || length == 0 || length >= LAUNCHER_ID_BYTES || memchr(app_id, 0, length) != NULL) return LINK2_REMOVE_NOT_FOUND;
   char slot[17];
   sha256_slot(app_id, length, slot);
-  if (strcmp(slot, launcher_current_slot()) == 0 || strcmp(slot, launcher_home_slot()) == 0) return false;
+  if (strcmp(slot, launcher_home_slot()) == 0) return LINK2_REMOVE_HOME;
+  if (strcmp(slot, launcher_current_slot()) == 0) return LINK2_REMOVE_RUNNING;
+  bool listed = false;
+  LauncherRow row;
+  for (size_t index = 0; !listed && launcher_row(index, &row); index += 1) listed = strcmp(row.slot, slot) == 0;
+  if (!listed) return LINK2_REMOVE_NOT_FOUND;
   for (size_t i = 0; i < GUEST_INSTALLS; i += 1) {
-    if (installs[i].request != 0 && strcmp(installs[i].slot, slot) == 0) return false;
+    if (installs[i].request != 0 && strcmp(installs[i].slot, slot) == 0) return LINK2_REMOVE_INSTALLING;
   }
   bool removed = link_host_remove(slot);
   launcher_invalidate();
   if (removed && bound != NULL) link2_apps_changed(bound);
-  return removed;
+  return removed ? LINK2_REMOVED : LINK2_REMOVE_STORAGE;
+}
+
+bool link2_guest_remove(const char *app_id, size_t length) {
+  return link2_guest_remove_app(app_id, length) == LINK2_REMOVED;
+}
+
+/* Hub's runtime.remove (§6.2): the outcome as the error the request answers. */
+static bool on_remove(void *context, const char *id, Link2Failure *failure) {
+  (void)context;
+  const char *code = "storage";
+  const char *message = "the applet's slot could not be deleted";
+  const char *members = "";
+  switch (link2_guest_remove_app(id, strlen(id))) {
+    case LINK2_REMOVED:
+      return true;
+    case LINK2_REMOVE_HOME:
+      code = "rejected";
+      message = "the launcher is never removed";
+      members = "\"reason\":\"home\"";
+      break;
+    case LINK2_REMOVE_RUNNING:
+      code = "rejected";
+      message = "the applet is running; switch to another one first";
+      members = "\"reason\":\"running\"";
+      break;
+    case LINK2_REMOVE_NOT_FOUND:
+      code = "not_found";
+      message = "no installed applet has this id";
+      break;
+    case LINK2_REMOVE_INSTALLING:
+      code = "busy";
+      message = "an install of this applet is under way";
+      break;
+    case LINK2_REMOVE_STORAGE:
+      break;
+  }
+  snprintf(failure->code, sizeof failure->code, "%s", code);
+  snprintf(failure->message, sizeof failure->message, "%s", message);
+  snprintf(failure->members, sizeof failure->members, "%s", members);
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +422,7 @@ bool link2_guest_remove(const char *app_id, size_t length) {
 // ---------------------------------------------------------------------------
 
 static const char *const GROUPS[] = {
-  "apps", "runtime", "runtime.native", "devtools", "catalog", "install", "net.http", "agent", "channel",
+  "apps", "runtime", "runtime.native", "runtime.remove", "devtools", "catalog", "install", "net.http", "agent", "channel",
 };
 
 /* The client's phase as a LinkStatus state. */
@@ -561,6 +613,7 @@ void link2_guest_host(Link2Host *host) {
   host->install_begin = on_install_begin;
   host->install_data = on_install_data;
   host->install_end = on_install_end;
+  host->remove = on_remove;
 }
 
 void link2_guest_bind(Link2 *link) {

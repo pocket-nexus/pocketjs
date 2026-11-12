@@ -43,7 +43,7 @@ const USAGE = `Nintendo 3DS development over Pocket Link 2
                                             stay linked with the Pocket DevTools panel;
                                             keys: r rebuild+push, i install .3dsx+restart,
                                             s screenshot, o open the panel, q quit
-  status · apps · shot · eval · logs · serve · forget
+  status · apps · remove · shot · eval · logs · serve · forget
                                             as \`bun run link2\` takes them
 
   --host <3ds-ip> on any command but setup adds that address as a beacon target

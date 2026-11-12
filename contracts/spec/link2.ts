@@ -260,6 +260,7 @@ export const LINK2_APP_EVENT_WINDOW_HUB = 256;
 export const LINK2_FEATURES = [
   "runtime",
   "runtime.native",
+  "runtime.remove",
   "devtools",
   "catalog",
   "install",
@@ -312,6 +313,17 @@ export const LINK2_LAUNCH_HOLD_MS = 60_000;
 
 export type Link2LaunchRequest = { t: "runtime.launch"; native: string } | { t: "runtime.launch"; app: string };
 export type Link2LaunchReply = { phase: "launching"; name: string; path: string } | { phase: "switching"; output: string };
+
+/** Requires the group `runtime.remove`; changes device state (§8.3). `id` is
+ *  1 to LINK2_APP_ID_BYTES bytes: a manifest id as a runtime.apps row gives it. */
+export interface Link2RemoveRequest { t: "runtime.remove"; id: string }
+/** Sent after the applet's slot, its package and its data, is deleted. */
+export interface Link2RemoveReply { id: string }
+/** `rejected` carries one of these in `reason`; the other errors carry none:
+ *  `not_found`, `busy`, `storage`, `malformed`, `unsupported`. */
+export const LINK2_REMOVE_REJECTED = ["home", "running"] as const;
+export type Link2RemoveRejected = (typeof LINK2_REMOVE_REJECTED)[number];
+export interface Link2RemoveRefusal { code: "rejected"; message: string; reason: Link2RemoveRejected }
 
 export interface Link2ScreenshotSurface { name: "top" | "bottom"; width: number; height: number; bytes: number }
 export interface Link2ScreenshotEvent { t: "runtime.screenshot"; frame: number; format: "bgr8-rotated"; surfaces: Link2ScreenshotSurface[] }

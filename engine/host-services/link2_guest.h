@@ -30,7 +30,8 @@
 
 #include "link2.h"
 
-/* Fills the catalog and install callbacks of `host`. */
+/* Fills the catalog, install and remove callbacks of `host`: Hub's
+ * runtime.remove (docs/POCKET-LINK.md §6.2) takes the path of `remove(app)`. */
 void link2_guest_host(Link2Host *host);
 /* The client these calls ride; NULL before it exists and at shutdown. */
 void link2_guest_bind(Link2 *link);
@@ -46,6 +47,19 @@ bool link2_guest_forget(const char *companion);
 int32_t link2_guest_catalog(void);
 int32_t link2_guest_install(const char *app_id, size_t length);
 bool link2_guest_remove(const char *app_id, size_t length);
+
+/* What a removal did, for the guest's `remove(app)` (true for
+ * LINK2_REMOVED alone) and for Hub's runtime.remove, which answers each other
+ * outcome with its own error (docs/POCKET-LINK.md §6.2). */
+typedef enum {
+  LINK2_REMOVED,
+  LINK2_REMOVE_HOME,       /* the launcher's slot: never removed */
+  LINK2_REMOVE_RUNNING,    /* the running applet's slot */
+  LINK2_REMOVE_NOT_FOUND,  /* no row of the launcher's table has the id */
+  LINK2_REMOVE_INSTALLING, /* an install into the slot streams or waits to commit */
+  LINK2_REMOVE_STORAGE,    /* link_host_remove failed */
+} Link2RemoveOutcome;
+Link2RemoveOutcome link2_guest_remove_app(const char *app_id, size_t length);
 /* NULL when no event is waiting. */
 const char *link2_guest_poll(void);
 /* Once a pump, outside it: finishes an install whose last byte came before

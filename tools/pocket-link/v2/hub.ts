@@ -444,6 +444,17 @@ export class HubDevice {
       return reply;
     });
   }
+  /** Deletes an installed applet, its package and its data, by manifest id
+   *  (§6.2 `runtime.remove`), under the device mutex. A device that does not
+   *  list the group is never sent the request: the call fails `unsupported`
+   *  here. `rejected` carries `reason` "home" or "running". The set without
+   *  the applet arrives in the next `runtime.apps` report. */
+  remove(id: string): Promise<Json> {
+    return this.hub.locked(this.id, "runtime.remove", async () => {
+      if (!this.peer.inUse("runtime.remove")) throw new LinkError("unsupported", "the device does not remove applets at Hub's request (runtime.remove is not in use)");
+      return this.peer.request({ t: "runtime.remove", id }, { feature: "runtime.remove" }).reply;
+    });
+  }
   /** Both screens, captured by the host without the guest. Takes no lock. */
   async screenshot(): Promise<Screenshot> {
     let head: Json | null = null;

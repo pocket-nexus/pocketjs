@@ -172,5 +172,238 @@
       "id": 2147483648,
       "range": null
     }
-  ]
+  ],
+  "runtimeRemove": {
+    "installed": [
+      {
+        "id": "dev.pocket-nexus.shell",
+        "output": "pocket-shell",
+        "version": "1.4.0",
+        "hash": "0c264b65890d0377",
+        "home": true
+      },
+      {
+        "id": "dev.example.map",
+        "output": "map",
+        "version": "2.0.1",
+        "hash": "00000000000000a1"
+      },
+      {
+        "id": "dev.example.notes",
+        "output": "notes",
+        "version": "1.0.0",
+        "hash": "00000000000000a2"
+      }
+    ],
+    "running": "dev.example.map",
+    "removed": [
+      {
+        "from": "hub",
+        "what": "REQUEST runtime.remove",
+        "hex": "100000002f000000210000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e6578616d706c652e6e6f746573227d"
+      },
+      {
+        "from": "device",
+        "what": "REPLY, after the slot is deleted",
+        "hex": "110000001a000000210000807b226964223a226465762e6578616d706c652e6e6f746573227d"
+      },
+      {
+        "from": "device",
+        "what": "EVENT runtime.apps: the set without the applet, under the one-a-second rule",
+        "hex": "12000000fd000000000000007b2274223a2272756e74696d652e61707073222c22736574223a322c226174223a302c2261707073223a5b7b226964223a226465762e706f636b65742d6e657875732e7368656c6c222c226f7574707574223a22706f636b65742d7368656c6c222c2276657273696f6e223a22312e342e30222c2268617368223a2230633236346236353839306430333737222c22686f6d65223a747275657d2c7b226964223a226465762e6578616d706c652e6d6170222c226f7574707574223a226d6170222c2276657273696f6e223a22322e302e31222c2268617368223a2230303030303030303030303030306131227d5d2c226d6f7265223a66616c73657d"
+      }
+    ],
+    "errors": [
+      {
+        "name": "the launcher, never removed",
+        "id": "dev.pocket-nexus.shell",
+        "code": "rejected",
+        "reason": "home",
+        "steps": [
+          {
+            "from": "hub",
+            "what": "REQUEST runtime.remove",
+            "hex": "1000000034000000310000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e706f636b65742d6e657875732e7368656c6c227d"
+          },
+          {
+            "from": "device",
+            "what": "REPLY ERROR rejected",
+            "hex": "110100004d000000310000807b22636f6465223a2272656a6563746564222c226d657373616765223a22746865206c61756e63686572206973206e657665722072656d6f766564222c22726561736f6e223a22686f6d65227d"
+          }
+        ]
+      },
+      {
+        "name": "the running applet",
+        "id": "dev.example.map",
+        "code": "rejected",
+        "reason": "running",
+        "steps": [
+          {
+            "from": "hub",
+            "what": "REQUEST runtime.remove",
+            "hex": "100000002d000000320000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e6578616d706c652e6d6170227d"
+          },
+          {
+            "from": "device",
+            "what": "REPLY ERROR rejected",
+            "hex": "1101000065000000320000807b22636f6465223a2272656a6563746564222c226d657373616765223a22746865206170706c65742069732072756e6e696e673b2073776974636820746f20616e6f74686572206f6e65206669727374222c22726561736f6e223a2272756e6e696e67227d"
+          }
+        ]
+      },
+      {
+        "name": "an id no installed applet has",
+        "id": "dev.example.none",
+        "code": "not_found",
+        "reason": null,
+        "steps": [
+          {
+            "from": "hub",
+            "what": "REQUEST runtime.remove",
+            "hex": "100000002e000000330000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e6578616d706c652e6e6f6e65227d"
+          },
+          {
+            "from": "device",
+            "what": "REPLY ERROR not_found",
+            "hex": "1101000040000000330000807b22636f6465223a226e6f745f666f756e64222c226d657373616765223a226e6f20696e7374616c6c6564206170706c6574206861732074686973206964227d"
+          }
+        ]
+      },
+      {
+        "name": "an install of the applet streams or waits to commit",
+        "id": "dev.example.notes",
+        "code": "busy",
+        "reason": null,
+        "steps": [
+          {
+            "from": "hub",
+            "what": "REQUEST runtime.remove",
+            "hex": "100000002f000000340000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e6578616d706c652e6e6f746573227d"
+          },
+          {
+            "from": "device",
+            "what": "REPLY ERROR busy",
+            "hex": "1101000042000000340000807b22636f6465223a2262757379222c226d657373616765223a22616e20696e7374616c6c206f662074686973206170706c657420697320756e64657220776179227d"
+          }
+        ]
+      },
+      {
+        "name": "another state-changing request is open (a Hub that breaks §8.3)",
+        "id": "dev.example.notes",
+        "code": "busy",
+        "reason": null,
+        "steps": [
+          {
+            "from": "hub",
+            "what": "REQUEST runtime.remove",
+            "hex": "100000002f000000350000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e6578616d706c652e6e6f746573227d"
+          },
+          {
+            "from": "device",
+            "what": "REPLY ERROR busy",
+            "hex": "110100003c000000350000807b22636f6465223a2262757379222c226d657373616765223a22612073746174652d6368616e67696e672072657175657374206973206f70656e227d"
+          }
+        ]
+      },
+      {
+        "name": "the slot could not be deleted",
+        "id": "dev.example.notes",
+        "code": "storage",
+        "reason": null,
+        "steps": [
+          {
+            "from": "hub",
+            "what": "REQUEST runtime.remove",
+            "hex": "100000002f000000360000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e6578616d706c652e6e6f746573227d"
+          },
+          {
+            "from": "device",
+            "what": "REPLY ERROR storage",
+            "hex": "1101000045000000360000807b22636f6465223a2273746f72616765222c226d657373616765223a22746865206170706c6574277320736c6f7420636f756c64206e6f742062652064656c65746564227d"
+          }
+        ]
+      },
+      {
+        "name": "the device does not list runtime.remove (a Hub that sends it anyway)",
+        "id": "dev.example.notes",
+        "code": "unsupported",
+        "reason": null,
+        "steps": [
+          {
+            "from": "hub",
+            "what": "REQUEST runtime.remove",
+            "hex": "100000002f000000370000807b2274223a2272756e74696d652e72656d6f7665222c226964223a226465762e6578616d706c652e6e6f746573227d"
+          },
+          {
+            "from": "device",
+            "what": "REPLY ERROR unsupported",
+            "hex": "110100003a000000370000807b22636f6465223a22756e737570706f72746564222c226d657373616765223a227468652067726f7570206973206e6f7420696e20757365227d"
+          }
+        ]
+      }
+    ],
+    "ids": [
+      {
+        "name": "128 bytes",
+        "json": {
+          "t": "runtime.remove",
+          "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "hex": "100000009e000000400000807b2274223a2272756e74696d652e72656d6f7665222c226964223a227878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878227d",
+        "accepted": true
+      },
+      {
+        "name": "129 bytes",
+        "json": {
+          "t": "runtime.remove",
+          "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "hex": "100000009f000000400000807b2274223a2272756e74696d652e72656d6f7665222c226964223a22787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878227d",
+        "accepted": false
+      },
+      {
+        "name": "126 bytes and a quote: 127 bytes, 128 counted as encoded",
+        "json": {
+          "t": "runtime.remove",
+          "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\""
+        },
+        "hex": "100000009e000000400000807b2274223a2272756e74696d652e72656d6f7665222c226964223a227878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878785c22227d",
+        "accepted": true
+      },
+      {
+        "name": "127 bytes and a quote: 128 bytes, 129 counted as encoded",
+        "json": {
+          "t": "runtime.remove",
+          "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\""
+        },
+        "hex": "100000009f000000400000807b2274223a2272756e74696d652e72656d6f7665222c226964223a22787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878785c22227d",
+        "accepted": false
+      },
+      {
+        "name": "empty",
+        "json": {
+          "t": "runtime.remove",
+          "id": ""
+        },
+        "hex": "100000001e000000400000807b2274223a2272756e74696d652e72656d6f7665222c226964223a22227d",
+        "accepted": false
+      },
+      {
+        "name": "a number",
+        "json": {
+          "t": "runtime.remove",
+          "id": 7
+        },
+        "hex": "100000001d000000400000807b2274223a2272756e74696d652e72656d6f7665222c226964223a377d",
+        "accepted": false
+      },
+      {
+        "name": "no id",
+        "json": {
+          "t": "runtime.remove"
+        },
+        "hex": "1000000016000000400000807b2274223a2272756e74696d652e72656d6f7665227d",
+        "accepted": false
+      }
+    ]
+  }
 }

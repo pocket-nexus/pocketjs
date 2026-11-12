@@ -52,6 +52,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -78,6 +79,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -104,6 +106,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -130,6 +133,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -208,6 +212,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -234,6 +239,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -259,6 +265,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -285,6 +292,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -313,6 +321,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -341,6 +350,7 @@
         "features": [
           "runtime",
           "runtime.native",
+          "runtime.remove",
           "devtools",
           "catalog",
           "install",
@@ -380,6 +390,7 @@
       "features": [
         "runtime",
         "runtime.native",
+        "runtime.remove",
         "devtools",
         "catalog",
         "install",

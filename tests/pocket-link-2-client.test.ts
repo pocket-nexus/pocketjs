@@ -448,6 +448,74 @@ describe("Pocket Link 2 C client against the reference Hub", () => {
     await c.quit();
   });
 
+  it("runtime.remove: the REPLY after the host deleted the slot, the report without the row, each refusal, the state-changing slot, the id's limits, and unsupported", async () => {
+    const vectors = JSON.parse(readFileSync(join(root, "tests/vectors/pocket-link-2/requests.json"), "utf8")).runtimeRemove;
+    const c = await start();
+    await c.line(/^linked /);
+    const device = await c.device();
+    expect(device.peer.inUse("runtime.remove")).toBe(true);
+    c.send("apps 4");
+    await until(() => device.apps.length === 4, "the runtime.apps report");
+
+    expect(await device.remove("dev.example.applet-02")).toEqual({ id: "dev.example.applet-02" });
+    expect((await c.line(/^removed (\d+) (\d+)$/)).slice(1)).toEqual(["21", "3"]);
+    // The next report, inside the one-a-second rule, lacks the row.
+    await until(() => device.apps.length === 3, "the report without the applet");
+    expect(device.apps.map((app) => app.id)).toEqual(["dev.example.applet-00", "dev.example.applet-01", "dev.example.applet-03"]);
+
+    // Each refusal of the host goes out with its members.
+    const refusal = (id: string) => device.remove(id).then((): Json | null => null, (error: LinkError): Json => ({ code: error.code, ...error.extra }));
+    expect(await refusal("dev.example.applet-00")).toEqual({ code: "rejected", reason: "home" });
+    expect(await refusal("dev.pocket-nexus.shell")).toEqual({ code: "rejected", reason: "running" });
+    expect(await refusal("dev.example.applet-02")).toEqual({ code: "not_found" });
+    c.send("remove-mode busy");
+    await pause(50);
+    expect(await refusal("dev.example.applet-01")).toEqual({ code: "busy" });
+    c.send("remove-mode storage");
+    await pause(50);
+    await expect(device.remove("dev.example.applet-01")).rejects.toMatchObject({ code: "storage", message: "the applet's slot could not be deleted" });
+    c.send("remove-mode ok");
+    await pause(50);
+
+    // A second state-changing request, as a Hub that breaks §8.3 sends it: the device's one slot answers busy.
+    const push = device.peer.request({ t: "runtime.push", bytes: 1000, hash: "00000000000000aa" }, { feature: "runtime", body: true });
+    await c.line(/^push-begin 1000 /);
+    await expect(device.peer.request({ t: "runtime.remove", id: "dev.example.applet-01" }, { feature: "runtime.remove" }).reply).rejects.toMatchObject({ code: "busy" });
+    push.cancel();
+    await expect(push.reply).rejects.toMatchObject({ code: "cancelled" });
+    await c.line(/^push-abort /);
+    // The slot is free again.
+    expect(await device.remove("dev.example.applet-01")).toEqual({ id: "dev.example.applet-01" });
+    expect((await c.line(/^removed (\d+) (\d+)$/)).slice(1)).toEqual(["21", "2"]);
+
+    // The id's limits from the vectors: an id the device accepts and does not hold is not_found.
+    for (const v of vectors.ids as { name: string; json: Json; accepted: boolean }[]) {
+      const answer = await device.peer.request(v.json as Json & { t: string }, { feature: "runtime.remove" }).reply.catch((error: LinkError) => error);
+      expect(`${v.name}: ${(answer as LinkError).code}`).toBe(`${v.name}: ${v.accepted ? "not_found" : "malformed"}`);
+    }
+    // An id at 128 bytes that the device holds.
+    c.send("apps 3 1");
+    await until(() => device.apps.length === 3 && device.apps[1].id.length === 128, "the rows at every limit");
+    expect(await device.remove(device.apps[1].id)).toEqual({ id: device.apps[1].id });
+    expect((await c.line(/^removed (\d+) (\d+)$/)).slice(1)).toEqual(["128", "2"]);
+    await c.quit();
+
+    // A device that does not list the group: Hub sends nothing, and a request sent anyway is answered unsupported.
+    const without = await start({ args: ["--features", "runtime,runtime.native,apps"] });
+    await without.line(/^linked /);
+    const other = await without.device();
+    expect(other.peer.inUse("runtime.remove")).toBe(false);
+    await expect(other.remove("dev.example.applet-01")).rejects.toMatchObject({ code: "unsupported" });
+    await expect(other.peer.request({ t: "runtime.remove", id: "dev.example.applet-01" }).reply).rejects.toMatchObject({ code: "unsupported" });
+    await without.quit();
+
+    // A host with the group listed and no callback answers unsupported.
+    const bare = await start({ args: ["--remove", "0"] });
+    await bare.line(/^linked /);
+    await expect((await bare.device()).remove("dev.example.applet-01")).rejects.toMatchObject({ code: "unsupported", message: "this device removes nothing" });
+    await bare.quit();
+  });
+
   it("a launch into a .3dsx: the REPLY, CLOSE restart, the host's restart, and the device links again", async () => {
     const c = await start();
     await c.line(/^linked /);

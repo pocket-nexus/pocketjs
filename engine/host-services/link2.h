@@ -145,6 +145,15 @@ typedef struct {
   /* The REPLY and CLOSE `restart` have left: exit into the file. */
   void (*restart)(void *context);
 
+  /* runtime.remove (§6.2, group `runtime.remove`): delete the installed
+   * applet whose manifest id is `id` (1 to 128 bytes), its package and its
+   * data. False with `failure`: `not_found` when no installed applet has the
+   * id; `rejected` with members "reason":"home" for the launcher or
+   * "reason":"running" for the running applet; `busy` while an install of it
+   * streams or waits to commit; `storage` when the slot could not be
+   * deleted. The host calls link2_apps_changed after a removal. */
+  bool (*remove)(void *context, const char *id, Link2Failure *failure);
+
   /* runtime.screenshot: capture now. `members` gets "frame":…,"format":…,
    * "surfaces":[…] of the head event; the pixels are then read in order. */
   bool (*screenshot_begin)(void *context, Link2Json *members, uint32_t *frame, uint32_t *bytes);

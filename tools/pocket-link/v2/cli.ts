@@ -48,6 +48,7 @@ const USAGE = `Pocket Link 2 reference Hub
   push <file.pocket>                    push a package to the running program
   install <file.3dsx> [--name <name.3dsx>] [--no-launch]
   launch <name.3dsx | applet id>        start a .3dsx, or switch to an installed applet
+  remove <applet id>                    delete an installed applet and its data
   shot [--out <file.png>]               both screens as one PNG
   eval <code>                           evaluate in the running applet
   logs [--follow] [--seconds <n>]       the program's log lines; 5 s without --follow
@@ -220,7 +221,7 @@ function openSession(args: Parsed, options: { features?: string[]; serving?: boo
     name: store.name,
     store,
     port: portText === undefined ? undefined : integerOption(args, "--port", 0, 65535, LINK2_PORT),
-    features: options.features ?? ["runtime", "runtime.native", "devtools", "apps"],
+    features: options.features ?? ["runtime", "runtime.native", "runtime.remove", "devtools", "apps"],
     beaconTargets: lanBeaconTargets({ store, unicast: unicastTargets(args), lan: !args.flags.has("--no-broadcast") }),
     onRefusal: (refusal) => {
       session.refusals.push(refusal);
@@ -506,6 +507,15 @@ async function launch(call: Invocation, device: HubDevice): Promise<number> {
   return afterLaunch(call, device, reply, what);
 }
 
+async function remove(call: Invocation, device: HubDevice): Promise<number> {
+  const id = call.args.positional[0];
+  if (id === undefined) throw new UsageError("remove takes an installed applet's id, as `apps` lists it");
+  const reply = await device.remove(id);
+  if (call.args.flags.has("--json")) call.io.out(JSON.stringify({ device: device.id, ...reply }));
+  else call.io.out(`removed ${String(reply.id ?? id)} and its data`);
+  return EXIT.ok;
+}
+
 /** A screenshot's surfaces, one under the other, as a PNG. The format is the
  *  PICA target's: B, G, R bytes in rotated column-major order (§6.2). */
 export function screenshotPng(shot: Screenshot): { png: Buffer; width: number; height: number } {
@@ -588,7 +598,7 @@ async function logs(call: Invocation, device: HubDevice): Promise<number> {
   return EXIT.ok;
 }
 
-const LINKED: Record<string, (call: Invocation, device: HubDevice) => Promise<number>> = { status, apps, push, install, launch, shot, eval: evaluate, logs };
+const LINKED: Record<string, (call: Invocation, device: HubDevice) => Promise<number>> = { status, apps, push, install, launch, remove, shot, eval: evaluate, logs };
 const STORED: Record<string, (call: Invocation) => number | Promise<number>> = { setup, devices, forget };
 
 /** Runs one command in a session; the answer is its exit code. */
@@ -752,7 +762,7 @@ async function serve(args: Parsed, io: Io, signal: AbortSignal): Promise<number>
     if (parsed === null) throw new UsageError(`--resolve takes <host>=<address>:<port>, not ${spec}`);
     resolves.set(parsed.host, { address: parsed.address, port: parsed.port });
   }
-  const features = ["runtime", "runtime.native", "devtools", "apps", ...(appDirs.length > 0 ? ["catalog", "install"] : []), ...(args.flags.has("--no-http") ? [] : ["net.http"]), ...(specs.length > 0 ? ["channel"] : [])];
+  const features = ["runtime", "runtime.native", "runtime.remove", "devtools", "apps", ...(appDirs.length > 0 ? ["catalog", "install"] : []), ...(args.flags.has("--no-http") ? [] : ["net.http"]), ...(specs.length > 0 ? ["channel"] : [])];
 
   let offer: FolderOffer | null = null;
   const daemons = new Map<string, LinkDaemon>();
