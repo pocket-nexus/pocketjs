@@ -34,6 +34,9 @@ src/qjs.c             facade host guest: realm, product namespaces, bytecode,
                       worker start and stop around the program
 src/transition.c      app-switch overlay: scrim and activity indicator lists
 src/bytecode.c        a slot's bundle bytecode on the SD card
+src/bundle_compile.c  a bundle compiled to bytecode in a QuickJS runtime of its own, off the main thread
+src/slot_folders.c    a new slot's folders, created off the main thread
+src/push_timing.c     the time of each runtime.push, one log line
 src/services_host.c   host_services.h: clocks, owner name, sockets, SD slots
 src/wifi.c            globalThis.wifi over AC and nwm::EXT
 src/camera.c          camera texture, QR decode and stills
@@ -461,11 +464,15 @@ uncatchable error, and the app is torn down without another frame. The scan
 moves the press edges `hidKeysDown` reports (the dev menu chords) from the
 next frame's scan to this one.
 
-**A bundle boots from bytecode after its first boot** (`src/bytecode.c`).
-`qjs_boot` compiles the source (`JS_EVAL_FLAG_COMPILE_ONLY`) and hands back
-the bytecode (`JS_WriteObject`), which main.c writes to
-`<slot>/bundle.qbc`; the next boot of the same package runs it with
-`JS_ReadObject`. The file's header carries the package hash, the first 16
+**A bundle boots from bytecode** (`src/bytecode.c`). On a package's first
+boot, main.c compiles the source (`JS_EVAL_FLAG_COMPILE_ONLY`,
+`JS_WriteObject`) in a QuickJS runtime of its own on a thread one priority
+step below the main thread (`src/bundle_compile.c`) and writes
+`<slot>/bundle.qbc`, while the main thread pumps the link every 8 ms
+(`docs/POCKET-LINK.md` §12.2): 754 ms for a 449 KB bundle on a New 3DS XL.
+That boot and every later boot of the same package run the bytecode with
+`JS_ReadObject`. When the thread cannot start, `qjs_boot` compiles in the
+guest's own runtime and hands the bytecode back, as before. The file's header carries the package hash, the first 16
 hex digits of the QuickJS build stamp (`POCKETJS_QUICKJS_STAMP`, from
 `dist/3ds/quickjs/.stamp`) and an FNV-1a checksum; a mismatch compiles again.
 On an Old 3DS, compiling Pocket Shell's 477 KB bundle takes 2.3 s and reading
@@ -473,6 +480,13 @@ its 368 KB of bytecode takes 80 ms. The guest's runtime strips function
 source text (`JS_STRIP_SOURCE`): line tables stay, so a stack names its
 lines, and `Function.prototype.toString` returns no source. Capture builds
 compile from source on every boot.
+
+**A new slot's folders are created on a thread of their own**
+(`src/slot_folders.c`). On the measured New 3DS XL, `mkdir` of a new slot's
+`apps/<slot>`, `packages/` and `state/` took about 4.2 s each, 12.6 s
+together, and 14 ms once they exist; on the main loop that left the link without a pump past its
+10 s limit on every first install. A push, a boot and an install from the
+store wait for them while the link is pumped.
 
 **A push of another app installs into that app's own slot**, commits
 it as the slot's active package and launches it, so

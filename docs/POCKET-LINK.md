@@ -823,6 +823,17 @@ worst round trip of a request in 21 minutes of one request a second was
 185 ms, and the worst of 1,000 requests back to back was 117 to 435 ms
 across runs (§13.6).
 
+**The limit is not raised for a device's own long work; the device pumps
+the link through it.** A first install on the 3DS created the new slot's
+three folders on the main loop, between two pumps: on the measured New 3DS
+XL that took **12.6 s**, and Hub closed the link with `silence` after
+`received` (§13.6). The program of §12.2 creates a slot's folders, and
+compiles a bundle it has no bytecode for, on threads of their own while
+the main loop pumps the link. A device that does stall past 10 s also
+closes the link itself at its next pump unless a frame from Hub waits in
+its socket, since the client reads the socket before it checks its own
+timer (`link2.c`).
+
 ### 4.7 Unknown and oversized frames
 
 | Case | Receiver |
@@ -2734,6 +2745,37 @@ of the 3DS build; `devserver.c` stays in it until item 4 below.
   and its reply took two frames: **34 ms mean for a round trip, 18 ms with
   both** (§13.6). One pump took **0.14 ms mean on a link carrying one
   request a second and 0.44 ms mean across the transfer runs** on a New 3DS.
+- **Work that blocks for seconds runs off the main loop, which pumps the
+  link meanwhile** (`main.c` `pump_wait`: the work runs on a thread one
+  priority step below the main thread, which pumps every 8 ms and sleeps
+  between pumps). The client stays on the main thread; each such pump holds the lock the
+  loading frames hold, since a pump's handlers can reach citro3d.
+  - **A new slot's folders** (`slot_folders.c`). `runtime_storage_init`
+    created `apps/<slot>`, `packages/` and `state/` with `mkdir` on the main
+    thread; for a slot that did not exist yet that took **12,555 ms** on
+    the measured New 3DS XL, about **4.2 s per folder**, and **14 ms** once
+    the folders exist (§13.6).
+    `slot_folders_ready` creates the missing folders, and `data/` and
+    `fs-tmp/` for a `data.fs` package, on a thread of their own and answers
+    false until they exist. A push waits for them before the slot install
+    (`route_upload`), as do `boot_app` and the `data.fs` bind. An install
+    from the console's store streams into `runtime/link-upload-<slot>.pocket`
+    beside the slots, and its last step waits for the folders at later
+    pumps (`link_host_slot_ready`, `link2_guest_service`) instead of
+    creating them inside a pump. A `log` line gives each folder's time.
+  - **A bundle with no bytecode file** (`run_bundle`, `bundle_compile.c`)
+    compiles in a QuickJS runtime of its own and writes the file: 754 ms
+    for a 449 KB bundle on the New 3DS XL, and, by `bytecode.h`, 2.3 s for
+    477 KB on an Old 3DS. The guest then boots from the bytecode as from
+    the file.
+  - **On the main loop without a pump**: two reads and checks of the
+    package (about 340 ms each for 2.7 MB), the rename into the slot, the
+    state commit, and the guest's boot outside the compile (about 650 ms,
+    its top level 453 ms of it), on the New 3DS XL. Not measured on an Old 3DS. Every push sends one
+    `log` line with its transfer, its time after `received`, the longest
+    gap between two pumps and its longest steps (`push_timing.c`); built
+    with `-DPOCKETJS_PUSH_TRACE` it sends a line per step and keeps them in
+    `sdmc:/pocketjs/runtime/push-timing.txt`.
 - **A guest's stop with a worker request in flight**
   (`platforms/3ds/worker.c`). The worker thread's destroy retries while the
   main thread still has a request of that worker to end, and each retry
@@ -2988,7 +3030,7 @@ they were chosen**, by arithmetic or from version 1. Each row says which.
 | The outbound stream queue | **16 KiB per stream** (§7.6) | **measured**: 4 KiB gave 193 KB/s for an upload, 16 KiB 606 to 696 KB/s |
 | The event window and its unit | **48** units from the device, **256** from Hub, **512 bytes** a unit (§5.6) | estimate. 1,000 events each way passed with no `overflow`; no run looked for the largest burst a stall releases for a real daemon |
 | Daemon requests waiting for the guest | **8 KiB** of JSON per channel (§7.6) | estimate; the demo's daemon sends one request at a time |
-| `PING` every 3 s, `silence` after 10 s (§4.6) | version 1's values | **held**: no run closed with `silence`; the worst round trip of a request was 435 ms |
+| `PING` every 3 s, `silence` after 10 s (§4.6) | version 1's values | **held in the runs of §13.6**: none closed with `silence`; the worst round trip of a request was 435 ms. **A first install closed with `silence`** (§13.6, 2026-11-11): creating the new slot's folders took 12.6 s on the main loop. Since they are created on a thread with the link pumped (§12.2), a first install under a Hub that applies the limit and sends no `PING` of its own passed with a longest gap of 641 ms between two pumps (§13.6, 2026-11-12); New 3DS XL only |
 | The `PING` wait before a replacement counts | **2 s** (§2.4) | estimate. The worst round trip seen is under a quarter of it; no run made two connections with one device id |
 | Replacements before the duplicate-id refusal | **3 in 30 s** (§2.4) | estimate; not exercised on the device |
 | The receive windows of a push and of an install | as in §5.6 | not varied. A push of 312 KB took 1.44 s; an install of 2.93 MB took 5.55 s with its SD writes |
@@ -3109,6 +3151,58 @@ result, writes a line on the demo's screen and sends a report request. The
 link's own allocations stayed at the three figures of the table. **What
 holds that memory was not found**; the demo's list of screen lines, which
 makes and drops a text node per line, is the first place to look.
+
+**A first install** (2026-11-11 and 2026-11-12): the same model of console
+running Pocket Shell, linked over Wi-Fi to a Pocket Hub endpoint under
+development, not the reference Hub; measured with that endpoint's runs.
+Built from `db995a4`:
+
+| What was done | What followed |
+| --- | --- |
+| First `runtime.push` of a store package of 2.6 to 2.9 MB holding three target variants (`dev.pocket-nexus.maps` among them) | **more than 10 s without a frame from the device after `received`**; Hub closed with `silence`. The device had installed the applet and linked again about 5 s later |
+| The same package pushed again | 7 to 8 s in all, no drop |
+| A launch of the installed applet | 1.0 to 1.6 s |
+| First install of a 4.1 MB package | 23.9 s in all |
+
+With the bundle compiled on a thread (§12.2) and nothing else changed, a
+first install of a 3,586,312-byte package closed with `silence` 10 s after
+`received` as before, and one of 2,657,752 bytes under a Hub that waits 30 s
+took 20.0 s, of which **595 ms** were the compile and 129 ms its write. A
+trace of every step (`-DPOCKETJS_PUSH_TRACE`) of a first install of
+2,728,232 bytes:
+
+| Step | Time |
+| --- | --- |
+| Transfer, 167 writes to the staging file | 6,761 ms, 2,150 ms of it writing |
+| fflush, fsync and fclose of the staging file | 7 ms |
+| Read and check of the package to learn its slot | 339 ms |
+| **The new slot's folders** (`runtime_storage_init`) | **12,555 ms** |
+| Second read and check, rename into the slot, state commit | 433 ms |
+| The guest's boot | 1,400 ms, 754 ms of it the compile on its thread |
+| From `received` to the reply `accepted` | 14,928 ms; the longest gap between two pumps 13,467 ms |
+
+A reinstall finds the folders, which take 14 ms. An install from the
+console's own store created the same three folders inside pumps of the
+link (`link2_guest.c`), and was changed the same way.
+
+**With the folders and the compile on threads (§12.2)**, 2026-11-12, under
+a Hub that applies the 10 s limit and sends no `PING` of its own, a first
+install of a 2,477,464-byte store package was `accepted` 20.5 s after the
+command started and **the link did not drop**. The device's `log` lines:
+
+| What | Time |
+| --- | --- |
+| Transfer | 5,484 ms |
+| The new slot's folders, on their thread: `apps/<slot>`, `packages/`, `state/` | 4,260, 4,258 and 4,134 ms; 12,736 ms with the waits between pumps |
+| The compile of 411,744 bytes of source, on its thread, and the write of 319,353 bytes of bytecode | 558 ms and 128 ms |
+| `qjs_boot`; the bundle's top level | 440 ms; 269 ms |
+| From `received` to `accepted` | 14,828 ms |
+| **The longest gap between two pumps of the link** | **641 ms** |
+
+**Each new folder costs about 4.2 s on this console's SD card**, whose size
+and format are not known; other cards and an Old 3DS were not measured. A
+store install into a new slot and a `data.fs` package's first folders have
+not run on a device in this form.
 
 **Not run on the device**: a catalog paged at a small payload limit (the
 program offers 16,384 only); four streams read together; two connections

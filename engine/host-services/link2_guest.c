@@ -36,6 +36,11 @@ typedef struct {
   uint32_t expected;
   uint32_t received;
   uint64_t progress_ms;
+  /* The last byte arrived and the slot's folders do not exist yet: they are
+   * made off the main thread (link_host_slot_ready), after the transfer so
+   * no staging write waits behind them, and the install finishes at a later
+   * pump (link2_guest_service). */
+  bool finish_due;
 } GuestInstall;
 
 typedef struct {
@@ -307,7 +312,18 @@ static void on_install_end(void *context, uint32_t request, const char *error) {
     install_failed(install, message, true);
   } else if (install->file == NULL) {
     install_failed(install, "install: no package arrived", true);
+  } else if (!link_host_slot_ready(install->slot)) {
+    install->finish_due = true;
   } else {
+    finish_install(install);
+  }
+}
+
+void link2_guest_service(void) {
+  for (size_t i = 0; i < GUEST_INSTALLS; i += 1) {
+    GuestInstall *install = &installs[i];
+    if (install->request == 0 || !install->finish_due || !link_host_slot_ready(install->slot)) continue;
+    install->finish_due = false;
     finish_install(install);
   }
 }

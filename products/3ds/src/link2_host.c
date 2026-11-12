@@ -24,6 +24,7 @@
 #include "link2_guest.h"
 #include "link_http.h"
 #include "native.h"
+#include "push_timing.h"
 #include "services_host.h"
 #include "sha256.h"
 #include "soc.h"
@@ -218,6 +219,7 @@ static size_t on_runtime_apps(void *context, Link2InstalledApp *rows, size_t cap
     };
   }
   LauncherRow row;
+  uint64_t step = push_timing_now();
   for (size_t index = 0; count < capacity && count < LINK2_APPS_MAX_ROWS && launcher_row(index, &row); index += 1) {
     hex16(row.hash, row_hashes[count]);
     rows[count] = (Link2InstalledApp){
@@ -225,6 +227,7 @@ static size_t on_runtime_apps(void *context, Link2InstalledApp *rows, size_t cap
     };
     count += 1;
   }
+  push_timing_step("runtime-apps-table", step, "%lu rows (rebuilds the launcher table when it is dirty)", (unsigned long)count);
   return count;
 }
 
@@ -260,7 +263,10 @@ static bool on_push_begin(void *context, uint32_t bytes, const char *hash, Link2
   push_hash = 0;
   for (size_t i = 0; i < 8; i += 1) push_hash = (push_hash << 8) | raw[i];
   push_close();
+  push_timing_begin(push_hash, bytes);
+  uint64_t opened = push_timing_now();
   push_file = fopen(POCKET_RUNTIME_UPLOAD, "wb");
+  push_timing_step("staging-open", opened, "%s", POCKET_RUNTIME_UPLOAD);
   if (push_file == NULL) {
     snprintf(failure->code, sizeof failure->code, "storage");
     snprintf(failure->message, sizeof failure->message, "the staging file did not open");
@@ -271,15 +277,26 @@ static bool on_push_begin(void *context, uint32_t bytes, const char *hash, Link2
 
 static bool on_push_data(void *context, const uint8_t *bytes, size_t length) {
   (void)context;
-  return push_file != NULL && fwrite(bytes, 1, length, push_file) == length;
+  uint64_t started = push_timing_now();
+  bool written = push_file != NULL && fwrite(bytes, 1, length, push_file) == length;
+  push_timing_write(started, length);
+  return written;
 }
 
 /* The file is whole: the main loop admits it at its next frame boundary and
  * reports each step through link2_host_report_install. */
 static bool on_push_admit(void *context, Link2Failure *failure) {
   (void)context;
-  bool written = push_file != NULL && fflush(push_file) == 0 && fsync(fileno(push_file)) == 0;
+  push_timing_received();
+  uint64_t step = push_timing_now();
+  bool written = push_file != NULL && fflush(push_file) == 0;
+  push_timing_step("staging-fflush", step, "ok=%d", written);
+  step = push_timing_now();
+  written = written && fsync(fileno(push_file)) == 0;
+  push_timing_step("staging-fsync", step, "ok=%d", written);
+  step = push_timing_now();
   if (push_file != NULL && fclose(push_file) != 0) written = false;
+  push_timing_step("staging-fclose", step, "ok=%d", written);
   push_file = NULL;
   if (!written) {
     push_release();
@@ -293,6 +310,7 @@ static bool on_push_admit(void *context, Link2Failure *failure) {
 
 static void on_push_abort(void *context) {
   (void)context;
+  push_timing_finish("aborted by the link");
   /* A transfer that stopped part way leaves no staging file; one the main
    * loop has taken is its to remove. */
   bool partial = push_file != NULL || push_ready;
@@ -306,6 +324,7 @@ bool link2_host_take_upload(uint64_t *declared_hash) {
   push_pending = true;
   push_taken_ms = services_host_ms();
   pushes_taken += 1;
+  push_timing_step("taken-by-main-loop", push_timing_now(), "the main loop took the upload");
   *declared_hash = push_hash;
   return true;
 }
@@ -320,6 +339,7 @@ void link2_host_report_install(const char *phase, uint64_t hash, const char *mes
   }
   if (!push_pending || hash != push_hash) return;
   if (strcmp(phase, "staged") == 0) {
+    push_timing_step("report-staged", push_timing_now(), "%s", message == NULL ? "" : message);
     link2_push_staged(client, message);
     return;
   }
@@ -340,6 +360,7 @@ void link2_host_report_install(const char *phase, uint64_t hash, const char *mes
     link2_json_text(&json, "}");
     link2_push_result(client, !json.failed, members, json.length, NULL);
     push_release();
+    push_timing_finish("accepted");
     return;
   }
   if (strcmp(phase, "receiving") == 0 || strcmp(phase, "received") == 0) return;
@@ -352,6 +373,7 @@ void link2_host_report_install(const char *phase, uint64_t hash, const char *mes
   snprintf(failure.members, sizeof failure.members, "\"phase\":\"%s\"", strcmp(phase, "recovered") == 0 ? "recovered" : "rejected");
   link2_push_result(client, false, NULL, 0, &failure);
   push_release();
+  push_timing_finish(phase);
 }
 
 // ---------------------------------------------------------------------------
@@ -718,9 +740,9 @@ void link2_host_devtools_send(const char *line, size_t length) {
   if (client != NULL) link2_devtools_send(client, line, length);
 }
 
-void link2_host_report_log(const char *level, const char *message) {
-  if (client == NULL || message == NULL) return;
-  link2_log(client, level == NULL ? "info" : level, "host", message, strlen(message), runtime_frame);
+bool link2_host_report_log(const char *level, const char *message) {
+  if (client == NULL || message == NULL) return false;
+  return link2_log(client, level == NULL ? "info" : level, "host", message, strlen(message), runtime_frame);
 }
 
 void link2_host_report_guest_log(const char *level, const char *text, size_t length) {
@@ -899,6 +921,7 @@ static void pump_timed(void) {
   link2_pump(client);
   link_http_pump();
   uint64_t took = svcGetSystemTick() - started;
+  push_timing_pumped(started, started + took);
   pump_count += 1;
   pump_ticks += took;
   if (took > pump_ticks_max) pump_ticks_max = took;
@@ -915,7 +938,10 @@ void link2_host_pump(void) {
     fail_with(&failure, "timeout", "the package's admission did not report");
     link2_push_result(client, false, NULL, 0, &failure);
     push_release();
+    push_timing_finish("timeout");
   }
+  link2_guest_service();
+  push_timing_service();
   devstats_set_link(link2_linked(client), link2_stats(client)->links, pushes_taken, shots_taken);
 }
 
@@ -1019,9 +1045,10 @@ void link2_host_report_install(const char *phase, uint64_t hash, const char *mes
   (void)hash;
   (void)message;
 }
-void link2_host_report_log(const char *level, const char *message) {
+bool link2_host_report_log(const char *level, const char *message) {
   (void)level;
   (void)message;
+  return false;
 }
 void link2_host_report_guest_log(const char *level, const char *text, size_t length) {
   (void)level;

@@ -111,6 +111,7 @@ const SUITE: readonly Stage[] = [
       "tests/3ds-native-install.test.ts",
       "tests/3ds-runtime-state.test.ts",
       "tests/3ds-transition.test.ts",
+      "tests/3ds-bundle-compile.test.ts",
       "tests/3ds-devmenu.test.ts",
       "tests/repack-3ds.test.ts",
       "tests/repack-shared.test.ts",
