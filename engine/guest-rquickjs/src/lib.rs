@@ -451,9 +451,13 @@ struct BorrowedBytes<'js> {
     length: usize,
 }
 impl BorrowedBytes<'_> {
-    fn bytes(&self) -> rquickjs::Result<&[u8]> {
-        self.buffer
-            .as_bytes()
+    /// # Safety
+    ///
+    /// No JavaScript may run while the returned slice is alive: JS can write
+    /// into, detach, or resize the buffer, which invalidates the slice.
+    unsafe fn bytes(&self) -> rquickjs::Result<&[u8]> {
+        // SAFETY: the caller upholds the contract above.
+        unsafe { self.buffer.as_bytes() }
             .and_then(|bytes| bytes.get(self.offset..self.offset + self.length))
             .ok_or(rquickjs::Error::new_from_js("detached buffer", "bytes"))
     }
@@ -624,19 +628,19 @@ fn invoke<'js>(
             Prepared::Integer(value) => OpArg::Integer(*value),
             Prepared::Real(value) => OpArg::Real(*value),
             Prepared::String(value) => OpArg::Bytes(value.as_bytes()),
-            Prepared::Bytes => OpArg::Bytes(
-                buffers
-                    .iter()
-                    .find(|(i, _)| *i == index)
-                    .unwrap()
-                    .1
-                    .bytes()?,
-            ),
+            Prepared::Bytes => {
+                let view = &buffers.iter().find(|(i, _)| *i == index).unwrap().1;
+                // SAFETY: every scalar and string coercion finished before
+                // `byte_view`; `byte_view` runs no user JS; `dispatch` is a
+                // native operation, and `args` is dropped before any JS result
+                // or exception is constructed.
+                OpArg::Bytes(unsafe { view.bytes()? })
+            }
         });
     }
-    let result = ops
-        .dispatch(descriptor.id, &args)
-        .map_err(|_| Exception::throw_internal(ctx, "UI operation failed"))?;
+    let result = ops.dispatch(descriptor.id, &args);
+    drop(args);
+    let result = result.map_err(|_| Exception::throw_internal(ctx, "UI operation failed"))?;
     result_value(ctx, descriptor.result, result)
 }
 fn result_value<'js>(

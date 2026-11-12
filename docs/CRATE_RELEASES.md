@@ -115,6 +115,7 @@ release ships.
 | `pocketjs-core` | Breaking: the `sha256`, `pak`, `plan_facts`, `package`, `codec`, `stream`, `stream_rx` and `wire` modules are removed. They re-exported `pocket_package` and `pocket_media` items under the same names; import those crates. `pocketjs_core::font_archive` remains. |
 | `pocket-driver-kit` | Depends on `pocket-render` in place of `pocket-draw-ops` and `pocket-tex-cache`; its API is unchanged. Its tests use `pocket_runtime::coordinator` in place of `pocket-present`. |
 | `pocket-guest-rquickjs` | New features `std` (default), `rust-alloc` and `bindgen` forward to rquickjs. **Without `std` the crate builds for `no_std + alloc`** and the default console writes to the `log` facade in place of stderr: `warn`, `error` and `debug` at those levels, `log` and `info` at `Info`. Behavior change: a consumer that sets `default-features = false` no longer has `std` and gets the `log` console. |
+| `pocket-guest-rquickjs` | Depends on rquickjs 0.14 (QuickJS-NG 0.16.2). No public API change; `no_std` consumers keep the `rust-alloc`, `bindgen` and `log` console behavior. |
 | `pocket-runtime` | `Runtime::set_physics` installs a physics engine before boot. Behavior change: without an engine, package admission treats `ui.physics` as absent from the profile, `boot_aot_deferred` with `physics = true` returns `ProfileMismatch`, and `OpContext::set_physics_enabled(true)` returns `UnsupportedOperation`. |
 
 ## First publication

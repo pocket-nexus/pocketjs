@@ -46,7 +46,7 @@ env_logger = "0.11"
 # them at build time (bindgen; requires libclang) for ARM cross-builds only.
 # Native builds keep the pre-generated bindings (no libclang required).
 [target.'cfg(target_arch = "arm")'.dependencies]
-rquickjs = { version = "0.12", features = ["bindgen"] }
+rquickjs = { version = "0.14", features = ["bindgen"] }
 
 [dev-dependencies]
 pocket-render = { workspace = true, default-features = true }

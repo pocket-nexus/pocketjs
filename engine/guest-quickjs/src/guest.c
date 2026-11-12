@@ -15,6 +15,14 @@
 #define POCKET_QJS_ALIGNOF(type) __alignof__(type)
 #endif
 
+/* QuickJS-NG 0.16 added a maximum length and a reallocator to
+ * JS_NewArrayBuffer. Older QuickJS-NG releases and Bellard take a free
+ * callback instead. */
+#if defined(POCKET_QJS_BELLARD) || !defined(QJS_VERSION_MAJOR) || \
+    (QJS_VERSION_MAJOR == 0 && QJS_VERSION_MINOR < 16)
+#define POCKET_QJS_ARRAY_BUFFER_FREE_FORM 1
+#endif
+
 #if defined(POCKET_QJS_BELLARD)
 #define HAS_IMMUTABLE_API 0
 #elif defined(__APPLE__)
@@ -176,12 +184,20 @@ done:
 }
 static int set(JSContext *ctx,JSValueConst object,const char *name,JSValue value) { return JS_DefinePropertyValueStr(ctx,object,name,value,JS_PROP_C_W_E); }
 static JSValue viewport(JSContext *ctx,uint32_t width,uint32_t height) {JSValue value=JS_NewObject(ctx);if(set(ctx,value,"w",JS_NewUint32(ctx,width))<0||set(ctx,value,"h",JS_NewUint32(ctx,height))<0){JS_FreeValue(ctx,value);return JS_EXCEPTION;}return value;}
+#if defined(POCKET_QJS_ARRAY_BUFFER_FREE_FORM)
 static void borrowed_free(JSRuntime *rt,void *opaque,void *ptr) {(void)rt;(void)opaque;(void)ptr;}
+#endif
 static JSValue package_buffer(JSContext *ctx,const pocket_guest_environment *env) {
   /* Package storage stays valid through shutdown, which detaches this buffer,
    * so canonical/IDF guests borrow the bytes in place. QuickJS-NG refuses JS
    * writes and transfer() through the immutable flag. */
+#if defined(POCKET_QJS_ARRAY_BUFFER_FREE_FORM)
   JSValue pak=JS_NewArrayBuffer(ctx,(uint8_t*)env->pak,env->pak_length,borrowed_free,NULL,false);
+#else
+  /* A zero maximum length makes the buffer non-resizable, so the package bytes
+   * stay borrowed in place and no reallocator is needed. */
+  JSValue pak=JS_NewArrayBuffer(ctx,(uint8_t*)env->pak,env->pak_length,0,NULL,NULL,false);
+#endif
 #if !defined(POCKET_QJS_BELLARD) && (defined(__GNUC__) || defined(POCKET_QJS_IMMUTABLE_API))
   if(!JS_IsException(pak)&&HAS_IMMUTABLE_API&&JS_SetImmutableArrayBuffer(pak,true)<0){JS_FreeValue(ctx,pak);return JS_ThrowInternalError(ctx,"cannot protect package buffer");}
 #endif
