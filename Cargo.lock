@@ -2020,6 +2020,7 @@ dependencies = [
 name = "pocket-guest-rquickjs"
 version = "0.16.0"
 dependencies = [
+ "log",
  "pocket-drivers",
  "pocket-runtime",
  "pocketjs-core",

@@ -1,4 +1,16 @@
 //! A QuickJS realm whose UI calls dispatch through the runtime's generated contract.
+#![cfg_attr(not(feature = "std"), no_std)]
+extern crate alloc;
+#[cfg(all(test, not(feature = "std")))]
+extern crate std;
+
+use alloc::{
+    borrow::ToOwned,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use pocket_drivers::{
     abi::{
         POCKET_TEXT_COMMIT, POCKET_TEXT_COMPOSITION, POCKET_TEXT_COMPOSITION_END,
@@ -117,7 +129,7 @@ impl RquickjsGuest {
                 keep_collection_below_limit(runtime, context, self.heap_limit, self.threshold_set);
         }
     }
-    fn remember<T, E: std::fmt::Display>(
+    fn remember<T, E: core::fmt::Display>(
         &mut self,
         result: Result<T, E>,
     ) -> Result<T, RuntimeError> {
@@ -324,11 +336,18 @@ pub fn mount_ui<'js>(
     if !globals.contains_key("console")? {
         let console = Object::new(ctx.clone())?;
         for level in ["log", "info", "warn", "error", "debug"] {
+            #[cfg(not(feature = "std"))]
+            let log_level = match level {
+                "warn" => log::Level::Warn,
+                "error" => log::Level::Error,
+                "debug" => log::Level::Debug,
+                _ => log::Level::Info,
+            };
             console.set(
                 level,
                 Function::new(
                     ctx.clone(),
-                    |ctx: Ctx<'js>, Rest(values): Rest<Value<'js>>| -> rquickjs::Result<()> {
+                    move |ctx: Ctx<'js>, Rest(values): Rest<Value<'js>>| -> rquickjs::Result<()> {
                         let mut line = String::new();
                         for value in values {
                             if !line.is_empty() {
@@ -341,7 +360,10 @@ pub fn mount_ui<'js>(
                                 false,
                             )?);
                         }
+                        #[cfg(feature = "std")]
                         eprintln!("{line}");
+                        #[cfg(not(feature = "std"))]
+                        log::log!(log_level, "{line}");
                         Ok(())
                     },
                 )?,
@@ -494,13 +516,13 @@ fn string_value<'js>(
 ) -> rquickjs::Result<String> {
     let string = Coerced::<rquickjs::String>::from_js(ctx, value)?.0;
     let raw = string.to_cstring()?;
-    let bytes = unsafe { std::slice::from_raw_parts(raw.as_ptr().cast::<u8>(), raw.len()) };
+    let bytes = unsafe { core::slice::from_raw_parts(raw.as_ptr().cast::<u8>(), raw.len()) };
     if empty_invalid {
-        return Ok(std::str::from_utf8(bytes).unwrap_or("").to_owned());
+        return Ok(core::str::from_utf8(bytes).unwrap_or("").to_owned());
     }
     match profile {
         BindingProfile::Canonical => Ok(String::from_utf8_lossy(bytes).into_owned()),
-        BindingProfile::Idf => std::str::from_utf8(bytes)
+        BindingProfile::Idf => core::str::from_utf8(bytes)
             .map(str::to_owned)
             .map_err(|_| Exception::throw_internal(ctx, "invalid UTF-8")),
     }
@@ -631,7 +653,7 @@ fn result_value<'js>(
         (ResultKind::Integer, OpResult::Integer(value)) => value.into_js(ctx),
         (ResultKind::Real, OpResult::Real(value)) => value.into_js(ctx),
         (ResultKind::String | ResultKind::OptionalString, OpResult::Bytes(bytes)) => {
-            std::str::from_utf8(&bytes)
+            core::str::from_utf8(&bytes)
                 .map_err(|_| Exception::throw_internal(ctx, "invalid string result"))?
                 .into_js(ctx)
         }
@@ -1007,5 +1029,49 @@ mod tests {
         guest.evaluate(b"globalThis.fromPackage++;").unwrap();
         assert_eq!(evaluate::<i32>(&guest, "fromPackage"), 42);
         assert!(guest.evaluate(b"globalThis.fromPackage=\0 1;\0").is_err());
+    }
+    #[cfg(not(feature = "std"))]
+    #[test]
+    fn console_levels_reach_the_log_facade_without_std() {
+        use std::sync::Mutex;
+        struct Capture(Mutex<Vec<(log::Level, String)>>);
+        impl log::Log for Capture {
+            fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+                true
+            }
+            fn log(&self, record: &log::Record<'_>) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push((record.level(), record.args().to_string()));
+            }
+            fn flush(&self) {}
+        }
+        static CAPTURE: Capture = Capture(Mutex::new(Vec::new()));
+        log::set_logger(&CAPTURE).unwrap();
+        log::set_max_level(log::LevelFilter::Trace);
+        let (mut guest, _) = guest(BindingProfile::Canonical);
+        guest
+            .evaluate(b"for(const level of ['log','info','warn','error','debug'])console[level]('console',level,1)")
+            .unwrap();
+        let records: Vec<_> = CAPTURE
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, line)| line.starts_with("console "))
+            .cloned()
+            .collect();
+        use log::Level::{Debug, Error, Info, Warn};
+        assert_eq!(
+            records,
+            [
+                (Info, "console log 1".to_string()),
+                (Info, "console info 1".to_string()),
+                (Warn, "console warn 1".to_string()),
+                (Error, "console error 1".to_string()),
+                (Debug, "console debug 1".to_string()),
+            ]
+        );
     }
 }
