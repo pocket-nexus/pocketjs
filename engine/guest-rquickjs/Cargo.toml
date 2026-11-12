@@ -22,7 +22,7 @@ bindgen = ["rquickjs/bindgen"]
 [dependencies]
 pocket-runtime = { workspace = true, default-features = true }
 pocket-drivers = { workspace = true, default-features = true }
-rquickjs = { version = "0.12", default-features = false }
+rquickjs = { version = "0.14", default-features = false }
 log = { version = "0.4", default-features = false }
 
 [dev-dependencies]

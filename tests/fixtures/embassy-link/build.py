@@ -19,10 +19,7 @@ env["AR_" + suffix] = compiler.removesuffix("gcc") + "ar"
 # Newlib hides declarations that QuickJS parses even when Atomics is disabled.
 # No pthread implementation is linked; an accidental reference must fail to link.
 headers = ["-D__STDC_NO_ATOMICS__=1", "-D_POSIX_THREADS=1", "-D_POSIX_TIMERS=1", "-D_POSIX_MONOTONIC_CLOCK=1"]
-# QuickJS-NG 0.15 passes int * to five int32_t * parameters. Newlib defines
-# int32_t as long int, and GCC 14 and later reject the mismatch by default.
-warnings = ["-Wno-error=incompatible-pointer-types"]
-env["CFLAGS_" + suffix] = " ".join(flags + headers + warnings)
+env["CFLAGS_" + suffix] = " ".join(flags + headers)
 # GCC reports its newlib search path through preprocessing.
 search = subprocess.run([compiler, *flags, "-E", "-Wp,-v", "-x", "c", "-"], input="", text=True, capture_output=True, check=True).stderr
 includes = [line.strip() for line in search.splitlines() if line.startswith(" ") and Path(line.strip()).is_dir()]

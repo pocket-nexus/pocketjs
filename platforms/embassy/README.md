@@ -85,10 +85,8 @@ use the existing [`pocket-guest-rquickjs`](../../engine/guest-rquickjs) with
 
 `rquickjs-sys` compiles its bundled QuickJS-NG sources. For targets without shipped
 bindings, enable `bindgen` and provide libclang, a target C compiler, newlib headers
-and libraries. The program supplies the global allocator and clock hooks, and with
-GCC 14 or later adds `-Wno-error=incompatible-pointer-types` to the target `CFLAGS`
-(see the [guest's compatibility notes](../../engine/guest-rquickjs/README.md#environment-and-compatibility)).
-None of these belong in `pocket-embassy`; no rquickjs source patch is required.
+and libraries. The program supplies the global allocator and clock hooks. None of
+these belong in `pocket-embassy`; no rquickjs source patch is required.
 
 ```sh
 cargo test -p pocket-embassy --locked

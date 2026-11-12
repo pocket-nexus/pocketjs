@@ -44,17 +44,13 @@ Run from the PocketJS checkout with `cargo run -p pocket-guest-rquickjs --exampl
 
 Rust 1.93 or later. The default `std` feature preserves the existing host behavior.
 Source builds can disable it for `no_std + alloc`; the program supplies its allocator.
-rquickjs 0.12 builds its unmodified QuickJS-NG 0.15.0 through `rquickjs-sys`.
+rquickjs 0.14 builds its unmodified QuickJS-NG 0.16.2 through `rquickjs-sys`.
 A C compiler and the target C toolchain must be available.
 
 For an embedded consumer, disable default features and enable `rust-alloc` to use
 the Rust global allocator. `bindgen` forwards binding generation for targets that
 rquickjs does not ship. Target compiler/sysroot settings and libc/clock hooks belong
 to the program; `no_std` support alone does not establish support for every chip.
-On newlib targets, GCC 14 and later need `-Wno-error=incompatible-pointer-types` in
-the target `CFLAGS`: QuickJS-NG 0.15 passes `int *` to `int32_t *` parameters, and
-newlib defines `int32_t` as `long int`.
-
 With `std`, the default JS console writes to stderr. Without it, console levels
 use the `log` facade and the program's logger. A console installed before
 `mount_ui` is preserved in both configurations.
