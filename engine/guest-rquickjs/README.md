@@ -42,7 +42,26 @@ Run from the PocketJS checkout with `cargo run -p pocket-guest-rquickjs --exampl
 
 ## Environment and compatibility
 
-Rust 1.93 or later. Requires `std`. rquickjs 0.12 builds QuickJS through `rquickjs-sys`; a C compiler and the target C toolchain must be available.
+Rust 1.93 or later. The default `std` feature preserves the existing host behavior.
+Source builds can disable it for `no_std + alloc`; the program supplies its allocator.
+rquickjs 0.12 builds its unmodified QuickJS-NG 0.15.0 through `rquickjs-sys`.
+A C compiler and the target C toolchain must be available.
+
+For an embedded consumer, disable default features and enable `rust-alloc` to use
+the Rust global allocator. `bindgen` forwards binding generation for targets that
+rquickjs does not ship. Target compiler/sysroot settings and libc/clock hooks belong
+to the program; `no_std` support alone does not establish support for every chip.
+On newlib targets, GCC 14 and later need `-Wno-error=incompatible-pointer-types` in
+the target `CFLAGS`: QuickJS-NG 0.15 passes `int *` to `int32_t *` parameters, and
+newlib defines `int32_t` as `long int`.
+
+With `std`, the default JS console writes to stderr. Without it, console levels
+use the `log` facade and the program's logger. A console installed before
+`mount_ui` is preserved in both configurations.
+
+```sh
+cargo test -p pocket-guest-rquickjs --release --no-default-features --features rust-alloc
+```
 
 Use `RquickjsGuest::default()` with `Runtime::set_guest` for application instances. The example exercises the lower-level Guest lifecycle in a host-owned UI. Canonical bindings match the runtime binding generation; legacy profiles exist for compatibility. A realm and heap limit alone do not provide execution-time isolation.
 

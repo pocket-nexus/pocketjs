@@ -26,7 +26,7 @@ pocketjs/
 │  ├─ package/              package, asset and font archive readers and hashing
 │  ├─ runtime/              instance lifecycle, admission, input, presentation and C ABI bodies
 │  ├─ guest-quickjs/        C guest lifecycle and generated operation bindings
-│  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings
+│  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings; std or no_std + alloc
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
 │  ├─ host-services/        C link, launcher, fs and photo services for native programs
@@ -50,6 +50,7 @@ pocketjs/
 │  ├─ web/ sim/             browser and deterministic service providers
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
 │  ├─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
+│  ├─ embassy/              CPU display handoff and runtime pacing
 │  └─ sifli/                RT-Thread drivers and EPIC executor
 ├─ hosts/                   built-in host contracts identified by content hashes
 ├─ programs/

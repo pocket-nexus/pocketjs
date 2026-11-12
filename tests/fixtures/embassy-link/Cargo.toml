@@ -1,0 +1,24 @@
+[package]
+name = "pocket-embassy-link-check"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+pocket-guest-rquickjs = { path = "../../../engine/guest-rquickjs", default-features = false, features = ["rust-alloc", "bindgen"] }
+pocket-package = { path = "../../../engine/package" }
+pocket-raster = { path = "../../../engine/raster" }
+pocket-embassy = { path = "../../../platforms/embassy" }
+pocket-runtime = { path = "../../../engine/runtime" }
+pocket-drivers = { path = "../../../engine/drivers" }
+embassy-time = { version = "0.5", features = ["tick-hz-1_000_000", "generic-queue-8"] }
+embassy-time-driver = { version = "0.2", features = ["tick-hz-1_000_000"] }
+critical-section = "1.2"
+
+[profile.release]
+panic = "abort"
+
+[build-dependencies]
+cc = "1.2"
