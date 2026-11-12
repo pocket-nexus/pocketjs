@@ -24,6 +24,7 @@ import { buildWorker } from "./build-worker.ts";
 //   --density=<integer>          low-level target sampling density (default 1)
 //   --font-regular=<path>        override the regular font source
 //   --font-bold=<path>           override the bold font source
+//   --font-mono=<path>           override the mono font source (font-mono slots)
 //   --outdir=<path>              write <app>.js/.pak here instead of dist/
 //                                (external repos build their apps against a
 //                                vendored PocketJS and keep outputs local)
@@ -93,6 +94,7 @@ const args = process.argv.slice(2);
 let extraChars = "";
 let regularFontPath: string | undefined;
 let boldFontPath: string | undefined;
+let monoFontPath: string | undefined;
 let appArg = "";
 let frameworkFlag: string | undefined;
 let planPath: string | undefined;
@@ -106,6 +108,7 @@ for (const a of args) {
   if (a.startsWith("--extra-chars=")) extraChars = a.slice("--extra-chars=".length);
   else if (a.startsWith("--font-regular=")) regularFontPath = resolvePath(a.slice("--font-regular=".length));
   else if (a.startsWith("--font-bold=")) boldFontPath = resolvePath(a.slice("--font-bold=".length));
+  else if (a.startsWith("--font-mono=")) monoFontPath = resolvePath(a.slice("--font-mono=".length));
   else if (a.startsWith("--framework=")) frameworkFlag = a.slice("--framework=".length);
   else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
     throw new Error("PocketJS build: application configuration belongs in pocket.app.json; --config and --no-config were removed");
@@ -359,6 +362,7 @@ const atlases = await bakeAtlases({
   rasterDensity,
   regularTtf: regularFontPath,
   boldTtf: boldFontPath,
+  monoTtf: monoFontPath,
   onRead: path => buildInputs.add(path),
   fallbackTtfs,
 });
