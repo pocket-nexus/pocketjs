@@ -50,6 +50,7 @@ pocketjs/
 │  ├─ web/ sim/             browser and deterministic service providers
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
 │  ├─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
+│  ├─ embassy/              CPU display handoff and runtime pacing
 │  └─ sifli/                RT-Thread drivers and EPIC executor
 ├─ hosts/                   built-in host contracts identified by content hashes
 ├─ programs/

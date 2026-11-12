@@ -3,6 +3,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "platforms/embassy",
     "platforms/gba/video",
     "platforms/posix/svc-wire",
     "platforms/rockbox/input",
@@ -131,12 +132,15 @@ default-members = [
     "engine/runtime",
     "programs/sdk/archive",
     "engine/spec",
+    "platforms/embassy",
     "devices/esp-idf/render-ppa",
     "devices/sifli/render-epic",
 ]
 # Test/fuzzer harnesses keep isolated dependency graphs.
 exclude = [
     "engine/package/fuzz",
+    "tests/fixtures/embassy-host",
+    "tests/fixtures/embassy-link",
     "tests/fixtures/psp-runtime",
     "tests/fixtures/vita-dev",
     "tests/fixtures/vita-runtime",

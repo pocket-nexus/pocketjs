@@ -1,0 +1,26 @@
+[package]
+name = "pocket-embassy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Embassy pacing and asynchronous transport for PocketJS display outputs"
+
+[features]
+default = ["runner"]
+runner = ["dep:pocket-runtime", "dep:embassy-time"]
+
+[dependencies]
+pocket-runtime = { workspace = true, optional = true }
+pocket-drivers.workspace = true
+embassy-time = { version = "0.5", optional = true }
+
+[dev-dependencies]
+# The Ticker test defines its own clock at embassy-nrf's RTC rate, not 1 MHz.
+embassy-time-driver = { version = "0.2", features = ["tick-hz-32_768"] }
+
+[[test]]
+name = "ticker"
+required-features = ["runner"]
