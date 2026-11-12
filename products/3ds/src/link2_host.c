@@ -31,11 +31,13 @@
 
 /* What this program serves or uses (§6.1). `runtime.native` is listed
  * whatever started the process: outside the Homebrew Launcher a launch
- * answers the error `launch`. `devtools` is listed while the running guest
- * has the DevTools shim (link2_host_devtools_active), and stands last so the
- * list without it is the same array, one shorter. */
+ * answers the error `launch`. `runtime.remove` is served by the guest's own
+ * removal (link2_guest_host fills the callback), with its refusals.
+ * `devtools` is listed while the running guest has the DevTools shim
+ * (link2_host_devtools_active), and stands last so the list without it is
+ * the same array, one shorter. */
 static const char *const FEATURES[] = {
-  "apps", "runtime", "runtime.native", "catalog", "install", "net.http", "agent", "channel", "devtools",
+  "apps", "runtime", "runtime.native", "runtime.remove", "catalog", "install", "net.http", "agent", "channel", "devtools",
 };
 enum { FEATURE_COUNT = sizeof FEATURES / sizeof FEATURES[0] };
 /* The running guest's shim asked for the transport; and what Hub was told. */
@@ -897,6 +899,7 @@ void link2_host_init(const PocketRuntimePackage *embedded) {
   host.stream_open = on_stream_open;
   host.stream_data = on_stream_data;
   host.stream_end = on_stream_end;
+  /* Catalog, install and runtime.remove: the guest namespace's own paths. */
   link2_guest_host(&host);
   link2_http_host(&host);
 

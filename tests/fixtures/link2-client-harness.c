@@ -6,7 +6,7 @@
  * bytes and CRC-32s; the "guest" answers a daemon's requests by their name.
  *
  *   link2-client-harness <link dir> <beacon port> [--payload n] [--speed n]
- *                        [--features a,b,…] [--channels n]
+ *                        [--features a,b,…] [--channels n] [--remove 0]
  */
 
 #include <fcntl.h>
@@ -245,6 +245,49 @@ static bool on_launch(void *context, const char *native, const char *app, Link2J
 static void on_restart(void *context) {
   (void)context;
   say("restart");
+}
+
+/* runtime.remove over the rows `apps` set: row 0 is the launcher, the running
+ * applet is the one on_status names, and `remove-mode busy|storage` makes the
+ * next removals of an installed row fail as an install under way or a slot
+ * that would not delete. */
+static char remove_mode[16] = "ok";
+static bool on_remove(void *context, const char *id, Link2Failure *failure) {
+  (void)context;
+  size_t found = app_rows;
+  for (size_t i = 0; i < app_rows; i += 1) {
+    if (strcmp(app_text[i][0], id) == 0) found = i;
+  }
+  const char *code = NULL;
+  const char *message = "";
+  const char *members = "";
+  if (found == 0 && app_rows > 0) {
+    code = "rejected";
+    message = "the launcher is never removed";
+    members = "\"reason\":\"home\"";
+  } else if (strcmp(id, "dev.pocket-nexus.shell") == 0) {
+    code = "rejected";
+    message = "the applet is running; switch to another one first";
+    members = "\"reason\":\"running\"";
+  } else if (found == app_rows) {
+    code = "not_found";
+    message = "no installed applet has this id";
+  } else if (strcmp(remove_mode, "ok") != 0) {
+    code = remove_mode;
+    message = strcmp(remove_mode, "busy") == 0 ? "an install of this applet is under way" : "the applet's slot could not be deleted";
+  }
+  if (code != NULL) {
+    snprintf(failure->code, sizeof failure->code, "%s", code);
+    snprintf(failure->message, sizeof failure->message, "%s", message);
+    snprintf(failure->members, sizeof failure->members, "%s", members);
+    say("remove-refused %s", code);
+    return false;
+  }
+  memmove(app_text[found], app_text[found + 1], (app_rows - found - 1) * sizeof app_text[0]);
+  app_rows -= 1;
+  link2_apps_changed(client);
+  say("removed %zu %zu", strlen(id), app_rows);
+  return true;
 }
 
 static bool on_shot_begin(void *context, Link2Json *members, uint32_t *frame, uint32_t *bytes) {
@@ -754,6 +797,8 @@ static bool command(char *line) {
     const char *how = field(&cursor);
     staged.fail_storage = strcmp(how, "storage") == 0;
     staged.reject = strcmp(how, "reject") == 0;
+  } else if (strcmp(name, "remove-mode") == 0) {
+    snprintf(remove_mode, sizeof remove_mode, "%s", field(&cursor));
   } else if (strcmp(name, "devtools-send") == 0) {
     if (!link2_devtools_send(client, cursor != NULL ? cursor : "", cursor != NULL ? strlen(cursor) : 0)) return false;
   } else if (strcmp(name, "guest-switch") == 0) {
@@ -872,8 +917,9 @@ static void read_commands(void) {
 }
 
 int main(int argc, char **argv) {
-  static const char *features[LINK2_MAX_FEATURES] = {"runtime", "runtime.native", "devtools", "catalog", "install", "net.http", "agent", "channel", "apps"};
-  size_t feature_count = 9;
+  static const char *features[LINK2_MAX_FEATURES] = {"runtime", "runtime.native", "runtime.remove", "devtools", "catalog", "install", "net.http", "agent", "channel", "apps"};
+  size_t feature_count = 10;
+  bool removes = true;
   Link2Platform platform = {0};
   Link2Host host = {0};
   if (argc < 3) return 2;
@@ -884,6 +930,8 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--payload") == 0) host.max_payload = (uint32_t)atoi(argv[i + 1]);
     if (strcmp(argv[i], "--speed") == 0) speed = (unsigned)atoi(argv[i + 1]);
     if (strcmp(argv[i], "--deferred") == 0) deferred = true;
+    /* --remove 0: the group listed and no callback, which answers `unsupported`. */
+    if (strcmp(argv[i], "--remove") == 0) removes = atoi(argv[i + 1]) != 0;
     if (strcmp(argv[i], "--channels") == 0) host.max_channels = (uint32_t)atoi(argv[i + 1]);
     if (strcmp(argv[i], "--features") == 0) {
       feature_count = 0;
@@ -917,6 +965,7 @@ int main(int argc, char **argv) {
   host.native_abort = on_native_abort;
   host.launch = on_launch;
   host.restart = on_restart;
+  if (removes) host.remove = on_remove;
   host.screenshot_begin = on_shot_begin;
   if (deferred) {
     host.push_admit = on_push_admit;

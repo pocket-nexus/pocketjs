@@ -14,6 +14,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 
 import { connect as tcpConnect } from "node:net";
 import { join } from "node:path";
 import {
+  LINK2_APP_ID_BYTES,
   LINK2_APPS_INTERVAL_MS,
   LINK2_BACKOFF_MAX_MS,
   LINK2_BACKOFF_MIN_MS,
@@ -108,6 +109,13 @@ export interface RuntimeHandlers {
   nativeInstall?(request: { name: string; launch: boolean }, body: Uint8Array): Promise<{ phase: "installed" | "staged" | "launching"; path: string }>;
   launch?(request: { native?: string; app?: string }): Promise<Json>;
   screenshot?(): { frame: number; surfaces: (Link2ScreenshotSurface & { pixels: Uint8Array })[] };
+  /** runtime.remove (§6.2): delete the applet's slot, its package and its
+   *  data. The device has checked that `id` is a row of the installed set
+   *  (`setApps`), not the launcher's row, not the running applet
+   *  (`status().app`), and that no `install()` of it streams; after this
+   *  resolves it drops the row and reports the set. A LinkError `storage`
+   *  refuses the removal. Without this handler the row alone is dropped. */
+  remove?(request: { id: string }): Promise<void>;
 }
 
 export interface DeviceOptions {
@@ -326,6 +334,8 @@ export class LinkDevice {
   private logsOn = false;
   private logsDropped = 0;
   private apps: Link2InstalledApp[] | null = null;
+  /** Ids an `install()` streams into: their removal waits (§6.2 runtime.remove). */
+  private readonly installing = new Set<string>();
   private appsSet = 0;
   private appsSentAt = Number.NEGATIVE_INFINITY;
   private appsDirty = false;
@@ -817,6 +827,25 @@ export class LinkDevice {
       return new Promise<Json>(() => {});
     }), bound);
 
+    // §6.2 runtime.remove: the checks in the page's order, then the slot, then
+    // the row; the report of the smaller set follows the REPLY.
+    peer.handle("runtime.remove", (call) => stateSlot(async () => {
+      const { id } = call.args as { id?: unknown };
+      if (typeof id !== "string" || id === "" || encodedBytes(id) > LINK2_APP_ID_BYTES) throw new LinkError("malformed", "id is not a string of 1 to 128 bytes");
+      const rows = this.apps ?? [];
+      if (rows.some((row) => row.id === id && row.home === true)) throw new LinkError("rejected", "the launcher is never removed", { reason: "home" });
+      if (runtime?.status().app?.id === id) throw new LinkError("rejected", "the applet is running; switch to another one first", { reason: "running" });
+      if (!rows.some((row) => row.id === id)) throw new LinkError("not_found", "no installed applet has this id");
+      if (this.installing.has(id)) throw new LinkError("busy", "an install of this applet is under way");
+      await runtime?.remove?.({ id });
+      if (this.apps !== null) {
+        this.apps = this.apps.filter((row) => row.id !== id);
+        this.appsDirty = true;
+        setImmediate(() => this.reportApps());
+      }
+      return { id };
+    }), { feature: "runtime.remove", bound: this.hubRequests });
+
     peer.handle("runtime.screenshot", async (call) => {
       if (!runtime?.screenshot) throw new LinkError("unsupported");
       if (this.shotBusy) throw new LinkError("busy", "one screenshot at a time");
@@ -1029,6 +1058,7 @@ export class LinkDevice {
     let file = new Uint8Array(0);
     let at = 0;
     let hash = "";
+    this.installing.add(app);
     const call = peer.request({ t: "install", app }, {
       feature: "install",
       response: {
@@ -1046,7 +1076,11 @@ export class LinkDevice {
         call.response?.start(head.bytes);
       },
     });
-    await call.reply;
+    try {
+      await call.reply;
+    } finally {
+      this.installing.delete(app);
+    }
     if (at !== file.length) throw new LinkError("transfer");
     return { hash, file };
   }

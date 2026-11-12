@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   LINK2_APP_EVENT_WINDOW,
   LINK2_APP_FRAME_STREAM,
+  LINK2_APP_ID_BYTES,
   LINK2_APP_STREAM_WINDOW,
   LINK2_CHANNEL_REQUESTS,
   LINK2_FLAG,
@@ -47,6 +48,7 @@ import {
   encodePong,
   encodePreamble,
   encodeReset,
+  encodedBytes,
   fromHex,
   idRange,
   jsonBytes,
@@ -464,6 +466,36 @@ describe("requests (§5.2, §5.4, §5.5)", () => {
     }
     expect(jsonOf(v.malformed[0].hex).object).toBeNull();
     expect(jsonOf(v.unknownMessage[1].hex).object).toEqual({ code: "unknown_message", message: "catalog.search" });
+  });
+  test("runtime.remove (§6.2): the REPLY names the id and the report after it lacks the row; rejected carries reason home or running, the other errors none; the id is 1 to 128 encoded bytes", () => {
+    const r = v.runtimeRemove;
+    const [request, reply, report] = r.removed.map((step: { hex: string }) => one(step.hex));
+    expect([request.type, reply.type, report.type]).toEqual([LINK2_FRAME.request, LINK2_FRAME.reply, LINK2_FRAME.event]);
+    expect(reply.id).toBe(request.id);
+    const removed = parseJsonPayload(request).object as { t: string; id: string };
+    expect(removed.t).toBe("runtime.remove");
+    expect(parseJsonPayload(reply).object).toEqual({ id: removed.id });
+    const apps = (parseJsonPayload(report).object as { apps: Link2InstalledApp[] }).apps;
+    expect(apps).toEqual((r.installed as Link2InstalledApp[]).filter((row) => row.id !== removed.id));
+    expect(r.running).not.toBe(removed.id);
+    for (const c of r.errors) {
+      const [asked, answer] = c.steps.map((step: { hex: string }) => one(step.hex));
+      expect(answer.id).toBe(asked.id);
+      expect(answer.flags & LINK2_FLAG.error).toBe(LINK2_FLAG.error);
+      expect((parseJsonPayload(asked).object as { id: string }).id).toBe(c.id);
+      const object = parseJsonPayload(answer).object as Record<string, unknown>;
+      expect(object.code).toBe(c.code);
+      expect(object.reason ?? null).toBe(c.reason);
+      expect(c.reason === null || (c.code === "rejected" && ["home", "running"].includes(c.reason))).toBe(true);
+    }
+    expect(r.errors.map((c: { code: string; reason: string | null }) => `${c.code}${c.reason ? `:${c.reason}` : ""}`)).toEqual(["rejected:home", "rejected:running", "not_found", "busy", "busy", "storage", "unsupported"]);
+    expect(r.errors[0].id).toBe((r.installed as Link2InstalledApp[]).find((row) => row.home)?.id);
+    expect(r.errors[1].id).toBe(r.running);
+    for (const c of r.ids) {
+      expect(parseJsonPayload(one(c.hex)).object).toEqual(c.json);
+      const id = c.json.id;
+      expect(`${c.name}: ${typeof id === "string" && id !== "" && encodedBytes(id) <= LINK2_APP_ID_BYTES}`).toBe(`${c.name}: ${c.accepted}`);
+    }
   });
   test("an error reply of each generic code", () => {
     for (const c of v.errors) {

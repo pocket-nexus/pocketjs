@@ -4,15 +4,16 @@
 // writes in one read, or one byte per read. No socket is opened.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LINK2_APP_OUTBOUND, LINK2_TCP_PAYLOAD, type Link2RuntimeStatus } from "../contracts/spec/link2.ts";
+import { LINK2_APP_OUTBOUND, LINK2_TCP_PAYLOAD, type Link2InstalledApp, type Link2RuntimeStatus } from "../contracts/spec/link2.ts";
 import { type Carrier, pipeCarriers } from "../tools/pocket-link/v2/carrier.ts";
-import { type GuestChannel, LinkDevice } from "../tools/pocket-link/v2/device.ts";
+import { type GuestChannel, LinkDevice, type RuntimeHandlers } from "../tools/pocket-link/v2/device.ts";
 import { type Daemon, type HubDevice, LinkHub, MemoryStore, directoryStorage } from "../tools/pocket-link/v2/hub.ts";
-import type { AppletChannel, StreamReader } from "../tools/pocket-link/v2/peer.ts";
+import { type AppletChannel, type Json, LinkError, type StreamReader } from "../tools/pocket-link/v2/peer.ts";
 import { encodePing } from "../tools/pocket-link/v2/protocol.ts";
+import { VECTOR_DIR } from "../tools/pocket-link/v2/vectors.ts";
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 async function until(what: () => unknown, label: string, ms = 5_000): Promise<void> {
@@ -88,7 +89,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-async function pair(options: { carriers: () => [Carrier, Carrier]; onDevice?: (device: HubDevice) => void; daemon?: Daemon }): Promise<Pair> {
+async function pair(options: { carriers: () => [Carrier, Carrier]; onDevice?: (device: HubDevice) => void; daemon?: Daemon; runtime?: RuntimeHandlers; features?: string[] }): Promise<Pair> {
   const dir = mkdtempSync(join(tmpdir(), "link2-reference-"));
   const hub = new LinkHub({ name: "Studio Mac", store: new MemoryStore("00000000000000aa"), beaconTargets: [], onDevice: options.onDevice, daemons: () => options.daemon ?? null });
   const setup = await hub.setup(directoryStorage(dir), { kind: "card", addresses: ["127.0.0.1"] });
@@ -100,7 +101,8 @@ async function pair(options: { carriers: () => [Carrier, Carrier]; onDevice?: (d
     target: "3ds-dev",
     hostAbi: 12,
     beaconPort: null,
-    runtime: { status: () => STATUS },
+    runtime: options.runtime ?? { status: () => STATUS },
+    features: options.features,
     connect: async () => {
       const [mine, theirs] = options.carriers();
       hub.accept(theirs);
@@ -159,6 +161,93 @@ describe("the frame behind ready (§3.3)", () => {
     expect(await at.runtimeStatus()).toEqual(STATUS);
     expect(device.status.closes).toEqual([]);
     expect(at.closed).toBeNull();
+  });
+});
+
+describe("runtime.remove (§6.2): the reference device against the reference Hub, case by case as the vectors give them", () => {
+  // biome-ignore lint/suspicious/noExplicitAny: the vectors are JSON
+  const v: any = JSON.parse(readFileSync(join(VECTOR_DIR, "requests.json"), "utf8")).runtimeRemove;
+  /** A frame's JSON: its 12 header bytes are 24 hex digits. */
+  const payload = (hex: string): Json => JSON.parse(Buffer.from(hex.slice(24), "hex").toString("utf8"));
+  const outcome = (reply: Promise<Json>) => reply.then(() => null, (error: LinkError) => ({ code: error.code, reason: (error.extra.reason as string | undefined) ?? null }));
+  const expected = (index: number) => ({ code: v.errors[index].code, reason: v.errors[index].reason });
+
+  test("the REPLY and the report without the row; home, running, not_found, an install under way, a second state-changing request, storage; the id's limits; Hub's mutex", async () => {
+    const installed = v.installed as Link2InstalledApp[];
+    const running = installed.find((row) => row.id === v.running) as Link2InstalledApp;
+    const deleted: string[] = [];
+    let failStorage = false;
+    const { device, hub, linked } = await pair({
+      carriers: () => pipeCarriers(),
+      runtime: {
+        status: () => ({ ...STATUS, app: { id: running.id, output: running.output, title: "Map" } }),
+        push: () => new Promise(() => {}),
+        remove: async ({ id }) => {
+          if (failStorage) throw new LinkError("storage", "the applet's slot could not be deleted");
+          deleted.push(id);
+        },
+      },
+    });
+    device.setApps(installed);
+    const at = await linked();
+    // The device's timed rules: a report inside the second goes out at its end.
+    device.start(20);
+    await until(() => at.apps.length === installed.length, "the first report");
+    expect(at.peer.inUse("runtime.remove")).toBe(true);
+
+    // Hub takes its device mutex: a holder in place answers busy and nothing is sent.
+    let release: () => void = () => {};
+    const held = hub.locked(at.id, "a test holder", () => new Promise<void>((done) => (release = done)));
+    await expect(at.remove(v.errors[0].id)).rejects.toMatchObject({ code: "busy", extra: { holder: "a test holder" } });
+    release();
+    await held;
+
+    expect(await outcome(at.remove(v.errors[0].id))).toEqual(expected(0));
+    expect(await outcome(at.remove(v.errors[1].id))).toEqual(expected(1));
+    expect(await outcome(at.remove(v.errors[2].id))).toEqual(expected(2));
+
+    // An install of the applet streams: Hub holds the device's install request open.
+    let endInstall: (() => void) | null = null;
+    at.peer.handle("install", () => new Promise<Json>((_, fail) => (endInstall = () => fail(new LinkError("not_found", "the test ends the install")))), { feature: "install" });
+    const install = device.install(v.errors[3].id).then(() => "done", (error: LinkError) => error.code);
+    await until(() => endInstall !== null, "the install at Hub");
+    expect(await outcome(at.remove(v.errors[3].id))).toEqual(expected(3));
+    (endInstall as unknown as () => void)();
+    expect(await install).toBe("not_found");
+
+    // A second state-changing request, as a Hub that breaks §8.3 sends it: the device's one slot answers busy.
+    const push = at.peer.request({ t: "runtime.push", bytes: 1000, hash: "00000000000000aa" }, { feature: "runtime", body: true });
+    push.reply.catch(() => {});
+    await pause(10);
+    expect(await outcome(at.peer.request({ t: "runtime.remove", id: v.errors[4].id }, { feature: "runtime.remove" }).reply)).toEqual(expected(4));
+    push.cancel();
+    await expect(push.reply).rejects.toMatchObject({ code: "cancelled" });
+
+    failStorage = true;
+    expect(await outcome(at.remove(v.errors[5].id))).toEqual(expected(5));
+    failStorage = false;
+
+    // The id's limits: one the device accepts and does not hold is not_found.
+    for (const c of v.ids as { name: string; json: Json & { t: string }; accepted: boolean }[]) {
+      expect(`${c.name}: ${(await outcome(at.peer.request(c.json, { feature: "runtime.remove" }).reply))?.code}`).toBe(`${c.name}: ${c.accepted ? "not_found" : "malformed"}`);
+    }
+    expect(deleted).toEqual([]);
+
+    // The removal: the REPLY of the vectors, then the report of the smaller set.
+    const [request, reply, report] = v.removed.map((step: { hex: string }) => payload(step.hex));
+    expect(await at.remove(request.id as string)).toEqual(reply);
+    expect(deleted).toEqual([request.id]);
+    await until(() => at.apps.length === installed.length - 1, "the report without the row");
+    expect(at.apps).toEqual(report.apps as unknown as Link2InstalledApp[]);
+    expect(await outcome(at.remove(request.id as string))).toEqual({ code: "not_found", reason: null });
+  });
+
+  test("a device that does not list runtime.remove is never sent it; one sent anyway is answered unsupported", async () => {
+    const { linked } = await pair({ carriers: () => pipeCarriers(), features: ["runtime", "apps"] });
+    const at = await linked();
+    expect(at.peer.inUse("runtime.remove")).toBe(false);
+    await expect(at.remove("dev.example.notes")).rejects.toMatchObject({ code: "unsupported" });
+    expect(await outcome(at.peer.request({ t: "runtime.remove", id: "dev.example.notes" }).reply)).toEqual(expected(6));
   });
 });
 

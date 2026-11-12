@@ -87,13 +87,13 @@ const hello = (maxPayload: number): Link2Hello => ({
   model: "New Nintendo 3DS XL",
   target: "3ds-dev",
   hostAbi: 12,
-  features: ["runtime", "runtime.native", "devtools", "catalog", "install", "net.http", "agent", "channel", "apps"],
+  features: ["runtime", "runtime.native", "runtime.remove", "devtools", "catalog", "install", "net.http", "agent", "channel", "apps"],
   maxPayload,
 });
 const ready = (maxPayload: number): Link2Ready => ({
   t: "ready",
   name: "Studio Mac",
-  features: ["runtime", "runtime.native", "devtools", "catalog", "install", "net.http", "channel", "apps"],
+  features: ["runtime", "runtime.native", "runtime.remove", "devtools", "catalog", "install", "net.http", "channel", "apps"],
   maxPayload,
   clock: { ...FIXED.clock },
 });
@@ -452,6 +452,55 @@ function requests() {
       { id: 0, range: null },
       { id: 0x8000_0000, range: null },
     ],
+    runtimeRemove: runtimeRemove(),
+  };
+}
+
+/** §6.2 runtime.remove: a removal and the report after it, each error with
+ *  the state that gives it, and the ids at and past the limit. */
+function runtimeRemove() {
+  const step = (from: "device" | "hub", what: string, bytes: Uint8Array) => ({ from, what, hex: hex(bytes) });
+  const request = (id: number, app: unknown) => encodeJsonFrame(LINK2_FRAME.request, id, { t: "runtime.remove", id: app });
+  const refusal = (id: number, code: string, message: string, reason?: string) =>
+    encodeJsonFrame(LINK2_FRAME.reply, id, reason === undefined ? { code, message } : { code, message, reason }, { error: true });
+  const home: Link2InstalledApp = { id: "dev.pocket-nexus.shell", output: "pocket-shell", version: "1.4.0", hash: "0c264b65890d0377", home: true };
+  const map: Link2InstalledApp = { id: "dev.example.map", output: "map", version: "2.0.1", hash: "00000000000000a1" };
+  const notes: Link2InstalledApp = { id: "dev.example.notes", output: "notes", version: "1.0.0", hash: "00000000000000a2" };
+  const running = map.id;
+  const error = (n: number, name: string, app: string, code: string, message: string, reason?: string) => ({
+    name,
+    id: app,
+    code,
+    reason: reason ?? null,
+    steps: [step("hub", "REQUEST runtime.remove", request(0x8000_0030 + n, app)), step("device", `REPLY ERROR ${code}`, refusal(0x8000_0030 + n, code, message, reason))],
+  });
+  const id = (name: string, json: Record<string, unknown>, accepted: boolean) => ({ name, json, hex: hex(encodeJsonFrame(LINK2_FRAME.request, 0x8000_0040, json)), accepted });
+  return {
+    installed: [home, map, notes],
+    running,
+    removed: [
+      step("hub", "REQUEST runtime.remove", request(0x8000_0021, notes.id)),
+      step("device", "REPLY, after the slot is deleted", encodeJsonFrame(LINK2_FRAME.reply, 0x8000_0021, { id: notes.id })),
+      step("device", "EVENT runtime.apps: the set without the applet, under the one-a-second rule", encodeJsonFrame(LINK2_FRAME.event, 0, { t: "runtime.apps", set: 2, at: 0, apps: [home, map], more: false })),
+    ],
+    errors: [
+      error(1, "the launcher, never removed", home.id, "rejected", "the launcher is never removed", "home"),
+      error(2, "the running applet", running, "rejected", "the applet is running; switch to another one first", "running"),
+      error(3, "an id no installed applet has", "dev.example.none", "not_found", "no installed applet has this id"),
+      error(4, "an install of the applet streams or waits to commit", notes.id, "busy", "an install of this applet is under way"),
+      error(5, "another state-changing request is open (a Hub that breaks §8.3)", notes.id, "busy", "a state-changing request is open"),
+      error(6, "the slot could not be deleted", notes.id, "storage", "the applet's slot could not be deleted"),
+      error(7, "the device does not list runtime.remove (a Hub that sends it anyway)", notes.id, "unsupported", "the group is not in use"),
+    ],
+    ids: [
+      id("128 bytes", { t: "runtime.remove", id: fillText(128) }, true),
+      id("129 bytes", { t: "runtime.remove", id: fillText(129) }, false),
+      id("126 bytes and a quote: 127 bytes, 128 counted as encoded", { t: "runtime.remove", id: `${fillText(126)}"` }, true),
+      id("127 bytes and a quote: 128 bytes, 129 counted as encoded", { t: "runtime.remove", id: `${fillText(127)}"` }, false),
+      id("empty", { t: "runtime.remove", id: "" }, false),
+      id("a number", { t: "runtime.remove", id: 7 }, false),
+      id("no id", { t: "runtime.remove" }, false),
+    ],
   };
 }
 
@@ -640,7 +689,7 @@ function features() {
   const event = (list: string[]) => hex(encodeJsonFrame(LINK2_FRAME.event, 0, { t: "features", features: list }));
   return {
     valid: [
-      { name: "Hub drops agent", list: ["runtime", "runtime.native", "devtools", "catalog", "install", "net.http", "channel", "apps"], hex: event(["runtime", "runtime.native", "devtools", "catalog", "install", "net.http", "channel", "apps"]) },
+      { name: "Hub drops agent", list: ["runtime", "runtime.native", "runtime.remove", "devtools", "catalog", "install", "net.http", "channel", "apps"], hex: event(["runtime", "runtime.native", "runtime.remove", "devtools", "catalog", "install", "net.http", "channel", "apps"]) },
       { name: "16 entries of 24 bytes", list: Array.from({ length: 16 }, (_, i) => `${"f".repeat(22)}${i.toString().padStart(2, "0")}`), hex: event(Array.from({ length: 16 }, (_, i) => `${"f".repeat(22)}${i.toString().padStart(2, "0")}`)) },
       { name: "an empty list", list: [], hex: event([]) },
     ],

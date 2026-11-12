@@ -66,7 +66,7 @@ enum { PHASE_IDLE, PHASE_SEARCH, PHASE_CONNECTING, PHASE_HANDSHAKE, PHASE_LINKED
 static const char *const PHASE_NAMES[] = {"idle", "search", "connecting", "handshake", "linked", "closing", "backoff"};
 
 enum { OR_FREE, OR_CATALOG, OR_INSTALL, OR_HTTP, OR_DEVTOOLS, OR_CHANNEL_OPEN, OR_APP };
-enum { IR_FREE, IR_STATUS, IR_LOGS, IR_PUSH, IR_NATIVE, IR_LAUNCH, IR_SCREENSHOT, IR_APP };
+enum { IR_FREE, IR_STATUS, IR_LOGS, IR_PUSH, IR_NATIVE, IR_LAUNCH, IR_REMOVE, IR_SCREENSHOT, IR_APP };
 enum {
   P_ERROR,           /* an error REPLY from `failure` is due */
   P_EVENT_RECEIVING, /* the `receiving` event, then the host opens its file */
@@ -1360,7 +1360,7 @@ static void in_fail_host(InRequest *request, const Link2Failure *failure, const 
 static void free_in(Link2 *link, InRequest *request) {
   InStream *in = find_in_stream(link, request->id);
   OutStream *out = find_out_stream(link, request->id);
-  if (request->kind == IR_PUSH || request->kind == IR_NATIVE || request->kind == IR_LAUNCH) link->state_busy = false;
+  if (request->kind == IR_PUSH || request->kind == IR_NATIVE || request->kind == IR_LAUNCH || request->kind == IR_REMOVE) link->state_busy = false;
   if (request->kind == IR_SCREENSHOT) {
     if (request->captured && link->host.screenshot_end != NULL) link->host.screenshot_end(link->host.context);
     link->shot_busy = false;
@@ -1424,6 +1424,7 @@ static bool send_reply(Link2 *link, InRequest *request) {
       link2_json_text(json, "}");
       break;
     case IR_LAUNCH:
+    case IR_REMOVE:
       link2_json_text(json, "{");
       link2_json_raw(json, link->members, link->members_length);
       link2_json_text(json, "}");
@@ -1603,6 +1604,7 @@ static void system_request(Link2 *link, uint32_t id, JsonSpan object, const char
   } KINDS[] = {
     {"runtime.status", IR_STATUS, "runtime"},   {"runtime.logs", IR_LOGS, "runtime"},     {"runtime.push", IR_PUSH, "runtime"},
     {"runtime.native.install", IR_NATIVE, "runtime.native"}, {"runtime.launch", IR_LAUNCH, "runtime"}, {"runtime.screenshot", IR_SCREENSHOT, "runtime"},
+    {"runtime.remove", IR_REMOVE, "runtime.remove"},
   };
   uint8_t kind = IR_FREE;
   const char *feature = "";
@@ -1699,6 +1701,40 @@ static void system_request(Link2 *link, uint32_t id, JsonSpan object, const char
         } else {
           link->members_length = members.length;
           request->restart = launching;
+          request->phase = P_REPLY;
+        }
+      }
+      break;
+    }
+    case IR_REMOVE: {
+      /* The limit counts encoded bytes (§6.2). A decoded id is never longer
+       * than its encoding, and one byte over the limit still decodes here, so
+       * an id over 128 bytes is told apart from one at the limit. */
+      char id[LINK2_APP_ID_BYTES + 2];
+      if (link->state_busy) {
+        request->kind = IR_STATUS;
+        in_fail(request, "busy", "a state-changing request is open");
+        break;
+      }
+      /* The state-changing slot also owns `members`, where the reply waits. */
+      link->state_busy = true;
+      bool named = json_find(object, "id", &value) && link2_is_string(value) && json_string(value, id, sizeof id);
+      size_t length = named ? strlen(id) : 0;
+      if (host->remove == NULL) {
+        in_fail(request, "unsupported", "this device removes nothing");
+      } else if (length == 0 || link2_encoded_bytes(id, length) > LINK2_APP_ID_BYTES) {
+        in_fail(request, "malformed", "id is not a string of 1 to 128 bytes");
+      } else {
+        Link2Json members;
+        Link2Failure failure = {"storage", "the slot could not be deleted", ""};
+        link2_json_init(&members, link->members, sizeof link->members);
+        link2_json_text(&members, "\"id\":");
+        link2_json_string(&members, id, length);
+        if (!host->remove(host->context, id, &failure)) {
+          in_fail_host(request, &failure, "internal");
+        } else {
+          /* §6.2: the reply names the id removed, after the slot is gone. */
+          link->members_length = members.length;
           request->phase = P_REPLY;
         }
       }
@@ -2500,9 +2536,9 @@ void link2_set_features(Link2 *link, const char *const *features, size_t count) 
 static void drop_group(Link2 *link, const char *feature) {
   for (size_t i = 0; i < link->in_count; i += 1) {
     InRequest *request = &link->in[i];
-    bool native = request->kind == IR_NATIVE;
+    const char *group = request->kind == IR_NATIVE ? "runtime.native" : request->kind == IR_REMOVE ? "runtime.remove" : "runtime";
     if (request->kind == IR_FREE || request->kind == IR_APP) continue;
-    if (strcmp(feature, native ? "runtime.native" : "runtime") != 0) continue;
+    if (strcmp(feature, group) != 0) continue;
     in_fail(request, "unsupported", "the group left use");
     advance_request(link, request);
   }
