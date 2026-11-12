@@ -60,6 +60,11 @@ export interface HostOps {
    * cancelling an animation on the same property.
    */
   setPropBatch?(records: ArrayBuffer): void;
+  /**
+   * Optional: replace the ordered images and solid rects a view paints in its
+   * local space (spec DRAW_ITEM records, 32 bytes each). Empty clears it.
+   */
+  setDrawItems?(id: number, items: ArrayBuffer | ArrayBufferView): void;
   /** UTF-8 text; text nodes only. */
   setText(id: number, str: string): void;
   /** Solid universal calls this on reactive text updates. */

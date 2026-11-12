@@ -119,6 +119,7 @@ pub mod op {
     pub const FONT_STREAM_BATCH: u8 = 59;
     pub const CAPTURE_TEXTS: u8 = 60;
     pub const CAPTURED_TEXTS: u8 = 61;
+    pub const SET_DRAW_ITEMS: u8 = 62;
 }
 
 /// Property ids (u8, stable, append-only). Groups:
@@ -471,6 +472,14 @@ pub mod draw_op {
     pub const TEX_TRI: u32 = 8;
     pub const TEXT_RUN: u32 = 9;
     pub const SURFACE_QUAD: u32 = 10;
+}
+
+/// `setDrawItems` records: DRAW_ITEM_WORDS u32 words each (layout in spec.ts).
+pub mod draw_item {
+    pub const WORDS: usize = 4;
+    pub const KIND_IMAGE: u32 = 1;
+    pub const KIND_RECT: u32 = 2;
+    pub const FLAG_FLIP_X: u32 = 0x00010000;
 }
 
 /// .pak container constants (byte-compatible with dreamcart's format;

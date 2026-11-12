@@ -211,6 +211,11 @@ const SUITE: readonly Stage[] = [
       "tests/npm-package.test.ts",
       "tests/video-outro.test.ts",
       "tests/osk-layout.test.ts",
+      "tests/game2d-input.test.ts",
+      "tests/game2d-loop.test.ts",
+      "tests/game2d-pack.test.ts",
+      "tests/game2d-light.test.ts",
+      "tests/game2d-music.test.ts",
     ],
   },
   {

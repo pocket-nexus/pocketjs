@@ -5341,3 +5341,228 @@ fn package_textures_without_their_pixels_draw_nothing() {
     assert_eq!(ui.texture(tex).unwrap().pixels[0], 3);
     assert!(ui.update_texture_rect(tex, 0, 0, 1, 1, &[0; 4]));
 }
+
+/// One draw item as `setDrawItems` receives it.
+#[allow(clippy::too_many_arguments)]
+fn draw_item(
+    kind: u32,
+    flags: u32,
+    reference: u32,
+    x: i16,
+    y: i16,
+    w16: u16,
+    h16: u16,
+    alpha: u8,
+) -> [u32; spec::draw_item::WORDS] {
+    [
+        kind | (alpha as u32) << 8 | flags,
+        reference,
+        (x as u16 as u32) | (y as u16 as u32) << 16,
+        w16 as u32 | (h16 as u32) << 16,
+    ]
+}
+
+/// A 480x272 overflow-hidden stage at the root's top-left, as game2d builds it.
+fn stage_container(ui: &mut Ui) -> i32 {
+    let stage = ui.create_node(spec::NodeType::View as u8);
+    ui.set_prop(
+        stage,
+        spec::prop::POS_TYPE,
+        spec::PosType::Absolute as u32 as f64,
+    );
+    ui.set_prop(stage, spec::prop::INSET_L, 0.0);
+    ui.set_prop(stage, spec::prop::INSET_T, 0.0);
+    ui.set_prop(stage, spec::prop::WIDTH, 480.0);
+    ui.set_prop(stage, spec::prop::HEIGHT, 272.0);
+    ui.set_prop(
+        stage,
+        spec::prop::OVERFLOW,
+        spec::Overflow::Hidden as u32 as f64,
+    );
+    ui.insert_before(spec::ROOT_ID, stage, 0);
+    stage
+}
+
+#[test]
+fn draw_items_paint_what_equivalent_nodes_paint() {
+    // (kind, flip, x, y, w, h, alpha): an image, a mirrored half-transparent
+    // image, a translucent rect, and an image clipped by the stage's corner.
+    // ... and a scaled image whose size is not a whole pixel.
+    let scene: [(u32, bool, i16, i16, f32, f32, u8); 5] = [
+        (spec::draw_item::KIND_IMAGE, false, 10, 20, 32.0, 16.0, 255),
+        (spec::draw_item::KIND_IMAGE, true, 300, 200, 64.0, 32.0, 128),
+        (spec::draw_item::KIND_RECT, false, 5, 5, 100.0, 10.0, 153),
+        (
+            spec::draw_item::KIND_IMAGE,
+            false,
+            448,
+            -16,
+            64.0,
+            64.0,
+            255,
+        ),
+        (
+            spec::draw_item::KIND_IMAGE,
+            false,
+            120,
+            60,
+            40.5,
+            20.25,
+            255,
+        ),
+    ];
+    let color = abgr(200, 40, 20, 255);
+    let pixels = alloc::vec![0xffu8; 64 * 64 * 4];
+
+    // Nodes, the way game2d's node stage places them: a 1x1 box at the
+    // origin, translated and scaled about its centre; a negative scale mirrors.
+    let mut nodes = Ui::new();
+    let tex = nodes.upload_texture(&pixels, 64, 64, spec::psm::PSM_8888);
+    let stage = stage_container(&mut nodes);
+    for &(kind, flip, x, y, w, h, alpha) in &scene {
+        let (x, y) = (x as f32, y as f32);
+        let ty = if kind == spec::draw_item::KIND_IMAGE {
+            spec::NodeType::Image
+        } else {
+            spec::NodeType::View
+        };
+        let n = nodes.create_node(ty as u8);
+        nodes.set_prop(
+            n,
+            spec::prop::POS_TYPE,
+            spec::PosType::Absolute as u32 as f64,
+        );
+        nodes.set_prop(n, spec::prop::INSET_L, 0.0);
+        nodes.set_prop(n, spec::prop::INSET_T, 0.0);
+        nodes.set_prop(n, spec::prop::WIDTH, 1.0);
+        nodes.set_prop(n, spec::prop::HEIGHT, 1.0);
+        nodes.set_prop(n, spec::prop::TRANSLATE_X, (x + w / 2.0 - 0.5) as f64);
+        nodes.set_prop(n, spec::prop::TRANSLATE_Y, (y + h / 2.0 - 0.5) as f64);
+        nodes.set_prop(n, spec::prop::SCALE_X, if flip { -w } else { w } as f64);
+        nodes.set_prop(n, spec::prop::SCALE_Y, h as f64);
+        nodes.set_prop(n, spec::prop::OPACITY, (alpha as f32 / 255.0) as f64);
+        if kind == spec::draw_item::KIND_IMAGE {
+            nodes.set_image(n, tex);
+        } else {
+            nodes.set_prop(n, spec::prop::BG_COLOR, color as f64);
+        }
+        nodes.insert_before(stage, n, 0);
+    }
+    nodes.tick();
+    let expected = nodes.draw().words.clone();
+
+    let mut items = Ui::new();
+    let tex = items.upload_texture(&pixels, 64, 64, spec::psm::PSM_8888);
+    let stage = stage_container(&mut items);
+    let mut bytes = Vec::new();
+    for &(kind, flip, x, y, w, h, alpha) in &scene {
+        let flags = if flip {
+            spec::draw_item::FLAG_FLIP_X
+        } else {
+            0
+        };
+        let reference = if kind == spec::draw_item::KIND_IMAGE {
+            tex as u32
+        } else {
+            color
+        };
+        for word in draw_item(
+            kind,
+            flags,
+            reference,
+            x,
+            y,
+            (w * 16.0) as u16,
+            (h * 16.0) as u16,
+            alpha,
+        ) {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+    items.set_draw_items(stage, &bytes);
+    items.tick();
+    let words = items.draw().words.clone();
+    validate_drawlist(&words);
+    assert_eq!(words, expected);
+    assert!(
+        words.contains(&spec::draw_op::TEX_TRI),
+        "the mirrored image goes through the rotated path"
+    );
+}
+
+#[test]
+fn draw_items_skip_bad_records_and_clear() {
+    let mut ui = Ui::new();
+    let pixels = alloc::vec![0xffu8; 16 * 16 * 4];
+    let tex = ui.upload_texture(&pixels, 16, 16, spec::psm::PSM_8888);
+    let stage = stage_container(&mut ui);
+    let mut bytes = Vec::new();
+    let records = [
+        draw_item(
+            spec::draw_item::KIND_IMAGE,
+            0,
+            tex as u32,
+            0,
+            0,
+            16,
+            16,
+            255,
+        ),
+        draw_item(9, 0, tex as u32, 0, 0, 256, 256, 255),
+        draw_item(
+            spec::draw_item::KIND_IMAGE,
+            0,
+            tex as u32,
+            0,
+            0,
+            256,
+            0,
+            255,
+        ),
+        draw_item(
+            spec::draw_item::KIND_IMAGE,
+            0,
+            tex as u32,
+            0,
+            0,
+            0,
+            256,
+            255,
+        ),
+        draw_item(
+            spec::draw_item::KIND_IMAGE,
+            0,
+            tex as u32,
+            0,
+            0,
+            256,
+            256,
+            0,
+        ),
+    ];
+    for record in records {
+        for word in record {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+    bytes.extend_from_slice(&[1, 2, 3]); // a trailing partial record
+    ui.set_draw_items(stage, &bytes);
+    ui.tick();
+    let count = |ui: &mut Ui| {
+        ui.draw()
+            .words
+            .iter()
+            .filter(|&&w| w == spec::draw_op::TEX_QUAD)
+            .count()
+    };
+    assert_eq!(count(&mut ui), 1);
+    // A freed texture draws nothing; an empty list clears.
+    ui.free_texture(tex);
+    assert_eq!(count(&mut ui), 0);
+    ui.set_draw_items(stage, &[]);
+    assert!(ui.tree.slots.iter().all(|n| n.draw_items.is_empty()));
+    // Only views carry items.
+    let img = ui.create_node(spec::NodeType::Image as u8);
+    ui.set_draw_items(img, &bytes[..16]);
+    assert!(ui.tree.slots.iter().all(|n| n.draw_items.is_empty()));
+}
