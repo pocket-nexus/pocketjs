@@ -25,6 +25,13 @@ export interface LinkOps {
   remove(appId: string): boolean;
   /** One JSON array with every event visible this tick. */
   poll(): string | undefined;
+  /** Pairing by a code the device shows (Pocket Link 2, docs/POCKET-LINK.md
+   *  §3.11), on a host that offers it: `pairOpen` makes a code and lists the
+   *  computers on the network in the status's `pair`, `pairAsk` asks one of
+   *  them, `pairClose` drops the code. */
+  pairOpen?(): boolean;
+  pairAsk?(hub: string): boolean;
+  pairClose?(): void;
 }
 
 export function linkHost(): LinkOps | null {
