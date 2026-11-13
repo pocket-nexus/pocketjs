@@ -75,6 +75,8 @@ export function linkStatus(): LinkStatus {
       error: parsed.error ?? "",
       features: parsed.features ?? [],
       clock: parsed.clock ?? null,
+      // Pairing by a code: the member is there on a host that offers it.
+      ...(parsed.pair ? { pair: parsed.pair } : {}),
     };
   } catch {
     return { ...UNAVAILABLE, error: "link: malformed status" };
