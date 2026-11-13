@@ -10,7 +10,7 @@
 // bytes of its encoded form in the frame, escapes included, without the two
 // quotes.
 
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
   LINK2_APP_CHANNEL_PREFIX,
   LINK2_APP_MSG_CEILING,
@@ -35,6 +35,7 @@ import {
   LINK2_MODEL_BYTES,
   LINK2_NAME_BYTES,
   LINK2_NONCE_BYTES,
+  LINK2_PAIR_CODE_DIGITS,
   LINK2_PAYLOAD_CEILING,
   LINK2_PING_BYTES,
   LINK2_PREAMBLE_BYTES,
@@ -47,6 +48,10 @@ import {
   type Link2Challenge,
   type Link2CloseName,
   type Link2Hello,
+  type Link2Pair,
+  type Link2PairAccept,
+  type Link2PairDone,
+  type Link2PairOffer,
   type Link2Ready,
   type Link2Refused,
   type Link2RefusalCode,
@@ -611,6 +616,59 @@ export function proofEquals(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
 }
 
+// ---------------------------------------------------------------------------
+// §3.11 Pairing by a code the device shows
+// ---------------------------------------------------------------------------
+
+const CODE_RE = new RegExp(`^[0-9]{${LINK2_PAIR_CODE_DIGITS}}$`);
+export const isPairCode = (value: unknown): value is string => typeof value === "string" && CODE_RE.test(value);
+/** A code as a device makes one: uniform over the 10^digits values. */
+export const newPairCode = () => String(randomInt(10 ** LINK2_PAIR_CODE_DIGITS)).padStart(LINK2_PAIR_CODE_DIGITS, "0");
+/** HMAC-SHA256 keyed with the code's digits as they are shown (ASCII). */
+function codeHmac(code: string, message: string): Buffer {
+  if (!isPairCode(code)) throw new LinkEncodeError(`a pairing code is ${LINK2_PAIR_CODE_DIGITS} decimal digits`);
+  return createHmac("sha256", Buffer.from(code, "ascii")).update(message, "utf8").digest();
+}
+/** Hub's proof that the code its owner entered is the one the device shows. */
+export const pairCompanionProof = (code: string, nD: string, nC: string, device: string, companion: string) =>
+  codeHmac(code, proofMessage(LINK2_LABEL.pairCompanion, nD, nC, device, companion)).toString("hex");
+/** The link key XOR HMAC(code, …): Hub masks the key with it and the device
+ *  unmasks it with the same call. */
+export function pairMaskKey(code: string, keyHex: string, nD: string, nC: string, device: string, companion: string): string {
+  if (!KEY_RE.test(keyHex)) throw new LinkEncodeError("link key is not 64 lowercase hex digits");
+  const mask = codeHmac(code, proofMessage(LINK2_LABEL.pairKey, nD, nC, device, companion));
+  const key = Buffer.from(keyHex, "hex");
+  for (let i = 0; i < key.length; i++) key[i] ^= mask[i];
+  return key.toString("hex");
+}
+/** The device's proof that it unmasked the key: keyed with the link key. */
+export const pairConsoleProof = (key: string, nD: string, nC: string, device: string, companion: string) =>
+  linkHmac(key, proofMessage(LINK2_LABEL.pairConsole, nD, nC, device, companion));
+
+/** Hub's reading of a `pair` object: the message, or why it is malformed. */
+export function parsePair(object: Record<string, unknown> | null): Link2Pair | { refused: "malformed"; why: string } {
+  const bad = (why: string) => ({ refused: "malformed" as const, why });
+  if (object === null || object.t !== "pair") return bad("not a pair");
+  if (!isLinkId(object.device)) return bad("device");
+  if (typeof object.nonce !== "string" || !NONCE_RE.test(object.nonce)) return bad("nonce");
+  if (typeof object.name !== "string" || encodedBytes(object.name) > LINK2_NAME_BYTES) return bad("name");
+  if (typeof object.model !== "string" || encodedBytes(object.model) > LINK2_MODEL_BYTES) return bad("model");
+  if (typeof object.target !== "string" || encodedBytes(object.target) > LINK2_TARGET_BYTES) return bad("target");
+  return { t: "pair", device: object.device, nonce: object.nonce, name: object.name, model: object.model, target: object.target };
+}
+export function parsePairOffer(object: Record<string, unknown> | null): Link2PairOffer | null {
+  if (object === null || object.t !== "pair.offer" || !isLinkId(object.companion)) return null;
+  if (typeof object.name !== "string" || encodedBytes(object.name) > LINK2_NAME_BYTES) return null;
+  if (typeof object.nonce !== "string" || !NONCE_RE.test(object.nonce)) return null;
+  if (typeof object.proof !== "string" || !PROOF_RE.test(object.proof)) return null;
+  if (typeof object.key !== "string" || !KEY_RE.test(object.key)) return null;
+  return { t: "pair.offer", companion: object.companion, name: object.name, nonce: object.nonce, proof: object.proof, key: object.key };
+}
+export function parsePairAccept(object: Record<string, unknown> | null): Link2PairAccept | null {
+  if (object === null || object.t !== "pair.accept" || typeof object.proof !== "string" || !PROOF_RE.test(object.proof)) return null;
+  return { t: "pair.accept", proof: object.proof };
+}
+
 const validPayloadOffer = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= LINK2_MIN_PAYLOAD && value <= LINK2_PAYLOAD_CEILING;
 
@@ -696,7 +754,7 @@ export function parseRefused(object: Record<string, unknown> | null): Link2Refus
 }
 
 /** A HANDSHAKE frame; a message over LINK_MAX_HANDSHAKE is the caller's error. */
-export const encodeHandshake = (message: Link2Hello | Link2Challenge | Link2Auth | Link2Ready | Link2Refused) =>
+export const encodeHandshake = (message: Link2Hello | Link2Challenge | Link2Auth | Link2Ready | Link2Refused | Link2Pair | Link2PairOffer | Link2PairAccept | Link2PairDone) =>
   encodeJsonFrame(LINK2_FRAME.handshake, 0, message);
 
 export function refused(code: Link2RefusalCode, message: string): Link2Refused {

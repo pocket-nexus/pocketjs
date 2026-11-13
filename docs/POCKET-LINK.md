@@ -38,7 +38,7 @@ endpoint (§12).
 
 | Group | Initiator | Content |
 | --- | --- | --- |
-| Admission | device | beacon, the handshake of a paired device (§2, §3). Pairing itself is written to the device's storage, not sent on the link (§3.2) |
+| Admission | device | beacon, the handshake of a paired device (§2, §3). Hub writes the pairing to the device's storage outside the link (§3.2); a device that shows a code is paired on the link (§3.11) |
 | Runtime operations | Hub | status, push a `.pocket`, install a `.3dsx`, launch, remove an installed applet, screenshot, logs (§6.2) |
 | Installed applets | device | the applets the device holds, sent after `ready` and on change (§6.2 `runtime.apps`) |
 | DevTools | both | the DevTools JSON-line protocol of `docs/DEVTOOLS.md` §4, eval included (§6.3) |
@@ -86,7 +86,7 @@ Pocket Link 1 (`contracts/spec/link.ts`, `tools/pocket-link/protocol.ts`,
 | `ctrl` frame, one JSON object | `HANDSHAKE`, `REQUEST`, `REPLY`, `EVENT`, `CANCEL` frames, one JSON object each (§4.3, §5) |
 | `data` frame, stream id in the first 4 payload bytes | `DATA` frame, stream id in the header, `END` flag (§5.6) |
 | `hello` / `challenge` / `auth` / `ready` / `refused`, labels `pocket-link/1/…` | Same messages in `HANDSHAKE` frames, labels `pocket-link/2/…`; `hello` loses `v` and `mode`, gains `hostAbi`, `features` and `maxPayload` (§3.4) |
-| Pairing: the `pocketlink://pair` URI as a QR code, the console's camera, the pairing window and secret, mode `pair`, `paired`, the masked key | Dropped: Hub writes the pairing files during the first install (§3.1, §3.2) |
+| Pairing: the `pocketlink://pair` URI as a QR code, the console's camera, the pairing window and secret, mode `pair`, `paired`, the masked key | Dropped: Hub writes the pairing files during the first install (§3.1, §3.2). A device with a screen and no file channel shows a 6-digit code that its owner enters in Hub (§3.11) |
 | Refusal `version` | Hub's preamble with `selected` 0 (§4.1) |
 | Refusals `unknown_device`, `bad_proof`, `pairing_closed` | `unknown_device` and `bad_proof` kept, `pairing_closed` dropped; `malformed` and `busy` added (§3.8) |
 | One companion file holding the key and the last address, rewritten by the console at each link | A key file the device never writes, and a `.last` file for the address (§3.6) |
@@ -102,7 +102,7 @@ Pocket Link 1 (`contracts/spec/link.ts`, `tools/pocket-link/protocol.ts`,
 | Byte credit for `net.stream` only, sent as JSON per block | `CREDIT` frames for every stream, an applet channel's included (§5.6) |
 | USB carrier (PSP), its own record format | Not in phase one; to become a carrier of this protocol or be retired (§2.0, §11) |
 | Fixed frame limit of 32 KiB + 4 | A limit negotiated per connection, **16 KiB** by default on TCP (§4.4) |
-| `globalThis.link` (status, pair, forget, catalog, install, remove, poll) | Kept as the guest API without `pair`; not a wire matter |
+| `globalThis.link` (status, pair, forget, catalog, install, remove, poll) | Kept as the guest API without `pair`; a host that pairs by a code adds `pairOpen`, `pairAsk`, `pairClose` (§3.11); not a wire matter |
 
 The development connection (`contracts/spec/pocket-runtime-wire.ts`,
 `products/3ds/src/devserver.c`, `tools/3ds-runtime-client.ts`,
@@ -267,11 +267,13 @@ starts again after the hold.
 **Hub writes the pairing onto the device's storage during the first install;
 an HMAC-SHA256 handshake proves at every connection that both ends hold the
 same 32-byte link key.** Version 1 paired through a QR code that the console
-read with its camera (`link.ts` "Pairing URI"). **Version 2 has no pairing on
-the wire: no QR code, no camera, no pairing window, no pairing secret and no
-mode `pair`.** Phase one has no encryption (§3.9). **Hub writes the key
-itself; no secret is exchanged on the wire to mint one.** Pairing another computer, or pairing again
+read with its camera (`link.ts` "Pairing URI"). **Version 2 pairs a device
+whose storage Hub reaches without a message on the wire: no QR code, no
+camera, no pairing secret.** Phase one has no encryption (§3.9). **Hub mints
+the key itself.** Pairing another computer, or pairing again
 after a forget, needs ftpd on the device or its SD card in a reader (§3.7).
+**A device that has a screen and no such file channel shows a code instead,
+and is paired on the link (§3.11).**
 
 ### 3.1 The pairing record
 
@@ -510,7 +512,8 @@ the key learns no proof it can replay.
 
 **No key appears in a log line, a status answer or the IPC.**
 
-**The device never writes a key file.** Version 1's client rewrote the whole
+**The device never writes a key file, except the one a pairing by its code
+gives it (§3.11).** Version 1's client rewrote the whole
 companion file at each `ready` by removing the old file and renaming a
 temporary one over it (`link.c` `save_companion`, `write_atomic`); a power
 cut between the two steps left no file, and the repair was a new QR scan.
@@ -566,6 +569,7 @@ by hand.
 | `bad_proof` | `ready` | `auth.proof` does not verify |
 | `malformed` | `challenge` | a field is missing, has the wrong type or breaks its limit. Version 1 closed without a code |
 | `busy` | `challenge` | Hub is at its connection limit |
+| `declined` | `pair.offer` | Hub's owner dismissed the device's request to be paired (§3.11) |
 
 **The device treats every refusal as an answer**: it closes and holds that
 Hub for 30 s (§2.4). A version mismatch is not a refusal; it is answered in
@@ -640,6 +644,116 @@ A later version can add encryption without a new frame format:
 4. The handshake should then also bind the `hello` and `challenge` bytes
    into the key derivation; in phase one an active attacker can change any
    frame anyway, so binding them now buys nothing.
+
+### 3.11 Pairing by a code the device shows
+
+**A device with a screen, and no file channel that Hub can write through, is
+paired on the link: it shows a code of 6 digits, its owner enters the code in
+Hub, and Hub sends the link key under that code.** §3.2 needs ftpd on the
+device or its storage in a reader; an M5Stack Tab5 without a card in its
+slot offers neither. The pairing this section leaves is the pairing of §3.1,
+the same two files and the same record, and every connection after it is the
+handshake of §3.3.
+
+```
+device                                   Hub
+  |   its owner opens a pairing: code C    |
+  |   beacons name the Hubs (§2.2)         |
+  |   its owner chooses one                |
+  | -- TCP connect, preamble ------------> |
+  | -- HANDSHAKE pair -------------------> |   Hub shows the request to its owner
+  |                                        |   who enters C
+  | <--------------- HANDSHAKE pair.offer  |   a proof and the key, both under C
+  |   checks the proof, stores the key     |
+  | -- HANDSHAKE pair.accept ------------> |   Hub stores the record
+  | <---------------- HANDSHAKE pair.done  |
+  |   both close; the device links (§3.3)  |
+```
+
+**On the device:**
+
+- **The code is 6 decimal digits**, uniform over the 10^6 values, drawn from
+  the device's random source when its owner opens a pairing. The device keeps
+  it for **5 minutes** (LINK2_PAIR_WINDOW_MS), or until 3 offers failed its
+  proof, or until it stored a pairing.
+- While it keeps a code the device listens for beacons, whether or not it
+  holds a pairing, and **lists the Hubs whose beacon arrived in the last
+  3 s**: at most 8, each by its id and name.
+- Its owner chooses one of them. **The device holds one connection**: a link
+  it has to another Hub ends with `CLOSE` `going_away`. It connects to the
+  address and port of that Hub's beacon and sends `pair` in place of `hello`.
+- It waits for the offer as long as it keeps the code; the 6 s of §2.4 do
+  not apply to this connection. A connection that ends without an offer is
+  made again after 0.5 s, to the address and port of that Hub's latest beacon.
+- A device that holds 8 key files of other Hubs (§3.6) asks no ninth.
+
+**Messages**, each a `HANDSHAKE` frame of id 0 within LINK_MAX_HANDSHAKE:
+
+| Message | Direction | Fields |
+| --- | --- | --- |
+| `pair` | device to Hub | `device` (16 hex), `nonce` (nD, 32 hex), `name`, `model`, `target`, with the limits of `hello` |
+| `pair.offer` | Hub to device | `companion` (Hub's id), `name` (Hub's display name), `nonce` (nC, 32 hex), `proof` (64 hex), `key` (64 hex) |
+| `pair.accept` | device to Hub | `proof` (64 hex) |
+| `pair.done` | Hub to device | none; Hub closes the connection behind it |
+
+```
+pair.offer.proof  = HMAC(code,    "pocket-link/2/pair/companion" \n nD \n nC \n device \n companion)
+pair.offer.key    = linkKey XOR HMAC(code, "pocket-link/2/pair/key" \n nD \n nC \n device \n companion)
+pair.accept.proof = HMAC(linkKey, "pocket-link/2/pair/console"   \n nD \n nC \n device \n companion)
+```
+
+**The key of the first two HMACs is the code's 6 digits as ASCII bytes**; the
+third is keyed with the raw 32 bytes of the link key, as the proofs of §3.5
+are. The strings are built as in §3.5.
+
+**The device, on `pair.offer`:**
+
+1. `companion` is the Hub it asked and `proof` verifies, compared in constant
+   time. **Otherwise it sends `CLOSE` `auth` and spends one of its 3 tries.**
+   With a try left it keeps the code and asks again; at the third it drops
+   the code, and its owner opens a pairing anew for another one.
+2. It unmasks the key and **writes `companions/<hub id>.txt`** in the form of
+   §3.1, with the name of the offer and the address and port of this
+   connection: `<hub id>.last` is deleted first, and the key file goes
+   through a temporary file and a rename, as a `.last` file does (§3.6).
+   **This is the one key file a device writes.**
+3. It sends `pair.accept`, waits at most **2 s** for `pair.done`, closes, and
+   links to that Hub by §3.3, with the direct try first.
+
+**Hub:**
+
+- **A connection whose first `HANDSHAKE` is `pair` is a request to be
+  paired.** Hub keeps one for a device id, a later one replacing the one
+  before; it counts among the 32 connections of §2.4, and Hub closes it after
+  5 minutes in place of the 6 s of an unfinished handshake. Hub shows its
+  owner the device's name, model and address.
+- When its owner enters a code, Hub mints a link key and sends `pair.offer`.
+  **Hub stores the device's record when `pair.accept` verifies, and not
+  before**: an offer under a wrong code replaces no key Hub holds for that
+  device id. A request whose connection ends after the offer, with the
+  device's `CLOSE` `auth`, tells Hub's owner that the code is not the
+  device's.
+- A request its owner dismisses is answered `refused` `declined`.
+- **A Hub that does not know this section answers `pair` with `refused`
+  `malformed`**, since it reads a `hello` there: the device tells its owner
+  that this Hub pairs by no code.
+
+**What the code protects.** A host on the LAN that does not see the device's
+screen has **3 guesses among 10^6 for a code**, and each costs a connection
+that the device closes. **An observer of the exchange recovers the link
+key**: nD, nC, the two ids and `proof` let it try the 10^6 codes on its own,
+and the code that fits unmasks `key`. This is what an observer of a setup
+over ftpd reads in plain (§3.9); an exchange in which the code cannot be
+tried offline can replace the two HMACs of `pair.offer` without a change to
+the messages around them, and belongs with the encryption of §3.10.
+
+**The guest side.** A host that pairs by a code adds three calls to
+`globalThis.link` (`contracts/spec/link.ts` `LinkPairByCode`):
+`pairOpen()` makes a code, `pairAsk(hub)` asks one of the Hubs listed, and
+`pairClose()` drops the code. `status().pair` carries the state (`idle`,
+`open`, `asking`, `paired`, `failed`), the code, what is left of its time
+and of its tries, the Hubs to choose from, and why the last code ended
+without a pairing.
 
 ## 4. Framing
 
@@ -2484,6 +2598,7 @@ accept any key order and whitespace, and tests compare parsed values.
 | `frames.json` | one encoding per frame type and flag, the `APP` frames with their channel id; refused headers: non-zero `reserved`, an undefined flag, `length` one over the negotiated limit (16,385 and 1,025), `REQUEST` with id 0, `DATA` of 0 bytes without `END`, `CREDIT` of 0, `PING` of 3 bytes, `REQUEST` with `BODY` and no `APP`, a `HANDSHAKE` after `ready` |
 | `handshake.json` | a full transcript from fixed ids, key and nonces: each frame's bytes, the two HMAC message strings and both proofs; `maxPayload` 16,384 and 1,024 offered and the limit each pair gives |
 | `handshake-refusals.json` | `unknown_device` (no key; another companion id), `bad_proof`, `malformed` (a `maxPayload` of 512 among them), `busy`; the device's `CLOSE` `auth` after a wrong `challenge.proof` and its 30 s hold; a `ready` with `maxPayload` 512 and the device's `CLOSE` `protocol`; a third replacement within 30 s of a connection that answered Hub's `PING`, and the `refused` `busy` that follows; three replacements of connections that answered nothing, after which the device still links; a frame of type `DATA` before `ready` |
+| `pair-by-code.json` | a pairing by a code the device shows (§3.11) from a fixed code, ids, key and nonces: the three HMAC message strings, `pair.offer.proof`, the mask and the masked key, `pair.accept.proof`; the transcript `pair`, `pair.offer`, `pair.accept`, `pair.done`, byte for byte; the key file the device writes, with the `.last` file it deletes first, and the record Hub stores; an offer under another code with the device's `CLOSE` `auth` and the 2 tries it has left; an offer that names another Hub than the one asked; a `pair.accept` under another key, refused `bad_proof` with nothing stored; `refused` `declined`; strings that are a code and that are none (5 and 7 digits, a letter, a space, digits outside ASCII); `pair` objects Hub refuses as `malformed`, and objects the device does not read as an offer; the six limits |
 | `requests.json` | a request with progress events and a reply; an error reply of each generic code; `unknown_message`; `CANCEL` answered by `cancelled`; `CANCEL` crossing a finished reply; ids with bit 31; **`runtimeRemove`**: an installed set, its running applet, a removal with its `REPLY` and the report without the row, each error with the case that gives it (`rejected` with `reason` `home` and `running`, `not_found`, `busy` for an install under way and for a second state-changing request, `storage`, `unsupported`), and ids at and past 128 bytes counted as encoded |
 | `streams.json` | a `runtime.push` of 100,000 bytes under 64 KiB credit with `END`; bytes past credit and the `CLOSE` `flow`; a grant over 16 MiB; `RESET` `refused` of an `agent.glyphs` stream; a stream short of its declared bytes; an event with an unknown `t` and a fresh id answered `RESET` `refused`; an event stream never granted and its sender's `RESET` `cancelled` at 30 s; a DevTools line held 30 s without credit, dropped with its eval failed and the stream kept |
 | `channel.json` | a channel's life: `channel.open`, the reply with generation 7; a request from the applet with a reply; a request from the daemon with a reply; an event each way; a request with `BODY`; **a response of 18,244 bytes: the head event, `DATA` under the stream's 32 KiB window with the grants that follow the guest's reads, `END`, then the `REPLY`**; the same response completing while a `read` of 16 KiB stays pending on an idle event stream, which holds its own window and none of the response's; four streams read together with at most 128 KiB held; a request cancelled with its head event on the wire, the event discarded and its unit regranted; a progress event on an id of the receiver's range that names nothing held, ignored; `agent.glyphs` queued after a daemon request with a larger id and its stream still opened; a progress event named `log` and one named `features` read as progress; an event that opens a stream; a fifth stream refused with `RESET` `refused` and the request's `REPLY` after it; `CANCEL` answered `cancelled` by Hub for a daemon that does not answer; a JSON object of 8,193 bytes answered `too_large`, and one of 8,189 bytes refused on a connection whose payload limit is 8,192 (LINK_APP_MSG 8,188); the event window: `CREDIT` on the channel id for 48 units, an event of 600 bytes costing 2, progress events counted, the regrant after the guest takes events, a daemon held back with no units and no close, and an event past the units answered `channel.close` `overflow`; a progress event named `log` that crosses the applet's `channel.close` and is ignored; a stream-opening event with no handler answered `RESET` `refused`; two response streams of which the applet reads one, which completes while the other gets no credit; a daemon's bytes refused before any progress event; a daemon request refused `busy` with 8 KiB of requests waiting; a ninth open request answered `busy`; an `APP` request for a channel that is not open answered `no_channel`; `channel.close` `reset` with a request open and the reopen with generation 8; frames for the closed channel's ids discarded; a fifth channel refused with `busy`; a reconnect and the reopen with a larger generation; `no_daemon` and `busy` refusals with the device's retry times; a `REPLY` held 10 s; a `CANCEL` crossing an accepting `REPLY` and the device's `channel.close` `exit` |
@@ -2554,9 +2669,13 @@ TypeScript console client, as Hub's version 1 tests do with
 - **Other users of version 1's C client.** pocket-m5's M5Stack Tab5 firmware
   compiles `engine/host-services/link.c` (`engine/host-services/README.md`
   "Programs") and sends `companion.pocket` over the whole-response `net`
-  mode (`docs/WORKER.md`). How Hub writes a pairing to it is not defined. *Recommendation:* replace `link.c` in place;
-  pocket-m5 pins a PocketJS commit before the change until it moves, and
-  its way to receive the pairing files is decided with its carrier.
+  mode (`docs/WORKER.md`). *Recommendation:* replace `link.c` in place;
+  pocket-m5 pins a PocketJS commit before the change until it moves. **Its
+  pairing is the code of §3.11**: a Tab5 has a screen, and without a card in
+  its slot it has no storage Hub reaches. The C client, the reference Hub and
+  the reference device (`tools/pocket-link/v2/device.ts` `pairOpen`,
+  `pairAsk`, `pairClose`) pair by it, against `pair-by-code.json` (§10).
+  Open there: Pocket Hub's own endpoint and its window for the code.
 - **The carriers beyond TCP.** §2.0 says the link is the only transport,
   and phase one specifies TCP. Still outside it, and each to become a
   carrier of this protocol or be retired:

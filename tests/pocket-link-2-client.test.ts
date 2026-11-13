@@ -7,11 +7,11 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { createSocket } from "node:dgram";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { LINK2_APP_EVENT_WINDOW, LINK2_TCP_PAYLOAD } from "../contracts/spec/link2.ts";
-import { type Daemon, type HubDevice, type HubOffer, type HubOptions, LinkHub, MemoryStore, directoryStorage } from "../tools/pocket-link/v2/hub.ts";
+import { type Daemon, type HubDevice, type HubOffer, type HubOptions, LinkHub, MemoryStore, type PairRequest, directoryStorage } from "../tools/pocket-link/v2/hub.ts";
 import { type AppletChannel, type Json, LinkError, type StreamReader } from "../tools/pocket-link/v2/peer.ts";
 
 const root = resolve(import.meta.dir, "..");
@@ -48,6 +48,8 @@ interface Client {
   dir: string;
   hub: LinkHub;
   store: MemoryStore;
+  /** The UDP port this client hears beacons on. */
+  beaconPort: number;
   lines: string[];
   /** Writes one command line to the harness. */
   send(command: string): void;
@@ -101,6 +103,7 @@ async function start(options: { hub?: Partial<HubOptions>; args?: string[]; pair
     dir,
     hub,
     store,
+    beaconPort,
     lines,
     send(command) {
       child.stdin.write(`${command}\n`);
@@ -931,6 +934,116 @@ describe("Pocket Link 2 C client against the reference Hub", () => {
     expect(Number(stats.match(/pauses=(\d+)/)?.[1])).toBeGreaterThan(0);
     // The send buffer never held more than its size, and 64 bytes stayed for PING, PONG and CLOSE.
     expect(Number(stats.match(/txpeak=(\d+)/)?.[1])).toBeLessThanOrEqual(12 + 16384 + 16384);
+    await c.quit();
+  });
+});
+
+describe("Pocket Link 2 C client: pairing by a code the device shows (§3.11)", () => {
+  /** A device with no pairing shows a code and waits until Hub's beacon lists Hub; it then asks Hub. */
+  async function openAndAsk(c: Client): Promise<string> {
+    c.send("pair-open");
+    expect((await c.line(/^pair-open (\d)$/))[1]).toBe("1");
+    const code = (await c.line(/^pair-state open code=(\d{6}) tries=3 hub= error=$/))[1];
+    for (let listed = false; !listed; ) {
+      c.send("pair-hubs");
+      listed = (await c.line(/^pair-hubs(.*)$/))[1].includes(` ${c.hub.id}:Studio Mac`);
+      if (!listed) await pause(50);
+    }
+    c.send(`pair-ask ${c.hub.id}`);
+    expect((await c.line(/^pair-ask (\d)$/))[1]).toBe("1");
+    await c.line(new RegExp(`^pair-state asking code=${code} tries=\\d hub=${c.hub.id} error=$`));
+    return code;
+  }
+  const another = (code: string) => String((Number(code) + 1) % 1_000_000).padStart(6, "0");
+
+  it("an unpaired device lists Hub, asks it, takes a wrong code and links with the key the right code carried", async () => {
+    const requests: PairRequest[] = [];
+    const c = await start({ pair: false, hub: { onPairRequest: (request) => requests.push(request) } });
+    const deviceId = (await c.line(/^device ([0-9a-f]{16})$/))[1];
+    const code = await openAndAsk(c);
+    await until(() => requests.length === 1, "the pairing request at Hub");
+    expect(requests[0]).toMatchObject({ device: deviceId, name: "Harness 3DS", model: "New Nintendo 3DS XL", target: "3ds-dev", address: "127.0.0.1" });
+    expect(c.hub.pairRequests().map((request) => request.device)).toEqual([deviceId]);
+
+    // A code that is not the device's: it closes on the offer's proof, keeps its code and asks again.
+    await expect(c.hub.pair(deviceId, another(code))).rejects.toMatchObject({ code: "bad_code" });
+    await c.line(new RegExp(`^pair-state asking code=${code} tries=2 `));
+    expect(c.store.get(deviceId)).toBeUndefined();
+    expect(existsSync(join(c.dir, "companions", `${c.hub.id}.txt`))).toBe(false);
+    await until(() => requests.length === 2, "the device asks again");
+
+    await c.hub.pair(deviceId, code);
+    await c.line(new RegExp(`^pair-state paired code= tries=0 hub=${c.hub.id} error=$`));
+    expect(c.hub.pairRequests()).toEqual([]);
+    // The device wrote the key file a setup would have written, and links from it.
+    const record = c.store.get(deviceId);
+    expect(record).toMatchObject({ id: deviceId, name: "Harness 3DS", target: "3ds-dev", unconfirmed: false });
+    expect(readFileSync(join(c.dir, "companions", `${c.hub.id}.txt`), "utf8")).toBe(`key=${record?.key}\nname=Studio Mac\naddress=127.0.0.1\nport=${c.hub.port}\n`);
+    await c.line(/^linked Studio Mac /);
+    const device = await c.device();
+    expect(device.id).toBe(deviceId);
+    expect((await device.runtimeStatus()).phase).toBe("booted");
+    await c.quit();
+  });
+
+  it("three wrong codes drop the code; a request Hub's owner dismisses ends the next one", async () => {
+    const requests: PairRequest[] = [];
+    const gone: string[] = [];
+    const c = await start({ pair: false, hub: { onPairRequest: (request) => requests.push(request), onPairGone: (device) => gone.push(device) } });
+    const deviceId = (await c.line(/^device ([0-9a-f]{16})$/))[1];
+    const code = await openAndAsk(c);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await until(() => requests.length === attempt, `request ${attempt} at Hub`);
+      await expect(c.hub.pair(deviceId, another(code))).rejects.toMatchObject({ code: "bad_code" });
+    }
+    await c.line(new RegExp(`^pair-state failed code= tries=0 hub=${c.hub.id} error=a wrong code was entered too often$`));
+    expect(c.store.get(deviceId)).toBeUndefined();
+    expect(existsSync(join(c.dir, "companions", `${c.hub.id}.txt`))).toBe(false);
+    // The code that was dropped pairs nothing: no request waits for it.
+    await pause(700);
+    expect(c.hub.pairRequests()).toEqual([]);
+    await expect(c.hub.pair(deviceId, code)).rejects.toMatchObject({ code: "not_found" });
+
+    await openAndAsk(c);
+    await until(() => requests.length === 4, "the request of the second code");
+    c.hub.declinePair(deviceId);
+    await c.line(/^pair-state failed code= tries=0 hub=\S+ error=that computer dismissed the request$/);
+    expect(gone).toEqual([deviceId]);
+    await c.quit();
+  });
+
+  it("a code lasts 5 minutes, on a clock 400 times as fast", async () => {
+    const c = await start({ pair: false, args: ["--speed", "400"] });
+    c.send("pair-open");
+    await c.line(/^pair-state open code=\d{6} tries=3 hub= error=$/);
+    await c.line(/^pair-state failed code= tries=0 hub= error=the code ran out$/, 5000);
+    await c.quit();
+  });
+
+  it("a paired device pairs a second Hub by a code and links to it", async () => {
+    const c = await start();
+    await c.line(/^linked Studio Mac /);
+    const deviceId = (await c.any(/^device ([0-9a-f]{16})$/))[1];
+    // A second Hub on the same network, heard on the same beacon port.
+    const second = new LinkHub({ name: "Second Mac", port: 0, host: "127.0.0.1", store: new MemoryStore("00000000000000bb"), beaconTargets: [{ address: "127.0.0.1", port: c.beaconPort }] });
+    await second.listen();
+    second.start(20);
+    cleanups.push(() => second.stop());
+    c.send("pair-open");
+    const code = (await c.line(/^pair-state open code=(\d{6}) /))[1];
+    for (let listed = false; !listed; ) {
+      c.send("pair-hubs");
+      listed = (await c.line(/^pair-hubs(.*)$/))[1].includes(` ${second.id}:Second Mac`);
+      if (!listed) await pause(50);
+    }
+    c.send(`pair-ask ${second.id}`);
+    // The link to the first Hub ends: the device holds one connection.
+    await c.line(/^unlinked pairing$/);
+    await until(() => second.pairRequests().length === 1, "the request at the second Hub");
+    await second.pair(deviceId, code);
+    await c.line(new RegExp(`^pair-state paired code= tries=0 hub=${second.id} error=$`));
+    await c.line(/^linked Second Mac /);
+    expect(readdirSync(join(c.dir, "companions")).filter((name) => name.endsWith(".txt")).sort()).toEqual([`${c.hub.id}.txt`, `${second.id}.txt`]);
     await c.quit();
   });
 });

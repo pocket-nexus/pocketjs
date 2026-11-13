@@ -554,6 +554,45 @@ void link2_proof(
   hmac_sha256_final(&context, out);
 }
 
+void link2_pair_code_hmac(
+  const char *code,
+  const char *label,
+  const char *device_nonce,
+  const char *companion_nonce,
+  const char *device,
+  const char *companion,
+  uint8_t out[32]
+) {
+  HmacSha256 context;
+  hmac_sha256_init(&context, (const uint8_t *)code, strlen(code));
+  const char *parts[5] = {label, device_nonce, companion_nonce, device, companion};
+  for (size_t i = 0; i < 5; i += 1) {
+    if (i > 0) hmac_sha256_update(&context, "\n", 1);
+    hmac_sha256_update(&context, parts[i], strlen(parts[i]));
+  }
+  hmac_sha256_final(&context, out);
+}
+
+void link2_write_pair(Link2Json *json, const char *device, const char *nonce, const char *name, const char *model, const char *target) {
+  link2_json_text(json, "{\"t\":\"pair\",\"device\":");
+  link2_json_cstring(json, device);
+  link2_json_text(json, ",\"nonce\":");
+  link2_json_cstring(json, nonce);
+  link2_json_text(json, ",\"name\":");
+  link2_json_string(json, name, link2_encoded_prefix(name, strlen(name), LINK2_NAME_BYTES));
+  link2_json_text(json, ",\"model\":");
+  link2_json_string(json, model, link2_encoded_prefix(model, strlen(model), LINK2_MODEL_BYTES));
+  link2_json_text(json, ",\"target\":");
+  link2_json_cstring(json, target);
+  link2_json_text(json, "}");
+}
+
+void link2_write_pair_accept(Link2Json *json, const char proof_hex[65]) {
+  link2_json_text(json, "{\"t\":\"pair.accept\",\"proof\":");
+  link2_json_cstring(json, proof_hex);
+  link2_json_text(json, "}");
+}
+
 static void write_features(Link2Json *json, const char *const *features, size_t count) {
   link2_json_text(json, "[");
   for (size_t i = 0; i < count; i += 1) {
@@ -606,6 +645,26 @@ bool link2_parse_challenge(JsonSpan object, Link2Challenge *out) {
   return hex_decode(proof, 64, out->proof, 32);
 }
 
+bool link2_parse_pair_offer(JsonSpan object, Link2PairOffer *out) {
+  char proof[80];
+  char key[80];
+  char nonce[48];
+  char companion[32];
+  if (!t_is(object, "pair.offer")) return false;
+  if (!json_find_string(object, "companion", companion, sizeof companion) || !link2_valid_id(companion, strlen(companion))) return false;
+  if (!json_find_string(object, "name", out->name, sizeof out->name)) return false;
+  if (!json_find_string(object, "nonce", nonce, sizeof nonce) || strlen(nonce) != 2 * LINK2_NONCE_BYTES || !lower_hex(nonce, strlen(nonce))) return false;
+  if (!json_find_string(object, "proof", proof, sizeof proof) || strlen(proof) != 64 || !lower_hex(proof, 64)) return false;
+  if (!json_find_string(object, "key", key, sizeof key) || strlen(key) != 2 * LINK2_KEY_BYTES || !lower_hex(key, strlen(key))) return false;
+  memcpy(out->companion, companion, LINK2_ID_HEX + 1);
+  memcpy(out->nonce, nonce, 2 * LINK2_NONCE_BYTES + 1);
+  return hex_decode(proof, 64, out->proof, 32) && hex_decode(key, 2 * LINK2_KEY_BYTES, out->masked_key, LINK2_KEY_BYTES);
+}
+
+bool link2_is_pair_done(JsonSpan object) {
+  return t_is(object, "pair.done");
+}
+
 bool link2_parse_features(JsonSpan array, Link2Features *out) {
   size_t at = 0;
   bool malformed = false;
@@ -652,7 +711,7 @@ bool link2_parse_ready(JsonSpan object, Link2Ready *out) {
 }
 
 bool link2_parse_refused(JsonSpan object, char *code, size_t capacity) {
-  static const char *const CODES[] = {"unknown_device", "bad_proof", "malformed", "busy"};
+  static const char *const CODES[] = {"unknown_device", "bad_proof", "malformed", "busy", "declined"};
   if (!t_is(object, "refused") || !json_find_string(object, "code", code, capacity)) return false;
   for (size_t i = 0; i < sizeof CODES / sizeof CODES[0]; i += 1) {
     if (strcmp(code, CODES[i]) == 0) return true;
@@ -789,6 +848,24 @@ void link2_companions_last(Link2Companions *set, const char *id, const char *tex
   for (size_t i = 0; i < set->count; i += 1) {
     if (strcmp(set->list[i].id, id) == 0) link2_parse_last_file(text, length, &set->list[i]);
   }
+}
+
+size_t link2_format_key_file(char *out, size_t capacity, const char key_hex[65], const char *name, const char *address, uint16_t port) {
+  Link2Json writer;
+  link2_json_init(&writer, out, capacity);
+  link2_json_text(&writer, "key=");
+  link2_json_text(&writer, key_hex);
+  link2_json_text(&writer, "\nname=");
+  for (const char *c = name; *c != '\0'; c += 1) {
+    char one = (*c == '\n' || *c == '\r') ? ' ' : *c;
+    link2_json_raw(&writer, &one, 1);
+  }
+  link2_json_text(&writer, "\naddress=");
+  link2_json_text(&writer, address);
+  link2_json_text(&writer, "\nport=");
+  link2_json_u64(&writer, port);
+  link2_json_text(&writer, "\n");
+  return writer.failed ? 0 : writer.length;
 }
 
 size_t link2_format_last_file(char *out, size_t capacity, const char *name, const char *address, uint16_t port) {

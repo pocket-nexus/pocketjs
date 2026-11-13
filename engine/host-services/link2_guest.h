@@ -44,6 +44,13 @@ void link2_guest_shutdown(void);
 /* Returned strings live until the next call of the same function. */
 const char *link2_guest_status_json(void);
 bool link2_guest_forget(const char *companion);
+/* Pairing by a code (docs/POCKET-LINK.md §3.11), for a host whose device
+ * shows it: `pairOpen()` makes a code and lists the Hubs on the network in
+ * the status's `pair` member, `pairAsk(hub)` asks one of them, `pairClose()`
+ * drops the code. */
+bool link2_guest_pair_open(void);
+bool link2_guest_pair_ask(const char *hub);
+void link2_guest_pair_close(void);
 int32_t link2_guest_catalog(void);
 int32_t link2_guest_install(const char *app_id, size_t length);
 bool link2_guest_remove(const char *app_id, size_t length);

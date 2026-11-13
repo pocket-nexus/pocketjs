@@ -546,6 +546,34 @@ const char *link2_guest_status_json(void) {
   } else {
     jbuf_text(out, "null");
   }
+  /* Pairing by a code (§3.11): the code to show and the Hubs to ask. */
+  static const char *const PAIR_STATES[] = {"idle", "open", "asking", "paired", "failed"};
+  static Link2PairStatus pair;
+  link2_pair_status(bound, &pair);
+  jbuf_text(out, ",\"pair\":{\"state\":");
+  jbuf_cstring(out, PAIR_STATES[pair.state]);
+  jbuf_text(out, ",\"code\":");
+  jbuf_cstring(out, pair.code);
+  jbuf_text(out, ",\"leftMs\":");
+  jbuf_u64(out, pair.left_ms);
+  jbuf_text(out, ",\"tries\":");
+  jbuf_u64(out, pair.tries);
+  jbuf_text(out, ",\"hub\":");
+  jbuf_cstring(out, pair.hub);
+  jbuf_text(out, ",\"hubName\":");
+  jbuf_cstring(out, pair.hub_name);
+  jbuf_text(out, ",\"error\":");
+  jbuf_cstring(out, pair.error);
+  jbuf_text(out, ",\"hubs\":[");
+  for (size_t i = 0; i < pair.hub_count; i += 1) {
+    if (i > 0) jbuf_text(out, ",");
+    jbuf_text(out, "{\"id\":");
+    jbuf_cstring(out, pair.hubs[i].id);
+    jbuf_text(out, ",\"name\":");
+    jbuf_cstring(out, pair.hubs[i].name);
+    jbuf_text(out, "}");
+  }
+  jbuf_text(out, "]}");
   /* Host diagnostics beyond LinkStatus. */
   const Link2Stats *stats = link2_stats(bound);
   jbuf_text(out, ",\"limit\":");
@@ -586,6 +614,18 @@ void link2_guest_describe(char *out, size_t capacity) {
   else if (strcmp(state, "connecting") == 0) snprintf(out, capacity, "CONNECTING");
   else if (strcmp(state, "searching") == 0) snprintf(out, capacity, "SEARCHING %u PAIRED", (unsigned)client.paired_count);
   else snprintf(out, capacity, "NOT PAIRED");
+}
+
+bool link2_guest_pair_open(void) {
+  return bound != NULL && link2_pair_open(bound);
+}
+
+bool link2_guest_pair_ask(const char *hub) {
+  return bound != NULL && hub != NULL && link2_pair_ask(bound, hub);
+}
+
+void link2_guest_pair_close(void) {
+  if (bound != NULL) link2_pair_close(bound);
 }
 
 bool link2_guest_forget(const char *companion) {
