@@ -914,7 +914,8 @@ export class LinkHub {
   /** Hub's owner entered `code` for `device`: Hub mints a link key and offers
    *  it under the code. Resolves when the device proved it holds the key, and
    *  the record is stored then: a wrong code costs no pairing this Hub holds.
-   *  Rejects `bad_code` when the device closes on the offer's proof. */
+   *  Rejects `bad_code` when the device closes on the offer's proof, and
+   *  `bad_proof` when its own proof of the key does not verify. */
   pair(device: string, code: string): Promise<void> {
     if (!isPairCode(code)) return Promise.reject(new LinkError("malformed", `a pairing code is ${LINK2_PAIR_CODE_DIGITS} decimal digits`));
     const pending = this.pairing.get(device);
@@ -1137,7 +1138,10 @@ export class LinkHub {
         const offer = pending.offer;
         const asked = pending.pair;
         if (accept === null || offer === null || !proofEquals(pairConsoleProof(offer.key, asked.nonce, offer.nonce, asked.device, this.id), accept.proof)) {
-          return this.refuse(pending, "bad_proof", "the pairing proof did not verify", asked.device);
+          // The caller of `pair` reads why: the device did not show that it holds the key.
+          carrier.write(encodeHandshake(refused("bad_proof", "the pairing proof did not verify")));
+          this.options.onRefusal?.({ address: carrier.remoteAddress, device: asked.device, kind: "refused", code: "bad_proof" });
+          return this.drop(pending, true, new LinkError("bad_proof", "the device's proof of the key did not verify"));
         }
         // The proof is keyed with the link key: the device unmasked it, so it holds the key this record gets.
         this.unconfirmed.delete(asked.device);

@@ -19,6 +19,12 @@ import {
   LINK2_HTTP_MIN_PAYLOAD,
   LINK2_MAX_HANDSHAKE,
   LINK2_MIN_PAYLOAD,
+  LINK2_PAIR_CODE_DIGITS,
+  LINK2_PAIR_DONE_MS,
+  LINK2_PAIR_MAX_SEEN,
+  LINK2_PAIR_SEEN_MS,
+  LINK2_PAIR_TRIES,
+  LINK2_PAIR_WINDOW_MS,
   LINK2_PING_MS,
   LINK2_SILENCE_MS,
   LINK2_TCP_PAYLOAD,
@@ -26,7 +32,7 @@ import {
 } from "../contracts/spec/link2.ts";
 import { AppletStreamWindow, EventReceiver, EventSender, ReceiveCredit, ResponseGate, SendCredit, eventUnits, shareFrameBytes } from "../tools/pocket-link/v2/credit.ts";
 import { CatalogFetch, CatalogPager, RuntimeAppsAssembler, catalogRows, compareIdBytes, pageRuntimeApps } from "../tools/pocket-link/v2/paging.ts";
-import { cardAfter, lastFileUpdate, loadCompanions, parseCompanionFile, parseDeviceFile, parseLastFile, planSetup, settleSetup, type SetupInput } from "../tools/pocket-link/v2/pairing.ts";
+import { cardAfter, formatCompanionFile, lastFileUpdate, loadCompanions, parseCompanionFile, parseDeviceFile, parseLastFile, planSetup, settleSetup, type SetupInput } from "../tools/pocket-link/v2/pairing.ts";
 import {
   Link2FrameDecoder,
   LinkCloseError,
@@ -51,7 +57,12 @@ import {
   encodedBytes,
   fromHex,
   idRange,
+  isPairCode,
   jsonBytes,
+  newPairCode,
+  pairCompanionProof,
+  pairConsoleProof,
+  pairMaskKey,
   parseAuth,
   parseChallenge,
   parseClose,
@@ -59,6 +70,9 @@ import {
   parseFeatures,
   parseHello,
   parseJsonPayload,
+  parsePair,
+  parsePairAccept,
+  parsePairOffer,
   parseReady,
   parseRefused,
   parseReset,
@@ -312,6 +326,103 @@ describe("handshake (§3.4, §3.5)", () => {
   test("the payload limit is the smaller offer", () => {
     for (const c of v.limits) expect(payloadLimit(c.hello, c.ready)).toBe(c.limit);
     expect(() => payloadLimit(512, 16_384)).toThrow(LinkEncodeError);
+  });
+});
+
+describe("pairing by a code the device shows (§3.11)", () => {
+  const v = vector("pair-by-code.json");
+  const ids = [FIXED.deviceNonce, FIXED.hubNonce, FIXED.device, FIXED.hub] as const;
+  const step = (what: string) => v.transcript.find((s: { from: string; what: string }) => `${s.from} ${s.what}` === what);
+
+  test("the offer's two HMACs are keyed with the code's digits, the accept's with the link key", () => {
+    const byCode = (message: string) => createHmac("sha256", Buffer.from(v.code, "ascii")).update(message).digest("hex");
+    const byKey = (message: string) => createHmac("sha256", Buffer.from(v.key, "hex")).update(message).digest("hex");
+    expect(v.codeKey).toBe(Buffer.from(v.code, "ascii").toString("hex"));
+    expect(v.companionMessage).toBe(`pocket-link/2/pair/companion\n${ids.join("\n")}`);
+    expect(v.keyMessage).toBe(`pocket-link/2/pair/key\n${ids.join("\n")}`);
+    expect(v.consoleMessage).toBe(`pocket-link/2/pair/console\n${ids.join("\n")}`);
+    expect(v.companionProof).toBe(byCode(v.companionMessage));
+    expect(v.keyMask).toBe(byCode(v.keyMessage));
+    expect(v.consoleProof).toBe(byKey(v.consoleMessage));
+    // The key travels XOR the mask, and the same call takes the mask off.
+    const masked = Buffer.from(v.key, "hex").map((byte, i) => byte ^ Buffer.from(v.keyMask, "hex")[i]);
+    expect(v.maskedKey).toBe(Buffer.from(masked).toString("hex"));
+    expect(pairCompanionProof(v.code, ...ids)).toBe(v.companionProof);
+    expect(pairMaskKey(v.code, v.key, ...ids)).toBe(v.maskedKey);
+    expect(pairMaskKey(v.code, v.maskedKey, ...ids)).toBe(v.key);
+    expect(pairConsoleProof(v.key, ...ids)).toBe(v.consoleProof);
+  });
+
+  test("the transcript, frame by frame", () => {
+    for (const s of v.transcript) {
+      const bytes = fromHex(s.hex);
+      if (s.what === "preamble") {
+        expect(decodePreamble(bytes)).not.toBeNull();
+        continue;
+      }
+      const frames = new Link2FrameDecoder().push(bytes);
+      expect(frames.map((f) => [f.type, f.id])).toEqual([[LINK2_FRAME.handshake, 0]]);
+      expect(frames[0].payload.length).toBeLessThanOrEqual(LINK2_MAX_HANDSHAKE);
+      expect(parseJsonPayload(frames[0]).object).toEqual(s.json);
+      expect(toHex(encodeHandshake(s.json))).toBe(s.hex);
+    }
+    expect(parsePair(step("device pair").json)).toEqual(step("device pair").json);
+    expect(parsePairOffer(step("hub pair.offer").json)).toEqual(step("hub pair.offer").json);
+    expect(parsePairAccept(step("device pair.accept").json)).toEqual(step("device pair.accept").json);
+    expect(step("hub pair.offer").json).toMatchObject({ proof: v.companionProof, key: v.maskedKey });
+    expect(step("device pair.accept").json.proof).toBe(v.consoleProof);
+  });
+
+  test("the key file the device writes and the record Hub stores hold the key of the offer", () => {
+    const offer = step("hub pair.offer").json;
+    const key = pairMaskKey(v.code, offer.key, ...ids);
+    expect(key).toBe(v.record.key);
+    expect(v.keyFile.text).toBe(formatCompanionFile({ key, name: offer.name, address: v.keyFile.address, port: v.keyFile.port }));
+    expect(parseCompanionFile(v.keyFile.text)).toMatchObject({ key, name: "Studio Mac", address: "192.168.1.5", port: 8628 });
+    expect(v.keyFile.path).toBe(`companions/${FIXED.hub}.txt`);
+    expect(v.keyFile.deleted).toBe(`companions/${FIXED.hub}.last`);
+    expect(v.record).toMatchObject({ id: FIXED.device, name: "Pocket", model: "M5Stack Tab5", target: "tab5-home" });
+  });
+
+  test("another code fails the device's check; an accept under another key fails Hub's", () => {
+    const wrong = parsePairOffer(v.wrongCode.offer.json);
+    expect(wrong).not.toBeNull();
+    expect(toHex(encodeHandshake(v.wrongCode.offer.json))).toBe(v.wrongCode.offer.hex);
+    expect(v.wrongCode.expectedProof).toBe(pairCompanionProof(v.code, ...ids));
+    expect(proofEquals(v.wrongCode.expectedProof, wrong?.proof ?? "")).toBe(false);
+    expect(wrong?.proof).toBe(pairCompanionProof(v.wrongCode.entered, ...ids));
+    expect(v.wrongCode.close).toBe(toHex(encodeClose("auth")));
+    expect(v.wrongCode).toMatchObject({ triesLeft: LINK2_PAIR_TRIES - 1, stored: false });
+    // The proof of an offer covers the Hub's id: one that verifies for the Hub asked names that Hub.
+    expect(v.otherCompanion.offer.json.companion).not.toBe(v.otherCompanion.asked);
+    expect(proofEquals(pairCompanionProof(v.code, FIXED.deviceNonce, FIXED.hubNonce, FIXED.device, v.otherCompanion.asked), v.otherCompanion.offer.json.proof)).toBe(false);
+    const accept = parsePairAccept(v.badAccept.json);
+    expect(accept).not.toBeNull();
+    expect(proofEquals(pairConsoleProof(v.key, ...ids), accept?.proof ?? "")).toBe(false);
+    expect(v.badAccept).toMatchObject({ refused: "bad_proof", stored: false });
+  });
+
+  test("a code is 6 ASCII decimal digits; malformed messages; the refusal of a dismissed request", () => {
+    for (const code of v.codes.accepted) expect(`${code}: ${isPairCode(code)}`).toBe(`${code}: true`);
+    for (const code of v.codes.refused) expect(`${code}: ${isPairCode(code)}`).toBe(`${code}: false`);
+    for (let i = 0; i < 64; i++) expect(isPairCode(newPairCode())).toBe(true);
+    expect(() => pairCompanionProof("31415", ...ids)).toThrow(LinkEncodeError);
+    for (const c of v.malformedPair) {
+      const result = parsePair(c.json);
+      expect(`${c.name}: ${"refused" in result ? result.refused : "accepted"}`).toBe(`${c.name}: ${c.refused}`);
+    }
+    for (const c of v.malformedOffer) expect(`${c.name}: ${parsePairOffer(c.json) === null ? "no offer" : "offer"}`).toBe(`${c.name}: no offer`);
+    expect(parseRefused(jsonOfHandshake(v.declined.hex))).toEqual(v.declined.json);
+    expect(v.declined.json.code).toBe("declined");
+    expect(v.limits).toEqual({
+      digits: LINK2_PAIR_CODE_DIGITS,
+      windowMs: LINK2_PAIR_WINDOW_MS,
+      tries: LINK2_PAIR_TRIES,
+      seenMs: LINK2_PAIR_SEEN_MS,
+      maxSeen: LINK2_PAIR_MAX_SEEN,
+      doneMs: LINK2_PAIR_DONE_MS,
+    });
+    expect(v.limits).toEqual({ digits: 6, windowMs: 300_000, tries: 3, seenMs: 3000, maxSeen: 8, doneMs: 2000 });
   });
 });
 

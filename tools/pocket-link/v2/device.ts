@@ -1,7 +1,8 @@
 // Pocket Link 2, the device side in TypeScript (docs/POCKET-LINK.md): the
 // reference peer for Hub's endpoint and the link of a desktop or sim host.
 // Discovery by beacon or a direct address (§2.3), the handshake from the
-// pairing files of a directory (§3), keepalive, backoff and holds (§2.4),
+// pairing files of a directory (§3), the pairing by a code this device shows
+// (§3.11), keepalive, backoff and holds (§2.4),
 // and the device's part of §6 and §7: runtime operations answered by
 // injected handlers, the DevTools stream, catalog and install, `net.http`
 // and applet channels.
@@ -10,7 +11,7 @@
 // on an interval for a host that has no loop of its own.
 
 import { createSocket, type Socket as UdpSocket } from "node:dgram";
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { connect as tcpConnect } from "node:net";
 import { join } from "node:path";
 import {
@@ -40,8 +41,14 @@ import {
   LINK2_LAST_SUFFIX,
   LINK2_LOG_OVERHEAD,
   LINK2_LOG_TEXT_BYTES,
+  LINK2_MAX_COMPANIONS,
   LINK2_NATIVE_MAX_BYTES,
   LINK2_NATIVE_MIN_BYTES,
+  LINK2_PAIR_DONE_MS,
+  LINK2_PAIR_MAX_SEEN,
+  LINK2_PAIR_SEEN_MS,
+  LINK2_PAIR_TRIES,
+  LINK2_PAIR_WINDOW_MS,
   LINK2_PREAMBLE_BYTES,
   LINK2_PUSH_MAX_BYTES,
   LINK2_REFUSED_HOLD_MS,
@@ -54,13 +61,15 @@ import {
   type Link2Hello,
   type Link2InstalledApp,
   type Link2LogEvent,
+  type Link2PairOffer,
   type Link2RuntimeApp,
   type Link2RuntimeStatus,
   type Link2ScreenshotSurface,
 } from "../../../contracts/spec/link2.ts";
+import type { LinkPairByCode, LinkPairByCodeState } from "../../../contracts/spec/link.ts";
 import { type Carrier, tcpCarrier } from "./carrier.ts";
 import { CatalogFetch, pageRuntimeApps } from "./paging.ts";
-import { type LoadedCompanion, formatDeviceFile, formatLastFile, lastFileUpdate, loadCompanions } from "./pairing.ts";
+import { type LoadedCompanion, formatCompanionFile, formatDeviceFile, formatLastFile, lastFileUpdate, loadCompanions } from "./pairing.ts";
 import {
   type AppletChannel,
   type AppletEventHandler,
@@ -92,8 +101,13 @@ import {
   jsonBytes,
   newLinkId,
   newNonce,
+  newPairCode,
+  pairCompanionProof,
+  pairConsoleProof,
+  pairMaskKey,
   parseChallenge,
   parseJsonPayload,
+  parsePairOffer,
   parseReady,
   parseRefused,
   payloadLimit,
@@ -141,7 +155,11 @@ export interface DeviceOptions {
   onUnlinked?: (info: CloseInfo | { by: "handshake"; code: string; reason: string }) => void;
 }
 
-type Phase = "idle" | "search" | "connecting" | "handshake" | "linked" | "backoff";
+/** `pairing`: a Hub is asked to pair by the code this device shows (§3.11). */
+type Phase = "idle" | "search" | "connecting" | "handshake" | "linked" | "backoff" | "pairing";
+
+/** How long after a pairing connection ended the Hub is asked again (§3.11). */
+const PAIR_RETRY_MS = 500;
 
 /** The guest's view of one applet's channel across opens (§7.1, §7.5): it
  *  keeps the handlers and opens again by the device's retry rules. */
@@ -327,6 +345,27 @@ export class LinkDevice {
   private carrier: Carrier | null = null;
   private stopped = false;
 
+  /** The code this device shows and the Hub it asked (§3.11). `retryAt` is
+   *  null while a connection to that Hub is being made or is open. */
+  private readonly pairing = {
+    state: "idle" as LinkPairByCodeState,
+    code: "",
+    openedAt: 0,
+    tries: 0,
+    hub: "",
+    hubName: "",
+    error: "",
+    address: "",
+    port: 0,
+    retryAt: null as number | null,
+    accepted: false,
+    acceptedAt: 0,
+  };
+  /** The Hubs whose beacon arrived while a code is shown, by id. */
+  private readonly seen = new Map<string, { name: string; address: string; port: number; at: number }>();
+  /** Draws the code; a test fixes it. */
+  newCode: () => string = newPairCode;
+
   private readonly channels = new Set<GuestChannel>();
   private readonly hubRequests = new Responder(LINK2_HUB_REQUESTS);
   private stateBusy = false;
@@ -479,8 +518,11 @@ export class LinkDevice {
   }
   private beacon(bytes: Uint8Array, address: string): void {
     const beacon = decodeBeacon(bytes);
+    if (beacon === null) return;
+    // While a code is shown every Hub heard is listed, paired or not (§3.11).
+    if (this.pairActive()) this.pairSeen(beacon.companion, beacon.name, address, beacon.port);
     // While linked or backing off the socket is drained and beacons are not followed.
-    if (beacon === null || this.status.phase !== "search") return;
+    if (this.status.phase !== "search") return;
     const companion = this.companions.find((c) => c.id === beacon.companion);
     if (companion === undefined || this.held(companion.id)) return;
     this.dial(companion, address, beacon.port);
@@ -495,8 +537,14 @@ export class LinkDevice {
   tick(): void {
     if (this.stopped) return;
     const now = this.now();
+    if (this.pairActive() && now - this.pairing.openedAt >= LINK2_PAIR_WINDOW_MS) this.pairEnd("failed", "the code ran out");
     switch (this.status.phase) {
       case "idle":
+        break;
+      case "pairing":
+        // `pair.done` did not come: the key file is written, so the device links.
+        if (this.pairing.accepted && now - this.pairing.acceptedAt >= LINK2_PAIR_DONE_MS) this.pairFinish();
+        else if (this.pairing.retryAt !== null && now >= this.pairing.retryAt) this.pairDial();
         break;
       case "search": {
         // The direct try: a paired Hub's last address, one pairing per attempt in turn.
@@ -657,6 +705,234 @@ export class LinkDevice {
     carrier.write(both);
   }
 
+  // --- pairing by a code this device shows (§3.11) --------------------------
+
+  private pairActive(): boolean {
+    return this.pairing.state === "open" || this.pairing.state === "asking";
+  }
+  /** `status().pair` of the guest API (`contracts/spec/link.ts` `LinkPairByCode`). */
+  get pair(): LinkPairByCode {
+    const now = this.now();
+    const active = this.pairActive();
+    return {
+      state: this.pairing.state,
+      code: active ? this.pairing.code : "",
+      leftMs: active ? Math.max(0, LINK2_PAIR_WINDOW_MS - (now - this.pairing.openedAt)) : 0,
+      tries: active ? this.pairing.tries : 0,
+      hub: this.pairing.hub,
+      hubName: this.pairing.hubName,
+      error: this.pairing.error,
+      hubs: active ? [...this.seen].filter(([, hub]) => now - hub.at < LINK2_PAIR_SEEN_MS).map(([id, hub]) => ({ id, name: hub.name })) : [],
+    };
+  }
+  /** The device's owner opens a pairing: a code of 6 digits, kept 5 minutes. */
+  pairOpen(): boolean {
+    if (this.stopped) return false;
+    if (this.status.phase === "pairing") this.pairEnd("idle", "");
+    Object.assign(this.pairing, { state: "open", code: this.newCode(), openedAt: this.now(), tries: LINK2_PAIR_TRIES, hub: "", hubName: "", error: "", retryAt: null, accepted: false });
+    this.seen.clear();
+    return true;
+  }
+  /** Its owner chose `hub` among the Hubs listed: the device connects there
+   *  and sends `pair`. False when no code is shown, when that Hub's beacon is
+   *  older than 3 s, or when 8 other Hubs are paired. */
+  pairAsk(hub: string): boolean {
+    if (!this.pairActive()) return false;
+    const heard = this.seen.get(hub);
+    if (heard === undefined || this.now() - heard.at >= LINK2_PAIR_SEEN_MS) return false;
+    // A device reads 8 key files (§3.6): a ninth Hub would be one it never loads.
+    if (!this.companions.some((c) => c.id === hub) && this.companions.length >= LINK2_MAX_COMPANIONS) {
+      this.pairing.error = "this device holds 8 pairings: forget one first";
+      return false;
+    }
+    // The device holds one connection: the one it has ends. `unlinked` runs
+    // when the CLOSE is written, and leaves the phase to the pairing.
+    this.attempt += 1;
+    const carrier = this.carrier;
+    this.carrier = null;
+    carrier?.close();
+    this.enter("pairing");
+    this.peer?.close("going_away", "pairing with another Hub");
+    Object.assign(this.pairing, { state: "asking", hub, hubName: heard.name, address: heard.address, port: heard.port, error: "", accepted: false });
+    this.pairDial();
+    return true;
+  }
+  /** Its owner leaves the pairing: the code is dropped. */
+  pairClose(): void {
+    if (this.pairActive()) this.pairEnd("idle", "");
+  }
+  /** Lists a Hub among those to choose from now, as its beacon would. */
+  hear(hubId: string, name: string, address: string, port: number): void {
+    if (this.pairActive()) this.pairSeen(hubId, name, address, port);
+  }
+
+  private pairSeen(id: string, name: string, address: string, port: number): void {
+    const now = this.now();
+    for (const [other, hub] of this.seen) if (now - hub.at >= LINK2_PAIR_SEEN_MS) this.seen.delete(other);
+    if (!this.seen.has(id) && this.seen.size >= LINK2_PAIR_MAX_SEEN) return;
+    this.seen.set(id, { name, address, port, at: now });
+  }
+  /** The code is dropped; the device goes back to the Hubs it is paired with. */
+  private pairEnd(state: LinkPairByCodeState, error: string): void {
+    if (this.status.phase === "pairing") {
+      this.attempt += 1;
+      const carrier = this.carrier;
+      this.carrier = null;
+      carrier?.close();
+      this.enter(this.companions.length === 0 ? "idle" : "search");
+    }
+    Object.assign(this.pairing, { state, code: "", error, retryAt: null, accepted: false });
+  }
+  /** The connection ended with no answer from the Hub's owner: the Hub is
+   *  asked again while the code lasts. */
+  private pairRetry(): void {
+    this.attempt += 1;
+    const carrier = this.carrier;
+    this.carrier = null;
+    carrier?.close();
+    this.pairing.accepted = false;
+    this.pairing.retryAt = this.now() + PAIR_RETRY_MS;
+  }
+  private pairDial(): void {
+    // A Hub that was started again may listen on another port: its last beacon says where it is now.
+    const latest = this.seen.get(this.pairing.hub);
+    if (latest !== undefined && this.now() - latest.at < LINK2_PAIR_SEEN_MS) Object.assign(this.pairing, { address: latest.address, port: latest.port });
+    const attempt = ++this.attempt;
+    this.pairing.retryAt = null;
+    const open = this.options.connect ?? defaultConnect;
+    open(this.pairing.address, this.pairing.port).then(
+      (carrier) => {
+        if (attempt !== this.attempt || this.stopped) return carrier.close();
+        this.pairStart(carrier);
+      },
+      () => {
+        if (attempt === this.attempt) this.pairRetry();
+      },
+    );
+  }
+  /** The preamble and `pair`, in one write as a `hello` goes (§4.1); then the
+   *  wait for the offer, for as long as the code lasts. */
+  private pairStart(carrier: Carrier): void {
+    const attempt = this.attempt;
+    this.carrier = carrier;
+    const nonce = newNonce();
+    const decoder = new Link2FrameDecoder();
+    let preamble: Uint8Array | null = new Uint8Array(0);
+    const ended = () => (this.pairing.accepted ? this.pairFinish() : this.pairRetry());
+    carrier.onClose = () => {
+      if (attempt === this.attempt && this.status.phase === "pairing") ended();
+    };
+    carrier.onData = (chunk) => {
+      if (attempt !== this.attempt) return;
+      let bytes = chunk;
+      if (preamble !== null) {
+        const joined = new Uint8Array(preamble.length + bytes.length);
+        joined.set(preamble);
+        joined.set(bytes, preamble.length);
+        if (joined.length < LINK2_PREAMBLE_BYTES) {
+          preamble = joined;
+          return;
+        }
+        const theirs = decodePreamble(joined.subarray(0, LINK2_PREAMBLE_BYTES));
+        if (theirs === null || acceptSelection({ highest: LINK2_VERSION, lowest: LINK2_VERSION }, theirs) === null) {
+          return this.pairEnd("failed", "that computer's Hub speaks no common Pocket Link version");
+        }
+        preamble = null;
+        bytes = joined.subarray(LINK2_PREAMBLE_BYTES);
+      }
+      decoder.write(bytes);
+      for (;;) {
+        let frame;
+        try {
+          frame = decoder.next();
+        } catch {
+          return this.pairRetry();
+        }
+        if (frame === null || attempt !== this.attempt) return;
+        // Hub's own time for the request passed, or Hub quits.
+        if (frame.type === LINK2_FRAME.close) return ended();
+        if (frame.type !== LINK2_FRAME.handshake) continue;
+        const object = parseJsonPayload(frame).object;
+        if (this.pairing.accepted) {
+          if (object !== null && object.t === "pair.done") return this.pairFinish();
+          continue;
+        }
+        if (object !== null && object.t === "refused") {
+          this.status.refusals.push(String(object.code));
+          if (object.code === "busy") return this.pairRetry();
+          if (object.code === "declined") return this.pairEnd("failed", "that computer dismissed the request");
+          // A Hub from before §3.11 reads `pair` as a hello that is none.
+          if (object.code === "malformed") return this.pairEnd("failed", "that computer's Hub does not pair by a code");
+          return this.pairEnd("failed", "that computer refused the pairing");
+        }
+        const offer = parsePairOffer(object);
+        if (offer === null) return this.pairRetry();
+        this.pairOffer(carrier, nonce, offer);
+        if (attempt !== this.attempt) return;
+      }
+    };
+    const first = devicePreamble();
+    const frame = encodeHandshake({
+      t: "pair",
+      device: this.id,
+      nonce,
+      name: encodedPrefix(this.options.name, 64),
+      model: encodedPrefix(this.options.model, 32),
+      target: this.options.target,
+    });
+    const both = new Uint8Array(first.length + frame.length);
+    both.set(first);
+    both.set(frame, first.length);
+    carrier.write(both);
+  }
+  /** The offer's proof is keyed with the code: a Hub whose owner entered
+   *  another code, or one that guesses, fails it. */
+  private pairOffer(carrier: Carrier, nonce: string, offer: Link2PairOffer): void {
+    const code = this.pairing.code;
+    if (offer.companion !== this.pairing.hub || !proofEquals(pairCompanionProof(code, nonce, offer.nonce, this.id, offer.companion), offer.proof)) {
+      carrier.write(encodeClose("auth"));
+      this.pairing.tries -= 1;
+      if (this.pairing.tries === 0) return this.pairEnd("failed", "a wrong code was entered too often");
+      return this.pairRetry();
+    }
+    // The mask is its own inverse: the call that masked the key unmasks it.
+    const key = pairMaskKey(code, offer.key, nonce, offer.nonce, this.id, offer.companion);
+    // The key file as a setup writes it (§3.1), with the address this connection
+    // reached the Hub at; a `.last` file of an earlier pairing would shadow it.
+    const path = join(this.options.dir, LINK2_COMPANIONS_DIR, `${offer.companion}.txt`);
+    try {
+      mkdirSync(join(this.options.dir, LINK2_COMPANIONS_DIR), { recursive: true });
+      rmSync(join(this.options.dir, LINK2_COMPANIONS_DIR, offer.companion + LINK2_LAST_SUFFIX), { force: true });
+      writeFileSync(`${path}.tmp`, formatCompanionFile({ key, name: offer.name, address: this.pairing.address, port: this.pairing.port }));
+      renameSync(`${path}.tmp`, path);
+    } catch {
+      carrier.write(encodeClose("going_away"));
+      return this.pairEnd("failed", "the key file cannot be written");
+    }
+    this.pairing.hubName = offer.name;
+    carrier.write(encodeHandshake({ t: "pair.accept", proof: pairConsoleProof(key, nonce, offer.nonce, this.id, offer.companion) }));
+    this.pairing.accepted = true;
+    this.pairing.acceptedAt = this.now();
+  }
+  /** The pairing is stored: the device links to that Hub as to any it is paired with. */
+  private pairFinish(): void {
+    this.attempt += 1;
+    const carrier = this.carrier;
+    this.carrier = null;
+    carrier?.close();
+    Object.assign(this.pairing, { state: "paired", code: "", error: "", retryAt: null, accepted: false });
+    this.status.phase = "idle";
+    this.reload();
+    this.backoff = LINK2_BACKOFF_MIN_MS;
+    const at = this.companions.findIndex((c) => c.id === this.pairing.hub);
+    if (at < 0) return;
+    // The direct try goes to this Hub, and at once.
+    this.enter("search");
+    this.holds.delete(this.pairing.hub);
+    this.directTurn = at;
+    this.phaseSince = this.now() - LINK2_SEARCH_DIRECT_MS;
+  }
+
   private linked(companion: LoadedCompanion, carrier: Carrier, decoder: Link2FrameDecoder, limit: number, ready: ReturnType<typeof parseReady>, address: string, port: number): void {
     this.backoff = LINK2_BACKOFF_MIN_MS;
     this.status.links += 1;
@@ -711,6 +987,8 @@ export class LinkDevice {
     this.status.closes.push(info.code ?? info.by);
     this.options.onUnlinked?.(info);
     if (this.stopped) return;
+    // The link ended for a pairing (§3.11): the device is asking that Hub.
+    if (this.status.phase === "pairing") return;
     if (info.by === "local" && info.code === "restart") return this.enter("search");
     this.backoffUntil = this.now() + this.backoff;
     this.backoff = Math.min(this.backoff * 2, LINK2_BACKOFF_MAX_MS);
