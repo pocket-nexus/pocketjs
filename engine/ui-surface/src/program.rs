@@ -237,6 +237,11 @@ impl UiProgram {
     pub fn timing(&self) -> Option<pocket_runtime::Timing> {
         self.runtime.timing()
     }
+    /// Publish the facts the next [`UiProgram::advance`] samples. Buttons,
+    /// axes, the pointer and contacts are levels: each advance samples them
+    /// again until the next call replaces them. Text events are edges: the
+    /// advance that samples them consumes them, so each reaches the guest
+    /// once. A pointer with button 0 down reaches the guest as a contact.
     pub fn set_input(&self, facts: InputFrameBuilder) {
         *self.input.borrow_mut() = facts;
     }
@@ -260,17 +265,28 @@ impl UiProgram {
     }
 }
 
+/// The facts [`UiProgram::set_input`] published. A source registered after
+/// it through [`UiProgram::runtime_mut`] still contributes, and its pointer
+/// replaces this one's.
 struct Input(Rc<RefCell<InputFrameBuilder>>);
 impl InputSource for Input {
     fn classes(&self) -> InputClasses {
-        InputClasses::BUTTONS | InputClasses::AXIS_ABSOLUTE | InputClasses::CONTACT
+        InputClasses::BUTTONS
+            | InputClasses::AXIS_ABSOLUTE
+            | InputClasses::POINTER
+            | InputClasses::CONTACT
+            | InputClasses::TEXT
     }
     fn poll(&mut self, output: &mut InputFrameBuilder) {
-        let input = self.0.borrow();
+        let mut input = self.0.borrow_mut();
         output.buttons |= input.buttons;
         output.axes.extend_from_slice(&input.axes);
+        if input.pointer.is_some() {
+            output.pointer = input.pointer;
+        }
         output.contacts.extend_from_slice(&input.contacts);
         output.cancelled.extend_from_slice(&input.cancelled);
+        output.text.append(&mut input.text);
     }
 }
 struct NativeGuest {
@@ -577,6 +593,50 @@ mod tests {
             .unwrap();
         drop(program);
         assert!(guest.eval("stopped", "ui.setText(node,'stale')").is_err());
+    }
+    #[test]
+    fn set_input_forwards_the_pointer_as_a_level_and_text_events_once() {
+        let (mut program, _) = program();
+        let guest = Rc::new(Guest::new().unwrap());
+        program
+            .boot(
+                guest.clone(),
+                "test",
+                "globalThis.seen=[];globalThis.frame=(b,a,touches,h,s,r,d,m,text)=>seen.push([touches[0]??0,text.map(e=>e.kind+':'+e.text).join()])",
+                &[],
+            )
+            .unwrap();
+        let mut input = InputFrameBuilder::new();
+        input.pointer = Some(Pointer {
+            surface: 0,
+            x: 4.,
+            y: 5.,
+            buttons: 1,
+        });
+        input.text.push(TextEvent::Commit("hi".into()));
+        program.set_input(input);
+        for _ in 0..2 {
+            program.advance().unwrap();
+            program.present().unwrap();
+        }
+        let mut hover = InputFrameBuilder::new();
+        hover.pointer = Some(Pointer {
+            surface: 0,
+            x: 4.,
+            y: 5.,
+            buttons: 0,
+        });
+        program.set_input(hover);
+        program.advance().unwrap();
+        // The pressed pointer is one contact (wire id 0 at 4, 5) in both
+        // frames; the commit reaches only the first; a button-less pointer
+        // is no contact.
+        guest
+            .eval(
+                "assert",
+                "if(JSON.stringify(seen)!=='[[2564,\"2:hi\"],[2564,\"\"],[0,\"\"]]')throw Error(JSON.stringify(seen));",
+            )
+            .unwrap();
     }
     #[test]
     fn guest_failure_stops_future_ticks_and_second_program_stays_independent() {
