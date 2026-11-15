@@ -1,0 +1,125 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.github",
+  "title": "GitHub",
+  "version": "0.3.0",
+  "icon": "./icon.png",
+  "applet": {
+    "version": 1,
+    "summary": "Your notifications, pull requests, issues and code on GitHub.",
+    "services": [
+      "store",
+      "images",
+      "glyphs"
+    ],
+    "hosts": [
+      "api.github.com",
+      "github.com",
+      "avatars.githubusercontent.com"
+    ]
+  },
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "net.http"
+      ],
+      "enhances": [
+        "input.analog.left",
+        "system.agent",
+        "display.auxiliary",
+        "input.touch.auxiliary"
+      ]
+    }
+  },
+  "app": {
+    "entry": "github/main.tsx",
+    "output": "github-main",
+    "framework": "solid",
+    "modality": {
+      "touch": "primary"
+    },
+    "surfaces": {
+      "auxiliary": {
+        "adaptive": {
+          "min": [
+            320,
+            240
+          ],
+          "max": [
+            768,
+            1024
+          ]
+        }
+      }
+    },
+    "viewport": {
+      "fixed": {
+        "logical": [
+          [
+            400,
+            240
+          ],
+          [
+            512,
+            384
+          ],
+          [
+            768,
+            1024
+          ]
+        ],
+        "presentation": "fill"
+      }
+    },
+    "presentations": [
+      {
+        "id": "ipad2-full",
+        "entry": "github/main.tsx",
+        "modality": {
+          "screens": 1,
+          "touch": "primary",
+          "buttons": false
+        },
+        "viewport": {
+          "fixed": {
+            "logical": [
+              768,
+              1024
+            ],
+            "presentation": "fill"
+          }
+        }
+      }
+    ]
+  },
+  "domains": {
+    "worker": {
+      "entry": "lib/net-worker.ts",
+      "nodes": [
+        {
+          "name": "http",
+          "kind": "http"
+        }
+      ],
+      "channels": [
+        {
+          "name": "request",
+          "kind": "ring",
+          "direction": "ui-to-worker",
+          "recordBytes": 1024,
+          "capacity": 4
+        },
+        {
+          "name": "response",
+          "kind": "ring",
+          "direction": "worker-to-ui",
+          "recordBytes": "host",
+          "capacity": "host"
+        }
+      ]
+    }
+  }
+}

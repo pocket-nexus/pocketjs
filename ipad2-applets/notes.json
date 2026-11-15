@@ -1,0 +1,89 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.notes",
+  "title": "Notes",
+  "version": "0.2.0",
+  "icon": "./icon.png",
+  "applet": {
+    "version": 1,
+    "summary": "Notes kept on this device.",
+    "store": {
+      "maxBytes": 4194304
+    }
+  },
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "display.auxiliary",
+        "input.touch.auxiliary",
+        "data.fs"
+      ],
+      "enhances": [
+        "input.text",
+        "input.analog.left",
+        "system.agent"
+      ]
+    }
+  },
+  "app": {
+    "entry": "notes/main.tsx",
+    "output": "notes-main",
+    "framework": "solid",
+    "surfaces": {
+      "auxiliary": {
+        "adaptive": {
+          "min": [
+            320,
+            240
+          ],
+          "max": [
+            768,
+            1024
+          ]
+        }
+      }
+    },
+    "viewport": {
+      "fixed": {
+        "logical": [
+          [
+            400,
+            240
+          ],
+          [
+            512,
+            384
+          ],
+          [
+            768,
+            1024
+          ]
+        ],
+        "presentation": "fill"
+      }
+    },
+    "presentations": [
+      {
+        "id": "ipad2-full",
+        "entry": "notes/main.tsx",
+        "modality": {
+          "screens": 1,
+          "touch": "primary",
+          "buttons": false
+        },
+        "viewport": {
+          "fixed": {
+            "logical": [
+              768,
+              1024
+            ],
+            "presentation": "fill"
+          }
+        }
+      }
+    ]
+  }
+}

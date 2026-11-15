@@ -1,0 +1,118 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.hn",
+  "title": "Hacker News",
+  "version": "0.3.0",
+  "icon": "./icon.png",
+  "applet": {
+    "version": 1,
+    "summary": "Hacker News: top stories and threads.",
+    "hosts": [
+      "hacker-news.firebaseio.com"
+    ]
+  },
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "net.http"
+      ],
+      "enhances": [
+        "input.analog.left",
+        "system.agent",
+        "display.auxiliary",
+        "input.touch.auxiliary"
+      ]
+    }
+  },
+  "app": {
+    "entry": "hn/main.tsx",
+    "output": "hn-main",
+    "framework": "solid",
+    "modality": {
+      "touch": "primary"
+    },
+    "surfaces": {
+      "auxiliary": {
+        "adaptive": {
+          "min": [
+            320,
+            240
+          ],
+          "max": [
+            768,
+            1024
+          ]
+        }
+      }
+    },
+    "viewport": {
+      "fixed": {
+        "logical": [
+          [
+            400,
+            240
+          ],
+          [
+            512,
+            384
+          ],
+          [
+            768,
+            1024
+          ]
+        ],
+        "presentation": "fill"
+      }
+    },
+    "presentations": [
+      {
+        "id": "ipad2-full",
+        "entry": "hn/main.tsx",
+        "modality": {
+          "screens": 1,
+          "touch": "primary",
+          "buttons": false
+        },
+        "viewport": {
+          "fixed": {
+            "logical": [
+              768,
+              1024
+            ],
+            "presentation": "fill"
+          }
+        }
+      }
+    ]
+  },
+  "domains": {
+    "worker": {
+      "entry": "lib/net-worker.ts",
+      "nodes": [
+        {
+          "name": "http",
+          "kind": "http"
+        }
+      ],
+      "channels": [
+        {
+          "name": "request",
+          "kind": "ring",
+          "direction": "ui-to-worker",
+          "recordBytes": 1024,
+          "capacity": 4
+        },
+        {
+          "name": "response",
+          "kind": "ring",
+          "direction": "worker-to-ui",
+          "recordBytes": "host",
+          "capacity": "host"
+        }
+      ]
+    }
+  }
+}
