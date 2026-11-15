@@ -3,4 +3,4 @@
  * Change this only when the generated guest/native binding contract changes;
  * profile hashes, package formats, C record prefixes and DrawList versions are
  * independent compatibility checks. */
-export const POCKET_BINDING_GENERATION = 12 as const;
+export const POCKET_BINDING_GENERATION = 8 as const;
