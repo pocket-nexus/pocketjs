@@ -38,3 +38,51 @@ Fork of [pocket-nexus/pocketjs](https://github.com/pocket-nexus/pocketjs) with a
 | CPU | Apple A5 (dual-core ARMv7) |
 | RAM | 512 MB |
 | GPU | PowerVR SGX543 (GL ES 2.0) |
+
+---
+
+## v0.3.0 — Production Applets + Network
+
+### What's new
+
+- **HTTP transport** (NSURLConnection, TLS 1.2) — Rust pocket-net + ObjC bridge
+- **Worker domain** (runtime.worker + net.http) for production applets
+- **10 production applets** compiled for 768x1024 touch-primary
+- **19 total applets** (9 shell + 10 production)
+
+### Production Applets
+
+| Applet | .pak | .js |
+|--------|------|-----|
+| Hacker News | 161 KB | 261 KB |
+| YouTube | 207 KB | 304 KB |
+| GitHub | 402 KB | 419 KB |
+| X (Twitter) | 213 KB | 341 KB |
+| Discord | 207 KB | 328 KB |
+| Weather | 470 KB | 327 KB |
+| Maps | 263 KB | 295 KB |
+| Podcasts | 208 KB | 332 KB |
+| Notes | 257 KB | 288 KB |
+| Home Assistant | 259 KB | 309 KB |
+
+### Shell Applets
+
+ipad2-clock, ipad2-demo, note, hero, launcher, settings, gallery, cards, stats
+
+### Build applets
+
+    bun tools/build.ts hn
+    bun tools/build.ts youtube
+    bun tools/build.ts github
+    bun tools/build.ts x
+    bun tools/build.ts discord
+    bun tools/build.ts weather
+    bun tools/build.ts maps
+    bun tools/build.ts podcasts
+    bun tools/build.ts notes
+    bun tools/build.ts homeassistant
+
+### Deploy
+
+    bun tools/ipad2.ts deploy
+    bun tools/ipad2.ts launch
