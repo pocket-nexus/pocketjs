@@ -34,6 +34,7 @@
       "@pocketjs/framework/solid/lifecycle": ["./framework/src/lifecycle.ts"],
       "@pocketjs/framework/solid/renderer": ["./framework/src/renderer-solid.ts"],
       "@pocketjs/framework/virtual-list": ["./framework/src/virtual-list.ts"],
+      "@pocketjs/framework/worker/channels": ["./framework/src/worker/channels.ts"],
       "@pocketjs/framework/vue-vapor": ["./framework/src/index-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/animation": ["./framework/src/animation.ts"],
       "@pocketjs/framework/vue-vapor/components": ["./framework/src/components-vue-vapor.ts"],

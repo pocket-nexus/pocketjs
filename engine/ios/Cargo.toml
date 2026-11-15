@@ -17,6 +17,8 @@ crate-type = ["staticlib", "rlib"]
 pocket-mod = { workspace = true }
 pocket-ui-surface = { workspace = true }
 pocketjs-core = { workspace = true }
+pocket-net = { workspace = true }
+serde_json = { workspace = true }
 log = { workspace = true }
 
 # rquickjs ships pre-generated FFI bindings for common targets but NOT the

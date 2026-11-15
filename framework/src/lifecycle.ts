@@ -4,6 +4,8 @@ export {
   pushButtonHandlerBlock,
   onFrame,
   onButtonPress,
+  onAxisDelta,
+  onMotion,
   createSpriteAnimation,
   analogX,
   analogY,
@@ -12,5 +14,8 @@ export {
   rightAnalogX,
   rightAnalogY,
   type ButtonPressOptions,
+  type AxisDeltaOptions,
+  type MotionOptions,
   type SpriteAnimationOptions,
 } from "./frame.ts";
+export { onMount, onCleanup } from "./lifecycle-solid-aot.ts";

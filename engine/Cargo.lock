@@ -1739,9 +1739,11 @@ version = "0.1.0"
 dependencies = [
  "log",
  "pocket-mod",
+ "pocket-net",
  "pocket-ui-surface",
  "pocketjs-core",
  "rquickjs",
+ "serde_json",
 ]
 
 [[package]]

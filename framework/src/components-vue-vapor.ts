@@ -10,7 +10,9 @@ import {
 import type { JSX as SolidJSX } from "solid-js";
 import { ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./animation.ts";
-import { pushButtonHandlerBlock, onButtonPress, onFrame, type ButtonPressOptions } from "./frame-vue-vapor.ts";
+import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame-vue-vapor.ts";
+import { MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
+import { MOTION_DEFAULT_MIN_QUALITY, type MotionMinQualityName, type MotionValueName } from "./motion.ts";
 import { BTN } from "./input-api.ts";
 import { pushFocusGrid, pushFocusScope, type FocusGridOptions, type FocusScopeOptions } from "./input.ts";
 import { getOverlayRoot } from "./overlay.ts";
@@ -26,6 +28,8 @@ import {
   type NodeMirror,
 } from "./native-tree.ts";
 import { createRenderRoot, type RenderRoot } from "./renderer-vue-vapor.ts";
+import type { MicroTsViewProps, MicroTsTextProps, MicroTsImageProps, MicroTsAxisHandlerProps, MicroTsMotionHandlerProps } from "./component-types-microts.ts";
+export type { MicroTsViewProps, MicroTsTextProps, MicroTsImageProps, MicroTsStyleProps, MicroTsFloatInput, MicroTsAxisHandlerProps, MicroTsActionHandlerProps, MicroTsMotionHandlerProps, MicroTsIntegerInput, MicroTsValue } from "./component-types-microts.ts";
 
 export type { NodeMirror } from "./renderer-vue-vapor.ts";
 
@@ -38,7 +42,7 @@ export type VNodeChild = SolidJSX.Element | (() => SolidJSX.Element);
 const NO_FALLTHROUGH = { inheritAttrs: false } as const;
 type VaporCtx = { slots: SlotBag; attrs: Record<string, unknown> };
 type VaporSetup<P extends object> = (props: P, ctx: VaporCtx) => unknown;
-const definePocketVaporComponent = defineVaporComponent as unknown as <P extends object>(
+const definePocketVueComponent = defineVaporComponent as unknown as <P extends object>(
   setup: VaporSetup<P>,
   extraOptions?: typeof NO_FALLTHROUGH,
 ) => (props: P) => SolidJSX.Element;
@@ -47,7 +51,7 @@ const insertVaporBlock = vaporInsert as unknown as (
   parent: NodeMirror,
   anchor?: NodeMirror | null,
 ) => void;
-export interface ViewProps {
+export interface ViewProps extends Omit<MicroTsViewProps, "style"> {
   class?: string;
   className?: string;
   style?: StyleObject;
@@ -57,7 +61,7 @@ export interface ViewProps {
   children?: VNodeChild;
 }
 
-export interface TextProps {
+export interface TextProps extends MicroTsTextProps {
   class?: string;
   className?: string;
   style?: StyleObject;
@@ -65,7 +69,7 @@ export interface TextProps {
   children?: VNodeChild;
 }
 
-export interface ImageProps {
+export interface ImageProps extends MicroTsImageProps {
   class?: string;
   className?: string;
   src?: string;
@@ -76,6 +80,7 @@ export interface ImageProps {
 export interface SpriteProps {
   class?: string;
   className?: string;
+  frameStep?: number;
   sprite?: string;
   style?: StyleObject;
   nodeRef?: NodeRef;
@@ -106,7 +111,7 @@ function callbackOf<T extends (...args: any[]) => unknown>(value: unknown): T | 
 
 function booleanOption(value: unknown): boolean | undefined {
   const resolved = valueOf(value);
-  return typeof resolved === "boolean" ? resolved : undefined;
+  return resolved === "" ? true : typeof resolved === "boolean" ? resolved : undefined;
 }
 
 function assignRef(refValue: unknown, node: NodeMirror | null): void {
@@ -275,27 +280,28 @@ function createPrimitiveNode(
   return node;
 }
 
-function primitive(tag: "view" | "text" | "image" | "surface") {
-  return definePocketVaporComponent(
-    (_props: Record<string, unknown>, { attrs, slots }: VaporCtx) => createPrimitiveNode(tag, attrs, slots),
+function primitive<P extends object = Record<string, unknown>>(tag: "view" | "text" | "image" | "surface") {
+  return definePocketVueComponent(
+    (_props: P, { attrs, slots }: VaporCtx) => createPrimitiveNode(tag, attrs, slots),
     NO_FALLTHROUGH,
   );
 }
 
-export const View = primitive("view");
-export const Text = primitive("text");
-export const Image = primitive("image");
+type PrimitiveExtras = { children?: VNodeChild; nodeRef?: NodeRef; className?: string | (() => string) };
+export const View = primitive<MicroTsViewProps & PrimitiveExtras>("view");
+export const Text = primitive<MicroTsTextProps & PrimitiveExtras & { style?: StyleObject | (() => StyleObject) }>("text");
+export const Image = primitive<MicroTsImageProps & PrimitiveExtras & { style?: StyleObject | (() => StyleObject) }>("image");
 export const Sprite = primitive("image");
 export const CompositorSurface = primitive("surface");
 
 function resolveActive(active: unknown): boolean {
   const resolved = valueOf(active);
-  return typeof resolved === "function" ? !!resolved() : (resolved as boolean | undefined) ?? true;
+  return typeof resolved === "function" ? !!resolved() : resolved === "" ? true : (resolved as boolean | undefined) ?? true;
 }
 
 export interface ScreenProps extends ViewProps {}
 
-export const Screen = definePocketVaporComponent(
+export const Screen = definePocketVueComponent(
   (_props: ScreenProps, { attrs, slots }: VaporCtx) =>
     createPrimitiveNode("view", attrs, slots, {
       extra: () => ({ class: attrs.class ?? "relative flex-col w-full h-full bg-slate-50 overflow-hidden" }),
@@ -307,7 +313,7 @@ export interface FocusableProps extends ViewProps {
   onPress?: () => void;
 }
 
-export const Focusable = definePocketVaporComponent(
+export const Focusable = definePocketVueComponent(
   (_props: FocusableProps, { attrs, slots }: VaporCtx) =>
     createPrimitiveNode("view", attrs, slots, { extra: { focusable: true } }),
   NO_FALLTHROUGH,
@@ -317,7 +323,7 @@ export interface FocusScopeProps extends ViewProps, FocusScopeOptions {
   active?: boolean | (() => boolean);
 }
 
-export const FocusScope = definePocketVaporComponent((_props: FocusScopeProps, { attrs, slots }: VaporCtx) => {
+export const FocusScope = definePocketVueComponent((_props: FocusScopeProps, { attrs, slots }: VaporCtx) => {
   let root: NodeMirror | undefined;
   const node = createPrimitiveNode("view", attrs, slots, {
     omit: ["active", "autoFocus", "restoreFocus"],
@@ -340,7 +346,7 @@ export interface FocusGridProps extends ViewProps, FocusGridOptions {
   active?: boolean | (() => boolean);
 }
 
-export const FocusGrid = definePocketVaporComponent((_props: FocusGridProps, { attrs, slots }: VaporCtx) => {
+export const FocusGrid = definePocketVueComponent((_props: FocusGridProps, { attrs, slots }: VaporCtx) => {
   let root: NodeMirror | undefined;
   const node = createPrimitiveNode("view", attrs, slots, {
     omit: ["active", "columns", "wrap"],
@@ -365,7 +371,20 @@ export interface ActionHandlerProps extends ButtonPressOptions {
   children?: VNodeChild;
 }
 
-export const ActionHandler = definePocketVaporComponent((_props: ActionHandlerProps, { attrs, slots }: VaporCtx) => {
+function inputPlacement(name: string): NodeMirror {
+  const marker = createCommentNode(name);
+  // The marker gives JS input a position without participating in flex gaps.
+  setProp(marker, "style", { display: ENUMS.Display.None }, undefined);
+  return marker;
+}
+
+function inputBlock(marker: NodeMirror, slots: SlotBag): unknown {
+  const children = defaultBlock(slots);
+  return children == null ? marker : Array.isArray(children) ? [marker, ...children] : [marker, children];
+}
+
+export const ActionHandler = definePocketVueComponent((_props: ActionHandlerProps, { attrs, slots }: VaporCtx) => {
+  const marker = inputPlacement("action");
   onButtonPress(
     valueOf(attrs.button) as number,
     (pressed, buttons) => callbackOf<ActionHandlerProps["onPress"]>(attrs.onPress)?.(pressed, buttons),
@@ -374,8 +393,31 @@ export const ActionHandler = definePocketVaporComponent((_props: ActionHandlerPr
       active: () => resolveActive(attrs.active),
       latched: booleanOption(attrs.latched),
     },
+    marker,
   );
-  return defaultBlock(slots) ?? createCommentNode("action");
+  return inputBlock(marker, slots);
+}, NO_FALLTHROUGH);
+
+export interface AxisHandlerProps extends MicroTsAxisHandlerProps { children?: VNodeChild }
+export const AxisHandler = definePocketVueComponent((_props: AxisHandlerProps, { attrs, slots }: VaporCtx) => {
+  const marker = inputPlacement("axis");
+  const name = valueOf(attrs.axis) as keyof typeof MICROTS_RELATIVE_AXES;
+  if (!(name in MICROTS_RELATIVE_AXES)) throw new Error(`Unknown relative axis ${String(name)}`);
+  onAxisDelta(MICROTS_RELATIVE_AXES[name], delta => callbackOf<(delta: number) => void>(attrs.onDelta)?.(delta), {
+    active: () => resolveActive(attrs.active),
+  }, marker);
+  return inputBlock(marker, slots);
+}, NO_FALLTHROUGH);
+
+export type MotionHandlerProps = MicroTsMotionHandlerProps & { children?: VNodeChild };
+export const MotionHandler = definePocketVueComponent((_props: MotionHandlerProps, { attrs, slots }: VaporCtx) => {
+  const marker = inputPlacement("motion");
+  const minQuality = valueOf(attrs.minQuality ?? attrs["min-quality"]) as MotionMinQualityName | undefined;
+  onMotion(valueOf(attrs.value) as MotionValueName, (...payload: number[]) => callbackOf<(...payload: number[]) => void>(attrs.onUpdate)?.(...payload), {
+    active: () => resolveActive(attrs.active),
+    minQuality: minQuality ?? MOTION_DEFAULT_MIN_QUALITY,
+  }, marker);
+  return inputBlock(marker, slots);
 }, NO_FALLTHROUGH);
 
 export interface PortalProps {
@@ -397,6 +439,7 @@ function createPortalRoot(): { marker: NodeMirror; host: NodeMirror; root: Rende
       insetB: 0,
       insetL: 0,
       zIndex: 1000,
+      hitPass: 1,
     },
     undefined,
   );
@@ -404,7 +447,7 @@ function createPortalRoot(): { marker: NodeMirror; host: NodeMirror; root: Rende
   return { marker, host, root: createRenderRoot(host) };
 }
 
-export const Portal = definePocketVaporComponent((_props: PortalProps, { slots }: { slots: SlotBag }) => {
+export const Portal = definePocketVueComponent((_props: PortalProps, { slots }: { slots: SlotBag }) => {
   const state = createPortalRoot();
   watchEffect(() => {
     state.root.update(defaultBlock(slots));
@@ -420,7 +463,7 @@ export interface AuxiliarySurfaceProps {
   children?: VNodeChild;
 }
 
-export const AuxiliarySurface = definePocketVaporComponent(
+export const AuxiliarySurface = definePocketVueComponent(
   (_props: AuxiliarySurfaceProps, { slots }: { slots: SlotBag }) => {
     const surface = getAuxiliarySurfaceRoots();
     const marker = createCommentNode("auxiliary-surface");
@@ -447,7 +490,7 @@ export const AuxiliarySurface = definePocketVaporComponent(
   NO_FALLTHROUGH,
 );
 
-export const AuxiliaryPortal = definePocketVaporComponent(
+export const AuxiliaryPortal = definePocketVueComponent(
   (_props: AuxiliarySurfaceProps, { slots }: { slots: SlotBag }) => {
     const surface = getAuxiliarySurfaceRoots();
     const marker = createCommentNode("auxiliary-portal");
@@ -486,7 +529,7 @@ export interface ModalProps {
   children?: VNodeChild;
 }
 
-export const Modal = definePocketVaporComponent((_props: ModalProps, { attrs, slots }: VaporCtx) => {
+export const Modal = definePocketVueComponent((_props: ModalProps, { attrs, slots }: VaporCtx) => {
   const state = createPortalRoot();
   const frame = createElement("view");
   const backdrop = createElement("view");
@@ -530,7 +573,7 @@ export const Modal = definePocketVaporComponent((_props: ModalProps, { attrs, sl
 
 export interface ActionBarProps extends ViewProps {}
 
-export const ActionBar = definePocketVaporComponent((_props: ActionBarProps, { attrs, slots }: VaporCtx) => {
+export const ActionBar = definePocketVueComponent((_props: ActionBarProps, { attrs, slots }: VaporCtx) => {
   const state = createPortalRoot();
   const bar = createPrimitiveNode("view", attrs, slots, {
     extra: () => ({
@@ -552,7 +595,7 @@ export interface GridProps extends ViewProps, Partial<FocusGridOptions> {
   active?: boolean | (() => boolean);
 }
 
-export const Grid = definePocketVaporComponent((_props: GridProps, { attrs, slots }: VaporCtx) => {
+export const Grid = definePocketVueComponent((_props: GridProps, { attrs, slots }: VaporCtx) => {
   let root: NodeMirror | undefined;
   const hasColumns = attrs.columns != null;
   const node = createPrimitiveNode("view", attrs, slots, {
@@ -590,7 +633,7 @@ export interface LazyProps extends Omit<ViewProps, "children"> {
   children: () => VNodeChild;
 }
 
-export const Lazy = definePocketVaporComponent((_props: LazyProps, { attrs, slots }: VaporCtx) => {
+export const Lazy = definePocketVueComponent((_props: LazyProps, { attrs, slots }: VaporCtx) => {
   const reveal = Math.max(0, Math.floor((valueOf(attrs.reveal) as number | undefined) ?? 0));
   const ready = shallowRef(reveal === 0);
   let elapsed = 0;
@@ -657,7 +700,7 @@ export interface GalleryProps {
   class?: string;
 }
 
-export const Gallery = definePocketVaporComponent((_props: GalleryProps, { attrs }: VaporCtx) => {
+export const Gallery = definePocketVueComponent((_props: GalleryProps, { attrs }: VaporCtx) => {
   const count = () => Math.max(0, Math.floor((valueOf(attrs.count) as number | undefined) ?? 0));
   const page = () => Math.max(0, Math.floor((valueOf(attrs.page) as number | undefined) ?? 0));
   const win = () => Math.max(0, Math.floor((valueOf(attrs.window) as number | undefined) ?? 1));

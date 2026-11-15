@@ -78,6 +78,8 @@ export interface VirtualListProps {
    *  false: rows are plain views and the d-pad scrolls the im way. */
   focusRows?: boolean;
   onRowPress?: (index: number) => void;
+  /** A stationary hold claims the contact and suppresses its release tap. */
+  onRowLongPress?: (index: number) => void;
   /** Fired every frame while the offset is within nearStartPx of the top —
    *  guard with your own loading/hasMore flags (the im convention). */
   onNearStart?: () => void;
@@ -286,6 +288,12 @@ export function VirtualList(props: VirtualListProps): SolidJSX.Element {
         props.onRowPress?.(row.index);
       }
     },
+    onLongPress: props.onRowLongPress ? (c) => {
+      if (!active()) return;
+      const row = rowFromContact(c);
+      setActiveNode(null);
+      if (row) { setFocusedIndex(row.index); props.onRowLongPress?.(row.index); }
+    } : undefined,
     onCancel: () => {
       setActiveNode(null);
       if (scroller.state() === "tracking") scroller.endDrag(0); // no fling out of a modal open

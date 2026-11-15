@@ -3,6 +3,7 @@ import { registerServicePump } from "./services.ts";
 
 export { OFFLOAD };
 export type { OffloadOps };
+export { uploadIndexedImage, type IndexedImage } from "./indexed-image.ts";
 /** Fixed-budget native resource upload when implemented by the host.
  * Optional column colors use one hex palette index per pixel column and
  * up to 16 concatenated RGB hex colors. They retain the one-upload budget. */
@@ -80,12 +81,16 @@ export function createOffloadClient(ops: OffloadOps) {
 }
 
 let client: ReturnType<typeof createOffloadClient> | undefined;
+let localClient: ReturnType<typeof createOffloadClient> | undefined;
 /** No synchronous FS, DB, DNS or socket operation is exposed to the guest. */
-export function offload() {
-  if (client) return client;
-  const ops = (globalThis as unknown as { offload?: OffloadOps }).offload;
+export function offload(provider: "companion" | "local" = "companion") {
+  if (provider === "local" && localClient) return localClient;
+  if (provider === "companion" && client) return client;
+  const root = (globalThis as unknown as { offload?: OffloadOps }).offload;
+  const ops = provider === "local" ? root?.local : root;
   if (!ops) throw new Error("Host does not implement io.offload");
-  client = createOffloadClient(ops);
-  registerServicePump(() => client!.step());
-  return client;
+  const next = createOffloadClient(ops);
+  if (provider === "local") localClient = next; else client = next;
+  registerServicePump(() => next.step());
+  return next;
 }

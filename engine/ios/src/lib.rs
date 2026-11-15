@@ -21,12 +21,17 @@
 
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
+
+mod net_transport;
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
 
 pub mod core_host;
 
 use pocket_mod::Guest;
+use pocket_net::NetSurface;
+use crate::net_transport::IosNetTransport;
 use pocket_ui_surface::UiSurface;
 use pocketjs_core::damage::{DamagePolicy, DamageTracker, DEFAULT_DAMAGE_REGIONS};
 use pocketjs_core::raster;
@@ -70,6 +75,7 @@ pub struct PocketApple {
     logical_width: u32,
     logical_height: u32,
     mounted: bool,
+    net: NetSurface<IosNetTransport>,
     effect_callback: Option<(PocketAppleEffectCallback, *mut std::ffi::c_void)>,
 }
 
@@ -154,6 +160,7 @@ pub extern "C" fn pocket_apple_create(
             logical_width,
             logical_height,
             mounted: false,
+            net: NetSurface::new(IosNetTransport::new()),
             effect_callback: None,
         }))
     });
@@ -291,6 +298,10 @@ pub extern "C" fn pocket_apple_eval_bundle(
                 set_last_error(format!("ui mount failed: {error}"));
                 return ERR_GUEST;
             }
+            if let Err(error) = state.net.mount(&state.guest) {
+                set_last_error(format!("net mount failed: {error}"));
+                return ERR_GUEST;
+            }
             state.mounted = true;
         }
         if let Err(error) = state.guest.eval(label, bundle) {
@@ -334,6 +345,7 @@ pub extern "C" fn pocket_apple_frame(
             .surface
             .with_ui(|ui| ui.touch_hits(touch_words, &mut touch_hits));
         let analog = if analog == 0 { spec::ANALOG_CENTER } else { analog };
+        state.net.begin_tick();
         if let Err(error) = state.guest.frame_with_touch_hits(
             buttons,
             analog,

@@ -4,6 +4,7 @@
 import { NODE_TYPE, PROP, ROOT_ID, STYLE_ID_NONE, type PropName } from "../../contracts/spec/spec.ts";
 import { encodePropValue, getHost, getOps } from "./host.ts";
 import { __notifyTreeMutation, notifyDetached, registerFocusable, registerPress } from "./input.ts";
+import { clearNodeReferences } from "./model-node-ref.ts";
 
 export interface NodeMirror {
   /** Native generation-tagged node id. */
@@ -77,6 +78,8 @@ const NATIVE_ATTRIBUTE_NAMES = new Set([
   "className",
   "style",
   "src",
+  "sprite",
+  "frameStep",
   "onPress",
   "on:press",
   "focusable",
@@ -331,6 +334,21 @@ export function resetTextures(): void {
   textures.clear();
 }
 
+/**
+ * The texture handle registered for an image key. An unknown key throws on
+ * strict hosts and counts a miss on native ones (undefined).
+ */
+export function resolveTexture(key: string): number | undefined {
+  const handle = textures.get(key);
+  if (handle === undefined) {
+    if (getHost().strict) {
+      throw new Error(`PocketJS: unknown image src "${key}" - no texture registered under that key`);
+    }
+    missCounters.unknownTexture++;
+  }
+  return handle;
+}
+
 /** A `sprite` key → its atlas texture handle + animation metadata. */
 export interface SpriteMeta {
   /** uploadTexture handle of the atlas. */
@@ -394,6 +412,7 @@ export function runSweep(): void {
       keep.push(node);
       continue;
     }
+    clearNodeReferences(node);
     ops.destroyNode(node.id);
   }
   sweepSet.clear();
@@ -455,6 +474,8 @@ export function createElement(tag: string): NodeMirror {
 }
 
 export function createTextNode(value: string): NodeMirror {
+  // Solid universal also passes primitive numbers to the host text boundary.
+  value = String(value);
   const ops = getOps();
   const id = ops.createNode(NODE_TYPE.text);
   ops.setText(id, value);
@@ -478,6 +499,7 @@ export function createCommentNode(data = ""): NodeMirror {
 }
 
 export function replaceText(node: NodeMirror, value: string): void {
+  value = String(value);
   getOps().replaceText(node.id, value);
   node.text = value;
   treeMutated();
@@ -605,21 +627,20 @@ function setSrc(node: NodeMirror, value: unknown): void {
   if (typeof value !== "string") {
     throw new Error("PocketJS: src must be a string key");
   }
-  const handle = textures.get(value);
-  if (handle === undefined) {
-    if (getHost().strict) {
-      throw new Error(
-        `PocketJS: unknown image src "${value}" - no texture registered under that key`,
-      );
-    }
-    missCounters.unknownTexture++;
-    return;
-  }
-  ops.setImage(node.id, handle);
+  const handle = resolveTexture(value);
+  if (handle !== undefined) ops.setImage(node.id, handle);
 }
 
 /** `sprite` prop → bind an animated sprite atlas. Auto-play is native; JS never
  *  touches it per frame. Clearing reverts the node to a plain (empty) image. */
+function spriteStep(node: NodeMirror, fallback: number, value: unknown = node.domAttrs?.frameStep): number {
+  if (value == null) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error("PocketJS: frameStep must be a finite number");
+  }
+  return Math.min(0xffff, Math.max(1, Math.floor(value)));
+}
+
 function setSpriteSrc(node: NodeMirror, value: unknown): void {
   const ops = getOps();
   if (value == null || value === "") {
@@ -639,7 +660,7 @@ function setSpriteSrc(node: NodeMirror, value: unknown): void {
     missCounters.unknownTexture++;
     return;
   }
-  ops.setSprite(node.id, meta.handle, meta.frames, meta.cols, meta.step);
+  ops.setSprite(node.id, meta.handle, meta.frames, meta.cols, spriteStep(node, meta.step));
 }
 
 function setCompositorBinding(node: NodeMirror): void {
@@ -720,6 +741,24 @@ export function setProp<T>(node: NodeMirror, name: string, value: T, prev?: T): 
       return value;
     case "sprite":
       setSpriteSrc(node, value);
+      return value;
+    case "frameStep":
+      if (value != null) spriteStep(node, 1, value);
+      if (node.domAttrs?.sprite != null) {
+        const key = node.domAttrs.sprite;
+        const meta = sprites.get(String(key));
+        if (meta !== undefined) {
+          getOps().setSprite(
+            node.id,
+            meta.handle,
+            meta.frames,
+            meta.cols,
+            spriteStep(node, meta.step, value),
+          );
+        } else {
+          setSpriteSrc(node, key);
+        }
+      }
       return value;
     case "package":
     case "focused":

@@ -1,37 +1,11 @@
-import { createMemo, createRenderEffect, untrack, type Accessor, type JSX } from "solid-js";
+import { createMemo, createRenderEffect, type Accessor, type JSX } from "solid-js";
 import { Image, View, type ViewProps } from "./primitives.ts";
 import { insert, type NodeMirror } from "./renderer.ts";
 import { getOps } from "./host.ts";
 import type { ResourceState } from "./resource-state.ts";
+import { ResourceBoundary } from "./resource-boundary.ts";
+export { ResourceBoundary, type ResourceBoundaryProps } from "./resource-boundary.ts";
 export { createResourceSlot, pending, ready, failed, type ResourceState } from "./resource-state.ts";
-
-export interface ResourceBoundaryProps<T> {
-  state: Accessor<ResourceState<T>>;
-  fallback: () => JSX.Element;
-  errorFallback?: (error: unknown) => JSX.Element;
-  children: (value: Accessor<T>) => JSX.Element;
-}
-
-/** Reveals only this subtree. Rendering never starts IO or waits for a Promise.
- * Factories are lazy, and superseded content is disposed by Solid's owner. */
-export function ResourceBoundary<T>(props: ResourceBoundaryProps<T>): JSX.Element {
-  const state = createMemo(props.state);
-  const status = createMemo(() => state().status);
-  const error = createMemo(() => { const value = state(); return value.status === "error" ? value.error : undefined; });
-  return createMemo(() => {
-    const phase = status();
-    const reason = phase === "error" ? error() : undefined;
-    if (phase !== "ready") return phase === "error" && props.errorFallback
-      ? props.errorFallback(reason) : props.fallback();
-    return untrack(() => {
-      return props.children(() => {
-        const current = state();
-        if (current.status !== "ready") throw new Error("Resource read outside its ready subtree");
-        return current.value;
-      });
-    });
-  }) as unknown as JSX.Element;
-}
 
 /** A decoded/uploaded image, including its texture envelope dimensions. */
 export interface TextureResource { handle: number; width: number; height: number }

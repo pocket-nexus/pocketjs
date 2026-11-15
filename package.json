@@ -308,6 +308,7 @@
     "vapor:check": "bun vapor/compiler/cli.ts check vapor/examples/todo/todo.tsx"
   },
   "dependencies": {
+    "@solid-primitives/keyed": "^1.5.3",
     "@vue/compiler-sfc": "3.6.0-rc.1",
     "@vue/compiler-vapor": "3.6.0-rc.1",
     "octane": "0.1.26",

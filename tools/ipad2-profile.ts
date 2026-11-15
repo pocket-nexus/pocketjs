@@ -26,7 +26,7 @@ export const IPAD2_DEV_CONTRACTS = definePlatformContractRegistry(
         presentations: ["native"],
         rasterDensity: IPAD2_RASTER_DENSITY,
       },
-      capabilities: ["input.touch", "text.glyphs.baked"],
+      capabilities: ["input.touch", "input.buttons", "text.glyphs.baked", "net.http", "runtime.worker", "display.auxiliary", "input.touch.auxiliary", "data.fs"],
     },
   }),
 );
