@@ -115,6 +115,12 @@ pub struct DisplayDescriptor {
     pub device_frame_storage: bool,
     pub device_rotation: bool,
     pub device_scaling: bool,
+    /// The device's scaler reads the pixels beside each pixel, so a changed
+    /// pixel changes what the device shows for its neighbours too. A flushed
+    /// rectangle is filtered on its own, its edge pixels repeated outward.
+    /// Presentation flushes damage grown by one pixel on every side. Only
+    /// valid with device scaling.
+    pub filtered_scaling: bool,
     /// The device moves retained pixels inside its frame storage
     /// ([`DisplayOutput::move_pixels`]), so presentation can reuse content
     /// that only moved. Only valid with device frame storage and partial
@@ -148,6 +154,7 @@ impl DisplayDescriptor {
             device_frame_storage: false,
             device_rotation: false,
             device_scaling: false,
+            filtered_scaling: false,
             retained_move: false,
             vsync: VsyncSource::None,
         }

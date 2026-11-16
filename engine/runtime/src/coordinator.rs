@@ -14,7 +14,7 @@ use pocket_drivers::{
     DrawList, FontView, FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer,
     RendererDescriptor, Synchronization, Target, TargetOwnership, TexView, HOST_DAMAGE_RECTS,
 };
-use pocket_render::damage::{DamagePolicy, DamageTarget, DamageTracker};
+use pocket_render::damage::{DamagePolicy, DamageTarget, DamageTracker, DEFAULT_DAMAGE_REGIONS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RendererId(u32);
@@ -816,6 +816,8 @@ impl Coordinator {
                 .map_err(|_| PresentError::InvalidFrame)?;
                 let scale = self.scale;
                 let driver = display.driver.as_mut().expect("validated display");
+                // Edges of moved pixels that a filtering scaler shows wrong.
+                let mut moved_edges: Option<(DamageRect, Vec<DamageRect>)> = None;
                 if let Some(motion) = plan.motion() {
                     let moved = motion.destination;
                     let destination = Rect::new(
@@ -829,6 +831,18 @@ impl Coordinator {
                         motion.dx * scale as i32,
                         motion.dy * scale as i32,
                     ) {
+                        // A filtering scaler showed the moved pixels beside
+                        // the neighbours they had before the move, and the
+                        // pixels around the destination beside what it held.
+                        Ok(()) if descriptor.filtered_scaling => {
+                            let screen = DamageRect::new(
+                                0,
+                                0,
+                                (descriptor.width / scale) as i32,
+                                (descriptor.height / scale) as i32,
+                            );
+                            moved_edges = Some((moved, inner_edges(moved, screen)));
+                        }
                         Ok(()) => {}
                         // The display left the pixels alone: repaint them.
                         Err(DisplayError::Unsupported) => plan.repaint_motion(),
@@ -849,7 +863,20 @@ impl Coordinator {
                         (rect.y + rect.height).div_ceil(scale) as i32,
                     ));
                 }
-                physical_damage(plan.regions(), &descriptor, self.scale)?
+                let mut regions = plan.regions().to_vec();
+                if let Some((moved, edges)) = moved_edges {
+                    if regions.len() + edges.len() <= DEFAULT_DAMAGE_REGIONS {
+                        // Not through the plan: it would merge the four
+                        // edges into the rectangle they surround.
+                        regions.extend(edges);
+                    } else {
+                        // One flush takes as many rectangles as a plan
+                        // holds: repaint everything that moved instead.
+                        plan.add_region(moved);
+                        regions = plan.regions().to_vec();
+                    }
+                }
+                physical_damage(&regions, &descriptor, self.scale, display.strip_height)?
             } else {
                 alloc::vec![Rect::new(0, 0, descriptor.width, descriptor.height)]
             };
@@ -1255,10 +1282,30 @@ fn intersect(a: Rect, b: Rect) -> Option<Rect> {
     let bottom = (a.y + a.height).min(b.y + b.height);
     (x < right && y < bottom).then(|| Rect::new(x, y, right - x, bottom - y))
 }
+/// The one-pixel edges of `moved` that have a neighbour on the screen.
+fn inner_edges(moved: DamageRect, screen: DamageRect) -> Vec<DamageRect> {
+    [
+        (moved.x0 > screen.x0).then(|| DamageRect::new(moved.x0, moved.y0, moved.x0 + 1, moved.y1)),
+        (moved.x1 < screen.x1).then(|| DamageRect::new(moved.x1 - 1, moved.y0, moved.x1, moved.y1)),
+        (moved.y0 > screen.y0).then(|| DamageRect::new(moved.x0, moved.y0, moved.x1, moved.y0 + 1)),
+        (moved.y1 < screen.y1).then(|| DamageRect::new(moved.x0, moved.y1 - 1, moved.x1, moved.y1)),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|edge| !edge.is_empty())
+    .collect()
+}
+
+/// Logical damage as the physical rectangles the display flushes: aligned to
+/// its refresh quantum, and for a filtering scaler grown by the pixel on
+/// every side whose shown value depends on the change. Strips are flushed
+/// and filtered one at a time, so a change at a strip's first or last row
+/// reaches no row of the next strip. The rectangles may overlap.
 fn physical_damage(
     regions: &[DamageRect],
     display: &DisplayDescriptor,
     scale: u32,
+    strip_height: u32,
 ) -> Result<Vec<Rect>, PresentError> {
     let quantum = |a: u32, b: u32| {
         (a / gcd(a, b))
@@ -1273,13 +1320,23 @@ fn physical_damage(
             .saturating_mul(step as u64)
             .min(maximum as u64) as u32
     };
+    let reach = u64::from(display.filtered_scaling);
+    let strip = u64::from(strip_height.max(1));
     Ok(regions
         .iter()
         .map(|r| {
-            let x = r.x0.max(0) as u32 * scale / xq * xq;
-            let y = r.y0.max(0) as u32 * scale / yq * yq;
-            let right = up(r.x1.max(0) as u64 * scale as u64, xq, display.width);
-            let bottom = up(r.y1.max(0) as u64 * scale as u64, yq, display.height);
+            let x0 = (r.x0.max(0) as u64 * scale as u64).saturating_sub(reach);
+            let x1 = r.x1.max(0) as u64 * scale as u64 + reach;
+            let mut y0 = r.y0.max(0) as u64 * scale as u64;
+            let mut y1 = r.y1.max(0) as u64 * scale as u64;
+            y0 -= reach.min(y0 % strip);
+            if !y1.is_multiple_of(strip) {
+                y1 += reach.min(strip - y1 % strip);
+            }
+            let x = (x0 / xq as u64 * xq as u64) as u32;
+            let y = (y0 / yq as u64 * yq as u64) as u32;
+            let right = up(x1, xq, display.width);
+            let bottom = up(y1, yq, display.height);
             Rect::new(x, y, right - x, bottom - y)
         })
         .collect())
@@ -1309,6 +1366,7 @@ fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), Prese
                 || display.target_ownership != TargetOwnership::CpuVisible)
         || display.queued_flush && display.target_ownership != TargetOwnership::DeviceOwned
         || display.retained_move && (!display.device_frame_storage || !display.partial_refresh)
+        || display.filtered_scaling && !display.device_scaling
     {
         return Err(PresentError::InvalidDisplayDescriptor);
     }

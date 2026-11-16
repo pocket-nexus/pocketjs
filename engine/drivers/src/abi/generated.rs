@@ -116,6 +116,7 @@ pub const POCKET_DISPLAY_DEVICE_SCALING: u32 = 16;
 pub const POCKET_DISPLAY_PIPELINED_ACQUIRE: u32 = 64;
 pub const POCKET_DISPLAY_QUEUED_FLUSH: u32 = 128;
 pub const POCKET_DISPLAY_RETAINED_MOVE: u32 = 256;
+pub const POCKET_DISPLAY_FILTERED_SCALING: u32 = 512;
 pub const POCKET_STATUS_OK: i32 = 0;
 pub const POCKET_STATUS_UNSUPPORTED: i32 = -1;
 pub const POCKET_STATUS_INVALID: i32 = -2;
@@ -288,7 +289,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation, scaling and queued flush ordering.
+    /// Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation, scaling and queued flush ordering. FILTERED_SCALING, with DEVICE_SCALING: the device's scaler reads the pixels beside each pixel of a flushed rectangle and repeats the rectangle's edge pixels outward, so the runtime flushes damage grown by one pixel on every side.
     pub struct PocketDisplayDescriptor {
         pub struct_size: usize,
         pub role: u32,

@@ -101,6 +101,7 @@ extern "C" {
 #define POCKET_DISPLAY_PIPELINED_ACQUIRE 64U
 #define POCKET_DISPLAY_QUEUED_FLUSH 128U
 #define POCKET_DISPLAY_RETAINED_MOVE 256U
+#define POCKET_DISPLAY_FILTERED_SCALING 512U
 #define POCKET_STATUS_OK (0)
 #define POCKET_STATUS_UNSUPPORTED (-1)
 #define POCKET_STATUS_INVALID (-2)
@@ -355,7 +356,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_target, pixel_format) == POCKET_LAY
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_target, surface) == POCKET_LAYOUT_POCKET_TARGET_4_OFFSET, "pocket_target.surface");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_target, device_handle) == POCKET_LAYOUT_POCKET_TARGET_5_OFFSET, "pocket_target.device_handle");
 
-/* Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation, scaling and queued flush ordering. */
+/* Dimensions are physical pixels. Refresh granularity and window alignments are positive. Flags describe buffering, GRAM, rotation, scaling and queued flush ordering. FILTERED_SCALING, with DEVICE_SCALING: the device's scaler reads the pixels beside each pixel of a flushed rectangle and repeats the rectangle's edge pixels outward, so the runtime flushes damage grown by one pixel on every side. */
 struct pocket_display_descriptor {
   size_t struct_size;
   uint32_t role;

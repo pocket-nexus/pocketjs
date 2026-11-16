@@ -93,7 +93,12 @@ renderers complete inside the present call. A zero-copy deferred submission
 borrows texture storage and nothing else; the core keeps freed or overwritten
 storage of those textures until the submission retires. **Each acquired CPU region
 receives the frame's damage rectangles that intersect it, and the software
-renderer clears and replays only those rectangles.** Persistent
+renderer clears and replays only those rectangles.** **A display whose
+scaler filters (`POCKET_DISPLAY_FILTERED_SCALING`) receives each rectangle
+grown by one pixel on every side**: a pixel that changes also changes what
+the device shows for the pixels beside it. The rows stop at the region's
+first and last row, because the device filters each flushed region on its
+own. Persistent
 display-buffer identities are required before this path can reuse a previous
 buffer's damage history; without one the damage is the whole region.
 Existing host damage APIs retain their compatibility paths.
