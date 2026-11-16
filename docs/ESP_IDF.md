@@ -25,10 +25,6 @@ composes these components. The DPI display turns a landscape picture 90
 degrees onto a portrait panel with the PPA and moves retained pixels for
 content that only scrolled (`POCKET_DISPLAY_RETAINED_MOVE`); two PPA
 renderers, one per core, split every strip (`pocketjs_esp32p4_ppa_lanes`).
-**At a scale above 1 the PPA interpolates between raster pixels**, so the
-display declares `POCKET_DISPLAY_FILTERED_SCALING` and the runtime flushes
-damage grown by one pixel on every side
-(`platforms/esp-idf/pocket_display_esp_dpi/README.md`).
 
 ## Native archive identity
 
