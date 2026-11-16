@@ -40,6 +40,6 @@ so it must run before a Cargo build.
 | Ownership across the application, generated Rust and the host | [TypeScript and native code](https://microts.pocket.nexus/docs/microts-boundaries) |
 | Execution modes and supported subset | [TypeScript support](https://microts.pocket.nexus/docs/typescript-support) |
 | Compiled models | [TypeScript models to Rust](https://microts.pocket.nexus/docs/microts-model) |
-| Views | [Solid TSX to Rust](https://microts.pocket.nexus/docs/microts-solid) · [MicroTS components](https://microts.pocket.nexus/docs/microts-components) |
+| Views | [Solid TSX to Rust](https://microts.pocket.nexus/docs/microts-solid) · [MicroTS components](https://microts.pocket.nexus/docs/microts-components) · [Pages and focus](https://microts.pocket.nexus/docs/microts-pages) |
 | Reference | [MicroTS reference](https://microts.pocket.nexus/docs/microts-reference) |
 | Browser playground | [microts.pocket.nexus/playground](https://microts.pocket.nexus/playground) |

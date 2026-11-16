@@ -239,6 +239,136 @@ immutable-buffer patch. Package storage remains live until guest shutdown.
 The package and JavaScript heap limits do not bound all native allocations;
 display buffers and accelerator staging have their own budgets.
 
+## Native AOT applications
+
+**The components on this page boot `.pocket` packages; `pocket_runtime.h` has
+no entry for a compiled application.** `pocket_runtime_boot` and
+`pocket_runtime_boot_deferred` admit a package source. An application compiled
+by [MicroTS](/docs/microts/) links into the firmware as a Rust static library
+that the product owns. That library drives `pocket_runtime::Runtime` through
+its Rust API, and the product's repository holds every file of it.
+
+The library crate:
+
+- uses `no_std` with `alloc`, and depends on `microts` with the `runtime`
+  feature, `pocket-runtime`, `pocket-drivers` and `pocket-raster`;
+- includes the generated `include.rs`, which declares `mod generated`,
+  `TICK_HZ`, `load_fonts` and `load_images`;
+- implements `microts::runtime::AotApp`: `mount` loads `styles.bin`, the fonts
+  and the images and constructs the generated `AppApp`; `frame` converts a
+  `GuestFrame` into `microts::Input`;
+- registers an `AotGuest`, its input sources, `pocket_raster::RasterRenderer`
+  and a `DisplayOutput`, then calls `Runtime::boot_aot_deferred` with the
+  exported `PROFILE_HASH`, the viewport and `TICK_HZ`;
+- defines the global allocator over the IDF heap, the panic handler and the
+  `extern "C"` functions its C caller uses.
+
+[`programs/ipodnano/src/lib.rs`](https://github.com/pocket-nexus/pocketjs/blob/main/programs/ipodnano/src/lib.rs)
+is a complete library of this shape for the iPod nano's Rockbox firmware.
+**The C display and input components register through `pocket_runtime.h`**,
+so an AOT library supplies Rust implementations of `DisplayOutput` and
+`InputSource` from `pocket-drivers`.
+
+### Build the library
+
+The host config declares an `aot` recipe. `pocket build` checks the generated
+sources against the host contract, exports the profile and runs Cargo with
+`POCKETJS_AOT_DIR`, `POCKETJS_AOT_INCLUDE` and `POCKETJS_PROFILE_RS` set:
+
+```ts
+// pocket.host.config.ts
+import { cargo, defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({
+  host: "./pocket.host.json",
+  build: {
+    hosts: ["darwin-arm64", "linux-x64"],
+    input: "aot",
+    steps: cargo({
+      manifest: "firmware/Cargo.toml",
+      target: "riscv32imafc-unknown-none-elf",
+      targetDirectory: "{outdir}/cargo",
+    }),
+    artifact: "{outdir}/cargo/riscv32imafc-unknown-none-elf/release/libfirmware.a",
+  },
+});
+```
+
+```sh
+pocket compile --manifest app/pocket.app.json --project-root app \
+  --target ./pocket.host.json --aot --out dist/aot
+pocket build --config pocket.host.config.ts --aot-dir dist/aot --out dist/build
+```
+
+The crate's `build.rs` calls `pocket_profile_build::emit`, which copies the
+exported profile to `OUT_DIR/pocket_profile.rs`. The library includes that
+file and `$POCKETJS_AOT_DIR/include.rs`. **The Cargo step passes `--locked`**:
+commit the crate's `Cargo.lock`. A `toolchain` field on the step names the
+rustup toolchain that has the target installed.
+
+The IDF component that calls the library imports the archive and keeps the
+hooks the archive calls back into:
+
+```cmake
+add_library(firmware STATIC IMPORTED GLOBAL)
+set_target_properties(firmware PROPERTIES IMPORTED_LOCATION "${FIRMWARE_ARCHIVE}")
+target_link_libraries(${COMPONENT_LIB} PUBLIC firmware)
+target_link_options(${COMPONENT_LIB} INTERFACE
+    "-Wl,--undefined=firmware_alloc" "-Wl,--undefined=firmware_free"
+    "-Wl,--undefined=firmware_panic")
+```
+
+An application project outside a framework checkout declares
+`@pocketjs/framework` and `solid-js` or `vue` in its own `package.json`, as
+`pocket create` writes them. AOT analysis resolves the view framework and
+framework subpaths such as `@pocketjs/framework/animation` through the
+project's `node_modules`; a missing package fails with `Cannot find module`.
+
+### Targets
+
+| IDF target | Rust target | Requirement |
+| --- | --- | --- |
+| `esp32p4` | `riscv32imafc-unknown-none-elf` | Remove the soft-float compiler-rt members from the archive |
+| `esp32c6` | `riscv32imac-unknown-none-elf` | None |
+| `esp32c3` | `riscv32imc-unknown-none-elf` | Select an atomic compare-and-swap fallback |
+| `esp32s3` | `xtensa-esp32s3-none-elf` | Espressif's Rust toolchain with `buildStd: ["core", "alloc"]` |
+
+**A `riscv32imafc` static library carries compiler-rt objects built for the
+soft-float ABI; IDF's ESP32-P4 objects use `ilp32f`.** IDF's libgcc and ROM
+supply the same symbols, and the linker rejects a soft-float object that it
+extracts into an `ilp32f` link.
+`platforms/esp-idf/pocket_runtime/prepare_archive.cmake` deletes those archive
+members; run it with `-DPOCKETJS_ARCHIVE`, `-DPOCKETJS_ARCHIVER` and
+`-DPOCKETJS_TARGET=esp32p4` before the IDF link.
+
+**`riscv32imc` has no atomic compare-and-swap instruction.** `portable-atomic`
+stops the build with `dependents require atomic CAS but not available on this
+target by default`. The library enables the `critical-section` feature of
+`microts` and provides a `critical_section::Impl`, or sets the
+`portable_atomic_unsafe_assume_single_core` cfg in its rustflags. The
+`microts` crate documentation states the requirements of each choice.
+
+### Memory and stack
+
+**IDF's main task stack defaults to 3584 bytes**
+(`CONFIG_ESP_MAIN_TASK_STACK_SIZE`). The iPod nano program gives its Runtime
+128 KiB because an 8 KiB stack did not hold a layout solve. Create a task with
+its own stack for the Runtime.
+
+**The generated `load_fonts` and `load_images` copy their data into the
+heap.** `Ui::load_font_atlas` parses each atlas into an owned buffer and
+`upload_texture` copies the pixels, while the `include_bytes!` originals stay
+in flash. A library that needs the atlases in place writes its own loader
+over `load_font_atlas_shared`. A `DisplayOutput` that keeps a full frame, as
+the iPod nano program's does, holds two bytes per RGB565 pixel: 153,600 bytes
+at 320 × 240.
+
+**The image embeds the application.** A changed view or model is a new
+firmware image; an AOT guest rejects a package's JavaScript payload.
+
+**The repository contains no ESP32 AOT program and no CI job for this path.**
+Device timing, pixels and input are the product's acceptance checks.
+
 ## Validation
 
 The `smoke` and `runner` examples compile for both targets. Their transfer-hash

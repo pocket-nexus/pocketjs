@@ -115,6 +115,8 @@ unmount.** Two toggles have two press counts. A keyed row keeps its state
 when its position changes. A `v-if` branch that disappears drops its state;
 its next mount starts from `Default`. Put the child in a `View` with
 `v-show` to retain the mounted subtree while hiding it.
+[Pages and focus](/docs/microts-pages/) applies these rules to page-sized
+branches and describes the focus position after a swap.
 
 **Compiled mode generates the child model and its constructor from the
 factory.** The `presses` seed and `press` body above become Rust code. Each
