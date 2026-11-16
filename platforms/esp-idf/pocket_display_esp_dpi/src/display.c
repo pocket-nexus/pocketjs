@@ -278,7 +278,12 @@ static int32_t descriptor(void *context, pocket_display_descriptor *out) {
                POCKET_DISPLAY_DOUBLE_BUFFERED |
                POCKET_DISPLAY_PIPELINED_ACQUIRE |
                (d->config.turned ? POCKET_DISPLAY_DEVICE_ROTATION : 0U) |
-               (d->config.scale > 1U ? POCKET_DISPLAY_DEVICE_SCALING : 0U) |
+               /* The PPA scales bilinearly, three quarters of a pixel and
+                * one quarter of the pixel beside it, and repeats a block's
+                * edge pixels: the runtime grows damage by one pixel. */
+               (d->config.scale > 1U ? POCKET_DISPLAY_DEVICE_SCALING |
+                                           POCKET_DISPLAY_FILTERED_SCALING
+                                     : 0U) |
                (d->config.move_copy ? POCKET_DISPLAY_RETAINED_MOVE : 0U),
       .refresh_width = 1,
       .refresh_height = 1,
@@ -376,17 +381,31 @@ static int32_t flush(void *context, const pocket_rect *regions, size_t count,
     return POCKET_STATUS_INVALID;
   buffer *b = &d->buffers[d->active];
   const pocket_rect *r = regions;
+  uint32_t x0 = UINT32_MAX, y0 = UINT32_MAX, x1 = 0, y1 = 0;
   for (size_t i = 0; i < count; i++) {
     if (r->struct_size < sizeof(*r) || r->struct_size % _Alignof(pocket_rect) ||
         !r->width || !r->height || r->x > d->config.width - r->width ||
         r->y < b->region.y || r->height > b->region.height ||
         r->y - b->region.y > b->region.height - r->height)
       return POCKET_STATUS_INVALID;
+    x0 = r->x < x0 ? r->x : x0;
+    y0 = r->y < y0 ? r->y : y0;
+    x1 = r->x + r->width > x1 ? r->x + r->width : x1;
+    y1 = r->y + r->height > y1 ? r->y + r->height : y1;
     r = (const pocket_rect *)((const uint8_t *)r + r->struct_size);
   }
+  /* The rectangles may overlap, so the overlay blends once over their
+   * bounds instead of once in each. The renderer painted every pixel a
+   * rectangle presents this frame; the other pixels of the bounds are not
+   * presented. */
+  const pocket_rect bounds = {.struct_size = sizeof(bounds),
+                              .x = x0,
+                              .y = y0,
+                              .width = x1 - x0,
+                              .height = y1 - y0};
+  blend_overlay(d, b, &bounds);
   r = regions;
   for (size_t i = 0; i < count; i++) {
-    blend_overlay(d, b, r);
     const esp_err_t presented = present(d, b, r);
     if (presented != ESP_OK) {
       ESP_LOGE(TAG, "present of %" PRIu32 "x%" PRIu32 " at %" PRIu32 ",%" PRIu32 ": %s",

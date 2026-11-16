@@ -18,6 +18,12 @@ typedef struct pocket_display_esp_dpi pocket_display_esp_dpi;
  * damaged rectangle (the runtime aligns damage to it); strip_rows must be a
  * multiple of it. budget counts both staging buffers.
  *
+ * At a scale above 1 the PPA interpolates: a panel pixel is three quarters
+ * of its raster pixel and one quarter of the raster pixel beside it, and a
+ * presented rectangle repeats its edge pixels outward. The descriptor
+ * declares POCKET_DISPLAY_FILTERED_SCALING, and the runtime flushes damage
+ * grown by one raster pixel on every side.
+ *
  * With `move`, the display moves retained pixels for a frame's motion: whole
  * panel rows through `move_copy` (a GDMA channel of its own), other blocks in
  * bands through a staging buffer with the PPA. Presents wait for the move. */

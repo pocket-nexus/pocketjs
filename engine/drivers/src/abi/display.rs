@@ -62,6 +62,10 @@ impl CDisplay {
         descriptor.device_frame_storage = raw.flags & POCKET_DISPLAY_FRAME_STORAGE != 0;
         descriptor.device_rotation = raw.flags & POCKET_DISPLAY_DEVICE_ROTATION != 0;
         descriptor.device_scaling = raw.flags & POCKET_DISPLAY_DEVICE_SCALING != 0;
+        descriptor.filtered_scaling = raw.flags & POCKET_DISPLAY_FILTERED_SCALING != 0;
+        if descriptor.filtered_scaling && !descriptor.device_scaling {
+            return Err(AdapterError::Invalid);
+        }
         descriptor.retained_move = raw.flags & POCKET_DISPLAY_RETAINED_MOVE != 0;
         if descriptor.retained_move
             && (table.move_pixels.is_none()
