@@ -74,6 +74,11 @@ export const LINK2_LABEL = {
   console: "pocket-link/2/console",
   /** Reserved for a later encrypted version (§3.10). */
   session: "pocket-link/2/session",
+  /** §3.11: keyed with the code's digits. Hub's proof, and the mask of the link key. */
+  pairCompanion: "pocket-link/2/pair/companion",
+  pairKey: "pocket-link/2/pair/key",
+  /** §3.11: keyed with the link key the device unmasked. */
+  pairConsole: "pocket-link/2/pair/console",
 } as const;
 
 /** §3.4 limits, in encoded bytes. */
@@ -108,9 +113,38 @@ export interface Link2Ready {
 export interface Link2Refused { t: "refused"; code: Link2RefusalCode; message: string }
 export type Link2HandshakeMessage = Link2Hello | Link2Challenge | Link2Auth | Link2Ready | Link2Refused;
 
-/** §3.8 */
-export const LINK2_REFUSAL = ["unknown_device", "bad_proof", "malformed", "busy"] as const;
+/** §3.8; `declined` answers a `pair` whose request Hub's owner dismissed (§3.11). */
+export const LINK2_REFUSAL = ["unknown_device", "bad_proof", "malformed", "busy", "declined"] as const;
 export type Link2RefusalCode = (typeof LINK2_REFUSAL)[number];
+
+/** §3.11 Pairing by a code the device shows. The code is decimal digits. */
+export const LINK2_PAIR_CODE_DIGITS = 6;
+/** How long a device keeps one code, and Hub one request. */
+export const LINK2_PAIR_WINDOW_MS = 300_000;
+/** Offers whose proof does not verify that a device takes before it drops its code. */
+export const LINK2_PAIR_TRIES = 3;
+/** How long a Hub whose beacon arrived stays in a pairing device's list. */
+export const LINK2_PAIR_SEEN_MS = 3000;
+/** Hubs a pairing device lists. */
+export const LINK2_PAIR_MAX_SEEN = 8;
+/** After `pair.accept` the device waits this long for `pair.done` before it links. */
+export const LINK2_PAIR_DONE_MS = 2000;
+
+/** device to Hub, in place of `hello`: the device asks to be paired. */
+export interface Link2Pair {
+  t: "pair";
+  device: string;
+  nonce: string;
+  name: string;
+  model: string;
+  target: string;
+}
+/** Hub to device, once Hub's owner entered the code. `key` is the link key
+ *  XOR HMAC(code, pairKey message): 64 hex digits. */
+export interface Link2PairOffer { t: "pair.offer"; companion: string; name: string; nonce: string; proof: string; key: string }
+export interface Link2PairAccept { t: "pair.accept"; proof: string }
+export interface Link2PairDone { t: "pair.done" }
+export type Link2PairMessage = Link2Pair | Link2PairOffer | Link2PairAccept | Link2PairDone;
 
 // ---------------------------------------------------------------------------
 // §4 Framing

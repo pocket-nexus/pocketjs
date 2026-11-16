@@ -138,6 +138,65 @@ static void command(void) {
     link2_proof(key, strcmp(fields[2], "companion") == 0 ? LINK2_LABEL_COMPANION : LINK2_LABEL_CONSOLE, fields[3], fields[4], fields[5], fields[6], digest);
     put_hex(digest, 32);
     free(key);
+  } else if (strcmp(name, "pair-hmac") == 0) {
+    /* pair-hmac code companion|key nD nC device companion */
+    uint8_t digest[32];
+    link2_pair_code_hmac(fields[1], strcmp(fields[2], "companion") == 0 ? LINK2_LABEL_PAIR_COMPANION : LINK2_LABEL_PAIR_KEY, fields[3], fields[4], fields[5], fields[6], digest);
+    put_hex(digest, 32);
+  } else if (strcmp(name, "pair-console") == 0) {
+    /* pair-console key nD nC device companion */
+    uint8_t *key = unhex(fields[1], &n);
+    uint8_t digest[32];
+    link2_proof(key, LINK2_LABEL_PAIR_CONSOLE, fields[2], fields[3], fields[4], fields[5], digest);
+    put_hex(digest, 32);
+    free(key);
+  } else if (strcmp(name, "pair") == 0) {
+    /* pair device nonce name model target */
+    size_t a, b, c;
+    uint8_t *who = unhex(fields[3], &a);
+    uint8_t *model = unhex(fields[4], &b);
+    uint8_t *target = unhex(fields[5], &c);
+    char text[LINK2_MAX_HANDSHAKE];
+    Link2Json json;
+    link2_json_init(&json, text, sizeof text);
+    link2_write_pair(&json, fields[1], fields[2], (const char *)who, (const char *)model, (const char *)target);
+    if (json.failed) printf("failed");
+    else put_hex((const uint8_t *)text, json.length);
+    free(who);
+    free(model);
+    free(target);
+  } else if (strcmp(name, "pair-offer") == 0) {
+    uint8_t *text = unhex(fields[1], &n);
+    static Link2PairOffer offer;
+    if (link2_parse_pair_offer(json_span((const char *)text, n), &offer)) {
+      printf("%s|", offer.companion);
+      put_hex((const uint8_t *)offer.name, strlen(offer.name));
+      printf("|%s|", offer.nonce);
+      put_hex(offer.proof, 32);
+      putchar('|');
+      put_hex(offer.masked_key, LINK2_KEY_BYTES);
+    } else {
+      printf("null");
+    }
+    free(text);
+  } else if (strcmp(name, "pair-accept") == 0) {
+    char text[128];
+    Link2Json json;
+    link2_json_init(&json, text, sizeof text);
+    link2_write_pair_accept(&json, fields[1]);
+    put_hex((const uint8_t *)text, json.length);
+  } else if (strcmp(name, "pair-done") == 0) {
+    uint8_t *text = unhex(fields[1], &n);
+    printf("%d", link2_is_pair_done(json_span((const char *)text, n)) ? 1 : 0);
+    free(text);
+  } else if (strcmp(name, "key-file") == 0) {
+    /* key-file key name address port */
+    size_t a;
+    uint8_t *who = unhex(fields[2], &a);
+    char text[256];
+    size_t length = link2_format_key_file(text, sizeof text, fields[1], (const char *)who, fields[3], (uint16_t)strtoul(fields[4], NULL, 10));
+    put_hex((const uint8_t *)text, length);
+    free(who);
   } else if (strcmp(name, "hello") == 0) {
     /* hello device companion nonce name model target hostAbi maxPayload feature… */
     size_t a, b, c;

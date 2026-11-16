@@ -28,10 +28,10 @@ import { encodePNG } from "../../png.ts";
 import { NetFailure, adoptSystemProxy, performNet } from "../fetch.ts";
 import { type DaemonInfo, type LinkDaemon, loadDaemon, parseDaemonSpec } from "./daemon.ts";
 import { ftpStorage } from "./ftp-storage.ts";
-import { type BeaconTarget, type HttpFetch, type HubDevice, LinkHub, type Refusal, type Screenshot, type SetupResult, directoryStorage, lanBeaconTargets } from "./hub.ts";
+import { type BeaconTarget, type HttpFetch, type HubDevice, LinkHub, type PairRequest, type Refusal, type Screenshot, type SetupResult, directoryStorage, lanBeaconTargets } from "./hub.ts";
 import { FolderOffer, packageFooter } from "./offer.ts";
 import { type Json, LinkError } from "./peer.ts";
-import { isLinkId } from "./protocol.ts";
+import { isLinkId, isPairCode } from "./protocol.ts";
 import { LinkStore, linkHome } from "./store.ts";
 
 export const EXIT = { ok: 0, failed: 1, usage: 2, noDevice: 3, setup: 4 } as const;
@@ -41,6 +41,8 @@ const USAGE = `Pocket Link 2 reference Hub
   setup --host <ip> [--ftp-port 5000]   write this Hub's pairing onto a device over ftpd
   setup --card <dir>                    the same onto the mounted SD card
   devices                               the devices this Hub holds a pairing for
+  pair [--code <digits>]                answer a device that asks to be paired by the code it shows;
+                                        without --code, name the devices that ask
   forget <device id>                    drop a device's record; its link closes
 
   status                                the program's runtime.status
@@ -80,7 +82,7 @@ exit codes: 0 done, 1 an error answer, 2 usage, 3 no device linked, 4 setup not 
 // Arguments
 // ---------------------------------------------------------------------------
 
-const VALUE_FLAGS = new Set(["--home", "--name", "--port", "--unicast", "--address", "--link-dir", "--device", "--wait", "--host", "--ftp-port", "--card", "--out", "--seconds", "--apps", "--daemon", "--panel-port", "--resolve"]);
+const VALUE_FLAGS = new Set(["--home", "--name", "--port", "--unicast", "--address", "--link-dir", "--device", "--wait", "--host", "--ftp-port", "--card", "--out", "--seconds", "--apps", "--daemon", "--panel-port", "--resolve", "--code"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--follow", "--no-launch", "--allow-private", "--no-http", "--panel", "--help", "--no-broadcast"]);
 
 export class UsageError extends Error {}
@@ -391,6 +393,43 @@ function devices(call: Invocation): number {
   return EXIT.ok;
 }
 
+/** Pairing by a code (§3.11). A device shows its code once its owner chose
+ *  this Hub there, and asks until the code is entered: this command waits for
+ *  such a request, and with `--code` answers it. */
+async function pair(call: Invocation): Promise<number> {
+  const { session, args, io } = call;
+  const code = one(args, "--code");
+  if (code !== undefined && !isPairCode(code)) throw new UsageError("--code takes the 6 digits the device shows");
+  const wanted = one(args, "--device");
+  if (!session.online) await goOnline(session);
+  const asking = () => session.hub.pairRequests().filter((request) => wanted === undefined || request.device === wanted);
+  const end = Date.now() + waitMs(args);
+  while (asking().length === 0 && Date.now() < end && !call.signal.aborted) await pause(50, call.signal);
+  const requests = asking();
+  if (requests.length === 0) {
+    io.err(`no device asks to be paired: on the device, start a pairing and choose "${session.store.name}"`);
+    return EXIT.noDevice;
+  }
+  const describe = (request: PairRequest) => `${request.device}  ${request.name || "-"}  ${request.model || "-"}  ${request.target || "-"}  ${request.address}`;
+  if (code === undefined || requests.length > 1) {
+    for (const request of requests) io.out(describe(request));
+    io.out(requests.length > 1 && code !== undefined ? "several devices ask: name one with --device <id>" : "enter the code the device shows: pair --code <digits>");
+    return code === undefined ? EXIT.ok : EXIT.failed;
+  }
+  const request = requests[0];
+  try {
+    await session.hub.pair(request.device, code);
+  } catch (error) {
+    if (error instanceof LinkError && error.code === "bad_code") {
+      io.err(`${request.device}: the code is not the one the device shows; it asks again while its code lasts`);
+      return EXIT.failed;
+    }
+    throw error;
+  }
+  io.out(`paired ${request.device} "${request.name}"; it links by itself`);
+  return EXIT.ok;
+}
+
 function forget(call: Invocation): number {
   const id = call.args.positional[0];
   if (id === undefined || !isLinkId(id)) throw new UsageError("forget takes a device id: 16 lowercase hex digits (`devices` lists them)");
@@ -599,7 +638,7 @@ async function logs(call: Invocation, device: HubDevice): Promise<number> {
 }
 
 const LINKED: Record<string, (call: Invocation, device: HubDevice) => Promise<number>> = { status, apps, push, install, launch, remove, shot, eval: evaluate, logs };
-const STORED: Record<string, (call: Invocation) => number | Promise<number>> = { setup, devices, forget };
+const STORED: Record<string, (call: Invocation) => number | Promise<number>> = { setup, devices, pair, forget };
 
 /** Runs one command in a session; the answer is its exit code. */
 export async function run(call: Invocation): Promise<number> {
@@ -773,6 +812,8 @@ async function serve(args: Parsed, io: Io, signal: AbortSignal): Promise<number>
       catalog: () => offer?.offer() ?? [],
       fetch: args.flags.has("--no-http") ? undefined : netFetch(args.flags.has("--allow-private"), resolves, log),
       daemons: (app) => daemons.get(app) ?? null,
+      onPairRequest: (request) => log(`${request.device} "${request.name}" at ${request.address} asks to be paired: pair --code <the code it shows>`),
+      onPairGone: (device) => log(`${device} no longer asks to be paired`),
     },
   });
   if ((await delegate(home, ["devices", "--json"], { out() {}, err() {} }, signal)) !== null) {

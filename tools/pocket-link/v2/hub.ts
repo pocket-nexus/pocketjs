@@ -41,6 +41,8 @@ import {
   LINK2_MAX_CATALOG_REQUESTS,
   LINK2_MAX_CHANNELS,
   LINK2_MAX_CONNECTIONS,
+  LINK2_PAIR_CODE_DIGITS,
+  LINK2_PAIR_WINDOW_MS,
   LINK2_PORT,
   LINK2_PREAMBLE_BYTES,
   LINK2_REPLACED_COUNT,
@@ -54,6 +56,7 @@ import {
   type Link2Hello,
   type Link2InstalledApp,
   type Link2LogEvent,
+  type Link2Pair,
   type Link2RuntimeStatus,
   type Link2ScreenshotSurface,
 } from "../../../contracts/spec/link2.ts";
@@ -72,6 +75,7 @@ import {
   encodeHandshake,
   encodePreamble,
   encodedBytes,
+  isPairCode,
   jsonBytes,
   newKey,
   newLinkId,
@@ -80,6 +84,11 @@ import {
   parseClose,
   parseHello,
   parseJsonPayload,
+  parsePair,
+  parsePairAccept,
+  pairCompanionProof,
+  pairConsoleProof,
+  pairMaskKey,
   payloadLimit,
   proofEquals,
   refused,
@@ -246,6 +255,10 @@ export interface HubOptions {
   /** Keep an unsolicited screenshot as the device's latest; false resets its stream `refused`. */
   keepScreenshots?: boolean;
   onDevice?: (device: HubDevice) => void;
+  /** A device asks to be paired by the code it shows (§3.11): Hub's owner enters the code (`pair`) or dismisses the request (`declinePair`). */
+  onPairRequest?: (request: PairRequest) => void;
+  /** That request ended without a pairing: the device left, or its window passed. */
+  onPairGone?: (device: string) => void;
   /** A connection that ended before `ready`: what a status line says about a device that does not link. */
   onRefusal?: (refusal: Refusal) => void;
 }
@@ -336,6 +349,20 @@ interface Pending {
   nonce: string;
   key: string;
   done: boolean;
+  /** The device sent `pair` in place of `hello` (§3.11). */
+  pair: Link2Pair | null;
+  /** The offer Hub sent for it: its nonce, the key it carries, and the caller of `pair`. */
+  offer: { nonce: string; key: string; settle: (error: LinkError | null) => void } | null;
+}
+
+/** A device that asks to be paired by the code it shows (§3.11). */
+export interface PairRequest {
+  device: string;
+  name: string;
+  model: string;
+  target: string;
+  address: string;
+  since: number;
 }
 
 export interface Screenshot {
@@ -780,6 +807,8 @@ export class LinkHub {
   private timer: ReturnType<typeof setInterval> | null = null;
   private beaconAt = Number.NEGATIVE_INFINITY;
   private readonly pending = new Set<Pending>();
+  /** Devices that sent `pair` and wait for the code, by device id. */
+  private readonly pairing = new Map<string, Pending>();
   private readonly replaced: { device: HubDevice; at: number }[] = [];
   private readonly counted = new Map<string, number[]>();
   private readonly mutex = new Map<string, { holder: string; until: number | null }>();
@@ -855,7 +884,8 @@ export class LinkHub {
       }
     }
     for (const pending of [...this.pending]) {
-      if (now - pending.since < LINK2_HANDSHAKE_TIMEOUT_MS) continue;
+      // A device that asks to be paired waits for Hub's owner as long as it keeps its code (§3.11).
+      if (now - pending.since < (pending.pair === null ? LINK2_HANDSHAKE_TIMEOUT_MS : LINK2_PAIR_WINDOW_MS)) continue;
       pending.carrier.write(encodeClose("handshake_timeout"));
       this.drop(pending);
     }
@@ -867,6 +897,52 @@ export class LinkHub {
     }
     for (const [id, lock] of this.mutex) if (lock.until !== null && now >= lock.until) this.mutex.delete(id);
     for (const device of this.devices.values()) device.tick();
+  }
+
+  // --- pairing by a code (§3.11) --------------------------------------------
+
+  /** The devices that ask to be paired and have no offer yet. */
+  pairRequests(): PairRequest[] {
+    return [...this.pairing.values()]
+      .filter((pending) => pending.pair !== null && pending.offer === null)
+      .map((pending) => {
+        const asked = pending.pair as Link2Pair;
+        return { device: asked.device, name: asked.name, model: asked.model, target: asked.target, address: pending.carrier.remoteAddress, since: pending.since };
+      });
+  }
+
+  /** Hub's owner entered `code` for `device`: Hub mints a link key and offers
+   *  it under the code. Resolves when the device proved it holds the key, and
+   *  the record is stored then: a wrong code costs no pairing this Hub holds.
+   *  Rejects `bad_code` when the device closes on the offer's proof, and
+   *  `bad_proof` when its own proof of the key does not verify. */
+  pair(device: string, code: string): Promise<void> {
+    if (!isPairCode(code)) return Promise.reject(new LinkError("malformed", `a pairing code is ${LINK2_PAIR_CODE_DIGITS} decimal digits`));
+    const pending = this.pairing.get(device);
+    if (pending === undefined || pending.pair === null) return Promise.reject(new LinkError("not_found", "no device with this id asks to be paired"));
+    if (pending.offer !== null) return Promise.reject(new LinkError("busy", "an offer to this device waits for its answer"));
+    const asked = pending.pair;
+    const key = newKey();
+    const nonce = newNonce();
+    return new Promise<void>((resolve, reject) => {
+      pending.offer = { nonce, key, settle: (error) => (error === null ? resolve() : reject(error)) };
+      pending.carrier.write(
+        encodeHandshake({
+          t: "pair.offer",
+          companion: this.id,
+          name: this.options.name,
+          nonce,
+          proof: pairCompanionProof(code, asked.nonce, nonce, asked.device, this.id),
+          key: pairMaskKey(code, key, asked.nonce, nonce, asked.device, this.id),
+        }),
+      );
+    });
+  }
+
+  /** Hub's owner dismissed the request: the device reads `refused` `declined`. */
+  declinePair(device: string): void {
+    const pending = this.pairing.get(device);
+    if (pending !== undefined && pending.offer === null) this.refuse(pending, "declined", "this computer's owner dismissed the request", device);
   }
 
   // --- features, catalog, forgetting ---------------------------------------
@@ -985,15 +1061,25 @@ export class LinkHub {
 
   /** Takes one carrier a device opened: the preamble exchange, then the handshake. */
   accept(carrier: Carrier): void {
-    const pending: Pending = { carrier, since: this.now(), decoder: new Link2FrameDecoder(), preamble: new Uint8Array(0), hello: null, nonce: "", key: "", done: false };
+    const pending: Pending = { carrier, since: this.now(), decoder: new Link2FrameDecoder(), preamble: new Uint8Array(0), hello: null, nonce: "", key: "", done: false, pair: null, offer: null };
     this.pending.add(pending);
     carrier.onClose = () => this.drop(pending, false);
     carrier.onData = (bytes) => this.handshake(pending, bytes);
   }
-  private drop(pending: Pending, close = true): void {
+  private drop(pending: Pending, close = true, why: LinkError | null = null): void {
     if (pending.done) return;
     pending.done = true;
     this.pending.delete(pending);
+    if (pending.pair !== null && this.pairing.get(pending.pair.device) === pending) {
+      this.pairing.delete(pending.pair.device);
+      // A request that ends with no offer out ended without a pairing; one with an offer out answers its caller.
+      if (pending.offer === null) this.options.onPairGone?.(pending.pair.device);
+    }
+    if (pending.offer !== null) {
+      const { settle } = pending.offer;
+      pending.offer = null;
+      settle(why ?? new LinkError("closed", "the device left before it answered the offer"));
+    }
     if (close) pending.carrier.close();
   }
   private refuse(pending: Pending, code: Parameters<typeof refused>[0], message: string, device: string | null = pending.hello?.device ?? null): void {
@@ -1035,12 +1121,51 @@ export class LinkHub {
       }
       if (frame === null) return;
       if (frame.type === LINK2_FRAME.close) {
+        const code = frame.payload.length >= 4 ? parseClose(frame).code : "protocol";
+        if (pending.pair !== null) {
+          // The device read the offer's proof with its own code: `auth` says the code Hub's owner entered is another.
+          return this.drop(pending, true, code === "auth" ? new LinkError("bad_code", "the code is not the one the device shows") : new LinkError("closed", `the device closed the pairing (${code})`));
+        }
         // The device ended the handshake: `auth` when Hub's proof did not verify against its key file.
-        this.options.onRefusal?.({ address: carrier.remoteAddress, device: pending.hello?.device ?? null, kind: "closed", code: frame.payload.length >= 4 ? parseClose(frame).code : "protocol" });
+        this.options.onRefusal?.({ address: carrier.remoteAddress, device: pending.hello?.device ?? null, kind: "closed", code });
         return this.drop(pending);
       }
       if (frame.type !== LINK2_FRAME.handshake) continue;
       const object = parseJsonPayload(frame).object;
+      if (pending.pair !== null) {
+        // After `pair` the device sends one more message: `pair.accept`, and only to an offer.
+        const accept = parsePairAccept(object);
+        const offer = pending.offer;
+        const asked = pending.pair;
+        if (accept === null || offer === null || !proofEquals(pairConsoleProof(offer.key, asked.nonce, offer.nonce, asked.device, this.id), accept.proof)) {
+          // The caller of `pair` reads why: the device did not show that it holds the key.
+          carrier.write(encodeHandshake(refused("bad_proof", "the pairing proof did not verify")));
+          this.options.onRefusal?.({ address: carrier.remoteAddress, device: asked.device, kind: "refused", code: "bad_proof" });
+          return this.drop(pending, true, new LinkError("bad_proof", "the device's proof of the key did not verify"));
+        }
+        // The proof is keyed with the link key: the device unmasked it, so it holds the key this record gets.
+        this.unconfirmed.delete(asked.device);
+        this.store.put({ id: asked.device, name: asked.name, model: asked.model, key: offer.key, target: asked.target, hostAbi: this.store.get(asked.device)?.hostAbi ?? 0, lastAddress: carrier.remoteAddress, lastSeen: this.now(), unconfirmed: false });
+        carrier.write(encodeHandshake({ t: "pair.done" }));
+        pending.offer = null;
+        this.pairing.delete(asked.device);
+        pending.pair = null;
+        offer.settle(null);
+        return this.drop(pending);
+      }
+      if (pending.hello === null && object !== null && object.t === "pair") {
+        const asked = parsePair(object);
+        if ("refused" in asked) return this.refuse(pending, "malformed", `pair: ${asked.why}`, null);
+        if (this.devices.size + this.pending.size > LINK2_MAX_CONNECTIONS) return this.refuse(pending, "busy", "Hub is at its connection limit", asked.device);
+        // One request a device id: a later one replaces the one it left behind.
+        const earlier = this.pairing.get(asked.device);
+        if (earlier !== undefined) this.drop(earlier, true, new LinkError("closed", "the device asked again"));
+        pending.pair = asked;
+        pending.since = this.now();
+        this.pairing.set(asked.device, pending);
+        this.options.onPairRequest?.({ device: asked.device, name: asked.name, model: asked.model, target: asked.target, address: carrier.remoteAddress, since: pending.since });
+        continue;
+      }
       if (pending.hello === null) {
         const hello = parseHello(object);
         if ("refused" in hello) return this.refuse(pending, "malformed", `hello: ${hello.why}`);

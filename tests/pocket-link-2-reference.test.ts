@@ -4,15 +4,28 @@
 // writes in one read, or one byte per read. No socket is opened.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LINK2_APP_OUTBOUND, LINK2_TCP_PAYLOAD, type Link2InstalledApp, type Link2RuntimeStatus } from "../contracts/spec/link2.ts";
+import { LINK2_APP_OUTBOUND, LINK2_PAIR_WINDOW_MS, LINK2_TCP_PAYLOAD, type Link2InstalledApp, type Link2RuntimeStatus } from "../contracts/spec/link2.ts";
 import { type Carrier, pipeCarriers } from "../tools/pocket-link/v2/carrier.ts";
 import { type GuestChannel, LinkDevice, type RuntimeHandlers } from "../tools/pocket-link/v2/device.ts";
 import { type Daemon, type HubDevice, LinkHub, MemoryStore, directoryStorage } from "../tools/pocket-link/v2/hub.ts";
 import { type AppletChannel, type Json, LinkError, type StreamReader } from "../tools/pocket-link/v2/peer.ts";
-import { encodePing } from "../tools/pocket-link/v2/protocol.ts";
+import { formatCompanionFile } from "../tools/pocket-link/v2/pairing.ts";
+import {
+  Link2FrameDecoder,
+  devicePreamble,
+  encodeHandshake,
+  encodePing,
+  encodePreamble,
+  pairCompanionProof,
+  pairConsoleProof,
+  pairMaskKey,
+  parseJsonPayload,
+  parsePairOffer,
+  refused,
+} from "../tools/pocket-link/v2/protocol.ts";
 import { VECTOR_DIR } from "../tools/pocket-link/v2/vectors.ts";
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -385,5 +398,265 @@ describe("a stream writer waits for room in its channel's outbound queue (§7.6)
     await until(() => sideEnded, "the event stream's END");
     expect(same(received, response)).toBe(true);
     expect(same(side, toDevice)).toBe(true);
+  });
+});
+
+describe("pairing by a code the device shows (§3.11): the reference device against the reference Hub", () => {
+  /** A device whose directory no Hub has set up, and a Hub that holds no record. */
+  function unpaired(cut: "turn" | "bytes", change: { now?: () => number; answer?: (hub: Carrier) => void } = {}) {
+    const dir = mkdtempSync(join(tmpdir(), "link2-pair-"));
+    const store = new MemoryStore("00000000000000aa");
+    const asked: string[] = [];
+    const gone: string[] = [];
+    const hub = new LinkHub({ name: "Studio Mac", store, beaconTargets: [], onPairRequest: (request) => asked.push(request.device), onPairGone: (device) => gone.push(device) });
+    const device = new LinkDevice({
+      dir,
+      name: "Test Tablet",
+      model: "M5Stack Tab5",
+      target: "tab5-home",
+      hostAbi: 7,
+      beaconPort: null,
+      now: change.now,
+      runtime: { status: () => STATUS },
+      connect: async () => {
+        const [mine, theirs] = cutCarriers(cut);
+        if (change.answer) change.answer(theirs);
+        else hub.accept(theirs);
+        return mine;
+      },
+    });
+    cleanups.push(() => {
+      device.stop();
+      hub.stop();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const keyFile = join(dir, "companions", `${hub.id}.txt`);
+    /** The owner opens a pairing and chooses the Hub its beacon named. */
+    const ask = () => {
+      expect(device.pairOpen()).toBe(true);
+      device.hear(hub.id, "Studio Mac", "127.0.0.1", 8628);
+      expect(device.pairAsk(hub.id)).toBe(true);
+    };
+    return { dir, store, hub, device, asked, gone, keyFile, ask };
+  }
+  const another = (code: string) => (code === "000000" ? "000001" : "000000");
+
+  for (const cut of ["turn", "bytes"] as const) {
+    test(`a wrong code, then the code: the device writes the key file and links (${cut})`, async () => {
+      const c = unpaired(cut);
+      c.device.start(5);
+      // No code: nothing to ask. A code: the Hubs heard are listed, and one of them is asked.
+      expect(c.device.pairAsk(c.hub.id)).toBe(false);
+      expect(c.device.pair).toMatchObject({ state: "idle", code: "", hubs: [] });
+      expect(c.device.pairOpen()).toBe(true);
+      const code = c.device.pair.code;
+      expect(code).toMatch(/^\d{6}$/);
+      expect(c.device.pair).toMatchObject({ state: "open", tries: 3, hub: "", hubs: [] });
+      expect(c.device.pairAsk(c.hub.id)).toBe(false);
+      c.device.hear(c.hub.id, "Studio Mac", "127.0.0.1", 8628);
+      expect(c.device.pair.hubs).toEqual([{ id: c.hub.id, name: "Studio Mac" }]);
+      expect(c.device.pairAsk(c.hub.id)).toBe(true);
+      expect(c.device.pair).toMatchObject({ state: "asking", code, hub: c.hub.id, hubName: "Studio Mac" });
+
+      await until(() => c.hub.pairRequests().length === 1, "the request at Hub");
+      expect(c.hub.pairRequests()[0]).toMatchObject({ device: c.device.id, name: "Test Tablet", model: "M5Stack Tab5", target: "tab5-home" });
+      // Another code fails the device's check of the offer: one try spent, no record, no key file.
+      await expect(c.hub.pair(c.device.id, another(code))).rejects.toMatchObject({ code: "bad_code" });
+      expect(c.device.pair).toMatchObject({ state: "asking", code, tries: 2 });
+      expect(c.store.list()).toEqual([]);
+      expect(existsSync(c.keyFile)).toBe(false);
+
+      // The device asks again with the same code; the code pairs.
+      c.device.hear(c.hub.id, "Studio Mac", "127.0.0.1", 8628);
+      await until(() => c.hub.pairRequests().length === 1, "the second request at Hub");
+      await c.hub.pair(c.device.id, code);
+      const record = c.store.get(c.device.id);
+      expect(record).toMatchObject({ id: c.device.id, name: "Test Tablet", model: "M5Stack Tab5", target: "tab5-home", unconfirmed: false });
+      expect(readFileSync(c.keyFile, "utf8")).toBe(formatCompanionFile({ key: record?.key ?? "", name: "Studio Mac", address: "127.0.0.1", port: 8628 }));
+      expect(readdirSync(join(c.dir, "companions"))).toEqual([`${c.hub.id}.txt`]);
+
+      // The pairing is the pairing of §3.1: the device links by the handshake.
+      await until(() => c.hub.devices.size === 1 && c.device.status.phase === "linked", "the link");
+      expect(c.device.pair).toMatchObject({ state: "paired", code: "", hub: c.hub.id, hubName: "Studio Mac", error: "" });
+      expect(c.device.hub?.id).toBe(c.hub.id);
+      expect(c.asked).toEqual([c.device.id, c.device.id]);
+    });
+  }
+
+  test("three wrong codes drop the code: the device asks no more and Hub holds no record", async () => {
+    const c = unpaired("turn");
+    c.device.start(5);
+    c.ask();
+    const code = c.device.pair.code;
+    for (let wrong = 1; wrong <= 3; wrong++) {
+      c.device.hear(c.hub.id, "Studio Mac", "127.0.0.1", 8628);
+      await until(() => c.hub.pairRequests().length === 1, `request ${wrong} at Hub`);
+      await expect(c.hub.pair(c.device.id, another(code))).rejects.toMatchObject({ code: "bad_code" });
+    }
+    expect(c.device.pair).toMatchObject({ state: "failed", code: "", tries: 0, error: "a wrong code was entered too often" });
+    expect(c.device.status.phase).toBe("idle");
+    await pause(700);
+    expect(c.hub.pairRequests()).toEqual([]);
+    expect(c.store.list()).toEqual([]);
+    // Its owner opens a pairing anew: another draw, three tries.
+    expect(c.device.pairOpen()).toBe(true);
+    expect(c.device.pair).toMatchObject({ state: "open", tries: 3, error: "" });
+  });
+
+  test("a request Hub's owner dismisses, one the device's owner leaves, and a code that runs out", async () => {
+    let clock = 1_000_000;
+    const c = unpaired("turn", { now: () => clock });
+    const settle = async (what: () => unknown, label: string) => {
+      await until(() => {
+        c.device.tick();
+        return what();
+      }, label);
+    };
+    c.ask();
+    await settle(() => c.hub.pairRequests().length === 1, "the request at Hub");
+    c.hub.declinePair(c.device.id);
+    await settle(() => c.device.pair.state === "failed", "the refusal at the device");
+    expect(c.device.pair).toMatchObject({ code: "", error: "that computer dismissed the request" });
+    expect(c.device.status.refusals).toEqual(["declined"]);
+    expect(c.gone).toEqual([c.device.id]);
+
+    // The device's owner leaves the page: the connection closes, and Hub's request with it.
+    c.ask();
+    await settle(() => c.hub.pairRequests().length === 1, "the second request at Hub");
+    c.device.pairClose();
+    expect(c.device.pair).toMatchObject({ state: "idle", code: "", error: "" });
+    await settle(() => c.hub.pairRequests().length === 0, "the request gone at Hub");
+    expect(c.gone).toEqual([c.device.id, c.device.id]);
+
+    // A code lasts 5 minutes, asked or not.
+    expect(c.device.pairOpen()).toBe(true);
+    clock += LINK2_PAIR_WINDOW_MS - 1;
+    c.device.tick();
+    expect(c.device.pair).toMatchObject({ state: "open", leftMs: 1 });
+    clock += 1;
+    c.device.tick();
+    expect(c.device.pair).toMatchObject({ state: "failed", code: "", leftMs: 0, error: "the code ran out" });
+    expect(c.store.list()).toEqual([]);
+  });
+
+  test("a Hub from before §3.11 answers pair with refused malformed: the device says that Hub pairs by no code", async () => {
+    const c = unpaired("turn", {
+      answer: (hub) => {
+        hub.onData = () => {
+          const preamble = encodePreamble({ highest: 2, lowest: 2, selected: 2 });
+          const frame = encodeHandshake(refused("malformed", "hello: not a hello"));
+          const both = new Uint8Array(preamble.length + frame.length);
+          both.set(preamble);
+          both.set(frame, preamble.length);
+          hub.write(both);
+          hub.close();
+        };
+      },
+    });
+    expect(devicePreamble().length).toBe(8);
+    c.ask();
+    await until(() => c.device.pair.state === "failed", "the refusal at the device");
+    expect(c.device.pair.error).toBe("that computer's Hub does not pair by a code");
+  });
+
+  test("a scripted device from the vectors: an accept under another key is refused and stores nothing; the right one stores the key the offer carried", async () => {
+    const v = JSON.parse(readFileSync(join(VECTOR_DIR, "pair-by-code.json"), "utf8"));
+    const step = (what: string) => v.transcript.find((s: { from: string; what: string }) => `${s.from} ${s.what}` === what);
+    const store = new MemoryStore("00000000000000aa");
+    const hub = new LinkHub({ name: "Studio Mac", store, beaconTargets: [] });
+    cleanups.push(() => hub.stop());
+    const pair = step("device pair").json as { device: string; nonce: string };
+
+    /** The device's bytes of the vector, then the handshake messages Hub writes. */
+    const ask = () => {
+      const [mine, theirs] = cutCarriers("turn");
+      const decoder = new Link2FrameDecoder();
+      const messages: Record<string, unknown>[] = [];
+      let preamble = true;
+      let closed = false;
+      mine.onClose = () => {
+        closed = true;
+      };
+      mine.onData = (bytes) => {
+        const body = preamble ? bytes.subarray(8) : bytes;
+        preamble = false;
+        for (const frame of decoder.push(body)) messages.push(parseJsonPayload(frame).object ?? {});
+      };
+      hub.accept(theirs);
+      mine.write(new Uint8Array(Buffer.from(step("device preamble").hex + step("device pair").hex, "hex")));
+      return { carrier: mine, messages, closed: () => closed };
+    };
+
+    // Hub mints the key and the nonce: the device reads both from the offer.
+    const first = ask();
+    await until(() => hub.pairRequests().length === 1, "the request at Hub");
+    const refusal = hub.pair(pair.device, v.code).catch((error) => error);
+    await until(() => first.messages.length === 1, "the offer");
+    first.carrier.write(encodeHandshake(v.badAccept.json));
+    expect(await refusal).toMatchObject({ code: "bad_proof" });
+    await until(() => first.closed(), "Hub's close");
+    expect(first.messages[1]).toMatchObject({ t: "refused", code: "bad_proof" });
+    expect(store.list()).toEqual([]);
+
+    const second = ask();
+    await until(() => hub.pairRequests().length === 1, "the second request at Hub");
+    const paired = hub.pair(pair.device, v.code);
+    await until(() => second.messages.length === 1, "the second offer");
+    const offer = parsePairOffer(second.messages[0]);
+    expect(offer).toMatchObject({ companion: hub.id, name: "Studio Mac" });
+    if (offer === null) throw new Error("no offer");
+    expect(offer.proof).toBe(pairCompanionProof(v.code, pair.nonce, offer.nonce, pair.device, hub.id));
+    const key = pairMaskKey(v.code, offer.key, pair.nonce, offer.nonce, pair.device, hub.id);
+    expect(store.list()).toEqual([]);
+    second.carrier.write(encodeHandshake({ t: "pair.accept", proof: pairConsoleProof(key, pair.nonce, offer.nonce, pair.device, hub.id) }));
+    await paired;
+    await until(() => second.closed(), "Hub's close behind pair.done");
+    expect(second.messages[1]).toEqual({ t: "pair.done" });
+    expect(store.get(pair.device)).toMatchObject({ ...v.record, key });
+  });
+
+  test("a device linked to one Hub pairs with a second: the first link ends, both key files stay, and it links to the Hub it paired with", async () => {
+    const c = unpaired("turn");
+    // The first Hub set the directory up, as for a card (§3.2).
+    const first = new LinkHub({ name: "First Mac", store: new MemoryStore("00000000000000bb"), beaconTargets: [] });
+    const setup = await first.setup(directoryStorage(c.dir), { kind: "card", addresses: ["127.0.0.1"] });
+    expect(setup.failed).toBe(false);
+    const hubs = new Map([[8628, c.hub], [8629, first]]);
+    const device = new LinkDevice({
+      dir: c.dir,
+      name: "Test Tablet",
+      model: "M5Stack Tab5",
+      target: "tab5-home",
+      hostAbi: 7,
+      beaconPort: null,
+      runtime: { status: () => STATUS },
+      connect: async (_address, port) => {
+        const [mine, theirs] = cutCarriers("turn");
+        hubs.get(port)?.accept(theirs);
+        return mine;
+      },
+    });
+    cleanups.push(() => {
+      device.stop();
+      first.stop();
+    });
+    device.start(5);
+    device.connectTo(first.id, "127.0.0.1", 8629);
+    await until(() => first.devices.size === 1 && device.status.phase === "linked", "the link to the first Hub");
+    writeFileSync(join(c.dir, "companions", `${c.hub.id}.last`), "name=Old\naddress=10.0.0.9\nport=1\n");
+
+    expect(device.pairOpen()).toBe(true);
+    device.hear(c.hub.id, "Studio Mac", "127.0.0.1", 8628);
+    expect(device.pairAsk(c.hub.id)).toBe(true);
+    await until(() => first.devices.size === 0, "the first link ended");
+    await until(() => c.hub.pairRequests().length === 1, "the request at the second Hub");
+    await c.hub.pair(device.id, device.pair.code);
+    await until(() => c.hub.devices.size === 1 && device.status.phase === "linked", "the link to the second Hub");
+    expect(device.hub?.id).toBe(c.hub.id);
+    // The earlier pairing stays; a .last file of the new Hub's id is gone, so its key file's address holds.
+    const files = readdirSync(join(c.dir, "companions"));
+    expect(files.filter((name) => name.endsWith(".txt")).sort()).toEqual([`${first.id}.txt`, `${c.hub.id}.txt`].sort());
+    expect(files).not.toContain(`${c.hub.id}.last`);
+    expect(device.paired.map((companion) => companion.id).sort()).toEqual([first.id, c.hub.id].sort());
   });
 });

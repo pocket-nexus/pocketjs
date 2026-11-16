@@ -62,8 +62,24 @@
 /* One outbound stream's buffer: 4 of them are LINK2_APP_OUTBOUND. */
 #define WRITER_BYTES (LINK2_APP_OUTBOUND / LINK2_CHANNEL_STREAMS)
 
-enum { PHASE_IDLE, PHASE_SEARCH, PHASE_CONNECTING, PHASE_HANDSHAKE, PHASE_LINKED, PHASE_CLOSING, PHASE_BACKOFF };
-static const char *const PHASE_NAMES[] = {"idle", "search", "connecting", "handshake", "linked", "closing", "backoff"};
+/* The last three belong to a pairing by a code (§3.11): the socket connects
+ * to the Hub asked, the device waits for that Hub's offer, or it waits to
+ * ask again. */
+enum {
+  PHASE_IDLE,
+  PHASE_SEARCH,
+  PHASE_CONNECTING,
+  PHASE_HANDSHAKE,
+  PHASE_LINKED,
+  PHASE_CLOSING,
+  PHASE_BACKOFF,
+  PHASE_PAIR_CONNECTING,
+  PHASE_PAIR_WAIT,
+  PHASE_PAIR_RETRY,
+};
+static const char *const PHASE_NAMES[] = {"idle", "search", "connecting", "handshake", "linked", "closing", "backoff", "pairing", "pairing", "pairing"};
+/* After an attempt that ended without an answer the Hub is asked again. */
+#define PAIR_RETRY_MS 500u
 
 enum { OR_FREE, OR_CATALOG, OR_INSTALL, OR_HTTP, OR_DEVTOOLS, OR_CHANNEL_OPEN, OR_APP };
 enum { IR_FREE, IR_STATUS, IR_LOGS, IR_PUSH, IR_NATIVE, IR_LAUNCH, IR_REMOVE, IR_SCREENSHOT, IR_APP };
@@ -340,6 +356,31 @@ struct Link2 {
   uint32_t dt_out_fill;
   char dt_hello[HELLO_LINE_BYTES];
   uint32_t dt_hello_length;
+
+  /* pairing by a code (§3.11) */
+  struct {
+    int state;
+    char code[LINK2_PAIR_CODE_DIGITS + 1];
+    uint64_t opened_ms;
+    uint32_t tries;
+    /* The Hub asked: its beacon's id, name, address and port. */
+    char hub[LINK2_ID_HEX + 1];
+    char hub_name[LINK2_NAME_BYTES * 2 + 1];
+    char address[16];
+    uint16_t port;
+    char error[64];
+    uint64_t retry_ms;
+    /* `pair.accept` left with the key stored: `pair.done` is awaited. */
+    bool accepted;
+    uint64_t accepted_ms;
+    struct {
+      char id[LINK2_ID_HEX + 1];
+      char name[LINK2_BEACON_NAME_BYTES + 1];
+      char address[16];
+      uint16_t port;
+      uint64_t seen_ms;
+    } seen[LINK2_PAIR_MAX_SEEN];
+  } pair;
 
   /* catalog */
   bool catalog_running;
@@ -3396,6 +3437,335 @@ static void pump_handshake(Link2 *link) {
   if (link->tcp >= 0 && !tx_flush(link)) dropped(link, "closed in the handshake");
 }
 
+// ---------------------------------------------------------------------------
+// pairing by a code (§3.11)
+// ---------------------------------------------------------------------------
+
+static bool pair_active(const Link2 *link) {
+  return link->pair.state == LINK2_PAIR_OPEN || link->pair.state == LINK2_PAIR_ASKING;
+}
+
+static bool pair_phase(const Link2 *link) {
+  return link->phase == PHASE_PAIR_CONNECTING || link->phase == PHASE_PAIR_WAIT || link->phase == PHASE_PAIR_RETRY;
+}
+
+/* The code is dropped. A connection to the Hub asked closes, and the device
+ * goes back to the Hubs it is paired with. */
+static void pair_end(Link2 *link, int state, const char *error) {
+  if (pair_phase(link)) {
+    socket_gone(link);
+    enter(link, link->companions.count == 0 ? PHASE_IDLE : PHASE_SEARCH);
+  }
+  link->pair.state = state;
+  link->pair.code[0] = '\0';
+  link->pair.accepted = false;
+  copy_text(link->pair.error, sizeof link->pair.error, error);
+}
+
+/* A beacon while a code is shown: its Hub is listed for LINK2_PAIR_SEEN_MS. */
+static void pair_seen(Link2 *link, const Link2Beacon *beacon, const char *address) {
+  uint64_t now = now_ms(link);
+  size_t slot = LINK2_PAIR_MAX_SEEN;
+  for (size_t i = 0; i < LINK2_PAIR_MAX_SEEN; i += 1) {
+    if (strcmp(link->pair.seen[i].id, beacon->companion) == 0) {
+      slot = i;
+      break;
+    }
+    bool stale = link->pair.seen[i].id[0] == '\0' || now - link->pair.seen[i].seen_ms >= LINK2_PAIR_SEEN_MS;
+    if (stale && slot == LINK2_PAIR_MAX_SEEN) slot = i;
+  }
+  if (slot == LINK2_PAIR_MAX_SEEN) return;
+  memcpy(link->pair.seen[slot].id, beacon->companion, sizeof link->pair.seen[slot].id);
+  copy_text(link->pair.seen[slot].name, sizeof link->pair.seen[slot].name, beacon->name);
+  copy_text(link->pair.seen[slot].address, sizeof link->pair.seen[slot].address, address);
+  link->pair.seen[slot].port = beacon->port;
+  link->pair.seen[slot].seen_ms = now;
+}
+
+/* The attempt ended with no answer from the Hub's owner: the Hub is asked
+ * again while the code lasts. */
+static void pair_retry(Link2 *link) {
+  socket_gone(link);
+  link->pair.accepted = false;
+  link->pair.retry_ms = now_ms(link) + PAIR_RETRY_MS;
+  enter(link, PHASE_PAIR_RETRY);
+}
+
+static void pair_dial(Link2 *link) {
+  /* A Hub that was started again may listen on another port: its last
+   * beacon says where it is now. */
+  for (size_t i = 0; i < LINK2_PAIR_MAX_SEEN; i += 1) {
+    if (strcmp(link->pair.seen[i].id, link->pair.hub) != 0 || now_ms(link) - link->pair.seen[i].seen_ms >= LINK2_PAIR_SEEN_MS) continue;
+    copy_text(link->pair.address, sizeof link->pair.address, link->pair.seen[i].address);
+    link->pair.port = link->pair.seen[i].port;
+  }
+  link->tcp = link->platform.tcp_connect(link->platform.context, link->pair.address, link->pair.port);
+  if (link->tcp < 0) {
+    pair_retry(link);
+    return;
+  }
+  enter(link, PHASE_PAIR_CONNECTING);
+}
+
+/* The preamble and `pair`, in one write as a `hello` goes (§4.1). */
+static void pair_start(Link2 *link) {
+  uint8_t nonce[LINK2_NONCE_BYTES];
+  char json_text[LINK2_MAX_HANDSHAKE];
+  uint8_t frame[LINK2_PREAMBLE_BYTES + LINK2_HEADER_BYTES];
+  Link2Json json;
+  link->platform.random(link->platform.context, nonce, sizeof nonce);
+  hex_encode(nonce, sizeof nonce, link->nonce);
+  link2_json_init(&json, json_text, sizeof json_text);
+  link2_write_pair(&json, link->device, link->nonce, link->host.name, link->host.model, link->host.target);
+  link2_reader_init(&link->reader, link->rx_buffer, link->offer);
+  link->preamble_fill = 0;
+  link->preamble_done = false;
+  link->rx_chunk_at = 0;
+  link->rx_chunk_fill = 0;
+  link->frame_held = false;
+  link->tx_head = 0;
+  link->tx_tail = 0;
+  link->pair.accepted = false;
+  link2_write_preamble(frame);
+  link2_write_header(frame + LINK2_PREAMBLE_BYTES, LINK2_FRAME_HANDSHAKE, 0, (uint32_t)json.length, 0);
+  tx_put(link, frame, sizeof frame, true);
+  tx_put(link, (const uint8_t *)json_text, (uint32_t)json.length, true);
+  enter(link, PHASE_PAIR_WAIT);
+}
+
+/* The pairing is stored: the device links to that Hub as to any it is paired with. */
+static void pair_finish(Link2 *link) {
+  socket_gone(link);
+  link->pair.state = LINK2_PAIR_PAIRED;
+  link->pair.code[0] = '\0';
+  link->pair.accepted = false;
+  link->pair.error[0] = '\0';
+  enter(link, PHASE_SEARCH);
+  link2_reload(link);
+  link->backoff_ms = LINK2_BACKOFF_MIN_MS;
+  for (size_t i = 0; i < link->companions.count; i += 1) {
+    if (strcmp(link->companions.list[i].id, link->pair.hub) != 0) continue;
+    /* The direct try goes to this Hub, and at once. */
+    link->direct_turn = i;
+    link->phase_since = now_ms(link) - LINK2_SEARCH_DIRECT_MS;
+  }
+}
+
+/* The offer's proof is keyed with the code: a Hub whose owner entered
+ * another code, or one that guesses, fails it. */
+static void pair_offer(Link2 *link, const Link2PairOffer *offer) {
+  uint8_t expected[32];
+  uint8_t mask[32];
+  uint8_t key[LINK2_KEY_BYTES];
+  uint8_t mine[32];
+  char key_hex[2 * LINK2_KEY_BYTES + 1];
+  char proof[65];
+  char text[256];
+  char path[600];
+  uint8_t header[LINK2_HEADER_BYTES];
+  uint8_t close[LINK2_CLOSE_FRAME_MAX];
+  Link2Json json;
+  link2_pair_code_hmac(link->pair.code, LINK2_LABEL_PAIR_COMPANION, link->nonce, offer->nonce, link->device, offer->companion, expected);
+  if (strcmp(offer->companion, link->pair.hub) != 0 || !constant_time_equal(expected, offer->proof, sizeof expected)) {
+    tx_put(link, close, (uint32_t)link2_write_close(close, LINK2_CLOSE_AUTH, ""), true);
+    tx_flush(link);
+    link->pair.tries -= 1;
+    if (link->pair.tries == 0) pair_end(link, LINK2_PAIR_FAILED, "a wrong code was entered too often");
+    else pair_retry(link);
+    return;
+  }
+  link2_pair_code_hmac(link->pair.code, LINK2_LABEL_PAIR_KEY, link->nonce, offer->nonce, link->device, offer->companion, mask);
+  for (size_t i = 0; i < sizeof key; i += 1) key[i] = offer->masked_key[i] ^ mask[i];
+  hex_encode(key, sizeof key, key_hex);
+  /* The key file as a setup writes it (§3.1), with the address this
+   * connection reached the Hub at; a .last file of an earlier pairing with
+   * that Hub would shadow it. */
+  size_t length = link2_format_key_file(text, sizeof text, key_hex, offer->name, link->pair.address, link->pair.port);
+  snprintf(path, sizeof path, "%s/companions", link->host.directory);
+  make_directories(path);
+  snprintf(path, sizeof path, "%s/companions/%s.last", link->host.directory, offer->companion);
+  remove(path);
+  snprintf(path, sizeof path, "%s/companions/%s.txt", link->host.directory, offer->companion);
+  if (length == 0 || !write_file(path, text, length)) {
+    tx_put(link, close, (uint32_t)link2_write_close(close, LINK2_CLOSE_GOING_AWAY, ""), true);
+    tx_flush(link);
+    pair_end(link, LINK2_PAIR_FAILED, "the key file cannot be written");
+    return;
+  }
+  copy_text(link->pair.hub_name, sizeof link->pair.hub_name, offer->name);
+  link2_proof(key, LINK2_LABEL_PAIR_CONSOLE, link->nonce, offer->nonce, link->device, offer->companion, mine);
+  hex_encode(mine, sizeof mine, proof);
+  link2_json_init(&json, text, sizeof text);
+  link2_write_pair_accept(&json, proof);
+  link2_write_header(header, LINK2_FRAME_HANDSHAKE, 0, (uint32_t)json.length, 0);
+  tx_put(link, header, sizeof header, true);
+  tx_put(link, (const uint8_t *)text, (uint32_t)json.length, true);
+  link->pair.accepted = true;
+  link->pair.accepted_ms = now_ms(link);
+}
+
+static void pair_frame(Link2 *link, const Link2Frame *frame) {
+  JsonSpan object = json_span((const char *)frame->payload, frame->length);
+  char code[LINK2_CODE_BYTES];
+  static Link2PairOffer offer;
+  if (frame->type == LINK2_FRAME_CLOSE) {
+    /* Hub's own time for the request passed, or Hub quits: the device asks again. */
+    if (link->pair.accepted) pair_finish(link);
+    else pair_retry(link);
+    return;
+  }
+  if (frame->type != LINK2_FRAME_HANDSHAKE) return;
+  if (link->pair.accepted) {
+    if (link2_is_pair_done(object)) pair_finish(link);
+    return;
+  }
+  if (link2_parse_refused(object, code, sizeof code)) {
+    if (strcmp(code, "busy") == 0) pair_retry(link);
+    else if (strcmp(code, "declined") == 0) pair_end(link, LINK2_PAIR_FAILED, "that computer dismissed the request");
+    /* A Hub from before §3.11 reads `pair` as a hello that is none. */
+    else if (strcmp(code, "malformed") == 0) pair_end(link, LINK2_PAIR_FAILED, "that computer's Hub does not pair by a code");
+    else pair_end(link, LINK2_PAIR_FAILED, "that computer refused the pairing");
+    return;
+  }
+  if (link2_parse_pair_offer(object, &offer)) {
+    pair_offer(link, &offer);
+    return;
+  }
+  pair_retry(link);
+}
+
+/* Waits for the offer for as long as the code lasts: Hub's owner has to
+ * enter it. */
+static void pump_pair(Link2 *link) {
+  uint32_t budget = LINK2_RX_BUDGET;
+  if (!tx_flush(link)) {
+    if (link->pair.accepted) pair_finish(link);
+    else pair_retry(link);
+    return;
+  }
+  if (link->pair.accepted && now_ms(link) - link->pair.accepted_ms >= LINK2_PAIR_DONE_MS) {
+    pair_finish(link);
+    return;
+  }
+  while (link->phase == PHASE_PAIR_WAIT) {
+    if (!rx_fill(link, &budget)) {
+      if (link->pair.accepted) pair_finish(link);
+      else pair_retry(link);
+      return;
+    }
+    if (link->rx_chunk_at == link->rx_chunk_fill) break;
+    if (!link->preamble_done) {
+      while (link->preamble_fill < LINK2_PREAMBLE_BYTES && link->rx_chunk_at < link->rx_chunk_fill) {
+        link->preamble[link->preamble_fill++] = link->rx_chunk[link->rx_chunk_at++];
+      }
+      if (link->preamble_fill < LINK2_PREAMBLE_BYTES) continue;
+      if (link2_accept_preamble(link->preamble) == 0) {
+        pair_end(link, LINK2_PAIR_FAILED, "that computer's Hub speaks no common Pocket Link version");
+        return;
+      }
+      link->preamble_done = true;
+      continue;
+    }
+    size_t consumed = 0;
+    Link2Frame frame;
+    uint32_t close = 0;
+    int state = link2_reader_push(&link->reader, link->rx_chunk + link->rx_chunk_at, link->rx_chunk_fill - link->rx_chunk_at, &consumed, &frame, &close);
+    link->rx_chunk_at += (uint32_t)consumed;
+    if (state == LINK2_READ_ERROR) {
+      pair_retry(link);
+      return;
+    }
+    if (state == LINK2_READ_FRAME) pair_frame(link, &frame);
+  }
+  if (link->phase == PHASE_PAIR_WAIT && link->tcp >= 0 && !tx_flush(link)) {
+    if (link->pair.accepted) pair_finish(link);
+    else pair_retry(link);
+  }
+}
+
+bool link2_pair_open(Link2 *link) {
+  uint8_t bytes[4];
+  uint32_t value;
+  if (link->stopped) return false;
+  if (pair_phase(link)) pair_end(link, LINK2_PAIR_IDLE, "");
+  /* Uniform over the 10^6 codes: a draw in the last, short stretch of the
+   * 32-bit range is taken again. */
+  do {
+    link->platform.random(link->platform.context, bytes, sizeof bytes);
+    value = (uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24;
+  } while (value >= 4294000000u);
+  snprintf(link->pair.code, sizeof link->pair.code, "%06lu", (unsigned long)(value % 1000000u));
+  link->pair.state = LINK2_PAIR_OPEN;
+  link->pair.opened_ms = now_ms(link);
+  link->pair.tries = LINK2_PAIR_TRIES;
+  link->pair.hub[0] = '\0';
+  link->pair.hub_name[0] = '\0';
+  link->pair.error[0] = '\0';
+  link->pair.accepted = false;
+  memset(link->pair.seen, 0, sizeof link->pair.seen);
+  return true;
+}
+
+bool link2_pair_ask(Link2 *link, const char *hub) {
+  uint64_t now = now_ms(link);
+  size_t found = LINK2_PAIR_MAX_SEEN;
+  bool paired = false;
+  if (!pair_active(link) || hub == NULL) return false;
+  for (size_t i = 0; i < LINK2_PAIR_MAX_SEEN; i += 1) {
+    if (strcmp(link->pair.seen[i].id, hub) == 0 && now - link->pair.seen[i].seen_ms < LINK2_PAIR_SEEN_MS) found = i;
+  }
+  if (found == LINK2_PAIR_MAX_SEEN) return false;
+  for (size_t i = 0; i < link->companions.count; i += 1) paired = paired || strcmp(link->companions.list[i].id, hub) == 0;
+  /* A device reads 8 key files (§3.6): a ninth Hub would be one it never loads. */
+  if (!paired && link->companions.count >= LINK2_MAX_COMPANIONS) {
+    copy_text(link->pair.error, sizeof link->pair.error, "this device holds 8 pairings: forget one first");
+    return false;
+  }
+  /* The device holds one connection: the one it has ends. */
+  if (link->phase == PHASE_LINKED) {
+    close_link(link, LINK2_CLOSE_GOING_AWAY, "pairing with another Hub", false);
+    tx_flush(link);
+    link_down(link, "pairing", false);
+  } else if (link->phase == PHASE_CLOSING) {
+    link_down(link, "pairing", false);
+  } else if (link->phase == PHASE_CONNECTING || link->phase == PHASE_HANDSHAKE) {
+    dropped(link, "pairing");
+  } else if (pair_phase(link)) {
+    socket_gone(link);
+  }
+  memcpy(link->pair.hub, link->pair.seen[found].id, sizeof link->pair.hub);
+  copy_text(link->pair.hub_name, sizeof link->pair.hub_name, link->pair.seen[found].name);
+  copy_text(link->pair.address, sizeof link->pair.address, link->pair.seen[found].address);
+  link->pair.port = link->pair.seen[found].port;
+  link->pair.state = LINK2_PAIR_ASKING;
+  link->pair.error[0] = '\0';
+  pair_dial(link);
+  return true;
+}
+
+void link2_pair_close(Link2 *link) {
+  if (pair_active(link)) pair_end(link, LINK2_PAIR_IDLE, "");
+}
+
+void link2_pair_status(const Link2 *link, Link2PairStatus *out) {
+  uint64_t now = now_ms(link);
+  memset(out, 0, sizeof *out);
+  out->state = link->pair.state;
+  copy_text(out->hub, sizeof out->hub, link->pair.hub);
+  copy_text(out->hub_name, sizeof out->hub_name, link->pair.hub_name);
+  copy_text(out->error, sizeof out->error, link->pair.error);
+  if (!pair_active(link)) return;
+  copy_text(out->code, sizeof out->code, link->pair.code);
+  out->tries = link->pair.tries;
+  out->left_ms = now - link->pair.opened_ms >= LINK2_PAIR_WINDOW_MS ? 0 : (uint32_t)(LINK2_PAIR_WINDOW_MS - (now - link->pair.opened_ms));
+  for (size_t i = 0; i < LINK2_PAIR_MAX_SEEN; i += 1) {
+    if (link->pair.seen[i].id[0] == '\0' || now - link->pair.seen[i].seen_ms >= LINK2_PAIR_SEEN_MS) continue;
+    memcpy(out->hubs[out->hub_count].id, link->pair.seen[i].id, sizeof out->hubs[0].id);
+    copy_text(out->hubs[out->hub_count].name, sizeof out->hubs[0].name, link->pair.seen[i].name);
+    out->hub_count += 1;
+  }
+}
+
 /* Beacons are drained in every phase and followed while searching. */
 static void pump_beacons(Link2 *link) {
   uint8_t datagram[128];
@@ -3412,7 +3782,9 @@ static void pump_beacons(Link2 *link) {
       return;
     }
     if (n == 0) return;
-    if (link->phase != PHASE_SEARCH || !link2_parse_beacon(datagram, (size_t)n, &beacon)) continue;
+    if (!link2_parse_beacon(datagram, (size_t)n, &beacon)) continue;
+    if (pair_active(link)) pair_seen(link, &beacon, address);
+    if (link->phase != PHASE_SEARCH) continue;
     for (size_t c = 0; c < link->companions.count; c += 1) {
       if (strcmp(link->companions.list[c].id, beacon.companion) != 0 || held(link, c)) continue;
       dial(link, c, address, beacon.port);
@@ -3567,7 +3939,9 @@ static void pump_linked(Link2 *link) {
 }
 
 void link2_pump(Link2 *link) {
-  if (link->udp < 0 && link->companions.count > 0 && !link->stopped && now_ms(link) >= link->udp_retry_ms) {
+  if (pair_active(link) && now_ms(link) - link->pair.opened_ms >= LINK2_PAIR_WINDOW_MS) pair_end(link, LINK2_PAIR_FAILED, "the code ran out");
+  /* A device with no pairing listens for beacons only while it shows a code. */
+  if (link->udp < 0 && (link->companions.count > 0 || pair_active(link)) && !link->stopped && now_ms(link) >= link->udp_retry_ms) {
     link->udp = link->platform.udp_open(link->platform.context, link->host.beacon_port != 0 ? link->host.beacon_port : LINK2_BEACON_PORT);
     /* A socket that does not open, or one that failed, is tried again once a second. */
     if (link->udp < 0) link->udp_retry_ms = now_ms(link) + LINK2_BEACON_DRAIN_MS;
@@ -3616,6 +3990,18 @@ void link2_pump(Link2 *link) {
       break;
     case PHASE_BACKOFF:
       if (now >= link->backoff_until) enter(link, link->companions.count == 0 ? PHASE_IDLE : PHASE_SEARCH);
+      break;
+    case PHASE_PAIR_CONNECTING: {
+      int state = link->platform.tcp_connected(link->platform.context, link->tcp);
+      if (state > 0) pair_start(link);
+      else if (state < 0 || now - link->phase_since >= LINK2_CONNECT_TIMEOUT_MS) pair_retry(link);
+      break;
+    }
+    case PHASE_PAIR_WAIT:
+      pump_pair(link);
+      break;
+    case PHASE_PAIR_RETRY:
+      if (now >= link->pair.retry_ms) pair_dial(link);
       break;
     default:
       break;
@@ -3705,6 +4091,7 @@ void link2_destroy(Link2 *link) {
 
 void link2_stop(Link2 *link) {
   link->stopped = true;
+  if (pair_active(link)) pair_end(link, LINK2_PAIR_IDLE, "");
   if (link->phase == PHASE_LINKED) {
     close_link(link, LINK2_CLOSE_GOING_AWAY, "the device stops", false);
     tx_flush(link);

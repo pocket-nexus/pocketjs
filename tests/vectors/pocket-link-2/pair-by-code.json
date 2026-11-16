@@ -1,0 +1,292 @@
+{
+  "code": "314159",
+  "codeKey": "333134313539",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "companionMessage": "pocket-link/2/pair/companion\na0a1a2a3a4a5a6a7a8a9aaabacadaeaf\nb0b1b2b3b4b5b6b7b8b9babbbcbdbebf\n0123456789abcdef\nfedcba9876543210",
+  "keyMessage": "pocket-link/2/pair/key\na0a1a2a3a4a5a6a7a8a9aaabacadaeaf\nb0b1b2b3b4b5b6b7b8b9babbbcbdbebf\n0123456789abcdef\nfedcba9876543210",
+  "consoleMessage": "pocket-link/2/pair/console\na0a1a2a3a4a5a6a7a8a9aaabacadaeaf\nb0b1b2b3b4b5b6b7b8b9babbbcbdbebf\n0123456789abcdef\nfedcba9876543210",
+  "companionProof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+  "keyMask": "8a19b5ab0ba659db335766a6c5d19904f685c857d2f0953dc1e018be51a8a370",
+  "maskedKey": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6f",
+  "consoleProof": "9f0ad47910937931ee3f028b626782ccf4a34d11c9a01c5b7f493b04168c80c5",
+  "transcript": [
+    {
+      "from": "device",
+      "what": "preamble",
+      "hex": "504b4c4b02020000"
+    },
+    {
+      "from": "device",
+      "what": "pair",
+      "hex": "040000008f000000000000007b2274223a2270616972222c22646576696365223a2230313233343536373839616263646566222c226e6f6e6365223a226130613161326133613461356136613761386139616161626163616461656166222c226e616d65223a22506f636b6574222c226d6f64656c223a224d35537461636b2054616235222c22746172676574223a22746162352d686f6d65227d",
+      "json": {
+        "t": "pair",
+        "device": "0123456789abcdef",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "M5Stack Tab5",
+        "target": "tab5-home"
+      }
+    },
+    {
+      "from": "hub",
+      "what": "preamble",
+      "hex": "504b4c4b02020200"
+    },
+    {
+      "from": "hub",
+      "what": "pair.offer",
+      "hex": "0400000004010000000000007b2274223a22706169722e6f66666572222c22636f6d70616e696f6e223a2266656463626139383736353433323130222c226e616d65223a2253747564696f204d6163222c226e6f6e6365223a226230623162326233623462356236623762386239626162626263626462656266222c2270726f6f66223a2261353766613830623638353937353132356131346338666231376638656361613561393733653365646131326330336532613064346539613862643463343863222c226b6579223a2238613138623761383066613335666463336235653663616463396463393730626536393464613434633665353833326164396639303261353464623562643666227d",
+      "json": {
+        "t": "pair.offer",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+        "key": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6f"
+      }
+    },
+    {
+      "from": "device",
+      "what": "pair.accept",
+      "hex": "040000005e000000000000007b2274223a22706169722e616363657074222c2270726f6f66223a2239663061643437393130393337393331656533663032386236323637383263636634613334643131633961303163356237663439336230343136386338306335227d",
+      "json": {
+        "t": "pair.accept",
+        "proof": "9f0ad47910937931ee3f028b626782ccf4a34d11c9a01c5b7f493b04168c80c5"
+      }
+    },
+    {
+      "from": "hub",
+      "what": "pair.done",
+      "hex": "0400000011000000000000007b2274223a22706169722e646f6e65227d",
+      "json": {
+        "t": "pair.done"
+      }
+    }
+  ],
+  "keyFile": {
+    "address": "192.168.1.5",
+    "port": 8628,
+    "deleted": "companions/fedcba9876543210.last",
+    "path": "companions/fedcba9876543210.txt",
+    "text": "key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\nname=Studio Mac\naddress=192.168.1.5\nport=8628\n"
+  },
+  "record": {
+    "id": "0123456789abcdef",
+    "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "name": "Pocket",
+    "model": "M5Stack Tab5",
+    "target": "tab5-home"
+  },
+  "wrongCode": {
+    "entered": "271828",
+    "offer": {
+      "hex": "0400000004010000000000007b2274223a22706169722e6f66666572222c22636f6d70616e696f6e223a2266656463626139383736353433323130222c226e616d65223a2253747564696f204d6163222c226e6f6e6365223a226230623162326233623462356236623762386239626162626263626462656266222c2270726f6f66223a2263343236303835356364373233306631316566373138333136333931643461356665373831373234393731656332326432396634636639353637363663323339222c226b6579223a2264343230366664303434613630333738373666303530376562643734323764633732643237353966343237363366366232613064303263353136613932366639227d",
+      "json": {
+        "t": "pair.offer",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "c4260855cd7230f11ef718316391d4a5fe781724971ec22d29f4cf956766c239",
+        "key": "d4206fd044a6037876f0507ebd7427dc72d2759f42763f6b2a0d02c516a926f9"
+      }
+    },
+    "expectedProof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+    "close": "03000000040000000000000006000000",
+    "triesLeft": 2,
+    "stored": false
+  },
+  "otherCompanion": {
+    "asked": "00112233445566ff",
+    "offer": {
+      "json": {
+        "t": "pair.offer",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+        "key": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6f"
+      }
+    },
+    "close": "03000000040000000000000006000000"
+  },
+  "badAccept": {
+    "json": {
+      "t": "pair.accept",
+      "proof": "8f1b69cba6a4c458a3e3eb04fe0a41a6c77eddae0d96bfa3881225fd2b3cea63"
+    },
+    "refused": "bad_proof",
+    "stored": false
+  },
+  "declined": {
+    "hex": "0400000059000000000000007b2274223a2272656675736564222c22636f6465223a226465636c696e6564222c226d657373616765223a227468697320636f6d70757465722773206f776e6572206469736d6973736564207468652072657175657374227d",
+    "json": {
+      "t": "refused",
+      "code": "declined",
+      "message": "this computer's owner dismissed the request"
+    }
+  },
+  "codes": {
+    "accepted": [
+      "000000",
+      "999999",
+      "314159"
+    ],
+    "refused": [
+      "",
+      "31415",
+      "3141592",
+      "31415a",
+      " 14159",
+      "٣١٤١٥٩"
+    ]
+  },
+  "malformedPair": [
+    {
+      "name": "an uppercase device id",
+      "json": {
+        "t": "pair",
+        "device": "0123456789ABCDEF",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "M5Stack Tab5",
+        "target": "tab5-home"
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a 31-digit nonce",
+      "json": {
+        "t": "pair",
+        "device": "0123456789abcdef",
+        "nonce": "0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "M5Stack Tab5",
+        "target": "tab5-home"
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a name of 65 bytes",
+      "json": {
+        "t": "pair",
+        "device": "0123456789abcdef",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+        "model": "M5Stack Tab5",
+        "target": "tab5-home"
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a model of 33 bytes",
+      "json": {
+        "t": "pair",
+        "device": "0123456789abcdef",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "target": "tab5-home"
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "a target of 16 bytes",
+      "json": {
+        "t": "pair",
+        "device": "0123456789abcdef",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "model": "M5Stack Tab5",
+        "target": "tttttttttttttttt"
+      },
+      "refused": "malformed"
+    },
+    {
+      "name": "no model",
+      "json": {
+        "t": "pair",
+        "device": "0123456789abcdef",
+        "nonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "name": "Pocket",
+        "target": "tab5-home"
+      },
+      "refused": "malformed"
+    }
+  ],
+  "malformedOffer": [
+    {
+      "name": "an uppercase companion id",
+      "json": {
+        "t": "pair.offer",
+        "companion": "FEDCBA9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+        "key": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6f"
+      }
+    },
+    {
+      "name": "a 31-digit nonce",
+      "json": {
+        "t": "pair.offer",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+        "key": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6f"
+      }
+    },
+    {
+      "name": "a proof of 63 digits",
+      "json": {
+        "t": "pair.offer",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+        "key": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6f"
+      }
+    },
+    {
+      "name": "a key with an uppercase digit",
+      "json": {
+        "t": "pair.offer",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+        "key": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6F"
+      }
+    },
+    {
+      "name": "no key",
+      "json": {
+        "t": "pair.offer",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c"
+      }
+    },
+    {
+      "name": "another t",
+      "json": {
+        "t": "challenge",
+        "companion": "fedcba9876543210",
+        "name": "Studio Mac",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "proof": "a57fa80b685975125a14c8fb17f8ecaa5a973e3eda12c03e2a0d4e9a8bd4c48c",
+        "key": "8a18b7a80fa35fdc3b5e6cadc9dc970be694da44c6e5832ad9f902a54db5bd6f"
+      }
+    }
+  ],
+  "limits": {
+    "digits": 6,
+    "windowMs": 300000,
+    "tries": 3,
+    "seenMs": 3000,
+    "maxSeen": 8,
+    "doneMs": 2000
+  }
+}

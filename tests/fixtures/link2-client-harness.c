@@ -710,6 +710,22 @@ static char *field(char **cursor) {
   return start;
 }
 
+/* One line each time the pairing's state, its tries or its error change:
+ * pair-state <state> code=<code> tries=<n> hub=<id> error=<text>. */
+static void pair_tick(void) {
+  static const char *const STATES[] = {"idle", "open", "asking", "paired", "failed"};
+  static Link2PairStatus now;
+  static int last_state = LINK2_PAIR_IDLE;
+  static uint32_t last_tries;
+  static char last_error[64];
+  link2_pair_status(client, &now);
+  if (now.state == last_state && now.tries == last_tries && strcmp(now.error, last_error) == 0) return;
+  last_state = now.state;
+  last_tries = now.tries;
+  snprintf(last_error, sizeof last_error, "%s", now.error);
+  say("pair-state %s code=%s tries=%u hub=%s error=%s", STATES[now.state], now.code, now.tries, now.hub, now.error);
+}
+
 /* True when the command ran; false when it found no room and runs again next frame. */
 static bool command(char *line) {
   static char copy[70000];
@@ -728,6 +744,22 @@ static bool command(char *line) {
     const Link2Stats *stats = link2_stats(client);
     say("stats links=%u late=%u dropped=%u pauses=%u txpeak=%u fixed=%u channel=%u peak=%u", stats->links, stats->late_events, stats->logs_dropped, stats->read_pauses,
         stats->tx_peak, stats->fixed_bytes, stats->channel_bytes, stats->channel_peak);
+  } else if (strcmp(name, "pair-open") == 0) {
+    say("pair-open %d", link2_pair_open(client) ? 1 : 0);
+  } else if (strcmp(name, "pair-ask") == 0) {
+    say("pair-ask %d", link2_pair_ask(client, field(&cursor)) ? 1 : 0);
+  } else if (strcmp(name, "pair-close") == 0) {
+    link2_pair_close(client);
+  } else if (strcmp(name, "pair-hubs") == 0) {
+    /* pair-hubs <id>:<name> ... : the Hubs the device would list. */
+    static Link2PairStatus pair;
+    char text[1024] = "pair-hubs";
+    link2_pair_status(client, &pair);
+    for (size_t i = 0; i < pair.hub_count; i += 1) {
+      size_t at = strlen(text);
+      snprintf(text + at, sizeof text - at, " %s:%s", pair.hubs[i].id, pair.hubs[i].name);
+    }
+    say("%s", text);
   } else if (strcmp(name, "reload") == 0) {
     link2_reload(client);
   } else if (strcmp(name, "forget") == 0) {
@@ -996,6 +1028,7 @@ int main(int argc, char **argv) {
   while (!quit) {
     read_commands();
     link2_pump(client);
+    pair_tick();
     deferred_tick(client);
     size_t length = 0;
     for (const char *line = link2_devtools_poll(client, &length); line != NULL; line = link2_devtools_poll(client, &length)) {

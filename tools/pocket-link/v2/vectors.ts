@@ -26,11 +26,19 @@ import {
   LINK2_LOG_OVERHEAD,
   LINK2_MAX_HANDSHAKE,
   LINK2_MIN_PAYLOAD,
+  LINK2_PAIR_CODE_DIGITS,
+  LINK2_PAIR_DONE_MS,
+  LINK2_PAIR_MAX_SEEN,
+  LINK2_PAIR_SEEN_MS,
+  LINK2_PAIR_TRIES,
+  LINK2_PAIR_WINDOW_MS,
   LINK2_TCP_PAYLOAD,
   LINK2_WINDOW,
   type Link2CatalogApp,
   type Link2Hello,
   type Link2InstalledApp,
+  type Link2Pair,
+  type Link2PairOffer,
   type Link2Ready,
 } from "../../../contracts/spec/link2.ts";
 import { AppletStreamWindow, EventReceiver, SendCredit, eventUnits } from "./credit.ts";
@@ -54,6 +62,9 @@ import {
   encodeReset,
   encodedBytes,
   jsonBytes,
+  pairCompanionProof,
+  pairConsoleProof,
+  pairMaskKey,
   proofMessage,
   refused,
   selectVersion,
@@ -76,6 +87,9 @@ export const FIXED = {
   deviceNonce: "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
   hubNonce: "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
   clock: { utc: 1_794_312_000_000, local: 1_794_340_800_000 },
+  /** The code the device shows (§3.11), and another one entered in its place. */
+  code: "314159",
+  otherCode: "271828",
 } as const;
 
 const hello = (maxPayload: number): Link2Hello => ({
@@ -285,6 +299,110 @@ function handshakeRefusals() {
     },
     readyOutOfRange: { json: { ...ready(512) }, close: "protocol" },
     dataBeforeReady: { hex: hex(encodeRawFrame(LINK2_FRAME.data, 0, 0, 5, new Uint8Array(1))), close: "protocol" },
+  };
+}
+
+/** §3.11: a device paired by the code it shows. */
+function pairByCode() {
+  const ids = [FIXED.deviceNonce, FIXED.hubNonce, FIXED.device, FIXED.hub] as const;
+  const pair: Link2Pair = { t: "pair", device: FIXED.device, nonce: FIXED.deviceNonce, name: "Pocket", model: "M5Stack Tab5", target: "tab5-home" };
+  const offerUnder = (code: string, key: string): Link2PairOffer => ({
+    t: "pair.offer",
+    companion: FIXED.hub,
+    name: "Studio Mac",
+    nonce: FIXED.hubNonce,
+    proof: pairCompanionProof(code, ...ids),
+    key: pairMaskKey(code, key, ...ids),
+  });
+  const offer = offerUnder(FIXED.code, FIXED.key);
+  const accept = { t: "pair.accept" as const, proof: pairConsoleProof(FIXED.key, ...ids) };
+  const done = { t: "pair.done" as const };
+  const wrongOffer = offerUnder(FIXED.otherCode, FIXED.otherKey);
+  const declined = refused("declined", "this computer's owner dismissed the request");
+  const wrongPair = (name: string, change: Record<string, unknown>, remove?: string) => {
+    const object: Record<string, unknown> = { ...pair, ...change };
+    if (remove) delete object[remove];
+    return { name, json: object, refused: "malformed" };
+  };
+  const wrongOfferOf = (name: string, change: Record<string, unknown>, remove?: string) => {
+    const object: Record<string, unknown> = { ...offer, ...change };
+    if (remove) delete object[remove];
+    return { name, json: object };
+  };
+  // The connection reached Hub at this address and port: they go into the key file.
+  const reached = { address: "192.168.1.5", port: 8628 };
+  return {
+    code: FIXED.code,
+    // The key of the first two HMACs: the code's digits as ASCII bytes.
+    codeKey: hex(utf8.encode(FIXED.code)),
+    key: FIXED.key,
+    companionMessage: proofMessage(LINK2_LABEL.pairCompanion, ...ids),
+    keyMessage: proofMessage(LINK2_LABEL.pairKey, ...ids),
+    consoleMessage: proofMessage(LINK2_LABEL.pairConsole, ...ids),
+    companionProof: offer.proof,
+    // HMAC(code, keyMessage): the link key XOR this is `pair.offer.key`.
+    keyMask: pairMaskKey(FIXED.code, "00".repeat(32), ...ids),
+    maskedKey: offer.key,
+    consoleProof: accept.proof,
+    transcript: [
+      { from: "device", what: "preamble", hex: hex(devicePreamble()) },
+      { from: "device", what: "pair", hex: hex(encodeHandshake(pair)), json: pair },
+      { from: "hub", what: "preamble", hex: hex(encodePreamble({ highest: 2, lowest: 2, selected: 2 })) },
+      { from: "hub", what: "pair.offer", hex: hex(encodeHandshake(offer)), json: offer },
+      { from: "device", what: "pair.accept", hex: hex(encodeHandshake(accept)), json: accept },
+      { from: "hub", what: "pair.done", hex: hex(encodeHandshake(done)), json: done },
+    ],
+    // What the device writes between the offer and its accept, and the record Hub stores at the accept.
+    keyFile: {
+      ...reached,
+      deleted: `companions/${FIXED.hub}.last`,
+      path: `companions/${FIXED.hub}.txt`,
+      text: formatCompanionFile({ key: FIXED.key, name: offer.name, ...reached }),
+    },
+    record: { id: FIXED.device, key: FIXED.key, name: pair.name, model: pair.model, target: pair.target },
+    // Hub's owner entered another code: the proof fails at the device, which closes and keeps its code.
+    wrongCode: {
+      entered: FIXED.otherCode,
+      offer: { hex: hex(encodeHandshake(wrongOffer)), json: wrongOffer },
+      expectedProof: offer.proof,
+      close: hex(encodeClose("auth")),
+      triesLeft: LINK2_PAIR_TRIES - 1,
+      stored: false,
+    },
+    // An offer that names another Hub than the one asked fails the same way.
+    otherCompanion: { asked: FIXED.otherHub, offer: { json: offer }, close: hex(encodeClose("auth")) },
+    // An accept keyed with another key: Hub refuses and stores nothing.
+    badAccept: { json: { t: "pair.accept", proof: pairConsoleProof(FIXED.otherKey, ...ids) }, refused: "bad_proof", stored: false },
+    declined: { hex: hex(encodeHandshake(declined)), json: declined },
+    codes: {
+      accepted: ["000000", "999999", FIXED.code],
+      refused: ["", "31415", "3141592", "31415a", " 14159", "٣١٤١٥٩"],
+    },
+    malformedPair: [
+      wrongPair("an uppercase device id", { device: "0123456789ABCDEF" }),
+      wrongPair("a 31-digit nonce", { nonce: FIXED.deviceNonce.slice(1) }),
+      wrongPair("a name of 65 bytes", { name: "n".repeat(65) }),
+      wrongPair("a model of 33 bytes", { model: "m".repeat(33) }),
+      wrongPair("a target of 16 bytes", { target: "t".repeat(16) }),
+      wrongPair("no model", {}, "model"),
+    ],
+    // Not an offer to the device: it asks that Hub again.
+    malformedOffer: [
+      wrongOfferOf("an uppercase companion id", { companion: FIXED.hub.toUpperCase() }),
+      wrongOfferOf("a 31-digit nonce", { nonce: FIXED.hubNonce.slice(1) }),
+      wrongOfferOf("a proof of 63 digits", { proof: offer.proof.slice(1) }),
+      wrongOfferOf("a key with an uppercase digit", { key: `${offer.key.slice(0, 63)}F` }),
+      wrongOfferOf("no key", {}, "key"),
+      wrongOfferOf("another t", { t: "challenge" }),
+    ],
+    limits: {
+      digits: LINK2_PAIR_CODE_DIGITS,
+      windowMs: LINK2_PAIR_WINDOW_MS,
+      tries: LINK2_PAIR_TRIES,
+      seenMs: LINK2_PAIR_SEEN_MS,
+      maxSeen: LINK2_PAIR_MAX_SEEN,
+      doneMs: LINK2_PAIR_DONE_MS,
+    },
   };
 }
 
@@ -856,6 +974,7 @@ export function buildVectors(): Record<string, unknown> {
     "frames.json": frames(),
     "handshake.json": handshake(),
     "handshake-refusals.json": handshakeRefusals(),
+    "pair-by-code.json": pairByCode(),
     "requests.json": requests(),
     "streams.json": streams(),
     "channel.json": channel(),

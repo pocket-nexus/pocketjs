@@ -45,6 +45,21 @@
 #define LINK2_MAX_COMPANIONS 8u
 #define LINK2_LABEL_COMPANION "pocket-link/2/companion"
 #define LINK2_LABEL_CONSOLE "pocket-link/2/console"
+/* §3.11, pairing by a code the device shows. The first two are keyed with
+ * the code's digits, the third with the link key the device unmasked. */
+#define LINK2_LABEL_PAIR_COMPANION "pocket-link/2/pair/companion"
+#define LINK2_LABEL_PAIR_KEY "pocket-link/2/pair/key"
+#define LINK2_LABEL_PAIR_CONSOLE "pocket-link/2/pair/console"
+#define LINK2_PAIR_CODE_DIGITS 6u
+/* How long a device keeps one code. */
+#define LINK2_PAIR_WINDOW_MS 300000u
+/* Offers whose proof does not verify that a device takes before it drops its code. */
+#define LINK2_PAIR_TRIES 3u
+/* How long a Hub whose beacon arrived stays in a pairing device's list. */
+#define LINK2_PAIR_SEEN_MS 3000u
+#define LINK2_PAIR_MAX_SEEN 8u
+/* After `pair.accept` the device waits this long for `pair.done`. */
+#define LINK2_PAIR_DONE_MS 2000u
 
 #define LINK2_NAME_BYTES 64u
 #define LINK2_MODEL_BYTES 32u
@@ -335,6 +350,34 @@ typedef struct {
   size_t feature_count;
   uint32_t max_payload;
 } Link2Hello;
+/* §3.11. HMAC-SHA256 keyed with the code's digits (ASCII) over
+ * label "\n" nD "\n" nC "\n" device "\n" companion. */
+void link2_pair_code_hmac(
+  const char *code,
+  const char *label,
+  const char *device_nonce,
+  const char *companion_nonce,
+  const char *device,
+  const char *companion,
+  uint8_t out[32]
+);
+/* The `pair` object into `json`: what a device sends in place of `hello`. */
+void link2_write_pair(Link2Json *json, const char *device, const char *nonce, const char *name, const char *model, const char *target);
+typedef struct {
+  char companion[LINK2_ID_HEX + 1];
+  char name[LINK2_NAME_BYTES * 2 + 1];
+  char nonce[2 * LINK2_NONCE_BYTES + 1];
+  uint8_t proof[32];
+  /* The link key XOR the code's HMAC under LINK2_LABEL_PAIR_KEY. */
+  uint8_t masked_key[LINK2_KEY_BYTES];
+} Link2PairOffer;
+bool link2_parse_pair_offer(JsonSpan object, Link2PairOffer *out);
+void link2_write_pair_accept(Link2Json *json, const char proof_hex[65]);
+bool link2_is_pair_done(JsonSpan object);
+/* A key file in the form Hub's setup writes (§3.1): `key=`, `name=`,
+ * `address=`, `port=`. 0 when it does not fit `capacity`. */
+size_t link2_format_key_file(char *out, size_t capacity, const char key_hex[65], const char *name, const char *address, uint16_t port);
+
 /* The `hello` object into `json`. */
 void link2_write_hello(Link2Json *json, const Link2Hello *hello);
 void link2_write_auth(Link2Json *json, const char proof_hex[65]);

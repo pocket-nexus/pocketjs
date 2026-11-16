@@ -234,6 +234,47 @@ bool link2_forget(Link2 *link, const char *companion);
  * it: the client allocates the DevTools buffers there and nowhere else. */
 void link2_set_features(Link2 *link, const char *const *features, size_t count);
 
+/* --- pairing by a code (§3.11) ------------------------------------------ */
+
+#define LINK2_PAIR_IDLE 0   /* no code */
+#define LINK2_PAIR_OPEN 1   /* a code is shown and no Hub is asked */
+#define LINK2_PAIR_ASKING 2 /* a Hub is asked: its owner has the code to enter */
+#define LINK2_PAIR_PAIRED 3 /* the last code ended with a pairing */
+#define LINK2_PAIR_FAILED 4 /* it ended without one: `error` says why */
+
+typedef struct {
+  char id[LINK2_ID_HEX + 1];
+  char name[LINK2_BEACON_NAME_BYTES + 1];
+} Link2PairHub;
+
+typedef struct {
+  int state;
+  /* The code to show, "" outside LINK2_PAIR_OPEN and LINK2_PAIR_ASKING. */
+  char code[LINK2_PAIR_CODE_DIGITS + 1];
+  /* What is left of the code's time, and of the offers with a wrong proof it takes. */
+  uint32_t left_ms;
+  uint32_t tries;
+  /* The Hub asked, or the Hub the last code paired with; "" for none. */
+  char hub[LINK2_ID_HEX + 1];
+  char hub_name[LINK2_NAME_BYTES * 2 + 1];
+  char error[64];
+  /* While a code is shown: the Hubs whose beacons arrived in the last 3 s. */
+  Link2PairHub hubs[LINK2_PAIR_MAX_SEEN];
+  size_t hub_count;
+} Link2PairStatus;
+
+/* Makes a code and starts listing the Hubs on the network; a link that is
+ * up stays up. False once link2_stop was called. */
+bool link2_pair_open(Link2 *link);
+/* Asks `hub`, an id of the list: a link to another Hub ends, and the device
+ * connects to this one and waits for its owner to enter the code. False
+ * without a code, for a Hub that is not in the list, and when the device
+ * holds 8 pairings of other Hubs. */
+bool link2_pair_ask(Link2 *link, const char *hub);
+/* Drops the code. */
+void link2_pair_close(Link2 *link);
+void link2_pair_status(const Link2 *link, Link2PairStatus *out);
+
 /* --- runtime (§6.2) ----------------------------------------------------- */
 
 /* The runtime's phase changed: the unsolicited runtime.status event. */

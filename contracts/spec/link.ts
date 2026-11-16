@@ -309,6 +309,29 @@ export interface LinkStatus {
   /** The companion's clock as of this status read: `utc` epoch ms and its
    *  zone's offset. Null until a companion has linked since boot. */
   clock: { utc: number; offsetMinutes: number } | null;
+  /** Pairing by a code the device shows (Pocket Link 2, docs/POCKET-LINK.md
+   *  §3.11): present on a host whose `link` has `pairOpen`. */
+  pair?: LinkPairByCode;
+}
+
+/** `idle`: no code. `open`: a code is shown and no computer is asked.
+ *  `asking`: one is asked, and its owner has the code to enter. `paired` and
+ *  `failed`: how the last code ended. */
+export type LinkPairByCodeState = "idle" | "open" | "asking" | "paired" | "failed";
+export interface LinkPairByCode {
+  state: LinkPairByCodeState;
+  /** The code to show, "" outside `open` and `asking`. */
+  code: string;
+  /** What is left of the code's time, and of the wrong entries it takes. */
+  leftMs: number;
+  tries: number;
+  /** The computer asked, or the one the last code paired with; "" for none. */
+  hub: string;
+  hubName: string;
+  /** Why the last code ended without a pairing, "" otherwise. */
+  error: string;
+  /** While a code is shown: the computers heard on the network in the last 3 s. */
+  hubs: { id: string; name: string }[];
 }
 
 export type LinkEvent =

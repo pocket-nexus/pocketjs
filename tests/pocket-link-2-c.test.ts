@@ -23,7 +23,7 @@ import {
 } from "../contracts/spec/link2.ts";
 import { AppletStreamWindow, eventUnits } from "../tools/pocket-link/v2/credit.ts";
 import { pageRuntimeApps } from "../tools/pocket-link/v2/paging.ts";
-import { formatLastFile, loadCompanions } from "../tools/pocket-link/v2/pairing.ts";
+import { formatCompanionFile, formatLastFile, loadCompanions } from "../tools/pocket-link/v2/pairing.ts";
 import {
   type Link2Frame,
   Link2FrameDecoder,
@@ -38,9 +38,12 @@ import {
   encodedBytes,
   encodedPrefix,
   idRange,
+  pairConsoleProof,
+  pairMaskKey,
   parseChallenge,
   parseCredit,
   parseFeatures,
+  parsePairOffer,
   parseReady,
   parseRefused,
   parseReset,
@@ -231,6 +234,48 @@ describe("Pocket Link 2 C wire layer: the vectors", () => {
     expect(one("limit", 512, 16384)).toBe("0");
     expect(one("limit", 16384, 32769)).toBe("0");
     expect(() => payloadLimit(512, 16384)).toThrow();
+  });
+
+  test("pair-by-code.json: the code's HMACs, pair, the offer, the accept, the key file and the device's CLOSE auth", () => {
+    const v = vector("pair-by-code.json");
+    const [, nD, nC, device, companion] = v.companionMessage.split("\n");
+    const step = (what: string) => v.transcript.find((s: { from: string; what: string }) => `${s.from} ${s.what}` === what);
+    const payload = (what: string) => text(step(what).hex.slice(24));
+
+    // The device's three HMACs against the fixed values.
+    expect(one("pair-hmac", v.code, "companion", nD, nC, device, companion)).toBe(v.companionProof);
+    expect(one("pair-hmac", v.code, "key", nD, nC, device, companion)).toBe(v.keyMask);
+    expect(one("pair-console", v.key, nD, nC, device, companion)).toBe(v.consoleProof);
+    expect(v.consoleProof).toBe(pairConsoleProof(v.key, nD, nC, device, companion));
+
+    // What it writes: `pair` and `pair.accept`, byte for byte.
+    const pair = step("device pair").json;
+    expect(text(one("pair", pair.device, pair.nonce, hex(pair.name), hex(pair.model), hex(pair.target)))).toBe(payload("device pair"));
+    expect(text(one("pair-accept", v.consoleProof))).toBe(payload("device pair.accept"));
+    expect(one("frames", LINK2_TCP_PAYLOAD, 0, 7, step("device pair").hex)).toBe(reference(step("device pair").hex, LINK2_TCP_PAYLOAD, false));
+
+    // What it reads: the offer's fields, with the key still masked, and `pair.done`.
+    const offer = step("hub pair.offer").json;
+    expect(one("pair-offer", hex(payload("hub pair.offer")))).toBe(`${offer.companion}|${hex(offer.name)}|${offer.nonce}|${offer.proof}|${offer.key}`);
+    expect(one("pair-done", hex(payload("hub pair.done")))).toBe("1");
+    expect(one("pair-done", hex(payload("hub pair.offer")))).toBe("0");
+    for (const c of v.malformedOffer) {
+      expect(`${c.name}: ${one("pair-offer", hex(JSON.stringify(c.json)))}`).toBe(`${c.name}: null`);
+      expect(parsePairOffer(c.json)).toBeNull();
+    }
+
+    // The key file: the unmasked key, the offer's name, the address the connection reached.
+    const key = pairMaskKey(v.code, offer.key, nD, nC, device, companion);
+    expect(text(one("key-file", key, hex(offer.name), v.keyFile.address, v.keyFile.port))).toBe(v.keyFile.text);
+    expect(v.keyFile.text).toBe(formatCompanionFile({ key, name: offer.name, address: v.keyFile.address, port: v.keyFile.port }));
+    expect(loadCompanions([{ name: `${companion}.txt`, text: v.keyFile.text }]).companions).toMatchObject([{ id: companion, key: v.key }]);
+
+    // Another code at Hub: the device's own proof differs, and it answers CLOSE auth with no reason.
+    const wrong = v.wrongCode.offer.json;
+    expect(one("pair-hmac", v.code, "companion", nD, wrong.nonce, device, wrong.companion)).toBe(v.wrongCode.expectedProof);
+    expect(wrong.proof).not.toBe(v.wrongCode.expectedProof);
+    expect(one("close", LINK2_CLOSE.auth, hex(""))).toBe(v.wrongCode.close);
+    expect(one("refused", hex(JSON.stringify(v.declined.json)))).toBe("declined");
   });
 
   test("handshake-refusals.json: the refusals a device reads, its CLOSE auth, a ready out of range, DATA before ready", () => {
