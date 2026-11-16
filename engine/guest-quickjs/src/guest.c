@@ -194,8 +194,9 @@ static JSValue package_buffer(JSContext *ctx,const pocket_guest_environment *env
 #if defined(POCKET_QJS_ARRAY_BUFFER_FREE_FORM)
   JSValue pak=JS_NewArrayBuffer(ctx,(uint8_t*)env->pak,env->pak_length,borrowed_free,NULL,false);
 #else
-  /* A zero maximum length makes the buffer non-resizable, so the package bytes
-   * stay borrowed in place and no reallocator is needed. */
+  /* A NULL reallocator leaves the bytes unmanaged: QuickJS never frees or
+   * resizes the package storage. A zero maximum length keeps the buffer
+   * fixed-length, which a NULL reallocator requires. */
   JSValue pak=JS_NewArrayBuffer(ctx,(uint8_t*)env->pak,env->pak_length,0,NULL,NULL,false);
 #endif
 #if !defined(POCKET_QJS_BELLARD) && (defined(__GNUC__) || defined(POCKET_QJS_IMMUTABLE_API))
