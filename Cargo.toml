@@ -238,7 +238,7 @@ pocketjs-vita = { path = "programs/vita", version = "0.16.0", default-features =
 pocketjs-wasm = { path = "programs/web/wasm", version = "0.16.0", default-features = false }
 uihost = { path = "engine/pocket3d/examples/uihost", version = "0.16.0", default-features = false }
 
-rquickjs = "0.12"
+rquickjs = "0.14"
 
 wgpu = "25"
 winit = "0.30"
