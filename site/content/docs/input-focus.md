@@ -438,6 +438,7 @@ focus, Enter/Z confirms, `L` / `R` page the shoulder-driven UI, and your
 
 - [Touch & gestures](/docs/touch-gestures/) — tap, long press, pan, pinch, and the kinetic scroller over these contacts.
 - [App shell](/docs/app-shell/) — `Focusable`, `FocusScope`, `FocusGrid`, `Modal`, and `ActionBar` components.
+- [Pages and focus](/docs/microts-pages/) — focus in applications with `app.aot: true`, where the scope, grid and programmatic APIs are outside the subset.
 - [Components](/docs/components/) — `View`, `Text`, `Image`, and how Solid control flow maps onto the native tree.
 - [Styling](/docs/styling/) — the `focus:` / `active:` variants and the Tailwind subset.
 - [Reactivity](/docs/reactivity/) — the three reactive systems side by side, and the PocketJS rules on top.

@@ -39,6 +39,7 @@ export const DOC_NAV: DocSection[] = [
     items: [
       { slug: "microts", title: "Build a native Vue app" },
       { slug: "microts-components", title: "Components and state" },
+      { slug: "microts-pages", title: "Pages and focus" },
       { slug: "microts-reference", title: "API and commands" },
       { slug: "microts-solid", title: "Solid TSX to Rust" },
       { slug: "microts-model", title: "TypeScript models to Rust" },

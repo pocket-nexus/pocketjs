@@ -24,6 +24,7 @@ const GROUPS: { title: string; items: [slug: string, blurb: string][] }[] = [
     title: "Guides",
     items: [
       ["microts-components", "Props, events, instance state, v-model, keyed lists, slots and context."],
+      ["microts-pages", "Page branches, state lifetime across a switch and where focus lands."],
       ["microts-solid", "The Solid front end: TSX views over the same View IR."],
       ["microts-model", "Compiled mode: state, reactions, cached values and tasks."],
       ["microts-boundaries", "What runs in TypeScript, in generated Rust and in the host."],

@@ -26,7 +26,9 @@ implementation.
 | Use Solid TSX | [Solid TSX to Rust](/docs/microts-solid/) |
 | Build an example or create an application | [Build the supplied example](#1-build-the-supplied-example) |
 | Pass props, add instance state, or use slots and context | [Components and state](/docs/microts-components/) |
+| Switch between pages and know where focus lands | [Pages and focus](/docs/microts-pages/) |
 | Look up template syntax, input or compiler flags | [API and commands](/docs/microts-reference/) |
+| Link a compiled application into ESP32 firmware | [ESP-IDF](/docs/esp-idf/#native-aot-applications) |
 
 ## How Vue becomes Rust
 
@@ -300,6 +302,10 @@ This executable creates the native UI, advances two frames and prints
 `count = 1`. It has no window or display backend. The next section opens a
 browser preview; a native host supplies the presentation described below.
 
+**`gen` is a reserved keyword from Rust edition 2024.** The `#[path]`
+attribute above names the module `generated`; `mod gen;` compiles in edition
+2021 and fails in 2024.
+
 **This counter uses the default Rust model mode.** Adding a state binding or
 action can add a required trait method. Cargo reports the missing method
 until the Rust implementation is updated. To generate the implementation
@@ -363,7 +369,9 @@ the value, scheduling and service contracts.
 **The AOT build command generates source and styles.** Packaging a native
 application requires a host that builds `pocketjs-core` and `microts`
 for its target. `--board` checks an input profile; it does not build or flash
-firmware. Runtime storage uses `alloc`. The earlier
+firmware. Runtime storage uses `alloc`.
+[ESP-IDF](/docs/esp-idf/#native-aot-applications) lists the library shape,
+Rust targets and link steps for ESP32 firmware. The earlier
 [C cartridge compiler](https://github.com/pocket-nexus/pocket-vapor) has its
 own repository and workflow for GB, NES and GBA.
 
@@ -371,6 +379,8 @@ own repository and workflow for GB, NES and GBA.
 
 - [Components and state](/docs/microts-components/): child props,
   events, instance state, lists, slots, generics and context.
+- [Pages and focus](/docs/microts-pages/): page branches, the state a
+  switch drops and the focus position after it.
 - [TypeScript support](/docs/typescript-support/): execution modes, types,
   expressions, functions and the differences between view and model code.
 - [API and commands](/docs/microts-reference/): Vue template syntax,

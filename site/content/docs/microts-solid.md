@@ -195,3 +195,25 @@ not expose a DOM element or a device SDK handle.
 Native code generation consumes **View IR format 1**. Other versions are rejected.
 The shared format includes statement sequences, conditions, lifecycle hooks,
 style props, optional callback emissions and literal array constants.
+
+## Common diagnostics
+
+Admission errors carry `file:line:column`. A view written in the ordinary
+Solid style meets these first:
+
+| Diagnostic | Cause and fix |
+|---|---|
+| `Conditional children use <Show> or <Switch>` | A child position holds `a ? <X /> : <Y />`, `a && <X />` or `a ?? <X />`. Use `<Show when={...} fallback={...}>`, or `<Switch>` with `<Match>` |
+| `Show requires a boolean condition; compare explicitly` | `when` holds a number, string or object. Write `count() > 0` or `value() !== undefined` |
+| `Use <For each by> from @pocketjs/framework/solid/components instead of solid-js For` | `For` was imported from `solid-js`. The framework's keyed `For` is the admitted list form; `.map()` in a child position is rejected with the same advice |
+| `Component state and lifecycle belong to the basename module and the Rust model` | The view imports a Solid primitive other than `Show`, `Switch`, `Match`, `useContext`, `mergeProps` and `createMemo`. Move `createSignal` and effects to `Name.ts`; take `onMount` and `onCleanup` from `@pocketjs/framework/solid/lifecycle` |
+| `<Name> has no native runtime` | The components module supplies `View`, `Text`, `Image`, `ActionHandler`, `AxisHandler`, `MotionHandler` and `For` to AOT views. `Screen`, `FocusScope`, `Portal` and the other guest components are rejected |
+| `Read props as props.x; destructuring is outside the view subset` | `const { label } = props` in the component body |
+| `Child component imports require the .tsx extension` | `import Row from "./Row"`. The extensionless path names the model module |
+| `Text and interpolation must appear inside Text` | A string or `{value()}` is a child of a `View` |
+| `Boolean text is outside the view subset; use a string ternary` | `{flag()}` inside `Text`. Write `{flag() ? "ON" : "OFF"}` |
+| `onPress requires a focusable View` | The `View` lacks the bare `focusable` attribute. An `ActionHandler` binds a named button without it |
+| `Cannot find module 'solid-js'` or `'@pocketjs/framework/animation'` | A project outside a framework checkout lacks the package under `node_modules`. Declare `solid-js` and `@pocketjs/framework` in the project's `package.json`, as `pocket create` writes them |
+
+[Pages and focus](/docs/microts-pages/) covers page navigation, the state a
+branch swap drops and the focus position after it.
