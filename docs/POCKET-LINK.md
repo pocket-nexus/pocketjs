@@ -2035,7 +2035,7 @@ Hub answers:
 | `rejected` | Hub's policy refuses the applet id | not during this applet run |
 | `unsupported` | Hub does not list `channel` (for the system channel: `channel` or `system`) | when the group comes into use again (§6.1) |
 | `malformed` | the request breaks its shape | not during this applet run |
-| `capability` | **proposed** (§7.9): the daemon's release requires a capability this host does not provide (`native` on a host that is not a computer); the error object carries `missing`, an array of the names. The applet tells its owner it needs a computer | not during this applet run |
+| `capability` | **proposed** (§7.9): the daemon's release requires a capability this service host does not provide to it (`native` on a service host that is not a computer; `store` to a third-party daemon on a device whose enclosure is not measured); the error object carries `missing`, an array of the names. The applet tells its owner it needs a computer | not during this applet run |
 | `consent` | **proposed** (§7.9): the daemon runs programs of its own and the owner has not allowed it on the computer yet. The applet tells its owner where to allow it | not during this applet run; the next run opens again |
 
 **Neither side sends a frame of the channel before the `REPLY`.** The
@@ -2397,16 +2397,16 @@ messages; Hub reads none of them.
 
 **Proposed in this change; nothing in this section is implemented.** Pocket
 Hub's side of the same proposal (its service contract, the capabilities a
-daemon may ask its host for, the sandbox and the signed releases) is in
+daemon may ask its service host for, the sandbox and the signed releases) is in
 Hub's repository, `docs/services/`; this section decides the wire, and the
 names of §7.10 apply once they are accepted. **The applet's channel and the
 system channel are the same on every device that runs the applets**; under
-them is the link when the host is another machine (the 3DS, and the M5Stack
-Tab5 once it speaks this version) and a local connection when the host runs
-on the device itself (Omarchy Pocket), §7.11.
+them is the link when the service host is another machine (the 3DS and the
+M5Stack Tab5) and a local connection when the service host runs on the
+device itself (Omarchy Pocket), §7.11.
 
-**A device opens a second channel, to the system service: a service the host
-provides itself, with no applet code behind it.** It carries what the
+**A device opens a second channel, to the system service: a service the service
+host provides itself, with no applet code behind it.** It carries what the
 framework gives every applet and the device cannot do in its frame budget:
 **a picture from the network as a texture in a format the device draws, an
 atlas of glyphs the bundle lacks, and a media stream the device plays.** It
@@ -2417,7 +2417,7 @@ Why a channel and not more system messages of §6: the work belongs to the
 running applet (its identity decides what it may fetch, its exit ends the
 work), a channel already ties messages, streams and their end to one applet
 run, and §7's bounds and credit then hold for it with no new rule. Why the
-host and not the applet's daemon: an applet without a daemon (Hacker News,
+service host and not the applet's daemon: an applet without a daemon (Hacker News,
 GitHub, Weather in pocket-nexus/applets) needs pictures and glyphs as much as
 one with a daemon, and on a 3DS today reaches them through the `images` and
 `glyphs` services at `https://companion.pocket/` over `net.http`, an origin
@@ -2445,14 +2445,14 @@ the `applet.hosts` of the package that `app` and `hash` name.
   with a package of their own, and an active attacker on the LAN can open
   channels asserting any applet id (§3.9): through the system channel it
   reaches the named applet's own hosts, and through an applet's channel it
-  drives that applet's daemon, sign-ins included. Phase one accepts this on
+  drives that applet's daemon, with the sessions it holds. Phase one accepts this on
   the owner's LAN; encryption is §3.10.
 
 #### What the device states: `device.accepts`
 
 The system service and a daemon's channel capabilities (Hub's
 `docs/services/CAPABILITIES.md`) produce output for the device at the other
-end. **The device states what it takes**; the host keeps no table of models,
+end. **The device states what it takes**; the service host keeps no table of models,
 because whether a 3DS has the H.264 decoder, or whether its sound starts, is
 known on that console alone (`contracts/spec/media.ts` `MediaStatus.h264`,
 `audio`).
@@ -2493,7 +2493,7 @@ request for it is answered `not_accepted`.
   `uploadImgEntry` refuses any other size (`framework/compiler/pak.ts`
   "pow2, <= TEX_MAX_DIM"). `width` and `height` in `image.head` are the
   texture's; `contentWidth` and `contentHeight` are the picture's, which the
-  applet draws as a sub-rectangle. The format is the host's choice among
+  applet draws as a sub-rectangle. The format is the service host's choice among
   those the device stated (an opaque photo as `rgb565`, a round avatar with
   alpha). Sizes: a 32 × 32 RGBA4444 avatar is 2,056 bytes, a 256 × 256 RGB565
   map tile 131,080; the largest, 512 × 512 RGBA8888, 1 MiB. The bytes travel
@@ -2503,21 +2503,21 @@ request for it is answered `not_accepted`.
   the applets' `ui/glyphs.ts` splits its requests today for that reason. The
   atlas holds printable ASCII and as many of the codepoints as fit **4,096
   glyphs and 1 MiB at that `px`**; `omitted` names those that did not fit
-  (the applet asks again for fewer), `missing` those no font of the host has.
+  (the applet asks again for fewer), `missing` those no font of the service host has.
   **A codepoint keeps its advance in every atlas of the same `px` and
   `bold`**, so text laid out with one atlas keeps its layout when a later
   atlas replaces it.
 - **Media**: the reply carries a source, not the stream. **The stream goes
   from Hub to the device on the side TCP connection of §1**, with the ticket,
   codecs and limits of `docs/MEDIA.md`; the channel carries the commands.
-  The codec is the host's choice from `device.accepts.media`, never the
+  The codec is the service host's choice from `device.accepts.media`, never the
   applet's. `video: false` asks for sound alone (a podcast). One session per
   channel: a new `media.open` ends the previous, as a new source ends the
   previous generation on the device. Pause stays on the device
   (`MediaOps.paused`).
 - **Errors**: `denied` (the URL's host is not in the applet's
   `applet.hosts`, the destination policy of §6.5 refuses its address, or the
-  host does not know the package `app` and `hash` name), `not_accepted` (the
+  service host does not know the package `app` and `hash` name), `not_accepted` (the
   device's `device.accepts` names nothing of that kind), `unsupported_input`,
   `http` (the source answered a status outside 2xx; the error object carries
   `status`), the `NET_ERROR` codes of the fetch, `too_large`, `busy`.
@@ -2529,7 +2529,7 @@ request for it is answered `not_accepted`.
 #### What the guest sees
 
 **Three states, from the framework, with no channel call in applet code**:
-pending while the host works or no host is linked, ready with the texture,
+pending while the service host works or none is reachable, ready with the texture,
 the atlas or the source, and an error with a code. The framework uses its
 existing `ResourceState` (`framework/src/resource-state.ts`: `pending`,
 `ready`, `error`), draws images with `ResourceImage`, and schedules reads
@@ -2544,7 +2544,7 @@ namespace is `globalThis.channels.system`, with the twelve operations of
 `globalThis.channels.service` (§7.10).
 
 **`text.glyphs.deferred` and the glyph ids the registry has**
-(`contracts/spec/platform-types.ts`): `text.glyphs.runtime` is the host
+(`contracts/spec/platform-types.ts`): `text.glyphs.runtime` is the device's runtime
 extending its atlases from system fonts as text renders, with no state the
 applet sees; `text.glyphs.streamed` is glyph cells streamed from a font
 archive through `io.offload` (`docs/DYNAMIC_TEXT.md`). `text.glyphs.deferred`
@@ -2564,7 +2564,7 @@ of streams and a few KiB of replies beside the 34 KiB of an idle channel**
 request and stream tables grow with `max_channels` (`link2_create`);
 `stats.fixedBytes` reports the result. **None of this is measured.**
 
-#### Not carried, and where the host is
+#### Not carried, and where the service host is
 
 - PocketJS's other provider contracts for text (`text.font` and `text.glyph`,
   `docs/TEXT_RESOURCES.md`; `text.layout` and its siblings,
@@ -2575,15 +2575,23 @@ request and stream tables grow with `max_channels` (`link2_create`);
   request contract can be served by a provider on the device itself
   (`OffloadOps.local`); the same holds here: a device that hosts its own
   system service routes these requests to it without the link, and the guest
-  cannot tell. That host is not designed in this change.
+  cannot tell; §7.11 gives that case its transport.
 
 ### 7.10 Proposed renames
 
 **Proposed in this change.** "Daemon", "link" and "Hub" in the names below
 say where the computer side of an applet runs today; a device that runs its
 own services has no Hub and no link to it. The terms: a **service** is what
-this page calls a daemon; a **host** is what runs services (Pocket Hub is the
-first).
+this page calls a daemon; a **service host** is what runs services (Pocket
+Hub is the first).
+
+**"Host" already has a meaning on this page and in PocketJS**: the device's
+native runtime (the host contract, `pocket.host.json`, `hostAbi` in `hello`,
+"the host hands the guest…" in §7.3). So in this specification and in
+PocketJS's code **"host" alone keeps that meaning, and the side that runs
+services is always written "service host"**; `docs/OFFLOAD.md` calls the
+same role a "provider". Pocket Hub's service SDK names its object `host`,
+where a service has no other host to confuse it with.
 
 | Today | Proposed | Kind |
 | --- | --- | --- |
@@ -2598,7 +2606,7 @@ first).
 | none | `image.url`, `text.glyphs.deferred`, `media.url` | capabilities the system channel serves (§7.9) |
 | `tools/pocket-link/v2/daemon.ts`, `daemon-sample.ts`, `serve --daemon` | `service.ts`, `service-sample.ts`, `serve --service` | reference |
 | the role name `companion` in fields and file names (§1) | unchanged | |
-| capability `link.companion`, `globalThis.link`, `@pocketjs/framework/link` | unchanged: they are the console's link itself (pairing, status, the catalog and installs), where "link" names the thing and not where an applet's computer side runs; whether they are renamed anyway is a question of §11 | |
+| capability `link.companion`, `globalThis.link`, `@pocketjs/framework/link` | split by concern, below; not decided | app contract, host namespace, framework module |
 
 Files a rename touches, at `48ca98b4`:
 
@@ -2630,17 +2638,44 @@ Files a rename touches, at `48ca98b4`:
   `site/content/docs/applets.md`, `tools/pocket-link/catalog.ts`,
   `tools/pocket-link/v2/cli.ts`, this page.
 
-### 7.11 A host on the device, and the three devices
+#### The link's guest surface, split by concern (for discussion)
+
+**Not decided; proposed so the owners can discuss it.** `@pocketjs/framework/link`,
+`globalThis.link` and the capability `link.companion` bundle four concerns
+that have nothing to do with each other, and three of them do not depend on a
+link: `linkHost`, `linkStatus`, `companionNow`, `isPairingUri`,
+`pairCompanion`, `forgetCompanion`, `removeApp`, `onLinkEvent`,
+`requestCatalog`, `installApp`. Applets use one export, `companionNow()`, a
+clock; the launchers (pocket-shell's `shells/3ds/shell/{system.ts,store.tsx,
+pages.tsx,scanner.tsx}`, for the 3DS and the Tab5) use the rest. Omarchy
+Pocket's Store applet does the same catalog and installs through another API
+(`companion.pocket/appstore`).
+
+| Concern | Today | Proposed | 3DS, Tab5 provide it from | Omarchy Pocket provides it from |
+| --- | --- | --- | --- | --- |
+| a wall clock to trust | `companionNow()`, `linkStatus().clock` | `@pocketjs/framework/clock` gains `wallClock()`: `{utc, offsetMinutes, source}`; no capability: every runtime has a best source | the paired Hub's clock in `ready.clock` (the Tab5 also SNTP) | the system clock |
+| the applet catalog, install, remove | `requestCatalog`, `installApp`, `removeApp`, catalog events of `onLinkEvent` | `@pocketjs/framework/apps`, namespace `globalThis.apps`, capability `system.apps` (launchers only) | the link's `catalog` and `install` (§6.4) | its service host, over the local connection with the same two groups (§7.11) |
+| whether the service host is reachable, and its name | `linkStatus().state`, `.companion`, `.features` | `serviceHost()` in `@pocketjs/framework/service`: `{state, local, name}`; no capability of its own | the link's state | `local: true` while the service host runs |
+| pairing with a computer | `pairCompanion`, `forgetCompanion`, `isPairingUri`, the Tab5's `pairOpen`, `pairAsk`, `pairClose` (§3.11), `linkStatus().paired`, `.pairing`, `.device` | `@pocketjs/framework/pairing`, namespace `globalThis.pairing`, capability `system.pairing` (launchers only) | yes | **not provided**: no remote service host |
+
+**What keeps the name "link"**: the protocol (Pocket Link 2 and this page),
+`contracts/spec/link2.ts`, the C client (`engine/host-services/link2*.c`,
+`products/3ds/src/link2_host.c`), the labels of §3.5, and the pairing folder
+on a card. None of these is seen by an applet's author or an owner. Version
+1's `globalThis.link` (`contracts/spec/link.ts`) stays for programs on
+version 1 until they retire.
+
+### 7.11 A service host on the device, and the three devices
 
 **Proposed in this change; nothing in this section is implemented.**
 
 #### The local transport
 
-**When the host runs on the device itself, a channel travels on a local
+**When the service host runs on the device itself, a channel travels on a local
 connection instead of the link, with the same frames and rules.** A local
-connection is **a Unix domain socket the host listens on, which the device
+connection is **a Unix domain socket the service host listens on, which the device
 program connects to, one connection per running applet**, carrying the frames
-of §4.2 to §5 and §7 unchanged. What the link adds for a remote host is not
+of §4.2 to §5 and §7 unchanged. What the link adds for a remote service host is not
 there:
 
 | Link | Local connection |
@@ -2650,12 +2685,12 @@ there:
 | the preamble (§4.1) | none |
 | `HANDSHAKE hello` / `ready` | `HANDSHAKE local.hello {hostAbi, features, maxPayload, app, hash}` from the device program; `HANDSHAKE local.ready {features, maxPayload}` or `local.refused {reason}` from the host. `maxPayload` as §4.4 (16,384 by default) |
 | keepalive (§4.6) | none: the socket's end is the connection's end |
-| groups (§6.1) | `channel`, `system`, `net.http`; no `runtime`, `devtools`, `catalog`, `install`, `apps` or `agent`, which belong to the device's own system |
+| groups (§6.1) | `channel`, `system`, `net.http`; `catalog` and `install` when the guest surface is split (§7.10), so a launcher installs from a service host on the device as from Hub; no `runtime`, `devtools`, `apps` or `agent`, which belong to the device's own system |
 | §7 | unchanged: `channel.open` for the applet's channel and the system channel, ids, credit, event units, LINK_APP_MSG, the head step, close |
 
 **What the guest sees is identical**: the same host namespace
 (`globalThis.channels`), the same framework modules, the same limits and the
-same three states. An applet cannot tell a local host from a remote one
+same three states. An applet cannot tell a local service host from a remote one
 except by the state's `local` flag, which exists for the words it shows.
 
 - **One connection per running applet**, because a device that hosts its own
@@ -2663,16 +2698,16 @@ except by the state's `local` flag, which exists for the words it shows.
   its applet's channel and its system channel, within the 4 channels of a
   connection.
 - **`net.http` on a local connection**: the device's worker HTTP goes to the
-  host on the device, which applies the destination policy of §6.5 and the
+  service host on the device, which applies the destination policy of §6.5 and the
   applet's `applet.hosts` as Hub does for a remote device. The response limit
   is the device's host contract's `worker.http.responseBytes` (4 MiB on
   Omarchy Pocket), not §6.5's 256 KiB, which comes from the 3DS.
-- **Media**: the source names `127.0.0.1` and the host's media port; the side
+- **Media**: the source names `127.0.0.1` and the service host's media port; the side
   connection is a TCP connection on the device, so `device.accepts.media` is
   present (§7.9).
 - **`app` and `hash` in `local.hello`** are the device program's assertion
   about the package it runs, as on the link; on Omarchy Pocket the device
-  program and the host run as the same user, so the assertion is as strong
+  program and the service host run as the same user, so the assertion is as strong
   as that user's account.
 
 #### The three devices
@@ -2680,8 +2715,8 @@ except by the state's `local` flag, which exists for the words it shows.
 | | Nintendo 3DS | M5Stack Tab5 | Omarchy Pocket |
 | --- | --- | --- | --- |
 | Program | Pocket Shell (`products/3ds`) | pocket-m5's firmware (ESP32-P4) | omarchy-pocket-host on an RG DS Plus, an AYN Thor or a uConsole (Linux, aarch64) |
-| Where its host is | Hub on a paired Mac | Hub on a paired Mac | **on the device** |
-| Channels travel on | this link (TCP over Wi-Fi) | this link, once its firmware speaks version 2 (it compiles version 1's `link.c` today, §11) | the local transport above |
+| Where its service host is | Hub on a paired Mac | Hub on a paired Mac | **on the device** |
+| Channels travel on | this link (TCP over Wi-Fi) | this link: its firmware speaks version 2 (`link2*.c`) and pairs by a card or by the code of §3.11 | the local transport above |
 | Worker HTTP (`net.http`) | over this link; Hub performs it and applies `applet.hosts` | **the firmware's own HTTP stack**: Hub never sees it, so the firmware applies `applet.hosts` and the destination policy itself (§11) | over the local connection; the host on the device performs it |
 | `data.fs` | yes (`engine/host-services/fs.c`) | yes (on the microSD card) | **not in its host contract today**; proposed below |
 | Surface | 320 × 240, raster density 1 | 640 × 360; its host contract states raster density 1 | the window's size; the applets ask glyph atlases at density 2 there today |
@@ -3138,10 +3173,13 @@ TypeScript console client, as Hub's version 1 tests do with
   *Recommendation:* the new id: `runtime` promises glyphs with no state the
   applet sees, which a computer over the LAN cannot keep, and `streamed`
   is a font archive's cell protocol with its own leases.
-- **Proposed with §7.10: names that keep "link".** `link.companion`,
-  `globalThis.link` and `@pocketjs/framework/link` stay, because they are
-  the console's link itself. Option: rename them with the rest.
-  *Recommendation:* keep them.
+- **Proposed with §7.10: the link's guest surface.** Options: keep
+  `link.companion`, `globalThis.link` and `@pocketjs/framework/link` as the
+  console's link; split them by concern as §7.10 proposes (`wallClock` in
+  `clock`, `apps`, `serviceHost` in `service`, `pairing`). *Recommendation:*
+  split: three of the four concerns hold on a device with no link, and
+  Omarchy Pocket's Store applet and pocket-shell then use one catalog API.
+  Not decided.
 
 ## 12. Implementation notes
 
