@@ -1,0 +1,29 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.game2d-sprites",
+  "title": "PocketJS: Sprite Bench",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/game2d-sprites/main.tsx",
+    "output": "game2d-sprites-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          480,
+          272
+        ],
+        "presentation": "integer-fit"
+      }
+    }
+  }
+}

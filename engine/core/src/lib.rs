@@ -1635,6 +1635,29 @@ impl Ui {
         }
     }
 
+    /// Replace the ordered draw items a view paints in its local space
+    /// (spec.ts DRAW_ITEM). The list is copied into the node's own buffer, which
+    /// keeps its capacity, so a list resubmitted every frame does not allocate.
+    /// A trailing partial record is dropped; non-view and stale ids no-op.
+    pub fn set_draw_items(&mut self, id: i32, bytes: &[u8]) {
+        let Some(slot) = self.tree.resolve(id) else {
+            return;
+        };
+        let node = &mut self.tree.slots[slot as usize];
+        if node.node_type != spec::NodeType::View as u8 {
+            return;
+        }
+        let records = bytes.len() / (spec::draw_item::WORDS * 4);
+        node.draw_items.clear();
+        node.draw_items.reserve(records * spec::draw_item::WORDS);
+        for word in bytes[..records * spec::draw_item::WORDS * 4]
+            .as_chunks::<4>()
+            .0
+        {
+            node.draw_items.push(u32::from_le_bytes(*word));
+        }
+    }
+
     /// Bind a Pocket System package surface to a compositor-surface node.
     /// Handles belong to the native compositor, not the texture table;
     /// the core only retains the handle and emits its geometry in painter order.

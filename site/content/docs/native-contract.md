@@ -38,11 +38,15 @@ Three rules constrain the surface:
    texture, and animation handles are synchronous results. The few read-shaped
    diagnostics and `measureText` never expose or walk native tree structure.
 2. **Synchronous.** Each op is one blocking FFI call that returns on the same
-   stack. The one batching path is `setPropBatch(records)`, an optional
-   `HostOps` method outside the numbered op table: `records` is a little-endian
-   `Float64Array` of `[nodeId, propId, value]` triples with the semantics of
-   repeated `setProp` calls. `framework/src/anim.ts` commits jump batches
-   through it and falls back to a `setProp` loop on hosts without it.
+   stack. Two optional ops take many records in one call. `setPropBatch(records)`
+   (op 57) takes a little-endian `Float64Array` of `[nodeId, propId, value]`
+   triples with the semantics of repeated `setProp` calls;
+   `framework/src/anim.ts` commits jump batches through it and falls back to a
+   `setProp` loop on hosts without it. `setDrawItems(id, items)` (op 62) gives a
+   view an ordered list of 16-byte integer records, images and solid rects,
+   that the core paints in the view's local space as it would paint image and
+   box nodes of the same size (`DRAW_ITEM` in `spec.ts`). `framework/src/game2d`
+   draws sprites through it and keeps one node per sprite on hosts without it.
 3. **The reconciler never reads tree structure across FFI.** The renderer keeps
    a **JS mirror tree**. Parent/child/sibling and node-kind reads are plain JS
    object walks; structural writes update both mirrors.

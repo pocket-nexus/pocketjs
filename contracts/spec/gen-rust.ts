@@ -87,6 +87,9 @@ import {
   PAK_MAGIC,
   PAK_VERSION,
   DRAW_OP,
+  DRAW_ITEM_FLAG,
+  DRAW_ITEM_KIND,
+  DRAW_ITEM_WORDS,
   DRAW_LIST_VERSION,
   ENUMS,
   FIXED_DT,
@@ -468,6 +471,13 @@ export function generateRust(): string {
   for (const [name, v] of Object.entries(DRAW_OP)) {
     put(`    pub const ${screaming(name)}: u32 = ${v};`);
   }
+  put("}");
+  put("");
+  put("/// `setDrawItems` records: DRAW_ITEM_WORDS u32 words each (layout in spec.ts).");
+  put("pub mod draw_item {");
+  put(`    pub const WORDS: usize = ${DRAW_ITEM_WORDS};`);
+  for (const [name, v] of Object.entries(DRAW_ITEM_KIND)) put(`    pub const KIND_${screaming(name)}: u32 = ${v};`);
+  for (const [name, v] of Object.entries(DRAW_ITEM_FLAG)) put(`    pub const FLAG_${screaming(name)}: u32 = ${hex(v)};`);
   put("}");
   put("");
 
