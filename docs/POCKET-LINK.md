@@ -45,7 +45,7 @@ endpoint (§12).
 | Catalog and install | device | Hub's app offer and a `.pocket` streamed into a slot (§6.4) |
 | `net.http` | device | an applet worker's HTTP request, performed by Hub (§6.5) |
 | Agent | both | the agent's messages and streams of `contracts/spec/agent.ts`, the glyph atlas included (§6.6) |
-| Applet channels | device opens | one channel per running applet: requests, replies, events and credited streams between the applet and its daemon on Hub (§7); **proposed**: a second channel to the host's system service, for images, glyphs and media the applet uses without a daemon (§7.9) |
+| Applet channels | device opens | one channel per running applet: requests, replies, events and credited streams between the applet and its daemon on Hub (§7); **proposed**: a second channel to its service host's system service, for images, glyphs and media the applet uses without a daemon (§7.9) |
 
 ### What does not run on the link
 
@@ -2701,7 +2701,7 @@ there:
 | carriers, beacons, the direct try and backoff (§2) | none: the socket's path is fixed by the device |
 | the pairing, the handshake's proofs (§3) | none: **the socket's owner and mode (0600, the device user's) admit the peer** |
 | the preamble (§4.1) | none |
-| `HANDSHAKE hello` / `ready` | `HANDSHAKE local.hello {hostAbi, features, maxPayload, app, hash}` from the device program; `HANDSHAKE local.ready {features, maxPayload}` or `local.refused {reason}` from the host. `maxPayload` as §4.4 (16,384 by default) |
+| `HANDSHAKE hello` / `ready` | `HANDSHAKE local.hello {hostAbi, features, maxPayload, app, hash}` from the device program; `HANDSHAKE local.ready {features, maxPayload}` or `local.refused {reason}` from the service host. `maxPayload` as §4.4 (16,384 by default) |
 | keepalive (§4.6) | none: the socket's end is the connection's end |
 | groups (§6.1) | `channel`, `system`, `net.http`; `catalog` and `install` when the guest surface is split (§7.10), so a launcher installs from a service host on the device as from Hub; no `runtime`, `devtools`, `apps` or `agent`, which belong to the device's own system |
 | §7 | unchanged: `channel.open` for the applet's channel and the system channel, ids, credit, event units, LINK_APP_MSG, the head step, close |
@@ -2735,7 +2735,7 @@ except by the state's `local` flag, which exists for the words it shows.
 | Program | Pocket Shell (`products/3ds`) | pocket-m5's firmware (ESP32-P4) | omarchy-pocket-host on an RG DS Plus, an AYN Thor or a uConsole (Linux, aarch64) |
 | Where its service host is | Hub on a paired Mac | Hub on a paired Mac | **on the device** |
 | Channels travel on | this link (TCP over Wi-Fi) | this link: its firmware speaks version 2 (`link2*.c`) and pairs by a card or by the code of §3.11 | the local transport above |
-| Worker HTTP (`net.http`) | over this link; Hub performs it and applies `applet.hosts` | **the firmware's own HTTP stack**: Hub never sees it, so the firmware applies `applet.hosts` and the destination policy itself (§11) | over the local connection; the host on the device performs it |
+| Worker HTTP (`net.http`) | over this link; Hub performs it and applies `applet.hosts` | **the firmware's own HTTP stack**: Hub never sees it, so the firmware applies `applet.hosts` and the destination policy itself (§11) | over the local connection; the service host on the device performs it |
 | `data.fs` | yes (`engine/host-services/fs.c`) | yes (on the microSD card) | **not in its host contract today**; proposed below |
 | Surface | 320 × 240, raster density 1 | 640 × 360; its host contract states raster density 1 | the window's size; the applets ask glyph atlases at density 2 there today |
 | `media` side connection | TCP to Hub | TCP to Hub | TCP to 127.0.0.1 |
@@ -2747,6 +2747,15 @@ Pocket's also gains `data.fs`, so an applet's state (a token, a list of
 places) lives in one place on all three devices. The 3DS's contract is in
 this repository (`hosts/3ds-dev`); the others are in pocket-nexus/pocket-m5
 and pocket-nexus/omarchy-pocket.
+
+**`system.services`** (proposed): a system capability that lets a realm send
+the owner's consent for an unrestricted daemon to a service host on the same
+device (Pocket Hub's `docs/services/TRUST.md` §2). **The runtime grants it by
+the launcher's identity** (the package it loads as its launcher), never because
+a plan declares it, and the applet allowlist (`contracts/spec/applet.ts`) does
+not list it. On Omarchy Pocket every applet's runtime runs in one process, so
+this is how the service host can tell the launcher's consent from an
+applet's.
 
 #### One applet source for all three
 
@@ -3072,20 +3081,12 @@ TypeScript console client, as Hub's version 1 tests do with
   M5Stack Tab5 firmware compiled `engine/host-services/link.c` and sent
   `companion.pocket` over the whole-response `net` mode (`docs/WORKER.md`)
   until it moved to version 2; it now compiles only `link2*.c`, pairs by the
-  code of §3.11 or by a card (§3.2), and sends `companion.pocket` as
-  `net.http`, which Pocket Hub answers `unavailable`. *Recommendation:* replace `link.c` in place;
-  pocket-m5 pins a PocketJS commit before the change until it moves. **Its
-  pairing is the code of §3.11**: a Tab5 has a screen, and without a card in
-  its slot it has no storage Hub reaches. The C client, the reference Hub and
-  the reference device (`tools/pocket-link/v2/device.ts` `pairOpen`,
-  `pairAsk`, `pairClose`) pair by it, against `pair-by-code.json` (§10).
-  Open there: Pocket Hub's own endpoint and its window for the code.
-  **With §7.11, the Tab5's applets reach their daemons through Hub over
-  this version**, which pocket-m5's firmware now speaks
-  (`components/pocket_system`: `link2*.c`, pairing by a card or by the code).
-  Open: the first install of its firmware (over USB today, with `idf.py`),
-  and who applies `applet.hosts` to its worker's HTTP, which its own stack
-  performs and Hub never sees.
+  code of §3.11 (which Pocket Hub answers) or by a card (§3.2), and sends
+  `companion.pocket` as `net.http`, which Pocket Hub answers `unavailable`.
+  **With §7.11, the Tab5's applets reach their daemons through Hub over this
+  version.** Open: the first install of its firmware (over USB, with
+  `idf.py`), and who applies `applet.hosts` to its worker's HTTP, which its
+  own stack performs and Hub never sees.
 - **The carriers beyond TCP.** §2.0 says the link is the only transport,
   and phase one specifies TCP. Still outside it, and each to become a
   carrier of this protocol or be retired:
@@ -3278,8 +3279,8 @@ against them. The version-1 files go in the change that replaces `link.c`.
    that a program built before Pocket Link 2 cannot. It becomes a client of
    Hub's own command line when Hub has an endpoint. **Version 1 of the link
    stays in the tree** (`contracts/spec/link.ts`, `tools/pocket-link/*.ts`,
-   `engine/host-services/link.c`): the PSP's USB carrier and pocket-m5 use
-   it (questions 9 and 10).
+   `engine/host-services/link.c`): the PSP's USB carrier uses it (question 9;
+   **proposed correction**: pocket-m5 no longer does, §11).
 7. **Built: a command line on the reference Hub**, `bun run link2`
    (`tools/pocket-link/v2/cli.ts`), which drives a real device until Hub's
    own endpoint exists and stands alone meanwhile (`bun run 3ds:dev` is
