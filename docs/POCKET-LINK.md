@@ -2035,8 +2035,9 @@ Hub answers:
 | `rejected` | Hub's policy refuses the applet id | not during this applet run |
 | `unsupported` | Hub does not list `channel` (for the system channel: `channel` or `system`) | when the group comes into use again (§6.1) |
 | `malformed` | the request breaks its shape | not during this applet run |
-| `capability` | **proposed** (§7.9): the daemon's release requires a capability this service host does not provide to it (`native` on a service host that is not a computer; `store` to a third-party daemon on a device whose enclosure is not measured); the error object carries `missing`, an array of the names. The applet tells its owner it needs a computer | not during this applet run |
+| `capability` | **proposed** (§7.9): the daemon's release requires a capability this service host does not provide (`native` on a service host that is not a computer); the error object carries `missing`, an array of the names. The applet tells its owner it needs a computer | not during this applet run |
 | `consent` | **proposed** (§7.9): the daemon runs programs of its own and the owner has not allowed it on the computer yet. The applet tells its owner where to allow it | not during this applet run; the next run opens again |
+| `enclosure` | **proposed** (§7.9, §7.11): the service host has no measured enclosure for daemons, and this daemon's release is not published with the official key, so it does not run there, whatever it requires. The applet tells its owner the device does not support it yet | not during this applet run |
 
 **Neither side sends a frame of the channel before the `REPLY`.** The
 channel id outlives the `REPLY`: unlike other requests, `channel.open`'s
@@ -2439,7 +2440,7 @@ the `applet.hosts` of the package that `app` and `hash` name.
   reconnect, and the retry rules of §7.1 and §7.5. When `system` leaves use,
   the device's or Hub's side closes it with `feature` (§6.1).
 - Refusals are those of §7.1. A daemon's refusals (`no_daemon`, `capability`,
-  `consent`) do not apply to it.
+  `consent`, `enclosure`) do not apply to it.
 - **The binding is the runtime's assertion, nothing more.** The footer hash
   is FNV-1a64 (`contracts/spec/pocket-package.ts`), which anyone can match
   with a package of their own, and an active attacker on the LAN can open
@@ -3164,7 +3165,7 @@ TypeScript console client, as Hub's version 1 tests do with
   installs over the link. An older client takes any refusal code but `busy`,
   `cancelled` and `timeout` as "not during this applet run" and hands the
   code to the guest as the close reason (`link2.c` `channel_open_reply`), so
-  `no_service`, `capability` and `consent` keep the retry rule §7.1 gives
+  `no_service`, `capability`, `consent` and `enclosure` keep the retry rule §7.1 gives
   them even there.
 - **Proposed with §7.9: `text.glyphs.deferred` beside `text.glyphs.runtime`
   and `text.glyphs.streamed`.** Options: a new id (§7.10); give
