@@ -380,7 +380,7 @@ rate (`--hz=N`, 1–240, default 60).
 ## Native text layout
 
 Baked atlases are the portable path. An app that lists `text.layout.native` in
-the `enhances` block of its `pocket.app.json` gets host measurement and shaping
+the `features` of its `pocket.host.config.ts` gets host measurement and shaping
 instead, on any target whose host contract declares that capability
 (`hosts/<id>/pocket.host.json` for the built-in hosts) — read the contracts,
 not a list of hosts. The host installs a core text measurer before the guest

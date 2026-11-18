@@ -6,8 +6,8 @@ import {
   definePlatformContractRegistry,
   defineTargetRegistry,
 } from "../contracts/spec/platforms.ts";
-import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import type { ResolvedBuildPlan } from "../framework/compiler/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 const softwareProfile = POCKET_PROFILES["ios-dev"];
 
 /**
@@ -61,14 +61,14 @@ export function resolveIOSDevBuildPlan(
   input: unknown,
   rasterDensity?: number,
 ): ResolvedBuildPlan {
-  const resolution = validateAndResolveBuildPlan(
+  const resolution = resolveAppPlan(
     input,
     { target: IOS_DEV_TARGET_ID },
     rasterDensity === undefined ? IOS_DEV_CONTRACTS : iosDevContracts(rasterDensity),
   );
   if (!resolution.ok) {
     throw new Error(
-      `pocket ios: manifest did not resolve: ${resolution.diagnostics
+      `pocket ios: application did not resolve: ${resolution.diagnostics
         .map((diagnostic) => `${diagnostic.path || "/"}: ${diagnostic.message}`)
         .join("; ")}`,
     );

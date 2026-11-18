@@ -83,7 +83,7 @@ describe("per-app TypeScript checks", () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
-  test("resolves the public manifest and platform subpaths from the app config", () => {
+  test("resolves the public plan and platform subpaths from the app config", () => {
     const result = checkFixture("framework-import", ROOT_TSCONFIG);
 
     expect(errors(result)).toBe("");

@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { jsxPlugin, transformFile } from "../framework/compiler/jsx-plugin.ts";
+import { PORTABLE_APP, registerModelFixture } from "./app-fixtures.ts";
 
-const baseline = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
 function plan(app: Record<string, unknown>) {
-  const result = validateAndResolveBuildPlan({ ...baseline, app: { ...baseline.app, ...app } }, { target: "psp" });
+  const result = resolveAppPlan({ ...PORTABLE_APP, ...app }, { target: "psp" });
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
   return result.plan;
 }
@@ -21,25 +21,23 @@ test.each([
   { aot: true, model: "compiled", recursionLimit: 64 },
   { aot: false, model: "rust", recursionLimit: 32 },
   { aot: true, model: "compiled", recursionLimit: 32, framework: "vue-vapor" },
-])("a frozen plan rejects changed model configuration %j before compiling", changed => {
+])("a frozen plan rejects a config whose model configuration changed %j before compiling", changed => {
   const directory = resolve(".pocket-build/validation/model-aot/build-plan", `${process.pid}-${changed.model}-${changed.recursionLimit}-${changed.aot}-${changed.framework ?? "solid"}`);
   mkdirSync(directory, { recursive: true });
   writeFileSync(resolve(directory, "plan.json"), JSON.stringify(plan({ aot: true, model: "compiled", recursionLimit: 32 })));
-  writeFileSync(resolve(directory, "pocket.app.json"), JSON.stringify({ ...baseline, app: { ...baseline.app, ...changed } }));
-  const run = Bun.spawnSync([process.execPath, resolve("tools/build.ts"), `--plan=${resolve(directory, "plan.json")}`, `--project-root=${directory}`], { stdout: "pipe", stderr: "pipe" });
+  const config = resolve(directory, "pocket.host.config.ts");
+  writeFileSync(config, `import { defineHostConfig } from "@pocketjs/framework/host-config";\nexport default defineHostConfig({ host: "psp", app: ${JSON.stringify({ ...PORTABLE_APP, ...changed })} });\n`);
+  const run = Bun.spawnSync([process.execPath, resolve("tools/build.ts"), `--plan=${resolve(directory, "plan.json")}`, `--project-root=${directory}`, `--config=${config}`], { stdout: "pipe", stderr: "pipe" });
   expect(run.exitCode).not.toBe(0);
   expect(run.stderr.toString()).toContain("model settings differ from the ResolvedBuildPlan");
 });
 
-test.each(["solid", "vue-vapor"] as const)("compiled %s models follow the resolved presentation entry instead of the default App", async framework => {
-  const directory = resolve(".pocket-build/validation/model-aot/build-plan", `${process.pid}-presentation-${framework}`);
+test.each(["solid", "vue-vapor"] as const)("compiled %s models follow the build entry instead of the default App", async framework => {
+  const directory = resolve(".pocket-build/validation/model-aot/build-plan", `${process.pid}-entry-${framework}`);
   mkdirSync(directory, { recursive: true });
   const extension = framework === "solid" ? ".tsx" : ".vue";
-  const settings = { aot: true, model: "compiled", framework, entry: "main.ts", presentations: [
-    { id: "buttons", entry: "buttons-main.ts", modality: { buttons: true } },
-  ] };
-  const compiled = plan(settings);
-  writeFileSync(resolve(directory, "pocket.app.json"), JSON.stringify({ ...baseline, app: { ...baseline.app, ...settings } }));
+  // The application's entry is main.ts; this build compiles buttons-main.ts.
+  registerModelFixture(directory, { framework, entry: "main.ts" });
   const view = (name: string) => framework === "solid" ? `import { Text } from "@pocketjs/framework/solid/components";
 import { count } from "./${name}";
 export default function ${name}() { return <Text>{count()}</Text>; }` : `<script setup lang="ts">
@@ -59,8 +57,7 @@ export function press(): void { count.value = count.value + 1; }`;
   }
   writeFileSync(resolve(directory, "main.ts"), `import App from "./App${extension}"; export default App;`);
   writeFileSync(resolve(directory, "buttons-main.ts"), `import Buttons from "./Buttons${extension}"; export default Buttons; export { count, press } from "./Buttons.ts";`);
-  expect(compiled.app.entry).toBe("buttons-main.ts");
-  const entry = resolve(directory, compiled.app.entry);
+  const entry = resolve(directory, "buttons-main.ts");
   const transformed = await transformFile(resolve(directory, "Buttons.ts"), model, framework, { entry });
   expect(transformed.code).toContain("createModelRegion");
   const standalone = await transformFile(resolve(directory, "App.ts"), model, framework);

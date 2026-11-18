@@ -26,8 +26,10 @@ app: notes in files, assets in dirs, config in json               Guest
 op (`FS_OP` codes are the ABI identity, append-only). Capability id
 `data.fs`. Absence does **not** degrade to a no-op — file code
 that silently drops writes is a corruption bug, so the SDK throws where the
-namespace is unmounted, and an app declares `data.fs` in `pocket.app.json`
-`requires` so admission catches the gap before eval does.
+namespace is unmounted. An app lists `data.fs` in the `features` of its
+`pocket.host.config.ts` and lists only hosts that provide it; the plan records
+`features["data.fs"]`, and admission refuses a package that needs it on a host
+without it before eval does.
 
 **Ops** (guest → core, all synchronous): `read(path, offset, maxBytes)` →
 one JSON line (`{data:{"$b":…}, size, eof}`), `write(path, data, mode)`

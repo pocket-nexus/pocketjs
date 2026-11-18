@@ -1,14 +1,17 @@
-// tools/cli/create.mjs — `pocket create`: scaffold a pocket.app.json v2 application.
+// tools/cli/create.mjs — `pocket create`: scaffold an application, a
+// pocket.host.config.ts whose `app` section names its entry, framework,
+// viewport and features, and whose `host` names the host it builds for.
 //
 // Inside a PocketJS checkout the app lands in apps/<name> and resolves the
 // framework from the checkout. Anywhere else the result is a standalone
 // project: its package.json depends on @pocketjs/framework and pins
 // @pocketjs/cli, so `bun install && bun run build` is the whole flow.
-// `--target esp-idf` creates a product-owned profile and host configuration,
-// with application sources in app/. Native firmware builds consume those inputs.
+// `--target esp-idf` creates a product-owned host contract and one host
+// config with its `host` and `app`, with application sources in app/.
+// Native firmware builds consume those inputs.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, posix, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const FRAMEWORKS = ["solid", "vue-vapor", "octane"];
 export const TARGETS = ["psp", "vita", "web-app", "esp-idf"];
@@ -164,7 +167,7 @@ mount(App);
 `,
   octane: (title) => `// @title PocketJS: ${title}
 import App from "./app.tsx";
-// The generic root resolves to the framework named in pocket.app.json at build
+// The generic root resolves to the framework app.framework names at build
 // time; its mount accepts a JSX component. The /octane subpath types mount
 // for compiled universal components, which app sources are not yet.
 import { mount } from "@pocketjs/framework";
@@ -175,16 +178,26 @@ mount(App);
 `,
 };
 
-function manifest({ name, title, framework, viewport, requires }) {
-  return {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
-    id: `dev.example.${name.replace(/-/g, ".")}`,
-    title,
+const literal = (value) => JSON.stringify(value).replace(/,/g, ", ").replace(/"(\w+)":/g, "$1: ").replace(/\{/g, "{ ").replace(/\}/g, " }");
+
+/** The host config: the host the application builds for and its `app` section. */
+function hostConfig({ name, title, framework, viewport, features, host, entry }) {
+  return `import { defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({
+  host: ${JSON.stringify(host)},
+  app: {
+    id: ${JSON.stringify(`dev.example.${name.replace(/-/g, ".")}`)},
+    title: ${JSON.stringify(title)},
     version: "0.1.0",
-    engine: { capabilities: { requires } },
-    app: { entry: "main.tsx", output: `${name}-main`, framework, viewport },
-  };
+    entry: ${JSON.stringify(entry)},
+    output: ${JSON.stringify(`${name}-main`)},
+    framework: ${JSON.stringify(framework)},
+    viewport: ${literal(viewport)},
+    features: ${literal(features)},
+  },
+});
+`;
 }
 
 // A new product starts with a 320x240 display, buttons and baked glyphs,
@@ -208,16 +221,14 @@ function defaultProfile(name) {
   };
 }
 
-/** Application scripts select their profile; native build configuration belongs to the program. */
-export function pocketCommands({ name, target, manifest: manifestPath }) {
-  const embedded = target === "esp-idf";
-  const manifest = manifestPath ?? (embedded ? "app/pocket.app.json" : "pocket.app.json");
-  const projectRoot = embedded ? posix.dirname(posix.dirname(manifest)) : posix.dirname(manifest);
-  const selection = embedded ? "" : ` --target ${target}`;
-  const input = ` --manifest ${manifest} --project-root ${projectRoot}`;
-  const compile = `pocket compile${selection}${input} --output dist/${name}.pocket`;
+/** The commands that check and compile a scaffolded application. The host
+ *  config names the one host; `config` is its path when the commands run
+ *  outside the application's directory. */
+export function pocketCommands({ name, config }) {
+  const input = config ? ` --config ${config}` : "";
+  const compile = `pocket compile${input} --output dist/${name}.pocket`;
   return {
-    check: `pocket check${selection}${input}`,
+    check: `pocket check${input}`,
     compile,
     build: compile,
   };
@@ -229,7 +240,7 @@ function packageJson({ name, framework, target, cliVersion }) {
     private: true,
     type: "module",
     scripts: {
-      ...pocketCommands({ name, target }),
+      ...pocketCommands({ name }),
       ...(target === "esp-idf" ? { "host:export": "pocket host export --out dist/profile" } : {}),
     },
     dependencies: {
@@ -257,7 +268,8 @@ function tsconfig(framework, embedded) {
 function readme({ name, title, target }) {
   let text = `# ${title}
 
-\`pocket.app.json\` declares the application entry, framework, viewport and capabilities.
+\`pocket.host.config.ts\` names the host the application builds for (\`host\`)
+and the application (\`app\`): its entry, framework, viewport and features.
 **Application compilation produces \`dist/${name}.pocket\`.** The program's native
 build consumes that package or installs it beside a compatible runtime.
 
@@ -272,8 +284,9 @@ bun run compile
     text += `
 ## Firmware integration
 
-\`pocket.host.json\` is the product's host contract (\`pocket-host/2\`), and
-\`pocket.host.config.ts\` names it. The application contract is \`app/pocket.app.json\`.
+\`pocket.host.json\` is the product's host contract (\`pocket-host/2\`).
+\`pocket.host.config.ts\` names it as \`host\` and holds the application as
+\`app\`, with its sources in \`app/\`.
 **Native firmware compilation belongs to ESP-IDF.**
 
 Run after \`idf_component_register\` in the consuming component:
@@ -282,9 +295,8 @@ Run after \`idf_component_register\` in the consuming component:
 pocketjs_compile_app(
     TARGET \${COMPONENT_LIB}
     NAME ${cmakeName}
-    MANIFEST "\${PROJECT_DIR}/app/pocket.app.json"
-    PROJECT_ROOT "\${PROJECT_DIR}"
     HOST_CONFIG "\${PROJECT_DIR}/pocket.host.config.ts"
+    PROJECT_ROOT "\${PROJECT_DIR}"
 )
 \`\`\`
 
@@ -321,20 +333,15 @@ export function create(argv, { checkoutRoot, cliVersion, cwd = process.cwd() }) 
   const appDirectory = embedded ? "app/" : "";
   const viewport = embedded ? { logical: [320, 240], presentation: "native" }
     : { logical: [480, 272], presentation: "integer-fit" };
-  const application = manifest({ name, title, framework, viewport, requires: ["text.glyphs.baked", "input.buttons"] });
-  application.app.entry = `${appDirectory}main.tsx`;
   const files = {
     [`${appDirectory}app.tsx`]: APP[framework]({ title, buttons: true }),
     [`${appDirectory}main.tsx`]: MAIN[framework](title),
-    [`${appDirectory}pocket.app.json`]: json(application),
+    "pocket.host.config.ts": hostConfig({
+      name, title, framework, viewport, features: ["text.glyphs.baked", "input.buttons"],
+      host: embedded ? "./pocket.host.json" : target, entry: `${appDirectory}main.tsx`,
+    }),
   };
-  if (embedded) {
-    files["pocket.host.json"] = json(defaultProfile(name));
-    files["pocket.host.config.ts"] = `import { defineHostConfig } from "@pocketjs/framework/host-config";
-
-export default defineHostConfig({ host: "./pocket.host.json" });
-`;
-  }
+  if (embedded) files["pocket.host.json"] = json(defaultProfile(name));
   if (standalone) {
     files["package.json"] = json(packageJson({ name, framework, target, cliVersion }));
     files["tsconfig.json"] = json(tsconfig(framework, embedded));
@@ -348,7 +355,6 @@ export default defineHostConfig({ host: "./pocket.host.json" });
   }
   return {
     name, directory, standalone, target, framework,
-    hostConfigPath: embedded ? "pocket.host.config.ts" : undefined,
-    manifestPath: `${appDirectory}pocket.app.json`, files: Object.keys(files),
+    hostConfigPath: "pocket.host.config.ts", files: Object.keys(files),
   };
 }

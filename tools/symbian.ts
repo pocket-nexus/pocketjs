@@ -1,5 +1,5 @@
 import { repositoryPath } from "./repository.ts";
-import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { planProfileDocument } from "../framework/compiler/plan.ts";
 import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
@@ -16,7 +16,7 @@ import {
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
   deploySis,
   isExpectedMtpDevice,
@@ -29,7 +29,8 @@ import {
   symbianDataBaseForEmbeddedBytes,
   symbianPackageIdentity,
 } from "./symbian-package.ts";
-import { symbianE7Orientation } from "./symbian-profile.ts";
+import { symbianE7Orientation, type SymbianOrientation } from "./symbian-profile.ts";
+import type { AppViewport } from "../contracts/spec/viewport.ts";
 import {
   SYMBIAN_DOWNLOADS,
   SYMBIAN_RUNTIME_DOWNLOADS,
@@ -44,7 +45,6 @@ import {
 } from "./build/toolchains/symbian.ts";
 import { pocketNexusCacheRoot } from "../tools/targets/cache.ts";
 import { withArtifactLock } from "../tools/targets/lock.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import {
   assertSymbianMassStorageDataStageSeparation,
   resolveSymbianMassStorageDataRoot,
@@ -341,7 +341,11 @@ export interface SymbianBuildAppOptions {
   perfTrace?: boolean;
   /** Presentation rate; the fixed 60 Hz core must divide into whole ticks. */
   frameRate?: number;
-  projectRoot?: string;
+  /** The `app.viewport` of the host config the package was compiled from;
+   *  its dynamic range selects the orientation lock. */
+  viewport?: AppViewport;
+  /** Holds the app in this orientation in place of the viewport's rule. */
+  orientation?: SymbianOrientation;
   outputRoot?: string;
   uid?: string;
   navigation?: string;
@@ -382,7 +386,6 @@ export async function withSymbianBuildTransaction<T>(
 }
 
 export async function buildApp(
-  manifestPath: string,
   sisVersion: string,
   options: SymbianBuildAppOptions = {},
 ): Promise<string> {
@@ -426,35 +429,15 @@ export async function buildApp(
     );
   }
 
-  const absoluteManifest = resolve(manifestPath);
-  const manifest: unknown = readPocketManifest(absoluteManifest).manifest;
   const plan = compiled.plan;
   const packageIdentity = symbianPackageIdentity(plan, options.uid);
   const navigation = options.navigation === undefined ? undefined : encodeSymbianNavigation(
     JSON.parse(readFileSync(resolve(options.navigation), "utf8")), packageIdentity.uid);
   if (navigation && options.catalogIndex) throw new Error("Native navigation and an embedded catalog are separate launch modes");
-  const orientation = symbianE7Orientation(manifest, plan, navigation?.orientation);
-  const manifestRelativeToPocketJs = relative(root, absoluteManifest);
-  const defaultProjectRoot =
-    manifestRelativeToPocketJs !== ".." &&
-      !manifestRelativeToPocketJs.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) &&
-      !isAbsolute(manifestRelativeToPocketJs)
-      ? root
-      : dirname(absoluteManifest);
-  const projectRoot = resolve(options.projectRoot ?? defaultProjectRoot);
-  const manifestRelativeToProject = relative(projectRoot, absoluteManifest);
-  if (
-    manifestRelativeToProject === ".." ||
-    manifestRelativeToProject.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
-    isAbsolute(manifestRelativeToProject)
-  ) {
-    throw new Error(
-      `Symbian manifest ${absoluteManifest} is outside project root ${projectRoot}`,
-    );
-  }
+  const orientation = options.orientation ?? symbianE7Orientation(options.viewport, plan, navigation?.orientation);
 
   const outputRoot = resolve(
-    options.outputRoot ?? resolve(projectRoot, "dist/symbian"),
+    options.outputRoot ?? resolve(root, "dist/symbian"),
   );
   const customCoreLibrary = options.coreLibrary === undefined
     ? undefined

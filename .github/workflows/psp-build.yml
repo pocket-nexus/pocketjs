@@ -19,7 +19,7 @@ on:
       - "contracts/**"
       - "hosts/psp-runtime/pocket.host.json"
       - "framework/compiler/**"
-      - "framework/src/manifest/**"
+      - "framework/src/host-config.ts"
       - "tools/profile-export.ts"
       - "tools/profile-resolver.ts"
       - "tools/targets/**"
@@ -88,6 +88,6 @@ jobs:
           CC_mipsel_sony_psp: /usr/bin/false
           AR_mipsel_sony_psp: /usr/bin/false
         run: |
-          bun tools/pocket.ts compile --target psp --manifest apps/hero/pocket.app.json --project-root . --output .pocket-build/validation/psp-ci/hero.pocket
+          bun tools/pocket.ts compile --target psp --config apps/hero/pocket.host.config.ts --project-root . --output .pocket-build/validation/psp-ci/hero.pocket
           bun tools/pocket.ts build --target psp --pocket .pocket-build/validation/psp-ci/hero.pocket --out .pocket-build/validation/psp-ci/native
           bun -e 'import { statSync } from "node:fs"; const r = await Bun.file(".pocket-build/validation/psp-ci/native/build-receipt.json").json(); if (!r.success || !r.artifact || statSync(r.artifact).size === 0) process.exit(1);'

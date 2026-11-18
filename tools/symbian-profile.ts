@@ -6,8 +6,9 @@ import {
   definePlatformContractRegistry,
   defineTargetRegistry,
 } from "../contracts/spec/platforms.ts";
-import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import type { ResolvedBuildPlan } from "../framework/compiler/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import type { AppViewport } from "../contracts/spec/viewport.ts";
 const softwareProfile = POCKET_PROFILES["symbian-e7-dev"];
 
 /**
@@ -34,14 +35,14 @@ export const SYMBIAN_E7_DEV_CONTRACTS = definePlatformContractRegistry(
 );
 
 export function resolveSymbianE7BuildPlan(input: unknown): ResolvedBuildPlan {
-  const resolution = validateAndResolveBuildPlan(
+  const resolution = resolveAppPlan(
     input,
     { target: SYMBIAN_E7_DEV_TARGET_ID },
     SYMBIAN_E7_DEV_CONTRACTS,
   );
   if (!resolution.ok) {
     throw new Error(
-      `pocket symbian: manifest did not resolve: ${resolution.diagnostics
+      `pocket symbian: application did not resolve: ${resolution.diagnostics
         .map((diagnostic) => `${diagnostic.path || "/"}: ${diagnostic.message}`)
         .join("; ")}`,
     );
@@ -49,31 +50,31 @@ export function resolveSymbianE7BuildPlan(input: unknown): ResolvedBuildPlan {
   return resolution.plan;
 }
 
-type ViewportDeclaration = { dynamic?: { min?: readonly number[]; max?: readonly number[] } };
+export type SymbianOrientation = "auto" | "portrait" | "landscape";
 
 /**
- * The orientation an E7 build holds, the host's one orientation lock. A
- * manifest whose dynamic viewport range admits portrait sizes only (every
+ * The orientation an E7 build holds, the host's one orientation lock. An
+ * application whose dynamic viewport range admits portrait sizes only (every
  * width below every height) is held in portrait, a landscape-only range in
  * landscape; any other app follows the phone's rotation with live relayout.
- * A navigation registry entry marked `portrait` holds a rotating app in
- * portrait as well.
+ * `viewport` is the `app.viewport` of the host config the package was
+ * compiled from; without it (a package compiled elsewhere) the range is
+ * unknown and the app rotates. A navigation registry entry marked `portrait`
+ * holds a rotating app in portrait as well.
  */
 export function symbianE7Orientation(
-  manifest: unknown,
+  viewport: AppViewport | undefined,
   plan: ResolvedBuildPlan,
   navigation: "auto" | "portrait" = "auto",
-): "auto" | "portrait" | "landscape" {
-  const app = (manifest as { app?: { viewport?: ViewportDeclaration; presentations?: { id?: string; viewport?: ViewportDeclaration }[] } }).app;
-  const chosen = app?.presentations?.find((entry) => entry.id === plan.presentation.id);
-  const dynamic = (chosen?.viewport ?? app?.viewport)?.dynamic;
+): SymbianOrientation {
+  const dynamic = viewport && !("logical" in viewport) ? viewport.dynamic : undefined;
   const range = !dynamic?.min || !dynamic.max ? "auto"
     : dynamic.max[0] < dynamic.min[1] ? "portrait"
     : dynamic.max[1] < dynamic.min[0] ? "landscape"
     : "auto";
   if (navigation === "auto") return range;
   if (range === "landscape") {
-    throw new Error(`pocket symbian: the navigation registry holds ${plan.app.output} in portrait, but its manifest admits landscape only`);
+    throw new Error(`pocket symbian: the navigation registry holds ${plan.app.output} in portrait, but its viewport admits landscape only`);
   }
   return "portrait";
 }

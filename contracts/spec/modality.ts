@@ -8,14 +8,13 @@
 // a modality. `deriveModality` is a pure function of a TargetProfile, so the
 // registry stays an inventory of hosts and this file stays a view over it.
 //
-// Applications consume the modality in two places:
-//   - pocket.app.json `app.presentations[].modality` is a REQUIREMENT the
-//     resolver tests against the target's derived modality to pick which
-//     presentation (entry module) a build compiles;
-//   - `@pocketjs/framework/modality` exposes the resolved description to the
-//     chosen presentation for the smaller, in-module adaptations.
+// The build plan records the target's derived modality, and
+// `@pocketjs/framework/modality` exposes it to the application for in-module
+// adaptations. A ModalityRequirement is a predicate over a modality
+// (`modalityMisses`); another product's resolver may select entry modules
+// with it.
 
-import type { JsonSchema } from "./pocket-manifest.ts";
+import type { JsonSchema } from "./json-schema.ts";
 import type { TargetForm, TargetProfile, Viewport } from "./platform-types.ts";
 import { DYNAMIC_FORMS, TARGET_FORMS } from "./platform-types.ts";
 
@@ -227,7 +226,7 @@ const viewportSchema = {
   maxItems: 2,
 } as const satisfies JsonSchema;
 
-/** The `modality` block of a manifest presentation. */
+/** A requirement on a target's modality (`modalityMisses`). */
 export const modalityRequirementSchema = {
   type: "object",
   additionalProperties: false,
@@ -254,7 +253,7 @@ export const modalityRequirementSchema = {
  * The modality of a build compiled without a resolved plan: the portable
  * PSP shape every stock demo targets. `deriveModality(POCKET_TARGETS.psp)`
  * must equal this value (tests/modality.test.ts pins it), and the runtime
- * module falls back to it so non-manifest builds keep one answer.
+ * module falls back to it so builds without a plan keep one answer.
  */
 export const PORTABLE_MODALITY: Modality = {
   form: "takeover",

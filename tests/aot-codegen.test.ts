@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import { buildAot } from "../microts/compiler/aot-build.ts";
 import { emitAot } from "../microts/compiler/aot-codegen.ts";
 import { generateVueAotMock } from "../microts/compiler/aot-browser.ts";
+import { registerRepositoryApp } from "./app-fixtures.ts";
 
 test("Vue lab generated Rust compiles against its handwritten model", async () => {
+  await registerRepositoryApp("vue-sfc-lab");
   await buildAot("vue-sfc-lab", { strict: true });
   const child = Bun.spawn(["cargo", "check", "--locked", "--quiet", "--manifest-path", resolve("apps/vue-sfc-lab/Cargo.toml")], { stdout: "pipe", stderr: "pipe" });
   const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);

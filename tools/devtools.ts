@@ -250,7 +250,7 @@ if (dirFlag) {
   if (!(await buildApp())) process.exit(1);
   managed = await startUsbhostfs();
   // tools/psp.ts embeds the demo's compiled package; verify exactly that one.
-  bridge = startBridge({ dir: targetDir, port: server.port, packagePath: packagePath ?? pspDemoPackage(app!), onEvent });
+  bridge = startBridge({ dir: targetDir, port: server.port, packagePath: packagePath ?? await pspDemoPackage(app!), onEvent });
   pspLine = `waiting for the PSP on USB… launch PSPLINK on it (XMB → Game)`;
 } else {
   const dir = join(ROOT, "dist", "psplink");

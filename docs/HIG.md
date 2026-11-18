@@ -3,13 +3,14 @@
 Pocket applications do not run on one kind of device. A PSP has a d-pad,
 four face buttons, two shoulders, START and SELECT, and no touch. An iPod
 touch 4 has a touch panel, one Home button and nothing else. A Vita and a
-New 3DS have both. **An application is written for a modality, and a
-device is admitted only when its modality meets what the application
-declares** (`contracts/spec/modality.ts`, `app.modality` and
-`app.presentations[].modality` in `pocket.app.json`). Pocket Clear declares
-`{ "touch": "primary" }` and the PSP refuses it at build time; Pocket
-YouTube declares nothing at the app level and a two-screen presentation on
-top, so every stock device compiles one of its two entries.
+New 3DS have both. **An application is written for a modality, and it is
+built for the devices whose modality meets it**: the `hosts` its
+`pocket.host.config.ts` lists. `deriveModality` (`contracts/spec/modality.ts`)
+reads each host's modality off its host contract, and the plan records it.
+Pocket Clear lists the iPod touch 4 and the Nokia E7, both touch-primary, and
+no button-only host. An application that serves two modalities from two entry
+modules is two configs, one per entry, as `apps/nexus-touch` and
+`apps/nexus-touch/e7` are.
 
 This document therefore has three parts: the intent vocabulary every
 application declares, the guideline for the **buttons modality**, and the
@@ -177,7 +178,7 @@ returns to the previous application: that is Recents.
 
 | Piece | State |
 | --- | --- |
-| `app.modality` and `presentations[].modality` admission | shipped (`framework/src/manifest/resolve.ts`) |
+| Modality derived from the host contract and recorded in the plan | shipped (`deriveModality`, `framework/compiler/app-plan.ts`) |
 | `glyph()` per-device button names | shipped (`@pocketjs/framework/modality`) |
 | `ClassicSelection`, `ClassicButton`, `ClassicSheet` | shipped (`@pocketjs/framework/classic`) |
 | Modality-driven keyboard with focus memory | shipped (`@pocketjs/framework/osk`) |

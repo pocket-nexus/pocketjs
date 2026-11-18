@@ -1,12 +1,11 @@
-# Modality and presentations
+# Modality
 
 A capability id names one framework behavior a host implements. A modality
 is the shape those behaviors take on one device: how many screens, which
 screen takes contacts, whether a d-pad and sticks exist, where text comes
-from, how large the primary screen is. A presentation is an application
-entry module written for one modality. This document states the model, the
-app contract surface, the build mechanism, and the two devices the model was
-built against.
+from, how large the primary screen is. This document states the model, how a
+build records it, how an application serves several modalities, and the two
+devices the model was built against.
 
 ## Modality
 
@@ -51,73 +50,38 @@ to the PSP's shape with `touch: primary`, `pointer: none`, `analog: 0`.
 `PORTABLE_MODALITY` is the PSP value, pinned by `tests/modality.test.ts`,
 and is what a bundle built without a plan reads.
 
-## Presentations
+## Modality in a build
 
-`pocket.app.json` gains `app.presentations`, an ordered list of entry modules
-each addressed to a modality:
+The resolver (`resolveAppPlan` in `framework/compiler/app-plan.ts`) derives
+the selected host's modality and writes `plan.modality` and
+`plan.presentation = { id: "default", entry }`. **The application chooses its
+devices by the hosts its `pocket.host.config.ts` lists**, and each listed host
+gets the plan its contract implies. `supports()` in
+`@pocketjs/framework/modality` evaluates a `ModalityRequirement`
+(`modalityRequirementSchema`, `modalityMisses` in `contracts/spec/modality.ts`)
+against the plan's modality at run time: `screens` is an exact count, `analog`
+a minimum, `minScreen`/`maxScreen` inclusive bounds on the primary screen's
+logical size, `touch` and `pointer` exact or `"any"`, and an absent field
+matches every device.
 
-```json
-"app": {
-  "entry": "app/main.tsx",
-  "viewport": { "logical": [480, 272], "presentation": "integer-fit" },
-  "presentations": [
-    {
-      "id": "dual-screen",
-      "entry": "app/main-dual.tsx",
-      "output": "pocket-youtube",
-      "modality": { "screens": 2, "touch": "auxiliary" },
-      "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } },
-      "surfaces": { "auxiliary": { "fixed": { "logical": [320, 240], "presentation": "native" } } },
-      "capabilities": {
-        "requires": ["display.auxiliary", "input.touch.auxiliary", "media.playback", "io.offload"],
-        "enhances": ["input.analog.right"]
-      }
-    }
-  ]
-}
-```
-
-`modality` is a requirement over the derived description: `screens` is an
-exact count, `analog` a minimum, `minScreen`/`maxScreen` inclusive bounds on
-the primary screen's logical size, `touch` and `pointer` exact or `"any"`.
-An absent field matches every device.
-
-The resolver (`framework/src/manifest/resolve.ts`):
-
-1. derives the target's modality;
-2. walks `presentations` in order and takes the first whose requirement the
-   modality meets; none matching selects the baseline `app.entry` under the
-   id `default`;
-3. resolves the viewport and surfaces the chosen presentation declares,
-   or the app-level ones when it declares none;
-4. admits the union of `engine.capabilities` and the presentation's
-   `capabilities`. **A presentation `requires` may promote an app-level
-   `enhances`; any other repeated id is a `capability.duplicate`
-   diagnostic**;
-5. writes `plan.presentation = { id, entry }`, `plan.modality`, and sets
-   `plan.app.entry` to the chosen entry.
-
-**A presentation that matches a device but fails admission there is an
-error, reported at the presentation's JSON Pointer**, because the author
-addressed that entry to that device. Selection is a match on modality;
-admission is the capability check; the two stay separate.
-
-## Build mechanism
+## Large and small differences
 
 The compiler walks the module graph from `plan.app.entry` (pass 1 in
-`tools/build.ts`) and Bun bundles that graph (pass 2). **A presentation's
-modules, class literals, glyphs and image assets enter a bundle only when
-that presentation is the chosen entry.** Shared modules (store, protocol,
-drivers) sit beside the presentations and are imported by each entry. This
-is the split `app.presentations` exists for: large differences are separate
-entries, each distributed to the devices that match it; small differences
-are branches inside one entry.
+`tools/build.ts`) and Bun bundles that graph (pass 2), so **only the entry's
+modules, class literals, glyphs and image assets enter a bundle**. A large
+difference is a second entry module with its own config: the entry's
+directory holds a second `pocket.host.config.ts` that lists the hosts the
+entry serves, with their viewport, surfaces and features. Shared modules
+(store, protocol, drivers) sit beside the entries and are imported by each.
+`apps/nexus-touch/pocket.host.config.ts` builds the 320×480 iPod touch 4
+scene and `apps/nexus-touch/e7/pocket.host.config.ts` the 360×640 Nokia E7
+portrait scene from the same `app.tsx`.
 
 Inside an entry, two tools carry the small differences:
 
 - `hasFeature("…")` from `@pocketjs/framework/platform`, folded to a boolean
-  at compile time (`framework/compiler/jsx-plugin.ts`), so an unavailable
-  enhancement's branch leaves the bundle;
+  at compile time (`framework/compiler/jsx-plugin.ts`), so the branch of a
+  feature the host lacks leaves the bundle;
 - `modality`, `screen()`, `surfaceHasTouch()`, `supports()` and `glyph()`
   from `@pocketjs/framework/modality`, read at runtime from the
   `__POCKET_MODALITY__` define `tools/build.ts` writes from the plan.

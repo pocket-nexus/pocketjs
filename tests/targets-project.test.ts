@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { decodePocketPackage, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { decodeIdentity, decodePocketPackage, encodeIdentity, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { canonicalProfileJson } from "../framework/src/profile.ts";
 import { exportProfile } from "../tools/profile-export.ts";
 import { resolveProfile } from "../tools/profile-resolver.ts";
@@ -26,7 +26,7 @@ function command(cwd: string, args: string[]) {
 }
 
 describe("host configuration", () => {
-  test("nearest config is found from the manifest directory and does not merge ancestors", async () => {
+  test("nearest config is found from the application directory and does not merge ancestors", async () => {
     const directory = scratch(); const app = join(directory, "app"); mkdirSync(app);
     writeFileSync(join(directory, "pocket.host.config.ts"), config(`{host:${JSON.stringify("./" + writeProfile(directory, profile()))}}`));
     expect(findProjectConfig(app)).toBe(join(directory, "pocket.host.config.ts"));
@@ -43,9 +43,9 @@ describe("host configuration", () => {
     const directory = scratch(); const file = join(directory, "pocket.host.config.ts");
     const first = writeProfile(directory, profile("first")), second = writeProfile(directory, profile("second"));
     writeFileSync(file, config(`{hosts:${JSON.stringify([first, second])}}`));
-    await expect(resolveProfile({ from: directory })).rejects.toThrow("multiple hosts");
+    await expect(resolveProfile({ from: directory })).rejects.toThrow("lists several hosts");
     expect((await resolveProfile({ from: directory, hostConfig: file, target: "second" })).profile.id).toBe("second");
-    await expect(resolveProfile({ from: directory, hostConfig: file, target: "psp" })).rejects.toThrow("does not implement");
+    await expect(resolveProfile({ from: directory, hostConfig: file, target: "psp" })).rejects.toThrow("does not list host psp");
     writeFileSync(file, config(`{hosts:${JSON.stringify([first, writeProfile(directory, profile("first"), "copy.json")])}}`));
     expect((await loadProject(directory)).ok).toBe(false);
     writeFileSync(file, config(`{host:"./first.ts"}`));
@@ -203,15 +203,16 @@ int main(void) {
     symlinkSync(root, join(directory, "node_modules/@pocketjs/framework"), "dir");
     const documents = [profile("external-a"), profile("external-b", [30])].map(p => writeProfile(directory, { ...p, capabilities: ["input.buttons"] }));
     const runtime = join(directory, "pocket.host.config.ts");
-    writeFileSync(runtime, `export default {hosts:${JSON.stringify(documents)}};`);
+    const application = { id: "example.compile", title: "Compile", version: "1.0.0", features: ["input.buttons"], entry: "app/main.tsx", output: "app", framework: "solid", viewport: { logical: [4, 4], presentation: "native" } };
+    writeFileSync(runtime, `export default {hosts:${JSON.stringify(documents)},app:${JSON.stringify(application)}};`);
     writeFileSync(join(app, "main.tsx"), 'import {mount} from "@pocketjs/framework";import {View} from "@pocketjs/framework/components";mount(()=><View class="w-full h-full bg-red-500"/>);');
-    writeFileSync(join(app, "pocket.app.json"), JSON.stringify({ $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "example.compile", title: "Compile", version: "1.0.0", engine: { capabilities: { requires: ["input.buttons"] } }, app: { entry: "main.tsx", output: "app", framework: "solid", viewport: { logical: [4, 4], presentation: "native" } } }));
     for (const target of ["external-a", "external-b"]) {
       const output = join(directory, target, "app.pocket");
       const dependency = join(directory, target, "app.d");
-      const result = command(directory, ["compile", "--manifest", "app/pocket.app.json", "--host-config", runtime, "--target", target, "--outdir", join(directory, target), "--output", output, "--depfile", dependency]);
+      const result = command(directory, ["compile", "--config", runtime, "--target", target, "--outdir", join(directory, target), "--output", output, "--depfile", dependency]);
       expect(result.success, result.stderr.toString() + result.stdout.toString()).toBe(true);
       const pkg = decodePocketPackage(new Uint8Array(readFileSync(output)));
+      expect(pkg.manifest).toHaveLength(0);
       expect(pkg.variants).toHaveLength(1);
       const variant = pkg.variants[0]!;
       expect(variant.target).toBe(target);
@@ -225,13 +226,18 @@ int main(void) {
       expect(existsSync(join(directory, target, "app.js"))).toBe(true);
       const verified = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket-pack.ts"), "verify", output], stdout: "pipe", stderr: "pipe" });
       expect(verified.success, verified.stderr.toString()).toBe(true);
+      // A manifest region another product wrote is carried and not read.
+      const foreign = join(directory, target, "foreign.pocket");
+      writeFileSync(foreign, encodePocketPackage({ ...pkg, manifest: new TextEncoder().encode('{"pocket":2,"id":"example.other"}') }));
+      const carried = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket-pack.ts"), "verify", foreign], stdout: "pipe", stderr: "pipe" });
+      expect(carried.success, carried.stderr.toString()).toBe(true);
+      // An identity section that names another application is rejected.
       const invalid = join(directory, target, "invalid.pocket");
-      const manifest = JSON.parse(new TextDecoder().decode(pkg.manifest));
-      manifest.engine.capabilities.requires.push("input.touch");
-      writeFileSync(invalid, encodePocketPackage({ ...pkg, manifest: new TextEncoder().encode(JSON.stringify(manifest)) }));
+      writeFileSync(invalid, encodePocketPackage({ ...pkg, variants: pkg.variants.map(variant => ({ ...variant, sections: variant.sections.map(section =>
+        section.kind === POCKET_SECTION.identity ? { ...section, bytes: encodeIdentity({ ...decodeIdentity(section.bytes), title: "Other" }) } : section) })) }));
       const rejected = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket-pack.ts"), "verify", invalid], stdout: "pipe", stderr: "pipe" });
       expect(rejected.success).toBe(false);
-      expect(rejected.stderr.toString()).toContain("no longer admitted");
+      expect(rejected.stderr.toString()).toContain("identity differs from its plan");
     }
   }, 120_000);
 

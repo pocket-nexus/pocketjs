@@ -7,7 +7,8 @@
 //                            scaffold an app: apps/<name> inside a checkout, a
 //                            standalone project anywhere else
 //   pocket [+<id>] check|compile|build [+<id>] [--target <id|pocket.host.json>] [...args]
-//                            select a target, resolve pocket.app.json once, build from its plan
+//                            select a host, resolve the app section of the nearest
+//                            pocket.host.config.ts once, build from its plan
 //   pocket show [--json]     framework, project, selected target and the catalog
 //                            with each target's install state
 //   pocket target add [<id> …] | list [--check] [--json] | remove <id> …
@@ -87,9 +88,9 @@ function scaffold(args) {
     console.error(C.dim(CREATE_USAGE));
     process.exit(1);
   }
-  const { name, target, framework, manifestPath } = result;
+  const { name, target, framework } = result;
   if (result.standalone) {
-    const commands = pocketCommands({ name, target });
+    const commands = pocketCommands({ name });
     console.log(C.ok(`${relative(process.cwd(), result.directory) || "."}/ scaffolded (${framework}, ${target})`));
     console.log(C.dim(`  cd ${relative(process.cwd(), result.directory)}`));
     console.log(C.dim("  bun install"));
@@ -97,12 +98,7 @@ function scaffold(args) {
     console.log(C.dim(`  bun run build     # ${commands.build}`));
     return;
   }
-  const manifest = `apps/${name}/${manifestPath}`;
-  const commands = pocketCommands({
-    name,
-    target,
-    manifest,
-  });
+  const commands = pocketCommands({ name, config: `apps/${name}/${result.hostConfigPath}` });
   console.log(C.ok(`apps/${name} scaffolded (${framework}, ${target})`));
   console.log(C.dim(`  ${commands.check}`));
   console.log(C.dim(`  ${commands.build}`));
@@ -152,9 +148,9 @@ function frameworkQuery(framework, args) {
   }
 }
 
-/** Ask the framework to find the config above the selected manifest. */
-function projectFor(framework, manifest, config) {
-  const result = frameworkQuery(framework, ["project", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--host-config", config] : [])]);
+/** Ask the framework for the host config nearest the working directory, or the named one. */
+function projectFor(framework, config) {
+  const result = frameworkQuery(framework, ["project", ...(config ? ["--host-config", config] : [])]);
   if (!result.ok) fail(result.diagnostics.join("\n"));
   return result.project;
 }
@@ -185,9 +181,10 @@ function verb(cmd, args, leading) {
   if (taken.error) fail(taken.error);
   if (taken.args.includes("--all")) fail("--all is not supported; enumerate profiles in scripts or CI");
   if (taken.args.some(arg => arg === "--host-profile" || arg.startsWith("--host-profile="))) fail("--host-profile was replaced by host contracts (--target pocket.host.json) and --host-config");
+  if (taken.args.some(arg => arg === "--manifest" || arg.startsWith("--manifest="))) fail("--manifest was removed; the application is the app section of pocket.host.config.ts, selected with --config FILE");
   const config = optionValue(taken.args, "host-config") ?? optionValue(taken.args, "config");
   const project = !taken.explicit && !process.env.POCKET_TARGET?.trim()
-    ? projectFor(framework, optionValue(taken.args, "manifest"), config)
+    ? projectFor(framework, config)
     : { config: null, profiles: [], build: false };
   const selection = select({ explicit: taken.explicit, project });
   process.exit(runVerb(framework, cmd, selection, project, taken.args));
@@ -204,10 +201,9 @@ function show(args, leading) {
   const resolved = resolveFramework();
   const problem = resolved.error ?? protocolMismatch(resolved, cliVersion());
   const host = currentHostId();
-  const manifest = optionValue(args, "manifest");
-  const config = optionValue(args, "host-config");
-  const project = problem ? null : projectFor(resolved, manifest, config);
-  const status = problem ? [] : frameworkQuery(resolved, ["status", "--json", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--host-config", config] : [])]);
+  const config = optionValue(args, "host-config") ?? optionValue(args, "config");
+  const project = problem ? null : projectFor(resolved, config);
+  const status = problem ? [] : frameworkQuery(resolved, ["status", "--json", ...(config ? ["--host-config", config] : [])]);
   const explicit = leading ? { id: leading, origin: `+${leading}` } : null;
   const selection = select({ explicit, project });
   const report = {
@@ -226,9 +222,9 @@ function show(args, leading) {
   const row = (label, value) => console.log(`${label.padEnd(11)} ${value}`);
   row("framework", problem ? C.bad(problem) : `${resolved.name ?? "@pocketjs/framework"} ${resolved.version ?? ""}   ${resolved.origin} ${resolved.root}`);
   row("project", project?.config
-    ? `${project.config}${project.profiles.length ? `   (profiles: ${project.profiles.map((target) => target.id).join(", ")})` : "   (no profiles)"}`
+    ? `${project.config}${project.profiles.length ? `   (hosts: ${project.profiles.map((target) => target.id).join(", ")})` : "   (no hosts)"}`
     : "no pocket.host.config.ts");
-  row("target", selection ? `${selection.id}   ${selection.origin}` : C.dim("none — --target, POCKET_TARGET or pocket.host.config.ts"));
+  row("target", selection ? `${selection.id}   ${selection.origin}` : C.dim("none — --target, POCKET_TARGET or a single-host pocket.host.config.ts"));
   row("host", report.host);
   if (report.targets.length === 0) return;
   console.log("\ntargets for this framework");
@@ -268,8 +264,9 @@ if (leading !== undefined && !SELECTING.has(cmd)) fail(`+${leading} selects a ta
 const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
 
   pocket create <name> [--target ID]
-  pocket [+id] check|compile [--manifest pocket.app.json] [--target ID|pocket.host.json]
-      --host-config FILE     choose the host config
+  pocket [+id] check|compile [--config FILE] [--target ID|pocket.host.json]
+      --config FILE          the host config whose app section to compile
+                             (default: the nearest pocket.host.config.ts)
       --output FILE          compile a .pocket package
       --aot --out DIR        compile native guest sources
       --depfile FILE         emit build dependencies

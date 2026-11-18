@@ -4,10 +4,11 @@ import {
 decodePocketPackage,
 encodePocketPackage,
 fnv1a64,
+POCKET_SECTION,
 type PocketPackageVariant,
 } from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { canonicalJson } from "../framework/compiler/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
@@ -27,25 +28,22 @@ async function readZip(bytes: Uint8Array) {
 const ID = "dev.pocket-nexus.studio.snack-snake";
 const DATA_PSP = new TextEncoder().encode("~PSP stand-in for the runtime's program");
 
-function manifest(features: string[] = []) {
+/** The `app` section of the application's host config. */
+function app(features: string[] = []) {
   return {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
     id: ID,
     title: "Snack Snake",
     version: "1.2.0",
-    engine: { capabilities: { requires: ["text.glyphs.baked", ...features], enhances: ["input.buttons"] } },
-    app: {
-      entry: "main.tsx",
-      output: "snack-snake",
-      framework: "solid",
-      viewport: { fixed: { logical: [480, 272], presentation: "integer-fit" } },
-    },
+    entry: "main.tsx",
+    output: "snack-snake",
+    framework: "solid",
+    viewport: { fixed: { logical: [480, 272], presentation: "integer-fit" } },
+    features: ["text.glyphs.baked", "input.buttons", ...features],
   };
 }
 
-function variant(target: "psp-runtime" | "vita", source = manifest()): PocketPackageVariant {
-  const resolution = validateAndResolveBuildPlan(source, { target }, target === "psp-runtime" ? profileRegistry(softwareProfile) : undefined);
+function variant(target: "psp-runtime" | "vita", source = app()): PocketPackageVariant {
+  const resolution = resolveAppPlan(source, { target }, target === "psp-runtime" ? profileRegistry(softwareProfile) : undefined);
   if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
   const plan = resolution.plan;
   return makeVariant({
@@ -58,9 +56,9 @@ function variant(target: "psp-runtime" | "vita", source = manifest()): PocketPac
   });
 }
 
-function pocketFor(targets: ("psp-runtime" | "vita")[] = ["psp-runtime", "vita"], source = manifest()): Uint8Array {
+function pocketFor(targets: ("psp-runtime" | "vita")[] = ["psp-runtime", "vita"], source = app()): Uint8Array {
   return encodePocketPackage({
-    manifest: new TextEncoder().encode(JSON.stringify(source)),
+    manifest: new Uint8Array(0),
     variants: targets.map((target) => variant(target, source)),
   });
 }
@@ -177,9 +175,10 @@ describe("PSP repack", () => {
     );
   });
 
-  test("generic profile rejects offload before a package can be produced", () => {
-    expect(() => variant("psp-runtime", manifest(["io.offload"]))).toThrow("io.offload");
-    expect(() => variant("psp-runtime", manifest(["text.layout.offload"]))).toThrow("text.layout.offload");
+  test("generic profile compiles offload off and rejects text offload without its transport", () => {
+    const plan = JSON.parse(new TextDecoder().decode(variant("psp-runtime", app(["io.offload"])).sections.find(section => section.kind === POCKET_SECTION.plan)!.bytes));
+    expect(plan.features["io.offload"]).toBe(false);
+    expect(() => variant("psp-runtime", app(["text.layout.offload"]))).toThrow("text.layout.offload");
   });
 
   test("names the folder from the title, then the id", async () => {

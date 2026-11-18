@@ -96,9 +96,7 @@ jobs:
       - name: Compile deterministic smoke package and export its program profile
         run: |
           bun tools/pocket.ts compile \
-            --manifest tests/esp-idf/examples/smoke/pocket.app.json \
-            --host-config tests/esp-idf/examples/smoke/pocket.host.config.ts \
-            --project-root tests/esp-idf/examples/smoke \
+            --config tests/esp-idf/examples/smoke/pocket.host.config.ts \
             --plan-dir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/plans" \
             --outdir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/app" \
             --output "$GITHUB_WORKSPACE/tests/esp-idf/examples/smoke/idf-smoke.pocket"

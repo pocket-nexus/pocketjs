@@ -35,7 +35,7 @@ import vueJsxVaporPkg from "vue-jsx-vapor/package.json";
 import octanePkg from "octane/package.json";
 import babelCorePkg from "@babel/core/package.json";
 import tsPresetPkg from "@babel/preset-typescript/package.json";
-import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
+import type { PocketFramework } from "../../contracts/spec/app-config.ts";
 import { FRAMEWORK_CHOICES, parseFramework } from "./framework-choice.ts";
 export { parseFramework } from "./framework-choice.ts";
 import { POCKET_FRAMEWORKS, SUBPATHS, resolvesIn } from "./subpaths.ts";
@@ -491,7 +491,7 @@ export function packagePath(spec: string, framework: PocketFramework): string | 
 function uiDomain(spec: string, name: string, path: string | null): string | null {
   const decl = SUBPATHS[name];
   if (decl && !resolvesIn(decl, "ui")) {
-    throw new Error(`UI domain cannot import ${spec}: the subpath resolves only in the worker domain (domains.worker.entry)`);
+    throw new Error(`UI domain cannot import ${spec}: the subpath resolves only in the worker domain (app.worker.entry)`);
   }
   return path;
 }
@@ -544,7 +544,7 @@ export async function transformFile(
   if (isVueSfc && framework !== "vue-vapor") {
     throw new Error(
       `PocketJS: ${path} is a Vue SFC and requires framework \"vue-vapor\" ` +
-        `(set app.framework in pocket.app.json or pass --framework=vue-vapor)`,
+        `(set app.framework in pocket.host.config.ts or pass --framework=vue-vapor)`,
     );
   }
   // Contract dependencies can change without changing the SFC's transform

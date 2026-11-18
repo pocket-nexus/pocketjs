@@ -16,7 +16,7 @@ bunx @pocketjs/cli show
 | Command | Result |
 | --- | --- |
 | `pocket create <name> [options]` | an application scaffold, or an ESP-IDF product with a host contract and application |
-| `pocket check [options]` | app contract, host contract, viewport and TypeScript validation |
+| `pocket check [options]` | application config, host contract, viewport and TypeScript validation |
 | `pocket compile [options]` | a version 2 `.pocket` application package |
 | `pocket compile --aot --out <directory> [options]` | MicroTS Rust sources, fonts, images and dependency metadata |
 | `pocket build [--config <file>] [--target <id>]` | the program's runtime build recipe |
@@ -58,14 +58,14 @@ Host-development commands require a checkout or a framework selected by
 
 ## Host contract selection
 
-**`--target` selects a host contract.** For application compilation and host
-export it accepts a built-in host ID or the path of a `pocket.host.json`
-file, including the one a firmware release publishes:
+**`--target` selects a host contract.** It accepts a built-in host ID or the
+path of a `pocket.host.json` file, including the one a firmware release
+publishes:
 
 ```sh
-pocket check --manifest pocket.app.json --target psp
-pocket compile --manifest pocket.app.json --target ./hosts/my-board/pocket.host.json
-pocket compile --manifest pocket.app.json --target ./vendor/pocket.host.json
+pocket check --target psp
+pocket compile --target ./hosts/my-board/pocket.host.json
+pocket compile --target ./vendor/pocket.host.json
 ```
 
 A path ends in `.json`. A host contract that carries a `hostAbi` stamp other
@@ -79,42 +79,50 @@ Selection follows this order:
 3. The single host contract in the nearest `pocket.host.config.ts`.
 
 Different explicit selections are an error. A host config containing
-multiple host contracts requires a host ID. Pass `--host-config <file>` to
-`check` or `compile`, or `--config <file>` to `build` or `host export`, to
-select a host config by path. When a host config is selected, the target
-must be one of its host IDs. **`build` requires a host config and selects
-one of that config's host contracts.**
+multiple host contracts requires a host ID. Pass `--config <file>` (alias
+`--host-config`) to select a host config by path; without it, the commands
+use the nearest `pocket.host.config.ts` above the current directory.
+**`check` and `compile` build the config's `app` for a host the config
+lists**: a target the config does not list is an error, and a path names a
+host contract whose id the config lists. `build` and `host export` select one
+of the config's host contracts the same way.
 
-The host config lookup starts at the app contract's directory for `check` and
-`compile`, and at the current directory for `build` and `host export`.
-An explicit target or `POCKET_TARGET` bypasses the implicit
-host config lookup for application compilation and host export.
-
-Host contract paths passed to `--target` resolve against the current
-directory. A host config names its host contracts by paths relative to the
-config file.
+An explicit target or `POCKET_TARGET` bypasses the implicit host config lookup
+for host export. Host contract paths passed to `--target` resolve against the
+current directory. A host config names its host contracts by paths relative
+to the config file, or by built-in host IDs.
 
 ### Host config
 
-The program declares its host contract and optional native build recipe:
+An application's host config lists the hosts it is built for and holds the
+application; a program's lists its host contract and an optional native build
+recipe:
 
 ```ts
-// pocket.host.config.ts
+// pocket.host.config.ts of an application
 import { defineHostConfig } from "@pocketjs/framework/host-config";
 
-export default defineHostConfig({ host: "./pocket.host.json" });
+export default defineHostConfig({
+  host: "psp",
+  app: {
+    entry: "main.tsx",
+    output: "my-app-main",
+    framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" },
+    features: ["text.glyphs.baked", "input.buttons"],
+  },
+});
 ```
 
-Use `hosts: ["./a/pocket.host.json", "./b/pocket.host.json"]` when one program
-implements several host contracts. `host` and `hosts` are alternatives. The app
-contract owns `app.entry`, `app.framework`, `app.viewport`, `app.tickHz`,
-`app.theme` (a module or JSON path) and requirements; the host contract
-supplies display geometry, cadences and capabilities.
+Use `hosts: ["psp", "vita", "./boards/a/pocket.host.json"]` for several host
+contracts. `host` and `hosts` are alternatives. The `app` section owns the
+entry, framework, viewport, tick rate, theme and features
+([Application config](/docs/app-config/)); the host contract supplies display
+geometry, cadences and capabilities.
 
 `pocket show --json` reports the selected framework, host config, host
-contract selection, build machine and toolchain states. `--manifest <file>`
-changes the host config lookup directory; `--host-config <file>` names the
-host config. `pocket +psp show` displays an explicit selection.
+contract selection, build machine and toolchain states. `--host-config <file>`
+names the host config. `pocket +psp show` displays an explicit selection.
 
 ### Host IDs and toolchain IDs
 
@@ -130,18 +138,17 @@ Product-owned host contracts do not require a catalog entry.
 ## check and compile
 
 ```sh
-pocket check --manifest pocket.app.json --target psp
-pocket compile --manifest pocket.app.json --target psp --output dist/app.pocket
-pocket compile --manifest pocket.app.json --target ./hosts/my-board/pocket.host.json \
+pocket check
+pocket compile --target psp --output dist/app.pocket
+pocket compile --config apps/hero/pocket.host.config.ts --target ./hosts/my-board/pocket.host.json \
   --output dist/app.pocket --depfile dist/app.d
 ```
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--target <id-or-file>` | host contract selection above | the host contract to compile against |
-| `--host-config <file>` | nearest host config when no target is supplied | a host config containing the selected host contract |
-| `--manifest <file>` | `pocket.app.json` | the [app contract](/docs/app-contract/) |
-| `--project-root <directory>` | the app contract's directory | base directory for the entry, TypeScript configuration and output paths |
+| `--config <file>` | the nearest `pocket.host.config.ts` above the current directory | the host config whose `app` section is compiled; `--host-config` is an alias |
+| `--target <id-or-file>` | the config's one host | a host the config lists |
+| `--project-root <directory>` | the config's directory | base directory for the plan's entries, TypeScript configuration and output paths |
 | `--outdir <directory>` | `dist` | compiler intermediates and the default package directory |
 | `--plan-dir <directory>` | `.pocket` | resolved build plans |
 | `--output <file>` | `<outdir>/<app.output>.pocket` | guest package output |
@@ -149,35 +156,36 @@ pocket compile --manifest pocket.app.json --target ./hosts/my-board/pocket.host.
 | `--compiler-receipt <file>` | none | an existing product-owned toolchain receipt to include as a dependency |
 | `--aot --out <directory>` | off; output directory defaults to `dist` | generate native application sources |
 
-`--manifest`, `--project-root`, `--host-config` and `--compiler-receipt`
-resolve against the current directory. Output, plan and depfile paths resolve
-against the project root. Unknown options are errors.
+`--config`, `--project-root` and `--compiler-receipt` resolve against the
+current directory. Output, plan and depfile paths resolve against the project
+root. Unknown options are errors. **`--manifest` was removed**; the command
+answers it with one line naming `--config`.
 
-**`check` writes no output.** It validates the app contract against the
-published schema, the host contract's capabilities and viewport, and the entry
-module's TypeScript import graph. It uses the project's
-`tsconfig.json` when present and prints the resolved plan hash.
+**`check` writes no output.** It checks the `app` section against its schema,
+resolves it against the selected host contract, and type-checks the entry
+module's import graph. It uses the project's `tsconfig.json` when present and
+prints the resolved plan hash.
 
 **`compile` produces a version 2 `.pocket` package.** It performs the same
-validation, writes the build plan to `<plan-dir>/<target>/plan.json`, and
-compiles JavaScript and pak intermediates. The package contains the app
-contract and a variant with the host ID, host contract hash, binding
-generation, plan, JavaScript and assets. An app contract `icon` becomes the
-variant's cover section. Host IDs unsuitable for directory names use a
-hash-derived plan directory. The optional depfile includes application
-imports, assets, compiler inputs, the icon, the host contracts and the host
-config modules.
+validation, writes the build plan to `<plan-dir>/<target>/plan.json`, and runs
+the compiler on it (`tools/build.ts --plan`). The package's manifest region is
+empty; its variant carries the host ID, host contract hash, binding
+generation, identity section (output, id, title), plan, JavaScript and
+assets. `app.icon` becomes the variant's cover section. Host IDs unsuitable
+for directory names use a hash-derived plan directory. The optional depfile
+includes application imports, assets, compiler inputs, the icon, the host
+contracts and the host config modules, the theme module among them.
 
 ### AOT source generation
 
 ```sh
-pocket compile --manifest apps/gba-hero/pocket.app.json --project-root . \
+pocket compile --config apps/gba-hero/pocket.host.config.ts --project-root . \
   --target gba --aot --out dist/gba-sources
-pocket compile --manifest apps/ipodnano-hero/pocket.app.json --project-root . \
+pocket compile --config apps/ipodnano-hero/pocket.host.config.ts --project-root . \
   --target ipodnano --aot --out dist/ipod-sources
 ```
 
-An AOT application's app contract sets `app.aot` to `true`. **`--aot` generates sources and assets without
+An AOT application's `app` section sets `aot` to `true`. **`--aot` generates sources and assets without
 running Cargo or producing JavaScript or a `.pocket` package.** The output
 includes Rust modules, `include.rs`, styles, font and image assets, layer
 metadata, and `dependencies.json` with a depfile. Relative includes let the
@@ -186,16 +194,29 @@ program builds use this source-generation path before their native build.
 
 The compiler requires its prebuilt Wasm layout oracle; a missing oracle is an
 error. `--aot` is a `compile` option and cannot be combined with `--output`.
-The app contract's `app.tickHz` and `app.theme` apply to the generated animation
-data.
+The application's `app.tickHz` and `app.theme` apply to the generated
+animation data.
 
 ## build
 
-**`pocket build` executes the program's host config.** It does not
-accept an app contract. Compile application packages or AOT sources
-with `pocket compile`. `--pocket <file>` supplies a compiled package;
-`--aot-dir <directory>` supplies generated sources. A recipe declares its
-required input with `input: "package"` or `input: "aot"`.
+**`pocket build` executes a program's host config.** `--pocket <file>`
+supplies a compiled package; `--aot-dir <directory>` supplies generated
+sources. A recipe declares its required input with `input: "package"` or
+`input: "aot"`.
+
+**From an application's directory, `pocket build --target <id>` builds the
+application with a program.** When the nearest host config has an `app`
+section and no `build`, and the selected host is built-in, the stock
+program's recipe for that host runs (`PROGRAMS` in
+`tools/build/programs.ts`); a config with `build` runs its own recipe. Without
+`--pocket` or `--aot-dir`, the command first compiles the config's `app` for
+the selected host into the recipe's input. The output directory defaults to
+`dist/runtime` beside the application's config.
+
+```sh
+cd apps/hero
+pocket build --target psp
+```
 
 ```ts
 // pocket.host.config.ts in a native program repository
@@ -217,8 +238,8 @@ pocket build --config pocket.host.config.ts --out dist/profile
 `--target <id>` selects among the host config's host contracts. `--out` names
 the output directory, relative to the current directory. Its default is
 `dist/runtime` beside the host config, or `dist/profile` for a host config
-without a build recipe. `--host-config` and `--outdir` are aliases for
-`--config` and `--out` on this command.
+without a build recipe or stock program. `--host-config` and `--outdir` are
+aliases for `--config` and `--out` on this command.
 
 The recipe declares its supported build machines in `build.hosts` and one or
 more `steps`:
@@ -243,10 +264,14 @@ precede the command's `PATH`.
 **The executor checks that the package was compiled for the selected host
 contract and binding generation before native compilation**, because the native build
 reads its inputs from the plan. AOT inputs also verify every generated file's checksum.
-Admitted bytes are copied into the output directory. `context.application`
-contains the extracted plan, JavaScript and resource pack;
-`context.aot` contains the source directory and include file. Paths in steps
-can use `{outdir}`, `{output}`, `{config}`, `{application}` and `{aot}`.
+Admitted bytes are copied into the output directory. The executor reads the
+variant's plan, identity section and host facts; it does not read the
+package's manifest region, which another product may fill.
+`context.application` contains the extracted plan, JavaScript and resource
+pack; `context.aot` contains the source directory and include file;
+`context.app` is the `app` section when `pocket build` compiled the
+application from its config. Paths in steps can use `{outdir}`, `{output}`,
+`{config}`, `{application}` and `{aot}`.
 
 `sourceInputs` declares native files or directories that the recipe reads
 outside its imported modules. Their contents are included in the receipt.
@@ -274,7 +299,7 @@ host contract's facts** ([admission](/docs/platform-contracts/#admission)), so a
 package compiled for another host contract with the same facts packs.
 
 ```sh
-pocket compile --manifest apps/hero/pocket.app.json --project-root . --target psp-runtime \
+pocket compile --config apps/hero/pocket.host.config.ts --project-root . --target psp-runtime \
   --output dist/hero.pocket
 pocket build --target psp --generic --out dist/psp-runtime
 pocket pack --target psp --runtime dist/psp-runtime \
@@ -287,8 +312,9 @@ the runtime for the installed framework release. `--release-version` selects
 an exact release version; `--manifest-url` selects a release index mirror. Native compilation and application
 compilation are separate commands. `--id`, `--title`, `--version`, `--author`
 and `--icon` supply package identity. Omitted fields come from the compiled
-plan and the app contract's `author` and `icon`; with neither, the author is
-recorded as `Unspecified`.
+plan and the variant's cover section. Without `--author`, the author is
+`app.author` when `pack` runs from the application's directory and the
+config's application id equals the plan's, and `Unspecified` otherwise.
 
 ## Host contract export
 
@@ -404,13 +430,15 @@ pocket create my-product --target esp-idf --framework vue-vapor
 An existing destination is an error. In a checkout, output goes to
 `apps/<name>/`; elsewhere it goes to `./<name>/`.
 
-For an application target, the scaffold contains `pocket.app.json`, `main.tsx`
-and `app.tsx`. The app contract declares a 480×272 `integer-fit` viewport and
-requires buttons and baked glyphs. A standalone project also receives
-`package.json`, `tsconfig.json`, a README and `.gitignore`. Its `check` and
-`compile` scripts select the requested host contract. **The scaffold's `build`
-package script is an alias for `pocket compile`** and produces
-`dist/<name>.pocket`.
+For an application target, the scaffold contains `pocket.host.config.ts`,
+`main.tsx` and `app.tsx`. The config's `host` is the requested host ID, and
+its `app` section states the entry, the output `<name>-main`, a 480×272
+`integer-fit` viewport and the `text.glyphs.baked` and `input.buttons`
+features. A standalone project also receives `package.json`, `tsconfig.json`,
+a README and `.gitignore`. Its scripts are `check: pocket check` and
+`compile: pocket compile --output dist/<name>.pocket`; the config lists one
+host, so neither names a target. **The scaffold's `build` package script is
+an alias for the `compile` command** and produces `dist/<name>.pocket`.
 
 ### ESP-IDF products
 
@@ -420,7 +448,6 @@ package script is an alias for `pocket compile`** and produces
 my-product/
   pocket.host.json
   pocket.host.config.ts
-  app/pocket.app.json
   app/main.tsx
   app/app.tsx
 ```
@@ -429,9 +456,9 @@ my-product/
 `product-my-product`, and it declares `takeover` form,
 cadences 60 and 30, a 320×240 panel and logical viewport, `native`
 presentation, density 1, the `repaint` animation class, buttons and baked
-glyphs. The host config names that host contract
-without a build recipe. The application entry is relative to the product
-root.
+glyphs. The one host config names that host contract (`host:
+"./pocket.host.json"`) and holds the application (`app.entry:
+"app/main.tsx"`, relative to the config) without a build recipe.
 
 A standalone product also receives package scripts and a README with firmware
 integration commands:
@@ -444,8 +471,8 @@ bun run compile
 bun run host:export
 ```
 
-The application script passes `--manifest app/pocket.app.json --project-root .`.
-`bun run host:export` runs `pocket host export --out dist/profile`, which writes
+The `check` and `compile` scripts take the product's config and name no
+target. `bun run host:export` runs `pocket host export --out dist/profile`, which writes
 `dist/profile/pocket_profile.h` and
 `dist/profile/pocket.host.json`. Native firmware compilation belongs to
 ESP-IDF. The generated README shows `pocketjs_compile_app` with

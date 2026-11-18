@@ -16,23 +16,24 @@
 import { mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { $ } from "bun";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { exportProfile } from "./profile-export.ts";
+import { loadHostConfig } from "./profile-resolver.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2).filter((a) => a !== "--");
 const proof = args.includes("--proof");
 const pass = args.filter((f) => f !== "--proof");
 
-// The note builds through its manifest against the macos-widget
-// target profile — density, viewport and capability features all come from
-// the platform contract, not flags.
-const manifest = readPocketManifest(`${root}apps/note/pocket.app.json`).manifest;
-const resolution = validateAndResolveBuildPlan(manifest, { target: "macos-widget" });
+// The note builds from the app section of its host config against the
+// macos-widget target profile — density, viewport and capability features
+// all come from the platform contract, not flags.
+const configPath = `${root}apps/note/pocket.host.config.ts`;
+const config = await loadHostConfig(configPath);
+const resolution = resolveAppPlan(config.value.app, { target: "macos-widget", configDirectory: `${root}apps/note`, projectRoot: root });
 if (!resolution.ok) {
   throw new Error(
-    `pocket-note: manifest did not resolve: ${resolution.diagnostics
+    `pocket-note: application did not resolve: ${resolution.diagnostics
       .map((d) => `${d.path || "/"}: ${d.message}`)
       .join("; ")}`,
   );
@@ -41,7 +42,7 @@ const planPath = `${root}.pocket/desktop-widget/note-main.plan.json`;
 mkdirSync(resolvePath(planPath, ".."), { recursive: true });
 await Bun.write(planPath, JSON.stringify(resolution.plan, null, 2) + "\n");
 
-await $`bun tools/build.ts --plan=${planPath} --project-root=${root}`.cwd(root);
+await $`bun tools/build.ts --plan=${planPath} --project-root=${root} --config=${configPath}`.cwd(root);
 // The widget compiles in the profile the note was resolved against.
 const { plan } = resolution;
 const exported = exportProfile(

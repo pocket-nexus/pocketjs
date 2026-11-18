@@ -1,6 +1,6 @@
-import { validatePocketManifest } from "@pocketjs/framework/manifest";
+import { validateAppConfig } from "@pocketjs/framework/plan";
 import { hasFeature, platform } from "@pocketjs/framework/platform";
 
 export const target = platform.target;
 export const buttons = hasFeature("input.buttons");
-export const valid = validatePocketManifest({}).ok;
+export const valid = validateAppConfig({}).length === 0;

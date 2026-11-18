@@ -14,8 +14,7 @@
 //   /docs/*, /index.html  rendered from site/content (added below)
 
 import { stageWebAssets } from "../tools/build/web-assets.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -302,6 +301,7 @@ const RETIRED_DOC_SLUGS: [from: string, to: string][] = [
   ["/docs/concepts/", "/docs/architecture/"],
   ["/docs/tailwind/", "/docs/styling/"],
   ["/docs/net/", "/docs/api/"],
+  ["/docs/app-contract/", "/docs/app-config/"],
 ];
 
 function writeStaticRedirects(): void {
@@ -334,7 +334,7 @@ function demoSpriteMeta(name: string): SpriteMeta | undefined {
   return JSON.parse(readFileSync(path, "utf8")) as SpriteMeta;
 }
 
-function demoManifest() {
+async function playgroundDemos() {
   const dir = ROOT + "apps/";
   const out: DemoEntry[] = [];
   for (const name of readdirSync(dir).sort()) {
@@ -343,15 +343,11 @@ function demoManifest() {
     const octaneApp = dir + name + "/app.octane.tsx";
     const main = dir + name + "/main.tsx";
     if (!existsSync(app)) continue;
-    // The playground (and every demo shelf on the site) shows only
-    // PSP-admissible demos: a committed manifest that does not resolve
-    // against the psp target (desktop-only capabilities, non-console
-    // viewport) keeps its demo off the site.
-    const manifestPath = dir + name + "/pocket.app.json";
-    if (existsSync(manifestPath)) {
-      const manifest = readPocketManifest(manifestPath).manifest;
-      if (!validateAndResolveBuildPlan(manifest, { target: "psp" }).ok) continue;
-    }
+    // The playground (and every demo shelf on the site) shows only demos
+    // built for the PSP: a demo whose host config does not list psp
+    // (desktop-only features, a non-console viewport) stays off the site.
+    const configPath = dir + name + "/pocket.host.config.ts";
+    if (existsSync(configPath) && !(await loadHostConfig(configPath)).profiles.some((profile) => profile.id === "psp")) continue;
     const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"));
     if (source === null) continue; // multi-file demo
     let title = name[0].toUpperCase() + name.slice(1);
@@ -554,9 +550,8 @@ async function main() {
 
   // 2. runtime assets
   // Keep the editor-facing URL byte-identical to the schema used by the
-  // validator. The deployed path is POCKET_MANIFEST_SCHEMA_ID —
-  // /schema/pocket-2.json, independent of where the repo keeps the file.
-  copy(ROOT + "contracts/schema/pocket-2.json", "schema/pocket-2.json");
+  // validator: /schema/pocket-host-2.json, independent of where the repo
+  // keeps the file.
   copy(ROOT + "contracts/schema/pocket-host-2.json", "schema/pocket-host-2.json");
   copy(ROOT + "platforms/web/pocketjs.wasm", "pg/pocketjs.wasm");
   // Preserve program/provider module and worker URLs under the deployed root.
@@ -588,8 +583,8 @@ async function main() {
     }
   }
 
-  // 3. demos manifest
-  const demos = demoManifest();
+  // 3. the playground's demo list
+  const demos = await playgroundDemos();
   write("pg/demos.json", JSON.stringify(demos));
   console.log(`  pg/demos.json  (${demos.length} demos: ${demos.map((d) => d.name).join(", ")})`);
   await verifyPlaygroundModules(demos);
@@ -1006,12 +1001,12 @@ async function buildDocs(highlight: Highlight) {
   let frameworkCodeId = 0;
   // One copy per app however many pages embed it.
   const copiedDemos = new Set<string>();
-  const renderDocDemos = (markdown: string, used: DocDemo[]) => {
+  const renderDocDemos = async (markdown: string, used: DocDemo[]) => {
     const directives = findDocDemoDirectives(markdown);
     if (directives.length === 0) return markdown;
     const lines = markdown.split("\n");
     for (const directive of directives) {
-      const demo = resolveDocDemo(directive.app);
+      const demo = await resolveDocDemo(directive.app);
       // dist/ holds no demo artifact on a fresh clone, so this is the default
       // state, not an edge case: name the command instead of shipping a page
       // with a dead frame.
@@ -1096,7 +1091,7 @@ async function buildDocs(highlight: Highlight) {
       }
       const source = readFileSync(md, "utf8");
       const pageDemos: DocDemo[] = [];
-      const withDemos = renderDocDemos(source, pageDemos);
+      const withDemos = await renderDocDemos(source, pageDemos);
       const html = await marked.parse(tree.transformFrameworkCode ? renderFrameworkCode(withDemos) : withDemos);
       const prev = allSlugs[i - 1];
       const next = allSlugs[i + 1];

@@ -8,8 +8,9 @@ On Linux:
 
 ```sh
 bun tools/pocket.ts build --config programs/linux-kms/pocket.host.config.ts --out dist/linux-kms
-# Compile the product's app contract against the same host config.
-bun tools/pocket.ts compile --manifest /product/app/pocket.app.json --host-config programs/linux-kms/pocket.host.config.ts --output dist/app.pocket
+# Compile the product's application. Its pocket.host.config.ts lists this
+# program's host contract (programs/linux-kms/pocket.host.json) and holds the app.
+bun tools/pocket.ts compile --config /product/pocket.host.config.ts --output dist/app.pocket
 dist/linux-kms/runtime/pocket-linux-kms --package dist/app.pocket
 ```
 

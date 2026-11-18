@@ -10,8 +10,8 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 // pinned Rust, cargo-psp, SDK and prebuilt QuickJS. The EBOOT embeds the
 // package bytes and the exported profile; it encodes nothing at boot.
 //
-// A demo builds from its apps/<demo>/pocket.app.json (or the repository template);
-// --framework=<id> replaces the manifest's framework, as the PPSSPP goldens do.
+// A demo builds from the app section of its apps/<demo>/pocket.host.config.ts;
+// --framework=<id> replaces its framework, as the PPSSPP goldens do.
 //
 // --capture builds the E2E frame-dump EBOOT (cargo psp --features capture)
 // and bakes the POCKETJS_CAPTURE_INPUT env ("frame:mask,…") into the binary —
@@ -32,14 +32,15 @@ import { parseFramework, type PocketFramework } from "../framework/compiler/fram
 import {
   extractHostBuildInputs,
   hostBuildEnvironment,
-} from "../framework/src/manifest/host-build-inputs.ts";
-import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+} from "../framework/compiler/host-build-inputs.ts";
+import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/compiler/plan.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
-import { compileDemoPackage, demoManifest } from "./build/programs/handheld-common.ts";
+import { compileDemoPackage, demoApp, demoPackagePath } from "./build/programs/handheld-common.ts";
+import type { AppConfig } from "../contracts/spec/app-config.ts";
 import { exportProfile } from "./profile-export.ts";
 const softwareProfile = POCKET_PROFILES["psp"];
 const runtimeProfile = POCKET_PROFILES["psp-runtime"];
@@ -61,17 +62,17 @@ export function pspPackageInput(packagePath: string | undefined, outdir: string,
     hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, packagePath, outdir);
 }
 
-/** The manifest `tools/psp.ts <demo>` compiles: the demo's own, with a
- *  --framework override in place of its framework. */
-export function pspDemoManifest(demo: string, framework?: string): Record<string, any> {
-  const manifest = demoManifest(demo, framework);
-  if (framework) manifest.app.framework = parseFramework(framework, "--framework");
-  return manifest;
+/** The application `tools/psp.ts <demo>` compiles: the demo's `app`
+ *  section, with a --framework override in place of its framework. */
+export function pspDemoVariant(framework?: string): ((app: AppConfig) => AppConfig) | undefined {
+  if (!framework) return undefined;
+  const selected = parseFramework(framework, "--framework");
+  return app => ({ ...app, framework: selected });
 }
 
 /** The compiled package `tools/psp.ts <demo>` embeds, under its output directory. */
-export function pspDemoPackage(demo: string, outdir = `${pspUiDir}dist/`, framework?: string): string {
-  return resolvePath(outdir, `${pspDemoManifest(demo, framework).app.output}.pocket`);
+export function pspDemoPackage(demo: string, outdir = `${pspUiDir}dist/`): Promise<string> {
+  return demoPackagePath(demo, outdir);
 }
 
 export function pspLauncherPackages(registry: string, requested = ""): string {
@@ -112,7 +113,7 @@ for (let index = 0; index < argv.length; index++) {
   }
   else if (a.startsWith("--framework=")) frameworkFlag = a.slice("--framework=".length);
   else if (a.startsWith("--config=") || a === "--no-config") {
-    throw new Error("pocket.config.ts was removed; use pocket.app.json app.framework and app.theme");
+    throw new Error("pocket.config.ts was removed; app.framework and app.theme belong to the application's pocket.host.config.ts");
   } else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
   else if (a === "--pocket" || a.startsWith("--pocket=")) {
     const value = a === "--pocket" ? argv[++index] : a.slice("--pocket=".length);
@@ -150,7 +151,8 @@ if (!appArg && !application && !runtime) {
   process.exit(1);
 }
 // Reject an unknown demo before resolving a toolchain.
-const demoManifestInput = !application && !runtime ? pspDemoManifest(appArg, frameworkFlag) : undefined;
+const demoApplication = !application && !runtime ? await demoApp(appArg) : undefined;
+const demoVariant = pspDemoVariant(frameworkFlag);
 
 // The installed toolchain, or a diagnostic naming `pocket target add psp`.
 let toolchain: ReturnType<typeof resolvePspBuildToolchain>;
@@ -167,9 +169,9 @@ try {
 // ---------------------------------------------------------------------------
 
 if (runtime) console.log("PocketJS psp: building the generic runtime (no app; reads app.pocket)");
-if (demoManifestInput) {
-  console.log(`PocketJS psp: compiling demo "${appArg}" (framework=${demoManifestInput.app.framework ?? "solid"})`);
-  application = pspPackageInput(await compileDemoPackage("psp", demoManifestInput, outputDir, skipBuild), outputDir);
+if (demoApplication) {
+  console.log(`PocketJS psp: compiling demo "${appArg}" (framework=${(demoVariant?.(demoApplication) ?? demoApplication).framework})`);
+  application = pspPackageInput(await compileDemoPackage("psp", appArg, outputDir, { reuse: skipBuild, ...(demoVariant ? { app: demoVariant } : {}) }), outputDir);
   projectRoot = pspUiDir;
 }
 if (application) {

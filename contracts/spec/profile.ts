@@ -1,7 +1,7 @@
 // Host contracts: what a host program promises, as JSON. The compiler
 // bakes these facts into a package; a device admits a package when its own
 // facts satisfy the package's (contracts/spec/admission.ts).
-import type { JsonSchema } from "./pocket-manifest.ts";
+import type { JsonSchema } from "./json-schema.ts";
 import {
   ANIMATION_CLASSES,
   PRESENTATION_MODES,

@@ -1,4 +1,3 @@
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +13,7 @@ PHYSICS_QUERY as Q,
 import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
 import { ensureHostWasm } from "../tools/wasm.ts";
+import { repositoryApp } from "./app-fixtures.ts";
 
 // apps/nexus-touch on the wasm core at the iPod touch 4's 320x480 @2x, the
 // guest the ipodtouch4-dev build embeds, driven by a touch tape. The intro
@@ -31,10 +31,12 @@ const saved = new Map(GLOBALS.map((key) => [key, (globalThis as any)[key]]));
 
 beforeAll(async () => {
   wasmPath = await ensureHostWasm();
-  const plan = resolveIPodTouch4BuildPlan(readPocketManifest(join(ROOT, "apps/nexus-touch/pocket.app.json")).manifest);
+  // The plan's entry is relative to the config's directory, the project root here.
+  const nexus = await repositoryApp("apps/nexus-touch/pocket.host.config.ts");
+  const plan = resolveIPodTouch4BuildPlan(nexus.app);
   writeFileSync(join(OUT, "plan.json"), JSON.stringify(plan));
   const build = Bun.spawnSync(
-    [process.execPath, "tools/build.ts", `--plan=${join(OUT, "plan.json")}`, `--outdir=${join(OUT, "guest")}`],
+    [process.execPath, "tools/build.ts", `--plan=${join(OUT, "plan.json")}`, `--project-root=${nexus.configDirectory}`, `--outdir=${join(OUT, "guest")}`],
     { cwd: join(ROOT, "."), stdout: "pipe", stderr: "pipe" },
   );
   if (!build.success) throw new Error(`nexus-touch guest build failed\n${build.stdout}${build.stderr}`);

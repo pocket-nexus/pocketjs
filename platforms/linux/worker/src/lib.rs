@@ -1,4 +1,4 @@
-//! A Linux program's worker domain (`domains.worker` in an app contract):
+//! A Linux program's worker domain (`domains.worker` in a build plan):
 //! engine/worker's C runner on its own thread (runner.rs), the `http` node over
 //! the program's own [`Exchange`] (http.rs), and the UI realm's channel bridge
 //! beside the rquickjs guest (guest.rs). Pocket Hub's CardputerZero program and

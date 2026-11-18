@@ -31,7 +31,7 @@
 import { $ } from "bun";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { demoManifestFor } from "../../tools/demo-identity.ts";
+import { demoApp, demoConfigPath } from "../../tools/build/programs/handheld-common.ts";
 import { dirname } from "node:path";
 import { buildCaptureApplication, evidenceDirectory } from "./build.ts";
 import { FRAMEWORKS, parseFramework } from "../../framework/compiler/jsx-plugin.ts";
@@ -235,18 +235,9 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 mkdirSync(goldensDir, { recursive: true });
 
-function writeDemoManifest(app: string): string {
-  const manifest = demoManifestFor(pspUiDir, app) as Record<string, any>;
-  manifest.id = `dev.pocket-nexus.e2e.psp.${app.replace(/-/g, ".")}`;
-  manifest.title = `PocketJS E2E ${app}`;
-  manifest.app.entry = `apps/${app}/main.tsx`;
-  manifest.app.output = `${app}-main`;
-  manifest.app.framework = framework;
-  const directory = `${outDir}/manifests`;
-  const path = `${directory}/${app}.json`;
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
-  return path;
+/** The E2E identity and framework a demo compiles with, in place of its config's. */
+function e2eVariant(app: string) {
+  return { id: `dev.pocket-nexus.e2e.psp.${app.replace(/-/g, ".")}`, title: `PocketJS E2E ${app}`, output: `${app}-main`, framework };
 }
 
 // Emulator provenance: byte-exact goldens are only promised for the PPSSPP
@@ -260,20 +251,20 @@ if (!update && stampedCommit !== ppssppCommit) {
 
 // Non-default frameworks cover exactly the demos that carry the sibling
 // variant; the rest stay Solid-only.
-const selectedSpecs =
-  framework === "solid"
-    ? SPECS
-    : SPECS.filter((spec) => {
-        if (!existsSync(`${pspUiDir}apps/${spec.app}/app${FRAMEWORKS[framework].outputSuffix}.tsx`)) return false;
-        const app = demoManifestFor(pspUiDir, spec.app).app as Record<string, unknown>;
-        if (app.model === "compiled" && app.framework !== framework) {
-          console.log(`SKIP ${spec.app}: compiled model declares framework ${app.framework}; ${framework} needs its own application manifest`);
-          return false;
-        }
-        return true;
-      });
+const selectedSpecs: typeof SPECS = [];
+for (const spec of SPECS) {
+  if (framework !== "solid") {
+    if (!existsSync(`${pspUiDir}apps/${spec.app}/app${FRAMEWORKS[framework].outputSuffix}.tsx`)) continue;
+    const app = await demoApp(spec.app);
+    if (app.model === "compiled" && app.framework !== framework) {
+      console.log(`SKIP ${spec.app}: compiled model declares framework ${app.framework}; ${framework} needs its own application`);
+      continue;
+    }
+  }
+  selectedSpecs.push(spec);
+}
 if (selectedSpecs.length === 0) {
-  console.error(`no demos have a compatible ${framework} manifest and app${FRAMEWORKS[framework].outputSuffix}.tsx variant`);
+  console.error(`no demos have a compatible ${framework} application and app${FRAMEWORKS[framework].outputSuffix}.tsx variant`);
   process.exit(2);
 }
 console.log(`framework: ${framework} (${selectedSpecs.length} demo(s), goldens: ${goldensDir})`);
@@ -282,12 +273,11 @@ let failed = false;
 
 for (const spec of selectedSpecs) {
   console.log(`\n## ${spec.app} (input: ${spec.inputScript})`);
-  const manifest = writeDemoManifest(spec.app);
-
   // 1. Compile a package, then consume that package in the native recipe.
   console.log("# build capture EBOOT ...");
   const eboot = await buildCaptureApplication({
-    root: pspUiDir, directory: `${outDir}/${spec.app}`, target: "psp", manifest,
+    root: pspUiDir, directory: `${outDir}/${spec.app}`, target: "psp",
+    config: demoConfigPath(spec.app), variant: e2eVariant(spec.app),
     env: {
       ...process.env,
       POCKETJS_CAPTURE_INPUT: spec.inputScript,

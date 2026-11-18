@@ -14,17 +14,18 @@ The native recipes live in `tools/build/programs/`. Their host configs live in `
 
 ## Programs that embed an application
 
-Compile against the same host config used for the native build:
+Compile the application for the host contract the program implements, then
+build the program with the package:
 
 ```sh
-bun tools/pocket.ts compile --manifest apps/nexus-touch/pocket.app.json \
-  --project-root . --host-config programs/ipodtouch4/pocket.host.config.ts \
+bun tools/pocket.ts compile --config apps/nexus-touch/pocket.host.config.ts \
+  --project-root . --target ipodtouch4-dev \
   --output dist/ipodtouch4/application.pocket
 bun tools/pocket.ts build --config programs/ipodtouch4/pocket.host.config.ts \
   --pocket dist/ipodtouch4/application.pocket --out dist/ipodtouch4
 ```
 
-**The build executor checks the package generation, host contract hash, app contract and resolved plan before starting a native tool.** Native recipes use the admitted JavaScript and resource bytes. Application source files are not needed for this step. A missing package is an error; the recipe does not select a demo.
+**The build executor checks the package generation, host contract hash, the plan's checksum and the identity section against the plan before starting a native tool.** It does not read the package's manifest region. Native recipes use the admitted JavaScript and resource bytes. Application source files are not needed for this step. A missing package is an error; the recipe does not select a demo.
 
 The Nokia E7 recipe retains its native extension and presentation options. Pass those after `--`, for example `-- --frame-rate 60 --core-library /absolute/path/lib.a`. The iPod touch 4 command retains application-specific native cores and artwork selected by its descriptor; it takes `build --pocket <file>` and uses the same package admission checks.
 
@@ -35,8 +36,8 @@ The default iPod touch 4 host config builds without application code. Packaging 
 ```sh
 bun tools/pocket.ts build --config programs/ipodtouch4/pocket.host.config.ts \
   --out dist/ipod-runtime
-bun tools/pocket.ts compile --manifest apps/clear/pocket.app.json \
-  --project-root . --host-config programs/ipodtouch4/pocket.host.config.ts \
+bun tools/pocket.ts compile --config apps/clear/pocket.host.config.ts \
+  --project-root . --target ipodtouch4-dev \
   --output dist/clear-ipod.pocket
 bun tools/pocket.ts pack --config programs/ipodtouch4/pocket.host.config.ts \
   --runtime dist/ipod-runtime/runtime --pocket dist/clear-ipod.pocket \

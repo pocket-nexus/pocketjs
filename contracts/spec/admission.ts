@@ -31,7 +31,7 @@ export const ADMISSION_ITEMS = [
 ] as const;
 export type AdmissionItem = (typeof ADMISSION_ITEMS)[number];
 
-/** The core's largest tick rate; manifests cap an application at 60. */
+/** The core's largest tick rate; an application's `app.tickHz` is at most 60. */
 export const MAX_TICK_HZ = 240;
 /** The most core ticks one presented frame advances. */
 export const MAX_CORE_TICKS_PER_FRAME = 60;

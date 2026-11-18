@@ -1,6 +1,7 @@
-import { resolveSourceEntry, sourceAppContent, sourceOutputName } from "./source-app.ts";
+import { registerAppSettings, registerSourceApplication, resolveSourceEntry, sourceApplication, sourceOutputName } from "./source-app.ts";
 import { resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
-import { modelConfiguration } from "../microts/compiler/aot-model-build.ts";
+import { modelConfiguration, registerApplication } from "../microts/compiler/aot-model-config.ts";
+import { loadHostConfig } from "./profile-resolver.ts";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 import { buildWorker } from "./build-worker.ts";
 // tools/build.ts <app> — the TWO-PASS app build (docs/DESIGN.md "Build pipeline").
@@ -19,6 +20,11 @@ import { buildWorker } from "./build-worker.ts";
 //         minify off unless POCKETJS_MINIFY=1) -> dist/<app>.js.
 //
 // Flags:
+//   --plan=<plan.json>           compile the application a ResolvedBuildPlan
+//                                names (`pocket compile` writes one); entries
+//                                are relative to --project-root
+//   --config=<pocket.host.config.ts>  the host config the plan was resolved
+//                                from; its model settings must equal the plan's
 //   --framework=solid|vue-vapor|octane  select the framework for this build
 //   --extra-chars=<string>       force extra codepoints into every atlas
 //   --density=<integer>          low-level target sampling density (default 1)
@@ -49,9 +55,9 @@ import {
   type LiteralSite,
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
-import { animationThemeSchema } from "../contracts/spec/pocket-manifest.ts";
-import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
-import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { animationThemeSchema } from "../contracts/spec/animation-theme.ts";
+import { validateSchema, type ContractDiagnostic } from "../contracts/spec/json-schema.ts";
+import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/compiler/plan.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { profileResponseBytes } from "../contracts/spec/profile.ts";
 import { resolveWorkerChannels } from "../contracts/spec/worker.ts";
@@ -100,6 +106,7 @@ let monoFontPath: string | undefined;
 let appArg = "";
 let frameworkFlag: string | undefined;
 let planPath: string | undefined;
+let configPath: string | undefined;
 let densityFlag: number | undefined;
 let hzFlag: number | undefined;
 let projectRoot = process.cwd();
@@ -113,9 +120,8 @@ for (const a of args) {
   else if (a.startsWith("--font-bold=")) boldFontPath = resolvePath(a.slice("--font-bold=".length));
   else if (a.startsWith("--font-mono=")) monoFontPath = resolvePath(a.slice("--font-mono=".length));
   else if (a.startsWith("--framework=")) frameworkFlag = a.slice("--framework=".length);
-  else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
-    throw new Error("PocketJS build: application configuration belongs in pocket.app.json; --config and --no-config were removed");
-  }
+  else if (a.startsWith("--config=")) configPath = resolvePath(a.slice("--config=".length));
+  else if (a === "--config" || a === "--no-config") throw new Error("PocketJS build: --config=<pocket.host.config.ts> names the config a plan was resolved from");
   else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
   else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
   else if (a.startsWith("--outdir=")) DIST = resolvePath(a.slice("--outdir=".length)) + "/";
@@ -140,39 +146,51 @@ if (planPath) {
     throw new Error("PocketJS build: --framework cannot override a ResolvedBuildPlan");
   }
   appArg = resolvePath(projectRoot, buildPlan.app.entry);
-  // Model lowering reads the application's manifest before transform caching.
-  // A frozen plan must reject a later change to that compiler configuration.
+  // Model lowering consults the registered application settings before
+  // transform caching. With --config the application is registered from its
+  // host config, and a frozen plan must match it; without one, the plan's
+  // settings are the application's.
+  if (configPath) {
+    const loaded = await loadHostConfig(configPath);
+    if (!loaded.value.app) throw new Error(`PocketJS build: ${configPath} has no app section`);
+    loaded.dependencies.forEach(path => buildInputs.add(path));
+    registerAppSettings(dirname(configPath), loaded.value.app);
+  } else {
+    registerApplication({ directory: dirname(appArg), aot: buildPlan.app.aot, model: buildPlan.app.model,
+      recursionLimit: buildPlan.app.recursionLimit, framework: buildPlan.app.framework, entry: appArg });
+  }
   const model = modelConfiguration(appArg);
-  const currentApp = model.directory ? (await Bun.file(join(model.directory, "pocket.app.json")).json()).app ?? {} : {};
-  if ((currentApp.aot === true) !== (buildPlan.app.aot === true)
+  if ((model.aot === true) !== (buildPlan.app.aot === true)
     || model.mode !== (buildPlan.app.model ?? "rust")
     || model.recursionLimit !== (buildPlan.app.recursionLimit ?? 256)
-    || model.mode === "compiled" && currentApp.framework !== buildPlan.app.framework) {
+    || model.mode === "compiled" && model.framework !== buildPlan.app.framework) {
     throw new Error("PocketJS build: model settings differ from the ResolvedBuildPlan; resolve a new plan before building");
   }
+} else if (configPath) {
+  throw new Error("PocketJS build: --config names the host config a --plan was resolved from; a build without a plan reads the config nearest its entry");
 }
 
 if (!appArg) {
-  console.error("usage: bun tools/build.ts <app.tsx | app name> [--plan=<resolved-plan.json>] [--framework=solid|vue-vapor|octane] [--extra-chars=...] [--density=N] [--hz=N]");
+  console.error("usage: bun tools/build.ts <app.tsx | app name> [--plan=<resolved-plan.json> [--config=<pocket.host.config.ts>]] [--framework=solid|vue-vapor|octane] [--extra-chars=...] [--density=N] [--hz=N]");
   process.exit(1);
 }
 
 const requestedEntry = resolveSourceEntry(appArg, ROOT);
 buildInputs.optional(join(projectRoot, "tsconfig.json"));
 // The public compiler passes a frozen plan. Low-level source builds read the
-// matching application manifest so they bake the same application theme.
-if (!buildPlan) modelConfiguration(requestedEntry);
-let appProjectRoot = projectRoot;
-const sourceContent = buildPlan ? undefined : sourceAppContent(requestedEntry, {
-  frameworkRoot: ROOT, projectRoot, onRead: path => buildInputs.add(path),
-  onAppRoot: path => { appProjectRoot = path; },
-});
-const appContent = buildPlan ? buildPlan.app : sourceContent!;
-/** The worker domain: the frozen plan's, or the source manifest's with
+// host config nearest the entry for its framework, theme and worker, and
+// register its model settings.
+const source = buildPlan ? undefined : await sourceApplication(requestedEntry);
+source?.dependencies.forEach(path => buildInputs.add(path));
+if (source) registerAppSettings(source.directory, source.app);
+// A plan's worker entry is relative to the project root; a config's to the config.
+const appProjectRoot = source?.directory ?? projectRoot;
+const appContent = buildPlan ? buildPlan.app : { framework: source?.app.framework, theme: source?.app.theme };
+/** The worker domain: the frozen plan's, or the source config's with
  *  "host" channel sizes at the floor every host holds. */
 const workerDeclaration = buildPlan
   ? buildPlan.domains?.worker
-  : sourceContent?.domains?.worker && resolveWorkerChannels(sourceContent.domains.worker);
+  : source?.app.worker && resolveWorkerChannels(source.app.worker);
 if (appContent.theme !== undefined) {
   const diagnostics: ContractDiagnostic[] = [];
   validateSchema(appContent.theme, animationThemeSchema, "/app/theme", diagnostics);
@@ -180,7 +198,7 @@ if (appContent.theme !== undefined) {
 }
 const framework: PocketFramework = frameworkFlag
   ? parseFramework(frameworkFlag, "--framework")
-  : parseFramework(appContent.framework, buildPlan ? "ResolvedBuildPlan" : "pocket.app.json");
+  : parseFramework(appContent.framework, buildPlan ? "ResolvedBuildPlan" : "app.framework");
 const frameworkConfig = FRAMEWORKS[framework];
 const entry = frameworkVariantPath(requestedEntry, framework);
 const appName = buildPlan?.app.output ?? sourceOutputName(requestedEntry, ROOT);
@@ -276,6 +294,9 @@ const visited = new Set<string>();
 async function walk(file: string): Promise<void> {
   if (visited.has(file)) return;
   visited.add(file);
+  // Sources another application owns compile with its model settings.
+  const owner = await registerSourceApplication(file);
+  owner?.dependencies.forEach(path => buildInputs.add(path));
   // Never scan the compiled-styles module: its literals ARE the compiled
   // class names, and collecting them again would feed the compiler its own
   // output [R]. Other generated modules (an asset registry, for example) are

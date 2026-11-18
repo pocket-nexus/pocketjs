@@ -23,7 +23,7 @@ count, key hints) is not an interface. It reaches the screen as a member of
 the state the interface is sent, behind a setting the player turns on.
 
 Three documents state the rules this skill applies:
-[`docs/MODALITY.md`](../../docs/MODALITY.md) (modality and presentations),
+[`docs/MODALITY.md`](../../docs/MODALITY.md) (modality, large and small differences),
 [`docs/HIG.md`](../../docs/HIG.md) (intents, the buttons guideline, the touch
 guideline) and
 [`docs/POCKET3D-UI-OVERLAY.md`](../../docs/POCKET3D-UI-OVERLAY.md) (the same
@@ -33,36 +33,42 @@ overlay on the desktop renderer).
 
 | Part | What it is |
 | --- | --- |
-| `ui/pocket.app.json` | The app contract. `app.entry` is the baseline presentation; `app.presentations[]` addresses other entries to a modality. |
 | `ui/app/protocol.ts` | The state the renderer sends and the commands the interface sends. |
 | `ui/app/host.ts` | `connectOverlay` from `@pocketjs/framework/overlay-host`, the state as one signal per member, the numbers that change every turn as a plain array with listeners. |
 | `ui/app/parts.tsx` | Every readout, row, gauge and map once. A presentation places parts; it does not redraw one. |
-| `ui/app/presentations/*.tsx` | One file per device shape. |
+| `ui/app/presentations/<shape>/` | One presentation per device shape: its entry (`main.tsx`) and its `pocket.host.config.ts`, which lists the hosts of that shape and holds the `app` section. |
 | `crates/<game>-interface` | The renderer's side: the state struct, the command parser, the channel, and `Session`, the flow. |
 | `tools/ui.ts` | Compiles the app for a device, writes every screen as a picture, runs the flow test. |
 | `ui/test/` | A mock renderer and the rig that runs a compiled bundle on the wasm UI core. |
 
 ## One presentation per device shape
 
-`pocket.app.json` picks the entry at build time from the target's modality
-(screens, touch, buttons). A game that ships on the four handhelds declares
-three entries:
+A presentation is an entry module with its own `pocket.host.config.ts`. The
+config lists the hosts of one device shape and states the viewport, surfaces
+and features the entry is laid out for; `pocket compile` builds it for each
+host it lists. A game that ships on the four handhelds has three:
 
-```json
-"app": {
-  "entry": "app/main.tsx",
-  "viewport": { "logical": [480, 272], "presentation": "integer-fit" },
-  "presentations": [
-    { "id": "dual-screen", "entry": "app/main-dual.tsx",
-      "modality": { "screens": 2, "touch": "auxiliary" },
-      "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } },
-      "surfaces": { "auxiliary": { "fixed": { "logical": [320, 240], "presentation": "native" } } },
-      "capabilities": { "requires": ["display.auxiliary", "input.touch.auxiliary"] } },
-    { "id": "touch", "entry": "app/main-touch.tsx",
-      "modality": { "touch": "primary", "buttons": false },
-      "viewport": { "fixed": { "logical": [480, 320], "presentation": "native" } } }
-  ]
-}
+```ts
+// ui/app/presentations/single/pocket.host.config.ts: PSP, PS Vita
+export default defineHostConfig({
+  hosts: ["psp", "vita"],
+  app: { entry: "main.tsx", framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" } },
+});
+// ui/app/presentations/dual-screen/pocket.host.config.ts: Nintendo 3DS
+export default defineHostConfig({
+  host: "3ds-runtime",
+  app: { entry: "main.tsx", framework: "solid",
+    viewport: { fixed: { logical: [400, 240], presentation: "native" } },
+    surfaces: { auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } },
+    features: ["display.auxiliary", "input.touch.auxiliary"] },
+});
+// ui/app/presentations/touch/pocket.host.config.ts: iPod touch
+export default defineHostConfig({
+  host: "../../../hosts/ipod/pocket.host.json",
+  app: { entry: "main.tsx", framework: "solid",
+    viewport: { fixed: { logical: [480, 320], presentation: "native" } } },
+});
 ```
 
 | Presentation | Devices | What it must do |
@@ -74,8 +80,8 @@ three entries:
 A device differs by its presentation. A small difference inside one entry
 reads `modality`, `surfaceHasTouch()` and `glyph()` from
 `@pocketjs/framework/modality` (a legend says ○ on a PSP and A on a 3DS from
-one source line). **Do not fork a part per device, and do not write a second
-`pocket.app.json`.**
+one source line). **Do not fork a part per device**: a presentation's entry
+places the shared parts.
 
 ### One layout for the screens every device has
 
@@ -100,9 +106,10 @@ rows of two) before it becomes a grid of buttons.
 
 A device outside PocketJS's public registry (a 3DS host contract, an
 iPod drawable that shares the scene's 480 × 320) resolves through a host
-contract kept with the game's tool: `validateAndResolveBuildPlan` with a
-registry of one target (`profileRegistry` in `tools/profile-resolver.ts`
-builds one from a host contract).
+contract kept with the game's tool: the presentation's config lists the
+contract's path, or the tool calls `resolveAppPlan` from
+`@pocketjs/framework/plan` with a registry of one target (`profileRegistry`
+in `tools/profile-resolver.ts` builds one from a host contract).
 
 ### A browser tab shows every presentation
 

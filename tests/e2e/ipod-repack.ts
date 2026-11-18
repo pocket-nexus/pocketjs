@@ -1,11 +1,11 @@
 // A game repacked onto the generic iPod touch 4 runtime, installed, started
 // and captured.
 //
-//   bun tests/e2e/ipod-repack.ts --manifest <pocket.app.json> --id <id> --title <title>
+//   bun tests/e2e/ipod-repack.ts --config <pocket.host.config.ts> --id <id> --title <title>
 //     --author <author> --version <version> [--icon <png>] [--out <dir>] [--device]
 //
-// Builds the game's ipodtouch4-dev variant into a `.pocket` (the manifest's
-// project is its directory), repacks it onto dist/runtime/ipod (built by
+// Builds the ipodtouch4-dev variant of the game's `app` section into a
+// `.pocket` (the config's directory is the project root), repacks it onto dist/runtime/ipod (built by
 // `bun tools/runtime.ts ipod`) and, with --device, installs the .ipa through
 // `tools/ipodtouch4.ts deploy --ipa` (AppSync Unified, byte-exact readback of
 // every bundle file), launches it, waits for a running status record from the
@@ -18,9 +18,10 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { encodePocketPackage } from "../../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../../framework/src/manifest/plan.ts";
+import { canonicalJson } from "../../framework/compiler/plan.ts";
 import { resolveIPodTouch4BuildPlan } from "../../tools/ipodtouch4-profile.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
+import { loadHostConfig } from "../../tools/profile-resolver.ts";
 import { readRuntimeDirectory } from "../../tools/repack.ts";
 import { repackIPod } from "../../tools/repack/ipod.ts";
 
@@ -30,10 +31,10 @@ const option = (name: string) => {
   const index = argv.indexOf(`--${name}`);
   return index >= 0 ? argv[index + 1] : undefined;
 };
-const manifestPath = option("manifest");
+const configPath = option("config");
 const identity = { id: option("id") ?? "", title: option("title") ?? "", author: option("author") ?? "", version: option("version") ?? "" };
-if (!manifestPath || Object.values(identity).some((value) => !value)) {
-  throw new Error("usage: bun tests/e2e/ipod-repack.ts --manifest <pocket.app.json> --id … --title … --author … --version … [--icon png] [--out dir] [--device]");
+if (!configPath || Object.values(identity).some((value) => !value)) {
+  throw new Error("usage: bun tests/e2e/ipod-repack.ts --config <pocket.host.config.ts> --id … --title … --author … --version … [--icon png] [--out dir] [--device]");
 }
 const run = new Date().toISOString().replace(/[:.]/g, "-");
 const OUT = resolve(option("out") ?? join(ROOT, ".pocket-build/validation/runtime-ipod", run));
@@ -53,14 +54,14 @@ async function command(args: string[], env: Record<string, string> = {}): Promis
 
 try {
   // The game's ipodtouch4-dev variant, built from its own project.
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const plan = resolveIPodTouch4BuildPlan(manifest);
+  const config = resolve(configPath);
+  const plan = resolveIPodTouch4BuildPlan((await loadHostConfig(config)).value.app);
   const planFile = join(OUT, "plan.json");
   writeFileSync(planFile, `${JSON.stringify(plan, null, 2)}\n`);
   const guest = join(OUT, "guest");
-  await command(["bun", "tools/build.ts", `--plan=${planFile}`, `--project-root=${dirname(resolve(manifestPath))}`, `--outdir=${guest}`]);
+  await command(["bun", "tools/build.ts", `--plan=${planFile}`, `--project-root=${dirname(config)}`, `--outdir=${guest}`, `--config=${config}`]);
   const pocket = encodePocketPackage({
-    manifest: new Uint8Array(readFileSync(manifestPath)),
+    manifest: new Uint8Array(0),
     variants: [
       makeVariant({
         target: plan.target.id,

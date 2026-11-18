@@ -12,14 +12,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { demoManifestFor } from "../../tools/demo-identity.ts";
+import { demoConfigPath } from "../../tools/build/programs/handheld-common.ts";
 import { dirname } from "node:path";
 import { buildCaptureApplication, evidenceDirectory } from "./build.ts";
 import {
   DEFAULT_VITA_PACKAGE_ASSETS,
   VITA_REQUIRED_SYSTEM_ASSETS,
 } from "../../tools/vita-package.ts";
-import { vitaTitleId } from "../../framework/src/manifest/vita-package.ts";
+import { vitaTitleId } from "../../framework/compiler/vita-title-id.ts";
 import { encodePNG } from "../png.ts";
 import { encodeThresholdInput, encodeTouchInput, GOLDEN_SPECS } from "../golden-specs.ts";
 
@@ -105,19 +105,12 @@ function writeFixture(): void {
   writeFileSync(CONFIG, config);
 }
 
-function writeDemoManifest(name: string): { readonly path: string; readonly titleId: string } {
+/** The demo's host config and the E2E identity it compiles with, so an E2E
+ *  install never shadows the demo's own title. */
+function e2eDemo(name: string) {
   const demo = name.replace(/-main$/, "");
-  const applicationId = `dev.pocket-nexus.e2e.${demo.replace(/-/g, ".")}`;
-  const manifest = demoManifestFor(ROOT, demo) as Record<string, any>;
-  manifest.id = applicationId;
-  manifest.title = `PocketJS E2E ${demo}`;
-  manifest.app.entry = `apps/${demo}/main.tsx`;
-  manifest.app.output = name;
-  manifest.app.framework = "solid";
-  const path = `${OUT}/manifests/${name}.json`;
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
-  return { path, titleId: vitaTitleId(applicationId) };
+  const id = `dev.pocket-nexus.e2e.${demo.replace(/-/g, ".")}`;
+  return { config: demoConfigPath(demo), variant: { id, title: `PocketJS E2E ${demo}`, output: name, framework: "solid" as const }, titleId: vitaTitleId(id) };
 }
 
 process.on("exit", () => {
@@ -221,7 +214,7 @@ for (const spec of specs) {
   const input = encodeThresholdInput(spec);
   const touch = encodeTouchInput(spec);
   const bundle = spec.app ?? spec.name;
-  const { path: manifest, titleId } = writeDemoManifest(bundle);
+  const { config, variant, titleId } = e2eDemo(bundle);
   const appDir = `${VITAFS}/ux0/app/${titleId}`;
   const globalTitleStub = `${globalVitaFs}/ux0/app/${titleId}`;
   mkdirSync(`${appDir}/sce_sys`, { recursive: true });
@@ -234,7 +227,7 @@ for (const spec of specs) {
   console.log(`\n## ${spec.name} (${spec.capture.length} golden frame(s))`);
   try {
     const vpk = await buildCaptureApplication({
-      root: ROOT, directory: `${OUT}/${spec.name}`, target: "vita", manifest,
+      root: ROOT, directory: `${OUT}/${spec.name}`, target: "vita", config, variant,
       env: {
         ...process.env,
         VITASDK: process.env.VITASDK ?? `${homedir()}/vitasdk`,

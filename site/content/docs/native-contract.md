@@ -323,7 +323,7 @@ cases.
 | 38 | `debugStats` — one JSON snapshot of the device's diagnostic counters plus build identity: the app output name and the FNV-1a64 hash of the embedded js+pak | Hosts without counters omit it and the DevTools `stats` reply carries `null`. |
 | 39–41 | `appTable`, `appLaunch`, `appShot` — the embedded bundle table, a whole-guest switch after the current frame presents, and the texture of the frame the SELECT summon froze | Multi-app hosts only; a guest tests for each operation before it calls it. |
 | 43 | `wrapText` — greedy soft-wrap break columns for one line under `maxW`, as ascending UTF-16 code-unit indices | Breaks come from the same provider that measures and paints the slot; a native-text backend may install the host wrapper and its positions win. Without the op, apps run matching greedy rules over `measureText`. |
-| 44 | `setCompositorSurface` — bind a Pocket System package surface to a `NODE_TYPE.surface` node; the core emits `SURFACE_QUAD` in paint order with both full and clipped bounds | `ui.compositor-surfaces`. No image or texture semantics are involved; `handle < 0` clears. |
+| 44 | `setCompositorSurface` — bind an installed package's surface to a `NODE_TYPE.surface` node; the core emits `SURFACE_QUAD` in paint order with both full and clipped bounds | `ui.compositor-surfaces`. No image or texture semantics are involved; `handle < 0` clears. |
 | 45–46 | `hitTestAuxiliary`, `hitTestBoundsAuxiliary` — the twins of 27 and 42 in the auxiliary output's logical coordinates, never searching primary | `display.auxiliary`. |
 | 47–50 | `fontStreamConfigure`, `fontStreamRequests`, `fontStreamCommit`, `fontStreamStats` — a bounded external glyph cache fed by CPU handoff | `text.glyphs.streamed`. |
 | 51 | `appClose` — request graceful closure of a configured child app | Native navigation hosts only. |
@@ -418,7 +418,7 @@ A namespace marks itself native with `__host` plus `__hostAbi`, or with the
 legacy `__textures` marker. **Every native mount requires the current binding
 generation**, including raw bundles with no target restriction. A namespace
 with only `__textures` is rejected because it lacks `__hostAbi`; rebuild its
-guest adapter. A bundle built from an app contract also checks its expected
+guest adapter. A bundle built from a build plan also checks its expected
 target.
 `assertNativeHostContract` compares the bundle's baked tick rate against
 the host's `ui.__tickHz` on every native mount. Injected `HostOps` adapters
@@ -490,8 +490,9 @@ Key properties:
   resolved UI output, in that output's logical coordinates. Single-screen hosts
   consume the primary list; a host with an auxiliary display consumes a second
   after both roots have shared the same state update and resource generation.
-  The one semantic a backend can change is text: an app that enhances with
-  `text.layout.native` gets a host measurer installed before mount, and taffy
+  The one semantic a backend can change is text: an app that lists
+  `text.layout.native` in its `features` gets a host measurer installed before
+  mount on a host that provides it, and taffy
   leaf sizes come from it ([Render backends](https://github.com/pocket-nexus/pocketjs/blob/main/docs/BACKENDS.md)).
 
 In steady state — no reactive values changed — `frame()` emits **no** mutation

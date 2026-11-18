@@ -130,17 +130,20 @@ requires that choice and its security consequences are understood.
 
 ## Build and stage a PocketJS application
 
-Compile the application with the program's host config, then pass its **`.pocket` package**
-to the native builder. The native step checks the package identity, builds the
-Rust runtime, links the Qt/QuickJS host, and signs one SIS:
+Compile the application for the `symbian-e7-dev` host its config lists, then
+pass its **`.pocket` package** to the native builder. The native step checks
+the package identity, builds the Rust runtime, links the Qt/QuickJS host, and
+signs one SIS:
 
 ```sh
-bun tools/pocket.ts compile --manifest apps/hero/pocket.app.json --project-root . \
-  --host-config programs/nokia-e7/pocket.host.config.ts \
-  --output dist/symbian/application.pocket
+bun tools/pocket.ts compile --config apps/hero/pocket.host.config.ts --project-root . \
+  --target symbian-e7-dev --output dist/symbian/application.pocket
 bun tools/symbian.ts build app --pocket dist/symbian/application.pocket \
   -- --sis-version 1.0.0
 ```
+
+From the application's directory, `pocket build --target symbian-e7-dev`
+compiles the application and runs the same recipe in one command.
 
 It writes both the installable package and a build receipt:
 
@@ -149,7 +152,7 @@ dist/symbian/hero-main.sis
 dist/symbian/hero-main.receipt.json
 ```
 
-Every app contract gets a stable private-range UID derived from its Pocket app id,
+Every application gets a stable private-range UID derived from its Pocket app id,
 a collision-resistant executable name, its own application-menu caption, and
 output-specific SIS/receipt filenames. Multiple PocketJS apps can therefore be
 installed side by side instead of replacing one shared runtime package. The
@@ -169,7 +172,7 @@ bun tools/symbian.ts deploy dist/symbian/hero-main.sis
 ```
 
 Install it from `File manager > Mass memory > Installs`, then launch
-the app contract's title. With CODA open on the phone, the host installs and
+the application's title. With CODA open on the phone, the host installs and
 launches the staged package instead:
 
 ```sh
@@ -276,11 +279,13 @@ The experimental host has these runtime semantics:
   Rust core first, then calls the framework's live-viewport hook. Solid and Vue
   Vapor update their app and overlay roots in place, so application state,
   focus ownership, and timers survive rotation rather than being remounted.
-- **An app contract whose dynamic viewport range admits one orientation only is
-  held in it.** The build reads the range of the selected presentation (or of
-  the app): a maximum width below the minimum height is `portrait`, a maximum
-  height below the minimum width is `landscape`, and every other range is
-  `auto`. The host sets Qt's portrait or landscape lock in place of automatic
+- **An application whose dynamic viewport range admits one orientation only is
+  held in it.** When `pocket build` compiles the application from its host
+  config, the recipe reads `app.viewport.dynamic`: a maximum width below the
+  minimum height is `portrait`, a maximum height below the minimum width is
+  `landscape`, and every other range is `auto`. A package compiled elsewhere
+  carries no range, rotates (`auto`), and takes `--orientation
+  auto|portrait|landscape` after `--` to hold an orientation. The host sets Qt's portrait or landscape lock in place of automatic
   orientation, so opening the keyboard does not rotate the app. A navigation
   registry entry marked `portrait` feeds the same decision. The receipt
   records the choice as `runtime.orientation`. Pocket Clear and Pocket Nexus
@@ -410,7 +415,7 @@ the measured interval.
 On Symbian, diagnostic builds reset the inactivity timer once per second
 for five minutes, covering collection and inspection: packed replay bypasses
 the window server's input activity tracking. Replay fixes orientation to the
-app contract's initial viewport so icon hit targets stay at the recorded positions.
+application's initial viewport so icon hit targets stay at the recorded positions.
 Normal builds retain automatic orientation and device sleep behavior.
 Keep the device unlocked with the application in front. `inactive_frames`
 counts samples taken without an active window after the first startup second;
@@ -565,8 +570,8 @@ The registry has `shell` (the Shell UID) and `apps` (2–32 entries). Every entr
 contains `uid`, `id`, `output` and `title`; `orientation` accepts `auto` or
 `portrait`. **A package's own `portrait` entry folds into the build's
 orientation lock** (see the runtime semantics above): it holds an app whose
-app contract range admits both orientations in portrait, and the build rejects it
-for a landscape-only app contract. The packaged table carries no orientation
+viewport range admits both orientations in portrait, and the build rejects it
+for a landscape-only application. The packaged table carries no orientation
 column. UIDs, app ids and output keys must be unique. Build every
 participating package with the same registry, including its own UID. The build
 receipt records the encoded registry hash.
@@ -582,7 +587,9 @@ receipt records the encoded registry hash.
 ```
 
 ```sh
-bun tools/symbian.ts build app --manifest apps/clear/pocket.app.json \
+bun tools/pocket.ts compile --config apps/clear/pocket.host.config.ts --project-root . \
+  --target symbian-e7-dev --output dist/symbian/clear.pocket
+bun tools/symbian.ts build app --pocket dist/symbian/clear.pocket -- \
   --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
   --frame-rate 60 --sis-version 0.3.12
 ```

@@ -40,7 +40,7 @@ export const VITA_ICON0 = { width: 128, height: 128 } as const;
 /** The ground under a transparent icon: PocketJS's plum, the default bubble's. */
 const ICON_GROUND = [0x17, 0x12, 0x26] as const;
 
-/** PocketJS's Vita title id rule (framework/src/manifest/vita-package.ts vitaTitleId). */
+/** PocketJS's Vita title id rule (framework/compiler/vita-title-id.ts vitaTitleId). */
 export async function vitaTitleIdFor(id: string): Promise<string> {
   return `P${(await sha256Hex(new TextEncoder().encode(id))).slice(0, 8).toUpperCase()}`;
 }

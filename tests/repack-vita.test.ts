@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { decodePocketPackage, encodePocketPackage, type PocketPackageVariant } from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
+import { canonicalJson } from "../framework/compiler/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { vitaTitleId } from "../framework/compiler/vita-title-id.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
@@ -25,20 +25,19 @@ async function readZip(bytes: Uint8Array) {
 const ID = "dev.pocket-nexus.studio.twenty48";
 const EBOOT = new TextEncoder().encode("SCE\0 stand-in for the runtime's eboot.bin");
 
-function manifest() {
+/** The `app` section of the application's host config. */
+function app() {
   return {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
     id: ID,
     title: "Twenty48",
     version: "0.1.0",
-    engine: { capabilities: { requires: ["text.glyphs.baked"], enhances: ["input.buttons"] } },
-    app: { entry: "main.tsx", output: "twenty48", framework: "solid", viewport: { fixed: { logical: [480, 272], presentation: "integer-fit" } } },
+    entry: "main.tsx", output: "twenty48", framework: "solid", viewport: { fixed: { logical: [480, 272], presentation: "integer-fit" } },
+    features: ["text.glyphs.baked", "input.buttons"],
   };
 }
 
 function variant(target: "psp" | "vita", id = ID): PocketPackageVariant {
-  const resolution = validateAndResolveBuildPlan({ ...manifest(), id }, { target });
+  const resolution = resolveAppPlan({ ...app(), id }, { target });
   if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
   const plan = resolution.plan;
   return makeVariant({
@@ -52,7 +51,7 @@ function variant(target: "psp" | "vita", id = ID): PocketPackageVariant {
 }
 
 function pocketFor(targets: ("psp" | "vita")[] = ["psp", "vita"], id = ID): Uint8Array {
-  return encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify({ ...manifest(), id })), variants: targets.map((t) => variant(t, id)) });
+  return encodePocketPackage({ manifest: new Uint8Array(0), variants: targets.map((t) => variant(t, id)) });
 }
 
 const RUNTIME_ASSETS = [VITA_ICON, ...VITA_LIVEAREA];

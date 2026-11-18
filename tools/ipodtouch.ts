@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
+import { extractHostBuildInputs } from "../framework/compiler/host-build-inputs.ts";
 import { bakeIPodTouchArtwork } from "./ipodtouch-icon.ts";
 import {
   IPODTOUCH_DEV_TARGET_ID,
@@ -137,10 +137,6 @@ function commandPath(name: string): string | undefined {
 function check(label: string, ok: boolean, detail: string): boolean {
   console.log(`[${ok ? "ok" : "missing"}] ${label}: ${detail}`);
   return ok;
-}
-
-function manifestPath(): string {
-  return join(REPOSITORY, "apps/ipodtouch-demo/pocket.app.json");
 }
 
 function planPath(): string {

@@ -4,6 +4,7 @@ import { BTN } from "../contracts/spec/spec.ts";
 import { buildAot } from "../microts/compiler/aot-build.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { registerRepositoryApp } from "./app-fixtures.ts";
 
 function treeHasText(tree: unknown, expected: string): boolean {
   if (!tree || typeof tree !== "object") return false;
@@ -30,6 +31,7 @@ test("Solid lab executes TSX props, control flow, slots and signal writes on the
 }, 120_000);
 
 test.each(["solid-aot-lab", "vue-sfc-lab"])("%s regenerates deterministic Rust and styles from sources", async app => {
+  await registerRepositoryApp(app);
   const result = await buildAot(app, { strict: true });
   const repeated = await buildAot(app, { strict: true, outDir: resolve(".pocket-build/validation/aot-demo-generation", app, "gen") });
   expect(result.files.map(file => file.slice(file.lastIndexOf("/") + 1))).toEqual(

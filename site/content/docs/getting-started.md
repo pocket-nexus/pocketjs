@@ -6,9 +6,10 @@ application workflow.
 
 This is the fastest path from an empty checkout to JSX running on screen. You'll
 write a component, mount it, build it, and see it in the browser dev host — the
-same source and `pocket.app.json` can also be compiled into target-specific packages
-for PSP, PS Vita, and the other registered targets. Your app declares one
-logical viewport in `pocket.app.json` and the target's host contract decides
+same source and `pocket.host.config.ts` can also be compiled into target-specific packages
+for PSP, PS Vita, and the other registered targets. Your app states one
+logical viewport in the `app` section of `pocket.host.config.ts` and the
+target's host contract decides
 whether that size is admissible: PSP and Vita are fixed at 480×272, while window and widget
 targets carry a default size and resize the core live. Each target owns its
 native renderer, raster density, and HostOps ABI.
@@ -62,48 +63,54 @@ bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
 The [CLI reference](/docs/cli/) lists every command, the target toolchains
 `pocket target add` installs, and the cache they live in.
 
-Create an app and validate it against both stock host contracts:
+Create an app and validate it against its host contract:
 
 ```sh
 pocket create my-app
-pocket check --target psp --manifest apps/my-app/pocket.app.json
-pocket check --target vita --manifest apps/my-app/pocket.app.json
+cd apps/my-app
+pocket check
 ```
 
 Outside a checkout, `pocket create` writes a standalone project with its own
 `package.json`; see [create](/docs/cli/#create).
 
-The generated `pocket.app.json` is the app contract, strict application
-intent; the [App contract](/docs/app-contract/) page lists every field:
+The generated `pocket.host.config.ts` names the host the application is built
+for and holds the application in its `app` section; the
+[Application config](/docs/app-config/) page lists every field:
 
-```json
-{
-  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
-  "pocket": 2,
-  "id": "dev.example.my-app",
-  "title": "My App",
-  "version": "0.1.0",
-  "engine": {
-    "capabilities": {
-      "requires": ["text.glyphs.baked", "input.buttons"]
-    }
+```ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({
+  host: "psp",
+  app: {
+    id: "dev.example.my.app",
+    title: "My App",
+    version: "0.1.0",
+    entry: "main.tsx",
+    output: "my-app-main",
+    framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" },
+    features: ["text.glyphs.baked", "input.buttons"],
   },
-  "app": {
-    "entry": "main.tsx",
-    "output": "my-app-main",
-    "framework": "solid",
-    "viewport": {
-      "logical": [480, 272],
-      "presentation": "integer-fit"
-    }
-  }
-}
+});
+```
+
+To build for the Vita as well, list both hosts and select one per command:
+
+```ts
+hosts: ["psp", "vita"],
+```
+
+```sh
+pocket check --target psp
+pocket check --target vita
 ```
 
 Keep `id` stable across releases: the Vita backend derives the installed Title
-ID from it. Put optional APIs such as `input.touch` under `enhances` and retain
-a controller fallback; unsupported entries under `requires` fail before the
-compiler runs.
+ID from it. A feature such as `input.touch` turns on where the host provides
+it and compiles to `false` elsewhere, so keep a controller path behind
+`hasFeature("input.touch")`.
 
 ## Write your first component
 
@@ -112,8 +119,8 @@ style with `class` — a **build-time subset of Tailwind**, not runtime CSS.
 State comes directly from the selected framework: `createSignal` in Solid,
 `ref` in Vue Vapor, `useState` in Octane.
 
-Solid is the default low-level framework. App contract builds select Solid,
-Vue Vapor, or Octane with `app.framework` in `pocket.app.json`; see
+Solid is the default low-level framework. Application builds select Solid,
+Vue Vapor, or Octane with `app.framework` in `pocket.host.config.ts`; see
 [Frameworks](/docs/frameworks/) for the full selection model.
 
 `pocket create` writes an `app.tsx` that counts CROSS presses through
@@ -259,7 +266,7 @@ mount(App);
 :::
 
 The Octane entry imports `mount` from the generic root: the build resolves
-`@pocketjs/framework` to the framework named in `pocket.app.json`, and the root's
+`@pocketjs/framework` to the framework named in `app.framework`, and the root's
 `mount` type accepts a JSX component. `@pocketjs/framework/octane` types `mount`
 for compiled universal components, which `pocket check` does not see in app
 sources.
@@ -278,13 +285,13 @@ The runtime program owns native linking and device packaging. The checkout
 provides PSP and Vita commands for building a demo program:
 
 ```sh
-pocket compile --target psp --manifest apps/my-app/pocket.app.json
+pocket compile --target psp
 pocket psp my-app --release
 # programs/psp/target/mipsel-sony-psp/release/EBOOT.PBP
 
 export VITASDK="$HOME/vitasdk"
 export PATH="$VITASDK/bin:$HOME/.cargo/bin:$PATH"
-pocket compile --target vita --manifest apps/my-app/pocket.app.json
+pocket compile --target vita
 pocket vita my-app --release
 # dist/vita/my-app-main.vpk
 ```
@@ -375,7 +382,7 @@ subsequent runs are fast.
 
 ### In Vita3K
 
-For stock demos, one command builds a VPK from the demo's app contract,
+For stock demos, one command builds a VPK from the demo's host config,
 installs it under a stable per-demo Title ID, and launches it:
 
 ```sh

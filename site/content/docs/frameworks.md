@@ -14,7 +14,7 @@ uses a compiled TypeScript model or a handwritten Rust model. The
 [TypeScript support reference](/docs/typescript-support/#execution-modes)
 compares those modes with the ordinary guest applications described below.
 Selecting `framework: "vue-vapor"` chooses the Vue adapter; model compilation
-requires its own app contract settings.
+needs its own `app` settings (`aot`, `model`).
 
 Solid is the default so existing apps keep building to `dist/<app>.js` and
 `dist/<app>.pak`. Vue Vapor and Octane build next to it:
@@ -35,54 +35,50 @@ ports. The showcase demos each ship an `app.octane.tsx` and a
 the current set.
 
 There is no environment-variable switch for framework selection. Product
-builds declare it in `pocket.app.json`; low-level compiler work can use a
-`--framework` override for one invocation.
+builds state it as `app.framework` in `pocket.host.config.ts`; low-level
+compiler work can use a `--framework` override for one invocation.
 
 ## Contract selection
-
-```json
-{
-  "app": {
-    "framework": "solid"
-  }
-}
-```
-
-Use `"vue-vapor"` for the Vue adapter and `"octane"` for Octane.
-**`pocket check` and `pocket compile` resolve the framework from `pocket.app.json`.**
-The compiler passes that selection through the resolved build plan. Animation
-keyframes and shorthand definitions belong beside it in `app.theme`.
-
-The caller selects the host contract:
-
-```sh
-pocket compile --manifest pocket.app.json --target psp
-pocket compile --manifest pocket.app.json --target ./hosts/my-board/pocket.host.json
-pocket compile --manifest pocket.app.json
-```
-
-`--target` accepts a built-in host id or the path of a `pocket.host.json`
-file. `POCKET_TARGET` provides the default for that option. Without a
-target, the compiler searches upward from the app contract's directory for
-`pocket.host.config.ts` and uses its single host contract. A host config that
-lists several host contracts in `hosts: [...]` requires a host id.
-
-A program can declare its host contract without assigning a native build to
-PocketJS:
 
 ```ts
 // pocket.host.config.ts
 import { defineHostConfig } from "@pocketjs/framework/host-config";
 
-export default defineHostConfig({ host: "./hosts/my-board/pocket.host.json" });
+export default defineHostConfig({
+  hosts: ["psp", "./hosts/my-board/pocket.host.json"],
+  app: {
+    entry: "main.tsx",
+    framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" },
+  },
+});
 ```
 
-The host contract supplies display geometry, cadences and capabilities; the app
-contract supplies `app.tickHz`.
+Use `"vue-vapor"` for the Vue adapter and `"octane"` for Octane.
+**`pocket check` and `pocket compile` read the framework from `app.framework`.**
+The compiler passes that selection through the resolved build plan. Animation
+keyframes and shorthand definitions belong beside it in `app.theme`.
+
+The caller selects one of the hosts the config lists:
+
+```sh
+pocket compile --target psp
+pocket compile --target ./hosts/my-board/pocket.host.json
+POCKET_TARGET=psp pocket compile
+```
+
+`--target` accepts a built-in host id or the path of a `pocket.host.json`
+file whose id the config lists. `POCKET_TARGET` provides the default for that
+option. Without a target, the config must list one host. The compiler reads
+the nearest `pocket.host.config.ts` above the current directory, or the file
+`--config` names.
+
+The host contract supplies display geometry, cadences and capabilities; the
+`app` section supplies `app.tickHz`.
 **`pocket build` consumes the host config's `build` recipe** to build
 the native program. The recipe uses `cargo()`, `cmake()`, `make()` or
-`compilerOnly()` from `@pocketjs/framework/host-config`; application framework
-and theme settings stay in `pocket.app.json`.
+`compilerOnly()` from `@pocketjs/framework/host-config`; an application config
+without `build` builds with the stock program of a built-in host.
 
 ## Low-level compiler overrides
 
@@ -94,8 +90,8 @@ bun tools/build.ts hero-main --framework=vue-vapor
 bun tools/dev.ts --framework=octane hero-main
 ```
 
-These overrides support framework compiler work. Application builds from an
-app contract use `app.framework`.
+These overrides support framework compiler work. Application builds from a
+host config use `app.framework`.
 
 ## Framework app imports
 
@@ -231,7 +227,7 @@ Authoring rules specific to Octane apps:
   multi-frame stall. The showcase demos put every continuous visual on a native
   channel instead: `<Sprite>` atlases for the hero/gallery/library spinners
   (`sprites.json`), a baked keyframe timeline for the music equalizer
-  (`apps/music/pocket.app.json`, `app.theme`), `animate()`/`jump()` for the stats bars and
+  (`apps/music/theme.json`, imported as `app.theme`), `animate()`/`jump()` for the stats bars and
   notification rows, and `setTextContent` for count-ups and percentages
   (`StatTiles`, `ProgressLine`).
 - **Frame counters that only time a phase live in refs**, committing state

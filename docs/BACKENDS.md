@@ -46,15 +46,17 @@ PSP requires a paired companion for this capability. See
 [TEXT-OFFLOAD.md](TEXT-OFFLOAD.md) for bounded records, incremental edits and
 first-page delivery.
 
-## Browser System host
+## Browser realm
 
-**`web-app` runs every package in an independent same-origin iframe
-JavaScript Realm with its own wasm `Ui`.** `programs/web/system-engine.js`
-derives the package catalog, surface handles and lifecycle policy from one
-`ResolvedSystemPlan`. Live shell bindings create and remove AppInstances;
-focus and visible painter order determine scheduling.
+**`web-app` runs a package in a same-origin iframe JavaScript Realm with its
+own wasm `Ui`** (`programs/web/app-instance.js`, the AppInstance). The page
+that creates the iframe owns scheduling and composition through the
+instance object; the package receives no other realm or framebuffer. A page
+that hosts several packages, such as a desktop shell product, creates one
+AppInstance per package and hands child pixels to `uploadSurface`; this
+repository's web program runs one application.
 
-The wasm software compositor retains each visible child framebuffer and
+The wasm software compositor retains each uploaded child framebuffer and
 paints it at each `SURFACE_QUAD` position during the host render.
 Full bounds determine the child coordinate origin, clip bounds constrain the
 visible pixels, and the instruction remains at its original DrawList offset.

@@ -208,16 +208,18 @@ PocketJS/
 
 ## Build pipeline (two-pass — fixes the scan cycle [R])
 
-**`pocket.app.json` owns the application's framework and animation theme.**
-`app.framework` chooses the frontend; `app.theme` supplies keyframes and animation
-shorthands. `pocket compile --target` selects a built-in host id or a `pocket.host.json`
-file. `POCKET_TARGET` provides the option's default. With neither,
-compilation searches upward from the app contract for `pocket.host.config.ts`.
+**The `app` section of `pocket.host.config.ts` owns the application's
+framework and animation theme.** `app.framework` chooses the frontend;
+`app.theme` supplies keyframes and animation shorthands. `pocket compile`
+reads the nearest host config above the working directory (or `--config`);
+`--target` selects a host the config lists, by built-in id or by a
+`pocket.host.json` path. `POCKET_TARGET` provides the option's default.
 
-**`pocket.host.config.ts` selects the program's host contract and native build.**
-`defineHostConfig()` from `@pocketjs/framework/host-config` accepts a
-`host` path or a `hosts` list of `pocket.host.json` paths, plus an
-optional `build` recipe. A host config with multiple host contracts requires a
+**`pocket.host.config.ts` selects host contracts, the application and a
+program's native build.** `defineHostConfig()` from
+`@pocketjs/framework/host-config` accepts a `host` or a `hosts` list (each a
+`pocket.host.json` path or a built-in host id), an optional `app` section and
+an optional `build` recipe. A host config with multiple host contracts requires a
 host id. The host contract supplies capabilities, display geometry and cadences;
 it does not select an application framework. `pocket build` executes the declared native build recipe.
 `pocket compile` produces a `.pocket` application, while `--aot --out <directory>`
@@ -276,7 +278,7 @@ children[], …}`) so reconciler *reads* never cross the FFI. Handles are `i32`
 | replaceText | `(id, str)` | Solid universal calls this on text updates |
 | uploadTexture | `(buf, w, h, psm) → handle` | pow2 ≤512, copied + 16B-aligned |
 | setImage | `(id, texHandle)` | texHandle < 0 clears (handles are 0-based: 0 is the first upload); also clears any sprite binding |
-| setCompositorSurface | `(id, surfaceHandle, focused)` | binds a type-3 node to a Pocket System application surface; emits `SURFACE_QUAD` with full geometry, clipped geometry and focus at the node's exact painter position. Surface handles use a separate namespace from textures |
+| setCompositorSurface | `(id, surfaceHandle, focused)` | binds a type-3 node to an installed application's surface; emits `SURFACE_QUAD` with full geometry, clipped geometry and focus at the node's exact painter position. Surface handles use a separate namespace from textures |
 | setSprite | `(id, atlas, frames, cols, step)` | binds an ANIMATED SPRITE ATLAS to an image node: the atlas texture holds a `cols`-wide grid of `frames` cells; the core auto-plays it, drawing cell `(frame−start)/step % frames` as a TEX_QUAD UV sub-rect — derived at draw time from the vblank counter, so zero per-frame JS and byte-exact goldens. `frames ≤ 0` clears **[R]** |
 | animate | `(id, propId, to:f64, durMs, easing, delayMs) → animId` | from = current |
 | cancelAnim | `(animId)` | |
@@ -401,7 +403,7 @@ widths):
 - **motion**: `transition[-transform|colors|opacity|all]`, `duration-N`,
   `ease-linear|in|out|in-out|spring|out-back`, `delay-N`
 - **keyframe animations (baked)**: `animate-<name>` resolves against
-  `app.theme.keyframes` and `app.theme.animation` in `pocket.app.json` (Tailwind
+  `app.theme.keyframes` and `app.theme.animation` in `pocket.host.config.ts` (Tailwind
   keyframe and animation shape; built-ins `spin|ping|pulse|bounce`). The compiler
   bakes every CSS `animation` shorthand (comma lists, `cubic-bezier(…)`, named easings as
   their canonical beziers, delays, `forwards|backwards|both` fills,
@@ -409,8 +411,8 @@ widths):
   styles.bin — the core plays them at fixed dt with zero per-frame JS.
   Keyframe values must be build-time absolute (px/deg/colors; percentages,
   `calc()`, `var()` are loud errors **[R]**), and every animated prop must be
-  pinned at 0% and 100%. `animate-loop-[4s]` (or `{ value, loop }` in the
-  app contract) replays the node's whole choreography — delays included — every N
+  pinned at 0% and 100%. `animate-loop-[4s]` (or `{ value, loop }` in
+  `app.theme`) replays the node's whole choreography — delays included — every N
   ms: the style-level loop plain CSS can't express without a remount.
 - **variants**: `focus:`, `active:` — variant blocks in the style record,
   switched natively (zero JS on focus change)

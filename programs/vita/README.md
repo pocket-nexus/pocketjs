@@ -110,11 +110,11 @@ VitaShell; Vita Toolbox is not required:
    install prompt.
 4. Return to LiveArea and launch the demo's named bubble.
 
-Each app contract's stable reverse-DNS `id` is encoded by the Vita backend as
+Each application's stable reverse-DNS `app.id` is encoded by the Vita backend as
 `P` plus the first eight uppercase hexadecimal digits of its SHA-256 digest. This
 produces a valid nine-character Vita title id without a per-demo table, so
 Hero, Gallery, and other demos coexist instead of replacing one another. Keep
-the app contract `id` unchanged across releases to preserve installation
+the `app.id` unchanged across releases to preserve installation
 identity.
 Every VPK also includes PocketJS's black 128x128 bubble icon and complete
 LiveArea artwork (840x500 background, 280x158 startup image, and template), so

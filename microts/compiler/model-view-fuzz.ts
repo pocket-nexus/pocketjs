@@ -4,13 +4,14 @@ import { resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { executeModelView } from "./model-view-harness.ts";
 import { ModelTapeInterpreter, type ModelTapeFrame } from "./aot-model-tape.ts";
+import { registerApplication } from "./aot-model-config.ts";
 
 export const MODEL_VIEW_FUZZ_COVERAGE = ["component-region","mount-arguments","remount-reset","multiple-regions","first-update-memo","atomic-show"] as const;
 let sequence=0;
 export function generateModelViewCase(seed:number) {
   const initial=(seed>>>0)%17,step=1+((seed>>>3)%3);
   const files:Record<string,string>={
-    "pocket.app.json":JSON.stringify({pocket:2,id:"test.model.view-fuzz",name:"Generated regions",app:{entry:"App.tsx",framework:"solid",aot:true,model:"compiled"}}),
+
     "App.ts":`import{createSignal}from"solid-js";import{createEffect,on}from"@pocketjs/framework/solid/reactive";import type{i32}from"@pocketjs/framework/solid/std";
       export const[count,setCount]=createSignal<i32>(0);export const[mid,setMid]=createSignal<i32>(0);export const[end,setEnd]=createSignal<i32>(0);export const[open,setOpen]=createSignal(true);
       createEffect(on([count],()=>setMid(count()),{defer:true}));createEffect(on([mid],()=>setEnd(mid()),{defer:true}));
@@ -31,6 +32,8 @@ export async function runModelViewFuzz(seeds:readonly number[]):Promise<{program
   for(const seed of seeds){
     const fixture=generateModelViewCase(seed),folder=resolve(".pocket-build/validation/model-aot/view-fuzz",`${process.pid}-${sequence++}-${seed}`);
     await mkdir(folder,{recursive:true});await Promise.all(Object.entries(fixture.files).map(([file,source])=>writeFile(resolve(folder,file),source)));
+    // A generated compiled-model application, registered as a host config's app section would be.
+    registerApplication({directory:folder,entry:"App.tsx",framework:"solid",aot:true,model:"compiled"});
     const actual=await executeModelView(folder),interpreter=new ModelTapeInterpreter(actual.program);
     const commands=(trace:any[])=>trace.filter(event=>event.kind==="command"&&event.op==="log").map(event=>event.args.map(String).join(" "));
     const initial=commands(interpreter.model.trace);

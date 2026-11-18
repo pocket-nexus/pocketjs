@@ -11,7 +11,7 @@ pocketjs/
 ├─ contracts/
 │  ├─ spec/                 formats, operations, driver ABI and host contract schema
 │  ├─ generated/            generated C headers and package readers
-│  └─ schema/               app contract, host contract and system JSON schemas
+│  └─ schema/               host contract JSON schema
 ├─ engine/
 │  ├─ spec/                 generated no_std constants and ABI records
 │  ├─ drivers/              resource views, device-class contracts, C ABI adapters and e-ink refresh
@@ -77,7 +77,7 @@ pocketjs/
 ├─ zephyr/module.yml        west module entry
 ├─ tests/                   contracts, fixtures, integration and E2E tests
 │  └─ esp-idf/              IDF sample programs and test harnesses
-├─ apps/                    applications with pocket.app.json app contracts
+├─ apps/                    applications, each with a pocket.host.config.ts app section
 ├─ assets/                  maintained fonts, artwork and branding
 ├─ docs/ site/              reference documentation and website
 └─ .pocket-build/           ignored build and validation output
@@ -158,8 +158,9 @@ with isolated dependency graphs retain their own lockfiles. Stable is fixed in
 `rust-toolchain.toml`; `tools/build/toolchains/rust.ts` supplies one build-std
 nightly, and `esp.ts` pins the Xtensa compiler.
 
-**Application compilation and native builds have separate inputs.** `pocket.app.json`
-describes an application. A program's `pocket.host.config.ts` selects its
+**Application compilation and native builds have separate inputs.** The `app`
+section of an application's `pocket.host.config.ts` describes the application
+and the hosts it is built for. A program's `pocket.host.config.ts` selects its
 host contract and declares native build steps. The executor verifies application
 inputs, compiler identity and source hashes before writing a build receipt.
 IDF, Zephyr, the SiFli SDK and Buildroot retain ownership of their firmware
@@ -185,7 +186,8 @@ and Pocket3D consumers.
 - Keep product-specific host contracts with the product; built-in host contracts
   live in `hosts/<id>/pocket.host.json`.
 - Put compilation, packaging and release orchestration under `tools/`.
-- Put application demos under `apps/`, with a `pocket.app.json` app contract.
+- Put application demos under `apps/`, with a `pocket.host.config.ts` that
+  lists their hosts and holds the `app` section.
 - Define contracts in `contracts/spec/` and generate language bindings.
 - Keep run logs, screenshots and receipts under ignored
   `.pocket-build/validation/<task>/<run>/`. Maintained fixtures belong in `tests/`.

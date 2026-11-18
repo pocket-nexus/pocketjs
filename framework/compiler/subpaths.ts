@@ -24,7 +24,7 @@
 // per-framework shim for solid and vue-vapor (octane still does not resolve
 // them).
 
-import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
+import type { PocketFramework } from "../../contracts/spec/app-config.ts";
 import type { PocketDomain } from "../../contracts/spec/worker.ts";
 
 export const POCKET_FRAMEWORKS = ["solid", "vue-vapor", "octane"] as const;
@@ -100,6 +100,8 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "io/mqtt": { file: "framework/src/io/mqtt.ts", domains: ["worker"] },
   profile: { file: "framework/src/profile.ts" },
   "host-config": { file: "framework/src/host-config.ts" },
+  // Build plans: resolve an application for a host and verify a plan.
+  plan: { file: "framework/src/plan.ts" },
   hosts: { file: "hosts/index.ts" },
   "hosts/psp-runtime": { file: "hosts/psp-runtime/pocket.host.json" },
   "hosts/3ds-runtime": { file: "hosts/3ds-runtime/pocket.host.json" },
@@ -163,7 +165,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     },
     aliases: ["vue-vapor"],
   },
-  manifest: { file: "framework/src/manifest/index.ts" },
   osk: { file: { solid: "framework/src/osk.tsx" } },
   package: { file: "contracts/spec/pocket-package.ts" },
   "service-client": { file: "framework/src/service-client.ts" },

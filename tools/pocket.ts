@@ -2,22 +2,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkAppTypes } from "../framework/compiler/app-check.ts";
-import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
-import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { readAuthoredManifest } from "../framework/src/manifest/load.ts";
-import { canonicalJson } from "../framework/src/manifest/plan.ts";
-import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { CATALOG } from "./targets/index.ts";
 import { statusRows, targetCommand } from "./targets/commands.ts";
 import { loadProject } from "./targets/project.ts";
-import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
+import { findHostConfig, HOST_CONFIG_FILE, resolveProfile } from "./profile-resolver.ts";
 import { exportProfile } from "./profile-export.ts";
 import { buildRuntime } from "./build/executor.ts";
 import { resolveRuntimeProgram } from "./build/programs.ts";
-import { makeVariant } from "./pocket-pack.ts";
+import { compileApplication } from "./compile-app.ts";
 import { sdkCommand } from "./sdk.ts";
 
 const frameworkRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -25,7 +19,7 @@ const argv = Bun.argv.slice(2);
 const command = argv.shift();
 function usage(message?: string): never {
   if (message) console.error(`PocketJS: ${message}`);
-  console.error("usage: pocket check|compile [--manifest pocket.app.json] [--target <id|pocket.host.json>] [--host-config FILE]\n" +
+  console.error("usage: pocket check|compile [--config pocket.host.config.ts] [--target <id|pocket.host.json>] [--project-root DIR]\n" +
     "       pocket compile [--output app.pocket] [--depfile FILE] [--aot --out DIR]\n" +
     "       pocket build [--config pocket.host.config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
     "       pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]\n" +
@@ -90,10 +84,9 @@ async function main() {
     return;
   }
   if (command === "project" || command === "status") {
-    const manifest = takeOption("manifest");
     const config = takeOption("host-config") ?? takeOption("config");
     flag("json"); noArguments();
-    const result = await loadProject(manifest ? dirname(resolve(manifest)) : process.cwd(), config);
+    const result = await loadProject(process.cwd(), config);
     if (command === "project") console.log(JSON.stringify(result, null, 2));
     else {
       if (!result.ok) throw new Error(result.diagnostics.join("\n"));
@@ -157,105 +150,56 @@ async function main() {
     const generic = flag("generic");
     noArguments();
     const selected = await resolveRuntimeProgram({ from: process.cwd(), target, hostConfig: config, generic, env: process.env });
-    await buildRuntime(selected, out ? resolve(out) : resolve(dirname(selected.config!.path), selected.config!.value.build ? "dist/runtime" : "dist/profile"), {
-      pocket: pocket && resolve(pocket), aotDirectory: aotDirectory && resolve(aotDirectory), deploy, args,
+    const recipe = selected.config!.value.build;
+    // From an application's directory the build compiles the application
+    // the recipe takes, unless --pocket or --aot-dir supplies it.
+    const application = selected.application;
+    const base = dirname((application ?? selected.config!).path);
+    const outdir = out ? resolve(out) : resolve(base, recipe ? "dist/runtime" : "dist/profile");
+    let pocketInput = pocket && resolve(pocket), aotInput = aotDirectory && resolve(aotDirectory);
+    if (application && !generic && recipe?.input && !pocketInput && !aotInput) {
+      const compiled = resolve(outdir, ".application");
+      const result = await compileApplication({ configPath: application.path, target: selected.profile.id,
+        outdir: resolve(compiled, "compiler"), planRoot: resolve(compiled, "plans"),
+        ...(recipe.input === "aot" ? { aotOut: resolve(compiled, "aot") } : { output: resolve(compiled, "application.pocket") }) });
+      aotInput = result.aotOut;
+      pocketInput = result.package;
+    }
+    await buildRuntime(selected, outdir, {
+      pocket: pocketInput, aotDirectory: aotInput, deploy, args, app: application?.value.app,
     });
     return;
   }
   if (command !== "check" && command !== "compile") usage(`unknown command ${command ?? "<missing>"}`);
+  if (argv.some(value => value === "--manifest" || value.startsWith("--manifest="))) {
+    console.error("PocketJS: --manifest was removed; the application is the app section of pocket.host.config.ts, selected with --config FILE");
+    process.exit(1);
+  }
   const target = takeOption("target");
-  const hostConfig = takeOption("host-config");
-  const manifestPath = resolve(takeOption("manifest") ?? "pocket.app.json");
-  const projectRoot = resolve(takeOption("project-root") ?? dirname(manifestPath));
+  const configOption = takeOption("config") ?? takeOption("host-config");
+  const configPath = configOption ? resolve(configOption) : findHostConfig(process.cwd());
+  if (!configPath) usage(`no ${HOST_CONFIG_FILE} above ${process.cwd()}; name one with --config`);
+  if (!existsSync(configPath)) usage(`host config not found: ${configPath}`);
+  const projectRoot = takeOption("project-root");
   const aot = flag("aot");
   const outOption = takeOption("out");
-  const outdir = resolve(projectRoot, outOption ?? takeOption("outdir") ?? "dist");
-  const planRoot = resolve(projectRoot, takeOption("plan-dir") ?? ".pocket");
-  const outputOption = takeOption("output");
+  const outdir = outOption ? undefined : takeOption("outdir");
+  const planRoot = takeOption("plan-dir");
+  const output = takeOption("output");
   const dependencies = takeOption("depfile");
   const compilerReceipt = takeOption("compiler-receipt");
   noArguments();
   if (outOption && !aot) usage("--out names an AOT directory; use --output for a .pocket file or --outdir for compiler intermediates");
   if (aot && command !== "compile") usage("--aot requires compile");
-  if (aot && outputOption) usage("--aot uses --out, not --output");
+  if (aot && output) usage("--aot uses --out, not --output");
   if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");
-  if (!existsSync(manifestPath)) usage(`manifest not found: ${manifestPath}`);
-  const selected = await resolveProfile({ from: dirname(manifestPath), target, hostConfig, env: process.env });
-  const loaded = readAuthoredManifest(manifestPath);
-  const manifestInput: unknown = loaded.manifest;
-  const resolution = validateAndResolveBuildPlan(manifestInput, { target: selected.profile.id, executionClass: aot ? "aot" : "guest" }, profileRegistry(selected.profile));
-  if (!resolution.ok) throw new Error(resolution.diagnostics.map(item => `${item.code} ${item.path || "/"}: ${item.message}`).join("\n"));
-  const plan = resolution.plan;
-  const entry = resolve(projectRoot, plan.app.entry);
-  if (!existsSync(entry)) usage(`app entry not found: ${entry}`);
-  const mismatch = runtimeVersionMismatch(plan.app.framework, projectRoot);
-  if (mismatch) throw new Error(`the application resolves ${mismatch.name} ${mismatch.application.version} (${mismatch.application.directory}) and the compiler bundles ${mismatch.name} ${mismatch.bundled.version} (${mismatch.bundled.directory}); declare "${mismatch.name}": "${mismatch.bundled.version}" in the application's package.json`);
-  const entries: [string, "ui" | "worker"][] = [[entry, "ui"], ...(plan.domains?.worker ? [[resolve(projectRoot, plan.domains.worker.entry), "worker"] as [string, "worker"]] : [])];
-  for (const [source] of entries) if (!existsSync(source)) usage(`app entry not found: ${source}`);
-  const typeResults = entries.map(([entry, domain]) => checkAppTypes({
-    entry,
-    domain,
-    frameworkRoot,
-    tsconfigPath: existsSync(resolve(projectRoot, "tsconfig.json")) ? resolve(projectRoot, "tsconfig.json") : undefined,
-    declarationFiles: [resolve(frameworkRoot, "framework/src/jsx.d.ts"), resolve(frameworkRoot, "framework/src/vue-sfc.d.ts")],
-  }));
-  const typeResult = {
-    ok: typeResults.every(result => result.ok),
-    diagnostics: typeResults.flatMap(result => result.diagnostics),
-    checkedFiles: [...new Set(typeResults.flatMap(result => result.checkedFiles))],
-  };
-  if (!typeResult.ok) throw new Error(typeResult.diagnostics.filter(item => item.category === "error").map(item => `${item.file ?? "TypeScript"}${item.line ? `:${item.line}:${item.column}` : ""} TS${item.code}: ${item.message}`).join("\n"));
-  console.log(`✓ pocket.app.json v2\n✓ ${plan.target.id} satisfies pocket.app.json capabilities\n✓ TypeScript (${typeResult.checkedFiles.length} app module(s))\n✓ ResolvedBuildPlan ${plan.planHash}`);
-  if (command === "check") return;
-  // IDs are UTF-8 protocol strings, not filesystem paths.
-  const directoryName = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(plan.target.id) ? plan.target.id : selected.profileHash.slice(7, 23);
-  const planDirectory = resolve(planRoot, directoryName);
-  const planPath = resolve(planDirectory, "plan.json");
-  mkdirSync(planDirectory, { recursive: true });
-  mkdirSync(outdir, { recursive: true });
-  await Bun.write(planPath, JSON.stringify(plan, null, 2) + "\n");
-  const extraDependencies = [...loaded.inputs, ...selected.dependencies, ...typeResult.checkedFiles.filter(file => !file.endsWith("/styles.generated.ts")), ...(compilerReceipt ? [resolve(compilerReceipt)] : [])];
-  if (dependencies) {
-    const tools = new BuildInputs();
-    await tools.compiler([resolve(frameworkRoot, "tools/pocket.ts")], frameworkRoot);
-    extraDependencies.push(...tools.paths());
-  }
-  if (aot) {
-    const { compileAot } = await import("./aot-compile.ts");
-    const result = await compileAot({ plan, manifestPath, projectRoot, outdir, dependencyFiles: extraDependencies });
-    if (dependencies) await Bun.write(resolve(projectRoot, dependencies), depfile(result.includeFile, result.dependencies));
-    console.log(`✓ AOT sources: ${result.outdir}`);
-    return;
-  }
-  const inputsFile = resolve(outdir, `${plan.app.output}.inputs.json`);
-  const child = Bun.spawn([process.execPath, resolve(frameworkRoot, "tools/build.ts"), `--plan=${planPath}`, `--project-root=${projectRoot}`, `--outdir=${outdir}`, ...(dependencies ? [`--inputs-file=${inputsFile}`] : [])], { cwd: projectRoot, stdout: "inherit", stderr: "inherit" });
-  const status = await child.exited;
-  if (status !== 0 || child.signalCode) throw new Error(`PocketJS compiler failed: ${child.signalCode ?? status}`);
-  const pakPath = resolve(outdir, `${plan.app.output}.pak`);
-  const variant = makeVariant({
-    target: plan.target.id, hostAbi: plan.target.hostAbi, planJson: canonicalJson(plan),
-    identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
-    js: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.js`))),
-    ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.worker.js`))) } : {}),
-    pak: existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0),
-    // The manifest's icon travels as the variant's cover section.
-    ...(loaded.icon ? { cover: loaded.icon } : {}),
+  await compileApplication({
+    configPath, target: target ?? (process.env.POCKET_TARGET?.trim() || undefined),
+    ...(projectRoot ? { projectRoot: resolve(projectRoot) } : {}), outdir, planRoot, output,
+    check: command === "check", ...(aot ? { aotOut: outOption ?? outdir ?? "dist" } : {}),
+    depfile: dependencies, compilerReceipt,
   });
-  const output = outputOption ? resolve(projectRoot, outputOption) : resolve(outdir, `${plan.app.output}.pocket`);
-  if (dependencies) {
-    const inputs = await Bun.file(inputsFile).json() as string[];
-    await Bun.write(resolve(projectRoot, dependencies), depfile(output, [...inputs, ...extraDependencies]));
-  }
-  let packaged = variant;
-  if (selected.profile.bytecode) {
-    // The host names the QuickJS build it embeds: its bundles ship as bytecode for it.
-    const { withBytecode } = await import("./quickjs-bytecode.ts");
-    const bytecode = selected.profile.bytecode;
-    packaged = withBytecode(variant, { ...bytecode, buildDirectory: resolve(outdir, "quickjs-bytecode") });
-    console.log(`✓ QuickJS bytecode for ${bytecode.engine}${bytecode.source === "drop" ? " (source dropped)" : ""}`);
-  }
-  await Bun.write(output, encodePocketPackage({ manifest: loaded.embedded, variants: [packaged] }));
-  console.log(`✓ Package: ${output}`);
 }
+
 try { await main(); }
 catch (error) { console.error(`PocketJS: ${error instanceof Error ? error.message : String(error)}`); process.exit(1); }

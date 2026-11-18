@@ -223,7 +223,8 @@ Reading it top to bottom:
    and lifecycle APIs come from `@pocketjs/framework/*`, framework primitives
    come from `solid-js`, `vue`, or `octane`, and `class` strings use the
    Tailwind subset.
-2. A product **build** resolves `pocket.app.json` for one target, then runs the
+2. A product **build** resolves the `app` section of `pocket.host.config.ts`
+   for one target, then runs the
    selected JSX transform, compiles class strings to a binary style table
    (`styles.bin`), bakes target-density glyph atlases/assets, and packs them
    into `app.pak`. The JS is bundled with target/ABI constants. The low-level
@@ -296,9 +297,9 @@ rejected by the compiler — `createResource`, `useTransition`, and
 `startTransition` (`BANNED_SOLID_IMPORTS` in
 `framework/compiler/jsx-plugin.ts`) — so a build fails rather than a device.
 Browser and Bun development builds stay inside the same syntax and scheduler
-subset. Target compatibility is checked separately from the app contract's
-required APIs and viewport contract, so a touch-required Vita app is rejected
-for PSP before compilation.
+subset. Target compatibility is a second check, made by the hosts the
+application's config lists and the viewport rules, so a fixed 320×480 touch
+application is refused for the PSP before compilation.
 
 ### taffy 0.11 for layout
 
@@ -402,10 +403,11 @@ The UI is one module in that shape and the other domains reuse it unchanged. A
 module is an SDK subpath, a spec, and a native core. Its capability id is the
 same string as the spec namespace and the pak prefix: `audio.pcm` means
 `globalThis.audio` is mounted and `audio:wav.` pak entries have meaning, so one
-name covers the app contract, the runtime namespace, and the asset key.
-`contracts/spec/` holds the shipped specs — `audio`, `db`, `fs`, `net`,
-`physics`, `platforms`, `spec`, plus the app contract (`pocket-manifest.ts`),
-host contract (`profile.ts`), package, system and link files.
+name covers the application's `features`, the runtime namespace, and the asset key.
+`contracts/spec/` holds the shipped specs — `audio`, `fs`, `net`,
+`physics`, `platforms`, `spec`, plus the `app` section of a host config
+(`app-config.ts`, `viewport.ts`, `animation-theme.ts`), the host contract
+(`profile.ts`) and the package (`pocket-package.ts`).
 They are plain TypeScript data: `gen-rust.ts` generates
 `engine/spec/src/lib.rs`, `gen-c.ts` generates
 `contracts/generated/pocket_spec.h`, and `tests/generated-contracts.test.ts`

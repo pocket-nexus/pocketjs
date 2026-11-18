@@ -3,12 +3,13 @@ import { resolve } from "node:path";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
-import { pspDemoManifest, pspDemoPackage, pspLauncherPackages, pspPackageInput } from "../tools/psp.ts";
+import { pspDemoPackage, pspDemoVariant, pspLauncherPackages, pspPackageInput } from "../tools/psp.ts";
+import { demoApp } from "../tools/build/programs/handheld-common.ts";
 import { launcherSourceInputs } from "../tools/build/psp/launcher.ts";
 test("PSP production guest uses canonical runtime, providers, input and shutdown", () => {
   const result = Bun.spawnSync([process.execPath, "tools/test-psp-runtime.ts"], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
@@ -50,17 +51,17 @@ test("PSP writer emits real static tables with exact package bytes and explicit 
 
 test("PSP --pocket captures admitted original bytes without requiring or compiling application sources", () => {
   const directory = embedDirectory();
-  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2,
-    id: "dev.pocket.psp-embed", title: "Original package", version: "1.0.0",
-    engine: { capabilities: { requires: ["text.glyphs.baked"] } },
-    app: { entry: "does-not-exist.tsx", framework: "solid", output: "original",
-      viewport: { fixed: { logical: [480, 272], presentation: "native" } } } };
-  const result = validateAndResolveBuildPlan(manifest, { target: profile.id }, profileRegistry(profile));
+  const app = { id: "dev.pocket.psp-embed", title: "Original package", version: "1.0.0", features: ["text.glyphs.baked"],
+    entry: "does-not-exist.tsx", framework: "solid", output: "original",
+    viewport: { fixed: { logical: [480, 272], presentation: "native" } } } as const;
+  const result = resolveAppPlan(app, { target: profile.id }, profileRegistry(profile));
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
   const variant = makeVariant({ target: profile.id, hostAbi: POCKET_BINDING_GENERATION,
-    planJson: JSON.stringify(result.plan), identity: { id: manifest.id, title: manifest.title, output: "original" },
+    planJson: JSON.stringify(result.plan), identity: { id: app.id, title: app.title, output: "original" },
     js: new TextEncoder().encode("globalThis.frame=()=>{};"), pak: new Uint8Array([1, 2, 3]) });
-  const bytes = encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [variant] });
+  // The package carries a manifest region another product wrote; the PSP
+  // build embeds the original bytes and does not read it.
+  const bytes = encodePocketPackage({ manifest: new TextEncoder().encode('{"pocket":2,"id":"dev.pocket.psp-embed"}'), variants: [variant] });
   const source = resolve(directory, "original.pocket"); writeFileSync(source, bytes);
   const application = pspPackageInput(source, directory)!;
   expect(application.packagePath).toStartWith(directory);
@@ -75,11 +76,13 @@ test("PSP --pocket captures admitted original bytes without requiring or compili
   expect(() => pspPackageInput(source, directory)).toThrow();
 });
 
-test("PSP demo builds compile the demo manifest, with --framework replacing its framework", () => {
-  expect(pspDemoManifest("hero").app.framework).toBe("solid");
-  expect(pspDemoManifest("hero-main", "octane").app.framework).toBe("octane");
-  expect(pspDemoPackage("hero", "/tmp/psp-out/")).toBe("/tmp/psp-out/hero-main.pocket");
-  expect(() => pspDemoManifest("apps/hero/main.tsx")).toThrow("not a stock demo");
+test("PSP demo builds compile the demo's app section, with --framework replacing its framework", async () => {
+  const hero = await demoApp("hero");
+  expect(hero.framework).toBe("solid");
+  expect(pspDemoVariant()).toBeUndefined();
+  expect(pspDemoVariant("octane")!(await demoApp("hero-main")).framework).toBe("octane");
+  expect(await pspDemoPackage("hero", "/tmp/psp-out/")).toBe("/tmp/psp-out/hero-main.pocket");
+  await expect(demoApp("apps/hero/main.tsx")).rejects.toThrow("not a stock demo");
 });
 
 test("PSP CLI rejects missing or conflicting package inputs before invoking a toolchain", () => {

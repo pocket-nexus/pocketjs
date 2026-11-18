@@ -11,21 +11,20 @@
 // primitive that already solves this: a hidden same-origin iframe gives each
 // app its own JavaScript Realm and its own wasm Ui. The parent owns the
 // visible canvas, the frame clock and the input channel; the realm owns the
-// app. programs/web/system-engine.js is the reference implementation of that
-// split and this file follows its shapes.
+// app.
 
 import { __packTouch, createTouchHitFacts } from "../../framework/src/touch.ts";
 
 /** framework/src/touch.ts caps a frame at 8 simultaneous contacts. */
 const MAX_CONTACTS = 8;
-/** The fixed-timestep driver shape shared with host.js and system-engine.js. */
+/** The fixed-timestep driver shape shared with host.js. */
 const STEP_MS = 1000 / 60;
 const MAX_ELAPSED_MS = 250;
 const MAX_CATCH_UP = 4;
 /** The legacy wire form packs x:9,y:9 — site/doc-demos.ts rejects anything wider. */
 const COORD_LIMIT = 512;
 
-/** Copy of programs/web/system-engine.js createRealm(). */
+/** A hidden same-origin iframe that loads programs/web/app-instance.html. */
 async function createRealm(instanceUrl, options) {
   const iframe = document.createElement("iframe");
   iframe.hidden = true;
@@ -234,7 +233,7 @@ class DocDemo {
     return this.booting;
   }
 
-  /** Client coordinates to logical pixels — programs/web/system-engine.js. */
+  /** Client coordinates to logical pixels. */
   logicalPoint(event) {
     const rect = this.canvas.getBoundingClientRect();
     return {

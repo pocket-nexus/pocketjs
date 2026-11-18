@@ -37,10 +37,12 @@ idf.py build
 A source build uses the caller's Rust toolchain. Registry releases provide
 native archives for P4 and S3. Pass `POCKET_RUNTIME_ARCHIVE` to select a prepared
 archive, or `POCKETJS_CARGO` with source builds to select a Cargo installation.
-The product owns `pocket.host.config.ts` and the host contract it names.
+The product owns `pocket.host.config.ts`, the host contract it names and the
+application in its `app` section.
 `pocket host export` emits the header and the stamped `pocket.host.json`
 consumed by the program and Python embed helper. The prebuilt IDF build needs no Bun or Pocket
-CLI once those artifacts exist. Source compilation uses `pocketjs_compile_app`;
+CLI once those artifacts exist. Source compilation uses `pocketjs_compile_app`,
+which compiles the `app` section of its `HOST_CONFIG`;
 `pocketjs_profile_header` exports the host contract without an application.
 
 See [component maintenance](../../docs/ESP_IDF.md) for archive receipts,

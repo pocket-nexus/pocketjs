@@ -140,12 +140,16 @@ function(pocketjs_embed_package)
     _pocketjs_package_attach("${APP_TARGET}" "${APP_NAME}" "${package}" "${directory}")
 endfunction()
 
+# Compile the `app` section of a host config (HOST_CONFIG, default
+# ${CMAKE_SOURCE_DIR}/pocket.host.config.ts) for its one host into a .pocket
+# package and embed it. The same config's host contract is exported for the
+# component. PROJECT_ROOT defaults to the config's directory.
 function(pocketjs_compile_app)
-    cmake_parse_arguments(APP "" "TARGET;NAME;MANIFEST;HOST_CONFIG;PROFILE_EXPORT_DIR;PROJECT_ROOT;COMPILER_RECEIPT" "DEPENDS" ${ARGN})
+    cmake_parse_arguments(APP "" "TARGET;NAME;HOST_CONFIG;PROFILE_EXPORT_DIR;PROJECT_ROOT;COMPILER_RECEIPT" "DEPENDS" ${ARGN})
     if(APP_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "Unknown pocketjs_compile_app arguments: ${APP_UNPARSED_ARGUMENTS}")
     endif()
-    foreach(required TARGET NAME MANIFEST)
+    foreach(required TARGET NAME)
         if(NOT APP_${required})
             message(FATAL_ERROR "pocketjs_compile_app requires ${required}")
         endif()
@@ -154,11 +158,10 @@ function(pocketjs_compile_app)
     pocketjs_profile_header(TARGET "${APP_TARGET}" NAME "${APP_NAME}"
         HOST_CONFIG "${config}" PROFILE_EXPORT_DIR "${directory}" DEPENDS ${APP_DEPENDS})
     find_program(POCKETJS_CLI NAMES pocket REQUIRED)
-    get_filename_component(manifest "${APP_MANIFEST}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     if(APP_PROJECT_ROOT)
         get_filename_component(project_root "${APP_PROJECT_ROOT}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     else()
-        get_filename_component(project_root "${manifest}" DIRECTORY)
+        get_filename_component(project_root "${config}" DIRECTORY)
     endif()
     set(generated "${CMAKE_CURRENT_BINARY_DIR}/pocketjs/${APP_NAME}")
     set(package "${generated}/${APP_NAME}.pocket")
@@ -180,12 +183,12 @@ function(pocketjs_compile_app)
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${generated}"
         COMMAND "${CMAKE_COMMAND}" -E env "POCKETJS_QUICKJS_SOURCE=${POCKETJS_QUICKJS_SOURCE}"
             "${POCKETJS_CLI}" compile
-            --manifest "${manifest}" --host-config "${config}"
+            --config "${config}"
             --project-root "${project_root}" --outdir "${generated}"
             --plan-dir "${generated}/plans" --output "${package}" --depfile "${dependencies}"
             ${compiler_args}
         DEPFILE "${dependencies}"
-        DEPENDS "${manifest}" "${config}" "${POCKETJS_CLI}" ${compiler_receipt} ${APP_DEPENDS}
+        DEPENDS "${config}" "${POCKETJS_CLI}" ${compiler_receipt} ${APP_DEPENDS}
         VERBATIM)
     _pocketjs_package_attach("${APP_TARGET}" "${APP_NAME}" "${package}" "${directory}")
 endfunction()

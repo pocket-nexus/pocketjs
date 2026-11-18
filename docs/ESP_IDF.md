@@ -68,15 +68,18 @@ The preparation rules participate in receipt identity.
 
 ## Package and host contract boundaries
 
-The product owns `pocket.host.config.ts` and the `pocket-host/2` host contract
-it names by path. **The runtime admits a package whose plan the exported facts
+The product owns `pocket.host.config.ts`, which names the `pocket-host/2` host
+contract by path and holds the application in its `app` section. **The runtime admits a package whose plan the exported facts
 satisfy**; the host contract hash records which host contract the package was
 compiled against. `pocket host export --config <file> --out <directory>` writes
 `pocket_profile.h`, `pocket_profile.rs` and the stamped `pocket.host.json`.
 These are build outputs, not checked-in platform definitions.
 
-`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.app.json>)`
-compiles the application and exports the program's host contract.
+`pocketjs_compile_app(TARGET <target> NAME <name> [HOST_CONFIG <file>]
+[PROJECT_ROOT <directory>] [PROFILE_EXPORT_DIR <directory>]
+[COMPILER_RECEIPT <file>] [DEPENDS …])` compiles the host config's `app`
+section for its one host (`pocket compile --config`) and exports the program's
+host contract. `PROJECT_ROOT` defaults to the config's directory.
 `pocketjs_profile_header(TARGET <target> NAME <name>)` exports the host contract
 without compiling an application. Both invoke the Pocket CLI and record imported
 host config modules and host contracts in depfiles. All three CMake helpers accept

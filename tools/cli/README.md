@@ -25,20 +25,46 @@ bun run compile
 ```
 
 Outside a framework checkout this creates a standalone project with
-`pocket.app.json`, `main.tsx`, `app.tsx`, `package.json`, `tsconfig.json`, a README
-and `.gitignore`. Inside a checkout it creates the application files under
+`pocket.host.config.ts`, `main.tsx`, `app.tsx`, `package.json`, `tsconfig.json`, a
+README and `.gitignore`. Inside a checkout it creates the application files under
 `apps/<name>/`. `--framework` accepts `solid`, `vue-vapor` and `octane`.
 Application scaffold targets are `psp`, `vita`, `web-app` and `esp-idf`.
 
-**`compile` produces a version 2 `.pocket` application package.** It validates
-the app contract and TypeScript, resolves capabilities and viewport against the
-selected host contract, and records that host contract's hash in the package. The
-scaffold's `build` package script is an alias for `pocket compile`.
+**The application is the `app` section of `pocket.host.config.ts`.** `host`
+names the host the application builds for, as a built-in host ID or the path of
+a `pocket.host.json`; `hosts` names several.
+
+```ts
+// pocket.host.config.ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({
+  host: "psp",
+  app: {
+    id: "dev.example.my.app",
+    title: "My App",
+    version: "0.1.0",
+    entry: "main.tsx",
+    output: "my-app-main",
+    framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" },
+    features: ["text.glyphs.baked", "input.buttons"],
+  },
+});
+```
+
+**`compile` produces a version 2 `.pocket` application package.** It reads the
+nearest `pocket.host.config.ts` (or `--config FILE`; `--host-config` is an
+alias), validates the `app` section and TypeScript, resolves the viewport and
+features against the selected host contract, and records that host contract's
+hash in the package. The package's manifest region is empty; its identity
+section carries the application's id, title and output name. The scaffold's
+`build` package script is an alias for `pocket compile`.
 
 ```sh
-pocket check --manifest pocket.app.json --target psp
-pocket compile --manifest pocket.app.json --target psp --output dist/app.pocket
-pocket compile --manifest pocket.app.json --target ./hosts/my-board/pocket.host.json \
+pocket check
+pocket compile --output dist/app.pocket
+pocket compile --config apps/my-app/pocket.host.config.ts --target vita \
   --output dist/app.pocket --depfile dist/app.d
 ```
 
@@ -53,7 +79,8 @@ package.
 host contract stamped with another binding generation is rejected. Selection
 uses an explicit target, then `POCKET_TARGET`, then the single host contract in
 the nearest `pocket.host.config.ts`. A host config with several host contracts
-requires a host ID.
+requires a host ID, and `check` and `compile` accept only a host the config
+lists.
 
 ```ts
 // pocket.host.config.ts
@@ -82,7 +109,10 @@ directory so a source edit cannot change an active build.
 The command reads a host config; `--target` selects one of its host IDs.
 Recipes use `cargo`, `cmake`, `make` or `compilerOnly` helpers. A host config
 containing only `{ host }` exports the host contract and leaves native
-compilation to the external build system.
+compilation to the external build system. **An application's host config
+without `build` builds a built-in host with that host's stock program**: from
+the application's directory, `pocket build --target psp` compiles the `app`
+section and passes the package (or the AOT sources) to `programs/psp`.
 
 `host export` writes `pocket_profile.h` and `pocket_profile.rs`, holding the
 facts the program admits packages against and the host contract hash, and
@@ -95,9 +125,9 @@ names.
 `--depfile` records imported host config, host contract and exporter inputs.
 
 Application settings, including `app.framework` and `app.theme`, belong in the
-app contract, `pocket.app.json`. The host contract declares display geometry,
-capabilities and tick rate. The host config declares the program's host
-contracts and build recipe.
+`app` section of the host config. The host contract declares display geometry,
+capabilities and tick rate. The host config also declares a program's build
+recipe. An installable-application manifest belongs to `pocket-nexus/pocket-shell`.
 
 ## Native programs and repacking
 
@@ -107,10 +137,10 @@ product directory, the nearest host config owns the build. `--config`
 selects a host config without consulting the catalog.
 
 ```sh
-pocket compile --manifest pocket.app.json --target psp --output dist/app.pocket
+pocket compile --target psp --output dist/app.pocket
 pocket build --target psp --pocket dist/app.pocket --out dist/psp
 
-pocket compile --manifest pocket.app.json --target psp-runtime --output dist/game.pocket
+pocket compile --target psp-runtime --output dist/game.pocket
 pocket build --target psp --generic --out dist/psp-runtime
 pocket pack --target psp dist/game.pocket --runtime dist/psp-runtime \
   --author "Example Studio" --output dist/game.zip
@@ -131,8 +161,9 @@ deploy hook after the artifact check; an absent hook is an error.
 `runtime.json` before writing the installation package, then admits the package
 by the runtime's `pocket.host.json`. The default runtime comes from the
 framework release; `--runtime` supplies a local build. Identity defaults to the
-compiled application's id, title and version and the app contract's `author`
-and `icon`; without an app contract author the default is `Unspecified`.
+compiled application's id, title and version and the variant's cover section
+(`app.icon`). The author is `--author`, the `app.author` of the application's host
+config when `pack` runs in its directory, or `Unspecified`.
 
 The toolchain definitions live under `tools/build/toolchains/`.
 `pocket-toolchain/2` installs only declared components. Targets that require
@@ -154,8 +185,8 @@ The generated product contains:
 
 ```text
 pocket.host.json        host contract, host ID product-my-product
-pocket.host.config.ts   host config naming that host contract; native build belongs to ESP-IDF
-app/pocket.app.json     app contract
+pocket.host.config.ts   host config: that host contract and the app section;
+                        native build belongs to ESP-IDF
 app/main.tsx            mount entry
 app/app.tsx             component
 ```

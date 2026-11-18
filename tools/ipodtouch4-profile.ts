@@ -6,8 +6,8 @@ import {
   definePlatformContractRegistry,
   defineTargetRegistry,
 } from "../contracts/spec/platforms.ts";
-import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import type { ResolvedBuildPlan } from "../framework/compiler/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 const softwareProfile = POCKET_PROFILES["ipodtouch4-dev"];
 
 /**
@@ -38,14 +38,14 @@ export const IPODTOUCH4_DEV_CONTRACTS = definePlatformContractRegistry(
 );
 
 export function resolveIPodTouch4BuildPlan(input: unknown): ResolvedBuildPlan {
-  const resolution = validateAndResolveBuildPlan(
+  const resolution = resolveAppPlan(
     input,
     { target: IPODTOUCH4_DEV_TARGET_ID },
     IPODTOUCH4_DEV_CONTRACTS,
   );
   if (!resolution.ok) {
     throw new Error(
-      `pocket ipodtouch4: manifest did not resolve: ${resolution.diagnostics
+      `pocket ipodtouch4: application did not resolve: ${resolution.diagnostics
         .map((diagnostic) => `${diagnostic.path || "/"}: ${diagnostic.message}`)
         .join("; ")}`,
     );

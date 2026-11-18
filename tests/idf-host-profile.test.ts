@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { parsePocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
 import { compiledProfile } from "../contracts/spec/profile.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { extractHostBuildInputs, hostBuildEnvironment } from "../framework/src/manifest/host-build-inputs.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { extractHostBuildInputs, hostBuildEnvironment } from "../framework/compiler/host-build-inputs.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
-import { canonicalJson } from "../framework/src/manifest/plan.ts";
+import { canonicalJson } from "../framework/compiler/plan.ts";
 import { decodeHostInputs, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 
 const profile = parsePocketProfile({
@@ -17,8 +17,11 @@ const profile = parsePocketProfile({
 
 describe("ESP-IDF software profile", () => {
   test("uses the common profile identity and projects host inputs without a legacy extension", async () => {
-    const manifest = await Bun.file(new URL("./fixtures/manifests/portable-psp.json", import.meta.url)).json();
-    const result = validateAndResolveBuildPlan(manifest, { target: profile.id }, profileRegistry(profile));
+    const app = {
+      id: "dev.pocket-nexus.telemetry", title: "Pocket Telemetry", version: "0.1.0", entry: "app/main.tsx", framework: "solid",
+      viewport: { logical: [480, 272], presentation: "integer-fit" }, features: ["text.glyphs.baked", "input.analog.left", "input.buttons"],
+    } as const;
+    const result = resolveAppPlan(app, { target: profile.id }, profileRegistry(profile));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const plan = result.plan;

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import type { ResolvedBuildPlan } from "../framework/compiler/plan.ts";
 
 const DEVELOPMENT_UID = /^0xE[0-9A-F]{7}$/i;
 const SAFE_OUTPUT = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
@@ -50,8 +50,8 @@ export function symbianDataBaseForEmbeddedBytes(
  *
  * Symbian's 0xE0000000..0xEFFFFFFF range is intentionally unprotected. The
  * reverse-DNS Pocket id is the durable input so independent checkouts build
- * upgrade-compatible packages without adding private Symbian fields to
- * pocket.app.json.
+ * upgrade-compatible packages without adding private Symbian fields to the
+ * application's host config.
  */
 export function symbianUidForAppId(appId: string): string {
   const digest = createHash("sha256").update(appId, "utf8").digest("hex");

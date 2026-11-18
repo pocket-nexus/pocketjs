@@ -7,7 +7,7 @@ import {
 import { DYNAMIC_FORMS, type Viewport } from "../../contracts/spec/platform-types.ts";
 import { WORKER_RESOURCES, type WorkerResourceKind } from "../../contracts/spec/worker.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
-import { validateSchema, type ContractDiagnostic, type ValidationResult } from "./manifest/schema.ts";
+import { validateSchema, type ContractDiagnostic, type ValidationResult } from "../../contracts/spec/json-schema.ts";
 import { BUILTIN_PROFILE_IDS, PROFILE_COMMAND_WORDS } from "../../hosts/ids.ts";
 
 export {

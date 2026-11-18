@@ -4,8 +4,10 @@ import { resolve } from "node:path";
 import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 import { createHash } from "node:crypto";
 import { buildAot } from "../microts/compiler/aot-build.ts";
+import { registerRepositoryApp } from "./app-fixtures.ts";
 
 test("the compiled Solid lab model and view stay below the 24 MiB allocation cap", async () => {
+  await registerRepositoryApp("solid-aot-lab");
   await buildAot("solid-aot-lab", { strict: true });
   const run=resolve(".pocket-build/validation/model-aot/resources",String(Date.now()));await mkdir(resolve(run,"src"),{recursive:true});
   await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-resource-lab"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket-solid-aot-lab={path=${JSON.stringify(resolve("apps/solid-aot-lab"))}}\nmicrots={path=${JSON.stringify(resolve("engine/microts-runtime"))}}\nserde_json="1"\n`);

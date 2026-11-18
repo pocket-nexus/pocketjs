@@ -1,4 +1,4 @@
-/** Manifest selection is explicit: compiled admission never falls back to a Rust model. */
+/** The registered application selects the model mode: compiled admission never falls back to a Rust model. */
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import ts from "typescript";
@@ -76,7 +76,7 @@ export function transformCompiledModel(source: string, filename: string, buildEn
   const sources = new Map([[resolve(filename), source]]);
   const extension = config.framework === "vue-vapor" ? ".vue" : ".tsx";
   const conventional = ["app", "App", basename(config.directory!)].map(name => resolve(config.directory!, name + extension)).find(existsSync);
-  const configured = config.entry && [resolve(config.directory!, config.entry), resolve(import.meta.dir, "../..", config.entry)].find(existsSync);
+  const configured = config.entry && existsSync(config.entry) ? config.entry : undefined;
   // An AOT presentation selects the mount graph. An ordinary guest can import
   // a compiled component without admitting its own host callbacks as AOT.
   const selected = buildEntry && modelConfiguration(buildEntry).aot ? resolve(buildEntry) : conventional ?? configured;

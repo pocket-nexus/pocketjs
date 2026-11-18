@@ -20,7 +20,7 @@ await run("tools/text-wasm.ts");
 // site/content/docs/. site/build.ts throws when one of these is missing, so
 // the artifact chain and the directive stay in step from a fresh checkout.
 for (const app of docDemoAppsIn(ROOT + "site/content/docs/")) {
-  const demo = resolveDocDemo(app);
+  const demo = await resolveDocDemo(app);
   await run("tools/build.ts", demo.output, `--framework=${demo.framework}`);
 }
 // One app per authored handheld model, at that model's display size and

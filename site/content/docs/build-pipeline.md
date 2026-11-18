@@ -9,11 +9,13 @@ application code, AOT views and compiled model bodies; the rules for one mode
 do not define the source subset for another.
 
 This page describes the low-level bundle/style/font/pak compiler. Application
-builds resolve the app contract `pocket.app.json` against a host contract
-`pocket.host.json` through `pocket check` or `pocket compile`
+builds resolve the `app` section of `pocket.host.config.ts` against a host
+contract `pocket.host.json` through `pocket check` or `pocket compile`
 ([CLI](/docs/cli/#check-and-compile)) before this pipeline runs. The resulting
-build plan contains the selected viewport, capabilities, `profileHash` and
-application options. See
+build plan contains the selected viewport, features, `profileHash` and
+application options, and is the compiler's input:
+`tools/build.ts --plan=<plan.json> --project-root=<dir> --outdir=<dir>
+[--config=<pocket.host.config.ts>]`. See
 [Platform contracts](/docs/platform-contracts/) for the plan fields.
 
 With `app.aot: true` and `app.model: "compiled"`, model admission and lowering
@@ -23,8 +25,19 @@ The emitted bundle follows the same frame contract as the generated Rust
 model; native `async` execution and Promise microtasks do not schedule its
 task segments.
 
-The resolved build plan includes model selection and `recursionLimit`. A build
-using a frozen plan rejects a changed model configuration. `pocket compile` produces a guest package by default.
+**The compiler reads no file to find application settings.** Before a
+compile, the build driver registers each application's `aot`, `model`,
+`recursionLimit`, `framework` and entry with `registerApplication`
+(`microts/compiler/aot-model-config.ts`), keyed by the application directory;
+model lowering and the AOT frontends look up the nearest registered directory
+above a source file. `tools/build.ts --plan --config=<file>` registers the
+config's `app` section and **rejects a plan whose model settings differ from
+it**; without `--config`, it registers the plan's settings for the entry's
+directory. Pass 1 registers the host config nearest each source file it
+walks, so **sources one application imports from another compile with the
+owning application's settings**: `apps/iphone16-demo` mounts
+`apps/hero/app.tsx`, whose compiled model is lowered with hero's settings.
+`pocket compile` produces a guest package by default.
 `pocket compile --aot --out <directory>` generates Rust application code,
 font/image data and a dependency manifest for the program to compile. It does
 not invoke the native toolchain. See [TypeScript models to Rust](/docs/microts-model/).
@@ -33,14 +46,17 @@ Admission and generation commands for both paths are listed in
 
 **Application compilation and program compilation have separate commands.**
 `pocket compile --target <id|pocket.host.json> --output <file>` resolves the
-app contract against that host contract, writes `.pocket/<target>/plan.json`,
-then packages the JS and assets in a `.pocket` file. Without `--target`, it
-uses the host contract named by the nearest host config,
-`pocket.host.config.ts`. `--host-config <file>` selects another host config.
+`app` section of the nearest `pocket.host.config.ts` against that host
+contract, writes `.pocket/<target>/plan.json`, then packages the JS and assets
+in a `.pocket` file with an empty manifest region. The target must be a host
+the config lists; without `--target`, a config with one host selects it.
+`--config <file>` selects another host config.
 
 **`pocket build` consumes compiled application inputs and the program's host
 config, `pocket.host.config.ts`.** `--pocket` provides a format 2 package;
-`--aot-dir` provides the generated source directory. The executor verifies
+`--aot-dir` provides the generated source directory; run from an
+application's directory without either, it compiles the application first.
+The executor verifies
 the host contract's `profileHash` and binding generation, snapshots the
 admitted files, then runs Cargo, CMake, Make or the program's native hook.
 `build-receipt.json` records the input and artifact hashes. A host config
@@ -55,8 +71,10 @@ bun tools/build.ts hero
 
 produces `dist/hero.js` (the bundle) and `dist/hero.pak` (styles, font
 atlases, and images packed into a single binary container). This direct command
-uses the default density-1 development contract. A build from an app contract
-is target-specific: PSP and Vita compile from the same source and logical layout,
+uses the default density-1 development contract. **It reads the host config
+nearest the entry for the application's framework, theme and worker**, and
+registers its model settings. A build from a plan is target-specific: PSP and
+Vita compile from the same source and logical layout,
 but Vita receives density-2 atlases/assets plus an embedded target/HostOps-ABI
 handshake. Do not copy one target's pair into another target's native package.
 
@@ -89,13 +107,12 @@ bun tools/build.ts hero-main               # the mounted entry (apps/hero/main.t
 A bare name resolves against `apps/`: `hero` finds `apps/hero/app.tsx`, and a
 name ending in `-main` finds `apps/hero/main.tsx`.
 
-An ESP-IDF product names its host contract in the firmware's host config,
-`pocket.host.config.ts`. Compile the application and export the program's
-trusted host contract from that host config:
+An ESP-IDF product names its host contract and its application in the
+firmware's host config, `pocket.host.config.ts`. Compile the application and
+export the program's trusted host contract from that host config:
 
 ```sh
-pocket compile --manifest app/pocket.app.json \
-  --host-config pocket.host.config.ts --output dist/app.pocket
+pocket compile --config pocket.host.config.ts --output dist/app.pocket
 pocket host export --config pocket.host.config.ts --out profile-export
 ```
 
@@ -116,7 +133,7 @@ See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 
 | Flag | Effect |
 |---|---|
-| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build; the default is Solid. App contract builds use `app.framework` from `pocket.app.json`. |
+| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build; the default is the nearest host config's `app.framework`, then Solid. A plan build uses the plan's framework. |
 | `--extra-chars=<string>` | Force these codepoints into **every** baked atlas, on top of the collected charset and ASCII. |
 | `--density=N` | Raster samples per logical pixel for this build — an integer 1 through 255, default 1. A resolved plan owns the density, so passing both is an error. |
 | `--hz=N` | Bake this virtual tick rate into the bundle — an integer 1 through 240, default 60. The host must drive the surface at the same rate; a bundle whose baked rate differs from the host's `ui.__tickHz` throws before it mounts. |
@@ -489,7 +506,7 @@ browser**: it transforms and collects, compiles the Tailwind subset, bakes
 atlases, packs a pak, and bundles — then loads the result into the WebAssembly
 core and renders to a canvas. It exercises the same logical UI and pak formats,
 but its density-1 browser development pair is not interchangeable with a PSP
-or Vita artifact built from an app contract, which carries target-specific
+or Vita artifact built from a build plan, which carries target-specific
 density and ABI constants.
 
 ## Related

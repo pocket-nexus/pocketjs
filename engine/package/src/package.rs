@@ -279,7 +279,8 @@ impl<'a> Package<'a> {
         Ok(package)
     }
 
-    /// pocket.app.json bytes, verbatim.
+    /// The manifest region, verbatim: empty from `pocket compile`; another
+    /// product may store its manifest here.
     pub fn manifest(&self) -> &'a [u8] {
         &self.bytes[HEADER_SIZE..HEADER_SIZE + self.manifest_len]
     }

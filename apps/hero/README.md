@@ -13,4 +13,4 @@ bun tools/build.ts apps/hero/main.tsx --framework=solid
 bun microts/compiler/cli.ts check hero --strict
 ```
 
-The manifest's `app.model = "compiled"` selects the same TypeScript model for generated JavaScript and generated Rust.
+`app.model: "compiled"` in `pocket.host.config.ts` selects the same TypeScript model for generated JavaScript and generated Rust.

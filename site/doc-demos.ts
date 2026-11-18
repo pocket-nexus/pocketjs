@@ -2,24 +2,27 @@
 //
 // A docs page embeds a live PocketJS app by naming an apps/<app>/ directory.
 // Everything the page needs (dist artifact names, logical size, raster
-// density, the command that produces the artifact) is derived here from that
-// app's pocket.app.json, so the markdown never repeats a build detail and the
-// site build and the prerequisite chain in tools/site-build.ts cannot drift.
+// density, the command that produces the artifact) is derived here from the
+// app section of that app's pocket.host.config.ts, so the markdown never
+// repeats a build detail and the site build and the prerequisite chain in
+// tools/site-build.ts cannot drift.
 //
 // Imported by BOTH site/build.ts (to emit the figure and copy the artifacts)
 // and tools/site-build.ts (to build the artifacts before the site runs).
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { appIdentity } from "../framework/compiler/app-plan.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
 export interface DocDemo {
   /** apps/<app>/ directory name, the token written after `:::demo`. */
   app: string;
-  /** pocket.app.json app.output — the dist artifact's base name. */
+  /** app.output — the dist artifact's base name. */
   output: string;
   framework: "solid" | "vue-vapor" | "octane";
-  /** pocket.app.json id, handed to the AppInstance realm as its package id. */
+  /** The application id, handed to the AppInstance realm as its package id. */
   packageId: string;
   title: string;
   /** Logical viewport in PocketJS pixels. */
@@ -55,36 +58,31 @@ export class MissingDemoArtifactError extends Error {
   }
 }
 
-/** Resolve `:::demo <app>` against apps/<app>/pocket.app.json. Throws if unbuilt. */
-export function resolveDocDemo(app: string): DocDemo {
+/** Resolve `:::demo <app>` against the app section of
+ *  apps/<app>/pocket.host.config.ts. */
+export async function resolveDocDemo(app: string): Promise<DocDemo> {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(app)) {
     throw new Error(`:::demo wants an apps/ directory name, got ${JSON.stringify(app)}`);
   }
-  const manifestPath = `${ROOT}apps/${app}/pocket.app.json`;
-  if (!existsSync(manifestPath)) {
-    throw new Error(`:::demo ${app} has no manifest at apps/${app}/pocket.app.json`);
+  const configPath = `${ROOT}apps/${app}/pocket.host.config.ts`;
+  if (!existsSync(configPath)) {
+    throw new Error(`:::demo ${app} has no host config at apps/${app}/pocket.host.config.ts`);
   }
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-    id?: string;
-    title?: string;
-    app?: {
-      output?: string;
-      framework?: keyof typeof OUTPUT_SUFFIX;
-      viewport?: { fixed?: { logical?: [number, number] | [number, number][] | { min: [number, number] } } };
-    };
-  };
-  const output = manifest.app?.output;
-  const framework = manifest.app?.framework;
+  const application = (await loadHostConfig(configPath)).value.app;
+  const output = application?.output;
+  const framework = application?.framework;
   // A preference list's first size; a range's lower bound.
-  const declared = manifest.app?.viewport?.fixed?.logical;
+  const viewport = application?.viewport;
+  const declared = !viewport ? undefined : "logical" in viewport ? viewport.logical : viewport.fixed?.logical;
   const logical = !declared ? undefined : "min" in declared ? declared.min
-    : typeof declared[0] === "number" ? declared as [number, number] : (declared as [number, number][])[0];
-  if (!output || !framework || !(framework in OUTPUT_SUFFIX)) {
-    throw new Error(`apps/${app}/pocket.app.json declares no app.output/app.framework`);
+    : typeof declared[0] === "number" ? declared as readonly [number, number] : (declared as readonly (readonly [number, number])[])[0];
+  if (!application || !output || !framework || !(framework in OUTPUT_SUFFIX)) {
+    throw new Error(`apps/${app}/pocket.host.config.ts states no app.output/app.framework`);
   }
   if (!logical || logical.length !== 2) {
-    throw new Error(`apps/${app}/pocket.app.json declares no app.viewport.fixed.logical`);
+    throw new Error(`apps/${app}/pocket.host.config.ts states no fixed app.viewport`);
   }
+  const identity = appIdentity(application, output);
   const [width, height] = logical;
   if (width >= LEGACY_COORD_LIMIT || height >= LEGACY_COORD_LIMIT) {
     // site/playground/embed.js packs contacts in the legacy 9-bit form.
@@ -97,8 +95,8 @@ export function resolveDocDemo(app: string): DocDemo {
     app,
     output,
     framework,
-    packageId: manifest.id ?? output,
-    title: manifest.title ?? app,
+    packageId: identity.id,
+    title: application.title ?? app,
     width,
     height,
     // A low-level build bakes glyph coverage and __POCKET_PIXEL_RATIO__ at

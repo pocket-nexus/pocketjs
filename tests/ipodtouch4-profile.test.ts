@@ -1,18 +1,22 @@
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { describe, expect, test } from "bun:test";
-import { readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { AppConfig } from "../contracts/spec/app-config.ts";
 import { IPODTOUCH4_DEV_HOST_ABI, IPODTOUCH4_DEV_TARGET_ID, IPODTOUCH4_LANDSCAPE_VIEWPORT, IPODTOUCH4_LOGICAL_VIEWPORT, IPODTOUCH4_PHYSICAL_VIEWPORT, IPODTOUCH4_RASTER_DENSITY, resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
 import { guestRuntimeDefines, IPODTOUCH4_APPS, selectIPodTouch4App } from "../tools/ipodtouch4.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 
 const repository = join(import.meta.dir, "..");
+/** The `app` section of a committed application's host config. */
+const appOf = async (path: string): Promise<AppConfig> => (await loadHostConfig(join(repository, path))).value.app!;
+const clearApp = await appOf("apps/clear/pocket.host.config.ts");
+const nexusApp = await appOf("apps/nexus-touch/pocket.host.config.ts");
 
 describe("private iPod touch 4 profile", () => {
 
   test("resolves the Pocket Clear build plan", () => {
-    const manifest = JSON.parse(readFileSync(join(repository, "apps/clear/pocket.app.json"), "utf8"));
-    const plan = resolveIPodTouch4BuildPlan(manifest);
+    const plan = resolveIPodTouch4BuildPlan(clearApp);
     expect(plan.target).toEqual({ id: IPODTOUCH4_DEV_TARGET_ID, hostAbi: IPODTOUCH4_DEV_HOST_ABI });
     expect(plan.viewport).toEqual({
       logical: IPODTOUCH4_LOGICAL_VIEWPORT,
@@ -21,15 +25,14 @@ describe("private iPod touch 4 profile", () => {
       rasterDensity: IPODTOUCH4_RASTER_DENSITY,
       policy: "fixed",
     });
-    expect(plan.app.entry).toBe("apps/clear/main.tsx");
+    expect(plan.app.entry).toBe("main.tsx");
     expect(plan.app.output).toBe("clear-main");
     expect(plan.app.framework).toBe("vue-vapor");
   });
 
-  test("resolves Pocket Nexus and binds the physics ops it requires", () => {
-    const manifest = readPocketManifest(join(repository, "apps/nexus-touch/pocket.app.json")).manifest as any;
-    const plan = resolveIPodTouch4BuildPlan(manifest);
-    expect(plan.app.entry).toBe("apps/nexus-touch/main.tsx");
+  test("resolves Pocket Nexus and binds the physics ops it turns on", () => {
+    const plan = resolveIPodTouch4BuildPlan(nexusApp);
+    expect(plan.app.entry).toBe("main.tsx");
     expect(plan.app.output).toBe("nexus-touch-main");
     expect(plan.app.framework).toBe("solid");
     expect(plan.viewport.logical).toEqual(IPODTOUCH4_LOGICAL_VIEWPORT);
@@ -43,17 +46,14 @@ describe("private iPod touch 4 profile", () => {
     }
     // the guest runtime binds ops 52..56 for this plan only; Clear keeps its op table
     expect(guestRuntimeDefines(plan.features)).toEqual(["-DPOCKET_PHYSICS"]);
-    const clearPlan = resolveIPodTouch4BuildPlan(JSON.parse(readFileSync(join(repository, "apps/clear/pocket.app.json"), "utf8")));
+    const clearPlan = resolveIPodTouch4BuildPlan(clearApp);
     expect(guestRuntimeDefines(clearPlan.features)).toEqual([]);
   });
 
   test("resolves an external landscape app with independent device identity", () => {
-    const manifest = JSON.parse(readFileSync(join(repository, "apps/clear/pocket.app.json"), "utf8"));
-    manifest.app.entry = "ipod/main.tsx";
-    manifest.app.output = "external-shell";
-    manifest.app.framework = "solid";
-    manifest.app.viewport.fixed.logical = [480, 320];
-    const plan = resolveIPodTouch4BuildPlan(manifest);
+    const external = { ...clearApp, entry: "main.tsx", output: "external-shell", framework: "solid",
+      viewport: { fixed: { logical: [480, 320], presentation: "native" } } } as const satisfies AppConfig;
+    const plan = resolveIPodTouch4BuildPlan(external);
     expect(plan.viewport).toEqual({
       logical: IPODTOUCH4_LANDSCAPE_VIEWPORT,
       physical: [IPODTOUCH4_PHYSICAL_VIEWPORT[1], IPODTOUCH4_PHYSICAL_VIEWPORT[0]],
@@ -69,10 +69,10 @@ describe("private iPod touch 4 profile", () => {
     let remote;
     try {
       mkdirSync(join(root, "ipod"));
-      writeFileSync(join(root, "ipod/pocket.app.json"), JSON.stringify(manifest));
+      writeFileSync(join(root, "ipod/pocket.host.config.ts"), `export default ${JSON.stringify({ host: "ipodtouch4-dev", app: external })};\n`);
       const descriptor = join(root, "ipod/ipodtouch4.json");
       writeFileSync(descriptor, JSON.stringify({
-        id: "shell", projectRoot: "..", manifest: "ipod/pocket.app.json",
+        id: "shell", projectRoot: "..", config: "ipod/pocket.host.config.ts",
         bundleId: "dev.pocket-nexus.shell", bundleName: "PocketShell.app",
         executable: "PocketShell", title: "Pocket Shell", scheme: "pocketjs-shell",
         receiptSlug: "pocketjs-shell", actionName: "shell_action", svcWire: true,
@@ -94,9 +94,9 @@ describe("private iPod touch 4 profile", () => {
     const root = mkdtempSync(join(tmpdir(), "pocket-native-ipod-"));
     try {
       const file = join(root, "app.json");
-      for (const name of ["pocket.app.json", "Cargo.toml", "bridge.c"]) writeFileSync(join(root, name), "");
+      for (const name of ["pocket.host.config.ts", "Cargo.toml", "bridge.c"]) writeFileSync(join(root, name), "");
       const descriptor = {
-        id: "game", manifest: "pocket.app.json", bundleId: "dev.pocket.game", bundleName: "Game.app",
+        id: "game", config: "pocket.host.config.ts", bundleId: "dev.pocket.game", bundleName: "Game.app",
         executable: "Game", title: "Game", scheme: "pocket-game", receiptSlug: "game", actionName: "game_touch",
         nativeCore: { manifest: "Cargo.toml", library: "libgame.a", features: ["native"], sources: ["bridge.c"] },
       };

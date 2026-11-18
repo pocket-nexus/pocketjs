@@ -4,12 +4,12 @@ import { resolve } from "node:path";
 import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 import { buildAot } from "../microts/compiler/aot-build.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
+import { registerModelFixture } from "./app-fixtures.ts";
 
 test("compiled mount completes before first input without advancing frames or virtual time", async () => {
   const run=resolve(".pocket-build/validation/model-aot/startup",String(Date.now())),fixture=resolve(run,"app");
   await mkdir(fixture,{recursive:true});await mkdir(resolve(run,"src"));
   const files={
-    "pocket.app.json":JSON.stringify({app:{framework:"solid",aot:true,model:"compiled",entry:"App.tsx"}}),
     "App.ts":`import {createSignal} from "solid-js";import {createEffect} from "@pocketjs/framework/solid/reactive";import {frames,after,type i32} from "@pocketjs/framework/solid/std";
 export const[count,setCount]=createSignal(0);export const[seen,setSeen]=createSignal(0);export const[framed,setFramed]=createSignal(0);export const[timed,setTimed]=createSignal(0);export const[visible,setVisible]=createSignal(true);
 createEffect(()=>{setCount(5);setVisible(false);});async function byFrame():Promise<void>{await frames(1);setFramed(1);}async function byTime():Promise<void>{await after(16);setTimed(1);}createEffect(()=>{byFrame();byTime();});export function press():void{setSeen(count());}`,
@@ -18,6 +18,7 @@ createEffect(()=>{setCount(5);setVisible(false);});async function byFrame():Prom
     "Child.tsx":`import {Text} from "@pocketjs/framework/solid/components";import {onMount,onCleanup} from "@pocketjs/framework/solid/lifecycle";import {createChild} from "./Child";export default function Child(){const{n,mount,cleanup}=createChild();onMount(()=>mount());onCleanup(()=>cleanup());return <Text>{n()}</Text>;}`,
   };
   for(const[name,source]of Object.entries(files))await Bun.write(resolve(fixture,name),source);
+  registerModelFixture(fixture);
   const result=await buildAot(fixture,{outDir:resolve(run,"src/gen"),format:false});
   const wasmBuild=Bun.spawnSync([process.execPath,"tools/wasm.ts"],{stdout:"pipe",stderr:"pipe"});expect(wasmBuild.exitCode,wasmBuild.stderr.toString()).toBe(0);
   const oracle=resolve(run,"oracle.ts");await Bun.write(oracle,`

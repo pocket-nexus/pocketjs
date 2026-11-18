@@ -42,8 +42,7 @@ source "$POCKETJS_ROOT/platforms/sifli/Kconfig"
 
 ```sh
 bun tools/pocket.ts host export --config pocket.host.config.ts --out build/profile
-bun tools/pocket.ts compile --manifest pocket.app.json --project-root . \
-  --host-config pocket.host.config.ts --output build/app.pocket
+bun tools/pocket.ts compile --config pocket.host.config.ts --output build/app.pocket
 bun tools/build/sifli/epic.ts --pocket build/app.pocket --out build/app.epic
 POCKET_PROFILE_EXPORT_DIR=$PWD/build/profile scons --board=<board> -j8
 ```

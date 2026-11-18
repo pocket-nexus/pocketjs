@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
@@ -59,15 +59,14 @@ test("native launcher inputs are explicit existing paths while recipe-owned comp
 
 test("web assembly stages admitted bytes and the complete runtime/text provider modules", async () => {
   const ctx = context(web);
-  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocket.program", title: "Example", version: "1.0.0",
-    engine: { capabilities: { requires: ["text.glyphs.baked"] } },
-    app: { entry: "missing-source.tsx", framework: "solid", output: "example", viewport: { fixed: { logical: [800, 600], presentation: "native" } } } };
-  const resolved = validateAndResolveBuildPlan(manifest, { target: web.id }, profileRegistry(web));
+  const app = { id: "dev.pocket.program", title: "Example", version: "1.0.0", features: ["text.glyphs.baked"],
+    entry: "missing-source.tsx", framework: "solid", output: "example", viewport: { fixed: { logical: [800, 600], presentation: "native" } } } as const;
+  const resolved = resolveAppPlan(app, { target: web.id }, profileRegistry(web));
   if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
   const variant = makeVariant({ target: web.id, hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(resolved.plan),
-    identity: { id: manifest.id, title: manifest.title, output: "example" }, js: new TextEncoder().encode("globalThis.frame=()=>{};"), pak: new Uint8Array([1, 2, 3]) });
+    identity: { id: app.id, title: app.title, output: "example" }, js: new TextEncoder().encode("globalThis.frame=()=>{};"), pak: new Uint8Array([1, 2, 3]) });
   const pocket = resolve(ctx.outdir, "source.pocket");
-  writeFileSync(pocket, encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [variant] }));
+  writeFileSync(pocket, encodePocketPackage({ manifest: new Uint8Array(0), variants: [variant] }));
   const application = prepareApplication({ profile: web, profileHash: ctx.profileHash, hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, pocket, ctx.outdir);
   for (const [directory, file] of [["cargo-target", "pocketjs_wasm.wasm"], ["cargo-text-target", "pocket_text.wasm"]]) {
     const path = resolve(ctx.outdir, directory!, "wasm32-unknown-unknown/release"); mkdirSync(path, { recursive: true }); writeFileSync(resolve(path, file!), new Uint8Array([0, 97, 115, 109]));

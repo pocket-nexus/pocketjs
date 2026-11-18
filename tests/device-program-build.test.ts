@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { applicationBundle, prepareCompiledApplication } from "../tools/build/programs/application.ts";
@@ -25,20 +25,19 @@ const programs = ["pocketbook", "nokia-e7", "ios-simulator", "ipodtouch6", "ipod
 const generic = new Set(["ipodtouch4"]);
 function select(id: string) { return resolveProfile({ from: root, hostConfig: join(root, `programs/${id}/pocket.host.config.ts`), requireConfig: true }); }
 function packageFixture(selected: ResolvedProfile, directory: string) {
-  const manifest = {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "dev.pocketjs.native-input", title: "Current package", version: "1.2.3",
-    engine: { capabilities: { requires: ["text.glyphs.baked"] } },
-    app: { entry: "source-does-not-exist.tsx", output: "current-package", framework: "solid", viewport: { fixed: {
+  const app = {
+    id: "dev.pocketjs.native-input", title: "Current package", version: "1.2.3", features: ["text.glyphs.baked"],
+    entry: "source-does-not-exist.tsx", output: "current-package", framework: "solid", viewport: { fixed: {
       logical: selected.profile.display.logicalViewports[0], presentation: selected.profile.display.presentations[0],
-    } } },
+    } },
   };
-  const result = validateAndResolveBuildPlan(manifest, { target: selected.profile.id }, profileRegistry(selected.profile));
+  const result = resolveAppPlan(app, { target: selected.profile.id }, profileRegistry(selected.profile));
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
   const variant = makeVariant({ target: selected.profile.id, hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(result.plan),
     identity: { output: result.plan.app.output, id: result.plan.app.id, title: result.plan.app.title },
     js: new TextEncoder().encode("globalThis.currentPackage = 73;"), pak: new Uint8Array([7, 3, 1]) });
   const path = join(directory, "current.pocket");
-  writeFileSync(path, encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [variant] }));
+  writeFileSync(path, encodePocketPackage({ manifest: new Uint8Array(0), variants: [variant] }));
   return path;
 }
 

@@ -86,8 +86,11 @@ and capabilities. The generated `pocketjs_package_dashboard.h` exports package
 storage and admitted application geometry. `pocket_profile.h` supplies the
 program's host contract facts, independent of the package.
 
-`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.app.json>)`
-compiles an application and exports the host contract.
+`pocketjs_compile_app(TARGET <target> NAME <name> [HOST_CONFIG <file>]
+[PROJECT_ROOT <directory>] [PROFILE_EXPORT_DIR <directory>]
+[COMPILER_RECEIPT <file>] [DEPENDS …])` compiles the `app` section of the
+host config for its one host and exports the host contract. `PROJECT_ROOT`
+defaults to the config's directory; the plan's entries are relative to it.
 `pocketjs_profile_header(TARGET <target> NAME <name>)` exports the host contract
 without an application. These two helpers require the Pocket CLI. Their
 dependency files track application imports, host contracts and host config
@@ -281,6 +284,13 @@ import { cargo, defineHostConfig } from "@pocketjs/framework/host-config";
 
 export default defineHostConfig({
   host: "./pocket.host.json",
+  app: {
+    entry: "app/App.tsx",
+    framework: "solid",
+    viewport: { logical: [320, 240], presentation: "native" },
+    features: ["input.buttons", "text.glyphs.baked"],
+    aot: true,
+  },
   build: {
     hosts: ["darwin-arm64", "linux-x64"],
     input: "aot",
@@ -295,10 +305,12 @@ export default defineHostConfig({
 ```
 
 ```sh
-pocket compile --manifest app/pocket.app.json --project-root app \
-  --target ./pocket.host.json --aot --out dist/aot
+pocket compile --config pocket.host.config.ts --aot --out dist/aot
 pocket build --config pocket.host.config.ts --aot-dir dist/aot --out dist/build
 ```
+
+Without `--aot-dir`, `pocket build` runs the AOT compile of the config's `app`
+section itself before the recipe.
 
 The crate's `build.rs` calls `pocket_profile_build::emit`, which copies the
 exported profile to `OUT_DIR/pocket_profile.rs`. The library includes that

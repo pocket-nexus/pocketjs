@@ -14,8 +14,9 @@ import {
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
-import { demoIdentity, demoManifestFor } from "./demo-identity.ts";
+import { vitaTitleId } from "../framework/compiler/vita-title-id.ts";
+import { appIdentity, appOutput } from "../framework/compiler/app-plan.ts";
+import { demoApp } from "./build/programs/handheld-common.ts";
 import { VITA_REQUIRED_SYSTEM_ASSETS } from "./vita-package.ts";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -41,7 +42,7 @@ const sourceConfig = process.env.VITA3K_CONFIG || defaultConfig;
 function demos(): string[] {
   const root = `${ROOT}apps`;
   return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && existsSync(`${root}/${entry.name}/main.tsx`))
+    .filter((entry) => entry.isDirectory() && existsSync(`${root}/${entry.name}/pocket.host.config.ts`))
     .map((entry) => entry.name)
     .sort();
 }
@@ -132,16 +133,13 @@ if (!demoArg) usage("missing demo name");
 if (platform === "ios") {
   const demo = demoArg.replace(/-main$/, "");
   if (!demos().includes(demo)) usage(`unknown demo ${demoArg}`);
-  const framework = args.find(arg => arg.startsWith("--framework="))?.slice("--framework=".length) ??
-    (demo.endsWith("vue-vapor") ? "vue-vapor" : demo.endsWith("octane") ? "octane" : "solid");
+  if (args.some(arg => arg.startsWith("--framework="))) usage("--framework is the demo's app.framework in its pocket.host.config.ts");
   const output = `${ROOT}.pocket-build/play-ios/${demo}`;
   const pocket = `${output}/application.pocket`;
   if (!args.includes("--no-build")) {
     mkdirSync(output, { recursive: true });
-    const manifest = `${output}/pocket.app.json`;
-    writeFileSync(manifest, JSON.stringify(demoManifestFor(ROOT, demo, framework), null, 2) + "\n");
     await run([process.execPath, "tools/pocket.ts", "compile", "--target", "ios-dev",
-      "--manifest", manifest, "--project-root", ROOT, "--outdir", `${output}/compiler`, "--output", pocket],
+      "--config", `${ROOT}apps/${demo}/pocket.host.config.ts`, "--project-root", ROOT, "--outdir", `${output}/compiler`, "--output", pocket],
       "iOS application compile");
   }
   if (!existsSync(pocket)) throw new Error(`compiled iOS package is missing: ${pocket}; remove --no-build and retry`);
@@ -160,8 +158,8 @@ if (unknown) usage(`unknown option ${unknown}`);
 
 const demo = demoArg.replace(/-main$/, "");
 if (!demos().includes(demo)) usage(`unknown demo ${demoArg}`);
-const identity = demoIdentity(demo);
-const titleId = vitaTitleId(identity.id);
+const application = await demoApp(demo);
+const titleId = vitaTitleId(appIdentity(application, appOutput(application)).id);
 const stagedApp = `${PLAY_DIR}/${titleId}`;
 if (!vita3k || !existsSync(vita3k)) {
   throw new Error("Vita3K not found; set VITA3K/VITA3K_APP or install ~/Applications/Vita3K.app");
@@ -170,22 +168,19 @@ if (!existsSync(sourceConfig)) {
   throw new Error(`Vita3K config not found at ${sourceConfig}; run Vita3K once or set VITA3K_CONFIG`);
 }
 
-const requestedFramework =
-  framework?.slice("--framework=".length) ||
-  (demo.endsWith("vue-vapor") ? "vue-vapor" : demo.endsWith("octane") ? "octane" : "solid");
+const requestedFramework = application.framework;
+if (framework && framework.slice("--framework=".length) !== requestedFramework) {
+  usage(`--framework differs from the demo's app.framework (${requestedFramework})`);
+}
 
 if (!noBuild) {
-  const manifest = demoManifestFor(ROOT, demo, requestedFramework) as Record<string, any>;
-  const manifestPath = `${ROOT}.pocket/play/${demo}.json`;
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   const compilerOutput = `${PLAY_DIR}/compiler/${demo}`;
   const packagePath = `${compilerOutput}/app.pocket`;
   const nativeOutput = `${PLAY_DIR}/native/${demo}`;
   console.log(`PocketJS play: compiling ${demo} for PS Vita ...`);
   await run([
     process.execPath, "tools/pocket.ts", "compile", "--target", "vita",
-    "--manifest", manifestPath, "--project-root", ROOT,
+    "--config", `${ROOT}apps/${demo}/pocket.host.config.ts`, "--project-root", ROOT,
     "--outdir", compilerOutput, "--plan-dir", `${compilerOutput}/plans`,
     "--output", packagePath,
   ], "Vita application compile");

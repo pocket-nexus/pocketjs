@@ -85,7 +85,7 @@ Notes:
 From the repo root:
 
 ```sh
-bun pocket compile --target pocketbook --manifest apps/hero/pocket.app.json --project-root .
+bun pocket compile --config apps/hero/pocket.host.config.ts --target pocketbook --project-root .
 # → dist/hero-main.js + dist/hero-main.pak
 ```
 

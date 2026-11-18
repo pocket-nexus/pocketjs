@@ -100,8 +100,8 @@ requests; already submitted replies may complete.
 
 ## Offload providers and archive format
 
-The app contract requires `text.glyphs.baked`, `text.glyphs.streamed` and
-`io.offload`. PSP implements the batch operations. WASM exposes them for host
+The application lists `text.glyphs.baked`, `text.glyphs.streamed` and
+`io.offload` in its `features`. PSP implements the batch operations. WASM exposes them for host
 adapters and injected-provider tests; other native hosts need these operations
 before they can advertise streamed glyph support.
 
@@ -136,7 +136,7 @@ Unicode line breaking or language-selected Han variants. See
 
 ```sh
 bun tools/text-lab-assets.ts .pocket-build/text-lab
-bun tools/pocket.ts build --target psp --manifest apps/text-cjk/pocket.app.json --project-root . -- --release
+bun tools/pocket.ts build --config apps/text-cjk/pocket.host.config.ts --target psp -- --release
 bun tools/text-lab-companion.ts --assets .pocket-build/text-lab --usb /path/to/host0
 ```
 

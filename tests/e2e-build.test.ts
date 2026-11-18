@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { decodePocketPackage, decodeIdentity, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
+import { demoConfigPath } from "../tools/build/programs/handheld-common.ts";
 import { resolveProfile } from "../tools/profile-resolver.ts";
-import { demoManifestFor } from "../tools/demo-identity.ts";
 import { buildArtifact, buildCaptureApplication, evidenceDirectory, runBuildCommand } from "./e2e/build.ts";
 
 const root = resolve(import.meta.dir, "..");
@@ -13,23 +14,19 @@ for (const target of ["psp", "vita"] as const) {
     const directory = evidenceDirectory(root, `test-${target}`);
     const commands: string[][] = [];
     mkdirSync(directory, { recursive: true });
-    const manifest = demoManifestFor(`${root}/`, "hero") as Record<string, any>;
-    manifest.id = `dev.pocket-nexus.e2e.${target}.hero`;
-    manifest.title = "PocketJS E2E hero";
-    manifest.app.output = "e2e-hero-main";
-    const manifestPath = join(directory, "hero.json");
-    writeFileSync(manifestPath, JSON.stringify(manifest));
     const artifact = await buildCaptureApplication({
-      root, directory, target, manifest: manifestPath,
+      root, directory, target, config: demoConfigPath("hero"),
+      variant: { id: `dev.pocket-nexus.e2e.${target}.hero`, title: "PocketJS E2E hero", output: "e2e-hero-main" },
       env: { ...process.env, POCKETJS_CAPTURE_INPUT: "0:0" },
     }, async (command, options) => {
       commands.push([...command]);
       if (command[2] === "compile") return runBuildCommand(command, options);
       // Only the cross compiler is replaced. Use the production package admission.
       expect(command[2]).toBe("build");
-      expect(command).not.toContain("--manifest");
       const pocket = command[command.indexOf("--pocket") + 1]!;
       expect(pocket).toBe(join(directory, "application.pocket"));
+      const variant = decodePocketPackage(new Uint8Array(readFileSync(pocket))).variants[0]!;
+      expect(decodeIdentity(findSection(variant, POCKET_SECTION.identity)!)).toEqual({ output: "e2e-hero-main", id: `dev.pocket-nexus.e2e.${target}.hero`, title: "PocketJS E2E hero" });
       const selected = await resolveProfile({ from: root, target });
       const app = prepareApplication(selected, pocket, join(directory, "admission"));
       expect(readFileSync(app.jsPath).length).toBeGreaterThan(0);
@@ -49,7 +46,7 @@ for (const target of ["psp", "vita"] as const) {
 test("E2E compile failure and signaled command stop before any native build", async () => {
   const directory = evidenceDirectory(root, "test-failure");
   let calls = 0;
-  await expect(buildCaptureApplication({ root, directory, target: "psp", manifest: "missing.json" }, async () => {
+  await expect(buildCaptureApplication({ root, directory, target: "psp", config: "missing.ts" }, async () => {
     calls++;
     throw new Error("compiler rejected input");
   })).rejects.toThrow("compiler rejected input");

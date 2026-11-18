@@ -8,7 +8,7 @@ import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contract
 import { canonicalProfileJson } from "../contracts/spec/profile.ts";
 import { atomicWrite, VitaUsbClient } from "../tools/vita-dev-client.ts";
 import { exportProfile } from "../tools/profile-export.ts";
-import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { planProfileDocument } from "../framework/compiler/plan.ts";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });

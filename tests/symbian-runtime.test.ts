@@ -1,4 +1,3 @@
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { describe, expect, test } from "bun:test";
 import {
 existsSync,
@@ -9,7 +8,9 @@ rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import type { AppConfig } from "../contracts/spec/app-config.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 import {
 SYMBIAN_E7_DEV_CONTRACTS,
 SYMBIAN_E7_DEV_HOST_ABI,
@@ -19,6 +20,9 @@ symbianE7Orientation,
 } from "../tools/symbian-profile.ts";
 
 const repository = new URL("..", import.meta.url).pathname;
+/** The host config of a committed application, relative to the repository. */
+const config = (path: string) => loadHostConfig(join(repository, path));
+const appOf = async (path: string): Promise<AppConfig> => (await config(path)).value.app!;
 
 describe("experimental Nokia E7 runtime profile", () => {
   test("maps the E7 scan matrix without changing unrelated keys", () => {
@@ -67,28 +71,29 @@ describe("experimental Nokia E7 runtime profile", () => {
     }
   });
 
-  test("the E7 profile admits only the apps whose viewport range it hosts", () => {
-    const outputs: string[] = [];
+  test("the apps that list the E7 resolve against its viewport range", async () => {
+    const listed: string[] = [];
     for (const app of readdirSync(join(repository, "apps")).sort()) {
-      const manifestPath = join(repository, "apps", app, "pocket.app.json");
-      if (!existsSync(manifestPath)) continue;
-      const resolution = validateAndResolveBuildPlan(
-        readPocketManifest(manifestPath).manifest,
-        { target: SYMBIAN_E7_DEV_TARGET_ID },
-        SYMBIAN_E7_DEV_CONTRACTS,
-      );
-      if (resolution.ok) outputs.push(resolution.plan.app.output);
+      for (const path of [`apps/${app}/pocket.host.config.ts`, `apps/${app}/e7/pocket.host.config.ts`]) {
+        if (!existsSync(join(repository, path))) continue;
+        const loaded = await config(path);
+        if (!loaded.profiles.some(profile => profile.id === SYMBIAN_E7_DEV_TARGET_ID)) continue;
+        const resolution = resolveAppPlan(loaded.value.app, { target: SYMBIAN_E7_DEV_TARGET_ID }, SYMBIAN_E7_DEV_CONTRACTS);
+        expect(resolution.ok, path).toBe(true);
+        if (resolution.ok) listed.push(resolution.plan.app.output);
+      }
     }
-    // Clear's single manifest declares the E7 portrait range; the fixed
-    // 480x272 console demos (Café among them) have no E7 viewport.
-    expect(outputs).toEqual(["clear-main", "hero-main", "note-main"]);
+    // Clear's config declares the E7 portrait range and Pocket Nexus has an
+    // E7 build in apps/nexus-touch/e7; the fixed 480x272 console demos (Café
+    // among them) have no E7 viewport.
+    expect(listed).toEqual(["clear-main", "hero-main", "nexus-touch-e7", "note-main"]);
+    const cafe = resolveAppPlan(await appOf("apps/cafe/pocket.host.config.ts"), { target: SYMBIAN_E7_DEV_TARGET_ID }, SYMBIAN_E7_DEV_CONTRACTS);
+    expect(cafe.ok).toBe(false);
   });
 
-  test("selects the Hero's dynamic E7 viewport without changing its PSP viewport", () => {
-    const manifest = JSON.parse(
-      readFileSync(join(repository, "apps/hero/pocket.app.json"), "utf8"),
-    );
-    const plan = resolveSymbianE7BuildPlan(manifest);
+  test("selects the Hero's dynamic E7 viewport without changing its PSP viewport", async () => {
+    const hero = await appOf("apps/hero/pocket.host.config.ts");
+    const plan = resolveSymbianE7BuildPlan(hero);
     expect(plan.target).toEqual({
       id: SYMBIAN_E7_DEV_TARGET_ID,
       hostAbi: SYMBIAN_E7_DEV_HOST_ABI,
@@ -102,7 +107,7 @@ describe("experimental Nokia E7 runtime profile", () => {
     });
     expect(plan.features["display.viewport.live"]).toBe(true);
 
-    const psp = validateAndResolveBuildPlan(manifest, { target: "psp" });
+    const psp = resolveAppPlan(hero, { target: "psp" });
     expect(psp.ok).toBe(true);
     if (!psp.ok) return;
     expect(psp.plan.viewport).toEqual({
@@ -115,21 +120,23 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(psp.plan.features["display.viewport.live"]).toBe(false);
   });
 
-  test("holds a portrait-only range in portrait and binds physics for the plans that require it", () => {
-    const manifest = (path: string) => readPocketManifest(join(repository, path)).manifest as any;
-    const orientation = (path: string) => symbianE7Orientation(manifest(path), resolveSymbianE7BuildPlan(manifest(path)));
+  test("holds a portrait-only range in portrait and binds physics for the plans that turn it on", async () => {
+    const clear = await appOf("apps/clear/pocket.host.config.ts");
+    const nexus = await appOf("apps/nexus-touch/e7/pocket.host.config.ts");
+    const hero = await appOf("apps/hero/pocket.host.config.ts");
+    const orientation = (app: AppConfig) => symbianE7Orientation(app.viewport, resolveSymbianE7BuildPlan(app));
     // Clear and Pocket Nexus lay out once for 360x640; Hero relayouts live
-    expect(orientation("apps/clear/pocket.app.json")).toBe("portrait");
-    expect(orientation("apps/nexus-touch/pocket.app.symbian.json")).toBe("portrait");
-    expect(orientation("apps/hero/pocket.app.json")).toBe("auto");
+    expect(orientation(clear)).toBe("portrait");
+    expect(orientation(nexus)).toBe("portrait");
+    expect(orientation(hero)).toBe("auto");
+    // a package compiled elsewhere carries no viewport range and rotates
+    expect(symbianE7Orientation(undefined, resolveSymbianE7BuildPlan(clear))).toBe("auto");
     // a navigation registry entry held in portrait folds into the same lock
-    const hero = manifest("apps/hero/pocket.app.json");
-    expect(symbianE7Orientation(hero, resolveSymbianE7BuildPlan(hero), "portrait")).toBe("portrait");
-    const wide = { ...hero, app: { ...hero.app, viewport: { dynamic: { default: [640, 360], min: [640, 360], max: [640, 360] } } } };
-    expect(symbianE7Orientation(wide, resolveSymbianE7BuildPlan(wide))).toBe("landscape");
-    expect(() => symbianE7Orientation(wide, resolveSymbianE7BuildPlan(wide), "portrait")).toThrow("admits landscape only");
-    expect(resolveSymbianE7BuildPlan(manifest("apps/nexus-touch/pocket.app.symbian.json")).features["ui.physics"]).toBe(true);
-    expect(resolveSymbianE7BuildPlan(manifest("apps/clear/pocket.app.json")).features["ui.physics"]).toBeUndefined();
-
+    expect(symbianE7Orientation(hero.viewport, resolveSymbianE7BuildPlan(hero), "portrait")).toBe("portrait");
+    const wide = { ...hero, viewport: { dynamic: { default: [640, 360], min: [640, 360], max: [640, 360] } } } as const satisfies AppConfig;
+    expect(symbianE7Orientation(wide.viewport, resolveSymbianE7BuildPlan(wide))).toBe("landscape");
+    expect(() => symbianE7Orientation(wide.viewport, resolveSymbianE7BuildPlan(wide), "portrait")).toThrow("admits landscape only");
+    expect(resolveSymbianE7BuildPlan(nexus).features["ui.physics"]).toBe(true);
+    expect(resolveSymbianE7BuildPlan(clear).features["ui.physics"]).toBeUndefined();
   });
 });

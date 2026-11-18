@@ -10,7 +10,7 @@ writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
+import { vitaTitleId } from "../framework/compiler/vita-title-id.ts";
 import {
 DEFAULT_VITA_ICON,
 DEFAULT_VITA_PACKAGE_ASSETS,

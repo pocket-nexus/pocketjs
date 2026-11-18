@@ -5,6 +5,7 @@ import solid from "babel-preset-solid";
 import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
 import { normalizeJsxText } from "../microts/compiler/aot-jsx-text.ts";
 import type { AotNode } from "../microts/compiler/aot-ir.ts";
+import { registerRepositoryApp } from "./app-fixtures.ts";
 const root = resolve(import.meta.dir, "..");
 const entry = resolve(root, "tests/fixtures/aot/solid/App.tsx");
 const modulePath = resolve(entry, "../App.d.ts");
@@ -35,7 +36,9 @@ function analyze(body: string, extra = "", children: Record<string, string> = {}
 }
 function flatten(nodes: AotNode[]): AotNode[] { return nodes.flatMap(node => [node, ...(node.kind === "if" ? node.branches.flatMap(b => flatten(b.children)) : node.kind === "component" ? node.slots.flatMap(s => flatten(s.children)) : node.kind === "slot" ? flatten(node.fallback) : flatten(node.children))]); }
 
-test("Solid lab preserves typed model, factory, slot and input contracts deterministically", () => {
+test("Solid lab preserves typed model, factory, slot and input contracts deterministically", async () => {
+  // The lab's host config states its compiled model; the frontend reads the registered settings.
+  await registerRepositoryApp("solid-aot-lab");
   const labEntry = resolve(root, "apps/solid-aot-lab/app.tsx");
   const program = analyzeSolidAot(labEntry, { strict: true });
   expect(JSON.stringify(analyzeSolidAot(labEntry, { strict: true }))).toBe(JSON.stringify(program));

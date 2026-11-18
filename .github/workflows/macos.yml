@@ -25,7 +25,8 @@ on:
       - "engine/guest-rquickjs/**"
       - "engine/pocket3d/crates/pocket3d/**"
       - "devices/wgpu/pocket-wgpu-render/**"
-      - "framework/src/manifest/**"
+      - "framework/compiler/plan.ts"
+      - "framework/compiler/host-build-inputs.ts"
   push:
     branches: [main]
     paths: *paths

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { decodePocketPackage, encodeIdentity, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/src/manifest/plan.ts";
+import { canonicalJson } from "../framework/compiler/plan.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
@@ -15,28 +15,25 @@ const softwareProfile = POCKET_PROFILES["ipodtouch4-dev"];
 
 const ID = "dev.pocket-nexus.studio.twenty48";
 
-function manifest(viewport: [number, number] = [320, 480], companions: string[] = []) {
+/** The `app` section of the application's host config. */
+function app(viewport: [number, number] = [320, 480], companions: string[] = []) {
   return {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
     id: ID,
     title: "Twenty48",
     version: "0.1.0",
-    engine: { capabilities: { requires: ["text.glyphs.baked"], enhances: ["input.touch"] } },
-    app: {
-      entry: "main.tsx",
-      output: "twenty48",
-      framework: "solid",
-      viewport: { fixed: { logical: viewport, presentation: "native" } },
-      ...(companions.length ? { companions } : {}),
-    },
+    entry: "main.tsx",
+    output: "twenty48",
+    framework: "solid",
+    viewport: { fixed: { logical: viewport, presentation: "native" } },
+    features: ["text.glyphs.baked", "input.touch"],
+    ...(companions.length ? { companions } : {}),
   };
 }
 
-function pocketFor(source: object = manifest()): Uint8Array {
+function pocketFor(source: object = app()): Uint8Array {
   const plan = resolveIPodTouch4BuildPlan(source);
   return encodePocketPackage({
-    manifest: new TextEncoder().encode(JSON.stringify(source)),
+    manifest: new Uint8Array(0),
     variants: [
       makeVariant({
         target: plan.target.id,
@@ -150,11 +147,11 @@ describe("repackIPod", () => {
     });
     await expect(repackIPod(await input({ pocket: other(new TextEncoder().encode("{}")) }))).rejects.toThrow(/variant 0 \(ipodtouch4-dev\) is not admitted: plan/);
     await expect(repackIPod(await input({ pocket: other(plan) }))).rejects.toThrow(/identity says/);
-    await expect(repackIPod(await input({ pocket: pocketFor(manifest([320, 480], ["shell"])) }))).rejects.toThrow(/companion services/);
+    await expect(repackIPod(await input({ pocket: pocketFor(app([320, 480], ["shell"])) }))).rejects.toThrow(/companion services/);
   });
 
   test("lands a landscape plan's surface in the receipt", async () => {
-    const files = await entries(await repackIPod(await input({ pocket: pocketFor(manifest([480, 320])) })));
+    const files = await entries(await repackIPod(await input({ pocket: pocketFor(app([480, 320])) })));
     const receipt = JSON.parse(new TextDecoder().decode(files.get("Payload/StudioTwenty48.app/build-receipt.json")!.bytes));
     expect(receipt.viewport.logical).toEqual([480, 320]);
   });

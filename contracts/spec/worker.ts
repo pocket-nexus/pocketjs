@@ -1,4 +1,4 @@
-import type { JsonSchema } from "./pocket-manifest.ts";
+import type { JsonSchema } from "./json-schema.ts";
 
 /** Version 1 of the worker host protocol; matches pocket/worker.h. */
 export const WORKER_PROTOCOL_VERSION = 1;
@@ -42,7 +42,7 @@ export const WORKER_CHANNEL_MAX = { recordBytes: 64 * 1024, capacity: 256 } as c
 export const POCKET_DOMAINS = ["ui", "worker"] as const;
 export type PocketDomain = (typeof POCKET_DOMAINS)[number];
 
-/** A channel's size as a manifest states it: bytes and records, or "host"
+/** A channel's size as an application states it: bytes and records, or "host"
  *  for the host's channel (WorkerChannelTable), read at run time from the
  *  channel. */
 export type WorkerChannelSize = number | "host";
@@ -56,7 +56,8 @@ export interface WorkerChannelDeclaration {
   readonly capacity: number;
 }
 
-/** A channel as a manifest declares it. */
+/** A channel as an application declares it (the `app.worker` section of a
+ *  host config). */
 export interface WorkerChannelSource extends Omit<WorkerChannelDeclaration, "recordBytes" | "capacity"> {
   readonly recordBytes: WorkerChannelSize;
   readonly capacity: WorkerChannelSize;
@@ -65,10 +66,11 @@ export interface WorkerChannelSource extends Omit<WorkerChannelDeclaration, "rec
 /** A worker declaration implies these requirements: the second runtime and
  *  the capability of each node kind it owns. Node and channel counts are
  *  checked at resolution against WORKER_LIMITS and the host's worker table.
- *  `C` is the channel form: the manifest's (sizes may be "host") or the
+ *  `C` is the channel form: the application's (sizes may be "host") or the
  *  plan's (resolveWorkerChannels). */
 export interface WorkerDeclaration<C extends WorkerChannelSource = WorkerChannelDeclaration> {
-  /** Path relative to the project root, as for app.entry. */
+  /** In a build plan, relative to the project root, as for `app.entry`;
+   *  in a host config's `app.worker`, relative to the config file. */
   readonly entry: string;
   readonly nodes: readonly { readonly name: string; readonly kind: WorkerResourceKind }[];
   readonly channels?: readonly C[];

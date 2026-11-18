@@ -44,7 +44,7 @@ and visible trees bounded and measure the resulting device frames.
 
 ## Guest API
 
-Declare `io.offload` in `engine.capabilities.requires`, then use:
+List `io.offload` in the application's `features`, then use:
 
 ```ts
 import { offload } from "@pocketjs/framework/offload";

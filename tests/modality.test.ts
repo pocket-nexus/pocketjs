@@ -1,12 +1,15 @@
-// tests/modality.test.ts — the modality view over target profiles and the
-// presentation selection it drives in the resolver.
+// tests/modality.test.ts — the modality view over target profiles, the
+// requirement schema modalityMisses tests against, and the modality a build
+// plan records.
 
 import { describe, expect, test } from "bun:test";
-import { BUTTON_GLYPHS, deriveModality, modalityMisses, PORTABLE_MODALITY, type Modality } from "../contracts/spec/modality.ts";
+import { BUTTON_GLYPHS, deriveModality, modalityMisses, modalityRequirementSchema, PORTABLE_MODALITY, type Modality } from "../contracts/spec/modality.ts";
+import { validateSchema, type ContractDiagnostic } from "../contracts/spec/json-schema.ts";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
+import { repositoryApp, resolveRepositoryApp } from "./app-fixtures.ts";
 
 // The dual-screen device: the built-in 3ds-runtime host contract.
 const THREE_DS_TARGET_ID = POCKET_PROFILES["3ds-runtime"].id;
@@ -106,186 +109,43 @@ describe("modalityMisses", () => {
   });
 });
 
-function manifest(): Record<string, any> {
-  return {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
-    id: "dev.pocket-nexus.presentations",
-    title: "Pocket Presentations",
-    version: "1.0.0",
-    engine: {
-      capabilities: {
-        requires: ["text.glyphs.baked", "input.buttons"],
-        enhances: ["input.touch", "input.cursor", "input.analog.left"],
-      },
-    },
-    app: {
-      entry: "app/main.tsx",
-      output: "main",
-      framework: "solid",
-      viewport: { logical: [480, 272], presentation: "integer-fit" },
-      presentations: [
-        {
-          id: "dual-screen",
-          entry: "app/main-dual.tsx",
-          output: "dual",
-          modality: { screens: 2, touch: "auxiliary" },
-          viewport: { fixed: { logical: [400, 240], presentation: "native" } },
-          surfaces: { auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } },
-          capabilities: {
-            requires: ["display.auxiliary", "input.touch.auxiliary", "ui.physics"],
-            enhances: ["input.analog.right"],
-          },
-        },
-      ],
-    },
+describe("modalityRequirementSchema", () => {
+  const check = (value: unknown) => {
+    const diagnostics: ContractDiagnostic[] = [];
+    validateSchema(value, modalityRequirementSchema, "", diagnostics);
+    return diagnostics.map((item) => [item.code, item.path]);
   };
-}
 
-describe("presentation selection", () => {
-  test("a single-screen target compiles the baseline entry", () => {
-    const result = validateAndResolveBuildPlan(manifest(), { target: "psp" });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.plan.presentation).toEqual({ id: "default", entry: "app/main.tsx" });
-    expect(result.plan.app.entry).toBe("app/main.tsx");
-    expect(result.plan.app.output).toBe("main");
-    expect(result.plan.viewport.logical).toEqual([480, 272]);
-    expect(result.plan.surfaces).toBeUndefined();
-    expect(result.plan.modality).toEqual(PORTABLE_MODALITY);
-    // The presentation's capabilities stay out of a build that did not pick it.
-    expect(result.plan.features).not.toHaveProperty("display.auxiliary");
-    expect(result.plan.features).not.toHaveProperty("input.analog.right");
+  test("accepts the requirements modalityMisses tests", () => {
+    expect(check({ screens: 2, touch: "auxiliary", pointer: "any", analog: 2, minScreen: [400, 240], form: ["takeover"] })).toEqual([]);
   });
 
-  test("the dual-screen target compiles the matching presentation with its own geometry and capabilities", () => {
-    const result = validateAndResolveBuildPlan(manifest(), { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.plan.presentation).toEqual({ id: "dual-screen", entry: "app/main-dual.tsx" });
-    expect(result.plan.app.entry).toBe("app/main-dual.tsx");
-    expect(result.plan.app.output).toBe("dual");
-    expect(result.plan.viewport.logical).toEqual([400, 240]);
-    expect(result.plan.viewport.presentation).toBe("native");
-    expect(result.plan.surfaces?.auxiliary.logical).toEqual([320, 240]);
-    expect(result.plan.modality.screens.length).toBe(2);
-    expect(result.plan.features).toEqual({
-      "display.auxiliary": true,
-      "input.analog.left": true,
-      "input.analog.right": true,
-      "input.buttons": true,
-      "input.cursor": true,
-      "input.touch": false,
-      "input.touch.auxiliary": true,
-      "text.glyphs.baked": true,
-      "ui.physics": true,
-    });
-  });
-
-  test("a matched presentation that the target cannot admit fails at the presentation's path", () => {
-    const value = manifest();
-    value.app.presentations[0].capabilities.requires.push("input.pointer");
-    const result = validateAndResolveBuildPlan(value, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.diagnostics).toEqual([
-      {
-        code: "capability.unavailable",
-        path: "/app/presentations/0/capabilities/requires/3",
-        message: expect.stringContaining("input.pointer"),
-      },
-    ]);
-  });
-
-  test("a presentation may promote an app enhancement to a requirement, but not repeat a declaration", () => {
-    const promoted = manifest();
-    promoted.app.presentations[0].capabilities.requires.push("input.cursor");
-    const ok = validateAndResolveBuildPlan(promoted, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
-    expect(ok.ok).toBe(true);
-    if (ok.ok) expect(ok.plan.features["input.cursor"]).toBe(true);
-
-    const repeated = manifest();
-    repeated.app.presentations[0].capabilities.requires.push("input.buttons");
-    const bad = validateAndResolveBuildPlan(repeated, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
-    expect(bad.ok).toBe(false);
-    if (!bad.ok) {
-      expect(bad.diagnostics.map((d) => [d.code, d.path])).toEqual([
-        ["capability.duplicate", "/app/presentations/0/capabilities/requires/3"],
-      ]);
-    }
-  });
-
-  test("presentations are tried in order and ids must be unique", () => {
-    const value = manifest();
-    value.app.presentations.push({
-      id: "touch",
-      entry: "app/main-touch.tsx",
-      modality: { touch: "any", screens: 1 },
-    });
-    const vita = validateAndResolveBuildPlan(value, { target: "vita" });
-    expect(vita.ok && vita.plan.presentation.id).toBe("touch");
-    const psp = validateAndResolveBuildPlan(value, { target: "psp" });
-    expect(psp.ok && psp.plan.presentation.id).toBe("default");
-    const dual = validateAndResolveBuildPlan(value, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
-    expect(dual.ok && dual.plan.presentation.id).toBe("dual-screen");
-
-    // A catch-all listed first wins every device — declaration order decides.
-    value.app.presentations.unshift({ id: "any", entry: "app/main-any.tsx", modality: {} });
-    const first = validateAndResolveBuildPlan(value, { target: "vita" });
-    expect(first.ok && first.plan.presentation.id).toBe("any");
-
-    // A presentation addressed to a modality must admit there: "touch: any"
-    // also matches the 3DS, whose top screen cannot present the inherited
-    // 480x272 viewport, and the diagnostic points at the presentation.
-    const unhosted = manifest();
-    unhosted.app.presentations.unshift({ id: "touch", entry: "app/main-touch.tsx", modality: { touch: "any" } });
-    const failed = validateAndResolveBuildPlan(unhosted, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
-    expect(failed.ok).toBe(false);
-    if (!failed.ok) expect(failed.diagnostics.map((d) => d.code)).toContain("viewport.logicalUnsupported");
-
-    value.app.presentations[1].id = "any";
-    const duplicate = validateAndResolveBuildPlan(value, { target: "psp" });
-    expect(duplicate.ok).toBe(false);
-    if (!duplicate.ok) expect(duplicate.diagnostics[0]).toMatchObject({ code: "presentation.duplicateId", path: "/app/presentations/1/id" });
-  });
-
-  test("the schema rejects unknown modality fields and malformed presentations", () => {
-    const value = manifest();
-    value.app.presentations[0].modality.screenCount = 2;
-    const unknown = validateAndResolveBuildPlan(value, { target: "psp" });
-    expect(unknown.ok).toBe(false);
-    if (!unknown.ok) expect(unknown.diagnostics[0]).toMatchObject({ path: "/app/presentations/0/modality/screenCount" });
-
-    const missing = manifest();
-    delete missing.app.presentations[0].modality;
-    const result = validateAndResolveBuildPlan(missing, { target: "psp" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics[0]).toMatchObject({ code: "schema.required", path: "/app/presentations/0/modality" });
+  test("rejects unknown fields and out-of-range values", () => {
+    expect(check({ screenCount: 2 })).toEqual([["schema.additionalProperty", "/screenCount"]]);
+    expect(check({ screens: 3, form: [] })).toEqual([["schema.maximum", "/screens"], ["schema.minItems", "/form"]]);
   });
 });
 
-describe("application modality", () => {
-  test("a touch-only application is refused where no screen reports contacts", () => {
-    const value = manifest();
-    delete value.app.presentations;
-    value.app.modality = { touch: "primary" };
-    const psp = validateAndResolveBuildPlan(value, { target: "psp" });
-    expect(psp.ok).toBe(false);
-    if (!psp.ok) {
-      expect(psp.diagnostics).toEqual([
-        { code: "modality.unsupported", path: "/app/modality", message: expect.stringContaining("touch") },
-      ]);
-    }
-    const vita = validateAndResolveBuildPlan(value, { target: "vita" });
-    expect(vita.ok && vita.plan.presentation.id).toBe("default");
+describe("the plan's modality", () => {
+  test("a build plan records the modality its host derives", () => {
+    const app = {
+      entry: "app/main.tsx", framework: "solid", features: ["text.glyphs.baked", "input.buttons", "input.touch"],
+      viewport: { logical: [480, 272], presentation: "integer-fit" },
+    } as const;
+    const psp = resolveAppPlan(app, { target: "psp" });
+    expect(psp.ok && psp.plan.modality).toEqual(PORTABLE_MODALITY);
+    expect(psp.ok && psp.plan.presentation).toEqual({ id: "default", entry: "app/main.tsx" });
+    const vita = resolveAppPlan(app, { target: "vita" });
+    expect(vita.ok && vita.plan.modality).toEqual(deriveModality(POCKET_TARGETS.vita));
   });
 
-  test("a matching presentation serves a device the baseline refuses", () => {
-    const value = manifest();
-    value.app.modality = { touch: "primary" };
-    const dual = validateAndResolveBuildPlan(value, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
-    expect(dual.ok && dual.plan.presentation.id).toBe("dual-screen");
-    const psp = validateAndResolveBuildPlan(value, { target: "psp" });
-    expect(psp.ok).toBe(false);
+  test("the 3DS demo's plan carries the two-screen modality", async () => {
+    const demo = await repositoryApp("apps/3ds-demo/pocket.host.config.ts");
+    const result = resolveRepositoryApp(demo, THREE_DS_TARGET_ID, { registry: THREE_DS_CONTRACTS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.modality).toEqual(deriveModality(threeDs));
+    expect(result.plan.modality.screens.length).toBe(2);
+    expect(result.plan.surfaces?.auxiliary.logical).toEqual([320, 240]);
   });
 });

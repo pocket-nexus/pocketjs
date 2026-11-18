@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { decodePocketPackage, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { PORTABLE_APP } from "./app-fixtures.ts";
 import { cargo, cmake, compilerOnly, defineHostConfig, make, type RuntimeBuild } from "../framework/src/host-config.ts";
 import { buildRuntime } from "../tools/build/executor.ts";
 import { prepareAot, prepareApplication } from "../tools/build/inputs.ts";
@@ -20,9 +21,8 @@ mkdirSync(base, { recursive: true });
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function scratch() { const path = mkdtempSync(join(base, "native-")); temporary.push(path); return path; }
-const manifest = JSON.parse(readFileSync(join(root, "tests/fixtures/manifests/portable-psp.json"), "utf8"));
 function plan() {
-  const result = validateAndResolveBuildPlan(manifest, { target: "psp" });
+  const result = resolveAppPlan(PORTABLE_APP, { target: "psp" });
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
   return result.plan;
 }
@@ -31,13 +31,13 @@ async function program(directory: string, build: Omit<RuntimeBuild, "hosts">): P
   return { ...selected, config: { path: join(directory, "pocket.host.config.ts"), profiles: [selected.profile], profilePaths: [selected.path!], dependencies: [],
     value: defineHostConfig({ host: selected.path!, build: { hosts: [`${process.platform}-${process.arch}` as "darwin-arm64"], ...build } }) } };
 }
-function application(directory: string, generation = POCKET_BINDING_GENERATION as number, profileHash?: string): string {
+function application(directory: string, generation = POCKET_BINDING_GENERATION as number, profileHash?: string, manifest = new Uint8Array(0)): string {
   const resolved = plan();
   const variant = makeVariant({ target: "psp", hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(resolved),
     identity: { output: resolved.app.output, id: resolved.app.id, title: resolved.app.title },
     js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array([1, 2, 3]) });
   const path = join(directory, "app.pocket");
-  writeFileSync(path, encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [{ ...variant, hostAbi: generation, ...(profileHash ? { profileHash } : {}) }] }));
+  writeFileSync(path, encodePocketPackage({ manifest, variants: [{ ...variant, hostAbi: generation, ...(profileHash ? { profileHash } : {}) }] }));
   return path;
 }
 
@@ -55,6 +55,17 @@ test("native input admission preserves compiled bytes and rejects stale binding 
   await expect(buildRuntime(selected, join(dir, "legacy"), { pocket })).rejects.toThrow("binding generation");
   expect(calls).toBe(0);
   expect(existsSync(join(dir, "legacy/pocket_profile.h"))).toBe(false);
+});
+
+test("admission reads the variant's plan and identity, not the manifest region another product may fill", async () => {
+  const dir = scratch();
+  const selected = await program(dir, { input: "package", steps: compilerOnly() });
+  const foreign = new TextEncoder().encode(JSON.stringify({ id: "dev.example.elsewhere", note: "a manifest this repository does not read" }));
+  const input = prepareApplication(selected, application(dir, POCKET_BINDING_GENERATION, undefined, foreign), join(dir, "out"));
+  expect(input.plan.app.id).toBe(PORTABLE_APP.id);
+  expect(readFileSync(input.jsPath, "utf8")).toBe("globalThis.frame = () => {};");
+  expect(() => prepareApplication(selected, application(dir, POCKET_BINDING_GENERATION, `sha256:${"0".repeat(64)}`), join(dir, "stale")))
+    .toThrow("profileHash");
 });
 
 test.skipIf(!Bun.which("cmake") || !Bun.which("cc") || !Bun.which("make"))("CMake and make recipes build native executables with the exported program identity", async () => {
@@ -258,11 +269,11 @@ test("pack uses the program's repack adapter after matching runtime, package and
   rmSync(join(runtime, "unlisted.bin"));
 });
 
-test("pack takes the identity's author and icon from the package manifest", async () => {
+test("pack takes the identity's author from the application's config and its icon from the variant's cover", async () => {
   const dir = scratch(); const runtime = join(dir, "runtime"); mkdirSync(runtime);
   const config = join(dir, "pocket.host.config.ts");
   writeFileSync(config, `import {defineHostConfig,compilerOnly} from '@pocketjs/framework/host-config';
-    export default defineHostConfig({host:${JSON.stringify(join(import.meta.dir, "../hosts/psp/pocket.host.json"))},build:{hosts:['darwin-arm64','darwin-x64','linux-x64','linux-arm64'],steps:compilerOnly(),
+    export default defineHostConfig({host:${JSON.stringify(join(import.meta.dir, "../hosts/psp/pocket.host.json"))},app:${JSON.stringify({ ...PORTABLE_APP, author: "Pocket Nexus" })},build:{hosts:['darwin-arm64','darwin-x64','linux-x64','linux-arm64'],steps:compilerOnly(),
       genericRuntime:{extension:'.fixture',async repack(input){return new TextEncoder().encode(JSON.stringify({author:input.identity.author,icon:[...(input.identity.icon??[])]}));}}}});`);
   const selected = await resolveProfile({ from: dir });
   writeFileSync(join(runtime, "native.bin"), new Uint8Array([7]));
@@ -272,7 +283,7 @@ test("pack takes the identity's author and icon from the package manifest", asyn
     identity: { output: resolved.app.output, id: resolved.app.id, title: resolved.app.title },
     js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array(), cover });
   const pocket = join(dir, "authored.pocket");
-  writeFileSync(pocket, encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify({ ...manifest, author: "Pocket Nexus", icon: "icon.png" })), variants: [variant] }));
+  writeFileSync(pocket, encodePocketPackage({ manifest: new Uint8Array(0), variants: [variant] }));
   const packed = await packRuntime({ config, runtime, pocket, output: join(dir, "app.fixture") }, dir);
   expect(JSON.parse(readFileSync(packed, "utf8"))).toEqual({ author: "Pocket Nexus", icon: [...cover] });
   const explicit = await packRuntime({ config, runtime, pocket, output: join(dir, "explicit.fixture"), author: "Someone" }, dir);

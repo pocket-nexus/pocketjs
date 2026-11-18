@@ -1,10 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Script } from "node:vm";
 import { resolveWorkerChannels, workerDeclarationSchema, type WorkerDeclaration } from "../contracts/spec/worker.ts";
 import { SUBPATHS, resolvesIn } from "../framework/compiler/subpaths.ts";
-import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
+import { validateSchema, type ContractDiagnostic } from "../contracts/spec/json-schema.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 /** The worker import set: the subpath registry rows whose domains include "worker". */
@@ -66,15 +66,20 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const rootIndex = args.findIndex(arg => arg === "--project-root");
   const projectRootOption = rootIndex >= 0 ? args.splice(rootIndex, 2)[1] : undefined;
-  const [manifestPath, outdir = ".pocket-build/worker"] = args;
-  if (!manifestPath) throw new Error("usage: bun tools/build-worker.ts <pocket.app.json> [outdir] [--project-root <dir>]");
-  const path = resolve(manifestPath), manifest = await Bun.file(path).json();
-  if (!manifest.domains?.worker) throw new Error("Manifest has no domains.worker entry");
+  const [configPath, outdir = ".pocket-build/worker"] = args;
+  if (!configPath) throw new Error("usage: bun tools/build-worker.ts <pocket.host.config.ts> [outdir] [--project-root <dir>]");
+  const path = resolve(configPath);
+  const { loadHostConfig } = await import("./profile-resolver.ts");
+  const app = (await loadHostConfig(path)).value.app;
+  if (!app?.worker) throw new Error(`${path} has no app.worker section`);
   const diagnostics: ContractDiagnostic[] = [];
-  validateSchema(manifest.domains.worker, workerDeclarationSchema, "/domains/worker", diagnostics);
+  validateSchema(app.worker, workerDeclarationSchema, "/app/worker", diagnostics);
   if (diagnostics.length) throw new Error(diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
-  const output = manifest.app.output;
-  if (typeof output !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(output)) throw new Error("Worker output requires app.output without path separators");
-  // Entry paths are relative to the project root; the default matches `pocket check`.
-  await buildWorker({ declaration: resolveWorkerChannels(manifest.domains.worker), projectRoot: resolve(projectRootOption ?? dirname(path)), outdir: resolve(outdir), output });
+  const output = app.output ?? app.entry.split("/").pop()!.replace(/\.tsx?$/, "");
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(output)) throw new Error("Worker output requires app.output without path separators");
+  // The worker entry is relative to the config file; the project root
+  // defaults to the config's directory, as for `pocket check`.
+  const projectRoot = resolve(projectRootOption ?? dirname(path));
+  const entry = relative(projectRoot, resolve(dirname(path), app.worker.entry));
+  await buildWorker({ declaration: resolveWorkerChannels({ ...app.worker, entry }), projectRoot, outdir: resolve(outdir), output });
 }
