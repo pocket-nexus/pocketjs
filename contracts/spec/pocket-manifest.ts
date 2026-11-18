@@ -40,6 +40,16 @@ export interface JsonSchemaObject {
 
 export type JsonSchema = boolean | JsonSchemaObject;
 
+/** A broken contract rule in a manifest, a host contract or a platform
+ *  registry (framework/src/manifest/validate.ts re-exports it). */
+export interface ContractDiagnostic {
+  readonly code: string;
+  /** RFC 6901 JSON Pointer into the document (the root is the empty
+   *  string), or a source path. */
+  readonly path: string;
+  readonly message: string;
+}
+
 export type PocketFramework = "solid" | "vue-vapor" | "octane";
 export type KeyframeProps = Record<string, string | number>;
 export type Keyframes = Record<string, KeyframeProps>;

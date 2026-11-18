@@ -1,5 +1,4 @@
-import type { JsonSchema, JsonSchemaObject } from "../../../contracts/spec/pocket-manifest.ts";
-import type { ContractDiagnostic } from "../../../contracts/spec/applet.ts";
+import type { ContractDiagnostic, JsonSchema, JsonSchemaObject } from "../../../contracts/spec/pocket-manifest.ts";
 
 export type { ContractDiagnostic };
 
