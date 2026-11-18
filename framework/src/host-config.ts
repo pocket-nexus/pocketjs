@@ -1,7 +1,14 @@
-import type { ResolvedBuildPlan } from "./manifest/plan.ts";
+import type { ResolvedBuildPlan } from "../compiler/plan.ts";
 import type { RepackInput } from "../../tools/repack/shared/runtime.ts";
 import type { PocketProfile } from "./profile.ts";
 import type { ToolchainManifest } from "../../tools/targets/toolchain.ts";
+import { validateAppConfig, type AppConfig } from "../../contracts/spec/app-config.ts";
+import { BUILTIN_PROFILE_IDS } from "../../hosts/ids.ts";
+
+export type { AppConfig, PocketFramework } from "../../contracts/spec/app-config.ts";
+export type { AnimationTheme } from "../../contracts/spec/animation-theme.ts";
+export type { AppViewport, SurfacesSpec } from "../../contracts/spec/viewport.ts";
+export type { WorkerDeclarationSource } from "../../contracts/spec/worker.ts";
 
 export type RuntimeBuildHost = "darwin-arm64" | "darwin-x64" | "linux-arm64" | "linux-x64";
 export interface RuntimeApplication {
@@ -11,7 +18,6 @@ export interface RuntimeApplication {
   readonly plan: ResolvedBuildPlan;
   readonly jsPath: string;
   readonly pakPath: string;
-  readonly manifestPath: string;
 }
 export interface RuntimeAotInput {
   readonly directory: string;
@@ -27,6 +33,9 @@ export interface RuntimeBuildContext {
   readonly args: readonly string[];
   readonly application?: RuntimeApplication;
   readonly aot?: RuntimeAotInput;
+  /** The `app` section of the host config `pocket build` compiled the
+   *  application from, when it compiled it. */
+  readonly app?: AppConfig;
   readonly env: Readonly<Record<string, string>>;
   readonly toolchainPaths: Readonly<Record<string, string>>;
   run(command: readonly string[], options?: { cwd?: string; env?: Readonly<Record<string, string>> }): Promise<void>;
@@ -85,27 +94,39 @@ export interface RuntimeBuild {
   readonly genericRuntime?: { readonly repack: (input: RepackInput) => Promise<Uint8Array>; readonly extension?: string };
   readonly deploy?: (context: RuntimeBuildContext) => void | Promise<void>;
 }
-/** `host` names one pocket.host.json host contract, `hosts` several; paths
- * are relative to the config file. */
+/** `host` names one host contract, `hosts` several: each entry is the path of
+ * a pocket.host.json, relative to the config file, or the id of a built-in
+ * host contract (hosts/<id>/pocket.host.json). `app` is the application the
+ * config builds; `build` is a program's native recipe. */
 export type PocketHostConfig = (
   | { readonly host: string; readonly hosts?: never }
   | { readonly hosts: readonly string[]; readonly host?: never }
-) & { readonly build?: RuntimeBuild };
+) & { readonly build?: RuntimeBuild; readonly app?: AppConfig };
 
-/** A program's host contracts and optional native build recipe. */
+/** A host entry that names a built-in host contract rather than a file. */
+export const isBuiltinHostId = (host: string): boolean => BUILTIN_PROFILE_IDS.includes(host);
+
+/** A program's or an application's host contracts, its application and its
+ *  optional native build recipe. */
 export function defineHostConfig<const C extends PocketHostConfig>(config: C): C {
   if (!config || typeof config !== "object" || ("host" in config) === ("hosts" in config)) {
     throw new TypeError("host config requires exactly one of host or hosts");
   }
-  if (Object.keys(config).some(key => !["host", "hosts", "build"].includes(key))) {
-    throw new TypeError("host config accepts host/hosts and build only");
+  if (Object.keys(config).some(key => !["host", "hosts", "build", "app"].includes(key))) {
+    throw new TypeError("host config accepts host/hosts, app and build only");
   }
   const hosts = config.hosts ?? [config.host];
-  if (!hosts.length || hosts.some(host => typeof host !== "string" || !host.endsWith(".json"))) {
-    throw new TypeError("host config hosts are paths of pocket.host.json host contracts");
+  if (!hosts.length || hosts.some(host => typeof host !== "string" || !host.endsWith(".json") && !isBuiltinHostId(host))) {
+    throw new TypeError(`host config hosts are paths of pocket.host.json host contracts or built-in host ids (${BUILTIN_PROFILE_IDS.join(", ")})`);
   }
   if (new Set(hosts).size !== hosts.length) {
-    throw new TypeError("host config host paths must be unique");
+    throw new TypeError("host config hosts must be unique");
+  }
+  if (config.app !== undefined) {
+    const diagnostics = validateAppConfig(config.app);
+    if (diagnostics.length) {
+      throw new TypeError(`host config app section: ${diagnostics.map(item => `${item.path}: ${item.message}`).join("; ")}`);
+    }
   }
   if (config.build !== undefined) {
     const build = config.build;

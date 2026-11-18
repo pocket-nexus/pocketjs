@@ -1,38 +1,38 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AppConfig } from "../contracts/spec/app-config.ts";
 import { POCKET_TARGETS, type TargetProfile } from "../contracts/spec/platforms.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 import { resolveIPodTouchBuildPlan } from "../tools/ipodtouch-profile.ts";
 import { resolveSymbianE7BuildPlan } from "../tools/symbian-profile.ts";
 import { CATALOG, COMMAND_WORDS, catalogEntry, catalogEntryForContract } from "../tools/targets/index.ts";
 import { HOST_IDS, currentHost } from "../tools/targets/types.ts";
 
 const root = new URL("..", import.meta.url).pathname;
-const readJson = (path: string) => JSON.parse(readFileSync(join(root, path), "utf8"));
+/** The `app` section of a committed application's host config. */
+const appOf = async (path: string): Promise<AppConfig> => (await loadHostConfig(join(root, path))).value.app!;
 
-/** The smallest manifest a target admits: its first logical viewport at its
+/** The smallest application a target hosts: its first logical viewport at its
  *  first presentation, or its dynamic range when it hosts no fixed viewport. */
-function minimalManifest(profile: TargetProfile<string>): unknown {
+function minimalApp(profile: TargetProfile<string>): unknown {
   const display = profile.display;
   const viewport = display.dynamicViewport && !display.dynamicViewport.acceptsFixed
     ? { dynamic: { default: display.logicalViewports[0], min: display.dynamicViewport.min, max: display.dynamicViewport.max } }
     : { logical: display.logicalViewports[0], presentation: display.presentations[0] };
   return {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
     id: "dev.example.catalog",
     title: "Catalog",
     version: "0.1.0",
-    engine: { capabilities: { requires: ["text.glyphs.baked"] } },
-    app: { entry: "main.tsx", output: "catalog", framework: "solid", viewport },
+    features: ["text.glyphs.baked"],
+    entry: "main.tsx", output: "catalog", framework: "solid", viewport,
   };
 }
 
-function resolveThroughCatalog(id: string, manifest: unknown) {
+function resolveThroughCatalog(id: string, app: unknown) {
   const descriptor = catalogEntry(id)!;
-  return validateAndResolveBuildPlan(manifest, { target: descriptor.contract.target }, descriptor.contract.registry());
+  return resolveAppPlan(app, { target: descriptor.contract.target }, descriptor.contract.registry());
 }
 
 describe("target catalog", () => {
@@ -59,30 +59,30 @@ describe("target catalog", () => {
     }
   });
 
-  test("every target resolves its minimal manifest", () => {
+  test("every target resolves its minimal application", () => {
     for (const descriptor of CATALOG) {
       const profile = descriptor.contract.registry().targets[descriptor.contract.target]!;
-      const resolution = resolveThroughCatalog(descriptor.id, minimalManifest(profile));
+      const resolution = resolveThroughCatalog(descriptor.id, minimalApp(profile));
       expect(resolution.ok, `${descriptor.id}: ${JSON.stringify(resolution.ok ? "" : resolution.diagnostics)}`).toBe(true);
       if (resolution.ok) expect(resolution.plan.target.id).toBe(descriptor.contract.target);
     }
   });
 
-  test("catalog resolution equals each device profile's own resolver", () => {
-    const cases: [string, string, (manifest: unknown) => ReturnType<typeof resolveSymbianE7BuildPlan>][] = [
-      ["nokia-e7", "apps/clear/pocket.app.json", resolveSymbianE7BuildPlan],
-      ["ipodtouch6", "apps/ipodtouch-demo/pocket.app.json", resolveIPodTouchBuildPlan],
+  test("catalog resolution equals each device profile's own resolver", async () => {
+    const cases: [string, string, (app: unknown) => ReturnType<typeof resolveSymbianE7BuildPlan>][] = [
+      ["nokia-e7", "apps/clear/pocket.host.config.ts", resolveSymbianE7BuildPlan],
+      ["ipodtouch6", "apps/ipodtouch-demo/pocket.host.config.ts", resolveIPodTouchBuildPlan],
     ];
-    for (const [id, manifestPath, resolver] of cases) {
-      const manifest = readJson(manifestPath);
-      const resolution = resolveThroughCatalog(id, manifest);
+    for (const [id, configPath, resolver] of cases) {
+      const app = await appOf(configPath);
+      const resolution = resolveThroughCatalog(id, app);
       expect(resolution.ok, id).toBe(true);
-      if (resolution.ok) expect(resolution.plan.viewport, id).toEqual(resolver(manifest).viewport);
+      if (resolution.ok) expect(resolution.plan.viewport, id).toEqual(resolver(app).viewport);
     }
   });
 
-  test("the 3ds entry resolves the dual-screen demo against the file-loaded program's contract", () => {
-    const resolution = resolveThroughCatalog("3ds", readJson("apps/3ds-demo/pocket.app.json"));
+  test("the 3ds entry resolves the dual-screen demo against the file-loaded program's contract", async () => {
+    const resolution = resolveThroughCatalog("3ds", await appOf("apps/3ds-demo/pocket.host.config.ts"));
     expect(resolution.ok, JSON.stringify(resolution.ok ? "" : resolution.diagnostics)).toBe(true);
     if (!resolution.ok) return;
     expect(resolution.plan.target.id).toBe("3ds-runtime");
@@ -123,12 +123,12 @@ describe("tools/pocket.ts and the catalog", () => {
   });
 
   test("application compilation selects the actual profile id, not a toolchain alias", () => {
-    const checked = pocket(["check", "--target", "3ds-runtime", "--manifest", "apps/3ds-demo/pocket.app.json", "--project-root", "."]);
+    const checked = pocket(["check", "--target", "3ds-runtime", "--config", "apps/3ds-demo/pocket.host.config.ts", "--project-root", "."]);
     expect(checked.code, checked.err).toBe(0);
-    expect(checked.out).toContain("✓ 3ds-runtime satisfies pocket.app.json capabilities");
+    expect(checked.out).toContain("✓ 3ds-runtime hosts the application");
 
-    const contract = pocket(["check", "--target", "3ds", "--manifest", "apps/3ds-demo/pocket.app.json", "--project-root", "."]);
+    const contract = pocket(["check", "--target", "3ds", "--config", "apps/3ds-demo/pocket.host.config.ts", "--project-root", "."]);
     expect(contract.code).toBe(1);
-    expect(contract.err).toContain("unknown host 3ds; name a built-in host id or a pocket.host.json file");
+    expect(contract.err).toContain("does not list host 3ds; choose 3ds-runtime");
   });
 });

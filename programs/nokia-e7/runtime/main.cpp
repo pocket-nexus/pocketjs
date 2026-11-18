@@ -474,7 +474,7 @@ PocketJsRuntime::PocketJsRuntime()
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAttribute(Qt::WA_AcceptTouchEvents, true);
 #ifdef POCKETJS_PERF_TRACE
-    // Replay coordinates belong to the manifest's initial viewport. Physical
+    // Replay coordinates belong to the application's initial viewport. Physical
     // rotation must not change icon hit targets during a comparison run.
     if (!perfInputs_.isEmpty()) {
         setAttribute(POCKETJS_INITIAL_LOGICAL_WIDTH < POCKETJS_INITIAL_LOGICAL_HEIGHT
@@ -482,7 +482,7 @@ PocketJsRuntime::PocketJsRuntime()
     } else
 #endif
     // The build's one orientation decision (tools/symbian-profile.ts): the
-    // manifest's viewport range, or a navigation registry entry held in
+    // application's viewport range, or a navigation registry entry held in
     // portrait. Every other app follows the phone.
     if (POCKETJS_ORIENTATION_LOCK == 1) setAttribute(Qt::WA_LockPortraitOrientation, true);
     else if (POCKETJS_ORIENTATION_LOCK == 2) setAttribute(Qt::WA_LockLandscapeOrientation, true);

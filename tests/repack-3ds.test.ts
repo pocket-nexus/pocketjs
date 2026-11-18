@@ -9,8 +9,8 @@ encodePocketPackage,
 POCKET_SECTION,
 type PocketPackageVariant,
 } from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { canonicalJson } from "../framework/compiler/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
@@ -42,28 +42,29 @@ const ID = "dev.pocket-nexus.studio.twenty48";
 //   3dsxtool-two.romfs   the same plus assets/note.txt = "pocketjs"
 // The same command byte-compares a whole repacked .3dsx against 3dsxtool's.
 
-function manifest(features: { requires?: string[]; enhances?: string[] } = {}) {
+/** The `app` section of the application's host config. */
+function app(features: string[] = []) {
   return {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
     id: ID,
     title: "Twenty48",
     version: "0.1.0",
-    engine: { capabilities: { requires: ["text.glyphs.baked", "display.auxiliary", ...(features.requires ?? [])], enhances: ["input.buttons", ...(features.enhances ?? [])] } },
-    app: {
-      entry: "main.tsx",
-      output: "twenty48",
-      framework: "solid",
-      viewport: { fixed: { logical: [400, 240], presentation: "native" } },
-      surfaces: { auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } },
-    },
+    entry: "main.tsx",
+    output: "twenty48",
+    framework: "solid",
+    viewport: { fixed: { logical: [400, 240], presentation: "native" } },
+    surfaces: { auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } },
+    features: ["text.glyphs.baked", "display.auxiliary", "input.buttons", ...features],
   };
 }
 
-function pocketFor(source = manifest(), extra: PocketPackageVariant[] = []): Uint8Array {
-  const resolution = validateAndResolveBuildPlan(source, { target: softwareProfile.id }, profileRegistry(softwareProfile));
+function planFor(source = app()) {
+  const resolution = resolveAppPlan(source, { target: softwareProfile.id }, profileRegistry(softwareProfile));
   if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
-  const plan = resolution.plan;
+  return resolution.plan;
+}
+
+function pocketFor(source = app(), extra: PocketPackageVariant[] = []): Uint8Array {
+  const plan = planFor(source);
   const variant = makeVariant({
     target: "3ds-runtime",
     hostAbi: plan.target.hostAbi,
@@ -73,7 +74,7 @@ function pocketFor(source = manifest(), extra: PocketPackageVariant[] = []): Uin
     pak: new Uint8Array([1, 2, 3, 4]),
   });
   return encodePocketPackage({
-    manifest: new TextEncoder().encode(JSON.stringify(source)),
+    manifest: new Uint8Array(0),
     variants: [variant, ...extra],
   });
 }
@@ -194,10 +195,10 @@ describe("repack3ds", () => {
       hostAbi: 1, profileHash: hashPocketProfile(softwareProfile),
       sections: [{ kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "twenty48", id: ID, title: "Twenty48" }) }],
     };
-    const universal = pocketFor(manifest(), [other]);
+    const universal = pocketFor(app(), [other]);
     expect(decodePocketPackage(universal).variants).toHaveLength(2);
     const out = parse3dsx(await repack3ds(await input({ pocket: universal })));
-    // Thinning keeps the manifest and the variant's bytes: the 3DS-only package.
+    // Thinning keeps the manifest region and the variant's bytes: the 3DS-only package.
     expect(out.romfs).toEqual(writeRomfs([{ path: "app.pocket", bytes: pocketFor() }]));
   });
 
@@ -218,9 +219,10 @@ describe("repack3ds", () => {
       variants: [{ target: "psp", hostAbi: 1, profileHash: hashPocketProfile(softwareProfile), sections: [{ kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) }] }],
     });
     await expect(repack3ds(await input({ pocket: pspOnly }))).rejects.toThrow("variant 0 (psp) is not admitted: bindingGeneration, plan");
-    expect(() => pocketFor(manifest({ requires: ["io.offload"] }))).toThrow("io.offload");
+    // Features the generic runtime lacks compile off.
+    expect(planFor(app(["io.offload"])).features["io.offload"]).toBe(false);
     for (const capability of ["media.playback", "net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const)
-      expect(() => pocketFor(manifest({ requires: [capability] }))).toThrow(capability);
+      expect(planFor(app([capability])).features[capability]).toBe(false);
     await expect(repack3ds(await input({ identity: { id: "nodots", title: "T", author: "A", version: "1" } })))
       .rejects.toThrow(/reverse-DNS/);
   });

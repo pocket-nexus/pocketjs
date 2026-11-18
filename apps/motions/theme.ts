@@ -1,4 +1,4 @@
-// apps/motions — the animation theme pocket.app.json names in `app.theme`.
+// apps/motions — the animation theme the host config passes as `app.theme`.
 //
 // Keyframes ported 1:1 from yui540's motion studies (motions/53, /56, /30 and
 // /64): durations, delays, easings and keyframe percentages match the
@@ -10,7 +10,7 @@
 // tiles replay together — the in-engine equivalent of the original page
 // remount.
 
-import type { AnimationTheme } from "@pocketjs/framework/manifest";
+import type { AnimationTheme } from "@pocketjs/framework/host-config";
 
 const SNAP = "cubic-bezier(0.77, 0.02, 0.25, 0.97)"; // motion/30 signature ease
 const FLING = "cubic-bezier(0.04, 0.91, 0.51, 0.97)"; // slide-in / page-flip fling

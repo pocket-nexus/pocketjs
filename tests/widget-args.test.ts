@@ -1,4 +1,4 @@
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 import { describe, expect, test } from "bun:test";
 import {
   STAGE_HOST_ABI,
@@ -145,10 +145,12 @@ describe("widget wrapper arguments", () => {
   });
 });
 
-describe("Pocket Stage manifest admission", () => {
+/** The `app` section of a committed application's host config. */
+const appOf = async (app: string) => (await loadHostConfig(new URL(`../apps/${app}/pocket.host.config.ts`, import.meta.url).pathname)).value.app;
+
+describe("Pocket Stage application resolution", () => {
   test("resolves a fixed PSP-shaped app as an embedded target", async () => {
-    const manifest = await Bun.file(new URL("../apps/hero/pocket.app.json", import.meta.url)).json();
-    const plan = resolveStageBuildPlan(manifest);
+    const plan = resolveStageBuildPlan(await appOf("hero"));
     expect(plan.target).toEqual({ id: STAGE_TARGET_ID, hostAbi: STAGE_HOST_ABI });
     expect(plan.viewport).toEqual({
       logical: [480, 272],
@@ -160,8 +162,8 @@ describe("Pocket Stage manifest admission", () => {
   });
 
   test("rejects a dynamic-only app before the native host starts", async () => {
-    const manifest = readPocketManifest(new URL("../apps/note/pocket.app.json", import.meta.url).pathname).manifest;
-    expect(() => resolveStageBuildPlan(manifest)).toThrow("fixed screen");
+    const note = await appOf("note");
+    expect(() => resolveStageBuildPlan(note)).toThrow("fixed screen");
   });
 
   test("reads the iPod profile display and admits its 176x132 app", async () => {
@@ -170,10 +172,7 @@ describe("Pocket Stage manifest admission", () => {
     expect(stage.profile?.endsWith("/assets/ipod-nano-2/profile.json")).toBe(true);
     expect(stage.display).toEqual({ logicalSize: [176, 132], rasterDensity: 1 });
 
-    const manifest = await Bun.file(
-      new URL("../apps/ipodnano-hero/pocket.app.json", import.meta.url),
-    ).json();
-    const plan = resolveStageBuildPlan(manifest, stage.display);
+    const plan = resolveStageBuildPlan(await appOf("ipodnano-hero"), stage.display);
     expect(plan.target).toEqual({ id: STAGE_TARGET_ID, hostAbi: STAGE_HOST_ABI });
     expect(plan.viewport).toEqual({
       logical: [176, 132],

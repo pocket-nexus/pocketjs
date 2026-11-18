@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import type { PocketProfile } from "../contracts/spec/profile.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { hashPocketProfile, readPocketProfile } from "../framework/src/profile.ts";
 import { exportProfile } from "./profile-export.ts";
 import { profileRegistry } from "./profile-resolver.ts";
@@ -17,15 +17,15 @@ const profile = readPocketProfile(resolve(root, "programs/linux-kms/pocket.host.
 export function linuxFixture(directory: string): string {
   mkdirSync(directory, { recursive: true });
   const { module } = exportProfile({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, directory);
-  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id: "test.linux.runtime", title: "Linux Runtime Check", version: "1.0.0",
-    engine: { capabilities: { requires: ["input.buttons"] } }, app: { entry: "test.ts", output: "linux-check", framework: "solid", viewport: { fixed: { logical: [800, 600], presentation: "native" } } } };
+  const application = { id: "test.linux.runtime", title: "Linux Runtime Check", version: "1.0.0", entry: "test.ts", output: "linux-check",
+    framework: "solid", viewport: { fixed: { logical: [800, 600], presentation: "native" } }, features: ["input.buttons"] } as const;
   const plan = (selected: PocketProfile) => {
-    const result = validateAndResolveBuildPlan(manifest, { target: selected.id }, profileRegistry(selected));
+    const result = resolveAppPlan(application, { target: selected.id }, profileRegistry(selected));
     if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
     return result.plan;
   };
-  const make = (js: string, selected: PocketProfile = profile) => encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [makeVariant({ target: profile.id, hostAbi: POCKET_BINDING_GENERATION,
-    planJson: JSON.stringify(plan(selected)), identity: { id: manifest.id, title: manifest.title, output: manifest.app.output }, js: new TextEncoder().encode(js), pak: new Uint8Array() })] });
+  const make = (js: string, selected: PocketProfile = profile) => encodePocketPackage({ manifest: new Uint8Array(0), variants: [makeVariant({ target: profile.id, hostAbi: POCKET_BINDING_GENERATION,
+    planJson: JSON.stringify(plan(selected)), identity: { id: application.id, title: application.title, output: application.output }, js: new TextEncoder().encode(js), pak: new Uint8Array() })] });
   const app = `const node=ui.createNode(0);ui.insertBefore(0,node,0);ui.setProp(node,1,120);ui.setProp(node,2,80);globalThis.frame=()=>{ui.setProp(node,64,0xff204060);};`;
   writeFileSync(resolve(directory, "app.pocket"), make(app));
   writeFileSync(resolve(directory, "guest-error.pocket"), make("globalThis.frame=()=>{throw new Error('intentional guest failure')};"));

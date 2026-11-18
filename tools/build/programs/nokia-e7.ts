@@ -33,8 +33,11 @@ export const build: RuntimeBuild = {
     const application = requireApplication(context);
     const option = (name: string) => nativeOption(context.args, name);
     const version = option("--sis-version") ?? application.plan.app.version;
-    const built = await buildApp(application.manifestPath, version, {
-      application, outputRoot: context.outdir,
+    const orientation = option("--orientation");
+    if (orientation !== undefined && !["auto", "portrait", "landscape"].includes(orientation)) throw new Error("--orientation is auto, portrait or landscape");
+    const built = await buildApp(version, {
+      application, outputRoot: context.outdir, viewport: context.app?.viewport,
+      ...(orientation ? { orientation: orientation as "auto" | "portrait" | "landscape" } : {}),
       perfTrace: context.args.includes("--perf-trace"),
       frameRate: option("--frame-rate") === undefined ? undefined : Number(option("--frame-rate")),
       uid: option("--uid"), navigation: option("--navigation"),

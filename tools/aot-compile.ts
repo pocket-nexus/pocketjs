@@ -10,19 +10,22 @@ import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import { decodePng } from "../framework/compiler/pak.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/index.ts";
-import { readPocketManifest } from "../framework/src/manifest/load.ts";
-import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/compiler/plan.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { profileRegistry } from "./profile-resolver.ts";
+import { loadHostConfig, profileRegistry } from "./profile-resolver.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
+import { registerApplication } from "../microts/compiler/aot-model-config.ts";
 import type { LayerDeclarations } from "../microts/compiler/aot-paint-plan.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 export interface AotCompileOptions {
   plan: ResolvedBuildPlan;
-  manifestPath: string;
+  /** The host config the plan was resolved from: an input of every output.
+   *  Without one, the plan's settings are registered for the entry's
+   *  directory. */
+  configPath?: string;
   projectRoot: string;
   outdir: string;
   dependencyFiles?: readonly string[];
@@ -52,7 +55,7 @@ function children(file: string): string[] {
   });
 }
 
-/** A native application has one root component; the manifest may name its mount module. */
+/** A native application has one root component; the application entry may be its mount module. */
 function componentEntry(entry: string): string {
   const visited = new Set<string>(), roots = new Set<string>();
   const visit = (file: string) => {
@@ -82,12 +85,16 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   const { plan } = options;
   if (!verifyPlanHash(plan) || !verifyPlanProfile(plan)) throw new Error("AOT: invalid plan/profile hash");
   if (plan.target.hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`AOT: unsupported plan binding generation ${plan.target.hostAbi}`);
-  if (plan.app.aot !== true) throw new Error("AOT: app.aot must be true in pocket.app.json");
+  if (plan.app.aot !== true) throw new Error("AOT: the application's app.aot must be true");
   const projectRoot = resolve(options.projectRoot), outdir = resolve(options.outdir);
   const inputs = new BuildInputs();
-  inputs.add(options.manifestPath);
+  const settingsFiles = options.configPath ? [resolve(options.configPath)] : [];
+  settingsFiles.forEach(path => inputs.add(path));
   options.dependencyFiles?.forEach(path => inputs.optional(path));
   const entry = resolve(projectRoot, plan.app.entry), component = componentEntry(entry);
+  // The frontends consult the registered settings (aot-model-config.ts).
+  registerApplication({ directory: options.configPath ? dirname(resolve(options.configPath)) : dirname(entry), aot: plan.app.aot,
+    model: plan.app.model, recursionLimit: plan.app.recursionLimit, framework: plan.app.framework, entry });
   const theme = plan.app.theme, tickHz = plan.profile.tickHz;
   const program = analyzeAot(component, { strict: true, theme, tickHz });
   const visited = new Set<string>();
@@ -112,7 +119,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   walk(program.model, collectResources);
   const fontPath = resolve(dirname(component), "fonts.json");
   inputs.optional(fontPath);
-  const fontSources = new Set<string>([...visited, resolve(options.manifestPath), ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
+  const fontSources = new Set<string>([...visited, ...settingsFiles, ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
   const fontRead = (path: string) => { inputs.add(path); fontSources.add(resolve(path)); };
   const fontConfig = readFontConfig(fontPath, fontRead);
   fontConfig.codepoints.forEach(point => codepoints.add(point));
@@ -148,7 +155,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
     const bytes = readFileSync(source);
     const image = /\.svg$/i.test(source) ? bakeSvg(bytes.toString(), plan.viewport.rasterDensity) : decodePng(bytes);
     const file = `images/image-${index}.rgba`;
-    write(file, image.rgba, [source, resolve(options.manifestPath), ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
+    write(file, image.rgba, [source, ...settingsFiles, ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
     imageCode.push(`{ let id = ui.core_mut().upload_texture(include_bytes!(${JSON.stringify(file)}), ${image.width}, ${image.height}, microts::pocketjs_core::spec::psm::PSM_8888); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
   }
   write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(ui: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
@@ -167,9 +174,9 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
 
 /** In-tree firmware scripts use the same application generator as pocket compile. */
 export async function compileBuiltinAot(target: "gba" | "ipodnano", outdir: string): Promise<AotCompileResult> {
-  const manifestPath = resolve(ROOT, `apps/${target}-hero/pocket.app.json`);
-  const loaded = readPocketManifest(manifestPath);
-  const resolved = validateAndResolveBuildPlan(loaded.manifest, { target, executionClass: "aot" }, profileRegistry(POCKET_PROFILES[target]));
+  const configPath = resolve(ROOT, `apps/${target}-hero/pocket.host.config.ts`);
+  const config = await loadHostConfig(configPath);
+  const resolved = resolveAppPlan(config.value.app, { target, executionClass: "aot", configDirectory: dirname(configPath), projectRoot: ROOT }, profileRegistry(POCKET_PROFILES[target]));
   if (!resolved.ok) throw new Error(resolved.diagnostics.map(item => `${item.path}: ${item.message}`).join("\n"));
-  return compileAot({ plan: resolved.plan, manifestPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `hosts/${target}/pocket.host.json`), ...loaded.inputs] });
+  return compileAot({ plan: resolved.plan, configPath, projectRoot: ROOT, outdir, dependencyFiles: [resolve(ROOT, `hosts/${target}/pocket.host.json`), ...config.dependencies] });
 }

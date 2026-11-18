@@ -11,10 +11,11 @@ import {
 } from "../contracts/spec/platforms.ts";
 import { PROP } from "../contracts/spec/spec.ts";
 import { installHost, type HostOps } from "../framework/src/host.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { parsePocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { targetProfile } from "../hosts/contract.ts";
+import { PORTABLE_APP } from "./app-fixtures.ts";
 
 /** An ESP-IDF program's profile: a CPU rasterizer, a repaint target. */
 const tab5 = parsePocketProfile({
@@ -37,7 +38,7 @@ const TAB5_CONTRACTS = definePlatformContractRegistry(
   defineTargetRegistry({ [tab5.id]: targetProfile(tab5) }),
 );
 
-const manifest = () => Bun.file(new URL("./fixtures/manifests/portable-psp.json", import.meta.url)).json();
+
 
 describe("profile animation classes", () => {
   test("every built-in profile states a class", () => {
@@ -61,14 +62,14 @@ describe("profile animation classes", () => {
 
 describe("the plan", () => {
   test("records the class of the profile it resolved", async () => {
-    const psp = validateAndResolveBuildPlan(await manifest(), { target: "psp" });
+    const psp = resolveAppPlan(PORTABLE_APP, { target: "psp" });
     expect(psp.ok).toBe(true);
     if (psp.ok) expect(psp.plan.animation).toBe("composited");
-    const idf = validateAndResolveBuildPlan(await manifest(), { target: tab5.id }, TAB5_CONTRACTS);
+    const idf = resolveAppPlan(PORTABLE_APP, { target: tab5.id }, TAB5_CONTRACTS);
     expect(idf.ok).toBe(true);
     if (idf.ok) expect(idf.plan.animation).toBe("repaint");
     const gpu = parsePocketProfile({ ...tab5, id: "tab5-gpu", display: { ...tab5.display, animation: "composited" } });
-    const composited = validateAndResolveBuildPlan(await manifest(), { target: gpu.id },
+    const composited = resolveAppPlan(PORTABLE_APP, { target: gpu.id },
       definePlatformContractRegistry(POCKET_CAPABILITIES, defineTargetRegistry({ [gpu.id]: targetProfile(gpu) })));
     expect(composited.ok && composited.plan.animation).toBe("composited");
   });

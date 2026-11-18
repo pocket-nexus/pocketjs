@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { BunPlugin } from "bun";
 import ts from "typescript";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
-import { defineHostConfig, type PocketHostConfig } from "../framework/src/host-config.ts";
+import { defineHostConfig, isBuiltinHostId, type PocketHostConfig } from "../framework/src/host-config.ts";
 import { canonicalProfileJson, hashPocketProfile, readPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { POCKET_CAPABILITIES, definePlatformContractRegistry, defineTargetRegistry, type PocketCapabilityId } from "../contracts/spec/platform-types.ts";
@@ -208,9 +208,10 @@ export async function loadHostConfig(path: string): Promise<LoadedHostConfig> {
     const problems = validateToolchain(value.build.toolchain, value.build.toolchain.target);
     if (problems.length) throw new TypeError(`invalid runtime toolchain: ${problems.join("; ")}`);
   }
-  // Host contracts are JSON files named relative to the config.
-  const paths = (value.hosts ?? [value.host]).map(file => resolve(dirname(path), file));
-  const profiles = paths.map(loadProfileDocument);
+  // A host entry is a built-in host id or a JSON file named relative to the config.
+  const entries = value.hosts ?? [value.host];
+  const paths = entries.map(entry => isBuiltinHostId(entry) ? builtinProfilePath(entry) : resolve(dirname(path), entry));
+  const profiles = entries.map((entry, index) => isBuiltinHostId(entry) ? builtinProfile(entry)! : loadProfileDocument(paths[index]!));
   if (new Set(profiles.map(profile => profile.id)).size !== profiles.length) throw new TypeError(`${path}: profile ids must be unique`);
   return { path, value, profiles, profilePaths: paths, dependencies: [...module.dependencies, ...paths],
     resolutionDirectories: module.resolutionDirectories, resolutionFiles: module.resolutionFiles, moduleResolutions: module.moduleResolutions };
@@ -238,21 +239,11 @@ export async function resolveProfile(options: {
   const config = configPath && (options.requireConfig || options.hostConfig || !target)
     ? await loadHostConfig(configPath) : undefined;
   if (options.requireConfig && !config) throw new Error(`no ${HOST_CONFIG_FILE} found above ${from}`);
+  if (config) return selectConfigHost(config, target);
   let profile: PocketProfile;
-  let dependencies: readonly string[] = config?.dependencies ?? [];
-  let resolution: ResolutionInputs = config ?? {};
+  let dependencies: readonly string[] = [];
   let path: string | undefined;
-  if (config) {
-    let index = 0;
-    if (target) {
-      index = config.profiles.findIndex(profile => profile.id === target);
-      if (index < 0) throw new Error(`${config.path} does not implement host ${target}; choose ${config.profiles.map(p => p.id).join(", ")}`);
-    } else if (config.profiles.length !== 1) {
-      throw new Error(`${config.path} implements multiple hosts; select one with --target: ${config.profiles.map(p => p.id).join(", ")}`);
-    }
-    profile = config.profiles[index]!;
-    path = config.profilePaths[index];
-  } else if (target) {
+  if (target) {
     const builtin = isProfilePath(target) ? undefined : builtinProfile(target);
     if (builtin) {
       profile = builtin;
@@ -269,7 +260,35 @@ export async function resolveProfile(options: {
   } else {
     throw new Error(`no host selected; use --target, POCKET_TARGET, or ${HOST_CONFIG_FILE} above ${from}`);
   }
-  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies, ...(path ? { path } : {}),
-    resolutionDirectories: resolution.resolutionDirectories, resolutionFiles: resolution.resolutionFiles,
-    moduleResolutions: resolution.moduleResolutions, ...(config ? { config } : {}) };
+  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies, ...(path ? { path } : {}) };
+}
+
+/** The host of a loaded config that `target` selects: a host id the config
+ * lists, or a host contract file whose id it lists. Without a target the
+ * config must list one host. */
+export function selectConfigHost(config: LoadedHostConfig, target?: string): ResolvedProfile {
+  const hosts = config.profiles.map(profile => profile.id).join(", ");
+  let index: number;
+  let profile: PocketProfile | undefined;
+  let path: string | undefined;
+  if (target && isProfilePath(target)) {
+    path = resolve(process.cwd(), target);
+    if (!existsSync(path)) throw new Error(`host contract not found: ${path}`);
+    profile = loadProfileDocument(path);
+    const id = profile.id;
+    index = config.profiles.findIndex(listed => listed.id === id);
+    if (index < 0) throw new Error(`${config.path} does not list host ${id} (${path}); it lists ${hosts}`);
+  } else if (target) {
+    index = config.profiles.findIndex(listed => listed.id === target);
+    if (index < 0) throw new Error(`${config.path} does not list host ${target}; choose ${hosts}`);
+  } else {
+    if (config.profiles.length !== 1) throw new Error(`${config.path} lists several hosts; select one with --target: ${hosts}`);
+    index = 0;
+  }
+  profile ??= config.profiles[index]!;
+  path ??= config.profilePaths[index]!;
+  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION,
+    dependencies: config.dependencies.includes(path) ? config.dependencies : [...config.dependencies, path], path,
+    resolutionDirectories: config.resolutionDirectories, resolutionFiles: config.resolutionFiles,
+    moduleResolutions: config.moduleResolutions, config };
 }

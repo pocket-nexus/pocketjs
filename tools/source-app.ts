@@ -1,10 +1,53 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import type { AnimationTheme, PocketManifestV2 } from "../contracts/spec/pocket-manifest.ts";
-import { expandThemeReference } from "../framework/src/manifest/load.ts";
+// Source applications for the low-level compiler (tools/build.ts without a
+// plan) and the native program wrappers: entry lookup, the host config an
+// entry belongs to, and the registration of application settings the AOT
+// frontends consult (microts/compiler/aot-model-config.ts).
+import { existsSync, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import type { AppConfig } from "../contracts/spec/app-config.ts";
+import { registerApplication, registeredApplication } from "../microts/compiler/aot-model-config.ts";
+import { findHostConfig, loadHostConfig } from "./profile-resolver.ts";
 
-/** Application content with theme content in place of a module reference. */
-export type SourceAppContent = Omit<PocketManifestV2["app"], "theme"> & { theme?: AnimationTheme };
+/** The application a source file belongs to: the nearest host config above it
+ *  and its `app` section. */
+export interface SourceApplication {
+  readonly configPath: string;
+  readonly directory: string;
+  readonly app: AppConfig;
+  /** The config module and every file it imports (its theme, for example). */
+  readonly dependencies: readonly string[];
+}
+
+const configs = new Map<string, Promise<SourceApplication | undefined>>();
+
+/** The application whose host config is nearest above `file`; undefined when
+ *  that config has no `app` section or there is none. */
+export function sourceApplication(file: string): Promise<SourceApplication | undefined> {
+  const path = findHostConfig(dirname(resolve(file)));
+  if (!path) return Promise.resolve(undefined);
+  let loaded = configs.get(path);
+  if (!loaded) {
+    loaded = loadHostConfig(path).then(config => config.value.app
+      ? { configPath: path, directory: dirname(path), app: config.value.app, dependencies: config.dependencies }
+      : undefined);
+    configs.set(path, loaded);
+  }
+  return loaded;
+}
+
+/** Register an application's model settings for the AOT frontends. */
+export function registerAppSettings(directory: string, app: Pick<AppConfig, "aot" | "model" | "recursionLimit" | "framework" | "entry">) {
+  return registerApplication({ directory, aot: app.aot, model: app.model, recursionLimit: app.recursionLimit, framework: app.framework, entry: app.entry });
+}
+
+/** Register the application `file` belongs to, once, unless its directory is
+ *  registered already. Sources one application imports from another are
+ *  compiled with the settings of the application they belong to. */
+export async function registerSourceApplication(file: string): Promise<SourceApplication | undefined> {
+  const application = await sourceApplication(file);
+  if (application && !registeredApplication(application.directory)) registerAppSettings(application.directory, application.app);
+  return application;
+}
 
 /** Source lookup shared by the low-level compiler and native program wrappers. */
 export function resolveSourceEntry(arg: string, frameworkRoot: string, cwd = process.cwd()): string {
@@ -42,37 +85,6 @@ export function mountedSourceApp(arg: string, frameworkRoot: string): string {
     ? `${bare}-main` : arg;
 }
 
-export function sourceAppContent(entry: string, options: {
-  frameworkRoot: string;
-  projectRoot: string;
-  onRead?: (path: string) => void;
-  onAppRoot?: (path: string) => void;
-}): Partial<SourceAppContent> & { domains?: PocketManifestV2["domains"] } {
-  let directory = dirname(resolve(entry));
-  while (!existsSync(join(directory, "pocket.app.json"))) {
-    if (dirname(directory) === directory) return {};
-    directory = dirname(directory);
-  }
-  const candidates = readdirSync(directory).filter(name => /^pocket\.app(?:\.[^.]+)?\.json$/.test(name)).map(name => {
-    const path = join(directory, name);
-    options.onRead?.(path);
-    const expanded = expandThemeReference(JSON.parse(readFileSync(path, "utf8")), path);
-    expanded.inputs.forEach(input => options.onRead?.(input));
-    const manifest = expanded.manifest as { app: SourceAppContent; domains?: PocketManifestV2["domains"] };
-    return { path, app: manifest.app, domains: manifest.domains };
-  });
-  const matches = candidates.flatMap(candidate => {
-    const base = candidate.app?.entry && [options.projectRoot, directory, options.frameworkRoot]
-      .find(base => resolve(base, candidate.app.entry) === entry);
-    return base ? [{ ...candidate, base }] : [];
-  });
-  if (new Set(matches.map(({ app, domains }) => JSON.stringify([app.framework, app.theme, domains?.worker]))).size > 1) {
-    throw new Error("PocketJS build: manifests disagree on application content; pass a ResolvedBuildPlan");
-  }
-  const selected = matches[0] ?? candidates.find(({ path }) => path === join(directory, "pocket.app.json"));
-  if (selected) options.onAppRoot?.("base" in selected ? selected.base : directory);
-  return selected ? { ...selected.app, ...(selected.domains ? { domains: selected.domains } : {}) } : {};
-}
 
 export function sourceOutputName(file: string, frameworkRoot: string): string {
   const normalizedFile = file.replace(/\\/g, "/"), normalizedRoot = frameworkRoot.replace(/\\/g, "/");

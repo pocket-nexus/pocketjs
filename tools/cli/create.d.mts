@@ -27,8 +27,8 @@ export interface PocketCommands {
 
 export function pocketCommands(input: {
   readonly name: string;
-  readonly target: CreateTarget;
-  readonly manifest?: string;
+  /** The host config's path when the commands run outside its directory. */
+  readonly config?: string;
 }): PocketCommands;
 
 export interface CreateResult {
@@ -37,8 +37,8 @@ export interface CreateResult {
   readonly standalone: boolean;
   readonly target: CreateTarget;
   readonly framework: CreateFramework;
-  readonly hostConfigPath: string | undefined;
-  readonly manifestPath: string;
+  /** The host config holding `host` and `app`, relative to `directory`. */
+  readonly hostConfigPath: string;
   readonly files: readonly string[];
 }
 

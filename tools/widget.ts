@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { planProfileDocument } from "../framework/compiler/plan.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { targetProfile } from "../hosts/contract.ts";
 // bun run widget [app] [flags…] — build + launch a Pocket Stage desktop widget
@@ -21,14 +21,14 @@ import { targetProfile } from "../hosts/contract.ts";
 import { $ } from "bun";
 import { mkdirSync, readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
-import { demoManifestFor } from "./demo-identity.ts";
+import { demoApp, demoConfigPath } from "./build/programs/handheld-common.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
   defineTargetRegistry,
 } from "../contracts/spec/platforms.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import type { ResolvedBuildPlan } from "../framework/compiler/plan.ts";
 import { exportProfile } from "./profile-export.ts";
 const softwareProfile = POCKET_PROFILES["macos-embedded"];
 
@@ -140,18 +140,21 @@ const PSP_STAGE_DISPLAY = widgetStageConfig("psp").display;
 /** Backwards-compatible PSP contracts for existing imports and callers. */
 export const STAGE_PLATFORM_CONTRACTS = stagePlatformContracts(PSP_STAGE_DISPLAY);
 
+/** Resolve an `app` section for the Stage. `paths` rebases its entries from
+ *  the config's directory onto the project root the compiler runs in. */
 export function resolveStageBuildPlan(
   input: unknown,
   display: StageDisplayFacts = PSP_STAGE_DISPLAY,
+  paths: { configDirectory?: string; projectRoot?: string } = {},
 ): ResolvedBuildPlan {
-  const resolution = validateAndResolveBuildPlan(
+  const resolution = resolveAppPlan(
     input,
-    { target: STAGE_TARGET_ID },
+    { target: STAGE_TARGET_ID, ...paths },
     stagePlatformContracts(display),
   );
   if (!resolution.ok) {
     throw new Error(
-      `pocket-stage: manifest did not resolve: ${resolution.diagnostics
+      `pocket-stage: application did not resolve: ${resolution.diagnostics
         .map((diagnostic) => `${diagnostic.path || "/"}: ${diagnostic.message}`)
         .join("; ")}`,
     );
@@ -248,13 +251,12 @@ async function main(): Promise<void> {
   const { stage, app, proof, pass } = parsed;
   const stageConfig = widgetStageConfig(stage);
 
-  // Stock demos own their committed pocket.app.json. Legacy demos without one
-  // inherit the root template through demoManifestFor; either way the build
-  // is admitted once against the embedded Stage profile and every later
-  // compiler input comes from the serialized plan.
+  // A stock demo's host config holds its application. The build is resolved
+  // once against the embedded Stage profile and every later compiler input
+  // comes from the serialized plan.
   const demo = app.replace(/-main$/, "");
-  const manifest = demoManifestFor(root, demo);
-  const plan = resolveStageBuildPlan(manifest, stageConfig.display);
+  const configPath = demoConfigPath(demo);
+  const plan = resolveStageBuildPlan(await demoApp(demo), stageConfig.display, { configDirectory: resolvePath(configPath, ".."), projectRoot: root });
   const planPath = stagePlanPath(stage, app);
   mkdirSync(resolvePath(planPath, ".."), { recursive: true });
   await Bun.write(planPath, JSON.stringify(plan, null, 2) + "\n");
@@ -264,7 +266,7 @@ async function main(): Promise<void> {
   // stage launches of the same app can no longer clobber one another, and
   // target-flavored bundles in dist/ proper are never picked up by mistake.
   const stageDist = resolvePath(root, "dist", `stage-${stage}`);
-  await $`bun tools/build.ts --plan=${planPath} --project-root=${root} --outdir=${stageDist}`.cwd(root);
+  await $`bun tools/build.ts --plan=${planPath} --project-root=${root} --outdir=${stageDist} --config=${configPath}`.cwd(root);
   // The binary compiles in this stage's profile; switching stages rebuilds it.
   const exported = exportProfile(
     { profile: planProfileDocument(plan.profile), profileHash: plan.profileHash, hostAbi: STAGE_HOST_ABI, dependencies: [] },

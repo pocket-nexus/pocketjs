@@ -1,19 +1,17 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
-import { extractHostBuildInputs, hostBuildEnvironment } from "../framework/src/manifest/host-build-inputs.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { finalizeBuildPlan } from "../framework/src/manifest/plan.ts";
+import { extractHostBuildInputs, hostBuildEnvironment } from "../framework/compiler/host-build-inputs.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { finalizeBuildPlan } from "../framework/compiler/plan.ts";
 import { canonicalProfileJson } from "../framework/src/profile.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 
-const portableInput: unknown = await Bun.file(
-  new URL("./fixtures/manifests/portable-psp.json", import.meta.url),
-).json();
+import { PORTABLE_APP } from "./app-fixtures.ts";
 
 function portablePlan() {
-  const result = validateAndResolveBuildPlan(portableInput, { target: "psp" });
+  const result = resolveAppPlan(PORTABLE_APP, { target: "psp" });
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
   return result.plan;
 }

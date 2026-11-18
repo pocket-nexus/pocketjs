@@ -80,7 +80,7 @@ pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARC
       mkdirSync(app); mkdirSync(bin);
       mkdirSync(join(app, "node_modules/@pocketjs"), { recursive: true });
       symlinkSync(root, join(app, "node_modules/@pocketjs/framework"), "dir");
-      for (const file of ["pocket.app.json", "pocket.host.json", "pocket.host.config.ts", "main.tsx"])
+      for (const file of ["pocket.host.json", "pocket.host.config.ts", "main.tsx"])
         cpSync(join(root, "tests/esp-idf/examples/smoke", file), join(app, file));
       const source = (imported: boolean) =>
         'import {Text, View, Image} from "@pocketjs/framework/solid/components";\n' +
@@ -102,7 +102,7 @@ include("${join(root, "platforms/esp-idf/pocket_runtime/project_include.cmake")}
 function(_pocketjs_package_attach target name package profile)
   add_custom_target(package ALL DEPENDS "\${package}")
 endfunction()
-pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.app.json")}"
+pocketjs_compile_app(TARGET app NAME app HOST_CONFIG "${join(app, "pocket.host.config.ts")}"
   PROJECT_ROOT "${app}"
   COMPILER_RECEIPT "${join(app, "compiler-receipt.json")}")
 `);

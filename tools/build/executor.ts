@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { canonicalProfileJson } from "../../framework/src/profile.ts";
-import type { RuntimeBuildContext, RuntimeBuildStep, RuntimeSourceContext } from "../../framework/src/host-config.ts";
+import type { AppConfig, RuntimeBuildContext, RuntimeBuildStep, RuntimeSourceContext } from "../../framework/src/host-config.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { exportProfile } from "../profile-export.ts";
 import { profileRegistry, type ResolvedProfile } from "../profile-resolver.ts";
@@ -18,6 +18,9 @@ export interface RuntimeBuildOptions {
   readonly aotDirectory?: string;
   readonly args?: readonly string[];
   readonly deploy?: boolean;
+  /** The `app` section the package was compiled from, when `pocket build`
+   *  compiled it from an application's host config. */
+  readonly app?: AppConfig;
 }
 export interface RuntimeBuildResult {
   readonly outdir: string;
@@ -201,7 +204,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
     const commands: { command: string[]; cwd: string; status?: number; signal?: string | null }[] = [];
     const context: RuntimeBuildContext = {
       profile: selected.profile, profileHash: selected.profileHash, configDirectory, outdir,
-      output, args: sourceContext.args, application, aot, env, toolchainPaths: paths,
+      output, args: sourceContext.args, application, aot, ...(options.app ? { app: options.app } : {}), env, toolchainPaths: paths,
       async run(command, runOptions = {}) {
         if (!command.length) throw new Error("runtime command must not be empty");
         const cwd = resolve(configDirectory, runOptions.cwd ?? ".");

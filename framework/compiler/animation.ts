@@ -45,7 +45,7 @@ import { paletteColor } from "./tailwind.ts";
 // Theme types (mirrors tailwind.config.js `theme.keyframes` / `theme.animation`)
 // ---------------------------------------------------------------------------
 
-import type { AnimationTheme, KeyframeProps, Keyframes } from "../../contracts/spec/pocket-manifest.ts";
+import type { AnimationTheme, KeyframeProps, Keyframes } from "../../contracts/spec/animation-theme.ts";
 export type { AnimationTheme, KeyframeProps, Keyframes };
 
 // ---------------------------------------------------------------------------

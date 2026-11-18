@@ -6,6 +6,7 @@ import { buildAot } from "../microts/compiler/aot-build.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
 import { normalizeSolidAotSemantics } from "../microts/compiler/aot-solid-semantics.ts";
 import { normalizeVueAotSemantics } from "../microts/compiler/aot-browser-semantics.ts";
+import { registerModelFixture } from "./app-fixtures.ts";
 
 test.each(["solid", "vue-vapor"] as const)("compiled %s view arithmetic agrees with native integer wrapping and f32 rounding", async framework => {
   const run = resolve(".pocket-build/validation/model-aot/view-numbers", `${framework}-${Date.now()}`), fixture = resolve(run, "app");
@@ -17,7 +18,7 @@ test.each(["solid", "vue-vapor"] as const)("compiled %s view arithmetic agrees w
   const source = framework === "solid"
     ? 'import {View,Text,ActionHandler} from "@pocketjs/framework/solid/components";import {idiv} from "@pocketjs/framework/solid/std";import {BTN} from "@pocketjs/framework/input";import {count,setCount,minimum,floating,count as Math,count as __pocketAotNumber} from "./App";export default function App(){const squared=()=>count()*count();return <View><ActionHandler button={BTN.CROSS} onPress={()=>setCount(count()*count())}/><Text>{count()+1}|{squared()}|{-count()}|{idiv(minimum(),-1)}|{floating()+16777217}|{(floating()+16777217)-16777216}</Text></View>;}'
     : '<script setup lang="ts">import {View,Text,ActionHandler} from "@pocketjs/framework/vue-vapor/components";import {idiv} from "@pocketjs/framework/vue-vapor/std";import {BTN} from "@pocketjs/framework/vue-vapor/input";import {count,minimum,floating,count as Math,count as __pocketAotNumber} from "./App";</script><template><View><ActionHandler :button="BTN.CROSS" @press="count=count*count"/><Text>{{count+1}}|{{count*count}}|{{-count}}|{{idiv(minimum,-1)}}|{{floating+16777217}}|{{(floating+16777217)-16777216}}</Text></View></template>';
-  await Bun.write(resolve(fixture, "pocket.app.json"), JSON.stringify({ app: { framework, aot: true, model: "compiled", entry: `App.${extension}` } }));
+  registerModelFixture(fixture, { framework, entry: `App.${extension}` });
   await Bun.write(resolve(fixture, "App.ts"), model); await Bun.write(resolve(fixture, `App.${extension}`), source);
   const result = await buildAot(resolve(fixture, `App.${extension}`), { outDir: resolve(run, "src/gen"), format: false });
   const normalize = framework === "solid" ? normalizeSolidAotSemantics : normalizeVueAotSemantics;

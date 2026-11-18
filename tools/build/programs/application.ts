@@ -2,7 +2,7 @@ import { prepareApplication } from "../inputs.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { extractHostBuildInputs } from "../../../framework/src/manifest/host-build-inputs.ts";
+import { extractHostBuildInputs } from "../../../framework/compiler/host-build-inputs.ts";
 import type { RuntimeApplication, RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { hashPocketProfile, type PocketProfile } from "../../../framework/src/profile.ts";
 

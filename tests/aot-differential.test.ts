@@ -5,12 +5,15 @@ import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
 import { emitAot } from "../microts/compiler/aot-codegen.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
+import { registerApplication } from "../microts/compiler/aot-model-config.ts";
 
 // One source graph, initial fixture, and input tape drive stock Solid and native
 // generated Rust. Trace order and every frame's tree are compared, including the
 // final disposal. Style values are resolved colors, never process-local IDs.
 test("Solid and Rust agree frame by frame on keyed dispatch, owned events and lifecycle rounds", async () => {
   const fixture = resolve("tests/fixtures/aot/differential");
+  // An AOT Solid application with a Rust model, as its host config would state.
+  registerApplication({ directory: fixture, framework: "solid", aot: true, entry: "App.tsx" });
   const run = resolve(".pocket-build/validation/solid-aot/differential", String(Date.now()));
   await mkdir(resolve(run, "src"), { recursive: true });
   const program = analyzeSolidAot(resolve(fixture, "App.tsx"), { strict: true });

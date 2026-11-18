@@ -10,7 +10,7 @@ import { modelConfiguration } from "./aot-model-config.ts";
 const graphs = new Map<string, { versions: [string, number, number][]; programs: AotProgram[] }>();
 const read = (file: string, sources?: ReadonlyMap<string, string>) => sources?.get(file) ?? readFileSync(file, "utf8");
 
-/** The manifest entry may be a mount module; every imported TSX component is checked. */
+/** The application entry may be a mount module; every imported TSX component is checked. */
 export function checkSolidAotGraph(entry: string, options: { sources?: ReadonlyMap<string, string>; strict?: boolean } = {}): AotProgram[] {
   entry = resolve(entry);
   const prior = graphs.get(entry);
@@ -71,27 +71,18 @@ export function checkSolidAotGraph(entry: string, options: { sources?: ReadonlyM
   return programs;
 }
 
-/** Basename imports alone never opt ordinary Solid applications into AOT. */
+/** Basename imports alone never opt ordinary Solid applications into AOT: the
+ *  application a file belongs to (aot-model-config.ts) selects it. */
 export function getSolidAotProgram(filename: string, source?: string, buildEntry?: string): AotProgram | undefined {
   filename = resolve(filename);
-  let directory = dirname(filename);
-  while (true) {
-    const manifest = resolve(directory, "pocket.app.json");
-    if (existsSync(manifest)) {
-      const app = JSON.parse(readFileSync(manifest, "utf8")).app;
-      if (app?.framework !== "solid" || app.aot !== true) return;
-      if (typeof app.entry !== "string") throw new Error(`Solid AOT: ${manifest} requires app.entry`);
-      const projectRoot = resolve(import.meta.dir, "../..");
-      const entry = buildEntry && modelConfiguration(buildEntry).aot
-        ? resolve(buildEntry)
-        : [resolve(directory, app.entry), resolve(projectRoot, app.entry)].find(path => existsSync(path));
-      if (!entry) throw new Error(`Solid AOT: cannot resolve manifest entry ${app.entry}`);
-      const override = source !== undefined && source !== readFileSync(filename, "utf8") ? new Map([[filename, source]]) : undefined;
-      const programs = checkSolidAotGraph(entry, { sources: override });
-      return programs.find(program => program.components.some(component => component.file === filename));
-    }
-    const parent = dirname(directory); if (parent === directory) return; directory = parent;
-  }
+  const app = modelConfiguration(filename);
+  if (!app.directory || app.framework !== "solid" || app.aot !== true) return;
+  if (!app.entry) throw new Error(`Solid AOT: the application at ${app.directory} registers no entry`);
+  const entry = buildEntry && modelConfiguration(buildEntry).aot ? resolve(buildEntry) : app.entry;
+  if (!existsSync(entry)) throw new Error(`Solid AOT: cannot resolve the application entry ${entry}`);
+  const override = source !== undefined && source !== readFileSync(filename, "utf8") ? new Map([[filename, source]]) : undefined;
+  const programs = checkSolidAotGraph(entry, { sources: override });
+  return programs.find(program => program.components.some(component => component.file === filename));
 }
 
 /** Signals are preview defaults, never replacements for the application's business logic. */

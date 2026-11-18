@@ -19,7 +19,7 @@ import {
 } from "../../../contracts/spec/pocket-package.ts";
 import { canonicalProfileJson, pocketProfileSchema, POCKET_PROFILE_FILE, POCKET_PROFILE_FORMAT, type PocketProfile } from "../../../contracts/spec/profile.ts";
 import { admissionHost, describeRejection, selectVariant } from "../../../contracts/spec/admission.ts";
-import { validateSchema, type ContractDiagnostic } from "../../../framework/src/manifest/schema.ts";
+import { validateSchema, type ContractDiagnostic } from "../../../contracts/spec/json-schema.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 
 export interface RepackIdentity {

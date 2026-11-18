@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { crc32 } from "../tools/repack/shared/crc32.ts";
 import { decodePng, deflateZlib, encodePng } from "../tools/repack/shared/png.ts";
@@ -142,20 +142,25 @@ describe("repack shared helpers", () => {
   });
 
   test("package, plan and runtime must name the same complete software profile", async () => {
-    const manifest = await Bun.file(new URL("./fixtures/manifests/portable-psp.json", import.meta.url)).json();
-    const resolution = validateAndResolveBuildPlan(manifest, { target: "psp" });
+    const app = {
+      id: "dev.pocket-nexus.telemetry", title: "Pocket Telemetry", version: "0.1.0", entry: "app/main.tsx", framework: "solid",
+      viewport: { logical: [480, 272], presentation: "integer-fit" }, features: ["text.glyphs.baked", "input.analog.left", "input.buttons"],
+    } as const;
+    const resolution = resolveAppPlan(app, { target: "psp" });
     if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
     const plan = resolution.plan;
     const variant = makeVariant({ target: "psp", hostAbi: plan.target.hostAbi, planJson: JSON.stringify(plan),
       identity: { id: plan.app.id, title: plan.app.title, output: plan.app.output }, js: new TextEncoder().encode("test"), pak: new Uint8Array() });
-    const encode = () => encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [variant] });
+    // A manifest region another product wrote is carried, not read.
+    const foreign = new TextEncoder().encode('{"pocket":2,"id":"dev.pocket-nexus.telemetry"}');
+    const encode = () => encodePocketPackage({ manifest: foreign, variants: [variant] });
     const runtime: RuntimeDirectory = { target: "psp", hostAbi: plan.target.hostAbi, profile: "psp",
       profileHash: plan.profileHash, pocketjs: "test", files: {}, document: { ...POCKET_PROFILES.psp, hostAbi: plan.target.hostAbi } };
     const identity = { id: plan.app.id, title: plan.app.title, author: "Test", version: plan.app.version };
     await admitPocket(encode(), runtime, identity);
     for (let generation = 1; generation < POCKET_BINDING_GENERATION; generation++) {
       const oldVariant = { ...variant, hostAbi: generation };
-      const legacy = encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [oldVariant] });
+      const legacy = encodePocketPackage({ manifest: new Uint8Array(0), variants: [oldVariant] });
       // No implicit conversion: matching profile and legacy runtime do not
       // make an old binding eligible for the current producer/repack tools.
       await expect(admitPocket(legacy, runtime, identity)).rejects.toThrow("variant 0 (psp) is not admitted: bindingGeneration");

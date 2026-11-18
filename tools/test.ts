@@ -51,7 +51,7 @@ const SUITE: readonly Stage[] = [
       "tests/release-notes.test.ts",
       "tests/platform-contracts.test.ts",
       "tests/profile-contract.test.ts",
-      "tests/manifest-theme.test.ts",
+      "tests/app-config.test.ts",
       "tests/source-app.test.ts",
       "tests/driver-contracts.test.ts",
       "tests/generated-contracts.test.ts",
@@ -82,6 +82,7 @@ const SUITE: readonly Stage[] = [
       "tests/idf-package-corpus.test.ts",
       "tests/widget-args.test.ts",
       "tests/note.test.ts",
+
       "tests/site-arcade.test.ts",
       "tests/site-showcase.test.ts",
       "tests/motions-attribution.test.ts",
@@ -172,6 +173,7 @@ const SUITE: readonly Stage[] = [
       "tests/font-config.test.ts",
       "tests/font-archive.test.ts",
       "tests/net-web.test.js",
+
       "tests/wasm-auxiliary.test.ts",
       "tests/wasm-runtime.test.ts",
       "tests/wasm-premultiplied.test.ts",

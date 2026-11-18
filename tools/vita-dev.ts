@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { dirname, join, resolve } from "node:path";
 import { decodePocketPackage, encodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
 import { makeVariant } from "./pocket-pack.ts";
-import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
+import { extractHostBuildInputs } from "../framework/compiler/host-build-inputs.ts";
 import { encodePNG } from "./png.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
 import { atomicWrite, VitaUsbClient } from "./vita-dev-client.ts";

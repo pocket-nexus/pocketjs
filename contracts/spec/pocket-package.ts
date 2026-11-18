@@ -1,18 +1,20 @@
 // contracts/spec/pocket-package.ts — the `.pocket` package format (docs/PLATFORM.md L2).
 //
-// One file = one app: its target-neutral manifest plus any subset of TARGET
-// VARIANTS. A variant is the target-flavored build — dist bundles are baked
-// per target (PSP rasters at density 1, Vita at 2, a desktop widget with a
-// live viewport…), so "the app" is modeled as manifest × variants, never as
-// one blob. A store can hold the universal file; a memory stick carries a
+// One file = one app: a manifest region plus any subset of TARGET VARIANTS.
+// A variant is the target-flavored build — dist bundles are baked per target
+// (PSP rasters at density 1, Vita at 2, a desktop widget with a live
+// viewport…), so "the app" is modeled as variants, never as one blob; each
+// variant's identity section and plan name the application. A store can
+// hold the universal file; a memory stick carries a
 // thinned single-variant one; both are the same format and hash-stable
 // (thinning never changes a variant's identity hash).
 //
 // Layout (all integers little-endian; directories and payloads 16-aligned):
 //   header (32 B): magic, version=2, manifestLen, variantCount,
 //                 stringTableOffset, stringTableSize, reserved[2]
-//   manifest: pocket.app.json as read (a theme module reference replaced by its
-//             export), padded to 16
+//   manifest: opaque bytes, padded to 16. `pocket compile` writes none; a
+//             product that installs packages may store its manifest here.
+//             Readers in this repository do not interpret it.
 //   variants (64 B each): targetOffset, targetSize, hostAbi, sectionCount,
 //                 sectionsOffset, reserved, u64 variantHash, profileHash[32]
 //   strings: target ids as UTF-8, contiguous in variant order, no terminators
@@ -219,7 +221,8 @@ export interface PocketPackageVariant {
 }
 
 export interface PocketPackage {
-  /** pocket.app.json bytes, verbatim. */
+  /** The manifest region, verbatim: empty from `pocket compile`; another
+   *  product may store its manifest here. */
   manifest: Uint8Array;
   variants: PocketPackageVariant[];
 }

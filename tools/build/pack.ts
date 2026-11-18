@@ -5,7 +5,8 @@ import { readRuntimeDirectory } from "../repack.ts";
 import { admitPocket, readRuntime, type RepackIdentity } from "../repack/shared/runtime.ts";
 import { admissionHost, describeRejection, selectVariant } from "../../contracts/spec/admission.ts";
 import { decodePocketPackage, findSection, POCKET_SECTION } from "../../contracts/spec/pocket-package.ts";
-import type { ResolvedBuildPlan } from "../../framework/src/manifest/plan.ts";
+import type { ResolvedBuildPlan } from "../../framework/compiler/plan.ts";
+import { appIdentity, appOutput } from "../../framework/compiler/app-plan.ts";
 import { releasedRuntime } from "../release/fetch.ts";
 import { resolveRuntimeProgram } from "./programs.ts";
 
@@ -42,13 +43,15 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
   const selection = selectVariant(decodePocketPackage(pocket), admissionHost(metadata.document, metadata.profileHash, metadata.hostAbi));
   if (!selection.ok) throw new Error(`this runtime does not admit the application: ${describeRejection(selection)}`);
   const plan = JSON.parse(new TextDecoder().decode(findSection(selection.variant, POCKET_SECTION.plan)!)) as ResolvedBuildPlan;
-  // The manifest's author and icon (stored as the cover section) are the
-  // identity defaults.
-  const declared = JSON.parse(new TextDecoder().decode(decodePocketPackage(pocket).manifest)) as { author?: unknown; icon?: unknown };
-  const cover = typeof declared.icon === "string" ? findSection(selection.variant, POCKET_SECTION.cover) : null;
+  // The variant's cover section (the application's `app.icon`) is the icon
+  // default. The author comes from --author, or from the `app` section of the
+  // application's host config when `pocket pack` runs in its directory.
+  const cover = findSection(selection.variant, POCKET_SECTION.cover);
+  const app = selected.application?.value.app;
+  const declaredAuthor = app && appIdentity(app, appOutput(app)).id === plan.app.id ? app.author : undefined;
   const identity: RepackIdentity = {
     id: options.id ?? plan.app.id, title: options.title ?? plan.app.title,
-    author: options.author ?? (typeof declared.author === "string" ? declared.author : "Unspecified"), version: options.version ?? plan.app.version,
+    author: options.author ?? declaredAuthor ?? "Unspecified", version: options.version ?? plan.app.version,
     ...(options.icon ? { icon: new Uint8Array(readFileSync(resolve(cwd, options.icon))) } : cover ? { icon: cover } : {}),
   };
   await admitPocket(pocket, metadata, identity);

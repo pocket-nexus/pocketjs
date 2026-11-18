@@ -6,7 +6,7 @@ import {
   canonicalProfileJson, compiledProfile, pocketProfileSchema, PROFILE_HASH_FIELDS,
   type PocketProfile,
 } from "../contracts/spec/profile.ts";
-import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/validate.ts";
+import { validateSchema, type ContractDiagnostic } from "../contracts/spec/json-schema.ts";
 import { hashPocketProfile, parsePocketProfile, readPocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";

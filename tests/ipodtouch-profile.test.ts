@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { loadImage } from "@napi-rs/canvas";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,21 +8,24 @@ import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { IPODTOUCH_DEV_HOST_ABI, IPODTOUCH_DEV_TARGET_ID, IPODTOUCH_LOGICAL_VIEWPORT, IPODTOUCH_PHYSICAL_VIEWPORT, IPODTOUCH_RASTER_DENSITY, resolveIPodTouchBuildPlan } from "../tools/ipodtouch-profile.ts";
 import { IPODTOUCH_ICON_OUTPUTS, bakeIPodTouchArtwork } from "../tools/ipodtouch-icon.ts";
 import { deploymentInstallCommand, ipodTouchDeploymentPaths } from "../tools/ipodtouch.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 
 const REPOSITORY = fileURLToPath(new URL("../", import.meta.url));
-const MANIFEST = join(REPOSITORY, "apps/ipodtouch-demo/pocket.app.json");
+const CONFIG = join(REPOSITORY, "apps/ipodtouch-demo/pocket.host.config.ts");
 const ENTRY = join(REPOSITORY, "apps/ipodtouch-demo/main.tsx");
 const OUTPUT = mkdtempSync(join(tmpdir(), "pocketjs-ipodtouch-icon-"));
+const APP = (await loadHostConfig(CONFIG)).value.app!;
 
 afterAll(() => rmSync(OUTPUT, { recursive: true, force: true }));
 
-function manifest(): Record<string, any> {
-  return JSON.parse(readFileSync(MANIFEST, "utf8"));
+/** A copy of the demo's `app` section a case may change. */
+function app(): Record<string, any> {
+  return structuredClone(APP);
 }
 
 describe("private iPod touch 6 profile", () => {
   test("resolves the device Hero to a verified plan", () => {
-    const plan = resolveIPodTouchBuildPlan(manifest());
+    const plan = resolveIPodTouchBuildPlan(app());
     expect(plan.target).toEqual({ id: IPODTOUCH_DEV_TARGET_ID, hostAbi: IPODTOUCH_DEV_HOST_ABI });
     expect(plan.viewport).toEqual({
       logical: IPODTOUCH_LOGICAL_VIEWPORT,
@@ -32,17 +35,17 @@ describe("private iPod touch 6 profile", () => {
       policy: "fixed",
     });
     expect(plan.features).toEqual({ "input.touch": true, "text.glyphs.baked": true });
-    expect(plan.app.entry).toBe("apps/ipodtouch-demo/main.tsx");
+    expect(plan.app.entry).toBe("main.tsx");
     expect(plan.app.output).toBe("ipodtouch-demo-main");
   });
 
-  test("rejects capabilities and geometry the host does not provide", () => {
-    const buttons = manifest();
-    buttons.engine.capabilities.requires.push("input.buttons");
-    expect(() => resolveIPodTouchBuildPlan(buttons)).toThrow("input.buttons");
+  test("turns off features the host lacks and rejects geometry it does not provide", () => {
+    const buttons = app();
+    buttons.features.push("input.buttons");
+    expect(resolveIPodTouchBuildPlan(buttons).features["input.buttons"]).toBe(false);
 
-    const wrongViewport = manifest();
-    wrongViewport.app.viewport.fixed.logical = [320, 480];
+    const wrongViewport = app();
+    wrongViewport.viewport.fixed.logical = [320, 480];
     expect(() => resolveIPodTouchBuildPlan(wrongViewport)).toThrow("320x480");
   });
 

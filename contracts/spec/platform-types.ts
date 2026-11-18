@@ -47,8 +47,8 @@ export type PackageRole = (typeof PACKAGE_ROLES)[number];
  * TargetForm, and the top-level split in admission machinery:
  *
  * - "guest": one portable bundle runs on the embedded JS engine of every
- *   stock host. Admission is the RUNTIME rule this file defines — manifest
- *   `requires` ⊆ target profile `capabilities`.
+ *   stock host. Admission is the RUNTIME rule this file defines — every
+ *   feature the plan turns on ⊆ target profile `capabilities`.
  * - "aot":   the same source is recompiled natively per device by an AOT
  *   compiler family. There is no hostAbi, no
  *   ops and no runtime capability check; admission is COMPILE-TIME — the
@@ -169,7 +169,7 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // Framework-synthesized pointer for targets without a native one: the
   // analog nub steers a screen cursor, hover applies `focus:`, the press
   // button applies `active:` and clicks on release. Opt-in per app
-  // (enableCursor + pocket.app.json requires/enhances) — d-pad focus traversal
+  // (enableCursor + the input.cursor feature in app.features) — d-pad focus traversal
   // remains the portable default interaction.
   "input.cursor",
   // OS text composition: preedit renders inline at the caret with its own
@@ -303,7 +303,7 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // beyond the baked charset, and `measureText` observes the same provider
   // layout does. A different guarantee than text.glyphs.baked — pixels are
   // deterministic per host, not byte-exact across hosts — hence a different
-  // id (see the header rule). Apps opt in per plan (`enhances`); a host
+  // id (see the header rule). Apps opt in with `app.features`; a host
   // grants it by installing a core text measurer before the guest mounts
   // (docs/BACKENDS.md).
   "text.layout.native",

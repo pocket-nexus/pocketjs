@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import ts from "typescript";
-import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
+import type { PocketFramework } from "../../contracts/spec/app-config.ts";
 import { POCKET_FRAMEWORKS, SUBPATHS, resolvesIn } from "./subpaths.ts";
 import type { PocketDomain } from "../../contracts/spec/worker.ts";
 
@@ -193,7 +193,7 @@ export interface ProjectCheckOptions {
   entry: string;
   /** The PocketJS root whose framework sources and installed packages the project compiles against. */
   frameworkRoot: string;
-  /** The framework the project's manifest names. Default solid. */
+  /** The framework the application's `app.framework` names. Default solid. */
   framework?: PocketFramework;
   /** The entry's execution domain. Default ui. */
   domain?: PocketDomain;

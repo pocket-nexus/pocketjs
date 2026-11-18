@@ -1,4 +1,4 @@
-import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
+import type { PocketFramework } from "../../contracts/spec/app-config.ts";
 export type { PocketFramework };
 export const FRAMEWORK_CHOICES = {
   solid: { label: "Solid", outputSuffix: "" },

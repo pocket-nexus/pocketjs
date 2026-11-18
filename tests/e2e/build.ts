@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { AppVariant } from "./compile-variant.ts";
 
 export function evidenceDirectory(root: string, name: string): string {
   return join(root, ".pocket-build/validation/e2e", `${Date.now()}-${process.pid}-${name}`);
@@ -39,10 +40,14 @@ export function buildArtifact(receiptPath: string): string {
   return receipt.artifact;
 }
 
-/** Exercise the public compiler/package boundary before the native recipe. */
+/** Exercise the public compiler/package boundary before the native recipe:
+ *  compile the `app` section of `config` (with the E2E `variant` in place of
+ *  its identity and framework) into a package, then build the program from
+ *  that package. */
 export async function buildCaptureApplication(options: CommandOptions & {
   readonly target: "psp" | "vita";
-  readonly manifest: string;
+  readonly config: string;
+  readonly variant?: AppVariant;
   readonly nativeArgs?: readonly string[];
 }, run: CommandRunner = runBuildCommand): Promise<string> {
   const root = resolve(options.root);
@@ -50,10 +55,11 @@ export async function buildCaptureApplication(options: CommandOptions & {
   const pocket = join(directory, "application.pocket");
   const native = join(directory, "native");
   const cli = join(root, "tools/pocket.ts");
-  await run([process.execPath, cli, "compile", "--target", options.target,
-    "--manifest", resolve(options.manifest), "--project-root", root,
+  await run([process.execPath, join(root, "tests/e2e/compile-variant.ts"), "compile", "--target", options.target,
+    "--config", resolve(options.config), "--project-root", root,
     "--output", pocket, "--outdir", join(directory, "compiler"),
-    "--plan-dir", join(directory, "plans")], { ...options, root, directory: join(directory, "compile") });
+    "--plan-dir", join(directory, "plans"), ...(options.variant ? ["--variant", JSON.stringify(options.variant)] : [])],
+  { ...options, root, directory: join(directory, "compile") });
   await run([process.execPath, cli, "build", "--target", options.target,
     "--pocket", pocket, "--outdir", native, "--", ...(options.nativeArgs ?? ["--capture"])],
   { ...options, root, directory: join(directory, "build") });

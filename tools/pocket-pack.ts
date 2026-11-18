@@ -2,34 +2,30 @@
 
 // `.pocket` packaging (docs/PLATFORM.md L2; format in contracts/spec/pocket-package.ts).
 //
-//   bun tools/pocket-pack.ts build --manifest apps/hero/pocket.app.json \
+//   bun tools/pocket-pack.ts build --config apps/hero/pocket.host.config.ts \
 //       --target psp --target vita [-o dist/packages/hero.pocket]
-//   bun tools/pocket-pack.ts build --manifest ... --all-targets
-//   bun tools/pocket-pack.ts build --manifest game/pocket.app.json --project-root game --target psp
+//   bun tools/pocket-pack.ts build --config ... --all-targets
+//   bun tools/pocket-pack.ts build --config game/pocket.host.config.ts --project-root game --target psp
 //   bun tools/pocket-pack.ts inspect <file.pocket>
 //   bun tools/pocket-pack.ts thin <file.pocket> --target psp -o out.pocket
 //   bun tools/pocket-pack.ts verify <file.pocket>
 //
-// `build` compiles each requested target into ITS OWN outdir
-// (.pocket-build/<target>/) — dist flavors never collide (the stale-dist
-// lesson, institutionalized) — then packs manifest × variants into one
-// file. A target the manifest does not admit fails the pack (or is skipped
-// with a log under --all-targets): a package can never carry a variant its
-// own manifest disowns.
+// `build` resolves the config's `app` section for each requested host (or
+// every host the config lists, with --all-targets), compiles each into its
+// own outdir (.pocket-build/pack/<planHash>/) and packs the variants into one
+// file with an empty manifest region. A host the config does not list fails
+// the pack.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { planProfileDocument } from "../framework/src/manifest/plan.ts";
 import { dirname, join, relative, resolve } from "node:path";
-import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { readAuthoredManifest } from "../framework/src/manifest/load.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import {
   canonicalJson,
   verifyPlanHash,
   verifyPlanProfile,
   type ResolvedBuildPlan,
-} from "../framework/src/manifest/plan.ts";
-import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
+} from "../framework/compiler/plan.ts";
+import { loadHostConfig, profileRegistry, selectConfigHost } from "./profile-resolver.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
   POCKET_SECTION,
@@ -53,7 +49,7 @@ function usage(message?: string): never {
   if (message) console.error(`pocket-pack: ${message}`);
   console.error(
     "usage:\n" +
-      "  bun tools/pocket-pack.ts build --manifest <pocket.app.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
+      "  bun tools/pocket-pack.ts build --config <pocket.host.config.ts> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
       "  bun tools/pocket-pack.ts inspect <file.pocket>\n" +
       "  bun tools/pocket-pack.ts thin <file.pocket> --target <t> [-o <file>]\n" +
       "  bun tools/pocket-pack.ts verify <file.pocket>",
@@ -118,13 +114,8 @@ export function makeVariant(input: {
   return { target: input.target, hostAbi: input.hostAbi, profileHash: plan.profileHash, sections };
 }
 
-async function resolveTarget(manifest: unknown, target: string, projectRoot: string) {
-  const resolved = await resolveProfile({ target, from: projectRoot });
-  return validateAndResolveBuildPlan(manifest, { target: resolved.profile.id }, profileRegistry(resolved.profile));
-}
-
 async function compileTarget(
-  _manifestPath: string,
+  configPath: string,
   target: string,
   plan: ResolvedBuildPlan,
   projectRoot: string,
@@ -134,45 +125,45 @@ async function compileTarget(
   mkdirSync(outdir, { recursive: true });
   writeFileSync(join(outdir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`);
   const p = Bun.spawnSync(["bun", "tools/build.ts", `--plan=${join(outdir, "plan.json")}`,
-    `--project-root=${projectRoot}`, `--outdir=${outdir}`], { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
+    `--project-root=${projectRoot}`, `--outdir=${outdir}`, `--config=${configPath}`], { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   if (!p.success) throw new Error(`pocket-pack: compile failed for ${target}: ${p.signalCode ?? p.exitCode}`);
   return outdir;
 }
 
 async function buildCommand(argv: string[]): Promise<void> {
-  let manifestPath = "";
+  let configPath = "";
   let projectRoot = ROOT;
   let output = "";
   let allTargets = false;
   const targets: string[] = [];
   while (argv.length) {
     const a = argv.shift()!;
-    if (a === "--manifest") manifestPath = resolve(argv.shift() ?? usage("--manifest needs a value"));
+    if (a === "--config") configPath = resolve(argv.shift() ?? usage("--config needs a value"));
+    else if (a === "--manifest") usage("--manifest was removed; name the host config whose app section to pack with --config");
     else if (a === "--target") targets.push(argv.shift() ?? usage("--target needs a value"));
     else if (a === "--project-root") projectRoot = resolve(argv.shift() ?? usage("--project-root needs a value"));
     else if (a === "--all-targets") allTargets = true;
     else if (a === "-o" || a === "--output") output = resolve(argv.shift() ?? usage("-o needs a value"));
     else usage(`unknown option ${a}`);
   }
-  if (!manifestPath) usage("--manifest is required");
+  if (!configPath) usage("--config is required");
   if (!allTargets && targets.length === 0) usage("give --target (repeatable) or --all-targets");
-  const loaded = readAuthoredManifest(manifestPath);
-  const manifest: unknown = loaded.manifest;
+  const config = await loadHostConfig(configPath);
+  const app = config.value.app;
+  if (!app) throw new Error(`pocket-pack: ${configPath} has no app section`);
+  const icon = app.icon === undefined ? undefined : new Uint8Array(readFileSync(resolve(dirname(configPath), app.icon)));
 
-  const requested = allTargets ? Object.keys(POCKET_TARGETS) : targets;
+  const requested = allTargets ? config.profiles.map(profile => profile.id) : targets;
   const variants: PocketPackageVariant[] = [];
   for (const target of requested) {
-    const resolution = await resolveTarget(manifest, target, projectRoot);
+    const selected = selectConfigHost(config, target);
+    const resolution = resolveAppPlan(app, { target: selected.profile.id, configDirectory: dirname(configPath), projectRoot }, profileRegistry(selected.profile));
     if (!resolution.ok) {
-      const codes = resolution.diagnostics.map((d) => `${d.code}`).join(", ");
-      if (allTargets) {
-        console.log(`  skip ${target}: not admitted (${codes})`);
-        continue;
-      }
-      throw new Error(`pocket-pack: ${target} does not admit this manifest (${codes})`);
+      const codes = resolution.diagnostics.map((d) => `${d.code} ${d.path}`).join(", ");
+      throw new Error(`pocket-pack: ${target} does not host this application (${codes})`);
     }
     const plan = resolution.plan;
-    const outdir = await compileTarget(manifestPath, target, plan, projectRoot);
+    const outdir = await compileTarget(configPath, target, plan, projectRoot);
     const js = new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.js`)));
     const pakPath = join(outdir, `${plan.app.output}.pak`);
     const pak = existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0);
@@ -185,17 +176,17 @@ async function buildCommand(argv: string[]): Promise<void> {
         js,
         ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
         pak,
-        cover: loaded.icon,
+        cover: icon,
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
   }
-  if (variants.length === 0) throw new Error("pocket-pack: no variant admitted — nothing to pack");
+  if (variants.length === 0) throw new Error("pocket-pack: no variant to pack");
 
   const id = variants.length ? decodeIdentity(findSection(variants[0]!, POCKET_SECTION.identity)!).output : "app";
   const file = output || join(ROOT, "dist/packages", `${id}.pocket`);
   mkdirSync(dirname(file), { recursive: true });
-  const bytes = encodePocketPackage({ manifest: loaded.embedded, variants });
+  const bytes = encodePocketPackage({ manifest: new Uint8Array(0), variants });
   writeFileSync(file, bytes);
   console.log(`pocket-pack: ${relative(ROOT, file)} (${bytes.length}B, ${variants.length} variant(s))`);
 }
@@ -203,15 +194,13 @@ async function buildCommand(argv: string[]): Promise<void> {
 function inspectCommand(file: string): void {
   const bytes = new Uint8Array(readFileSync(file));
   const pkg = decodePocketPackage(bytes);
-  const manifest = JSON.parse(new TextDecoder().decode(pkg.manifest)) as {
-    id?: string;
-    title?: string;
-  };
   console.log(`${file}: ${bytes.length}B`);
-  console.log(`  manifest: ${manifest.id ?? "?"} — ${manifest.title ?? "?"}`);
+  console.log(`  manifest region: ${pkg.manifest.length}B`);
   for (const v of pkg.variants) {
     const hash = fnv1a64(...v.sections.map((s) => s.bytes)).toString(16).padStart(16, "0");
-    console.log(`  variant ${v.target} (abi ${v.hostAbi}) hash ${hash}`);
+    const identitySection = findSection(v, POCKET_SECTION.identity);
+    const identity = identitySection ? decodeIdentity(identitySection) : undefined;
+    console.log(`  variant ${v.target} (abi ${v.hostAbi}) hash ${hash}${identity ? ` — ${identity.id} ${JSON.stringify(identity.title)}` : ""}`);
     console.log(`    profile ${v.profileHash}`);
     const names: Record<number, string> = {
       1: "identity",
@@ -251,11 +240,11 @@ function thinCommand(argv: string[]): void {
 function verifyCommand(file: string): void {
   const bytes = new Uint8Array(readFileSync(file));
   const pkg = decodePocketPackage(bytes); // footer hash checked here
-  const manifest: unknown = JSON.parse(new TextDecoder().decode(pkg.manifest));
   for (const v of pkg.variants) {
-    // Re-run the compilation claimed by the package, including external
-    // profiles. This checks internal consistency; a Runtime must compare the
-    // variant with its independently compiled profile hash before loading it.
+    // Each variant's plan verifies its own checksum and host contract, and
+    // its identity section names the plan's application. This checks
+    // internal consistency; a host compares the variant's facts with its own
+    // before loading it. The manifest region is not read.
     const embeddedPlan = findSection(v, POCKET_SECTION.plan);
     if (!embeddedPlan) throw new Error(`verify: variant ${v.target} plan section is missing`);
     let plan: ResolvedBuildPlan;
@@ -265,10 +254,11 @@ function verifyCommand(file: string): void {
       plan.target.hostAbi !== v.hostAbi || plan.profileHash !== v.profileHash) {
       throw new Error(`verify: variant ${v.target} has inconsistent plan identity`);
     }
-    const resolution = validateAndResolveBuildPlan(manifest, { target: v.target, hostExtension: plan.hostExtension }, profileRegistry(planProfileDocument(plan.profile)));
-    if (!resolution.ok) throw new Error(`verify: variant ${v.target} is no longer admitted by its own manifest`);
-    if (canonicalJson(plan) !== canonicalJson(resolution.plan)) {
-      throw new Error(`verify: variant ${v.target} resolved plan drifted from its manifest`);
+    const identitySection = findSection(v, POCKET_SECTION.identity);
+    if (!identitySection) throw new Error(`verify: variant ${v.target} identity section is missing`);
+    const identity = decodeIdentity(identitySection);
+    if (identity.id !== plan.app.id || identity.title !== plan.app.title || identity.output !== plan.app.output) {
+      throw new Error(`verify: variant ${v.target} identity differs from its plan`);
     }
     const hostInputs = findSection(v, POCKET_SECTION.hostInputs);
     if (Boolean(hostInputs) !== (plan.profile.platform === "esp-idf")) {
@@ -297,7 +287,7 @@ function verifyCommand(file: string): void {
       catch (error) { throw new Error(`verify: variant ${v.target} ${name} section: ${error instanceof Error ? error.message : String(error)}`); }
     }
   }
-  console.log(`verify: OK — footer hash, ${pkg.variants.length} variant(s) re-admitted`);
+  console.log(`verify: OK — footer hash, ${pkg.variants.length} variant(s) consistent with their plans`);
 }
 
 if (import.meta.main) {

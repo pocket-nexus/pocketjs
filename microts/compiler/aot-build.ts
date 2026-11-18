@@ -9,6 +9,7 @@ import type { AotProgram } from "./aot-ir.ts";
 import type { LayoutEnvironment, LayoutReport } from "./aot-layout-plan.ts";
 import { requireAotBoard, aotBoardAdmission } from "./aot-admission.ts";
 import { attachCompiledModel } from "./aot-model-build.ts";
+import { registeredApplication } from "./aot-model-config.ts";
 import { generateModelRust } from "./aot-model-codegen.ts";
 import { replayModelTape } from "./aot-model-tape.ts";
 
@@ -46,14 +47,9 @@ export function resolveAotEntry(app: string): string {
       const entry = join(path, name);
       if (existsSync(entry)) return entry;
     }
-    const manifest = join(path, "pocket.app.json");
-    if (existsSync(manifest)) {
-      const entry = JSON.parse(readFileSync(manifest, "utf8")).app?.entry;
-      if (typeof entry === "string" && /\.(vue|tsx)$/.test(entry)) {
-        const filename = resolve(path, entry);
-        if (existsSync(filename)) return filename;
-      }
-    }
+    // A registered application names its entry (aot-model-config.ts).
+    const entry = registeredApplication(path)?.entry;
+    if (entry && /\.(vue|tsx)$/.test(entry) && existsSync(entry)) return entry;
   }
   throw new Error(`MicroTS: cannot resolve ${JSON.stringify(app)} to a root .vue or .tsx component`);
 }

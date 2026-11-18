@@ -2,87 +2,115 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { FRAMEWORKS, parseFramework } from "../framework/compiler/jsx-plugin.ts";
-import { mountedSourceApp, resolveSourceEntry, sourceAppContent, sourceOutputName } from "../tools/source-app.ts";
+import { modelConfiguration, registerApplication, unregisterApplication } from "../microts/compiler/aot-model-config.ts";
+import { mountedSourceApp, registerSourceApplication, resolveSourceEntry, sourceApplication, sourceOutputName } from "../tools/source-app.ts";
 
 const root = resolve(import.meta.dir, "..");
 const validation = join(root, ".pocket-build/validation/source-app");
 mkdirSync(validation, { recursive: true });
 const run = mkdtempSync(join(validation, "run-"));
+const VIEWPORT = { logical: [480, 272], presentation: "integer-fit" };
 
-function project(name: string, files: Record<string, unknown>): string {
+/** A host config whose app section is `app`. */
+const config = (app: Record<string, unknown>) =>
+  `import { defineHostConfig } from "@pocketjs/framework/host-config";\nexport default defineHostConfig({ host: "psp", app: ${JSON.stringify({ viewport: VIEWPORT, ...app })} });\n`;
+
+function project(name: string, files: Record<string, string>): string {
   const directory = join(run, name);
   for (const [relative, value] of Object.entries(files)) {
     const file = join(directory, relative);
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, typeof value === "string" ? value : JSON.stringify(value));
+    writeFileSync(file, value);
   }
   return directory;
 }
 
-function selected(arg: string, projectRoot = root, frameworkFlag?: string) {
+async function selected(arg: string, projectRoot = root, frameworkFlag?: string) {
   const mounted = mountedSourceApp(arg, root);
   const entry = resolveSourceEntry(mounted, root, projectRoot);
-  const app = sourceAppContent(entry, { frameworkRoot: root, projectRoot });
-  const framework = parseFramework(frameworkFlag ?? app.framework, frameworkFlag ? "--framework" : "pocket.app.json");
+  const app = (await sourceApplication(entry))?.app;
+  const framework = parseFramework(frameworkFlag ?? app?.framework, frameworkFlag ? "--framework" : "app.framework");
   return { mounted, entry, app, framework, output: sourceOutputName(entry, root) + FRAMEWORKS[framework].outputSuffix };
 }
 
-test("the Vue stock demo selects its .ts mount and manifest framework", () => {
-  const selection = selected("vue-sfc-lab");
+test("the Vue stock demo selects its .ts mount and its config's framework", async () => {
+  const selection = await selected("vue-sfc-lab");
   expect(selection.mounted).toBe("vue-sfc-lab-main");
   expect(selection.entry).toBe(join(root, "apps/vue-sfc-lab/main.ts"));
   expect(selection.framework).toBe("vue-vapor");
   expect(selection.output).toBe("vue-sfc-lab-main.vue-vapor");
-  expect(selected("hero")).toMatchObject({ framework: "solid", output: "hero-main" });
+  expect(await selected("hero")).toMatchObject({ framework: "solid", output: "hero-main" });
 });
 
-test("external source paths preserve the project framework and compiler artifact basename", () => {
+test("external source paths preserve the project framework and compiler artifact basename", async () => {
   const directory = project("custom", {
-    "pocket.app.json": { app: { entry: "src/main.ts", framework: "octane" } },
+    "pocket.host.config.ts": config({ entry: "src/main.ts", framework: "octane" }),
     "src/main.ts": "export const answer = 42;\n",
   });
-  const selection = selected("src/main.ts", directory);
+  const selection = await selected("src/main.ts", directory);
   expect(selection.mounted).toBe("src/main.ts");
   expect(selection.entry).toBe(join(directory, "src/main.ts"));
   expect(selection.framework).toBe("octane");
   expect(selection.output).toBe("main.octane");
-  expect(selected("src/main.ts", directory, "vue-vapor").framework).toBe("vue-vapor");
+  expect((await selected("src/main.ts", directory, "vue-vapor")).framework).toBe("vue-vapor");
   // The wrapper passes this absolute path to a compiler started from the
   // framework checkout, so its working directory cannot select another file.
   expect(resolveSourceEntry(selection.entry, root, root)).toBe(selection.entry);
 });
 
-test("entry matching chooses variant content and tracks every examined manifest", () => {
+test("the nearest host config above a source owns it, with the files it imports", async () => {
   const theme = { animation: { pulse: "pulse 1s infinite" } };
-  const directory = project("variants", {
-    "pocket.app.json": { app: { entry: "main.ts", framework: "solid" } },
-    "pocket.app.handheld.json": { app: { entry: "handheld/main.ts", framework: "vue-vapor", theme } },
-    "pocket.host.json": { format: "pocket-host/2" },
+  const directory = project("nested", {
+    "pocket.host.config.ts": config({ entry: "main.ts", framework: "solid" }),
+    "theme.json": JSON.stringify(theme),
+    // A second build of the same sources in a subdirectory, as apps/nexus-touch/e7.
+    "handheld/pocket.host.config.ts": `import { defineHostConfig } from "@pocketjs/framework/host-config";\nimport theme from "../theme.json" with { type: "json" };\n` +
+      `export default defineHostConfig({ host: "psp", app: { entry: "main.ts", framework: "vue-vapor", viewport: ${JSON.stringify(VIEWPORT)}, theme } });\n`,
     "main.ts": "export {};\n",
     "handheld/main.ts": "export {};\n",
   });
-  const reads: string[] = [];
-  const app = sourceAppContent(join(directory, "handheld/main.ts"), {
-    frameworkRoot: root, projectRoot: directory, onRead: path => reads.push(path),
+  const handheld = await sourceApplication(join(directory, "handheld/main.ts"));
+  expect(handheld?.configPath).toBe(join(directory, "handheld/pocket.host.config.ts"));
+  expect(handheld?.app).toMatchObject({ framework: "vue-vapor", theme });
+  expect(handheld?.dependencies).toEqual(expect.arrayContaining([join(directory, "handheld/pocket.host.config.ts"), join(directory, "theme.json")]));
+  expect((await sourceApplication(join(directory, "main.ts")))?.app.framework).toBe("solid");
+  // A program config without an app section owns no application.
+  const program = project("program", {
+    "pocket.host.config.ts": `import { defineHostConfig } from "@pocketjs/framework/host-config";\nexport default defineHostConfig({ host: "psp" });\n`,
+    "main.ts": "export {};\n",
   });
-  expect(app).toMatchObject({ framework: "vue-vapor", theme });
-  expect(reads.sort()).toEqual([join(directory, "pocket.app.handheld.json"), join(directory, "pocket.app.json")]);
-  writeFileSync(join(directory, "pocket.app.other.json"), JSON.stringify({ app: { entry: "handheld/main.ts", framework: "solid" } }));
-  expect(() => sourceAppContent(join(directory, "handheld/main.ts"), { frameworkRoot: root, projectRoot: directory }))
-    .toThrow("manifests disagree on application content");
+  expect(await sourceApplication(join(program, "main.ts"))).toBeUndefined();
 });
 
-test("a source without a manifest keeps the explicit Solid default", () => {
-  const entry = resolve("/pocketjs-source-app-no-manifest/main.ts");
+test("a source's application registers its model settings once", async () => {
+  const directory = project("registered", {
+    "pocket.host.config.ts": config({ entry: "App.tsx", framework: "solid", aot: true, model: "compiled", recursionLimit: 32 }),
+    "App.tsx": "export default function App() { return null; }\n",
+    "model.ts": "export {};\n",
+  });
+  unregisterApplication(directory);
+  expect(modelConfiguration(join(directory, "model.ts")).directory).toBeUndefined();
+  await registerSourceApplication(join(directory, "model.ts"));
+  expect(modelConfiguration(join(directory, "model.ts"))).toEqual({
+    mode: "compiled", recursionLimit: 32, aot: true, directory, framework: "solid", entry: join(directory, "App.tsx"),
+  });
+  // A registration the build driver made (from a plan) is not replaced.
+  registerApplication({ directory, framework: "solid", aot: true, model: "rust" });
+  await registerSourceApplication(join(directory, "model.ts"));
+  expect(modelConfiguration(join(directory, "model.ts")).mode).toBe("rust");
+  unregisterApplication(directory);
+});
+
+test("a source without a config keeps the explicit Solid default", async () => {
+  const entry = resolve("/pocketjs-source-app-no-config/main.ts");
   expect(existsSync(dirname(entry))).toBe(false);
-  const app = sourceAppContent(entry, { frameworkRoot: root, projectRoot: dirname(entry) });
-  expect(app).toEqual({});
-  expect(parseFramework(app.framework, "pocket.app.json")).toBe("solid");
+  expect(await sourceApplication(entry)).toBeUndefined();
+  expect(parseFramework(undefined, "app.framework")).toBe("solid");
 });
 
-test("low-level worker builds use the entry's matched manifest root", () => {
+test("low-level worker builds resolve the worker entry against the config", () => {
   const directory = project("worker-relative", {
-    "pocket.app.json": { app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "worker.ts", nodes: [] } } },
+    "pocket.host.config.ts": config({ entry: "src/main.ts", framework: "solid", worker: { entry: "worker.ts", nodes: [] } }),
     "src/main.ts": "globalThis.sourceAppWorker = true;\n",
     "worker.ts": "export function turn() {}\n",
   });
@@ -95,17 +123,15 @@ test("low-level worker builds use the entry's matched manifest root", () => {
   const refused = Bun.spawnSync([process.execPath, join(root, "tools/build.ts"), join(directory, "src/main.ts"), `--outdir=${join(directory, "refused")}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
   expect(refused.success).toBe(false);
   expect(refused.stdout.toString() + refused.stderr.toString()).toContain("UI domain cannot import @pocketjs/framework/io");
-  writeFileSync(join(directory, "pocket.app.other.json"), JSON.stringify({ app: { entry: "src/main.ts", framework: "solid" }, domains: { worker: { entry: "other.ts", nodes: [] } } }));
-  expect(() => sourceAppContent(join(directory, "src/main.ts"), { frameworkRoot: root, projectRoot: root })).toThrow(/manifests disagree/);
 }, 120_000);
 
-test("compiler outputs match the wrapper selection for Vue and custom projects", () => {
+test("compiler outputs match the wrapper selection for Vue and custom projects", async () => {
   const directory = project("compile-custom", {
-    "pocket.app.json": { app: { entry: "src/main.ts", framework: "octane" } },
+    "pocket.host.config.ts": config({ entry: "src/main.ts", framework: "octane" }),
     "src/main.ts": "globalThis.customSourceApp = 42;\n",
   });
   for (const [argument, projectRoot] of [["vue-sfc-lab", root], ["src/main.ts", directory]] as const) {
-    const selection = selected(argument, projectRoot);
+    const selection = await selected(argument, projectRoot);
     const output = join(run, "compiled", selection.output);
     const inputs = join(output, "inputs.json");
     const result = Bun.spawnSync([
@@ -118,6 +144,6 @@ test("compiler outputs match the wrapper selection for Vue and custom projects",
     expect(existsSync(join(output, selection.output + ".pak"))).toBe(true);
     const readInputs = JSON.parse(readFileSync(inputs, "utf8")) as string[];
     expect(readInputs).toContain(join(root, "tools/source-app.ts"));
-    expect(readInputs).toContain(join(projectRoot === root ? join(root, "apps/vue-sfc-lab") : directory, "pocket.app.json"));
+    expect(readInputs).toContain(join(projectRoot === root ? join(root, "apps/vue-sfc-lab") : directory, "pocket.host.config.ts"));
   }
 }, 120_000);

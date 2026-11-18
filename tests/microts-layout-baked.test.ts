@@ -11,9 +11,12 @@ import { emitAot } from "../microts/compiler/aot-codegen.ts";
 import { AotCompileError } from "../microts/compiler/aot-ir.ts";
 import type { LayoutEnvironment } from "../microts/compiler/aot-layout-plan.ts";
 import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
+import { registerModelFixture } from "./app-fixtures.ts";
 
 const root = resolve(import.meta.dir, "..");
 const fixture = resolve(root, "tests/fixtures/aot/layout-baked");
+// The fixture is a compiled-model application whose entry is app.tsx.
+registerModelFixture(fixture, { entry: "app.tsx" });
 const wasmPath = resolve(root, "platforms/web/pocketjs.wasm");
 
 async function environment(slots: number[]): Promise<LayoutEnvironment> {

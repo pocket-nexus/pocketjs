@@ -15,9 +15,9 @@ export type ProjectResult =
 
 export const findProjectConfig = findHostConfig;
 
-/** Resolve the program config nearest to the application's manifest. */
-export async function loadProject(manifestDirectory: string, explicitConfig?: string): Promise<ProjectResult> {
-  const path = explicitConfig ?? findHostConfig(manifestDirectory);
+/** Resolve the host config nearest to a directory, or the named one. */
+export async function loadProject(directory: string, explicitConfig?: string): Promise<ProjectResult> {
+  const path = explicitConfig ?? findHostConfig(directory);
   if (!path) return { ok: true, project: { config: null, profiles: [], build: false } };
   try {
     const loaded = await loadHostConfig(path);

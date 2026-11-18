@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compiledProfile } from "../contracts/spec/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { deriveModality } from "../contracts/spec/modality.ts";
-import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import type { ResolvedBuildPlan } from "../framework/compiler/plan.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import {

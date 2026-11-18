@@ -23,11 +23,11 @@ import {
   hostBuildEnvironment,
   vitaTitleId,
   type HostBuildInputs,
-} from "../framework/src/manifest/index.ts";
+} from "../framework/src/plan.ts";
 import {
   verifyPlanHash,
   type ResolvedBuildPlan,
-} from "../framework/src/manifest/plan.ts";
+} from "../framework/compiler/plan.ts";
 import { packageVitaVpk } from "./vita-package.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
@@ -35,7 +35,7 @@ import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/h
 import { RUST_TOOLCHAINS } from "./build/toolchains/rust.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
-import { compileDemoPackage, demoManifest } from "./build/programs/handheld-common.ts";
+import { compileDemoPackage, demoApp } from "./build/programs/handheld-common.ts";
 import { exportProfile } from "./profile-export.ts";
 const softwareProfile = POCKET_PROFILES["vita"];
 
@@ -71,7 +71,7 @@ for (const a of argv) {
   } else if (a.startsWith("--framework=")) {
     frameworkFlag = a.slice("--framework=".length);
   } else if (a.startsWith("--config=") || a === "--no-config") {
-    throw new Error("pocket.config.ts was removed; use pocket.app.json app.framework and app.theme");
+    throw new Error("pocket.config.ts was removed; app.framework and app.theme belong to the application's pocket.host.config.ts");
   } else if (a.startsWith("--plan=")) {
     planPath = resolvePath(a.slice("--plan=".length));
   } else if (a.startsWith("--project-root=")) {
@@ -117,12 +117,12 @@ if (!appArg && !application && !runtime) {
   process.exit(1);
 }
 if (frameworkFlag && !appArg) throw new Error("PocketJS vita: --framework applies to a stock demo build");
-// A stock demo builds on the same manifest and compiler as `bun play`. A
-// framework override applies to a synthesized manifest only: a demo's own
-// manifest owns its framework, and the title id follows its application id.
-const demoManifestInput = !application && !runtime ? demoManifest(appArg, frameworkFlag) : undefined;
-if (demoManifestInput && frameworkFlag && demoManifestInput.app.framework !== parseFramework(frameworkFlag, "--framework")) {
-  throw new Error("PocketJS vita: --framework differs from the application manifest; use a matching manifest");
+// A stock demo builds from its host config with the same compiler as
+// `bun play`. The config owns its framework, and the title id follows its
+// application id.
+const demoApplication = !application && !runtime ? await demoApp(appArg) : undefined;
+if (demoApplication && frameworkFlag && demoApplication.framework !== parseFramework(frameworkFlag, "--framework")) {
+  throw new Error(`PocketJS vita: --framework differs from the application's app.framework (${demoApplication.framework})`);
 }
 if (Boolean(launcherRegistry) !== Boolean(launcherPackages)) {
   throw new Error(
@@ -167,9 +167,9 @@ if (!existsSync(`${vitasdk}/bin/arm-vita-eabi-gcc`)) {
 // ---------------------------------------------------------------------------
 
 if (runtime) console.log("PocketJS vita: building the generic runtime (no app; reads app0:app.pocket)");
-if (demoManifestInput) {
-  console.log(`PocketJS vita: compiling demo "${appArg}" (framework=${demoManifestInput.app.framework ?? "solid"})`);
-  const compiled = await compileDemoPackage("vita", demoManifestInput, outputDir, skipBuild);
+if (demoApplication) {
+  console.log(`PocketJS vita: compiling demo "${appArg}" (framework=${demoApplication.framework})`);
+  const compiled = await compileDemoPackage("vita", appArg, outputDir, { reuse: skipBuild });
   application = prepareApplication({ profile: selectedProfile, profileHash: hashPocketProfile(selectedProfile),
     hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, compiled, outputDir);
   projectRoot = pspUiDir;
@@ -242,7 +242,7 @@ const env = {
   PATH: `${vitasdk}/bin:${home}/.cargo/bin:${process.env.PATH ?? ""}`,
   VITASDK: vitasdk,
   POCKET_QJS_SOURCE: quickjsSource,
-  // The program build identity and final SFO share the manifest title id.
+  // The program build identity and final SFO share the application's title id.
   VITA_DEFAULT_TITLE_ID: titleId,
   POCKETJS_VITA_TITLE_ID: titleId,
   POCKETJS_VITA_PLAN: planPath ?? "",

@@ -3,11 +3,10 @@ import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "
 import { isAbsolute, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { decodeIdentity, decodePocketPackage, findSection, findVariant, POCKET_SECTION } from "../../contracts/spec/pocket-package.ts";
-import { extractHostBuildInputs } from "../../framework/src/manifest/host-build-inputs.ts";
-import type { ResolvedBuildPlan } from "../../framework/src/manifest/plan.ts";
-import { validateAndResolveBuildPlan } from "../../framework/src/manifest/resolve.ts";
+import { extractHostBuildInputs } from "../../framework/compiler/host-build-inputs.ts";
+import type { ResolvedBuildPlan } from "../../framework/compiler/plan.ts";
 import type { RuntimeAotInput, RuntimeApplication } from "../../framework/src/host-config.ts";
-import { profileRegistry, type ResolvedProfile } from "../profile-resolver.ts";
+import type { ResolvedProfile } from "../profile-resolver.ts";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const text = new TextDecoder("utf-8", { fatal: true });
@@ -16,7 +15,10 @@ const outputName = (name: string) => {
   return name;
 };
 
-/** The same admission applies to native compilation and byte-only repacking. */
+/** The same admission applies to native compilation and byte-only repacking:
+ * the variant's plan verifies its own checksum and host contract, records the
+ * program's profile, and names the identity the variant carries. The manifest
+ * region is not read; a package another product wrote may fill it. */
 export function admitApplication(selected: ResolvedProfile, bytes: Uint8Array) {
   const decoded = decodePocketPackage(bytes);
   const variant = findVariant(decoded, selected.profile.id);
@@ -27,13 +29,14 @@ export function admitApplication(selected: ResolvedProfile, bytes: Uint8Array) {
   const planBytes = findSection(variant, POCKET_SECTION.plan);
   const js = findSection(variant, POCKET_SECTION.js);
   if (!identityBytes || !planBytes || !js?.length || js[js.length - 1] !== 0) throw new Error("application lacks identity, plan or NUL-terminated JavaScript");
-  const plan = JSON.parse(text.decode(planBytes)) as ResolvedBuildPlan;
+  let plan: ResolvedBuildPlan;
+  try { plan = JSON.parse(text.decode(planBytes)) as ResolvedBuildPlan; }
+  catch { throw new Error("application plan section is not JSON"); }
+  // Verifies planHash, the recorded host contract and profileHash.
   extractHostBuildInputs(plan, { expectedTarget: selected.profile.id, expectedProfileHash: selected.profileHash });
+  if (plan.profileHash !== variant.profileHash) throw new Error("application variant and plan profile hashes differ");
   const identity = decodeIdentity(identityBytes);
   if (identity.id !== plan.app.id || identity.title !== plan.app.title || identity.output !== plan.app.output) throw new Error("application package and plan identities differ");
-  const manifest = JSON.parse(text.decode(decoded.manifest));
-  const resolved = validateAndResolveBuildPlan(manifest, { target: selected.profile.id, executionClass: "guest", hostExtension: plan.hostExtension }, profileRegistry(selected.profile));
-  if (!resolved.ok || resolved.plan.planHash !== plan.planHash) throw new Error("application manifest and resolved plan differ");
   const output = outputName(plan.app.output);
   return { decoded, variant, plan, planBytes, js, output };
 }
@@ -41,20 +44,19 @@ export function admitApplication(selected: ResolvedProfile, bytes: Uint8Array) {
 /** Admit before writing intermediates or invoking a native toolchain. */
 export function prepareApplication(selected: ResolvedProfile, packagePath: string, outdir: string): RuntimeApplication {
   const bytes = readFileSync(resolve(packagePath));
-  const { decoded, variant, plan, planBytes, js, output } = admitApplication(selected, bytes);
+  const { variant, plan, planBytes, js, output } = admitApplication(selected, bytes);
   const directory = resolve(outdir, ".inputs", sha256(bytes));
   mkdirSync(directory, { recursive: true });
-  const planPath = resolve(directory, "plan.json"), manifestPath = resolve(directory, "pocket.app.json");
+  const planPath = resolve(directory, "plan.json");
   const jsPath = resolve(directory, `${output}.js`), pakPath = resolve(directory, `${output}.pak`);
   const snapshotPath = resolve(directory, ".input.pocket");
   writeFileSync(snapshotPath, bytes);
   writeFileSync(planPath, planBytes);
-  writeFileSync(manifestPath, decoded.manifest);
   // The package terminator belongs to the package; native embedding helpers
   // add their own terminator when converting a source bundle to a C array.
   writeFileSync(jsPath, js.subarray(0, js.length - 1));
   writeFileSync(pakPath, findSection(variant, POCKET_SECTION.pak) ?? new Uint8Array());
-  return { packagePath: snapshotPath, directory, planPath, plan, jsPath, pakPath, manifestPath };
+  return { packagePath: snapshotPath, directory, planPath, plan, jsPath, pakPath };
 }
 
 export function prepareAot(selected: ResolvedProfile, directory: string, outdir?: string): RuntimeAotInput & { output: string } {

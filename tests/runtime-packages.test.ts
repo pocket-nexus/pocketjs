@@ -69,17 +69,17 @@ describe("guest runtime packages", () => {
     symlinkSync(root, join(project, "node_modules/@pocketjs/framework"), "dir");
     fakePackage(project, "solid-js", "0.0.1");
     writeFileSync(join(project, "main.tsx"), 'import { mount } from "@pocketjs/framework/solid";\n');
-    writeFileSync(join(project, "pocket.app.json"), JSON.stringify({
-      $schema: "https://pocketjs.dev/schema/pocket-2.json",
-      pocket: 2,
+    const app = {
       id: "dev.example.runtime.mismatch",
       title: "Runtime Mismatch",
       version: "0.1.0",
-      engine: { capabilities: { requires: ["text.glyphs.baked"] } },
-      app: { entry: "main.tsx", output: "runtime-mismatch", framework: "solid", viewport: { logical: [480, 272], presentation: "integer-fit" } },
-    }));
+      features: ["text.glyphs.baked"],
+      entry: "main.tsx", output: "runtime-mismatch", framework: "solid", viewport: { logical: [480, 272], presentation: "integer-fit" },
+    };
+    writeFileSync(join(project, "pocket.host.config.ts"),
+      `import { defineHostConfig } from "@pocketjs/framework/host-config";\nexport default defineHostConfig({ host: "web-app", app: ${JSON.stringify(app)} });\n`);
     const result = Bun.spawnSync({
-      cmd: [process.execPath, join(root, "tools/pocket.ts"), "check", "--target", "web-app"],
+      cmd: [process.execPath, join(root, "tools/pocket.ts"), "check"],
       cwd: project,
       stdout: "pipe",
       stderr: "pipe",

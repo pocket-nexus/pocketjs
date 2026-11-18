@@ -1,7 +1,7 @@
 import { setupSources, prepareSysroot } from "./ios6-setup.ts";
 import { ios6SharedCachePath, ios6SharedCacheLinkIdentity } from "./build/toolchains/ios6.ts";
 import type { RuntimeApplication } from "../framework/src/host-config.ts";
-import { planProfileDocument } from "../framework/src/manifest/plan.ts";
+import { planProfileDocument } from "../framework/compiler/plan.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
@@ -22,7 +22,7 @@ import { ipodBundleFiles, stageIPodAssets } from "./ipodtouch4-resources.ts";
 import { createServer } from "node:net";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
+import { extractHostBuildInputs } from "../framework/compiler/host-build-inputs.ts";
 import type { PocketProfile } from "../framework/src/profile.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import {
@@ -77,8 +77,8 @@ const ACTION_NAME = "clear_gesture";
  */
 export interface IPodTouch4App {
   readonly id: string;
-  /** pocket.app.json, relative to `root`. */
-  readonly manifest: string;
+  /** The app's pocket.host.config.ts (its `app` section), relative to `root`. */
+  readonly config: string;
   /**
    * The project the app's sources live in. Absent for an app inside this
    * repository; set for an EXTERNAL one, whose descriptor is read from a
@@ -116,7 +116,7 @@ export interface IPodTouch4App {
 /** The fields an external app's descriptor file must carry. */
 const EXTERNAL_FIELDS = [
   "id",
-  "manifest",
+  "config",
   "bundleId",
   "bundleName",
   "executable",
@@ -129,7 +129,7 @@ const EXTERNAL_FIELDS = [
 export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   clear: {
     id: "clear",
-    manifest: "apps/clear/pocket.app.json",
+    config: "apps/clear/pocket.host.config.ts",
     bundleId: "dev.pocket-nexus.clear",
     bundleName: "PocketJSiPodTouch4.app",
     executable: "PocketJSiPodTouch4",
@@ -142,7 +142,7 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   },
   "nexus-touch": {
     id: "nexus-touch",
-    manifest: "apps/nexus-touch/pocket.app.json",
+    config: "apps/nexus-touch/pocket.host.config.ts",
     bundleId: "dev.pocket-nexus.nexus-touch",
     bundleName: "PocketNexus.app",
     executable: "PocketNexus",
@@ -160,8 +160,8 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
 /**
  * Read an app that lives in another project: a JSON descriptor beside its
  * sources carrying the fields above, plus an optional `projectRoot`
- * (relative to the descriptor, default its own directory) that `manifest`
- * and the manifest's own entry are resolved against. The guest then builds
+ * (relative to the descriptor, default its own directory) that `config`
+ * is resolved against. The guest then builds
  * with `--project-root` set to it, so a product repository can own its app
  * and its history while the toolchain, the host and the deployment
  * transaction stay here.
@@ -174,12 +174,12 @@ export function readExternalIPodTouch4App(descriptorPath: string): IPodTouch4App
       throw new Error(`pocket ipodtouch4: ${file} is missing a string ${field}`);
     }
   }
-  // The project root is where the app's own manifest paths start from — the
-  // product repository, not necessarily the descriptor's directory.
+  // The project root is where the app's paths start from — the product
+  // repository, not necessarily the descriptor's directory.
   const root = resolvePath(dirname(file), typeof parsed.projectRoot === "string" ? parsed.projectRoot : ".");
-  const manifest = parsed.manifest as string;
-  if (!existsSync(join(root, manifest))) {
-    throw new Error(`pocket ipodtouch4: ${file} names a manifest that is not there: ${join(root, manifest)}`);
+  const config = parsed.config as string;
+  if (!existsSync(join(root, config))) {
+    throw new Error(`pocket ipodtouch4: ${file} names a host config that is not there: ${join(root, config)}`);
   }
   let nativeCore: IPodTouch4App["nativeCore"];
   if (parsed.nativeCore !== undefined) {
@@ -197,7 +197,7 @@ export function readExternalIPodTouch4App(descriptorPath: string): IPodTouch4App
   return {
     id: parsed.id as string,
     root,
-    manifest,
+    config,
     bundleId: parsed.bundleId as string,
     bundleName: parsed.bundleName as string,
     executable: parsed.executable as string,
@@ -441,10 +441,6 @@ function commandPath(name: string): string | undefined {
 function check(label: string, ok: boolean, detail: string): boolean {
   console.log(`[${ok ? "ok" : "missing"}] ${label}: ${detail}`);
   return ok;
-}
-
-function manifestPath(): string {
-  return join(APP_ROOT, APP.manifest);
 }
 
 function planPath(): string {

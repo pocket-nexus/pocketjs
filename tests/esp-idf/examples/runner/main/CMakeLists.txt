@@ -20,6 +20,5 @@ else()
     pocketjs_compile_app(
         TARGET ${COMPONENT_LIB}
         NAME runner
-        MANIFEST "../../smoke/pocket.app.json"
-        PROJECT_ROOT "../../smoke")
+        HOST_CONFIG "../../smoke/pocket.host.config.ts")
 endif()

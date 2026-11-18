@@ -6,7 +6,7 @@
 //! A runtime built for one game has these compiled in from the plan the build
 //! tool resolved. A runtime built once for every game of a target reads them
 //! here instead, from the plan inside the package it loads. The plan is
-//! canonical JSON (`framework/src/manifest/plan.ts` `canonicalJson`); this
+//! canonical JSON (`framework/compiler/plan.ts` `canonicalJson`); this
 //! reader accepts any well-formed JSON and looks up only the paths it needs:
 //!
 //! ```text

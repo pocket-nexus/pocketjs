@@ -7,13 +7,14 @@ import { io, utf8 } from "../framework/src/io.ts";
 import { bytes, encodeI2CScript, i16le, read, receive, u8, write } from "../framework/src/io/i2c.ts";
 import { worker } from "../framework/src/worker-channels.ts";
 import { buildWorker } from "../tools/build-worker.ts";
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { POCKET_CAPABILITIES, POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { POCKET_SECTION, decodePocketPackage, encodePocketPackage, findSection } from "../contracts/spec/pocket-package.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { parsePocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
+import { portableApp } from "./app-fixtures.ts";
 
 const global = globalThis as any;
 afterEach(() => { delete global.__pocketWorker; delete global.__pocketWorkerTurn; delete global.__pocketWorkerChannels; delete global.__POCKET_WORKER_DECLARATION__; });
@@ -214,58 +215,64 @@ test("UI channel reads are frame mirrors and direction is enforced", () => {
   expect(() => view.u8(0)).toThrow(/expired/);
 });
 
-test("worker manifest admission rejects hosts without a second runtime and duplicate node owners", async () => {
-  const manifest = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
-  manifest.domains = { worker: { entry: "worker.ts", nodes: [] } };
-  expect(validateAndResolveBuildPlan(manifest, { target: "psp" }).ok).toBe(false);
-  manifest.engine.capabilities.requires.push("runtime.worker");
-  expect(validateAndResolveBuildPlan(manifest, { target: "psp" }).ok).toBe(false);
+test("a worker needs a host with the second runtime; runtime.worker needs a worker; node names are unique", async () => {
+  const app = { ...portableApp(), worker: { entry: "worker.ts", nodes: [] } };
+  const onPsp = resolveAppPlan(app, { target: "psp" });
+  expect(onPsp.ok ? [] : onPsp.diagnostics.map(item => [item.code, item.path])).toEqual([["capability.unavailable", "/app/worker"]]);
   const registry = { capabilities: POCKET_CAPABILITIES, targets: { test: { ...POCKET_TARGETS.psp, capabilities: [...POCKET_TARGETS.psp.capabilities, "runtime.worker", "io.i2c"] } } };
-  const availabilityOnly = structuredClone(manifest);
-  delete availabilityOnly.domains;
-  availabilityOnly.engine.capabilities.requires = availabilityOnly.engine.capabilities.requires.filter((capability: string) => capability !== "runtime.worker");
-  availabilityOnly.engine.capabilities.enhances = ["runtime.worker"];
-  expect(validateAndResolveBuildPlan(availabilityOnly, { target: "test" }, registry).ok).toBe(true);
-  const admitted = validateAndResolveBuildPlan(manifest, { target: "test" }, registry);
+  // The feature alone is a worker the application does not declare.
+  const featureOnly = { ...portableApp(), features: [...portableApp().features, "runtime.worker"] };
+  const missing = resolveAppPlan(featureOnly, { target: "test" }, registry);
+  expect(missing.ok ? [] : missing.diagnostics.map(item => [item.code, item.path])).toEqual([["worker.entry", "/app/worker"]]);
+  const admitted = resolveAppPlan(app, { target: "test" }, registry);
   expect(admitted.ok).toBe(true);
   if (!admitted.ok) return;
+  expect(admitted.plan.features["runtime.worker"]).toBe(true);
+  expect(admitted.plan.domains?.worker.entry).toBe("worker.ts");
   const input = { target: "test", hostAbi: admitted.plan.target.hostAbi, planJson: JSON.stringify(admitted.plan), identity: { output: admitted.plan.app.output, id: admitted.plan.app.id, title: admitted.plan.app.title }, js: utf8("globalThis.frame=()=>{}"), pak: new Uint8Array() };
   expect(() => makeVariant(input)).toThrow(/worker declaration/);
   const variant = makeVariant({ ...input, workerJs: utf8("globalThis.__pocketWorkerTurn=()=>{}") });
-  const decoded = decodePocketPackage(encodePocketPackage({ manifest: utf8(JSON.stringify(manifest)), variants: [variant] }));
+  const decoded = decodePocketPackage(encodePocketPackage({ manifest: new Uint8Array(0), variants: [variant] }));
   expect(findSection(decoded.variants[0], POCKET_SECTION.workerJs)?.at(-1)).toBe(0);
-  manifest.domains.worker.nodes = [{ name: "bus", kind: "i2c" }, { name: "bus", kind: "i2c" }];
-  const invalid = validateAndResolveBuildPlan(manifest, { target: "test" }, registry);
-  expect(invalid.ok).toBe(false);
-  if (!invalid.ok) expect(invalid.diagnostics.some(d => d.code === "worker.duplicate")).toBe(true);
+  const duplicate = { ...app, worker: { entry: "worker.ts", nodes: [{ name: "bus", kind: "i2c" }, { name: "bus", kind: "i2c" }] } };
+  const invalid = resolveAppPlan(duplicate, { target: "test" }, registry);
+  expect(invalid.ok ? [] : invalid.diagnostics.map(item => [item.code, item.path])).toEqual([["worker.duplicate", "/app/worker/nodes/1/name"]]);
+  // A worker entry runs in QuickJS: an AOT application has none.
+  const aot = resolveAppPlan({ ...app, aot: true }, { target: "test" }, registry);
+  expect(aot.ok ? [] : aot.diagnostics.map(item => [item.code, item.path])).toEqual([["worker.execution", "/app/worker"]]);
+  // The worker entry is relative to the config like app.entry, and rebased the same way.
+  const rebased = resolveAppPlan(app, { target: "test", configDirectory: "/work/game/app", projectRoot: "/work/game" }, registry);
+  expect(rebased.ok && [rebased.plan.app.entry, rebased.plan.domains?.worker.entry]).toEqual(["app/app/main.tsx", "app/worker.ts"]);
 });
 
 test("a worker declaration implies runtime.worker and its node capabilities; the host bounds node counts", () => {
-  const manifest = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
-  manifest.domains = { worker: { entry: "worker.ts", nodes: [{ name: "api", kind: "http" }] } };
+  const app = { ...portableApp(), worker: { entry: "worker.ts", nodes: [{ name: "api", kind: "http" }] } };
   const profile = (nodes?: Record<string, number>) => parsePocketProfile({
     ...POCKET_PROFILES.psp, id: "worker-host", capabilities: [...POCKET_PROFILES.psp.capabilities, "net.http", "runtime.worker"],
     ...(nodes ? { worker: { nodes } } : {}),
   });
-  const resolveOn = (selected: ReturnType<typeof profile>) => validateAndResolveBuildPlan(manifest, { target: "worker-host" }, profileRegistry(selected));
+  const resolveOn = (selected: ReturnType<typeof profile>) => resolveAppPlan(app, { target: "worker-host" }, profileRegistry(selected));
   const admitted = resolveOn(profile({ http: 1 }));
   expect(admitted.ok).toBe(true);
   if (admitted.ok) expect([admitted.plan.features["runtime.worker"], admitted.plan.features["net.http"]]).toEqual([true, true]);
   // PSP provides neither capability the declaration implies.
-  const psp = validateAndResolveBuildPlan(manifest, { target: "psp" });
-  expect(psp.ok ? [] : psp.diagnostics.filter(item => item.path === "/domains/worker").map(item => item.code)).toEqual(["capability.unavailable", "capability.unavailable"]);
-  manifest.domains.worker.nodes.push({ name: "api2", kind: "http" });
+  const psp = resolveAppPlan(app, { target: "psp" });
+  expect(psp.ok ? [] : psp.diagnostics.filter(item => item.path === "/app/worker").map(item => item.code)).toEqual(["capability.unavailable", "capability.unavailable"]);
+  app.worker.nodes.push({ name: "api2", kind: "http" });
   const limited = resolveOn(profile({ http: 1 }));
-  expect(limited.ok ? [] : limited.diagnostics.map(item => item.code)).toEqual(["worker.nodeLimit"]);
+  expect(limited.ok ? [] : limited.diagnostics.map(item => [item.code, item.path])).toEqual([["worker.nodeLimit", "/app/worker/nodes"]]);
   expect(resolveOn(profile()).ok).toBe(true);
-  manifest.domains.worker.nodes = Array.from({ length: 9 }, (_, index) => ({ name: `api${index}`, kind: "http" }));
+  app.worker.nodes = Array.from({ length: 9 }, (_, index) => ({ name: `api${index}`, kind: "http" }));
   const protocol = resolveOn(profile());
   expect(protocol.ok ? [] : protocol.diagnostics.map(item => item.code)).toEqual(["worker.nodeLimit"]);
+  app.worker.nodes = [{ name: "api", kind: "http" }];
+  app.worker.channels = Array.from({ length: 17 }, (_, index) => ({ name: `c${index}`, kind: "ring", direction: "ui-to-worker", recordBytes: "host", capacity: "host" }));
+  const channels = resolveOn(profile({ http: 1 }));
+  expect(channels.ok ? [] : channels.diagnostics.map(item => [item.code, item.path])).toEqual([["worker.channelLimit", "/app/worker/channels"]]);
 });
 
 test("a channel's sizes are host facts: a stated size fits the host's table, and \"host\" takes it", () => {
-  const manifest = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
-  manifest.domains = { worker: { entry: "worker.ts", nodes: [{ name: "api", kind: "http" }], channels: [
+  const app = { ...portableApp(), worker: { entry: "worker.ts", nodes: [{ name: "api", kind: "http" }], channels: [
     { name: "request", kind: "ring", direction: "ui-to-worker", recordBytes: 1024, capacity: 4 },
     { name: "response", kind: "ring", direction: "worker-to-ui", recordBytes: "host", capacity: "host" },
   ] } };
@@ -273,13 +280,13 @@ test("a channel's sizes are host facts: a stated size fits the host's table, and
     ...POCKET_PROFILES.psp, id: "worker-host", capabilities: [...POCKET_PROFILES.psp.capabilities, "net.http", "runtime.worker"],
     worker: { nodes: { http: 1 }, ...(channels ? { channels } : {}) },
   });
-  const resolveOn = (selected: ReturnType<typeof profile>) => validateAndResolveBuildPlan(manifest, { target: "worker-host" }, profileRegistry(selected));
-  const sizes = (result: ReturnType<typeof resolveOn>) => result.ok ? result.plan.domains?.worker.channels?.map(c => [c.recordBytes, c.capacity]) : result.diagnostics.map(d => d.code);
+  const resolveOn = (selected: ReturnType<typeof profile>) => resolveAppPlan(app, { target: "worker-host" }, profileRegistry(selected));
+  const sizes = (result: ReturnType<typeof resolveOn>) => result.ok ? result.plan.domains?.worker.channels?.map(c => [c.recordBytes, c.capacity]) : result.diagnostics.map(d => [d.code, d.path]);
   // A host that states no table holds the floor.
   expect(sizes(resolveOn(profile()))).toEqual([[1024, 4], [1024, 8]]);
   expect(sizes(resolveOn(profile({ recordBytes: 16384, capacity: 64 })))).toEqual([[1024, 4], [16384, 64]]);
-  manifest.domains.worker.channels[0].recordBytes = 4096;
-  expect(sizes(resolveOn(profile()))).toEqual(["worker.channelSize"]);
+  app.worker.channels[0].recordBytes = 4096;
+  expect(sizes(resolveOn(profile()))).toEqual([["worker.channelSize", "/app/worker/channels/0/recordBytes"]]);
   expect(sizes(resolveOn(profile({ recordBytes: 16384, capacity: 64 })))).toEqual([[4096, 4], [16384, 64]]);
   // The table is at least the floor and at most what the core allocates.
   expect(() => profile({ recordBytes: 512, capacity: 8 })).toThrow();
@@ -320,21 +327,15 @@ test("worker compiler emits an independently executable realm whose entry starts
 test("pocket check includes the independent worker entry", () => {
   const output = resolve(".pocket-build/validation/worker/sdk/typecheck-worker");
   mkdirSync(output, { recursive: true });
-  const manifest = {
-    $schema: "https://pocketjs.dev/schema/pocket-2.json",
-    pocket: 2,
+  const app = {
     id: "dev.pocket-nexus.worker-check",
     title: "Worker Check",
     version: "0.1.0",
-    engine: { capabilities: { requires: ["runtime.worker"] } },
-    app: {
-      entry: ".pocket-build/validation/worker/sdk/typecheck-worker/ui.tsx",
-      framework: "solid",
-      viewport: { fixed: { logical: [480, 272], presentation: "native" } },
-    },
-    domains: {
-      worker: { entry: ".pocket-build/validation/worker/sdk/typecheck-worker/invalid.ts", nodes: [] },
-    },
+    entry: "ui.tsx",
+    framework: "solid",
+    viewport: { fixed: { logical: [480, 272], presentation: "native" } },
+    features: ["runtime.worker"],
+    worker: { entry: "invalid.ts", nodes: [] },
   };
   // A host contract that supplies runtime.worker: the PSP's, plus the capability.
   const host = resolve(output, "pocket.host.json");
@@ -342,9 +343,10 @@ test("pocket check includes the independent worker entry", () => {
   writeFileSync(resolve(output, "invalid.ts"), "const value: number = 'incorrect';\nvoid value;\n");
   // The UI entry's imports map through the UI domain: a worker subpath is unresolvable there.
   writeFileSync(resolve(output, "ui.tsx"), 'import { io } from "@pocketjs/framework/io";\nvoid io;\n');
-  const path = resolve(output, "pocket.app.json");
-  writeFileSync(path, JSON.stringify(manifest));
-  const checked = Bun.spawnSync([process.execPath, resolve("tools/pocket.ts"), "check", "--manifest", path, "--project-root", resolve("."), "--target", host], { cwd: resolve("."), stdout: "pipe", stderr: "pipe" });
+  const path = resolve(output, "pocket.host.config.ts");
+  writeFileSync(path, `import { defineHostConfig } from "@pocketjs/framework/host-config";\nexport default defineHostConfig({ host: "./pocket.host.json", app: ${JSON.stringify(app)} });\n`);
+  // Entries are relative to the config; the repository is the project root the type check runs in.
+  const checked = Bun.spawnSync([process.execPath, resolve("tools/pocket.ts"), "check", "--config", path, "--project-root", resolve(".")], { cwd: resolve("."), stdout: "pipe", stderr: "pipe" });
   expect(checked.exitCode).not.toBe(0);
   expect(checked.stderr.toString()).toContain("TS2322");
   expect(checked.stderr.toString()).toContain("invalid.ts");

@@ -8,7 +8,7 @@
 // gives a new digest and a new install record.
 
 import { createHash } from "node:crypto";
-import { canonicalJson } from "../../framework/src/manifest/plan.ts";
+import { canonicalJson } from "../../framework/compiler/plan.ts";
 import { HOST_IDS, type HostId } from "./types.ts";
 
 export const TOOLCHAIN_SCHEMA = "pocket-toolchain/2";
