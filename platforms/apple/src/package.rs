@@ -51,7 +51,6 @@ pub(crate) fn encode(
     )
     .map_err(|e| format!("{e:?}"))?;
     embedded::encode(EmbeddedPackage {
-        target: &config.host,
         host_abi: config.abi,
         profile_hash: PROFILE_HASH,
         identity: &identity,

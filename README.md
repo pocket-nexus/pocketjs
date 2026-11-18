@@ -341,17 +341,17 @@ bun add -g @pocketjs/cli       # or: npm install -g @pocketjs/cli
 pocket target add psp          # install the PSP toolchain the framework pins
 pocket create my-app           # a standalone project; `bun run check` and `bun run build` wrap the CLI
 cd my-app && bun install
-bun run build                  # pocket compile: the application's .pocket package
+bun run build                  # pocket compile: the application's .pkb bundle
 ```
 
 **The native device program builds from a checkout:** `pocket build --target
-psp --pocket <application.pocket> --out dist/psp` embeds a compiled package
+psp --bundle <application.pkb> --out dist/psp` embeds a compiled bundle
 in the PSP program; `pocket psp <app> --release` does the same for a demo
 under `apps/`. Vita packaging additionally requires VitaSDK and the pinned
 Rust toolchain documented in
-[`programs/vita/README.md`](./programs/vita/README.md). Guest builds can
-be packaged as inspectable, target-thinnable
-[`.pocket` files](./docs/PLATFORM.md) instead of per-port directories. The
+[`programs/vita/README.md`](./programs/vita/README.md). A guest build is one
+[bundle](./docs/PLATFORM.md) per host contract: a `.pkb` file holding the
+plan, the scripts and the asset pack. The
 [Getting started](https://pocketjs.pocket.nexus/docs/getting-started/) guide
 walks through a first application.
 
@@ -395,7 +395,7 @@ repository or the Rust AOT build.
 | [`devices/`](./devices/) | Pocket3D device kernels for GXM, GE and PICA200 |
 | [`engine/pocket3d/`](./engine/pocket3d/) | The Pocket3D entry point: its design and a map of where its code lives |
 | [`microts/`](./microts/) | The MicroTS ahead-of-time compiler |
-| [`contracts/`](./contracts/) | Generated wire specs, capability registry, app and host contract schemas, build plans and package formats |
+| [`contracts/`](./contracts/) | Generated wire specs, capability registry, app and host contract schemas, build plans and the bundle format |
 | [`programs/`](./programs/) | Runtime composition, entry points and native build recipes |
 | [`hosts/`](./hosts/) | Built-in host contracts (`hosts/<id>/pocket.host.json`) identified by content hashes |
 | [`platforms/`](./platforms/) | Operating-system, SDK and fixed-console drivers |
@@ -427,7 +427,7 @@ bun run site:preview          # build, then serve the site at http://127.0.0.1:4
 | First application | [Getting started](https://pocketjs.pocket.nexus/docs/getting-started/) |
 | Frameworks, components, styling | [Frameworks](https://pocketjs.pocket.nexus/docs/frameworks/) · [Components](https://pocketjs.pocket.nexus/docs/components/) · [Styling](https://pocketjs.pocket.nexus/docs/styling/) |
 | Runtime internals | [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) · [Native contract](https://pocketjs.pocket.nexus/docs/native-contract/) |
-| Targets and packaging | [Platform contracts](https://pocketjs.pocket.nexus/docs/platform-contracts/) · [The `.pocket` platform](./docs/PLATFORM.md) |
+| Targets and packaging | [Platform contracts](https://pocketjs.pocket.nexus/docs/platform-contracts/) · [Bundles and the app platform](./docs/PLATFORM.md) |
 | Debugging and verification | [DevTools](./docs/DEVTOOLS.md) · [Determinism](./docs/DETERMINISM.md) |
 | Runtimes beyond 2D UI | [The runtime family](./docs/RUNTIMES.md) · [Pocket3D](./engine/pocket3d/README.md) |
 | Ahead-of-time compilation | [MicroTS](./microts/README.md) · [TypeScript support](./site/content/docs/typescript-support.md) |

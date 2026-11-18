@@ -107,14 +107,14 @@ iteration. A frame whose `gpuWait` is most of `frame` is GPU-bound.
 ```sh
 bun run vita:dev push --app devkit
 bun run vita:dev watch --app devkit
-# Or send an existing target-correct package:
-bun run vita:dev push --app devkit --package dist/devkit-main.pocket
+# Or send an existing bundle compiled for the Vita host contract:
+bun run vita:dev push --app devkit --bundle dist/devkit-main.pkb
 ```
 
 `push` compiles JS/PAK from the runtime's resolved build plan and sends one
-`.pocket` package. `watch` watches the app directory; `--watch-dir` selects a
+bundle. `watch` watches the app directory; `--watch-dir` selects a
 different source root. It rebuilds after a changed file timestamp and sends
-the package after the build succeeds. For an external project, pass
+the bundle after the build succeeds. For an external project, pass
 `--runtime path/to/app.runtime.json` and `--project-root path/to/project`.
 Failed builds or uploads remain pending in the watcher and are retried after
 two seconds, including when USB reconnects without another source edit.
@@ -169,28 +169,28 @@ the development session and reboot before starting Pocket Runtime.
 
 `bun tools/vita.ts --runtime --no-usb-debug --release` builds the generic
 runtime (cargo feature `runtime`): no embedded app, and the program reads
-`app0:app.pocket` at startup (docs/PLATFORM.md, "Generic runtimes and the
+`app0:app.pkb` at startup (docs/PLATFORM.md, "Generic runtimes and the
 repack step"). `bun tools/runtime.ts vita` runs it and collects
 `dist/runtime/vita/`. A file the runtime refuses leaves one line on screen. A
-runtime that started without a package, or with one it refused, accepts a
+runtime that started without a bundle, or with one it refused, accepts a
 `push`.
 A USB-debug build for an installed container takes the container's title:
 
 ```sh
 bun tools/vita.ts --runtime --title=P25BFE5E2 --release
 bun run vita:dev native --runtime dist/vita/pocket-runtime.runtime.json --title P25BFE5E2
-bun run vita:dev stage --file app.pocket --into app --title P25BFE5E2
+bun run vita:dev stage --file app.pkb --into app --title P25BFE5E2
 bun run vita:dev stage --file game.vpk --title P25BFE5E2
 ```
 
 **`stage` writes one file to the card.** `--into card` (the default) puts it
 in `ux0:data/pocket-runtime/` for VitaShell to install; `--into app` puts
-`app.pocket` in the container's own directory, read by the next runtime
+`app.pkb` in the container's own directory, read by the next runtime
 process that `native` starts (the running process released its `app0:`
 mount to write it). The worker writes the file, reads it back and compares
 size and checksum before it replies. The limit is **64 MiB**. The runtime's
-`push` admits any package with a `vita` variant for host ABI 2: it has no
-compiled app id.
+`push` admits any bundle whose binding generation and plan the Vita host facts
+admit: it has no compiled app id.
 
 ## Captures and acceptance
 

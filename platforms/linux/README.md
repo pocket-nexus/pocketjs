@@ -1,6 +1,6 @@
 # Linux components
 
-These crates implement mechanisms against `pocket-drivers`; none owns a `Ui`, guest or application package parser.
+These crates implement mechanisms against `pocket-drivers`; none owns a `Ui`, guest or bundle parser.
 
 - `hooks`: a monotonic clock, aligned allocation helpers and a range-based `FileSource`. It does not export the six host C symbols; the final archive owns those symbols.
 - `drm`: DRM/KMS output through `drm-rs`. Two CPU staging buffers have separate retained identities. A flush copies damage to the corresponding private dumb buffer before queueing a page flip. The page-flip event completes the token. Native scanout never borrows a renderer's CPU slice. Teardown restores or disables the CRTC; kernel references retain a scanout allocation if a disconnected device prevents restoration.

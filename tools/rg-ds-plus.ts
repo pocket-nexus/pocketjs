@@ -4,7 +4,7 @@
 //
 //   bun tools/rg-ds-plus.ts libs <host>                      copy libmali.so.1 from the device for the linker
 //   bun tools/rg-ds-plus.ts build                            the program for aarch64 Linux (glibc 2.36)
-//   bun tools/rg-ds-plus.ts shot --package <app.pocket> --script "<tick>:<event> ..." [--out <dir>]
+//   bun tools/rg-ds-plus.ts shot --package <app.pkb> --script "<tick>:<event> ..." [--out <dir>]
 //
 // libs   scp's /usr/lib/libmali.so.1.9.0 (stock firmware) or /usr/lib/mali/libmali.so.1.9.0
 //        (Omarchy Pocket) into .pocket-build/rg-ds-plus/gl-libs as libmali.so.
@@ -96,6 +96,6 @@ switch (argv[0]) {
     await shot();
     break;
   default:
-    console.error("usage: bun tools/rg-ds-plus.ts libs <host> | build | shot --package <app.pocket> --script <events> [--out <dir>]");
+    console.error("usage: bun tools/rg-ds-plus.ts libs <host> | build | shot --package <app.pkb> --script <events> [--out <dir>]");
     process.exit(2);
 }

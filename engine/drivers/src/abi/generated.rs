@@ -131,14 +131,13 @@ pub const POCKET_RESULT_NONE: u32 = 0;
 pub const POCKET_RESULT_I64: u32 = 1;
 pub const POCKET_RESULT_F64: u32 = 2;
 pub const POCKET_RESULT_BYTES: u32 = 3;
-// Status codes of the package inspection entry points. The program crate's pocket_native_package_open, the 3DS product's pocket_package_open and the ESP-IDF archive's pocket_idf_package_open return them from one table (pocket_runtime::abi). 0 admits a variant. 1 to 5 name a damaged file, 6 a package without a variant, 8, 10, 11, 17, 18 and 26 a variant that fails selection, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission. 16 is retired and never returned.
+// Status codes of the package inspection entry points. The program crate's pocket_native_package_open and pocket_native_package_open_source, the ESP-IDF archive's pocket_idf_package_open and pocket_idf_package_open_source, and the 3DS product's pocket_package_open return them from one table (pocket_runtime::abi). 0 admits the program. 1 to 5 name a damaged bundle, 8, 10, 11, 17, 18 and 26 sections that fail the section checks, 7, 9 and 19 to 25 the first failed admission item in check order, 12 a bad argument, 13 to 15 a plan whose JSON, viewport or auxiliary surface cannot be read after admission, 27 a package source that does not supply its length, sections or bytes. 6 and 16 are retired and never returned.
 pub const POCKET_PACKAGE_OPEN_OK: i32 = 0;
 pub const POCKET_PACKAGE_OPEN_TRUNCATED: i32 = 1;
 pub const POCKET_PACKAGE_OPEN_BAD_MAGIC: i32 = 2;
 pub const POCKET_PACKAGE_OPEN_BAD_VERSION: i32 = 3;
 pub const POCKET_PACKAGE_OPEN_HASH_MISMATCH: i32 = 4;
 pub const POCKET_PACKAGE_OPEN_BAD_UTF8: i32 = 5;
-pub const POCKET_PACKAGE_OPEN_NO_VARIANT: i32 = 6;
 pub const POCKET_PACKAGE_OPEN_BINDING_GENERATION: i32 = 7;
 pub const POCKET_PACKAGE_OPEN_NO_IDENTITY: i32 = 8;
 pub const POCKET_PACKAGE_OPEN_PLAN: i32 = 9;
@@ -158,6 +157,7 @@ pub const POCKET_PACKAGE_OPEN_PRESENTATION: i32 = 23;
 pub const POCKET_PACKAGE_OPEN_CAPABILITY: i32 = 24;
 pub const POCKET_PACKAGE_OPEN_AUXILIARY: i32 = 25;
 pub const POCKET_PACKAGE_OPEN_BAD_BYTECODE: i32 = 26;
+pub const POCKET_PACKAGE_OPEN_SOURCE: i32 = 27;
 
 pub type PocketTextureFn = unsafe extern "C" fn(context: *const c_void, handle: i32, out: *mut PocketTextureView) -> i32;
 
@@ -219,7 +219,7 @@ pub type PocketPackageRangeFn = unsafe extern "C" fn(context: *mut c_void, offse
 /// Transfers the whole package: out describes storage of the length the length callback reported. After success the source may refuse all and range. UNSUPPORTED keeps the copying path.
 pub type PocketPackageTakeFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketPackageStorage) -> i32;
 
-/// Called once, before the bytes are read or taken. Success states the offsets of one program in this source's bytes; UNSUPPORTED states that the bytes are a package container.
+/// Called once per load or inspection, before the bytes are read or taken. Success states the offsets of one program in this source's bytes; UNSUPPORTED states that the bytes are a bundle.
 pub type PocketPackageSectionsFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketPackageSections) -> i32;
 
 /// Releases storage a take transferred, after the runtime's last read of it.
@@ -624,7 +624,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// Storage a source transfers through take. bytes stay valid and unchanged until the runtime calls release with release_context, bytes and length; a null release means they outlive the runtime. POCKET_PACKAGE_STORAGE_VERIFIED in flags states that the owner verified the package's FNV-1a64 footer and variant hashes of these exact bytes, so the runtime admits them without its own hash pass.
+    /// Storage a source transfers through take. bytes stay valid and unchanged until the runtime calls release with release_context, bytes and length; a null release means they outlive the runtime. POCKET_PACKAGE_STORAGE_VERIFIED in flags states that the owner verified the bundle's FNV-1a64 footer and payload hashes of these exact bytes, so the runtime admits them without its own hash pass.
     pub struct PocketPackageStorage {
         pub struct_size: usize,
         pub bytes: *const u8,
@@ -636,7 +636,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// Where one program's sections lie in the bytes a source returns, for a host that keeps programs in a container of its own. Offsets count from the first byte the source returns. plan is the build plan JSON, js the NUL-terminated UI bundle and worker_js the NUL-terminated worker bundle; the bytecode sections are QJBC envelopes. A length of zero means the section is absent. host_abi is the binding generation the program was compiled for.
+    /// Where one program's sections lie in the bytes a source returns, for a host that keeps programs in a container of its own. Offsets count from the first byte the source returns. plan is the build plan JSON, js the NUL-terminated UI bundle and worker_js the NUL-terminated worker bundle; the bytecode sections are QJBC envelopes. A length of zero means the section is absent. host_abi is the binding generation the program was compiled for. A bundle carries the same sections under the kinds plan 2, js 3, pak 4, bytecode 6, worker_js 8 and worker_bytecode 9.
     pub struct PocketPackageSections {
         pub struct_size: usize,
         pub plan_offset: usize,
@@ -656,7 +656,7 @@ abi_record! {
 }
 
 abi_record! {
-    /// all, take and sections are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. Without sections, or when it returns UNSUPPORTED, the bytes are a package container and the runtime parses it and checks its hashes. With sections the runtime reads the program at the stated offsets, admits its plan against the host and checks no container hash: the integrity of the host's container is the host's.
+    /// all, take and sections are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. Without sections, or when it returns UNSUPPORTED, the bytes are a bundle and the runtime parses it and checks its hashes. With sections the runtime reads the program at the stated offsets, admits its plan against the host and checks no container hash: the integrity of the host's container is the host's.
     pub struct PocketPackageSourceV1 {
         pub struct_size: usize,
         pub length: Option<PocketPackageLengthFn>,

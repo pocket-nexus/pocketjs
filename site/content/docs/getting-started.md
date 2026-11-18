@@ -6,7 +6,7 @@ application workflow.
 
 This is the fastest path from an empty checkout to JSX running on screen. You'll
 write a component, mount it, build it, and see it in the browser dev host — the
-same source and `pocket.host.config.ts` can also be compiled into target-specific packages
+same source and `pocket.host.config.ts` can also be compiled into target-specific bundles
 for PSP, PS Vita, and the other registered targets. Your app states one
 logical viewport in the `app` section of `pocket.host.config.ts` and the
 target's host contract decides
@@ -280,7 +280,7 @@ app.)
 
 ## Build it
 
-**`compile` validates the application and produces a version 2 `.pocket` package.**
+**`compile` validates the application and produces one bundle (`.pkb`) for the selected host.**
 The runtime program owns native linking and device packaging. The checkout
 provides PSP and Vita commands for building a demo program:
 

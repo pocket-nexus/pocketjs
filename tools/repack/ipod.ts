@@ -1,5 +1,5 @@
 // tools/repack/ipod.ts — a game's iPod touch 4 `.ipa` from the generic
-// runtime (tools/runtime/ipod.ts) and the game's `.pocket`, in TypeScript.
+// runtime (tools/runtime/ipod.ts) and the game's bundle (`.pkb`), in TypeScript.
 //
 //   Payload/Studio<Name>.app/
 //     Studio<Name>              the runtime's executable, byte for byte
@@ -9,7 +9,7 @@
 //     Icon-<hash>@2x.png        114 px
 //     Default@2x.png            the runtime's launch images
 //     Default-568h@2x.png
-//     app.pocket                the game, thinned to its ipodtouch4-dev variant
+//     app.pkb                   the game's bundle, byte for byte
 //     build-receipt.json        what tools/ipodtouch4.ts checks after install
 //
 // The zip is tools/repack/shared/zip.ts's: 1980-01-01 entry times, Unix
@@ -18,7 +18,7 @@
 // The executable is signed ad hoc once, when the runtime is built, with
 // nothing beside it: its code signature covers the code pages, binds no
 // Info.plist and seals no resources (`codesign -d` says "Info.plist=not
-// bound", "Sealed Resources=none"), so a new Info.plist, icons and app.pocket
+// bound", "Sealed Resources=none"), so a new Info.plist, icons and app.pkb
 // leave it valid. The bundle has no _CodeSignature; the device installs it
 // through AppSync Unified as it installs every PocketJS iPod build. The icon
 // names carry a hash of the 57 px PNG, so an update with a new icon is not
@@ -27,7 +27,7 @@
 import { decodePng, encodePng } from "../../tools/repack/shared/png.ts";
 import { flattenRgba, squareIcon } from "../../tools/repack/shared/scale.ts";
 import {
-  admitPocket,
+  admitRepackBundle,
   checkIdentity,
   readRuntime,
   sha256Hex,
@@ -128,13 +128,13 @@ export async function repackIPod(input: RepackInput): Promise<Uint8Array> {
   for (const name of IPOD_RUNTIME_FILES) {
     if (!(name in runtime.files)) throw new Error(`repack ipod: the runtime does not list ${name}`);
   }
-  const pocket = await admitPocket(input.pocket, runtime, input.identity);
-  const viewport = pocket.plan.viewport as { logical?: number[]; physical?: number[]; rasterDensity?: number } | undefined;
+  const game = await admitRepackBundle(input.bundle, runtime, input.identity);
+  const viewport = game.plan.viewport as { logical?: number[]; physical?: number[]; rasterDensity?: number } | undefined;
   const logical = viewport?.logical ?? [];
   if (!SURFACES.some(([width, height]) => logical[0] === width && logical[1] === height) || viewport?.rasterDensity !== 2) {
     throw new Error("repack ipod: the game's plan is not 320x480 or 480x320 at density 2");
   }
-  const companions = pocket.plan.companions;
+  const companions = game.plan.companions;
   if (Array.isArray(companions) && companions.length > 0) {
     throw new Error("repack ipod: the game needs companion services, which the iPod runtime does not carry");
   }
@@ -157,7 +157,7 @@ export async function repackIPod(input: RepackInput): Promise<Uint8Array> {
     [retinaName, icons.retina],
     ["Default@2x.png", file("Default@2x.png")],
     ["Default-568h@2x.png", file("Default-568h@2x.png")],
-    ["app.pocket", pocket.bytes],
+    ["app.pkb", game.bytes],
   ]);
   const digests: Record<string, string> = {};
   for (const name of [...files.keys()].sort()) digests[name] = await sha256Hex(files.get(name)!);

@@ -18,10 +18,10 @@ The tool exports the current SDK and compiles this consumer in both directions:
 The consumer fills `pocket_profile_facts` and `pocket_profile_display` by member
 name from the fixture header's macros, so one source fills the record each header
 revision declares; `struct_size` reports that revision's prefix. The current
-archive receives a package from the current encoder. The old archive receives
-bytes from the old revision's encoder, tagged with that revision's binding
-generation. **Package version compatibility is separate from C ABI
-compatibility.**
+archive receives a bundle from the current encoder. The old archive receives
+bytes from the old revision's encoder (a one-variant `.pocket` before bundles),
+tagged with that revision's binding generation. **Application format
+compatibility is separate from C ABI compatibility.**
 
 Both executables use the entry points present in the old revision. They check
 prefix bounds, extended op arguments, guest op reentry, range-only short reads,

@@ -4,7 +4,7 @@ This experimental host builds the 240 × 160 [`apps/gba-hero`](../../apps/gba-he
 
 **The page is `layout-baked`: every rect except the spinner island is a build-time constant, and the cartridge runs no flexbox solve for it.** Before the Runtime migration, mGBA 0.10.5 measured the two-VBlank rate, 29.86 FPS, with zero missed deadlines over a 60-second idle sample and a 30-second input sample; the same source on the ordinary layout path measures 14.93 FPS with a 69.5 ms `app.frame`. These measurements predate the Runtime migration; emulator acceptance for the new composition is pending. Physical hardware has not been tested.
 
-**The generated app is an AOT guest of Runtime; no `.pocket` reader or script VM runs at boot.** The main program registers button input, the compiled renderer and the LCD output. Runtime advances the guest and core once per tick. The program prepares the native BG/OBJ frame from its baked layer plan and binds it to the current DrawList and resource revision. The renderer rejects unmatched frames; the LCD waits for VBlank, submits the tile and OAM DMA, and returns after the transfers complete.
+**The generated app is an AOT guest of Runtime; no bundle reader or script VM runs at boot.** The main program registers button input, the compiled renderer and the LCD output. Runtime advances the guest and core once per tick. The program prepares the native BG/OBJ frame from its baked layer plan and binds it to the current DrawList and resource revision. The renderer rejects unmatched frames; the LCD waits for VBlank, submits the tile and OAM DMA, and returns after the transfers complete.
 
 ## Generate application sources
 

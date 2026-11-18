@@ -28,7 +28,7 @@ Drivers own device I/O. The runtime owns registration and frame scheduling. Borr
 The `ink` module schedules partial, dynamic and full e-ink refreshes from host
 timestamps and the panel's busy state; it holds no framebuffer or panel handle.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

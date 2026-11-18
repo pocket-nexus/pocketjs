@@ -160,7 +160,7 @@ impl Program {
         assert_eq!(
             status(instance::boot_package(
                 p.handle(),
-                package("vita", pocket_spec::BINDING_GENERATION, PLAN, code)
+                package(pocket_spec::BINDING_GENERATION, PLAN, code)
             )),
             0,
             "{}",
@@ -234,12 +234,11 @@ impl Program {
     }
 }
 
-/// A compiled package for the exported profile, as tools/vita.ts embeds one.
-fn package(target: &str, abi: u32, plan: &[u8], code: &[u8]) -> Vec<u8> {
+/// A compiled bundle for the exported profile, as tools/vita.ts embeds one.
+fn package(abi: u32, plan: &[u8], code: &[u8]) -> Vec<u8> {
     let identity =
         pocket_package::embedded::identity("fixture", "vita.original", "Original plan").unwrap();
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-        target,
         host_abi: abi,
         profile_hash: profile::PROFILE_HASH,
         identity: &identity,
@@ -248,8 +247,8 @@ fn package(target: &str, abi: u32, plan: &[u8], code: &[u8]) -> Vec<u8> {
         pak: &[],
     }).unwrap()
 }
-fn original_package(target: &str, abi: u32, plan: &[u8]) -> Vec<u8> {
-    package(target, abi, plan, br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#)
+fn original_package(abi: u32, plan: &[u8]) -> Vec<u8> {
+    package(abi, plan, br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#)
 }
 
 const PLAN: &[u8] = br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{}}"#;
@@ -260,7 +259,7 @@ const ORIGINAL_PLAN: &[u8] =
 fn original_package_plan_controls_generated_capability_namespaces() {
     unsafe {
         let p = Program::unbooted();
-        let package = std::sync::Arc::<[u8]>::from(original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN));
+        let package = std::sync::Arc::<[u8]>::from(original_package(pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN));
         assert_eq!(
             status(instance::boot_package(p.handle(), package.clone())),
             0,
@@ -277,11 +276,10 @@ fn original_package_plan_controls_generated_capability_namespaces() {
 #[test]
 fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
     for (reason, package) in [
-        ("ABI", original_package("vita", 99, ORIGINAL_PLAN)),
+        ("ABI", original_package(99, ORIGINAL_PLAN)),
         (
             "viewport",
             original_package(
-                "vita",
                 pocket_spec::BINDING_GENERATION,
                 br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[240,136],"presentation":"integer-fit","rasterDensity":2}}"#,
             ),
@@ -289,7 +287,6 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
         (
             "density",
             original_package(
-                "vita",
                 pocket_spec::BINDING_GENERATION,
                 br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":1}}"#,
             ),
@@ -297,12 +294,11 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
         (
             "capability",
             original_package(
-                "vita",
                 pocket_spec::BINDING_GENERATION,
                 br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[480,272],"presentation":"integer-fit","rasterDensity":2},"features":{"net.http":true}}"#,
             ),
         ),
-        ("plan", original_package("vita", pocket_spec::BINDING_GENERATION, b"{}")),
+        ("plan", original_package(pocket_spec::BINDING_GENERATION, b"{}")),
     ] {
         unsafe {
             let p = Program::unbooted();

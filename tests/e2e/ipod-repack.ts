@@ -4,8 +4,8 @@
 //   bun tests/e2e/ipod-repack.ts --config <pocket.host.config.ts> --id <id> --title <title>
 //     --author <author> --version <version> [--icon <png>] [--out <dir>] [--device]
 //
-// Builds the ipodtouch4-dev variant of the game's `app` section into a
-// `.pocket` (the config's directory is the project root), repacks it onto dist/runtime/ipod (built by
+// Builds the game's `app` section for ipodtouch4-dev into a bundle
+// (the config's directory is the project root), repacks it onto dist/runtime/ipod (built by
 // `bun tools/runtime.ts ipod`) and, with --device, installs the .ipa through
 // `tools/ipodtouch4.ts deploy --ipa` (AppSync Unified, byte-exact readback of
 // every bundle file), launches it, waits for a running status record from the
@@ -17,10 +17,9 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { encodePocketPackage } from "../../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../../framework/compiler/plan.ts";
+import { encodeBundle } from "../../contracts/spec/bundle.ts";
 import { resolveIPodTouch4BuildPlan } from "../../tools/ipodtouch4-profile.ts";
-import { makeVariant } from "../../tools/pocket-pack.ts";
+import { makeBundle } from "../../tools/bundle.ts";
 import { loadHostConfig } from "../../tools/profile-resolver.ts";
 import { readRuntimeDirectory } from "../../tools/repack.ts";
 import { repackIPod } from "../../tools/repack/ipod.ts";
@@ -53,33 +52,25 @@ async function command(args: string[], env: Record<string, string> = {}): Promis
 }
 
 try {
-  // The game's ipodtouch4-dev variant, built from its own project.
+  // The game's ipodtouch4-dev bundle, built from its own project.
   const config = resolve(configPath);
   const plan = resolveIPodTouch4BuildPlan((await loadHostConfig(config)).value.app);
   const planFile = join(OUT, "plan.json");
   writeFileSync(planFile, `${JSON.stringify(plan, null, 2)}\n`);
   const guest = join(OUT, "guest");
   await command(["bun", "tools/build.ts", `--plan=${planFile}`, `--project-root=${dirname(config)}`, `--outdir=${guest}`, `--config=${config}`]);
-  const pocket = encodePocketPackage({
-    manifest: new Uint8Array(0),
-    variants: [
-      makeVariant({
-        target: plan.target.id,
-        hostAbi: plan.target.hostAbi,
-        planJson: canonicalJson(plan),
-        identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
-        js: new Uint8Array(readFileSync(join(guest, `${plan.app.output}.js`))),
-        pak: new Uint8Array(readFileSync(join(guest, `${plan.app.output}.pak`))),
-      }),
-    ],
-  });
-  writeFileSync(join(OUT, "game.pocket"), pocket);
-  log(`pocket ${pocket.length} bytes, ${plan.viewport.logical.join("x")} at density ${plan.viewport.rasterDensity}`);
+  const bundle = encodeBundle(makeBundle({
+    plan,
+    js: new Uint8Array(readFileSync(join(guest, `${plan.app.output}.js`))),
+    pak: new Uint8Array(readFileSync(join(guest, `${plan.app.output}.pak`))),
+  }));
+  writeFileSync(join(OUT, "game.pkb"), bundle);
+  log(`bundle ${bundle.length} bytes, ${plan.viewport.logical.join("x")} at density ${plan.viewport.rasterDensity}`);
 
   const icon = option("icon");
   const runtime = readRuntimeDirectory(join(ROOT, "dist/runtime/ipod"));
   const started = performance.now();
-  const ipa = await repackIPod({ runtime, pocket, identity: { ...identity, ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}) } });
+  const ipa = await repackIPod({ runtime, bundle, identity: { ...identity, ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}) } });
   log(`repacked ${ipa.length} bytes in ${(performance.now() - started).toFixed(0)} ms`);
   const ipaPath = join(OUT, "game.ipa");
   writeFileSync(ipaPath, ipa);

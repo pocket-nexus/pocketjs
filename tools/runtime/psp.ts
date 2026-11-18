@@ -3,12 +3,12 @@
 // `runtime`), in dist/runtime/psp/.
 //
 //   EBOOT.PBP      the program; started as it is, it says on screen that its
-//                  folder holds no app.pocket
+//                  folder holds no app.pkb
 //   runtime.json   { target, hostAbi, pocketjs, profile, files }
 //
-// At boot the program reads app.pocket from its own folder
+// At boot the program reads app.pkb from its own folder
 // (programs/psp/src/package_file.rs). tools/repack/psp.ts gives it a game: a new
-// PARAM.SFO and ICON0, and the game's .pocket beside it.
+// PARAM.SFO and ICON0, and the game's bundle beside it.
 //
 // The runtime has no io.offload slot; the repack refuses a plan that asks for it.
 

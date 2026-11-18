@@ -7,7 +7,7 @@
 //                  (default: dist/psplink — the `bun psplink` share;
 //                   for `bun run hw` pass programs/psp/target/mipsel-sony-psp/release)
 //   --port <n>     dev-server port (default 8130 / PORT env)
-//   --pocket <p>   exact single-app package used for the EBOOT (or build snapshot)
+//   --bundle <p>   exact bundle used for the EBOOT (or build snapshot)
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -22,10 +22,10 @@ function argValue(flag: string): string | undefined {
 
 const dir = resolve(argValue("--dir") ?? join(ROOT, "dist", "psplink"));
 const port = Number(argValue("--port") ?? process.env.PORT ?? 8130);
-const packageArg = argValue("--pocket");
-if (process.argv.includes("--pocket") && (!packageArg || packageArg.startsWith("--")))
-  throw new Error("--pocket requires the compiled package path used for the EBOOT");
-const packagePath = packageArg ? resolve(packageArg) : undefined;
+const bundleArg = argValue("--bundle");
+if (process.argv.includes("--bundle") && (!bundleArg || bundleArg.startsWith("--")))
+  throw new Error("--bundle requires the compiled bundle path used for the EBOOT");
+const bundlePath = bundleArg ? resolve(bundleArg) : undefined;
 
 if (!existsSync(dir)) {
   console.error(
@@ -37,7 +37,7 @@ if (!existsSync(dir)) {
 const bridge = startBridge({
   dir,
   port,
-  packagePath,
+  bundlePath,
   onEvent(e) {
     if (e.type === "hub-connected") console.log(`devtools-psp: connected to hub ws://127.0.0.1:${port}/ws`);
     if (e.type === "device-talking")

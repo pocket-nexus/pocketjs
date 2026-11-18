@@ -25,7 +25,7 @@ export const build: RuntimeBuild = {
   hosts: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"],
   sourceInputs: nokiaSourceInputs,
   steps: compilerOnly(),
-  input: "package",
+  input: "bundle",
   artifact: "{outdir}/{output}.sis",
   async run(context) {
     requireProgramProfile(context, profile);

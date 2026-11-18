@@ -21,7 +21,7 @@ export function pocketjsCommit(): string {
 }
 
 /** Write runtime.json and the stamped host contract beside the runtime's
- * files. Repack admits packages against that document. */
+ * files. Repack admits bundles against that document. */
 export async function writeRuntimeManifest(
   directory: string,
   fields: {

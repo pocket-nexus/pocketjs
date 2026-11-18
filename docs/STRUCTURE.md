@@ -145,7 +145,7 @@ enables and the IDF and SiFli archives leave off.
 **`contracts/spec/ui-ops.ts` defines 61 public operations and six private guest
 hooks.** `tools/ui-bindings.ts` generates the runtime dispatcher and guest
 operation descriptors. Missing service providers leave their guest methods
-absent. Package format 2 records host contract hashes; binding generation 12 identifies
+absent. The bundle format records host contract hashes; binding generation 12 identifies
 the generated script interface. Driver and runtime C tables use `struct_size`
 prefix compatibility.
 

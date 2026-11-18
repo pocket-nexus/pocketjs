@@ -30,7 +30,7 @@ target_include_directories(idf_components PUBLIC include "${ROOT}/contracts/gene
 target_compile_options(idf_components PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(idf_components PRIVATE _GNU_SOURCE)
 target_link_libraries(idf_components PUBLIC quickjs "${POCKET_RUNTIME_ARCHIVE}")
-add_executable(runtime runtime.c alloc.c "${CMAKE_CURRENT_BINARY_DIR}/pocketjs_package_host.c")
+add_executable(runtime runtime.c alloc.c "${CMAKE_CURRENT_BINARY_DIR}/pocketjs_bundle_host.c")
 target_include_directories(runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(runtime PRIVATE _GNU_SOURCE)
 target_link_libraries(runtime PRIVATE idf_components)

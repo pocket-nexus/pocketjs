@@ -5,7 +5,6 @@ use pocket_package::{embedded, source::MemorySource};
 fn package_sources_share_canonical_acceptance_and_rejection() {
     let identity = embedded::identity("application", "kit.consumer", "Driver kit").unwrap();
     let bytes = embedded::encode(embedded::EmbeddedPackage {
-        target: "external-test",
         host_abi: pocket_spec::BINDING_GENERATION,
         profile_hash: [42; 32],
         identity: &identity,

@@ -1,14 +1,14 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-// tools/psp.ts <demo> | --pocket <app.pocket> [cargo args…] — compile the
+// tools/psp.ts <demo> | --bundle <app.pkb> [cargo args…] — compile the
 // stock demo apps/<demo>/main.tsx with `pocket compile` into
-// dist/<output>.pocket (or take the given package), then the EBOOT:
-//   POCKETJS_EMBED_PACKAGE=<package> POCKETJS_PROFILE_RS=<export> cargo psp
+// dist/<output>.pkb (or take the given bundle), then the EBOOT:
+//   POCKETJS_EMBED_BUNDLE=<bundle> POCKETJS_PROFILE_RS=<export> cargo psp
 // inside programs/psp/, with the environment tools/psp-toolchain.ts reads from the
 // installed toolchain (PSP_SDK, QUICKJS_PREBUILT_LIB, cargo-psp on PATH) plus
 // RUST_PSP_TARGET=programs/psp/targets/mipsel-sony-psp.json, RUST_PSP_ABORT_ONLY=1
 // and RUSTFLAGS "-A linker-messages …". `pocket target add psp` installs the
 // pinned Rust, cargo-psp, SDK and prebuilt QuickJS. The EBOOT embeds the
-// package bytes and the exported profile; it encodes nothing at boot.
+// bundle bytes and the exported profile; it encodes nothing at boot.
 //
 // A demo builds from the app section of its apps/<demo>/pocket.host.config.ts;
 // --framework=<id> replaces its framework, as the PPSSPP goldens do.
@@ -21,7 +21,7 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 //
 // --runtime builds the generic runtime instead of an app's EBOOT (cargo
 // feature `runtime`, POCKETJS_EMBED_APP=0): no app is built or embedded, and
-// the EBOOT reads app.pocket from its own folder at boot. tools/runtime/psp.ts
+// the EBOOT reads app.pkb from its own folder at boot. tools/runtime/psp.ts
 // runs this and collects the output.
 
 import { $ } from "bun";
@@ -39,7 +39,7 @@ import { POCKET_PROFILES } from "../hosts/index.ts";
 import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
-import { compileDemoPackage, demoApp, demoPackagePath } from "./build/programs/handheld-common.ts";
+import { compileDemoBundle, demoApp, demoBundlePath } from "./build/programs/handheld-common.ts";
 import type { AppConfig } from "../contracts/spec/app-config.ts";
 import { exportProfile } from "./profile-export.ts";
 const softwareProfile = POCKET_PROFILES["psp"];
@@ -50,16 +50,16 @@ const nativeDir = pspUiDir + "programs/psp/";
 const pspTarget = resolvePath(pspUiDir, "tools/build/toolchains/psp/mipsel-sony-psp.json");
 
 /** Production inputs retain the executor's immutable snapshot, including all sections. */
-export function pspPackageInput(packagePath: string | undefined, outdir: string, context?: RuntimeBuildContext): RuntimeApplication | undefined {
+export function pspBundleInput(bundlePath: string | undefined, outdir: string, context?: RuntimeBuildContext): RuntimeApplication | undefined {
   if (context) {
-    if (packagePath) throw new Error("PSP recipe owns --pocket; supply it to the build executor");
-    if (context.application && !existsSync(context.application.packagePath))
-      throw new Error(`PSP captured package is missing: ${context.application.packagePath}`);
+    if (bundlePath) throw new Error("PSP recipe owns --bundle; supply it to the build executor");
+    if (context.application && !existsSync(context.application.bundlePath))
+      throw new Error(`PSP captured bundle is missing: ${context.application.bundlePath}`);
     return context.application;
   }
-  if (!packagePath) return undefined; // A stock demo compiles its package first.
+  if (!bundlePath) return undefined; // A stock demo compiles its bundle first.
   return prepareApplication({ profile: softwareProfile, profileHash: hashPocketProfile(softwareProfile),
-    hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, packagePath, outdir);
+    hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, bundlePath, outdir);
 }
 
 /** The application `tools/psp.ts <demo>` compiles: the demo's `app`
@@ -70,19 +70,19 @@ export function pspDemoVariant(framework?: string): ((app: AppConfig) => AppConf
   return app => ({ ...app, framework: selected });
 }
 
-/** The compiled package `tools/psp.ts <demo>` embeds, under its output directory. */
-export function pspDemoPackage(demo: string, outdir = `${pspUiDir}dist/`): Promise<string> {
-  return demoPackagePath(demo, outdir);
+/** The compiled bundle `tools/psp.ts <demo>` embeds, under its output directory. */
+export function pspDemoBundle(demo: string, outdir = `${pspUiDir}dist/`): Promise<string> {
+  return demoBundlePath(demo, outdir);
 }
 
-export function pspLauncherPackages(registry: string, requested = ""): string {
+export function pspLauncherBundles(registry: string, requested = ""): string {
   if (!registry) {
-    if (requested) throw new Error("--launcher-packages requires --launcher-registry");
+    if (requested) throw new Error("--launcher-bundles requires --launcher-registry");
     return "";
   }
   if (!existsSync(registry) || !statSync(registry).isFile()) throw new Error(`PSP launcher registry is missing: ${registry}`);
   const directory = resolvePath(requested || resolvePath(dirname(registry), "packages"));
-  if (!existsSync(directory) || !statSync(directory).isDirectory()) throw new Error(`PSP launcher packages directory is missing: ${directory}`);
+  if (!existsSync(directory) || !statSync(directory).isDirectory()) throw new Error(`PSP launcher bundles directory is missing: ${directory}`);
   return directory;
 }
 
@@ -96,12 +96,12 @@ let capture = false;
 let bench = false;
 let frameworkFlag: string | undefined;
 let planPath: string | undefined;
-let packagePath: string | undefined;
+let bundlePath: string | undefined;
 let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
 let skipBuild = false;
 let launcherRegistry = "";
-let launcherPackages = "";
+let launcherBundles = "";
 let runtime = false;
 const cargoArgs: string[] = [];
 for (let index = 0; index < argv.length; index++) {
@@ -115,15 +115,16 @@ for (let index = 0; index < argv.length; index++) {
   else if (a.startsWith("--config=") || a === "--no-config") {
     throw new Error("pocket.config.ts was removed; app.framework and app.theme belong to the application's pocket.host.config.ts");
   } else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
-  else if (a === "--pocket" || a.startsWith("--pocket=")) {
-    const value = a === "--pocket" ? argv[++index] : a.slice("--pocket=".length);
-    if (!value || value.startsWith("--")) throw new Error("--pocket requires a compiled package path");
-    packagePath = resolvePath(value);
+  else if (a === "--pocket" || a.startsWith("--pocket=")) throw new Error("--pocket was removed; pass the compiled application with --bundle FILE (pocket compile writes a .pkb bundle)");
+  else if (a === "--bundle" || a.startsWith("--bundle=")) {
+    const value = a === "--bundle" ? argv[++index] : a.slice("--bundle=".length);
+    if (!value || value.startsWith("--")) throw new Error("--bundle requires a compiled bundle path");
+    bundlePath = resolvePath(value);
   }
   // Multi-app embed (docs/LAUNCHER.md): a TSV registry of guests; build.rs
-  // appends one embedded package per line after app 0.
+  // appends one embedded bundle per line after app 0.
   else if (a.startsWith("--launcher-registry=")) launcherRegistry = resolvePath(a.slice("--launcher-registry=".length));
-  else if (a.startsWith("--launcher-packages=")) launcherPackages = resolvePath(a.slice("--launcher-packages=".length));
+  else if (a.startsWith("--launcher-bundles=")) launcherBundles = resolvePath(a.slice("--launcher-bundles=".length));
   else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
   else if (a.startsWith("--outdir=")) outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
   else if (a === "--skip-build") skipBuild = true;
@@ -131,14 +132,14 @@ for (let index = 0; index < argv.length; index++) {
   else if (!planPath && !runtime && !appArg && !a.startsWith("-")) appArg = a;
   else cargoArgs.push(a);
 }
-if (runtime && packagePath) throw new Error("PSP generic runtime cannot embed --pocket");
-if (packagePath && (appArg || planPath || frameworkFlag))
-  throw new Error("--pocket supplies the application and plan; do not override them");
-if (planPath && !context) throw new Error("PocketJS psp: --plan is the build executor's input; compile the application and pass --pocket");
+if (runtime && bundlePath) throw new Error("PSP generic runtime cannot embed --bundle");
+if (bundlePath && (appArg || planPath || frameworkFlag))
+  throw new Error("--bundle supplies the application and plan; do not override them");
+if (planPath && !context) throw new Error("PocketJS psp: --plan is the build executor's input; compile the application and pass --bundle");
 if (frameworkFlag && !appArg) throw new Error("PocketJS psp: --framework applies to a stock demo build");
-let application = pspPackageInput(packagePath, outputDir, context);
-launcherPackages = pspLauncherPackages(launcherRegistry, launcherPackages);
-if (context && !runtime && !application) throw new Error("PSP native build requires an admitted package");
+let application = pspBundleInput(bundlePath, outputDir, context);
+launcherBundles = pspLauncherBundles(launcherRegistry, launcherBundles);
+if (context && !runtime && !application) throw new Error("PSP native build requires an admitted bundle");
 const selectedProfile = context?.profile ?? (runtime ? runtimeProfile : softwareProfile);
 const features = [capture ? "capture" : "", bench ? "bench" : "", runtime ? "runtime" : ""].filter(Boolean);
 if (features.length > 0) cargoArgs.push("--features", features.join(","));
@@ -147,7 +148,7 @@ if (runtime && (appArg || planPath || launcherRegistry)) {
   process.exit(1);
 }
 if (!appArg && !application && !runtime) {
-  console.error("usage: bun tools/psp.ts <demo> | --pocket <application.pocket> [--framework=<id>] [--capture|--bench] [cargo args…]   e.g. bun tools/psp.ts hero --release");
+  console.error("usage: bun tools/psp.ts <demo> | --bundle <application.pkb> [--framework=<id>] [--capture|--bench] [cargo args…]   e.g. bun tools/psp.ts hero --release");
   process.exit(1);
 }
 // Reject an unknown demo before resolving a toolchain.
@@ -164,14 +165,14 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// 1. A stock demo compiles to dist/<output>.pocket; --skip-build reuses it.
-// The EBOOT embeds that package exactly as it embeds a --pocket input.
+// 1. A stock demo compiles to dist/<output>.pkb; --skip-build reuses it.
+// The EBOOT embeds that bundle exactly as it embeds a --bundle input.
 // ---------------------------------------------------------------------------
 
-if (runtime) console.log("PocketJS psp: building the generic runtime (no app; reads app.pocket)");
+if (runtime) console.log("PocketJS psp: building the generic runtime (no app; reads app.pkb)");
 if (demoApplication) {
   console.log(`PocketJS psp: compiling demo "${appArg}" (framework=${(demoVariant?.(demoApplication) ?? demoApplication).framework})`);
-  application = pspPackageInput(await compileDemoPackage("psp", appArg, outputDir, { reuse: skipBuild, ...(demoVariant ? { app: demoVariant } : {}) }), outputDir);
+  application = pspBundleInput(await compileDemoBundle("psp", appArg, outputDir, { reuse: skipBuild, ...(demoVariant ? { app: demoVariant } : {}) }), outputDir);
   projectRoot = pspUiDir;
 }
 if (application) {
@@ -208,7 +209,7 @@ const fragmentBase = buildPlan
   : `${pspUiDir}apps/${app.replace(/-main$/, "")}/psp`;
 // A demo built through a non-default framework may ship its own cover set so
 // the XMB tells the twins apart (<app>/psp/<framework>/); the shared fragment
-// one level up stays the default when there is no such variant.
+// one level up stays the default when there is no such cover set.
 const frameworkFragmentHome = `${fragmentBase}/${framework}`;
 const fragmentHome = existsSync(`${frameworkFragmentHome}/Psp.toml`)
   ? frameworkFragmentHome
@@ -359,8 +360,8 @@ const env = {
   CARGO_PROFILE_DEV_OPT_LEVEL: process.env.CARGO_PROFILE_DEV_OPT_LEVEL ?? "3",
   ...hostEnvironment,
   // The build script embeds these original bytes; it has no raw-bundle path.
-  POCKETJS_EMBED_PACKAGE: application ? resolvePath(application.packagePath) : "",
-  POCKETJS_LAUNCHER_PACKAGES: launcherPackages,
+  POCKETJS_EMBED_BUNDLE: application ? resolvePath(application.bundlePath) : "",
+  POCKETJS_LAUNCHER_BUNDLES: launcherBundles,
   // Scripted capture input + per-demo capture window, baked into the EBOOT
   // by programs/psp/build.rs (only consumed under --capture; harmless otherwise).
   // Explicit so stale values never linger in the cargo fingerprint.

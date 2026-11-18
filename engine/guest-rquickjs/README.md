@@ -61,7 +61,7 @@ cargo test -p pocket-guest-rquickjs --release --no-default-features --features r
 
 Use `RquickjsGuest::default()` with `Runtime::set_guest` for application instances. The example exercises the lower-level Guest lifecycle in a host-owned UI. Canonical bindings match the runtime binding generation; legacy profiles exist for compatibility. A realm and heap limit alone do not provide execution-time isolation.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

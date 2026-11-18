@@ -30,7 +30,7 @@ Rust 1.93 or later. `no_std` with `alloc`; use it as a development dependency of
 
 Supply real driver implementations and independent device completion observations. Model checks do not establish physical GPU completion or device pixels. Rust conformance helpers and the C SDK are separate distributions.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

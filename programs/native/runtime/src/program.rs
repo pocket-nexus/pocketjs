@@ -378,7 +378,6 @@ unsafe fn create(
             .map_err(|_| POCKET_STATUS_INVALID)?;
             let package =
                 pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-                    target,
                     host_abi,
                     profile_hash,
                     identity: &identity,
@@ -611,15 +610,11 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
             return Err(POCKET_STATUS_INVALID);
         }
         let guest =
-            pocket_package::select_guest(bytes, &profile.0.host_facts(host_abi, profile.1), false)
+            pocket_package::admit_bundle(bytes, &profile.0.host_facts(host_abi, profile.1), false)
                 .map_err(|_| POCKET_STATUS_INVALID)?;
-        let package =
-            pocket_package::Package::parse(bytes, false).map_err(|_| POCKET_STATUS_INVALID)?;
-        let identity = package
-            .find_variant(guest.target)
-            .map_err(|_| POCKET_STATUS_INVALID)?
-            .ok_or(POCKET_STATUS_INVALID)?
-            .identity()
+        // Admission parsed the bundle and read its identity.
+        let identity = pocket_package::Bundle::parse(bytes, false)
+            .and_then(|bundle| bundle.identity())
             .map_err(|_| POCKET_STATUS_INVALID)?
             .ok_or(POCKET_STATUS_INVALID)?;
         if identity.output != string(output)?
@@ -1349,7 +1344,6 @@ mod tests {
                 r#"{{"features":{{"ui.physics":{physics}}},"profile":{{"tickHz":60}},"viewport":{{"logical":[32,24],"presentation":"native","rasterDensity":1}}}}"#
             );
             pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-                target: "qnx",
                 host_abi: pocket_spec::BINDING_GENERATION,
                 profile_hash,
                 identity: &identity,

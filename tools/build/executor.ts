@@ -14,11 +14,12 @@ import { pocketjsCommit } from "../runtime/manifest.ts";
 import { prepareAot, prepareApplication } from "./inputs.ts";
 
 export interface RuntimeBuildOptions {
-  readonly pocket?: string;
+  /** A compiled application bundle (`.pkb`). */
+  readonly bundle?: string;
   readonly aotDirectory?: string;
   readonly args?: readonly string[];
   readonly deploy?: boolean;
-  /** The `app` section the package was compiled from, when `pocket build`
+  /** The `app` section the bundle was compiled from, when `pocket build`
    *  compiled it from an application's host config. */
   readonly app?: AppConfig;
 }
@@ -94,11 +95,11 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
   const config = selected.config;
   if (!config) throw new Error("pocket build requires pocket.host.config.ts");
   if (selected.hostAbi !== POCKET_BINDING_GENERATION) throw new Error("runtime build requires the current binding generation");
-  if (options.pocket && options.aotDirectory) throw new Error("choose either --pocket or --aot-dir");
+  if (options.bundle && options.aotDirectory) throw new Error("choose either --bundle or --aot-dir");
   outdir = resolve(outdir);
   const recipe = config.value.build;
   if (!recipe) {
-    if (options.pocket || options.aotDirectory || options.deploy || options.args?.length) throw new Error("this program exports a profile; its external build system owns native compilation and deployment");
+    if (options.bundle || options.aotDirectory || options.deploy || options.args?.length) throw new Error("this program exports a profile; its external build system owns native compilation and deployment");
     const exported = exportProfile(selected, outdir);
     console.log(`✓ Profile exported: ${exported.header}`);
     console.log("Native compilation is owned by the external build system.");
@@ -106,11 +107,11 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
   }
   const host = currentHost();
   if (!host || !recipe.hosts.includes(host)) throw new Error(`runtime build supports ${recipe.hosts.join(", ")}, not ${host ?? process.platform}`);
-  if (recipe.input === "package" && !options.pocket) throw new Error("this native program requires --pocket <compiled application.pocket>; run pocket compile first");
+  if (recipe.input === "bundle" && !options.bundle) throw new Error("this native program requires --bundle <compiled application.pkb>; run pocket compile first");
   if (recipe.input === "aot" && !options.aotDirectory) throw new Error("this native program requires --aot-dir <generated sources>; run pocket compile --aot first");
-  if (recipe.input === "aot" && options.pocket || recipe.input === "package" && options.aotDirectory) throw new Error(`runtime recipe requires ${recipe.input} input`);
+  if (recipe.input === "aot" && options.bundle || recipe.input === "bundle" && options.aotDirectory) throw new Error(`runtime recipe requires ${recipe.input} input`);
   if (options.deploy && !recipe.deploy) throw new Error("this host config has no deploy hook");
-  const application = options.pocket ? prepareApplication(selected, options.pocket, outdir) : undefined;
+  const application = options.bundle ? prepareApplication(selected, options.bundle, outdir) : undefined;
   const aot = options.aotDirectory ? prepareAot(selected, options.aotDirectory, outdir) : undefined;
   const output = application?.plan.app.output ?? aot?.output ?? (/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(selected.profile.id) ? selected.profile.id : selected.profileHash.slice(7, 23));
   const configDirectory = dirname(config.path);
@@ -197,7 +198,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
       POCKETJS_PROFILE_JSON: canonicalProfileJson(selected.profile), POCKETJS_PROFILE_HASH: selected.profileHash,
       POCKETJS_PROFILE_EXPORT_DIR: outdir, POCKETJS_PROFILE_RS: join(outdir, "pocket_profile.rs"),
       POCKETJS_CONTRACTS_INCLUDE: CONTRACTS_INCLUDE,
-      ...(application ? { POCKETJS_PACKAGE: application.packagePath, POCKETJS_PLAN: application.planPath,
+      ...(application ? { POCKETJS_BUNDLE: application.bundlePath, POCKETJS_PLAN: application.planPath,
         POCKETJS_APP_DIR: application.directory, POCKETJS_APP: output } : {}),
       ...(aot ? { POCKETJS_AOT_DIR: aot.directory, POCKETJS_AOT_INCLUDE: aot.includeFile } : {}),
     };
@@ -218,7 +219,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
         if (entry.status !== 0 || entry.signal) throw new Error(`${command[0]} failed: ${entry.signal ?? entry.status}`);
       },
     };
-    const inputReceipt = application ? { kind: "package", sha256: hash(readFileSync(application.packagePath)), planHash: application.plan.planHash } :
+    const inputReceipt = application ? { kind: "bundle", sha256: hash(readFileSync(application.bundlePath)), planHash: application.plan.planHash } :
       aot ? { kind: "aot", sha256: hash(readFileSync(aot.dependencyManifest)) } : null;
     const startedAt = new Date().toISOString();
     const receiptPath = join(outdir, "build-receipt.json");
@@ -253,7 +254,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
         profileHash: selected.profileHash, hostAbi: selected.hostAbi, host,
         toolchainDigest: recipe.toolchain ? toolchainDigest(recipe.toolchain, host) : null,
         input: inputReceipt,
-        invocation: { cwd: process.cwd(), outdir, pocket: options.pocket, aotDirectory: options.aotDirectory,
+        invocation: { cwd: process.cwd(), outdir, bundle: options.bundle, aotDirectory: options.aotDirectory,
           args: [...(options.args ?? [])], deploy: Boolean(options.deploy) },
         artifact, files, commands, deployed: Boolean(options.deploy && !failure), ...(failure ? { failure } : {}) };
       const staging = `${receiptPath}.${process.pid}.tmp`;

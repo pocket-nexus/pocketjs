@@ -226,7 +226,7 @@ function defaultProfile(name) {
  *  outside the application's directory. */
 export function pocketCommands({ name, config }) {
   const input = config ? ` --config ${config}` : "";
-  const compile = `pocket compile${input} --output dist/${name}.pocket`;
+  const compile = `pocket compile${input} --output dist/${name}.pkb`;
   return {
     check: `pocket check${input}`,
     compile,
@@ -270,8 +270,9 @@ function readme({ name, title, target }) {
 
 \`pocket.host.config.ts\` names the host the application builds for (\`host\`)
 and the application (\`app\`): its entry, framework, viewport and features.
-**Application compilation produces \`dist/${name}.pocket\`.** The program's native
-build consumes that package or installs it beside a compatible runtime.
+**Application compilation produces the bundle \`dist/${name}.pkb\`.** The
+program's native build consumes that bundle or installs it beside a compatible
+runtime.
 
 \`\`\`sh
 bun install
@@ -309,10 +310,10 @@ bun run compile
 \`\`\`
 
 \`\`\`cmake
-pocketjs_embed_package(
+pocketjs_embed_bundle(
     TARGET \${COMPONENT_LIB}
     NAME ${cmakeName}
-    PACKAGE "\${PROJECT_DIR}/dist/${name}.pocket"
+    BUNDLE "\${PROJECT_DIR}/dist/${name}.pkb"
     HOST_CONFIG "\${PROJECT_DIR}/pocket.host.config.ts"
     PROFILE_EXPORT_DIR "\${PROJECT_DIR}/dist/profile"
 )

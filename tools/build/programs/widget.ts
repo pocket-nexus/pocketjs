@@ -11,12 +11,12 @@ function stageApplication(context: RuntimeBuildContext, directory = resolve(cont
   mkdirSync(directory, { recursive: true });
   copyFileSync(app.jsPath, resolve(directory, `${context.output}.js`));
   copyFileSync(app.pakPath, resolve(directory, `${context.output}.pak`));
-  copyFileSync(app.packagePath, resolve(directory, "app.pocket"));
+  copyFileSync(app.bundlePath, resolve(directory, "app.pkb"));
   copyFileSync(app.planPath, resolve(directory, "app.plan.json"));
 }
 export const widgetBuild: RuntimeBuild = {
   sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/physics", "engine/modules/media", "engine/render", "engine/profile-build", "engine/pocket3d/examples/note-widget", "engine/ui-surface", "engine/ui-wgpu", "engine/mod", "engine/guest-rquickjs", "engine/pocket3d/crates/pocket-web-wgpu"),
-  hosts: ["darwin-arm64", "darwin-x64"], input: "package",
+  hosts: ["darwin-arm64", "darwin-x64"], input: "bundle",
   steps: cargo({ manifest: resolve(repository, "Cargo.toml"), package: "note-widget", targetDirectory: "{outdir}/cargo-target" }),
   artifact: "{outdir}/application",
   async run(context) {

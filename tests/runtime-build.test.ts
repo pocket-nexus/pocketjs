@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { decodePocketPackage, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, decodeBundle, encodeBundle } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { PORTABLE_APP } from "./app-fixtures.ts";
 import { cargo, cmake, compilerOnly, defineHostConfig, make, type RuntimeBuild } from "../framework/src/host-config.ts";
@@ -11,7 +11,7 @@ import { buildRuntime } from "../tools/build/executor.ts";
 import { prepareAot, prepareApplication } from "../tools/build/inputs.ts";
 import { packRuntime } from "../tools/build/pack.ts";
 import { launcherSourceInputs } from "../tools/build/psp/launcher.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { resolveProfile, type ResolvedProfile } from "../tools/profile-resolver.ts";
 import { writeRuntimeManifest } from "../tools/runtime/manifest.ts";
 
@@ -31,37 +31,33 @@ async function program(directory: string, build: Omit<RuntimeBuild, "hosts">): P
   return { ...selected, config: { path: join(directory, "pocket.host.config.ts"), profiles: [selected.profile], profilePaths: [selected.path!], dependencies: [],
     value: defineHostConfig({ host: selected.path!, build: { hosts: [`${process.platform}-${process.arch}` as "darwin-arm64"], ...build } }) } };
 }
-function application(directory: string, generation = POCKET_BINDING_GENERATION as number, profileHash?: string, manifest = new Uint8Array(0)): string {
-  const resolved = plan();
-  const variant = makeVariant({ target: "psp", hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(resolved),
-    identity: { output: resolved.app.output, id: resolved.app.id, title: resolved.app.title },
-    js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array([1, 2, 3]) });
-  const path = join(directory, "app.pocket");
-  writeFileSync(path, encodePocketPackage({ manifest, variants: [{ ...variant, hostAbi: generation, ...(profileHash ? { profileHash } : {}) }] }));
+function application(directory: string, generation = POCKET_BINDING_GENERATION as number, profileHash?: string): string {
+  const bundle = makeBundle({ plan: plan(), js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array([1, 2, 3]) });
+  const path = join(directory, "app.pkb");
+  writeFileSync(path, encodeBundle({ ...bundle, hostAbi: generation, ...(profileHash ? { profileHash } : {}) }));
   return path;
 }
 
 test("native input admission preserves compiled bytes and rejects stale binding generations before a build hook", async () => {
   const dir = scratch(); let calls = 0;
-  const selected = await program(dir, { input: "package", steps: compilerOnly(), run() { calls++; } });
-  const pocket = application(dir);
-  const input = prepareApplication(selected, pocket, join(dir, "out"));
+  const selected = await program(dir, { input: "bundle", steps: compilerOnly(), run() { calls++; } });
+  const bundle = application(dir);
+  const input = prepareApplication(selected, bundle, join(dir, "out"));
   expect(readFileSync(input.jsPath, "utf8")).toBe("globalThis.frame = () => {};");
   expect([...readFileSync(input.pakPath)]).toEqual([1, 2, 3]);
-  await expect(buildRuntime(selected, join(dir, "missing"))).rejects.toThrow("--pocket");
-  const admittedBytes = readFileSync(input.packagePath);
+  await expect(buildRuntime(selected, join(dir, "missing"))).rejects.toThrow("--bundle");
+  const admittedBytes = readFileSync(input.bundlePath);
   application(dir, 1);
-  expect(readFileSync(input.packagePath)).toEqual(admittedBytes);
-  await expect(buildRuntime(selected, join(dir, "legacy"), { pocket })).rejects.toThrow("binding generation");
+  expect(readFileSync(input.bundlePath)).toEqual(admittedBytes);
+  await expect(buildRuntime(selected, join(dir, "legacy"), { bundle })).rejects.toThrow("binding generation");
   expect(calls).toBe(0);
   expect(existsSync(join(dir, "legacy/pocket_profile.h"))).toBe(false);
 });
 
-test("admission reads the variant's plan and identity, not the manifest region another product may fill", async () => {
+test("native input admission reads the bundle's plan and requires the program's host contract", async () => {
   const dir = scratch();
-  const selected = await program(dir, { input: "package", steps: compilerOnly() });
-  const foreign = new TextEncoder().encode(JSON.stringify({ id: "dev.example.elsewhere", note: "a manifest this repository does not read" }));
-  const input = prepareApplication(selected, application(dir, POCKET_BINDING_GENERATION, undefined, foreign), join(dir, "out"));
+  const selected = await program(dir, { input: "bundle", steps: compilerOnly() });
+  const input = prepareApplication(selected, application(dir), join(dir, "out"));
   expect(input.plan.app.id).toBe(PORTABLE_APP.id);
   expect(readFileSync(input.jsPath, "utf8")).toBe("globalThis.frame = () => {};");
   expect(() => prepareApplication(selected, application(dir, POCKET_BINDING_GENERATION, `sha256:${"0".repeat(64)}`), join(dir, "stale")))
@@ -141,10 +137,10 @@ test("successful native commands cannot deploy changed configuration or source i
 test("dynamic PSP launcher inputs exclude their generated-output directory", async () => {
   const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
   mkdirSync(packages); writeFileSync(registry, "guest\tdev.guest\tGuest\n");
-  const pocket = application(dir), guest = join(packages, "guest.pocket");
-  writeFileSync(guest, readFileSync(pocket));
+  const bundle = application(dir), guest = join(packages, "guest.pkb");
+  writeFileSync(guest, readFileSync(bundle));
   const seen: string[][] = [];
-  const selected = await program(dir, { input: "package", steps: compilerOnly(),
+  const selected = await program(dir, { input: "bundle", steps: compilerOnly(),
     sourceInputs(ctx) {
       expect("run" in ctx).toBe(false); expect("env" in ctx).toBe(false);
       expect(ctx.invocationDirectory).toBe(process.cwd());
@@ -153,17 +149,15 @@ test("dynamic PSP launcher inputs exclude their generated-output directory", asy
     }, run() { writeFileSync(join(packages, "generated-cover.png"), "generated output"); },
   });
   const args = [`--launcher-registry=${relative(process.cwd(), registry)}`];
-  const first = await buildRuntime(selected, join(dir, "first"), { pocket, args });
+  const first = await buildRuntime(selected, join(dir, "first"), { bundle, args });
   const before = JSON.parse(readFileSync(first.receipt!, "utf8"));
   expect(before.sourceInputs).toEqual([registry, guest].sort());
   expect(before.dependencies[packages]).toBeUndefined();
   expect(before.dependencies[join(packages, "generated-cover.png")]).toBeUndefined();
-  const bytes = readFileSync(guest), decoded = decodePocketPackage(bytes);
-  const changed = encodePocketPackage({ ...decoded, variants: decoded.variants.map(variant => ({
-    ...variant, sections: [...variant.sections, { kind: 99, bytes: new Uint8Array([42]) }],
-  })) });
+  const decoded = decodeBundle(readFileSync(guest));
+  const changed = encodeBundle({ ...decoded, sections: [...decoded.sections, { kind: 99, bytes: new Uint8Array([42]) }] });
   writeFileSync(guest, changed);
-  const second = await buildRuntime(selected, join(dir, "second"), { pocket, args });
+  const second = await buildRuntime(selected, join(dir, "second"), { bundle, args });
   const after = JSON.parse(readFileSync(second.receipt!, "utf8"));
   expect(after.success).toBe(true);
   expect(seen).toEqual(Array.from({ length: 4 }, () => [registry, guest]));
@@ -173,21 +167,21 @@ test("dynamic launcher content and registry changes during a build reject succes
   for (const mutation of ["guest", "registry"] as const) {
     const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
     mkdirSync(packages); writeFileSync(registry, "guest\tdev.guest\tGuest\n");
-    const pocket = application(dir), guest = join(packages, "guest.pocket");
-    const bytes = readFileSync(pocket); writeFileSync(guest, bytes); writeFileSync(join(packages, "other.pocket"), bytes);
+    const bundle = application(dir), guest = join(packages, "guest.pkb");
+    const bytes = readFileSync(bundle); writeFileSync(guest, bytes); writeFileSync(join(packages, "other.pkb"), bytes);
     let deployed = false;
-    const selected = await program(dir, { input: "package", steps: compilerOnly(), sourceInputs: launcherSourceInputs,
+    const selected = await program(dir, { input: "bundle", steps: compilerOnly(), sourceInputs: launcherSourceInputs,
       run() {
         if (mutation === "guest") writeFileSync(guest, "changed during build");
         else writeFileSync(registry, "other\tdev.other\tOther\n");
       }, deploy() { deployed = true; },
     });
     const out = join(dir, "out");
-    await expect(buildRuntime(selected, out, { pocket, args: [`--launcher-registry=${registry}`], deploy: true }))
+    await expect(buildRuntime(selected, out, { bundle, args: [`--launcher-registry=${registry}`], deploy: true }))
       .rejects.toThrow("runtime build inputs changed");
     const receipt = JSON.parse(readFileSync(join(out, "build-receipt.json"), "utf8"));
     expect(receipt.success).toBe(false); expect(deployed).toBe(false);
-    expect(receipt.dependencies[join(packages, "other.pocket")]).toBeUndefined();
+    expect(receipt.dependencies[join(packages, "other.pkb")]).toBeUndefined();
   }
 });
 
@@ -220,11 +214,11 @@ test("sourceInputs functions must return synchronous nonempty string paths and a
 
 test("missing or traversing launcher guest paths fail before the build hook", async () => {
   const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
-  mkdirSync(packages); const pocket = application(dir); let calls = 0;
-  const selected = await program(dir, { input: "package", steps: compilerOnly(), sourceInputs: launcherSourceInputs, run() { calls++; } });
+  mkdirSync(packages); const bundle = application(dir); let calls = 0;
+  const selected = await program(dir, { input: "bundle", steps: compilerOnly(), sourceInputs: launcherSourceInputs, run() { calls++; } });
   for (const name of ["absent", "../outside", "..", "sub/guest", "sub\\guest"]) {
     writeFileSync(registry, `${name}\tdev.guest\tGuest\n`);
-    await expect(buildRuntime(selected, join(dir, "bad"), { pocket, args: [`--launcher-registry=${registry}`] })).rejects.toThrow();
+    await expect(buildRuntime(selected, join(dir, "bad"), { bundle, args: [`--launcher-registry=${registry}`] })).rejects.toThrow();
   }
   expect(calls).toBe(0);
 });
@@ -251,25 +245,25 @@ test("pack uses the program's repack adapter after matching runtime, package and
   const selected = await resolveProfile({ from: dir });
   writeFileSync(join(runtime, "native.bin"), new Uint8Array([7, 8, 9]));
   await writeRuntimeManifest(runtime, { target: "psp", hostAbi: POCKET_BINDING_GENERATION, profile: selected.profile, files: ["native.bin"] });
-  const pocket = application(dir);
-  const packed = await packRuntime({ config, runtime, pocket, output: join(dir, "app.fixture") }, dir);
+  const bundle = application(dir);
+  const packed = await packRuntime({ config, runtime, bundle, output: join(dir, "app.fixture") }, dir);
   expect([...readFileSync(packed).subarray(0, 3)]).toEqual([7, 8, 9]);
   expect(readFileSync(packed).subarray(3).toString()).toBe(plan().app.id);
-  const decoded = decodePocketPackage(readFileSync(pocket));
-  const malformed = join(dir, "malformed.pocket");
-  writeFileSync(malformed, encodePocketPackage({ ...decoded, variants: decoded.variants.map(variant => ({ ...variant,
-    sections: variant.sections.map(section => section.kind === POCKET_SECTION.js ? { ...section, bytes: section.bytes.subarray(0, section.bytes.length - 1) } : section),
-  })) }));
+  const decoded = decodeBundle(readFileSync(bundle));
+  const malformed = join(dir, "malformed.pkb");
+  writeFileSync(malformed, encodeBundle({ ...decoded,
+    sections: decoded.sections.map(section => section.kind === BUNDLE_SECTION.js ? { ...section, bytes: section.bytes.subarray(0, section.bytes.length - 1) } : section),
+  }));
   const rejected = join(dir, "rejected.fixture");
-  await expect(packRuntime({ config, runtime, pocket: malformed, output: rejected }, dir)).rejects.toThrow("NUL-terminated");
+  await expect(packRuntime({ config, runtime, bundle: malformed, output: rejected }, dir)).rejects.toThrow("NUL-terminated");
   expect(existsSync(rejected)).toBe(false);
   writeFileSync(join(runtime, "unlisted.bin"), "unverified bytes");
-  await expect(packRuntime({ config, runtime, pocket, output: rejected }, dir)).rejects.toThrow("unlisted file");
+  await expect(packRuntime({ config, runtime, bundle, output: rejected }, dir)).rejects.toThrow("unlisted file");
   expect(existsSync(rejected)).toBe(false);
   rmSync(join(runtime, "unlisted.bin"));
 });
 
-test("pack takes the identity's author from the application's config and its icon from the variant's cover", async () => {
+test("pack takes the identity's author from the application's config and its icon from the icon section", async () => {
   const dir = scratch(); const runtime = join(dir, "runtime"); mkdirSync(runtime);
   const config = join(dir, "pocket.host.config.ts");
   writeFileSync(config, `import {defineHostConfig,compilerOnly} from '@pocketjs/framework/host-config';
@@ -278,15 +272,12 @@ test("pack takes the identity's author from the application's config and its ico
   const selected = await resolveProfile({ from: dir });
   writeFileSync(join(runtime, "native.bin"), new Uint8Array([7]));
   await writeRuntimeManifest(runtime, { target: "psp", hostAbi: POCKET_BINDING_GENERATION, profile: selected.profile, files: ["native.bin"] });
-  const resolved = plan(), cover = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
-  const variant = makeVariant({ target: "psp", hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(resolved),
-    identity: { output: resolved.app.output, id: resolved.app.id, title: resolved.app.title },
-    js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array(), cover });
-  const pocket = join(dir, "authored.pocket");
-  writeFileSync(pocket, encodePocketPackage({ manifest: new Uint8Array(0), variants: [variant] }));
-  const packed = await packRuntime({ config, runtime, pocket, output: join(dir, "app.fixture") }, dir);
-  expect(JSON.parse(readFileSync(packed, "utf8"))).toEqual({ author: "Pocket Nexus", icon: [...cover] });
-  const explicit = await packRuntime({ config, runtime, pocket, output: join(dir, "explicit.fixture"), author: "Someone" }, dir);
+  const icon = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const bundle = join(dir, "authored.pkb");
+  writeFileSync(bundle, encodeBundle(makeBundle({ plan: plan(), js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array(), icon })));
+  const packed = await packRuntime({ config, runtime, bundle, output: join(dir, "app.fixture") }, dir);
+  expect(JSON.parse(readFileSync(packed, "utf8"))).toEqual({ author: "Pocket Nexus", icon: [...icon] });
+  const explicit = await packRuntime({ config, runtime, bundle, output: join(dir, "explicit.fixture"), author: "Someone" }, dir);
   expect(JSON.parse(readFileSync(explicit, "utf8")).author).toBe("Someone");
 });
 

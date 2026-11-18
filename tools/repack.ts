@@ -1,9 +1,9 @@
-// bun tools/repack.ts --target <t> --runtime dist/runtime/<t> --pocket <file>
+// bun tools/repack.ts --target <t> --runtime dist/runtime/<t> --bundle <file>
 //   --id <id> --title <title> --author <author> --version <version>
 //   [--icon <square.png>] -o <out>
 //
 // A game's installation package from a prebuilt runtime (tools/runtime.ts)
-// and the game's `.pocket`, with no native tools. This file only reads the
+// and the game's bundle (`.pkb`), with no native tools. This file only reads the
 // files; tools/repack/index.ts names each target's repack, which works on
 // bytes, so a Worker calls it the same way. `--target` is a runtime name
 // (psp, vita, 3ds, ipod).
@@ -31,7 +31,7 @@ export function readRuntimeDirectory(directory: string): Map<string, Uint8Array>
 const TARGET_NAMES = [...new Set(Object.values(REPACK_TARGETS).map((target) => target.runtime))];
 
 const USAGE =
-  `usage: bun tools/repack.ts --target <${TARGET_NAMES.join("|")}> --runtime <dir> --pocket <file> ` +
+  `usage: bun tools/repack.ts --target <${TARGET_NAMES.join("|")}> --runtime <dir> --bundle <file> ` +
   "--id <id> --title <title> --author <author> --version <version> [--icon <png>] -o <out>";
 
 export async function repackMain(argv: readonly string[]): Promise<string> {
@@ -44,7 +44,7 @@ export async function repackMain(argv: readonly string[]): Promise<string> {
     options.set(name, value);
     index += 1;
   }
-  const required = ["target", "runtime", "pocket", "id", "title", "author", "version", "out"];
+  const required = ["target", "runtime", "bundle", "id", "title", "author", "version", "out"];
   const missing = required.filter((name) => !options.get(name));
   const unknown = [...options.keys()].filter((name) => !required.includes(name) && name !== "icon");
   if (missing.length || unknown.length) {
@@ -56,7 +56,7 @@ export async function repackMain(argv: readonly string[]): Promise<string> {
   const started = performance.now();
   const bytes = await target.repack({
     runtime: readRuntimeDirectory(options.get("runtime")!),
-    pocket: new Uint8Array(readFileSync(options.get("pocket")!)),
+    bundle: new Uint8Array(readFileSync(options.get("bundle")!)),
     identity: {
       id: options.get("id")!,
       title: options.get("title")!,

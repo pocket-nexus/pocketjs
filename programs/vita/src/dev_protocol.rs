@@ -1,5 +1,5 @@
 //! USB mailbox protocol and update admission, independent of Vita services.
-use pocket_package::package::{self, Package};
+use pocket_package::fnv1a64;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -7,7 +7,7 @@ pub const VERSION: u32 = 1;
 pub const MAX_PACKAGE: usize = 32 * 1024 * 1024;
 pub const MAX_NATIVE: usize = 64 * 1024 * 1024;
 /// A file staged on the card (`stage`): a VPK for VitaShell, or a runtime's
-/// app.pocket.
+/// app.pkb.
 pub const MAX_STAGE: usize = 64 * 1024 * 1024;
 /// Where `stage --into card` writes, for VitaShell to install from.
 pub const STAGE_DIRECTORY: &str = "ux0:/data/pocket-runtime";
@@ -31,8 +31,8 @@ pub enum Op {
     Native,
     Reset,
     /// Write the payload to the card: `into: "card"` puts `name` under
-    /// STAGE_DIRECTORY; `into: "app"` puts app.pocket in this title's
-    /// application directory, where the generic runtime reads app0:app.pocket.
+    /// STAGE_DIRECTORY; `into: "app"` puts app.pkb in this title's
+    /// application directory, where the generic runtime reads app0:app.pkb.
     Stage,
 }
 
@@ -102,10 +102,10 @@ impl Command {
                     .name
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
-            let into_ok = self.into == "card" || (self.into == "app" && self.name == "app.pocket");
+            let into_ok = self.into == "card" || (self.into == "app" && self.name == "app.pkb");
             if !name_ok || !into_ok {
                 return Err(
-                    "stage needs a plain file name, into card, or app.pocket into app".into(),
+                    "stage needs a plain file name, into card, or app.pkb into app".into(),
                 );
             }
         }
@@ -120,7 +120,7 @@ impl Command {
     }
 
     pub fn check_payload(&self, bytes: &[u8]) -> Result<(), String> {
-        if bytes.len() != self.size || format!("{:016x}", package::fnv1a64(&[bytes])) != self.hash {
+        if bytes.len() != self.size || format!("{:016x}", fnv1a64(&[bytes])) != self.hash {
             return Err("upload size/checksum mismatch; active guest retained".into());
         }
         Ok(())
@@ -156,26 +156,23 @@ pub struct Bundle {
 
 pub fn admit(bytes: &[u8], plan: &Value) -> Result<Bundle, String> {
     if bytes.len() > MAX_PACKAGE {
-        return Err("package exceeds 32 MiB".into());
+        return Err("bundle exceeds 32 MiB".into());
     }
     let profile = crate::profile::profile().ok_or("missing exported profile")?;
     let host = profile.host_facts(
         pocketjs_core::spec::BINDING_GENERATION,
         crate::profile::PROFILE_HASH,
     );
-    let guest = package::select_guest(bytes, &host, false).map_err(|e| format!("package: {e:?}"))?;
-    let package = Package::parse(bytes, true).map_err(|e| format!("package: {e:?}"))?;
-    let identity = package
-        .find_variant(guest.target)
-        .map_err(|e| format!("package: {e:?}"))?
-        .ok_or("missing variant")?
-        .identity()
+    let guest =
+        pocket_package::admit_bundle(bytes, &host, false).map_err(|e| format!("bundle: {e:?}"))?;
+    let identity = pocket_package::Bundle::parse(bytes, true)
+        .and_then(|bundle| bundle.identity())
         .map_err(|e| format!("identity: {e:?}"))?
         .ok_or("missing identity")?;
     let next: Value = serde_json::from_slice(guest.plan).map_err(|e| format!("plan: {e}"))?;
     // The generic runtime (feature `runtime`) was built without an app, so a
-    // push is held to the admission and footer that select_guest checked, as
-    // app0:app.pocket is (package_file.rs).
+    // push is held to the admission and footer that admit_bundle checked, as
+    // app0:app.pkb is (package_file.rs).
     if !cfg!(feature = "runtime")
         && (plan.get("app").is_none()
             || identity.id != plan["app"]["id"].as_str().unwrap_or("")
@@ -195,7 +192,7 @@ pub fn admit(bytes: &[u8], plan: &Value) -> Result<Bundle, String> {
         package: bytes.into(),
         hash: format!(
             "{:016x}",
-            package::fnv1a64(&[&guest.js[..guest.js.len() - 1], guest.pak])
+            fnv1a64(&[&guest.js[..guest.js.len() - 1], guest.pak])
         ),
     })
 }

@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { NODE_TYPE, PROP, ROOT_ID } from "../contracts/spec/spec.ts";
-import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, encodeBundle, encodeIdentity } from "../contracts/spec/bundle.ts";
 import { canonicalProfileJson, type PocketProfile } from "../contracts/spec/profile.ts";
 import { profileFactsC } from "./profile-export.ts";
 
@@ -46,15 +46,15 @@ ui.setProp(box,${PROP.width},8);ui.setProp(box,${PROP.height},8);ui.setProp(box,
 ui.setProp(box,${PROP.insetL},3);ui.setProp(box,${PROP.insetT},5);ui.setProp(box,${PROP.bgColor},0xff0000ff);
 globalThis.frame=(buttons)=>ui.setProp(box,${PROP.bgColor},buttons?0xff00ff00:0xff0000ff);
 `;
-// Maintained fixture for the current package contract and independent profile.
+// Maintained fixture for the current bundle contract and independent profile.
 function packageBytes(): Uint8Array {
   const bytes = (text: string) => new TextEncoder().encode(text);
-  return encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "external-idf", hostAbi: POCKET_BINDING_GENERATION,
+  return encodeBundle({ hostAbi: POCKET_BINDING_GENERATION,
     profileHash: `sha256:${sha256(profile)}`, sections: [
-    { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
-    { kind: POCKET_SECTION.plan, bytes: bytes('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[32,24],"presentation":"native","rasterDensity":1},"features":{}}') },
-    { kind: POCKET_SECTION.js, bytes: bytes(script + "\0") },
-  ] }] });
+    { kind: BUNDLE_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
+    { kind: BUNDLE_SECTION.plan, bytes: bytes('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[32,24],"presentation":"native","rasterDensity":1},"features":{}}') },
+    { kind: BUNDLE_SECTION.js, bytes: bytes(script + "\0") },
+  ] });
 }
 const cArray = (name: string, bytes: Uint8Array) => `static const uint8_t ${name}[]={${[...bytes].join(",")}};\n`;
 writeFileSync(join(consumer, "fixture_data.h"), "#include <pocket/runtime.h>\n" +

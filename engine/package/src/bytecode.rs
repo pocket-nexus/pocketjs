@@ -1,4 +1,4 @@
-//! The envelope of a bytecode section (package sections 6 and 9,
+//! The envelope of a bytecode section (bundle sections 6 and 9,
 //! `contracts/spec/quickjs-bytecode.ts`): a 48-byte header that names the
 //! engine ABI the payload was serialized by, then the serialized QuickJS
 //! object. The engine that reads the payload compares the digest with its

@@ -5,14 +5,14 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { encodeBundle, encodeIdentity } from "../contracts/spec/bundle.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { exportProfile } from "./profile-export.ts";
 import { ensureQuickJsSources } from "./build/toolchains/3ds.ts";
 import { quickJsVendorObjects } from "./quickjs-vendor.ts";
 const profile = POCKET_PROFILES["3ds-runtime"];
 const root = resolve(import.meta.dir, "..");
-export function test3dsMinimal(out: string, packagePath?: string): string {
+export function test3dsMinimal(out: string, bundlePath?: string): string {
   mkdirSync(out, { recursive: true });
   let commandIndex = 0;
   const run = (args: string[], env = process.env): string => {
@@ -51,19 +51,19 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
     "-DPOCKET_QJS_HOST_PROFILE", `-DPOCKETJS_TARGET_ID="${profile.id}"`, `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
     "programs/native/quickjs/pocket_qjs_program.c",
     ...objects, join(target, "release/libpocket_native_program.a"), "-lm", "-lpthread", "-o", binary]);
-  if (packagePath) return run([binary, "--smoke", resolve(packagePath)]);
-  const makePackage = (profileHash: string, rasterDensity = 1) => encodePocketPackage({ manifest: new Uint8Array(), variants: [{
-    target: profile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash, sections: [
+  if (bundlePath) return run([binary, "--smoke", resolve(bundlePath)]);
+  const makeBundle = (profileHash: string, rasterDensity = 1) => encodeBundle({
+    hostAbi: POCKET_BINDING_GENERATION, profileHash, sections: [
       { kind: 1, bytes: encodeIdentity({ output: "minimal", id: "test.3ds.minimal", title: "Minimal file source" }) },
       { kind: 2, bytes: new TextEncoder().encode(`{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[400,240],"presentation":"native","rasterDensity":${rasterDensity}},"features":{}}`) },
       { kind: 3, bytes: new TextEncoder().encode(`if(ui.__host!=="3ds-runtime"||ui.__hostAbi!==${POCKET_BINDING_GENERATION}||ui.__auxiliarySurface.root<=0)throw new Error("metadata");if(ui.svcOpen||ui.appTable)throw new Error("product provider");globalThis.__turns=0;globalThis.frame=(buttons,analog,touches,hits,surfaces,right)=>{if(buttons!==8192||analog!==255||right!==65280)throw new Error("input");const n=ui.createNode(0);if(n<=0)throw new Error("core op");ui.destroyNode(n);__turns++};\0`) },
-    ] }] });
-  const valid = makePackage(hashPocketProfile(profile));
-  writeFileSync(join(out, "valid.pocket"), valid);
+    ] });
+  const valid = makeBundle(hashPocketProfile(profile));
+  writeFileSync(join(out, "valid.pkb"), valid);
   // Another profile hash with the same facts is admitted; another density is not.
-  writeFileSync(join(out, "mismatch.pocket"), makePackage(`sha256:${"11".repeat(32)}`, 2));
-  writeFileSync(join(out, "truncated.pocket"), valid.subarray(0, valid.length - 8));
-  const result = run([binary, join(out, "valid.pocket"), join(out, "mismatch.pocket"), join(out, "truncated.pocket")]);
+  writeFileSync(join(out, "mismatch.pkb"), makeBundle(`sha256:${"11".repeat(32)}`, 2));
+  writeFileSync(join(out, "truncated.pkb"), valid.subarray(0, valid.length - 8));
+  const result = run([binary, join(out, "valid.pkb"), join(out, "mismatch.pkb"), join(out, "truncated.pkb")]);
   writeFileSync(join(out, "receipt.json"), JSON.stringify({ status: "passed", kind: "host contract; not hardware rendering", profileHash: hashPocketProfile(profile), canonicalProfileJson: canonicalProfileJson(profile), result }, null, 2) + "\n");
   return result;
 }

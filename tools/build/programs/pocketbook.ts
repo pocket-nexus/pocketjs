@@ -15,7 +15,7 @@ export const build: RuntimeBuild = {
     "programs/pocketbook/src",
   ),
   steps: compilerOnly(),
-  input: "package",
+  input: "bundle",
   artifact: "{outdir}/application",
   async run(context) {
     requireProgramProfile(context, profile);

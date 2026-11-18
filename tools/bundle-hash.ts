@@ -1,8 +1,8 @@
 // tools/bundle-hash.ts — the build-identity hash, host side.
 //
 // PSP build identity uses FNV-1a 64 over the embedded bytes. A compiled
-// single-app .pocket hashes the complete file; a launcher hashes complete
-// package files in table order. Legacy raw embedding hashes JS followed by
+// single-app bundle hashes the complete file; a launcher hashes complete
+// bundle files in table order. Legacy raw embedding hashes JS followed by
 // pak. tools/build/embedded-apps.rs produces the device value reported through
 // OP.debugStats; the bridge must select the same input mode.
 //
@@ -40,14 +40,14 @@ export function bundleHash(jsPath: string, pakPath: string): string {
   return fnv1a64(js, pak);
 }
 
-/** Multi-app twin (docs/LAUNCHER.md): the launcher EBOOT embeds `.pocket`
- *  package FILES verbatim, so its identity is FNV-1a64 over those files in
+/** Multi-app twin (docs/LAUNCHER.md): the launcher EBOOT embeds bundle
+ *  (`.pkb`) FILES verbatim, so its identity is FNV-1a64 over those files in
  *  table order — app 0 (the launcher), then each registry entry. `outputs`
- *  must match that order; packages live in `<dist>/packages/`. */
+ *  must match that order; bundles live in `<dist>/packages/`. */
 export function launcherBundleHash(dist: string, outputs: readonly string[]): string {
   const chunks: Uint8Array[] = [];
   for (const output of outputs) {
-    chunks.push(readFileSync(`${dist}/packages/${output}.pocket`));
+    chunks.push(readFileSync(`${dist}/packages/${output}.pkb`));
   }
   return fnv1a64(...chunks);
 }

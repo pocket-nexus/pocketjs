@@ -11,7 +11,7 @@ logical viewport at raster density 2.
 
 The application statically links `platforms/apple`:
 
-- `pocket-runtime` owns the admitted package, guest lifecycle, input and
+- `pocket-runtime` owns the admitted bundle, guest lifecycle, input and
   presentation state.
 - `pocket-guest-rquickjs` runs the QuickJS realm and installs the generated
   `ui.*` operations.
@@ -38,12 +38,12 @@ defaults to `127.0.0.1:2223`; it does not open a Wi-Fi listener.
 rustup target add aarch64-apple-ios
 bun install --frozen-lockfile
 bun ipodtouch doctor
-bun ipodtouch build --pocket dist/ipodtouch/application.pocket
+bun ipodtouch build --bundle dist/ipodtouch/application.pkb
 bun ipodtouch deploy
 bun ipodtouch launch
 ```
 
-`build --pocket` consumes an admitted application package, compiles `pocket-apple` for arm64 iOS 12, links a UIKit executable, and
+`build --bundle` consumes an admitted application bundle, compiles `pocket-apple` for arm64 iOS 12, links a UIKit executable, and
 pseudo-signs it with `ldid`. Generated output is
 `dist/ipodtouch/PocketJSiPod.app`. **The build ID hashes the compiled
 `libpocket_apple.a` in addition to the guest and host inputs, so any transitive

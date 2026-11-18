@@ -1,6 +1,6 @@
 # iPod touch 4
 
-The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
+The current native build entry takes a compiled `--bundle` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
 
 The private iPod touch 4 target runs PocketJS on an exact `iPod4,1` device
 with iOS 6.1.6 build `10B500`. **The application owns a 320×480-point surface
@@ -64,7 +64,7 @@ which replaces the generated `Default@2x.png`.
 
 ```sh
 bun apps/nexus-touch/gen-art.ts                       # re-bake the art from the homepage
-POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build --pocket dist/ipodtouch4/application.pocket
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build --bundle dist/ipodtouch4/application.pkb
 POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 deploy
 POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 launch
 ```
@@ -120,7 +120,7 @@ bun ipodtouch4 doctor
 ## Build and deploy
 
 ```sh
-bun ipodtouch4 build --pocket dist/ipodtouch4/application.pocket
+bun ipodtouch4 build --bundle dist/ipodtouch4/application.pkb
 bun ipodtouch4 deploy
 bun ipodtouch4 launch
 bun ipodtouch4 status [--require-action]
@@ -128,7 +128,7 @@ bun ipodtouch4 capture
 bun ipodtouch4 uninstall         # removes the app and its data
 ```
 
-`build --pocket` consumes an application package admitted to the `ipodtouch4-dev` host contract and compiles the UIKit
+`build --bundle` consumes an application bundle admitted to the `ipodtouch4-dev` host contract and compiles the UIKit
 host for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
 embedded as `__pocket_js` / `__pocket_pak` sections. The build id hashes the
 plan, the guest artifacts, every native object, the sysroot stubs, and the
@@ -230,15 +230,15 @@ icons and launch images, `PkgInfo` and `runtime.json` (target, binding generatio
 PocketJS commit, the files' sizes and SHA-256, and under `host` the build id,
 the executable name and the deployment target). **The executable has no
 `__pocket_js` or `__pocket_pak` section and is compiled with
-`POCKET_PACKAGE_RUNTIME`: before `UIApplicationMain` it reads `app.pocket`
-beside itself, admits a variant through `pocket_native_package_open` with the
+`POCKET_PACKAGE_RUNTIME`: before `UIApplicationMain` it reads `app.pkb`
+beside itself, admits the bundle through `pocket_native_package_open` with the
 exported `pocket_profile_facts` (footer hash, binding generation, the
 [admission](../site/content/docs/platform-contracts.md#admission) facts,
 identity, plan, NUL-ended JavaScript), and takes the logical surface and raster density from that
-variant's plan.** The plan must ask for 320×480 or 480×320 at density 2. A
-bundle without `app.pocket`, or with one that is refused, opens a
+bundle's plan.** The plan must ask for 320×480 or 480×320 at density 2. An
+app bundle without `app.pkb`, or with one that is refused, opens a
 software-drawn window that shows the reason (for example `this app carries no
-game: app.pocket is missing`) and writes it to the status record.
+game: app.pkb is missing`) and writes it to the status record.
 
 What a per-app build compiles from its descriptor or plan, the runtime fixes
 once:
@@ -255,23 +255,23 @@ once:
 The executable is linked and signed by `ldid -S` in a directory of its own.
 **`codesign -d` reports `Info.plist=not bound` and `Sealed Resources=none`:
 the ad hoc signature covers the code pages and nothing else, so a bundle with another
-Info.plist, other icons and another `app.pocket` keeps it valid.**
+Info.plist, other icons and another `app.pkb` keeps it valid.**
 
 `tools/repack/ipod.ts` writes a game's `.ipa` from that directory and the
-game's `.pocket`, in TypeScript with no native tool:
+game's bundle (`.pkb`), in TypeScript with no native tool:
 `Payload/Studio<Name>.app/` holds the executable byte for byte under the
 name `Studio<Name>` (`<Name>` from the title as pocket-studio names its
 bundles), an Info.plist with the game's bundle id, display name, version and
 URL scheme (the id), opaque 57 and 114 px icons scaled from the identity's PNG
 (file names carry a hash of the 57 px PNG, so a changed icon is not shown from
-SpringBoard's cache), the runtime's launch images, `app.pocket` and a
+SpringBoard's cache), the runtime's launch images, `app.pkb` and a
 `build-receipt.json` with every file's SHA-256 and the runtime's build id.
 The zip is deterministic: 1980-01-01 entry times, Unix modes (the executable
 0755), PNGs stored and the rest deflated.
 
 ```sh
 bun tools/runtime.ts ipod
-bun tools/repack.ts --target ipod --runtime dist/runtime/ipod --pocket game.pocket \
+bun tools/repack.ts --target ipod --runtime dist/runtime/ipod --bundle game.pkb \
   --id dev.example.game --title Game --author Example --version 1.0.0 --icon icon.png -o game.ipa
 bun ipodtouch4 deploy --ipa game.ipa    # AppSync Unified install, byte-exact readback
 bun ipodtouch4 launch --ipa game.ipa
@@ -280,6 +280,6 @@ bun ipodtouch4 capture --ipa game.ipa
 
 `--ipa` makes `deploy`, `uninstall`, `launch`, `status` and `capture` take
 the bundle id, bundle name, executable, URL scheme and receipt from the
-package instead of this repository's build. `bun tests/e2e/ipod-repack.ts`
-builds a project's `.pocket`, repacks it and, with `--device`, runs those
+`.ipa` instead of this repository's build. `bun tests/e2e/ipod-repack.ts`
+builds a project's `.pkb`, repacks it and, with `--device`, runs those
 commands.

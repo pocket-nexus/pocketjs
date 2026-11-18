@@ -51,13 +51,13 @@ int main(int argc, char **argv) {
   JSContext *js_context = NULL;
   pocket_pica_renderer *renderer = NULL;
   C3D_RenderTarget *top = NULL, *bottom = NULL;
-  const char *path = argc > 1 ? argv[1] : "romfs:/app.pocket";
+  const char *path = argc > 1 ? argv[1] : "romfs:/app.pkb";
 
   gfxInitDefault();
   osSetSpeedupEnable(true);
   if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE)) goto done;
   graphics = true;
-  snprintf(failure, sizeof failure, "Cannot open %s. Pass a .pocket path or pack this runtime with an application.", path);
+  snprintf(failure, sizeof failure, "Cannot open %s. Pass a .pkb bundle path or pack this runtime with an application.", path);
   if (!strncmp(path, "romfs:", 6)) {
     if (R_FAILED(romfsInit())) goto done;
     romfs = true;

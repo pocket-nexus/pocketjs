@@ -12,11 +12,11 @@ function run(cmd:string[],env:Record<string,string|undefined>=process.env){
  const result=Bun.spawnSync(cmd,{cwd:root,env,stdout:"inherit",stderr:"inherit"});
  if(!result.success)throw new Error(`command failed (${result.signalCode ?? result.exitCode}): ${cmd.join(" ")}`);
 }
-const pkg=join(root,"tests/esp-idf/examples/prebuilt/idf-smoke.pocket");
+const pkg=join(root,"tests/esp-idf/examples/prebuilt/idf-smoke.pkb");
 run([process.execPath,"tools/pocket.ts","host","export","--config","tests/esp-idf/examples/smoke/pocket.host.config.ts","--out",output]);
-run(["python3","platforms/esp-idf/pocket_runtime/tools/embed_package.py","--package",pkg,"--profile",join(output,"pocket.host.json"),"--name","host","--output-dir",output]);
-const embedded=join(output,"pocketjs_package_host.c");
-writeFileSync(embedded,readFileSync(embedded,"utf8").replace("extern const uint8_t pocketjs_package_host_start[];",`const uint8_t pocketjs_package_host_start[] = {${[...readFileSync(pkg)].join(",")}};`));
+run(["python3","platforms/esp-idf/pocket_runtime/tools/embed_bundle.py","--bundle",pkg,"--profile",join(output,"pocket.host.json"),"--name","host","--output-dir",output]);
+const embedded=join(output,"pocketjs_bundle_host.c");
+writeFileSync(embedded,readFileSync(embedded,"utf8").replace("extern const uint8_t pocketjs_bundle_host_start[];",`const uint8_t pocketjs_bundle_host_start[] = {${[...readFileSync(pkg)].join(",")}};`));
 run(["cargo",`+${STABLE_RUST_TOOLCHAIN}`,"build","--locked","--release","--no-default-features","--manifest-path","programs/esp-idf/archive/Cargo.toml"],
  {...process.env,CARGO_ENCODED_RUSTFLAGS:"",RUSTFLAGS:"",RUSTC_WRAPPER:"",RUSTC_WORKSPACE_WRAPPER:"",CARGO_TARGET_DIR:join(output,"cargo"),CARGO_PROFILE_RELEASE_PANIC:"abort",CARGO_PROFILE_RELEASE_LTO:"false",CARGO_PROFILE_RELEASE_CODEGEN_UNITS:"16",CARGO_PROFILE_RELEASE_OPT_LEVEL:"3"});
 run(["cmake","-S","tests/esp-idf/host","-B",output,"-G","Ninja",`-DPOCKETJS_QUICKJS_SOURCE=${quickjs}`,`-DPOCKET_RUNTIME_ARCHIVE=${join(output,"cargo/release/libpocket_idf_runtime.a")}`]);

@@ -3,12 +3,12 @@ import { compiledProfile } from "../contracts/spec/profile.ts";
 // tools/vita.ts <demo> [--no-usb-debug] [--capture] [cargo args…]
 // tools/vita.ts --runtime [--title=TITLEID] [--no-usb-debug] [cargo args…]
 //
-// A demo compiles with `pocket compile` into dist/<output>.pocket; the
-// program embeds that package and the exported profile, and encodes nothing
-// at startup. The build executor supplies --plan with its admitted package.
+// A demo compiles with `pocket compile` into dist/<output>.pkb; the
+// program embeds that bundle and the exported profile, and encodes nothing
+// at startup. The build executor supplies --plan with its admitted bundle.
 //
 // --runtime builds the generic runtime (cargo feature `runtime`): no app is
-// built or embedded, and the program reads app0:app.pocket at startup.
+// built or embedded, and the program reads app0:app.pkb at startup.
 // tools/runtime/vita.ts runs it with --no-usb-debug --release and collects
 // eboot.bin; --title addresses a USB-debug build to an installed container
 // such as Pocket Devkit (P25BFE5E2) for `vita:dev native`.
@@ -35,7 +35,7 @@ import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/h
 import { RUST_TOOLCHAINS } from "./build/toolchains/rust.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
-import { compileDemoPackage, demoApp } from "./build/programs/handheld-common.ts";
+import { compileDemoBundle, demoApp } from "./build/programs/handheld-common.ts";
 import { exportProfile } from "./profile-export.ts";
 const softwareProfile = POCKET_PROFILES["vita"];
 
@@ -58,7 +58,7 @@ let packageOutputDir: string | undefined;
 let skipBuild = false;
 let usbDebug = true;
 let launcherRegistry = "";
-let launcherPackages = "";
+let launcherBundles = "";
 let runtime = false;
 let titleOverride: string | undefined;
 const cargoArgs: string[] = [];
@@ -82,8 +82,8 @@ for (const a of argv) {
     packageOutputDir = resolvePath(a.slice("--package-outdir=".length));
   } else if (a.startsWith("--launcher-registry=")) {
     launcherRegistry = resolvePath(a.slice("--launcher-registry=".length));
-  } else if (a.startsWith("--launcher-packages=")) {
-    launcherPackages = resolvePath(a.slice("--launcher-packages=".length));
+  } else if (a.startsWith("--launcher-bundles=")) {
+    launcherBundles = resolvePath(a.slice("--launcher-bundles=".length));
   } else if (a === "--skip-build") {
     skipBuild = true;
   } else if (a === "--runtime") {
@@ -97,10 +97,10 @@ for (const a of argv) {
   }
 }
 
-if (planPath && !context) throw new Error("PocketJS vita: --plan is the build executor's input; build a compiled package with `pocket build --target vita --pocket`");
+if (planPath && !context) throw new Error("PocketJS vita: --plan is the build executor's input; pass a compiled bundle with `pocket build --target vita --bundle`");
 let application: RuntimeApplication | undefined = context?.application;
-if (application && !existsSync(application.packagePath)) throw new Error(`Vita captured package is missing: ${application.packagePath}`);
-if (context && !runtime && !application) throw new Error("Vita native build requires an admitted package");
+if (application && !existsSync(application.bundlePath)) throw new Error(`Vita captured bundle is missing: ${application.bundlePath}`);
+if (context && !runtime && !application) throw new Error("Vita native build requires an admitted bundle");
 const selectedProfile = context?.profile ?? softwareProfile;
 if (runtime && (appArg || planPath || launcherRegistry)) {
   throw new Error("PocketJS vita: --runtime builds a program without an app; give no app, --plan or launcher registry");
@@ -111,7 +111,7 @@ if (titleOverride !== undefined && !/^[A-Z][A-Z0-9]{8}$/.test(titleOverride)) {
 if (!appArg && !application && !runtime) {
   console.error(
     "usage: bun tools/vita.ts <demo> [--framework=<id>] [--capture] " +
-      "[--launcher-registry=<tsv> --launcher-packages=<dir>] [cargo args…]   " +
+      "[--launcher-registry=<tsv> --launcher-bundles=<dir>] [cargo args…]   " +
       "e.g. bun tools/vita.ts hero --release",
   );
   process.exit(1);
@@ -124,9 +124,9 @@ const demoApplication = !application && !runtime ? await demoApp(appArg) : undef
 if (demoApplication && frameworkFlag && demoApplication.framework !== parseFramework(frameworkFlag, "--framework")) {
   throw new Error(`PocketJS vita: --framework differs from the application's app.framework (${demoApplication.framework})`);
 }
-if (Boolean(launcherRegistry) !== Boolean(launcherPackages)) {
+if (Boolean(launcherRegistry) !== Boolean(launcherBundles)) {
   throw new Error(
-    "PocketJS vita: --launcher-registry and --launcher-packages must be provided together",
+    "PocketJS vita: --launcher-registry and --launcher-bundles must be provided together",
   );
 }
 if (launcherRegistry && !existsSync(launcherRegistry)) {
@@ -134,9 +134,9 @@ if (launcherRegistry && !existsSync(launcherRegistry)) {
     `PocketJS vita: launcher registry not found at ${launcherRegistry}`,
   );
 }
-if (launcherPackages && !existsSync(launcherPackages)) {
+if (launcherBundles && !existsSync(launcherBundles)) {
   throw new Error(
-    `PocketJS vita: launcher packages not found at ${launcherPackages}`,
+    `PocketJS vita: launcher bundles not found at ${launcherBundles}`,
   );
 }
 
@@ -162,14 +162,14 @@ if (!existsSync(`${vitasdk}/bin/arm-vita-eabi-gcc`)) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. A stock demo compiles to dist/<output>.pocket; --skip-build reuses it.
-// The program embeds the package the executor admitted or this compile made.
+// 1. A stock demo compiles to dist/<output>.pkb; --skip-build reuses it.
+// The program embeds the bundle the executor admitted or this compile made.
 // ---------------------------------------------------------------------------
 
-if (runtime) console.log("PocketJS vita: building the generic runtime (no app; reads app0:app.pocket)");
+if (runtime) console.log("PocketJS vita: building the generic runtime (no app; reads app0:app.pkb)");
 if (demoApplication) {
   console.log(`PocketJS vita: compiling demo "${appArg}" (framework=${demoApplication.framework})`);
-  const compiled = await compileDemoPackage("vita", appArg, outputDir, { reuse: skipBuild });
+  const compiled = await compileDemoBundle("vita", appArg, outputDir, { reuse: skipBuild });
   application = prepareApplication({ profile: selectedProfile, profileHash: hashPocketProfile(selectedProfile),
     hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, compiled, outputDir);
   projectRoot = pspUiDir;
@@ -247,14 +247,14 @@ const env = {
   POCKETJS_VITA_TITLE_ID: titleId,
   POCKETJS_VITA_PLAN: planPath ?? "",
   POCKETJS_NATIVE_BUILD: nativeBuild,
-  // The package's own JS and pak, extracted beside its snapshot, give the
-  // development identity; the package bytes are what the program embeds.
+  // The bundle's own JS and pak, extracted beside its snapshot, give the
+  // development identity; the bundle bytes are what the program embeds.
   ...hostBuildEnvironment(nativeInputs, {
     outputDirectory: application?.directory ?? outputDir,
     embedApp: !runtime,
     profileExportDirectory,
   }),
-  POCKETJS_EMBED_PACKAGE: application ? resolvePath(application.packagePath) : "",
+  POCKETJS_EMBED_BUNDLE: application ? resolvePath(application.bundlePath) : "",
   TARGET_AR: "arm-vita-eabi-ar",
   AR_armv7_sony_vita_newlibeabihf: "arm-vita-eabi-ar",
   TARGET_CC: "arm-vita-eabi-gcc",
@@ -268,7 +268,7 @@ const env = {
     process.env.POCKETJS_CAPTURE_DIR ?? "ux0:data/pocketjs-captures",
   // Multi-app launcher embed. Empty values preserve the single-app runtime.
   POCKETJS_LAUNCHER_REGISTRY: launcherRegistry,
-  POCKETJS_LAUNCHER_PACKAGES: launcherPackages,
+  POCKETJS_LAUNCHER_BUNDLES: launcherBundles,
 };
 
 const features = [capture ? "capture" : "", runtime ? "runtime" : ""].filter(Boolean);

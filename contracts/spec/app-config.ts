@@ -27,7 +27,7 @@ export interface AppConfig {
   readonly version?: string;
   readonly author?: string;
   /** A square PNG, relative to the config file. `pocket compile` stores it as
-   *  the variant's cover section. */
+   *  the bundle's icon section. */
   readonly icon?: string;
   /** Host capabilities this build turns on. Each must be registered; the
    *  plan's `features[name]` is true when the selected host provides it. */

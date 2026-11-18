@@ -24,7 +24,7 @@ export async function runDriverKitConsumer() {
   }
   try {
     cpSync(join(ROOT, "tests/fixtures/out-of-tree-rust"), consumer, { recursive: true });
-    cpSync(join(ROOT, "tests/fixtures/packages/corpus"), join(consumer, "corpus"), { recursive: true });
+    cpSync(join(ROOT, "tests/fixtures/bundles/corpus"), join(consumer, "corpus"), { recursive: true });
     cpSync(join(ROOT, "tests/fixtures/driver-kit-rust/probes.rs"), join(consumer, "tests/probes.rs"));
     const workspace = Bun.TOML.parse(readFileSync(join(ROOT, "Cargo.toml"), "utf8")) as { workspace: { dependencies: Record<string, { path: string }> } };
     const manifest = readFileSync(join(consumer, "Cargo.toml.in"), "utf8").replace(/^(pocket-[\w-]+) = \{ git = @GIT_URL@, rev = @REVISION@ \}$/gm, (_, name: string) => {

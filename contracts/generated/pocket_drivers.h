@@ -210,7 +210,7 @@ typedef int32_t (*pocket_package_range_fn)(void * context, size_t offset, uint8_
 /* Transfers the whole package: out describes storage of the length the length callback reported. After success the source may refuse all and range. UNSUPPORTED keeps the copying path. */
 typedef int32_t (*pocket_package_take_fn)(void * context, pocket_package_storage * out);
 
-/* Called once, before the bytes are read or taken. Success states the offsets of one program in this source's bytes; UNSUPPORTED states that the bytes are a package container. */
+/* Called once per load or inspection, before the bytes are read or taken. Success states the offsets of one program in this source's bytes; UNSUPPORTED states that the bytes are a bundle. */
 typedef int32_t (*pocket_package_sections_fn)(void * context, pocket_package_sections * out);
 
 /* Releases storage a take transferred, after the runtime's last read of it. */
@@ -1298,7 +1298,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_source_v1, struct_size) == PO
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_source_v1, classes) == POCKET_LAYOUT_POCKET_INPUT_SOURCE_V1_1_OFFSET, "pocket_input_source_v1.classes");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_input_source_v1, poll) == POCKET_LAYOUT_POCKET_INPUT_SOURCE_V1_2_OFFSET, "pocket_input_source_v1.poll");
 
-/* Storage a source transfers through take. bytes stay valid and unchanged until the runtime calls release with release_context, bytes and length; a null release means they outlive the runtime. POCKET_PACKAGE_STORAGE_VERIFIED in flags states that the owner verified the package's FNV-1a64 footer and variant hashes of these exact bytes, so the runtime admits them without its own hash pass. */
+/* Storage a source transfers through take. bytes stay valid and unchanged until the runtime calls release with release_context, bytes and length; a null release means they outlive the runtime. POCKET_PACKAGE_STORAGE_VERIFIED in flags states that the owner verified the bundle's FNV-1a64 footer and payload hashes of these exact bytes, so the runtime admits them without its own hash pass. */
 struct pocket_package_storage {
   size_t struct_size;
   const uint8_t * bytes;
@@ -1331,7 +1331,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, release) == POCKET
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, release_context) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_4_OFFSET, "pocket_package_storage.release_context");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, flags) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_OFFSET, "pocket_package_storage.flags");
 
-/* Where one program's sections lie in the bytes a source returns, for a host that keeps programs in a container of its own. Offsets count from the first byte the source returns. plan is the build plan JSON, js the NUL-terminated UI bundle and worker_js the NUL-terminated worker bundle; the bytecode sections are QJBC envelopes. A length of zero means the section is absent. host_abi is the binding generation the program was compiled for. */
+/* Where one program's sections lie in the bytes a source returns, for a host that keeps programs in a container of its own. Offsets count from the first byte the source returns. plan is the build plan JSON, js the NUL-terminated UI bundle and worker_js the NUL-terminated worker bundle; the bytecode sections are QJBC envelopes. A length of zero means the section is absent. host_abi is the binding generation the program was compiled for. A bundle carries the same sections under the kinds plan 2, js 3, pak 4, bytecode 6, worker_js 8 and worker_bytecode 9. */
 struct pocket_package_sections {
   size_t struct_size;
   size_t plan_offset;
@@ -1396,7 +1396,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, worker_bytecode_o
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, worker_bytecode_length) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_12_OFFSET, "pocket_package_sections.worker_bytecode_length");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, host_abi) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_13_OFFSET, "pocket_package_sections.host_abi");
 
-/* all, take and sections are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. Without sections, or when it returns UNSUPPORTED, the bytes are a package container and the runtime parses it and checks its hashes. With sections the runtime reads the program at the stated offsets, admits its plan against the host and checks no container hash: the integrity of the host's container is the host's. */
+/* all, take and sections are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. Without sections, or when it returns UNSUPPORTED, the bytes are a bundle and the runtime parses it and checks its hashes. With sections the runtime reads the program at the stated offsets, admits its plan against the host and checks no container hash: the integrity of the host's container is the host's. */
 struct pocket_package_source_v1 {
   size_t struct_size;
   pocket_package_length_fn length;

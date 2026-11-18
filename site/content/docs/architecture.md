@@ -47,15 +47,15 @@ the `RenderResources` implementation for `Ui`.
 The driver traits and generated C declarations define display, renderer,
 input and package-source boundaries. **C records use `struct_size` prefix
 compatibility; DrawList operations use a closed version.** Deferred-device
-lifecycle tests check ordering, buffer ownership and retirement. Application
-packages use format 2, the host contract's SHA-256 identity (`profileHash`) and
-binding generation 12.
-See [Native contract](/docs/native-contract/#package-and-driver-compatibility).
+lifecycle tests check ordering, buffer ownership and retirement. Applications
+are bundles, format 1, carrying the host contract's SHA-256 identity
+(`profileHash`) and binding generation 12.
+See [Native contract](/docs/native-contract/#bundle-and-driver-compatibility).
 
 ## Application instances and guests
 
 **`pocket-runtime` owns one `CoreState` per application instance.** It retains
-`Ui`, the admitted package, asset registrations, guest, input sources, and
+`Ui`, the admitted application, asset registrations, guest, input sources, and
 renderer/display registrations. Guest callbacks reach that UI through a
 cloned `OpContext`; the runtime releases its UI borrow before invoking the
 JavaScript engine.
@@ -102,14 +102,14 @@ Existing host damage APIs retain their compatibility paths.
 
 ## Core extraction
 
-**Rendering, presentation, package parsing, and media parsing do not depend
+**Rendering, presentation, bundle parsing, and media parsing do not depend
 on the UI core.** Their callers supply resource views or borrowed bytes.
 
 | Crate | Source | Responsibility |
 | --- | --- | --- |
 | `pocket-render` | `engine/render` | DrawList decoding, vertex batching, texture and glyph page retention, damage history, and prepare/commit/abort transactions |
 | `pocket-raster` | `engine/raster` | DrawList interpretation, software pixel output, incremental drawing, and surface composition |
-| `pocket-package` | `engine/package` | Package admission, variant selection, pak entries, build facts, and SHA-256 |
+| `pocket-package` | `engine/package` | Bundle parsing, package sources, admission, pak entries, build facts, and SHA-256 |
 | `pocket-media` | `engine/modules/media` | Stream containers, transport messages, RAM stream assembly, and byte codecs |
 | `pocket-physics` | `engine/physics` | 2D worlds, bodies, contacts, colliders, zones, and particle emitters behind `ui.physics` |
 
@@ -128,13 +128,13 @@ resize selects another integer scale. `pocket-runtime` does not depend on
 
 **`pocketjs-core` depends on neither `pocket-raster` nor the coordinator.**
 Hosts import `pocket_raster` and `pocket_render::damage`. Package support
-(`sha256`, `pak`, `plan_facts`, `package`, `package_format`) is in
+(`sha256`, `pak`, `plan_facts`, `bundle`, `package_format`) is in
 `pocket_package` and media support (`codec`, `stream`, `stream_rx`, `wire`) in
 `pocket_media`; the core re-exports neither. The `pocket-present` crate
 re-exports its former paths from `pocket-render`, `pocket-raster`,
 `pocket-runtime`, and `pocket-drivers` for one release; no crate in this
-repository depends on it. Package bytes, admission checks, and DrawList
-encoding retain their existing formats.
+repository depends on it. Admission checks and DrawList encoding retain their
+existing formats.
 
 **`pocketjs-core` defines the `Physics` trait and holds no engine.** `Ui::tick`
 calls the installed engine's `step` once per tick after animation tracks, with
@@ -143,7 +143,7 @@ the `physics_values` layer of the nodes it poses and clears that layer when it
 releases a view. `pocket-physics` implements the trait with the core's `fmath`
 functions, so poses keep the same bits on every host. A program installs it
 with `Runtime::set_physics` before boot. Without an engine, admission rejects a
-package or AOT artifact that requests `ui.physics`, `OpContext::set_physics_enabled(true)`
+bundle or AOT artifact that requests `ui.physics`, `OpContext::set_physics_enabled(true)`
 returns `UnsupportedOperation`, and ops 52..56 are unsupported.
 `programs/sdk/archive` installs the engine in `pocket_runtime_create` when its
 `physics` feature is on: the SDK export enables it, the IDF and SiFli archives
@@ -407,7 +407,7 @@ name covers the application's `features`, the runtime namespace, and the asset k
 `contracts/spec/` holds the shipped specs — `audio`, `fs`, `net`,
 `physics`, `platforms`, `spec`, plus the `app` section of a host config
 (`app-config.ts`, `viewport.ts`, `animation-theme.ts`), the host contract
-(`profile.ts`) and the package (`pocket-package.ts`).
+(`profile.ts`) and the bundle (`bundle.ts`).
 They are plain TypeScript data: `gen-rust.ts` generates
 `engine/spec/src/lib.rs`, `gen-c.ts` generates
 `contracts/generated/pocket_spec.h`, and `tests/generated-contracts.test.ts`

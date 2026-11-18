@@ -1,10 +1,10 @@
 //! The shared admission corpus: contracts/spec/admission.ts reads the same
-//! package and cases (tests/package-admission.test.ts). Regenerate both with
-//! `bun tools/package-corpus.ts`.
-use pocket_package::{admission::ITEMS, select_guest, GuestError, HostFacts, Timing};
+//! bundle and cases (tests/package-admission.test.ts). Regenerate both with
+//! `bun tools/bundle-corpus.ts`.
+use pocket_package::{admission::ITEMS, admit_bundle, GuestError, HostFacts, Timing};
 use serde_json::Value;
 
-const PACKAGE: &[u8] = include_bytes!("fixtures/admission/package.pocket");
+const BUNDLE: &[u8] = include_bytes!("fixtures/admission/bundle.pkb");
 const CASES: &str = include_str!("fixtures/admission/cases.json");
 
 fn sizes(value: &Value) -> Vec<[u32; 2]> {
@@ -78,11 +78,10 @@ fn engine_admission_matches_the_shared_corpus() {
             capabilities: &capabilities,
             auxiliary_logical: &auxiliary,
         };
-        let result = select_guest(PACKAGE, &facts, false);
+        let result = admit_bundle(BUNDLE, &facts, false);
         if let Some(admitted) = case.get("admitted") {
             let guest = result.unwrap_or_else(|error| panic!("{name}: {error:?}"));
-            let variant = admitted["variant"].as_u64().unwrap() as usize;
-            assert_eq!(guest.target, ["a", "b"][variant], "{name}");
+            assert_eq!(guest.id, "dev.pocketjs.admission", "{name}");
             let timing = &admitted["timing"];
             assert_eq!(
                 guest.timing,
@@ -97,11 +96,6 @@ fn engine_admission_matches_the_shared_corpus() {
             let Err(GuestError::NotAdmitted(mismatch)) = result else {
                 panic!("{name}: admitted");
             };
-            assert_eq!(
-                mismatch.variant as u64,
-                rejected["variant"].as_u64().unwrap(),
-                "{name}"
-            );
             let items: Vec<&str> = ITEMS
                 .iter()
                 .filter(|(bit, _)| mismatch.items & bit != 0)

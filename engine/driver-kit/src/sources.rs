@@ -1,7 +1,7 @@
 //! Source checks use the actual implementation supplied by its CI.
 use alloc::vec;
 use pocket_drivers::*;
-use pocket_package::{select_guest, source::LoadedPackage, HostFacts};
+use pocket_package::{admit_bundle, source::LoadedPackage, HostFacts};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceViolation {
@@ -90,7 +90,7 @@ pub fn check_package_admission<S: AsRef<str>>(
     host: &HostFacts<'_, S>,
 ) -> Result<(), SourceViolation> {
     check_package_source(source, expected)?;
-    let canonical = select_guest(expected, host, false);
+    let canonical = admit_bundle(expected, host, false);
     let loaded = LoadedPackage::load(source, host, expected.len());
     match (canonical, loaded) {
         (Ok(guest), Ok(loaded))

@@ -1,11 +1,12 @@
 // Installs packed framework and CLI into standalone projects, checks application
-// types, and compiles version 2 packages with a read-only framework install.
+// types, and compiles bundles with a read-only framework install.
 // Run: bun tests/e2e/framework-install.ts [--keep]
 // Requires access to the npm registry.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
+import { BUNDLE_VERSION, decodeBundle } from "../../contracts/spec/bundle.ts";
 
 const root = new URL("../..", import.meta.url).pathname;
 const cli = join(root, "tools/cli/bin.mjs");
@@ -28,10 +29,10 @@ if (!packedCli.ok) throw new Error("CLI npm pack failed: " + packedCli.output);
 const cliTarball = join(scratch, readdirSync(scratch).find((file) => file.startsWith("pocketjs-cli-") && file.endsWith(".tgz"))!);
 
 const projects: { name: string; args: string[]; artifact: string }[] = [
-  { name: "solid-web", args: ["--target", "web-app"], artifact: "dist/solid-web.pocket" },
-  { name: "vue-web", args: ["--target", "web-app", "--framework", "vue-vapor"], artifact: "dist/vue-web.pocket" },
-  { name: "octane-web", args: ["--target", "web-app", "--framework", "octane"], artifact: "dist/octane-web.pocket" },
-  { name: "idf-app", args: ["--target", "esp-idf"], artifact: "dist/idf-app.pocket" },
+  { name: "solid-web", args: ["--target", "web-app"], artifact: "dist/solid-web.pkb" },
+  { name: "vue-web", args: ["--target", "web-app", "--framework", "vue-vapor"], artifact: "dist/vue-web.pkb" },
+  { name: "octane-web", args: ["--target", "web-app", "--framework", "octane"], artifact: "dist/octane-web.pkb" },
+  { name: "idf-app", args: ["--target", "esp-idf"], artifact: "dist/idf-app.pkb" },
 ];
 
 let failed = 0;
@@ -67,7 +68,11 @@ for (const project of projects) {
     }
   }
   if (status === "ok" && !existsSync(join(directory, project.artifact))) status = `missing ${project.artifact}`;
-  if (status === "ok" && readFileSync(join(directory, project.artifact)).readUInt32LE(4) !== 2) status = "package version is not 2";
+  if (status === "ok") {
+    // decodeBundle checks the magic, the format version and both hashes.
+    try { decodeBundle(new Uint8Array(readFileSync(join(directory, project.artifact)))); }
+    catch (error) { status = `not a version ${BUNDLE_VERSION} bundle: ${(error as Error).message}`; }
+  }
   if (status !== "ok") failed++;
   console.log(`${status === "ok" ? "ok  " : "FAIL"} ${project.name}${status === "ok" ? ` → ${project.artifact}` : `: ${status}`}`);
 }

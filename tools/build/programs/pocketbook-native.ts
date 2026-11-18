@@ -21,7 +21,7 @@ export async function buildPocketBook(context: RuntimeBuildContext): Promise<voi
   chmodSync(resolve(directory, "pocketbook-host"), 0o755);
   copyFileSync(application.jsPath, resolve(directory, "app.js"));
   copyFileSync(application.pakPath, resolve(directory, "app.pak"));
-  copyFileSync(application.packagePath, resolve(directory, "app.pocket"));
+  copyFileSync(application.bundlePath, resolve(directory, "app.pkb"));
   const launcher = resolve(artifact, `${context.output}.app`);
   writeFileSync(launcher, `#!/bin/sh\ncd "$(dirname "$0")/${context.output}" || exit 1\nexport POCKET_JS="$PWD/app.js" POCKET_PAK="$PWD/app.pak"\nexec ./pocketbook-host >pocketjs.log 2>&1\n`);
   chmodSync(launcher, 0o755);

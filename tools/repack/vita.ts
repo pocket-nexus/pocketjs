@@ -1,12 +1,12 @@
 // PS Vita repack: the generic Vita runtime (tools/runtime/vita.ts) and a
-// game's `.pocket` into a .vpk that VitaShell installs:
+// game's bundle (`.pkb`) into a .vpk that VitaShell installs:
 //
 //   sce_sys/param.sfo                        written here: the game's TITLE and STITLE,
 //                                            TITLE_ID "P" + the first 8 hex digits of
 //                                            SHA-256(id), the other keys as vita-mksfoex
 //                                            writes them for tools/vita.ts
 //   eboot.bin                                the runtime's, unchanged
-//   app.pocket                               the .pocket thinned to its vita variant
+//   app.pkb                                  the game's bundle, byte for byte
 //   sce_sys/icon0.png                        128 x 128 indexed PNG-8 from identity.icon
 //                                            (the runtime's icon when there is none)
 //   sce_sys/livearea/contents/bg.png         the runtime's LiveArea files
@@ -14,14 +14,14 @@
 //   sce_sys/livearea/contents/template.xml
 //
 // The entries are files only, param.sfo and eboot.bin first, as vita-pack-vpk
-// writes them. At startup the runtime reads app0:app.pocket, checks the
-// footer, the vita variant and host ABI 2, and runs the game
+// writes them. At startup the runtime reads app0:app.pkb, checks the
+// hashes, admits the plan against its host contract and runs the game
 // (programs/vita/src/package_file.rs). It has no compiled app id: the file is
 // the app.
 
 import { encodeIndexedPng, quantizeRgb } from "./shared/palette.ts";
 import { decodePng } from "./shared/png.ts";
-import { admitPocket, checkIdentity, readRuntime, sha256Hex, type RepackInput } from "./shared/runtime.ts";
+import { admitRepackBundle, checkIdentity, readRuntime, sha256Hex, type RepackInput } from "./shared/runtime.ts";
 import { fitRgba, flattenRgba } from "./shared/scale.ts";
 import { writeSfo } from "./shared/sfo.ts";
 import { writeZip } from "./shared/zip.ts";
@@ -94,13 +94,13 @@ export async function repackVita(input: RepackInput): Promise<Uint8Array> {
   };
   const eboot = file(VITA_RUNTIME_FILE);
   const liveArea = VITA_LIVEAREA.map((name) => ({ name, data: file(name) }));
-  const pocket = await admitPocket(input.pocket, runtime, input.identity);
+  const bundle = await admitRepackBundle(input.bundle, runtime, input.identity);
   const titleId = await vitaTitleIdFor(input.identity.id);
   const icon = input.identity.icon ? await vitaIcon0(input.identity.icon) : file(VITA_ICON);
   return writeZip([
     { name: "sce_sys/param.sfo", data: vitaSfo(input.identity.title, titleId) },
     { name: VITA_RUNTIME_FILE, data: eboot },
-    { name: "app.pocket", data: pocket.bytes },
+    { name: "app.pkb", data: bundle.bytes },
     { name: VITA_ICON, data: icon },
     ...liveArea,
   ]);

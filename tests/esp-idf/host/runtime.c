@@ -1,7 +1,7 @@
 #include "pocket_profile.h"
 #include "pocket/guest_idf.h"
 #include "pocket/package_source.h"
-#include "pocketjs_package_host.h"
+#include "pocketjs_bundle_host.h"
 #include "sample_io.h"
 #include <assert.h>
 #include <stdio.h>
@@ -57,8 +57,8 @@ static const pocket_guest_v1 GUEST = {sizeof(GUEST), evaluate, frame,
                                       NULL};
 static void scenario(const char *extra, bool invalid, int32_t first,
                      int32_t second) {
-  const pocketjs_package_host_contract_t *host =
-      &pocketjs_package_host_contract;
+  const pocketjs_bundle_host_contract_t *host =
+      &pocketjs_bundle_host_contract;
   sample_display display;
   assert(sample_display_init(&display, host->physical_width,
                              host->physical_height, 16, 2) == 0);
@@ -75,8 +75,8 @@ static void scenario(const char *extra, bool invalid, int32_t first,
   const pocket_guest_idf_config gc = {8 * 1024 * 1024, 512 * 1024, true};
   test_guest guest = {pocket_guest_idf_create(&gc), extra, 0};
   assert(guest.guest);
-  pocket_memory_package source = {pocketjs_package_host.data,
-                                  invalid ? 10 : pocketjs_package_host.size};
+  pocket_memory_package source = {pocketjs_bundle_host.data,
+                                  invalid ? 10 : pocketjs_bundle_host.size};
   assert(pocket_runtime_set_guest(runtime, &GUEST, &guest) == 0);
   assert(pocket_runtime_set_package_source(
              runtime, pocket_memory_package_vtable(), &source) == 0);

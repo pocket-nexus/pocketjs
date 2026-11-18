@@ -1,9 +1,9 @@
-//! Embeds the compiled application package(s) into the EBOOT at build time,
+//! Embeds the compiled application bundle(s) into the EBOOT at build time,
 //! and the program's exported profile (`POCKETJS_PROFILE_RS`, see
 //! engine/profile-build) as `$OUT_DIR/pocket_profile.rs`.
 //!
 //! The stock backend sets `POCKETJS_APP_OUTPUT`, `POCKETJS_EMBED_APP=1` and
-//! `POCKETJS_EMBED_PACKAGE=<absolute .pocket path>`; the package bytes are
+//! `POCKETJS_EMBED_BUNDLE=<absolute .pkb path>`; the bundle bytes are
 //! embedded verbatim. Custom native hosts consume the same output name but
 //! leave embedding to their own primary crate, so this runtime remains a
 //! reusable dependency. `POCKETJS_APP=<name>` remains a legacy shorthand that
@@ -155,7 +155,7 @@ fn main() {
         "POCKETJS_EMBED_APP=1 requires POCKETJS_APP_OUTPUT"
     );
     // The generic runtime (feature `runtime`) carries no game: it reads
-    // app.pocket beside the EBOOT at boot (src/package_file.rs).
+    // app.pkb beside the EBOOT at boot (src/package_file.rs).
     if env::var_os("CARGO_FEATURE_RUNTIME").is_some() {
         assert!(
             !embed_app,
@@ -207,19 +207,19 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("../../dist"));
     let out_dir = env::var("OUT_DIR").unwrap();
 
-    let package = env::var_os("POCKETJS_EMBED_PACKAGE")
+    let package = env::var_os("POCKETJS_EMBED_BUNDLE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     let registry = env::var_os("POCKETJS_LAUNCHER_REGISTRY")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    // The runtime admits compiled packages only; a raw JS/pak bundle has no
+    // The runtime admits compiled bundles only; a raw JS/pak pair has no
     // plan, identity or profile hash to admit.
     assert!(
         !embed_app || package.is_some() || registry.is_some(),
-        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_PACKAGE: embed a compiled .pocket"
+        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_BUNDLE: embed a compiled .pkb bundle"
     );
-    let packages = env::var_os("POCKETJS_LAUNCHER_PACKAGES")
+    let packages = env::var_os("POCKETJS_LAUNCHER_BUNDLES")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     let generated = embed::generate(embed::Config {
@@ -284,8 +284,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=POCKETJS_APP");
     println!("cargo:rerun-if-env-changed=POCKETJS_APP_OUTPUT");
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_APP");
-    println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_PACKAGE");
-    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_PACKAGES");
+    println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_BUNDLE");
+    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_BUNDLES");
     println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_REGISTRY");
     println!("cargo:rerun-if-env-changed=POCKETJS_OUTPUT_DIR");
     println!("cargo:rerun-if-env-changed=POCKETJS_TARGET");

@@ -31,11 +31,11 @@ pub fn guest_source(index: usize) -> Result<Box<dyn pocket_drivers::PackageSourc
     let app = APPS
         .get(index)
         .ok_or_else(|| String::from("unknown app index"))?;
-    if app.pocket.is_empty() {
-        return Err("this EBOOT embeds no compiled application package".into());
+    if app.bundle.is_empty() {
+        return Err("this EBOOT embeds no compiled application bundle".into());
     }
     Ok(Box::new(pocket_package::source::StaticMemorySource(
-        app.pocket,
+        app.bundle,
     )))
 }
 

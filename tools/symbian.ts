@@ -389,7 +389,7 @@ export async function buildApp(
   sisVersion: string,
   options: SymbianBuildAppOptions = {},
 ): Promise<string> {
-  if (!options.application) throw new Error("Symbian native build requires a compiled --pocket input; use pocket compile first");
+  if (!options.application) throw new Error("Symbian native build requires a compiled --bundle input; use pocket compile first");
   const compiled = applicationBundle(options.application, "symbian-e7-dev");
   const frameRate = options.frameRate ?? SYMBIAN_TOOLCHAIN.runtime.frameRate;
   if (!Number.isInteger(frameRate) || frameRate <= 0 || 60 % frameRate !== 0) {
@@ -632,7 +632,7 @@ const HELP = `PocketJS Nokia E7 / Symbian toolchain
   pocket symbian doctor --coda-usb  verify CODA over the E7 USB interface 4
   pocket symbian setup --yes        fetch pinned SDK inputs and build the amd64 toolchain
   pocket symbian build probe        build and self-sign the visible Qt probe SIS
-  pocket symbian build app --pocket <application.pocket> -- [--sis-version 1.0.0]
+  pocket symbian build app --bundle <application.pkb> -- [--sis-version 1.0.0]
                            [--project-root <dir>] [--outdir <dir>] [--uid 0xE.......]
                            [--catalog-index <catalog.tsv> --catalog-blob <catalog.bin>]
                            [--core-library <application-core.a>]
@@ -677,7 +677,7 @@ export async function symbianMain(
         break;
       }
       throw new Error(
-        "usage: pocket symbian build probe | build app --pocket <application.pocket> -- [--core-library <lib.a>] [--mass-storage-data-root <dir>]",
+        "usage: pocket symbian build probe | build app --bundle <application.pkb> -- [--core-library <lib.a>] [--mass-storage-data-root <dir>]",
       );
     case "deploy":
       if (!args[1]) throw new Error("usage: pocket symbian deploy <path-to.sis>");

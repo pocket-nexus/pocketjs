@@ -2,7 +2,7 @@
 #include "esp_log.h"
 #include "pocket/guest_idf.h"
 #include "pocket/package_source.h"
-#include "pocketjs_package_smoke.h"
+#include "pocketjs_bundle_smoke.h"
 #include "sample_io.h"
 #include <assert.h>
 #include <inttypes.h>
@@ -14,8 +14,8 @@ static void require_status(int32_t status) {
   assert(status == POCKET_STATUS_OK);
 }
 void app_main(void) {
-  const pocketjs_package_host_contract_t *host =
-      &pocketjs_package_smoke_contract;
+  const pocketjs_bundle_host_contract_t *host =
+      &pocketjs_bundle_smoke_contract;
   sample_display output;
   require_status(sample_display_init(&output, host->physical_width,
                                      host->physical_height, 16, 2));
@@ -35,8 +35,8 @@ void app_main(void) {
   assert(guest);
   require_status(
       pocket_runtime_set_guest(runtime, pocket_guest_idf_vtable(), guest));
-  pocket_memory_package package = {pocketjs_package_smoke.data,
-                                   pocketjs_package_smoke.size};
+  pocket_memory_package package = {pocketjs_bundle_smoke.data,
+                                   pocketjs_bundle_smoke.size};
   require_status(pocket_runtime_set_package_source(
       runtime, pocket_memory_package_vtable(), &package));
   require_status(

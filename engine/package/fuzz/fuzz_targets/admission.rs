@@ -2,9 +2,9 @@
 use libfuzzer_sys::fuzz_target;
 use pocket_drivers::{PackageSource, SourceError};
 use pocket_package::{
-    package::{select_guest, Package},
-    source::{LoadedPackage, MemorySource},
-    HostFacts,
+    admit_bundle,
+    source::{inspect, LoadedPackage, MemorySource},
+    Bundle, HostFacts,
 };
 
 const HOST: HostFacts<'static, &'static str> = HostFacts {
@@ -34,23 +34,27 @@ impl PackageSource for Chunks<'_> {
 }
 fuzz_target!(|data: &[u8]| {
     for skip_hash in [false, true] {
-        if let Ok(package) = Package::parse(data, skip_hash) {
-            let _ = package.manifest();
-            for i in 0..package.variant_count() {
-                if let Ok(variant) = package.variant(i) {
-                    let _ = variant.identity();
-                    let host = HostFacts { binding_generation: variant.host_abi, ..HOST };
-                    let _ = select_guest(data, &host, skip_hash);
-                }
+        if let Ok(bundle) = Bundle::parse(data, skip_hash) {
+            let _ = bundle.identity();
+            for index in 0..bundle.section_count() {
+                let _ = bundle.section_at(index);
             }
+            let host = HostFacts {
+                binding_generation: bundle.host_abi,
+                ..HOST
+            };
+            let _ = admit_bundle(data, &host, skip_hash);
         }
     }
     let memory = LoadedPackage::load(&mut MemorySource(data), &HOST, 8192);
     let range = LoadedPackage::load(&mut Chunks(data), &HOST, 8192);
     assert_eq!(memory.is_ok(), range.is_ok());
+    let inspected = inspect(&mut Chunks(data), &HOST, 8192, |guest, _| guest.js.to_vec());
+    assert_eq!(inspected.is_ok(), range.is_ok());
     if let (Ok(memory), Ok(range)) = (memory, range) {
         assert_eq!(memory.bytes(), range.bytes());
         assert_eq!(memory.javascript(), range.javascript());
         assert_eq!(memory.pak(), range.pak());
+        assert_eq!(inspected.unwrap(), range.javascript());
     }
 });

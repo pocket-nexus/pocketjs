@@ -158,7 +158,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
       "--config",
       "firmware/pocket.host.config.ts",
       "--output",
-      "dist/app.pocket",
+      "dist/app.pkb",
     ], { POCKET_CLI_TEST_LOG: log });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
     expect(JSON.parse(readFileSync(log, "utf8"))).toEqual({
@@ -169,7 +169,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
         "--config",
         "firmware/pocket.host.config.ts",
         "--output",
-        "dist/app.pocket",
+        "dist/app.pkb",
       ],
       cwd: realpathSync(cwd),
     });
@@ -206,8 +206,8 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     expect(pkg.devDependencies).toEqual({ "@pocketjs/cli": `^${cliVersion}` });
     expect(pkg.scripts).toEqual({
       check: "pocket check",
-      compile: "pocket compile --output dist/counter.pocket",
-      build: "pocket compile --output dist/counter.pocket",
+      compile: "pocket compile --output dist/counter.pkb",
+      build: "pocket compile --output dist/counter.pkb",
     });
     expect(existsSync(join(app, "pocket.config.ts"))).toBe(false);
     expect(readFileSync(join(app, "main.tsx"), "utf8")).toContain('from "@pocketjs/framework/vue-vapor"');
@@ -258,11 +258,11 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     expect(resolveAgainstProfile(config.value.app, sidecar).ok).toBe(true);
     const pkg = readJson(join(app, "package.json"));
     expect(pkg.scripts.check).toBe("pocket check");
-    expect(pkg.scripts.compile).toBe("pocket compile --output dist/" + name + ".pocket");
+    expect(pkg.scripts.compile).toBe("pocket compile --output dist/" + name + ".pkb");
     expect(pkg.scripts["host:export"]).toBe("pocket host export --out dist/profile");
     const readme = readFileSync(join(app, "README.md"), "utf8");
     expect(readme).toContain("pocketjs_compile_app(");
-    expect(readme).toContain("pocketjs_embed_package(");
+    expect(readme).toContain("pocketjs_embed_bundle(");
     expect(readme).toContain('HOST_CONFIG "' + String.fromCharCode(36) + '{PROJECT_DIR}/pocket.host.config.ts"');
     expect(readme).toContain('PROFILE_EXPORT_DIR "' + String.fromCharCode(36) + '{PROJECT_DIR}/dist/profile"');
     expect(readme).not.toContain("HOST_PROFILE");
@@ -384,7 +384,7 @@ await Bun.write(log,JSON.stringify([...previous,Bun.argv.slice(2)]));`);
   });
   test("module paths and explicit config options are forwarded unchanged",()=>{
     const framework=fakeFramework();
-    expect(pocket(framework,["compile","--target","../board.json","--config","app/pocket.host.config.ts","--output","out/app.pocket"]).calls).toEqual([["compile","--target","../board.json","--cli-protocol","1","--config","app/pocket.host.config.ts","--output","out/app.pocket"]]);
+    expect(pocket(framework,["compile","--target","../board.json","--config","app/pocket.host.config.ts","--output","out/app.pkb"]).calls).toEqual([["compile","--target","../board.json","--cli-protocol","1","--config","app/pocket.host.config.ts","--output","out/app.pkb"]]);
     expect(pocket(framework,["compile","--host-config","firmware/pocket.host.config.ts"],project([{id:"board"}])).calls).toEqual([["compile","--target","board","--cli-protocol","1","--host-config","firmware/pocket.host.config.ts"]]);
   });
   test("conflicting, empty and misplaced selections fail",()=>{

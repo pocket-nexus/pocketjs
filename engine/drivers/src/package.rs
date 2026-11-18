@@ -60,10 +60,11 @@ pub struct PackageSections {
 pub trait PackageSource {
     fn length(&self) -> Result<usize, SourceError>;
     /// Where one program lies in this source's bytes. `None`, the default,
-    /// states that the bytes are a package container, which the consumer
+    /// states that the bytes are a bundle, which the consumer
     /// parses and whose hashes it checks. With sections the consumer reads
     /// the program at these ranges, admits its plan and checks no container
-    /// hash. Called once per load, before the bytes are read or taken.
+    /// hash. Called once per load or inspection, before the bytes are read
+    /// or taken.
     fn sections(&mut self) -> Result<Option<PackageSections>, SourceError> {
         Ok(None)
     }
@@ -78,7 +79,7 @@ pub trait PackageSource {
         Err(SourceError::Unsupported)
     }
     /// True when the owner of the storage `take_bytes` transfers has verified
-    /// the package's FNV-1a64 footer and variant hashes of those exact bytes;
+    /// the bundle's FNV-1a64 footer and payload hashes of those exact bytes;
     /// admission then skips its own hash pass. Copied bytes are always
     /// hashed.
     fn verified(&self) -> bool {

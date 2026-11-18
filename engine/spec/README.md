@@ -24,7 +24,7 @@ Rust 1.93 or later. #![no_std] without an allocator or platform SDK.
 
 Keep operation numbers, binding generation and DrawList version aligned with the application compiler. Source definitions live in `contracts/spec`; generated Rust is shipped in the crate, so consumers do not need Bun.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

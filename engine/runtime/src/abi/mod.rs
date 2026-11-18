@@ -11,8 +11,9 @@
 //! that owns one gets `Result`s from [`Handle::with_runtime`] in place of
 //! status codes. [`CGuest`] and [`COpProvider`] adapt the C guest and op
 //! provider vtables to the runtime traits; [`arguments`] decodes op argument
-//! records and [`result_record`] encodes an op result; [`open_package`] is the
-//! package admission the three C `*_package_open` entry points share.
+//! records and [`result_record`] encodes an op result; [`open_package`] and
+//! [`open_source`] are the package admission the C `*_package_open*` entry
+//! points share.
 //!
 //! Nothing here references the six `pocket_host_*` hooks: the archive owns
 //! them, and a boot failure's cause reaches the host log through the
@@ -43,7 +44,10 @@ mod admission;
 mod guest;
 mod provider;
 mod timing;
-pub use admission::{admit, guest_error_code, open_package, plan_code, OpenedPackage};
+pub use admission::{
+    admit, guest_error_code, load_error_code, open_c_source, open_package, open_source, plan_code,
+    OpenedPackage,
+};
 pub use guest::CGuest;
 pub use provider::COpProvider;
 pub use timing::*;

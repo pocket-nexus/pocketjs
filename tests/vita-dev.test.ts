@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, w
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, encodeBundle, encodeIdentity } from "../contracts/spec/bundle.ts";
 import { canonicalProfileJson } from "../contracts/spec/profile.ts";
 import { atomicWrite, VitaUsbClient } from "../tools/vita-dev-client.ts";
 import { exportProfile } from "../tools/profile-export.ts";
@@ -172,7 +172,7 @@ test("a replacement guest error reports failure and leaves recovery commands ava
   expect((await next).generation).toBe(1);
 });
 
-test("device Rust admission consumes the TypeScript package format", async () => {
+test("device Rust admission consumes the TypeScript bundle format", async () => {
   const directory = resolve(".pocket-build/validation/vita-usb-contract/fixtures");
   mkdirSync(directory, { recursive: true });
   const plan = JSON.parse(readFileSync("tests/fixtures/plans/portable-vita.plan.json", "utf8"));
@@ -181,21 +181,21 @@ test("device Rust admission consumes the TypeScript package format", async () =>
   expect(profileHash).toBe(plan.profileHash);
   const exported = exportProfile({ profile, profileHash, hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, join(directory, "profile"));
   writeFileSync(join(directory, "plan.json"), JSON.stringify(plan));
-  function pkg(overrides: { id?: string; abi?: number; target?: string; profileHash?: string; plan?: unknown; js?: string } = {}) {
-    return encodePocketPackage({ manifest: Buffer.from("{}"), variants: [{ target: overrides.target ?? "vita", hostAbi: overrides.abi ?? POCKET_BINDING_GENERATION, profileHash: overrides.profileHash ?? profileHash,
+  function pkg(overrides: { id?: string; abi?: number; profileHash?: string; plan?: unknown; js?: string } = {}) {
+    return encodeBundle({ hostAbi: overrides.abi ?? POCKET_BINDING_GENERATION, profileHash: overrides.profileHash ?? profileHash,
       sections: [
-        { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: plan.app.output, id: overrides.id ?? plan.app.id, title: plan.app.title }) },
-        { kind: POCKET_SECTION.plan, bytes: Buffer.from(JSON.stringify(overrides.plan ?? plan)) },
-        { kind: POCKET_SECTION.js, bytes: Buffer.from(overrides.js ?? "globalThis.frame = () => {};\0") },
-        { kind: POCKET_SECTION.pak, bytes: new Uint8Array() },
-      ] }] });
+        { kind: BUNDLE_SECTION.identity, bytes: encodeIdentity({ output: plan.app.output, id: overrides.id ?? plan.app.id, title: plan.app.title }) },
+        { kind: BUNDLE_SECTION.plan, bytes: Buffer.from(JSON.stringify(overrides.plan ?? plan)) },
+        { kind: BUNDLE_SECTION.js, bytes: Buffer.from(overrides.js ?? "globalThis.frame = () => {};\0") },
+        { kind: BUNDLE_SECTION.pak, bytes: new Uint8Array() },
+      ] });
   }
   for (const [name, bytes] of Object.entries({ "good": pkg(),
     "wrong-profile": pkg({ profileHash: "sha256:" + "55".repeat(32) }),
     "wrong-app": pkg({ id: "other.app" }), "wrong-abi": pkg({ abi: 99 }),
     "wrong-native": pkg({ plan: { ...plan, viewport: { ...plan.viewport, rasterDensity: 1 } } }),
-    "wrong-target": pkg({ target: "psp" }), "no-nul": pkg({ js: "globalThis.frame = () => {};" }),
-  })) writeFileSync(join(directory, `${name}.pocket`), bytes);
+    "no-nul": pkg({ js: "globalThis.frame = () => {};" }),
+  })) writeFileSync(join(directory, `${name}.pkb`), bytes);
   const child = Bun.spawn(["cargo", "test", "--locked", "--manifest-path", "tests/fixtures/vita-dev/Cargo.toml", "--target-dir", ".pocket-build/validation/vita-usb-contract/target"],
     { env: { ...process.env, POCKETJS_PROFILE_RS: exported.module, VITA_DEV_FIXTURES: directory }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

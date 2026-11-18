@@ -1,7 +1,7 @@
 # ESP-IDF
 
 PocketJS supports ESP32-P4, ESP32-S3, ESP32-C3 and ESP32-C6 through ESP-IDF components.
-**One Rust archive owns package admission, UI state, frame input encoding and
+**One Rust archive owns bundle admission, UI state, frame input encoding and
 presentation.** The product registers a guest, package source, input sources
 and display outputs. ESP32-P4 can add PPA rendering; S3, C3 and C6 use software
 rasterization.
@@ -10,7 +10,7 @@ rasterization.
 
 | Component | Responsibility |
 | --- | --- |
-| `pocket_runtime` | Runtime archive, host allocation hooks and package embedding |
+| `pocket_runtime` | Runtime archive, host allocation hooks and bundle embedding |
 | `pocket_guest_quickjs` | Generated UI bindings and espressif/quickjs-ng 0.14.0 |
 | `pocket_display_esp_lcd` | RGB565 strips for SPI/I80 panels with GRAM |
 | `pocket_render_esp_ppa` | P4 acceleration with software fallback |
@@ -22,7 +22,7 @@ Only `pocket_runner` creates a task. The firmware owns board initialization,
 input hardware, panel handles and component lifetimes. RGB/MIPI framebuffer
 outputs require a separate display driver.
 
-The components require ESP-IDF `>=6.0,<6.3`. A prebuilt `.pocket` requires
+The components require ESP-IDF `>=6.0,<6.3`. A prebuilt bundle (`.pkb`) requires
 Python 3 at the embed step. Compiling an application from source requires Bun
 and the Pocket CLI. The default Rust archive can be built from source or
 supplied with its build receipt.
@@ -62,10 +62,10 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES pocket_runtime pocket_guest_quickjs pocket_display_esp_lcd)
 
-pocketjs_embed_package(
+pocketjs_embed_bundle(
     TARGET ${COMPONENT_LIB}
     NAME dashboard
-    PACKAGE "../dashboard.pocket"
+    BUNDLE "../dashboard.pkb"
     PROFILE_EXPORT_DIR "../profile-export")
 ```
 
@@ -79,12 +79,14 @@ pocket host export --config pocket.host.config.ts --out profile-export
 
 **The embed step uses Python and prebuilt artifacts; it does not invoke Bun.**
 It reads the exported `pocket.host.json`, requires its `hostAbi` stamp to
-equal the package's binding generation, and admits the package's host-input
-variant by the [admission](/docs/platform-contracts/#admission) rules: raster
+equal the bundle's binding generation, and admits the bundle's host-input
+section by the [admission](/docs/platform-contracts/#admission) rules: raster
 density, animation class, rate against the cadences, viewport, presentation
-and capabilities. The generated `pocketjs_package_dashboard.h` exports package
-storage and admitted application geometry. `pocket_profile.h` supplies the
-program's host contract facts, independent of the package.
+and capabilities. The generated `pocketjs_bundle_dashboard.h` exports the
+bundle's storage (`pocketjs_embedded_bundle_t`) and admitted application
+geometry (`pocketjs_bundle_host_contract_t`, declared in `pocket/bundle.h`).
+`pocket_profile.h` supplies the program's host contract facts, independent of
+the bundle.
 
 `pocketjs_compile_app(TARGET <target> NAME <name> [HOST_CONFIG <file>]
 [PROJECT_ROOT <directory>] [PROFILE_EXPORT_DIR <directory>]
@@ -104,13 +106,13 @@ All three helpers accept `HOST_CONFIG`, defaulting to the project root's
 ## Register a runtime
 
 **`pocket_runtime_config.profile` points at `pocket_profile.facts`**, the
-`pocket_profile_facts` record in the exported `pocket_profile.h`: variant id,
+`pocket_profile_facts` record in the exported `pocket_profile.h`: host id,
 cadences, panel sizes, logical viewports, presentations, raster density,
 animation class, capability names and the input classes the host contract requires.
 The runtime copies the record at creation and reads no JSON.
 `pocket_runtime_create` returns `NULL` when the configuration's `tick_hz`
 differs from the facts' `tick_hz`, the highest cadence. After boot,
-`pocket_runtime_get_timing` reports the package rate, the cadence to schedule
+`pocket_runtime_get_timing` reports the application rate, the cadence to schedule
 `pocket_runtime_tick` at, and the core ticks each call advances. The CMake helpers add the `pocket_runtime` include directory,
 which holds the `pocket_runtime.h` that `pocket_profile.h` includes.
 
@@ -121,12 +123,12 @@ release every object created before a failed registration.
 #include "pocket/guest_idf.h"
 #include "pocket/package_source.h"
 #include "pocket/display_esp_lcd.h"
-#include "pocketjs_package_dashboard.h"
+#include "pocketjs_bundle_dashboard.h"
 #include "pocket_profile.h"
 #include <string.h>
 
-const pocketjs_package_host_contract_t *host =
-    &pocketjs_package_dashboard_contract;
+const pocketjs_bundle_host_contract_t *host =
+    &pocketjs_bundle_dashboard_contract;
 pocket_runtime_config config = {
     .struct_size = sizeof(config),
     .host_abi = pocket_profile.host_abi,
@@ -145,15 +147,27 @@ pocket_guest_idf_config guest_config = {
 };
 pocket_guest_idf *guest = pocket_guest_idf_create(&guest_config);
 pocket_memory_package package = {
-    pocketjs_package_dashboard.data,
-    pocketjs_package_dashboard.size,
+    pocketjs_bundle_dashboard.data,
+    pocketjs_bundle_dashboard.size,
 };
 ```
 
-The runtime reads the package in place, so the bytes stay unchanged until the
-runtime is destroyed. A program that verified the package itself, through
+The runtime reads the bundle in place, so the bytes stay unchanged until the
+runtime is destroyed. A program that verified the bundle itself, through
 `pocket_idf_package_open`, sets `.flags = POCKET_MEMORY_PACKAGE_VERIFIED` and
 the runtime admits it without a second hash pass.
+
+**`pocket/package_facts.h` admits an application before boot.**
+`pocket_idf_package_open` takes a bundle in memory;
+`pocket_idf_package_open_source` takes a `pocket_package_source_v1` and its
+context and admits what the source holds, a bundle or the sections its
+`sections` callback states, through the path boot takes. Both fill
+`pocket_idf_package_facts`: the plan's viewport, auxiliary surface, raster
+density and feature bits, the bundle's footer and payload hashes
+(`package_hash`, `payload_hash`, zero for stated sections) and `slot`, the
+first 16 hex digits of SHA-256 of the app id. For stated sections the app id
+is the plan's `app.id`. The source form never calls `take`, so the same
+source boots the program afterwards.
 
 Check creation results, then check each registration result against
 `POCKET_STATUS_OK`:
@@ -170,18 +184,18 @@ Register each input device with `pocket_runtime_add_input_source`. Its
 during polling. Every input class required by the host contract must be present.
 The runtime resolves contact hits and encodes the guest frame arguments.
 
-`pocket_runtime_boot` validates the package, installs its assets, evaluates the
-guest and presents the initial tree. A package built for a host contract that
-names `esp-idf-quickjs-ng-0.14.0` under `bytecode.engine` carries its bundles
+`pocket_runtime_boot` validates the bundle, installs its assets, evaluates the
+guest and presents the initial tree. A bundle built for a host contract that
+names `esp-idf-quickjs-ng-0.14.0` under `bytecode.engine` carries its scripts
 as that engine's serialized objects, which the guest reads instead of parsing
-source (docs/PLATFORM.md, "Bytecode"). The baked font atlases of a package the
-runtime reads in place stay in the package: their coverage cells are read from
+source (docs/PLATFORM.md, "Bytecode"). The baked font atlases of a bundle the
+runtime reads in place stay in the bundle: their coverage cells are read from
 flash or PSRAM where they are, and a slot is copied only when a streaming font
 writes into it. Its images and sprites are decoded into PSRAM when first drawn;
 `pocket_runtime_set_texture_budget` bounds the decoded bytes kept past a frame,
 releasing the least recently drawn textures beyond it until a frame draws them
 again. `pocket_runtime_tick` runs one guest frame,
-advances the core by the package rate divided by the cadence, and presents. A returned display or renderer failure has
+advances the core by the application rate divided by the cadence, and presents. A returned display or renderer failure has
 terminated all device access for that frame. A guest failure stops further
 turns; read `pocket_guest_idf_error` for engine diagnostics.
 
@@ -238,13 +252,13 @@ After the task has joined:
 4. Destroy the display adapter, then the product's panel and IO handles.
 
 The generated guest protects borrowed PAK bytes using the verified QuickJS
-immutable-buffer patch. Package storage remains live until guest shutdown.
-The package and JavaScript heap limits do not bound all native allocations;
+immutable-buffer patch. Bundle storage remains live until guest shutdown.
+The bundle and JavaScript heap limits do not bound all native allocations;
 display buffers and accelerator staging have their own budgets.
 
 ## Native AOT applications
 
-**The components on this page boot `.pocket` packages; `pocket_runtime.h` has
+**The components on this page boot bundles; `pocket_runtime.h` has
 no entry for a compiled application.** `pocket_runtime_boot` and
 `pocket_runtime_boot_deferred` admit a package source. An application compiled
 by [MicroTS](/docs/microts/) links into the firmware as a Rust static library
@@ -376,7 +390,7 @@ the iPod nano program's does, holds two bytes per RGB565 pixel: 153,600 bytes
 at 320 × 240.
 
 **The image embeds the application.** A changed view or model is a new
-firmware image; an AOT guest rejects a package's JavaScript payload.
+firmware image; an AOT guest rejects a bundle's JavaScript payload.
 
 **The repository contains no ESP32 AOT program and no CI job for this path.**
 Device timing, pixels and input are the product's acceptance checks.
@@ -385,7 +399,7 @@ Device timing, pixels and input are the product's acceptance checks.
 
 The `smoke` and `runner` examples compile for both targets. Their transfer-hash
 sink exercises runtime registration and strip output; it does not initialize
-a physical panel. Host regressions cover package admission, immutable buffers,
+a physical panel. Host regressions cover bundle admission, immutable buffers,
 promise errors, two pending DMA buffers, per-buffer waits, terminal drain,
 the bounded wait timeout and software pixel parity. Final device acceptance
 must exercise the product's panel, input sources, PPA output, reset recovery

@@ -4,9 +4,8 @@ import { compiledProfile } from "../contracts/spec/profile.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { extractHostBuildInputs, hostBuildEnvironment } from "../framework/compiler/host-build-inputs.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
-import { canonicalJson } from "../framework/compiler/plan.ts";
-import { decodeHostInputs, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { makeBundle } from "../tools/bundle.ts";
+import { BUNDLE_SECTION, decodeHostInputs } from "../contracts/spec/bundle.ts";
 
 const profile = parsePocketProfile({
   format: "pocket-host/2", id: "product-idf-screen-profile", platform: "esp-idf", form: "takeover", cadences: [60, 30],
@@ -29,8 +28,8 @@ describe("ESP-IDF software profile", () => {
     expect(plan.hostExtension).toBeUndefined();
     const env = hostBuildEnvironment(extractHostBuildInputs(plan), {outputDirectory:"/tmp/idf-profile-fixture",embedApp:true});
     expect(env.POCKETJS_TICK_HZ).toBe("60");
-    const variant = makeVariant({target:profile.id, hostAbi:plan.target.hostAbi, planJson:canonicalJson(plan), identity:{output:plan.app.output,id:plan.app.id,title:plan.app.title},js:new TextEncoder().encode("globalThis.frame=()=>{};"),pak:new Uint8Array()});
-    const binary = decodeHostInputs(variant.sections.find(section => section.kind === POCKET_SECTION.hostInputs)!.bytes);
+    const bundle = makeBundle({plan,js:new TextEncoder().encode("globalThis.frame=()=>{};"),pak:new Uint8Array()});
+    const binary = decodeHostInputs(bundle.sections.find(section => section.kind === BUNDLE_SECTION.hostInputs)!.bytes);
     expect(binary.tickHz).toBe(plan.profile.tickHz);
   });
 

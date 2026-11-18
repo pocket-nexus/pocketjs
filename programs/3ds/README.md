@@ -10,12 +10,12 @@ is the generated C QuickJS guest in a JavaScript context `main.c` creates.
 The Nintendo 3DS product host (Link, the launcher, camera, media worker and
 recovery state) lives in pocket-nexus/pocket-shell (`devices/3ds`).
 
-`main.c` opens the first command-line argument as a package file. Without an
-argument it opens `romfs:/app.pocket`. `package_source.c` supplies bounded range
+`main.c` opens the first command-line argument as a bundle file. Without an
+argument it opens `romfs:/app.pkb`. `package_source.c` supplies bounded range
 reads; `pocket_qjs_program_boot_source` hands the source to the Runtime, which
-verifies the package, host contract and plan before initializing the guest. The
+verifies the bundle, binding generation and plan before initializing the guest. The
 file stays open until the program is destroyed. Changed
-file lengths, short reads and I/O failures return errors. **No product package
+file lengths, short reads and I/O failures return errors. **No product container
 parser or recovery inspection code is linked.**
 
 The `3ds-runtime` host contract supplies eight capabilities: buttons, both
@@ -31,11 +31,11 @@ from the SVG files beside them.
 bun tools/pocket.ts build --target 3ds --generic --out .pocket-build/3ds-runtime
 # Compile an application whose host config lists the 3ds-runtime host contract.
 bun tools/pocket.ts compile --config apps/3ds-demo/pocket.host.config.ts \
-  --project-root . --output .pocket-build/app.pocket
-# Preserve native code and replace the SMDH and RomFS application.
-bun tools/pocket.ts pack --runtime .pocket-build/3ds-runtime \
-  --pocket .pocket-build/app.pocket --id dev.example.app --title App \
-  --author Example --version 1.0.0 --out .pocket-build/app.3dsx
+  --target 3ds-runtime --project-root . --output .pocket-build/app.pkb
+# Preserve native code and replace the SMDH and RomFS application. The id,
+# title and version default to the bundle's plan; --id must equal its app id.
+bun tools/pocket.ts pack --target 3ds --runtime .pocket-build/3ds-runtime \
+  --bundle .pocket-build/app.pkb --author Example --out .pocket-build/app.3dsx
 ```
 
 `tools/build/3ds/native.ts` supplies the pinned Rust build-std compiler and

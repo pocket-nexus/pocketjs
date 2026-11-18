@@ -878,7 +878,7 @@ export function compileIPodUIKit(native: IPodNative, output: string, options: {
 /**
  * Link the executable, then sign it ad hoc with ldid. `sections` embeds a
  * guest as __DATA,__pocket_js / __pocket_pak; without them the executable is a
- * package runtime that reads the bundle's app.pocket at launch.
+ * package runtime that reads the app bundle's app.pkb at launch.
  */
 export function linkIPodExecutable(
   native: IPodNative,

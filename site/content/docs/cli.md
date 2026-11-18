@@ -17,7 +17,7 @@ bunx @pocketjs/cli show
 | --- | --- |
 | `pocket create <name> [options]` | an application scaffold, or an ESP-IDF product with a host contract and application |
 | `pocket check [options]` | application config, host contract, viewport and TypeScript validation |
-| `pocket compile [options]` | a version 2 `.pocket` application package |
+| `pocket compile [options]` | an application bundle (`.pkb`) |
 | `pocket compile --aot --out <directory> [options]` | MicroTS Rust sources, fonts, images and dependency metadata |
 | `pocket build [--config <file>] [--target <id>]` | the program's runtime build recipe |
 | `pocket host export --out <directory> [options]` | the selected host contract's C header, Rust module and stamped `pocket.host.json` |
@@ -139,9 +139,9 @@ Product-owned host contracts do not require a catalog entry.
 
 ```sh
 pocket check
-pocket compile --target psp --output dist/app.pocket
+pocket compile --target psp --output dist/app.pkb
 pocket compile --config apps/hero/pocket.host.config.ts --target ./hosts/my-board/pocket.host.json \
-  --output dist/app.pocket --depfile dist/app.d
+  --output dist/app.pkb --depfile dist/app.d
 ```
 
 | Option | Default | Meaning |
@@ -149,10 +149,10 @@ pocket compile --config apps/hero/pocket.host.config.ts --target ./hosts/my-boar
 | `--config <file>` | the nearest `pocket.host.config.ts` above the current directory | the host config whose `app` section is compiled; `--host-config` is an alias |
 | `--target <id-or-file>` | the config's one host | a host the config lists |
 | `--project-root <directory>` | the config's directory | base directory for the plan's entries, TypeScript configuration and output paths |
-| `--outdir <directory>` | `dist` | compiler intermediates and the default package directory |
+| `--outdir <directory>` | `dist` | compiler intermediates and the default bundle directory |
 | `--plan-dir <directory>` | `.pocket` | resolved build plans |
-| `--output <file>` | `<outdir>/<app.output>.pocket` | guest package output |
-| `--depfile <file>` | none | a Make/Ninja depfile for the generated package or AOT include file |
+| `--output <file>` | `<outdir>/<app.output>.pkb` | the bundle; a name ending in `.pocket` is an error |
+| `--depfile <file>` | none | a Make/Ninja depfile for the bundle or AOT include file |
 | `--compiler-receipt <file>` | none | an existing product-owned toolchain receipt to include as a dependency |
 | `--aot --out <directory>` | off; output directory defaults to `dist` | generate native application sources |
 
@@ -166,12 +166,14 @@ resolves it against the selected host contract, and type-checks the entry
 module's import graph. It uses the project's `tsconfig.json` when present and
 prints the resolved plan hash.
 
-**`compile` produces a version 2 `.pocket` package.** It performs the same
-validation, writes the build plan to `<plan-dir>/<target>/plan.json`, and runs
-the compiler on it (`tools/build.ts --plan`). The package's manifest region is
-empty; its variant carries the host ID, host contract hash, binding
-generation, identity section (output, id, title), plan, JavaScript and
-assets. `app.icon` becomes the variant's cover section. Host IDs unsuitable
+**`compile` produces one bundle: the application compiled for one host
+contract.** It performs the same validation, writes the build plan to
+`<plan-dir>/<target>/plan.json`, and runs the compiler on it
+(`tools/build.ts --plan`). The bundle's header carries the binding generation
+and the host contract hash; its sections carry the identity (output, id,
+title), the plan, the JavaScript and the asset pack. `app.icon` becomes the
+icon section. [Bundle format](/docs/native-contract/#bundle-format) lists the
+sections. Host IDs unsuitable
 for directory names use a hash-derived plan directory. The optional depfile
 includes application imports, assets, compiler inputs, the icon, the host
 contracts and the host config modules, the theme module among them.
@@ -186,7 +188,7 @@ pocket compile --config apps/ipodnano-hero/pocket.host.config.ts --project-root 
 ```
 
 An AOT application's `app` section sets `aot` to `true`. **`--aot` generates sources and assets without
-running Cargo or producing JavaScript or a `.pocket` package.** The output
+running Cargo or producing JavaScript or a bundle.** The output
 includes Rust modules, `include.rs`, styles, font and image assets, layer
 metadata, and `dependencies.json` with a depfile. Relative includes let the
 program's build consume the directory after relocation. GBA and iPod nano
@@ -199,17 +201,18 @@ animation data.
 
 ## build
 
-**`pocket build` executes a program's host config.** `--pocket <file>`
-supplies a compiled package; `--aot-dir <directory>` supplies generated
-sources. A recipe declares its required input with `input: "package"` or
-`input: "aot"`.
+**`pocket build` executes a program's host config.** `--bundle <file>`
+supplies a compiled bundle; `--aot-dir <directory>` supplies generated
+sources. A recipe declares its required input with `input: "bundle"` or
+`input: "aot"`. **`--pocket` was removed**; `build` and `pack` answer it with
+one line naming `--bundle`.
 
 **From an application's directory, `pocket build --target <id>` builds the
 application with a program.** When the nearest host config has an `app`
 section and no `build`, and the selected host is built-in, the stock
 program's recipe for that host runs (`PROGRAMS` in
 `tools/build/programs.ts`); a config with `build` runs its own recipe. Without
-`--pocket` or `--aot-dir`, the command first compiles the config's `app` for
+`--bundle` or `--aot-dir`, the command first compiles the config's `app` for
 the selected host into the recipe's input. The output directory defaults to
 `dist/runtime` beside the application's config.
 
@@ -261,12 +264,11 @@ paths when the recipe declares a toolchain. Cargo steps use the recorded
 `rustup` executable and pinned compiler. Installed toolchain `bin` directories
 precede the command's `PATH`.
 
-**The executor checks that the package was compiled for the selected host
+**The executor checks that the bundle was compiled for the selected host
 contract and binding generation before native compilation**, because the native build
 reads its inputs from the plan. AOT inputs also verify every generated file's checksum.
 Admitted bytes are copied into the output directory. The executor reads the
-variant's plan, identity section and host facts; it does not read the
-package's manifest region, which another product may fill.
+bundle's plan, identity section and header.
 `context.application` contains the extracted plan, JavaScript and resource
 pack; `context.aot` contains the source directory and include file;
 `context.app` is the `app` section when `pocket build` compiled the
@@ -292,18 +294,18 @@ native compilation.
 
 ## pack
 
-**`pocket pack` combines a verified generic runtime with a compiled package.**
+**`pocket pack` combines a verified generic runtime with a compiled bundle.**
 The selected host config supplies the repack function and output extension.
-The runtime ships its `pocket.host.json`; **pack admits the package by that
+The runtime ships its `pocket.host.json`; **pack admits the bundle by that
 host contract's facts** ([admission](/docs/platform-contracts/#admission)), so a
-package compiled for another host contract with the same facts packs.
+bundle compiled for another host contract with the same facts packs.
 
 ```sh
 pocket compile --config apps/hero/pocket.host.config.ts --project-root . --target psp-runtime \
-  --output dist/hero.pocket
+  --output dist/hero.pkb
 pocket build --target psp --generic --out dist/psp-runtime
 pocket pack --target psp --runtime dist/psp-runtime \
-  --pocket dist/hero.pocket --out dist/hero-psp.zip
+  --bundle dist/hero.pkb --out dist/hero-psp.zip
 ```
 
 `--runtime` accepts a runtime directory containing `runtime.json`, or a build
@@ -311,8 +313,8 @@ output directory with a successful matching receipt. Without it, `pack` download
 the runtime for the installed framework release. `--release-version` selects
 an exact release version; `--manifest-url` selects a release index mirror. Native compilation and application
 compilation are separate commands. `--id`, `--title`, `--version`, `--author`
-and `--icon` supply package identity. Omitted fields come from the compiled
-plan and the variant's cover section. Without `--author`, the author is
+and `--icon` supply the device package's identity. Omitted fields come from the compiled
+plan and the icon section. Without `--author`, the author is
 `app.author` when `pack` runs from the application's directory and the
 config's application id equals the plan's, and `Unspecified` otherwise.
 
@@ -330,13 +332,13 @@ current directory. Selection follows the host contract selection rules above.
 
 | Output | Contents |
 | --- | --- |
-| `pocket_profile.h` | The `pocket_profile_facts` record the runtime admits packages against, and a `pocket_profile` value holding the 32-byte hash, binding generation, cadences, animation class, and presentation and capability names |
+| `pocket_profile.h` | The `pocket_profile_facts` record the runtime admits bundles against, and a `pocket_profile` value holding the 32-byte hash, binding generation, cadences, animation class, and presentation and capability names |
 | `pocket_profile.rs` | The same facts and hash for Rust programs |
 | `pocket.host.json` | The host contract with its `hostAbi` stamp |
 | optional depfile | dependencies for the outputs, including the host contracts, host config modules and the exporter |
 
 **The header carries the hash and the facts, not the host contract JSON.** The runtime
-reads no JSON; it admits a package against the facts record. Exported files are
+reads no JSON; it admits a bundle against the facts record. Exported files are
 rewritten when their contents change.
 
 C programs read primary physical dimensions and logical viewport choices,
@@ -436,9 +438,9 @@ its `app` section states the entry, the output `<name>-main`, a 480×272
 `integer-fit` viewport and the `text.glyphs.baked` and `input.buttons`
 features. A standalone project also receives `package.json`, `tsconfig.json`,
 a README and `.gitignore`. Its scripts are `check: pocket check` and
-`compile: pocket compile --output dist/<name>.pocket`; the config lists one
+`compile: pocket compile --output dist/<name>.pkb`; the config lists one
 host, so neither names a target. **The scaffold's `build` package script is
-an alias for the `compile` command** and produces `dist/<name>.pocket`.
+an alias for the `compile` command** and produces `dist/<name>.pkb`.
 
 ### ESP-IDF products
 
@@ -476,7 +478,7 @@ target. `bun run host:export` runs `pocket host export --out dist/profile`, whic
 `dist/profile/pocket_profile.h` and
 `dist/profile/pocket.host.json`. Native firmware compilation belongs to
 ESP-IDF. The generated README shows `pocketjs_compile_app` with
-`HOST_CONFIG`, or `pocketjs_embed_package` with a prebuilt `.pocket` and
+`HOST_CONFIG`, or `pocketjs_embed_bundle` with a prebuilt bundle and
 `PROFILE_EXPORT_DIR` for firmware builds without Bun. See
 [ESP-IDF](/docs/esp-idf/) for the CMake integration.
 

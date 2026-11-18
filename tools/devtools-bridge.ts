@@ -21,7 +21,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { bundleHash, fnv1a64, launcherBundleHash } from "./bundle-hash.ts";
-import { decodeIdentity, decodePocketPackage, findSection, findVariant, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, decodeBundle, decodeIdentity, findSection } from "../contracts/spec/bundle.ts";
 import { encodePNG } from "../tests/png.ts";
 
 export interface BridgeEvent {
@@ -45,10 +45,10 @@ export interface BridgeOptions {
   /** dist dir holding <app>.js/.pak for the bundle-hash check (default:
    *  the repo's dist/ next to this script). */
   dist?: string;
-  /** Exact single-app .pocket used for the EBOOT, or its captured build input.
-   *  No neighboring packages are searched. Legacy JS/pak and launcher checks
+  /** Exact bundle used for the EBOOT, or its captured build input. No
+   *  neighboring bundles are searched. Legacy JS/pak and launcher checks
    *  apply only when this option is absent. */
-  packagePath?: string;
+  bundlePath?: string;
   onEvent?: (e: BridgeEvent) => void;
 }
 
@@ -58,15 +58,14 @@ export interface Bridge {
 }
 
 export function startBridge(opts: BridgeOptions): Bridge {
-  const packageIdentity = () => {
-    const bytes = readFileSync(opts.packagePath!);
-    const variant = findVariant(decodePocketPackage(bytes), "psp");
-    const identity = variant && findSection(variant, POCKET_SECTION.identity);
-    if (!identity) throw new Error("devtools package lacks a PSP application identity");
+  const bundleIdentity = () => {
+    const bytes = readFileSync(opts.bundlePath!);
+    const identity = findSection(decodeBundle(bytes), BUNDLE_SECTION.identity);
+    if (!identity) throw new Error("devtools bundle lacks an application identity");
     return { output: decodeIdentity(identity).output, hash: fnv1a64(bytes) };
   };
   // Reject a missing or malformed explicit input before opening the mailbox.
-  if (opts.packagePath) packageIdentity();
+  if (opts.bundlePath) bundleIdentity();
   const emit = opts.onEvent ?? (() => {});
   const boxDir = join(opts.dir, "pocketjs-dbg");
   const enablePath = join(boxDir, "enable");
@@ -131,23 +130,23 @@ export function startBridge(opts: BridgeOptions): Bridge {
   const distDir = opts.dist ?? new URL("../dist", import.meta.url).pathname;
 
   /** Stale-embed tripwire: compare the device's FNV-1a64 with the explicit
-   *  package, or legacy dist JS/pak and launcher table. A mismatch means the running EBOOT does
+   *  bundle, or legacy dist JS/pak and launcher table. A mismatch means the running EBOOT does
    *  not contain the code being edited — every on-device observation would
    *  be evidence about the wrong build. */
   function checkBundle(data: Record<string, unknown>): void {
     const app = String(data.app ?? "");
     const device = String(data.bundle ?? "");
     if (!app || !device || device === "none") return;
-    if (opts.packagePath) {
+    if (opts.bundlePath) {
       try {
-        const expected = packageIdentity();
+        const expected = bundleIdentity();
         emit(expected.output === app && expected.hash === device
-          ? { type: "bundle-ok", detail: `${app} (package) @ ${device}` }
-          : { type: "bundle-mismatch", detail: `${app}: device ${device} != package ${expected.output} @ ${expected.hash} (${opts.packagePath})` });
+          ? { type: "bundle-ok", detail: `${app} (bundle) @ ${device}` }
+          : { type: "bundle-mismatch", detail: `${app}: device ${device} != bundle ${expected.output} @ ${expected.hash} (${opts.bundlePath})` });
       } catch (error) {
-        emit({ type: "bundle-mismatch", detail: `cannot verify package ${opts.packagePath}: ${error instanceof Error ? error.message : String(error)}` });
+        emit({ type: "bundle-mismatch", detail: `cannot verify bundle ${opts.bundlePath}: ${error instanceof Error ? error.message : String(error)}` });
       }
-      return; // An explicit package failure must never fall back to another input.
+      return; // An explicit bundle failure must never fall back to another input.
     }
     let local: string;
     try {

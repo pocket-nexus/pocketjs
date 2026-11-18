@@ -38,7 +38,7 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 
 `framework/compiler/subpaths.ts` is the registry these paths are declared in —
 one row per module, and a build resolves nothing that has no row. The rows it
-carries beyond this table (`/config`, `/host`, `/package`, `/prelude`,
+carries beyond this table (`/config`, `/host`, `/bundle`, `/prelude`,
 `/renderer`, `/idf-host`, `/vita-package`) are build and host-author surface
 rather than app API.
 
@@ -1338,7 +1338,7 @@ holds the stable custom-host boundary:
 | `validateAppConfig(app)` | Schema diagnostics for an `app` section. |
 | `canonicalJson`, `hashBuildPlanContent`, `finalizeBuildPlan` | The plan's canonical JSON and its `planHash`. |
 | `verifyPlanHash(plan)`, `verifyPlanProfile(plan)` | Check a plan's checksum, and that its recorded host contract validates and hashes to `profileHash`. |
-| `planProfileDocument(profile)` | The host contract a plan records, without the package rate. |
+| `planProfileDocument(profile)` | The host contract a plan records, without the application rate. |
 | `extractHostBuildInputs(plan, options?)` | Verify a plan and project it onto stable native-host inputs. |
 | `hostBuildEnvironment(inputs, options)` | Produce the target-neutral Cargo environment for a custom host. |
 | `createHostExtension`, `isHostExtension` | A versioned, content-hashed adapter payload a plan may carry. |

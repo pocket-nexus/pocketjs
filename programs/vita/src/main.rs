@@ -117,7 +117,7 @@ unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<R
         match switch::guest(app_index) {
             Ok(switch::GuestBytes::Package(bytes)) => runtime.eval_package(bytes),
             #[cfg(feature="runtime")]
-            // A missing app.pocket must still reach the shutdown below: a `?` here would drop
+            // A missing app.pkb must still reach the shutdown below: a `?` here would drop
             // the runtime with its guest still marked active, and every later push would fail.
             Ok(switch::GuestBytes::File) => pocketjs_vita::package_file::source().and_then(|source| runtime.eval_source(source)),
             Err(error) => Err(error),
@@ -139,14 +139,11 @@ fn embedded_hash(app_index: usize) -> String {
                 #[cfg(feature="runtime")]
                 switch::GuestBytes::File => return None,
                 switch::GuestBytes::Package(bytes) => {
-                    let package = pocket_package::package::Package::parse(bytes, false).ok()?;
-                    let variant = package.find_variant("vita").ok()??;
+                    let bundle = pocket_package::Bundle::parse(bytes, false).ok()?;
                     (
-                        variant
-                            .section(pocket_package::package::section::JS)
-                            .ok()??,
-                        variant
-                            .section(pocket_package::package::section::PAK)
+                        bundle.section(pocket_package::bundle::section::JS).ok()??,
+                        bundle
+                            .section(pocket_package::bundle::section::PAK)
                             .ok()?
                             .unwrap_or(&[]),
                     )
@@ -155,7 +152,7 @@ fn embedded_hash(app_index: usize) -> String {
             let js = js.strip_suffix(&[0]).unwrap_or(js);
             Some(format!(
                 "{:016x}",
-                pocket_package::package::fnv1a64(&[js, pak])
+                pocket_package::fnv1a64(&[js, pak])
             ))
         })
         .unwrap_or_else(|| "unavailable".into())
@@ -280,7 +277,7 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
         #[cfg(feature = "capture")]
         if wanted.contains(&GLOBAL_FRAME) {
             let stem = format!("{CAPTURE_DIR}/f{:04}", GLOBAL_FRAME);
-            // No guest to capture (a refused app.pocket, a failed boot):
+            // No guest to capture (a refused app.pkb, a failed boot):
             // report its error to the capture harness instead.
             let Some(guest) = runtime.as_mut() else {
                 fail(&dev.error)

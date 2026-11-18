@@ -219,7 +219,6 @@ impl PackageSource for Short<'_> {
 fn real_sources_share_canonical_admission_and_reject_overreported_reads() {
     let identity = pocket_package::embedded::identity("test", "test.app", "Test").unwrap();
     let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-        target: "kit",
         host_abi: pocket_spec::BINDING_GENERATION,
         profile_hash: [7; 32],
         identity: &identity,

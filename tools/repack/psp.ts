@@ -1,21 +1,21 @@
 // PSP repack: the generic PSP runtime (tools/runtime/psp.ts) and a game's
-// `.pocket` into a .zip for the root of a Memory Stick:
+// bundle (`.pkb`) into a .zip for the root of a Memory Stick:
 //
 //   PSP/GAME/Studio<Name>/EBOOT.PBP    the runtime's PBP: PARAM.SFO written
 //                                      again with the game's TITLE and
 //                                      MEMSIZE = 1, ICON0 from identity.icon
-//   PSP/GAME/Studio<Name>/app.pocket   the .pocket thinned to its psp variant
+//   PSP/GAME/Studio<Name>/app.pkb      the game's bundle, byte for byte
 //
 // The runtime's DATA.PSP (the program) travels unchanged; at boot it reads
-// app.pocket from its own folder, checks the footer, the psp variant and the
-// host ABI, and runs the game (platforms/psp/io/src/package.rs).
+// app.pkb from its own folder, checks the hashes, admits the plan against its
+// host contract and runs the game (platforms/psp/io/src/package.rs).
 //
 // MEMSIZE = 1 asks the firmware of a PSP-2000 or 3000 for the 52 MB user
 // partition instead of 24 MB: the runtime holds the whole game file in
 // memory beside the QuickJS heap. A PSP-1000 ignores it.
 
 import { decodePng, encodePng } from "./shared/png.ts";
-import { admitPocket, checkIdentity, planFeatures, readRuntime, sha256Hex, type RepackIdentity, type RepackInput } from "./shared/runtime.ts";
+import { admitRepackBundle, checkIdentity, planFeatures, readRuntime, sha256Hex, type RepackIdentity, type RepackInput } from "./shared/runtime.ts";
 import { fitRgba } from "./shared/scale.ts";
 import { readSfo, writeSfo, type SfoEntry } from "./shared/sfo.ts";
 import { writeZip } from "./shared/zip.ts";
@@ -110,8 +110,8 @@ export async function repackPsp(input: RepackInput): Promise<Uint8Array> {
   const runtime = await readRuntime(input.runtime, PSP_RUNTIME_TARGET);
   const program = input.runtime.get(PSP_RUNTIME_FILE);
   if (!program || !(PSP_RUNTIME_FILE in runtime.files)) throw new Error(`repack psp: the runtime has no ${PSP_RUNTIME_FILE}`);
-  const pocket = await admitPocket(input.pocket, runtime, input.identity);
-  const features = planFeatures(pocket.plan);
+  const bundle = await admitRepackBundle(input.bundle, runtime, input.identity);
+  const features = planFeatures(bundle.plan);
   for (const feature of UNSUPPORTED_FEATURES) {
     if (features[feature] === true) throw new Error(`repack psp: the plan asks for ${feature}, which the PSP runtime leaves out`);
   }
@@ -125,6 +125,6 @@ export async function repackPsp(input: RepackInput): Promise<Uint8Array> {
     directory("PSP/GAME/"),
     directory(`${folder}/`),
     { name: `${folder}/EBOOT.PBP`, data: pbpWrite(parts) },
-    { name: `${folder}/app.pocket`, data: pocket.bytes },
+    { name: `${folder}/app.pkb`, data: bundle.bytes },
   ]);
 }

@@ -8,16 +8,16 @@ function directory() {
   mkdirSync(base, { recursive: true });
   return mkdtempSync(resolve(base, "run-"));
 }
-test("invalid explicit inputs fail before mailbox creation and both CLIs require the package argument", () => {
-  const dir = directory(), missing = resolve(dir, "missing.pocket");
-  expect(() => startBridge({ dir, port: 1, packagePath: missing })).toThrow();
+test("invalid explicit inputs fail before mailbox creation and both CLIs require the bundle argument", () => {
+  const dir = directory(), missing = resolve(dir, "missing.pkb");
+  expect(() => startBridge({ dir, port: 1, bundlePath: missing })).toThrow();
   expect(existsSync(resolve(dir, "pocketjs-dbg/enable"))).toBe(false);
-  writeFileSync(missing, "not a package");
-  expect(() => startBridge({ dir, port: 1, packagePath: missing })).toThrow();
+  writeFileSync(missing, "not a bundle");
+  expect(() => startBridge({ dir, port: 1, bundlePath: missing })).toThrow();
   for (const script of ["tools/devtools.ts", "tools/devtools-psp.ts"]) {
-    const result = Bun.spawnSync([process.execPath, script, "--pocket"],
+    const result = Bun.spawnSync([process.execPath, script, "--bundle"],
       { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
     expect(result.success).toBe(false);
-    expect(result.stderr.toString()).toContain("--pocket requires");
+    expect(result.stderr.toString()).toContain("--bundle requires");
   }
 });

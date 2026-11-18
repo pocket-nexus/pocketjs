@@ -56,7 +56,6 @@ pub fn program(code: &[u8], generation: u32) -> (Runtime, Presenter) {
     let identity = identity("app", "embassy.fixture", "Embassy fixture").unwrap();
     let plan = r#"{"animation":"composited","profile":{"tickHz":30},"viewport":{"logical":[24,16],"presentation":"native","rasterDensity":1},"features":{}}"#;
     let package = encode(EmbeddedPackage {
-        target: "embassy-test",
         host_abi: generation,
         profile_hash: config.profile_hash,
         identity: &identity,

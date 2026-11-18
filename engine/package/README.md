@@ -1,6 +1,6 @@
 # pocket-package
 
-Readers and admission checks for PocketJS application packages, asset packs, and font archives.
+Readers and admission checks for PocketJS application bundles, asset packs, and font archives.
 
 ## Install
 
@@ -16,7 +16,7 @@ pocket-drivers = "0.16.0"
 use pocket_drivers::PackageSource;
 use pocket_package::source::MemorySource;
 
-// These bytes demonstrate the source API, not a valid .pocket container.
+// These bytes demonstrate the source API, not a valid bundle.
 let bytes = b"example bytes";
 let mut source = MemorySource(bytes.as_slice());
 let mut prefix = [0; 7];
@@ -28,17 +28,20 @@ assert_eq!(&prefix, b"example");
 
 Rust 1.93 or later. `no_std` with `alloc`; I/O is supplied through `pocket-drivers::PackageSource`.
 
-Use compiler-produced `.pocket` files for application delivery. Parsing alone does not prove admission: the runtime also checks the selected host contract hash, binding generation, capabilities and timing.
+Use compiler-produced bundles (`.pkb`) for application delivery. Parsing alone does not prove admission: the runtime also checks the binding generation and the plan against the host facts (capabilities, raster density, animation, timing, viewport, presentation).
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 
 ## Detailed contract
 
-Package readers enforce the container format, footer and variant hashes,
-selected target, binding generation and the program's expected profile hash.
-The expected profile hash comes from the program's build inputs.
+`Bundle::parse` enforces the bundle format: magic `PKBD`, format version 1,
+zero reserved words, increasing section kinds without repeats, contiguous 16-aligned
+payloads, the payload hash and the footer hash. `admit_bundle` then checks the
+binding generation and admits the plan against the host facts. The bundle's
+host contract hash (`profile_hash`) is provenance; admission does not compare
+it.
 
 `LoadedPackage::load` retains stable bytes through guest shutdown. **The source
 storage mode does not bypass admission or the package byte limit.**
@@ -52,8 +55,8 @@ storage mode does not bypass admission or the package byte limit.**
   and repeated loads fail with `SourceError::Failed`, including after failed
   admission. A byte-limit failure precedes transfer and leaves the source intact.
 - `StaticMemorySource(bytes)` accepts only `&'static [u8]`. Loading retains this
-  immutable reference and requires no package-sized allocation. Dropping the
-  source cannot invalidate the package. Repeated loads use the same static bytes.
+  immutable reference and requires no bundle-sized allocation. Dropping the
+  source cannot invalidate the bundle. Repeated loads use the same static bytes.
 
 Custom Rust sources may return `PackageBytes::Owned` or `PackageBytes::Static`
 from `take_bytes`. The returned length must equal the preceding `length()`;
@@ -67,22 +70,26 @@ still copy into runtime-owned storage.
 `pocket_package_source_v1` in C) returns the byte ranges of the plan, the UI
 bundle, the pak and the optional bytecode and worker sections, with the binding
 generation the program was compiled for. `LoadedPackage::load` then parses no
-container and checks no container hash. It admits the plan against the host
-facts and applies the section checks of a package variant: NUL-terminated
-bundles, bytecode envelopes and a worker bundle that matches the plan's `domains.worker`.
-`package_hash` and `variant_hash` are zero. A host that stores programs in a
+bundle and checks no bundle hash. It admits the plan against the host facts and
+applies the section checks of a bundle: NUL-terminated scripts, bytecode
+envelopes and a worker script that matches the plan's `domains.worker`.
+`package_hash` and `payload_hash` are zero. A host that stores programs in a
 container of its own implements this method; a source that returns `None` holds
-a `.pocket` container.
+a bundle.
 
-Raw JS/pak embedders can use `embedded::encode`, which writes one container and
+`source::inspect` admits what a source holds through the same path and hands
+the admitted `Guest` to a callback. It reads with `all` or `range` and never
+calls `take_bytes`, so the same source loads afterwards.
+
+Raw JS/pak embedders can use `embedded::encode`, which writes one bundle and
 its JavaScript terminator without a script-sized temporary buffer. Product
-builders should link their compiled `.pocket` into a `StaticMemorySource`
-instead of reconstructing it during startup.
+builders link their compiled `.pkb` into a `StaticMemorySource` instead of
+reconstructing it during startup.
 
 Package retention does not make a JavaScript ArrayBuffer immutable. Guest
 engines without a verified immutable-buffer API must still copy bytes exposed
 to JavaScript. Removing that copy would let guest writes mutate Rust-borrowed
-package data; it is separate from the source ownership optimization.
+bundle data; it is separate from the source ownership optimization.
 
 ## Documentation and license
 

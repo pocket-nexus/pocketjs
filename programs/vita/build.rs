@@ -88,7 +88,7 @@ fn main() {
         "POCKETJS_EMBED_APP=1 requires POCKETJS_APP_OUTPUT"
     );
     // The generic runtime (feature `runtime`) carries no game: it reads
-    // app0:app.pocket at startup (src/package_file.rs).
+    // app0:app.pkb at startup (src/package_file.rs).
     if env::var_os("CARGO_FEATURE_RUNTIME").is_some() {
         assert!(
             !embed_app,
@@ -166,21 +166,21 @@ fn main() {
     let registry = env::var_os("POCKETJS_LAUNCHER_REGISTRY")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    let packages = env::var_os("POCKETJS_LAUNCHER_PACKAGES")
+    let packages = env::var_os("POCKETJS_LAUNCHER_BUNDLES")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     assert!(
         registry.is_none() || packages.is_some(),
-        "POCKETJS_LAUNCHER_REGISTRY requires POCKETJS_LAUNCHER_PACKAGES"
+        "POCKETJS_LAUNCHER_REGISTRY requires POCKETJS_LAUNCHER_BUNDLES"
     );
-    // The runtime admits compiled packages only. The development identity
-    // still hashes the package's JS and pak, read from POCKETJS_OUTPUT_DIR.
-    let package = env::var_os("POCKETJS_EMBED_PACKAGE")
+    // The runtime admits compiled bundles only. The development identity
+    // still hashes the application's JS and pak, read from POCKETJS_OUTPUT_DIR.
+    let package = env::var_os("POCKETJS_EMBED_BUNDLE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     assert!(
         !embed_app || package.is_some() || registry.is_some(),
-        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_PACKAGE: embed a compiled .pocket"
+        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_BUNDLE: embed a compiled .pkb bundle"
     );
     let generated = embed::generate(embed::Config {
         identity: embed::Identity::LegacyBundle,
@@ -218,8 +218,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_APP");
     println!("cargo:rerun-if-env-changed=POCKETJS_OUTPUT_DIR");
     println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_REGISTRY");
-    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_PACKAGES");
-    println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_PACKAGE");
+    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_BUNDLES");
+    println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_BUNDLE");
     println!("cargo:rerun-if-env-changed=POCKETJS_TARGET");
     println!("cargo:rerun-if-env-changed=POCKETJS_HOST_ABI");
     println!("cargo:rerun-if-env-changed=POCKETJS_LOGICAL_WIDTH");

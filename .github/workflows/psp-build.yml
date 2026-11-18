@@ -81,13 +81,13 @@ jobs:
         run: |
           bun tools/cli/bin.mjs target add psp | tee second-add.log
           ! grep -q downloading second-add.log
-      - name: Compile the hero package and build its PSP program
+      - name: Compile the hero bundle and build its PSP program
         env:
           TARGET_CC: /usr/bin/false
           TARGET_AR: /usr/bin/false
           CC_mipsel_sony_psp: /usr/bin/false
           AR_mipsel_sony_psp: /usr/bin/false
         run: |
-          bun tools/pocket.ts compile --target psp --config apps/hero/pocket.host.config.ts --project-root . --output .pocket-build/validation/psp-ci/hero.pocket
-          bun tools/pocket.ts build --target psp --pocket .pocket-build/validation/psp-ci/hero.pocket --out .pocket-build/validation/psp-ci/native
+          bun tools/pocket.ts compile --target psp --config apps/hero/pocket.host.config.ts --project-root . --output .pocket-build/validation/psp-ci/hero.pkb
+          bun tools/pocket.ts build --target psp --bundle .pocket-build/validation/psp-ci/hero.pkb --out .pocket-build/validation/psp-ci/native
           bun -e 'import { statSync } from "node:fs"; const r = await Bun.file(".pocket-build/validation/psp-ci/native/build-receipt.json").json(); if (!r.success || !r.artifact || statSync(r.artifact).size === 0) process.exit(1);'

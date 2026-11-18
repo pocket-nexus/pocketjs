@@ -57,7 +57,7 @@ a new integer scale, for example `pocket_raster::RasterRenderer::new(1)?` and
 `pocket_raster::RasterRenderer::new`. Boot and the resize entry points call the
 callback. Without it, `add_display` with id 0 returns `InvalidRenderer`.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

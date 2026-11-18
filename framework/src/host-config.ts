@@ -12,7 +12,8 @@ export type { WorkerDeclarationSource } from "../../contracts/spec/worker.ts";
 
 export type RuntimeBuildHost = "darwin-arm64" | "darwin-x64" | "linux-arm64" | "linux-x64";
 export interface RuntimeApplication {
-  readonly packagePath: string;
+  /** The admitted bundle, copied into the build's inputs. */
+  readonly bundlePath: string;
   readonly directory: string;
   readonly planPath: string;
   readonly plan: ResolvedBuildPlan;
@@ -82,7 +83,7 @@ export interface RuntimeBuild {
   readonly toolchain?: ToolchainManifest;
   readonly steps: RuntimeBuildStep | readonly RuntimeBuildStep[];
   /** An already compiled input required by the native recipe. */
-  readonly input?: "package" | "aot";
+  readonly input?: "bundle" | "aot";
   /** Source files or directories, relative to the config, for the receipt and
    * input-change checks. A synchronous function can declare inputs selected by
    * build arguments. It is evaluated before and after the build; both the path
@@ -138,7 +139,7 @@ export function defineHostConfig<const C extends PocketHostConfig>(config: C): C
     if (!steps.length || steps.some(step => !step || !["cargo", "cmake", "make", "compilerOnly"].includes(step.kind))) {
       throw new TypeError("runtime build requires cargo, cmake, make or compilerOnly steps");
     }
-    if (build.input !== undefined && !["package", "aot"].includes(build.input)) throw new TypeError("runtime build input must be package or aot");
+    if (build.input !== undefined && !["bundle", "aot"].includes(build.input)) throw new TypeError("runtime build input must be bundle or aot");
     if (build.sourceInputs !== undefined && typeof build.sourceInputs !== "function" &&
         (!Array.isArray(build.sourceInputs) || build.sourceInputs.some(path => typeof path !== "string" || !path)))
       throw new TypeError("runtime build sourceInputs must be a path array or synchronous function");

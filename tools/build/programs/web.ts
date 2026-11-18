@@ -15,7 +15,7 @@ const profile = POCKET_PROFILES["web-app"];
 export const wasmStep = cargo({ manifest: resolve(repository, "programs/web/wasm/Cargo.toml"), toolchain: STABLE_RUST_TOOLCHAIN, env: { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_OPT_LEVEL: "s" }, target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-target" });
 export const build: RuntimeBuild = {
   sourceInputs: [...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/raster", "engine/physics", "engine/modules/media", "engine/render", "programs/web/wasm", "engine/text", "engine/guest-web"), ...webAssetSources(), resolve(repository, "programs/web/main.js"), resolve(repository, "programs/web/index.html")],
-  hosts: buildHosts, input: "package",
+  hosts: buildHosts, input: "bundle",
   steps: [wasmStep, cargo({ manifest: resolve(repository, "engine/text/Cargo.toml"), toolchain: STABLE_RUST_TOOLCHAIN, env: { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_OPT_LEVEL: "s" }, target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-text-target" })],
   artifact: "{outdir}/runtime",
   async run(context) {
@@ -30,7 +30,7 @@ export const build: RuntimeBuild = {
     const application = requireApplication(context);
     {
       mkdirSync(resolve(out, "dist"), { recursive: true });
-      for (const [input, file] of [[application.jsPath, `dist/${context.output}.js`], [application.pakPath, `dist/${context.output}.pak`], [application.packagePath, "app.pocket"]]) {
+      for (const [input, file] of [[application.jsPath, `dist/${context.output}.js`], [application.pakPath, `dist/${context.output}.pak`], [application.bundlePath, "app.pkb"]]) {
         copyFileSync(input!, resolve(out, file!)); files.push(file!);
       }
       copyFileSync(resolve(repository, "programs/web/index.html"), resolve(out, "index.html"));

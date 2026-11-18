@@ -1,11 +1,11 @@
-//! The facts a generic native runtime reads from a variant's ResolvedBuildPlan
-//! (`.pocket` section 2) when it boots: the primary viewport, its presentation
-//! and raster density, the auxiliary surface, the package tick rate, the
+//! The facts a generic native runtime reads from a program's ResolvedBuildPlan
+//! (bundle section 2) when it boots: the primary viewport, its presentation
+//! and raster density, the auxiliary surface, the application tick rate, the
 //! animation class and named feature flags.
 //!
 //! A runtime built for one game has these compiled in from the plan the build
 //! tool resolved. A runtime built once for every game of a target reads them
-//! here instead, from the plan inside the package it loads. The plan is
+//! here instead, from the plan inside the bundle it loads. The plan is
 //! canonical JSON (`framework/compiler/plan.ts` `canonicalJson`); this
 //! reader accepts any well-formed JSON and looks up only the paths it needs:
 //!
@@ -48,10 +48,10 @@ pub struct PlanFacts<'a> {
     pub auxiliary: Option<PlanSurface>,
     /// The plan names at least one companion service (`app.companions`).
     pub companions: bool,
-    /// `profile.tickHz`: core ticks per virtual second the package was
+    /// `profile.tickHz`: core ticks per virtual second the application was
     /// compiled for.
     pub tick_hz: Option<u32>,
-    /// `animation`: the animation class baked into the package.
+    /// `animation`: the animation class baked into the bundle.
     pub animation: Option<&'a [u8]>,
     /// `viewport.presentation`: how the primary viewport maps to the panel.
     pub presentation: Option<&'a [u8]>,
@@ -150,6 +150,23 @@ pub fn worker_declared(plan: &[u8]) -> Result<bool, PlanFactsError> {
         }
     }
     Ok(worker.is_some())
+}
+
+/// The plan's `app.id`: the application id a host that states its own
+/// sections has no identity section for. None when the plan is not one JSON
+/// object, has no `app.id` string, or the id is not UTF-8 without escapes.
+pub fn app_id(plan: &[u8]) -> Option<&str> {
+    let mut reader = Reader { bytes: plan, at: 0 };
+    reader.whitespace();
+    let root = reader.at;
+    if plan.get(root) != Some(&b'{') {
+        return None;
+    }
+    let raw = find(plan, root, &[b"app", b"id"]).and_then(|start| text(plan, start))?;
+    if raw.contains(&b'\\') {
+        return None;
+    }
+    core::str::from_utf8(raw).ok()
 }
 
 /// Read the plan's viewport, auxiliary surface and feature table.
@@ -509,6 +526,13 @@ mod tests {
         assert!(!facts.feature("io.offload"));
         assert!(!facts.feature("media.playback"));
         assert!(!facts.companions);
+        assert_eq!(
+            app_id(DUAL.as_bytes()),
+            Some("dev.pocket-nexus.studio.twenty48")
+        );
+        assert_eq!(app_id(br#"{"app":{"id":"a\"b"}}"#), None);
+        assert_eq!(app_id(br#"{"app":{}}"#), None);
+        assert_eq!(app_id(b"[]"), None);
     }
 
     #[test]

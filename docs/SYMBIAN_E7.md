@@ -1,6 +1,6 @@
 # Nokia E7 / Symbian Belle development
 
-The current native build entry takes a compiled `--pocket` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
+The current native build entry takes a compiled `--bundle` input. See [Device native builds](DEVICE_BUILDS.md) for compilation, host configs and artifact paths. Dated device validation records retain their recorded commands.
 
 PocketJS includes a pinned, repeatable command-line bootstrap for building
 standard Symbian Qt applications and an experimental PocketJS host for a Nokia
@@ -131,14 +131,14 @@ requires that choice and its security consequences are understood.
 ## Build and stage a PocketJS application
 
 Compile the application for the `symbian-e7-dev` host its config lists, then
-pass its **`.pocket` package** to the native builder. The native step checks
-the package identity, builds the Rust runtime, links the Qt/QuickJS host, and
+pass its **bundle (`.pkb`)** to the native builder. The native step checks
+the bundle's identity, builds the Rust runtime, links the Qt/QuickJS host, and
 signs one SIS:
 
 ```sh
 bun tools/pocket.ts compile --config apps/hero/pocket.host.config.ts --project-root . \
-  --target symbian-e7-dev --output dist/symbian/application.pocket
-bun tools/symbian.ts build app --pocket dist/symbian/application.pocket \
+  --target symbian-e7-dev --output dist/symbian/application.pkb
+bun tools/symbian.ts build app --bundle dist/symbian/application.pkb \
   -- --sis-version 1.0.0
 ```
 
@@ -189,7 +189,7 @@ External Pocket projects use the same authority without copying the toolchain:
 
 ```sh
 bun tools/symbian.ts build app \
-  --pocket /path/to/project/dist/application.pocket \
+  --bundle /path/to/project/dist/application.pkb \
   --outdir /path/to/project/dist/symbian
 ```
 
@@ -203,7 +203,7 @@ without copying or forking the Qt/QuickJS host:
 
 ```sh
 bun tools/symbian.ts build app \
-  --pocket /path/to/project/dist/application.pocket \
+  --bundle /path/to/project/dist/application.pkb \
   -- --core-library /path/to/libapplication_symbian_core.a
 ```
 
@@ -212,7 +212,7 @@ same SIS by adding `--mass-storage-data-root`:
 
 ```sh
 bun tools/symbian.ts build app \
-  --pocket /path/to/project/dist/application.pocket \
+  --bundle /path/to/project/dist/application.pkb \
   -- --core-library /path/to/libapplication_symbian_core.a \
   --mass-storage-data-root /path/to/native-data
 ```
@@ -243,8 +243,8 @@ consume ELF weak relocations. An extension can request a depth attachment,
 render its scene first, and let `pocket_native_program_gl_render_rect` composite the retained
 PocketJS HUD without clearing the color buffer. The PAK bytes stay owned by the
 host and may be borrowed only until the matching shutdown call; the generated QuickJS guest
-borrows the package storage until shutdown. QuickJS-NG marks it immutable;
-engines without that API can write the package bytes. Shutdown reports whether the owning GL context is current,
+borrows the bundle storage until shutdown. QuickJS-NG marks it immutable;
+engines without that API can write the bundle bytes. Shutdown reports whether the owning GL context is current,
 allowing the extension to delete live resources normally or abandon stale
 handles after context loss. Application-specific cores are intentionally
 single-app only and cannot be combined with a launcher catalog because their
@@ -263,11 +263,11 @@ authority paired with the public C header.
 The generated QuickJS binding dispatches core operations against that instance;
 application operations 39–41 register through an operation provider when a
 launcher or native navigation registry exists. Qt owns the window and native
-extension callbacks. The runtime owns the package, input encoding, core ticks
-and presentation coordinator. **Catalog guests retain the original `.pocket`
-bytes and plan.** The shared package reader validates the hash, target, host
-ABI, catalog identity and declared viewport before guest initialization. A
-live window resize runs after evaluation at the package viewport and before
+extension callbacks. The runtime owns the bundle, input encoding, core ticks
+and presentation coordinator. **Catalog guests retain the original bundle
+bytes and plan.** The shared bundle reader validates the hashes, binding
+generation, catalog identity and declared viewport before guest initialization. A
+live window resize runs after evaluation at the plan's viewport and before
 the first frame. These C records remain a candidate ABI.
 
 The experimental host has these runtime semantics:
@@ -283,7 +283,7 @@ The experimental host has these runtime semantics:
   held in it.** When `pocket build` compiles the application from its host
   config, the recipe reads `app.viewport.dynamic`: a maximum width below the
   minimum height is `portrait`, a maximum height below the minimum width is
-  `landscape`, and every other range is `auto`. A package compiled elsewhere
+  `landscape`, and every other range is `auto`. A bundle compiled elsewhere
   carries no range, rotates (`auto`), and takes `--orientation
   auto|portrait|landscape` after `--` to hold an orientation. The host sets Qt's portrait or landscape lock in place of automatic
   orientation, so opening the keyboard does not rotate the app. A navigation
@@ -588,8 +588,8 @@ receipt records the encoded registry hash.
 
 ```sh
 bun tools/pocket.ts compile --config apps/clear/pocket.host.config.ts --project-root . \
-  --target symbian-e7-dev --output dist/symbian/clear.pocket
-bun tools/symbian.ts build app --pocket dist/symbian/clear.pocket -- \
+  --target symbian-e7-dev --output dist/symbian/clear.pkb
+bun tools/symbian.ts build app --bundle dist/symbian/clear.pkb -- \
   --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
   --frame-rate 60 --sis-version 0.3.12
 ```

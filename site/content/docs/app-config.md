@@ -82,14 +82,14 @@ message lists each broken rule with its JSON Pointer under `/app`
 | `title` | no | Display name, 1 to 128 characters. **Absent, the output name.** |
 | `version` | no | `major.minor.patch` with an optional pre-release and build suffix. **Absent, `0.1.0`.** |
 | `author` | no | Who publishes the application, 1 to 128 characters. `pocket pack` run from the application's directory records it when `--author` is absent. |
-| `icon` | no | A square PNG, relative to the config file, without a `..` segment. `pocket compile` checks the PNG signature and that width equals height, and stores the file as the variant's cover section. |
+| `icon` | no | A square PNG, relative to the config file, without a `..` segment. `pocket compile` checks the PNG signature and that width equals height, and stores the file as the bundle's icon section. |
 | `features` | no | Host capabilities this build turns on, below. Unique registered ids. |
 | `surfaces` | no | An auxiliary surface, below. |
 | `theme` | no | Animation content, below. |
 | `aot` | no | `true` admits the Solid component graph to the AOT view subset; `pocket compile --aot` requires it. See [MicroTS](/docs/microts/). |
 | `model` | no | `rust` (default) or `compiled`: with `aot`, compile the `.ts` model beside the entry. `compiled` without `aot` is refused. |
 | `recursionLimit` | no | Positive integer, default 256. Development AOT builds enforce it; release builds omit the guard. |
-| `tickHz` | no | Core ticks per virtual second the package is compiled at, **1 through 60, default 60**. |
+| `tickHz` | no | Core ticks per virtual second the application is compiled at, **1 through 60, default 60**. |
 | `worker` | no | A second QuickJS runtime beside the UI realm, below. |
 | `companions` | no | Companion service names, below. |
 
@@ -141,7 +141,7 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `input.touch.auxiliary` | Touch contacts reported in the auxiliary surface's logical pixels. Does not imply `input.touch`. |
 | `input.text` | A hardware text stream: characters plus named editing keys with key repeat. |
 | `input.ime` | OS text composition: inline preedit, commits as text insertions, a candidate window docked at the caret. |
-| `text.glyphs.baked` | The glyph atlases the package bakes. |
+| `text.glyphs.baked` | The glyph atlases the bundle bakes. |
 | `text.glyphs.runtime` | Codepoints outside the baked charset still render; the host extends the atlases at run time. Needed by an app that accepts arbitrary text input. |
 | `text.glyphs.streamed` | A bounded external glyph cache fed through `io.offload` (ops 47 to 50). |
 | `text.layout.native` | Measurement and shaping come from the host text system with full Unicode coverage; pixels are deterministic per host, not byte-exact across hosts. |
@@ -289,7 +289,7 @@ animation at `app.tickHz`.** A `.json` theme is imported with
 
 ### app.tickHz
 
-A host presents the package at the largest cadence the rate is a whole
+A host presents the application at the largest cadence the rate is a whole
 multiple of and advances the core `tickHz ÷ cadence` ticks per frame.
 Resolution fails with `app.tickHz` when the rate is not a whole multiple of
 any cadence the host contract lists.
@@ -389,7 +389,7 @@ it for one host into a `ResolvedBuildPlan`:
   resolved viewport and auxiliary surface, the host's derived `modality` and
   `animation` class, `features`, `companions`, the worker with host channel
   sizes, and `presentation: { id: "default", entry }`.
-- The plan records the host contract with the package rate (`profile`,
+- The plan records the host contract with the application rate (`profile`,
   `profile.tickHz`) and its hash (`profileHash`), and a checksum of its own
   content (`planHash`).
 
@@ -403,11 +403,10 @@ writes plans with its own resolver and runs the same command without
 `planHash`, `profileHash`) are the contract, and a plan may carry fields this
 repository does not read.
 
-**A package's manifest region is empty.** `pocket compile` writes the
-variant's identity section (output, id, title) from the plan and the cover
-section from `app.icon`. A package whose manifest region another product
-filled is accepted; native builds and repacking read the plan, the identity
-section and the host facts, never the manifest region.
+**`pocket compile` writes one bundle (`.pkb`) for the selected host.** Its
+identity section (output, id, title) comes from the plan and its icon section
+from `app.icon`. Native builds and repacking read the bundle's plan, identity
+section and header. See [Bundle format](/docs/native-contract/#bundle-format).
 
 ## Diagnostics
 

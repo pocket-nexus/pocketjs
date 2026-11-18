@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fnv1a64 } from "../contracts/spec/pocket-package.ts";
+import { fnv1a64 } from "../contracts/spec/bundle.ts";
 
 export function atomicWrite(path: string, data: string | Uint8Array): void {
   const next = `${path}.tmp-${randomBytes(6).toString("hex")}`;
@@ -114,8 +114,8 @@ export class VitaUsbClient {
     if (op === "stage") {
       const name = options.name ?? "";
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new Error("stage needs a plain file name");
-      if (options.into !== "card" && !(options.into === "app" && name === "app.pocket")) {
-        throw new Error("stage goes into card, or app.pocket into app");
+      if (options.into !== "card" && !(options.into === "app" && name === "app.pkb")) {
+        throw new Error("stage goes into card, or app.pkb into app");
       }
     }
     if (op === "native" && !/^[a-f0-9]{32}$/.test(options.build ?? "")) throw new Error("invalid native build identity");

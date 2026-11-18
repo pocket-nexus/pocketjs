@@ -23,9 +23,9 @@ that replaces parts of the default composition:
 | `compose` | None | Registers renderers, displays, input sources and op providers on the program's runtime and starts host services, after the guest is attached and before admission |
 | `release` | None | Stops what `compose` started, once, before the facade destroys that program |
 
-**Three boot forms select the package.** `pocket_qjs_program_boot` copies raw
+**Three boot forms select the application.** `pocket_qjs_program_boot` copies raw
 JavaScript and PAK bytes, `pocket_qjs_program_boot_package` copies a complete
-`.pocket` with its catalog identity, and `pocket_qjs_program_boot_source`
+bundle with its catalog identity, and `pocket_qjs_program_boot_source`
 passes a host `pocket_package_source_v1` that Runtime reads at boot. The first
 two keep native asset loading off; the source form keeps it on, so the guest
 receives the pak's named textures and sprites. An admission failure returns

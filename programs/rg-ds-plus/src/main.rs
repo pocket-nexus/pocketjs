@@ -50,7 +50,7 @@ const GAMEPAD: &[(u16, u32)] = {
     ]
 };
 const PACKAGE_LIMIT: usize = 64 * 1024 * 1024;
-const DEFAULT_PACKAGE: &str = "/usr/share/pocketjs/omarchy-pocket.pocket";
+const DEFAULT_PACKAGE: &str = "/usr/share/pocketjs/omarchy-pocket.pkb";
 /// Input classes the evdev drivers deliver here: buttons and touch.
 const INPUT_CLASSES: InputClasses =
     InputClasses::from_bits(InputClasses::BUTTONS.bits() | InputClasses::CONTACT.bits());
@@ -91,7 +91,7 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" => {
-                println!("pocket-rg-ds-plus [--package app.pocket] [--card /dev/dri/card0] [--top DSI-1] [--bottom DSI-2]\n                  [--input /dev/input/eventN]... [--touch-on-top] [--check]\n                  [--shot DIR --script \"30:DOWN 45:tap@256,190 90:shot\"]\nProfile {} is compiled in. Default package: {DEFAULT_PACKAGE}. Touch lands on the lower panel unless --touch-on-top. The program exits on SIGINT, SIGTERM, or after the script's last event.", profile::ID);
+                println!("pocket-rg-ds-plus [--package app.pkb] [--card /dev/dri/card0] [--top DSI-1] [--bottom DSI-2]\n                  [--input /dev/input/eventN]... [--touch-on-top] [--check]\n                  [--shot DIR --script \"30:DOWN 45:tap@256,190 90:shot\"]\nProfile {} is compiled in. Default bundle: {DEFAULT_PACKAGE}. Touch lands on the lower panel unless --touch-on-top. The program exits on SIGINT, SIGTERM, or after the script's last event.", profile::ID);
                 return Ok(None);
             }
             "--check" => output.check = true,
