@@ -1,6 +1,7 @@
 #include "pocket/zephyr.h"
 #include <zephyr/drivers/display.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/byteorder.h>
 #include <string.h>
 struct pocket_zephyr_display {
   const struct device *device;
@@ -8,7 +9,7 @@ struct pocket_zephyr_display {
   size_t capacity, stride;
   uint32_t width, height, rows, role, format;
   uint64_t next, token, generation;
-  bool acquired, pending, frame_storage, swap;
+  bool acquired, pending, frame_storage, big_endian;
   pocket_rect region;
   pocket_surface surface;
 };
@@ -35,10 +36,7 @@ pocket_zephyr_display *pocket_zephyr_display_create(const pocket_zephyr_display_
   d->device=c->device; d->capacity=capacity; d->stride=(size_t)caps.x_resolution*bpp;
   d->width=caps.x_resolution; d->height=caps.y_resolution; d->rows=c->strip_rows;
   d->frame_storage=!(caps.screen_info & SCREEN_INFO_DOUBLE_BUFFER);
-  d->role=c->role; d->format=format; d->generation=1;
-  /* Zephyr stores RGB_565 and ARGB_8888 little-endian and RGB_565X big-endian;
-   * the raster writes pixel words in CPU byte order. */
-  d->swap=big_endian != (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+  d->role=c->role; d->format=format; d->big_endian=big_endian; d->generation=1;
   return d;
 }
 static int32_t descriptor(void *context, pocket_display_descriptor *out) {
@@ -64,11 +62,19 @@ static int32_t acquire(void *context, const pocket_rect *r, pocket_target *out) 
     .region=&d->region,.pixel_format=d->format,.surface=&d->surface};
   return POCKET_STATUS_OK;
 }
+/* The raster writes pixel words in CPU byte order. Zephyr stores RGB_565 and
+ * ARGB_8888 little-endian and RGB_565X big-endian. Each conversion is its own
+ * inverse: the second call restores the strip after display_write. */
 static void byte_order(pocket_zephyr_display *d, uint8_t *pixels, size_t size) {
-  if (!d->swap) return;
-  size_t bpp=d->format==POCKET_PIXEL_FORMAT_RGB565?2:4;
-  for(size_t i=0;i<size;i+=bpp) for(size_t j=0;j<bpp/2;j++) {
-    uint8_t value=pixels[i+j];pixels[i+j]=pixels[i+bpp-1-j];pixels[i+bpp-1-j]=value;
+  if (d->format==POCKET_PIXEL_FORMAT_ARGB8888) {
+    uint32_t *words=(uint32_t *)pixels;
+    for(size_t i=0;i<size/4;i++) words[i]=sys_cpu_to_le32(words[i]);
+  } else if (d->big_endian) {
+    uint16_t *words=(uint16_t *)pixels;
+    for(size_t i=0;i<size/2;i++) words[i]=sys_cpu_to_be16(words[i]);
+  } else {
+    uint16_t *words=(uint16_t *)pixels;
+    for(size_t i=0;i<size/2;i++) words[i]=sys_cpu_to_le16(words[i]);
   }
 }
 static int32_t flush(void *context, const pocket_rect *regions, size_t count, uint64_t *token) {
