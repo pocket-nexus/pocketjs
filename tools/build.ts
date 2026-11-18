@@ -28,11 +28,14 @@ import { buildWorker } from "./build-worker.ts";
 //   --outdir=<path>              write <app>.js/.pak here instead of dist/
 //                                (external repos build their apps against a
 //                                vendored PocketJS and keep outputs local)
+//   --layer=<module>             a system layer (@pocketjs/framework/system-layers):
+//                                pass 1 walks the module and pass 2 imports it
+//                                ahead of the app's entry; repeatable
 //   --strict-classes             fail when a `class` attribute holds a literal
 //                                that does not compile; without it the build
 //                                prints the same finding as a warning
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
@@ -103,6 +106,7 @@ let hzFlag: number | undefined;
 let projectRoot = process.cwd();
 let inputsFile: string | undefined;
 let strictClasses = false;
+const layerFlags: string[] = [];
 const buildInputs = new BuildInputs();
 for (const a of args) {
   if (a.startsWith("--extra-chars=")) extraChars = a.slice("--extra-chars=".length);
@@ -120,6 +124,7 @@ for (const a of args) {
   else if (a.startsWith("--hz=")) hzFlag = Number(a.slice("--hz=".length));
   else if (a.startsWith("--inputs-file=")) inputsFile = resolvePath(a.slice("--inputs-file=".length));
   else if (a === "--strict-classes") strictClasses = true;
+  else if (a.startsWith("--layer=")) layerFlags.push(resolvePath(a.slice("--layer=".length)));
   else if (!a.startsWith("-")) appArg = a;
 }
 
@@ -231,7 +236,7 @@ function resolveImport(fromFile: string, spec: string): string | null {
     const exported = packagePath(spec, framework);
     return exported && /\.tsx?$/.test(exported) ? exported : null;
   }
-  if (!spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/")) return null; // external bare
+  if (!spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/")) return resolveSourcePackage(fromFile, spec);
   const model = framework === "solid" ? resolveSolidAotModel(fromFile, spec, entry) : undefined;
   if (model) return model.endsWith(".d.ts") ? null : model;
   let resolved: string;
@@ -241,6 +246,26 @@ function resolveImport(fromFile: string, spec: string): string | null {
     return null;
   }
   return (/\.tsx?$/.test(resolved) || resolved.endsWith(".vue")) && !resolved.endsWith(".d.ts") ? frameworkVariantPath(resolved, framework) : null;
+}
+
+/** A bare specifier that resolves to TypeScript source outside `node_modules`:
+ *  a package linked from its source tree, such as a product's guest modules.
+ *  Pass 1 walks it like a relative import, so its class strings and glyphs are
+ *  compiled. A package installed under `node_modules` ships built JavaScript
+ *  and stays external to pass 1. */
+function resolveSourcePackage(fromFile: string, spec: string): string | null {
+  let resolved: string;
+  try {
+    resolved = Bun.resolveSync(spec, dirname(fromFile));
+  } catch {
+    return null;
+  }
+  if (!/\.tsx?$/.test(resolved) || resolved.endsWith(".d.ts")) return null;
+  // A linked package resolves through `node_modules`; its real path says
+  // where the source lives.
+  const real = realpathSync(resolved);
+  if (real.replace(/\\/g, "/").split("/").includes("node_modules")) return null;
+  return frameworkVariantPath(real, framework);
 }
 
 const classStrings: string[] = [];
@@ -282,6 +307,10 @@ async function walk(file: string): Promise<void> {
 // walked here so pass 1 compiles its classes and glyphs, and imported ahead
 // of the app's entry in pass 2 so it registers before the app mounts.
 const systemLayers: string[] = [];
+for (const layer of layerFlags) {
+  if (!existsSync(layer)) throw new Error(`PocketJS build: --layer names ${layer}, which is not a file`);
+  systemLayers.push(layer);
+}
 if (framework === "solid" && buildPlan?.features["system.agent"] === true) {
   systemLayers.push(join(ROOT, "framework/src/agent-layer.tsx"));
 }

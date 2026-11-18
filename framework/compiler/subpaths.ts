@@ -177,6 +177,10 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   actions: { file: { solid: "framework/src/actions.ts" } },
   agent: { file: { solid: "framework/src/agent.ts" } },
   system: { file: { solid: "framework/src/system.ts" } },
+  // What a product's system layer builds on (tools/build.ts --layer).
+  "system-layers": { file: { solid: "framework/src/system-layers-api.ts" } },
+  // The deterministic simulator host: a tool-side module, not guest code.
+  sim: { file: "programs/sim/sim.ts" },
   "vita-package": { file: "tools/vita-package.ts" },
   prelude: {
     file: {
