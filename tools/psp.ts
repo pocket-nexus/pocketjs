@@ -119,8 +119,8 @@ for (let index = 0; index < argv.length; index++) {
     if (!value || value.startsWith("--")) throw new Error("--pocket requires a compiled package path");
     packagePath = resolvePath(value);
   }
-  // Multi-app embed (docs/LAUNCHER.md): the TSV registry tools/launcher.ts
-  // emits; build.rs appends one embedded bundle per line after app 0.
+  // Multi-app embed (docs/LAUNCHER.md): a TSV registry of guests; build.rs
+  // appends one embedded package per line after app 0.
   else if (a.startsWith("--launcher-registry=")) launcherRegistry = resolvePath(a.slice("--launcher-registry=".length));
   else if (a.startsWith("--launcher-packages=")) launcherPackages = resolvePath(a.slice("--launcher-packages=".length));
   else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));

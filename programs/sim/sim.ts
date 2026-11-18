@@ -240,8 +240,8 @@ export async function bootWorld(
   const inbox: string[] = [];
   const outbox: string[] = [];
   g.ui = wasm.ops;
-  // Host-flavored op extensions (the launcher runner adds appTable/appLaunch/
-  // appShot here) — installed before eval like every other contract slot.
+  // Host-flavored op extensions — installed before eval like every other
+  // contract slot.
   mutateOps?.(wasm.ops as unknown as Record<string, unknown>);
   g.__pak = existsSync(DIST + app + ".pak")
     ? await Bun.file(DIST + app + ".pak").arrayBuffer()

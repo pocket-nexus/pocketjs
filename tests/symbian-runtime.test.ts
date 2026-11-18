@@ -1,28 +1,15 @@
 import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { describe, expect, test } from "bun:test";
-import { compiledProfile } from "../contracts/spec/profile.ts";
 import {
 existsSync,
 mkdtempSync,
+readdirSync,
 readFileSync,
 rmSync,
-writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deriveModality } from "../contracts/spec/modality.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { hashPocketProfile } from "../framework/src/profile.ts";
-import { POCKET_PROFILES } from "../hosts/index.ts";
-import {
-encodeSymbianCatalog,
-includeExternalManifests,
-launcherGeneratedSources,
-needsLauncherCompile,
-scanRegistry,
-withLauncherSourceLock,
-type SymbianCatalogEntry,
-} from "../tools/launcher.ts";
 import {
 SYMBIAN_E7_DEV_CONTRACTS,
 SYMBIAN_E7_DEV_HOST_ABI,
@@ -30,7 +17,6 @@ SYMBIAN_E7_DEV_TARGET_ID,
 resolveSymbianE7BuildPlan,
 symbianE7Orientation,
 } from "../tools/symbian-profile.ts";
-const profile = POCKET_PROFILES["symbian-e7-dev"];
 
 const repository = new URL("..", import.meta.url).pathname;
 
@@ -81,246 +67,21 @@ describe("experimental Nokia E7 runtime profile", () => {
     }
   });
 
-  test("serializes the shared launcher source tree across targets", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pocketjs-launcher-source-lock-"));
-    try {
-      const env = { POCKET_NEXUS_CACHE_DIR: join(root, "cache") };
-      let active = 0;
-      let maxActive = 0;
-      const build = () => withLauncherSourceLock(async () => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        await Bun.sleep(20);
-        active -= 1;
-      }, env);
-      await Promise.all([build(), build()]);
-      expect(maxActive).toBe(1);
-
-      const launcher = readFileSync(
-        join(repository, "tools/launcher.ts"),
-        "utf8",
+  test("the E7 profile admits only the apps whose viewport range it hosts", () => {
+    const outputs: string[] = [];
+    for (const app of readdirSync(join(repository, "apps")).sort()) {
+      const manifestPath = join(repository, "apps", app, "pocket.app.json");
+      if (!existsSync(manifestPath)) continue;
+      const resolution = validateAndResolveBuildPlan(
+        readPocketManifest(manifestPath).manifest,
+        { target: SYMBIAN_E7_DEV_TARGET_ID },
+        SYMBIAN_E7_DEV_CONTRACTS,
       );
-      const sourceLock = launcher.indexOf(
-        "await withLauncherSourceLock(async () =>",
-      );
-      const outputLock = launcher.indexOf(
-        "await withSymbianBuildTransaction(paths.output",
-        sourceLock,
-      );
-      expect(sourceLock).toBeGreaterThan(-1);
-      expect(outputLock).toBeGreaterThan(sourceLock);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+      if (resolution.ok) outputs.push(resolution.plan.app.output);
     }
-  });
-
-  test("never reuses stale Symbian guests", () => {
-    const root = mkdtempSync(join(tmpdir(), "pocketjs-launcher-freshness-"));
-    try {
-      writeFileSync(join(root, "probe.js"), "js");
-      writeFileSync(join(root, "probe.pak"), "pak");
-      expect(
-        needsLauncherCompile("probe", SYMBIAN_E7_DEV_TARGET_ID, root, false),
-      ).toBe(true);
-      rmSync(join(root, "probe.pak"));
-      expect(needsLauncherCompile("probe", SYMBIAN_E7_DEV_TARGET_ID, root, false)).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("encodes an aligned verbatim package catalog for the Qt host", () => {
-    const entry = (
-      output: string,
-      id: string,
-      title: string,
-      bytes: number[],
-      liveViewport: boolean,
-    ): SymbianCatalogEntry => ({
-      plan: {
-        app: {
-          output,
-          id,
-          title,
-          version: "0.1.0",
-          entry: "app.tsx",
-          framework: "solid",
-        },
-        presentation: { id: "default", entry: "app.tsx" },
-        target: { id: SYMBIAN_E7_DEV_TARGET_ID, hostAbi: SYMBIAN_E7_DEV_HOST_ABI },
-        viewport: {
-          logical: liveViewport ? [640, 360] : [480, 272],
-          physical: liveViewport ? [640, 360] : [480, 272],
-          presentation: "native",
-          rasterDensity: 1,
-          policy: liveViewport ? "dynamic" : "fixed",
-        },
-        modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
-        animation: "repaint",
-        features: {},
-        companions: [],
-        profile: { ...compiledProfile(profile), tickHz: 60 },
-    profileHash: hashPocketProfile(profile),
-    planHash: `sha256:${"0".repeat(64)}`,
-      },
-      packageBytes: new Uint8Array(bytes),
-      liveViewport,
-    });
-    const launcher = entry(
-      "launcher-main",
-      "dev.pocket-nexus.launcher",
-      "PocketJS: Launcher",
-      [1, 2, 3],
-      false,
-    );
-    const hero = entry(
-      "hero-main",
-      "dev.pocket-nexus.hero",
-      "PocketJS: Hero",
-      [4, 5],
-      true,
-    );
-    const catalog = encodeSymbianCatalog([launcher, hero]);
-    expect(new TextDecoder().decode(catalog.index)).toBe(
-      "launcher-main\tdev.pocket-nexus.launcher\tPocketJS: Launcher\t0\t3\t480\t272\tfixed\n" +
-        "hero-main\tdev.pocket-nexus.hero\tPocketJS: Hero\t16\t2\t640\t360\tlive\n",
-    );
-    expect([...catalog.blob.subarray(0, 3)]).toEqual([1, 2, 3]);
-    expect([...catalog.blob.subarray(3, 16)]).toEqual(new Array(13).fill(0));
-    expect([...catalog.blob.subarray(16)]).toEqual([4, 5]);
-  });
-
-  test("launcher admission includes only the apps the E7 profile admits", () => {
-    const outputs = scanRegistry(
-      new Set(),
-      SYMBIAN_E7_DEV_TARGET_ID,
-    ).apps.map((app) => app.output);
-    // Clear's single manifest declares the E7 portrait range.
-    expect(outputs).toEqual(["clear-main", "note-main", "hero-main"]);
-    expect(outputs).not.toContain("cafe-main");
-    expect(outputs).not.toContain("launcher-main");
-  });
-
-  test("thins the E7 launcher source to admitted Cover Flow textures", () => {
-    const registry = scanRegistry(new Set(), SYMBIAN_E7_DEV_TARGET_ID);
-    const generated = launcherGeneratedSources(registry);
-    expect(generated.registryTs).toContain("cover-note-main.png");
-    expect(generated.registryTs).toContain("cover-hero-main.png");
-    expect(generated.registryTs).not.toContain("cover-cafe-main.png");
-    expect(generated.registryTs).toContain("refl-note-main.png");
-    expect(JSON.parse(generated.imagesJson)).toEqual({
-      "covers/launcher-bg.png": { linear: true },
-      "covers/cover-clear-main.png": { linear: true },
-      "covers/refl-clear-main.png": { linear: true },
-      "covers/cover-note-main.png": { linear: true },
-      "covers/refl-note-main.png": { linear: true },
-      "covers/cover-hero-main.png": { linear: true },
-      "covers/refl-hero-main.png": { linear: true },
-    });
-  });
-
-  test("adds explicit external manifests without leaking paths or dirtying sources", () => {
-    const external = mkdtempSync(join(tmpdir(), "pocketjs-launcher-external-"));
-    const registrySource = join(
-      repository,
-      "apps/launcher/registry.generated.ts",
-    );
-    const imagesSource = join(repository, "apps/launcher/images.json");
-    const registryBefore = readFileSync(registrySource);
-    const imagesBefore = readFileSync(imagesSource);
-    const emittedPaths = [
-      join(
-        repository,
-        "dist/launcher/symbian/launcher-registry.json",
-      ),
-      join(
-        repository,
-        "dist/launcher/symbian/launcher-registry.tsv",
-      ),
-    ];
-    const emittedBefore = emittedPaths.map((path) =>
-      existsSync(path) ? readFileSync(path) : undefined
-    );
-    try {
-      const manifest = JSON.parse(
-        readFileSync(join(repository, "apps/hero/pocket.app.json"), "utf8"),
-      );
-      manifest.id = "dev.pocket-nexus.external-probe";
-      manifest.title = "External Probe";
-      manifest.app.entry = "app.tsx";
-      manifest.app.output = "external-probe";
-      delete manifest.app.viewport.fixed;
-      const externalManifest = join(external, "pocket.app.json");
-      writeFileSync(externalManifest, JSON.stringify(manifest, null, 2));
-      writeFileSync(join(external, "app.tsx"), "export default function App() {}\n");
-
-      const scanned = Bun.spawnSync([
-        "bun",
-        "tools/launcher.ts",
-        "scan",
-        "--target",
-        "symbian",
-        "--include-manifest",
-        externalManifest,
-      ], { cwd: repository });
-      expect(scanned.exitCode).toBe(0);
-      expect(readFileSync(registrySource)).toEqual(registryBefore);
-      expect(readFileSync(imagesSource)).toEqual(imagesBefore);
-
-      const emitted = JSON.parse(readFileSync(
-        join(
-          repository,
-          "dist/launcher/symbian/launcher-registry.json",
-        ),
-        "utf8",
-      )) as {
-        apps: Array<Record<string, unknown>>;
-      };
-      const app = emitted.apps.find(
-        (entry) => entry.output === "external-probe",
-      );
-      expect(app).toMatchObject({
-        id: "dev.pocket-nexus.external-probe",
-        manifest: "pocket.app.json",
-      });
-      expect(app).not.toHaveProperty("projectRoot");
-      expect(JSON.stringify(emitted)).not.toContain(external);
-    } finally {
-      emittedPaths.forEach((path, index) => {
-        const previous = emittedBefore[index];
-        if (previous) writeFileSync(path, previous);
-        else rmSync(path, { force: true });
-      });
-      rmSync(external, { recursive: true, force: true });
-    }
-  });
-
-  test("external manifests cannot replace the launcher identity", () => {
-    const external = mkdtempSync(join(tmpdir(), "pocketjs-launcher-collision-"));
-    try {
-      const manifest = JSON.parse(
-        readFileSync(join(repository, "apps/launcher/pocket.app.json"), "utf8"),
-      );
-      manifest.app.entry = "app.tsx";
-      manifest.app.viewport.dynamic = {
-        default: [640, 360],
-        min: [360, 360],
-        max: [640, 640],
-      };
-      const manifestPath = join(external, "pocket.app.json");
-      writeFileSync(manifestPath, JSON.stringify(manifest));
-      writeFileSync(join(external, "app.tsx"), "export default function App() {}\n");
-      expect(() =>
-        includeExternalManifests(
-          scanRegistry(new Set(), SYMBIAN_E7_DEV_TARGET_ID),
-          [manifestPath],
-          new Set(),
-          SYMBIAN_E7_DEV_TARGET_ID,
-        )
-      ).toThrow("external output launcher-main duplicates");
-    } finally {
-      rmSync(external, { recursive: true, force: true });
-    }
+    // Clear's single manifest declares the E7 portrait range; the fixed
+    // 480x272 console demos (Café among them) have no E7 viewport.
+    expect(outputs).toEqual(["clear-main", "hero-main", "note-main"]);
   });
 
   test("selects the Hero's dynamic E7 viewport without changing its PSP viewport", () => {

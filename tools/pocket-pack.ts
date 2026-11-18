@@ -61,8 +61,7 @@ function usage(message?: string): never {
   process.exit(1);
 }
 
-/** Assemble one variant from prebuilt pieces. Shared with the launcher
- *  chain (tools/launcher.ts pack), which reuses its existing psp dist. */
+/** Assemble one variant from prebuilt pieces. */
 export function makeVariant(input: {
   target: string;
   hostAbi: number;
@@ -177,7 +176,6 @@ async function buildCommand(argv: string[]): Promise<void> {
     const js = new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.js`)));
     const pakPath = join(outdir, `${plan.app.output}.pak`);
     const pak = existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0);
-    const coverPath = join(ROOT, "apps/launcher/covers", `cover-${plan.app.output}.png`);
     variants.push(
       makeVariant({
         target: plan.target.id,
@@ -187,7 +185,7 @@ async function buildCommand(argv: string[]): Promise<void> {
         js,
         ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.worker.js`))) } : {}),
         pak,
-        cover: loaded.icon ?? (existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined),
+        cover: loaded.icon,
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
