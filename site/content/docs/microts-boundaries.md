@@ -193,7 +193,7 @@ completion listener and leaves the native track's motion intact.
 | Recursion | Development builds enforce `app.recursionLimit`; that guard is omitted in release builds |
 | Input | Generated trait bounds check declared channels; the host still maps physical hardware into `Input` and `RelativeAxis` |
 | Board admission | `--board` checks the declared input profile; it does not establish a native port, rendering backend or device toolchain |
-| Packaging | Native builds need the generated Rust, asset loading, a host and its target toolchain; guest `.pocket` packaging does not compile a Rust AOT binary. [ESP-IDF](/docs/esp-idf/#native-aot-applications) describes the firmware library for ESP32 targets |
+| Packaging | Native builds need the generated Rust, asset loading, a host and its target toolchain; a guest bundle (`.pkb`) does not compile a Rust AOT binary. [ESP-IDF](/docs/esp-idf/#native-aot-applications) describes the firmware library for ESP32 targets |
 
 Testing compares the reference interpreter, the transformed TypeScript model
 and generated Rust on recorded frames, including state and commands. Selected

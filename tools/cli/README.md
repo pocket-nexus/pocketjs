@@ -53,25 +53,25 @@ export default defineHostConfig({
 });
 ```
 
-**`compile` produces a version 2 `.pocket` application package.** It reads the
-nearest `pocket.host.config.ts` (or `--config FILE`; `--host-config` is an
-alias), validates the `app` section and TypeScript, resolves the viewport and
-features against the selected host contract, and records that host contract's
-hash in the package. The package's manifest region is empty; its identity
-section carries the application's id, title and output name. The scaffold's
+**`compile` produces one application bundle (`.pkb`) for one host contract.**
+It reads the nearest `pocket.host.config.ts` (or `--config FILE`;
+`--host-config` is an alias), validates the `app` section and TypeScript,
+resolves the viewport and features against the selected host contract, and
+records that host contract's hash in the bundle header. The identity section
+carries the application's id, title and output name. An `--output` name ending
+in `.pocket` is an error. The scaffold's
 `build` package script is an alias for `pocket compile`.
 
 ```sh
 pocket check
-pocket compile --output dist/app.pocket
+pocket compile --output dist/app.pkb
 pocket compile --config apps/my-app/pocket.host.config.ts --target vita \
-  --output dist/app.pocket --depfile dist/app.d
+  --output dist/app.pkb --depfile dist/app.d
 ```
 
 For an application with `app.aot: true`, `pocket compile --aot --out dist/aot`
 generates MicroTS Rust modules, fonts, images, an include file and dependency
-metadata. It runs no Cargo build and emits neither JavaScript nor a `.pocket`
-package.
+metadata. It runs no Cargo build and emits neither JavaScript nor a bundle.
 
 ## Host contracts and program builds
 
@@ -101,7 +101,9 @@ pocket host export --config pocket.host.config.ts --out dist/profile
 ```
 
 **`build` executes the program's native recipe and accepts compiled inputs.**
-`--pocket` supplies a package; `--aot-dir` supplies generated Rust sources.
+`--bundle` supplies a compiled bundle; `--aot-dir` supplies generated Rust
+sources. `--pocket` was removed; `build` and `pack` answer it with one line
+naming `--bundle`.
 The executor verifies that the input was compiled for the selected host contract and
 binding generation, and the input checksums, before invoking native tools. It copies the admitted inputs into the output
 directory so a source edit cannot change an active build.
@@ -112,10 +114,10 @@ containing only `{ host }` exports the host contract and leaves native
 compilation to the external build system. **An application's host config
 without `build` builds a built-in host with that host's stock program**: from
 the application's directory, `pocket build --target psp` compiles the `app`
-section and passes the package (or the AOT sources) to `programs/psp`.
+section and passes the bundle (or the AOT sources) to `programs/psp`.
 
 `host export` writes `pocket_profile.h` and `pocket_profile.rs`, holding the
-facts the program admits packages against and the host contract hash, and
+facts the program admits bundles against and the host contract hash, and
 `pocket.host.json`, the host contract with its `hostAbi` stamp. `host fetch
 --target <id> --out <file>` downloads the host contract a PocketJS release
 publishes for a runtime.
@@ -137,19 +139,19 @@ product directory, the nearest host config owns the build. `--config`
 selects a host config without consulting the catalog.
 
 ```sh
-pocket compile --target psp --output dist/app.pocket
-pocket build --target psp --pocket dist/app.pocket --out dist/psp
+pocket compile --target psp --output dist/app.pkb
+pocket build --target psp --bundle dist/app.pkb --out dist/psp
 
-pocket compile --target psp-runtime --output dist/game.pocket
+pocket compile --target psp-runtime --output dist/game.pkb
 pocket build --target psp --generic --out dist/psp-runtime
-pocket pack --target psp dist/game.pocket --runtime dist/psp-runtime \
+pocket pack --target psp --bundle dist/game.pkb --runtime dist/psp-runtime \
   --author "Example Studio" --output dist/game.zip
 ```
 
 **The generic PSP and 3DS programs use `psp-runtime` and `3ds-runtime`.**
 The PSP program has no compiled offload worker; the 3DS program has no
 application-specific offload or media worker. Those capabilities are absent
-from these host contracts. Packages compiled for the full `psp` host
+from these host contracts. Bundles compiled for the full `psp` host
 contract, or for a product's own 3DS host contract, need the corresponding
 native program build.
 
@@ -158,10 +160,10 @@ input identity, toolchain digest, native commands and artifact checksums.
 A failed command writes a failed receipt. `--deploy` invokes a host config's
 deploy hook after the artifact check; an absent hook is an error.
 `pack` uses `build.genericRuntime.repack` and checks the runtime's own
-`runtime.json` before writing the installation package, then admits the package
+`runtime.json` before writing the installation package, then admits the bundle
 by the runtime's `pocket.host.json`. The default runtime comes from the
 framework release; `--runtime` supplies a local build. Identity defaults to the
-compiled application's id, title and version and the variant's cover section
+compiled application's id, title and version and the bundle's icon section
 (`app.icon`). The author is `--author`, the `app.author` of the application's host
 config when `pack` runs in its directory, or `Unspecified`.
 
@@ -193,10 +195,10 @@ app/app.tsx             component
 
 The starting host contract declares a 320×240 native viewport, cadences 60 and
 30, buttons and baked glyphs. Standalone scripts compile
-`dist/my-product.pocket`, and `bun run host:export` exports the host contract
+`dist/my-product.pkb`, and `bun run host:export` exports the host contract
 to `dist/profile/`. The README contains `pocketjs_compile_app`
-with `HOST_CONFIG`, and `pocketjs_embed_package` with
-`PROFILE_EXPORT_DIR` for builds that consume a prebuilt package without Bun.
+with `HOST_CONFIG`, and `pocketjs_embed_bundle` with
+`PROFILE_EXPORT_DIR` for builds that consume a prebuilt bundle without Bun.
 
 ## Framework and toolchain resolution
 
@@ -255,5 +257,5 @@ host config examples and installation states, and the
 
 The old `tools/psp.ts` and `tools/vita.ts` application-building
 CLI routes are deprecated compatibility entry points. New native builds use
-`pocket build` with a compiled package; its recipes do not invoke the
+`pocket build` with a compiled bundle; its recipes do not invoke the
 application compiler.

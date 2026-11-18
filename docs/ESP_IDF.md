@@ -86,38 +86,39 @@ host config modules and host contracts in depfiles. All three CMake helpers acce
 `HOST_CONFIG`; its default is the IDF project root's
 `pocket.host.config.ts`.
 
-`pocketjs_embed_package(TARGET <target> NAME <name> PACKAGE <file>
+`pocketjs_embed_bundle(TARGET <target> NAME <name> BUNDLE <file>
 PROFILE_EXPORT_DIR <directory>)` consumes prebuilt artifacts using Python.
-This path requires Python, the package and exported artifacts; it does not
+This path requires Python, the bundle and exported artifacts; it does not
 require Bun, the Pocket CLI or the TypeScript host config modules. `PROFILE_EXPORT_DIR`
 defaults to `<current-binary-directory>/pocketjs/<name>/profile`; export there
 before configuring an offline build. Missing exports produce a command naming
 the required host config and output directory.
 
 The Python helper reads the exported `pocket.host.json`, requires its
-`hostAbi` stamp to equal the package's binding generation and admits the
-host-input variant by the facts: raster density, animation class, rate against
-the cadences, viewport, presentation and capabilities. A host contract with another
-id and the same facts admits the package. The generated
-`pocketjs_package_<name>.h` supplies package storage and admitted application
-geometry; the program includes `pocket_profile.h` and points
+`hostAbi` stamp to equal the bundle's binding generation and admits the
+bundle's host-input section by the facts: raster density, animation class, rate
+against the cadences, viewport, presentation and capabilities. A host contract
+with another id and the same facts admits the bundle. The generated
+`pocketjs_bundle_<name>.h` supplies the bundle's storage and admitted
+application geometry; the program includes `pocket_profile.h` and points
 `pocket_runtime_config.profile` at `pocket_profile.facts`. **The runtime admits
-the package against that `pocket_profile_facts` record and reads no JSON**; the
+the bundle against that `pocket_profile_facts` record and reads no JSON**; the
 exported `pocket.host.json` is a build input to the Python helper. The CMake helpers add the
 `pocket_runtime` include directory, which holds the `pocket_runtime.h` that
 `pocket_profile.h` includes.
 
-The runtime admits `.pocket` bytes through the shared Rust package loader,
-selects target/ABI, installs assets and initializes the guest. Generated guest
+The runtime admits bundle bytes through the shared Rust package loader,
+checks the binding generation and plan, installs assets and initializes the
+guest. Generated guest
 bindings publish metadata, dispatch UI operations and pack frame inputs.
 The removed C package parser and UI dispatcher have no independent admission
 or binding path.
 
 `tools/driver-contracts.ts` generates public C/Rust driver/runtime ABI records.
-`tools/packaging/esp-idf/contracts.ts` generates package wire constants and
+`tools/packaging/esp-idf/contracts.ts` generates bundle wire constants and
 the Python host contract hash field names, `PROFILE_HASH_FIELDS`. Both
 generators support `--check`. TS, Rust and Python readers consume
-`tests/fixtures/packages/corpus`.
+`tests/fixtures/bundles/corpus`.
 
 ## QuickJS source preparation
 
@@ -173,13 +174,13 @@ renderer/device and display in that order.
 bun tools/driver-contracts.ts --check
 bun tools/packaging/esp-idf/contracts.ts --check
 bun tools/packaging/esp-idf/host-tests.ts
-bun test tests/idf-embed.test.ts tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts tests/idf-input.test.ts
+bun test tests/idf-embed.test.ts tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-bundle-corpus.test.ts tests/idf-input.test.ts
 cargo test --locked --manifest-path Cargo.toml -p pocket-render-esp-ppa --features cabi
 ```
 
 `POCKETJS_QUICKJS_SOURCE` selects another copy of the exact pinned source.
 Host regressions compile the generated guest, platform wrapper and single Rust
-archive. Tests cover package admission, immutable writes, promise rejection,
+archive. Tests cover bundle admission, immutable writes, promise rejection,
 allocator failure, two pending display buffers, per-buffer and reverse waits,
 DMA drain after submission failure, the bounded wait timeout and old RGB565
 pixel/strip parity.

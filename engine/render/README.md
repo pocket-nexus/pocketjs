@@ -60,7 +60,7 @@ successful output and abort or invalidate it on failure.
 crate root, `glyph_pages` and `tex_cache` under their former paths for one
 release.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

@@ -35,12 +35,12 @@ my-host/
             (build plan)
                 │
                 ▼
-     compiler → .pocket package
+     compiler → bundle (.pkb)
 ```
 
 The host program exports the same host contract as a C header or Rust module.
-**A device admits a package when its exported facts satisfy the package's
-plan**; `profileHash` records which host contract the package was compiled
+**A device admits a bundle when its exported facts satisfy the bundle's
+plan**; `profileHash` records which host contract the bundle was compiled
 against. See [Admission](#admission).
 
 ## Ownership
@@ -81,11 +81,11 @@ native crate path, or binding generation. The host program owns those inputs.
 `hosts` lists the host contracts the application is built for: built-in ids,
 or `pocket.host.json` paths relative to the config.
 
-`app.tickHz` is the package rate: core ticks per virtual second, **1 through
+`app.tickHz` is the application rate: core ticks per virtual second, **1 through
 60, default 60**. Resolution refuses a rate that is not a whole multiple of one
 of the target's cadences. `id`, `title`, `version`, `author` and `icon` (a
 path to a square PNG) are the identity the device packagers stamp:
-`pocket compile` stores the icon as the variant's cover section, and
+`pocket compile` stores the icon as the bundle's icon section, and
 `pocket pack` uses it when `--icon` is absent. `app.theme` is animation
 content the config imports.
 
@@ -139,8 +139,8 @@ without `display.auxiliary`, and `display.auxiliary` without
 `surfaces.auxiliary`. An auxiliary surface the selected host cannot present
 turns both features off in the plan. A host contract must publish the
 auxiliary physical/logical display facts together with `display.auxiliary`;
-mismatched facts are rejected before an application is resolved. The current
-package format uses one raster asset density for both surfaces, so both
+mismatched facts are rejected before an application is resolved. The bundle
+format uses one raster asset density for both surfaces, so both
 display facts must declare the same `rasterDensity`.
 
 ## Modality
@@ -176,7 +176,7 @@ portrait application from the same scene module.
 
 An **animation class** is what a changed frame costs a target. **The host
 contract states it as `display.animation`**; no platform table derives it, and
-admission requires the package's class to equal the host's.
+admission requires the bundle's class to equal the host's.
 
 | Class | Frame cost | Built-in host contracts |
 | --- | --- | --- |
@@ -302,10 +302,10 @@ generation, 12.**
 | `panel` | Physical panel sizes in pixels; the compiler reads them, admission does not |
 | `capabilities` | Capability names, compared as a set |
 | `roleCapabilities.systemUI` | Names a package in the System UI role also receives |
-| `worker.nodes` | The most worker nodes of each kind one package may declare |
-| `worker.channels` | `recordBytes` and `capacity`: the largest worker channel one package may declare, and the size of a channel declared `"host"`. At least **1024 bytes and 8 records** (the value when absent), at most **64 KiB and 256 records** |
+| `worker.nodes` | The most worker nodes of each kind one application may declare |
+| `worker.channels` | `recordBytes` and `capacity`: the largest worker channel one application may declare, and the size of a channel declared `"host"`. At least **1024 bytes and 8 records** (the value when absent), at most **64 KiB and 256 records** |
 | `worker.http` | `responseBytes`: the largest response body one `http` request may ask for. At least **256 KiB** (the value when absent) |
-| `limits`, `input` | Package and heap bytes; touch contacts and coordinate bits |
+| `limits`, `input` | Bundle and heap bytes; touch contacts and coordinate bits |
 | `hostAbi` | The binding generation a release stamps; another value is rejected |
 
 | Target         | platform / form   | Logical viewport                         | Density | Capabilities |
@@ -347,8 +347,8 @@ A product writes its own host contract:
 **`profileHash` is the SHA-256 of the canonical projection of `id`,
 `platform`, `form`, `cadences`, `display`, `capabilities` and
 `roleCapabilities`.** Capabilities, cadences and role capabilities hash as
-sorted sets. The hash names the host contract a package was compiled against.
-Admission tries hash-equal variants first and does not require a match.
+sorted sets. The hash names the host contract a bundle was compiled against.
+Admission does not compare it.
 
 The host config, `pocket.host.config.ts`, names the host contract by a path
 relative to the config file, or by a built-in host id:
@@ -460,7 +460,7 @@ the keys are sorted by codepoint so the pretty plan matches the canonical JSON
 the hash is taken over.
 
 The full plan also carries `profile` and `profileHash`. **`plan.profile` is the
-compiled host contract plus `tickHz`, the package rate.** The `.pocket` variant
+compiled host contract plus `tickHz`, the application rate.** The bundle header
 stores `profileHash`, the hash of the host contract's canonical projection, as
 provenance. `.pocket/<target>/plan.json` records the compiler inputs for
 inspection and reuse.
@@ -468,7 +468,7 @@ inspection and reuse.
 `planHash` is a checksum of this generated build IR. It detects a plan edited
 or copied in part and can support build caching. It is not a runtime
 compatibility hash, a signature, an attestation, or a trust chain. Application
-identity and title are present because package backends consume them; icons,
+identity and title are present because device packagers consume them; icons,
 toolchain provenance, and other fields without a consumer stay out of the
 plan. The Vita backend
 derives a nine-character title id from the portable reverse-DNS app id instead
@@ -476,14 +476,14 @@ of keeping a per-demo target table.
 
 ## Admission
 
-**A device admits a package when its exported facts satisfy every item of the
-variant's plan.** The rules live in `engine/package/src/admission.rs` for
+**A device admits a bundle when its exported facts satisfy every item of the
+bundle's plan.** The rules live in `engine/package/src/admission.rs` for
 devices, `contracts/spec/admission.ts` for tools, and the ESP-IDF embed script;
 `engine/package/tests/fixtures/admission` is the corpus all three read.
 
-| Item | Package | Host | Relation |
+| Item | Bundle | Host | Relation |
 | --- | --- | --- | --- |
-| Binding generation | variant `hostAbi` | `POCKET_BINDING_GENERATION` | equal |
+| Binding generation | header `hostAbi` | `POCKET_BINDING_GENERATION` | equal |
 | Raster density | `plan.viewport.rasterDensity` | `display.rasterDensity` | equal |
 | Animation | `plan.animation` | `display.animation` | equal |
 | Rate | `plan.profile.tickHz` | `cadences` | a whole multiple of a cadence, at most 60 core ticks per frame |
@@ -495,45 +495,49 @@ devices, `contracts/spec/admission.ts` for tools, and the ESP-IDF embed script;
 The id, platform, form, capability order, capabilities the host adds,
 `hostExtension` and the panel size take no part. **A host with added
 capabilities, added viewports, another id or another capability order admits a
-package compiled for the original host contract.**
+bundle compiled for the original host contract.**
 
-A device takes the first variant whose `profileHash` equals its own and that it
-admits, then the first other variant it admits. When none qualifies it rejects
-the package and names the items the closest variant lacks, for example
-`variant 0 (psp) is not admitted: rasterDensity`. **The three C package-open
-entry points, `pocket_native_package_open`, the 3DS product's
-`pocket_package_open` and the ESP-IDF archive's `pocket_idf_package_open`,
+A device that does not admit a bundle names every item the plan fails, for
+example `not admitted: rasterDensity`. A host that keeps applications in a
+container of its own states the sections of the program it boots through its
+package source; the runtime admits that plan by the same rules and checks the
+same code sections. **The C package-open entry points,
+`pocket_native_package_open` and `pocket_native_package_open_source`, the
+ESP-IDF archive's `pocket_idf_package_open` and
+`pocket_idf_package_open_source`, and the 3DS product's `pocket_package_open`,
 return one table of `POCKET_PACKAGE_OPEN_*` codes**, declared in
 `contracts/spec/runtime-abi.ts` and generated into `pocket_runtime.h` and
 `pocket_drivers::abi`. The first failing item is its code:
 `POCKET_PACKAGE_OPEN_BINDING_GENERATION` (7), `PLAN` (9), `RASTER_DENSITY`
 (19), `ANIMATION` (20), `RATE` (21), `VIEWPORT` (22), `PRESENTATION` (23),
-`CAPABILITY` (24), `AUXILIARY` (25); `pocket_runtime::abi::open_package`, the
-body the three entry points share, maps every other selection failure. A plan
-whose JSON, viewport or auxiliary surface cannot be read after admission is
-`PLAN_JSON` (13), `PLAN_VIEWPORT` (14) or `PLAN_AUXILIARY` (15) at all three
-entry points. Repack, `pocket pack` and the companion
+`CAPABILITY` (24), `AUXILIARY` (25); `pocket_runtime::abi::open_package` and
+`open_source`, the bodies the entry points share, map every other failure. A
+plan whose JSON, viewport or auxiliary surface cannot be read after admission
+is `PLAN_JSON` (13), `PLAN_VIEWPORT` (14) or `PLAN_AUXILIARY` (15) at every
+entry point; a package source that does not supply its length, sections or
+bytes is `SOURCE` (27). The `*_open_source` forms read the source as boot
+reads it and do not take its storage, so the same source boots the program
+afterwards. Repack, `pocket pack` and the companion
 agent read a runtime's `pocket.host.json` and apply the same rules.
 
 ### Rate and cadence
 
-**`app.tickHz` is the package rate; the cadences are the host's.** A host
-presents a package at the largest cadence its rate is a whole multiple of,
+**`app.tickHz` is the application rate; the cadences are the host's.** A host
+presents an application at the largest cadence its rate is a whole multiple of,
 advances the core by rate ÷ cadence ticks per frame and publishes the cadence
-as `__simHz`. A host offering cadences [60, 30] presents a 30 Hz package at
-30 Hz and a 60 Hz package at 60 Hz; a panel with cadence 30 presents a 60 Hz
-package at 30 Hz with two core ticks per frame. `after(1.5)` fires 1.5 wall
+as `__simHz`. A host offering cadences [60, 30] presents a 30 Hz application at
+30 Hz and a 60 Hz application at 60 Hz; a panel with cadence 30 presents a 60 Hz
+application at 30 Hz with two core ticks per frame. `after(1.5)` fires 1.5 wall
 seconds after the first frame in each case. `pocket_runtime_get_timing`
 reports the rate, the cadence and the ticks per frame after boot.
 
 ## Application and program builds
 
 `pocket compile` reads the nearest host config above the working directory
-(or `--config`), resolves its `app` for the selected host and emits a `.pocket`
-application. `--target` names a host the config lists, by built-in id or by a
-`pocket.host.json` path; a config with one host needs none. The package's
-manifest region is empty; the variant's identity section and plan carry the
-application's identity.
+(or `--config`), resolves its `app` for the selected host and emits one
+bundle (`.pkb`). `--target` names a host the config lists, by built-in id or by
+a `pocket.host.json` path; a config with one host needs none. The bundle's
+identity section and plan carry the application's identity.
 
 `pocket build` reads the host config, `pocket.host.config.ts`. Its optional
 `build` field contains `cargo`, `cmake`, `make` or `compilerOnly` steps and an
@@ -543,7 +547,7 @@ variables. Build tools and drivers are program dependencies; the host contract
 contains neither a compiler selection nor a renderer selection. **An
 application config without `build` builds with the stock program of the
 built-in host it selects** (`PROGRAMS` in `tools/build/programs.ts`), and
-`pocket build` compiles the application first unless `--pocket` or `--aot-dir`
+`pocket build` compiles the application first unless `--bundle` or `--aot-dir`
 supplies it.
 
 A host config without `build` exports the host contract for an external build
@@ -559,7 +563,7 @@ that do not execute TypeScript consume `pocket.host.json`.
 runtime's host contract beside its archive as `pocket-host-<target>.json`.
 `pocket host fetch --target <id> --out <file>` downloads that host contract and
 checks it against the release's file hash, `profileHash` and binding
-generation; `pocket compile --target <file>` then compiles a package the
+generation; `pocket compile --target <file>` then compiles a bundle the
 runtime admits.
 
 | Tier | Program | Host contract | Checks |
@@ -599,7 +603,7 @@ check runs for every native mount, plan or no plan**: a bundle without an
 explicit `--hz` bakes 60, and a host that declares no `__tickHz` is read as 60,
 so a mismatch means the bundle's virtual time and the host's core disagree. The
 ABI check runs for a bundle that embedded a build contract; device admission
-decides which hosts run a package, so the host id is not compared. Stock builds embed the JS and native host
+decides which hosts run a bundle, so the host id is not compared. Stock builds embed the JS and native host
 together, so repeating the whole build plan as a runtime hash would make
 unrelated build metadata part of the wire contract.
 

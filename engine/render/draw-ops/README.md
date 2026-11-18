@@ -40,7 +40,7 @@ between code that names the former path and code that names the new one.
 This crate is published for one release after `pocket-render` and is then
 deprecated. New code depends on the crates in the right column.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

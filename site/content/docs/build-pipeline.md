@@ -37,7 +37,7 @@ directory. Pass 1 registers the host config nearest each source file it
 walks, so **sources one application imports from another compile with the
 owning application's settings**: `apps/iphone16-demo` mounts
 `apps/hero/app.tsx`, whose compiled model is lowered with hero's settings.
-`pocket compile` produces a guest package by default.
+`pocket compile` produces a bundle (`.pkb`) by default.
 `pocket compile --aot --out <directory>` generates Rust application code,
 font/image data and a dependency manifest for the program to compile. It does
 not invoke the native toolchain. See [TypeScript models to Rust](/docs/microts-model/).
@@ -47,13 +47,13 @@ Admission and generation commands for both paths are listed in
 **Application compilation and program compilation have separate commands.**
 `pocket compile --target <id|pocket.host.json> --output <file>` resolves the
 `app` section of the nearest `pocket.host.config.ts` against that host
-contract, writes `.pocket/<target>/plan.json`, then packages the JS and assets
-in a `.pocket` file with an empty manifest region. The target must be a host
+contract, writes `.pocket/<target>/plan.json`, then writes the plan, JS and
+assets to one bundle. The target must be a host
 the config lists; without `--target`, a config with one host selects it.
 `--config <file>` selects another host config.
 
 **`pocket build` consumes compiled application inputs and the program's host
-config, `pocket.host.config.ts`.** `--pocket` provides a format 2 package;
+config, `pocket.host.config.ts`.** `--bundle` provides a compiled bundle;
 `--aot-dir` provides the generated source directory; run from an
 application's directory without either, it compiles the application first.
 The executor verifies
@@ -112,22 +112,22 @@ firmware's host config, `pocket.host.config.ts`. Compile the application and
 export the program's trusted host contract from that host config:
 
 ```sh
-pocket compile --config pocket.host.config.ts --output dist/app.pocket
+pocket compile --config pocket.host.config.ts --output dist/app.pkb
 pocket host export --config pocket.host.config.ts --out profile-export
 ```
 
-The package carries its `profileHash`, JSON plan and a fixed-width binary
+The bundle carries its `profileHash`, JSON plan and a fixed-width binary
 `hostInputs` section. The Python embedding tool admits those inputs against
 the facts in `profile-export/pocket.host.json`; the program compiles
-`profile-export/pocket_profile.h`. **The package and program must have the
-same binding generation, and the program's facts must satisfy the package's
+`profile-export/pocket_profile.h`. **The bundle and program must have the
+same binding generation, and the program's facts must satisfy the bundle's
 plan.**
 
 IDF's `pocketjs_compile_app` and `pocketjs_profile_header` invoke these CLI
 operations and track imported modules in depfiles. Their `HOST_CONFIG`
 parameter defaults to the firmware root's `pocket.host.config.ts`.
-`pocketjs_embed_package(... PROFILE_EXPORT_DIR <directory>)` consumes an
-existing package, header and exported `pocket.host.json` with Python; it
+`pocketjs_embed_bundle(... PROFILE_EXPORT_DIR <directory>)` consumes an
+existing bundle, header and exported `pocket.host.json` with Python; it
 requires no Bun or CLI.
 See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 
@@ -344,12 +344,12 @@ Codepoints the font does not map are left out of the atlas. **On a target whose
 host contract carries only `text.glyphs.baked`, a codepoint missing from the atlas
 resolves to glyph 0 — a drawn hollow "tofu" box, also mapped from U+FFFD so it
 has an advance.** A target that also advertises `text.glyphs.runtime`
-(`macos-widget`, and `web-app` and every page that runs a package through
+(`macos-widget`, and `web-app` and every page that runs an application through
 `programs/web/app-instance.js`) rasterizes the missing glyph from a system font and
 reloads the atlas through `loadFontAtlas`, so tofu is what an app that accepts
 arbitrary text gets on a baked-only target.
 
-In a browser, `platforms/web/runtime-glyphs.js` does this inside the package's
+In a browser, `platforms/web/runtime-glyphs.js` does this inside the application's
 realm. It keeps a copy of each atlas the guest loads. Before the core reads a
 string (`setText`, `replaceText`, `measureText`, `wrapText`) it draws each
 codepoint no atlas maps on a 2D canvas, in the browser's Japanese, Chinese and

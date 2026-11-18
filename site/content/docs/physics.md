@@ -249,7 +249,7 @@ homepage's canvas art into the sprites.
 ```sh
 bun apps/nexus/gen-art.ts      # re-bake the sprites (headless Chrome)
 bun tools/pocket.ts compile --config apps/nexus/pocket.host.config.ts \
-  --project-root . --output .pocket-build/nexus.pocket
+  --project-root . --output .pocket-build/nexus.pkb
 ```
 
 ## The touch Pocket Nexus scene
@@ -284,5 +284,5 @@ at most two, which it keeps upright and on screen.
 The maintained demo lives in `apps/nexus-touch`. **The iPod touch and Symbian
 programs use the host contracts and native recipes in this repository.**
 Compile the demo against the selected program's host config, then
-pass its `.pocket` package to the native build. Artwork can be regenerated
+pass its bundle (`.pkb`) to the native build. Artwork can be regenerated
 with `bun apps/nexus-touch/gen-art.ts`.

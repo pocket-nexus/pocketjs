@@ -42,8 +42,8 @@ source "$POCKETJS_ROOT/platforms/sifli/Kconfig"
 
 ```sh
 bun tools/pocket.ts host export --config pocket.host.config.ts --out build/profile
-bun tools/pocket.ts compile --config pocket.host.config.ts --output build/app.pocket
-bun tools/build/sifli/epic.ts --pocket build/app.pocket --out build/app.epic
+bun tools/pocket.ts compile --config pocket.host.config.ts --output build/app.pkb
+bun tools/build/sifli/epic.ts --bundle build/app.pkb --out build/app.epic
 POCKET_PROFILE_EXPORT_DIR=$PWD/build/profile scons --board=<board> -j8
 ```
 
@@ -52,11 +52,11 @@ host contract**, not from Kconfig; the SConscript stops when
 `POCKET_PROFILE_EXPORT_DIR` holds no `pocket_profile.h`. `PocketjsEmbed(name,
 path)`, exported by the SConscript, links a file in `.rodata` at **64-byte
 alignment** as `pocketjs_<name>_data` with its length in the 32-bit
-`pocketjs_<name>_size`; programs embed the `.pocket` package and the `.epic`
+`pocketjs_<name>_size`; programs embed the bundle and the `.epic`
 table with it.
 
 The embedded file is a dependency of its assembly **object**, so replacing
-package or texture bytes rebuilds the `.incbin` object. A program link also
+bundle or texture bytes rebuilds the `.incbin` object. A program link also
 depends on the Rust archive even though it is passed through `LINKFLAGS_POST`.
 
 With `POCKETJS_RUST_FROM_SOURCE=y` the SConscript runs `cargo build --release
@@ -151,7 +151,7 @@ portable bytes; otherwise the texture stays on the CPU. Registrations are
 cached by handle and revision and released when a newer revision replaces
 them and no submission reads them.
 
-`epic.ts` turns every `ui:img.*` entry of a package into one 64-byte aligned
+`epic.ts` turns every `ui:img.*` entry of a bundle's pak into one 64-byte aligned
 payload in EPIC channel order: **RGB565 with red in the high bits, BGRA8888,
 or L8 behind a 1024-byte BGRA palette**. `--opaque RRGGBB` composites PSM_8888
 alpha over one color at bake time and stores opaque RGB565. The source digest

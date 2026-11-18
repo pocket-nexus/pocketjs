@@ -30,7 +30,7 @@ its generated C headers. The shell uses the arm64 device/simulator slices
 and excludes x86_64. CocoaPods is not required.
 
 `tools/play.ts` compiles the demo against `ios-dev` and passes the resulting
-`.pocket` package to `tools/ios.ts`. The iOS tool admits that package, stages
+bundle (`.pkb`) to `tools/ios.ts`. The iOS tool admits that bundle, stages
 `<output>.pocketjs`, `<output>.pak`, `<output>.plan.json` and `current.json`,
 copies the framework into the local plugin, installs shell dependencies and
 starts NativeScript. `--rebuild-native` rebuilds the framework before staging.
@@ -42,19 +42,18 @@ Build a simulator application without launching it through the host config:
 ```sh
 bun tools/pocket.ts compile --config apps/nsengine/pocket.host.config.ts \
   --project-root . --target ios-dev \
-  --output dist/ios/application.pocket
+  --output dist/ios/application.pkb
 bun tools/pocket.ts build --config programs/ios-simulator/pocket.host.config.ts \
-  --pocket dist/ios/application.pocket --out dist/ios/native
+  --bundle dist/ios/application.pkb --out dist/ios/native
 ```
 
 The native recipe writes `PocketShell.app` and `PocketApple.xcframework` under
-`dist/ios/native`. To stage an existing package for a simulator run, use
-`bun tools/ios.ts play --pocket dist/ios/application.pocket`.
+`dist/ios/native`. To stage an existing bundle for a simulator run, use
+`bun tools/ios.ts play --bundle dist/ios/application.pkb`.
 
 The raw JS/pak entry points remain for existing UIKit consumers. The Apple
-adapter wraps those inputs in the current `.pocket` format with
-`pocket-package::embedded`, then passes the result through the standard
-package reader. The wrapper derives its host contract hash from the configured
+adapter wraps those inputs in a bundle with `pocket-package::embedded`, then
+passes the result through the standard bundle reader. The wrapper derives its host contract hash from the configured
 host identity, viewport, density, tick rate and service capabilities.
 
 ## Guest modes

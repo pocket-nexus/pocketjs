@@ -39,7 +39,7 @@ rasterize only the planned regions, and commit the tracker; keep one tracker per
 persistent framebuffer. The `compositor` module paints host-owned surface rasters
 in DrawList order between the software-rendered segments.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

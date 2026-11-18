@@ -30,7 +30,7 @@ This crate emits drawing operations. Use `pocket-runtime` for package admission,
 
 The crate defines the `Physics` trait for `ui.physics` and contains no engine. `Ui::set_physics` installs one; `tick` steps it after animation tracks, and the engine writes only the `physics_values` layer of the nodes it poses.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

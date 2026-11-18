@@ -25,7 +25,7 @@ Rust 1.93 or later. `no_std` with `alloc`; no audio device, file, or socket impl
 
 Callers provide bytes and own I/O. The codec below uses the PocketJS PackBits variant, whose repeat counts differ from TIFF PackBits. Container and transport formats follow the matching PocketJS protocol version.
 
-Use matching PocketJS crate releases and compiler contracts. Application package
+Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective
 boundaries; a Cargo version alone does not replace those checks.
 

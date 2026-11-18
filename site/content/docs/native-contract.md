@@ -71,8 +71,8 @@ remain borrowed for the call; byte results expire at the next call on the same
 instance, including a failed call.
 
 Existing QuickJS C, rquickjs `UiSurface`, and Wasm entry paths remain
-available. **Applications use package format 2
-and binding generation 12.** Host contract identity (`profileHash`), binding
+available. **Applications are bundles, format 1,
+of binding generation 12.** Host contract identity (`profileHash`), binding
 generation, C record prefixes and DrawList versions are checked as separate
 contracts.
 
@@ -181,15 +181,54 @@ newline. Keys use UTF-16 code-unit order; capabilities, cadences and role
 capabilities sort as sets; other arrays keep their order; absent optional
 fields stay absent. The canonicalizer rejects non-JSON data and unpaired
 surrogates. **`panel`, `worker`, `limits`, `input`, `hostExtension` and the
-`hostAbi` stamp are excluded from the hash.** The format 2 variant table
-carries this hash as 32 bytes; it names the host contract a package was
-compiled against.
+`hostAbi` stamp are excluded from the hash.** The bundle header carries this
+hash as 32 bytes; it names the host contract the bundle was compiled against.
 
-### Package and driver compatibility
+### Bundle format
+
+**A bundle (`.pkb`) is one compiled application for one host contract.**
+`contracts/spec/bundle.ts` defines it; `engine/package/src/bundle.rs` reads it
+on devices and `platforms/esp-idf/pocket_runtime/tools/embed_bundle.py` reads
+it in ESP-IDF builds. All integers are little-endian.
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | magic `PKBD` (`0x44424B50`) |
+| 4 | 4 | format version, 1 |
+| 8 | 4 | binding generation (`hostAbi`) |
+| 12 | 4 | section count |
+| 16 | 8 | FNV-1a64 over the section payloads in table order |
+| 24 | 32 | host contract hash (`profileHash`) |
+| 56 | 8 | two reserved words, zero |
+| 64 | 16 × count | section table: kind, reserved zero word, payload offset, payload length |
+| table end, aligned to 16 | | payloads in table order, each padded to 16 |
+| length − 8 | 8 | FNV-1a64 over every preceding byte |
+
+| Kind | Section |
+| --- | --- |
+| 1 | identity: output, id and title as u16-length-prefixed UTF-8 |
+| 2 | plan: the ResolvedBuildPlan JSON |
+| 3 | js: the UI bundle, NUL-terminated |
+| 4 | pak: the asset pack |
+| 5 | icon: the square PNG `app.icon` names; a device packager stamps it |
+| 6 | bytecode: the UI bundle as a QJBC envelope |
+| 7 | hostInputs: the fixed-width ESP-IDF admission record |
+| 8 | workerJs: the worker bundle, NUL-terminated |
+| 9 | workerBytecode: the worker bundle as a QJBC envelope |
+
+Kinds increase through the table and are append-only; a reader keeps unknown
+kinds as data. Readers reject truncation, overlapping or out-of-range offsets,
+duplicate or decreasing kinds, nonzero reserved words, trailing data, and
+footer or payload hash mismatches. **A host that keeps applications in a
+container of its own, such as pocket-shell's `.pocket`, states the plan, js,
+pak, bytecode, workerJs and workerBytecode sections of the program it boots
+through its package source**; the kind numbers map one to one.
+
+### Bundle and driver compatibility
 
 **The program supplies its host contract facts, `profileHash` and binding
 generation before reading an application.** The host contract reaches the
-runtime as `pocket_profile_facts`: the variant id, cadences, panel sizes,
+runtime as `pocket_profile_facts`: the host id, cadences, panel sizes,
 logical viewports, presentations, raster density, animation class, capability names
 and the input classes its capabilities require. Records follow the
 `struct_size` prefix rule: a record without cadences has the one cadence
@@ -200,19 +239,19 @@ runtime reads no JSON. The C package-open entry points take the same record. `Ru
 `host_abi` differs from the generated constant. Guest adapters reject an
 unsupported generation before mounting `ui` or evaluating application code.
 
-| Package | Runtime | Result |
+| Application | Runtime | Result |
 | --- | --- | --- |
-| Format 1 | Current format 2, generation 12 | Reject the package version before guest initialization |
-| Format 2, legacy generation 1–11 | Generation 12 | Reject the binding generation |
-| Format 2, generation 12, plan the facts satisfy | Generation 12 | Admit if format, assets and driver checks pass, with any host id or `profileHash` |
-| Format 2, generation 12, plan the facts do not satisfy | Generation 12 | Reject and name the first failing [admission item](/docs/platform-contracts/#admission) |
-| Format 2, generation 12 | Old format 1 runtime | Reject the package version |
-| Format 2, generation 12 | Format 2 runtime built with a legacy generation | Reject the binding generation |
+| `.pocket` file, format 1 or 2 | Bundle runtime, generation 12 | Reject the magic before guest initialization |
+| Bundle, legacy generation 1–11 | Generation 12 | Reject the binding generation |
+| Bundle, generation 12, plan the facts satisfy | Generation 12 | Admit if format, assets and driver checks pass, with any host id or `profileHash` |
+| Bundle, generation 12, plan the facts do not satisfy | Generation 12 | Reject and name the first failing [admission item](/docs/platform-contracts/#admission) |
+| Bundle, generation 12 | `.pocket` runtime | Reject the magic |
+| Bundle, generation 12 | Bundle runtime built with a legacy generation | Reject the binding generation |
 
 Rebuild the program and application together when changing binding generation.
 The compiler, host contract exporter and repacker require the current generation;
-they do not convert a legacy plan, runtime or package. The package codec can
-read historical generation values for inspection and compatibility tests.
+they do not convert a legacy plan, runtime or bundle. The bundle codec reads
+any generation value for inspection and compatibility tests.
 
 **`hostAbi` does not version a C driver.** A driver and runtime must agree on
 the closed DrawList version. Their C records follow prefix compatibility:
@@ -227,8 +266,8 @@ the closed DrawList version. Their C records follow prefix compatibility:
 A record's `struct_size` describes readable bytes; output capacities bound
 writes. Prefix compatibility cannot make a missing function symbol link, or
 make an old renderer understand a new DrawList operation. The runtime lifecycle
-tests cover old-package rejection before guest initialization and replacement
-with a current package. Before a release, `bun tools/test-runtime-cabi-compat.ts`
+tests cover the rejection of another format version and of a `.pocket` file
+before guest initialization and replacement with a current bundle. Before a release, `bun tools/test-runtime-cabi-compat.ts`
 compiles and links old/new C prefixes in both directions against the archive of
 the first main-line revision with `pocket_profile_facts`, and
 `bun tools/test-native-program-compat.ts` does the same for
@@ -241,17 +280,26 @@ from one source revision or are byte-identical.** CI does not run them.
 **`pocket_native_program.h` composes one runtime instance for a C host.**
 `programs/native/runtime` creates the instance from one of four constructors:
 raw JavaScript and PAK (`pocket_native_program_create`, `_create_profile`), a
-complete `.pocket` (`_create_package`), or a host `pocket_package_source_v1`
+complete bundle (`_create_package`), or a host `pocket_package_source_v1`
 (`_create_source`). The first three copy the bytes into a memory source and
-turn native asset loading off; the source form reads the package at boot and
-keeps native asset loading on. Admission against the host profile runs before
+turn native asset loading off; the source form reads the bundle or the stated
+sections at boot and keeps native asset loading on. Admission against the host profile runs before
 the guest initializes in every form.
 
 **A source with the optional `sections` callback states the byte ranges of one
 program in a container of the host's own.** The runtime reads the plan, the
 bundles and the pak at those ranges, admits the plan against the host profile
-and parses no `.pocket` container; the integrity of the host's container is
-the host's to check. Without the callback the bytes are a `.pocket` container.
+and parses no container; the integrity of the host's container is the host's
+to check. Without the callback the bytes are a bundle.
+
+**`pocket_native_package_open` admits a bundle in caller bytes before boot;
+`pocket_native_package_open_source` admits what a package source holds through
+the path boot takes.** Both fill `PocketNativePackage` with the plan's viewport,
+raster density and feature bits. The source form calls `length`, `sections`
+and `all` or `range`, never `take`, so the same source boots the program
+afterwards; its `javascript`, `pak` and `plan` pointers borrow the bytes
+`all` returned until the next call on the source, and are null for a
+range-only source. `package_hash` is zero for stated sections.
 
 The archive's features select the outputs `create` registers:
 

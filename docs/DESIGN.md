@@ -125,7 +125,7 @@ PocketJS/
   programs/psp/              Rust bin `pocketjs-psp` — the EBOOT (standalone dir, lone bin)
     Cargo.toml         exact-revision pocket-nexus psp + libquickjs-sys deps;
                        pocketjs-core (local path)
-    build.rs           embeds the compiled $POCKETJS_EMBED_PACKAGE when the stock backend owns packaging,
+    build.rs           embeds the compiled $POCKETJS_EMBED_BUNDLE when the stock backend owns packaging,
                        and $POCKETJS_PROFILE_RS as OUT_DIR/pocket_profile.rs;
                        [features] capture = [] for the E2E frame-dump
     targets/mipsel-sony-psp.json  copied from runtime/ (self-contained)
@@ -222,7 +222,7 @@ program's native build.** `defineHostConfig()` from
 an optional `build` recipe. A host config with multiple host contracts requires a
 host id. The host contract supplies capabilities, display geometry and cadences;
 it does not select an application framework. `pocket build` executes the declared native build recipe.
-`pocket compile` produces a `.pocket` application, while `--aot --out <directory>`
+`pocket compile` produces an application bundle (`.pkb`), while `--aot --out <directory>`
 produces generated Rust, baked assets and a dependency manifest without invoking
 Cargo. Both compiler paths bake `app.theme` at the application's `app.tickHz`.
 
@@ -253,12 +253,12 @@ The link adapter places SDK C libraries after the Rust archives that own
 memory and math exports. The SDK archives remain unchanged.
 
 `POCKETJS_APP_OUTPUT` and `POCKETJS_EMBED_APP` select the embedded guest;
-`POCKETJS_EMBED_PACKAGE` names the compiled `.pocket` the EBOOT embeds, and
+`POCKETJS_EMBED_BUNDLE` names the compiled bundle the EBOOT embeds, and
 `POCKETJS_PROFILE_RS` the exported `pocket_profile.rs` that supplies the host
 contract facts to its Runtime. `tools/psp.ts <demo>` compiles the demo with `pocket compile`
-first. Embedded packages, catalog packages and `app.pocket` enter Runtime as
-their original bytes; **the EBOOT encodes no package at boot**. **Runtime
-performs package admission** before guest initialization.
+first. Embedded bundles, launcher bundles and `app.pkb` enter Runtime as
+their original bytes; **the EBOOT encodes no bundle at boot**. **Runtime
+performs bundle admission** before guest initialization.
 
 ## The native contract (`ui.*`)
 
