@@ -450,8 +450,8 @@ Kinetic scroll views, CLUT/swizzled textures, render-to-texture opacity groups
 kerning, `hover:`, percentage sizes beyond `-full`, Android hosts,
 `rounded-full` on runtime-sized nodes.
 
-The 3DS left this list with `products/3ds` — a QuickJS guest over a PICA200
-backend. **The CIA boots and renders on a New 3DS LL.** The `3ds-dev` target
-in `tools/3ds-profile.ts` stays outside the production registry until its
+The 3DS left this list with a QuickJS guest over a PICA200 backend
+(`programs/3ds`, `devices/3ds/pocket-3ds-pica`). The `3ds-runtime` host
+contract stays outside the production registry (`POCKET_TARGETS`) until its
 synthesized-cursor, sprite, streamed-texture and large-atlas paths have direct
 coverage.

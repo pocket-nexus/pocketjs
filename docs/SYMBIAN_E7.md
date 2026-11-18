@@ -595,13 +595,17 @@ shrinks with the contact. Release passes its normalized pose and last frame to
 Shell before the first resumed guest frame. Focus loss, rotation and additional
 contacts cancel the gesture. The operating system Home key is unchanged.
 
-`appTable()` reports `kind: "native"` and each configured entry's `installed`
-state. `launchApp(output)` schedules activation after presentation;
-`onNativeAppReturn(listener)` receives return destination, normalized pose,
-last-frame texture and launch errors. `closeApp(output)` lets Shell request
+The `appTable` operation reports `kind: "native"` and each configured entry's
+`installed` state. `appLaunch(output)` schedules activation after
+presentation. Before the first resumed frame the host calls
+`globalThis.__pocketjsNativeReturn(output, destination, shot, error, x, y, scale)`
+with the return destination, the last-frame texture, the launch error and
+the normalized pose. `appClose(output)` lets Shell request
 `EndTask` for a configured child. A successful return means the close request
 was sent, not that the process has exited. Other hosts can omit `appClose`.
-Missing packages and rejected activation leave the calling app usable.
+Missing packages and rejected activation leave the calling app usable. The
+guest module over these operations (`onNativeAppReturn`, `closeApp`) lives in
+pocket-nexus/pocket-shell (`runtime/src/launcher.ts`).
 
 Return metadata and screenshots live under
 `E:/Data/PocketJS/navigation/<shell-uid>/`. The host consumes a return mailbox

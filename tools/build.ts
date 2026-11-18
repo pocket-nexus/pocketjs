@@ -77,7 +77,6 @@ import {
   placeholderImage,
   type PakBlob,
 } from "../framework/compiler/pak.ts";
-import { checkAppletBundle, checkAppletSources, formatAppletDiagnostics } from "./applet-check.ts";
 
 const ROOT = resolvePath(fileURLToPath(new URL("..", import.meta.url))); // pocketjs/
 let DIST = join(ROOT, "dist/");
@@ -302,17 +301,13 @@ async function walk(file: string): Promise<void> {
   }
 }
 
-// System layers the plan's capabilities bring (framework/src/system-layers.ts):
-// a Solid app that declares "system.agent" gets the agent's overlay. It is
-// walked here so pass 1 compiles its classes and glyphs, and imported ahead
-// of the app's entry in pass 2 so it registers before the app mounts.
+// System layers a product passes with --layer (framework/src/system-layers.ts).
+// Each is walked here so pass 1 compiles its classes and glyphs, and imported
+// ahead of the app's entry in pass 2 so it registers before the app mounts.
 const systemLayers: string[] = [];
 for (const layer of layerFlags) {
   if (!existsSync(layer)) throw new Error(`PocketJS build: --layer names ${layer}, which is not a file`);
   systemLayers.push(layer);
-}
-if (framework === "solid" && buildPlan?.features["system.agent"] === true) {
-  systemLayers.push(join(ROOT, "framework/src/agent-layer.tsx"));
 }
 await walk(entry);
 for (const layer of systemLayers) await walk(layer);
@@ -615,23 +610,4 @@ if (inputsFile) {
 }
 const bundleBytes = bundle ? (await bundle.arrayBuffer()).byteLength : 0;
 console.log(`  pass 2: ${DIST}${outName}.js (${bundleBytes} bytes)`);
-// A Pocket Applet's code and bundle meet the applet rules
-// (contracts/spec/applet.ts) or the build fails.
-if (buildPlan?.applet) {
-  const diagnostics = [
-    ...checkAppletSources({
-      projectRoot,
-      entry: buildPlan.app.entry,
-      applet: buildPlan.applet,
-      capabilities: Object.keys(buildPlan.features),
-    }),
-    ...checkAppletBundle({ jsBytes: bundleBytes, pakBytes: pak.length }),
-  ];
-  if (diagnostics.length > 0) {
-    console.error(formatAppletDiagnostics(outName, diagnostics));
-    console.error("PocketJS build: the applet breaks the applet rules (docs/APPLETS.md)");
-    process.exit(1);
-  }
-  console.log("  applet: rules pass");
-}
 console.log("PocketJS build: done");

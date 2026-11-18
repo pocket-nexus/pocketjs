@@ -105,7 +105,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "hosts/3ds-runtime": { file: "hosts/3ds-runtime/pocket.host.json" },
   "hosts/psp": { file: "hosts/psp/pocket.host.json" },
   "hosts/vita": { file: "hosts/vita/pocket.host.json" },
-  "hosts/3ds-dev": { file: "hosts/3ds-dev/pocket.host.json" },
   "hosts/pocketbook": { file: "hosts/pocketbook/pocket.host.json" },
   "hosts/web-app": { file: "hosts/web-app/pocket.host.json" },
   "hosts/macos-widget": { file: "hosts/macos-widget/pocket.host.json" },
@@ -127,8 +126,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   },
   devtools: { file: "framework/src/devtools.ts" },
   display: { file: "framework/src/display.ts", aliases: TWINS },
-  // Pocket Applets are Solid apps (contracts/spec/applet.ts): solid only.
-  applet: { file: { solid: "framework/src/applet.tsx" } },
   effects: { file: "framework/src/effects.ts", aliases: TWINS },
   fs: { file: "framework/src/fs-api.ts", aliases: TWINS, domains: ["ui", "worker"] },
   gesture: {
@@ -166,7 +163,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     },
     aliases: ["vue-vapor"],
   },
-  launcher: { file: "framework/src/launcher.ts" },
   manifest: { file: "framework/src/manifest/index.ts" },
   osk: { file: { solid: "framework/src/osk.tsx" } },
   package: { file: "contracts/spec/pocket-package.ts" },
@@ -175,8 +171,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   platform: { file: "framework/src/platform.ts" },
   modality: { file: "framework/src/modality.ts" },
   actions: { file: { solid: "framework/src/actions.ts" } },
-  agent: { file: { solid: "framework/src/agent.ts" } },
-  system: { file: { solid: "framework/src/system.ts" } },
   // What a product's system layer builds on (tools/build.ts --layer).
   "system-layers": { file: { solid: "framework/src/system-layers-api.ts" } },
   // The deterministic simulator host: a tool-side module, not guest code.
@@ -217,11 +211,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "model/animation": { file: "framework/src/model-animation.ts" },
   physics: { file: "framework/src/physics.ts", aliases: TWINS },
   game2d: { file: { solid: "framework/src/game2d/index.ts" }, npmFile: "framework/src/game2d/index.ts" },
-  link: { file: "framework/src/link.ts" },
-  channel: { file: "framework/src/channel.ts" },
-  wifi: { file: "framework/src/wifi.ts" },
-  device: { file: "framework/src/device.ts" },
-  camera: { file: "framework/src/camera.ts" },
 };
 
 /** The bare npm export target for a row (npmFile > invariant file > solid). */

@@ -50,8 +50,8 @@ pixels identical between frames: **240×136 at 12 frames a second took 58 to
 
 Providers using x264's zero-latency tune must disable sliced threading and
 select one encoder thread to preserve this frame boundary. `slices=1` alone
-can produce several slices per frame. The 3DS adapter submits each slice to
-MVD as a complete frame; partial frame slices are outside this wire profile.
+can produce several slices per frame. A hardware decoder receives each slice
+as a complete frame; partial frame slices are outside this wire profile.
 
 | Boundary | Limit |
 | --- | --- |
@@ -70,48 +70,34 @@ Each audio block contains two channel headers (signed 16-bit predictor,
 8-bit step index, zero reserved byte), followed by one byte per remaining
 stereo sample frame: left nibble in the low bits, right in the high bits.
 **Every block can decode without previous blocks.** The public
-`@pocketjs/framework/media/audio` encoder and native C decoder share cross-language
-fixtures. Video and audio records carry absolute PTS; a new seek stream starts
+`@pocketjs/framework/media/audio` encoder and the Rust decoder in
+`programs/psp/src/media_wire.rs` share vectors (`tests/fixtures/psp-runtime`). Video and audio records carry absolute PTS; a new seek stream starts
 with parameter sets and an IDR frame.
 
-The 3DS worker owns sockets, MVD service calls, ADPCM expansion and NDSP.
-The renderer transfers at most one RGB565 frame into a PICA texture after the
-previous graphics frame retires. The UI does not wait for network reads or
-video decoding. GPU transfer, drawing, allocation and scheduling still take
-time; hardware measurements are required for a frame-rate claim.
+**The Nintendo 3DS media worker lives with the 3DS product host in
+pocket-nexus/pocket-shell**: its sockets, the MVD H.264 decoder, ADPCM
+expansion and NDSP output. A host renderer transfers at most one RGB565
+frame into a texture after the previous graphics frame retires, and the UI
+does not wait for network reads or video decoding.
 
-MVD video processing is available on New 3DS. The host requests CPU speedup,
-uses MVD for H.264 and color conversion, PICA for scaling, and NDSP for audio
-output. See the [devkitPro MVD example](https://github.com/devkitPro/3ds-examples/tree/master/mvd)
-and [libctru MVD interface](https://github.com/devkitPro/libctru/blob/master/libctru/include/3ds/services/mvd.h).
-An H.264 stream on a console without MVD yields a playback error; the
-`h264` status field lets an app ask for PAL8 instead. **NDSP requires a DSP
-component from `/3ds/dspfirm.cdc` or the Homebrew Launcher `hb:ndsp` handle.**
-Without either, the stream plays muted: audio packets are dropped, the clock
-is the system timer from the first decoded frame (stopped while paused), and
-`audio` in the status is false so the app can name the fix. Luma3DS users
-can press L + D-pad Down + SELECT, choose Miscellaneous options → Dump DSP
-firmware in Rosalina, then reopen the media source. The dump reads firmware
-from the console; the application does not distribute firmware. See the
-[devkitPro audio setup](https://github.com/devkitPro/3ds-examples/blob/master/audio/README.md).
-The 3DS host contract remains
-private and its host ABI is 10; ABI 8 launchers require a native replacement.
-The CIA declares `mvd:STD` service access and the MVD system-module dependency
-listed in [3dbrew's title table](https://www.3dbrew.org/wiki/Title_list#00040130_-_System_Modules).
+An H.264 stream on a console without a hardware decoder yields a playback
+error; the `h264` status field lets an app ask for PAL8 instead. A host
+without an audio output plays the stream muted: audio packets are dropped,
+the clock is the system timer from the first decoded frame (stopped while
+paused), and `audio` in the status is false so the app can name the fix.
 
 ## PSP over the USB carrier
 
 The PSP reads the same stream from the companion's USB carrier instead of a
 socket: `media.open` sends the source's token in `media.req`, and the worker
-reads the header and packets from `media.ring` in the PSPLINK share
-([POCKET-LINK.md](./POCKET-LINK.md), "USB carrier"). The source's address and
+reads the header and packets from `media.ring` in the PSPLINK share (the
+"USB carrier" section of `docs/POCKET-LINK.md` in pocket-nexus/pocket-shell). The source's address and
 port go unused. **The PSP takes PAL8 only**; `h264` is false in its status,
 and a stream of another codec fails as unsupported.
 
 `programs/psp/src/media.rs` runs one worker thread below the guest's
 priority. It does every `host0:` read of the stream, applies PAL8 packets to
-the reference picture (`media_wire.rs`, the Rust copy of
-`platforms/3ds/media_wire.h`), copies each picture into an 8-slot frame ring,
+the reference picture (`media_wire.rs`), copies each picture into an 8-slot frame ring,
 and decodes ADPCM blocks into the audio output's ring (one 44.1 kHz channel,
 22,050 Hz doubled). **The worker reads no further than 400 ms of audio ahead
 of the clock**, which bounds the frame ring and the reads; playback starts
@@ -138,11 +124,6 @@ placement and touch hit queries use that surface. Modality blocks application
 input until the keyboard closes. `createWasmUi().createAuxiliarySurface(w, h)`
 and `renderAuxiliary()` expose the same separate roots and shared resources for
 application tests and visual review.
-
-The 3DS decoder requests **`MVD_OUTPUT_BGR565` (0x40002)** for the packed words
-consumed by `GX_TRANSFER_FMT_RGB565` and `GPU_RGB565`. The MVD and GPU names use
-different channel-order conventions. Selecting MVD's `RGB565` exchanges red
-and blue; the companion must retain the source colors.
 
 ## Service playback providers
 

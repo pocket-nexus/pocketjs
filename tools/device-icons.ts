@@ -7,8 +7,8 @@ import { rasterizeIconSvg } from "./icon-raster.ts";
 const root = resolve(import.meta.dir, "..");
 const check = process.argv.includes("--check");
 for (const [source, target, size, opaque] of [
-  ["products/3ds/icon.svg", "products/3ds/icon.png", 48, true],
-  ["products/3ds/icon-small.svg", "products/3ds/icon-small.png", 24, true],
+  ["platforms/3ds/icon.svg", "platforms/3ds/icon.png", 48, true],
+  ["platforms/3ds/icon-small.svg", "platforms/3ds/icon-small.png", 24, true],
   ["assets/brand/pocketjs-icon.svg", "assets/brand/pocketjs-icon.png", 57, false],
 ] as const) {
   const svg = readFileSync(resolve(root, source), "utf8");

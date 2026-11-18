@@ -122,22 +122,22 @@ describe("repack shared helpers", () => {
 
   test("a runtime directory must match its runtime.json and ship its host contract", async () => {
     const program = new Uint8Array([1, 2, 3]);
-    const profile = POCKET_PROFILES["3ds-dev"];
+    const profile = POCKET_PROFILES["3ds-runtime"];
     const good = runtimeDirectory(profile, new Map([["a.bin", program]]));
-    const read = await readRuntime(good, "3ds-dev");
+    const read = await readRuntime(good, "3ds-runtime");
     expect(read.hostAbi).toBe(POCKET_BINDING_GENERATION);
     expect(read.document).toEqual({ ...profile, hostAbi: POCKET_BINDING_GENERATION });
-    await expect(readRuntime(new Map(), "3ds-dev")).rejects.toThrow(/no runtime.json/);
-    await expect(readRuntime(good, "psp")).rejects.toThrow(/for "3ds-dev", not "psp"/);
+    await expect(readRuntime(new Map(), "3ds-runtime")).rejects.toThrow(/no runtime.json/);
+    await expect(readRuntime(good, "psp")).rejects.toThrow(/for "3ds-runtime", not "psp"/);
     const missing = new Map(good); missing.delete("a.bin");
-    await expect(readRuntime(missing, "3ds-dev")).rejects.toThrow(/missing a.bin/);
+    await expect(readRuntime(missing, "3ds-runtime")).rejects.toThrow(/missing a.bin/);
     const noDocument = runtimeDirectory(profile, new Map([["a.bin", program]]));
     const listed = JSON.parse(new TextDecoder().decode(noDocument.get("runtime.json")));
     delete listed.files["pocket.host.json"]; noDocument.delete("pocket.host.json");
     noDocument.set("runtime.json", new TextEncoder().encode(JSON.stringify(listed)));
-    await expect(readRuntime(noDocument, "3ds-dev")).rejects.toThrow(/ships no pocket\.host\.json/);
-    const otherDocument = runtimeDirectory(POCKET_PROFILES["3ds-runtime"], new Map([["a.bin", program]]), { target: "3ds-dev" });
-    await expect(readRuntime(otherDocument, "3ds-dev")).rejects.toThrow(/pocket\.host\.json is not the host contract runtime\.json names/);
+    await expect(readRuntime(noDocument, "3ds-runtime")).rejects.toThrow(/ships no pocket\.host\.json/);
+    const otherDocument = runtimeDirectory(POCKET_PROFILES["psp-runtime"], new Map([["a.bin", program]]), { target: "3ds-runtime" });
+    await expect(readRuntime(otherDocument, "3ds-runtime")).rejects.toThrow(/pocket\.host\.json is not the host contract runtime\.json names/);
 
   });
 

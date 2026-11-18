@@ -98,11 +98,11 @@ PSP title that is a list reads as another game. A list too long for rows a
 finger can press stands two abreast in the same rows (six hours as three
 rows of two) before it becomes a grid of buttons.
 
-A device outside PocketJS's public registry (the 3DS development target, an
+A device outside PocketJS's public registry (a 3DS host contract, an
 iPod drawable that shares the scene's 480 × 320) resolves through a host
-contract kept with the game's tool: `resolve3dsBuildPlan` from
-`tools/3ds-profile.ts`, or `validateAndResolveBuildPlan` with a registry of one
-target.
+contract kept with the game's tool: `validateAndResolveBuildPlan` with a
+registry of one target (`profileRegistry` in `tools/profile-resolver.ts`
+builds one from a host contract).
 
 ### A browser tab shows every presentation
 
@@ -163,7 +163,7 @@ them from its channel in one of two ways:
 | Host | How the game answers |
 | --- | --- |
 | Rust hosts (`programs/psp`, `programs/vita`) | After the host registered its ops and before the bundle is evaluated, set `svcOpen`, `svcPoll`, `svcSend` on the guest's `ui` object to C functions that read and write the channel (`JS_NewCFunction2`, `JS_SetPropertyStr`). |
-| C hosts (`products/3ds/src/qjs.c`, `programs/native/quickjs/pocket_qjs_program.c` with `POCKET_SVC_WIRE`) | Link the six functions of [`products/3ds/src/svcwire.h`](../../products/3ds/src/svcwire.h) (`svcwire_open`, `svcwire_recv_lines`, `svcwire_send_line`, …) from the game's interface crate in place of the network client. |
+| C hosts (the 3DS product host in pocket-nexus/pocket-shell, `programs/native/quickjs/pocket_qjs_program.c` with `POCKET_SVC_WIRE`) | Link the six functions of [`platforms/posix/svc-wire/include/svcwire.h`](../../platforms/posix/svc-wire/include/svcwire.h) (`svcwire_open`, `svcwire_recv_lines`, `svcwire_send_line`, …) from the game's interface crate in place of the network client. |
 
 Rules for the state:
 
@@ -242,7 +242,7 @@ entry.
 | --- | --- | --- |
 | PSP | `programs/psp` as a library: `Runtime::new`, `boot`, `advance`, `present` in `programs/psp/src/program.rs`; the runtime owns guest bindings and assets, and its arena is the program's allocator | The last pass of the frame's GE list |
 | PS Vita | `programs/vita` as a library: `Runtime::new`, `eval`, `frame_with_input`, `tick`, `render_over` | The display scene, after the game's composite |
-| Nintendo 3DS | `products/3ds/src` composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
+| Nintendo 3DS | The 3DS product host in pocket-nexus/pocket-shell (`devices/3ds/src`) composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
 | iPod touch 4 | `programs/native/quickjs/pocket_qjs_program.c` with the UI core's OpenGL ES 2 backend | A texture redrawn when the draw hash changes, laid over the scene |
 | Browser tab | `programs/web/app-instance.js` in a hidden frame of the page, driven through `openInterface` of the browser kernel; the UI core is `platforms/web/pocketjs.wasm` | `renderPremultiplied` when `drawHash` changes: one software drawing with its alpha, uploaded and laid over the scene in a pass of its own (`pocket_web_wgpu::overlay`). A second screen from `renderAuxiliary` into its own canvas when `drawHashAuxiliary` changes |
 

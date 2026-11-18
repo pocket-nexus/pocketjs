@@ -119,7 +119,7 @@ host config. `pocket +psp show` displays an explicit selection.
 ### Host IDs and toolchain IDs
 
 **Host IDs and toolchain installation IDs are separate.** For example,
-application compilation uses `--target 3ds-dev`, while the toolchain catalog
+application compilation uses `--target 3ds-runtime`, while the toolchain catalog
 uses `3ds`. That catalog entry has no installable toolchain manifest. Other
 for example `symbian-e7-dev` versus `nokia-e7`.
 

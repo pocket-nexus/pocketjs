@@ -3,7 +3,6 @@ import {
   type PresentationMode,
   type Viewport,
 } from "./platform-types.ts";
-import { appletSchema, type AppletDeclaration } from "./applet.ts";
 import { modalityRequirementSchema, type ModalityRequirement } from "./modality.ts";
 import { workerDeclarationSchema, type WorkerDeclarationSource } from "./worker.ts";
 
@@ -40,6 +39,16 @@ export interface JsonSchemaObject {
 
 export type JsonSchema = boolean | JsonSchemaObject;
 
+/** A broken contract rule in a manifest, a host contract or a platform
+ *  registry (framework/src/manifest/validate.ts re-exports it). */
+export interface ContractDiagnostic {
+  readonly code: string;
+  /** RFC 6901 JSON Pointer into the document (the root is the empty
+   *  string), or a source path. */
+  readonly path: string;
+  readonly message: string;
+}
+
 export type PocketFramework = "solid" | "vue-vapor" | "octane";
 export type KeyframeProps = Record<string, string | number>;
 export type Keyframes = Record<string, KeyframeProps>;
@@ -62,12 +71,6 @@ export interface PocketManifestV2 {
    * variant's cover section; `pocket pack` uses it when no `--icon` is given.
    */
   readonly icon?: string;
-  /**
-   * Declares the package a Pocket Applet (contracts/spec/applet.ts): the
-   * program a launcher runs, held to the applet rules at resolution and
-   * build. Absent, the package is an ordinary app.
-   */
-  readonly applet?: AppletDeclaration;
   readonly engine: {
     readonly capabilities: {
       readonly requires: readonly string[];
@@ -387,7 +390,6 @@ export const pocketManifestV2Schema = {
     },
     author: { type: "string", minLength: 1, maxLength: 128 },
     icon: { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.png$" },
-    applet: appletSchema,
     engine: {
       type: "object",
       additionalProperties: false,

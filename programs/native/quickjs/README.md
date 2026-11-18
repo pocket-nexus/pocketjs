@@ -33,7 +33,7 @@ before the guest initializes. Outputs come from the program archive: the CPU
 buffer, the GLES 1.1 or 2 renderer, or none under `host-backend`, where
 `compose` registers them. `pocket_qjs_program_runtime` returns the booted
 runtime for host presentation and op calls. App actions, native extensions and
-POSIX offload belong to the facade's own realm. `products/3ds` uses the host
+POSIX offload belong to the facade's own realm. `programs/3ds` uses the host
 guest, `compose` and the source form.
 
 `POCKET_RUNTIME_STAGE_HOOKS` enables `pocket_bench_stage(int stage)` callbacks

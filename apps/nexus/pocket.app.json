@@ -4,9 +4,6 @@
   "id": "dev.pocket-nexus.nexus",
   "title": "Pocket Nexus",
   "version": "0.1.0",
-  "applet": {
-    "version": 1
-  },
   "engine": {
     "capabilities": {
       "requires": [
@@ -15,9 +12,6 @@
         "display.auxiliary",
         "input.touch.auxiliary",
         "ui.physics"
-      ],
-      "enhances": [
-        "system.agent"
       ]
     }
   },

@@ -26,7 +26,6 @@ import {
 } from "./plan.ts";
 import { validatePocketManifest, type ContractDiagnostic } from "./validate.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
-import { appletManifestDiagnostics } from "../../../contracts/spec/applet.ts";
 import { cadenceFor } from "../../../contracts/spec/admission.ts";
 
 /** The package rate when the manifest states none (`app.tickHz`). */
@@ -740,10 +739,6 @@ export function resolveBuildPlan(
     });
   }
 
-  // A Pocket Applet (contracts/spec/applet.ts) is held to the applet rules
-  // on every target, before a plan exists.
-  diagnostics.push(...appletManifestDiagnostics(manifest));
-
   if (requires.has("runtime.worker") && !worker) diagnostics.push({ code: "worker.entry", path: "/domains/worker", message: "runtime.worker requires a worker entry" });
   if (worker) {
     if (manifest.app.aot) diagnostics.push({ code: "worker.execution", path: "/domains/worker", message: "Worker entries require the guest execution class" });
@@ -841,7 +836,6 @@ export function resolveBuildPlan(
     features,
     companions: manifest.app.companions ?? [],
     ...(request.hostExtension ? { hostExtension: request.hostExtension } : {}),
-    ...(manifest.applet ? { applet: manifest.applet } : {}),
   };
   return { ok: true, plan: finalizeBuildPlan(content) };
 }

@@ -1,11 +1,10 @@
-// PocketJS net contract — the HTTP policy a companion applies to requests it
-// performs for a console. The Pocket Link `net.stream` protocol
-// (contracts/spec/link.ts) carries a worker's HTTP resource (`io.http` in
-// @pocketjs/framework/io, engine/worker) under this policy; the companion's
-// own services answer the same requests. No UI realm has a network namespace.
+// PocketJS net contract — the HTTP policy a host applies to a worker's HTTP
+// resource (`io.http` in @pocketjs/framework/io, engine/worker), whether the
+// host performs the request itself or a companion performs it for a console.
+// No UI realm has a network namespace.
 //
-// tools/pocket-link/fetch.ts applies these limits; engine/host-services/link_http.c
-// repeats the descriptor bounds it admits before a request leaves the console.
+// platforms/linux/worker/src/http.rs and platforms/web/net.js apply these
+// limits.
 
 /** Common application HTTP methods. CONNECT and TRACE are intentionally not
  * client-app operations; custom methods are outside the portable v1 surface. */

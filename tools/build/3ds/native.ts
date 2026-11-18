@@ -1,4 +1,4 @@
-// Native mechanisms shared by the minimal 3DS program and independent product.
+// Native mechanisms shared by the minimal 3DS program (programs/3ds) and product hosts outside this repository.
 import { existsSync, mkdirSync } from "node:fs";
 import { availableParallelism, homedir } from "node:os";
 import { join, resolve } from "node:path";

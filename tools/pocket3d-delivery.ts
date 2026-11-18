@@ -1,7 +1,8 @@
 // A game's packs brought to a console over the LAN: the pieces the console
 // lacks, then the list, then (when asked) the pieces the list no longer names
-// removed. The console's side is products/3ds/src/packs_delivery.c; the format
-// and the steps are in docs/POCKET3D-PACKS.md.
+// removed. The console's side is packs_delivery.c of the Nintendo 3DS product
+// (pocket-nexus/pocket-shell, devices/3ds/src); the format and the steps are
+// in docs/POCKET3D-PACKS.md.
 //
 // A connection to the console (DeliveryClient) carries one control line a step.
 // The bytes go over a temporary HTTP endpoint on this computer that serves the
@@ -18,9 +19,8 @@ import { checkPacks, PACKS_FILE, parseManifest, pieceFile, piecesOf } from "./po
 const zlibCrc32 = (data: Uint8Array | string): number => Bun.hash.crc32(data) >>> 0;
 
 /** The connection the delivery's control lines travel on: the console's
- *  address, one line toward it, and the next line from it that matches. The
- *  development connection carried them; Pocket Link 2 has no message for them
- *  yet (docs/POCKET-LINK.md §11), so a caller supplies its own. */
+ *  address, one line toward it, and the next line from it that matches. A
+ *  caller supplies it: this module defines no transport. */
 export interface DeliveryClient {
   readonly host: string;
   sendCtrl(message: string | object): Promise<void>;

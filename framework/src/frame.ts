@@ -21,8 +21,8 @@ import { pollModelAnimations } from "./model-animation.ts";
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
 const registry = new FrameRegistry();
-/** Callbacks of the system layer (the agent's overlay): they run while the
- * app is suspended. */
+/** Callbacks of a system layer (framework/src/system-layers.ts): they run
+ * while the app is suspended. */
 const systemRegistry = new FrameRegistry();
 let appSuspended = false;
 let merged: { app: FrameSnapshot; system: FrameSnapshot; frame: FrameSnapshot } | null = null;

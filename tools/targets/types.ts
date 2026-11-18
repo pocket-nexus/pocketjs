@@ -14,7 +14,7 @@ export interface TargetDescriptor {
   readonly title: string;
   /** Where the target's platform contract lives. `target` is the contract
    *  target id plans and native hosts carry; it differs from `id` for device
-   *  profiles (`3ds` → `3ds-dev`) and does not change with the catalog. */
+   *  profiles (`3ds` → `3ds-runtime`) and does not change with the catalog. */
   readonly contract: {
     readonly kind: "registry" | "profile";
     readonly target: string;

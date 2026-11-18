@@ -37,7 +37,7 @@ export interface OskController {
 }
 
 /** The keyboard opened last and still open: where typed text goes when no
- * finger types it (the agent's `type` tool, contracts/spec/agent.ts). */
+ * finger types it (a system layer that plays input). */
 let openController: OskController | null = null;
 
 export function openOsk(): OskController | null {

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { POCKET_TARGETS, type TargetProfile } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
-import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
 import { resolveIPodTouchBuildPlan } from "../tools/ipodtouch-profile.ts";
 import { resolveSymbianE7BuildPlan } from "../tools/symbian-profile.ts";
 import { CATALOG, COMMAND_WORDS, catalogEntry, catalogEntryForContract } from "../tools/targets/index.ts";
@@ -70,8 +69,7 @@ describe("target catalog", () => {
   });
 
   test("catalog resolution equals each device profile's own resolver", () => {
-    const cases: [string, string, (manifest: unknown) => ReturnType<typeof resolve3dsBuildPlan>][] = [
-      ["3ds", "apps/3ds-demo/pocket.app.json", resolve3dsBuildPlan],
+    const cases: [string, string, (manifest: unknown) => ReturnType<typeof resolveSymbianE7BuildPlan>][] = [
       ["nokia-e7", "apps/clear/pocket.app.json", resolveSymbianE7BuildPlan],
       ["ipodtouch6", "apps/ipodtouch-demo/pocket.app.json", resolveIPodTouchBuildPlan],
     ];
@@ -83,8 +81,17 @@ describe("target catalog", () => {
     }
   });
 
+  test("the 3ds entry resolves the dual-screen demo against the file-loaded program's contract", () => {
+    const resolution = resolveThroughCatalog("3ds", readJson("apps/3ds-demo/pocket.app.json"));
+    expect(resolution.ok, JSON.stringify(resolution.ok ? "" : resolution.diagnostics)).toBe(true);
+    if (!resolution.ok) return;
+    expect(resolution.plan.target.id).toBe("3ds-runtime");
+    expect(resolution.plan.viewport.logical).toEqual([400, 240]);
+    expect(resolution.plan.surfaces?.auxiliary.logical).toEqual([320, 240]);
+  });
+
   test("a contract id maps back to its catalog entry", () => {
-    expect(catalogEntryForContract("3ds-dev")?.id).toBe("3ds");
+    expect(catalogEntryForContract("3ds-runtime")?.id).toBe("3ds");
     expect(catalogEntryForContract("symbian-e7-dev")?.id).toBe("nokia-e7");
     expect(catalogEntryForContract("psp")?.id).toBe("psp");
   });
@@ -116,9 +123,9 @@ describe("tools/pocket.ts and the catalog", () => {
   });
 
   test("application compilation selects the actual profile id, not a toolchain alias", () => {
-    const checked = pocket(["check", "--target", "3ds-dev", "--manifest", "apps/3ds-demo/pocket.app.json", "--project-root", "."]);
+    const checked = pocket(["check", "--target", "3ds-runtime", "--manifest", "apps/3ds-demo/pocket.app.json", "--project-root", "."]);
     expect(checked.code, checked.err).toBe(0);
-    expect(checked.out).toContain("✓ 3ds-dev satisfies pocket.app.json capabilities");
+    expect(checked.out).toContain("✓ 3ds-runtime satisfies pocket.app.json capabilities");
 
     const contract = pocket(["check", "--target", "3ds", "--manifest", "apps/3ds-demo/pocket.app.json", "--project-root", "."]);
     expect(contract.code).toBe(1);

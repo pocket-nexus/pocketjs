@@ -6,18 +6,18 @@ import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
-import { build as threeDsBuild } from "../products/3ds/recipe.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { gbaBuild, ipodNanoBuild } from "../tools/build/programs/aot.ts";
 import { deployPsp, deployVita } from "../tools/build/programs/deploy.ts";
 import { nativeArguments } from "../tools/build/programs/handheld-common.ts";
+import { build as threeDsBuild } from "../tools/build/programs/3ds.ts";
 import { build as pspBuild } from "../tools/build/programs/psp.ts";
 import { build as vitaBuild } from "../tools/build/programs/vita.ts";
 import { build as webBuild } from "../tools/build/programs/web.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
-const threeDs = POCKET_PROFILES["3ds-dev"];
+const threeDs = POCKET_PROFILES["3ds-runtime"];
 const gba = POCKET_PROFILES["gba"];
 const nano = POCKET_PROFILES["ipodnano"];
 const psp = POCKET_PROFILES["psp"];
@@ -36,8 +36,11 @@ function context(profile: PocketProfile, outdir = scratch()): RuntimeBuildContex
 }
 
 test("handheld recipes fail missing package inputs before invoking an SDK or selecting a demo", async () => {
-  for (const [build, profile] of [[pspBuild, psp], [vitaBuild, vita], [threeDsBuild, threeDs]] as const)
+  for (const [build, profile] of [[pspBuild, psp], [vitaBuild, vita]] as const)
     await expect(build.run!(context(profile))).rejects.toThrow("requires --pocket");
+  // The 3DS recipe builds the file-loaded runtime: it takes no package and no native overrides.
+  await expect(threeDsBuild.run!({ ...context(threeDs), args: ["--capture"] })).rejects.toThrow("3DS generic runtime accepts no native overrides");
+  await expect(threeDsBuild.run!(context(psp))).rejects.toThrow("requires its declared program profile");
   await expect(gbaBuild.run!(context(gba))).rejects.toThrow("requires --aot-dir");
   await expect(ipodNanoBuild.run!(context(nano))).rejects.toThrow("requires --aot-dir");
 });

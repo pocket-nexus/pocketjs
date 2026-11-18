@@ -1,5 +1,7 @@
-#include "../../platforms/3ds/offload_queue.h"
-#include "../../platforms/3ds/offload_coverage.h"
+#include "../../engine/modules/offload/include/offload_queue.h"
+/* The decoder's scratch budget for this harness, in RGBA pixels. */
+#define POCKET_COVERAGE_PIXELS 16384
+#include "../../engine/modules/offload/include/offload_coverage.h"
 #include <assert.h>
 #include <pthread.h>
 #include <stdio.h>

@@ -3,8 +3,8 @@
 `pocket_pica_driver.h` exposes an independent **Renderer and DisplayOutput over
 the public C ABI**. The driver consumes DrawLists, texture/font views and target
 identities. It does not include `Ui`, a guest engine or product services.
-`products/3ds/src/gfx.c` supplies camera/media texture leases, the native stage and
-the development-menu overlay through explicit callbacks.
+A host supplies native texture leases and its own overlay through the
+resolver, release and overlay callbacks of `pocket_pica_config`.
 
 Each display borrows an unlinked, rotated RGBA8 citro3d target. A process-wide
 monotonic identity prevents a target from another renderer instance from being
@@ -38,10 +38,8 @@ releasing or overwriting in-flight storage; the kernel itself does not wait.
 Validation commands:
 
 ```sh
-bun tools/3ds-contracts.ts --check
-bun test tests/pica-kernel.test.ts tests/pica-driver.test.ts tests/3ds-profile.test.ts
-bun tools/3ds.ts 3ds-demo
-bun tools/3ds.ts 3ds-demo --capture
+bun test tests/pica-kernel.test.ts tests/pica-driver.test.ts tests/3ds-minimal.test.ts
+bun tools/pocket.ts build --target 3ds --generic --out .pocket-build/3ds-runtime
 ```
 
 The driver test links the real no_std runtime archive for DrawList validation and

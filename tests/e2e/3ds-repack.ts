@@ -7,15 +7,11 @@
 // --touches '160,140;160,180' chooses auxiliary touch points (external input).
 // --window-rect x,y,w,h accepts external window PNGs when native capture fails.
 // Keep the pointer outside that rectangle while capturing each window PNG.
-// --device replays the input on a paired console over Pocket Link 2 (bun run 3ds:dev setup).
 
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { screenshotPng } from "../../tools/pocket-link/v2/cli.ts";
-import { LinkHub, lanBeaconTargets, type HubDevice } from "../../tools/pocket-link/v2/hub.ts";
-import { LinkStore, linkHome } from "../../tools/pocket-link/v2/store.ts";
 import { readRuntimeDirectory } from "../../tools/repack.ts";
 import { repack3ds } from "../../tools/repack/3ds.ts";
 import { decodePng, encodePng } from "../../tools/repack/shared/png.ts";
@@ -26,27 +22,16 @@ const option = (name: string) => {
   const index = argv.indexOf(`--${name}`);
   return index >= 0 ? argv[index + 1] : undefined;
 };
-const device = argv.includes("--device");
 const id = option("id");
 if (!id && !argv.includes("--preflight")) throw new Error("--id is required");
 const run = new Date().toISOString().replace(/[:.]/g, "-");
-const OUT = resolve(option("out") ?? join(ROOT, ".pocket-build/validation/e2e", `${device ? "device" : "azahar"}-${run}`));
+const OUT = resolve(option("out") ?? join(ROOT, ".pocket-build/validation/e2e", `azahar-${run}`));
 mkdirSync(OUT, { recursive: true });
 const transcript: string[] = [];
 const log = (line: string) => {
   console.log(line);
   transcript.push(line);
 };
-
-const BTN = { UP: 0x10, RIGHT: 0x20, DOWN: 0x40, LEFT: 0x80, CIRCLE: 0x2000 } as const;
-const STEPS: ReadonlyArray<readonly [string, number]> = [
-  ["circle", BTN.CIRCLE],
-  ["right", BTN.RIGHT],
-  ["down", BTN.DOWN],
-  ["left", BTN.LEFT],
-  ["up", BTN.UP],
-  ["right", BTN.RIGHT],
-];
 
 const azaharApp = process.env.AZAHAR || "/Applications/Azahar.app";
 const azaharBinary = join(azaharApp, "Contents/MacOS/azahar");
@@ -163,109 +148,42 @@ async function nativeScreenshot(name: string, key?: string): Promise<string> {
   throw new Error(`no native screenshot for ${name}`);
 }
 
-/** The paired console's link: this computer's reference Hub waits for the
- *  console to dial it (docs/POCKET-LINK.md §2), with `host` as one more beacon target. */
-async function connect(host: string, timeoutMs: number): Promise<{ hub: LinkHub; device: HubDevice }> {
-  const store = new LinkStore(linkHome());
-  let linked: HubDevice | null = null;
-  const hub = new LinkHub({
-    name: store.name,
-    store,
-    features: ["runtime", "devtools", "apps"],
-    beaconTargets: lanBeaconTargets({ store, unicast: [{ address: host, port: 8627 }] }),
-    onDevice: (device) => (linked = device),
-  });
-  await hub.listen();
-  hub.start(50);
-  for (const end = Date.now() + timeoutMs; Date.now() < end; ) {
-    const device = linked as HubDevice | null;
-    if (device !== null && device.closed === null) return { hub, device };
-    await Bun.sleep(100);
-  }
-  hub.stop();
-  throw new Error(`no console linked from ${host}: pair it with bun run 3ds:dev setup --host ${host}, and start a program built for Pocket Link 2`);
-}
-
-async function screenshot(device: HubDevice, name: string): Promise<string> {
-  const shot = await device.screenshot();
-  const { png } = screenshotPng(shot);
-  writeFileSync(join(OUT, `${name}.png`), png);
-  const digest = createHash("sha256").update(png).digest("hex").slice(0, 16);
-  const [top, bottom] = shot.surfaces;
-  log(`screenshot ${name}.png frame ${shot.frame} ${top!.width}x${top!.height} + ${bottom!.width}x${bottom!.height} sha256 ${digest}`);
-  return digest;
-}
-
-async function play(device: HubDevice): Promise<void> {
-  const status = await device.runtimeStatus() as unknown as Record<string, unknown>;
-  const slot = createHash("sha256").update(id!).digest("hex").slice(0, 16);
-  log(`status ${JSON.stringify(status)}`);
-  if (status.target !== "3ds-dev" || status.slot !== slot) {
-    throw new Error(`runtime.status is not this game's: expected slot ${slot}`);
-  }
-  // The replay tape is a DevTools line: the stream opens once the guest's shim runs.
-  for (const end = Date.now() + 10_000; !device.devtoolsOpen && Date.now() < end; ) await Bun.sleep(50);
-  if (!device.devtoolsOpen) throw new Error("the running guest has no DevTools shim to replay input through");
-  let previous = await screenshot(device, "00-start");
-  let index = 1;
-  for (const [name, mask] of STEPS) {
-    // Two idle frames, the button held for four, then 40 frames for the slide.
-    device.sendLine(JSON.stringify({ t: "replay", tape: { v: 1, app: id, frames: 46, masks: [[0, 2], [mask, 4], [0, 40]] } }));
-    await Bun.sleep(1500);
-    const digest = await screenshot(device, `${String(index).padStart(2, "0")}-${name}`);
-    if (digest === previous) throw new Error(`pressing ${name} changed nothing on screen`);
-    previous = digest;
-    index += 1;
-  }
-}
-
-let hub: LinkHub | null = null;
 try {
-  if (device) {
-    const host = option("host");
-    if (!host) throw new Error("--device needs --host");
-    const link = await connect(host, 30_000);
-    hub = link.hub;
-    log(`linked ${link.device.id} "${link.device.name}" from ${host}`);
-    await play(link.device);
-  } else {
-    preflight();
-    if (argv.includes("--preflight")) { log("preflight passed; emulator not started"); }
-    else {
-      const pocketPath = option("pocket");
-      const identity = { id: id!, title: option("title") ?? "", author: option("author") ?? "", version: option("version") ?? "" };
-      if (!pocketPath || !identity.title || !identity.author || !identity.version)
-        throw new Error("Azahar runs need --pocket, --id, --title, --author and --version");
-      const icon = option("icon");
-      let runtimeDir = resolve(option("runtime") ?? join(ROOT, "dist/runtime/3ds"));
-      const receiptPath = join(runtimeDir, "build-receipt.json");
-      if (existsSync(receiptPath)) {
-        const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
-        if (receipt.success !== true) throw new Error("runtime build receipt is not successful");
-        runtimeDir = receipt.artifact;
-      }
-      const runtime = readRuntimeDirectory(runtimeDir);
-      const game = await repack3ds({ runtime, pocket: new Uint8Array(readFileSync(pocketPath)),
-        identity: { ...identity, ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}) } });
-      const gamePath = join(OUT, "game.3dsx"); writeFileSync(gamePath, game);
-      log(`repacked ${game.length} bytes from ${runtimeDir}`);
-      writeFixture(); launch(gamePath); await Bun.sleep(10_000);
-      let previous = await nativeScreenshot("00-start");
-      for (const [index, key] of inputSteps.entries()) {
-        const digest = await nativeScreenshot(`${index + 1}-${key}`, key);
-        if (digest === previous) throw new Error(`pressing ${key} changed no pixels`);
-        previous = digest;
-      }
-      if (!emulatorPids().length) throw new Error("Azahar exited after the last frame");
-      log("minimal program rendered both screens and responded to input without a product wire service");
+  preflight();
+  if (argv.includes("--preflight")) { log("preflight passed; emulator not started"); }
+  else {
+    const pocketPath = option("pocket");
+    const identity = { id: id!, title: option("title") ?? "", author: option("author") ?? "", version: option("version") ?? "" };
+    if (!pocketPath || !identity.title || !identity.author || !identity.version)
+      throw new Error("Azahar runs need --pocket, --id, --title, --author and --version");
+    const icon = option("icon");
+    let runtimeDir = resolve(option("runtime") ?? join(ROOT, "dist/runtime/3ds"));
+    const receiptPath = join(runtimeDir, "build-receipt.json");
+    if (existsSync(receiptPath)) {
+      const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+      if (receipt.success !== true) throw new Error("runtime build receipt is not successful");
+      runtimeDir = receipt.artifact;
     }
+    const runtime = readRuntimeDirectory(runtimeDir);
+    const game = await repack3ds({ runtime, pocket: new Uint8Array(readFileSync(pocketPath)),
+      identity: { ...identity, ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}) } });
+    const gamePath = join(OUT, "game.3dsx"); writeFileSync(gamePath, game);
+    log(`repacked ${game.length} bytes from ${runtimeDir}`);
+    writeFixture(); launch(gamePath); await Bun.sleep(10_000);
+    let previous = await nativeScreenshot("00-start");
+    for (const [index, key] of inputSteps.entries()) {
+      const digest = await nativeScreenshot(`${index + 1}-${key}`, key);
+      if (digest === previous) throw new Error(`pressing ${key} changed no pixels`);
+      previous = digest;
+    }
+    if (!emulatorPids().length) throw new Error("Azahar exited after the last frame");
+    log("minimal program rendered both screens and responded to input without a product wire service");
   }
   log("PASS");
 } catch (error) {
   log(`FAIL ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 } finally {
-  hub?.stop();
-  if (!device) killEmulator();
+  killEmulator();
   writeFileSync(join(OUT, "transcript.txt"), `${transcript.join("\n")}\n`);
 }

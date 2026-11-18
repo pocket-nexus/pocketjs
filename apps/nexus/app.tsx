@@ -1,7 +1,7 @@
 // apps/nexus/app.tsx — the pocket.nexus homepage on the Nintendo 3DS.
 //
-// The scene lives on the touch screen; the top screen belongs to the system
-// (the agent's stage). One physics world is that screen (scene.ts): the
+// The scene lives on the touch screen; the app leaves the top screen empty.
+// One physics world is the touch screen (scene.ts): the
 // pocket sits on the floor line and the stylus pops, grabs and flings its
 // toys. The first tap opens the pocket and it spits POCKET NEXUS up to the
 // top of the screen, where the letters land in their layout slots as jelly

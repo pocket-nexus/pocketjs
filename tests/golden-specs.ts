@@ -240,51 +240,6 @@ export const GOLDEN_SPECS: GoldenSpec[] = [
   },
 ];
 
-/**
- * Specs for the 400x240 Nintendo 3DS top screen (tools/3ds-profile.ts), kept
- * out of GOLDEN_SPECS on purpose: that array drives the 480x272 wasm oracle in
- * tests/golden.ts and the Vita driver, and neither can run an app whose only
- * viewport is 400x240. Same GoldenSpec type and the same encoders, so
- * tests/e2e/azahar.ts shares every mechanism with the other drivers.
- *
- * The spec name is the app DIRECTORY, as in every other driver. The built
- * artifact is a different string — `resolve.ts` refuses a derived output that
- * does not start with a letter, so apps/3ds-demo builds as
- * pocket3ds-demo-main — and the driver reads it off the manifest rather than
- * from the spec.
- */
-export const THREE_DS_GOLDEN_SPECS: GoldenSpec[] = [
-  {
-    name: "3ds-demo",
-    frames: 70,
-    capture: [2, 10, 20, 44, 56, 64],
-    input: () => 0,
-    // Drag upward across the bottom screen. Frame 10 captures finger-follow;
-    // release on frame 12 starts inertia, and later captures prove that the
-    // auxiliary VirtualList keeps re-windowing through the shared gesture and
-    // scroller contracts — and that the search header has scrolled away while
-    // the section header pins to the top of the table. A tap on frames 30-31
-    // selects the row under the finger, which is the only thing that writes
-    // the primary display's detail card. A third contact drags the right-edge
-    // A-Z index (which starts below the 36 px navigation bar) from the first
-    // section to the last: frame 56 captures a mid-alphabet section, frame 64
-    // proves the virtual window settled at section Z, and both prove the card
-    // holds the tapped contact while the list scrubs away underneath it.
-    touch: (frame) => {
-      if (frame >= 5 && frame <= 11) {
-        return [{ id: 0, x: 160, y: 210 - (frame - 5) * 30 }];
-      }
-      if (frame >= 30 && frame <= 31) {
-        return [{ id: 1, x: 160, y: 120 }];
-      }
-      if (frame >= 52 && frame <= 58) {
-        return [{ id: 2, x: 310, y: 40 + (frame - 52) * 33 }];
-      }
-      return [];
-    },
-  },
-];
-
 export function encodeThresholdInput(spec: GoldenSpec): string {
   const lastFrame = Math.max(...spec.capture);
   const entries: string[] = [];

@@ -136,7 +136,7 @@ describe("repackIPod", () => {
   });
 
   test("refuses another target's runtime, a wrong host ABI and plans it cannot run", async () => {
-    await expect(repackIPod(await input({ runtime: await runtimeFiles({ target: "3ds-dev" }) }))).rejects.toThrow(/not "ipodtouch4-dev"/);
+    await expect(repackIPod(await input({ runtime: await runtimeFiles({ target: "3ds-runtime" }) }))).rejects.toThrow(/not "ipodtouch4-dev"/);
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ hostAbi: 9 }) }))).rejects.toThrow(/runtime binding generation 9 is unsupported/);
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ host: {} }) }))).rejects.toThrow(/no host build id/);
     const plan = findSection(decodePocketPackage(pocketFor()).variants[0]!, POCKET_SECTION.plan)!;

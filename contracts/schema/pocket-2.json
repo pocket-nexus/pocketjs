@@ -44,56 +44,6 @@
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.png$"
     },
-    "applet": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "version"
-      ],
-      "properties": {
-        "version": {
-          "const": 1
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 120
-        },
-        "services": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9-]{0,31}$"
-          },
-          "uniqueItems": true,
-          "maxItems": 8
-        },
-        "hosts": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
-            "maxLength": 253
-          },
-          "uniqueItems": true,
-          "maxItems": 16
-        },
-        "store": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "maxBytes"
-          ],
-          "properties": {
-            "maxBytes": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 4194304
-            }
-          }
-        }
-      }
-    },
     "engine": {
       "type": "object",
       "additionalProperties": false,

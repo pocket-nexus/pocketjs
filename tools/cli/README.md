@@ -119,8 +119,9 @@ pocket pack --target psp dist/game.pocket --runtime dist/psp-runtime \
 **The generic PSP and 3DS programs use `psp-runtime` and `3ds-runtime`.**
 The PSP program has no compiled offload worker; the 3DS program has no
 application-specific offload or media worker. Those capabilities are absent
-from these host contracts. Packages compiled for the full `psp` or `3ds-dev`
-host contract need the corresponding native program build.
+from these host contracts. Packages compiled for the full `psp` host
+contract, or for a product's own 3DS host contract, need the corresponding
+native program build.
 
 `build-receipt.json` records the selected host contract hash, binding generation,
 input identity, toolchain digest, native commands and artifact checksums.
@@ -189,7 +190,7 @@ installation through the CLI. `target list --check` checks the host config's
 declared toolchain and requires a host config.
 
 **Toolchain IDs are separate from host IDs.** For example,
-the toolchain catalog uses `3ds`, while `pocket compile --target 3ds-dev`
+the toolchain catalog uses `3ds`, while `pocket compile --target 3ds-runtime`
 selects the host contract. The `3ds` catalog entry has no installable
 toolchain manifest. The cache root is `POCKET_NEXUS_CACHE_DIR`,
 `$XDG_CACHE_HOME/pocket-nexus` or `~/.cache/pocket-nexus`, in that order.
@@ -221,7 +222,7 @@ Arguments go to the corresponding `tools/<command>.ts` script. See the
 host config examples and installation states, and the
 [repository](https://github.com/pocket-nexus/pocketjs) for host scripts.
 
-The old `tools/psp.ts`, `tools/vita.ts` and `tools/3ds.ts` application-building
+The old `tools/psp.ts` and `tools/vita.ts` application-building
 CLI routes are deprecated compatibility entry points. New native builds use
 `pocket build` with a compiled package; its recipes do not invoke the
 application compiler.

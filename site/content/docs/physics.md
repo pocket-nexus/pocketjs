@@ -248,7 +248,8 @@ homepage's canvas art into the sprites.
 
 ```sh
 bun apps/nexus/gen-art.ts      # re-bake the sprites (headless Chrome)
-bun tools/3ds.ts nexus         # dist/3ds/nexus-main.3dsx
+bun tools/pocket.ts compile --target 3ds-runtime --manifest apps/nexus/pocket.app.json \
+  --project-root . --output .pocket-build/nexus.pocket
 ```
 
 ## The touch Pocket Nexus scene

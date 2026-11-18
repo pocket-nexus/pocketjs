@@ -4,7 +4,6 @@ import profilePspDocument from "./psp/pocket.host.json" with { type: "json" };
 import profilePspRuntimeDocument from "./psp-runtime/pocket.host.json" with { type: "json" };
 import profileP3dsRuntimeDocument from "./3ds-runtime/pocket.host.json" with { type: "json" };
 import profileVitaDocument from "./vita/pocket.host.json" with { type: "json" };
-import profileP3dsDevDocument from "./3ds-dev/pocket.host.json" with { type: "json" };
 import profileWebAppDocument from "./web-app/pocket.host.json" with { type: "json" };
 import profileMacosWidgetDocument from "./macos-widget/pocket.host.json" with { type: "json" };
 import profileMacosEmbeddedDocument from "./macos-embedded/pocket.host.json" with { type: "json" };
@@ -21,7 +20,6 @@ export const POCKET_PROFILES = {
   "psp-runtime": builtinProfile(profilePspRuntimeDocument),
   "3ds-runtime": builtinProfile(profileP3dsRuntimeDocument),
   "vita": builtinProfile(profileVitaDocument),
-  "3ds-dev": builtinProfile(profileP3dsDevDocument),
   "web-app": builtinProfile(profileWebAppDocument),
   "macos-widget": builtinProfile(profileMacosWidgetDocument),
   "macos-embedded": builtinProfile(profileMacosEmbeddedDocument),

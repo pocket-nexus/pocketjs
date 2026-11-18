@@ -1,4 +1,4 @@
-// apps/3ds-demo/app.tsx — dual-output acceptance demo for the 3ds-dev host.
+// apps/3ds-demo/app.tsx — dual-output acceptance demo for the Nintendo 3DS (the 3ds-runtime host contract).
 //
 // Two screens split one classic iPhone app. The auxiliary display holds the
 // Contacts list — a 10,000-row VirtualList whose viewport mounts only the

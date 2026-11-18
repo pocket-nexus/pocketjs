@@ -518,7 +518,7 @@ describe("semantic resolution", () => {
     // console demos require acceptsFixed on a window profile. Hero offers
     // both viewport policies; Note requires a dynamic viewport.
     const expected: Record<string, [boolean, boolean, boolean, boolean]> = {
-      "3ds-demo": [false, false, false, false], // requires the private 3ds-dev profile's auxiliary display and touch contracts
+      "3ds-demo": [false, false, false, false], // admitted only by the 3ds-runtime profile: its auxiliary display and auxiliary touch
       cafe: [true, true, false, true],
       cards: [true, true, false, true],
       chrome: [true, true, false, true],
@@ -531,8 +531,7 @@ describe("semantic resolution", () => {
       im: [true, true, false, true],
       "iphone16-demo": [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
       "ipodtouch-demo": [false, false, false, false], // admitted only by the private ipodtouch-dev profile
-      "link-channel": [false, false, false, false], // requires the private 3ds-dev profile: its auxiliary display and the link.channel capability
-      nexus: [false, false, false, false], // requires the private 3ds-dev profile's auxiliary display, auxiliary touch and ui.physics
+      nexus: [false, false, false, false], // admitted only by the 3ds-runtime profile: its auxiliary display, auxiliary touch and ui.physics
       "nexus-touch": [false, false, false, false], // touch + ui.physics on a fixed 320x480 surface: the private ipodtouch4-dev profile
       nsengine: [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
       "ipodnano-hero": [false, false, false, false], // built by tools/build/ipodnano/build.ts as a Rockbox plugin; no public profile hosts its fixed 176x132 viewport

@@ -165,13 +165,12 @@ requires the corresponding host pins.
 HTTP `open({url, method, headers, body, timeoutMs, maxBytes})` creates a request;
 `submit()` starts it. The descriptor and UTF-8 request body fit within 1024
 bytes. Facts deliver headers, body blocks and an end record with the final
-offset through `observe()`; the completion settles the request id. The 3DS
-provider uses Pocket Link `net.stream` and byte credits. It does not allocate a
-complete response body. The CardputerZero provider in Pocket Hub reaches
+offset through `observe()`; the completion settles the request id. A provider
+streams the body under byte credits and does not allocate a complete response
+body. The CardputerZero provider in Pocket Hub reaches
 loopback addresses and the companion's control API; each request runs on its own
 thread and queues its facts, which the owner task emits when it waits or
-finishes a turn. Link socket servicing retains the system's service-loop
-cadence; worker JS execution has an independent task. Cancellation can report an
+finishes a turn. Worker JS execution has an independent task. Cancellation can report an
 unknown request outcome before native access ends. The stream's end fact remains
 the boundary of the retained prefix; a consumer that needs that prefix reads to
 the end fact before closing the resource. The worker of Pocket Hub's
@@ -304,7 +303,7 @@ and heap limits belong to the host firmware. **A platform can give the realm a
 CPU share** (`quota_micros` per `window_micros` in
 `pocket_worker_quickjs_config`); the default is none. The share exists for a
 host whose worker task outranks the UI task on the same core, where the
-scheduler would give the UI no time. The 3DS host sets 10 ms per 20 ms.
+scheduler would give the UI no time.
 
 This implementation provides local worker tasks, one-shot I2C scripts, UART
 streams, streaming HTTP, the MQTT resource contract and SDK, snapshot/ring
@@ -314,24 +313,24 @@ one on ESP-IDF. The PRD's triggered sample
 executor, GPIO edges, command channels, remote worker replacement for
 `offload`, complete domain tape, TCP/UDP, generated board-node accessor
 types and UI fallback ownership tables remain unimplemented. UI-only hosts keep
-their offload module; HTTP is the worker's `io.http` resource. The 3DS routes
-it over Pocket Link. The Linux worker (`platforms/linux/worker`) hands it to
+their offload module; HTTP is the worker's `io.http` resource. The Linux
+worker (`platforms/linux/worker`) hands it to
 the program's exchange: loopback servers in Pocket Hub's CardputerZero program,
-the daemon on Omarchy Pocket. pocket-m5's Tab5 firmware fetches it with its own
-HTTP and sends `companion.pocket` over the Pocket Link.
+the daemon on Omarchy Pocket. The product hosts in pocket-nexus/pocket-shell
+(Nintendo 3DS, M5Stack Tab5) route it over Pocket Link or fetch it with the
+device's own HTTP.
 
 QuickJS facts and SDK records allocate objects during a turn. The current
 runner disables threshold-triggered GC and runs GC while idle; it does not
 provide an allocation-free hot path or a measured 1 ms control-loop guarantee.
-On 3DS, a package with a worker and `data.fs` mounts the filesystem in the
-worker and removes the UI mount. Other hosts must supply their `fs`
-implementation through the worker mount callback before admitting that module
-in that domain.
+A host that admits `data.fs` in the worker domain supplies its `fs`
+implementation through the worker mount callback, mounts the filesystem in
+the worker and removes the UI mount.
 
 ## Validation
 
 ```sh
-bun test tests/worker.test.ts tests/worker-mqtt.test.ts tests/worker-http-stream.test.ts
+bun test tests/worker.test.ts tests/worker-mqtt.test.ts tests/worker-native.test.ts
 sh engine/worker/tests/run.sh /path/to/quickjs-ng
 bun tools/packaging/esp-idf/contracts.ts --check
 ```

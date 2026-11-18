@@ -1,1 +1,0 @@
-Azahar 2125.1.2, graphics_api=0

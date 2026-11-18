@@ -219,7 +219,7 @@ admission requires the package's class to equal the host's.
 
 | Class | Frame cost | Built-in host contracts |
 | --- | --- | --- |
-| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds-dev`, iOS, macOS widgets and web host contracts |
+| `composited` | A GPU composes every frame from retained geometry; a prop change on any subtree costs the same at the tick rate. | `psp`, `vita`, `3ds-runtime`, iOS, macOS widgets and web host contracts |
 | `repaint` | A CPU repaints the pixels a change touched, so a frame costs in proportion to that area; the host moves the pixels of a translated opaque region instead of repainting them. | `gba`, `ipodnano`, `symbian-e7-dev` |
 | `still` | The display shows one change per refresh. `animate()` and `spring()` set the end value and return no animation. | `pocketbook` |
 

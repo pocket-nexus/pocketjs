@@ -1,10 +1,9 @@
-// System layers: guest code the build adds to an app for a capability the
-// app declared (tools/build.ts), mounted by render() after the app.
+// System layers: guest code a product adds to an app's bundle
+// (tools/build.ts --layer=<module>), mounted by render() after the app.
 //
-// A layer may also take the frame's input before the app sees it: the
-// agent's overlay passes the user's input through while it is open, and
-// while the agent operates the app it replaces that input with its own
-// (contracts/spec/agent.ts).
+// A layer may also take the frame's input before the app sees it: an overlay
+// passes the user's input through while it is open, and a layer that
+// operates the app replaces that input with its own.
 
 import type { HostOps } from "./host.ts";
 

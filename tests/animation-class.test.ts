@@ -15,7 +15,6 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import { parsePocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { targetProfile } from "../hosts/contract.ts";
-import { THREE_DS_DEV_CONTRACTS, THREE_DS_DEV_TARGET_ID } from "../tools/3ds-profile.ts";
 
 /** An ESP-IDF program's profile: a CPU rasterizer, a repaint target. */
 const tab5 = parsePocketProfile({
@@ -48,7 +47,7 @@ describe("profile animation classes", () => {
   test("GPU consoles composite, a CPU rasterizer repaints, electronic paper is still", () => {
     expect(POCKET_TARGETS.psp.display.animation).toBe("composited");
     expect(POCKET_TARGETS.vita.display.animation).toBe("composited");
-    expect(THREE_DS_DEV_CONTRACTS.targets[THREE_DS_DEV_TARGET_ID]!.display.animation).toBe("composited");
+    expect(targetProfile(POCKET_PROFILES["3ds-runtime"]).display.animation).toBe("composited");
     expect(POCKET_TARGETS.pocketbook.display.animation).toBe("still");
     expect(TAB5_CONTRACTS.targets["tab5-test"]!.display.animation).toBe("repaint");
   });

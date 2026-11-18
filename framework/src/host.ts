@@ -156,7 +156,7 @@ export interface HostOps {
   fontStreamBatch?(descriptor: Uint8Array): number;
   /** Arm a capture of the text runs painted inside node `root` (0: the
    *  whole surface) on the next draw of `surface` (0 primary, 1 auxiliary).
-   *  The agent reads a screen this way (contracts/spec/agent.ts). */
+   *  A system layer reads a screen this way. */
   captureTexts?(surface: number, root: number): boolean;
   /** The last capture: one run per line, "x,y,w,h", a tab, the text. */
   capturedTexts?(surface: number): string;
@@ -236,13 +236,13 @@ export interface HostOps {
   debugStep?(): void;
   /** Native DevTools transport (PSP mailbox or paired 3DS TCP connection). */
   __dbgActive?(): boolean;
-  /** Whether a DevTools client is connected now (3DS). Hosts without it keep
+  /** Whether a DevTools client is connected now. Hosts without it keep
    *  sending snapshots whenever the transport exists. */
   __dbgConnected?(): boolean;
   __dbgPoll?(): string | undefined;
   __dbgSend?(line: string): void;
-  /** One console line of the guest for the host's own log path (the 3DS's
-   *  `runtime.logs` over Pocket Link 2), whether a panel listens or not. */
+  /** One console line of the guest for the host's own log path, whether a
+   *  panel listens or not. */
   __dbgLog?(level: string, text: string): void;
   /** On-demand native screenshot. The host transports bulk pixels outside
    *  the JSON control channel and its bridge converts them to PNG. */
@@ -254,9 +254,8 @@ export interface HostOps {
   debugStats?(): string;
 
   // -- app switching (spec ops 39..41, docs/LAUNCHER.md). Optional: only
-  //    multi-app hosts implement them; @pocketjs/framework/launcher
-  //    feature-detects, and a launcher guest degrades to its empty state
-  //    elsewhere. ---------------------------------------------------------
+  //    multi-app hosts implement them; a guest feature-detects each one,
+  //    and a launcher guest degrades to its empty state elsewhere. ---------
   /** OP.appTable — JSON { apps: [{output, id, title}], current, resume }. */
   appTable?(): string;
   /** OP.appLaunch — request a whole-guest switch to `output` after the

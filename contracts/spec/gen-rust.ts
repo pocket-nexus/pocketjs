@@ -535,7 +535,7 @@ export function generateRust(): string {
   // The fs MODULE's boundary (contracts/spec/fs.ts): a per-app file tree
   // behind nine synchronous ops, mounted as `globalThis.fs`, independent of
   // the ui surface. A native host implementing it reads these constants; the
-  // implementations are engine/host-services/fs.c and platforms/sim/fs.ts.
+  // implementation in this repository is platforms/sim/fs.ts.
   put("/// FS module boundary (contracts/spec/fs.ts — `globalThis.fs`).");
   put("/// A per-app file tree behind nine synchronous ops; every path resolves");
   put("/// under the app's own data root. No clock, no events, no mtime.");

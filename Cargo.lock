@@ -2694,17 +2694,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pocketjs-3ds-core"
-version = "0.16.0"
-dependencies = [
- "pocket-archive",
- "pocket-drivers",
- "pocket-native-program",
- "pocket-package",
- "pocket-runtime",
-]
-
-[[package]]
 name = "pocketjs-core"
 version = "0.16.0"
 dependencies = [

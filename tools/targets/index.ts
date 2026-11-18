@@ -9,13 +9,26 @@ import { SYMBIAN_E7_DEV_CONTRACTS, SYMBIAN_E7_DEV_TARGET_ID } from "../symbian-p
 // device name and map to their unchanged contract ids, which native hosts
 // declare (`__host`) and runtimes compile in to pick a `.pocket` variant.
 
-import { POCKET_PLATFORM_CONTRACTS, type PlatformContractRegistry } from "../../contracts/spec/platforms.ts";
-import { THREE_DS_DEV_CONTRACTS, THREE_DS_DEV_TARGET_ID } from "../3ds-profile.ts";
+import {
+  POCKET_CAPABILITIES,
+  POCKET_PLATFORM_CONTRACTS,
+  definePlatformContractRegistry,
+  defineTargetRegistry,
+  type PlatformContractRegistry,
+} from "../../contracts/spec/platforms.ts";
+import { targetProfile } from "../../hosts/contract.ts";
+import { POCKET_PROFILES } from "../../hosts/index.ts";
 import { pspToolchain } from "../build/toolchains/psp.ts";
 import { TOOLCHAIN_SCHEMA, type ToolchainManifest } from "./toolchain.ts";
 import { HOST_IDS, type HostId, type TargetDescriptor } from "./types.ts";
 
 const MACOS: readonly HostId[] = ["darwin-arm64", "darwin-x64"];
+/** The host contract of the file-loaded 3DS program (programs/3ds), as a registry of one. */
+const THREE_DS_RUNTIME = POCKET_PROFILES["3ds-runtime"];
+const THREE_DS_RUNTIME_CONTRACTS = definePlatformContractRegistry(
+  POCKET_CAPABILITIES,
+  defineTargetRegistry({ [THREE_DS_RUNTIME.id]: targetProfile(THREE_DS_RUNTIME) }),
+);
 
 function registered(
   id: string,
@@ -55,7 +68,7 @@ export const CATALOG: readonly TargetDescriptor[] = [
   profile("ipodtouch4", "iPod touch (4th generation)", IPODTOUCH4_DEV_TARGET_ID, IPODTOUCH4_DEV_CONTRACTS, MACOS),
   registered("psp", "PlayStation Portable", HOST_IDS, pspToolchain as ToolchainManifest),
   registered("vita", "PlayStation Vita"),
-  profile("3ds", "Nintendo 3DS", THREE_DS_DEV_TARGET_ID, THREE_DS_DEV_CONTRACTS, HOST_IDS),
+  profile("3ds", "Nintendo 3DS", THREE_DS_RUNTIME.id, THREE_DS_RUNTIME_CONTRACTS, HOST_IDS),
   registered("web-app", "Browser", HOST_IDS, compilerOnly("web-app")),
   registered("macos-widget", "macOS widget", MACOS, compilerOnly("macos-widget")),
 ];

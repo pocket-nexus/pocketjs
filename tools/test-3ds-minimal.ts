@@ -27,8 +27,8 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
   const includes = ["-I", "contracts/generated", "-I", "programs/3ds", "-I", "platforms/3ds", "-I", out];
   const hid = join(out, "input");
   run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", ...includes,
-    "-I", "tests/fixtures/3ds-minimal/mock", "-I", "products/3ds/src",
-    "tests/fixtures/3ds-minimal/input.c", "platforms/3ds/input.c", "products/3ds/src/input_policy.c", "-o", hid]);
+    "-I", "tests/fixtures/3ds-minimal/mock",
+    "tests/fixtures/3ds-minimal/input.c", "platforms/3ds/input.c", "-o", hid]);
   run([hid]);
   const source = join(out, "source");
   run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", ...includes, "tests/fixtures/3ds-minimal/source.c",

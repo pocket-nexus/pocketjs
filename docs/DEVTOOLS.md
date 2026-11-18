@@ -112,35 +112,12 @@ without `listening` counts as always attached.
   every 10 frames on PSP (~166 ms hover latency; each poll is a few USB
   round-trips). `tools/devtools-psp.ts` bridges the mailbox to the WS hub.
   The same mailbox works under the PPSSPP GUI via the `ms0:` fallback path.
-- **Nintendo 3DS over Wi-Fi:** DevTools lines travel on one stream of Pocket
-  Link 2 (`docs/POCKET-LINK.md` §6.3); the program has no listener of its
-  own. `bun run 3ds:dev setup --host <ip>` writes this computer's pairing
-  onto the card through ftpd, once. After that, `bun run 3ds:dev dev --app
-  <app>` waits for the console to dial this computer and bridges the JSON-line
-  control protocol to the panel (`serve --panel`). `--host <ip>` adds that
-  address as a beacon target when LAN broadcast is unavailable. **`L+R+SELECT`
-  opens a host-owned menu on the 3DS bottom screen with the link's state, the
-  console's address and device id, generation, package hash, and counters.**
-  The host replaces the bottom guest DrawList with its own menu DrawList and
-  blocks guest input until the menu keys are released; it is not an
-  application capability. **The console links again by itself after a Wi-Fi
-  interruption or a restart, at whatever address DHCP gave either side.
-  `.pocket` updates and dual-screen captures travel on credited streams of the
-  same connection and never enter QuickJS. Either side closes a link that was
-  silent for 10 s.** Package updates reuse the program's target/ABI
-  admission, immutable storage, retired-frame acceptance and rollback path.
-  **The pairing key authenticates the handshake and does not encrypt the
-  connection.** A push replaces the `.pocket` guest. **`bun run 3ds:dev
-  install` writes a `.3dsx` to `sdmc:/3ds/` over the link and restarts into it
-  through Luma3DS's `hb:ldr`** (`--no-launch` installs for the next start), and
-  `launch` starts another `.3dsx` on the card. **A paired computer can install
-  and start native code on the console.** The transport's `listening` reads
-  `ui.__dbgConnected()`, which reports that Hub turned `devtools.listen` on;
-  `ui.__dbgActive()`, asked once as the shim installs, reports that the program
-  has a link and lists the `devtools` group for this guest from then on, not
-  that a panel is attached. **Without a panel the guest
-  serializes no tree snapshots: a full-tree snapshot measured about 30 ms of
-  JS on an Old 3DS, once per 30 frames.**
+- **Nintendo 3DS over Wi-Fi:** the 3DS product host in
+  pocket-nexus/pocket-shell carries DevTools lines on one stream of Pocket
+  Link 2. The file-loaded program in `programs/3ds` installs no DevTools
+  transport. **Without a panel a guest serializes no tree snapshots: a
+  full-tree snapshot measured about 30 ms of JS on an Old 3DS, once per 30
+  frames.**
 - **Widget and Pocket3D embeddings (`pocket-ui-surface`):** the same file mailbox,
   minus the USB cable — `engine/ui-surface/src/dbg.rs` is the
   std twin of the PSP transport. Probed once at `UiSurface::mount`: root =
@@ -190,8 +167,7 @@ screen**, PSP included; click → pin + details: type, `debugName`, classes,
 world rect) · pause/step/resume · tape strip (input activity per frame, click
 → seek on browser hosts) · record/export/import-replay · REPL with log/error
 stream · 📷 on-demand screenshot (`{t:"screenshot"}` → browser hosts answer
-with a canvas PNG; the PSP dumps raw VRAM to `pocketjs-dbg/shot.raw`, while the
-3DS sends both PICA targets as binary RGB8 chunks. Each bridge converts its
+with a canvas PNG; the PSP dumps raw VRAM to `pocketjs-dbg/shot.raw`. Each bridge converts its
 bulk representation to the `{t:"screenshot", frame, data}` PNG the panel
 expects. Pixels do not travel in the JSON channel). Served at
 `http://127.0.0.1:8130/devtools`.
