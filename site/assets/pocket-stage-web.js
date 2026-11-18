@@ -7,21 +7,13 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { BTN, PocketHost } from "../playground/host.js";
-import {
-  POCKET_SECTION,
-  decodePocketPackage,
-  findSection,
-  findVariant,
-} from "../../contracts/spec/pocket-package.ts";
-import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
-// Re-exported for the local/CI browser verifier (site/verify.ts): the
-// app-switch protocol is testable headlessly through PocketHost alone,
-// where WebGL (the 3D shell) may be unavailable, and the .pocket decode
-// path is exercised with the same helpers the adapter uses.
-export { BTN, PocketHost, POCKET_SECTION, decodePocketPackage, findSection, findVariant };
+// site/assets/handheld-stages.js imports BTN from this bundle.
+export { BTN, PocketHost };
 
 const STAGE_ROOT = "/stage/";
+// Prebuilt PSP-display apps (js + pak) the stage can boot by output name.
+const PSP_APP_ROOT = STAGE_ROOT + "handheld-apps/psp/";
 const FRONT_SNAP_RADIANS = THREE.MathUtils.degToRad(2);
 const ORBIT_YAW_LIMIT = 0.85;
 const ORBIT_PITCH_LIMIT = 0.5;
@@ -186,9 +178,10 @@ function easeInOut(t) {
 /**
  * Mount the authored PSP model around a PocketHost framebuffer.
  *
- * The homepage owns its launcher host, while the Playground supplies the host
- * that already owns the live-compiled app. Keeping both paths here means the
- * GLB, screen material, camera, and authored button hit regions stay identical.
+ * The homepage stage creates its own host and boots the one prebuilt app
+ * `options.bootApp` names, while the Playground supplies the host that already
+ * owns the live-compiled app. Keeping both paths here means the GLB, screen
+ * material, camera, and authored button hit regions stay identical.
  */
 export async function mountPocketStage(root, options = {}) {
   const viewport = root.querySelector("[data-stage-viewport]");
@@ -550,70 +543,27 @@ export async function mountPocketStage(root, options = {}) {
     focusDistanceMm = view.focus_distance_mm ?? focusDistanceMm;
     const loader = new GLTFLoader();
     let model;
-    let registry = null;
-    let fetchBundle = null;
-    let launcherBundle = null;
+    let bootBundle = null;
     if (suppliedHost) {
       [model] = await Promise.all([
         loader.loadAsync(modelUrl),
         hostReady,
       ]);
     } else {
-      // Without a supplied host the stage boots a package of its own: the
-      // Pocket Launcher deck (docs/LAUNCHER.md) by default, or whatever
-      // options.bootApp names, which is how the homepage boots one app
-      // directly. The Playground skips this branch because its supplied host
-      // already owns the live-compiled app.
-      const bundleCache = new Map();
-      const runtimeRegistry = fetch(STAGE_ROOT + "apps/apps.json").then(failResponse).then(r => r.json()).then(value => {
-        if (value.target !== "psp" || value.hostAbi !== POCKET_BINDING_GENERATION || !/^sha256:[0-9a-f]{64}$/.test(value.profileHash ?? "")) {
-          throw new Error("Pocket Stage has no valid software profile identity");
-        }
-        return value;
-      });
-      fetchBundle = async (output) => {
-        if (!bundleCache.has(output)) {
-          bundleCache.set(
-            output,
-            fetch(STAGE_ROOT + "apps/" + output + ".pocket")
-              .then(failResponse)
-              .then((r) => r.arrayBuffer())
-              .then(async (buffer) => {
-                const expected = await runtimeRegistry;
-                const pkg = decodePocketPackage(new Uint8Array(buffer));
-                const variant = findVariant(pkg, "psp");
-                if (!variant) throw new Error(output + ".pocket has no psp variant");
-                if (variant.hostAbi !== expected.hostAbi || variant.profileHash !== expected.profileHash) {
-                  throw new Error(output + ".pocket does not match the Pocket Stage software profile");
-                }
-                const js = findSection(variant, POCKET_SECTION.js);
-                const pak = findSection(variant, POCKET_SECTION.pak) ?? new Uint8Array(0);
-                // The js section carries its QuickJS NUL — strip it for eval-
-                // by-source; copy the pak out of the shared package buffer.
-                return {
-                  js: new TextDecoder().decode(js.subarray(0, js.length - 1)),
-                  pak: pak.slice().buffer,
-                };
-              }),
-          );
-        }
-        return bundleCache.get(output);
-      };
-      const [loadedModel, loadedRegistry, loadedLauncher] = await Promise.all([
+      // Without a supplied host the stage boots one prebuilt app: the js and
+      // pak tools/site-build.ts builds for the PSP's 480x272 display. The
+      // Playground skips this branch because its supplied host already owns
+      // the live-compiled app.
+      if (!options.bootApp) throw new Error("Pocket Stage needs a supplied host or options.bootApp");
+      const appUrl = PSP_APP_ROOT + options.bootApp;
+      const [loadedModel, js, pak] = await Promise.all([
         loader.loadAsync(modelUrl),
-        runtimeRegistry,
-        fetchBundle(options.bootApp ?? "launcher-main"),
+        fetch(appUrl + ".js").then(failResponse).then((response) => response.text()),
+        fetch(appUrl + ".pak").then(failResponse).then((response) => response.arrayBuffer()),
         hostReady,
       ]);
       model = loadedModel;
-      registry = loadedRegistry;
-      launcherBundle = loadedLauncher;
-      stageHost.enableAppSwitching({
-        launcher: "launcher-main",
-        apps: registry.apps,
-        fetchBundle,
-        onSwitch: () => invalidate(),
-      });
+      bootBundle = { js, pak };
     }
 
     screenTexture = new THREE.CanvasTexture(screenCanvas);
@@ -641,10 +591,7 @@ export async function mountPocketStage(root, options = {}) {
     proxyGroup = buildPickProxies(profile);
     scene.add(proxyGroup);
 
-    if (launcherBundle) {
-      const { js: appSource, pak } = launcherBundle;
-      stageHost.runIIFE(appSource, pak);
-    }
+    if (bootBundle) stageHost.runIIFE(bootBundle.js, bootBundle.pak);
     refreshScreen();
     ready = true;
     root.dataset.ready = "true";
@@ -652,21 +599,6 @@ export async function mountPocketStage(root, options = {}) {
     status.textContent = options.readyText ?? "Pocket Stage ready";
     if ((!inViewport || document.hidden) && !suppliedHost) stageHost.stop();
     invalidate();
-
-    // Warm the deck's apps once the hero is up: sequential, idle-priority —
-    // a launch then swaps instantly instead of showing a fetch hold.
-    if (registry && fetchBundle) {
-      const prefetch = async () => {
-        for (const app of registry.apps) {
-          try {
-            await fetchBundle(app.output);
-          } catch {
-            // offline or trimmed deploy — the launch path will surface it
-          }
-        }
-      };
-      ("requestIdleCallback" in window ? requestIdleCallback : setTimeout)(prefetch);
-    }
 
     // Exposed only as a receipt for the local/CI browser verifier.
     const receiptName = options.receiptName ?? "__pocketStageReceipt";

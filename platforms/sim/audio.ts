@@ -12,8 +12,7 @@
 // safety property).
 //
 // Inject via bootWorld's extraGlobals: { audio: sink.ns }, and advance with
-// sink.tick() alongside every world.tick() (the runner owns the pairing, the
-// way programs/sim/launcher.ts owns launcher policy per virtual frame).
+// sink.tick() alongside every world.tick() (the runner owns the pairing).
 
 import {
   AUDIO_MAX_STREAMS,
