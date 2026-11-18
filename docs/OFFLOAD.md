@@ -5,8 +5,9 @@ paired provider. **The guest does not receive a socket, filesystem handle, SQL
 connection, or synchronous provider call.** The provider owns those resources.
 
 This implementation is independent of `feat/companion` (#360). It adds
-`@pocketjs/framework/offload`, a 3DS worker transport, and a Bun provider
-transport. Pocket Doc is a separate application using the capability.
+`@pocketjs/framework/offload` and a Bun provider transport. The Nintendo 3DS
+worker transport lives with the 3DS product host in pocket-nexus/pocket-shell.
+Pocket Doc is a separate application using the capability.
 
 ## Frame contract
 
@@ -71,7 +72,8 @@ if a reconnect happens between two UI frames without an observed offline frame.
 mask when a host implements it. Width must be a multiple of four and at most
 512; height is 1–64. The logical area is at most 8,192 pixels and the texture
 envelope is at most 16,384 pixels. Foreground is ABGR. The texture uses the next power-of-two
-envelope, with a minimum dimension of eight. The 3DS decodes in C into reusable
+envelope, with a minimum dimension of eight. A C host decodes with
+`engine/modules/offload/include/offload_coverage.h` into reusable
 scratch storage; a guest does not need a pixel expansion loop. Undefined means
 unsupported; a negative handle means invalid input or exhausted frame credit.
 The guest owns returned texture handles and releases them with `freeTexture`.
@@ -115,25 +117,15 @@ method allowlist while resolving opaque document IDs inside its granted root.
 No document, Markdown, terminal, or platform SDK concept occurs in the guest
 offload client or native queue.
 
-## 3DS deployment
+## TCP transport
 
-The current 3DS program compiles a dedicated offload execution mode when the
-resolved plan enables `io.offload`. **It boots its own embedded package and does
-not run the SD package admission or development socket pumps during UI frames.**
-It therefore cannot fall back to another application's shared active package.
-Package replacement requires a new `.3dsx` and relaunch. L+R+START returns to HBL.
-
-The worker listens on TCP 8741. Before framed traffic it requires the 64-byte
-hex pairing key stored at
-`sdmc:/pocketjs/offload/<first-16-hex-SHA256(app.id)>.key`. The Mac connects to
-the selected device address. Pairing is scoped to the application. **This
-transport assumes a trusted LAN: records and the pairing preface are not
-encrypted.** It is not an Internet-facing transport.
-
-Every two seconds the worker reports frame count, maximum measured CPU work,
-and the count above 16,667 microseconds. CPU measurement includes JS, core draw
-list generation, texture preparation and submission; it excludes the intentional
-vblank wait. A frame-count delta also reveals lost presentation cadence.
+**`tools/companion-session.ts` connects the provider to a device worker over
+TCP 8741** (`OFFLOAD.port`). After the connection opens it sends a
+64-character hexadecimal pairing key ahead of framed traffic; pairing is
+scoped to the application. **This transport assumes a trusted LAN: records
+and the pairing preface are not encrypted.** It is not an Internet-facing
+transport. A worker reports its counters in an `offload.metrics` record of at
+most 160 characters, which the session hands to its `metrics` callback.
 
 The same request contract can use a provider on the device itself. That host
 still needs a worker/process transport with enforced queues and resource
@@ -142,7 +134,7 @@ budgets; calling a local provider directly from JS would violate the contract.
 
 ## Validation
 
-Run `bun test tests/offload.test.ts tests/3ds-profile.test.ts` and compile/run
+Run `bun test tests/offload.test.ts` and compile/run
 `tests/fixtures/offload-queue.c` with pthreads and address/undefined sanitizers.
 The fixture exercises 100,000 full-size concurrent records, queue saturation,
 counter wrap and coverage decoding. Tests also exercise fragmented UTF-8,

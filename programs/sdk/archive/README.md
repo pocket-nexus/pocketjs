@@ -24,8 +24,7 @@ registers drivers; `pocket_raster_draw_op` forwards to `pocket_raster::abi`.
 Without the feature the crate does not depend on `pocket-raster`, renderer 0
 stays empty, and `pocket_raster_draw_op` returns `POCKET_STATUS_UNSUPPORTED`
 without writing the surface. The SDK export, the host contract runners, and
-the ESP-IDF and SiFli archives enable it; `products/3ds/core` and the native
-program do not.
+the ESP-IDF and SiFli archives enable it; the native program does not.
 
 **The `physics` feature installs `pocket-physics` in every runtime
 `pocket_runtime_create` returns.** A package that requests `ui.physics` is
@@ -34,7 +33,7 @@ capability. The SDK export and the 3DS reference program build enable it; the
 IDF and SiFli archives leave it off, do not link `pocket-physics`, and report
 ops 52..56 unsupported.
 
-`programs/esp-idf/archive`, `programs/sifli/archive` and `products/3ds/core`
+`programs/esp-idf/archive` and `programs/sifli/archive`
 re-export this crate and add their own symbols. A Rust program that drives an
 instance through `pocket_runtime::abi` without a C guest does not link it.
 

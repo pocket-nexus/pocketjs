@@ -29,7 +29,6 @@ pocketjs/
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings; std or no_std + alloc
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
-│  ├─ host-services/        C link, launcher, fs and photo services for native programs
 │  ├─ mod/                  guest hosting for the runtime family
 │  ├─ ui-surface/ ui-wgpu/  UI embedding: guest surface and wgpu output
 │  ├─ text/                 worker-owned text layout
@@ -66,8 +65,6 @@ pocketjs/
 │  ├─ sifli/archive/        one Rust archive for the SiFli composition
 │  ├─ sdk/archive/          C SDK archive: runtime symbols, allocator and host hooks
 │  └─ native/               instance native programs and QuickJS composition
-├─ products/
-│  └─ 3ds/                  Link, launcher, camera and development product
 ├─ framework/               guest APIs and application compiler
 ├─ microts/                 TypeScript model and view compilation
 ├─ tools/
@@ -94,16 +91,15 @@ program provides. Device age and product category do not determine directory
 or repository ownership. See
 [Device native builds](DEVICE_BUILDS.md).
 
-**The M5Stack Tab5 program lives in pocket-nexus/pocket-m5.** It pins this
-repository as a submodule and composes the `platforms/esp-idf` components,
-`engine/host-services` and the IDF archive; its host contract (`tab5-home`,
-`programs/m5stack-tab5/pocket.host.json`) lives with the program.
-
-**The 3DS product lives in `products/3ds`.**
-Its private package inspection, Link, camera, launcher and development services
-are separate from the file-backed reference program in `programs/3ds`. Both
-compose the native program, the QuickJS facade, the generated guest and the
-PICA driver.
+**The Runtime product layer lives in pocket-nexus/pocket-shell.** That
+repository pins this one by commit and holds the Nintendo 3DS product host
+(`devices/3ds`), the M5Stack Tab5 program (`devices/m5stack`), the C host
+services (`devices/services`), Pocket Link, the applet contract, the system
+agent and their guest modules (`runtime/`, `link/`). The Tab5 program
+composes the `platforms/esp-idf` components and the IDF archive from this
+repository; the 3DS product composes the native program, the QuickJS facade,
+the generated guest and the PICA driver, as the file-backed reference program
+in `programs/3ds` does.
 
 ## Ownership and dependency rules
 
@@ -113,10 +109,10 @@ holds the instance handle, package admission and the bodies of the
 `pocket_runtime_*` functions; `pocket_drivers::abi` holds the C records, the
 pointer checks and the adapters between C vtables and the driver traits.
 `programs/sdk/archive` defines each exported `pocket_runtime.h` symbol once,
-with the allocator, panic handler and host hooks of a link unit; the IDF, SiFli
-and 3DS archives re-export it. `programs/native/runtime` supplies the native
+with the allocator, panic handler and host hooks of a link unit; the IDF and
+SiFli archives re-export it. `programs/native/runtime` supplies the native
 program composition; its `host-backend` and `host-hooks` features leave outputs
-and hooks to the host, and the 3DS archive links it that way for the QuickJS
+and hooks to the host, and `programs/3ds` links it that way for the QuickJS
 facade in `programs/native/quickjs`. `programs/web/wasm` compiles the browser composition
 against the same runtime and decodes operation arguments with
 `pocket_runtime::abi`.

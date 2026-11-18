@@ -25,14 +25,12 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/platform` | `platform`, `hasFeature` |
 | `@pocketjs/framework/modality` | `modality`, `presentation`, `screen`, `surfaceHasTouch`, `supports`, `glyph` |
 | `@pocketjs/framework/actions` | `useActions`, `ACTION_BUTTONS`, `ACTION_INTENTS`, `HOLD_SECONDS` (Solid) |
-| `@pocketjs/framework/system` | `installSystemLayer`, `SYSTEM_HOLD_SECONDS` (Solid) |
 | `@pocketjs/framework/classic` | `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSelection`, `ClassicSpinner`, `ClassicSkeleton`, `ClassicButton`, `ClassicFace`, `ClassicPanel`, `ClassicSheet`, `CLASSIC` (Solid) |
 | `@pocketjs/framework/clock` | `simulationHz`, `ticksPerFrame`, `virtualFrame`, `virtualNow`, `after` |
 | `@pocketjs/framework/effects` | `installEffectDriver`, `runEffect`, effect types |
 | `@pocketjs/framework/db` | `Database`, `Statement`, `SqlValue`, `SqlParams`, `RunResult` |
 | `@pocketjs/framework/fs` | `file`, `write`, `usage`, and the `node:fs` sync subset (`readFileSync`, `writeFileSync`, `appendFileSync`, `mkdirSync`, `readdirSync`, `rmSync`, `renameSync`, `statSync`, `existsSync`) |
 | `@pocketjs/framework/audio` | `decodeWav`, `createWavPlayer`, `WavPcm` / `WavPlayer` types |
-| `@pocketjs/framework/launcher` | `launcherActive`, `appTable`, `launchApp`, `frozenShot` |
 | `@pocketjs/framework/devtools` | `initDevtools`, `wrapFrameHandler`, tape expanders — see [DevTools](/docs/devtools/) |
 | `@pocketjs/framework/hot` | `text`, `prop` |
 | `@pocketjs/framework/manifest` | app contract and Pocket System schema/types/resolvers, `extractHostBuildInputs`, `hostBuildEnvironment`, `vitaTitleId` |
@@ -1148,26 +1146,6 @@ the button and silences the tap. Bindings respect the button-handler block a
 keyboard or sheet pushes. On a device without buttons `legend()` is empty and
 nothing binds; `entries()` still lists the intents for touch controls.
 
-## `@pocketjs/framework/system`
-
-```ts
-function installSystemLayer(options: {
-  title: string; version?: string;
-  status?: () => string;
-  items?: () => readonly { label: string; run: () => void; disabled?: boolean }[];
-  surface?: "primary" | "auxiliary";
-}): { open(): void; close(): void; isOpen: () => boolean }
-```
-
-The system layer of `docs/HIG.md` §4 in its guest-side form. **Holding SELECT
-for `SYSTEM_HOLD_SECONDS` opens the system sheet** over the chosen surface:
-the application's title and version, the live `status` line, the `items` the
-application registers for the moment (a playing screen adds "Stop
-playback"), "Return to launcher" where the host switches guests, and Close.
-The sheet is modal: it pushes the button-handler block and the touch block,
-its rows are Focusables (d-pad and tap), and × or SELECT closes it. No
-application binds SELECT itself.
-
 ## `@pocketjs/framework/classic`
 
 The bezelled light chrome every classic presentation shares (`docs/HIG.md`):
@@ -1289,23 +1267,6 @@ the first `pump()` that pours into it.
 rewind to frame 0), `setVolume(0..1)`, `pump()`, `playing()`,
 `positionFrames()`, `durationFrames()`, `stats()` (`{ underruns }`), and
 `dispose()`.
-
-## `@pocketjs/framework/launcher`
-
-The guest side of whole-app switching on hosts that embed several bundles,
-over spec ops 39–41 (`appTable`, `appLaunch`, `appShot`). A single-app host
-omits the ops and each function degrades, so a launcher bundle stays
-admissible anywhere and renders its empty state.
-
-| Export | Signature | Description |
-| --- | --- | --- |
-| `launcherActive` | `() => boolean` | Whether the active host can switch apps. |
-| `appTable` | `() => AppTable \| null` | `{ apps: { output, id, title }[], current, resume }` in registry order; `null` without the op. `current` is the running bundle's output name; `resume` is the app the last SELECT summon interrupted, `null` after a cold boot or an explicit launch. |
-| `launchApp` | `(output: string) => boolean` | Request a whole-guest switch; the host swaps after the current frame presents. `false` for an unknown output or a host without switching. |
-| `frozenShot` | `() => number` | Texture handle of the frame the summon froze (256×128 PSM_8888), `-1` when none was captured. Bind it with `registerTexture(key, handle)` and draw it as `<Image src={key}>`. |
-
-Resuming is `launchApp(resume)`, a fresh relaunch — this protocol has no
-suspend.
 
 ## `@pocketjs/framework/system-layers`
 

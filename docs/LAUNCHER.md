@@ -3,8 +3,8 @@
 **A PSP EBOOT or Vita VPK built with a guest registry embeds several app
 packages and runs one of them at a time.** The host exposes three `app*`
 operations and reserves SELECT to return to app 0, the launcher guest. This
-repository holds the host mechanism and the guest API
-(`@pocketjs/framework/launcher`); it holds no launcher application. The
+repository holds the host mechanism; it holds no launcher application and no
+guest module over the operations. The
 Nokia E7 program exposes the same guest operations over an embedded package
 catalog or over installed native applications; see "Hosts" below.
 
@@ -23,9 +23,12 @@ frame passed to the launcher is an image; it does not retain guest state.
 | 40 | `appLaunch` | `(output: string) -> 0\|1` | Request a switch. The host finishes the CURRENT frame (draw + present), then swaps guests before the next one. Returns 0 for an unknown output (no switch scheduled). Calling it with `current` relaunches fresh. |
 | 41 | `appShot` | `() -> handle \| -1` | Texture handle of the frozen frame captured when the running app was summoned away: the full current logical frame downscaled into 256×128 PSM_8888 (stored squeezed; drawn at the current viewport aspect, which undoes it). Console frames are 480×272. Valid in the guest booted by a summon until the next switch; -1 otherwise. |
 
-`@pocketjs/framework/launcher` wraps these (`appTable()`, `launchApp()`,
-`frozenShot()`, `launcherActive()`) and degrades to `null`/no-op on hosts
-that lack the ops, so a launcher bundle stays admissible on a single-app host.
+A guest reads the operations from `getOps()` (`@pocketjs/framework/host`)
+and tests for each before it calls it: a host without app switching omits
+them, so a launcher bundle stays admissible on a single-app host. The guest
+module that wraps them (`appTable()`, `launchApp()`, `frozenShot()`,
+`launcherActive()`) lives in pocket-nexus/pocket-shell
+(`runtime/src/launcher.ts`).
 
 ## SELECT summon policy (host-owned)
 
@@ -108,9 +111,9 @@ boots the next package; vita2d and input remain process-owned.
   combined with `--navigation`, which switches between applications
   installed as separate SIS packages; see
   [installed-app navigation](SYMBIAN_E7.md#installed-app-navigation).
-- **products/3ds** — the launcher is the embedded ROMFS guest and the catalog is
-  the set of installed runtime slots on the SD card, not a package table; see
-  "Nintendo 3DS: installed apps" below.
+
+The Nintendo 3DS product host, whose catalog is the set of applications
+installed on the SD card, lives in pocket-nexus/pocket-shell (`devices/3ds`).
 
 ## PSP frame rate
 
@@ -136,35 +139,3 @@ has no branch on an app name and publishes no capability for it.
 - `tests/symbian-navigation.test.ts` covers the E7 navigation table and the
   return gesture.
 - No test in this repository boots a multi-app image.
-
-## Nintendo 3DS: installed apps
-
-**The 3DS catalog is the SD card.** The `.3dsx` embeds one package, the
-launcher (Pocket Shell, `dev.pocket-nexus.shell`, output `pocket-shell`,
-maintained in [pocket-shell](https://github.com/pocket-nexus/pocket-shell)
-`shells/3ds/shell`).
-Every other directory under
-`sdmc:/pocketjs/runtime/apps/<slot>/` (slot = the first 16 hex digits of
-SHA-256 of the app id) whose state names a committed active package is an
-installed app. Apps arrive there through a Pocket Link install
-(`link.install`, contracts/spec/link.ts) or a dev-wire push, each into the
-app's own slot.
-
-The ops keep their numbers and meanings, with these differences:
-
-| op | 3DS behaviour |
-|----|---------------|
-| `appTable` | `{apps:[{output,id,title,version,bytes}], current, resume, launcher, lastError}`. `apps` lists installed slots only, **never the launcher**, sorted by title; `launcher` is the launcher's output; `lastError` is `{output, message}` for the last installed app that failed to boot or threw from a frame, reported once and then `null` (also cleared by the next launch). |
-| `appLaunch` | Launching `launcher` returns home. Two slots with one output resolve to the later install. |
-| `appShot` | Always `-1`: no frozen frame is kept. |
-
-**An installed app's failure never reaches the launcher's recovery chain.**
-Its error is written to its own slot's `last-error.txt`, the host switches to
-the launcher, and nothing is committed into the launcher's slot. SELECT
-follows the policy above: stripped from installed apps, a host-tracked press
-edge returns to the launcher with `resume` set, and the edge detector is
-latched at every boot, and an installed app's frame that runs past 50 ms
-scans for the edge itself, so a long frame does not hold it back. A switch
-runs under a host-drawn transition: a scrim over the old guest's last frame,
-an activity indicator while the new guest loads, and the scrim falling away
-over its first frames. products/3ds/README.md has the slot and switch details.

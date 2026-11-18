@@ -184,6 +184,6 @@ returns to the previous application: that is Recents.
 | Launcher veil, frozen shot, whole-guest switch | shipped (`docs/LAUNCHER.md`) |
 | `useActions` intents and the generated legend | shipped (`@pocketjs/framework/actions`); touch tiles read `entries()` by hand |
 | `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSpinner` | shipped (`@pocketjs/framework/classic`) |
-| System sheet on hold-SELECT | shipped in its guest-side form (`@pocketjs/framework/system`); the host-owned chord table stays proposed |
+| System sheet on hold-SELECT | a guest-side form lives in pocket-nexus/pocket-shell (`runtime/src/system.ts`); the host-owned chord table stays proposed |
 | Native coverage and indexed-image uploads | shipped on the 3DS and the PSP (`offload.uploadCoverage`, `offload.uploadIndexedImage`), so one row component renders on both |
 | `app.state` suspend/restore | proposed; `docs/PLATFORM.md` names it as a later capability |

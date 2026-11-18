@@ -63,7 +63,6 @@ selected host contract cannot satisfy.
 | `engine` | yes | The capability declaration, below. |
 | `app` | yes | The application section, below. |
 | `domains` | no | Execution domains beside the UI realm; today `worker`. |
-| `applet` | no | Declares a Pocket Applet, below. |
 
 ## engine.capabilities
 
@@ -136,12 +135,7 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `data.fs` | A per-app file tree behind `globalThis.fs`; paths are confined to the app's own root. |
 | `data.pack` | Read-only files under the game data root behind `globalThis.pack`: chapter textures and streamed PCM kept outside the program image (`docs/PACKS.md`). |
 | `host.clipboard` | Copy, cut and paste with the OS clipboard. |
-| `camera.qr` | Outer-camera preview texture and an on-device QR decoder. |
-| `camera.photo` | Stills kept as JPEG under the storage's DCIM folder: list, decode, delete. |
-| `link.companion` | The console's link to a paired companion computer: pairing, status, catalog, installs. |
-| `link.channel` | The running applet's channel to its computer side over the link, behind `globalThis.link.channel`: requests, events and byte streams (`docs/POCKET-LINK.md` §7). |
-| `system.wifi` | The console's radio and saved connections; reads and selects, never writes. |
-| `system.agent` | The system mascot on the top screen and the agent channel to the companion. |
+| `camera.qr`, `camera.photo`, `link.companion`, `link.channel`, `system.wifi`, `system.device`, `system.agent` | Host namespaces of Runtime products: camera, companion link, Wi-Fi, board controls and the system agent. **No host contract in this repository provides them.** The ids stay registered so the host contracts of products in [pocket-nexus/pocket-shell](https://github.com/pocket-nexus/pocket-shell) validate against this registry; their contracts and guest modules live there. |
 | `system.extension` | A product extension linked into the program: it draws the primary display and publishes its own global, and the guest's interface stays on the auxiliary surface. |
 
 ## app
@@ -354,28 +348,6 @@ fails with `worker.channelSize`. `"host"` takes the target's size; the plan
 records the number, and `channel.recordBytes` and `channel.capacity` read it
 at run time in both realms. A worker and `app.aot` do not combine
 (`worker.execution`). Channel ids follow app contract order.
-
-## applet
-
-A Pocket Applet is an application a launcher runs on behalf of the system.
-The section opts the package into the applet rules of `contracts/spec/applet.ts`,
-checked at resolution and at build; `docs/APPLETS.md` lists them.
-
-```json
-"applet": {
-  "version": 1,
-  "summary": "Read and post on X.",
-  "services": ["x", "glyphs"],
-  "store": { "maxBytes": 65536 }
-}
-```
-
-| Field | Value |
-| --- | --- |
-| `version` | `1`. |
-| `summary` | One sentence, at most 120 characters, shown where the applet is offered. |
-| `services` | Companion services the worker fetches at `https://companion.pocket/<name>/…` through `io.http`; at most 8; needs `net.http`. |
-| `store` | Persistent state; required for `data.fs`; `maxBytes` at most 4 MiB. |
 
 ## Checking an app contract
 

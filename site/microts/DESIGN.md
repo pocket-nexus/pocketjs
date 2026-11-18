@@ -218,7 +218,7 @@ Neither path compiles Rust. The start page lead and the bottom of the stage both
   |---|---|---|
   | GBA | LightningGrey's model (CC BY 4.0), its case recoloured indigo | D-pad left of the screen, A / B to the right, SELECT / START at the bottom left, L / R on the top corners. In UI apps A → ○ and B → × (`programs/gba`); retro games receive the GBA buttons unmapped |
   | PSP | Dibad's model (CC BY 4.0) | D-pad and analog nub on the left, △○×□ on the right, L / R on the shoulders, SELECT / START below the screen on the right. The nub does not respond |
-  | 3DS | PocketJS's New 3DS model, lid flat | The top screen is the app's main screen; the touch screen below is the secondary screen, unused by the preview, and says so on hover. Circle pad, D-pad, ABXY (A → ○, B → ×, X → △, Y → □, `products/3ds`), SELECT / START; L and R are behind the hinge, so their letters stand at its ends |
+  | 3DS | PocketJS's New 3DS model, lid flat | The top screen is the app's main screen; the touch screen below is the secondary screen, unused by the preview, and says so on hover. Circle pad, D-pad, ABXY (A → ○, B → ×, X → △, Y → □, `platforms/3ds/input.c`), SELECT / START; L and R are behind the hinge, so their letters stand at its ends |
   | iPod touch | thethieme's white iPhone 5 (CC BY 4.0), without the earpiece and sensor an iPod touch lacks | Touch screen input; Home belongs to the system |
   | iPod nano | PocketJS's iPod nano model, pink | Click wheel: a drag along the ring produces one UP / DOWN per 20°, a tap on MENU / ⏮ / ⏭ / ⏯ maps to △ / LEFT / RIGHT / START, and the center button → ○ (`apps/ipod-nano`) |
   | Custom size | None | A plain dark bezel about the screen; the screen accepts touch |
