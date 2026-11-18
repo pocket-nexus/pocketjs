@@ -143,6 +143,8 @@
     "./actions": "./framework/src/actions.ts",
     "./agent": "./framework/src/agent.ts",
     "./system": "./framework/src/system.ts",
+    "./system-layers": "./framework/src/system-layers-api.ts",
+    "./sim": "./programs/sim/sim.ts",
     "./vita-package": "./tools/vita-package.ts",
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",

@@ -1307,6 +1307,26 @@ admissible anywhere and renders its empty state.
 Resuming is `launchApp(resume)`, a fresh relaunch — this protocol has no
 suspend.
 
+## `@pocketjs/framework/system-layers`
+
+What a system layer builds on. **A system layer is guest code a product adds
+to an application's bundle with `tools/build.ts --layer=<module>`.** The
+module is imported ahead of the application's entry and registers a mount
+function; `render()` calls it after the application mounts. The application
+imports nothing from this path.
+
+| Export | Signature | Description |
+| --- | --- | --- |
+| `registerSystemLayer` | `(layer: (ops: HostOps) => (() => void) \| null) => void` | Register a mount function. It returns its dispose function, or `null` when the host lacks what the layer needs. |
+| `setFrameInputFilter` | `(filter: ((input: FrameInput) => void) \| null) => void` | Rewrite the frame's `buttons`, `touches`, `hits` and `surfaces` in place before the application reads them. One filter is active at a time. |
+| `registerServicePump` | `(pump: () => void) => () => void` | Run `pump` once per frame before the application's frame hooks; returns the function that removes it. |
+| `suspendApp` | `(suspended: boolean) => void` | Hold or release the application's frame callbacks, button handlers included. Native animations, timers and service deliveries continue. |
+| `isAppSuspended` | `() => boolean` | Whether the application is held. |
+| `SystemFrameContext` | Solid context of `boolean` | Handlers mounted under `<SystemFrameContext.Provider value={true}>` run while the application is held. |
+| `packTouch` | `(id: number, x: number, y: number) => number` | One contact as a frame's touch word, for a filter that plays input. |
+| `openOsk` | `() => OskController \| null` | The on-screen keyboard that is open. |
+| `ENUMS`, `SCREEN_W`, `SCREEN_H` | spec values | Property ordinals and the default screen size, for a layer that builds nodes through the operations. |
+
 ## `@pocketjs/framework/hot`
 
 ```ts
