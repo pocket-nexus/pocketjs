@@ -51,8 +51,9 @@ package and loses it in a multi-app image.
 **App 0 is the package given to the native build; a registry file lists the
 other guests.** The registry is a TSV file with one
 `output<TAB>id<TAB>title` line per guest, in table order. Each guest's
-package is `<packages>/<output>.pocket`. `pocket compile --manifest` writes a
-`.pocket`; `pocket build --pocket` consumes one. The registry flags follow
+package is `<packages>/<output>.pocket`. `pocket compile` writes a
+`.pocket` from an application's host config; `pocket build --pocket` consumes
+one. The registry flags follow
 `--` and reach the native recipe:
 
 | Flag | PSP | Vita |

@@ -111,13 +111,13 @@ fixed Tailwind subset, enumerated in
 
 ### One bundle, many screens
 
-One bundle serves machines of different densities. An application declares its
-viewport and required APIs in its app contract, `pocket.app.json`, and a host
-contract must satisfy that declaration before compilation and packaging
-proceed. Run from the application directory:
+One bundle serves machines of different densities. An application states the
+hosts it is built for, its viewport and the features it turns on in the `app`
+section of its `pocket.host.config.ts`, and each host contract must present
+that viewport before compilation and packaging proceed. With
+`hosts: ["psp", "vita"]`, run from the application directory:
 
 ```sh
-pocket create my-app
 pocket check --target psp     # ok  480x272 · text.glyphs.baked · input.buttons
 pocket check --target vita    # ok  same bundle, density 2, no component edited
 ```

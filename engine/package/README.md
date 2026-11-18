@@ -69,7 +69,7 @@ bundle, the pak and the optional bytecode and worker sections, with the binding
 generation the program was compiled for. `LoadedPackage::load` then parses no
 container and checks no container hash. It admits the plan against the host
 facts and applies the section checks of a package variant: NUL-terminated
-bundles, bytecode envelopes and a worker bundle that matches `domains.worker`.
+bundles, bytecode envelopes and a worker bundle that matches the plan's `domains.worker`.
 `package_hash` and `variant_hash` are zero. A host that stores programs in a
 container of its own implements this method; a source that returns `None` holds
 a `.pocket` container.

@@ -17,7 +17,7 @@ review as a pure function, not a queue of humans.
 
 | layer | contents | status |
 |---|---|---|
-| L0 contract | spec.ts ISA, append-only ops, capability registry, app contract admission | SHIPPED — the platform's constitution |
+| L0 contract | spec.ts ISA, append-only ops, capability registry, build-plan resolution and package admission | SHIPPED |
 | L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown/switch) | switching shipped on psp + vita |
 | L2 distribution | `.pocket` package, on-device install, host-relay push | format 2 (below); install + push next |
 | L3 experience | launcher-as-Home, switch veil, DevTools time travel | veil shipped (below); no launcher app in this repository |
@@ -93,7 +93,7 @@ Rust and Python readers share maintained valid and malformed fixtures.
 | Region | Contents |
 | --- | --- |
 | Header, 32 bytes | `PCKT`, version 2, manifest length, variant count, string table offset and size, two zero reserved words |
-| Manifest | Original `pocket.app.json` bytes, padded to 16 bytes |
+| Manifest | Bytes another product stores there, padded to 16 bytes; `pocket compile` writes an empty region (length 0) and nothing in this repository reads it |
 | Variant, 64 bytes | Target string offset and size, binding generation, section count and table offset, zero reserved word, FNV-1a64 payload hash, 32-byte host contract hash |
 | String table | UTF-8 target IDs, 1–65535 bytes each, without NUL terminators |
 | Section entry, 16 bytes | Kind, zero reserved word, payload offset and length |
@@ -192,7 +192,7 @@ PPSSPP. `MEMSIZE = 1` gives a PSP-2000 or 3000 started from the XMB the
   current app's js+pak live in the heap instead of rodata — the budget
   table gains one line.
 - **Admission on device**: build-time admission is
-  `validateAndResolveBuildPlan`, a pure function. The device re-runs the
+  `resolveAppPlan`, a pure function. The device re-runs the
   decision — either a minimal Rust port of the capability-superset +
   viewport check, or (simpler first step) the pack tool embeds the
   resolved plan and the device verifies plan.target/abi/viewport against
@@ -279,4 +279,4 @@ TSX → see it in a second → one command to the handheld."
 - No on-device code signing theater — the hash footer is integrity, not
   security; the PSP's threat model is a memory stick.
 - No host branches for "special" apps — a launcher is an ordinary
-  `pocket.app.json` app and must stay one.
+  application and must stay one.

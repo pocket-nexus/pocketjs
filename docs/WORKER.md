@@ -3,44 +3,45 @@
 **A worker has its own QuickJS runtime and owner task.** The UI continues to
 receive frames. Resource completions, received bytes, channel records and timer
 deadlines wake the worker. The owner waits on a notification or the next deadline
-when there is no work. **A `domains.worker` declaration requires
-`runtime.worker` and the capability of each node kind**; the build resolver
-refuses it when the target's host contract lacks one.
+when there is no work. **An `app.worker` declaration needs `runtime.worker`
+and the capability of each node kind**; the build resolver refuses it with
+`capability.unavailable` when the target's host contract lacks one.
 
 ## Application entry
 
-The app contract's `domains.worker` declares the worker entry and its node names.
-Paths have the same project root as `app.entry`.
+The `worker` field of the application's `app` section declares the worker
+entry and its node names. Its entry is relative to the config file, as
+`app.entry` is; the plan records both relative to the project root.
 
-```json
-{
-  "domains": {
-    "worker": {
-      "entry": "apps/sensors/worker.ts",
-      "nodes": [{ "name": "i2c0", "kind": "i2c" }],
-      "channels": [{
-        "name": "rtc",
-        "kind": "snapshot",
-        "direction": "worker-to-ui",
-        "recordBytes": 7,
-        "capacity": 1
-      }]
-    }
-  }
+```ts
+// apps/sensors/pocket.host.config.ts
+app: {
+  entry: "main.tsx",
+  framework: "solid",
+  viewport: { logical: [320, 240], presentation: "native" },
+  worker: {
+    entry: "worker.ts",
+    nodes: [{ name: "i2c0", kind: "i2c" }],
+    channels: [{
+      name: "rtc",
+      kind: "snapshot",
+      direction: "worker-to-ui",
+      recordBytes: 7,
+      capacity: 1,
+    }],
+  },
 }
 ```
 
-This fragment extends the application's `pocket.app.json`; the identity, framework
-and viewport fields remain required. The resource table in
-`contracts/spec/worker.ts` names the capability each node kind implies:
-`io.i2c`, `io.uart`, `net.http` and `net.mqtt`. The app contract does not list
-them again.
+The resource table in `contracts/spec/worker.ts` names the capability each
+node kind implies: `io.i2c`, `io.uart`, `net.http` and `net.mqtt`. The
+application does not list them in `features`; the plan records them as `true`.
 **Node and channel counts are host facts**: a host contract's `worker.nodes` table
 bounds each kind, and the worker protocol bounds a worker to **8** nodes and
 **8** channels.
 **Channel sizes are host facts**: every host holds records of **1024 bytes** in
 rings of **8**; a host contract's `worker.channels` states a larger channel, up
-to **64 KiB** records and rings of **256**. A size the manifest states must fit
+to **64 KiB** records and rings of **256**. A size the application states must fit
 the target's (`worker.channelSize`); `"host"` takes the target's. The plan
 records numbers, the core allocates each channel at its declared size, and the
 UI bridge mirrors that many records of that many bytes each frame. A
@@ -49,8 +50,9 @@ realm's per-turn bytes (`max_bytes`, 8192 by default) raises them; the Linux
 worker (`platforms/linux/worker`) takes 64 KiB a turn.
 **HTTP and MQTT exist only as worker resources**: no UI realm has a network
 module.
-The current resolver requires the worker. An `enhances` declaration with a UI
-fallback ownership table is not implemented.
+The resolver refuses a worker on a host without the worker runtime; a worker
+that is off on some hosts, with a UI fallback ownership table, is not
+implemented.
 
 `tools/build.ts` emits a minified `<output>.worker.js` to reduce embedded parser
 memory. It is a classic script with no runtime imports, exports or outer
@@ -59,7 +61,7 @@ avoids a retained whole-bundle function source copy in QuickJS.
 **Package section 8 contains the NUL-terminated worker bundle.** The host
 evaluates this section in the worker runtime. **The scheduler module
 `@pocketjs/framework/worker` evaluates before the entry**: it declares the
-app contract's channels to the host and installs the turn entry the host calls.
+application's channels to the host and installs the turn entry the host calls.
 The application entry exports nothing. Its top-level code opens resources and
 starts async functions; the first `await` returns control to the host.
 **Each bundle carries its execution domain as the compile-time constant
@@ -281,7 +283,7 @@ job queue drains, a stream reader 64 records behind, or heap and stack
 exhaustion; the runner then holds the core until stop so the UI bridge can
 detach, and reports the cause through `pocket_worker_runner_error`.
 
-Channels take IDs in the order the app contract lists them. Snapshot channels retain the newest
+Channels take IDs in the order the application lists them. Snapshot channels retain the newest
 record; rings reject a publish when full. The v1 host copies channel records
 under a lock, which prevents writes during a reader's copy. Channels have one
 direction and a maximum record length; `recordBytes` and `capacity` on a

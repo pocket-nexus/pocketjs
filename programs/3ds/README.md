@@ -29,9 +29,9 @@ from the SVG files beside them.
 ```sh
 # Build a generic runtime; the source checkout and pinned toolchains are required.
 bun tools/pocket.ts build --target 3ds --generic --out .pocket-build/3ds-runtime
-# Compile an application that accepts the minimal host contract.
-bun tools/pocket.ts compile --host-config programs/3ds/pocket.host.config.ts \
-  --manifest apps/3ds-demo/pocket.app.json --output .pocket-build/app.pocket
+# Compile an application whose host config lists the 3ds-runtime host contract.
+bun tools/pocket.ts compile --config apps/3ds-demo/pocket.host.config.ts \
+  --project-root . --output .pocket-build/app.pocket
 # Preserve native code and replace the SMDH and RomFS application.
 bun tools/pocket.ts pack --runtime .pocket-build/3ds-runtime \
   --pocket .pocket-build/app.pocket --id dev.example.app --title App \

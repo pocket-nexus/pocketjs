@@ -8,13 +8,13 @@ writing every body's pose into the nodes bound to it as paint-only props.**
 Painting, clipping and hit testing reuse the retained tree, and motion never
 runs layout.
 
-An app requires the capability `ui.physics`. The wasm core behind the web and
+An app lists the feature `ui.physics`. The wasm core behind the web and
 sim hosts, the Nintendo 3DS host, the iPod touch 4 host and the Nokia E7 host implement it; the contract is the five
 optional ops 52–56 in [Native contract](/docs/native-contract/), with every key,
 command, event, query and fixed constant pinned in `contracts/spec/physics.ts`.
 
-```json
-{ "engine": { "capabilities": { "requires": ["ui.physics"] } } }
+```ts
+app: { /* … */ features: ["ui.physics"] }
 ```
 
 ## The frame contract
@@ -248,7 +248,7 @@ homepage's canvas art into the sprites.
 
 ```sh
 bun apps/nexus/gen-art.ts      # re-bake the sprites (headless Chrome)
-bun tools/pocket.ts compile --target 3ds-runtime --manifest apps/nexus/pocket.app.json \
+bun tools/pocket.ts compile --config apps/nexus/pocket.host.config.ts \
   --project-root . --output .pocket-build/nexus.pocket
 ```
 

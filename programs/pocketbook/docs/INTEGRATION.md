@@ -1080,7 +1080,7 @@ PocketJS apps are compiled into a **pak** — a bundle containing:
 | `font-atlas-*.bin` | Baked Inter glyph atlases (exactly the app's codepoints) |
 | `images/` | PNG/JPEG textures referenced by the app |
 | `sprites/` | Sprite sheet definitions |
-| `pocket.app.json` | App contract (name, entry, target, framework) |
+| `plan.json` | The build plan (identity, entry, framework, viewport, features) |
 
 ### On the Host Side
 
@@ -1124,7 +1124,7 @@ Custom hosts consume build plans through the stable boundary:
 
 ```typescript
 // In the build script (TypeScript side)
-import { extractHostBuildInputs, hostBuildEnvironment } from "@pocketjs/framework/manifest";
+import { extractHostBuildInputs, hostBuildEnvironment } from "@pocketjs/framework/plan";
 
 const inputs = extractHostBuildInputs(planJson, { expectedTarget: "pocketbook" });
 const env = hostBuildEnvironment(inputs, {

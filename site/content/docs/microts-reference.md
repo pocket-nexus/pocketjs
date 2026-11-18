@@ -271,8 +271,8 @@ The rules, each a compile error naming the node:
 - A formula leaf has a constant left or right inset and top or bottom inset,
   no min/max size or margin, and a parent at an integer position.
 
-The build needs a layout environment: the viewport from `pocket.app.json`
-(`app.viewport.fixed.logical`), the baked font atlases, and the wasm core.
+The build needs a layout environment: the logical viewport the build plan
+resolved (`plan.viewport.logical`), the baked font atlases, and the wasm core.
 `buildAot(app, { layoutEnvironment })` supplies it; `tools/build/gba/build.ts` is the
 reference caller. The result's `layout.regions` lists every baked root with its
 node, formula and island counts, and `build.json` records it.

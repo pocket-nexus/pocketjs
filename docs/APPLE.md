@@ -40,8 +40,8 @@ copies are ignored by Git.
 Build a simulator application without launching it through the host config:
 
 ```sh
-bun tools/pocket.ts compile --manifest apps/nsengine/pocket.app.json \
-  --project-root . --host-config programs/ios-simulator/pocket.host.config.ts \
+bun tools/pocket.ts compile --config apps/nsengine/pocket.host.config.ts \
+  --project-root . --target ios-dev \
   --output dist/ios/application.pocket
 bun tools/pocket.ts build --config programs/ios-simulator/pocket.host.config.ts \
   --pocket dist/ios/application.pocket --out dist/ios/native

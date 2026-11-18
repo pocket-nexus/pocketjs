@@ -2,8 +2,8 @@
 
 PocketJS has three ways to move things:
 
-- **Baked keyframe timelines** — `keyframes` and `animation` declared in
-  `pocket.app.json` under `app.theme` and applied with `animate-<name>` classes.
+- **Baked keyframe timelines** — `keyframes` and `animation` passed as
+  `app.theme` in `pocket.host.config.ts` and applied with `animate-<name>` classes.
   The compiler turns them into binary timelines at build time.
 - **Transition utilities** — Tailwind-subset classes (`transition`, `duration-N`,
   `ease-*`, `delay-N`) that tween a node whenever its style is swapped.
@@ -184,46 +184,51 @@ for how focus moves between nodes.
 
 ## Baked keyframe timelines
 
-For multi-stop animations, staggered sequences and loops, declare `keyframes`
-and `animation` in **`pocket.app.json` → `app.theme`**. The fields use the Tailwind
-keyframe and animation shape:
+For multi-stop animations, staggered sequences and loops, pass `keyframes`
+and `animation` as **`app.theme` in `pocket.host.config.ts`**. The fields use
+the Tailwind keyframe and animation shape:
 
-```json
-{
-  "app": {
-    "theme": {
-      "keyframes": {
-        "menu-open":  { "from": { "width": 38 }, "60%": { "width": 144 }, "to": { "width": 141 } },
-        "menu-close": { "from": { "width": 141 }, "60%": { "width": 31 }, "to": { "width": 38 } }
-      },
-      "animation": {
-        "menu-pill": {
-          "value": "menu-open 0.6s ease-in-out 0.2s both, menu-close 0.6s ease-in-out 1.2s forwards",
-          "loop": "4000ms"
-        }
-      }
-    }
-  }
-}
+```ts
+// theme.ts
+import type { AnimationTheme } from "@pocketjs/framework/host-config";
+
+export default {
+  keyframes: {
+    "menu-open": { from: { width: 38 }, "60%": { width: 144 }, to: { width: 141 } },
+    "menu-close": { from: { width: 141 }, "60%": { width: 31 }, to: { width: 38 } },
+  },
+  animation: {
+    "menu-pill": {
+      value: "menu-open 0.6s ease-in-out 0.2s both, menu-close 0.6s ease-in-out 1.2s forwards",
+      loop: "4000ms",
+    },
+  },
+} satisfies AnimationTheme;
 ```
 
-`app.theme` may instead name a module, relative to `pocket.app.json`:
+```ts
+// pocket.host.config.ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+import theme from "./theme.ts";
 
-```json
-{ "app": { "theme": "./theme.ts" } }
+export default defineHostConfig({
+  host: "psp",
+  app: { entry: "main.tsx", framework: "solid", viewport: { logical: [480, 272], presentation: "integer-fit" }, theme },
+});
 ```
 
-The module's default export is the same object, so easing constants, loop
-periods and helpers that derive keyframes stay in TypeScript. **`pocket
-compile` loads the module before it resolves the build plan**, embeds the
-loaded object in the package's copy of the app contract, and lists the module
-and its relative imports in the depfile. A `.json` path is read the same way.
+**The config imports the theme**, from a TypeScript module or a `.json` file
+(`import theme from "./theme.json" with { type: "json" }`), so easing
+constants, loop periods and helpers that derive keyframes stay in TypeScript.
+The resolver checks the content against the theme schema and copies it into
+the build plan; the depfile lists the config module and every module it
+imports. `apps/motions/theme.ts` and `apps/music/theme.json` are the in-repo
+examples.
 
-The theme belongs to the app contract, and so does `app.tickHz`.
-`pocket.host.config.ts` selects the host contract and can declare the
-program's native build. Both guest compilation and `pocket compile --aot` bake
-the theme at the application's tick rate. See
-[Frameworks](/docs/frameworks/#contract-selection) for host contract selection.
+The theme belongs to the `app` section, and so does `app.tickHz`. Both guest
+compilation and `pocket compile --aot` bake the theme at the application's
+tick rate. See [Frameworks](/docs/frameworks/#contract-selection) for host
+contract selection.
 
 ```tsx
 <View class="w-[38] h-[38] rounded-[19px] bg-white overflow-hidden animate-menu-pill" />

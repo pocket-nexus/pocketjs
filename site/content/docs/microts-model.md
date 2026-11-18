@@ -34,8 +34,17 @@ frontend check with native compilation as described in the
 [support reference](/docs/typescript-support/#checking-an-application).
 A `.d.ts` contract uses the Rust model mode.
 There is no fallback to a guest interpreter or a handwritten Rust method when
-compiled admission fails. `app.model` in the app contract selects one native
-model implementation for the application.
+compiled admission fails. `app.model` in the application's host config
+selects one native model implementation for the application.
+
+**The compiler reads no file to find these settings.** The build driver
+registers each application's `aot`, `model`, `recursionLimit`, `framework`
+and entry with `registerApplication` (`microts/compiler/aot-model-config.ts`)
+before compiling, keyed by the application directory: `pocket compile` and
+`tools/build.ts` from the host config or the build plan, the browser builds
+and the tests from their own data. Model lowering looks up the nearest
+registered directory above a source file; a file outside every registered
+application compiles as an ordinary guest module.
 
 ```sh
 bun microts/compiler/cli.ts check solid-aot-lab --strict

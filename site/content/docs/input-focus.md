@@ -58,8 +58,9 @@ long press, axis-lockable pan and two-contact pinch recognizers ship in
 `@pocketjs/framework/gesture`, and **mounting an app installs a tap-to-`onPress`
 recognizer**, so a `Focusable` with an `onPress` answers a tap with no extra
 wiring. Read `touches()` yourself only for behavior the recognizers do not
-cover — see [Touch & gestures](/docs/touch-gestures/). Put
-`input.touch` in `enhances` when the same app must still build for PSP.
+cover — see [Touch & gestures](/docs/touch-gestures/). An app that lists
+`input.touch` in its `features` still builds for the PSP, where the feature
+compiles to `false`; keep a button path behind `hasFeature("input.touch")`.
 
 Targets with a separate touch display expose `input.touch.auxiliary` instead:
 
@@ -82,8 +83,8 @@ a bottom-screen touch panel does not imply that the primary display is touchable
 Targets that provide `input.cursor` can replace the d-pad focus walk with a
 **pointer**: the analog nub steers a cursor sprite, hovering applies the
 `focus:` variant, and a press button clicks whatever is under the arrow. It is
-opt-in — declare the capability in `pocket.app.json` (`requires` or `enhances`)
-and enable it at runtime:
+opt-in — list the feature in the `features` of the application's
+`pocket.host.config.ts` and enable it at runtime:
 
 ```ts
 import { enableCursor } from "@pocketjs/framework/input";

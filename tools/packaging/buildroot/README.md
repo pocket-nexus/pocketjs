@@ -18,11 +18,11 @@ The tool verifies the source archive's byte count and SHA-256 against the releas
 
 ## Configure a product
 
-Before the firmware build, product CI exports the host contract and compiles the application:
+Before the firmware build, product CI exports the host contract and compiles the application, the `app` section of the same host config:
 
 ```sh
 pocket host export --config /product/pocket.host.config.ts --out /product/generated
-pocket compile --manifest /product/app/pocket.app.json --host-config /product/pocket.host.config.ts --output /product/generated/app.pocket
+pocket compile --config /product/pocket.host.config.ts --output /product/generated/app.pocket
 make -C /src/buildroot BR2_EXTERNAL=/product/pocketjs-external menuconfig
 ```
 

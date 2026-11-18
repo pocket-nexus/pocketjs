@@ -128,7 +128,7 @@ one `render_words_scaled` pass on dirty frames. It exercises everything the
   keyboard/mouse/wheel/resize go to the guest as JSON lines
   (`{t:"ch"|"key"|"mouse"|"scroll"|"resize"|"load"}`), save/quit intents
   come back (`{t:"save"|"quit"}`). The app source retains a svc-less
-  read-only fallback, but the current Note app contract is dynamic-only; it must
+  read-only fallback, but the current Note application is dynamic-only; it must
   add a fixed viewport variant before a PSP or embedded host can admit that
   fallback. The §7 `widget` surface stays unbuilt.
 - **The widget host contract declares six input and display capabilities.** Six
@@ -142,13 +142,14 @@ one `render_words_scaled` pass on dirty frames. It exercises everything the
   (convention `<platform>-<form>`, such as `macos-widget`),
   and apps declare viewport intent per policy (`fixed`/`dynamic`
   variants), not per target. Pocket Note currently declares only a dynamic
-  variant and is therefore intentionally admitted by `macos-widget`, not by
-  PSP/Vita or an embedded Stage screen. Its desktop-only APIs sit in
-  `enhances`; if the app later adds a fixed variant, the same source can
-  degrade to a read-only note on hosts without those features. Native hosts
-  assert identity (`__host`/`__hostAbi` vs the plan's target), and
-  `bun run note` builds through the app contract — density and features come from
-  the host contract, not flags.
+  variant, and its host config lists `web-app`, `macos-widget` and
+  `symbian-e7-dev`, not PSP/Vita or an embedded Stage screen. Its
+  desktop-only APIs are `features` that compile to `false` on a host without
+  them; if the app later adds a fixed variant, the same source can degrade to
+  a read-only note on such hosts. Native hosts assert identity
+  (`__host`/`__hostAbi` vs the plan's target), and `bun run note` builds from
+  the `app` section of `apps/note/pocket.host.config.ts` — density and
+  features come from the host contract, not flags.
 - **Clicks are CIRCLE.** The host synthesizes the spec press button while
   the mouse is down; the app resolves hover → focus (`hitFocusable` +
   `focusNode`) from svc mouse moves, and the framework's stock onPress
@@ -324,15 +325,15 @@ Terms are deliberately separate:
 | instance | Runtime state such as current LOD, orbit, focus, and app bindings. |
 | scene | Internal `pocket3d::scene::Scene`; not a second product or process name. |
 
-The stage manifest follows `pocket.app.json` conventions: JSON Schema 2020-12, a
-`$schema` URI, one integer major discriminator (`pocketStage`), reverse-DNS
-IDs, SemVer, `additionalProperties: false`, and package-relative paths that
-cannot escape the package root. It does **not** replace the app contract. The
+The stage manifest uses JSON Schema 2020-12, a `$schema` URI, one integer
+major discriminator (`pocketStage`), reverse-DNS IDs, SemVer,
+`additionalProperties: false`, and package-relative paths that cannot escape
+the package root. It does **not** replace the application's config. The
 authority boundary introduced by the platform contracts remains intact:
 
 | Input | Owns |
 | --- | --- |
-| app `pocket.app.json` | App intent: entry, framework, capabilities, fixed/dynamic viewport variants. |
+| `app` in `pocket.host.config.ts` | App intent: entry, framework, features, fixed/dynamic viewport variants. |
 | `pocket-stage.json` | Package facts: visual artifacts, semantic screen slots, display facts, views, interaction adapters, notices. |
 | Stage host contract | Runtime facts: actual platform, `form: "embedded"`, host ABI, implemented capabilities. |
 | `ResolvedBuildPlan` | The one admitted app variant and its resolved viewport/features. |
@@ -426,15 +427,15 @@ rejection, and contract fixtures. Unsupported adapters, missing or multiply
 matched surfaces, invalid full-span UVs, cross-LOD bound drift, package path
 escape, and every declared-but-unconsumed field fail before GPU startup.
 
-The bundled PSP launcher now starts from the app contract on the **app** side: it resolves
-the selected demo's `pocket.app.json` against a transitional
+The bundled PSP launcher starts from the application on the **app** side: it resolves
+the `app` section of the selected demo's `pocket.host.config.ts` against a transitional
 `macos-embedded` host contract, writes a `ResolvedBuildPlan`, compiles from that
 plan, and publishes the same target id/ABI through `UiProgram`. The raw JS/pak
 adapter enters Runtime package admission. Full stage-package launch should
 extend that path without adding a second resolver:
 
 ```text
-pocket.app.json + pocket-stage.json + actual Stage host facts
+app section + pocket-stage.json + actual Stage host facts
                     │ resolve once
                     ▼
        ResolvedBuildPlan + ResolvedStageLaunchPlan
@@ -443,7 +444,7 @@ pocket.app.json + pocket-stage.json + actual Stage host facts
           compiler + one pocket-stage binary
 ```
 
-The generalized launcher should accept `--manifest`, `--stage`, `--surface`,
+The generalized launcher should accept `--config`, `--stage`, `--surface`,
 `--project-root`, and `--outdir`; runtime-only flags follow `--`. The binary
 then receives the two verified plans instead of guessing
 `dist/<app>-main.{js,pak}` from `--app`. The scheduler (`tick_hz`, dirty-frame

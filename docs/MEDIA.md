@@ -2,7 +2,7 @@
 
 `media.playback` provides one native playback plane per guest realm. **The
 capability names playback behavior; codec hardware is reported by live status.**
-Declare the capability in the app contract, then import `mediaPlayer` from
+List the capability in the application's `features`, then import `mediaPlayer` from
 `@pocketjs/framework/media`. A provider returns a `MediaSource` containing an
 IPv4 address, port and one-use ticket. `open` submits that source to a worker.
 `pause`, `volume` and `close` update bounded command state. `texture` returns a

@@ -1,39 +1,41 @@
 # Platform contracts
 
-**The app contract, `pocket.app.json`, declares what an application requires.
-The host contract, `pocket.host.json`, describes the software behavior a host
-program provides.** The host program names its host contract from its host
-config, `pocket.host.config.ts`, which also carries an optional native build
-recipe. The resolver combines one app contract and one host contract into a
+**The `app` section of `pocket.host.config.ts` states what an application
+uses. The host contract, `pocket.host.json`, describes the software behavior a
+host program provides.** A host config names one or more host contracts and
+may carry an application (`app`) and a native build recipe (`build`). The
+resolver combines the application with one host contract into a
 `ResolvedBuildPlan` and writes it to `.pocket/<target>/plan.json` for
 application compilation.
 
 ```text
 my-app/
-  pocket.app.json         # App contract
+  pocket.host.config.ts   # host config: hosts + app
+  main.tsx
 my-host/
   pocket.host.json        # Host contract
-  pocket.host.config.ts   # Host build configuration ("host config")
+  pocket.host.config.ts   # host config: host + build
 .pocket/
   <target>/
     plan.json             # Generated build plan
 ```
 
 ```text
-  pocket.app.json        pocket.host.config.ts
-  (app contract)         (host config)
-         │                      │ names
-         │                      ▼
-         │               pocket.host.json
-         │               (host contract)
-         └─────── resolve ──────┘
-                    │
-                    ▼
-       .pocket/<target>/plan.json
-              (build plan)
-                    │
-                    ▼
-       compiler → .pocket package
+  pocket.host.config.ts
+  (app section, hosts)
+         │ names
+         ▼
+  pocket.host.json ──────┐
+  (host contract)        │
+         │               │
+         └── resolve ────┘
+                │
+                ▼
+     .pocket/<target>/plan.json
+            (build plan)
+                │
+                ▼
+     compiler → .pocket package
 ```
 
 The host program exports the same host contract as a C header or Rust module.
@@ -45,55 +47,51 @@ against. See [Admission](#admission).
 
 | Artifact            | File                               | Owner                | Meaning                                                                   |
 | ------------------- | ---------------------------------- | -------------------- | ------------------------------------------------------------------------- |
-| App contract        | `pocket.app.json`                  | App                  | Entry, framework, logical viewport, tick rate, required and optional APIs |
+| Application         | `app` in `pocket.host.config.ts`   | App                  | Entry, framework, logical viewport, tick rate, features                   |
 | Host contract       | `pocket.host.json`                 | Host program         | Display facts, cadences and implemented APIs                              |
-| Host config         | `pocket.host.config.ts`            | Host program         | Host contract selection and an optional native build recipe               |
+| Host config         | `pocket.host.config.ts`            | App or host program  | Host contract selection, the application and an optional native build recipe |
 | Build plan          | `.pocket/<target>/plan.json`       | Resolver (generated) | One build's target-specific inputs, a `ResolvedBuildPlan`                 |
-| Capability registry | `contracts/spec/platform-types.ts` | PocketJS             | Names of framework APIs that can be requested                             |
+| Capability registry | `contracts/spec/platform-types.ts` | PocketJS             | Names of framework APIs an application can turn on                        |
 
-## App contract
+## The application
 
-The app contract is strict JSON data in format 2; the
-[App contract](/docs/app-contract/) page lists every field. A PSP-shaped
-portable app can say:
+The [Application config](/docs/app-config/) page lists every field. A
+PSP-shaped portable application says:
 
-```json
-{
-  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
-  "pocket": 2,
-  "id": "dev.pocket-nexus.telemetry",
-  "title": "Pocket Telemetry",
-  "version": "1.0.0",
-  "engine": {
-    "capabilities": {
-      "requires": ["text.glyphs.baked", "input.buttons"],
-      "enhances": ["input.analog.left"]
-    }
+```ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({
+  hosts: ["psp", "vita"],
+  app: {
+    id: "dev.pocket-nexus.telemetry",
+    title: "Pocket Telemetry",
+    version: "1.0.0",
+    entry: "app/main.tsx",
+    output: "main",
+    framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" },
+    features: ["text.glyphs.baked", "input.buttons", "input.analog.left"],
   },
-  "app": {
-    "entry": "app/main.tsx",
-    "output": "main",
-    "framework": "solid",
-    "viewport": { "logical": [480, 272], "presentation": "integer-fit" }
-  }
-}
+});
 ```
 
-The app contract contains no physical resolution, scale factor, Vita flag,
+The application contains no physical resolution, scale factor, Vita flag,
 native crate path, or binding generation. The host program owns those inputs.
+`hosts` lists the host contracts the application is built for: built-in ids,
+or `pocket.host.json` paths relative to the config.
 
 `app.tickHz` is the package rate: core ticks per virtual second, **1 through
 60, default 60**. Resolution refuses a rate that is not a whole multiple of one
-of the target's cadences. `author` and `icon` (a path to a square PNG) are the
-identity a repacked program records: `pocket compile` stores the icon as each
-variant's cover section, and `pocket pack` uses both when `--author` and
-`--icon` are absent. `app.theme` names a module or JSON file; an authored app
-contract does not carry theme content.
+of the target's cadences. `id`, `title`, `version`, `author` and `icon` (a
+path to a square PNG) are the identity the device packagers stamp:
+`pocket compile` stores the icon as the variant's cover section, and
+`pocket pack` uses it when `--icon` is absent. `app.theme` is animation
+content the config imports.
 
-`requires` is the compatibility floor. Resolution fails before compilation if
-the selected host does not provide one of those APIs. `enhances` declares an
-optional API for which the app has a fallback. Its availability becomes a
-boolean in the plan and in the compiled runtime module:
+**`features` is compile-time selection.** Each id is a registered capability;
+the plan records it as `true` when the selected host provides it and `false`
+when it does not, and the compiled runtime module reads the same table:
 
 ```ts
 import { hasFeature } from "@pocketjs/framework/platform";
@@ -109,27 +107,23 @@ Literal `hasFeature()` calls are target-specialized during compilation, so Bun
 can remove an unavailable branch from the bundle. `platform.features` remains
 the runtime surface for computed feature ids and introspection. Capability ids
 are plain strings, not versioned tokens or permissions passed through
-application call graphs.
+application call graphs. A host that lacks a listed feature still builds the
+application with that feature off; the config's `hosts` list states which
+hosts the application is built for.
 
 ### Additional display surfaces
 
-An application that uses a second fixed display declares both the API and its
-logical geometry. This example requires a 320×240 auxiliary surface with touch:
+An application that uses a second fixed display lists the feature and states
+its logical geometry. This example uses a 320×240 auxiliary surface with
+touch:
 
-```json
-{
-  "engine": {
-    "capabilities": {
-      "requires": ["display.auxiliary", "input.touch.auxiliary"]
-    }
+```ts
+app: {
+  // ...
+  features: ["display.auxiliary", "input.touch.auxiliary"],
+  surfaces: {
+    auxiliary: { fixed: { logical: [320, 240], presentation: "native" } },
   },
-  "app": {
-    "surfaces": {
-      "auxiliary": {
-        "fixed": { "logical": [320, 240], "presentation": "native" }
-      }
-    }
-  }
 }
 ```
 
@@ -140,14 +134,16 @@ other tree's layout or hit testing. Applications render auxiliary content with
 `<AuxiliarySurface>`.
 
 **`input.touch.auxiliary` reports contacts in auxiliary logical pixels and does
-not provide `input.touch`.** The resolver requires `display.auxiliary` whenever
-auxiliary touch is requested. A host contract must publish the auxiliary
-physical/logical display facts together with `display.auxiliary`; mismatched
-facts are rejected before an application is resolved. The current package
-format uses one raster asset density for both surfaces, so both display facts
-must declare the same `rasterDensity`.
+not provide `input.touch`.** The resolver refuses `input.touch.auxiliary`
+without `display.auxiliary`, and `display.auxiliary` without
+`surfaces.auxiliary`. An auxiliary surface the selected host cannot present
+turns both features off in the plan. A host contract must publish the
+auxiliary physical/logical display facts together with `display.auxiliary`;
+mismatched facts are rejected before an application is resolved. The current
+package format uses one raster asset density for both surfaces, so both
+display facts must declare the same `rasterDensity`.
 
-## Presentations and modality
+## Modality
 
 A **modality** is the interaction structure of a target read off its host
 contract: the screens, which screen takes contacts, whether a d-pad and sticks
@@ -168,48 +164,13 @@ A PSP derives to one 480×272 landscape screen with no touch, one stick and
 PlayStation glyphs. A New 3DS derives to a 400×240 top screen and a 320×240
 bottom screen with touch, two sticks and letter glyphs.
 
-A **presentation** is an entry module written for one modality. The app
-contract lists them in order under `app.presentations`; each carries a
-`modality` requirement and may carry its own `viewport`, `surfaces`, `output`
-and `capabilities`:
-
-```json
-{
-  "app": {
-    "entry": "app/main.tsx",
-    "viewport": { "logical": [480, 272], "presentation": "integer-fit" },
-    "presentations": [
-      {
-        "id": "dual-screen",
-        "entry": "app/main-dual.tsx",
-        "modality": { "screens": 2, "touch": "auxiliary" },
-        "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } },
-        "surfaces": { "auxiliary": { "fixed": { "logical": [320, 240], "presentation": "native" } } },
-        "capabilities": { "requires": ["display.auxiliary", "input.touch.auxiliary"] }
-      }
-    ]
-  }
-}
-```
-
-**The resolver takes the first presentation whose requirement the target's
-modality meets; when none matches, `app.entry` is the baseline presentation
-under the id `default`.** `screens` is an exact count, `analog` a minimum,
-`minScreen` and `maxScreen` inclusive bounds on the primary screen, `touch`
-and `pointer` exact values or `"any"`; an absent field matches every device.
-The chosen presentation's capabilities join `engine.capabilities` for
-admission, a presentation `requires` may promote an app-level `enhances`, and
-any other repeated id is a `capability.duplicate` diagnostic. **A
-presentation that matches a device and fails admission there is an error at
-that presentation's JSON Pointer**, because the author addressed it to that
-device.
-
-The plan records `presentation` (`id` and `entry`) and `modality`, and sets
-`app.entry` to the chosen module. The compiler walks the module graph from
-that entry, so **a presentation's modules, class literals, glyphs and image
-assets enter a bundle only when it is the chosen entry**. Inside an entry,
-folded `hasFeature()` calls and the runtime `modality` object from
-`@pocketjs/framework/modality` carry the smaller differences.
+The plan records the derived `modality` and `presentation: { id: "default",
+entry }`. Inside an entry, folded `hasFeature()` calls and the runtime
+`modality` object from `@pocketjs/framework/modality` carry the differences
+between hosts. **An application whose layout differs by device is one config
+per layout**: `apps/nexus-touch/pocket.host.config.ts` builds the iPod touch 4
+application and `apps/nexus-touch/e7/pocket.host.config.ts` the Nokia E7
+portrait application from the same scene module.
 
 ## Animation classes
 
@@ -244,49 +205,50 @@ A host contract carries a `form` (`takeover`, `window`, `widget`, `kiosk`,
 `embedded`). **`window` and `widget` are the dynamic forms: their logical
 viewport is a runtime variable, and their host contract must carry
 `display.dynamicViewport` with a `min`/`max` range; every other form must not.**
-An app declares viewport intent per policy rather than per target:
+An application states viewport intent per policy rather than per target:
 
-```json
-{
-  "app": {
-    "viewport": {
-      "fixed": { "logical": [480, 272], "presentation": "integer-fit" },
-      "dynamic": { "default": [720, 480] }
-    },
-    "companions": ["note"]
-  }
+```ts
+app: {
+  // ...
+  viewport: {
+    fixed: { logical: [480, 272], presentation: "integer-fit" },
+    dynamic: { default: [720, 480] },
+  },
+  companions: ["note"],
 }
 ```
 
-The bare `{logical, presentation}` spelling remains valid as shorthand for
-`fixed`. `fixed.logical` is one size, a list of sizes in preference order, or a
+The bare `{logical, presentation}` spelling is shorthand for `fixed`.
+`fixed.logical` is one size, a list of sizes in preference order, or a
 `{min, max}` range. **The resolver takes the first listed size the target's
 `logicalViewports` contains**; for a range it takes the first target size
-inside the range. `apps/clear/pocket.app.json` lists 320×480, 360×800 and
-360×640 and declares a 360×640 dynamic range, which resolves on iPod touch 4,
-iPod touch 4 and Nokia E7 from one app contract. `resolveViewport` in
-`framework/src/manifest/resolve.ts` then picks one variant:
+inside the range. `apps/clear/pocket.host.config.ts` lists 320×480, 360×800
+and 360×640 and states a 360×640 dynamic viewport, which resolves on the iPod
+touch 4 and the Nokia E7 from one config. `resolveViewport` in
+`framework/compiler/app-plan.ts` then picks one variant:
 
 - On a dynamic-form target it takes `dynamic.default`, which must fall inside
   the host contract's range; presentation resolves to `native` and physical
-  size to logical × `rasterDensity`. The app's own `dynamic.min`/`dynamic.max`
-  are schema-valid and unread — the admitted range belongs to the target.
-- A fixed-only app resolves on a dynamic-form target when its host contract
-  sets `dynamicViewport.acceptsFixed` (`web-app` does;
+  size to logical × `rasterDensity`. The resolver does not read the
+  application's `dynamic.min`/`dynamic.max`: the admitted range belongs to the
+  target.
+- A fixed-only application resolves on a dynamic-form target when its host
+  contract sets `dynamicViewport.acceptsFixed` (`web-app` does;
   `macos-widget` does not), and runs size-locked in the window.
-- A fixed-screen target rejects a dynamic-only app, and a dynamic-form target
-  without `acceptsFixed` rejects a fixed-only app, both before compilation.
+- A fixed-screen target refuses a dynamic-only application, and a
+  dynamic-form target without `acceptsFixed` refuses a fixed-only application,
+  both before compilation.
 
 The plan records which one won as `viewport.policy` (`"fixed"` or `"dynamic"`),
-so a host derives size-locking from the plan and never re-reads the app
-contract. An app that must relayout on resize declares `display.viewport.live`
-and takes new sizes through the framework's `resizeViewport` hook.
+so a host derives size-locking from the plan. An application that must
+relayout on resize lists `display.viewport.live` and takes new sizes through
+the framework's `resizeViewport` hook.
 
-`app.companions` lists the exact strings the app passes to `svcOpen` — the
-service names its adapters speak. The resolver copies the list into
-`plan.companions` unchanged, and a host builds its svc allowlist from that copy
-instead of an app-name convention. `UiSurface::set_svc_allowlist` installs
-this list, and `svcOpen` denies everything else.
+`app.companions` lists the exact strings the application passes to
+`svcOpen`: the service names its adapters speak. The resolver copies the list
+into `plan.companions` unchanged, and a host builds its svc allowlist from that
+copy instead of an app-name convention. `UiSurface::set_svc_allowlist`
+installs this list, and `svcOpen` denies everything else.
 **A host with no adapter for those services rejects a plan whose `companions`
 list is non-empty** rather than starting an app whose services answer false.
 
@@ -296,9 +258,9 @@ A capability means:
 
 > This stock host implements and tests this PocketJS framework API.
 
-It does not mean that hardware merely contains a component. Vita advertises
-touch because the stock host samples the front panel, maps contacts to
-logical viewport coordinates, and delivers the public `touches()` API.
+It does not mean that hardware contains a component. Vita advertises touch
+because the stock host samples the front panel, maps contacts to logical
+viewport coordinates, and delivers the public `touches()` API.
 
 It also does not model mobile permissions or live device state. Those are
 different questions:
@@ -309,16 +271,17 @@ different questions:
   controller must be queried at runtime.
 
 `input.touch` means that the API and delivery path exist. It does not mean a
-finger is currently down: `touches()` returns an empty snapshot in that state.
-An application can put touch in `enhances` and keep its button fallback for
-PSP, or put it in `requires` when touch is fundamental to the product.
+finger is down: `touches()` returns an empty snapshot in that state. An
+application lists `input.touch` and keeps a button path behind
+`hasFeature("input.touch")` to build for the PSP too, or lists only the hosts
+that provide touch when touch is fundamental to the product.
 
 `input.cursor` follows the same rule for the [virtual
 cursor](/docs/input-focus/#virtual-cursor): the host implements hit testing
 and the cursor sprite (spec ops 27–29), and the framework synthesizes a
-pointer from the analog nub. It is opt-in twice over — declared in the
-app contract AND enabled at runtime with `enableCursor()`; apps that never call
-it keep the d-pad focus walk unchanged.
+pointer from the analog nub. It takes two steps: the feature in the
+application's `features` and `enableCursor()` at run time; apps that never
+call it keep the d-pad focus walk unchanged.
 
 ## Host contracts
 
@@ -354,10 +317,11 @@ generation, 12.**
 | `web-app`      | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime`; systemUI role adds `ui.compositor-surfaces` |
 
 `roleCapabilities.systemUI` is the one conditional column: those APIs reach a
-package only when it resolves in the System-UI role. `ui.compositor-surfaces`
-is the API a shell uses to place other installed packages into native
-compositor surfaces, so an ordinary application requiring it against the same
-target fails resolution.
+package only in the System UI role. `ui.compositor-surfaces` is the API a
+shell uses to place other installed packages into native compositor surfaces.
+`resolveAppPlan` resolves an ordinary application, so for it the column adds
+nothing; a launcher product such as pocket-shell resolves the System UI role
+with its own resolver.
 
 A product writes its own host contract:
 
@@ -387,21 +351,23 @@ sorted sets. The hash names the host contract a package was compiled against.
 Admission tries hash-equal variants first and does not require a match.
 
 The host config, `pocket.host.config.ts`, names the host contract by a path
-relative to the config file:
+relative to the config file, or by a built-in host id:
 
 ```ts
 import { defineHostConfig } from "@pocketjs/framework/host-config";
 
-export default defineHostConfig({ host: "./pocket.host.json" });
+export default defineHostConfig({
+  host: "./pocket.host.json",
+  app: { entry: "app/main.tsx", framework: "solid", viewport: { logical: [320, 240], presentation: "native" } },
+});
 ```
 
-A program with several host contracts lists their paths under `hosts`
-instead of `host`.
+A config with several host contracts lists them under `hosts` instead of
+`host`.
 
-`pocket compile --manifest app/pocket.app.json --host-config
-pocket.host.config.ts` resolves the application against that host contract;
-`pocket compile --target ./pocket.host.json` does the same without a host
-config. `pocket host export --config pocket.host.config.ts --out
+`pocket compile` resolves the config's `app` against its host contract; with
+several hosts, `--target <id>` or `--target <pocket.host.json>` selects one
+the config lists. `pocket host export --config pocket.host.config.ts --out
 profile-export` writes `pocket_profile.h` and `pocket_profile.rs` (the hash
 and the facts record) and `pocket.host.json` (the host contract with its
 `hostAbi` stamp). IDF CMake helpers accept `HOST_CONFIG` and default to the
@@ -428,18 +394,19 @@ contract without adding a built-in id.
 
 ## Resolution and PSP-to-Vita compatibility
 
-The resolver performs the same steps for every registered target:
+`resolveAppPlan` in `framework/compiler/app-plan.ts` performs the same steps
+for every host:
 
-1. Validate `pocket.app.json` against the format-2 JSON Schema.
+1. Validate the `app` section against its schema.
 2. Find the selected host contract.
-3. Reject unknown, duplicate, or unavailable required capabilities.
-4. Resolve declared enhancements to booleans.
-5. Validate the target raster density, logical viewport, and presentation mode.
+3. Reject unregistered features and missing feature dependencies.
+4. Resolve each feature to a boolean: whether the host provides it.
+5. Validate the target raster density, logical viewport, presentation mode,
+   auxiliary surface, worker and tick rate.
 6. Produce and checksum the build plan.
 
-A PSP-oriented app is not a PSP-only app. The app contract above resolves for
-Vita unchanged because Vita provides the same required APIs and accepts the
-same 480×272 logical viewport:
+A PSP-oriented app is not a PSP-only app. The application above resolves for
+Vita unchanged because Vita accepts the same 480×272 logical viewport:
 
 ```text
 PSP:  logical 480×272 → physical 480×272
@@ -448,15 +415,16 @@ Vita: logical 480×272 → physical 960×544
       raster density 2
 ```
 
-No `vita` stanza is needed. Compatibility is determined by requirements and
-viewport rules, not by a target allowlist. A Vita app that treats touch as an
-enhancement retains its button fallback for PSP; if it makes touch a
-requirement, the PSP build fails during resolution.
+No `vita` stanza is needed: `hosts` lists `vita`, and the viewport rules hold
+there. A Vita application that lists `input.touch` builds for the PSP with the
+feature off and keeps its button path behind `hasFeature("input.touch")`.
 
 ## The build plan
 
-The generated plan is cross-process build IR, not public app configuration.
-This excerpt shows the application and viewport fields resolved for `vita`:
+The generated plan is cross-process build IR and the compiler's input
+(`tools/build.ts --plan=<plan.json> --project-root=<dir> --outdir=<dir>`).
+Its entries are relative to the project root. This excerpt shows the
+application and viewport fields resolved for `vita`:
 
 ```json
 {
@@ -486,10 +454,10 @@ This excerpt shows the application and viewport fields resolved for `vita`:
 }
 ```
 
-**`features` carries every declared capability, requirements included** — a
-requirement is true by construction, an enhancement reflects target
-availability — and the keys are sorted by codepoint so the pretty plan matches
-the canonical JSON the hash is taken over.
+**`features` carries every feature the application lists**, each `true` when
+the target provides it, plus `runtime.worker` and the node kinds of a worker;
+the keys are sorted by codepoint so the pretty plan matches the canonical JSON
+the hash is taken over.
 
 The full plan also carries `profile` and `profileHash`. **`plan.profile` is the
 compiled host contract plus `tickHz`, the package rate.** The `.pocket` variant
@@ -497,12 +465,12 @@ stores `profileHash`, the hash of the host contract's canonical projection, as
 provenance. `.pocket/<target>/plan.json` records the compiler inputs for
 inspection and reuse.
 
-`planHash` is only a checksum of this generated build IR. It detects an edited
-or partially copied plan and can support build caching. It is not a runtime
+`planHash` is a checksum of this generated build IR. It detects a plan edited
+or copied in part and can support build caching. It is not a runtime
 compatibility hash, a signature, an attestation, or a trust chain. Application
 identity and title are present because package backends consume them; icons,
-toolchain provenance, and other fields without a real consumer do not belong
-in the plan merely to make its hash look comprehensive. The Vita backend
+toolchain provenance, and other fields without a consumer stay out of the
+plan. The Vita backend
 derives a nine-character title id from the portable reverse-DNS app id instead
 of keeping a per-demo target table.
 
@@ -560,16 +528,23 @@ reports the rate, the cadence and the ticks per frame after boot.
 
 ## Application and program builds
 
-`pocket compile` consumes the resolved plan and emits a `.pocket` application.
-It accepts a built-in host id or a `pocket.host.json` path as `--target`;
-without that option, it reads the nearest host config.
+`pocket compile` reads the nearest host config above the working directory
+(or `--config`), resolves its `app` for the selected host and emits a `.pocket`
+application. `--target` names a host the config lists, by built-in id or by a
+`pocket.host.json` path; a config with one host needs none. The package's
+manifest region is empty; the variant's identity section and plan carry the
+application's identity.
 
 `pocket build` reads the host config, `pocket.host.config.ts`. Its optional
 `build` field contains `cargo`, `cmake`, `make` or `compilerOnly` steps and an
 optional `run(context)` hook. Each step receives the selected host contract's
 canonical JSON, hash and binding generation through `POCKETJS_*` environment
 variables. Build tools and drivers are program dependencies; the host contract
-contains neither a compiler selection nor a renderer selection.
+contains neither a compiler selection nor a renderer selection. **An
+application config without `build` builds with the stock program of the
+built-in host it selects** (`PROGRAMS` in `tools/build/programs.ts`), and
+`pocket build` compiles the application first unless `--pocket` or `--aot-dir`
+supplies it.
 
 A host config without `build` exports the host contract for an external build
 system. `pocket host export --config <file> --out <directory>` performs that
@@ -595,14 +570,15 @@ runtime admits.
 
 All three tiers compile with the same `pocket compile`.
 
-The complete `ResolvedBuildPlan` is internal and may evolve. Custom hosts use
-the smaller stable boundary instead:
+The plan's field names and hash rule are the contract between resolvers and
+the compiler; a plan may carry fields this repository does not read. Custom
+hosts use the smaller stable boundary instead of the whole plan:
 
 ```ts
 import {
   extractHostBuildInputs,
   hostBuildEnvironment,
-} from "@pocketjs/framework/manifest";
+} from "@pocketjs/framework/plan";
 
 const inputs = extractHostBuildInputs(planJson, { expectedTarget: "vita" });
 const env = hostBuildEnvironment(inputs, {
@@ -631,7 +607,8 @@ unrelated build metadata part of the wire contract.
 reachable imports with the app's ordinary TypeScript configuration. There is
 no generated ambient target module, branded capability token, or special
 reachability authorization model. Optional APIs are ordinary guarded feature
-checks; the app contract provides the build-time compatibility guarantee.
+checks; the `hosts` list and the resolved plan provide the build-time
+compatibility guarantee.
 `platform.pixelRatio` is an ordinary build-defined number for code that must
 produce raster data at runtime; it does not change layout units or API
 availability.

@@ -14,7 +14,7 @@ pocket sdk export --cargo --out native-program
 
 **`pocket sdk build` compiles a local candidate SDK.** Run it in a source checkout
 with Cargo and the target toolchain installed. SDK commands do not read an
-app contract. `--out` must name a directory that does not exist.
+application config. `--out` must name a directory that does not exist.
 
 ```sh
 bun tools/pocket.ts sdk build --triple aarch64-apple-darwin \

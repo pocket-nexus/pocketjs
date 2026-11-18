@@ -51,7 +51,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "typescript-support", title: "TypeScript support" },
       { slug: "api", title: "API reference" },
       { slug: "cli", title: "CLI" },
-      { slug: "app-contract", title: "App contract" },
+      { slug: "app-config", title: "Application config" },
       { slug: "build-pipeline", title: "Build pipeline" },
       { slug: "native-contract", title: "Native contract" },
       { slug: "platform-contracts", title: "Platform contracts" },

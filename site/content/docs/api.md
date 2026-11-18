@@ -33,7 +33,8 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/audio` | `decodeWav`, `createWavPlayer`, `WavPcm` / `WavPlayer` types |
 | `@pocketjs/framework/devtools` | `initDevtools`, `wrapFrameHandler`, tape expanders — see [DevTools](/docs/devtools/) |
 | `@pocketjs/framework/hot` | `text`, `prop` |
-| `@pocketjs/framework/manifest` | app contract and Pocket System schema/types/resolvers, `extractHostBuildInputs`, `hostBuildEnvironment`, `vitaTitleId` |
+| `@pocketjs/framework/host-config` | `defineHostConfig`, `isBuiltinHostId`, `cargo`, `cmake`, `make`, `compilerOnly`, types `AppConfig`, `AnimationTheme`, `AppViewport`, `SurfacesSpec`, `WorkerDeclarationSource` |
+| `@pocketjs/framework/plan` | `resolveAppPlan`, `ResolvedBuildPlan`, plan hashing and verification, `extractHostBuildInputs`, `hostBuildEnvironment`, `vitaTitleId` |
 
 `framework/compiler/subpaths.ts` is the registry these paths are declared in —
 one row per module, and a build resolves nothing that has no row. The rows it
@@ -90,7 +91,7 @@ function onViewport(listener: (w: number, h: number) => void): () => void
 `detectHost` resolves the active host — injected ops win, otherwise
 `globalThis.ui` (PSP/Vita QuickJS); throws when neither exists. `installHost`
 sets the active host (called by `render`). `getOps` returns the installed op
-surface. Native bundles built from an app contract validate `ui.__host` and
+surface. Native bundles built from a build plan validate `ui.__host` and
 `ui.__hostAbi` before mounting. See [Native contract](/docs/native-contract/)
 for the full `HostOps` surface.
 
@@ -776,8 +777,8 @@ steers, and returns a disposer that restores the d-pad model. Calling it again
 while enabled updates the options in place, and an unchanged `image` keeps the
 texture it uploaded. A host predating the cursor ops keeps the d-pad model.
 `cursorX` / `cursorY` read the position in logical px, `NaN` while the cursor
-is disabled or before its first frame. Declare `input.cursor` in `requires` or
-`enhances`. What changes on screen while it runs — hover as focus, the
+is disabled or before its first frame. List `input.cursor` in the
+application's `features`. What changes on screen while it runs — hover as focus, the
 press-and-drag-off model, the suppressed d-pad traversal — is on
 [Input & focus](/docs/input-focus/#virtual-cursor).
 
@@ -1095,8 +1096,8 @@ const platform: {
 function hasFeature(feature: PocketCapabilityId): boolean
 ```
 
-For a bundle built from an app contract, `tools/build.ts` defines the
-target-specific constants consumed by this module from the build plan.
+For a bundle built from a build plan, `tools/build.ts` defines the
+target-specific constants consumed by this module from the plan.
 `pixelRatio` is physical raster samples per logical pixel (`1` on PSP, `2` on Vita), useful for
 runtime-created textures; it never changes layout coordinates. Literal
 `hasFeature("…")` calls are folded to booleans during the PocketJS compile, so
@@ -1116,11 +1117,11 @@ function glyph(button: "circle" | "cross" | "triangle" | "square" | "start" | "s
 
 `modality` is the target's interaction structure the plan resolved
 (`screens`, `touch`, `pointer`, `buttons`, `analog`, `text`, `glyphs`,
-`form`; see [Platform contracts](/docs/platform-contracts/#presentations-and-modality)),
-frozen. `presentation` is the app contract presentation id this bundle compiles,
-`"default"` for the baseline entry. `screen("auxiliary")` is `undefined` on a
-single-screen target. `supports()` evaluates a requirement shaped like the app
-contract's `modality` field against `modality`. `glyph("circle")` is `"○"` on a
+`form`; see [Platform contracts](/docs/platform-contracts/#modality)),
+frozen. `presentation` is the plan's presentation id, `"default"` for a plan
+resolved from a host config. `screen("auxiliary")` is `undefined` on a
+single-screen target. `supports()` evaluates a `ModalityRequirement`
+(`contracts/spec/modality.ts`) against `modality`. `glyph("circle")` is `"○"` on a
 PSP or Vita and `"A"` on a 3DS, so hint text names the button the shell prints. A bundle built without a
 plan reads the portable PSP modality.
 
@@ -1235,8 +1236,8 @@ than by the marshaling ceiling.
 
 ## `@pocketjs/framework/audio`
 
-Streams s16 PCM to the host's `audio` namespace on a credit budget. Declare
-`audio.pcm` in the app contract. Where no host mounts the module every player
+Streams s16 PCM to the host's `audio` namespace on a credit budget. List
+`audio.pcm` in the application's `features`. Where no host mounts the module every player
 call is a no-op and the app's tick-driven UI stays byte-identical, so an audio
 enhancement needs no branch around it.
 
@@ -1299,22 +1300,54 @@ An imperative, last-value-gated escape hatch for high-frequency HUD updates.
 Do not bind the same value reactively as well. Prefer paint-only transforms to
 layout properties and keep hot text inside a fixed-size cell.
 
-## `@pocketjs/framework/manifest`
+## `@pocketjs/framework/host-config`
 
-This subpath holds the app contract schema and the stable build/custom-host
-boundary:
+```ts
+function defineHostConfig<const C extends PocketHostConfig>(config: C): C
+function isBuiltinHostId(host: string): boolean
+function cargo(options?): CargoStep
+function cmake(options?): CmakeStep
+function make(options?): MakeStep
+function compilerOnly(): CompilerOnlyStep
+```
+
+`defineHostConfig({ host | hosts, app?, build? })` checks a host config and
+returns it; `pocket.host.config.ts` exports the result as its default. Each
+`host`/`hosts` entry is a `pocket.host.json` path relative to the config or a
+built-in host id (`isBuiltinHostId`). An `app` section that breaks its schema
+throws a `TypeError` listing each broken rule under `/app`. The step helpers
+build a program's native recipe ([CLI](/docs/cli/#build)).
+
+| Type | Meaning |
+| --- | --- |
+| `AppConfig` | The `app` section ([Application config](/docs/app-config/)). |
+| `AnimationTheme` | `keyframes` and `animation`, the content `app.theme` holds. |
+| `AppViewport`, `SurfacesSpec` | `app.viewport` and `app.surfaces`. |
+| `WorkerDeclarationSource` | `app.worker`, with channel sizes that may be `"host"`. |
+
+## `@pocketjs/framework/plan`
+
+This subpath resolves an application for a host, verifies build plans and
+holds the stable custom-host boundary:
 
 | Export | Purpose |
 | --- | --- |
-| `POCKET_MANIFEST_SCHEMA_ID` / `POCKET_MANIFEST_VERSION` | Canonical app contract format-2 identity. |
-| `pocketManifestV2Schema` / `validatePocketManifest` | Strict app contract schema and structured diagnostics. |
-| `extractHostBuildInputs(plan, options?)` | Verify a plan checksum and project it onto stable native-host inputs. |
+| `resolveAppPlan(app, request, registry?)` | Check an `app` section and resolve it for `request.target` into a `ResolvedBuildPlan`, or return diagnostics with JSON Pointers under `/app`. `request.configDirectory` and `request.projectRoot` rebase entries from the config onto the project root. |
+| `appIdentity(app, output)`, `appOutput(app)` | The identity and artifact name a plan records, with their defaults. |
+| `validatePlatformContractRegistry(registry)` | Check a capability and target registry before resolving against it. |
+| `validateAppConfig(app)` | Schema diagnostics for an `app` section. |
+| `canonicalJson`, `hashBuildPlanContent`, `finalizeBuildPlan` | The plan's canonical JSON and its `planHash`. |
+| `verifyPlanHash(plan)`, `verifyPlanProfile(plan)` | Check a plan's checksum, and that its recorded host contract validates and hashes to `profileHash`. |
+| `planProfileDocument(profile)` | The host contract a plan records, without the package rate. |
+| `extractHostBuildInputs(plan, options?)` | Verify a plan and project it onto stable native-host inputs. |
 | `hostBuildEnvironment(inputs, options)` | Produce the target-neutral Cargo environment for a custom host. |
-| `vitaTitleId(applicationId)` | Deterministically derive a stable Vita Title ID. |
+| `createHostExtension`, `isHostExtension` | A versioned, content-hashed adapter payload a plan may carry. |
+| `vitaTitleId(applicationId)` | Derive the nine-character Vita Title ID from the application id. |
 
-The complete `ResolvedBuildPlan` is internal build IR. Custom hosts should
-consume `HostBuildInputs` rather than retaining or reinterpreting the plan.
-See [Platform contracts](/docs/platform-contracts/).
+**The plan is the compiler's input** (`tools/build.ts --plan`); its field names
+and hash rule are stable, and a plan may carry fields this repository does not
+read. Custom hosts consume `HostBuildInputs` rather than retaining or
+reinterpreting the whole plan. See [Platform contracts](/docs/platform-contracts/).
 
 ---
 
