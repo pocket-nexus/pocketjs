@@ -35,10 +35,11 @@ The hooks allocate from a dedicated `k_heap`, panic through `k_panic`, and expos
 a microsecond clock backed by `k_uptime_ticks`. The hook unit checks the exported
 host contract's dimensions against the chosen display node's width and height.
 
-`pocket_zephyr_display_create` accepts RGB565 or ARGB8888 from the display's
-`current_pixel_format`. The product sets format and orientation before creation.
-The adapter holds one full-width strip under the supplied byte budget and
-converts native pixel words to the display subsystem's big-endian byte order.
+`pocket_zephyr_display_create` accepts RGB_565, RGB_565X or ARGB_8888 from the
+display's `current_pixel_format`. The product sets format and orientation before
+creation. The adapter holds one full-width strip under the supplied byte budget
+and writes each pixel in the byte order Zephyr defines for its format:
+**little-endian for RGB_565 and ARGB_8888, big-endian for RGB_565X**.
 `display_write` return ends access to the strip. A failed write invalidates
 frame history. Displays reporting alternating framebuffers require a full-frame
 allocation and full redraws because their API exposes no persistent buffer id.

@@ -21,7 +21,7 @@ static void get_caps(const struct device *d, struct display_capabilities *c) {
 }
 static int write_pixels(const struct device *d,uint16_t x,uint16_t y,const struct display_buffer_descriptor *desc,const void *pixels) {
   (void)d; assert(x==0 && desc->width==8 && desc->pitch==8 && desc->height<=6-y);
-  size_t stride=8*(pixel_format==PIXEL_FORMAT_RGB_565?2:4); assert(desc->buf_size==stride*desc->height);
+  size_t stride=8*(pixel_format==PIXEL_FORMAT_ARGB_8888?4:2); assert(desc->buf_size==stride*desc->height);
   assert(!desc->frame_incomplete);
   writes++; if(fail_write) return -1;
   memcpy(panel+y*stride,pixels,desc->buf_size); return 0;
@@ -88,9 +88,10 @@ static void paint(pocket_surface *s,uint32_t color) {
 }
 static void test_display(void) {
   const pocket_display_output_v1 *v=pocket_zephyr_display_vtable();
-  for(unsigned format=0;format<2;format++) {
-    pixel_format=format?PIXEL_FORMAT_ARGB_8888:PIXEL_FORMAT_RGB_565;
-    unsigned bpp=format?4:2;
+  static const uint32_t formats[]={PIXEL_FORMAT_RGB_565,PIXEL_FORMAT_RGB_565X,PIXEL_FORMAT_ARGB_8888};
+  for(unsigned format=0;format<3;format++) {
+    pixel_format=formats[format];
+    unsigned bpp=pixel_format==PIXEL_FORMAT_ARGB_8888?4:2;
     pocket_zephyr_display_config c={sizeof(c),DISPLAY_DEVICE,0,2,8*2*bpp};
     pocket_zephyr_display *d=pocket_zephyr_display_create(&c); assert(d);
     assert(pocket_zephyr_display_buffer_bytes(d)==8*2*bpp);
@@ -104,8 +105,11 @@ static void test_display(void) {
       assert(v->wait(d,token)==0); assert(v->wait(d,token)==POCKET_STATUS_INVALID);
     }
 #ifdef POCKET_ZEPHYR_NATIVE
-    for(size_t i=0;i<8*6;i++) { if(format) { assert(panel[i*4]==255 && panel[i*4+1]==255 && panel[i*4+2]==0 && panel[i*4+3]==0); }
-      else { assert(panel[i*2]==0xf8 && panel[i*2+1]==0); } }
+    /* Opaque red as Zephyr lays it out: B,G,R,A bytes for ARGB_8888,
+     * little-endian 0xf800 for RGB_565, big-endian for RGB_565X. */
+    for(size_t i=0;i<8*6;i++) { if(bpp==4) { assert(panel[i*4]==0 && panel[i*4+1]==0 && panel[i*4+2]==255 && panel[i*4+3]==255); }
+      else if(pixel_format==PIXEL_FORMAT_RGB_565X) { assert(panel[i*2]==0xf8 && panel[i*2+1]==0); }
+      else { assert(panel[i*2]==0 && panel[i*2+1]==0xf8); } }
 #endif
     pocket_rect r={sizeof(r),0,0,8,2};pocket_target target={.struct_size=sizeof(target)};uint64_t token=0;
     assert(v->acquire(d,&r,&target)==0); pocket_rect bad=r;bad.y=6;unsigned before=writes;

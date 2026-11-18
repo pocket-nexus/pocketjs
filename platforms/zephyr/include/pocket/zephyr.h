@@ -15,9 +15,10 @@ typedef struct {
   uint32_t role, strip_rows;
   size_t frame_buffer_budget;
 } pocket_zephyr_display_config;
-/* The product configures pixel format/orientation before creation. RGB565 and
- * ARGB8888 are accepted. display_write must obey Zephyr's synchronous buffer
- * lifetime: return ends every access to the supplied buffer, including errors.
+/* The product configures pixel format/orientation before creation. RGB_565,
+ * RGB_565X and ARGB_8888 are accepted, written in Zephyr's byte order for each.
+ * display_write must obey Zephyr's synchronous buffer lifetime: return ends
+ * every access to the supplied buffer, including errors.
  * Creation, runtime calls, invalidate and destroy run on the same thread.
  */
 pocket_zephyr_display *pocket_zephyr_display_create(const pocket_zephyr_display_config *);

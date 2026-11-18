@@ -8,7 +8,7 @@ struct pocket_zephyr_display {
   size_t capacity, stride;
   uint32_t width, height, rows, role, format;
   uint64_t next, token, generation;
-  bool acquired, pending, frame_storage;
+  bool acquired, pending, frame_storage, swap;
   pocket_rect region;
   pocket_surface surface;
 };
@@ -16,8 +16,9 @@ pocket_zephyr_display *pocket_zephyr_display_create(const pocket_zephyr_display_
   if (!c || c->struct_size < sizeof(*c) || !c->device || !device_is_ready(c->device) || c->role > 1 || !c->strip_rows) return NULL;
   struct display_capabilities caps;
   display_get_capabilities(c->device, &caps);
-  uint32_t bpp, format;
+  uint32_t bpp, format; bool big_endian=false;
   if (caps.current_pixel_format == PIXEL_FORMAT_RGB_565) { bpp=2; format=POCKET_PIXEL_FORMAT_RGB565; }
+  else if (caps.current_pixel_format == PIXEL_FORMAT_RGB_565X) { bpp=2; format=POCKET_PIXEL_FORMAT_RGB565; big_endian=true; }
   else if (caps.current_pixel_format == PIXEL_FORMAT_ARGB_8888) { bpp=4; format=POCKET_PIXEL_FORMAT_ARGB8888; }
   else return NULL;
   if ((caps.screen_info & SCREEN_INFO_DOUBLE_BUFFER) && c->strip_rows != caps.y_resolution) return NULL;
@@ -35,6 +36,9 @@ pocket_zephyr_display *pocket_zephyr_display_create(const pocket_zephyr_display_
   d->width=caps.x_resolution; d->height=caps.y_resolution; d->rows=c->strip_rows;
   d->frame_storage=!(caps.screen_info & SCREEN_INFO_DOUBLE_BUFFER);
   d->role=c->role; d->format=format; d->generation=1;
+  /* Zephyr stores RGB_565 and ARGB_8888 little-endian and RGB_565X big-endian;
+   * the raster writes pixel words in CPU byte order. */
+  d->swap=big_endian != (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
   return d;
 }
 static int32_t descriptor(void *context, pocket_display_descriptor *out) {
@@ -61,14 +65,11 @@ static int32_t acquire(void *context, const pocket_rect *r, pocket_target *out) 
   return POCKET_STATUS_OK;
 }
 static void byte_order(pocket_zephyr_display *d, uint8_t *pixels, size_t size) {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  if (!d->swap) return;
   size_t bpp=d->format==POCKET_PIXEL_FORMAT_RGB565?2:4;
   for(size_t i=0;i<size;i+=bpp) for(size_t j=0;j<bpp/2;j++) {
     uint8_t value=pixels[i+j];pixels[i+j]=pixels[i+bpp-1-j];pixels[i+bpp-1-j]=value;
   }
-#else
-  (void)d;(void)pixels;(void)size;
-#endif
 }
 static int32_t flush(void *context, const pocket_rect *regions, size_t count, uint64_t *token) {
   pocket_zephyr_display *d=context;
