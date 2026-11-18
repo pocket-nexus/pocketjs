@@ -382,23 +382,12 @@ fn admitted<'a>(
     let identity = variant.identity()?.ok_or(GuestError::MissingIdentity)?;
     // Admission read this section; it is present and non-empty.
     let plan = variant.section(section::PLAN)?.unwrap_or(&[]);
-    let bytecode = envelope_section(variant.section(section::BYTECODE)?)?;
-    let js = match (
-        variant
-            .section(section::JS)?
-            .filter(|value| !value.is_empty()),
-        bytecode,
-    ) {
-        (Some(js), _) if js.last() != Some(&0) => return Err(GuestError::JavaScriptNotTerminated),
-        (Some(js), _) => js,
-        (None, Some(_)) => &[],
-        (None, None) => return Err(GuestError::MissingJavaScript),
-    };
-    let worker_bytecode = envelope_section(variant.section(section::WORKER_BYTECODE)?)?;
-    let worker_js = worker_payload(
+    let (js, worker_js, bytecode, worker_bytecode) = guest_sections(
         plan,
+        variant.section(section::JS)?,
+        variant.section(section::BYTECODE)?,
         variant.section(section::WORKER_JS)?,
-        worker_bytecode.is_some(),
+        variant.section(section::WORKER_BYTECODE)?,
     )?;
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
     Ok(Guest {
@@ -414,6 +403,31 @@ fn admitted<'a>(
         package_hash: package.package_hash()?,
         variant_hash: variant.variant_hash,
     })
+}
+
+/// The checks every program's code sections pass, whichever container held
+/// them: bytecode sections are envelopes, the UI bundle is NUL-terminated or
+/// replaced by bytecode, and the worker bundle matches the plan's
+/// `domains.worker`. Returns the UI bundle, the worker bundle and the two
+/// envelopes; an absent bundle is an empty slice.
+#[allow(clippy::type_complexity)]
+pub(crate) fn guest_sections<'a>(
+    plan: &[u8],
+    js: Option<&'a [u8]>,
+    bytecode: Option<&'a [u8]>,
+    worker_js: Option<&'a [u8]>,
+    worker_bytecode: Option<&'a [u8]>,
+) -> Result<(&'a [u8], &'a [u8], Option<&'a [u8]>, Option<&'a [u8]>), GuestError> {
+    let bytecode = envelope_section(bytecode)?;
+    let js = match (js.filter(|value| !value.is_empty()), bytecode) {
+        (Some(js), _) if js.last() != Some(&0) => return Err(GuestError::JavaScriptNotTerminated),
+        (Some(js), _) => js,
+        (None, Some(_)) => &[],
+        (None, None) => return Err(GuestError::MissingJavaScript),
+    };
+    let worker_bytecode = envelope_section(worker_bytecode)?;
+    let worker_js = worker_payload(plan, worker_js, worker_bytecode.is_some())?;
+    Ok((js, worker_js, bytecode, worker_bytecode))
 }
 
 /// A bytecode section, checked to be an envelope.

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{PackageBytes, PackageSource, PackageStorage, SourceError};
+use crate::{PackageBytes, PackageSections, PackageSource, PackageStorage, SourceError};
 use alloc::boxed::Box;
 use core::{ffi::c_void, slice};
 
@@ -57,7 +57,35 @@ fn source_error(error: AdapterError) -> SourceError {
         AdapterError::Failed => SourceError::Failed,
     }
 }
+/// A C section: zero length means absent.
+fn section(offset: usize, length: usize) -> Result<Option<core::ops::Range<usize>>, SourceError> {
+    if length == 0 {
+        return Ok(None);
+    }
+    let end = offset.checked_add(length).ok_or(SourceError::OutOfBounds)?;
+    Ok(Some(offset..end))
+}
 impl PackageSource for CPackageSource {
+    fn sections(&mut self) -> Result<Option<PackageSections>, SourceError> {
+        let Some(callback) = self.table.sections else {
+            return Ok(None);
+        };
+        let mut out = PocketPackageSections::empty();
+        match check(unsafe { callback(self.context, &mut out) }) {
+            Ok(()) => {}
+            Err(AdapterError::Unsupported) => return Ok(None),
+            Err(error) => return Err(source_error(error)),
+        }
+        Ok(Some(PackageSections {
+            host_abi: out.host_abi,
+            plan: section(out.plan_offset, out.plan_length)?.ok_or(SourceError::OutOfBounds)?,
+            js: section(out.js_offset, out.js_length)?,
+            pak: section(out.pak_offset, out.pak_length)?,
+            bytecode: section(out.bytecode_offset, out.bytecode_length)?,
+            worker_js: section(out.worker_js_offset, out.worker_js_length)?,
+            worker_bytecode: section(out.worker_bytecode_offset, out.worker_bytecode_length)?,
+        }))
+    }
     fn length(&self) -> Result<usize, SourceError> {
         let mut size = 0;
         check(unsafe { self.table.length.unwrap()(self.context, &mut size) })

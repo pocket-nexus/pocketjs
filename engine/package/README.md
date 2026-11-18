@@ -62,6 +62,18 @@ source available for borrowed or range reads. **The C source ABI is unchanged**:
 its pointers carry no transferable ownership or static lifetime, so its bytes
 still copy into runtime-owned storage.
 
+**A source may state where one program lies in its bytes.**
+`PackageSource::sections` (the optional `sections` callback of
+`pocket_package_source_v1` in C) returns the byte ranges of the plan, the UI
+bundle, the pak and the optional bytecode and worker sections, with the binding
+generation the program was compiled for. `LoadedPackage::load` then parses no
+container and checks no container hash. It admits the plan against the host
+facts and applies the section checks of a package variant: NUL-terminated
+bundles, bytecode envelopes and a worker bundle that matches `domains.worker`.
+`package_hash` and `variant_hash` are zero. A host that stores programs in a
+container of its own implements this method; a source that returns `None` holds
+a `.pocket` container.
+
 Raw JS/pak embedders can use `embedded::encode`, which writes one container and
 its JavaScript terminator without a script-sized temporary buffer. Product
 builders should link their compiled `.pocket` into a `StaticMemorySource`
