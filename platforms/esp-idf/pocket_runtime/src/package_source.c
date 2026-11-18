@@ -50,8 +50,8 @@ static int32_t take(void *context, pocket_package_storage *out) {
                    : 0U;
   return POCKET_STATUS_OK;
 }
-static const pocket_package_source_v1 VTABLE = {sizeof(VTABLE), length, bytes,
-                                                read_range, take};
+static const pocket_package_source_v1 VTABLE = {
+    sizeof(VTABLE), length, bytes, read_range, take, NULL};
 const pocket_package_source_v1 *pocket_memory_package_vtable(void) {
   return &VTABLE;
 }

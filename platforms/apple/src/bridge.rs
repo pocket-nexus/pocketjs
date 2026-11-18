@@ -351,6 +351,7 @@ pub static SOURCE: PocketPackageSourceV1 = PocketPackageSourceV1 {
     all: Some(all),
     range: Some(range),
     take: None,
+    sections: None,
 };
 unsafe extern "C" fn dispatch(
     context: *mut c_void,
