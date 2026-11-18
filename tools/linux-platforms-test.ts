@@ -1,16 +1,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { encodeBundle } from "../contracts/spec/bundle.ts";
 import type { PocketProfile } from "../contracts/spec/profile.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { hashPocketProfile, readPocketProfile } from "../framework/src/profile.ts";
 import { exportProfile } from "./profile-export.ts";
 import { profileRegistry } from "./profile-resolver.ts";
-import { makeVariant } from "./pocket-pack.ts";
+import { makeBundle } from "./bundle.ts";
 const root = resolve(import.meta.dir, "..");
 const profile = readPocketProfile(resolve(root, "programs/linux-kms/pocket.host.json"));
-/** Export the program's profile and write packages compiled against it, plus
+/** Export the program's profile and write bundles compiled against it, plus
  * one compiled for a profile whose raster density this host does not have.
  * Returns the exported
  * Rust module the program build names in POCKETJS_PROFILE_RS. */
@@ -24,12 +24,12 @@ export function linuxFixture(directory: string): string {
     if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
     return result.plan;
   };
-  const make = (js: string, selected: PocketProfile = profile) => encodePocketPackage({ manifest: new Uint8Array(0), variants: [makeVariant({ target: profile.id, hostAbi: POCKET_BINDING_GENERATION,
-    planJson: JSON.stringify(plan(selected)), identity: { id: application.id, title: application.title, output: application.output }, js: new TextEncoder().encode(js), pak: new Uint8Array() })] });
+  const make = (js: string, selected: PocketProfile = profile) =>
+    encodeBundle(makeBundle({ plan: plan(selected), js: new TextEncoder().encode(js), pak: new Uint8Array() }));
   const app = `const node=ui.createNode(0);ui.insertBefore(0,node,0);ui.setProp(node,1,120);ui.setProp(node,2,80);globalThis.frame=()=>{ui.setProp(node,64,0xff204060);};`;
-  writeFileSync(resolve(directory, "app.pocket"), make(app));
-  writeFileSync(resolve(directory, "guest-error.pocket"), make("globalThis.frame=()=>{throw new Error('intentional guest failure')};"));
-  writeFileSync(resolve(directory, "wrong-profile.pocket"), make(app,
+  writeFileSync(resolve(directory, "app.pkb"), make(app));
+  writeFileSync(resolve(directory, "guest-error.pkb"), make("globalThis.frame=()=>{throw new Error('intentional guest failure')};"));
+  writeFileSync(resolve(directory, "wrong-profile.pkb"), make(app,
     { ...profile, display: { ...profile.display, rasterDensity: 2 }, panel: { primary: [1600, 1200] } }));
   return module;
 }
@@ -55,11 +55,11 @@ export function runLinuxPlatformsTests(directory: string) {
     run([...cargo, "test", "--locked", ...["hooks", "drm", "fbdev", "evdev", "alsa", "kms"].flatMap(name => ["-p", "pocket-linux-" + name])]);
     run([...cargo, "build", "--locked", "-p", "pocket-linux-kms", ...(process.platform === "linux" ? ["--features", "alsa"] : [])]);
   }
-  const shared = [binary, "--package", resolve(directory, "app.pocket")];
+  const shared = [binary, "--package", resolve(directory, "app.pkb")];
   if (!run([...shared, "--check"]).includes("package admitted")) throw new Error("admission did not run");
   if (!run([...shared, "--headless", "--frames", "3"]).includes("completed 3 logical ticks")) throw new Error("guest did not tick");
-  run([binary, "--headless", "--frames", "1", "--package", resolve(directory, "guest-error.pocket")], false);
-  run([binary, "--check", "--package", resolve(directory, "wrong-profile.pocket")], false);
+  run([binary, "--headless", "--frames", "1", "--package", resolve(directory, "guest-error.pkb")], false);
+  run([binary, "--check", "--package", resolve(directory, "wrong-profile.pkb")], false);
   if (process.platform === "linux") {
     run([binary, "--pcm-test", "null"]);
     const layout = resolve(directory, "kernel-layout");

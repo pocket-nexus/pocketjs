@@ -3,7 +3,7 @@
 //! A generic native runtime names an application's state directory from its
 //! id with the digest product build tools use (the runtime slot: the first
 //! 16 hex digits of SHA-256(id)), so the device computes it from the
-//! `.pocket` it boots instead of having it compiled in.
+//! bundle it boots instead of having it compiled in.
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,

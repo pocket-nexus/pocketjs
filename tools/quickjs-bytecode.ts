@@ -1,4 +1,4 @@
-// tools/quickjs-bytecode.ts — compile a variant's bundles to QuickJS bytecode
+// tools/quickjs-bytecode.ts — compile a bundle's scripts to QuickJS bytecode
 // with a host-native compiler built from the engine source the target embeds
 // (contracts/spec/quickjs-bytecode.ts).
 //
@@ -13,11 +13,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, w
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
+  BUNDLE_SECTION,
   encodeBytecodeEnvelope,
-  POCKET_SECTION,
-  type PocketPackageSection,
-  type PocketPackageVariant,
-} from "../contracts/spec/pocket-package.ts";
+  type Bundle,
+  type BundleSection,
+} from "../contracts/spec/bundle.ts";
 import { quickJsEngineAbiByName, type QuickJsEngineAbi } from "../contracts/spec/quickjs-bytecode.ts";
 import { mustRunCommand, runCommand } from "./native-source.ts";
 
@@ -179,31 +179,31 @@ export interface WithBytecodeOptions extends QuickJsBytecodeOptions {
   readonly source?: "keep" | "drop";
 }
 
-/** The variant with its UI bundle compiled into section 6 and its worker
+/** The bundle with its UI bundle compiled into section 6 and its worker
  *  bundle, when it has one, into section 9. */
-export function withBytecode(variant: PocketPackageVariant, options: WithBytecodeOptions): PocketPackageVariant {
+export function withBytecode(bundle: Bundle, options: WithBytecodeOptions): Bundle {
   const abi = quickJsEngineAbiByName(options.engine);
   if (!abi) throw new Error(`quickjs bytecode: no engine ABI is named ${options.engine}`);
   const { source: sourceOption, engine: _engine, ...compileOptions } = options;
   const script = (kind: number, name: string) => {
-    const section = variant.sections.find((entry) => entry.kind === kind);
+    const section = bundle.sections.find((entry) => entry.kind === kind);
     if (!section) return undefined;
     if (section.bytes.length === 0 || section.bytes[section.bytes.length - 1] !== 0) {
       throw new Error(`quickjs bytecode: the ${name} section is not NUL-terminated`);
     }
     return section.bytes.subarray(0, section.bytes.length - 1);
   };
-  const ui = script(POCKET_SECTION.js, "js");
-  if (!ui) throw new Error("quickjs bytecode: the variant has no js section to compile");
-  const worker = script(POCKET_SECTION.workerJs, "worker");
-  const compiled: PocketPackageSection[] = [
-    { kind: POCKET_SECTION.bytecode, bytes: compileQuickJsBytecode(abi, ui, compileOptions).section },
-    ...(worker ? [{ kind: POCKET_SECTION.workerBytecode, bytes: compileQuickJsBytecode(abi, worker, compileOptions).section }] : []),
+  const ui = script(BUNDLE_SECTION.js, "js");
+  if (!ui) throw new Error("quickjs bytecode: the bundle has no js section to compile");
+  const worker = script(BUNDLE_SECTION.workerJs, "worker");
+  const compiled: BundleSection[] = [
+    { kind: BUNDLE_SECTION.bytecode, bytes: compileQuickJsBytecode(abi, ui, compileOptions).section },
+    ...(worker ? [{ kind: BUNDLE_SECTION.workerBytecode, bytes: compileQuickJsBytecode(abi, worker, compileOptions).section }] : []),
   ];
-  const dropped = new Set<number>([POCKET_SECTION.bytecode, POCKET_SECTION.workerBytecode]);
+  const dropped = new Set<number>([BUNDLE_SECTION.bytecode, BUNDLE_SECTION.workerBytecode]);
   if (sourceOption === "drop") {
-    dropped.add(POCKET_SECTION.js);
-    dropped.add(POCKET_SECTION.workerJs);
+    dropped.add(BUNDLE_SECTION.js);
+    dropped.add(BUNDLE_SECTION.workerJs);
   }
-  return { ...variant, sections: [...variant.sections.filter((section) => !dropped.has(section.kind)), ...compiled] };
+  return { ...bundle, sections: [...bundle.sections.filter((section) => !dropped.has(section.kind)), ...compiled] };
 }

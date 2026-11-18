@@ -69,20 +69,20 @@ typedef enum {
 #ifdef POCKET_PACKAGE_RUNTIME
 /*
  * One executable for every game. The executable has no __pocket_js or
- * __pocket_pak section; the bundle carries the game as app.pocket, and
+ * __pocket_pak section; the app bundle carries the game as app.pkb, and
  * load_bundle_package (main, before UIApplicationMain) takes the surface from
  * the plan inside it. Until then the window is the panel's portrait 320x480 at
- * density 2, so a package that cannot be read still gets its message drawn.
+ * density 2, so a bundle that cannot be read still gets its message drawn.
  */
 #include <stdlib.h>
 #include <string.h>
 #include "pocket_native_program.h"
 #include "pocket_spec.h"
 #ifndef POCKETJS_TARGET_ID
-#error "POCKETJS_TARGET_ID names the package variant this runtime admits"
+#error "POCKETJS_TARGET_ID names the host contract this runtime admits bundles against"
 #endif
 #ifndef POCKETJS_HOST_ABI
-#error "POCKETJS_HOST_ABI names the package variant this runtime admits"
+#error "POCKETJS_HOST_ABI names the binding generation this runtime admits"
 #elif POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
 #error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
@@ -665,11 +665,11 @@ static BOOL send_bool_class_object(Class cls, const char *selector, id value) {
 #ifdef POCKET_PACKAGE_RUNTIME
 static PocketNativePackage g_package;
 static uint8_t *g_package_bytes;
-static char g_package_error[192] = "app.pocket was not read";
+static char g_package_error[192] = "app.pkb was not read";
 
 /*
- * Read app.pocket beside the executable, admit the variant this program's
- * profile facts satisfy (footer hash included), and take the surface from its plan:
+ * Read app.pkb beside the executable, admit the plan against this program's
+ * profile facts (bundle hashes included), and take the surface from the plan:
  * 320x480 or 480x320 logical at density 2, the panels the profile admits.
  * Every failure leaves one line in g_package_error for the screen and the
  * acceptance record.
@@ -681,26 +681,26 @@ static void load_bundle_package(const char *executable) {
   long size;
   int32_t result;
 
-  if (slash == NULL || (size_t)(slash - executable) + sizeof "/app.pocket" > sizeof path) {
+  if (slash == NULL || (size_t)(slash - executable) + sizeof "/app.pkb" > sizeof path) {
     snprintf(g_package_error, sizeof g_package_error, "the app bundle could not be located");
     return;
   }
-  snprintf(path, sizeof path, "%.*s/app.pocket", (int)(slash - executable), executable);
+  snprintf(path, sizeof path, "%.*s/app.pkb", (int)(slash - executable), executable);
   file = fopen(path, "rb");
   if (file == NULL) {
-    snprintf(g_package_error, sizeof g_package_error, "this app carries no game: app.pocket is missing");
+    snprintf(g_package_error, sizeof g_package_error, "this app carries no game: app.pkb is missing");
     return;
   }
   size = fseek(file, 0, SEEK_END) == 0 ? ftell(file) : -1;
   if (size <= 0 || size > 64L * 1024L * 1024L || fseek(file, 0, SEEK_SET) != 0) {
     fclose(file);
-    snprintf(g_package_error, sizeof g_package_error, "app.pocket has an unusable size (%ld bytes)", size);
+    snprintf(g_package_error, sizeof g_package_error, "app.pkb has an unusable size (%ld bytes)", size);
     return;
   }
   g_package_bytes = malloc((size_t)size);
   if (g_package_bytes == NULL || fread(g_package_bytes, 1, (size_t)size, file) != (size_t)size) {
     fclose(file);
-    snprintf(g_package_error, sizeof g_package_error, "app.pocket could not be read (%ld bytes)", size);
+    snprintf(g_package_error, sizeof g_package_error, "app.pkb could not be read (%ld bytes)", size);
     return;
   }
   fclose(file);
@@ -716,7 +716,7 @@ static void load_bundle_package(const char *executable) {
     snprintf(
       g_package_error,
       sizeof g_package_error,
-      "app.pocket is not a %s ABI %d game (error %d)",
+      "app.pkb is not a %s ABI %d game (error %d)",
       POCKETJS_TARGET_ID,
       POCKETJS_HOST_ABI,
       (int)result
@@ -974,7 +974,7 @@ static int boot_embedded_runtime(void) {
   const uint8_t *pack = getsectdata("__DATA", "__pocket_pak", &pack_length);
 
 #ifdef POCKET_PACKAGE_RUNTIME
-  /* No embedded sections: the game is the bundle's app.pocket. */
+  /* No embedded sections: the game is the app bundle's app.pkb. */
   if (java_script == NULL || java_script_length == 0) {
     if (g_package_error[0] != '\0') {
       fail_runtime(g_package_error);

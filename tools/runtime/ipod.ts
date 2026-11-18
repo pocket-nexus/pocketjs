@@ -12,9 +12,9 @@
 //   runtime.json           { target, hostAbi, pocketjs, profile, files, host }
 //
 // The executable has no __pocket_js / __pocket_pak section. It is compiled with
-// POCKET_PACKAGE_RUNTIME: at launch it reads app.pocket beside itself, admits
-// the ipodtouch4-dev variant with the current binding generation and takes the
-// logical surface (320x480 or 480x320) and raster density from that variant's plan (programs/ipodtouch4/
+// POCKET_PACKAGE_RUNTIME: at launch it reads app.pkb beside itself, admits
+// its plan against the ipodtouch4-dev host contract and takes the
+// logical surface (320x480 or 480x320) and raster density from that plan (programs/ipodtouch4/
 // runtime.c). ui.physics (ops 52..56), io.offload and keep-awake (the idle
 // timer disabled while the game runs, POCKET_KEEP_AWAKE as a first-party app
 // descriptor sets it) are compiled in for every game; the svc wire is not, and

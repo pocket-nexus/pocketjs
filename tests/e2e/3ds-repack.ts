@@ -152,10 +152,10 @@ try {
   preflight();
   if (argv.includes("--preflight")) { log("preflight passed; emulator not started"); }
   else {
-    const pocketPath = option("pocket");
+    const bundlePath = option("bundle");
     const identity = { id: id!, title: option("title") ?? "", author: option("author") ?? "", version: option("version") ?? "" };
-    if (!pocketPath || !identity.title || !identity.author || !identity.version)
-      throw new Error("Azahar runs need --pocket, --id, --title, --author and --version");
+    if (!bundlePath || !identity.title || !identity.author || !identity.version)
+      throw new Error("Azahar runs need --bundle, --id, --title, --author and --version");
     const icon = option("icon");
     let runtimeDir = resolve(option("runtime") ?? join(ROOT, "dist/runtime/3ds"));
     const receiptPath = join(runtimeDir, "build-receipt.json");
@@ -165,7 +165,7 @@ try {
       runtimeDir = receipt.artifact;
     }
     const runtime = readRuntimeDirectory(runtimeDir);
-    const game = await repack3ds({ runtime, pocket: new Uint8Array(readFileSync(pocketPath)),
+    const game = await repack3ds({ runtime, bundle: new Uint8Array(readFileSync(bundlePath)),
       identity: { ...identity, ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}) } });
     const gamePath = join(OUT, "game.3dsx"); writeFileSync(gamePath, game);
     log(`repacked ${game.length} bytes from ${runtimeDir}`);

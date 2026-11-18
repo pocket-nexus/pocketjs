@@ -16,7 +16,7 @@ const genericProfile = POCKET_PROFILES["psp-runtime"];
 export const build: RuntimeBuild = {
   deploy: deployPsp,
   sourceInputs: context => [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/modules/media", "engine/render", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs"), ...launcherSourceInputs(context)],
-  hosts: buildHosts, toolchain: pspToolchain, input: "package", steps: compilerOnly(), artifact: "{outdir}/{output}.pbp",
+  hosts: buildHosts, toolchain: pspToolchain, input: "bundle", steps: compilerOnly(), artifact: "{outdir}/{output}.pbp",
   async run(context) {
     requireProgramProfile(context, profile);
     const app = requireApplication(context);

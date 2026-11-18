@@ -1,7 +1,7 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { encodeBundle, encodeIdentity } from "../contracts/spec/bundle.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { canonicalProfileJson, type PocketProfile } from "../contracts/spec/profile.ts";
@@ -14,14 +14,14 @@ const fixtureProfile: PocketProfile = { format: "pocket-host/2", id: "fixture", 
 const profile = canonicalProfileJson(fixtureProfile);
 function packageFixture(): Uint8Array {
   const text = new TextEncoder();
-  return encodePocketPackage({ manifest: new Uint8Array(), variants: [{
-    target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + createHash("sha256").update(profile).digest("hex"),
+  return encodeBundle({
+    hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + createHash("sha256").update(profile).digest("hex"),
     sections: [
       {kind:1,bytes:encodeIdentity({output:"app",id:"test.app",title:"App"})},
       {kind:2,bytes:text.encode('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}')},
       {kind:3,bytes:text.encode("test\0")}
     ]
-  }]});
+  });
 }
 function run(args: string[], env = process.env): string {
   const result = Bun.spawnSync(args, { cwd: root, env, stdout: "pipe", stderr: "pipe" });

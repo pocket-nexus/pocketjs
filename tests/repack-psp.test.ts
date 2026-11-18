@@ -1,16 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import {
-decodePocketPackage,
-encodePocketPackage,
-fnv1a64,
-POCKET_SECTION,
-type PocketPackageVariant,
-} from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/compiler/plan.ts";
+import { BUNDLE_SECTION, decodeBundle, encodeBundle, findSection } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { PSP_ICON0, pbpParts, pbpWrite, pspFolder, repackPsp } from "../tools/repack/psp.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
@@ -42,25 +35,15 @@ function app(features: string[] = []) {
   };
 }
 
-function variant(target: "psp-runtime" | "vita", source = app()): PocketPackageVariant {
+/** The application compiled for one host contract. */
+function bundleFor(target: "psp-runtime" | "vita" = "psp-runtime", source = app()): Uint8Array {
   const resolution = resolveAppPlan(source, { target }, target === "psp-runtime" ? profileRegistry(softwareProfile) : undefined);
   if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
-  const plan = resolution.plan;
-  return makeVariant({
-    target,
-    hostAbi: plan.target.hostAbi,
-    planJson: canonicalJson(plan),
-    identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
+  return encodeBundle(makeBundle({
+    plan: resolution.plan,
     js: new TextEncoder().encode(`globalThis.frame = () => {}; // ${target}`),
     pak: new Uint8Array([target === "psp-runtime" ? 1 : 2, 2, 3, 4]),
-  });
-}
-
-function pocketFor(targets: ("psp-runtime" | "vita")[] = ["psp-runtime", "vita"], source = app()): Uint8Array {
-  return encodePocketPackage({
-    manifest: new Uint8Array(0),
-    variants: targets.map((target) => variant(target, source)),
-  });
+  }));
 }
 
 /** A runtime directory as tools/runtime/psp.ts writes it: cargo-psp's PARAM.SFO keys, no icon. */
@@ -94,21 +77,21 @@ async function icon(): Promise<Uint8Array> {
 async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput> {
   return {
     runtime: await runtime(),
-    pocket: pocketFor(),
+    bundle: bundleFor(),
     identity: { id: ID, title: "Snack Snake", author: "Pocket Nexus", version: "1.2.0", icon: await icon() },
     ...overrides,
   };
 }
 
 describe("PSP repack", () => {
-  test("writes PSP/GAME/Studio<Name>/ with the retitled EBOOT and the thinned package", async () => {
+  test("writes PSP/GAME/Studio<Name>/ with the retitled EBOOT and the bundle", async () => {
     const zip = await readZip(await repackPsp(await input()));
     expect(zip.map((entry) => entry.name)).toEqual([
       "PSP/",
       "PSP/GAME/",
       "PSP/GAME/StudioSnackSnake/",
       "PSP/GAME/StudioSnackSnake/EBOOT.PBP",
-      "PSP/GAME/StudioSnackSnake/app.pocket",
+      "PSP/GAME/StudioSnackSnake/app.pkb",
     ]);
     expect(zip.map((entry) => entry.mode)).toEqual([0o040755, 0o040755, 0o040755, 0o100644, 0o100644]);
 
@@ -135,10 +118,8 @@ describe("PSP repack", () => {
     expect(icon0.rgba[(40 * 144 + 4) * 4 + 3]).toBe(0);
     expect([...icon0.rgba.subarray((40 * 144 + 72) * 4, (40 * 144 + 72) * 4 + 4)]).toEqual([200, 40, 90, 255]);
 
-    const app = decodePocketPackage(zip[4]!.data);
-    expect(app.variants.map((entry) => entry.target)).toEqual(["psp-runtime"]);
-    const original = decodePocketPackage(pocketFor()).variants.find((entry) => entry.target === "psp-runtime")!;
-    expect(fnv1a64(...app.variants[0]!.sections.map((s) => s.bytes))).toBe(fnv1a64(...original.sections.map((s) => s.bytes)));
+    // The bundle travels byte for byte.
+    expect(zip[4]!.data).toEqual(bundleFor());
   });
 
   test("the same inputs give the same bytes", async () => {
@@ -165,8 +146,8 @@ describe("PSP repack", () => {
   test("refuses a broken footer", async () => {
   });
 
-  test("refuses a package without a psp variant", async () => {
-    await expect(repackPsp(await input({ pocket: pocketFor(["vita"]) }))).rejects.toThrow("this psp-runtime runtime does not admit the .pocket: variant 0 (vita) is not admitted: rasterDensity");
+  test("refuses a bundle the runtime's host contract does not admit", async () => {
+    await expect(repackPsp(await input({ bundle: bundleFor("vita") }))).rejects.toThrow("this psp-runtime runtime does not admit the bundle: not admitted: rasterDensity");
   });
 
   test("refuses a runtime whose EBOOT is not the one runtime.json describes", async () => {
@@ -176,9 +157,9 @@ describe("PSP repack", () => {
   });
 
   test("generic profile compiles offload off and rejects text offload without its transport", () => {
-    const plan = JSON.parse(new TextDecoder().decode(variant("psp-runtime", app(["io.offload"])).sections.find(section => section.kind === POCKET_SECTION.plan)!.bytes));
+    const plan = JSON.parse(new TextDecoder().decode(findSection(decodeBundle(bundleFor("psp-runtime", app(["io.offload"]))), BUNDLE_SECTION.plan)!));
     expect(plan.features["io.offload"]).toBe(false);
-    expect(() => variant("psp-runtime", app(["text.layout.offload"]))).toThrow("text.layout.offload");
+    expect(() => bundleFor("psp-runtime", app(["text.layout.offload"]))).toThrow("text.layout.offload");
   });
 
   test("names the folder from the title, then the id", async () => {

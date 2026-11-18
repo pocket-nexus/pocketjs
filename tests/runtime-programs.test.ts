@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { encodeBundle } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
@@ -15,7 +15,7 @@ import { build as threeDsBuild } from "../tools/build/programs/3ds.ts";
 import { build as pspBuild } from "../tools/build/programs/psp.ts";
 import { build as vitaBuild } from "../tools/build/programs/vita.ts";
 import { build as webBuild } from "../tools/build/programs/web.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 const threeDs = POCKET_PROFILES["3ds-runtime"];
 const gba = POCKET_PROFILES["gba"];
@@ -37,7 +37,7 @@ function context(profile: PocketProfile, outdir = scratch()): RuntimeBuildContex
 
 test("handheld recipes fail missing package inputs before invoking an SDK or selecting a demo", async () => {
   for (const [build, profile] of [[pspBuild, psp], [vitaBuild, vita]] as const)
-    await expect(build.run!(context(profile))).rejects.toThrow("requires --pocket");
+    await expect(build.run!(context(profile))).rejects.toThrow("requires --bundle");
   // The 3DS recipe builds the file-loaded runtime: it takes no package and no native overrides.
   await expect(threeDsBuild.run!({ ...context(threeDs), args: ["--capture"] })).rejects.toThrow("3DS generic runtime accepts no native overrides");
   await expect(threeDsBuild.run!(context(psp))).rejects.toThrow("requires its declared program profile");
@@ -48,7 +48,7 @@ test("handheld recipes fail missing package inputs before invoking an SDK or sel
 test("native launcher inputs are explicit existing paths while recipe-owned compilation inputs cannot be replaced", () => {
   const ctx = context(psp), registry = resolve(ctx.outdir, "registry.tsv"), packages = resolve(ctx.outdir, "packages");
   writeFileSync(registry, ""); mkdirSync(packages);
-  const args = [`--launcher-registry=${registry}`, `--launcher-packages=${packages}`, "--capture"];
+  const args = [`--launcher-registry=${registry}`, `--launcher-bundles=${packages}`, "--capture"];
   expect(nativeArguments({ ...ctx, args })).toEqual(args);
   expect(() => nativeArguments({ ...ctx, args: ["--plan=/tmp/replacement"] })).toThrow("recipe owns");
   expect(() => nativeArguments({ ...ctx, args: ["--runtime"] })).toThrow("recipe owns");
@@ -63,18 +63,16 @@ test("web assembly stages admitted bytes and the complete runtime/text provider 
     entry: "missing-source.tsx", framework: "solid", output: "example", viewport: { fixed: { logical: [800, 600], presentation: "native" } } } as const;
   const resolved = resolveAppPlan(app, { target: web.id }, profileRegistry(web));
   if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
-  const variant = makeVariant({ target: web.id, hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(resolved.plan),
-    identity: { id: app.id, title: app.title, output: "example" }, js: new TextEncoder().encode("globalThis.frame=()=>{};"), pak: new Uint8Array([1, 2, 3]) });
-  const pocket = resolve(ctx.outdir, "source.pocket");
-  writeFileSync(pocket, encodePocketPackage({ manifest: new Uint8Array(0), variants: [variant] }));
-  const application = prepareApplication({ profile: web, profileHash: ctx.profileHash, hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, pocket, ctx.outdir);
+  const bundle = resolve(ctx.outdir, "source.pkb");
+  writeFileSync(bundle, encodeBundle(makeBundle({ plan: resolved.plan, js: new TextEncoder().encode("globalThis.frame=()=>{};"), pak: new Uint8Array([1, 2, 3]) })));
+  const application = prepareApplication({ profile: web, profileHash: ctx.profileHash, hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, bundle, ctx.outdir);
   for (const [directory, file] of [["cargo-target", "pocketjs_wasm.wasm"], ["cargo-text-target", "pocket_text.wasm"]]) {
     const path = resolve(ctx.outdir, directory!, "wasm32-unknown-unknown/release"); mkdirSync(path, { recursive: true }); writeFileSync(resolve(path, file!), new Uint8Array([0, 97, 115, 109]));
   }
   await webBuild.run!({ ...ctx, application });
   const out = resolve(ctx.outdir, "runtime"), read = (name: string) => readFileSync(resolve(out, name), "utf8");
   expect(read("dist/example.js")).toBe("globalThis.frame=()=>{};");
-  expect(readFileSync(resolve(out, "app.pocket"))).toEqual(readFileSync(pocket));
+  expect(readFileSync(resolve(out, "app.pkb"))).toEqual(readFileSync(bundle));
   expect(JSON.parse(read("program.json"))).toMatchObject({ host: web.id, hostAbi: POCKET_BINDING_GENERATION, viewport: [800, 600] });
   // Resolve the staged ES module graph, including the worker entry, from the artifact alone.
   for (const entry of ["programs/web/main.js", "platforms/web/text-worker.js"]) {

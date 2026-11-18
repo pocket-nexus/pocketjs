@@ -7,7 +7,7 @@ import { SYMBIAN_E7_DEV_CONTRACTS, SYMBIAN_E7_DEV_TARGET_ID } from "../symbian-p
 //
 // Registered targets keep their registry ids. Device profiles are selected by a
 // device name and map to their unchanged contract ids, which native hosts
-// declare (`__host`) and runtimes compile in to pick a `.pocket` variant.
+// declare (`__host`) and runtimes compile in to admit bundles against.
 
 import {
   POCKET_CAPABILITIES,

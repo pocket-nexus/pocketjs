@@ -166,7 +166,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     aliases: ["vue-vapor"],
   },
   osk: { file: { solid: "framework/src/osk.tsx" } },
-  package: { file: "contracts/spec/pocket-package.ts" },
+  bundle: { file: "contracts/spec/bundle.ts" },
   "service-client": { file: "framework/src/service-client.ts" },
   "media-service": { file: "framework/src/media-service.ts" },
   platform: { file: "framework/src/platform.ts" },

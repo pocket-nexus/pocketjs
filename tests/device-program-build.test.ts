@@ -3,14 +3,14 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { encodeBundle } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import type { RuntimeBuildContext } from "../framework/src/host-config.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { applicationBundle, prepareCompiledApplication } from "../tools/build/programs/application.ts";
 import { buildPocketBook } from "../tools/build/programs/pocketbook-native.ts";
 import { buildRuntime } from "../tools/build/executor.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { profileRegistry, resolveProfile, type ResolvedProfile } from "../tools/profile-resolver.ts";
 import { mustRunCommand } from "../tools/native-source.ts";
 import { currentHost } from "../tools/targets/types.ts";
@@ -33,11 +33,8 @@ function packageFixture(selected: ResolvedProfile, directory: string) {
   };
   const result = resolveAppPlan(app, { target: selected.profile.id }, profileRegistry(selected.profile));
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
-  const variant = makeVariant({ target: selected.profile.id, hostAbi: POCKET_BINDING_GENERATION, planJson: JSON.stringify(result.plan),
-    identity: { output: result.plan.app.output, id: result.plan.app.id, title: result.plan.app.title },
-    js: new TextEncoder().encode("globalThis.currentPackage = 73;"), pak: new Uint8Array([7, 3, 1]) });
-  const path = join(directory, "current.pocket");
-  writeFileSync(path, encodePocketPackage({ manifest: new Uint8Array(0), variants: [variant] }));
+  const path = join(directory, "current.pkb");
+  writeFileSync(path, encodeBundle(makeBundle({ plan: result.plan, js: new TextEncoder().encode("globalThis.currentPackage = 73;"), pak: new Uint8Array([7, 3, 1]) })));
   return path;
 }
 
@@ -48,7 +45,7 @@ test("device recipes reject unsupported hosts or missing packages before generat
     if (!generic.has(id)) {
       const host = currentHost();
       const supported = host && selected.config!.value.build!.hosts.includes(host);
-      await expect(buildRuntime(selected, join(dir, id))).rejects.toThrow(supported ? "--pocket" : "runtime build supports");
+      await expect(buildRuntime(selected, join(dir, id))).rejects.toThrow(supported ? "--bundle" : "runtime build supports");
       expect(existsSync(join(dir, id, "pocket_profile.h"))).toBe(false);
     }
   }
@@ -58,12 +55,13 @@ test("native program inputs consume the current package without source files or 
   const directory = scratch();
   const selected = await select("ipodtouch4");
   const packagePath = packageFixture(selected, directory);
-  const application = prepareCompiledApplication(selected.profile, ["--pocket", packagePath], join(directory, "out"));
+  const application = prepareCompiledApplication(selected.profile, ["--bundle", packagePath], join(directory, "out"));
   const bundle = applicationBundle(application, selected.profile.id);
   expect(bundle.inputs.appOutput).toBe("current-package");
   expect(readFileSync(bundle.javaScript, "utf8")).toBe("globalThis.currentPackage = 73;");
   expect([...readFileSync(bundle.pack)]).toEqual([7, 3, 1]);
-  expect(() => prepareCompiledApplication(selected.profile, [], directory)).toThrow("requires --pocket");
+  expect(() => prepareCompiledApplication(selected.profile, [], directory)).toThrow("requires --bundle");
+  expect(() => prepareCompiledApplication(selected.profile, ["--pocket", packagePath], directory)).toThrow("--pocket was removed");
   expect(() => applicationBundle(application, "other-profile")).toThrow();
 });
 

@@ -278,7 +278,6 @@ pub unsafe extern "C" fn web_boot(
                     .map_err(|_| RuntimeError::InvalidArgument)?;
             let plan = serde_json::to_vec(&plan).unwrap();
             let package = embedded::encode(EmbeddedPackage {
-                target: &host,
                 host_abi: abi,
                 profile_hash,
                 identity: &identity,

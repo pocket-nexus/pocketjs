@@ -14,7 +14,7 @@ mod guest;
 pub mod input;
 pub mod timing;
 pub use alloc::borrow::Cow;
-pub use config::{Profile, RuntimeConfig};
+pub use config::{Profile, RuntimeConfig, PROFILE_ID_MAX_BYTES};
 pub use guest::*;
 pub use pocket_drivers::InputClasses;
 pub use pocket_package;
@@ -295,7 +295,7 @@ impl OpContext {
     }
 }
 
-/// Evaluate the admitted variant: its bytecode when the guest's engine reads
+/// Evaluate the admitted program: its bytecode when the guest's engine reads
 /// it, its source otherwise. A guest without the bytecode's engine answers
 /// `UnsupportedOperation` before running anything, so the source is a whole
 /// fallback; any other error stands, as the realm may have run.
@@ -800,7 +800,7 @@ impl Runtime {
         self.validate_boot_drivers()?;
         // Without an installed physics engine the instance does not implement
         // ui.physics, whatever the profile declares: admission rejects a plan
-        // that requests it, or selects a variant that does not.
+        // that requests it.
         let composed: Vec<Cow<'static, str>>;
         let mut host = self
             .profile

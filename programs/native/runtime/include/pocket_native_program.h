@@ -27,18 +27,35 @@ typedef struct {
 #define POCKET_NATIVE_PACKAGE_COMPANIONS 4u /* companions is not empty */
 
 /* Returns the POCKET_PACKAGE_OPEN_* codes of pocket_runtime.h.
- * POCKET_PACKAGE_OPEN_OK = admitted: footer hash, the first variant the
- * exported profile facts admit (binding generation, raster density,
- * animation, rate, viewport, presentation, capabilities, auxiliary surface),
- * identity, plan and NUL-terminated JS. BAD_ARGUMENT for a null or empty
+ * POCKET_PACKAGE_OPEN_OK = admitted: the bundle's footer and payload hashes,
+ * its plan against the exported profile facts (binding generation, raster
+ * density, animation, rate, viewport, presentation, capabilities, auxiliary
+ * surface), identity and NUL-terminated JS. BAD_ARGUMENT for a null or empty
  * argument; PLAN_JSON, PLAN_VIEWPORT or PLAN_AUXILIARY for a plan whose JSON,
  * viewport or auxiliary surface cannot be read after admission: one table
- * with the 3DS product's pocket_package_open and the ESP-IDF archive's
- * pocket_idf_package_open. profile_hash is null or the host profile SHA-256
- * (32 readable bytes); it only orders variants. */
+ * with the ESP-IDF archive's pocket_idf_package_open. profile_hash is null or
+ * the host profile SHA-256 (32 readable bytes); admission does not compare
+ * it. The pointers in out borrow bytes. */
 int32_t pocket_native_package_open(
   const uint8_t *bytes,
   size_t length,
+  const pocket_profile_facts *facts,
+  uint32_t host_abi,
+  const uint8_t *profile_hash,
+  PocketNativePackage *out
+);
+/* The same admission for what a package source holds: a bundle, or the
+ * sections its sections callback states, read as boot reads them. The source
+ * is not taken, so the same source boots the program afterwards. SOURCE for
+ * a source that does not supply its length, sections or bytes; BAD_ARGUMENT
+ * for a null or short source table. javascript, pak and plan borrow the
+ * bytes the source's all callback returned until the next call on the
+ * source; a source without all is read through range into memory this call
+ * releases, and the three pointers are null with their lengths set.
+ * package_hash is 0 for stated sections. */
+int32_t pocket_native_package_open_source(
+  const pocket_package_source_v1 *source,
+  void *context,
   const pocket_profile_facts *facts,
   uint32_t host_abi,
   const uint8_t *profile_hash,
@@ -68,12 +85,12 @@ PocketNativeProgram *pocket_native_program_create_profile(const char *target, ui
   const uint8_t *code, size_t code_length, const uint8_t *pak, size_t pak_length,
   uint32_t width, uint32_t height, uint32_t density, uint32_t physics,
   const pocket_profile_facts *profile, const uint8_t profile_hash[32]);
-/* Catalog guests retain their original .pocket bytes and plan. Identity and
+/* Catalog guests retain their original bundle bytes and plan. Identity and
  * declared viewport must match the catalog; physics is a host permission,
- * while the package plan decides whether its methods mount. Runtime performs
+ * while the bundle's plan decides whether its methods mount. Runtime performs
  * package admission against the supplied host profile before guest initialization.
- * Profile facts/hash must come from the host build, never this package. Initial viewport uses the
- * package declaration; live-window hosts resize before their first frame.
+ * Profile facts/hash must come from the host build, never this bundle. Initial viewport uses the
+ * bundle's declaration; live-window hosts resize before their first frame.
  * Builds with a built-in output reject a plan with an auxiliary surface here;
  * host-backend builds leave it to boot, which requires a registered
  * auxiliary display when the profile has one. */

@@ -76,7 +76,7 @@ export interface PocketProfile<C extends string = string> {
     readonly http?: { readonly responseBytes: number };
   };
   readonly limits?: {
-    /** The largest `.pocket` the host loads. */
+    /** The largest bundle the host loads. */
     readonly packageBytes?: number;
     /** The guest heap the host gives a package. */
     readonly heapBytes?: number;

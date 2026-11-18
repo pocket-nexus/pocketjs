@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-/* A bytecode section (package sections 6 and 9): "QJBC", the envelope version, the header size, flags, the engine-ABI digest at 16, then the serialized QuickJS object at 48. A guest evaluates the payload only when the digest names its own engine build. */
+/* A bytecode section (bundle sections 6 and 9): "QJBC", the envelope version, the header size, flags, the engine-ABI digest at 16, then the serialized QuickJS object at 48. A guest evaluates the payload only when the digest names its own engine build. */
 #define POCKET_BYTECODE_MAGIC 0x43424a51u
 #define POCKET_BYTECODE_VERSION 1u
 #define POCKET_BYTECODE_HEADER_SIZE 48u

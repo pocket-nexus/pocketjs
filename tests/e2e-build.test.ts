@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { decodePocketPackage, decodeIdentity, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, decodeBundle, decodeIdentity, findSection } from "../contracts/spec/bundle.ts";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { demoConfigPath } from "../tools/build/programs/handheld-common.ts";
 import { resolveProfile } from "../tools/profile-resolver.ts";
@@ -10,7 +10,7 @@ import { buildArtifact, buildCaptureApplication, evidenceDirectory, runBuildComm
 const root = resolve(import.meta.dir, "..");
 
 for (const target of ["psp", "vita"] as const) {
-  test(`E2E ${target} compiles a real package before invoking the native build`, async () => {
+  test(`E2E ${target} compiles a real bundle before invoking the native build`, async () => {
     const directory = evidenceDirectory(root, `test-${target}`);
     const commands: string[][] = [];
     mkdirSync(directory, { recursive: true });
@@ -23,12 +23,11 @@ for (const target of ["psp", "vita"] as const) {
       if (command[2] === "compile") return runBuildCommand(command, options);
       // Only the cross compiler is replaced. Use the production package admission.
       expect(command[2]).toBe("build");
-      const pocket = command[command.indexOf("--pocket") + 1]!;
-      expect(pocket).toBe(join(directory, "application.pocket"));
-      const variant = decodePocketPackage(new Uint8Array(readFileSync(pocket))).variants[0]!;
-      expect(decodeIdentity(findSection(variant, POCKET_SECTION.identity)!)).toEqual({ output: "e2e-hero-main", id: `dev.pocket-nexus.e2e.${target}.hero`, title: "PocketJS E2E hero" });
+      const bundle = command[command.indexOf("--bundle") + 1]!;
+      expect(bundle).toBe(join(directory, "application.pkb"));
+      expect(decodeIdentity(findSection(decodeBundle(new Uint8Array(readFileSync(bundle))), BUNDLE_SECTION.identity)!)).toEqual({ output: "e2e-hero-main", id: `dev.pocket-nexus.e2e.${target}.hero`, title: "PocketJS E2E hero" });
       const selected = await resolveProfile({ from: root, target });
-      const app = prepareApplication(selected, pocket, join(directory, "admission"));
+      const app = prepareApplication(selected, bundle, join(directory, "admission"));
       expect(readFileSync(app.jsPath).length).toBeGreaterThan(0);
       expect(options.env?.POCKETJS_CAPTURE_INPUT).toBe("0:0");
       expect(command.slice(command.indexOf("--") + 1)).toEqual(["--capture"]);

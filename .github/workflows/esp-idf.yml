@@ -18,8 +18,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: >-
           bun test tests/idf-host-profile.test.ts tests/idf-embed.test.ts
-          tests/pocket-package.test.ts tests/platform-contracts.test.ts
-          tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts tests/idf-input.test.ts
+          tests/bundle.test.ts tests/platform-contracts.test.ts
+          tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-bundle-corpus.test.ts tests/idf-input.test.ts
       - name: Install repository stable Rust
         run: rustup show
       - run: cargo test --locked --manifest-path Cargo.toml -p pocket-archive -p pocket-render -p pocket-raster -p pocket-render-esp-ppa --features pocket-render-esp-ppa/cabi
@@ -36,11 +36,11 @@ jobs:
           nightly=$(bun -e 'import { BUILD_STD_NIGHTLY } from "./tools/build/toolchains/rust.ts"; console.log(BUILD_STD_NIGHTLY)')
           rustup toolchain install "$nightly" --profile minimal
           echo "POCKET_BUILD_NIGHTLY=$nightly" >> "$GITHUB_ENV"
-      - name: Fuzz canonical package admission and short reads
+      - name: Fuzz canonical bundle admission and short reads
         run: |
           cargo install cargo-fuzz --locked
           mkdir -p .pocket-build/validation/package-fuzz/ci/corpus
-          cp tests/fixtures/packages/corpus/* .pocket-build/validation/package-fuzz/ci/corpus/
+          cp tests/fixtures/bundles/corpus/* .pocket-build/validation/package-fuzz/ci/corpus/
           cd engine/package
           CARGO_TARGET_DIR=../../.pocket-build/validation/package-fuzz/target cargo +"$POCKET_BUILD_NIGHTLY" fuzz run admission ../../.pocket-build/validation/package-fuzz/ci/corpus -- -runs=10000 -max_len=8192 -artifact_prefix=../../.pocket-build/validation/package-fuzz/ci/
 
@@ -93,21 +93,21 @@ jobs:
           bun tools/packaging/esp-idf/native.ts --target esp32s3
           --cargo "$RUNNER_TEMP/esp-rust/bin/cargo"
 
-      - name: Compile deterministic smoke package and export its program profile
+      - name: Compile deterministic smoke bundle and export its program profile
         run: |
           bun tools/pocket.ts compile \
             --config tests/esp-idf/examples/smoke/pocket.host.config.ts \
             --plan-dir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/plans" \
             --outdir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/app" \
-            --output "$GITHUB_WORKSPACE/tests/esp-idf/examples/smoke/idf-smoke.pocket"
+            --output "$GITHUB_WORKSPACE/tests/esp-idf/examples/smoke/idf-smoke.pkb"
           bun tools/pocket.ts host export \
             --config tests/esp-idf/examples/smoke/pocket.host.config.ts \
             --out "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/profile"
 
-      - name: Verify committed prebuilt package
+      - name: Verify committed prebuilt bundle
         run: >-
-          cmp tests/esp-idf/examples/smoke/idf-smoke.pocket
-          tests/esp-idf/examples/prebuilt/idf-smoke.pocket
+          cmp tests/esp-idf/examples/smoke/idf-smoke.pkb
+          tests/esp-idf/examples/prebuilt/idf-smoke.pkb
 
       - name: Build ESP-IDF smoke firmware
         uses: espressif/esp-idf-ci-action@v1

@@ -38,7 +38,7 @@ pub fn json() -> String {
     let r = |c: &AtomicU32| c.load(Ordering::Relaxed);
     // Memory: the arena's one block (what QuickJS and the core share), the
     // largest free kernel block when it was reserved, and the bytes of the
-    // generic runtime's app.pocket block (0 when the game is embedded).
+    // generic runtime's app.pkb block (0 when the game is embedded).
     // SAFETY: the QuickJS worker is the only thread that touches the arena.
     let arena = unsafe { crate::arena::stats() };
     #[cfg(feature = "runtime")]

@@ -45,7 +45,7 @@ usb-debug = ["vitasdk-sys/ScePower_stub", "vitasdk-sys/SceSysmem_stub"]
 capture = []
 bench = []
 # The generic runtime (tools/runtime/vita.ts): no embedded app; the game is
-# app0:app.pocket, read at startup (src/package_file.rs).
+# app0:app.pkb, read at startup (src/package_file.rs).
 runtime = []
 
 [package.metadata.vita]

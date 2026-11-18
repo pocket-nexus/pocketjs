@@ -1,9 +1,9 @@
-//! Device admission: whether a host provides what a package variant was
-//! compiled to use.
+//! Device admission: whether a host provides what a program was compiled to
+//! use.
 //!
-//! A variant is admitted when each item holds:
+//! A plan is admitted when each item holds:
 //!
-//!   binding generation  variant.hostAbi == the host's binding generation
+//!   binding generation  the bundle's hostAbi == the host's binding generation
 //!   raster density      plan.viewport.rasterDensity == the host's density
 //!   animation           plan.animation == the host's animation class
 //!   rate                plan.profile.tickHz (1..=240) is a whole multiple,
@@ -19,10 +19,8 @@
 //! host that states no animation class or no presentation list (a C facts
 //! record written before those fields existed) is not compared on them. The
 //! profile hash, id, platform, form and physical panel size do not
-//! participate. Selection prefers variants whose profile hash equals the
-//! host's, then takes variants in file order; the first admitted variant
-//! wins. When none is admitted, the variant with the fewest failed items is
-//! reported with those items.
+//! participate: the host contract hash a bundle records is provenance. A
+//! plan that is not admitted is reported with every item it fails.
 
 use core::fmt;
 
@@ -55,7 +53,7 @@ pub const ITEMS: [(u32, &str); 9] = [
     (item::AUXILIARY, "auxiliary"),
 ];
 
-/// The core's largest tick rate (`pocketjs_core::MAX_TICK_HZ`). Manifests
+/// The core's largest tick rate (`pocketjs_core::MAX_TICK_HZ`). App configs
 /// cap an application's rate at 60; embeddings that compile their own code
 /// may run faster.
 pub const MAX_TICK_HZ: u32 = 240;
@@ -67,7 +65,7 @@ pub const MAX_CORE_TICKS_PER_FRAME: u32 = 60;
 #[derive(Clone, Copy, Debug)]
 pub struct HostFacts<'a, S: AsRef<str>> {
     pub binding_generation: u32,
-    /// Provenance only: variants with this hash are tried first.
+    /// The host's contract hash. Provenance: admission does not compare it.
     pub profile_hash: [u8; 32],
     pub raster_density: u32,
     /// None: the host states no class and admits any.
@@ -95,7 +93,7 @@ impl<S: AsRef<str>> HostFacts<'_, S> {
     }
 }
 
-/// The package rate and the host cadence an admitted variant runs at.
+/// The application rate and the host cadence an admitted plan runs at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Timing {
     /// Core ticks per virtual second (`plan.profile.tickHz`).
@@ -126,7 +124,7 @@ pub fn cadence_for(tick_hz: u32, cadences: &[u32]) -> Option<u32> {
         .max()
 }
 
-/// A capability name copied out of the package, for diagnostics.
+/// A capability name copied out of the plan, for diagnostics.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Name {
     bytes: [u8; 48],
@@ -160,11 +158,9 @@ impl fmt::Debug for Name {
     }
 }
 
-/// The variant closest to admission and the items it fails.
+/// The items a plan fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mismatch {
-    /// File-order index of the reported variant.
-    pub variant: u32,
     /// [`item`] bits.
     pub items: u32,
     /// The first enabled feature the host lacks when `items` has
@@ -185,7 +181,7 @@ impl Mismatch {
 
 impl fmt::Display for Mismatch {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "variant {} is not admitted:", self.variant)?;
+        write!(formatter, "not admitted:")?;
         for (bit, name) in ITEMS {
             if self.items & bit == 0 {
                 continue;
@@ -200,15 +196,15 @@ impl fmt::Display for Mismatch {
     }
 }
 
-/// Check one variant's plan against the host. `Err` carries failed item bits
-/// and the first missing capability.
+/// Check one plan, compiled for binding generation `generation`, against the
+/// host. `Err` carries failed item bits and the first missing capability.
 pub fn admit_plan<S: AsRef<str>>(
     host: &HostFacts<'_, S>,
-    variant_generation: u32,
+    generation: u32,
     plan: Option<&[u8]>,
 ) -> Result<Timing, (u32, Name)> {
     let mut items = 0;
-    if variant_generation != host.binding_generation {
+    if generation != host.binding_generation {
         items |= item::BINDING_GENERATION;
     }
     let facts: PlanFacts<'_> = match plan.filter(|plan| !plan.is_empty()).map(plan_facts) {
@@ -429,14 +425,13 @@ mod tests {
     #[test]
     fn mismatch_formats_its_items() {
         let mismatch = Mismatch {
-            variant: 1,
             items: item::CAPABILITY | item::RATE,
             capability: Name::copy(b"net.http"),
         };
         assert_eq!(mismatch.first(), item::RATE);
         assert_eq!(
             std::format!("{mismatch}"),
-            "variant 1 is not admitted: rate capability net.http"
+            "not admitted: rate capability net.http"
         );
     }
 }

@@ -2,18 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import {
-decodePocketPackage,
-encodeIdentity,
-encodePocketPackage,
-POCKET_SECTION,
-type PocketPackageVariant,
-} from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/compiler/plan.ts";
+import { BUNDLE_SECTION, encodeBundle } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import {
 parse3dsx,
@@ -34,12 +27,10 @@ const ID = "dev.pocket-nexus.studio.twenty48";
 
 // The fixtures come from devkitPro's tools in the pinned devkitARM image
 // (3dstools 1.3.1), written by:
-//   bun tools/repack/reference-3ds.ts --pocket <twenty48.pocket> --id dev.pocket-nexus.studio.twenty48 \
+//   bun tools/repack/reference-3ds.ts --bundle <twenty48.pkb> --id dev.pocket-nexus.studio.twenty48 \
 //     --title "Twenty48 二〇四八 🎲" --author "Pocket Nexus" --version 0.1.0 --icon <rgba.png> \
 //     --fixtures tests/fixtures/repack-3ds
 //   smdhtool.smdh        smdhtool --create <title> "<title> 0.1.0" "Pocket Nexus" icon48.png out icon24.png
-//   3dsxtool-one.romfs   3dsxtool --romfs=<dir> with app.pocket = tests/fixtures/packages/synthetic.pocket
-//   3dsxtool-two.romfs   the same plus assets/note.txt = "pocketjs"
 // The same command byte-compares a whole repacked .3dsx against 3dsxtool's.
 
 /** The `app` section of the application's host config. */
@@ -63,20 +54,12 @@ function planFor(source = app()) {
   return resolution.plan;
 }
 
-function pocketFor(source = app(), extra: PocketPackageVariant[] = []): Uint8Array {
-  const plan = planFor(source);
-  const variant = makeVariant({
-    target: "3ds-runtime",
-    hostAbi: plan.target.hostAbi,
-    planJson: canonicalJson(plan),
-    identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
+function bundleFor(source = app()): Uint8Array {
+  return encodeBundle(makeBundle({
+    plan: planFor(source),
     js: new TextEncoder().encode("globalThis.frame = () => {};"),
     pak: new Uint8Array([1, 2, 3, 4]),
-  });
-  return encodePocketPackage({
-    manifest: new Uint8Array(0),
-    variants: [variant, ...extra],
-  });
+  }));
 }
 
 /** A runtime program: three tiny segments and no relocations, with the fixture SMDH. */
@@ -106,7 +89,7 @@ async function runtimeFiles(overrides: { target?: string; hostAbi?: number; prog
 async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput> {
   return {
     runtime: await runtimeFiles(),
-    pocket: pocketFor(),
+    bundle: bundleFor(),
     identity: { id: ID, title: "Twenty48", author: "Pocket Nexus", version: "0.1.0", icon: fixture("icon48.png") },
     ...overrides,
   };
@@ -127,7 +110,7 @@ describe("3DS SMDH and RomFS writers", () => {
 
   test("RomFS rejects parent traversal", () => {
     const bytes = new Uint8Array([1]);
-    expect(() => writeRomfs([{ path: "../app.pocket", bytes }])).toThrow(/bad or repeated path/);
+    expect(() => writeRomfs([{ path: "../app.pkb", bytes }])).toThrow(/bad or repeated path/);
   });
 
   test("tile icons in 8x8 Morton order as RGB565 over black", () => {
@@ -142,7 +125,7 @@ describe("3DS SMDH and RomFS writers", () => {
 });
 
 describe("repack3ds", () => {
-  test("keeps the runtime's program and writes the game's SMDH and app.pocket", async () => {
+  test("keeps the runtime's program and writes the game's SMDH and app.pkb", async () => {
     const repackInput = await input();
     const out = await repack3ds(repackInput);
     const parsed = parse3dsx(out);
@@ -162,9 +145,9 @@ describe("repack3ds", () => {
     // The icon fixture is 48x48 already, so the large icon is that PNG tiled.
     expect(smdh.subarray(0x2040 + 24 * 24 * 2)).toEqual(tiledRgb565(await decodePng(fixture("icon48.png"))));
 
-    expect(parsed.romfs).toEqual(writeRomfs([{ path: "app.pocket", bytes: repackInput.pocket }]));
-    const at = parsed.romfs!.length - ((repackInput.pocket.length + 3) & ~3);
-    expect(parsed.romfs!.subarray(at, at + repackInput.pocket.length)).toEqual(repackInput.pocket);
+    expect(parsed.romfs).toEqual(writeRomfs([{ path: "app.pkb", bytes: repackInput.bundle }]));
+    const at = parsed.romfs!.length - ((repackInput.bundle.length + 3) & ~3);
+    expect(parsed.romfs!.subarray(at, at + repackInput.bundle.length)).toEqual(repackInput.bundle);
   });
 
   test("is deterministic", async () => {
@@ -189,19 +172,6 @@ describe("repack3ds", () => {
     }))).rejects.toThrow(/not square/);
   });
 
-  test("thins a package that also carries other targets' variants", async () => {
-    const other: PocketPackageVariant = {
-      target: "psp",
-      hostAbi: 1, profileHash: hashPocketProfile(softwareProfile),
-      sections: [{ kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "twenty48", id: ID, title: "Twenty48" }) }],
-    };
-    const universal = pocketFor(app(), [other]);
-    expect(decodePocketPackage(universal).variants).toHaveLength(2);
-    const out = parse3dsx(await repack3ds(await input({ pocket: universal })));
-    // Thinning keeps the manifest region and the variant's bytes: the 3DS-only package.
-    expect(out.romfs).toEqual(writeRomfs([{ path: "app.pocket", bytes: pocketFor() }]));
-  });
-
   test("refuses a runtime for another target, a wrong host ABI and a broken footer", async () => {
     await expect(repack3ds(await input({ runtime: await runtimeFiles({ target: "psp" }) }))).rejects.toThrow(/for "psp", not "3ds-runtime"/);
     await expect(repack3ds(await input({ runtime: await runtimeFiles({ hostAbi: POCKET_BINDING_GENERATION - 1 }) }))).rejects.toThrow(/runtime binding generation .* is unsupported/);
@@ -211,14 +181,11 @@ describe("repack3ds", () => {
     await expect(repack3ds(await input({ runtime: tampered }))).rejects.toThrow(/not the file runtime.json describes/);
   });
 
-  test("refuses a package for another app, target or a plan the runtime cannot run", async () => {
+  test("refuses a bundle for another app, host contract or a plan the runtime cannot run", async () => {
     await expect(repack3ds(await input({ identity: { id: "dev.pocket-nexus.other", title: "T", author: "A", version: "1" } })))
       .rejects.toThrow(/the identity says "dev.pocket-nexus.other"/);
-    const pspOnly = encodePocketPackage({
-      manifest: new TextEncoder().encode("{}"),
-      variants: [{ target: "psp", hostAbi: 1, profileHash: hashPocketProfile(softwareProfile), sections: [{ kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) }] }],
-    });
-    await expect(repack3ds(await input({ pocket: pspOnly }))).rejects.toThrow("variant 0 (psp) is not admitted: bindingGeneration, plan");
+    const planless = encodeBundle({ hostAbi: 1, profileHash: hashPocketProfile(softwareProfile), sections: [{ kind: BUNDLE_SECTION.js, bytes: new Uint8Array([0]) }] });
+    await expect(repack3ds(await input({ bundle: planless }))).rejects.toThrow("not admitted: bindingGeneration, plan");
     // Features the generic runtime lacks compile off.
     expect(planFor(app(["io.offload"])).features["io.offload"]).toBe(false);
     for (const capability of ["media.playback", "net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const)

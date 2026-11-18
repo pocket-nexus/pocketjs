@@ -2,7 +2,7 @@ import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, prepareCompiledApplication, runProgramBuild } from "./build/programs/application.ts";
 // NativeScript iOS build, staging and deployment. Application JavaScript
-// arrives in a compiled .pocket; this file builds only the native shell.
+// arrives in a compiled bundle (`.pkb`); this file builds only the native shell.
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveProfile } from "../tools/profile-resolver.ts";
@@ -393,10 +393,10 @@ async function play(args: readonly string[]): Promise<void> {
   const { inputs } = applicationBundle(application, IOS_DEV_TARGET_ID);
   const requestedHz = tickRateFlag(args);
   const requestedDensity = flagValue(args, "--density");
-  // The surface runs the package's rate; the package carries it.
+  // The surface runs the application's rate; the bundle carries it.
   if ((requestedHz !== undefined && requestedHz !== application.plan.profile.tickHz) ||
       (requestedDensity !== undefined && Number(requestedDensity) !== selected.profile.display.rasterDensity)) {
-    throw new Error("iOS staging timing and density must match the compiled package and its host contract");
+    throw new Error("iOS staging timing and density must match the compiled bundle and its host contract");
   }
   const options: StageOptions = {
     shellDir: resolve(flagValue(args, "--shell-dir") ?? DEFAULT_SHELL),
@@ -435,9 +435,9 @@ const HELP = `PocketJS Apple / iOS toolchain
   pocket ios setup                        add Rust iOS targets
   pocket ios devices                      list available simulators
   pocket ios native [--force]              build PocketApple.xcframework
-  pocket ios build --pocket <app.pocket>   build the native simulator shell
-  pocket ios stage --pocket <app.pocket>   stage the compiled package into the shell
-  pocket ios play --pocket <app.pocket>    stage, build and launch the shell
+  pocket ios build --bundle <app.pkb>      build the native simulator shell
+  pocket ios stage --bundle <app.pkb>      stage the compiled bundle into the shell
+  pocket ios play --bundle <app.pkb>       stage, build and launch the shell
 
 stage/play options:
   --host-config=<file>  program profile (default programs/ios-simulator)

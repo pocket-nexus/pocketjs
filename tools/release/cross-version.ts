@@ -5,11 +5,11 @@
 // to pass when both archives come from one source revision.
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { inputClassesForCapabilities } from "../../contracts/spec/input.ts";
-import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, encodeBundle, encodeIdentity } from "../../contracts/spec/bundle.ts";
 import { canonicalProfileJson, type PocketProfile } from "../../contracts/spec/profile.ts";
 import { STABLE_RUST_TOOLCHAIN } from "../build/toolchains/rust.ts";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -148,25 +148,30 @@ export function fixtureHeader(generation: number, packageBytes: Uint8Array): str
 }
 
 export interface FixturePackage { generation: number; bytes: Uint8Array; header: string }
-/** The fixture package from the current encoder, and from the snapshot
- * revision's own encoder tagged with that revision's binding generation. The
- * C ABI matrix is independent of the package format version and the
- * generation; each archive receives bytes its own codec reads. The package
- * carries the identity output "app", id "test.app", title "App" and the
- * JavaScript "test" with its terminator. */
+/** The fixture application from the current encoder (a bundle), and from the
+ * snapshot revision's own encoder (a bundle, or a one-variant `.pocket` before
+ * bundles) tagged with that revision's binding generation. The C ABI matrix
+ * is independent of the container format and the generation; each archive
+ * receives bytes its own codec reads. The application carries the identity
+ * output "app", id "test.app", title "App" and the JavaScript "test" with its
+ * terminator. */
 export async function fixturePackages(snapshot: string): Promise<{ current: FixturePackage; old: FixturePackage }> {
   const utf8 = (text: string) => new TextEncoder().encode(text);
   const sections = [
-    { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
-    { kind: POCKET_SECTION.plan, bytes: utf8('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
-    { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
+    { kind: BUNDLE_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
+    { kind: BUNDLE_SECTION.plan, bytes: utf8('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
+    { kind: BUNDLE_SECTION.js, bytes: utf8("test\0") },
   ];
-  const variant = (hostAbi: number) => ({ manifest: utf8("{}"), variants: [{ target: fixtureProfile.id, hostAbi, profileHash: "sha256:" + sha256(profileJson), sections }] });
-  const bytes = encodePocketPackage(variant(POCKET_BINDING_GENERATION));
-  const oldEncoder = await import(pathToFileURL(join(snapshot, "contracts/spec/pocket-package.ts")).href);
+  const profileHash = "sha256:" + sha256(profileJson);
+  const bytes = encodeBundle({ hostAbi: POCKET_BINDING_GENERATION, profileHash, sections });
   const oldGeneration = Number(/POCKET_BINDING_GENERATION = (\d+)/.exec(readFileSync(join(snapshot, "contracts/spec/binding-generation.ts"), "utf8"))?.[1]);
   if (!Number.isInteger(oldGeneration)) throw new Error("old revision does not declare POCKET_BINDING_GENERATION");
-  const oldBytes: Uint8Array = oldEncoder.encodePocketPackage(variant(oldGeneration));
+  const oldBundleSpec = join(snapshot, "contracts/spec/bundle.ts");
+  const oldBytes: Uint8Array = existsSync(oldBundleSpec)
+    ? (await import(pathToFileURL(oldBundleSpec).href)).encodeBundle({ hostAbi: oldGeneration, profileHash, sections })
+    : (await import(pathToFileURL(join(snapshot, "contracts/spec/pocket-package.ts")).href)).encodePocketPackage({
+      manifest: utf8("{}"), variants: [{ target: fixtureProfile.id, hostAbi: oldGeneration, profileHash, sections }],
+    });
   return {
     current: { generation: POCKET_BINDING_GENERATION, bytes, header: fixtureHeader(POCKET_BINDING_GENERATION, bytes) },
     old: { generation: oldGeneration, bytes: oldBytes, header: fixtureHeader(oldGeneration, oldBytes) },

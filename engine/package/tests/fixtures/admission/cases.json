@@ -26,7 +26,6 @@
       "auxiliaryLogical": []
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 60
@@ -61,7 +60,6 @@
       "auxiliaryLogical": []
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 60
@@ -99,7 +97,6 @@
       "auxiliaryLogical": []
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 60
@@ -133,7 +130,6 @@
       "auxiliaryLogical": []
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 60
@@ -167,7 +163,6 @@
       "auxiliaryLogical": []
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 60
@@ -211,7 +206,6 @@
       }
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 60
@@ -246,7 +240,6 @@
       "auxiliaryLogical": []
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 30
@@ -254,61 +247,19 @@
     }
   },
   {
-    "name": "equal-hash-first",
+    "name": "unstated-animation-and-presentations",
     "host": {
       "bindingGeneration": 12,
-      "profileHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "rasterDensity": 1,
-      "animation": "composited",
       "cadences": [
-        60,
-        30
+        60
       ],
       "logicalViewports": [
         [
           480,
           272
         ]
-      ],
-      "presentations": [
-        "native",
-        "integer-fit"
-      ],
-      "capabilities": [
-        "input.buttons",
-        "text.glyphs.baked",
-        "net.http"
-      ],
-      "auxiliaryLogical": []
-    },
-    "admitted": {
-      "variant": 1,
-      "timing": {
-        "tickHz": 30,
-        "cadenceHz": 30
-      }
-    }
-  },
-  {
-    "name": "equal-hash-not-admitted",
-    "host": {
-      "bindingGeneration": 12,
-      "profileHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "rasterDensity": 1,
-      "animation": "composited",
-      "cadences": [
-        60,
-        30
-      ],
-      "logicalViewports": [
-        [
-          480,
-          272
-        ]
-      ],
-      "presentations": [
-        "native",
-        "integer-fit"
       ],
       "capabilities": [
         "input.buttons",
@@ -317,7 +268,6 @@
       "auxiliaryLogical": []
     },
     "admitted": {
-      "variant": 0,
       "timing": {
         "tickHz": 60,
         "cadenceHz": 60
@@ -350,7 +300,38 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 0,
+      "items": [
+        "capability"
+      ],
+      "capability": "text.glyphs.baked"
+    }
+  },
+  {
+    "name": "compiled-profile-missing-capability",
+    "host": {
+      "bindingGeneration": 12,
+      "profileHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rasterDensity": 1,
+      "animation": "composited",
+      "cadences": [
+        60
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "capabilities": [
+        "input.buttons"
+      ],
+      "auxiliaryLogical": []
+    },
+    "rejected": {
       "items": [
         "capability"
       ],
@@ -384,7 +365,6 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 0,
       "items": [
         "rasterDensity"
       ]
@@ -417,7 +397,6 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 0,
       "items": [
         "rate"
       ]
@@ -450,7 +429,6 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 0,
       "items": [
         "bindingGeneration"
       ]
@@ -483,7 +461,6 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 0,
       "items": [
         "animation"
       ]
@@ -515,7 +492,6 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 0,
       "items": [
         "presentation"
       ]
@@ -548,21 +524,20 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 0,
       "items": [
         "viewport"
       ]
     }
   },
   {
-    "name": "closest-variant",
+    "name": "every-failed-item",
     "host": {
       "bindingGeneration": 12,
       "profileHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "rasterDensity": 1,
       "animation": "composited",
       "cadences": [
-        30
+        25
       ],
       "logicalViewports": [
         [
@@ -579,11 +554,12 @@
       "auxiliaryLogical": []
     },
     "rejected": {
-      "variant": 1,
       "items": [
+        "rate",
+        "presentation",
         "capability"
       ],
-      "capability": "net.http"
+      "capability": "text.glyphs.baked"
     }
   }
 ]

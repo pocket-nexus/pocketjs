@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, encodeBundle } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { crc32 } from "../tools/repack/shared/crc32.ts";
 import { decodePng, deflateZlib, encodePng } from "../tools/repack/shared/png.ts";
-import { admitPocket, readRuntime, type RuntimeDirectory } from "../tools/repack/shared/runtime.ts";
+import { admitRepackBundle, readRuntime, type RuntimeDirectory } from "../tools/repack/shared/runtime.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { runtimeDirectory } from "./helpers/runtime-directory.ts";
 import { flattenRgba, scaleRgba } from "../tools/repack/shared/scale.ts";
@@ -141,7 +141,7 @@ describe("repack shared helpers", () => {
 
   });
 
-  test("package, plan and runtime must name the same complete software profile", async () => {
+  test("bundle, plan and runtime must name the same complete software profile", async () => {
     const app = {
       id: "dev.pocket-nexus.telemetry", title: "Pocket Telemetry", version: "0.1.0", entry: "app/main.tsx", framework: "solid",
       viewport: { logical: [480, 272], presentation: "integer-fit" }, features: ["text.glyphs.baked", "input.analog.left", "input.buttons"],
@@ -149,32 +149,27 @@ describe("repack shared helpers", () => {
     const resolution = resolveAppPlan(app, { target: "psp" });
     if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
     const plan = resolution.plan;
-    const variant = makeVariant({ target: "psp", hostAbi: plan.target.hostAbi, planJson: JSON.stringify(plan),
-      identity: { id: plan.app.id, title: plan.app.title, output: plan.app.output }, js: new TextEncoder().encode("test"), pak: new Uint8Array() });
-    // A manifest region another product wrote is carried, not read.
-    const foreign = new TextEncoder().encode('{"pocket":2,"id":"dev.pocket-nexus.telemetry"}');
-    const encode = () => encodePocketPackage({ manifest: foreign, variants: [variant] });
+    const bundle = makeBundle({ plan, js: new TextEncoder().encode("test"), pak: new Uint8Array() });
+    const encode = () => encodeBundle(bundle);
     const runtime: RuntimeDirectory = { target: "psp", hostAbi: plan.target.hostAbi, profile: "psp",
       profileHash: plan.profileHash, pocketjs: "test", files: {}, document: { ...POCKET_PROFILES.psp, hostAbi: plan.target.hostAbi } };
     const identity = { id: plan.app.id, title: plan.app.title, author: "Test", version: plan.app.version };
-    await admitPocket(encode(), runtime, identity);
+    await admitRepackBundle(encode(), runtime, identity);
     for (let generation = 1; generation < POCKET_BINDING_GENERATION; generation++) {
-      const oldVariant = { ...variant, hostAbi: generation };
-      const legacy = encodePocketPackage({ manifest: new Uint8Array(0), variants: [oldVariant] });
+      const legacy = encodeBundle({ ...bundle, hostAbi: generation });
       // No implicit conversion: matching profile and legacy runtime do not
       // make an old binding eligible for the current producer/repack tools.
-      await expect(admitPocket(legacy, runtime, identity)).rejects.toThrow("variant 0 (psp) is not admitted: bindingGeneration");
-      await expect(admitPocket(legacy, { ...runtime, hostAbi: generation }, identity)).rejects.toThrow("runtime binding generation");
+      await expect(admitRepackBundle(legacy, runtime, identity)).rejects.toThrow("not admitted: bindingGeneration");
+      await expect(admitRepackBundle(legacy, { ...runtime, hostAbi: generation }, identity)).rejects.toThrow("runtime binding generation");
       const files = new Map([["runtime.json", new TextEncoder().encode(JSON.stringify({ ...runtime, hostAbi: generation }))]]);
       await expect(readRuntime(files, "psp")).rejects.toThrow("runtime binding generation");
       await expect(writeRuntimeManifest("/unused", { target: "psp", hostAbi: generation, profile: POCKET_PROFILES.psp, files: [] })).rejects.toThrow("binding generation");
-      expect(() => makeVariant({ target: "psp", hostAbi: generation, planJson: JSON.stringify(plan),
-        identity: { id: plan.app.id, title: plan.app.title, output: plan.app.output }, js: new Uint8Array(), pak: new Uint8Array() })).toThrow("binding generation");
+      expect(() => makeBundle({ plan: { ...plan, target: { ...plan.target, hostAbi: generation } }, js: new Uint8Array(), pak: new Uint8Array() })).toThrow("binding generation");
     }
     const changed = { ...plan.profile, capabilities: [...plan.profile.capabilities, "ui.physics"] };
-    variant.sections.find(section => section.kind === POCKET_SECTION.plan)!.bytes = new TextEncoder().encode(JSON.stringify({
+    bundle.sections.find(section => section.kind === BUNDLE_SECTION.plan)!.bytes = new TextEncoder().encode(JSON.stringify({
       ...plan, profile: changed,
     }));
-    await expect(admitPocket(encode(), runtime, identity)).rejects.toThrow(/plan has an invalid profile identity/);
+    await expect(admitRepackBundle(encode(), runtime, identity)).rejects.toThrow(/plan has an invalid profile identity/);
   });
 });

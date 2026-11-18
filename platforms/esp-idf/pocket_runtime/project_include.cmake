@@ -1,7 +1,7 @@
 include_guard(GLOBAL)
 
 set(POCKETJS_PACKAGE_COMPONENT_DIR "${CMAKE_CURRENT_LIST_DIR}")
-set(POCKETJS_PACKAGE_EMBED_TOOL "${POCKETJS_PACKAGE_COMPONENT_DIR}/tools/embed_package.py")
+set(POCKETJS_BUNDLE_EMBED_TOOL "${POCKETJS_PACKAGE_COMPONENT_DIR}/tools/embed_bundle.py")
 # pocket_profile.h includes pocket_runtime.h. A staged component carries it in
 # include/; a checkout reads contracts/generated.
 if(EXISTS "${POCKETJS_PACKAGE_COMPONENT_DIR}/include/pocket_runtime.h")
@@ -81,42 +81,42 @@ function(pocketjs_profile_header)
     target_include_directories("${APP_TARGET}" PUBLIC "${directory}" "${POCKETJS_RUNTIME_HEADERS}")
 endfunction()
 
-function(_pocketjs_package_attach target name package profile_directory)
+function(_pocketjs_bundle_attach target name bundle profile_directory)
     _pocketjs_require_target("${target}")
     _pocketjs_package_python(python)
     set(generated "${CMAKE_CURRENT_BINARY_DIR}/pocketjs/${name}")
-    set(stem "pocketjs_package_${name}")
+    set(stem "pocketjs_bundle_${name}")
     add_custom_command(
         OUTPUT "${generated}/${stem}.h" "${generated}/${stem}.c" "${generated}/${stem}.S"
-        COMMAND "${python}" "${POCKETJS_PACKAGE_EMBED_TOOL}"
-            "--package=${package}" "--profile=${profile_directory}/pocket.host.json"
+        COMMAND "${python}" "${POCKETJS_BUNDLE_EMBED_TOOL}"
+            "--bundle=${bundle}" "--profile=${profile_directory}/pocket.host.json"
             "--name=${name}" "--output-dir=${generated}"
-        DEPENDS "${package}" "${profile_directory}/pocket.host.json"
-            "${profile_directory}/pocket_profile.h" "${POCKETJS_PACKAGE_EMBED_TOOL}"
-            "${POCKETJS_PACKAGE_COMPONENT_DIR}/tools/package_format.py"
+        DEPENDS "${bundle}" "${profile_directory}/pocket.host.json"
+            "${profile_directory}/pocket_profile.h" "${POCKETJS_BUNDLE_EMBED_TOOL}"
+            "${POCKETJS_PACKAGE_COMPONENT_DIR}/tools/bundle_format.py"
         VERBATIM)
     string(MAKE_C_IDENTIFIER "${target}_${name}" generated_suffix)
-    add_custom_target("pocketjs_${generated_suffix}_package"
+    add_custom_target("pocketjs_${generated_suffix}_bundle"
         DEPENDS "${generated}/${stem}.h" "${generated}/${stem}.c" "${generated}/${stem}.S")
-    add_dependencies("${target}" "pocketjs_${generated_suffix}_package")
+    add_dependencies("${target}" "pocketjs_${generated_suffix}_bundle")
     target_sources("${target}" PRIVATE "${generated}/${stem}.c" "${generated}/${stem}.S")
     target_include_directories("${target}" PUBLIC "${generated}" "${profile_directory}" "${POCKETJS_RUNTIME_HEADERS}")
 endfunction()
 
-function(pocketjs_embed_package)
-    cmake_parse_arguments(APP "" "TARGET;NAME;PACKAGE;HOST_CONFIG;PROFILE_EXPORT_DIR" "" ${ARGN})
+function(pocketjs_embed_bundle)
+    cmake_parse_arguments(APP "" "TARGET;NAME;BUNDLE;HOST_CONFIG;PROFILE_EXPORT_DIR" "" ${ARGN})
     if(APP_UNPARSED_ARGUMENTS)
-        message(FATAL_ERROR "Unknown pocketjs_embed_package arguments: ${APP_UNPARSED_ARGUMENTS}")
+        message(FATAL_ERROR "Unknown pocketjs_embed_bundle arguments: ${APP_UNPARSED_ARGUMENTS}")
     endif()
-    foreach(required TARGET NAME PACKAGE)
+    foreach(required TARGET NAME BUNDLE)
         if(NOT APP_${required})
-            message(FATAL_ERROR "pocketjs_embed_package requires ${required}")
+            message(FATAL_ERROR "pocketjs_embed_bundle requires ${required}")
         endif()
     endforeach()
-    get_filename_component(package "${APP_PACKAGE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    get_filename_component(bundle "${APP_BUNDLE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     _pocketjs_profile_paths("${APP_NAME}" "${APP_HOST_CONFIG}" "${APP_PROFILE_EXPORT_DIR}" config directory)
-    if(NOT EXISTS "${package}")
-        message(FATAL_ERROR "PocketJS package does not exist: ${package}")
+    if(NOT EXISTS "${bundle}")
+        message(FATAL_ERROR "PocketJS bundle does not exist: ${bundle}")
     endif()
     # A checkout with the CLI on PATH exports a missing profile here, at
     # configure time; an offline build brings the export.
@@ -137,12 +137,12 @@ function(pocketjs_embed_package)
         endif()
     endforeach()
     # Offline path: no CLI lookup or TypeScript evaluation, only exported artifacts.
-    _pocketjs_package_attach("${APP_TARGET}" "${APP_NAME}" "${package}" "${directory}")
+    _pocketjs_bundle_attach("${APP_TARGET}" "${APP_NAME}" "${bundle}" "${directory}")
 endfunction()
 
 # Compile the `app` section of a host config (HOST_CONFIG, default
-# ${CMAKE_SOURCE_DIR}/pocket.host.config.ts) for its one host into a .pocket
-# package and embed it. The same config's host contract is exported for the
+# ${CMAKE_SOURCE_DIR}/pocket.host.config.ts) for its one host into a bundle
+# (`.pkb`) and embed it. The same config's host contract is exported for the
 # component. PROJECT_ROOT defaults to the config's directory.
 function(pocketjs_compile_app)
     cmake_parse_arguments(APP "" "TARGET;NAME;HOST_CONFIG;PROFILE_EXPORT_DIR;PROJECT_ROOT;COMPILER_RECEIPT" "DEPENDS" ${ARGN})
@@ -164,7 +164,7 @@ function(pocketjs_compile_app)
         get_filename_component(project_root "${config}" DIRECTORY)
     endif()
     set(generated "${CMAKE_CURRENT_BINARY_DIR}/pocketjs/${APP_NAME}")
-    set(package "${generated}/${APP_NAME}.pocket")
+    set(bundle "${generated}/${APP_NAME}.pkb")
     set(dependencies "${generated}/${APP_NAME}.d")
     set(compiler_args)
     set(compiler_receipt)
@@ -179,16 +179,16 @@ function(pocketjs_compile_app)
         set(POCKETJS_QUICKJS_SOURCE "${CMAKE_SOURCE_DIR}/managed_components/espressif__quickjs-ng/quickjs-ng" CACHE PATH "QuickJS source the bytecode compiler builds from")
     endif()
     add_custom_command(
-        OUTPUT "${package}"
+        OUTPUT "${bundle}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${generated}"
         COMMAND "${CMAKE_COMMAND}" -E env "POCKETJS_QUICKJS_SOURCE=${POCKETJS_QUICKJS_SOURCE}"
             "${POCKETJS_CLI}" compile
             --config "${config}"
             --project-root "${project_root}" --outdir "${generated}"
-            --plan-dir "${generated}/plans" --output "${package}" --depfile "${dependencies}"
+            --plan-dir "${generated}/plans" --output "${bundle}" --depfile "${dependencies}"
             ${compiler_args}
         DEPFILE "${dependencies}"
         DEPENDS "${config}" "${POCKETJS_CLI}" ${compiler_receipt} ${APP_DEPENDS}
         VERBATIM)
-    _pocketjs_package_attach("${APP_TARGET}" "${APP_NAME}" "${package}" "${directory}")
+    _pocketjs_bundle_attach("${APP_TARGET}" "${APP_NAME}" "${bundle}" "${directory}")
 endfunction()

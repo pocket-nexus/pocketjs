@@ -138,8 +138,8 @@ impl Runtime {
     pub unsafe fn ui(&mut self) -> UiGuard<'_> {
         UiGuard(self.ops.core_mut().expect("inactive Vita runtime"))
     }
-    /// Boot the original .pocket bytes, including its admission facts. Runtime
-    /// owns the source and retains its selected package through guest shutdown.
+    /// Boot the original bundle bytes, including its admission facts. Runtime
+    /// owns the source and retains the admitted bundle through guest shutdown.
     /// # Safety
     /// Call once on the owning thread before any shared native scene opens.
     pub unsafe fn eval_package(&mut self, bytes: impl AsRef<[u8]> + 'static) -> Result<(), String> {

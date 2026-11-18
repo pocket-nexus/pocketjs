@@ -44,7 +44,6 @@ fn package() -> Vec<u8> {
     let identity =
         pocket_package::embedded::identity("application", "external.consumer", "Consumer").unwrap();
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-        target: "consumer",
         host_abi: pocket_spec::BINDING_GENERATION,
         profile_hash: config().profile_hash,
         identity: &identity,
@@ -473,11 +472,11 @@ fn runtime_destroy_after_failed_render_or_display_wait_releases_everything() {
     }
 }
 #[test]
-fn all_and_short_range_sources_share_package_corpus_admission() {
+fn all_and_short_range_sources_share_bundle_corpus_admission() {
     let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus");
     for item in std::fs::read_dir(directory).unwrap() {
         let path = item.unwrap().path();
-        if path.extension().and_then(|v| v.to_str()) != Some("pocket") {
+        if path.extension().and_then(|v| v.to_str()) != Some("pkb") {
             continue;
         }
         let bytes = std::fs::read(&path).unwrap();
@@ -488,7 +487,7 @@ fn all_and_short_range_sources_share_package_corpus_admission() {
             .unwrap()
             .starts_with("ok-");
         assert_eq!(
-            pocket_package::Package::parse(&bytes, false).is_ok(),
+            pocket_package::Bundle::parse(&bytes, false).is_ok(),
             expected,
             "{}",
             path.display()

@@ -79,13 +79,13 @@ describe("every repack bundles for a Worker", () => {
 });
 
 describe("the Studio's table", () => {
-  test("one row per Studio target, each naming its runtime, variants, file and type", () => {
+  test("one row per Studio target, each naming its runtime, runtime targets, file and type", () => {
     const rows = Object.fromEntries(Object.entries(REPACK_TARGETS).map(([name, row]) => [name, { ...row, repack: typeof row.repack }]));
     expect(rows).toEqual({
-      psp: { repack: "function", runtime: "psp", variantTargets: [PSP_RUNTIME_TARGET], extension: ".zip", contentType: "application/zip" },
-      vita: { repack: "function", runtime: "vita", variantTargets: [VITA_RUNTIME_TARGET], extension: ".vpk", contentType: "application/octet-stream" },
-      "3ds": { repack: "function", runtime: "3ds", variantTargets: [THREE_DS_RUNTIME_TARGET], extension: ".3dsx", contentType: "application/octet-stream" },
-      "ipod-touch": { repack: "function", runtime: "ipod", variantTargets: [IPOD_RUNTIME_TARGET], extension: ".ipa", contentType: "application/octet-stream" },
+      psp: { repack: "function", runtime: "psp", runtimeTargets: [PSP_RUNTIME_TARGET], extension: ".zip", contentType: "application/zip" },
+      vita: { repack: "function", runtime: "vita", runtimeTargets: [VITA_RUNTIME_TARGET], extension: ".vpk", contentType: "application/octet-stream" },
+      "3ds": { repack: "function", runtime: "3ds", runtimeTargets: [THREE_DS_RUNTIME_TARGET], extension: ".3dsx", contentType: "application/octet-stream" },
+      "ipod-touch": { repack: "function", runtime: "ipod", runtimeTargets: [IPOD_RUNTIME_TARGET], extension: ".ipa", contentType: "application/octet-stream" },
     });
   });
 

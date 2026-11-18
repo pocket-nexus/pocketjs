@@ -267,15 +267,15 @@ const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
   pocket [+id] check|compile [--config FILE] [--target ID|pocket.host.json]
       --config FILE          the host config whose app section to compile
                              (default: the nearest pocket.host.config.ts)
-      --output FILE          compile a .pocket package
+      --output FILE          the bundle file (default <outdir>/<output>.pkb)
       --aot --out DIR        compile native guest sources
       --depfile FILE         emit build dependencies
   pocket build [--config FILE] [--target ID] [--out DIR]
-      --pocket FILE          consume a compiled application
+      --bundle FILE          consume a compiled application bundle
       --aot-dir DIR          consume generated AOT sources
       --generic              build a reusable runtime
       --deploy               deploy the resulting artifact
-  pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]
+  pocket pack [--config FILE] [--target ID] --bundle FILE [--runtime DIR] [--out FILE]
   pocket host export [--config FILE] [--target ID] --out DIR [--depfile FILE]
   pocket host fetch --target ID --out FILE   the host contract a release publishes
   pocket show [--json]       host selection and toolchain status

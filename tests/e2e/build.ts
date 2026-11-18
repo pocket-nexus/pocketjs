@@ -52,16 +52,16 @@ export async function buildCaptureApplication(options: CommandOptions & {
 }, run: CommandRunner = runBuildCommand): Promise<string> {
   const root = resolve(options.root);
   const directory = resolve(options.directory);
-  const pocket = join(directory, "application.pocket");
+  const bundle = join(directory, "application.pkb");
   const native = join(directory, "native");
   const cli = join(root, "tools/pocket.ts");
   await run([process.execPath, join(root, "tests/e2e/compile-variant.ts"), "compile", "--target", options.target,
     "--config", resolve(options.config), "--project-root", root,
-    "--output", pocket, "--outdir", join(directory, "compiler"),
+    "--output", bundle, "--outdir", join(directory, "compiler"),
     "--plan-dir", join(directory, "plans"), ...(options.variant ? ["--variant", JSON.stringify(options.variant)] : [])],
   { ...options, root, directory: join(directory, "compile") });
   await run([process.execPath, cli, "build", "--target", options.target,
-    "--pocket", pocket, "--outdir", native, "--", ...(options.nativeArgs ?? ["--capture"])],
+    "--bundle", bundle, "--outdir", native, "--", ...(options.nativeArgs ?? ["--capture"])],
   { ...options, root, directory: join(directory, "build") });
   return buildArtifact(join(native, "build-receipt.json"));
 }

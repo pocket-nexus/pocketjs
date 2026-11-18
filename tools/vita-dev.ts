@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { decodePocketPackage, encodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
-import { makeVariant } from "./pocket-pack.ts";
+import { decodeBundle, encodeBundle } from "../contracts/spec/bundle.ts";
+import { makeBundle } from "./bundle.ts";
 import { extractHostBuildInputs } from "../framework/compiler/host-build-inputs.ts";
 import { encodePNG } from "./png.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   bun run vita:dev install --app devkit --mount /Volumes/PSV
   bun run vita:dev serve   --app devkit
   bun run vita:dev status  --app devkit
-  bun run vita:dev push    --app devkit [--package file.pocket]
+  bun run vita:dev push    --app devkit [--bundle file.pkb]
   bun run vita:dev native  --app devkit [--runtime file.runtime.json]
   bun run vita:dev stage   --file x.vpk [--name x.vpk] [--into card|app]
   bun run vita:dev capture --app devkit [--out frame.png]
@@ -59,7 +59,7 @@ Use --title TITLEID to address a runtime and --dir to select the USB share.
 Install stages a VPK over USB mass storage; install/open it once in VitaShell.
 serve then owns the USB host. push rebuilds JS/PAK; native sends the SELF and
 requires a receipt from the replacement process. stage writes a file to
-ux0:data/pocket-runtime/ (card) for VitaShell to install, or app.pocket into
+ux0:data/pocket-runtime/ (card) for VitaShell to install, or app.pkb into
 the title's directory (app) for a generic runtime's next start.
 L+R+SELECT opens the menu.`);
     return;
@@ -125,24 +125,22 @@ L+R+SELECT opens the menu.`);
   async function push() {
     if (!/^sha256:[0-9a-f]{64}$/.test(info?.profileHash ?? "")) throw new Error("push needs runtime metadata with profileHash; rebuild the runtime");
     let payload: Uint8Array;
-    const packagePath = value("--package");
-    if (packagePath) payload = readFileSync(packagePath);
+    const bundlePath = value("--bundle");
+    if (bundlePath) payload = readFileSync(bundlePath);
     else {
-      if (!info?.plan) throw new Error("push needs a build plan or --package");
+      if (!info?.plan) throw new Error("push needs a build plan or --bundle");
       extractHostBuildInputs(info.plan, { expectedTarget: "vita", expectedProfileHash: info.profileHash });
       mkdirSync(client.directory, { recursive: true });
       const planPath = join(client.directory, "build.plan.json");
       atomicWrite(planPath, JSON.stringify(info.plan));
       await run(["bun", "tools/build.ts", `--plan=${planPath}`, `--project-root=${value("--project-root") ?? ROOT}`]);
       const dist = join(ROOT, "dist");
-      payload = encodePocketPackage({ manifest: Buffer.from(JSON.stringify({ id: info.applicationId })), variants: [makeVariant({
-        target: "vita", hostAbi: info.plan.target.hostAbi, planJson: JSON.stringify(info.plan),
-        identity: { output: info.output, id: info.applicationId, title: info.plan.app.title },
+      payload = encodeBundle(makeBundle({
+        plan: info.plan,
         js: readFileSync(join(dist, `${info.output}.js`)), pak: readFileSync(join(dist, `${info.output}.pak`)),
-      })] });
+      }));
     }
-    const variant = findVariant(decodePocketPackage(payload), "vita");
-    if (!variant || variant.profileHash !== info.profileHash) throw new Error("package profileHash does not match the built Vita runtime");
+    if (decodeBundle(payload).profileHash !== info.profileHash) throw new Error("bundle profileHash does not match the built Vita runtime");
     console.log(JSON.stringify(await client.command("push", { payload }), null, 2));
   }
   if (command === "push") { await push(); return; }

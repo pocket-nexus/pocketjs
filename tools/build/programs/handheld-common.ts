@@ -14,7 +14,7 @@ export function demoConfigPath(name: string): string {
   const demo = name.replace(/-main$/, "");
   const path = resolve(repository, "apps", demo, "pocket.host.config.ts");
   if (!/^[a-z0-9][a-z0-9-]*$/.test(demo) || !existsSync(path))
-    throw new Error(`${name} is not a stock demo (apps/<demo>/pocket.host.config.ts); compile the application with \`pocket compile\` and build its package with \`pocket build --pocket\``);
+    throw new Error(`${name} is not a stock demo (apps/<demo>/pocket.host.config.ts); compile the application with \`pocket compile\` and build its program with \`pocket build --bundle\``);
   return path;
 }
 
@@ -25,23 +25,23 @@ export async function demoApp(name: string): Promise<AppConfig> {
   return config.value.app;
 }
 
-/** The package a stock demo compiles to under `outdir`. */
-export async function demoPackagePath(name: string, outdir: string): Promise<string> {
-  return resolve(outdir, `${appOutput(await demoApp(name))}.pocket`);
+/** The bundle a stock demo compiles to under `outdir`. */
+export async function demoBundlePath(name: string, outdir: string): Promise<string> {
+  return resolve(outdir, `${appOutput(await demoApp(name))}.pkb`);
 }
 
 /** Compile a stock demo for `target` as `pocket compile` does, from the
- *  repository root, into `outdir` and `<outdir>/<output>.pocket`; native
- *  programs embed only compiled packages. `app` derives a variant of the
+ *  repository root, into `outdir` and `<outdir>/<output>.pkb`; native
+ *  programs embed only compiled bundles. `app` derives another form of the
  *  demo's application (another framework, for example). With `reuse`, the
- *  package from an earlier compile is returned unchanged. */
-export async function compileDemoPackage(target: string, name: string, outdir: string, options: {
+ *  bundle from an earlier compile is returned unchanged. */
+export async function compileDemoBundle(target: string, name: string, outdir: string, options: {
   reuse?: boolean; app?: (app: AppConfig) => AppConfig;
 } = {}): Promise<string> {
   const declared = await demoApp(name);
-  const output = resolve(outdir, `${appOutput(options.app ? options.app(declared) : declared)}.pocket`);
+  const output = resolve(outdir, `${appOutput(options.app ? options.app(declared) : declared)}.pkb`);
   if (options.reuse) {
-    if (!existsSync(output)) throw new Error(`--skip-build reuses a compiled package, and ${output} does not exist`);
+    if (!existsSync(output)) throw new Error(`--skip-build reuses a compiled bundle, and ${output} does not exist`);
     return output;
   }
   const directory = resolve(repository, ".pocket", `${target}-low-level`, appOutput(declared));
@@ -56,14 +56,14 @@ export function handheldLock<T>(id: string, operation: () => Promise<T>): Promis
 }
 export function nativeArguments(context: RuntimeBuildContext): string[] {
   for (const arg of context.args) {
-    if (/^--(?:plan|manifest|pocket-only|project-root|outdir|package-outdir|framework|config|runtime|skip-build|target|target-dir|manifest-path|package|profile|features|no-default-features|help|version)(?:=|$)/.test(arg)) {
-      throw new Error(`native recipe owns ${arg}; supply --pocket to the build executor`);
+    if (/^--(?:plan|manifest|pocket-only|project-root|outdir|package-outdir|framework|config|runtime|skip-build|target|target-dir|manifest-path|package|bundle|pocket|profile|features|no-default-features|help|version)(?:=|$)/.test(arg)) {
+      throw new Error(`native recipe owns ${arg}; supply --bundle to the build executor`);
     }
   }
   return context.args.map(arg => {
-    const match = /^(--launcher-(?:registry|packages))=(.+)$/.exec(arg);
+    const match = /^(--launcher-(?:registry|bundles))=(.+)$/.exec(arg);
     if (!match) {
-      if (arg === "--launcher-registry" || arg === "--launcher-packages") throw new Error(`${arg} requires =<path>`);
+      if (arg === "--launcher-registry" || arg === "--launcher-bundles") throw new Error(`${arg} requires =<path>`);
       return arg;
     }
     const path = resolve(match[2]!);

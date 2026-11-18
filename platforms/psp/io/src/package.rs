@@ -1,5 +1,5 @@
-//! Range source for app.pocket beside the EBOOT. Runtime owns the sole loaded
-//! allocation, hashes, target selection, host ABI and plan admission.
+//! Range source for app.pkb beside the EBOOT. Runtime owns the sole loaded
+//! allocation, hashes, host ABI and plan admission.
 use core::ffi::CStr;
 use pocket_drivers::{PackageSource, SourceError};
 use psp::sys::{self, IoOpenFlags, IoWhence, SceUid};

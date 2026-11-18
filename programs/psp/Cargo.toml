@@ -60,7 +60,7 @@ capture = []
 bench = []
 
 # The generic runtime (tools/runtime/psp.ts): no embedded app; the game is
-# app.pocket beside the EBOOT, read at boot (src/package_file.rs).
+# app.pkb beside the EBOOT, read at boot (src/package_file.rs).
 runtime = []
 
 # Explicit validation only: mailbox polling introduces main-thread host0 IO.

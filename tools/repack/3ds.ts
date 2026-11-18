@@ -1,5 +1,5 @@
 // tools/repack/3ds.ts — a game's Nintendo 3DS `.3dsx` from the generic
-// runtime (tools/runtime/3ds.ts) and the game's `.pocket`, in TypeScript.
+// runtime (tools/runtime/3ds.ts) and the game's bundle (`.pkb`), in TypeScript.
 //
 // A .3dsx (devkitPro 3dstools `3dsx.h`) is a 44-byte header with the extended
 // fields, three relocation headers, the code, rodata and data segments, their
@@ -7,7 +7,7 @@
 // at. The repack keeps everything from the relocation headers to the end of
 // the relocation tables byte for byte (the runtime's program), and writes a
 // new SMDH (title, description, author, 24 and 48 px icons) and a new RomFS
-// holding `app.pocket`. programs/3ds/main.c registers this file as a package
+// holding `app.pkb`. programs/3ds/main.c registers this file as a package
 // source; the Runtime admits its profile and plan before guest initialization.
 //
 // The SMDH and RomFS writers follow smdhtool and 3dsxtool (3dstools 1.3.1):
@@ -19,7 +19,7 @@
 import { decodePng, type RgbaImage } from "./shared/png.ts";
 import { squareIcon } from "./shared/scale.ts";
 import {
-  admitPocket,
+  admitRepackBundle,
   checkIdentity,
   planFeatures,
   readRuntime,
@@ -211,7 +211,7 @@ export function writeSmdh(fields: SmdhFields): Uint8Array {
 // ---------------------------------------------------------------------------
 
 export interface RomfsFile {
-  /** "/"-separated path below the RomFS root, e.g. "app.pocket". */
+  /** "/"-separated path below the RomFS root, e.g. "app.pkb". */
   readonly path: string;
   readonly bytes: Uint8Array;
 }
@@ -366,14 +366,14 @@ export async function repack3ds(input: RepackInput): Promise<Uint8Array> {
   if (!program || !(THREE_DS_RUNTIME_FILE in runtime.files)) {
     throw new Error(`repack 3ds: the runtime has no ${THREE_DS_RUNTIME_FILE}`);
   }
-  const pocket = await admitPocket(input.pocket, runtime, input.identity);
-  const features = planFeatures(pocket.plan);
+  const bundle = await admitRepackBundle(input.bundle, runtime, input.identity);
+  const features = planFeatures(bundle.plan);
   for (const feature of UNSUPPORTED_FEATURES) {
     if (features[feature] === true) {
       throw new Error(`repack 3ds: the game needs ${feature}, which the 3DS runtime does not carry`);
     }
   }
-  const viewport = pocket.plan.viewport as { logical?: number[]; rasterDensity?: number } | undefined;
+  const viewport = bundle.plan.viewport as { logical?: number[]; rasterDensity?: number } | undefined;
   if (viewport?.logical?.[0] !== 400 || viewport.logical[1] !== 240 || viewport.rasterDensity !== 1) {
     throw new Error("repack 3ds: the game's 3DS plan is not the 400x240 top screen at density 1");
   }
@@ -386,6 +386,6 @@ export async function repack3ds(input: RepackInput): Promise<Uint8Array> {
   // Without an icon of its own the game shows the runtime's (the PocketJS mark).
   const icons = input.identity.icon ? await smdhIcons(input.identity.icon) : parsed.smdh.slice(SMDH_ICONS);
   const smdh = writeSmdh({ title, description: `${title} ${version}`, author, icons });
-  const romfs = writeRomfs([{ path: "app.pocket", bytes: pocket.bytes }]);
+  const romfs = writeRomfs([{ path: "app.pkb", bytes: bundle.bytes }]);
   return write3dsx(parsed, smdh, romfs);
 }

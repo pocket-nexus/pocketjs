@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, r
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, encodeBundle, encodeIdentity } from "../contracts/spec/bundle.ts";
 import { canonicalProfileJson, type PocketProfile } from "../contracts/spec/profile.ts";
 import { HOST_ABI_FUNCTIONS, RUNTIME_ABI_FUNCTIONS } from "../contracts/spec/runtime-abi.ts";
 import { profileFactsC } from "../tools/profile-export.ts";
@@ -73,11 +73,11 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     const fixtureProfile: PocketProfile = { format: "pocket-host/2", id: "fixture", platform: "test", form: "takeover", cadences: [60], display: { logicalViewports: [[4, 4]], presentations: ["native"], rasterDensity: 1, animation: "repaint" }, panel: { primary: [4, 4] }, capabilities: [] };
     const profile = canonicalProfileJson(fixtureProfile);
     const bytes = (source: string) => new TextEncoder().encode(source);
-    const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
-      { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
-      { kind: POCKET_SECTION.plan, bytes: bytes('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
-      { kind: POCKET_SECTION.js, bytes: bytes("globalThis.frameCount=0;globalThis.frame=()=>{globalThis.frameCount++;ui.createNode(1)};\0") },
-    ] }] });
+    const pkg = encodeBundle({ hostAbi: POCKET_BINDING_GENERATION, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
+      { kind: BUNDLE_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
+      { kind: BUNDLE_SECTION.plan, bytes: bytes('{"animation":"repaint","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}') },
+      { kind: BUNDLE_SECTION.js, bytes: bytes("globalThis.frameCount=0;globalThis.frame=()=>{globalThis.frameCount++;ui.createNode(1)};\0") },
+    ] });
     writeFileSync(join(external, "program/profile.h"), profileFactsC(fixtureProfile, "profile_facts") + `static const unsigned char profile_hash[32] = {${[...createHash("sha256").update(profile).digest()].join(",")}};\nstatic const unsigned char package_bytes[] = {${[...pkg].join(",")}};\n`);
     run(["cmake", "-S", "program", "-B", "build", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", `-DCMAKE_PREFIX_PATH=${sdk}`], external);
     run(["cmake", "--build", "build", "--parallel", "4"], external);

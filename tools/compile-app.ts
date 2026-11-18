@@ -1,19 +1,19 @@
 // `pocket check` and `pocket compile`: resolve the `app` section of a host
 // config for one of its hosts, type-check the application, write the build
-// plan and run the compiler on it (tools/build.ts --plan), then pack the
-// variant into a .pocket package with an empty manifest region — or, with
-// `aot`, generate the native guest sources.
+// plan and run the compiler on it (tools/build.ts --plan), then write the
+// outputs as one bundle (`.pkb`) — or, with `aot`, generate the native guest
+// sources.
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AppConfig } from "../contracts/spec/app-config.ts";
-import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_EXTENSION, encodeBundle } from "../contracts/spec/bundle.ts";
 import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
-import { canonicalJson, type ResolvedBuildPlan } from "../framework/compiler/plan.ts";
+import type { ResolvedBuildPlan } from "../framework/compiler/plan.ts";
 import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
-import { makeVariant } from "./pocket-pack.ts";
+import { makeBundle } from "./bundle.ts";
 import { loadHostConfig, profileRegistry, selectConfigHost } from "./profile-resolver.ts";
 
 const frameworkRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -31,15 +31,15 @@ export interface CompileApplicationOptions {
   readonly outdir?: string;
   /** Default: <projectRoot>/.pocket. */
   readonly planRoot?: string;
-  /** The .pocket file. Default: <outdir>/<output>.pocket. */
+  /** The bundle file. Default: <outdir>/<output>.pkb. */
   readonly output?: string;
   /** Stop after the type check (`pocket check`). */
   readonly check?: boolean;
-  /** Generate AOT guest sources into this directory instead of a package. */
+  /** Generate AOT guest sources into this directory instead of a bundle. */
   readonly aotOut?: string;
   readonly depfile?: string;
   readonly compilerReceipt?: string;
-  /** A variant of the config's application for repository tools (a demo
+  /** Another form of the config's application for repository tools (a demo
    *  under another framework, an end-to-end identity). Paths in the result
    *  stay relative to the config file. */
   readonly app?: (app: AppConfig) => AppConfig;
@@ -48,8 +48,8 @@ export interface CompileApplicationOptions {
 export interface CompiledApplication {
   readonly plan: ResolvedBuildPlan;
   readonly planPath?: string;
-  /** The .pocket file, unless `check` or `aotOut`. */
-  readonly package?: string;
+  /** The bundle file, unless `check` or `aotOut`. */
+  readonly bundle?: string;
   readonly aotOut?: string;
 }
 
@@ -118,34 +118,37 @@ export async function compileApplication(options: CompileApplicationOptions): Pr
   const status = await child.exited;
   if (status !== 0 || child.signalCode) throw new Error(`PocketJS compiler failed: ${child.signalCode ?? status}`);
   const pakPath = resolve(outdir, `${plan.app.output}.pak`);
-  const variant = makeVariant({
-    target: plan.target.id, hostAbi: plan.target.hostAbi, planJson: canonicalJson(plan),
-    identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
+  let bundle = makeBundle({
+    plan,
     js: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.js`))),
     ...(plan.domains?.worker ? { workerJs: new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.worker.js`))) } : {}),
     pak: existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0),
-    // The application's icon travels as the variant's cover section.
-    ...(icon ? { cover: icon } : {}),
+    // The application's icon travels as the icon section.
+    ...(icon ? { icon } : {}),
   });
-  const output = options.output ? resolve(projectRoot, options.output) : resolve(outdir, `${plan.app.output}.pocket`);
+  const output = bundlePath(options.output ? resolve(projectRoot, options.output) : resolve(outdir, `${plan.app.output}${BUNDLE_EXTENSION}`));
   if (options.depfile) {
     const inputs = await Bun.file(inputsFile).json() as string[];
     await Bun.write(resolve(projectRoot, options.depfile), depfile(output, [...inputs, ...extraDependencies]));
   }
-  let packaged = variant;
   if (selected.profile.bytecode) {
     // The host names the QuickJS build it embeds: its bundles ship as bytecode for it.
     const { withBytecode } = await import("./quickjs-bytecode.ts");
     const bytecode = selected.profile.bytecode;
-    packaged = withBytecode(variant, { ...bytecode, buildDirectory: resolve(outdir, "quickjs-bytecode") });
+    bundle = withBytecode(bundle, { ...bytecode, buildDirectory: resolve(outdir, "quickjs-bytecode") });
     console.log(`✓ QuickJS bytecode for ${bytecode.engine}${bytecode.source === "drop" ? " (source dropped)" : ""}`);
   }
-  // The manifest region stays empty: the variant's identity section and its
-  // plan carry the application's identity.
   mkdirSync(dirname(output), { recursive: true });
-  await Bun.write(output, encodePocketPackage({ manifest: new Uint8Array(0), variants: [packaged] }));
-  console.log(`✓ Package: ${output}`);
-  return { plan, planPath, package: output };
+  await Bun.write(output, encodeBundle(bundle));
+  console.log(`✓ Bundle: ${output}`);
+  return { plan, planPath, bundle: output };
+}
+
+/** A bundle path: any name but one in the `.pocket` container format of
+ *  other products. */
+export function bundlePath(path: string): string {
+  if (path.endsWith(".pocket")) throw new Error(`${path}: pocket compile writes a bundle; name it ${path.slice(0, -".pocket".length)}${BUNDLE_EXTENSION}`);
+  return path;
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

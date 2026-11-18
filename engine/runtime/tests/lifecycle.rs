@@ -43,7 +43,6 @@ fn package_for(profile_hash: [u8; 32]) -> Vec<u8> {
 fn package_for_generation(profile_hash: [u8; 32], generation: u32) -> Vec<u8> {
     let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-        target: "fixture",
         host_abi: generation,
         profile_hash,
         identity: &identity,
@@ -197,22 +196,37 @@ fn runtime_evaluates_owned_and_static_packages_without_relocating_their_bytes() 
         code: *const u8,
     }
     impl Guest for PointerGuest {
-        fn initialize(&mut self, ops: OpContext, env: &GuestEnvironment<'_>) -> Result<(), RuntimeError> {
+        fn initialize(
+            &mut self,
+            ops: OpContext,
+            env: &GuestEnvironment<'_>,
+        ) -> Result<(), RuntimeError> {
             self.inner.initialize(ops, env)
         }
         fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError> {
             assert_eq!(code.as_ptr(), self.code);
             self.inner.evaluate(code)
         }
-        fn frame(&mut self, input: &GuestFrame<'_>) -> Result<(), RuntimeError> { self.inner.frame(input) }
-        fn collect(&mut self) -> Result<(), RuntimeError> { self.inner.collect() }
-        fn shutdown(&mut self) { self.inner.shutdown() }
+        fn frame(&mut self, input: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            self.inner.frame(input)
+        }
+        fn collect(&mut self) -> Result<(), RuntimeError> {
+            self.inner.collect()
+        }
+        fn shutdown(&mut self) {
+            self.inner.shutdown()
+        }
     }
     for owned in [true, false] {
         let bytes = package().into_boxed_slice();
         let config = config();
-        let host = config.profile.host_facts(config.host_abi, config.profile_hash);
-        let code = pocket_package::select_guest(&bytes, &host, false).unwrap().js.as_ptr();
+        let host = config
+            .profile
+            .host_facts(config.host_abi, config.profile_hash);
+        let code = pocket_package::admit_bundle(&bytes, &host, false)
+            .unwrap()
+            .js
+            .as_ptr();
         let source: Box<dyn PackageSource> = if owned {
             Box::new(pocket_package::source::OwnedMemorySource::new(bytes))
         } else {
@@ -222,8 +236,14 @@ fn runtime_evaluates_owned_and_static_packages_without_relocating_their_bytes() 
         let mut rt = runtime(facts.clone(), false, false);
         rt.set_package_source(source).unwrap();
         rt.set_guest(Box::new(PointerGuest {
-            inner: TestGuest { facts: facts.clone(), ops: None, fail: false }, code,
-        })).unwrap();
+            inner: TestGuest {
+                facts: facts.clone(),
+                ops: None,
+                fail: false,
+            },
+            code,
+        }))
+        .unwrap();
         rt.boot().unwrap();
         rt.tick().unwrap();
         rt.shutdown().unwrap();
@@ -658,7 +678,6 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
         cfg.frame_buffer_budget = 0;
         let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
         let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-            target: "fixture",
             host_abi: pocket_spec::BINDING_GENERATION,
             profile_hash: cfg.profile_hash,
             identity: &identity,
@@ -788,7 +807,6 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
         )
         .into_bytes();
         let package = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-            target: "fixture",
             host_abi: pocket_spec::BINDING_GENERATION,
             profile_hash: cfg.profile_hash,
             identity: &identity,
@@ -821,9 +839,11 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
                 matches!(
                     result,
                     Err(RuntimeError::ProfileMismatch)
-                        | Err(RuntimeError::Package(pocket_package::source::LoadError::Admission(
-                            pocket_package::GuestError::NotAdmitted(_)
-                        )))
+                        | Err(RuntimeError::Package(
+                            pocket_package::source::LoadError::Admission(
+                                pocket_package::GuestError::NotAdmitted(_)
+                            )
+                        ))
                 ),
                 "{result:?}"
             );
@@ -851,15 +871,30 @@ fn runtime_configuration_requires_the_generated_binding_generation() {
 fn old_packages_are_rejected_before_guest_initialization_and_can_be_replaced() {
     use pocket_package::source::LoadError;
     use pocket_package::{GuestError, PackageError};
-    let mut rejected = vec![(
-        include_bytes!("fixtures/bad-v1.pocket").to_vec(),
-        GuestError::Package(PackageError::BadVersion),
-    )];
+    // Another bundle format version, and a file in another container format
+    // ("PCKT"), with their footers repaired.
+    let reworded = |offset: usize, word: u32| {
+        let mut bytes = package();
+        bytes[offset..offset + 4].copy_from_slice(&word.to_le_bytes());
+        let end = bytes.len() - 8;
+        let footer = pocket_package::fnv1a64(&[&bytes[..end]]).to_le_bytes();
+        bytes[end..].copy_from_slice(&footer);
+        bytes
+    };
+    let mut rejected = vec![
+        (
+            reworded(4, pocket_package::bundle::VERSION + 1),
+            GuestError::Package(PackageError::BadVersion),
+        ),
+        (
+            reworded(0, 0x544b_4350),
+            GuestError::Package(PackageError::BadMagic),
+        ),
+    ];
     rejected.extend((1..pocket_spec::BINDING_GENERATION).map(|generation| {
         (
             package_for_generation(config().profile_hash, generation),
             GuestError::NotAdmitted(pocket_package::Mismatch {
-                variant: 0,
                 items: pocket_package::admission::item::BINDING_GENERATION,
                 capability: pocket_package::admission::Name::EMPTY,
             }),
@@ -894,7 +929,7 @@ fn current_package_does_not_admit_under_a_legacy_expected_generation() {
     for expected in 1..pocket_spec::BINDING_GENERATION {
         let host = config.profile.host_facts(expected, config.profile_hash);
         assert!(matches!(
-            pocket_package::select_guest(&package(), &host, false),
+            pocket_package::admit_bundle(&package(), &host, false),
             Err(pocket_package::GuestError::NotAdmitted(mismatch))
                 if mismatch.items == pocket_package::admission::item::BINDING_GENERATION
         ));
@@ -1071,7 +1106,11 @@ fn deferred_frames_release_the_core_and_keep_borrowed_textures_until_retired() {
 fn boot_runs_the_package_rate_at_the_fastest_dividing_cadence() {
     struct Rates(Rc<RefCell<Vec<(u32, u32)>>>);
     impl Guest for Rates {
-        fn initialize(&mut self, _: OpContext, env: &GuestEnvironment<'_>) -> Result<(), RuntimeError> {
+        fn initialize(
+            &mut self,
+            _: OpContext,
+            env: &GuestEnvironment<'_>,
+        ) -> Result<(), RuntimeError> {
             self.0.borrow_mut().push((env.tick_hz, env.sim_hz));
             Ok(())
         }
@@ -1099,7 +1138,6 @@ fn boot_runs_the_package_rate_at_the_fastest_dividing_cadence() {
         )
         .into_bytes();
         let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-            target: "compiled-elsewhere",
             host_abi: pocket_spec::BINDING_GENERATION,
             profile_hash: [0x99; 32],
             identity: &identity,
@@ -1111,16 +1149,31 @@ fn boot_runs_the_package_rate_at_the_fastest_dividing_cadence() {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut runtime = Runtime::new(cfg).unwrap();
         runtime.set_guest(Box::new(Rates(seen.clone()))).unwrap();
-        runtime.set_package_source(Box::new(MemorySource(bytes))).unwrap();
+        runtime
+            .set_package_source(Box::new(MemorySource(bytes)))
+            .unwrap();
         let facts = Rc::new(RefCell::new(Facts::default()));
         software(&mut runtime);
         runtime
-            .add_display(Display { pixels: [0; 64], facts, fail_once: false }, RendererId::SOFTWARE)
+            .add_display(
+                Display {
+                    pixels: [0; 64],
+                    facts,
+                    fail_once: false,
+                },
+                RendererId::SOFTWARE,
+            )
             .unwrap();
         match expected {
             Some((tick_hz, cadence_hz)) => {
                 runtime.boot().unwrap();
-                assert_eq!(runtime.timing(), Some(Timing { tick_hz, cadence_hz }));
+                assert_eq!(
+                    runtime.timing(),
+                    Some(Timing {
+                        tick_hz,
+                        cadence_hz
+                    })
+                );
                 assert_eq!(*seen.borrow(), vec![(tick_hz, cadence_hz)]);
                 assert_eq!(runtime.op_context().core().unwrap().tick_rate(), tick_hz);
                 runtime.tick().unwrap();
@@ -1195,7 +1248,7 @@ fn boot_reads_a_program_at_the_sections_its_source_states() {
     assert!(facts.borrow().evaluated);
     rt.shutdown().unwrap();
 
-    // The stated plan is admitted like a package variant's.
+    // The stated plan is admitted like a bundle's.
     let mut rt = runtime(Rc::new(RefCell::new(Facts::default())), false, false);
     rt.set_package_source(Box::new(host_container(
         pocket_spec::BINDING_GENERATION + 1,

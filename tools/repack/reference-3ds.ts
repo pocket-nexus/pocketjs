@@ -1,11 +1,11 @@
-// bun tools/repack/reference-3ds.ts --pocket <file> --id <id> --title <title>
+// bun tools/repack/reference-3ds.ts --bundle <file> --id <id> --title <title>
 //   --author <author> --version <version> [--icon <png>] [--fixtures <dir>]
 //
 // Checks tools/repack/3ds.ts against devkitPro's own tools: builds the same
 // game's .3dsx with smdhtool and 3dsxtool in the pinned devkitARM image, from
 // the runtime's ELF (dist/runtime/3ds.native/pocketjs-3ds.elf, written by
 // `bun tools/runtime.ts 3ds`), the same scaled icons and a RomFS directory
-// holding the same app.pocket, and byte-compares the SMDH, the RomFS and the
+// holding the same app.pkb, and byte-compares the SMDH, the RomFS and the
 // whole file. Needs Docker; CI runs the committed fixtures instead
 // (tests/repack-3ds.test.ts). --fixtures writes those fixtures.
 
@@ -31,7 +31,7 @@ function firstDifference(left: Uint8Array, right: Uint8Array): number {
 }
 
 export async function reference3ds(argv: readonly string[]): Promise<boolean> {
-  const pocketPath = option(argv, "pocket");
+  const bundlePath = option(argv, "bundle");
   const identity = {
     id: option(argv, "id") ?? "",
     title: option(argv, "title") ?? "",
@@ -40,19 +40,19 @@ export async function reference3ds(argv: readonly string[]): Promise<boolean> {
   };
   const iconPath = option(argv, "icon");
   const fixtures = option(argv, "fixtures");
-  if (!pocketPath || !iconPath || Object.values(identity).some((value) => !value)) {
-    throw new Error("usage: bun tools/repack/reference-3ds.ts --pocket <file> --id … --title … --author … --version … --icon <png> [--fixtures <dir>]");
+  if (!bundlePath || !iconPath || Object.values(identity).some((value) => !value)) {
+    throw new Error("usage: bun tools/repack/reference-3ds.ts --bundle <file> --id … --title … --author … --version … --icon <png> [--fixtures <dir>]");
   }
   const runtimeDirectory = join(repository, "dist/runtime/3ds");
   const elf = join(repository, "dist/runtime/3ds.native/pocketjs-3ds.elf");
-  const pocket = new Uint8Array(readFileSync(pocketPath));
+  const bundle = new Uint8Array(readFileSync(bundlePath));
   const icon = new Uint8Array(readFileSync(iconPath));
-  const ours = await repack3ds({ runtime: readRuntimeDirectory(runtimeDirectory), pocket, identity: { ...identity, icon } });
+  const ours = await repack3ds({ runtime: readRuntimeDirectory(runtimeDirectory), bundle, identity: { ...identity, icon } });
 
   const work = mkdtempSync(join(tmpdir(), "pocketjs-3ds-reference-"));
   try {
     mkdirSync(join(work, "romfs"));
-    copyFileSync(pocketPath, join(work, "romfs/app.pocket"));
+    copyFileSync(bundlePath, join(work, "romfs/app.pkb"));
     copyFileSync(elf, join(work, "runtime.elf"));
     const { large, small } = await smdhIcons(icon);
     writeFileSync(join(work, "icon48.png"), await encodePng(large));

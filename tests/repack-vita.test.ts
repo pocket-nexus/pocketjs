@@ -3,12 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { decodePocketPackage, encodePocketPackage, type PocketPackageVariant } from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/compiler/plan.ts";
+import { encodeBundle } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { vitaTitleId } from "../framework/compiler/vita-title-id.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
 import type { RepackInput } from "../tools/repack/shared/runtime.ts";
 import { runtimeDirectory } from "./helpers/runtime-directory.ts";
@@ -36,22 +35,15 @@ function app() {
   };
 }
 
-function variant(target: "psp" | "vita", id = ID): PocketPackageVariant {
+/** The application compiled for one host contract. */
+function bundleFor(target: "psp" | "vita" = "vita", id = ID): Uint8Array {
   const resolution = resolveAppPlan({ ...app(), id }, { target });
   if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
-  const plan = resolution.plan;
-  return makeVariant({
-    target,
-    hostAbi: plan.target.hostAbi,
-    planJson: canonicalJson(plan),
-    identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
+  return encodeBundle(makeBundle({
+    plan: resolution.plan,
     js: new TextEncoder().encode(`globalThis.frame = () => {}; // ${target}`),
     pak: new Uint8Array([target === "vita" ? 2 : 1, 2, 3, 4]),
-  });
-}
-
-function pocketFor(targets: ("psp" | "vita")[] = ["psp", "vita"], id = ID): Uint8Array {
-  return encodePocketPackage({ manifest: new Uint8Array(0), variants: targets.map((t) => variant(t, id)) });
+  }));
 }
 
 const RUNTIME_ASSETS = [VITA_ICON, ...VITA_LIVEAREA];
@@ -73,7 +65,7 @@ async function icon(): Promise<Uint8Array> {
 async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput> {
   return {
     runtime: await runtime(),
-    pocket: pocketFor(),
+    bundle: bundleFor(),
     identity: { id: ID, title: "Twenty48 二〇四八", author: "Pocket Nexus", version: "0.1.0", icon: await icon() },
     ...overrides,
   };
@@ -84,12 +76,12 @@ describe("PS Vita repack", () => {
     expect(await vitaTitleIdFor(ID)).toBe(vitaTitleId(ID));
   });
 
-  test("writes files only, param.sfo and eboot.bin first, with the runtime's LiveArea and the thinned package", async () => {
+  test("writes files only, param.sfo and eboot.bin first, with the runtime's LiveArea and the bundle", async () => {
     const vpk = await readZip(await repackVita(await input()));
     expect(vpk.map((entry) => entry.name)).toEqual([
       "sce_sys/param.sfo",
       "eboot.bin",
-      "app.pocket",
+      "app.pkb",
       "sce_sys/icon0.png",
       ...VITA_LIVEAREA,
     ]);
@@ -98,7 +90,7 @@ describe("PS Vita repack", () => {
     const sfo = Object.fromEntries(readSfo(file("sce_sys/param.sfo")).map((entry) => [entry.key, entry.value]));
     expect([sfo.TITLE, sfo.STITLE, sfo.TITLE_ID, sfo.ATTRIBUTE2, sfo.CATEGORY]).toEqual(["Twenty48 二〇四八", "Twenty48 二〇四八", "P8963CCB6", 12, "gd"]);
     for (const name of VITA_LIVEAREA) expect(file(name)).toEqual(new Uint8Array(readFileSync(join(DEFAULT_VITA_PACKAGE_ASSETS, name))));
-    expect(decodePocketPackage(file("app.pocket")).variants.map((v) => v.target)).toEqual(["vita"]);
+    expect(file("app.pkb")).toEqual(bundleFor());
 
     // The bubble: 128 x 128 indexed PNG-8, the gradient centred over the plum ground.
     const png = file("sce_sys/icon0.png");
@@ -146,10 +138,10 @@ describe("PS Vita repack", () => {
     );
   });
 
-  test("refuses a package the runtime does not admit, and another app's package", async () => {
-    await expect(repackVita(await input({ pocket: pocketFor(["psp"]) }))).rejects.toThrow("this vita runtime does not admit the .pocket: variant 0 (psp) is not admitted: rasterDensity");
-    await expect(repackVita(await input({ pocket: pocketFor(["vita"], "dev.pocket-nexus.studio.other") }))).rejects.toThrow(
-      'the .pocket is app "dev.pocket-nexus.studio.other"',
+  test("refuses a bundle the runtime does not admit, and another app's bundle", async () => {
+    await expect(repackVita(await input({ bundle: bundleFor("psp") }))).rejects.toThrow("this vita runtime does not admit the bundle: not admitted: rasterDensity");
+    await expect(repackVita(await input({ bundle: bundleFor("vita", "dev.pocket-nexus.studio.other") }))).rejects.toThrow(
+      'the bundle is app "dev.pocket-nexus.studio.other"',
     );
   });
 });

@@ -73,7 +73,6 @@ fn large_embedded_package_uses_one_container_and_transfers_it_without_copying() 
     let pak = vec![0xab; 1024 * 1024];
     let (bytes, allocations) = count(|| {
         encode(EmbeddedPackage {
-            target: "fixture",
             host_abi: 12,
             profile_hash: [0x11; 32],
             identity: &identity,

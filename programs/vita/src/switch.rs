@@ -9,7 +9,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use pocket_package::package::Package;
+use pocket_package::Bundle;
 use pocketjs_core::{spec, Ui};
 
 // $OUT_DIR/apps.rs -- `EmbeddedApp` + `APPS` (programs/vita/build.rs).
@@ -39,7 +39,7 @@ pub fn guest_bytes(index: usize) -> Option<GuestBytes> {
         return Some(GuestBytes::File);
     }
     let app = APPS.get(index)?;
-    (!app.pocket.is_empty()).then_some(GuestBytes::Package(app.pocket))
+    (!app.bundle.is_empty()).then_some(GuestBytes::Package(app.bundle))
 }
 
 pub const SHOT_W: u32 = 256;
@@ -79,14 +79,11 @@ pub fn find(output: &str) -> Option<usize> {
 }
 
 fn identity(app: &'static EmbeddedApp) -> (&'static str, &'static str, &'static str) {
-    if !app.id.is_empty() || !app.title.is_empty() || app.pocket.is_empty() {
+    if !app.id.is_empty() || !app.title.is_empty() || app.bundle.is_empty() {
         return (app.output, app.id, app.title);
     }
-    let package = Package::parse(app.pocket, true).ok();
-    let variant = package
-        .as_ref()
-        .and_then(|package| package.find_variant(env!("POCKETJS_TARGET")).ok().flatten());
-    let embedded = variant.and_then(|variant| variant.identity().ok().flatten());
+    let bundle = Bundle::parse(app.bundle, true).ok();
+    let embedded = bundle.and_then(|bundle| bundle.identity().ok().flatten());
     embedded
         .map(|identity| (identity.output, identity.id, identity.title))
         .unwrap_or((app.output, app.id, app.title))

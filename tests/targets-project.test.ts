@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { decodeIdentity, decodePocketPackage, encodeIdentity, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, decodeBundle, decodeIdentity, encodeBundle, encodeIdentity, findSection } from "../contracts/spec/bundle.ts";
 import { canonicalProfileJson } from "../framework/src/profile.ts";
 import { exportProfile } from "../tools/profile-export.ts";
 import { resolveProfile } from "../tools/profile-resolver.ts";
@@ -197,7 +197,7 @@ int main(void) {
     expect(exported.hostAbi).toBe(POCKET_BINDING_GENERATION);
   });
 
-  test("compile emits a package for each selected external profile and tracks imported profile sources", () => {
+  test("compile emits a bundle for each selected external profile and tracks imported profile sources", () => {
     const directory = scratch(); const app = join(directory, "app"); mkdirSync(app);
     mkdirSync(join(directory, "node_modules/@pocketjs"), { recursive: true });
     symlinkSync(root, join(directory, "node_modules/@pocketjs/framework"), "dir");
@@ -207,37 +207,30 @@ int main(void) {
     writeFileSync(runtime, `export default {hosts:${JSON.stringify(documents)},app:${JSON.stringify(application)}};`);
     writeFileSync(join(app, "main.tsx"), 'import {mount} from "@pocketjs/framework";import {View} from "@pocketjs/framework/components";mount(()=><View class="w-full h-full bg-red-500"/>);');
     for (const target of ["external-a", "external-b"]) {
-      const output = join(directory, target, "app.pocket");
+      const output = join(directory, target, "app.pkb");
       const dependency = join(directory, target, "app.d");
       const result = command(directory, ["compile", "--config", runtime, "--target", target, "--outdir", join(directory, target), "--output", output, "--depfile", dependency]);
       expect(result.success, result.stderr.toString() + result.stdout.toString()).toBe(true);
-      const pkg = decodePocketPackage(new Uint8Array(readFileSync(output)));
-      expect(pkg.manifest).toHaveLength(0);
-      expect(pkg.variants).toHaveLength(1);
-      const variant = pkg.variants[0]!;
-      expect(variant.target).toBe(target);
-      expect(variant.hostAbi).toBe(POCKET_BINDING_GENERATION);
-      const plan = JSON.parse(new TextDecoder().decode(findSection(variant, POCKET_SECTION.plan)!));
+      const bundle = decodeBundle(new Uint8Array(readFileSync(output)));
+      expect(bundle.hostAbi).toBe(POCKET_BINDING_GENERATION);
+      const plan = JSON.parse(new TextDecoder().decode(findSection(bundle, BUNDLE_SECTION.plan)!));
+      expect(plan.target.id).toBe(target);
+      expect(bundle.profileHash).toBe(plan.profileHash);
       // The rate is the application's (default 60); the cadences are the target's.
       expect(plan.profile.tickHz).toBe(60);
       expect(plan.profile.cadences).toEqual(target === "external-a" ? [60] : [30]);
       expect(readFileSync(dependency, "utf8")).toContain(join(directory, `${target}.json`));
       expect(readFileSync(dependency, "utf8")).toContain(runtime);
       expect(existsSync(join(directory, target, "app.js"))).toBe(true);
-      const verified = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket-pack.ts"), "verify", output], stdout: "pipe", stderr: "pipe" });
+      const verified = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/bundle.ts"), "verify", output], stdout: "pipe", stderr: "pipe" });
       expect(verified.success, verified.stderr.toString()).toBe(true);
-      // A manifest region another product wrote is carried and not read.
-      const foreign = join(directory, target, "foreign.pocket");
-      writeFileSync(foreign, encodePocketPackage({ ...pkg, manifest: new TextEncoder().encode('{"pocket":2,"id":"example.other"}') }));
-      const carried = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket-pack.ts"), "verify", foreign], stdout: "pipe", stderr: "pipe" });
-      expect(carried.success, carried.stderr.toString()).toBe(true);
       // An identity section that names another application is rejected.
-      const invalid = join(directory, target, "invalid.pocket");
-      writeFileSync(invalid, encodePocketPackage({ ...pkg, variants: pkg.variants.map(variant => ({ ...variant, sections: variant.sections.map(section =>
-        section.kind === POCKET_SECTION.identity ? { ...section, bytes: encodeIdentity({ ...decodeIdentity(section.bytes), title: "Other" }) } : section) })) }));
-      const rejected = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/pocket-pack.ts"), "verify", invalid], stdout: "pipe", stderr: "pipe" });
+      const invalid = join(directory, target, "invalid.pkb");
+      writeFileSync(invalid, encodeBundle({ ...bundle, sections: bundle.sections.map(section =>
+        section.kind === BUNDLE_SECTION.identity ? { ...section, bytes: encodeIdentity({ ...decodeIdentity(section.bytes), title: "Other" }) } : section) }));
+      const rejected = Bun.spawnSync({ cmd: [process.execPath, join(root, "tools/bundle.ts"), "verify", invalid], stdout: "pipe", stderr: "pipe" });
       expect(rejected.success).toBe(false);
-      expect(rejected.stderr.toString()).toContain("identity differs from its plan");
+      expect(rejected.stderr.toString()).toContain("identity differs from the plan");
     }
   }, 120_000);
 

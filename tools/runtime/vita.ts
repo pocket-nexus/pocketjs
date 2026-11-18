@@ -4,13 +4,13 @@
 // `runtime`), in dist/runtime/vita/.
 //
 //   eboot.bin                                 the program; started without a game, it
-//                                             says on screen that app0:app.pocket is missing
+//                                             says on screen that app0:app.pkb is missing
 //   sce_sys/icon0.png, sce_sys/livearea/...   PocketJS's default bubble and LiveArea
 //                                             (programs/vita/assets/sce_sys/)
 //   runtime.json                              { target, hostAbi, pocketjs, profile, files }
 //
-// At startup the program reads app0:app.pocket (programs/vita/src/package_file.rs).
-// tools/repack/vita.ts gives it a game: param.sfo, icon and the game's .pocket.
+// At startup the program reads app0:app.pkb (programs/vita/src/package_file.rs).
+// tools/repack/vita.ts gives it a game: param.sfo, icon and the game's bundle.
 
 import { buildVita } from "../vita.ts";
 import type { RuntimeBuildContext } from "../../framework/src/host-config.ts";

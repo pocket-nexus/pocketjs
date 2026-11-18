@@ -58,7 +58,7 @@ jobs:
       - name: Build the file-loaded runtime and compile an application for it
         run: |
           bun tools/pocket.ts build --target 3ds --generic --out .pocket-build/validation/3ds-ci/minimal
-          bun tools/pocket.ts compile --config apps/3ds-demo/pocket.host.config.ts --target 3ds-runtime --project-root . --output .pocket-build/validation/3ds-ci/app.pocket --outdir .pocket-build/validation/3ds-ci/compiler --plan-dir .pocket-build/validation/3ds-ci/plans
+          bun tools/pocket.ts compile --config apps/3ds-demo/pocket.host.config.ts --target 3ds-runtime --project-root . --output .pocket-build/validation/3ds-ci/app.pkb --outdir .pocket-build/validation/3ds-ci/compiler --plan-dir .pocket-build/validation/3ds-ci/plans
       - name: Verify the linked program's symbols
         run: |
           image="$(bun -e 'import { THREE_DS_CONTAINER_IMAGE } from "./tools/build/toolchains/3ds.ts"; console.log(THREE_DS_CONTAINER_IMAGE)')"

@@ -1,4 +1,4 @@
-set(POCKETJS_PROFILE_EXPORT_DIR "" CACHE PATH "Existing pocket host export for offline package embedding")
+set(POCKETJS_PROFILE_EXPORT_DIR "" CACHE PATH "Existing pocket host export for offline bundle embedding")
 set(pocketjs_smoke_requires pocket_runtime pocket_guest_quickjs)
 if(IDF_TARGET STREQUAL "esp32p4")
     list(APPEND pocketjs_smoke_requires pocket_render_esp_ppa)
@@ -10,18 +10,18 @@ idf_component_register(
     REQUIRES ${pocketjs_smoke_requires}
 )
 
-set(POCKETJS_SMOKE_PREBUILT_PACKAGE "" CACHE FILEPATH
-    "Use an existing idf-smoke.pocket instead of invoking the PocketJS CLI")
-if(NOT POCKETJS_SMOKE_PREBUILT_PACKAGE AND
-   EXISTS "${CMAKE_CURRENT_LIST_DIR}/../idf-smoke.pocket")
-    set(POCKETJS_SMOKE_PREBUILT_PACKAGE
-        "${CMAKE_CURRENT_LIST_DIR}/../idf-smoke.pocket")
+set(POCKETJS_SMOKE_PREBUILT_BUNDLE "" CACHE FILEPATH
+    "Use an existing idf-smoke.pkb instead of invoking the PocketJS CLI")
+if(NOT POCKETJS_SMOKE_PREBUILT_BUNDLE AND
+   EXISTS "${CMAKE_CURRENT_LIST_DIR}/../idf-smoke.pkb")
+    set(POCKETJS_SMOKE_PREBUILT_BUNDLE
+        "${CMAKE_CURRENT_LIST_DIR}/../idf-smoke.pkb")
 endif()
-if(POCKETJS_SMOKE_PREBUILT_PACKAGE)
-    pocketjs_embed_package(
+if(POCKETJS_SMOKE_PREBUILT_BUNDLE)
+    pocketjs_embed_bundle(
         TARGET ${COMPONENT_LIB}
         NAME smoke
-        PACKAGE "${POCKETJS_SMOKE_PREBUILT_PACKAGE}"
+        BUNDLE "${POCKETJS_SMOKE_PREBUILT_BUNDLE}"
         PROFILE_EXPORT_DIR "${POCKETJS_PROFILE_EXPORT_DIR}")
 else()
     pocketjs_compile_app(

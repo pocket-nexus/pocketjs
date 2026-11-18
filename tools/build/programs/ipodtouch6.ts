@@ -13,7 +13,7 @@ export const build: RuntimeBuild = {
     "programs/ipodtouch6/Icon.svg",
   ),
   steps: compilerOnly(),
-  input: "package",
+  input: "bundle",
   artifact: "{outdir}/PocketJSiPod.app",
   async run(context) {
     requireProgramProfile(context, profile);

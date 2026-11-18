@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn admits_original_package_with_verified_identity_and_plan() {
-        let bytes = fixture("good.pocket");
+        let bytes = fixture("good.pkb");
         let bundle = admit(&bytes, &plan()).unwrap();
         assert_eq!(bundle.package.as_ref(), bytes);
         let profile = crate::profile::profile().unwrap();
@@ -72,21 +72,21 @@ mod tests {
             pocketjs_core::spec::BINDING_GENERATION,
             crate::profile::PROFILE_HASH,
         );
-        let guest = pocket_package::package::select_guest(&bundle.package, &host, false).unwrap();
+        let guest = pocket_package::admit_bundle(&bundle.package, &host, false).unwrap();
         assert_eq!(guest.js, b"globalThis.frame = () => {};\0");
         assert_eq!(serde_json::from_slice::<Value>(guest.plan).unwrap(), plan());
-        // The variant name and profile hash are provenance; the facts admit.
-        for name in ["wrong-profile.pocket", "wrong-target.pocket"] {
+        // The host contract hash is provenance; the facts admit.
+        for name in ["wrong-profile.pkb"] {
             assert!(admit(&fixture(name), &plan()).is_ok(), "refused {name}");
         }
     }
     #[test]
-    fn rejects_corruption_wrong_application_target_and_native_contract() {
+    fn rejects_corruption_wrong_application_and_native_contract() {
         for name in [
-            "wrong-app.pocket",
-            "wrong-abi.pocket",
-            "wrong-native.pocket",
-            "no-nul.pocket",
+            "wrong-app.pkb",
+            "wrong-abi.pkb",
+            "wrong-native.pkb",
+            "no-nul.pkb",
         ] {
             assert!(admit(&fixture(name), &plan()).is_err(), "admitted {name}");
         }
@@ -95,7 +95,7 @@ mod tests {
     fn unknown_native_fields_are_part_of_admission() {
         let mut changed = plan();
         changed["futureNativeExtension"] = json!({"enabled": true});
-        assert!(admit(&fixture("good.pocket"), &changed).is_err());
+        assert!(admit(&fixture("good.pkb"), &changed).is_err());
     }
     #[test]
     fn source_path_title_and_version_changes_do_not_require_native_rebuild() {
@@ -104,7 +104,7 @@ mod tests {
         changed["app"]["title"] = json!("New title");
         changed["app"]["version"] = json!("2.0.0");
         changed["planHash"] = json!("new-plan-hash");
-        assert!(admit(&fixture("good.pocket"), &changed).is_ok());
+        assert!(admit(&fixture("good.pkb"), &changed).is_ok());
     }
     #[test]
     fn command_fences_sessions_paths_and_sizes() {
@@ -114,7 +114,7 @@ mod tests {
         };
         let mut command: Command = serde_json::from_value(json!({
             "version":1,"session":session.session,"id":"b".repeat(32),"op":"push",
-            "size":3,"hash":format!("{:016x}", pocket_package::package::fnv1a64(&[b"abc"]))
+            "size":3,"hash":format!("{:016x}", pocket_package::fnv1a64(&[b"abc"]))
         }))
         .unwrap();
         command.validate(&session).unwrap();
@@ -134,7 +134,7 @@ mod tests {
         );
     }
     #[test]
-    fn stage_writes_plain_names_to_the_card_or_app_pocket_to_the_title() {
+    fn stage_writes_plain_names_to_the_card_or_app_pkb_to_the_title() {
         let session = Session {
             version: VERSION,
             session: "a".repeat(32),
@@ -152,11 +152,11 @@ mod tests {
             stage_path(&card, "PABCDEF12"),
             "ux0:/data/pocket-runtime/twenty48-vita.vpk"
         );
-        let app = stage("app.pocket", "app", 3);
+        let app = stage("app.pkb", "app", 3);
         app.validate(&session).unwrap();
         assert_eq!(
             stage_path(&app, "PABCDEF12"),
-            "ux0:/app/PABCDEF12/app.pocket"
+            "ux0:/app/PABCDEF12/app.pkb"
         );
         for (name, into, size) in [
             ("../eboot.bin", "card", 3),

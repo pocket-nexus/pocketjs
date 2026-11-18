@@ -1,20 +1,20 @@
-set(POCKETJS_PROFILE_EXPORT_DIR "" CACHE PATH "Existing pocket host export for offline package embedding")
+set(POCKETJS_PROFILE_EXPORT_DIR "" CACHE PATH "Existing pocket host export for offline bundle embedding")
 idf_component_register(
     SRCS "main.c" "../../common/sample_io.c"
     INCLUDE_DIRS "../../common"
     REQUIRES pocket_runtime pocket_guest_quickjs pocket_runner
 )
 
-set(POCKETJS_RUNNER_PREBUILT_PACKAGE "" CACHE FILEPATH "Prebuilt runner package")
-if(NOT POCKETJS_RUNNER_PREBUILT_PACKAGE AND
-   EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../prebuilt/idf-smoke.pocket")
-    set(POCKETJS_RUNNER_PREBUILT_PACKAGE "${CMAKE_CURRENT_LIST_DIR}/../../prebuilt/idf-smoke.pocket")
+set(POCKETJS_RUNNER_PREBUILT_BUNDLE "" CACHE FILEPATH "Prebuilt runner bundle")
+if(NOT POCKETJS_RUNNER_PREBUILT_BUNDLE AND
+   EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../prebuilt/idf-smoke.pkb")
+    set(POCKETJS_RUNNER_PREBUILT_BUNDLE "${CMAKE_CURRENT_LIST_DIR}/../../prebuilt/idf-smoke.pkb")
 endif()
-if(POCKETJS_RUNNER_PREBUILT_PACKAGE)
-    pocketjs_embed_package(
+if(POCKETJS_RUNNER_PREBUILT_BUNDLE)
+    pocketjs_embed_bundle(
         TARGET ${COMPONENT_LIB}
         NAME runner
-        PACKAGE "${POCKETJS_RUNNER_PREBUILT_PACKAGE}"
+        BUNDLE "${POCKETJS_RUNNER_PREBUILT_BUNDLE}"
         PROFILE_EXPORT_DIR "${POCKETJS_PROFILE_EXPORT_DIR}")
 else()
     pocketjs_compile_app(

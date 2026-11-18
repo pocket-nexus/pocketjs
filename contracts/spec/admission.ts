@@ -1,9 +1,9 @@
-// Device admission: whether a host provides what a package variant was
-// compiled to use. engine/package/src/admission.rs is the device
-// implementation; this module applies the same rules for tools that pick a
-// variant for a device, and both read engine/package/tests/fixtures/admission.
+// Device admission: whether a host provides what a bundle was compiled to
+// use. engine/package/src/admission.rs is the device implementation; this
+// module applies the same rules for tools that check a bundle against a
+// device, and both read engine/package/tests/fixtures/admission.
 //
-//   bindingGeneration  variant.hostAbi equals the host's binding generation
+//   bindingGeneration  bundle.hostAbi equals the host's binding generation
 //   rasterDensity      plan.viewport.rasterDensity equals the host's density
 //   animation          plan.animation equals the host's animation class
 //   rate               plan.profile.tickHz (1..240) is a whole multiple, at
@@ -18,11 +18,9 @@
 // Names compare as strings; order and extra host entries do not matter. A
 // host without an animation class or a presentation list is not compared on
 // them. The profile hash, id, platform, form and physical panel size do not
-// participate. Variants whose profile hash equals the host's are tried first,
-// then the rest in file order; the first admitted variant wins. Otherwise the
-// variant with the fewest failed items is reported.
+// participate: a bundle's host contract hash is provenance.
 import type { Viewport } from "./platform-types.ts";
-import { POCKET_SECTION, type PocketPackage, type PocketPackageVariant } from "./pocket-package.ts";
+import { BUNDLE_SECTION, findSection, type Bundle } from "./bundle.ts";
 import type { PocketProfile } from "./profile.ts";
 import { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
 
@@ -50,7 +48,7 @@ export interface AdmissionHost {
   readonly auxiliaryLogical?: readonly Viewport[];
 }
 
-/** The facts a device with this host contract admits packages against. */
+/** The facts a device with this host contract admits bundles against. */
 export function admissionHost(profile: PocketProfile, profileHash: string, bindingGeneration: number = POCKET_BINDING_GENERATION): AdmissionHost {
   const { display } = profile;
   return {
@@ -96,10 +94,11 @@ const within = (size: Viewport, min: Viewport, max: Viewport) =>
   size[0] >= min[0] && size[1] >= min[1] && size[0] <= max[0] && size[1] <= max[1];
 const sameSize = (left: Viewport, right: Viewport) => left[0] === right[0] && left[1] === right[1];
 
-/** Check one variant's plan (bytes or parsed JSON) against the host. */
-export function admitPlan(host: AdmissionHost, variantHostAbi: number, plan: Uint8Array | unknown): PlanAdmission {
+/** Check one plan (bytes or parsed JSON), compiled for binding generation
+ *  `hostAbi`, against the host. */
+export function admitPlan(host: AdmissionHost, hostAbi: number, plan: Uint8Array | unknown): PlanAdmission {
   const items = new Set<AdmissionItem>();
-  if (variantHostAbi !== host.bindingGeneration) items.add("bindingGeneration");
+  if (hostAbi !== host.bindingGeneration) items.add("bindingGeneration");
   let parsed: unknown = plan;
   if (plan instanceof Uint8Array) {
     try { parsed = plan.length ? JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(plan)) : undefined; }
@@ -134,30 +133,13 @@ export function admitPlan(host: AdmissionHost, variantHostAbi: number, plan: Uin
   return { ok: false, items: ADMISSION_ITEMS.filter(item => items.has(item)), ...(missing === undefined ? {} : { capability: missing }) };
 }
 
-export type VariantSelection =
-  | { readonly ok: true; readonly index: number; readonly variant: PocketPackageVariant; readonly timing: AdmissionTiming }
-  | { readonly ok: false; readonly index: number; readonly target: string; readonly items: readonly AdmissionItem[]; readonly capability?: string };
-
-/** Select the variant a host admits, or report the closest one. */
-export function selectVariant(pkg: PocketPackage, host: AdmissionHost): VariantSelection {
-  if (!pkg.variants.length) throw new Error("pocket package: no variants");
-  let closest: { index: number; target: string; items: readonly AdmissionItem[]; capability?: string } | undefined;
-  for (const preferred of [true, false]) {
-    for (const [index, variant] of pkg.variants.entries()) {
-      if ((variant.profileHash === host.profileHash) !== preferred) continue;
-      const plan = variant.sections.find(section => section.kind === POCKET_SECTION.plan)?.bytes ?? new Uint8Array();
-      const result = admitPlan(host, variant.hostAbi, plan);
-      if (result.ok) return { ok: true, index, variant, timing: result.timing };
-      if (!closest || result.items.length < closest.items.length) {
-        closest = { index, target: variant.target, items: result.items, ...(result.capability === undefined ? {} : { capability: result.capability }) };
-      }
-    }
-  }
-  return { ok: false, ...closest! };
+/** Check a bundle's plan section against the host. */
+export function admitBundle(bundle: Bundle, host: AdmissionHost): PlanAdmission {
+  return admitPlan(host, bundle.hostAbi, findSection(bundle, BUNDLE_SECTION.plan) ?? new Uint8Array());
 }
 
-/** One line naming what the closest variant lacks. */
-export function describeRejection(selection: Extract<VariantSelection, { ok: false }>): string {
-  return `variant ${selection.index} (${selection.target}) is not admitted: ` +
-    selection.items.map(item => item === "capability" && selection.capability ? `capability ${selection.capability}` : item).join(", ");
+/** One line naming the items a host fails for a plan. */
+export function describeRejection(admission: Extract<PlanAdmission, { ok: false }>): string {
+  return "not admitted: " +
+    admission.items.map(item => item === "capability" && admission.capability ? `capability ${admission.capability}` : item).join(", ");
 }

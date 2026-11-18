@@ -8,7 +8,7 @@ import type { RuntimeSourceContext } from "../../../framework/src/host-config.ts
 export function launcherSourceInputs(context: Pick<RuntimeSourceContext, "args" | "invocationDirectory" | "output">): string[] {
   let registry: string | undefined, packages: string | undefined;
   for (const arg of context.args) {
-    const match = /^(--launcher-(?:registry|packages))(?:=(.*))?$/.exec(arg);
+    const match = /^(--launcher-(?:registry|bundles))(?:=(.*))?$/.exec(arg);
     if (!match) continue;
     if (!match[2]) throw new Error(`${match[1]} requires =<path>`);
     const path = resolve(context.invocationDirectory, match[2]);
@@ -16,7 +16,7 @@ export function launcherSourceInputs(context: Pick<RuntimeSourceContext, "args" 
     else packages = path;
   }
   if (!registry) {
-    if (packages) throw new Error("--launcher-packages requires --launcher-registry");
+    if (packages) throw new Error("--launcher-bundles requires --launcher-registry");
     return [];
   }
   const file = (path: string) => {
@@ -25,7 +25,7 @@ export function launcherSourceInputs(context: Pick<RuntimeSourceContext, "args" 
   };
   file(registry);
   packages ??= resolve(dirname(registry), "packages");
-  if (!lstatSync(packages).isDirectory()) throw new Error(`PSP launcher packages is not a directory: ${packages}`);
+  if (!lstatSync(packages).isDirectory()) throw new Error(`PSP launcher bundles is not a directory: ${packages}`);
   const inputs = [registry];
   const outputs = new Set([context.output]);
   // Rust String::from_utf8 retains a BOM, so keep it for the same output check.
@@ -39,7 +39,7 @@ export function launcherSourceInputs(context: Pick<RuntimeSourceContext, "args" 
       throw new Error(`invalid launcher output: ${output}`);
     if (outputs.has(output)) throw new Error(`launcher registry duplicates output: ${output}`);
     outputs.add(output);
-    inputs.push(file(resolve(packages, `${output}.pocket`)));
+    inputs.push(file(resolve(packages, `${output}.pkb`)));
   }
   if (inputs.length === 1) throw new Error("launcher registry contains no guest applications");
   return inputs;

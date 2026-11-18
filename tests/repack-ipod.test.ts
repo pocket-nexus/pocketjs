@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { decodePocketPackage, encodeIdentity, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
-import { canonicalJson } from "../framework/compiler/plan.ts";
+import { BUNDLE_SECTION, decodeBundle, encodeBundle, encodeIdentity, findSection } from "../contracts/spec/bundle.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import { makeBundle } from "../tools/bundle.ts";
 import { bundleBaseName, bundleVersion, IPOD_RUNTIME_EXECUTABLE, repackIPod } from "../tools/repack/ipod.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
 import type { RepackInput } from "../tools/repack/shared/runtime.ts";
@@ -30,21 +29,12 @@ function app(viewport: [number, number] = [320, 480], companions: string[] = [])
   };
 }
 
-function pocketFor(source: object = app()): Uint8Array {
-  const plan = resolveIPodTouch4BuildPlan(source);
-  return encodePocketPackage({
-    manifest: new Uint8Array(0),
-    variants: [
-      makeVariant({
-        target: plan.target.id,
-        hostAbi: plan.target.hostAbi,
-        planJson: canonicalJson(plan),
-        identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
-        js: new TextEncoder().encode("globalThis.frame = () => {};"),
-        pak: new Uint8Array([1, 2, 3, 4]),
-      }),
-    ],
-  });
+function bundleFor(source: object = app()): Uint8Array {
+  return encodeBundle(makeBundle({
+    plan: resolveIPodTouch4BuildPlan(source),
+    js: new TextEncoder().encode("globalThis.frame = () => {};"),
+    pak: new Uint8Array([1, 2, 3, 4]),
+  }));
 }
 
 const square = (size: number, rgba: [number, number, number, number]) =>
@@ -68,7 +58,7 @@ async function runtimeFiles(overrides: { target?: string; hostAbi?: number; host
 async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput> {
   return {
     runtime: await runtimeFiles(),
-    pocket: pocketFor(),
+    bundle: bundleFor(),
     identity: { id: ID, title: "Twenty48", author: "Pocket Nexus", version: "0.1.0", icon: await square(256, [255, 210, 63, 255]) },
     ...overrides,
   };
@@ -83,7 +73,7 @@ async function entries(ipa: Uint8Array) {
 }
 
 describe("repackIPod", () => {
-  test("writes Payload/Studio<Name>.app with the runtime's executable, a new Info.plist, icons and app.pocket", async () => {
+  test("writes Payload/Studio<Name>.app with the runtime's executable, a new Info.plist, icons and app.pkb", async () => {
     const repackInput = await input();
     const ipa = await repackIPod(repackInput);
     const files = await entries(ipa);
@@ -93,7 +83,7 @@ describe("repackIPod", () => {
     const executable = files.get(`${app}StudioTwenty48`)!;
     expect(executable.bytes).toEqual(repackInput.runtime.get(IPOD_RUNTIME_EXECUTABLE)!);
     expect(executable.mode & 0o777).toBe(0o755);
-    expect(files.get(`${app}app.pocket`)!.bytes).toEqual(repackInput.pocket);
+    expect(files.get(`${app}app.pkb`)!.bytes).toEqual(repackInput.bundle);
     expect(files.get(`${app}PkgInfo`)!.bytes).toEqual(new TextEncoder().encode("APPL????"));
 
     const plist = new TextDecoder().decode(files.get(`${app}Info.plist`)!.bytes);
@@ -136,22 +126,21 @@ describe("repackIPod", () => {
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ target: "3ds-runtime" }) }))).rejects.toThrow(/not "ipodtouch4-dev"/);
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ hostAbi: 9 }) }))).rejects.toThrow(/runtime binding generation 9 is unsupported/);
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ host: {} }) }))).rejects.toThrow(/no host build id/);
-    const plan = findSection(decodePocketPackage(pocketFor()).variants[0]!, POCKET_SECTION.plan)!;
-    const other = (planBytes: Uint8Array) => encodePocketPackage({
-      manifest: new TextEncoder().encode("{}"),
-      variants: [{ target: "ipodtouch4-dev", hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(softwareProfile), sections: [
-        { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "x", id: "dev.other.game", title: "X" }) },
-        { kind: POCKET_SECTION.plan, bytes: planBytes },
-        { kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) },
-      ] }],
+    const plan = findSection(decodeBundle(bundleFor()), BUNDLE_SECTION.plan)!;
+    const other = (planBytes: Uint8Array) => encodeBundle({
+      hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(softwareProfile), sections: [
+        { kind: BUNDLE_SECTION.identity, bytes: encodeIdentity({ output: "x", id: "dev.other.game", title: "X" }) },
+        { kind: BUNDLE_SECTION.plan, bytes: planBytes },
+        { kind: BUNDLE_SECTION.js, bytes: new Uint8Array([0]) },
+      ],
     });
-    await expect(repackIPod(await input({ pocket: other(new TextEncoder().encode("{}")) }))).rejects.toThrow(/variant 0 \(ipodtouch4-dev\) is not admitted: plan/);
-    await expect(repackIPod(await input({ pocket: other(plan) }))).rejects.toThrow(/identity says/);
-    await expect(repackIPod(await input({ pocket: pocketFor(app([320, 480], ["shell"])) }))).rejects.toThrow(/companion services/);
+    await expect(repackIPod(await input({ bundle: other(new TextEncoder().encode("{}")) }))).rejects.toThrow(/not admitted: plan/);
+    await expect(repackIPod(await input({ bundle: other(plan) }))).rejects.toThrow(/identity says/);
+    await expect(repackIPod(await input({ bundle: bundleFor(app([320, 480], ["shell"])) }))).rejects.toThrow(/companion services/);
   });
 
   test("lands a landscape plan's surface in the receipt", async () => {
-    const files = await entries(await repackIPod(await input({ pocket: pocketFor(app([480, 320])) })));
+    const files = await entries(await repackIPod(await input({ bundle: bundleFor(app([480, 320])) })));
     const receipt = JSON.parse(new TextDecoder().decode(files.get("Payload/StudioTwenty48.app/build-receipt.json")!.bytes));
     expect(receipt.viewport.logical).toEqual([480, 320]);
   });

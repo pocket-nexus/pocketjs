@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// tools/build/sifli/epic.ts — bake a package's images into the EPIC native
+// tools/build/sifli/epic.ts — bake a bundle's images into the EPIC native
 // texture table that devices/sifli/render-epic registers with the executor.
 //
-//   bun tools/build/sifli/epic.ts --pocket <app.pocket> [--target <variant>] --out <app.epic> [--opaque RRGGBB]
+//   bun tools/build/sifli/epic.ts --bundle <app.pkb> --out <app.epic> [--opaque RRGGBB]
 //   bun tools/build/sifli/epic.ts --pak <assets.pak> --out <app.epic> [--opaque RRGGBB]
 //
 // Table (little-endian, payloads 64-byte aligned):
@@ -22,7 +22,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { IMG_FLAG_RLE, PSM, TEX_MAX_DIM, packbitsDecode } from "../../../contracts/spec/spec.ts";
-import { POCKET_SECTION, decodePocketPackage, findSection, fnv1a64 } from "../../../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, decodeBundle, findSection, fnv1a64 } from "../../../contracts/spec/bundle.ts";
 import { unpack } from "../../../framework/compiler/pak.ts";
 
 export const EPIC_MAGIC = 0x43495045; // "EPIC" as LE u32
@@ -187,18 +187,10 @@ export function bakeEpicTable(pak: Uint8Array, options: BakeOptions = {}): { byt
   return { bytes, images };
 }
 
-/** The pak section of one package variant; the only variant when `target` is omitted. */
-export function packagePak(pocket: Uint8Array, target?: string): Uint8Array {
-  const { variants } = decodePocketPackage(pocket);
-  const variant = target === undefined
-    ? (variants.length === 1 ? variants[0] : undefined)
-    : variants.find(candidate => candidate.target === target);
-  if (!variant) {
-    const names = variants.map(candidate => candidate.target).join(", ");
-    throw new Error(target === undefined ? `the package has variants ${names}; pass --target` : `no variant ${target} (have ${names})`);
-  }
-  const pak = findSection(variant, POCKET_SECTION.pak);
-  if (!pak) throw new Error(`variant ${variant.target} has no pak section`);
+/** The pak section of a bundle. */
+export function bundlePak(bytes: Uint8Array): Uint8Array {
+  const pak = findSection(decodeBundle(bytes), BUNDLE_SECTION.pak);
+  if (!pak) throw new Error("the bundle has no pak section");
   return pak;
 }
 
@@ -212,15 +204,14 @@ if (import.meta.main) {
     args.splice(at, 2);
     return value;
   };
-  const pocket = take("pocket");
+  const bundle = take("bundle");
   const pakPath = take("pak");
-  const target = take("target");
   const out = take("out");
   const opaque = take("opaque");
-  if (args.length || !out || (pocket === undefined) === (pakPath === undefined) || (pakPath && target)) {
-    throw new Error("usage: epic.ts (--pocket <app.pocket> [--target <variant>] | --pak <assets.pak>) --out <app.epic> [--opaque RRGGBB]");
+  if (args.length || !out || (bundle === undefined) === (pakPath === undefined)) {
+    throw new Error("usage: epic.ts (--bundle <app.pkb> | --pak <assets.pak>) --out <app.epic> [--opaque RRGGBB]");
   }
-  const pak = pocket ? packagePak(readFileSync(resolve(pocket)), target) : readFileSync(resolve(pakPath!));
+  const pak = bundle ? bundlePak(readFileSync(resolve(bundle))) : readFileSync(resolve(pakPath!));
   const baked = bakeEpicTable(pak, { opaque: opaque ? parseOpaque(opaque) : undefined });
   writeFileSync(resolve(out), baked.bytes);
   console.log(`epic: ${baked.images} image(s), ${baked.bytes.length} bytes -> ${out}`);

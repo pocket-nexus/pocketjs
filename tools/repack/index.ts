@@ -7,12 +7,12 @@
 //   // Pocket Studio holds PocketJS as the submodule vendor/pocketjs.
 //   import { REPACK_TARGETS } from "../vendor/pocketjs/tools/repack/index.ts";
 //   const target = REPACK_TARGETS.psp;
-//   const archive = await target.repack({ runtime, pocket, identity });
+//   const archive = await target.repack({ runtime, bundle, identity });
 //
 // `runtime` is the files of `bun tools/runtime.ts <target.runtime>`'s output
-// directory by relative path, runtime.json included; `pocket` holds a
-// variant for one of `target.variantTargets`, the one the runtime's
-// runtime.json names.
+// directory by relative path, runtime.json included; `bundle` is a compiled
+// application the runtime's host contract admits. `target.runtimeTargets`
+// lists the host contracts the target's runtimes are built for.
 
 import { IPOD_RUNTIME_TARGET, repackIPod } from "./ipod.ts";
 import { THREE_DS_RUNTIME_TARGET, repack3ds } from "./3ds.ts";
@@ -26,13 +26,13 @@ export type { RepackIdentity, RepackInput, RuntimeManifest } from "./shared/runt
 export type StudioTarget = "psp" | "vita" | "3ds" | "ipod-touch";
 
 export interface RepackTarget {
-  /** A game's package from a runtime directory and the game's `.pocket`. */
+  /** A game's device package from a runtime directory and the game's bundle. */
   readonly repack: (input: RepackInput) => Promise<Uint8Array>;
   /** `bun tools/runtime.ts <runtime>`: the runtime's name and its directory's name. */
   readonly runtime: "psp" | "vita" | "3ds" | "ipod";
-  /** The `.pocket` targets this target's runtimes boot; the runtime's runtime.json names the one it was built for. */
+  /** The host contracts this target's runtimes are built for; the runtime's runtime.json names its own. */
   /** Empty means the runtime manifest supplies an external profile identity. */
-  readonly variantTargets: readonly string[];
+  readonly runtimeTargets: readonly string[];
   /** The package file's extension, dot included. */
   readonly extension: ".zip" | ".vpk" | ".3dsx" | ".ipa";
   /** The Content-Type a download of the package is served with. */
@@ -43,26 +43,26 @@ export const REPACK_TARGETS: Readonly<Record<StudioTarget, RepackTarget>> = {
   psp: {
     repack: repackPsp,
     runtime: "psp",
-    variantTargets: [PSP_RUNTIME_TARGET],
+    runtimeTargets: [PSP_RUNTIME_TARGET],
     extension: ".zip",
     contentType: "application/zip",
   },
   vita: {
     repack: repackVita,
     runtime: "vita",
-    variantTargets: [VITA_RUNTIME_TARGET],
+    runtimeTargets: [VITA_RUNTIME_TARGET],
     extension: ".vpk",
     contentType: "application/octet-stream",
   },
   "3ds": {
     repack: repack3ds,
     runtime: "3ds",
-    variantTargets: [THREE_DS_RUNTIME_TARGET],
+    runtimeTargets: [THREE_DS_RUNTIME_TARGET],
     extension: ".3dsx",
     contentType: "application/octet-stream",
   },
   "ipod-touch": {
-    repack: repackIPod, runtime: "ipod", variantTargets: [IPOD_RUNTIME_TARGET],
+    repack: repackIPod, runtime: "ipod", runtimeTargets: [IPOD_RUNTIME_TARGET],
     extension: ".ipa", contentType: "application/octet-stream",
   },
 };

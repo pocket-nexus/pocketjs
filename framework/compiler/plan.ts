@@ -28,11 +28,11 @@ export function planProfileDocument(profile: PlanProfile): PocketProfile {
 }
 
 export interface ResolvedBuildPlanContent {
-  /** The profile the package was compiled against and the package rate
-   *  devices run it at (`profile.tickHz`). */
+  /** The profile the application was compiled against and the application
+   *  rate devices run it at (`profile.tickHz`). */
   readonly profile: PlanProfile;
-  /** Provenance: the hash of the projection. Devices prefer variants with
-   *  their own hash; admission compares facts. */
+  /** Provenance: the hash of the projection. The bundle header carries it;
+   *  admission compares facts, not this hash. */
   readonly profileHash: string;
   /** Package identity travels with the plan: native hosts derive their
    *  platform package id and version from here, never from a second copy. */

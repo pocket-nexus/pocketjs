@@ -2,7 +2,7 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import profile from "./helpers/native-program-profile.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
-import { encodePocketPackage, encodeIdentity, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, encodeBundle, encodeIdentity } from "../contracts/spec/bundle.ts";
 import { lockedQuickJsSources, quickJsVendorObjects } from "../tools/quickjs-vendor.ts";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -31,13 +31,13 @@ describe("native program composition", () => {
     const vendor = quickJsVendorObjects({ cc: cc!, quickjs, units: ["quickjs", "dtoa", "libregexp", "libunicode"],
       flags: ["-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"'], log: (_, output) => writeFileSync(join(build, `${serial++}.log`), output) });
     const profileHeader = writeHostProfileHeader(build, profile);
-    const bytes = encodePocketPackage({manifest: new Uint8Array(), variants:[{
-      target: profile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(profile), sections: [
-        {kind: POCKET_SECTION.identity, bytes: encodeIdentity({output:"fixture", id:"dev.fixture", title:"Fixture"})},
-        {kind: POCKET_SECTION.plan, bytes: new TextEncoder().encode(JSON.stringify({animation:"repaint",profile:{tickHz:60},viewport:{logical:[360,640],presentation:"native",rasterDensity:1},features:{}}))},
-        {kind: POCKET_SECTION.js, bytes: new TextEncoder().encode("globalThis.frame=()=>{};\0")},
+    const bytes = encodeBundle({
+      hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(profile), sections: [
+        {kind: BUNDLE_SECTION.identity, bytes: encodeIdentity({output:"fixture", id:"dev.fixture", title:"Fixture"})},
+        {kind: BUNDLE_SECTION.plan, bytes: new TextEncoder().encode(JSON.stringify({animation:"repaint",profile:{tickHz:60},viewport:{logical:[360,640],presentation:"native",rasterDensity:1},features:{}}))},
+        {kind: BUNDLE_SECTION.js, bytes: new TextEncoder().encode("globalThis.frame=()=>{};\0")},
       ],
-    }]});
+    });
     const packageHeader = join(build, "fixture_package.h");
     writeFileSync(packageHeader, `static const unsigned char fixture_package[] = {${[...bytes].join(",")}};\n`);
     const common = ["-include", profileHeader, "-include", packageHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter",

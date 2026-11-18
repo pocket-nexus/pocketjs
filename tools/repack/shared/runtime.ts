@@ -1,29 +1,27 @@
 // The inputs every `tools/repack/<target>.ts` takes, and the checks they all
-// make before writing a package: the runtime directory is complete and is the
-// one its runtime.json describes, and the `.pocket` holds an intact variant
-// the runtime's host contract admits (contracts/spec/admission.ts) whose
-// app id is the identity's.
+// make before writing a device package: the runtime directory is complete and
+// is the one its runtime.json describes, and the bundle is intact, its plan is
+// admitted by the runtime's host contract (contracts/spec/admission.ts), and
+// its app id is the identity's.
 //
 // Bytes in, bytes out: no file system and no network, so a Cloudflare Worker
 // can run the same code.
 
 import {
-  decodePocketPackage,
+  BUNDLE_SECTION,
+  decodeBundle,
   decodeIdentity,
-  encodePocketPackage,
   findSection,
-  POCKET_SECTION,
-  thinPocketPackage,
-  type PocketPackageIdentity,
-  type PocketPackageVariant,
-} from "../../../contracts/spec/pocket-package.ts";
+  type Bundle,
+  type BundleIdentity,
+} from "../../../contracts/spec/bundle.ts";
 import { canonicalProfileJson, pocketProfileSchema, POCKET_PROFILE_FILE, POCKET_PROFILE_FORMAT, type PocketProfile } from "../../../contracts/spec/profile.ts";
-import { admissionHost, describeRejection, selectVariant } from "../../../contracts/spec/admission.ts";
+import { admissionHost, admitBundle, describeRejection } from "../../../contracts/spec/admission.ts";
 import { validateSchema, type ContractDiagnostic } from "../../../contracts/spec/json-schema.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 
 export interface RepackIdentity {
-  /** Reverse-DNS application id; must equal the `.pocket` variant's app id. */
+  /** Reverse-DNS application id; must equal the bundle's app id. */
   readonly id: string;
   readonly title: string;
   readonly author: string;
@@ -35,8 +33,8 @@ export interface RepackIdentity {
 export interface RepackInput {
   /** The runtime directory's files by relative path, runtime.json included. */
   readonly runtime: Map<string, Uint8Array>;
-  /** A `.pocket` holding this target's variant. */
-  readonly pocket: Uint8Array;
+  /** The compiled application bundle (`.pkb`). */
+  readonly bundle: Uint8Array;
   readonly identity: RepackIdentity;
 }
 
@@ -133,58 +131,55 @@ export async function readRuntime(
   return { ...manifest, document };
 }
 
-export interface AdmittedPocket {
-  /** The package to ship: the input bytes when they hold only this target's
-   *  variant, otherwise the same package thinned to it (encoded on first read). */
+export interface AdmittedBundle {
+  /** The bundle to ship: the input bytes. */
   readonly bytes: Uint8Array;
-  readonly variant: PocketPackageVariant;
-  readonly identity: PocketPackageIdentity;
-  /** The variant's ResolvedBuildPlan. */
+  readonly bundle: Bundle;
+  readonly identity: BundleIdentity;
+  /** The bundle's ResolvedBuildPlan. */
   readonly plan: Record<string, unknown>;
 }
 
 /**
- * Check the `.pocket` footer, select the variant the runtime's profile
- * document admits, and refuse a variant without identity, plan or
- * JavaScript, a plan that does not record its own profile, or an app id
- * other than the identity's.
+ * Check the bundle's hashes, admit its plan against the runtime's profile
+ * document, and refuse a bundle without identity, plan or JavaScript, a plan
+ * that does not record its own profile, or an app id other than the
+ * identity's.
  */
-export async function admitPocket(
-  pocket: Uint8Array,
+export async function admitRepackBundle(
+  bytes: Uint8Array,
   runtime: RuntimeDirectory,
   identity: RepackIdentity,
-): Promise<AdmittedPocket> {
+): Promise<AdmittedBundle> {
   requireCurrentRuntime(runtime);
-  let decoded;
+  let bundle: Bundle;
   try {
-    decoded = decodePocketPackage(pocket);
+    bundle = decodeBundle(bytes);
   } catch (error) {
-    throw new Error(`repack: the .pocket is damaged: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`repack: the bundle is damaged: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!decoded.variants.length) throw new Error("repack: the .pocket has no variants");
-  const selection = selectVariant(decoded, admissionHost(runtime.document, runtime.profileHash, runtime.hostAbi));
-  if (!selection.ok) {
-    throw new Error(`repack: this ${runtime.target} runtime does not admit the .pocket: ${describeRejection(selection)}`);
+  const admission = admitBundle(bundle, admissionHost(runtime.document, runtime.profileHash, runtime.hostAbi));
+  if (!admission.ok) {
+    throw new Error(`repack: this ${runtime.target} runtime does not admit the bundle: ${describeRejection(admission)}`);
   }
-  const variant = selection.variant;
-  const identitySection = findSection(variant, POCKET_SECTION.identity);
-  const planSection = findSection(variant, POCKET_SECTION.plan);
-  const javascript = findSection(variant, POCKET_SECTION.js);
+  const identitySection = findSection(bundle, BUNDLE_SECTION.identity);
+  const planSection = findSection(bundle, BUNDLE_SECTION.plan);
+  const javascript = findSection(bundle, BUNDLE_SECTION.js);
   if (!identitySection || !planSection || !javascript || javascript.length === 0) {
-    throw new Error(`repack: the .pocket's ${variant.target} variant lacks its identity, plan or JavaScript`);
+    throw new Error("repack: the bundle lacks its identity, plan or JavaScript");
   }
   if (javascript[javascript.length - 1] !== 0) throw new Error("repack: application JavaScript must be NUL-terminated");
-  const packageIdentity = decodeIdentity(identitySection);
-  if (packageIdentity.id !== identity.id) {
+  const bundleIdentity = decodeIdentity(identitySection);
+  if (bundleIdentity.id !== identity.id) {
     throw new Error(
-      `repack: the .pocket is app ${JSON.stringify(packageIdentity.id)}; the identity says ${JSON.stringify(identity.id)}`,
+      `repack: the bundle is app ${JSON.stringify(bundleIdentity.id)}; the identity says ${JSON.stringify(identity.id)}`,
     );
   }
   let plan: Record<string, unknown>;
   try {
     plan = JSON.parse(new TextDecoder().decode(planSection)) as Record<string, unknown>;
   } catch {
-    throw new Error(`repack: the .pocket's ${variant.target} plan is not JSON`);
+    throw new Error("repack: the bundle's plan is not JSON");
   }
   // The plan records the profile it was compiled against and its hash.
   const target = plan.target as { id?: unknown; hostAbi?: unknown } | undefined;
@@ -195,20 +190,11 @@ export async function admitPocket(
   try {
     if (!diagnostics.length) profileHash = await documentHash(profile);
   } catch { /* Invalid profile data is rejected with the identity error below. */ }
-  if (target?.id !== variant.target || target.hostAbi !== variant.hostAbi || profile.id !== variant.target ||
-      profileHash !== variant.profileHash || plan.profileHash !== variant.profileHash) {
-    throw new Error(`repack: the .pocket's ${variant.target} plan has an invalid profile identity`);
+  if (typeof target?.id !== "string" || target.hostAbi !== bundle.hostAbi || profile.id !== target.id ||
+      profileHash !== bundle.profileHash || plan.profileHash !== bundle.profileHash) {
+    throw new Error("repack: the bundle's plan has an invalid profile identity");
   }
-  let thinned: Uint8Array | undefined;
-  return {
-    get bytes() {
-      thinned ??= decoded.variants.length === 1 ? pocket : encodePocketPackage(thinPocketPackage(decoded, [variant.target]));
-      return thinned;
-    },
-    variant,
-    identity: packageIdentity,
-    plan,
-  };
+  return { bytes, bundle, identity: bundleIdentity, plan };
 }
 
 function requireCurrentRuntime(runtime: RuntimeManifest): void {

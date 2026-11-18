@@ -44,7 +44,7 @@ fn options() -> Result<Option<Options>, Box<dyn Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" => {
-                println!("pocket-linux-kms [--package app.pocket] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nHost contract {} is compiled in from the build's host export. Default package: /usr/share/pocketjs/app.pocket. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.", profile::ID);
+                println!("pocket-linux-kms [--package app.pkb] [--card /dev/dri/card0] [--fb /dev/fb0] [--input /dev/input/eventN] [--frames N] [--check | --headless]\nHost contract {} is compiled in from the build's host export. Default bundle: /usr/share/pocketjs/app.pkb. DRM falls back to fbdev; --headless is an explicit diagnostic output. With --features alsa, --pcm-test DEVICE writes a silent PCM diagnostic.", profile::ID);
                 return Ok(None);
             }
             "--headless" => output.headless = true,
@@ -137,7 +137,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     .map_err(error)?;
     let path = options
         .package
-        .unwrap_or_else(|| "/usr/share/pocketjs/app.pocket".into());
+        .unwrap_or_else(|| "/usr/share/pocketjs/app.pkb".into());
     let mut source = FileSource::open(&path)?;
     if options.check {
         let package = LoadedPackage::load(

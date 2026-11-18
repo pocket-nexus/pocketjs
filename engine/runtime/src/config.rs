@@ -7,6 +7,9 @@ use alloc::borrow::Cow;
 use pocket_drivers::InputClasses;
 use pocket_package::HostFacts;
 
+/// The longest profile id, in UTF-8 bytes.
+pub const PROFILE_ID_MAX_BYTES: usize = 65535;
+
 /// Facts the runtime admits packages and drivers against. Sizes are pixels;
 /// `viewport` and `auxiliary` are physical panel sizes, the logical lists are
 /// the sizes an application may declare for them. Names compare as strings.
@@ -58,7 +61,7 @@ impl Profile {
     pub(crate) fn validate(&self) -> Result<(), RuntimeError> {
         let id = self.id.as_bytes();
         if id.is_empty()
-            || id.len() > pocket_package::package_format::POCKET_TARGET_MAX_BYTES
+            || id.len() > PROFILE_ID_MAX_BYTES
             || id.contains(&0)
             || self.cadences.is_empty()
             || !self

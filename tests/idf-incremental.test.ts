@@ -66,8 +66,8 @@ pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARC
   }, 30_000);
 
   test("escapes depfile paths", () => {
-    const output = depfile("/tmp/a b.pocket", ["/tmp/new #$.ts"]);
-    expect(output).toContain("a\\ b.pocket:");
+    const output = depfile("/tmp/a b.pkb", ["/tmp/new #$.ts"]);
+    expect(output).toContain("a\\ b.pkb:");
     expect(output).toContain("new\\ \\#$$.ts");
   });
 
@@ -99,8 +99,8 @@ project(incremental C)
 add_library(app STATIC dummy.c)
 include("${join(root, "platforms/esp-idf/pocket_runtime/project_include.cmake")}")
 # Exercise the real compile helper; embedding/firmware linking is tested separately.
-function(_pocketjs_package_attach target name package profile)
-  add_custom_target(package ALL DEPENDS "\${package}")
+function(_pocketjs_bundle_attach target name bundle profile)
+  add_custom_target(bundle ALL DEPENDS "\${bundle}")
 endfunction()
 pocketjs_compile_app(TARGET app NAME app HOST_CONFIG "${join(app, "pocket.host.config.ts")}"
   PROJECT_ROOT "${app}"
@@ -119,18 +119,18 @@ pocketjs_compile_app(TARGET app NAME app HOST_CONFIG "${join(app, "pocket.host.c
       // a later real build consumes them all at once.
       const explain = () => run(["cmake", "--build", build, "--", "-n", "-d", "explain"]);
       const expectDirty = (output: string, file: string) => {
-        expect(output).toContain("Generating pocketjs/app/app.pocket");
+        expect(output).toContain("Generating pocketjs/app/app.pkb");
         expect(output).toContain(`most recent input ${file}`);
       };
       const expectClean = (output: string) => {
-        expect(output).not.toContain("Generating pocketjs/app/app.pocket");
+        expect(output).not.toContain("Generating pocketjs/app/app.pkb");
       };
 
-      const output = join(build, "pocketjs/app/app.pocket");
+      const output = join(build, "pocketjs/app/app.pkb");
       const depPath = join(build, "pocketjs/app/app.d");
 
       run(["cmake", "-S", app, "-B", build, "-G", "Ninja"]);
-      expect(ninja()).toContain("app.pocket");
+      expect(ninja()).toContain("app.pkb");
       // The cold depfile tracks the static graph only; the new module is unknown.
       expect(readFileSync(depPath, "utf8")).not.toContain("new-module.ts");
       expectClean(explain());
@@ -139,7 +139,7 @@ pocketjs_compile_app(TARGET app NAME app HOST_CONFIG "${join(app, "pocket.host.c
       // import costs one genuine rebuild; no cmake reconfigure is involved.
       writeFileSync(join(app, "new-module.ts"), 'export const message="first new module";\n');
       writeFileSync(join(app, "app.tsx"), source(true));
-      expect(ninja()).toContain("app.pocket");
+      expect(ninja()).toContain("app.pkb");
       expect(readFileSync(depPath, "utf8")).toContain("new-module.ts");
       const firstPackage = readFileSync(output);
       expectClean(explain());
@@ -154,7 +154,7 @@ pocketjs_compile_app(TARGET app NAME app HOST_CONFIG "${join(app, "pocket.host.c
       expectDirty(explain(), join(app, "compiler-receipt.json"));
 
       // One real build consumes the three pending dirty inputs.
-      expect(ninja()).toContain("app.pocket");
+      expect(ninja()).toContain("app.pkb");
       expect(readFileSync(output).equals(firstPackage)).toBe(false);
       const exportedProfile = join(build, "pocketjs/app/profile/pocket.host.json");
       const beforeProfile = readFileSync(exportedProfile, "utf8");
@@ -162,10 +162,10 @@ pocketjs_compile_app(TARGET app NAME app HOST_CONFIG "${join(app, "pocket.host.c
       writeFileSync(profileSource, JSON.stringify({ ...JSON.parse(readFileSync(profileSource, "utf8")), cadences: [30] }, null, 2) + "\n");
       const profileBuild = ninja();
       expect(profileBuild).toContain("pocket_profile.h");
-      expect(profileBuild).toContain("app.pocket");
+      expect(profileBuild).toContain("app.pkb");
       expect(readFileSync(exportedProfile, "utf8")).not.toBe(beforeProfile);
       // After consuming every pending edge, ninja has no work left.
-      expect(ninja()).not.toContain("app.pocket");
+      expect(ninja()).not.toContain("app.pkb");
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 120_000);
 });

@@ -13,7 +13,7 @@ const profile = POCKET_PROFILES["vita"];
 export const build: RuntimeBuild = {
   deploy: deployVita,
   sourceInputs: [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/raster", "engine/modules/media", "engine/render", "programs/vita", "platforms/vita", "devices/vita", "devices/vita/pocket-vita-render", "engine/guest-quickjs")],
-  hosts: buildHosts, input: "package", steps: compilerOnly(), artifact: "{outdir}/{output}.vpk",
+  hosts: buildHosts, input: "bundle", steps: compilerOnly(), artifact: "{outdir}/{output}.vpk",
   async run(context) {
     requireProgramProfile(context, profile);
     const app = requireApplication(context);

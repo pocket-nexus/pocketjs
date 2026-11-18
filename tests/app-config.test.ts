@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateAppConfig } from "../contracts/spec/app-config.ts";
-import { POCKET_SECTION, decodeIdentity, decodePocketPackage, findSection } from "../contracts/spec/pocket-package.ts";
+import { BUNDLE_SECTION, decodeBundle, decodeIdentity, findSection } from "../contracts/spec/bundle.ts";
 import { decodeStyleTable } from "../contracts/spec/spec.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { extractHostBuildInputs } from "../framework/compiler/host-build-inputs.ts";
@@ -112,22 +112,21 @@ test("app.icon is a square PNG", async () => {
   expect(() => readAppIcon(resolve(directory, "absent.png"))).toThrow("not a file");
 });
 
-test("pocket compile writes an empty manifest region and the config's identity", async () => {
+test("pocket compile writes one bundle with the config's identity and icon", async () => {
   const directory = scratch("compile");
   const square = await encodePng({ width: 4, height: 4, rgba: new Uint8Array(4 * 4 * 4) });
   writeFileSync(resolve(directory, "icon.png"), square);
   writeFileSync(resolve(directory, "main.tsx"), MAIN);
   writeFileSync(resolve(directory, "pocket.host.config.ts"), config(`{ host: "psp", app: ${JSON.stringify({ ...application, output: "glide", icon: "icon.png" })} }`));
-  const run = Bun.spawnSync([process.execPath, resolve(ROOT, "tools/pocket.ts"), "compile", "--output", "dist/glide.pocket"],
+  const run = Bun.spawnSync([process.execPath, resolve(ROOT, "tools/pocket.ts"), "compile", "--output", "dist/glide.pkb"],
     { cwd: directory, stdout: "pipe", stderr: "pipe" });
   expect(run.exitCode, run.stderr.toString() + run.stdout.toString()).toBe(0);
-  const decoded = decodePocketPackage(new Uint8Array(readFileSync(resolve(directory, "dist/glide.pocket"))));
-  expect(decoded.manifest.length).toBe(0);
-  expect(decoded.variants.map(variant => variant.target)).toEqual(["psp"]);
-  const variant = decoded.variants[0]!;
-  expect(decodeIdentity(findSection(variant, POCKET_SECTION.identity)!)).toEqual({ output: "glide", id: PORTABLE_APP.id, title: PORTABLE_APP.title });
-  expect(findSection(variant, POCKET_SECTION.cover)).toEqual(new Uint8Array(square));
-  const plan = JSON.parse(new TextDecoder().decode(findSection(variant, POCKET_SECTION.plan)!));
+  const bundle = decodeBundle(new Uint8Array(readFileSync(resolve(directory, "dist/glide.pkb"))));
+  expect(decodeIdentity(findSection(bundle, BUNDLE_SECTION.identity)!)).toEqual({ output: "glide", id: PORTABLE_APP.id, title: PORTABLE_APP.title });
+  expect(findSection(bundle, BUNDLE_SECTION.icon)).toEqual(new Uint8Array(square));
+  const plan = JSON.parse(new TextDecoder().decode(findSection(bundle, BUNDLE_SECTION.plan)!));
+  expect(plan.target.id).toBe("psp");
+  expect(bundle.profileHash).toBe(plan.profileHash);
   expect(plan.app.entry).toBe("main.tsx");
   expect(plan.app.theme).toEqual(theme);
   // --manifest answers with the option that replaced it.
@@ -135,4 +134,17 @@ test("pocket compile writes an empty manifest region and the config's identity",
     { cwd: directory, stdout: "pipe", stderr: "pipe" });
   expect(removed.exitCode).not.toBe(0);
   expect(removed.stderr.toString()).toContain("--config");
+  // The container format of other products is not an output name.
+  const pocket = Bun.spawnSync([process.execPath, resolve(ROOT, "tools/pocket.ts"), "compile", "--output", "dist/glide.pocket"],
+    { cwd: directory, stdout: "pipe", stderr: "pipe" });
+  expect(pocket.exitCode).not.toBe(0);
+  expect(pocket.stderr.toString()).toContain("glide.pkb");
+  // build and pack answer --pocket with the option that replaced it.
+  for (const verb of ["build", "pack"]) {
+    const retired = Bun.spawnSync([process.execPath, resolve(ROOT, "tools/pocket.ts"), verb, "--pocket", "dist/glide.pocket"],
+      { cwd: directory, stdout: "pipe", stderr: "pipe" });
+    expect(retired.exitCode).not.toBe(0);
+    expect(retired.stderr.toString().trim().split("\n")).toHaveLength(1);
+    expect(retired.stderr.toString()).toContain("--pocket was removed; pass the compiled application with --bundle FILE");
+  }
 }, 120_000);

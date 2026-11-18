@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  BUNDLE_BYTECODE_HEADER_SIZE,
+  BUNDLE_SECTION,
   decodeBytecodeEnvelope,
   encodeBytecodeEnvelope,
   encodeIdentity,
-  POCKET_BYTECODE_HEADER_SIZE,
-  POCKET_SECTION,
-  type PocketPackageVariant,
-} from "../contracts/spec/pocket-package.ts";
+  type Bundle,
+} from "../contracts/spec/bundle.ts";
 import {
   canonicalEngineAbiDescriptor,
   engineAbiDigest,
@@ -26,12 +26,12 @@ const text = (value: string) => new TextEncoder().encode(value);
 describe("quickjs bytecode", () => {
   test("the envelope round-trips and refuses other shapes", () => {
     const section = encodeBytecodeEnvelope({ engineAbi: abi.sha256, bytecode: new Uint8Array([25, 1, 2, 3]) });
-    expect(section.length).toBe(POCKET_BYTECODE_HEADER_SIZE + 4);
+    expect(section.length).toBe(BUNDLE_BYTECODE_HEADER_SIZE + 4);
     const decoded = decodeBytecodeEnvelope(section);
     expect(decoded.engineAbi).toBe(abi.sha256);
     expect([...decoded.bytecode]).toEqual([25, 1, 2, 3]);
     expect(() => encodeBytecodeEnvelope({ engineAbi: abi.sha256, bytecode: new Uint8Array() })).toThrow("empty");
-    expect(() => decodeBytecodeEnvelope(section.subarray(0, POCKET_BYTECODE_HEADER_SIZE))).toThrow("truncated");
+    expect(() => decodeBytecodeEnvelope(section.subarray(0, BUNDLE_BYTECODE_HEADER_SIZE))).toThrow("truncated");
     const other = section.slice();
     other[0] ^= 0xff;
     expect(() => decodeBytecodeEnvelope(other)).toThrow("magic");
@@ -74,23 +74,22 @@ describe("quickjs bytecode", () => {
       expect(again.section).toEqual(compiled.section);
       expect(() => compileQuickJsBytecode(abi, text("globalThis.answer = ;"), { buildDirectory, engineSource: source })).toThrow("compile");
 
-      const variant: PocketPackageVariant = {
-        target: "fixture",
+      const bundle: Bundle = {
         hostAbi: 12,
         profileHash: `sha256:${"11".repeat(32)}`,
         sections: [
-          { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
-          { kind: POCKET_SECTION.js, bytes: text("globalThis.frame = () => {};\0") },
-          { kind: POCKET_SECTION.workerJs, bytes: text("globalThis.worker = 1;\0") },
+          { kind: BUNDLE_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
+          { kind: BUNDLE_SECTION.js, bytes: text("globalThis.frame = () => {};\0") },
+          { kind: BUNDLE_SECTION.workerJs, bytes: text("globalThis.worker = 1;\0") },
         ],
       };
-      const kinds = (value: PocketPackageVariant) => value.sections.map((section) => section.kind).sort((a, b) => a - b);
-      const kept = withBytecode(variant, { engine: abi.name, buildDirectory, engineSource: source });
+      const kinds = (value: Bundle) => value.sections.map((section) => section.kind).sort((a, b) => a - b);
+      const kept = withBytecode(bundle, { engine: abi.name, buildDirectory, engineSource: source });
       expect(kinds(kept)).toEqual([1, 3, 6, 8, 9]);
-      const dropped = withBytecode(variant, { engine: abi.name, source: "drop", buildDirectory, engineSource: source });
+      const dropped = withBytecode(bundle, { engine: abi.name, source: "drop", buildDirectory, engineSource: source });
       expect(kinds(dropped)).toEqual([1, 6, 9]);
-      expect(kinds(variant)).toEqual([1, 3, 8]);
-      expect(() => withBytecode(variant, { engine: "no-such-engine", buildDirectory, engineSource: source })).toThrow("no engine ABI");
+      expect(kinds(bundle)).toEqual([1, 3, 8]);
+      expect(() => withBytecode(bundle, { engine: "no-such-engine", buildDirectory, engineSource: source })).toThrow("no engine ABI");
     },
     180_000,
   );

@@ -152,7 +152,7 @@ pub extern "C" fn pocket_apple_set_identity(
             return POCKET_STATUS_INVALID;
         };
         if host.is_empty()
-            || host.len() > pocket_package::package_format::POCKET_TARGET_MAX_BYTES
+            || host.len() > pocket_runtime::PROFILE_ID_MAX_BYTES
             || abi != pocket_spec::BINDING_GENERATION
         {
             return POCKET_STATUS_INVALID;

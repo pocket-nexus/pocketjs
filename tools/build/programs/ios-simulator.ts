@@ -18,7 +18,7 @@ export const build: RuntimeBuild = {
     "programs/ios-simulator/shell/webpack.config.js",
   ),
   steps: compilerOnly(),
-  input: "package",
+  input: "bundle",
   artifact: "{outdir}/PocketShell.app",
   async run(context) {
     requireProgramProfile(context, profile);

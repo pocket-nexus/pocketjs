@@ -147,11 +147,10 @@ struct Program {
 fn status<T>(result: Result<T, RuntimeError>) -> i32 {
     result.map_or_else(status_code, |_| POCKET_STATUS_OK)
 }
-/// A compiled package for the exported profile, as tools/psp.ts embeds one.
+/// A compiled bundle for the exported profile, as tools/psp.ts embeds one.
 fn package(code: &[u8], plan: &[u8]) -> Vec<u8> {
     let identity = pocket_package::embedded::identity("fixture", "psp.fixture", "Fixture").unwrap();
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-        target: profile::ID,
         host_abi: profile::HOST_ABI,
         profile_hash: profile::PROFILE_HASH,
         identity: &identity,
@@ -507,7 +506,6 @@ fn packages_the_profile_facts_do_not_satisfy_are_refused_before_the_guest_runs()
         let mut other = profile::PROFILE_HASH;
         other[0] ^= 1;
         let package = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-            target: profile::ID,
             host_abi: profile::HOST_ABI,
             profile_hash: other,
             identity: &identity,

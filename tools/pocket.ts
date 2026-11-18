@@ -20,9 +20,9 @@ const command = argv.shift();
 function usage(message?: string): never {
   if (message) console.error(`PocketJS: ${message}`);
   console.error("usage: pocket check|compile [--config pocket.host.config.ts] [--target <id|pocket.host.json>] [--project-root DIR]\n" +
-    "       pocket compile [--output app.pocket] [--depfile FILE] [--aot --out DIR]\n" +
-    "       pocket build [--config pocket.host.config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
-    "       pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]\n" +
+    "       pocket compile [--output app.pkb] [--depfile FILE] [--aot --out DIR]\n" +
+    "       pocket build [--config pocket.host.config.ts] [--target ID] [--out DIR] [--bundle FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
+    "       pocket pack [--config FILE] [--target ID] --bundle FILE [--runtime DIR] [--out FILE]\n" +
     "       pocket host export [--config FILE] [--target ID] --out DIR [--depfile FILE]\n" +
     "       pocket host fetch --target ID --out FILE [--release-version V] [--manifest-url URL]\n" +
     "       pocket doctor --target ID [--config FILE] [--generic] [--build-receipt FILE] [--runtime DIR] [--evidence FILE --identity FILE] [--device KEY] [--json]");
@@ -49,6 +49,13 @@ function flag(name: string): boolean {
   return true;
 }
 function noArguments() { if (argv.length) usage(`unknown option ${argv[0]}`); }
+/** --pocket named the application file before bundles replaced `.pocket`. */
+function refusePocketOption() {
+  if (argv.some(value => value === "--pocket" || value.startsWith("--pocket="))) {
+    console.error("PocketJS: --pocket was removed; pass the compiled application with --bundle FILE (pocket compile writes a .pkb bundle)");
+    process.exit(1);
+  }
+}
 const cliProtocol = takeOption("cli-protocol");
 if (cliProtocol !== undefined) {
   const protocol = JSON.parse(readFileSync(resolve(frameworkRoot, "package.json"), "utf8")).pocketjs?.protocol;
@@ -131,11 +138,12 @@ async function main() {
     const releaseVersion = takeOption("release-version"), manifestUrl = takeOption("manifest-url");
     const output = takeOption("output") ?? takeOption("out");
     const id = takeOption("id"), title = takeOption("title"), author = takeOption("author"), version = takeOption("version"), icon = takeOption("icon");
-    const pocket = takeOption("pocket") ?? argv.shift();
+    refusePocketOption();
+    const bundle = takeOption("bundle") ?? argv.shift();
     noArguments();
-    if (!pocket) usage("pack requires an application.pocket file");
+    if (!bundle) usage("pack requires a compiled application bundle: --bundle app.pkb");
     const { packRuntime } = await import("./build/pack.ts");
-    await packRuntime({ config, target, runtime, releaseVersion, manifestUrl, output, id, title, author, version, icon, pocket });
+    await packRuntime({ config, target, runtime, releaseVersion, manifestUrl, output, id, title, author, version, icon, bundle });
     return;
   }
   if (command === "build") {
@@ -144,7 +152,8 @@ async function main() {
     const config = takeOption("config") ?? takeOption("host-config");
     const target = takeOption("target");
     const out = takeOption("out") ?? takeOption("outdir");
-    const pocket = takeOption("pocket");
+    refusePocketOption();
+    const bundle = takeOption("bundle");
     const aotDirectory = takeOption("aot-dir");
     const deploy = flag("deploy");
     const generic = flag("generic");
@@ -152,21 +161,21 @@ async function main() {
     const selected = await resolveRuntimeProgram({ from: process.cwd(), target, hostConfig: config, generic, env: process.env });
     const recipe = selected.config!.value.build;
     // From an application's directory the build compiles the application
-    // the recipe takes, unless --pocket or --aot-dir supplies it.
+    // the recipe takes, unless --bundle or --aot-dir supplies it.
     const application = selected.application;
     const base = dirname((application ?? selected.config!).path);
     const outdir = out ? resolve(out) : resolve(base, recipe ? "dist/runtime" : "dist/profile");
-    let pocketInput = pocket && resolve(pocket), aotInput = aotDirectory && resolve(aotDirectory);
-    if (application && !generic && recipe?.input && !pocketInput && !aotInput) {
+    let bundleInput = bundle && resolve(bundle), aotInput = aotDirectory && resolve(aotDirectory);
+    if (application && !generic && recipe?.input && !bundleInput && !aotInput) {
       const compiled = resolve(outdir, ".application");
       const result = await compileApplication({ configPath: application.path, target: selected.profile.id,
         outdir: resolve(compiled, "compiler"), planRoot: resolve(compiled, "plans"),
-        ...(recipe.input === "aot" ? { aotOut: resolve(compiled, "aot") } : { output: resolve(compiled, "application.pocket") }) });
+        ...(recipe.input === "aot" ? { aotOut: resolve(compiled, "aot") } : { output: resolve(compiled, "application.pkb") }) });
       aotInput = result.aotOut;
-      pocketInput = result.package;
+      bundleInput = result.bundle;
     }
     await buildRuntime(selected, outdir, {
-      pocket: pocketInput, aotDirectory: aotInput, deploy, args, app: application?.value.app,
+      bundle: bundleInput, aotDirectory: aotInput, deploy, args, app: application?.value.app,
     });
     return;
   }
@@ -189,7 +198,7 @@ async function main() {
   const dependencies = takeOption("depfile");
   const compilerReceipt = takeOption("compiler-receipt");
   noArguments();
-  if (outOption && !aot) usage("--out names an AOT directory; use --output for a .pocket file or --outdir for compiler intermediates");
+  if (outOption && !aot) usage("--out names an AOT directory; use --output for the .pkb bundle or --outdir for compiler intermediates");
   if (aot && command !== "compile") usage("--aot requires compile");
   if (aot && output) usage("--aot uses --out, not --output");
   if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");

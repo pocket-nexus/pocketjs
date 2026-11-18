@@ -135,15 +135,15 @@ if (platform === "ios") {
   if (!demos().includes(demo)) usage(`unknown demo ${demoArg}`);
   if (args.some(arg => arg.startsWith("--framework="))) usage("--framework is the demo's app.framework in its pocket.host.config.ts");
   const output = `${ROOT}.pocket-build/play-ios/${demo}`;
-  const pocket = `${output}/application.pocket`;
+  const bundle = `${output}/application.pkb`;
   if (!args.includes("--no-build")) {
     mkdirSync(output, { recursive: true });
     await run([process.execPath, "tools/pocket.ts", "compile", "--target", "ios-dev",
-      "--config", `${ROOT}apps/${demo}/pocket.host.config.ts`, "--project-root", ROOT, "--outdir", `${output}/compiler`, "--output", pocket],
+      "--config", `${ROOT}apps/${demo}/pocket.host.config.ts`, "--project-root", ROOT, "--outdir", `${output}/compiler`, "--output", bundle],
       "iOS application compile");
   }
-  if (!existsSync(pocket)) throw new Error(`compiled iOS package is missing: ${pocket}; remove --no-build and retry`);
-  await run([process.execPath, "tools/ios.ts", "play", "--pocket", pocket,
+  if (!existsSync(bundle)) throw new Error(`compiled iOS bundle is missing: ${bundle}; remove --no-build and retry`);
+  await run([process.execPath, "tools/ios.ts", "play", "--bundle", bundle,
     ...args.filter(arg => !arg.startsWith("--framework="))], "iOS simulator play");
   process.exit(0);
 }
@@ -175,19 +175,19 @@ if (framework && framework.slice("--framework=".length) !== requestedFramework) 
 
 if (!noBuild) {
   const compilerOutput = `${PLAY_DIR}/compiler/${demo}`;
-  const packagePath = `${compilerOutput}/app.pocket`;
+  const bundlePath = `${compilerOutput}/app.pkb`;
   const nativeOutput = `${PLAY_DIR}/native/${demo}`;
   console.log(`PocketJS play: compiling ${demo} for PS Vita ...`);
   await run([
     process.execPath, "tools/pocket.ts", "compile", "--target", "vita",
     "--config", `${ROOT}apps/${demo}/pocket.host.config.ts`, "--project-root", ROOT,
     "--outdir", compilerOutput, "--plan-dir", `${compilerOutput}/plans`,
-    "--output", packagePath,
+    "--output", bundlePath,
   ], "Vita application compile");
   console.log(`PocketJS play: building ${demo} for PS Vita ...`);
   await run([
     process.execPath, "tools/pocket.ts", "build", "--target", "vita",
-    "--pocket", packagePath, "--outdir", nativeOutput,
+    "--bundle", bundlePath, "--outdir", nativeOutput,
   ], "Vita native build");
   const receipt = JSON.parse(readFileSync(`${nativeOutput}/build-receipt.json`, "utf8"));
   if (receipt.schema !== "pocket-runtime-build/1" || receipt.success !== true || typeof receipt.artifact !== "string") {

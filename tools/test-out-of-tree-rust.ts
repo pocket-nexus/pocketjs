@@ -35,7 +35,8 @@ export interface RustConsumerReceipt {
   lockSha256: string;
   compiler: string;
   tests: number;
-  packageVersion: 1 | 2;
+  /** The container format of the replayed revision: `.pocket` 1 or 2, or bundles. */
+  packageVersion: 1 | 2 | "bundle";
   result: "passed";
   artifactDirectory: string;
 }
@@ -75,18 +76,20 @@ export async function runOutOfTreeRust(options: {
   }
   try {
     cpSync(join(ROOT, "tests/fixtures/out-of-tree-rust"), consumer, { recursive: true });
-    // Historical API replay uses that revision's package format and corpus.
+    // Historical API replay uses that revision's container format and corpus:
+    // `.pocket` version 1 or 2 before bundles replaced it, bundles since.
     // Current source is exercised after its commit, at the resolved HEAD.
-    const spec = await command(["git", "-C", repository, "show", revision + ":contracts/spec/pocket-package.ts"]);
-    const packageVersion = /POCKET_PACKAGE_VERSION = 1;/.test(spec) ? 1 : 2;
+    const hasBundle = Bun.spawnSync(["git", "-C", repository, "cat-file", "-e", revision + ":contracts/spec/bundle.ts"], { stdout: "pipe", stderr: "pipe" }).success;
+    const spec = hasBundle ? "" : await command(["git", "-C", repository, "show", revision + ":contracts/spec/pocket-package.ts"]);
+    const packageVersion: RustConsumerReceipt["packageVersion"] = hasBundle ? "bundle" : /POCKET_PACKAGE_VERSION = 1;/.test(spec) ? 1 : 2;
     const bindingSpec = await command(["git", "-C", repository, "show", revision + ":engine/spec/src/lib.rs"]);
     if (!/pub const BINDING_GENERATION:/.test(bindingSpec)) {
       // Before the common generation, this fixture used its own ABI value 1.
       const file = join(consumer, "tests/consumer.rs");
       writeFileSync(file, readFileSync(file, "utf8").replaceAll("pocket_spec::BINDING_GENERATION", "1"));
     }
-    if (packageVersion === 1) {
-      copyFileSync(join(consumer, "consumer-v1.rs.in"), join(consumer, "tests/consumer.rs"));
+    if (packageVersion !== "bundle") {
+      copyFileSync(join(consumer, `consumer-v${packageVersion}.rs.in`), join(consumer, "tests/consumer.rs"));
       mkdirSync(join(consumer, "corpus"), { recursive: true });
       const files = await command(["git", "-C", repository, "ls-tree", "--name-only", revision + ":tests/fixtures/packages/corpus"]);
       for (const name of files.trim().split("\n").filter(name => name.endsWith(".pocket"))) {
@@ -95,7 +98,7 @@ export async function runOutOfTreeRust(options: {
         writeFileSync(join(consumer, "corpus", name), result.stdout);
       }
     } else {
-      cpSync(join(ROOT, "tests/fixtures/packages/corpus"), join(consumer, "corpus"), { recursive: true });
+      cpSync(join(ROOT, "tests/fixtures/bundles/corpus"), join(consumer, "corpus"), { recursive: true });
     }
     const hasKit = Bun.spawnSync(["git", "-C", repository, "cat-file", "-e", revision + ":engine/driver-kit/Cargo.toml"], { stdout: "pipe", stderr: "pipe" }).success;
     const runtimeSource = Bun.spawnSync(["git", "-C", repository, "show", revision + ":engine/runtime/src/lib.rs"], { stdout: "pipe", stderr: "pipe" });

@@ -6,18 +6,18 @@ import { extractHostBuildInputs } from "../../../framework/compiler/host-build-i
 import type { RuntimeApplication, RuntimeBuildContext } from "../../../framework/src/host-config.ts";
 import { hashPocketProfile, type PocketProfile } from "../../../framework/src/profile.ts";
 
-/** Native inputs come from the package admitted by the build executor. */
+/** Native inputs come from the bundle admitted by the build executor. */
 export function applicationBundle(application: RuntimeApplication, expectedTarget: string) {
   const inputs = extractHostBuildInputs(application.plan, { expectedTarget });
-  for (const path of [application.packagePath, application.planPath, application.jsPath, application.pakPath]) {
+  for (const path of [application.bundlePath, application.planPath, application.jsPath, application.pakPath]) {
     if (!existsSync(path)) throw new Error(`native build input is missing: ${path}`);
   }
   return { plan: application.plan, inputs, javaScript: application.jsPath, pack: application.pakPath };
 }
 export function requireApplication(context: RuntimeBuildContext): RuntimeApplication {
-  if (!context.application) throw new Error(`${context.profile.id}: native build requires --pocket with a compiled application`);
+  if (!context.application) throw new Error(`${context.profile.id}: native build requires --bundle with a compiled application`);
   applicationBundle(context.application, context.profile.id);
-  if (context.application.plan.profileHash !== context.profileHash) throw new Error("native build package profile differs from the program profile");
+  if (context.application.plan.profileHash !== context.profileHash) throw new Error("native build bundle profile differs from the program profile");
   return context.application;
 }
 export function requireProgramProfile(context: RuntimeBuildContext, profile: PocketProfile): void {
@@ -37,11 +37,12 @@ export async function runProgramBuild(id: string, args: readonly string[]): Prom
   if (code !== 0 || child.signalCode) throw new Error(`${id}: native build failed (${child.signalCode ?? code})`);
 }
 
-/** Explicit package input for compatibility CLIs that retain native extensions. */
+/** Explicit bundle input for compatibility CLIs that retain native extensions. */
 export function prepareCompiledApplication(profile: PocketProfile, args: readonly string[], outdir: string): RuntimeApplication {
-  const index = args.indexOf("--pocket");
-  const path = args.find(arg => arg.startsWith("--pocket="))?.slice("--pocket=".length) ?? (index >= 0 ? args[index + 1] : undefined);
-  if (!path || path.startsWith("--")) throw new Error(`${profile.id}: native build requires --pocket; run pocket compile first`);
+  if (args.some(arg => arg === "--pocket" || arg.startsWith("--pocket="))) throw new Error("--pocket was removed; pass the compiled application with --bundle FILE (pocket compile writes a .pkb bundle)");
+  const index = args.indexOf("--bundle");
+  const path = args.find(arg => arg.startsWith("--bundle="))?.slice("--bundle=".length) ?? (index >= 0 ? args[index + 1] : undefined);
+  if (!path || path.startsWith("--")) throw new Error(`${profile.id}: native build requires --bundle; run pocket compile first`);
   return prepareApplication({ profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, path, outdir);
 }
 

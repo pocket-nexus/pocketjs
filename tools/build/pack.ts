@@ -2,16 +2,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { readRuntimeDirectory } from "../repack.ts";
-import { admitPocket, readRuntime, type RepackIdentity } from "../repack/shared/runtime.ts";
-import { admissionHost, describeRejection, selectVariant } from "../../contracts/spec/admission.ts";
-import { decodePocketPackage, findSection, POCKET_SECTION } from "../../contracts/spec/pocket-package.ts";
+import { admitRepackBundle, readRuntime, type RepackIdentity } from "../repack/shared/runtime.ts";
+import { admissionHost, admitBundle, describeRejection } from "../../contracts/spec/admission.ts";
+import { BUNDLE_SECTION, decodeBundle, findSection } from "../../contracts/spec/bundle.ts";
 import type { ResolvedBuildPlan } from "../../framework/compiler/plan.ts";
 import { appIdentity, appOutput } from "../../framework/compiler/app-plan.ts";
 import { releasedRuntime } from "../release/fetch.ts";
 import { resolveRuntimeProgram } from "./programs.ts";
 
 export interface PackOptions {
-  target?: string; config?: string; runtime?: string; pocket: string; output?: string;
+  target?: string; config?: string; runtime?: string; bundle: string; output?: string;
   id?: string; title?: string; author?: string; version?: string; icon?: string;
   releaseVersion?: string; manifestUrl?: string;
 }
@@ -21,7 +21,7 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
   const recipe = selected.config!.value.build;
   const adapter = recipe?.genericRuntime;
   if (!adapter) throw new Error("this host config has no genericRuntime.repack adapter");
-  const pocket = new Uint8Array(readFileSync(resolve(cwd, options.pocket)));
+  const bytes = new Uint8Array(readFileSync(resolve(cwd, options.bundle)));
   let runtimeDirectory = options.runtime ? resolve(cwd, options.runtime) : undefined;
   // A build output root may hold its runtime artifact in a named subdirectory.
   if (runtimeDirectory && !existsSync(resolve(runtimeDirectory, "runtime.json")) && existsSync(resolve(runtimeDirectory, "build-receipt.json"))) {
@@ -38,24 +38,25 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
     await releasedRuntime(selected.profile.id, selected.profileHash, { version: options.releaseVersion, manifestUrl: options.manifestUrl });
   const metadata = await readRuntime(runtime, selected.profile.id);
   if (metadata.profileHash !== selected.profileHash) throw new Error("runtime profileHash differs from the host config");
-  // The runtime's host contract admits the package by its facts; the
-  // admitted variant's plan supplies the default identity.
-  const selection = selectVariant(decodePocketPackage(pocket), admissionHost(metadata.document, metadata.profileHash, metadata.hostAbi));
-  if (!selection.ok) throw new Error(`this runtime does not admit the application: ${describeRejection(selection)}`);
-  const plan = JSON.parse(new TextDecoder().decode(findSection(selection.variant, POCKET_SECTION.plan)!)) as ResolvedBuildPlan;
-  // The variant's cover section (the application's `app.icon`) is the icon
-  // default. The author comes from --author, or from the `app` section of the
+  // The runtime's host contract admits the bundle by its facts; the plan
+  // supplies the default identity.
+  const bundle = decodeBundle(bytes);
+  const admission = admitBundle(bundle, admissionHost(metadata.document, metadata.profileHash, metadata.hostAbi));
+  if (!admission.ok) throw new Error(`this runtime does not admit the application: ${describeRejection(admission)}`);
+  const plan = JSON.parse(new TextDecoder().decode(findSection(bundle, BUNDLE_SECTION.plan)!)) as ResolvedBuildPlan;
+  // The icon section (the application's `app.icon`) is the icon default. The
+  // author comes from --author, or from the `app` section of the
   // application's host config when `pocket pack` runs in its directory.
-  const cover = findSection(selection.variant, POCKET_SECTION.cover);
+  const icon = findSection(bundle, BUNDLE_SECTION.icon);
   const app = selected.application?.value.app;
   const declaredAuthor = app && appIdentity(app, appOutput(app)).id === plan.app.id ? app.author : undefined;
   const identity: RepackIdentity = {
     id: options.id ?? plan.app.id, title: options.title ?? plan.app.title,
     author: options.author ?? declaredAuthor ?? "Unspecified", version: options.version ?? plan.app.version,
-    ...(options.icon ? { icon: new Uint8Array(readFileSync(resolve(cwd, options.icon))) } : cover ? { icon: cover } : {}),
+    ...(options.icon ? { icon: new Uint8Array(readFileSync(resolve(cwd, options.icon))) } : icon ? { icon } : {}),
   };
-  await admitPocket(pocket, metadata, identity);
-  const result = await adapter.repack({ runtime, pocket, identity });
+  await admitRepackBundle(bytes, metadata, identity);
+  const result = await adapter.repack({ runtime, bundle: bytes, identity });
   const output = resolve(cwd, options.output ?? `${plan.app.output}${adapter.extension ?? ".bin"}`);
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, result);

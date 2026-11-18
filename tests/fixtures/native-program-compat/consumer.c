@@ -48,7 +48,7 @@ int main(int argc,char **argv){
   const uint8_t *code=(const uint8_t *)"test"; /* Five bytes with the terminator: the package's JavaScript section. */
   /* Constructors reject another binding generation before reading the package. */
   assert(pocket_native_program_create_package(FIXTURE_ID,fixture_binding_generation+1,package_bytes,sizeof(package_bytes),"app","test.app","App",FIXTURE_WIDTH,FIXTURE_HEIGHT,FIXTURE_RASTER_DENSITY,0,&facts,profile_hash)==NULL);
-  /* Package path: a catalog .pocket admitted against the host build's facts. */
+  /* Package path: a catalog bundle admitted against the host build's facts. */
   program=pocket_native_program_create_package(FIXTURE_ID,fixture_binding_generation,package_bytes,sizeof(package_bytes),"app","test.app","App",FIXTURE_WIDTH,FIXTURE_HEIGHT,FIXTURE_RASTER_DENSITY,0,&facts,profile_hash);
   assert(program);pocket_native_program_destroy(program);program=NULL;
   /* Bare adapter: raw JavaScript under the one named viewport. */

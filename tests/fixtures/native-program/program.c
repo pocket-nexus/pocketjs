@@ -50,6 +50,68 @@ static void shutdown(void *opaque) {
 static void trace(uint32_t stage, uint32_t commands, uint32_t vertices) {
   (void)commands; (void)vertices; stages |= 1u << stage;
 }
+/* A package source over fixture_package. With `stated`, its sections
+ * callback states the plan and the JavaScript at the offsets the bundle's
+ * section table lists, as a host with a container of its own states them. */
+typedef struct { int stated; unsigned sections_calls; } fixture_source;
+static uint32_t word_at(size_t offset) {
+  return (uint32_t)fixture_package[offset] | (uint32_t)fixture_package[offset + 1] << 8 |
+         (uint32_t)fixture_package[offset + 2] << 16 | (uint32_t)fixture_package[offset + 3] << 24;
+}
+static int32_t source_length(void *context, size_t *out) { (void)context; *out = sizeof fixture_package; return POCKET_STATUS_OK; }
+static int32_t source_all(void *context, const uint8_t **bytes, size_t *length) {
+  (void)context; *bytes = fixture_package; *length = sizeof fixture_package; return POCKET_STATUS_OK;
+}
+static int32_t source_range(void *context, size_t offset, uint8_t *buffer, size_t capacity, size_t *read) {
+  (void)context;
+  if (offset > sizeof fixture_package) return POCKET_STATUS_INVALID;
+  *read = sizeof fixture_package - offset < capacity ? sizeof fixture_package - offset : capacity;
+  memcpy(buffer, fixture_package + offset, *read);
+  return POCKET_STATUS_OK;
+}
+static int32_t source_sections(void *context, pocket_package_sections *out) {
+  fixture_source *source = context;
+  ++source->sections_calls;
+  if (!source->stated) return POCKET_STATUS_UNSUPPORTED;
+  /* The section table starts at 64; each entry is kind, reserved, offset, length. */
+  for (uint32_t index = 0; index < word_at(12); ++index) {
+    size_t entry = 64 + (size_t)index * 16;
+    if (word_at(entry) == 2) { out->plan_offset = word_at(entry + 8); out->plan_length = word_at(entry + 12); }
+    if (word_at(entry) == 3) { out->js_offset = word_at(entry + 8); out->js_length = word_at(entry + 12); }
+  }
+  out->host_abi = word_at(8);
+  return POCKET_STATUS_OK;
+}
+static void inspect_sources(void) {
+  PocketNativePackage bytes = {0}, opened = {0};
+  assert(pocket_native_package_open(fixture_package, sizeof fixture_package, pocket_profile.facts,
+    POCKET_BINDING_GENERATION, pocket_profile.profile_hash, &bytes) == POCKET_PACKAGE_OPEN_OK);
+  assert(bytes.view_width == 360 && bytes.view_height == 640 && bytes.package_hash != 0);
+  assert(bytes.javascript >= fixture_package && bytes.javascript < fixture_package + sizeof fixture_package);
+  /* The same bundle through a source with contiguous storage: the record borrows it. */
+  const pocket_package_source_v1 contiguous = {sizeof contiguous, source_length, source_all, source_range, NULL, source_sections};
+  fixture_source context = {0, 0};
+  assert(pocket_native_package_open_source(&contiguous, &context, pocket_profile.facts, POCKET_BINDING_GENERATION,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_OK);
+  assert(context.sections_calls == 1 && opened.javascript == bytes.javascript && opened.package_hash == bytes.package_hash);
+  /* Stated sections take the same path; no bundle hash is read. */
+  context.stated = 1;
+  assert(pocket_native_package_open_source(&contiguous, &context, pocket_profile.facts, POCKET_BINDING_GENERATION,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_OK);
+  assert(opened.javascript == bytes.javascript && opened.javascript_length == bytes.javascript_length);
+  assert(opened.plan == bytes.plan && opened.package_hash == 0 && opened.view_width == 360);
+  /* A range-only source is read into memory the call releases: lengths, no pointers. */
+  const pocket_package_source_v1 ranged = {sizeof ranged, source_length, NULL, source_range, NULL, source_sections};
+  context.stated = 0;
+  assert(pocket_native_package_open_source(&ranged, &context, pocket_profile.facts, POCKET_BINDING_GENERATION,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_OK);
+  assert(opened.javascript == NULL && opened.javascript_length == bytes.javascript_length && opened.package_hash == bytes.package_hash);
+  /* Another binding generation is the first failed admission item. */
+  assert(pocket_native_package_open_source(&contiguous, &context, pocket_profile.facts, POCKET_BINDING_GENERATION + 1,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_BINDING_GENERATION);
+  assert(pocket_native_package_open_source(NULL, &context, pocket_profile.facts, POCKET_BINDING_GENERATION,
+    pocket_profile.profile_hash, &opened) == POCKET_PACKAGE_OPEN_BAD_ARGUMENT);
+}
 int main(void) {
   static const char source_template[] =
     "if(ui.__host !== 'native-program-fixture' || ui.__hostAbi !== %u) throw Error('metadata');"
@@ -70,6 +132,7 @@ int main(void) {
     "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
     pocket_profile.facts, pocket_profile.profile_hash);
   assert(program); pocket_native_program_destroy(program); program = NULL;
+  inspect_sources();
   program = pocket_native_program_create_profile("native-program-fixture", POCKET_BINDING_GENERATION, (const uint8_t *)source,
     (size_t)source_length, NULL, 0, 360, 640, 1, 0,
     pocket_profile.facts, pocket_profile.profile_hash);

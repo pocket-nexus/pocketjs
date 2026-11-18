@@ -51,7 +51,7 @@ pub const EMBEDDED_CAPABILITIES: &[Cow<'static, str>] = &[
 /// class. It states no animation class. The returned hash is all zero. Such
 /// an embedding has no exported identity: it runs only the package
 /// [`UiProgram::boot`] encodes from the host's own JavaScript and pak, and no
-/// compiled `.pocket` carries that hash.
+/// compiled bundle carries that hash.
 pub fn embedded_profile(
     host: &str,
     logical: [u32; 2],
@@ -203,7 +203,6 @@ impl UiProgram {
         let identity = pocket_package::embedded::identity(label, label, label)
             .map_err(|error| anyhow!("package identity: {error:?}"))?;
         let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
-            target: &config.host,
             host_abi: config.host_abi,
             profile_hash: config.profile_hash,
             identity: &identity,
@@ -214,8 +213,8 @@ impl UiProgram {
         .map_err(|error| anyhow!("embedded package: {error:?}"))?;
         self.boot_package(guest, bytes)
     }
-    /// Admit a compiled `.pocket` against this program's profile facts and
-    /// evaluate it. The package's rate and the profile cadence it runs at are
+    /// Admit a compiled bundle against this program's profile facts and
+    /// evaluate it. The application's rate and the profile cadence it runs at are
     /// [`UiProgram::timing`] afterwards.
     pub fn boot_package(&mut self, guest: Rc<Guest>, bytes: Vec<u8>) -> Result<()> {
         self.runtime
