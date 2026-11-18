@@ -424,30 +424,7 @@ limited to 128 KiB and 4,096 points. Remove it before measuring manual input.
 Replay exercises the guest input path; it does not measure physical touch
 delivery through Qt.
 
-## Build the E7 Pocket Launcher
-
-The Launcher SIS contains target-thinned `.pocket` packages and keeps exactly
-one guest realm/core alive at a time. Home or Backspace summons the launcher;
-choosing a card destroys the current guest and cold-boots the next package.
-The built-in catalog admits only app contracts with a genuine live E7 viewport.
-Additional external projects can be included explicitly without adding their
-machine-specific paths to committed launcher sources:
-
-```sh
-bun tools/launcher.ts build --target symbian \
-  --include-manifest /path/to/another-app/pocket.app.json \
-  --include-manifest /path/to/pocket-figma/pocket.app.json
-```
-
-The tool locates each external project root from its declared entry, builds
-and validates the exact `.pocket` packages, derives the launcher's E7-only
-dynamic app contract without changing the one PSP and Vita use, records a
-16-byte-aligned catalog, and produces:
-
-```text
-dist/launcher/symbian/launcher-main.sis
-dist/launcher/symbian/launcher-main.receipt.json
-```
+## Physical acceptance
 
 For physical acceptance, launch the app in landscape, change some visible
 state, then close/open the keyboard or rotate the phone. The UI should fill and
@@ -480,9 +457,9 @@ bun tools/symbian.ts coda usb
 bun tools/symbian.ts doctor --device --coda-usb
 # Launch an installed app without touching the phone (read the exact name
 # from that app's *.receipt.json):
-bun tools/symbian.ts coda usb launch PocketJsLauncherMainECEF4AC6.exe
+bun tools/symbian.ts coda usb launch PocketJsHeroMainEB73AD06.exe
 # Install a SIS that `deploy` staged in Mass memory/Installs:
-bun tools/symbian.ts coda usb install launcher-main.sis
+bun tools/symbian.ts coda usb install hero-main.sis
 ```
 
 The host opens only the exact Nokia E7 Suite-mode VID/PID and claims CODA's

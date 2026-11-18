@@ -309,7 +309,6 @@ links to the project, and most to the story of how it was built.
 | [**PSPMAN**](https://www.obsoletesony.com/pspman) | PSP | A Walkman-inspired music player by ObsoleteSony: local FLAC and MP3, album art and cassette mode |
 | [**Pocket Character**](https://github.com/pocket-nexus/pocket-character) | Mac | A rigged VRM companion in a transparent always-on-top window, rendering skinned 3D at 60 fps in one process and 118 MB, against 8 processes and 2184 MB for an Electron build of the same idea. [Story](https://pocketjs.pocket.nexus/blog/pocket-character/) |
 | [**Pocket DevTools**](https://pocketjs.pocket.nexus/blog/time-travel-devtools/) | every backend | Time-travel debugging over a USB cable at 2 bytes per frame. The inspector highlight is emitted by the core into the draw list, so it renders on the device |
-| [**Pocket Launcher**](./docs/LAUNCHER.md) | PSP, PS Vita | Whole-application lifecycle, target admission, frozen shots and guest switching |
 | [**Pocket Pi**](https://github.com/pocket-nexus/pocket-pi) | QuickJS guest | A coding agent running inside the QuickJS guest environment, with no Node underneath |
 
 <p align="center">
@@ -402,8 +401,8 @@ repository or the Rust AOT build.
 | [`platforms/`](./platforms/) | Operating-system, SDK and fixed-console drivers |
 | [`platforms/esp-idf/`](./platforms/esp-idf/) | Runtime, QuickJS, display, PPA, input and runner components |
 | [`platforms/sifli/`](./platforms/sifli/) | SiFli SF32LB5x hooks, EPIC/VG Lite executor and renderer, display, input, guest and runner |
-| [`apps/`](./apps/) | Framework demos and system applications used by the launcher and acceptance suites |
-| [`tools/`](./tools/) | Build, package, launcher, device, DevTools, benchmark and release commands |
+| [`apps/`](./apps/) | Framework demos and system applications used by the acceptance suites |
+| [`tools/`](./tools/) | Build, package, device, DevTools, benchmark and release commands |
 | [`tests/`](./tests/) | Contract, compiler, simulation, emulator, package and golden verification |
 | [`docs/`](./docs/) | Platform, runtime, determinism, DevTools, backend and benchmark records |
 | [`site/`](./site/) | This website ([`site/nexus/`](./site/nexus/) holds the [pocket.nexus](https://pocket.nexus) homepage, [`site/pocket3d/`](./site/pocket3d/) the [3d.pocket.nexus](https://3d.pocket.nexus) homepage, [`site/microts/`](./site/microts/) the [microts.pocket.nexus](https://microts.pocket.nexus) docs and playground) |

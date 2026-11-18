@@ -17,7 +17,7 @@ already-ported studies on two conditions:
 
 PocketJS accepts both conditions. The credit is therefore part of the Motion
 Lab footer, is embedded in public capture assets, and must remain visible in
-launcher covers.
+any cover or thumbnail rendered from the app.
 
 This accepted scope covers only the four studies listed above. PocketJS must
 obtain yui540's permission before adding or publishing another study.
