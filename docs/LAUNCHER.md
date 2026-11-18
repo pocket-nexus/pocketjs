@@ -1,10 +1,12 @@
-# The Pocket Launcher — in-device app switching
+# In-device app switching
 
-**One PSP EBOOT or Vita VPK embeds the target-compatible app packages and a Cover Flow picker.**
-The host exposes three `app*` operations and reserves SELECT to return to the
-launcher. The Nokia E7 program uses the same guest operations with a Symbian
-package catalog and Qt process-navigation policy; see
-[Symbian app launcher](SYMBIAN_LAUNCHER.md).
+**A PSP EBOOT or Vita VPK built with a guest registry embeds several app
+packages and runs one of them at a time.** The host exposes three `app*`
+operations and reserves SELECT to return to app 0, the launcher guest. This
+repository holds the host mechanism and the guest API
+(`@pocketjs/framework/launcher`); it holds no launcher application. The
+Nokia E7 program exposes the same guest operations over an embedded package
+catalog or over installed native applications; see "Hosts" below.
 
 ## Guest lifecycle
 
@@ -23,7 +25,7 @@ frame passed to the launcher is an image; it does not retain guest state.
 
 `@pocketjs/framework/launcher` wraps these (`appTable()`, `launchApp()`,
 `frozenShot()`, `launcherActive()`) and degrades to `null`/no-op on hosts
-that lack the ops, so the launcher bundle itself stays admissible anywhere.
+that lack the ops, so a launcher bundle stays admissible on a single-app host.
 
 ## SELECT summon policy (host-owned)
 
@@ -34,36 +36,50 @@ A multi-app host (APPS table length > 1) reserves SELECT:
 - On a SELECT press-edge (host-tracked, not guest-latched) the host captures
   and downscales the framebuffer, then switches to the launcher with
   `resume = <interrupted output>`.
-- While the launcher itself runs, SELECT is forwarded untouched (the
-  launcher binds it to resume; CIRCLE does the same).
+- While the launcher itself runs, SELECT is forwarded untouched, so the
+  launcher can bind it to resume.
 
 Single-app EBOOTs/VPKs have an APPS table of length 1: no interception and no
-ops behavior change. Apps that bind SELECT (e.g. Pocket Talk) keep it in their
-standalone package and lose it under the launcher — that is the price of a
-system chord, stated here once.
+ops behavior change. An app that binds SELECT keeps it in its standalone
+package and loses it in a multi-app image.
 
-## Admission
+## Build inputs
 
-The launcher scans `apps/*/pocket.app.json` and includes app contracts admitted by
-`validateAndResolveBuildPlan` for the selected target. Admission checks
-capabilities and viewport fit, using the same resolver as `pocket compile`.
-**PSP and Vita select separate app sets from their host contracts.** The
-registry tool prints each skipped app's diagnostics and each admitted app's
-bundle size. `--exclude <output>` removes an app from the selected set for
-RAM budgeting.
+**App 0 is the package given to the native build; a registry file lists the
+other guests.** The registry is a TSV file with one
+`output<TAB>id<TAB>title` line per guest, in table order. Each guest's
+package is `<packages>/<output>.pocket`. `pocket compile --manifest` writes a
+`.pocket`; `pocket build --pocket` consumes one. The registry flags follow
+`--` and reach the native recipe:
 
-## Memory math (PSP-1000 floor)
+| Flag | PSP | Vita |
+|------|-----|------|
+| `--launcher-registry=<tsv>` | selects multi-app mode | selects multi-app mode |
+| `--launcher-packages=<dir>` | optional; defaults to `packages/` beside the registry | required with the registry |
 
-24 MB user RAM. The current 18-package PSP table is 13.6 MiB (including the
-3.0 MiB launcher package and its covers). The PSP host runs QuickJS on a 1 MiB
-worker stack, leaving a measured 5.27 MiB arena after its 2 MiB safety margin.
-The current launcher peaks at 4.74 MiB and leaves about 553 KiB of arena tail;
-the worker-stack watermark still reports about 791 KiB free. That is enough
-for the measured launcher, but is no longer a generous margin, so release
-linking plus a real PSP-1000 boot stays a required admission gate.
-Teardown returns a guest's allocations to the arena's segregated free lists;
-classes are power-of-two so cross-swap reuse is exact and fragmentation does
-not accumulate by construction.
+```sh
+pocket build --target psp --pocket launcher.pocket -- \
+  --launcher-registry=registry.tsv
+pocket build --target vita --pocket launcher.pocket -- \
+  --launcher-registry=registry.tsv --launcher-packages=packages
+```
+
+`programs/psp/build.rs` and `programs/vita/build.rs` embed the package
+files unmodified, app 0 first, through `tools/build/embedded-apps.rs`. The
+build fails when an output name falls outside `[A-Za-z0-9_.-]+`, repeats, or
+equals app 0's output, and when the registry lists no guest. PSP records one
+FNV-1a64 build identity over the embedded files in table order; Vita tracks
+every package as a Cargo input and preserves each `.pocket` footer identity.
+
+## Memory
+
+**On PSP the embedded package table is part of the image, so each embedded
+byte leaves the guest arena one byte smaller.** The arena is the largest free
+kernel block minus a 2 MiB margin (`platforms/psp/alloc/src/arena.rs`); the
+PSP-1000 has 24 MB of user RAM, and the host runs QuickJS on a 1 MiB worker
+stack. Teardown returns a guest's allocations to the arena's segregated free
+lists. The size classes are powers of two, so the next guest reuses the freed
+blocks and repeated swaps do not fragment the arena.
 
 Vita embeds the same target-thinned `.pocket` table as 16-byte-aligned SELF
 rodata. Only one QuickJS realm, `Ui`, pak binding, and set of guest texture
@@ -71,165 +87,55 @@ handles is live. A swap waits for GXM to go idle, retires those handles and
 the font atlas, trims the reusable texture pool to its fixed budget, then
 boots the next package; vita2d and input remain process-owned.
 
-## Build pipeline
-
-`bun tools/launcher.ts` owns the artifact chain. `--target psp|vita|symbian`
-selects admission, bundle variants, packages, and the native backend; `psp`
-is the default for compatibility. The console pipeline below shares scanning
-and cover generation with the [Symbian pipeline](SYMBIAN_LAUNCHER.md):
-
-1. **scan** — resolve every app contract for the selected target and dedupe
-   by `app.output`. PSP writes `dist/launcher-registry.{json,tsv}`; Vita writes
-   `dist/launcher/vita/launcher-registry.{json,tsv}`. The committed display
-   registry is the PSP/Vita/Symbian union, while `appTable()` remains the runtime truth.
-   A plain in-repository `scan` is the only command that updates
-   `apps/launcher/{registry.generated.ts,images.json}`; covers, pack and build
-   keep their target artifacts under `dist/`.
-2. **covers** — boot each admitted app in `programs/sim`, settle 90 virtual frames,
-   render, box-downscale the full frame to 256×128, write
-   `apps/launcher/covers/cover-<output>.png`. Each app uses the first host contract
-   it resolves against in PSP, Vita, Symbian order. The wasm simulator receives that
-   host contract's viewport and density; all launcher targets share the cover files.
-3. **pack** — every admitted app + the launcher becomes a `.pocket`
-   package (`contracts/spec/pocket-package.ts`) with the selected target variant. PSP uses
-   `dist/packages/`; Vita uses `dist/launcher/vita/packages/` so density-2
-   bundles never overwrite the PSP/sim outputs. Pack/build materialize a private
-   `.launcher-source` under `dist/launcher/<target>/` containing the selected
-   registry, image metadata, entry, and cover assets; compiler/watch processes
-   never observe a temporary target registry in the committed source tree.
-4. **build** — invoke `pocket build --target <target> --pocket <launcher.pocket>`
-   after compilation and package assembly. The native recipe embeds those
-   packages through `programs/psp/build.rs` or `programs/vita/build.rs`.
-   PSP retains its aggregate FNV-1a64 build identity; Vita tracks every
-   package as a Cargo input and preserves each `.pocket` footer identity.
-   PSP writes `dist/native/launcher-main.pbp`; Vita writes
-   `dist/launcher/vita/native/launcher-main.vpk`. Each directory contains a
-   `build-receipt.json` naming the artifact produced by that invocation.
-
-```sh
-bun tools/launcher.ts scan --target psp
-bun tools/launcher.ts build --target psp
-bun tools/launcher.ts build --target vita
-```
-
-**Application compilation precedes native construction.** `compile` accepts
-`--manifest` and writes a `.pocket`; `build` accepts `--pocket` and consumes
-that package. Capture flags follow `--` and reach the native recipe:
-
-```sh
-bun tools/launcher.ts build --target psp -- --capture
-bun tools/launcher.ts build --target vita -- --capture
-```
-
 ## Hosts
 
-- **programs/psp** — the original native implementation of everything above.
+- **programs/psp** — the package table, the SELECT edge, the frozen-shot
+  capture (`src/switch.rs`) and the host-drawn switch veil (`src/veil.rs`).
+  The GE leaves framebuffer alpha at 0, so the capture writes alpha 255.
 - **programs/vita** — the same package-table and ops contract with a
   process-global frame/input tape across fresh guests, SELECT interception,
   CPU-oracle frozen shots, and an explicit GXM-safe guest-resource reset.
+- **programs/nokia-e7** — an embedded catalog instead of a registry:
+  `--catalog-index <catalog.tsv> --catalog-blob <catalog.bin>` on
+  `pocket symbian build app`. The blob concatenates `.pocket` files at
+  16-byte-aligned offsets. Each index row has eight tab-separated fields:
+  output, app id, title, byte offset, byte length, logical width, logical
+  height, and `live` or `fixed`. Entry zero must carry the app id
+  `dev.pocket-nexus.launcher`. With more than one entry the host reserves
+  the Backspace/Home key: it maps to SELECT inside entry zero and is removed
+  from the other guests' input; a press edge captures the outgoing frame,
+  records its output as `resume`, and boots entry zero. A catalog cannot be
+  combined with `--navigation`, which switches between applications
+  installed as separate SIS packages; see
+  [installed-app navigation](SYMBIAN_E7.md#installed-app-navigation).
 - **products/3ds** — the launcher is the embedded ROMFS guest and the catalog is
   the set of installed runtime slots on the SD card, not a package table; see
   "Nintendo 3DS: installed apps" below.
-- **programs/sim** — `programs/sim/launcher.ts` drives the same protocol over
-  per-guest `bootWorld`s: strips SELECT, performs the downscale with the
-  same box filter, uploads the shot into the next world, answers the three
-  ops. Switch flows are therefore deterministic traces, golden-able, and
-  chaos-provable like any other scenario.
-- **web (Pocket Stage)** — the pocketjs.dev hero boots the SAME launcher on
-  the wasm core: `site/playground/host.js` `enableAppSwitching()` is the
-  browser twin of the native policy (ops overlay per reset, SELECT
-  stripping + summon edge, fetch-and-eval swap with the frozen shot
-  re-uploaded), fed from `/stage/apps/` which the site build assembles from
-  the registry. Verified headlessly by driving the protocol through
-  PocketHost (site/verify.ts probe).
 
-## Browse timing and PSP batching
+## PSP frame rate
 
-The public behavior is 10 cards per virtual second, not a fixed distance per
-host frame. The launcher multiplies its per-tick velocity by
-`ticksPerFrame()`, so 60, 30, and 20 Hz host policies cover the same distance
-in the same virtual time. A host that deliberately presents at 30 Hz
-publishes `__simHz = 30`; the app does not infer hardware speed or branch on
-a target name.
-
-On PSP, controller input peeks the newest sample instead of consuming a sample
-and potentially waiting for the next controller cycle; vblank present remains
-the frame pacer. Perspective correction still subdivides each tilted image,
-but the core painter sorts the image as one mesh and emits all of its
-`TEX_TRI`s consecutively. The existing GE backend can therefore bind and draw
-once per cover/reflection instead of rebinding between interleaved cells.
-
-None of this is a platform capability. Capabilities describe stable public
-behavior available to an app, while missed vblanks and scene-dependent GPU
-cost are runtime performance. On real PSP hardware, batching cut the full
-deck's CPU work from about 42 ms to about 12 ms, but its texture-heavy GE pass
-still completed across the third vblank (about 50 ms between presentations).
-A multi-app PSP package therefore uses an explicit 20 Hz host policy:
-`__simHz = 20`, three fixed core ticks per virtual frame, and a three-vblank
-presentation cadence. The deck still covers 10 cards per second and ms-based
-animations retain their durations; they are sampled at 20 observations per
-second. Standalone PSP apps remain at 60 Hz. This is one process-wide
-timebase, never a launcher-name branch or a `slowPsp` capability.
+**A multi-app PSP image runs at 20 Hz.** When the package table holds more
+than one app, `programs/psp/src/main.rs` publishes `__simHz = 20`, advances
+the package tick rate divided by 20 core ticks per frame (three at 60 Hz)
+and presents on every third vblank. Animations specified in milliseconds
+keep their durations and are sampled 20 times per second. A guest that moves
+by a per-tick velocity multiplies it by `ticksPerFrame()`, so 60, 30 and
+20 Hz hosts cover the same distance in the same virtual time. A single-app
+PSP image presents at the cadence the runtime selects from its profile. The
+rate is one process-wide timebase, selected by the table length: the host
+has no branch on an app name and publishes no capability for it.
 
 ## Verification
 
-Build receipts, logs and captures go under ignored
-`.pocket-build/validation/e2e/<run>/`. Maintained golden fixtures stay in
-`tests/goldens/`.
-
-- `tests/launcher-sim.test.ts` — admission matrix, the full
-  launch/summon/resume protocol on the sim host policy runner
-  (programs/sim/launcher.ts), SELECT stripping + host-edge latching, and
-  determinism (two identical journeys hash identically frame by frame).
-- `tests/e2e/launcher-ppsspp.ts` (`bun run e2e:launcher`) — the same journey
-  on the REAL native host in PPSSPPHeadless with a 20 Hz baked input script.
-  A switch discards exactly one presented frame, so the capture signature is
-  exact: 77/80 files with gaps precisely at the three switch frames.
-- `tests/e2e/launcher-vita3k.ts` (`bun run e2e:launcher:vita`) — builds the real launcher VPK, checks its
-  four default LiveArea assets, installs it into an isolated VitaFS, and
-  drives launcher → Café → launcher → Chrome → launcher → resumed Chrome →
-  launcher → Café. Nine sparse captures must each be 960×544, non-flat,
-  native-detail pixels and carry a matching `{appIndex, appOutput, appId}`
-  sidecar. Café and Chrome are relaunched at the same guest-local age and
-  must be byte-identical, proving deterministic teardown/resource reuse.
-
-  ```sh
-  bun run e2e:launcher:vita
-  ```
-
-- None of these suites commits launcher pixels as goldens: covers are live sim
-  renders of the other demos, and a committed deck PNG would break on any
-  demo's visual change. Determinism is asserted by hash equality instead.
-- Native capture check: the GE leaves framebuffer alpha at 0, so
-  the frozen-shot capture forces alpha 255 or the background blends away.
-- PSP real-hardware functional pass: DONE (PSPLINK, iterated live) — it found the clock
-  never being set, the affine seam, the texture-heap OOM, 4444 banding,
-  the crop deformation and the sweep seams; each fix is annotated at its
-  site. PPSSPP's software GE reproduces most of these; the sim none. The Vita
-  VPK also passed real-device switching tests after deterministic Vita3K
-  coverage; PSP Cover Flow pacing under held browse input remains a separate
-  real-hardware performance gate.
-
-## The launcher app
-
-`apps/launcher` — an ordinary `pocket.app.json` app (requires `text.glyphs.baked` +
-`input.buttons`). Cover Flow built on the 2D core's perspective pipeline
-(the same TEX_TRI path motions page 4 ships): one `perspective` root, one
-screen-aspect (192×109) cover card per app, center card flat, neighbors angled with `rotateY` ±
-rail `translateX` + recession `translateZ`. Browse motion is short
-`animate()` tweens retargeted per step (springs let a mashed d-pad outrun
-the deck — a real-hardware find), so steady state still runs zero per-frame
-JS. When summoned, the frozen shot stretches under a dim scrim — the
-"overlay" is honest compositing inside one guest, over a baked Aqua-era
-stage gradient. All four browse inputs (d-pad LEFT/RIGHT and the L/R
-triggers) are ONE mechanism: holding scrubs the deck continuously through
-fractional positions at 10 cards/s (per-frame `jump()`s; release tweens
-home from the exact fraction), and a quick tap always lands exactly one
-card — a flow that ends displaced never rounds back onto its origin.
-CIRCLE launches the centered card — console convention; SELECT/CROSS
-resume the interrupted app. XMB identity ships in `apps/launcher/psp/`
-(Psp.toml + committed icon0/pic1, regenerated by the build's art step); the
-Vita VPK carries PocketJS's validated default LiveArea asset set.
+- `tests/psp-runtime.test.ts` compiles `tools/build/embedded-apps.rs` with
+  `rustc --test` (table order, unmodified package bytes, output-name
+  validation) and checks how `--launcher-registry` and `--launcher-packages`
+  resolve.
+- `tests/runtime-build.test.ts` and `tests/runtime-programs.test.ts` cover
+  the registry and its packages as declared native build inputs.
+- `tests/symbian-navigation.test.ts` covers the E7 navigation table and the
+  return gesture.
+- No test in this repository boots a multi-app image.
 
 ## Nintendo 3DS: installed apps
 

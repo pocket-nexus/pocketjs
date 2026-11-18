@@ -129,6 +129,13 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     }
   });
 
+  test("play help lists the in-repository device commands", () => {
+    const help = Bun.spawnSync([process.execPath, "tools/play.ts", "--help"], { cwd: root });
+    expect(help.success).toBe(true);
+    expect(help.stderr.toString()).toContain("bun play vita");
+    expect(help.stderr.toString()).toContain("bun play ios");
+  });
+
   test("manifest commands resolve a project-local published framework", () => {
     const cwd = `/tmp/pocketjs-cli-external-${process.pid}-${Math.random().toString(16).slice(2)}`;
     const framework = join(cwd, "node_modules/@pocketjs/framework");

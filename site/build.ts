@@ -16,7 +16,6 @@
 import { stageWebAssets } from "../tools/build/web-assets.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { readPocketManifest } from "../framework/src/manifest/load.ts";
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -53,10 +52,6 @@ import {
 import { emitSingleLodStagePackage } from "./stage-package.ts";
 import { renderHomeShowcase } from "./home-showcase.ts";
 import { SHOWCASE_APPS } from "./showcase.ts";
-import { POCKET_PROFILES } from "../hosts/index.ts";
-import { hashPocketProfile } from "../framework/src/profile.ts";
-import { decodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
-const pspProfile = POCKET_PROFILES["psp"];
 
 const ROOT = new URL("..", import.meta.url).pathname; // repo root
 const SITE = ROOT + "site/";
@@ -321,21 +316,6 @@ type DemoVariant = { framework: "solid" | "vue-vapor" | "octane"; source: string
 type DemoEntry = { name: string; title: string; variants: DemoVariant[] };
 
 function inlinePlaygroundImports(name: string, source: string): string | null {
-  if (name === "launcher") {
-    const registryPath = ROOT + "apps/launcher/registry.generated.ts";
-    const registrySource = readFileSync(registryPath, "utf8");
-    const registryStart = registrySource.indexOf("export const REGISTRY");
-    if (registryStart < 0) throw new Error("launcher registry has no REGISTRY export");
-    const registry = registrySource.slice(registryStart).replace(/^export\s+/gm, "");
-    const withDefaultRegistry = source.replace(
-      "export default function Launcher(props: LauncherProps) {",
-      "export default function Launcher(props: LauncherProps = { registry: REGISTRY }) {",
-    );
-    if (withDefaultRegistry === source) {
-      throw new Error("launcher Playground wrapper could not supply its registry");
-    }
-    return registry + "\n" + withDefaultRegistry;
-  }
   if (!/from\s+["']\.\.?\//.test(source)) return source;
   if (name === "gallery") {
     const tilesPath = ROOT + "apps/gallery/tiles.ts";
@@ -409,8 +389,6 @@ function copyDemoAssets(): void {
       if (/\.(?:png|svg)$/i.test(file)) copy(dir + file, "demo-assets/" + file);
     }
   }
-  const launcherCovers = ROOT + "apps/launcher/covers/";
-  if (existsSync(launcherCovers)) copy(launcherCovers, "demo-assets/covers/");
 }
 
 type BabelImport = {
@@ -591,49 +569,22 @@ async function main() {
   for (const f of readdirSync(ROOT + "assets/images/")) copy(ROOT + "assets/images/" + f, "demo-assets/" + f);
   copyDemoAssets();
 
-  // Homepage Pocket Stage package: the Pocket Launcher plus every admitted
-  // app (docs/LAUNCHER.md) — the same deck the PSP EBOOT ships, wasm-rendered.
-  // The deploy workflow builds the launcher family first; fail here instead
-  // of silently publishing a shell with a missing screen app when
-  // site/build.ts is run by hand.
-  const registryPath = ROOT + "dist/launcher-registry.json";
-  if (!existsSync(registryPath)) {
-    throw new Error("missing dist/launcher-registry.json — run: bun tools/launcher.ts covers");
-  }
-  const launcherRegistry = JSON.parse(readFileSync(registryPath, "utf8")) as {
-    apps: { output: string; id: string; title: string }[];
-  };
-  const stageApps = ["launcher-main", ...launcherRegistry.apps.map((a) => a.output)];
-  const stageProfileHash = hashPocketProfile(pspProfile);
-  for (const output of stageApps) {
-    const source = ROOT + `dist/packages/${output}.pocket`;
-    if (!existsSync(source)) {
-      throw new Error(`missing dist/packages/${output}.pocket — run: bun tools/launcher.ts pack`);
-    }
-    const variant = findVariant(decodePocketPackage(new Uint8Array(readFileSync(source))), "psp");
-    if (!variant || variant.profileHash !== stageProfileHash) {
-      throw new Error(`stage package ${output} does not match the PSP software profile; rebuild it`);
-    }
-    copy(source, `stage/apps/${output}.pocket`);
-  }
-  write(
-    "stage/apps/apps.json",
-    JSON.stringify({
-      target: "psp", hostAbi: POCKET_BINDING_GENERATION, profileHash: stageProfileHash,
-      apps: launcherRegistry.apps.map(({ output, id, title }) => ({ output, id, title })),
-    }),
-  );
+  // Pocket Stage packages: one authored model per handheld and one prebuilt
+  // app per model. tools/site-build.ts builds the apps first; a missing one
+  // fails here when site/build.ts is run by hand.
   const pspPackage = ROOT + "engine/pocket3d/examples/handheld/assets/dibad-psp/";
   emitSingleLodStagePackage(pspPackage, OUT + "stage/", "psp-profile.json", "orbit");
   for (const device of ["new-nintendo-3ds", "ps-vita-2000"]) {
     emitSingleLodStagePackage(ROOT + `engine/pocket3d/examples/handheld/assets/${device}/`,
       OUT + `stage/${device}/`, "profile.json", "orbit");
   }
-  for (const output of ["3ds-demo-main", "motions-main"]) {
+  // psp/motions-main is the density-1 build the PSP model runs; motions-main
+  // beside it is the Vita's density-2 build of the same app.
+  for (const app of ["3ds-demo-main", "motions-main", "psp/motions-main"]) {
     for (const ext of ["js", "pak"]) {
-      const path = ROOT + `dist/handheld-apps/${output}.${ext}`;
+      const path = ROOT + `dist/handheld-apps/${app}.${ext}`;
       if (!existsSync(path)) throw new Error(`missing ${path}; run bun run site:build`);
-      copy(path, `stage/handheld-apps/${output}.${ext}`);
+      copy(path, `stage/handheld-apps/${app}.${ext}`);
     }
   }
 
@@ -947,7 +898,6 @@ const PLAYGROUND_IMPORTS: Record<string, string> = {
   "@pocketjs/framework/game2d": "/pg/runtime.js",
   "@pocketjs/framework/host": "/pg/runtime.js",
   "@pocketjs/framework/input": "/pg/runtime.js",
-  "@pocketjs/framework/launcher": "/pg/runtime.js",
   "@pocketjs/framework/lifecycle": "/pg/runtime.js",
   "@pocketjs/framework/renderer": "/pg/runtime.js",
   "@pocketjs/framework/solid": "/pg/runtime.js",

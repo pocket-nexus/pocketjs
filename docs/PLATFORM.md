@@ -1,8 +1,8 @@
 # From launcher to platform — the Pocket app-runtime roadmap
 
-LAUNCHER.md specifies what ships today: one PSP EBOOT or Vita VPK, every
-target-admissible app embedded, whole-guest switching behind three append-only
-surface ops. This document is the forward design: what turns that launcher
+LAUNCHER.md specifies what ships today: a PSP EBOOT or Vita VPK that embeds
+several app packages, with whole-guest switching behind three append-only
+surface ops. This document is the forward design: what turns that mechanism
 into a platform — a mini-app runtime with an install story, a system
 transition, and a DX that stays instant — without breaking the contracts that
 got us here.
@@ -18,14 +18,14 @@ review as a pure function, not a queue of humans.
 | layer | contents | status |
 |---|---|---|
 | L0 contract | spec.ts ISA, append-only ops, capability registry, app contract admission | SHIPPED — the platform's constitution |
-| L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown/switch) | switching shipped on psp + vita + sim + web |
+| L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown/switch) | switching shipped on psp + vita |
 | L2 distribution | `.pocket` package, on-device install, host-relay push | format 2 (below); install + push next |
-| L3 experience | launcher-as-Home, switch veil, DevTools time travel | launcher shipped; veil below |
+| L3 experience | launcher-as-Home, switch veil, DevTools time travel | veil shipped (below); no launcher app in this repository |
 
 Rule 5 of RUNTIMES.md stays the platform's first law: every capability a
 guest can observe is a surface op behind a capability id — never a host
-branch. The launcher followed it (ops 39..41) and stayed testable on every
-host; distribution must follow it too.
+branch. App switching followed it (ops 39..41); distribution must follow it
+too.
 
 This document covers the **guest execution class**: one portable bundle
 with runtime admission against the host's facts. `app.aot` admits the entry to
@@ -51,8 +51,7 @@ designed moment:
   PSP-era way to mask a glow to a glyph without a second texture).
 - The guest never knows. No op, no capability, no sim/golden impact: veil
   frames present outside the input-indexed frame loop, so the capture
-  identity (input at frame N ↔ file fN) and the e2e switch signature are
-  untouched.
+  identity (input at frame N ↔ file fN) is untouched.
 - Budget: one 128×128 RGBA texture (64 KB rodata) + ~100 lines of GE code.
 
 Two refinements stack on top later, both cheap: the launcher can play a
@@ -255,12 +254,11 @@ of such a package are read in place throughout.
 
 ## The DX pipeline (what keeps it silky)
 
-The launcher's PSP hardware round found four bugs invisible to the sim
+A PSP hardware round of a launcher guest found four bugs invisible to the sim
 (nearest-sampling shimmer, the affine seam kink, the texture-heap OOM,
 4-bit-alpha banding) — PPSSPP's software GE caught three, real hardware the
-rest. Vita adds a native-density Vita3K leg with current-guest sidecars and
-repeated resource-reuse swaps before its real-device pass. That gradient is
-the platform's QA design:
+rest. Vita adds a native-density Vita3K leg before its real-device pass. That
+gradient is the platform's QA design:
 
 1. **sim** — second-scale iteration, deterministic traces, tree asserts;
 2. **console emulator** — PPSSPPHeadless exercises GE semantics (affine
@@ -268,11 +266,10 @@ the platform's QA design:
    host lifecycle, 960×544 CPU-oracle renders, LiveArea VPK, and GXM resource
    boundaries under baked input scripts;
 3. **hardware** — PSPLINK hot-reload (`reset` → `ldstart`) and `pspsh cp` on
-   PSP; install the validated `dist/vita/launcher-main.vpk` for the Vita pass.
+   PSP; install the VPK that passed Vita3K for the Vita pass.
 
-Single-command chains (`launcher.ts scan|covers|build`), append-only
-contracts, and goldens as gates keep third-party DX at "write TSX → see it
-in a second → one command to the handheld."
+Append-only contracts and goldens as gates keep third-party DX at "write
+TSX → see it in a second → one command to the handheld."
 
 ## Non-goals (so the platform stays honest)
 
@@ -281,5 +278,5 @@ in a second → one command to the handheld."
   own capability; nothing in the switch protocol presumes it.
 - No on-device code signing theater — the hash footer is integrity, not
   security; the PSP's threat model is a memory stick.
-- No host branches for "special" apps — the launcher itself is an
-  ordinary `pocket.app.json` app and must stay one.
+- No host branches for "special" apps — a launcher is an ordinary
+  `pocket.app.json` app and must stay one.

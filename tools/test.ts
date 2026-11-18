@@ -343,14 +343,13 @@ const SUITE: readonly Stage[] = [
     tests: ["tests/audio-sim.test.ts"],
   },
   {
-    // The launcher tests read the deck's text and switch protocol, never a
-    // cover's pixels: placeholder covers skip compiling and sim-booting every
-    // registry app (about a minute) and the tests inherit the same mode.
-    name: "launcher sim",
-    env: { POCKET_LAUNCHER_COVERS: "placeholder" },
-    prep: [["bun", "tools/launcher.ts", "covers"]],
+    // apps/nexus-touch on the wasm core at the iPod touch 4's 320x480 @2x,
+    // driven by a touch tape. The test builds its own guest from the
+    // ipodtouch4-dev plan.
+    name: "nexus-touch sim",
+    prep: [["bun", "tools/wasm.ts"]],
     browser: true,
-    tests: ["tests/launcher-sim.test.ts", "tests/launcher-symbian.test.ts", "tests/nexus-touch.test.ts"],
+    tests: ["tests/nexus-touch.test.ts"],
   },
   {
     // The system agent's overlay over a fixture app on the 3DS geometry, with

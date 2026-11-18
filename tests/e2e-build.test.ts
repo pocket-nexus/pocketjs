@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { resolveProfile } from "../tools/profile-resolver.ts";
 import { demoManifestFor } from "../tools/demo-identity.ts";
-import { buildArtifact, buildCaptureApplication, buildCaptureLauncher, evidenceDirectory, runBuildCommand } from "./e2e/build.ts";
+import { buildArtifact, buildCaptureApplication, evidenceDirectory, runBuildCommand } from "./e2e/build.ts";
 
 const root = resolve(import.meta.dir, "..");
 
@@ -56,26 +56,6 @@ test("E2E compile failure and signaled command stop before any native build", as
   expect(calls).toBe(1);
   await expect(runBuildCommand([process.execPath, "-e", 'process.kill(process.pid, "SIGTERM")'], { root, directory })).rejects.toThrow("SIGTERM");
   expect(JSON.parse(readFileSync(join(directory, "command.json"), "utf8")).signal).toBe("SIGTERM");
-});
-
-test("launcher E2E delegates registry compilation and snapshots the receipt artifact", async () => {
-  for (const target of ["psp", "vita"] as const) {
-    const fixture = evidenceDirectory(root, `test-launcher-${target}`);
-    const directory = join(fixture, "evidence");
-    const artifact = await buildCaptureLauncher({ root: fixture, directory, target }, async (command) => {
-      expect(command.slice(2)).toEqual(["build", "--target", target, "--", "--capture"]);
-      expect(command[1]).toBe(join(fixture, "tools/launcher.ts"));
-      const output = join(fixture, target === "psp" ? "dist" : "dist/launcher/vita");
-      mkdirSync(join(output, "native"), { recursive: true });
-      const native = join(output, "native/capture.bin");
-      writeFileSync(native, "artifact from current recipe");
-      writeFileSync(join(output, "native/build-receipt.json"), JSON.stringify({ schema: "pocket-runtime-build/1", success: true, artifact: native }));
-      writeFileSync(join(output, "launcher-registry.json"), '{"apps":[]}');
-    });
-    expect(artifact).toBe(join(directory, "capture.bin"));
-    expect(readFileSync(artifact, "utf8")).toBe("artifact from current recipe");
-    expect(JSON.parse(readFileSync(join(directory, "launcher-registry.json"), "utf8"))).toEqual({ apps: [] });
-  }
 });
 
 test("a failed native receipt cannot select a stale executable", () => {

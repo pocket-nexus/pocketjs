@@ -1137,3 +1137,76 @@ fn boot_runs_the_package_rate_at_the_fastest_dividing_cadence() {
         }
     }
 }
+
+/// A program in a container of the host's own: bytes the runtime does not
+/// parse, with the plan and the bundle at ranges the source states.
+struct HostContainer {
+    bytes: Vec<u8>,
+    sections: PackageSections,
+}
+fn host_container(generation: u32) -> HostContainer {
+    let mut bytes = b"HOSTBOX\x01".to_vec();
+    let mut put = |part: &[u8]| {
+        let start = bytes.len();
+        bytes.extend_from_slice(part);
+        start..bytes.len()
+    };
+    let js = put(b"test\0");
+    let plan = put(br#"{"animation":"composited","profile":{"tickHz":60},"viewport":{"logical":[4,4],"presentation":"native","rasterDensity":1},"features":{}}"#);
+    HostContainer {
+        bytes,
+        sections: PackageSections {
+            host_abi: generation,
+            plan,
+            js: Some(js),
+            pak: None,
+            bytecode: None,
+            worker_js: None,
+            worker_bytecode: None,
+        },
+    }
+}
+impl PackageSource for HostContainer {
+    fn length(&self) -> Result<usize, SourceError> {
+        Ok(self.bytes.len())
+    }
+    fn sections(&mut self) -> Result<Option<PackageSections>, SourceError> {
+        Ok(Some(self.sections.clone()))
+    }
+    fn all(&mut self) -> Result<&[u8], SourceError> {
+        Ok(&self.bytes)
+    }
+    fn range(&mut self, offset: usize, buffer: &mut [u8]) -> Result<usize, SourceError> {
+        let remaining = self.bytes.get(offset..).ok_or(SourceError::OutOfBounds)?;
+        let length = remaining.len().min(buffer.len());
+        buffer[..length].copy_from_slice(&remaining[..length]);
+        Ok(length)
+    }
+}
+
+#[test]
+fn boot_reads_a_program_at_the_sections_its_source_states() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = runtime(facts.clone(), false, false);
+    rt.set_package_source(Box::new(host_container(pocket_spec::BINDING_GENERATION)))
+        .unwrap();
+    rt.boot().unwrap();
+    assert_eq!(facts.borrow().initializations, 1);
+    assert!(facts.borrow().evaluated);
+    rt.shutdown().unwrap();
+
+    // The stated plan is admitted like a package variant's.
+    let mut rt = runtime(Rc::new(RefCell::new(Facts::default())), false, false);
+    rt.set_package_source(Box::new(host_container(
+        pocket_spec::BINDING_GENERATION + 1,
+    )))
+    .unwrap();
+    assert!(matches!(
+        rt.boot(),
+        Err(RuntimeError::Package(
+            pocket_package::source::LoadError::Admission(pocket_package::GuestError::NotAdmitted(
+                _
+            ))
+        ))
+    ));
+}

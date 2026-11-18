@@ -115,7 +115,7 @@ static int32_t provider(void *context, uint16_t op, const pocket_op_arg *args,
   return 0;
 }
 static const pocket_package_source_v1 source_api = {
-    sizeof source_api, package_length, package_all, package_range, NULL};
+    sizeof source_api, package_length, package_all, package_range, NULL, NULL};
 static const pocket_op_provider_v1 provider_api = {sizeof provider_api,
                                                    provider};
 const pocket_package_source_v1 *instance_package_source(void) {

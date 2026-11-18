@@ -536,7 +536,6 @@ describe("semantic resolution", () => {
       "nexus-touch": [false, false, false, false], // touch + ui.physics on a fixed 320x480 surface: the private ipodtouch4-dev profile
       nsengine: [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
       "ipodnano-hero": [false, false, false, false], // built by tools/build/ipodnano/build.ts as a Rockbox plugin; no public profile hosts its fixed 176x132 viewport
-      launcher: [true, true, false, true], // the Cover Flow deck (docs/LAUNCHER.md) is an ordinary console app
       library: [true, true, false, true],
       motions: [true, true, false, true],
       music: [true, true, false, true],

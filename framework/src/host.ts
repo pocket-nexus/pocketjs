@@ -254,9 +254,9 @@ export interface HostOps {
   debugStats?(): string;
 
   // -- app switching (spec ops 39..41, docs/LAUNCHER.md). Optional: only
-  //    multi-app hosts (the launcher EBOOT, programs/sim's launcher runner)
-  //    implement them; @pocketjs/framework/launcher feature-detects and the
-  //    launcher app degrades to its empty state elsewhere. -----------------
+  //    multi-app hosts implement them; @pocketjs/framework/launcher
+  //    feature-detects, and a launcher guest degrades to its empty state
+  //    elsewhere. ---------------------------------------------------------
   /** OP.appTable — JSON { apps: [{output, id, title}], current, resume }. */
   appTable?(): string;
   /** OP.appLaunch — request a whole-guest switch to `output` after the

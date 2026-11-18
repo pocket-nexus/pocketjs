@@ -219,6 +219,9 @@ pub type PocketPackageRangeFn = unsafe extern "C" fn(context: *mut c_void, offse
 /// Transfers the whole package: out describes storage of the length the length callback reported. After success the source may refuse all and range. UNSUPPORTED keeps the copying path.
 pub type PocketPackageTakeFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketPackageStorage) -> i32;
 
+/// Called once, before the bytes are read or taken. Success states the offsets of one program in this source's bytes; UNSUPPORTED states that the bytes are a package container.
+pub type PocketPackageSectionsFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketPackageSections) -> i32;
+
 /// Releases storage a take transferred, after the runtime's last read of it.
 pub type PocketPackageReleaseFn = unsafe extern "C" fn(context: *mut c_void, bytes: *const u8, length: usize) -> ();
 
@@ -633,13 +636,34 @@ abi_record! {
 }
 
 abi_record! {
-    /// all and take are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range.
+    /// Where one program's sections lie in the bytes a source returns, for a host that keeps programs in a container of its own. Offsets count from the first byte the source returns. plan is the build plan JSON, js the NUL-terminated UI bundle and worker_js the NUL-terminated worker bundle; the bytecode sections are QJBC envelopes. A length of zero means the section is absent. host_abi is the binding generation the program was compiled for.
+    pub struct PocketPackageSections {
+        pub struct_size: usize,
+        pub plan_offset: usize,
+        pub plan_length: usize,
+        pub js_offset: usize,
+        pub js_length: usize,
+        pub pak_offset: usize,
+        pub pak_length: usize,
+        pub bytecode_offset: usize,
+        pub bytecode_length: usize,
+        pub worker_js_offset: usize,
+        pub worker_js_length: usize,
+        pub worker_bytecode_offset: usize,
+        pub worker_bytecode_length: usize,
+        pub host_abi: u32,
+    }
+}
+
+abi_record! {
+    /// all, take and sections are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. Without sections, or when it returns UNSUPPORTED, the bytes are a package container and the runtime parses it and checks its hashes. With sections the runtime reads the program at the stated offsets, admits its plan against the host and checks no container hash: the integrity of the host's container is the host's.
     pub struct PocketPackageSourceV1 {
         pub struct_size: usize,
         pub length: Option<PocketPackageLengthFn>,
         pub all: Option<PocketPackageAllFn>,
         pub range: Option<PocketPackageRangeFn>,
         pub take: Option<PocketPackageTakeFn>,
+        pub sections: Option<PocketPackageSectionsFn>,
     }
 }
 

@@ -9,12 +9,13 @@
 //! Range sources use the same parser and admission rules as embedded sources.
 
 use crate::{
-    admission::{HostFacts, Timing},
-    select_guest, GuestError,
+    admission::{admit_plan, HostFacts, Mismatch, Timing},
+    package::guest_sections,
+    select_guest, GuestError, PackageError,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::ops::Range;
-use pocket_drivers::{PackageBytes, PackageSource, SourceError};
+use pocket_drivers::{PackageBytes, PackageSections, PackageSource, SourceError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadError {
@@ -34,7 +35,10 @@ pub struct LoadedPackage {
     plan: Range<usize>,
     bytecode: Option<Range<usize>>,
     worker_bytecode: Option<Range<usize>>,
+    /// The container's footer hash; zero for a program whose source stated
+    /// its sections (`PackageSource::sections`), where no container is read.
     pub package_hash: u64,
+    /// The admitted variant's payload hash; zero like `package_hash`.
     pub variant_hash: u64,
     /// The admitted variant's package rate and host cadence.
     pub timing: Timing,
@@ -54,12 +58,18 @@ impl LoadedPackage {
         if length > byte_limit || length > isize::MAX as usize {
             return Err(LoadError::TooLarge);
         }
+        // A source that states its sections holds a container of the host's
+        // own; one that states none holds a package container.
+        let sections = source.sections().map_err(LoadError::Source)?;
         match source.take_bytes() {
             Ok(bytes) => {
                 if bytes.as_ref().len() != length {
                     return Err(LoadError::Changed);
                 }
-                return Self::from_storage(bytes, host, source.verified());
+                return match &sections {
+                    Some(sections) => Self::from_sections(bytes, sections, host),
+                    None => Self::from_storage(bytes, host, source.verified()),
+                };
             }
             Err(SourceError::Unsupported) => {}
             Err(error) => return Err(LoadError::Source(error)),
@@ -93,9 +103,69 @@ impl LoadedPackage {
             }
             Err(error) => return Err(LoadError::Source(error)),
         }
-        // A copy is hashed whatever the source claims: only storage an owner
-        // transfers and vouches for skips the footer check.
-        Self::from_bytes(bytes.into_boxed_slice(), host)
+        match &sections {
+            Some(sections) => Self::from_sections(
+                PackageBytes::Owned(bytes.into_boxed_slice()),
+                sections,
+                host,
+            ),
+            // A copy is hashed whatever the source claims: only storage an
+            // owner transfers and vouches for skips the footer check.
+            None => Self::from_bytes(bytes.into_boxed_slice(), host),
+        }
+    }
+
+    /// Admit one program at ranges its host located. The plan and code
+    /// sections pass the checks a package variant passes; no container is
+    /// parsed and no container hash is read.
+    fn from_sections<S: AsRef<str>>(
+        bytes: PackageBytes,
+        sections: &PackageSections,
+        host: &HostFacts<'_, S>,
+    ) -> Result<Self, LoadError> {
+        let all = bytes.as_ref();
+        let layout = LoadError::Admission(GuestError::Package(PackageError::BadLayout));
+        let part = |range: &Range<usize>| all.get(range.clone()).ok_or(layout);
+        let optional = |range: &Option<Range<usize>>| range.as_ref().map(part).transpose();
+        let plan = part(&sections.plan)?;
+        let timing =
+            admit_plan(host, sections.host_abi, Some(plan)).map_err(|(items, capability)| {
+                LoadError::Admission(GuestError::NotAdmitted(Mismatch {
+                    variant: 0,
+                    items,
+                    capability,
+                }))
+            })?;
+        guest_sections(
+            plan,
+            optional(&sections.js)?,
+            optional(&sections.bytecode)?,
+            optional(&sections.worker_js)?,
+            optional(&sections.worker_bytecode)?,
+        )
+        .map_err(LoadError::Admission)?;
+        optional(&sections.pak)?;
+        let present = |range: &Option<Range<usize>>| range.clone().unwrap_or(0..0);
+        let (js, worker_js, pak, plan) = (
+            present(&sections.js),
+            present(&sections.worker_js),
+            present(&sections.pak),
+            sections.plan.clone(),
+        );
+        let (bytecode, worker_bytecode) =
+            (sections.bytecode.clone(), sections.worker_bytecode.clone());
+        Ok(Self {
+            bytes,
+            js,
+            worker_js,
+            pak,
+            plan,
+            bytecode,
+            worker_bytecode,
+            package_hash: 0,
+            variant_hash: 0,
+            timing,
+        })
     }
 
     pub fn from_bytes<S: AsRef<str>>(
@@ -485,5 +555,139 @@ mod tests {
             Err(LoadError::Admission(_))
         ));
         assert_eq!(released.get(), 2);
+    }
+
+    /// A container of the host's own: eight bytes the loader never reads, then
+    /// the pak, the bundle and the plan at offsets the source states.
+    struct Sectioned {
+        bytes: std::vec::Vec<u8>,
+        sections: PackageSections,
+        transfer: bool,
+    }
+    fn sectioned(js: &[u8]) -> Sectioned {
+        let mut bytes = b"HOSTBOX\x01".to_vec();
+        let mut put = |part: &[u8]| {
+            let start = bytes.len();
+            bytes.extend_from_slice(part);
+            start..bytes.len()
+        };
+        let pak = put(b"pak");
+        let js = put(js);
+        let plan = put(crate::admission::testing::PLAN);
+        Sectioned {
+            bytes,
+            sections: PackageSections {
+                host_abi: 1,
+                plan,
+                js: Some(js),
+                pak: Some(pak),
+                bytecode: None,
+                worker_js: None,
+                worker_bytecode: None,
+            },
+            transfer: false,
+        }
+    }
+    impl PackageSource for Sectioned {
+        fn length(&self) -> Result<usize, SourceError> {
+            Ok(self.bytes.len())
+        }
+        fn sections(&mut self) -> Result<Option<PackageSections>, SourceError> {
+            Ok(Some(self.sections.clone()))
+        }
+        fn take_bytes(&mut self) -> Result<PackageBytes, SourceError> {
+            if !self.transfer {
+                return Err(SourceError::Unsupported);
+            }
+            Ok(PackageBytes::Owned(
+                core::mem::take(&mut self.bytes).into_boxed_slice(),
+            ))
+        }
+        fn range(&mut self, offset: usize, buffer: &mut [u8]) -> Result<usize, SourceError> {
+            copy_range(&self.bytes, offset, buffer)
+        }
+    }
+    const SECTION_JS: &[u8] = b"globalThis.frame=()=>{}\0";
+
+    #[test]
+    fn stated_sections_load_from_a_container_the_loader_never_parses() {
+        let mut source = sectioned(SECTION_JS);
+        // The bytes are no package container.
+        assert!(matches!(
+            LoadedPackage::from_bytes(source.bytes.clone().into_boxed_slice(), &host(1)),
+            Err(LoadError::Admission(GuestError::Package(
+                PackageError::BadMagic
+            )))
+        ));
+        for transfer in [false, true] {
+            source.transfer = transfer;
+            let address = source.bytes.as_ptr();
+            let package = LoadedPackage::load(&mut source, &host(1), usize::MAX).unwrap();
+            assert_eq!(package.javascript(), SECTION_JS);
+            assert_eq!(package.pak(), b"pak");
+            assert_eq!(package.plan(), crate::admission::testing::PLAN);
+            assert_eq!(package.worker_javascript(), b"");
+            assert_eq!(package.bytecode(), None);
+            assert_eq!((package.package_hash, package.variant_hash), (0, 0));
+            assert_eq!(
+                package.timing,
+                Timing {
+                    tick_hz: 60,
+                    cadence_hz: 60
+                }
+            );
+            // Transferred storage is read in place.
+            assert_eq!(package.bytes().as_ptr() == address, transfer);
+            source = sectioned(SECTION_JS);
+        }
+    }
+
+    #[test]
+    fn stated_sections_pass_the_admission_and_section_checks_of_a_variant() {
+        // The plan is admitted against the host's facts.
+        let mismatch = match LoadedPackage::load(&mut sectioned(SECTION_JS), &host(2), usize::MAX) {
+            Err(LoadError::Admission(GuestError::NotAdmitted(mismatch))) => mismatch,
+            _ => panic!("another binding generation must not be admitted"),
+        };
+        assert_eq!(mismatch.items, crate::admission::item::BINDING_GENERATION);
+        // The bundle ends with NUL.
+        assert!(matches!(
+            LoadedPackage::load(
+                &mut sectioned(b"globalThis.frame=()=>{}"),
+                &host(1),
+                usize::MAX
+            ),
+            Err(LoadError::Admission(GuestError::JavaScriptNotTerminated))
+        ));
+        // A program has a bundle or its bytecode.
+        let mut source = sectioned(SECTION_JS);
+        source.sections.js = None;
+        assert!(matches!(
+            LoadedPackage::load(&mut source, &host(1), usize::MAX),
+            Err(LoadError::Admission(GuestError::MissingJavaScript))
+        ));
+        // A worker bundle needs the plan's worker declaration.
+        let mut source = sectioned(SECTION_JS);
+        source.sections.worker_js = source.sections.js.clone();
+        assert!(matches!(
+            LoadedPackage::load(&mut source, &host(1), usize::MAX),
+            Err(LoadError::Admission(GuestError::WorkerSectionMismatch))
+        ));
+        // Every range lies inside the bytes.
+        for pick in 0..3 {
+            let mut source = sectioned(SECTION_JS);
+            let end = source.bytes.len() + 1;
+            match pick {
+                0 => source.sections.plan.end = end,
+                1 => source.sections.js = Some(0..end),
+                _ => source.sections.pak = Some(end..end + 1),
+            }
+            assert!(matches!(
+                LoadedPackage::load(&mut source, &host(1), usize::MAX),
+                Err(LoadError::Admission(GuestError::Package(
+                    PackageError::BadLayout
+                )))
+            ));
+        }
     }
 }

@@ -279,9 +279,9 @@ async function walk(file: string): Promise<void> {
   visited.add(file);
   // Never scan the compiled-styles module: its literals ARE the compiled
   // class names, and collecting them again would feed the compiler its own
-  // output [R]. Other generated modules (e.g. the launcher's registry) are
-  // ordinary app data whose literals — cover asset paths, title glyphs —
-  // pass 1 must see like any hand-written module's.
+  // output [R]. Other generated modules (an asset registry, for example) are
+  // ordinary app data whose literals — asset paths, title glyphs — pass 1
+  // must see like any hand-written module's.
   if (file.replace(/\\/g, "/").endsWith("/styles.generated.ts")) return;
   const src = await Bun.file(file).text();
   buildInputs.add(file);
@@ -425,7 +425,7 @@ const spriteMeta: Record<string, SpriteMeta> = existsSync(spriteManifestPath)
   : {};
 // Optional per-app static-image meta: <appDir>/images.json maps an asset
 // name to { linear?, psm? }. `linear` bakes IMG_FLAG_LINEAR so the core
-// samples it bilinearly (rotated/scaled art — the launcher's covers); psm 2
+// samples it bilinearly (rotated or scaled art); psm 2
 // selects PSM_4444. Absent file or name = today's defaults, byte-identical.
 interface ImageMeta {
   linear?: boolean;

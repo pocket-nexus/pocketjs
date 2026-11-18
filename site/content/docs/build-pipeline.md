@@ -240,8 +240,8 @@ free.
 
 The walker skips one path: the one ending in `/styles.generated.ts`. Its
 literals **are** the compiled class names, so collecting them would feed the
-compiler its own output. Every other generated module — a launcher's asset
-registry, say — is ordinary app source whose literals pass 1 must see.
+compiler its own output. Every other generated module, such as a generated
+asset registry, is ordinary app source whose literals pass 1 must see.
 
 A pass‑1 summary line looks like:
 
