@@ -4,10 +4,6 @@
 
 import { createWasmUiSync, FB_W, FB_H } from "../../platforms/web/wasm-ops.js";
 import { drawHud, wasmMemoryBytes } from "../../programs/web/dev/hud.js";
-import { SHOT_W, SHOT_H, downscaleShot } from "../../programs/sim/shot.ts";
-
-/** spec PSM_8888 — the frozen-shot upload format (contracts/spec/spec.ts psm). */
-const PSM_8888 = 3;
 
 // contracts/spec/spec.ts BTN — the PSP button bitmask.
 export const BTN = {
@@ -51,93 +47,6 @@ export class PocketHost {
     this._statsT = 0;
     this._hudFps = 0; // on-canvas HUD, sampled once/second (see hud.js)
     this._hudMem = 0;
-    this.switching = null; // multi-app policy (enableAppSwitching)
-  }
-
-  /**
-   * Turn this host into a multi-app host (docs/LAUNCHER.md, the browser twin of
-   * programs/psp/src/switch.rs + programs/sim/launcher.ts): the three app* ops are
-   * installed on every guest, SELECT is reserved as the summon chord for
-   * non-launcher guests, and a switch fetches + evals the target bundle in
-   * place — the same whole-guest swap runIIFE always was.
-   *
-   *   host.enableAppSwitching({
-   *     launcher: "launcher-main",
-   *     apps: [{ output, id, title }, ...],
-   *     fetchBundle: async (output) => ({ js, pak }),   // caller caches
-   *     onSwitch: (output) => {},                       // optional
-   *   });
-   */
-  enableAppSwitching(config) {
-    this.switching = {
-      launcher: config.launcher,
-      apps: config.apps,
-      fetchBundle: config.fetchBundle,
-      onSwitch: config.onSwitch ?? (() => {}),
-      current: config.launcher,
-      resume: null,
-      shot: null,
-      shotHandle: -1,
-      // Latched: a SELECT still held from the press that caused the last
-      // swap must release before it can summon again.
-      prevSelect: true,
-      pending: null,
-      busy: false,
-    };
-  }
-
-  _switchProviders() {
-    const sw=this.switching;
-    if(!sw)return {};
-    return {
-      appTable:()=>JSON.stringify({apps:sw.apps,current:sw.current,resume:sw.resume}),
-      appLaunch:output=>{
-        if(output!==sw.launcher && !sw.apps.some(a=>a.output===output))return 0;
-        sw.pending={to:output,summon:false};return 1;
-      },
-      appShot:()=>sw.shot ? sw.shotHandle : -1,
-    };
-  }
-
-  _prepareSwitchShot() {
-    const sw=this.switching;
-    if(sw?.shot && sw.shotHandle<0)sw.shotHandle=this.wasm.ops.uploadTexture(sw.shot,SHOT_W,SHOT_H,PSM_8888);
-  }
-
-  async _performSwitch() {
-    const sw = this.switching;
-    const { to, summon } = sw.pending;
-    sw.pending = null;
-    sw.busy = true;
-    try {
-      if (summon) {
-        // The frozen frame is the guest's last presented frame (spec op 41).
-        sw.shot = downscaleShot(this.wasm.render());
-        sw.resume = sw.current;
-      } else {
-        sw.shot = null;
-        sw.resume = null;
-      }
-      sw.shotHandle = -1;
-      this.stop(); // the display holds the last blit through the fetch+eval
-      const { js, pak } = await sw.fetchBundle(to);
-      sw.current = to;
-      sw.prevSelect = true;
-      this.runIIFE(js, pak);
-      sw.onSwitch(to);
-    } catch (error) {
-      this.onError(error);
-      this.onLog("SWITCH ERROR: " + (error && error.stack ? error.stack : error));
-      // Mirror the native broken-guest rule: fall back into the launcher
-      // rather than wedging on a dead guest.
-      if (to !== sw.launcher) {
-        sw.pending = { to: sw.launcher, summon: false };
-        sw.busy = false;
-        return this._performSwitch();
-      }
-    } finally {
-      sw.busy = false;
-    }
   }
 
   /** Bind to a canvas + instantiate the wasm. Call once. `wasmUrl` defaults to
@@ -254,7 +163,7 @@ export class PocketHost {
   /** Run a prebuilt IIFE bundle (dist/<app>.js + <app>.pak). */
   runIIFE(jsText, pakBuffer) {
     this.reset();
-    this.wasm.boot(jsText, {pak:pakBuffer, sourceName:"pocketjs-demo.js", providers:this._switchProviders(), beforeEvaluate:()=>this._prepareSwitchShot()});
+    this.wasm.boot(jsText, {pak:pakBuffer, sourceName:"pocketjs-demo.js"});
     this.begin();
   }
 
@@ -262,7 +171,7 @@ export class PocketHost {
    * No input or pixels are exposed until imports and initial layout finish. */
   async runModule(evaluate, pakBuffer) {
     this.reset();
-    await this.wasm.bootAsync("", {pak:pakBuffer, evaluate, providers:this._switchProviders(), beforeEvaluate:()=>this._prepareSwitchShot()});
+    await this.wasm.bootAsync("", {pak:pakBuffer, evaluate});
     this.begin();
   }
 
@@ -279,24 +188,8 @@ export class PocketHost {
   _safeFrame() {
     if (!this.frameCb) return false;
     try {
-      // The summon chord (docs/LAUNCHER.md): non-launcher guests never see
-      // SELECT; a host-tracked press-edge schedules the summon.
-      let mask = this.held;
-      const sw = this.switching;
-      if (sw && !sw.busy && sw.current !== sw.launcher) {
-        const select = (mask & BTN.SELECT) !== 0;
-        if (select && !sw.prevSelect && !sw.pending) {
-          sw.pending = { to: sw.launcher, summon: true };
-        }
-        sw.prevSelect = select;
-        mask &= ~BTN.SELECT;
-      }
-      this.wasm.advance({buttons:mask});
+      this.wasm.advance({buttons:this.held});
       this.tickCount++;
-      if (sw && sw.pending && !sw.busy) {
-        // Switch at the frame's bottom, like every other host.
-        this._performSwitch();
-      }
       if (this.wasm.drawHash) {
         const hash = this.wasm.drawHash();
         const changed = hash !== this.lastDrawHash;

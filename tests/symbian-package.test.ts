@@ -80,12 +80,12 @@ describe("independent Symbian package identity", () => {
     expect(
       symbianPackageIdentity(
         plan(
-          "dev.pocket-nexus.launcher",
-          "PocketJS: Launcher",
-          "launcher-main",
+          "dev.pocket-nexus.hero",
+          "PocketJS: Hero",
+          "hero-main",
         ),
       ).title,
-    ).toBe("PocketJS: Launcher");
+    ).toBe("PocketJS: Hero");
   });
 
   test("truncates long target names before the collision-resistant UID", () => {

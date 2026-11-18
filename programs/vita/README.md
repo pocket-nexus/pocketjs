@@ -83,10 +83,6 @@ bun play --help
 # Low-level build only:
 bun run vita hero --release
 # dist/vita/hero-main.vpk
-
-# Cover Flow launcher + every Vita-admitted Pocket app in one VPK:
-bun run launcher:vita --release
-# dist/vita/launcher-main.vpk
 ```
 
 `bun play vita <demo>` owns the interactive loop: it builds the selected demo,
