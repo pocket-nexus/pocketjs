@@ -247,6 +247,12 @@ turn native asset loading off; the source form reads the package at boot and
 keeps native asset loading on. Admission against the host profile runs before
 the guest initializes in every form.
 
+**A source with the optional `sections` callback states the byte ranges of one
+program in a container of the host's own.** The runtime reads the plan, the
+bundles and the pak at those ranges, admits the plan against the host profile
+and parses no `.pocket` container; the integrity of the host's container is
+the host's to check. Without the callback the bytes are a `.pocket` container.
+
 The archive's features select the outputs `create` registers:
 
 | Features | Outputs registered at create | Hooks |

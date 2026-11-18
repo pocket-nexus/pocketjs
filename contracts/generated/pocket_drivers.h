@@ -146,6 +146,7 @@ typedef struct pocket_display_output_v1 pocket_display_output_v1;
 typedef struct pocket_renderer_v1 pocket_renderer_v1;
 typedef struct pocket_input_source_v1 pocket_input_source_v1;
 typedef struct pocket_package_storage pocket_package_storage;
+typedef struct pocket_package_sections pocket_package_sections;
 typedef struct pocket_package_source_v1 pocket_package_source_v1;
 typedef struct pocket_clock_v1 pocket_clock_v1;
 
@@ -208,6 +209,9 @@ typedef int32_t (*pocket_package_range_fn)(void * context, size_t offset, uint8_
 
 /* Transfers the whole package: out describes storage of the length the length callback reported. After success the source may refuse all and range. UNSUPPORTED keeps the copying path. */
 typedef int32_t (*pocket_package_take_fn)(void * context, pocket_package_storage * out);
+
+/* Called once, before the bytes are read or taken. Success states the offsets of one program in this source's bytes; UNSUPPORTED states that the bytes are a package container. */
+typedef int32_t (*pocket_package_sections_fn)(void * context, pocket_package_sections * out);
 
 /* Releases storage a take transferred, after the runtime's last read of it. */
 typedef void (*pocket_package_release_fn)(void * context, const uint8_t * bytes, size_t length);
@@ -1327,13 +1331,79 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, release) == POCKET
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, release_context) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_4_OFFSET, "pocket_package_storage.release_context");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_storage, flags) == POCKET_LAYOUT_POCKET_PACKAGE_STORAGE_5_OFFSET, "pocket_package_storage.flags");
 
-/* all and take are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. */
+/* Where one program's sections lie in the bytes a source returns, for a host that keeps programs in a container of its own. Offsets count from the first byte the source returns. plan is the build plan JSON, js the NUL-terminated UI bundle and worker_js the NUL-terminated worker bundle; the bytecode sections are QJBC envelopes. A length of zero means the section is absent. host_abi is the binding generation the program was compiled for. */
+struct pocket_package_sections {
+  size_t struct_size;
+  size_t plan_offset;
+  size_t plan_length;
+  size_t js_offset;
+  size_t js_length;
+  size_t pak_offset;
+  size_t pak_length;
+  size_t bytecode_offset;
+  size_t bytecode_length;
+  size_t worker_js_offset;
+  size_t worker_js_length;
+  size_t worker_bytecode_offset;
+  size_t worker_bytecode_length;
+  uint32_t host_abi;
+};
+enum {
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_0_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_1_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_1_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_2_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_2_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_3_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_3_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_4_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_4_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_6_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_5_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_6_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_5_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_7_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_6_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_7_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_6_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_8_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_7_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_8_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_7_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_9_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_8_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_9_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_8_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_10_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_9_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_10_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_9_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_11_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_10_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_11_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_10_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_12_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_11_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_12_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_11_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_13_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_12_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_13_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_12_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_13_OFFSET + 4, POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_13_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_package_sections) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_SIZE, "pocket_package_sections size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_package_sections) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_13_ALIGN, "pocket_package_sections alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, struct_size) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_0_OFFSET, "pocket_package_sections.struct_size");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, plan_offset) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_1_OFFSET, "pocket_package_sections.plan_offset");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, plan_length) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_2_OFFSET, "pocket_package_sections.plan_length");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, js_offset) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_3_OFFSET, "pocket_package_sections.js_offset");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, js_length) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_4_OFFSET, "pocket_package_sections.js_length");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, pak_offset) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_5_OFFSET, "pocket_package_sections.pak_offset");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, pak_length) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_6_OFFSET, "pocket_package_sections.pak_length");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, bytecode_offset) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_7_OFFSET, "pocket_package_sections.bytecode_offset");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, bytecode_length) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_8_OFFSET, "pocket_package_sections.bytecode_length");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, worker_js_offset) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_9_OFFSET, "pocket_package_sections.worker_js_offset");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, worker_js_length) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_10_OFFSET, "pocket_package_sections.worker_js_length");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, worker_bytecode_offset) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_11_OFFSET, "pocket_package_sections.worker_bytecode_offset");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, worker_bytecode_length) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_12_OFFSET, "pocket_package_sections.worker_bytecode_length");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_sections, host_abi) == POCKET_LAYOUT_POCKET_PACKAGE_SECTIONS_13_OFFSET, "pocket_package_sections.host_abi");
+
+/* all, take and sections are optional; range supports sources without contiguous storage. Returned all bytes remain borrowed until the next call on this source. take transfers the package without a copy; without it, or when it returns UNSUPPORTED, the runtime copies the bytes through all or range. Without sections, or when it returns UNSUPPORTED, the bytes are a package container and the runtime parses it and checks its hashes. With sections the runtime reads the program at the stated offsets, admits its plan against the host and checks no container hash: the integrity of the host's container is the host's. */
 struct pocket_package_source_v1 {
   size_t struct_size;
   pocket_package_length_fn length;
   pocket_package_all_fn all;
   pocket_package_range_fn range;
   pocket_package_take_fn take;
+  pocket_package_sections_fn sections;
 };
 enum {
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -1346,15 +1416,18 @@ enum {
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_2_ALIGN, POCKET_ABI_ALIGNOF(pocket_package_range_fn)),
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_OFFSET + sizeof(pocket_package_range_fn), POCKET_ABI_ALIGNOF(pocket_package_take_fn)),
   POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_ALIGN, POCKET_ABI_ALIGNOF(pocket_package_take_fn)),
-  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_OFFSET + sizeof(pocket_package_take_fn), POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_ALIGN)
+  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_OFFSET + sizeof(pocket_package_take_fn), POCKET_ABI_ALIGNOF(pocket_package_sections_fn)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_ALIGN, POCKET_ABI_ALIGNOF(pocket_package_sections_fn)),
+  POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_5_OFFSET + sizeof(pocket_package_sections_fn), POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_5_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_package_source_v1) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_SIZE, "pocket_package_source_v1 size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_package_source_v1) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_ALIGN, "pocket_package_source_v1 alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_package_source_v1) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_5_ALIGN, "pocket_package_source_v1 alignment");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, struct_size) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_0_OFFSET, "pocket_package_source_v1.struct_size");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, length) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_1_OFFSET, "pocket_package_source_v1.length");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, all) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_2_OFFSET, "pocket_package_source_v1.all");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, range) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_3_OFFSET, "pocket_package_source_v1.range");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, take) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_4_OFFSET, "pocket_package_source_v1.take");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_package_source_v1, sections) == POCKET_LAYOUT_POCKET_PACKAGE_SOURCE_V1_5_OFFSET, "pocket_package_source_v1.sections");
 
 struct pocket_clock_v1 {
   size_t struct_size;

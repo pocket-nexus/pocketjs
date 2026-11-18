@@ -1,6 +1,7 @@
 //! Byte sources; package parsing, hashes and admission belong to pocket-package.
 
 use alloc::boxed::Box;
+use core::ops::Range;
 
 /// Storage another owner keeps alive for the package's lifetime and releases
 /// when the box drops: memory a C program transfers through its source's
@@ -36,8 +37,36 @@ pub enum SourceError {
     Failed,
 }
 
+/// Byte ranges of one program in the bytes a source returns, stated by a
+/// host that keeps programs in a container of its own. Ranges count from the
+/// first byte of `all`, `range` and `take_bytes`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PackageSections {
+    /// The binding generation the program was compiled for.
+    pub host_abi: u32,
+    /// The build plan JSON admission reads.
+    pub plan: Range<usize>,
+    /// The NUL-terminated UI bundle; `None` when `bytecode` carries it.
+    pub js: Option<Range<usize>>,
+    pub pak: Option<Range<usize>>,
+    /// The UI bundle as a bytecode envelope.
+    pub bytecode: Option<Range<usize>>,
+    /// The NUL-terminated worker bundle of a plan with `domains.worker`.
+    pub worker_js: Option<Range<usize>>,
+    /// The worker bundle as a bytecode envelope.
+    pub worker_bytecode: Option<Range<usize>>,
+}
+
 pub trait PackageSource {
     fn length(&self) -> Result<usize, SourceError>;
+    /// Where one program lies in this source's bytes. `None`, the default,
+    /// states that the bytes are a package container, which the consumer
+    /// parses and whose hashes it checks. With sections the consumer reads
+    /// the program at these ranges, admits its plan and checks no container
+    /// hash. Called once per load, before the bytes are read or taken.
+    fn sections(&mut self) -> Result<Option<PackageSections>, SourceError> {
+        Ok(None)
+    }
     /// Transfer storage to the consumer without copying. The returned bytes
     /// must have the length reported before this call. On success an owned
     /// source may be consumed and reject subsequent reads. Unsupported leaves

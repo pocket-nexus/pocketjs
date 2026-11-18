@@ -520,3 +520,88 @@ fn c_package_source_transfers_storage_in_place_and_releases_it_once() {
         assert_eq!(copy, TRANSFERRED);
     }
 }
+
+unsafe extern "C" fn package_sections(_: *mut c_void, out: *mut PocketPackageSections) -> i32 {
+    unsafe {
+        out.write(PocketPackageSections {
+            plan_offset: 8,
+            plan_length: 4,
+            js_offset: 2,
+            js_length: 3,
+            worker_js_offset: usize::MAX,
+            host_abi: 12,
+            ..PocketPackageSections::empty()
+        });
+    }
+    POCKET_STATUS_OK
+}
+unsafe extern "C" fn package_sections_overflow(
+    _: *mut c_void,
+    out: *mut PocketPackageSections,
+) -> i32 {
+    unsafe {
+        out.write(PocketPackageSections {
+            plan_offset: usize::MAX,
+            plan_length: 2,
+            ..PocketPackageSections::empty()
+        });
+    }
+    POCKET_STATUS_OK
+}
+unsafe extern "C" fn package_sections_unsupported(
+    _: *mut c_void,
+    _: *mut PocketPackageSections,
+) -> i32 {
+    POCKET_STATUS_UNSUPPORTED
+}
+
+#[test]
+fn c_package_source_states_its_sections_or_holds_a_container() {
+    let table = PocketPackageSourceV1 {
+        length: Some(package_length),
+        range: Some(package_range),
+        ..PocketPackageSourceV1::empty()
+    };
+    // Without the callback, or when it answers UNSUPPORTED, the bytes are a container.
+    for sections in [
+        None,
+        Some(package_sections_unsupported as PocketPackageSectionsFn),
+    ] {
+        let table = PocketPackageSourceV1 { sections, ..table };
+        let mut source = unsafe { CPackageSource::new(&table, core::ptr::null_mut()) }.unwrap();
+        assert_eq!(source.sections(), Ok(None));
+    }
+    // A zero length is an absent section, whatever its offset.
+    let stated = PocketPackageSourceV1 {
+        sections: Some(package_sections),
+        ..table
+    };
+    let mut source = unsafe { CPackageSource::new(&stated, core::ptr::null_mut()) }.unwrap();
+    assert_eq!(
+        source.sections(),
+        Ok(Some(PackageSections {
+            host_abi: 12,
+            plan: 8..12,
+            js: Some(2..5),
+            pak: None,
+            bytecode: None,
+            worker_js: None,
+            worker_bytecode: None,
+        }))
+    );
+    // A program has a plan, and its end is a representable offset.
+    for sections in [package_sections_overflow as PocketPackageSectionsFn, {
+        unsafe extern "C" fn no_plan(_: *mut c_void, out: *mut PocketPackageSections) -> i32 {
+            unsafe { out.write(PocketPackageSections::empty()) };
+            POCKET_STATUS_OK
+        }
+        no_plan
+    }] {
+        let table = PocketPackageSourceV1 {
+            sections: Some(sections),
+            ..table
+        };
+        let mut source = unsafe { CPackageSource::new(&table, core::ptr::null_mut()) }.unwrap();
+        assert_eq!(source.sections(), Err(SourceError::OutOfBounds));
+    }
+}

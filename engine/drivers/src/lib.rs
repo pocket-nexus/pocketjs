@@ -28,7 +28,7 @@ pub use damage_rect::DamageRect;
 pub use display::*;
 pub use draw::{DrawList, TextBox};
 pub use input::*;
-pub use package::{PackageBytes, PackageSource, PackageStorage, SourceError};
+pub use package::{PackageBytes, PackageSections, PackageSource, PackageStorage, SourceError};
 pub use pocket_spec as spec;
 pub use render::*;
 pub use resources::{FontView, RenderResources, TexView};
