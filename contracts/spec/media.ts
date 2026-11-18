@@ -13,8 +13,8 @@ export const MEDIA_PACKET = Object.freeze({ video: 1, audio: 2, end: 3, error: 4
 /** The header's video codec. `h264` needs the console's hardware decoder
  * (`MediaStatus.h264`). `pal8` is a palettized picture any console expands
  * in software; each packet carries the pixels that changed since the last
- * one (engine/host-services/media_wire.h has the layout, tools/media-stream.ts the
- * encoder). The picture sits at the texture's top-left corner. `rgb565` is
+ * one (tools/media-stream.ts `createPal8Encoder` has the layout and the
+ * encoder, programs/psp/src/media_wire.rs a decoder). The picture sits at the texture's top-left corner. `rgb565` is
  * the whole 512 x 256 plane a packet: u16 width, u16 height, u32 zero, then
  * the pixels row by row in the core's PSM_5650 layout (u16 LE, red in the low
  * five bits, blue in the high five), for a host that uploads a texture a

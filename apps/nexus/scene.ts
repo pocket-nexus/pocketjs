@@ -1,7 +1,7 @@
 // apps/nexus/scene.ts — the shared geometry of the Pocket Nexus 3DS scene.
 //
-// The scene lives on the 320x240 touch screen; the top screen belongs to the
-// system (the agent's stage). The physics world is that screen: the wordmark
+// The scene lives on the 320x240 touch screen; the app leaves the top screen
+// empty. The physics world is the touch screen: the wordmark
 // sits in two rows along the top edge, the lede under it, and the pocket on
 // the floor line below. gen-art.ts sizes every sprite from these numbers and
 // app.tsx places bodies and colliders with them, so art and physics cannot

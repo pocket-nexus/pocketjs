@@ -41,9 +41,9 @@ jobs:
           workspaces: .
           cache-directories: .pocket-build/cache
           cache-on-failure: true
-      # Camera fixtures link libjpeg; Linux audio fixtures use ALSA's null device.
+      # Linux audio fixtures use ALSA's null device.
       - name: Install native test dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-turbo8-dev libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
       - run: bun install --frozen-lockfile
       - run: bun tools/wasm.ts
       # Every stage but the two AOT compiler stages, which the `aot` job runs.
@@ -102,10 +102,9 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # wgpu tests render through Mesa's Vulkan driver; audio and camera
-      # fixtures link ALSA and libjpeg.
+      # wgpu tests render through Mesa's Vulkan driver; audio fixtures link ALSA.
       - name: Install headless GPU and media libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libasound2-dev libjpeg-turbo8-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libasound2-dev pkg-config
       - name: Format
         run: cargo fmt --manifest-path Cargo.toml -p pocket-text -p pocket3d -p pocket3d-world -p pocket3d-anim -p pocket3d-mesh -p pocket-ui-wgpu -p pocket-wgpu-render -p pocket-sim -- --check
       - name: Test the workspace default members

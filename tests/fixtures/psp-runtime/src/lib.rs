@@ -527,7 +527,8 @@ fn packages_the_profile_facts_do_not_satisfy_are_refused_before_the_guest_runs()
 
 /// Vectors from the companion's encoders (tools/media-stream.ts
 /// createPal8Encoder, contracts/spec/media-adpcm.ts encodeMediaAudio), and the
-/// PCM the 3DS's decoder (platforms/3ds/media_adpcm.h) gives for the block.
+/// PCM the C decoder (media_adpcm.h, pocket-nexus/pocket-shell
+/// devices/services) gives for the block.
 #[test]
 fn media_wire_reads_what_the_companion_encodes() {
     let mut state = media_wire::Pal8::new();

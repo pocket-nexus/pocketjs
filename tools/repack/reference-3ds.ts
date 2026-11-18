@@ -3,7 +3,7 @@
 //
 // Checks tools/repack/3ds.ts against devkitPro's own tools: builds the same
 // game's .3dsx with smdhtool and 3dsxtool in the pinned devkitARM image, from
-// the runtime's ELF (dist/3ds/build/runtime/pocketjs-3ds.elf, written by
+// the runtime's ELF (dist/runtime/3ds.native/pocketjs-3ds.elf, written by
 // `bun tools/runtime.ts 3ds`), the same scaled icons and a RomFS directory
 // holding the same app.pocket, and byte-compares the SMDH, the RomFS and the
 // whole file. Needs Docker; CI runs the committed fixtures instead
@@ -44,7 +44,7 @@ export async function reference3ds(argv: readonly string[]): Promise<boolean> {
     throw new Error("usage: bun tools/repack/reference-3ds.ts --pocket <file> --id … --title … --author … --version … --icon <png> [--fixtures <dir>]");
   }
   const runtimeDirectory = join(repository, "dist/runtime/3ds");
-  const elf = join(repository, "dist/3ds/build/runtime/pocketjs-3ds.elf");
+  const elf = join(repository, "dist/runtime/3ds.native/pocketjs-3ds.elf");
   const pocket = new Uint8Array(readFileSync(pocketPath));
   const icon = new Uint8Array(readFileSync(iconPath));
   const ours = await repack3ds({ runtime: readRuntimeDirectory(runtimeDirectory), pocket, identity: { ...identity, icon } });

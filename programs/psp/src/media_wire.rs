@@ -1,5 +1,5 @@
-//! The media stream's wire (contracts/spec/media.ts; platforms/3ds/media_wire.h
-//! and media_adpcm.h are the 3DS's copy): header and packet checks, the PAL8
+//! The media stream's wire (contracts/spec/media.ts; tools/media-stream.ts
+//! is the producer): header and packet checks, the PAL8
 //! reference picture and IMA ADPCM blocks. No device calls, so the host
 //! fixture (tests/fixtures/psp-runtime) runs these.
 

@@ -511,7 +511,7 @@ pub(crate) unsafe fn buffer_mut<'a>(ctx: *mut JSContext, value: JSValue) -> Opti
 
 // ---- globalThis.link over the USB share (link.rs) ---------------------------
 
-/// link.status() -> LinkStatus JSON (contracts/spec/link.ts).
+/// link.status() -> LinkStatus JSON (the Pocket Link contract's shape).
 unsafe extern "C" fn js_link_status(
     ctx: *mut JSContext,
     _this: JSValue,

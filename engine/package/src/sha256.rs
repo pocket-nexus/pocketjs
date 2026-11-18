@@ -1,9 +1,9 @@
 //! SHA-256 (FIPS 180-4) over a byte slice.
 //!
 //! A generic native runtime names an application's state directory from its
-//! id with the same digest the build tools use (`tools/3ds.ts`
-//! `runtimeSlot`: the first 16 hex digits of SHA-256(id)), so the device
-//! computes it from the `.pocket` it boots instead of having it compiled in.
+//! id with the digest product build tools use (the runtime slot: the first
+//! 16 hex digits of SHA-256(id)), so the device computes it from the
+//! `.pocket` it boots instead of having it compiled in.
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -86,7 +86,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 /// Lowercase hex of the first `N / 2` digest bytes: `N` = 16 gives the
-/// runtime slot `tools/3ds.ts` names.
+/// runtime slot.
 pub fn sha256_hex_prefix<const N: usize>(data: &[u8]) -> [u8; N] {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let digest = sha256(data);
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn runtime_slot_prefix() {
-        // tools/3ds.ts runtimeSlot("dev.pocket-nexus.studio.twenty48")
+        // The runtime slot of "dev.pocket-nexus.studio.twenty48".
         let slot = sha256_hex_prefix::<16>(b"dev.pocket-nexus.studio.twenty48");
         assert_eq!(&slot, b"8963ccb622f441a1");
     }

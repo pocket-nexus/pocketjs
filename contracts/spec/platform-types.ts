@@ -199,8 +199,8 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // worlds, anchored jelly bodies, colliders, zones and particle emitters
   // that write paint-only transforms into retained nodes each tick. The wasm
   // core behind the web and sim hosts implements the whole contract, and the
-  // 3ds-dev and ipodtouch4-dev profiles advertise it because their hosts bind
-  // the five ops (products/3ds/src/qjs.c; programs/native/quickjs/pocket_qjs_program.c under
+  // 3ds-runtime and ipodtouch4-dev profiles advertise it because their programs
+  // bind the five ops (programs/3ds; programs/native/quickjs/pocket_qjs_program.c under
   // POCKET_PHYSICS over programs/native/runtime). A target appends the id to its
   // profile only when its host binds them too.
   "ui.physics",
@@ -230,35 +230,38 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // resource, its messages streamed as records under the limits of
   // contracts/spec/mqtt.ts.
   "net.mqtt",
+  // The next seven ids name host namespaces whose contracts, guest modules
+  // and hosts live in pocket-nexus/pocket-shell (runtime/spec, runtime/src).
+  // No profile in this repository supplies them; they stay registered so the
+  // host contracts of those products validate against this registry.
+  //
   // The console's system link to a paired companion computer
-  // (`globalThis.link`, contracts/spec/link.ts): pairing, link status, the
-  // companion's app catalog and app installs. The 3ds-dev host owns the link
-  // and also routes net.http over it.
+  // (`globalThis.link`): pairing, link status, the companion's app catalog
+  // and app installs. A host that owns the link also routes net.http over it.
   "link.companion",
-  // The running applet's channel to its computer side over the Pocket Link
-  // (`globalThis.link.channel`, docs/POCKET-LINK.md §7): requests, events and
-  // byte streams that Hub routes to the applet's daemon. The host opens the
-  // channel for a package that declares it and closes it when the applet
-  // ends.
+  // A running package's channel to its computer side over that link
+  // (`globalThis.link.channel`): requests, events and byte streams the
+  // companion routes to the package's daemon. The host opens the channel for
+  // a package that declares it and closes it when the package ends.
   "link.channel",
-  // The console's wireless radio and saved connections (`globalThis.wifi`,
-  // contracts/spec/wifi.ts). Reads and selects; never writes a connection.
+  // The console's wireless radio and saved connections (`globalThis.wifi`).
+  // Reads and selects; never writes a connection.
   "system.wifi",
-  // The board's own controls (`globalThis.device`, contracts/spec/device.ts):
-  // backlight, speaker level, power rails, plug detection, free header pins,
-  // the removable card's directory listing and power off.
+  // The board's own controls (`globalThis.device`): backlight, speaker
+  // level, power rails, plug detection, free header pins, the removable
+  // card's directory listing and power off.
   "system.device",
   // Outer-camera preview texture plus an on-device QR decoder
-  // (`globalThis.camera`, contracts/spec/camera.ts).
+  // (`globalThis.camera`).
   "camera.qr",
   // Stills from the outer or inner camera kept as JPEG under the storage's
   // DCIM folder, listed, decoded for drawing and deleted (the same
-  // `globalThis.camera` namespace, contracts/spec/camera.ts).
+  // `globalThis.camera` namespace).
   "camera.photo",
   // The system mascot on the top screen and the agent channel to the
-  // companion (`globalThis.agent`, contracts/spec/agent.ts): a guest that
-  // declares it hands the top screen to the host's 3D stage and keeps its
-  // whole interface on the auxiliary surface.
+  // companion (`globalThis.agent`): a guest that declares it hands the top
+  // screen to the host's 3D stage and keeps its whole interface on the
+  // auxiliary surface.
   "system.agent",
   // A product extension linked into the program: it draws the primary display and
   // publishes its own global, and the guest's interface stays on the auxiliary surface.
@@ -266,11 +269,9 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // A per-app file tree behind the fs module's own namespace
   // (`globalThis.fs`, contracts/spec/fs.ts): nine synchronous ops, every
   // path confined to the app's own data root — apps cannot name, let alone
-  // reach, each other's trees. The sim host (platforms/sim/fs.ts) and the
-  // host-services implementation (engine/host-services/fs.c, compiled into
-  // the 3DS product and the Tab5 program) ship the whole contract; a device
-  // target appends the id to its profile only when its program compiles the
-  // module in.
+  // reach, each other's trees. The sim host (platforms/sim/fs.ts) ships the
+  // whole contract; a device target appends the id to its profile only when
+  // its program compiles the module in.
   "data.fs",
   // Read-only files under the game data root behind the pack module's own
   // namespace (`globalThis.pack`, contracts/spec/pack.ts): six synchronous

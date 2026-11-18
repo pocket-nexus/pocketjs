@@ -34,7 +34,8 @@ const WRITER_IDLE: Duration = Duration::from_millis(200);
 /// pressing a key and the character appearing: measured p50 133 ms against
 /// a companion whose own round trip is 4.6 ms. The console never had this
 /// because its transport pumps send and receive independently every frame
-/// (products/3ds/src/svcwire.c); here that separation is a condvar.
+/// (the 3DS product's svcwire.c in pocket-nexus/pocket-shell); here that
+/// separation is a condvar.
 #[derive(Default)]
 struct Outbox {
     queue: Mutex<VecDeque<Vec<u8>>>,

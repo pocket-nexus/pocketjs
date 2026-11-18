@@ -330,18 +330,21 @@ test("pocket check includes the independent worker entry", () => {
     app: {
       entry: ".pocket-build/validation/worker/sdk/typecheck-worker/ui.tsx",
       framework: "solid",
-      viewport: { fixed: { logical: [400, 240], presentation: "native" } },
+      viewport: { fixed: { logical: [480, 272], presentation: "native" } },
     },
     domains: {
       worker: { entry: ".pocket-build/validation/worker/sdk/typecheck-worker/invalid.ts", nodes: [] },
     },
   };
+  // A host contract that supplies runtime.worker: the PSP's, plus the capability.
+  const host = resolve(output, "pocket.host.json");
+  writeFileSync(host, JSON.stringify({ ...POCKET_PROFILES.psp, id: "worker-host", capabilities: [...POCKET_PROFILES.psp.capabilities, "runtime.worker"] }));
   writeFileSync(resolve(output, "invalid.ts"), "const value: number = 'incorrect';\nvoid value;\n");
   // The UI entry's imports map through the UI domain: a worker subpath is unresolvable there.
   writeFileSync(resolve(output, "ui.tsx"), 'import { io } from "@pocketjs/framework/io";\nvoid io;\n');
   const path = resolve(output, "pocket.app.json");
   writeFileSync(path, JSON.stringify(manifest));
-  const checked = Bun.spawnSync([process.execPath, resolve("tools/pocket.ts"), "check", "--manifest", path, "--project-root", resolve("."), "--target", "3ds-dev"], { cwd: resolve("."), stdout: "pipe", stderr: "pipe" });
+  const checked = Bun.spawnSync([process.execPath, resolve("tools/pocket.ts"), "check", "--manifest", path, "--project-root", resolve("."), "--target", host], { cwd: resolve("."), stdout: "pipe", stderr: "pipe" });
   expect(checked.exitCode).not.toBe(0);
   expect(checked.stderr.toString()).toContain("TS2322");
   expect(checked.stderr.toString()).toContain("invalid.ts");

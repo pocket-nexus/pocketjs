@@ -5,9 +5,13 @@ import { describe, expect, test } from "bun:test";
 import { BUTTON_GLYPHS, deriveModality, modalityMisses, PORTABLE_MODALITY, type Modality } from "../contracts/spec/modality.ts";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { THREE_DS_DEV_CONTRACTS, THREE_DS_DEV_TARGET_ID } from "../tools/3ds-profile.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { profileRegistry } from "../tools/profile-resolver.ts";
 
-const threeDs = THREE_DS_DEV_CONTRACTS.targets[THREE_DS_DEV_TARGET_ID];
+// The dual-screen device: the built-in 3ds-runtime host contract.
+const THREE_DS_TARGET_ID = POCKET_PROFILES["3ds-runtime"].id;
+const THREE_DS_CONTRACTS = profileRegistry(POCKET_PROFILES["3ds-runtime"]);
+const threeDs = THREE_DS_CONTRACTS.targets[THREE_DS_TARGET_ID]!;
 
 describe("deriveModality", () => {
   test("the PSP is the portable shape the runtime falls back to", () => {
@@ -129,7 +133,7 @@ function manifest(): Record<string, any> {
           viewport: { fixed: { logical: [400, 240], presentation: "native" } },
           surfaces: { auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } },
           capabilities: {
-            requires: ["display.auxiliary", "input.touch.auxiliary", "io.offload"],
+            requires: ["display.auxiliary", "input.touch.auxiliary", "ui.physics"],
             enhances: ["input.analog.right"],
           },
         },
@@ -155,7 +159,7 @@ describe("presentation selection", () => {
   });
 
   test("the dual-screen target compiles the matching presentation with its own geometry and capabilities", () => {
-    const result = validateAndResolveBuildPlan(manifest(), { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    const result = validateAndResolveBuildPlan(manifest(), { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.plan.presentation).toEqual({ id: "dual-screen", entry: "app/main-dual.tsx" });
@@ -173,15 +177,15 @@ describe("presentation selection", () => {
       "input.cursor": true,
       "input.touch": false,
       "input.touch.auxiliary": true,
-      "io.offload": true,
       "text.glyphs.baked": true,
+      "ui.physics": true,
     });
   });
 
   test("a matched presentation that the target cannot admit fails at the presentation's path", () => {
     const value = manifest();
     value.app.presentations[0].capabilities.requires.push("input.pointer");
-    const result = validateAndResolveBuildPlan(value, { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    const result = validateAndResolveBuildPlan(value, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.diagnostics).toEqual([
@@ -196,13 +200,13 @@ describe("presentation selection", () => {
   test("a presentation may promote an app enhancement to a requirement, but not repeat a declaration", () => {
     const promoted = manifest();
     promoted.app.presentations[0].capabilities.requires.push("input.cursor");
-    const ok = validateAndResolveBuildPlan(promoted, { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    const ok = validateAndResolveBuildPlan(promoted, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
     expect(ok.ok).toBe(true);
     if (ok.ok) expect(ok.plan.features["input.cursor"]).toBe(true);
 
     const repeated = manifest();
     repeated.app.presentations[0].capabilities.requires.push("input.buttons");
-    const bad = validateAndResolveBuildPlan(repeated, { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    const bad = validateAndResolveBuildPlan(repeated, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
     expect(bad.ok).toBe(false);
     if (!bad.ok) {
       expect(bad.diagnostics.map((d) => [d.code, d.path])).toEqual([
@@ -222,7 +226,7 @@ describe("presentation selection", () => {
     expect(vita.ok && vita.plan.presentation.id).toBe("touch");
     const psp = validateAndResolveBuildPlan(value, { target: "psp" });
     expect(psp.ok && psp.plan.presentation.id).toBe("default");
-    const dual = validateAndResolveBuildPlan(value, { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    const dual = validateAndResolveBuildPlan(value, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
     expect(dual.ok && dual.plan.presentation.id).toBe("dual-screen");
 
     // A catch-all listed first wins every device — declaration order decides.
@@ -235,7 +239,7 @@ describe("presentation selection", () => {
     // 480x272 viewport, and the diagnostic points at the presentation.
     const unhosted = manifest();
     unhosted.app.presentations.unshift({ id: "touch", entry: "app/main-touch.tsx", modality: { touch: "any" } });
-    const failed = validateAndResolveBuildPlan(unhosted, { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    const failed = validateAndResolveBuildPlan(unhosted, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
     expect(failed.ok).toBe(false);
     if (!failed.ok) expect(failed.diagnostics.map((d) => d.code)).toContain("viewport.logicalUnsupported");
 
@@ -279,7 +283,7 @@ describe("application modality", () => {
   test("a matching presentation serves a device the baseline refuses", () => {
     const value = manifest();
     value.app.modality = { touch: "primary" };
-    const dual = validateAndResolveBuildPlan(value, { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    const dual = validateAndResolveBuildPlan(value, { target: THREE_DS_TARGET_ID }, THREE_DS_CONTRACTS);
     expect(dual.ok && dual.plan.presentation.id).toBe("dual-screen");
     const psp = validateAndResolveBuildPlan(value, { target: "psp" });
     expect(psp.ok).toBe(false);

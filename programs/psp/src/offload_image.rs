@@ -6,8 +6,8 @@
 //! costs tens of milliseconds per row on the PSP; here each is one pass over
 //! at most 8192 pixels into a CLUT texture: a palette of 256 x u32 ABGR
 //! (`TEX_PALETTE_BYTES`) followed by one index byte per envelope pixel. The
-//! limits mirror platforms/3ds/offload_coverage.h so a companion reply that
-//! renders on one device renders on the other.
+//! limits mirror engine/modules/offload/include/offload_coverage.h so a
+//! companion reply that renders on one device renders on the other.
 
 use alloc::vec::Vec;
 

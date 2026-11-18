@@ -3,7 +3,6 @@ import {
   type PresentationMode,
   type Viewport,
 } from "./platform-types.ts";
-import { appletSchema, type AppletDeclaration } from "./applet.ts";
 import { modalityRequirementSchema, type ModalityRequirement } from "./modality.ts";
 import { workerDeclarationSchema, type WorkerDeclarationSource } from "./worker.ts";
 
@@ -72,12 +71,6 @@ export interface PocketManifestV2 {
    * variant's cover section; `pocket pack` uses it when no `--icon` is given.
    */
   readonly icon?: string;
-  /**
-   * Declares the package a Pocket Applet (contracts/spec/applet.ts): the
-   * program a launcher runs, held to the applet rules at resolution and
-   * build. Absent, the package is an ordinary app.
-   */
-  readonly applet?: AppletDeclaration;
   readonly engine: {
     readonly capabilities: {
       readonly requires: readonly string[];
@@ -397,7 +390,6 @@ export const pocketManifestV2Schema = {
     },
     author: { type: "string", minLength: 1, maxLength: 128 },
     icon: { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.png$" },
-    applet: appletSchema,
     engine: {
       type: "object",
       additionalProperties: false,

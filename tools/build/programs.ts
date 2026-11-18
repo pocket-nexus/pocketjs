@@ -7,8 +7,6 @@ export interface ProgramEntry {
   readonly id: string;
   readonly profile: string;
   readonly directory: string;
-  /** Repository-relative config override for an independent product. */
-  readonly hostConfig?: string;
   readonly generic?: { readonly directory: string; readonly profile: string };
 }
 /** CLI aliases locate program-owned recipes; external programs need no entry. */
@@ -20,7 +18,7 @@ export const PROGRAMS: readonly ProgramEntry[] = [
   { id: "ipodtouch4", profile: "ipodtouch4-dev", directory: "ipodtouch4", generic: { directory: "ipodtouch4", profile: "ipodtouch4-dev" } },
   { id: "psp", profile: "psp", directory: "psp", generic: { directory: "psp/runtime", profile: "psp-runtime" } },
   { id: "vita", profile: "vita", directory: "vita", generic: { directory: "vita/runtime", profile: "vita" } },
-  { id: "3ds", profile: "3ds-dev", directory: "3ds", hostConfig: "products/3ds/pocket.host.config.ts", generic: { directory: "3ds", profile: "3ds-runtime" } },
+  { id: "3ds", profile: "3ds-runtime", directory: "3ds", generic: { directory: "3ds", profile: "3ds-runtime" } },
   { id: "web-app", profile: "web-app", directory: "web" },
   { id: "macos-widget", profile: "macos-widget", directory: "macos-widget" },
   { id: "gba", profile: "gba", directory: "gba" },
@@ -45,9 +43,7 @@ export async function resolveRuntimeProgram(options: {
   const useGeneric = options.generic || target === entry.generic?.profile && target !== entry.profile;
   const selection = useGeneric ? entry.generic : entry;
   if (!selection) throw new Error(`program ${entry.id} has no generic runtime; use its native build recipe`);
-  const hostConfig = !useGeneric && entry.hostConfig
-    ? resolve(ROOT, entry.hostConfig)
-    : resolve(ROOT, "programs", selection.directory, "pocket.host.config.ts");
+  const hostConfig = resolve(ROOT, "programs", selection.directory, "pocket.host.config.ts");
   if (!existsSync(hostConfig)) throw new Error(`program source is unavailable: ${hostConfig}; use a source checkout or your own --config`);
   return resolveProfile({ from: options.from, target: selection.profile, hostConfig, requireConfig: true, env: options.env });
 }

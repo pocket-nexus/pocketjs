@@ -12,8 +12,8 @@ pub struct DrawList {
     pub words: Vec<u32>,
     /// Armed by `Ui::capture_texts` with a node id: the next build of this
     /// list records every text run painted inside that node's subtree, with
-    /// its visible world box, into `texts`, then disarms (0). The agent reads
-    /// a screen this way (contracts/spec/agent.ts).
+    /// its visible world box, into `texts`, then disarms (0). A system layer
+    /// reads a screen this way.
     pub capture_texts: i32,
     pub texts: Vec<TextBox>,
     /// Paint that repeats exactly when content moves by whole logical

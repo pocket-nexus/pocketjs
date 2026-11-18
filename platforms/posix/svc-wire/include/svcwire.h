@@ -3,7 +3,8 @@
  * service channel (spec ops 30..32) over one TCP connection to a companion
  * process on the LAN, discovered through its UDP beacon (contracts/spec/
  * spec.ts "SVC WIRE protocol"; platforms/vita/net/src/lib.rs is the threaded
- * reference, products/3ds/src/svcwire.c the frame-pumped one this file follows:
+ * reference; this file is frame-pumped, as the Nintendo 3DS product's svcwire.c is
+ * (pocket-nexus/pocket-shell, devices/3ds/src):
  * non-blocking BSD sockets, a bounded amount of work per frame, no threads).
  *
  * The guest contract is the PSP mailbox, unchanged: svcOpen is a

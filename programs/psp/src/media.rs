@@ -1,6 +1,6 @@
 //! media.playback (contracts/spec/media.ts) over the USB carrier's media ring
-//! (contracts/spec/link.ts "Media"): the stream a 3DS reads from a socket
-//! (platforms/3ds/media.c), read here from `host0:/pocket-link/media.ring`.
+//! (platforms/psp/io/src/link.rs): the stream other consoles read from a
+//! socket, read here from `host0:/pocket-link/media.ring`.
 //!
 //! The guest's thread copies commands in, reads snapshots and commits
 //! pictures. A worker thread does every host0 read and write of the stream,
@@ -36,7 +36,7 @@ use psp::sys::{self, IoOpenFlags, IoWhence, SceUid};
 use crate::media_wire as wire;
 use crate::{audio, ge, link};
 
-// contracts/spec/link.ts "Media".
+// The USB carrier's "Media" section (platforms/psp/io/src/link.rs names the contract).
 const RING_MAGIC: u32 = 0x4d4c_4b50;
 const ACK_MAGIC: u32 = 0x414c_4b50;
 const HEAD_BYTES: u32 = 64;

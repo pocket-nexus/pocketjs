@@ -1,4 +1,5 @@
-//! Pocket Link over the PSPLINK share (contracts/spec/link.ts "USB carrier"):
+//! Pocket Link over the PSPLINK share (the "USB carrier" section of the
+//! Pocket Link contract, pocket-nexus/pocket-shell runtime/spec/link.ts):
 //! `globalThis.link` and the media ring on a PSP whose companion serves
 //! host0:. The companion beats `host0:/pocket-link/ready`; the console
 //! answers with `hello`, and media.rs opens a stream by writing `media.req`.
@@ -25,7 +26,7 @@ use core::{
 
 use psp::sys::{self, IoOpenFlags, SceUid};
 
-// contracts/spec/link.ts (USB carrier).
+// The Pocket Link contract's USB carrier (pocket-nexus/pocket-shell runtime/spec/link.ts).
 const MAGIC: u32 = 0x554c4b50;
 const HEADER: usize = 64;
 const KIND_READY: u32 = 1;
@@ -348,7 +349,7 @@ pub fn epoch() -> u32 {
     EPOCH.load(Acquire)
 }
 
-/// Write `media.req` (contracts/spec/link.ts "Media") for stream
+/// Write `media.req` (the USB carrier's "Media" section) for stream
 /// `generation`: open the ticket `token` names, or close with None. Any
 /// thread; false with no companion or when the write fails.
 ///
