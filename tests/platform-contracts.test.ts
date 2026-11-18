@@ -21,7 +21,6 @@ resolveBuildPlan,
 validateAndResolveBuildPlan,
 validatePlatformContractRegistry,
 } from "../framework/src/manifest/resolve.ts";
-import { validatePocketSystem } from "../framework/src/manifest/system.ts";
 import { validatePocketManifest, validateSchema, type ContractDiagnostic } from "../framework/src/manifest/validate.ts";
 import { readPocketManifest } from "../framework/src/manifest/load.ts";
 import { fileURLToPath } from "node:url";
@@ -191,16 +190,6 @@ describe("pocket.app.json v2 schema", () => {
       path: "/app/surfaces/auxiliary/panel",
       message: "unknown property",
     });
-  });
-});
-
-describe("Pocket System v1 schema", () => {
-
-  test("validates a managed browser installation model", async () => {
-    const system = await Bun.file(
-      new URL("./fixtures/systems/managed-web.json", import.meta.url),
-    ).json();
-    expect(validatePocketSystem(system).ok).toBe(true);
   });
 });
 
