@@ -17,8 +17,8 @@
 //! into `sceAudioOutputPannedBlocking`, which parks it in the kernel until
 //! the hardware drains each block.
 //!
-//! Single writer (the main thread for the video plane, the media worker for
-//! media.playback, never both) + single reader (audio thread) over absolute
+//! Single writer (the main thread for the video plane, or one worker thread
+//! of the program, never both) + single reader (audio thread) over absolute
 //! frame counters; release/acquire pairs publish the PCM bytes with the
 //! counter. `flush()` (seek/epoch change) is writer-side: it advances the
 //! read cursor, and a racing reader at worst outputs one already-consumed
@@ -317,7 +317,7 @@ pub fn set_volume(value: f32) {
     VOLUME.store((value * sys::AUDIO_VOLUME_MAX as f32) as i32, Ordering::Relaxed);
 }
 
-/// SOURCE sample frames handed to the hardware since start(); the media
+/// SOURCE sample frames handed to the hardware since start(); a player's
 /// clock (the block in flight counts as played).
 pub fn played() -> usize {
     READ_POS.load(Ordering::Acquire)

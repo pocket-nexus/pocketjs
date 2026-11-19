@@ -56,8 +56,8 @@ refused**, and so is anything over 200 bytes, 8 segments or 64 bytes per segment
 `root`: `program`, `cwd`, `fallback` or `host0` on PSP. `cwd` replaces the first entry only when the
 program received no `argv[0]`. A miss tries every remaining root, at about 10 ms per root on a card.
 
-**On PSP, `programs/psp/src/main.rs` spells out `psp::module!` to keep `argv[0]`,** which the macro
-drops after its `chdir`. `worker_main` also enters that directory with `sceIoChdir`: rust-psp's `chdir`
+**On PSP, the library's `module!` (`programs/psp/src/frame.rs`) spells out `psp::module!` to keep
+`argv[0]`,** which the macro drops after its `chdir`. `worker_main` also enters that directory with `sceIoChdir`: rust-psp's `chdir`
 applies to its own main thread, and PPSSPP answers a relative path on a new thread with
 `SCE_KERNEL_ERROR_NOCWD`.
 

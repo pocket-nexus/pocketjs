@@ -3,6 +3,7 @@ use alloc::{boxed::Box, rc::Rc, string::String};
 use core::{
     cell::{Cell, RefCell},
     ffi::{c_void, CStr},
+    ptr::NonNull,
 };
 use libquickjs_sys::*;
 use pocket_drivers::abi::*;
@@ -51,6 +52,8 @@ pub(crate) struct Guest {
     last_phase: Cell<i32>,
     pub after_js: Cell<u64>,
     pub after_jobs: Cell<u64>,
+    /// The program's globals hook while `with_globals` runs.
+    globals: Cell<Option<NonNull<dyn FnMut(*mut JSContext, JSValue)>>>,
 }
 impl Guest {
     pub unsafe fn new(
@@ -94,6 +97,7 @@ impl Guest {
             last_phase: Cell::new(0),
             after_js: Cell::new(0),
             after_jobs: Cell::new(0),
+            globals: Cell::new(None),
         });
         let pointer = (&mut *guest as *mut Self).cast();
         JS_SetContextOpaque(context, pointer);
@@ -106,6 +110,26 @@ impl Guest {
                 .to_string_lossy()
                 .into_owned()
         }
+    }
+    /// Run `boot` with `globals` as the hook `initialize` calls after the
+    /// library's namespaces and before evaluation.
+    pub fn with_globals<R>(
+        &self,
+        globals: &mut dyn FnMut(*mut JSContext, JSValue),
+        boot: impl FnOnce() -> R,
+    ) -> R {
+        let hook: NonNull<dyn FnMut(*mut JSContext, JSValue) + '_> = NonNull::from(globals);
+        // SAFETY: only the lifetime bound changes; the cell is cleared below,
+        // before `globals` can expire.
+        self.globals.set(Some(unsafe {
+            core::mem::transmute::<
+                NonNull<dyn FnMut(*mut JSContext, JSValue) + '_>,
+                NonNull<dyn FnMut(*mut JSContext, JSValue)>,
+            >(hook)
+        }));
+        let result = boot();
+        self.globals.set(None);
+        result
     }
 }
 unsafe extern "C" fn phase(context: *mut c_void, phase: i32) {
@@ -134,7 +158,13 @@ impl Drop for Guest {
         }
     }
 }
-pub(crate) unsafe fn with_ui<R>(
+/// Run `callback` on the `Ui` of the guest whose QuickJS context is
+/// `context`, from inside a native function installed on that guest. None
+/// when the context belongs to no live guest or its core is borrowed.
+///
+/// # Safety
+/// Worker thread; no core guard is held.
+pub unsafe fn with_ui<R>(
     context: *mut JSContext,
     callback: impl FnOnce(&mut pocketjs_core::Ui) -> R,
 ) -> Option<R> {
@@ -157,6 +187,9 @@ unsafe extern "C" fn initialize(
     }
     guest.pak_length.set((*environment).pak_length);
     crate::service_bindings::register_private(guest.context, guest.global, &guest.data_name);
+    if let Some(mut globals) = guest.globals.get() {
+        (globals.as_mut())(guest.context, guest.global);
+    }
     let tick_hz = (*environment).tick_hz;
     let sim_hz = match guest.cadence {
         Some(cadence) if tick_hz % cadence == 0 && tick_hz / cadence <= 60 => cadence,

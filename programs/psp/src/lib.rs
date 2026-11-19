@@ -6,17 +6,21 @@
 //! The `pocketjs-psp` bin is one composition of these pieces: `module!` and
 //! the `frame` loop around the embedded application. A program crate in
 //! another repository is another: it runs `frame::run` once per guest with
-//! its own `frame::Program`, op providers and native drawing between guests.
-//! A game runtime (e.g. OpenStrike's PSP EBOOT) links the arena allocator,
-//! generated QuickJS guest, canonical Runtime, GE driver and private device
-//! services, then supplies its native scene. `Runtime::ui` borrows that
-//! instance's core; no global UI is installed.
+//! its own `frame::Program`, op providers, native globals, textures and
+//! native drawing between guests. A game runtime (e.g. OpenStrike's PSP
+//! EBOOT) links the arena allocator, generated QuickJS guest, canonical
+//! Runtime, GE driver and private device services, then supplies its native
+//! scene. `Runtime::ui` borrows that instance's core; no global UI is
+//! installed.
 //!
 //! Linking this library installs the arena-backed `#[global_allocator]`
 //! program-wide — the single-kernel-block
 //! memory model from docs/DESIGN.md "Memory (the blocker fix)".
 
 extern crate alloc;
+/// The QuickJS bindings the guest runs on, for a program's native globals
+/// (`frame::Program::globals`): one revision for the library and the program.
+pub use libquickjs_sys;
 /// The rust-psp crate this library builds on, for `module!` and for a
 /// program's native GE drawing.
 pub use psp;
@@ -39,12 +43,11 @@ pub mod scene;
 pub mod service_bindings;
 pub use scene as ge;
 pub mod host;
-pub use pocket_psp_io::link;
-pub mod media;
-pub mod media_wire;
 mod instance;
-/// The exported profile this EBOOT was built for (`psp` or `psp-runtime`);
-/// build.rs copies it into OUT_DIR from `POCKETJS_PROFILE_RS`.
+pub use instance::with_ui;
+/// The exported profile this EBOOT was built for (`psp`, `psp-runtime` or a
+/// program's own psp profile); build.rs copies it into OUT_DIR from
+/// `POCKETJS_PROFILE_RS`.
 pub mod profile {
     include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
 }

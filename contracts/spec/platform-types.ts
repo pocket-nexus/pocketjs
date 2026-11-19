@@ -217,7 +217,11 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // inputs into a per-input ring the guest drains each tick.
   "audio.capture",
   // Native encoded-media playback with bounded worker handoff, audio clock,
-  // pause/volume, texture output and observable decoder availability.
+  // pause/volume, texture output and observable decoder availability
+  // (`globalThis.media`). Its contract, guest module and hosts live in
+  // pocket-nexus/pocket-shell; no profile in this repository supplies it,
+  // and it stays registered so the host contracts of those products
+  // validate against this registry.
   "media.playback",
   // HTTP as a worker resource (`io.http` in @pocketjs/framework/io,
   // engine/worker): bounded streaming requests through the host's transport

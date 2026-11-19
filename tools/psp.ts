@@ -74,6 +74,8 @@ export const STOCK_PSP_PROGRAM: PspProgram = { directory: resolvePath(pspUiDir, 
 
 export interface PspProgramBuild {
   readonly program: PspProgram;
+  /** The profile the program exports and admits packages against: psp,
+   *  psp-runtime, or a program crate's own profile of platform psp. */
   readonly profile: PocketProfile;
   /** The admitted application the program embeds as `embedded::BUNDLE`.
    *  Without one the program is the generic runtime (cargo feature
@@ -266,6 +268,9 @@ export async function buildPspProgram(build: PspProgramBuild): Promise<BuiltPspP
     CARGO_TARGET_DIR: `${programDir}target`,
     CARGO_PROFILE_DEV_OPT_LEVEL: process.env.CARGO_PROFILE_DEV_OPT_LEVEL ?? "3",
     ...hostEnvironment,
+    // build.rs accepts any profile of this platform: the stock ones or a
+    // program crate's own.
+    POCKETJS_PLATFORM: selectedProfile.platform,
     // The build script embeds these original bytes; it has no raw-bundle path.
     POCKETJS_EMBED_BUNDLE: application ? resolvePath(application.bundlePath) : "",
     // Scripted capture input + per-demo capture window, baked into the EBOOT

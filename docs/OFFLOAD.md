@@ -117,6 +117,30 @@ method allowlist while resolving opaque document IDs inside its granted root.
 No document, Markdown, terminal, or platform SDK concept occurs in the guest
 offload client or native queue.
 
+## Service clients
+
+**`createServiceClient(namespace)` (`@pocketjs/framework/service-client`)
+owns service transport.** An application that lists `io.offload` reaches the
+provider over the offload channel; otherwise the client opens the host's
+service mailbox (`svcOpen`, ops 30 to 32), and a host without the mailbox
+reaches `httpBase` over HTTP. Offload commands use `<namespace>.command`; an asynchronous
+`{ job }` reply is read through `<namespace>.poll`. Mailbox and HTTP
+providers expose the same `send` and `subscribe` methods. **At most 16
+requests are pending**, each with a frame deadline, and a session change
+fails pending work before publishing an `offline` event. `image(file)` and
+`openStream(file)` open the namespace's side files on the host
+(`loadImgFile`, `videoOpen`).
+
+**`createMediaService(client)` (`@pocketjs/framework/media-service`) owns one
+playback lifetime over a frame-indexed stream.** A `playing` reply names the
+stream file, its frame rate and its position; the service opens it on the
+host's video plane and exposes `texture()` and `status()`. Applications send
+`play`, `pause`, `resume`, `seek` and `stop` through the service. Pause and
+seek go to the provider, the position advances with each `videoTick`, and an
+offload provider is polled for completion **every 120 frames**; mailbox
+providers send completion events. Stop and disconnect close the plane and
+invalidate outstanding playback replies.
+
 ## TCP transport
 
 **`tools/companion-session.ts` connects the provider to a device worker over

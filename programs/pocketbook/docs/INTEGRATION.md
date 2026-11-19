@@ -1337,7 +1337,7 @@ feature-detects optional HostOps methods.
 | `framework/src/renderer-octane.ts` | Octane universal driver over HostOps |
 | `programs/psp/src/service_bindings.rs` | PSP's HostOps installation (reference implementation) |
 | `programs/psp/src/scene.rs` | PSP's DrawList walker (reference for a GPU backend) |
-| `programs/psp/src/main.rs` | PSP's frame loop ordering |
+| `programs/psp/src/frame.rs` | PSP's frame loop ordering |
 | `engine/mod/src/lib.rs` | QuickJS hosting library |
 | `engine/ui-surface/src/surface.rs` | UI embedding using pocket-mod |
 | `site/content/docs/platform-contracts.md` | Custom host build API |
