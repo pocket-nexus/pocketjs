@@ -293,8 +293,9 @@ registry does not know; **those ids are the host's**:
 
 - `validatePocketProfile` and `validatePlatformContractRegistry` accept them.
 - `resolveAppPlan` accepts an `app.features` entry when the registry or the
-  `capabilities` of the selected host contract has it, and records it in `plan.features` like a registered id. An entry that neither
-  has is `capability.unknown`.
+  `capabilities` of the selected host contract has it, and records it in
+  `plan.features` like a registered id. An entry that neither has is
+  `capability.unknown`.
 - Admission compares feature names with the host's capability names as
   strings, so a device admits the plan without knowing the id.
 - PocketJS attaches nothing else to the id: no dependency rule, no
@@ -361,8 +362,8 @@ A product writes its own host contract:
 
 **`profileHash` is the SHA-256 of the canonical projection of `id`,
 `platform`, `form`, `cadences`, `display` and `capabilities`.** Capabilities
-and cadences hash as sorted sets. The hash names the host contract a bundle was compiled against.
-Admission does not compare it.
+and cadences hash as sorted sets. The hash names the host contract a bundle
+was compiled against. Admission does not compare it.
 
 The host config, `pocket.host.config.ts`, names the host contract by a path
 relative to the config file, or by a built-in host id:
