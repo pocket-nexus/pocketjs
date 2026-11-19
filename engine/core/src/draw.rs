@@ -1857,7 +1857,7 @@ impl<'a> Walker<'a> {
             // screen space (spec, PSP-authentic): exact when the projection
             // factor is constant across the quad, but a foreshortened quad's
             // interior texture lines visibly KINK along the triangle diagonal
-            // (a real-hardware find on the launcher's tilted cards). Split
+            // (found on PSP hardware with perspective-tilted images). Split
             // into a grid sized by the perspective variation per axis — each
             // cell's corners get projectively correct UVs, and the residual
             // per-cell affine error shrinks quadratically. Flat or affine

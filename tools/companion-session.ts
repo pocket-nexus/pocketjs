@@ -1,4 +1,6 @@
-/** Paired desktop endpoint for the 3DS bounded worker mailbox.
+/** Paired desktop endpoint for a device's bounded TCP offload worker
+ * (platforms/linux/offload/offload_posix.c, which the iPod touch 4 program
+ * runs through programs/native/quickjs/offload_qjs.h).
  * The record transport is shared by request/reply offload and stateful rooms.
  * It owns reconnection; applications own replay, identity and session recovery.
  */
