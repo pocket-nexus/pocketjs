@@ -36,9 +36,9 @@ function createMainPage(): Page {
   const width = Screen.mainScreen.widthDIPs;
   pocket.width = width as never;
   pocket.height = Math.round((width * logicalHeight) / logicalWidth) as never;
-  pocket.on('loaded', () => console.log('[pocket-shell] guest loaded'));
+  pocket.on('loaded', () => console.log('[pocketjs-host] guest loaded'));
   pocket.on('error', (event) =>
-    console.error('[pocket-shell] error:', (event as { message?: string }).message),
+    console.error('[pocketjs-host] error:', (event as { message?: string }).message),
   );
   pocket.on('effect', (event) => {
     const cmd = (event as { data?: BridgeCommand }).data;

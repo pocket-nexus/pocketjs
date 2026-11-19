@@ -303,7 +303,7 @@ export async function buildIOSSimulatorNative(application: RuntimeApplication, o
   const candidates = [...new Bun.Glob("platforms/ios/build/**/*.app").scanSync({ cwd: shellDir, onlyFiles: false })];
   const apps = candidates.filter(path => path.includes("iphonesimulator") && !path.includes(".app/"));
   if (apps.length !== 1) throw new Error(`iOS simulator native build must produce one .app, found ${apps.length}`);
-  const output = resolve(outdir, "PocketShell.app");
+  const output = resolve(outdir, "PocketJSHost.app");
   rmSync(output, { recursive: true, force: true });
   cpSync(resolve(shellDir, apps[0]!), output, { recursive: true });
   cpSync(XCFRAMEWORK_DIST, resolve(outdir, "PocketApple.xcframework"), { recursive: true });

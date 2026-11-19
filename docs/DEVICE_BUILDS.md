@@ -8,7 +8,7 @@ The native recipes live in `tools/build/programs/`. Their host configs live in `
 |---|---|---|---|
 | `pocketbook` | `pocketbook` | ARM Linux executable, payload directory and `.app` launcher | `--bundle` |
 | `nokia-e7` | `symbian-e7-dev` | `<output>.sis` | `--bundle` |
-| `ios-simulator` | `ios-dev` | `PocketShell.app` and `PocketApple.xcframework` | `--bundle` |
+| `ios-simulator` | `ios-dev` | `PocketJSHost.app` and `PocketApple.xcframework` | `--bundle` |
 | `ipodtouch6` | `ipodtouch-dev` | `PocketJSiPod.app` | `--bundle` |
 | `ipodtouch4` | `ipodtouch4-dev` | `runtime/PocketJSRuntime` and `runtime.json` | supplied to `pack` |
 

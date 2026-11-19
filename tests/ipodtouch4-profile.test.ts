@@ -51,7 +51,7 @@ describe("private iPod touch 4 profile", () => {
   });
 
   test("resolves an external landscape app with independent device identity", () => {
-    const external = { ...clearApp, entry: "main.tsx", output: "external-shell", framework: "solid",
+    const external = { ...clearApp, entry: "main.tsx", output: "external-app", framework: "solid",
       viewport: { fixed: { logical: [480, 320], presentation: "native" } } } as const satisfies AppConfig;
     const plan = resolveIPodTouch4BuildPlan(external);
     expect(plan.viewport).toEqual({
@@ -61,7 +61,7 @@ describe("private iPod touch 4 profile", () => {
       rasterDensity: IPODTOUCH4_RASTER_DENSITY,
       policy: "fixed",
     });
-    expect(plan.app.output).toBe("external-shell");
+    expect(plan.app.output).toBe("external-app");
     expect(plan.app.framework).toBe("solid");
     // A second app on the device needs its own bundle, executable, scheme and
     // receipt paths; the network app compiles the svc wire in.
@@ -72,10 +72,10 @@ describe("private iPod touch 4 profile", () => {
       writeFileSync(join(root, "ipod/pocket.host.config.ts"), `export default ${JSON.stringify({ host: "ipodtouch4-dev", app: external })};\n`);
       const descriptor = join(root, "ipod/ipodtouch4.json");
       writeFileSync(descriptor, JSON.stringify({
-        id: "shell", projectRoot: "..", config: "ipod/pocket.host.config.ts",
-        bundleId: "dev.pocket-nexus.shell", bundleName: "PocketShell.app",
-        executable: "PocketShell", title: "Pocket Shell", scheme: "pocketjs-shell",
-        receiptSlug: "pocketjs-shell", actionName: "shell_action", svcWire: true,
+        id: "external", projectRoot: "..", config: "ipod/pocket.host.config.ts",
+        bundleId: "dev.pocket.external", bundleName: "External.app",
+        executable: "External", title: "External", scheme: "pocketjs-external",
+        receiptSlug: "pocketjs-external", actionName: "external_action", svcWire: true,
       }));
       remote = selectIPodTouch4App(undefined, descriptor);
       expect(remote.root).toBe(root);

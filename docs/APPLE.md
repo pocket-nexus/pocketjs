@@ -47,7 +47,7 @@ bun tools/pocket.ts build --config programs/ios-simulator/pocket.host.config.ts 
   --bundle dist/ios/application.pkb --out dist/ios/native
 ```
 
-The native recipe writes `PocketShell.app` and `PocketApple.xcframework` under
+The native recipe writes `PocketJSHost.app` and `PocketApple.xcframework` under
 `dist/ios/native`. To stage an existing bundle for a simulator run, use
 `bun tools/ios.ts play --bundle dist/ios/application.pkb`.
 

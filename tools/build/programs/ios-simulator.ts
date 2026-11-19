@@ -19,7 +19,7 @@ export const build: RuntimeBuild = {
   ),
   steps: compilerOnly(),
   input: "bundle",
-  artifact: "{outdir}/PocketShell.app",
+  artifact: "{outdir}/PocketJSHost.app",
   async run(context) {
     requireProgramProfile(context, profile);
     const { buildIOSSimulatorNative } = await import("../../ios.ts");
