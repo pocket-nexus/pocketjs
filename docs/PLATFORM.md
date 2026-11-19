@@ -18,7 +18,7 @@ review as a pure function, not a queue of humans.
 |---|---|---|
 | L0 contract | spec.ts ISA, append-only ops, capability registry, build-plan resolution and package admission | SHIPPED |
 | L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown) | SHIPPED |
-| L2 distribution | bundle (`.pkb`), host-relay push | bundle format 1 (below); on-device install belongs to a product such as pocket-shell |
+| L2 distribution | bundle (`.pkb`) | bundle format 1 (below); on-device install belongs to a product such as pocket-shell |
 | L3 experience | DevTools time travel | SHIPPED; Home, switching and a launcher belong to a product such as pocket-shell |
 
 Rule 5 of RUNTIMES.md stays the platform's first law: every capability a
@@ -247,7 +247,6 @@ TSX → see it in a second → one command to the handheld."
 ## Non-goals (so the platform stays honest)
 
 - No suspend/resume state for guests — a guest booted again starts fresh.
-  A KV-style `app.state` op can come later as its own capability.
 - No on-device code signing theater — the hash footer is integrity, not
   security; the PSP's threat model is a memory stick.
 - No host branches for "special" apps — the host has no branch on an

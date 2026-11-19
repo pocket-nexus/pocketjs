@@ -22,7 +22,7 @@ function appEntry(a: ShowcaseApp, summary: string): string {
 function appShelf(): string {
   const entries = [
     ["pspman", "Music player on PSP"],
-    ["pocket-shell", "Tiling desktop on 3DS"],
+    ["pocket-shell", "Applet launcher on 3DS"],
     ["openstrike", "Handheld tactical FPS"],
     ["pocket-voxel", "Game Boy worlds in 3D"],
   ];

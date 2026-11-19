@@ -20,7 +20,7 @@ bun run devtools cards      # + build, USB-link and launch cards on a real PSP
 
 The panel serves at `http://127.0.0.1:8130/devtools`. With an app argument it
 builds the EBOOT, serves it to the PSP over usbhostfs and launches it through
-PSPLINK; if a `bun psplink` / `bun run hw` session already owns the cable it is
+PSPLINK; if a `bun run psp:switch` / `bun run hw` session already owns the cable it is
 detected and bridged into instead. Shortcuts: `o` open panel, `r` rebuild +
 relaunch, `q` quit. [`pocket devtools`](/docs/cli/#host-development-commands)
 runs the same script.

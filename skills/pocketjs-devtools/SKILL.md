@@ -52,7 +52,7 @@ bun run devtools cards      # + build, USB-link and launch cards on a real PSP
 ```
 
 Panel at `http://127.0.0.1:8130/devtools`. `bun run devtools` auto-detects an
-already-running `bun psplink` / `bun run hw` usbhostfs session and bridges
+already-running `bun run psp:switch` / `bun run hw` usbhostfs session and bridges
 into it instead of fighting for the cable (relaunch the app there so it
 probes the mailbox at boot). Shortcuts: `o` open panel, `r` rebuild+relaunch
 (managed sessions), `q` quit.

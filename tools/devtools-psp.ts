@@ -4,7 +4,7 @@
 // exists for running the bridge against a hub you started elsewhere.
 //
 //   --dir <path>   usbhostfs root the PSP mounts as host0:
-//                  (default: dist/psplink — the `bun psplink` share;
+//                  (default: dist/psplink — the `bun run psp:switch` share;
 //                   for `bun run hw` pass programs/psp/target/mipsel-sony-psp/release)
 //   --port <n>     dev-server port (default 8130 / PORT env)
 //   --bundle <p>   exact bundle used for the EBOOT (or build snapshot)
@@ -29,7 +29,7 @@ const bundlePath = bundleArg ? resolve(bundleArg) : undefined;
 
 if (!existsSync(dir)) {
   console.error(
-    `devtools-psp: ${dir} does not exist — start usbhostfs first (bun psplink / bun run hw), or pass --dir`,
+    `devtools-psp: ${dir} does not exist — start usbhostfs first (bun run psp:switch / bun run hw), or pass --dir`,
   );
   process.exit(1);
 }

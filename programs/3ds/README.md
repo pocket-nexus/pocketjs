@@ -48,6 +48,7 @@ with the composition of `main.c`, a counting CPU renderer and two CPU displays i
 place of PICA. They cover range reads, host contract rejection before guest initialization, truncated
 files, input, repeated instance destruction and allocator balance. Native validation
 (`.github/workflows/3ds-runtime.yml`) builds the program and checks with
-`tools/check-3ds-symbols.ts` that its ELF defines no product symbol.
+`tools/check-3ds-symbols.ts` that its ELF defines the QuickJS facade, Runtime,
+file source and guest entry points.
 `tests/e2e/3ds-repack.ts` launches the repacked program in Azahar and verifies
 native screenshots; native host test success does not imply emulator acceptance.

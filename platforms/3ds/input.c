@@ -3,8 +3,8 @@
  *
  * The button bitmask is the PSP's (contracts/spec/spec.ts BTN) on every host,
  * so the mapping here is positional: A/B/X/Y sit where CIRCLE/CROSS/TRIANGLE/
- * SQUARE sit, which keeps CIRCLE as confirm exactly as the PSP host and the
- * launcher expect.
+ * SQUARE sit. A reports CIRCLE, the `confirm` button on the PSP host
+ * (docs/HIG.md §2.1).
  *
  * The touchscreen belongs to the BOTTOM auxiliary output (320x240). Its
  * contact is delivered through input.touch.auxiliary and never appears in

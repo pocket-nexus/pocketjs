@@ -36,7 +36,7 @@ useActions({
 | Intent | Meaning |
 | --- | --- |
 | `confirm` | The primary verb on the focused or tapped item: play, open, submit. |
-| `back` | Up one level of the presentation's own stack. At the root it does nothing; leaving the application belongs to the system layer. |
+| `back` | Up one level of the presentation's own stack. At the root it does nothing; leaving the application belongs to the device's Home control or to a product's system layer (`@pocketjs/framework/system-layers`). |
 | `action` | The presentation's one contextual verb: search, compose, type. |
 | `option` | A secondary verb on the item: save, share, details. `hold` names its destructive variant, which confirms through a `ClassicSheet`. |
 | `sections` | Move between top-level sections, or skip in media. |
@@ -60,7 +60,6 @@ intents stay bound and stay muted while it is up.
 | `option` | □ | Y | Hold 400 ms for the destructive variant. |
 | `sections` | L / R | L / R | Also skip ±10 s in media. |
 | `media` | START | START | |
-| system | hold SELECT | hold SELECT | Never an application verb (§4). |
 
 `glyph()` from `@pocketjs/framework/modality` spells these in hints, so one
 literal renders `○ play` on a PSP and `A play` on a 3DS.
@@ -142,32 +141,7 @@ control surface. Every intent renders there as a tile, and the pad's
 buttons keep their §2 meaning at the same time, so a `ClassicSelection`
 wash on the bottom list follows both the tap and the d-pad.
 
-## 4. The system layer
-
-Only one guest runs at a time on a console, so "background" is a design,
-not a process state. A PocketJS program runs one application; switching
-between applications belongs to a product host such as
-pocket-nexus/pocket-shell, which boots one guest at a time. The system layer
-gives that switcher its chords, per modality:
-
-| Modality | Home / switcher | System sheet |
-| --- | --- | --- |
-| buttons | hold SELECT 400 ms | SELECT + START |
-| touch | the hardware Home button where one exists; else a two-finger swipe from the bottom edge | long-press Home; else the sheet's own control |
-
-**A guest never sees a system chord.** The host samples the pad, matches
-the reserved chords, and delivers the remaining mask through
-`globalThis.frame`. This is the one place the model departs from
-"everything a guest can observe is a surface op": a chord the guest cannot
-observe needs no op, and every host implements the same table (proposed for
-`contracts/spec/spec.ts` as data).
-
-**Switching is relaunch with restored state.** `app.state`, a
-per-application key-value store the guest writes on `onSuspend` and reads on
-mount (`docs/PLATFORM.md` reserves it), keeps the search query, the scroll
-position and the playing video's position across a relaunch.
-
-## 5. What exists and what this document asks for
+## 4. What exists and what this document asks for
 
 | Piece | State |
 | --- | --- |
@@ -177,6 +151,4 @@ position and the playing video's position across a relaunch.
 | Modality-driven keyboard with focus memory | shipped (`@pocketjs/framework/osk`) |
 | `useActions` intents and the generated legend | shipped (`@pocketjs/framework/actions`); touch tiles read `entries()` by hand |
 | `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSpinner` | shipped (`@pocketjs/framework/classic`) |
-| System sheet on hold-SELECT | a guest-side form lives in pocket-nexus/pocket-shell (`runtime/src/system.ts`); the host-owned chord table stays proposed |
 | Native coverage and indexed-image uploads | shipped on the 3DS and the PSP (`offload.uploadCoverage`, `offload.uploadIndexedImage`), so one row component renders on both |
-| `app.state` suspend/restore | proposed; `docs/PLATFORM.md` names it as a later capability |

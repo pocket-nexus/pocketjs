@@ -2,7 +2,7 @@
 //! rendered by the Mali-G52 (GBM/EGL/GLES on KMS, gpu.rs: DSI-1 is the primary
 //! surface on top, DSI-2 the auxiliary surface below), the gamepad and buttons
 //! as buttons and the Goodix panel as touch on the lower surface (evdev).
-//! Omarchy Pocket's shell runs on it.
+//! Without `--package` it runs /usr/share/pocketjs/app.pkb.
 //!
 //! `--shot DIR --script "…"` runs the package on any system without the panels
 //! and inputs, for layout work: scripted buttons and taps, the CPU raster
@@ -50,7 +50,7 @@ const GAMEPAD: &[(u16, u32)] = {
     ]
 };
 const PACKAGE_LIMIT: usize = 64 * 1024 * 1024;
-const DEFAULT_PACKAGE: &str = "/usr/share/pocketjs/omarchy-pocket.pkb";
+const DEFAULT_PACKAGE: &str = "/usr/share/pocketjs/app.pkb";
 /// Input classes the evdev drivers deliver here: buttons and touch.
 const INPUT_CLASSES: InputClasses =
     InputClasses::from_bits(InputClasses::BUTTONS.bits() | InputClasses::CONTACT.bits());
