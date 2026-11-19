@@ -21,7 +21,6 @@ import { squareIcon } from "./shared/scale.ts";
 import {
   admitRepackBundle,
   checkIdentity,
-  planFeatures,
   readRuntime,
   type RepackInput,
 } from "./shared/runtime.ts";
@@ -35,9 +34,6 @@ const HEADER_BYTES = 32;
 const EXTENDED_HEADER_BYTES = 44;
 const SMDH_BYTES = 0x36c0;
 const SMDH_ICONS = 0x2040;
-
-/** Features the runtime build leaves out; a plan that asks for one is refused. */
-const UNSUPPORTED_FEATURES = ["io.offload", "media.playback", "net.http", "link.companion", "link.channel", "system.wifi", "camera.qr", "system.agent", "system.extension"] as const;
 
 // ---------------------------------------------------------------------------
 // .3dsx
@@ -366,13 +362,9 @@ export async function repack3ds(input: RepackInput): Promise<Uint8Array> {
   if (!program || !(THREE_DS_RUNTIME_FILE in runtime.files)) {
     throw new Error(`repack 3ds: the runtime has no ${THREE_DS_RUNTIME_FILE}`);
   }
+  // Admission refuses a plan that turns on a feature the runtime's stamped
+  // host contract does not list.
   const bundle = await admitRepackBundle(input.bundle, runtime, input.identity);
-  const features = planFeatures(bundle.plan);
-  for (const feature of UNSUPPORTED_FEATURES) {
-    if (features[feature] === true) {
-      throw new Error(`repack 3ds: the game needs ${feature}, which the 3DS runtime does not carry`);
-    }
-  }
   const viewport = bundle.plan.viewport as { logical?: number[]; rasterDensity?: number } | undefined;
   if (viewport?.logical?.[0] !== 400 || viewport.logical[1] !== 240 || viewport.rasterDensity !== 1) {
     throw new Error("repack 3ds: the game's 3DS plan is not the 400x240 top screen at density 1");

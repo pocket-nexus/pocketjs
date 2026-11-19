@@ -187,10 +187,26 @@ describe("repack3ds", () => {
     const planless = encodeBundle({ hostAbi: 1, profileHash: hashPocketProfile(softwareProfile), sections: [{ kind: BUNDLE_SECTION.js, bytes: new Uint8Array([0]) }] });
     await expect(repack3ds(await input({ bundle: planless }))).rejects.toThrow("not admitted: bindingGeneration, plan");
     // Features the generic runtime lacks compile off.
-    expect(planFor(app(["io.offload"])).features["io.offload"]).toBe(false);
-    for (const capability of ["media.playback", "net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const)
+    for (const capability of ["io.offload", "net.http"] as const)
       expect(planFor(app([capability])).features[capability]).toBe(false);
     await expect(repack3ds(await input({ identity: { id: "nodots", title: "T", author: "A", version: "1" } })))
       .rejects.toThrow(/reverse-DNS/);
+  });
+
+  test("refuses a plan that turns on a capability the runtime's host contract does not list", async () => {
+    // A product's 3DS host contract with the same facts and one capability
+    // more: one it defines, and one the registry defines.
+    for (const capability of ["vendor.camera", "net.http"]) {
+      const product = { ...softwareProfile, capabilities: [...softwareProfile.capabilities, capability] };
+      const resolution = resolveAppPlan(app([capability]), { target: product.id }, profileRegistry(product));
+      if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
+      expect(resolution.plan.features[capability]).toBe(true);
+      const bundle = encodeBundle(makeBundle({
+        plan: resolution.plan,
+        js: new TextEncoder().encode("globalThis.frame = () => {};"),
+        pak: new Uint8Array([1, 2, 3, 4]),
+      }));
+      await expect(repack3ds(await input({ bundle }))).rejects.toThrow(`not admitted: capability ${capability}`);
+    }
   });
 });

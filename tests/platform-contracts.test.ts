@@ -20,6 +20,7 @@ validatePlatformContractRegistry,
 } from "../framework/compiler/app-plan.ts";
 import { createHostExtension } from "../framework/compiler/host-extension.ts";
 import { defineHostConfig } from "../framework/src/host-config.ts";
+import { validatePocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { BUILTIN_PROFILE_IDS } from "../hosts/ids.ts";
 import { cadenceFor } from "../contracts/spec/admission.ts";
@@ -609,10 +610,59 @@ describe("app resolution", () => {
     expect(onPsp.ok && onPsp.plan.features).toEqual({ "input.pointer": false, "input.text": false, "text.glyphs.baked": true });
     const unknown = resolveAppPlan({ ...PORTABLE_APP, features: ["input.buttons", "input.telepathy"] }, { target: "psp" });
     expect(unknown.ok ? [] : unknown.diagnostics).toEqual([{
-      code: "capability.unknown", path: "/app/features/1", message: 'unknown capability "input.telepathy"',
+      code: "capability.unknown", path: "/app/features/1",
+      message: 'unknown capability "input.telepathy": neither the registry nor host psp defines it',
     }]);
     const unknownTarget = resolveAppPlan(PORTABLE_APP, { target: "switch" });
     expect(codes(unknownTarget)).toEqual(["target.unknown"]);
+  });
+
+  describe("a host-defined capability", () => {
+    // A product's host contract: the PSP's facts and two ids the registry
+    // does not know, one for applications and one for the System UI role.
+    const product = {
+      ...POCKET_PROFILES.psp,
+      id: "psp-product",
+      capabilities: [...POCKET_PROFILES.psp.capabilities, "vendor.camera"],
+      roleCapabilities: { systemUI: ["vendor.launcher"] },
+    };
+    const lister = { ...PORTABLE_APP, features: [...PORTABLE_APP.features, "vendor.camera"] };
+
+    test("is not registered, and the host contract that lists it validates", () => {
+      expect(POCKET_CAPABILITIES as readonly string[]).not.toContain("vendor.camera");
+      expect(validatePocketProfile(product).ok).toBe(true);
+      expect(validatePlatformContractRegistry(profileRegistry(product))).toEqual([]);
+    });
+
+    test("resolves for an application that lists it and the plan carries it", () => {
+      const result = resolveAppPlan(lister, { target: product.id }, profileRegistry(product));
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+      expect(result.plan.features["vendor.camera"]).toBe(true);
+      expect(result.plan.profile.capabilities).toContain("vendor.camera");
+      // A role-only id is the host's too; an application does not receive it.
+      const role = resolveAppPlan({ ...PORTABLE_APP, features: [...PORTABLE_APP.features, "vendor.launcher"] }, { target: product.id }, profileRegistry(product));
+      expect(role.ok && role.plan.features["vendor.launcher"]).toBe(false);
+    });
+
+    test("is unknown on a host that does not define it", () => {
+      for (const target of ["psp", "vita"] as const) {
+        const result = resolveAppPlan(lister, { target }, profileRegistry(POCKET_PROFILES[target]));
+        expect(result.ok ? [] : result.diagnostics).toEqual([{
+          code: "capability.unknown", path: `/app/features/${PORTABLE_APP.features.length}`,
+          message: `unknown capability "vendor.camera": neither the registry nor host ${target} defines it`,
+        }]);
+      }
+    });
+
+    test("leaves a stock application's plan on that host unchanged", () => {
+      const onProduct = resolveAppPlan(PORTABLE_APP, { target: product.id }, profileRegistry(product));
+      const onPsp = resolveAppPlan(PORTABLE_APP, { target: "psp" }, profileRegistry(POCKET_PROFILES.psp));
+      if (!onProduct.ok || !onPsp.ok) throw new Error("the stock application must resolve on both hosts");
+      expect(onProduct.plan.features).toEqual(onPsp.plan.features);
+      expect(Object.keys(onProduct.plan.features)).not.toContain("vendor.camera");
+      expect(onProduct.plan.viewport).toEqual(onPsp.plan.viewport);
+      expect(onProduct.plan.modality).toEqual(onPsp.plan.modality);
+    });
   });
 
   test("feature resolution is independent of feature order and identity", () => {

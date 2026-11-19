@@ -16,8 +16,9 @@ export {
 } from "../../contracts/spec/profile.ts";
 
 /** Check a pocket-host/2 document: its data shape, then the relations
- * between fields. Capability names the framework does not register are
- * allowed; an application cannot require them. */
+ * between fields. A capability id the framework does not register is one
+ * the host defines; applications resolved against the host list it in
+ * `features`. */
 export function validatePocketProfile(input: unknown, options: { builtin?: boolean } = {}): ValidationResult<PocketProfile> {
   const diagnostics: ContractDiagnostic[] = [];
   // The canonical serializer rejects cycles, non-JSON values and lone

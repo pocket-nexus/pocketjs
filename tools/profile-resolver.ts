@@ -8,7 +8,7 @@ import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 import { defineHostConfig, isBuiltinHostId, type PocketHostConfig } from "../framework/src/host-config.ts";
 import { canonicalProfileJson, hashPocketProfile, readPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { POCKET_CAPABILITIES, definePlatformContractRegistry, defineTargetRegistry, type PocketCapabilityId } from "../contracts/spec/platform-types.ts";
+import { POCKET_CAPABILITIES, definePlatformContractRegistry, defineTargetRegistry } from "../contracts/spec/platform-types.ts";
 import { POCKET_PROFILES, builtinProfileFile, type BuiltinProfileId } from "../hosts/index.ts";
 import { targetProfile } from "../hosts/contract.ts";
 import { validateToolchain } from "./targets/toolchain.ts";
@@ -217,11 +217,12 @@ export async function loadHostConfig(path: string): Promise<LoadedHostConfig> {
     resolutionDirectories: module.resolutionDirectories, resolutionFiles: module.resolutionFiles, moduleResolutions: module.moduleResolutions };
 }
 
-/** One profile as the resolver's registry. The document must validate. */
+/** One profile as the resolver's registry: the registered ids, and the
+ *  profile as the one target. Ids the profile lists outside the registry are
+ *  the ones its host defines. The document must validate. */
 export function profileRegistry(profile: PocketProfile) {
-  const checked = profile as PocketProfile<PocketCapabilityId>;
   return definePlatformContractRegistry(POCKET_CAPABILITIES, defineTargetRegistry({
-    [checked.id]: targetProfile(checked),
+    [profile.id]: targetProfile(profile),
   }));
 }
 

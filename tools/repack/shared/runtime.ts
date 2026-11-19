@@ -214,9 +214,3 @@ export function checkIdentity(identity: RepackIdentity): void {
     }
   }
 }
-
-/** A plan's `features` table, `{}` when absent. */
-export function planFeatures(plan: Record<string, unknown>): Record<string, boolean> {
-  const features = plan.features;
-  return features && typeof features === "object" ? (features as Record<string, boolean>) : {};
-}

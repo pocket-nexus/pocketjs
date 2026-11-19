@@ -524,7 +524,7 @@ mod tests {
         assert!(facts.feature("text.glyphs.baked"));
         assert!(!facts.feature("input.touch"));
         assert!(!facts.feature("io.offload"));
-        assert!(!facts.feature("media.playback"));
+        assert!(!facts.feature("vendor.camera"));
         assert!(!facts.companions);
         assert_eq!(
             app_id(DUAL.as_bytes()),

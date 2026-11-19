@@ -2,11 +2,10 @@
 // bakes these facts into a package; a device admits a package when its own
 // facts satisfy the package's (contracts/spec/admission.ts).
 import type { JsonSchema } from "./json-schema.ts";
+import { ANIMATION_CLASSES, type AnimationClass } from "./animation.ts";
 import {
-  ANIMATION_CLASSES,
   PRESENTATION_MODES,
   TARGET_FORMS,
-  type AnimationClass,
   type PresentationMode,
   type TargetForm,
   type Viewport,

@@ -1,11 +1,22 @@
 // PocketJS platform capability registry.
 //
-// Capability ids name stable, public framework behavior that applications can
-// observe. Do not name hardware, permissions, runtime availability, backend
-// implementations, or wire formats. Register an id only after a stock host
-// implements and tests the whole contract. Hosts with the same observable
-// semantics share an id; a different execution level or guarantee gets a new
-// id.
+// A capability id is defined by PocketJS or by a host. POCKET_CAPABILITIES
+// lists the ids PocketJS defines: ones a stock host in hosts/ implements and
+// tests, or ones the compiler, framework or engine of this repository acts
+// on. Register an id only after one of them does. An id names stable, public
+// behavior that applications can observe; it does not name hardware,
+// permissions, runtime availability, backend implementations, or wire
+// formats. Hosts with the same observable semantics share an id; a different
+// execution level or guarantee gets a new id.
+//
+// A host contract may also list ids this registry does not know: the host
+// defines them. Resolution against that host accepts them in `app.features`
+// and records whether the host provides them; PocketJS attaches no other
+// meaning to them (no dependency rule, no compile-time behavior, no engine
+// bit). Ids have no namespace: a future PocketJS id avoids a name a product
+// already publishes by coordination with that product.
+
+import type { AnimationClass } from "./animation.ts";
 
 export type CapabilityRegistry = readonly string[];
 
@@ -65,23 +76,6 @@ export type ExecutionClass = (typeof EXECUTION_CLASSES)[number];
 
 /** The forms whose logical viewport is a runtime variable. */
 export const DYNAMIC_FORMS: readonly TargetForm[] = ["window", "widget"];
-
-/**
- * What a changed frame costs a target — a semantic FIELD of its display:
- *
- * - "composited": a GPU composes every frame from retained geometry; a prop
- *                 change on any subtree costs the same at the tick rate.
- * - "repaint":    a CPU repaints the pixels a change touched; a frame costs
- *                 in proportion to that area, and the host moves the pixels
- *                 of a translated opaque region instead of repainting them.
- * - "still":      the display shows one change per refresh (electronic
- *                 paper); a tween is its end value.
- *
- * Every profile states its class (`display.animation`); the compiler bakes
- * it into the plan and devices admit packages compiled for their own class.
- */
-export const ANIMATION_CLASSES = ["composited", "repaint", "still"] as const;
-export type AnimationClass = (typeof ANIMATION_CLASSES)[number];
 
 /** One output as the resolver reads it: the profile surface with its
  *  physical panel size (`panel` in the host contract). */
@@ -216,13 +210,6 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // closeInput in contracts/spec/audio.ts): the host records one of its
   // inputs into a per-input ring the guest drains each tick.
   "audio.capture",
-  // Native encoded-media playback with bounded worker handoff, audio clock,
-  // pause/volume, texture output and observable decoder availability
-  // (`globalThis.media`). Its contract, guest module and hosts live in
-  // pocket-nexus/pocket-shell; no profile in this repository supplies it,
-  // and it stays registered so the host contracts of those products
-  // validate against this registry.
-  "media.playback",
   // HTTP as a worker resource (`io.http` in @pocketjs/framework/io,
   // engine/worker): bounded streaming requests through the host's transport
   // under the limits of contracts/spec/net.ts. No UI realm has a network
@@ -234,42 +221,6 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // resource, its messages streamed as records under the limits of
   // contracts/spec/mqtt.ts.
   "net.mqtt",
-  // The next seven ids name host namespaces whose contracts, guest modules
-  // and hosts live in pocket-nexus/pocket-shell (runtime/spec, runtime/src).
-  // No profile in this repository supplies them; they stay registered so the
-  // host contracts of those products validate against this registry.
-  //
-  // The console's system link to a paired companion computer
-  // (`globalThis.link`): pairing, link status, the companion's app catalog
-  // and app installs. A host that owns the link also routes net.http over it.
-  "link.companion",
-  // A running package's channel to its computer side over that link
-  // (`globalThis.link.channel`): requests, events and byte streams the
-  // companion routes to the package's daemon. The host opens the channel for
-  // a package that declares it and closes it when the package ends.
-  "link.channel",
-  // The console's wireless radio and saved connections (`globalThis.wifi`).
-  // Reads and selects; never writes a connection.
-  "system.wifi",
-  // The board's own controls (`globalThis.device`): backlight, speaker
-  // level, power rails, plug detection, free header pins, the removable
-  // card's directory listing and power off.
-  "system.device",
-  // Outer-camera preview texture plus an on-device QR decoder
-  // (`globalThis.camera`).
-  "camera.qr",
-  // Stills from the outer or inner camera kept as JPEG under the storage's
-  // DCIM folder, listed, decoded for drawing and deleted (the same
-  // `globalThis.camera` namespace).
-  "camera.photo",
-  // The system mascot on the top screen and the agent channel to the
-  // companion (`globalThis.agent`): a guest that declares it hands the top
-  // screen to the host's 3D stage and keeps its whole interface on the
-  // auxiliary surface.
-  "system.agent",
-  // A product extension linked into the program: it draws the primary display and
-  // publishes its own global, and the guest's interface stays on the auxiliary surface.
-  "system.extension",
   // A per-app file tree behind the fs module's own namespace
   // (`globalThis.fs`, contracts/spec/fs.ts): nine synchronous ops, every
   // path confined to the app's own data root — apps cannot name, let alone
@@ -317,9 +268,13 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
 
 export type PocketCapabilityId = CapabilityId<typeof POCKET_CAPABILITIES>;
 
+/** An `app.features` entry: a registered id, which editors complete, or an
+ *  id a host contract defines. */
+export type FeatureId = PocketCapabilityId | (string & {});
+
 /** Registered capability ids and the targets resolution reads. A target
- * may list names the registry does not know; applications cannot require
- * them. */
+ * may list ids the registry does not know; an application resolved against
+ * that target lists them in `features` like registered ones. */
 export interface PlatformContractRegistry<
   C extends CapabilityRegistry = CapabilityRegistry,
   T extends TargetRegistry = TargetRegistry,

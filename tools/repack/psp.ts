@@ -15,7 +15,7 @@
 // memory beside the QuickJS heap. A PSP-1000 ignores it.
 
 import { decodePng, encodePng } from "./shared/png.ts";
-import { admitRepackBundle, checkIdentity, planFeatures, readRuntime, sha256Hex, type RepackIdentity, type RepackInput } from "./shared/runtime.ts";
+import { admitRepackBundle, checkIdentity, readRuntime, sha256Hex, type RepackIdentity, type RepackInput } from "./shared/runtime.ts";
 import { fitRgba } from "./shared/scale.ts";
 import { readSfo, writeSfo, type SfoEntry } from "./shared/sfo.ts";
 import { writeZip } from "./shared/zip.ts";
@@ -27,8 +27,6 @@ export const PSP_ICON0 = { width: 144, height: 80 } as const;
 /** Room the PSP firmware reserves for TITLE (127 bytes of UTF-8 and the NUL). */
 const TITLE_ROOM = 128;
 const FOLDER_NAME_LIMIT = 32;
-/** Features the runtime build leaves out (no offload slot); a plan that asks for one is refused. */
-const UNSUPPORTED_FEATURES = ["io.offload"] as const;
 
 /** A PBP's eight parts in order: PARAM.SFO, ICON0.PNG, ICON1.PMF, PIC0.PNG, PIC1.PNG, SND0.AT3, DATA.PSP, DATA.PSAR. */
 export function pbpParts(pbp: Uint8Array): Uint8Array[] {
@@ -110,11 +108,9 @@ export async function repackPsp(input: RepackInput): Promise<Uint8Array> {
   const runtime = await readRuntime(input.runtime, PSP_RUNTIME_TARGET);
   const program = input.runtime.get(PSP_RUNTIME_FILE);
   if (!program || !(PSP_RUNTIME_FILE in runtime.files)) throw new Error(`repack psp: the runtime has no ${PSP_RUNTIME_FILE}`);
+  // Admission refuses a plan that turns on a feature the runtime's stamped
+  // host contract does not list (io.offload: the runtime has no offload slot).
   const bundle = await admitRepackBundle(input.bundle, runtime, input.identity);
-  const features = planFeatures(bundle.plan);
-  for (const feature of UNSUPPORTED_FEATURES) {
-    if (features[feature] === true) throw new Error(`repack psp: the plan asks for ${feature}, which the PSP runtime leaves out`);
-  }
   const parts = pbpParts(program);
   parts[0] = pspSfo(parts[0]!, input.identity.title);
   if (input.identity.icon) parts[1] = await pspIcon0(input.identity.icon);
