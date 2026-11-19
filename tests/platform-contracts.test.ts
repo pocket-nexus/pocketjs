@@ -365,7 +365,7 @@ describe("the repository's applications", () => {
     const configs = repositoryAppConfigs();
     // apps/<name>/ for every application, and the Nokia E7 build of nexus-touch.
     expect(configs).toContain(resolve(ROOT, "apps/nexus-touch/e7/pocket.host.config.ts"));
-    expect(configs.length).toBeGreaterThanOrEqual(31);
+    expect(configs.length).toBeGreaterThanOrEqual(30);
     for (const path of configs) {
       const config = await loadHostConfig(path);
       expect(config.value.app, path).toBeDefined();

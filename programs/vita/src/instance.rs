@@ -58,7 +58,9 @@ impl Guest {
             deadline: Box::new(Instant::now() + Duration::from_secs(5)),
             ops,
         });
-        if cfg!(feature = "usb-debug") {
+        // Feature `guest-deadline`: interrupt evaluation after 5 s and a frame
+        // turn after 250 ms, so a looping guest returns an error to the program.
+        if cfg!(feature = "guest-deadline") {
             JS_SetInterruptHandler(
                 engine,
                 Some(interrupt),

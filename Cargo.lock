@@ -2803,8 +2803,6 @@ dependencies = [
  "pocket-vita-render",
  "pocket-vita-system",
  "pocketjs-core",
- "serde",
- "serde_json",
  "vita2d-sys",
  "vitasdk-sys",
 ]

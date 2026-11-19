@@ -179,7 +179,6 @@ const SUITE: readonly Stage[] = [
       "tests/wasm-premultiplied.test.ts",
       "tests/physics.test.ts",
       "tests/vita-package.test.ts",
-      "tests/vita-dev.test.ts",
       "tests/vita-runtime.test.ts",
       "tests/targets-psp.test.ts",
       "tests/psp-prx.test.ts",

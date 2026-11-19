@@ -18,7 +18,7 @@ pocket-vita-system.workspace = true
 pocket-spec = { workspace = true, default-features = true }
 # Vita dependencies. vita2d ships precompiled GXM shaders, so VPKs remain
 # self-contained and do not require a separately extracted libshacccg.suprx.
-vitasdk-sys = { version = "0.3.3", features = ["SceAudio_stub", "SceCtrl_stub", "SceGxm_stub", "SceKernelModulemgr_stub", "SceKernelThreadMgr_stub", "SceLibKernel_stub", "SceNet_stub", "SceNetCtl_stub", "SceSysmodule_stub", "SceTouch_stub"] }
+vitasdk-sys = { version = "0.3.3", features = ["SceAudio_stub", "SceCtrl_stub", "SceGxm_stub", "SceKernelThreadMgr_stub", "SceLibKernel_stub", "SceNet_stub", "SceNetCtl_stub", "SceSysmodule_stub", "SceTouch_stub"] }
 vita2d-sys = "0.1.1"
 
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b" }
@@ -30,9 +30,6 @@ pocket-package = { workspace = true, default-features = true }
 pocket-media = { workspace = true, default-features = true }
 pocket-raster = { workspace = true, default-features = true }
 pocket-vita-render = { workspace = true, default-features = true }
-# The USB developer mailbox protocol (src/dev.rs, src/dev_protocol.rs).
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [build-dependencies]
 pocket-spec = { workspace = true, default-features = true }
@@ -40,13 +37,15 @@ pocket-profile-build.workspace = true
 cc = "1"
 
 [features]
-default = ["usb-debug"]
-usb-debug = ["vitasdk-sys/ScePower_stub", "vitasdk-sys/SceSysmem_stub"]
 capture = []
 bench = []
 # The generic runtime (tools/runtime/vita.ts): no embedded app; the game is
 # app0:app.pkb, read at startup (src/package_file.rs).
 runtime = []
+# Interrupt guest JavaScript after 5 s of evaluation or 250 ms of one frame
+# turn (src/instance.rs). A program binary that keeps a native menu usable
+# after a guest loop enables it; the stock program does not.
+guest-deadline = []
 
 [package.metadata.vita]
 # The Vita backend supplies VITA_DEFAULT_TITLE_ID from the plan's app.id. Keeping the

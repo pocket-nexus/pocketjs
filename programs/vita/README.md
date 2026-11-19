@@ -10,9 +10,21 @@ their following frame intervals from timing statistics. `cpu_frame_us` ends at
 swap submission; it does not measure GPU execution or input-to-panel latency.
 This feature keeps physical input and does not use the CPU golden rasterizer.
 An emulator run still requires separate evidence from physical hardware.
-Normal builds do not enable benchmark captures. They include the
-[USB developer runtime](../../docs/VITA-USB.md): L+R+SELECT opens its native
-menu, and `bun run vita:dev` sends guest/native updates and captures over USB.
+Normal builds do not enable benchmark captures.
+
+## Program binaries
+
+**`src/main.rs` is the stock frame loop**: it runs the embedded bundle, or the
+embedded set with app switching, or `app0:app.pkb` in the generic runtime, and
+a guest that fails leaves its error on screen through `overlay::notice`. The
+library crate exposes the blocks that loop composes: `Runtime`, `graphics`,
+`input`, `switch`, `overlay`, `frame_timing`, `profile` and `package_file`.
+A binary crate in another repository depends on `pocketjs-vita` by path and
+writes its own loop over the same blocks; `buildVitaProgram()` in
+`tools/vita.ts` builds and packages such a crate. The library feature
+`guest-deadline` interrupts guest JavaScript after **5 s** of evaluation or
+**250 ms** of one frame turn. The PS Vita wired development loop is one such
+program, in [pocket-nexus/pocket-devkit](https://github.com/pocket-nexus/pocket-devkit).
 
 The host registers [`pocket-vita-render`](../../devices/vita/pocket-vita-render/README.md)
 with the canonical Runtime through the C ABI handle. **Each guest owns its

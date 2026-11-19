@@ -18,7 +18,7 @@ export const build: RuntimeBuild = {
     requireProgramProfile(context, profile);
     const app = requireApplication(context);
     await handheldLock("vita", async () => {
-      const built = await buildVita([`--plan=${app.planPath}`, `--outdir=${app.directory}`, `--package-outdir=${context.outdir}`, "--skip-build", "--no-usb-debug", "--release", ...nativeArguments(context)], context);
+      const built = await buildVita([`--plan=${app.planPath}`, `--outdir=${app.directory}`, `--package-outdir=${context.outdir}`, "--skip-build", "--release", ...nativeArguments(context)], context);
       const output = resolve(context.outdir, `${context.output}.vpk`);
       if (built !== output) copyFileSync(built, output);
     });
