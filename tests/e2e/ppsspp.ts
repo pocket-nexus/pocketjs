@@ -1,15 +1,15 @@
 // tests/e2e/ppsspp.ts — deterministic PPSSPPHeadless E2E for the PSP host.
 //
 // Ported from origin/main:framework/test/fps3d-ppsspp.ts (driver shape) +
-// origin/main:runtime/src/main.rs (capture feature, now in programs/psp/src/main.rs):
+// origin/main:runtime/src/main.rs (capture feature, now in programs/psp/src/frame.rs):
 // build the capture EBOOT with a baked input script, run PPSSPPHeadless with
 // the software renderer (the only deterministic backend), decode the raw
 // framebuffer dumps at the named shot frames, and byte-compare against
 // committed goldens.
 //
 // Determinism contract: the core ticks a fixed dt (spec FIXED_DT = 1/60) and
-// the input script is indexed by the RUST frame counter (programs/psp/src/main.rs
-// frame_count — the same counter that names the dumped files), so every frame
+// the input script is indexed by the RUST frame counter (programs/psp/src/frame.rs
+// GLOBAL_FRAME — the same counter that names the dumped files), so every frame
 // is a pure function of its index and PPSSPP's software renderer is
 // byte-stable run to run. Goldens are therefore compared byte-exact; they are
 // only expected to drift when the emulator itself changes, which is why

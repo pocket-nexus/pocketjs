@@ -108,9 +108,9 @@ application is built for the hosts its config lists, and each of them gets the
 table its contract implies.
 
 A feature has native cost on some hosts. On the PSP the offload service and
-the DevTools mailbox share the USB transport, and `programs/psp/src/main.rs`
-starts DevTools only when offload is off; an application that does not list
-`io.offload` keeps DevTools on that program.
+the DevTools mailbox share the USB transport, and the frame loop
+(`programs/psp/src/frame.rs`) starts DevTools only when offload is off; an
+application that does not list `io.offload` keeps DevTools on that program.
 
 Some ids depend on others:
 
