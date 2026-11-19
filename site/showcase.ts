@@ -1,5 +1,6 @@
 // Reviewed against the projects' public READMEs and PSPMAN's own site on
-// 2026-09-05; 3DS entries refreshed on 2026-09-11. Links describe app support.
+// 2026-09-05; 3DS entries refreshed on 2026-09-11, Pocket Shell on 2026-11-19.
+// Links describe app support.
 export type ShowcaseDevice = "3ds" | "psp" | "vita";
 export const DEVICES: Record<ShowcaseDevice, string> = { "3ds": "Nintendo 3DS", psp: "PSP", vita: "PS Vita" };
 export interface ShowcaseApp {
@@ -61,13 +62,13 @@ export const SHOWCASE_APPS: ShowcaseApp[] = [
     steps: ["Check the official compatibility list: PSP-2000, PSP-3000, PSP Street, or PSP Go with an M2 card. PSP Go internal storage is unsupported.", "Download the alpha and copy the complete PSPMAN folder to /PSP/GAME/ on the Memory Stick.", "Add your music to /MUSIC/ or /PSP/MUSIC/, then launch from Game → Memory Stick."],
   },
   {
-    id: "pocket-shell", name: "Pocket Shell", category: "Desktop", devices: ["3ds"],
-    description: "A tiling interface on the 3DS. Windows on top, a workspace and control deck below.",
-    image: "/assets/showcase/pocket-shell.png", imageAlt: "Pocket Shell's tiled windows and lower-screen touch deck, captured on 3DS",
-    imageCredit: "3DS capture · Pocket Nexus", imageSource: gh + "pocket-shell#readme", owner: "Pocket Nexus",
+    id: "pocket-shell", name: "Pocket Shell", category: "Launcher", devices: ["3ds", "psp"],
+    description: "A launcher for Pocket Applets. Pair a 3DS or an M5Stack Tab5 with a Mac, install the applets it offers and switch between them; the PSP build runs the launcher alone.",
+    image: "/assets/showcase/pocket-shell.png", imageAlt: "Pocket Shell's home screen on a 3DS: YouTube, Discord, Hacker News, Pocket Nexus and X above a dock of Settings, Camera, Photos and Mac on the touch screen, and Claude's room with an L+R Ask Claude hint on the top screen",
+    imageCredit: "Old 3DS capture · Pocket Nexus", imageSource: gh + "pocket-shell/blob/main/shells/3ds/README.md", owner: "Pocket Nexus",
     imageFit: "contain",
-    availability: "Build from source", requirement: "3DS Homebrew Launcher; Bun + Docker to build", action: "Set up on 3DS", href: gh + "pocket-shell#quick-start", source: gh + "pocket-shell",
-    steps: ["Clone the project recursively and run its setup and 3DS build.", "Copy the generated .3dsx under /3DS/ on the SD card.", "Open it in Homebrew Launcher. The separate iPod touch companion is also documented in this repository."],
+    availability: "Build from source", requirement: "3DS Homebrew Launcher + ftpd; Bun, Docker and Rust to build", action: "Set up on 3DS", href: gh + "pocket-shell#development", source: gh + "pocket-shell",
+    steps: ["Clone the project with its PocketJS submodule, run its setup and build the 3DS .3dsx.", "With ftpd running on the 3DS, copy the .3dsx to /3ds/ on the SD card and run the pair command once to write this computer's pairing onto the card.", "Serve the applets of a pocket-nexus/applets checkout with the offer command, open Pocket Shell in Homebrew Launcher and tap Mac on the home screen to install them. The README also covers the M5Stack Tab5 firmware and the PSP EBOOT."],
   },
   {
     id: "pocket-figma", name: "Pocket Figma", category: "Design", devices: ["psp", "vita"],
