@@ -247,7 +247,6 @@ TSX → see it in a second → one command to the handheld."
 ## Non-goals (so the platform stays honest)
 
 - No suspend/resume state for guests — a guest booted again starts fresh.
-  A KV-style `app.state` op can come later as its own capability.
 - No on-device code signing theater — the hash footer is integrity, not
   security; the PSP's threat model is a memory stick.
 - No host branches for "special" apps — the host has no branch on an
