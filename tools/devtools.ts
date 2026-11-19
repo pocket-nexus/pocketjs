@@ -9,7 +9,7 @@
 //   · the dev server (browser host at /, panel at /devtools, WS hub at /ws)
 //   · the PSPLINK USB mailbox bridge (device ⇄ panel)
 //   · optionally the PSP session itself: build the EBOOT, serve host0: over
-//     usbhostfs, ldstart the PRX — and if a `bun psplink` / `bun run hw`
+//     usbhostfs, ldstart the PRX — and if a `bun run psp:switch` / `bun run hw`
 //     session is ALREADY running, it is detected and bridged instead of
 //     fighting it for the cable.
 //
@@ -256,7 +256,7 @@ if (dirFlag) {
   const dir = join(ROOT, "dist", "psplink");
   bridge = startBridge({ dir, port: server.port, onEvent });
   const rel = dir.startsWith(ROOT) ? dir.slice(ROOT.length) : dir;
-  pspLine = `no device — mailbox armed at ${rel} (bun psplink / bun run devtools <app> to launch)`;
+  pspLine = `no device — mailbox armed at ${rel} (bun run psp:switch / bun run devtools <app> to launch)`;
 }
 
 const ready = Math.round(performance.now() - t0);

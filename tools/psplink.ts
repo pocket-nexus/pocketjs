@@ -40,7 +40,7 @@ const BTN_DOWN = "\x1b[B";
 function usageText(): string {
   return [
     "usage:",
-    "  bun psplink [options]",
+    "  bun run psp:switch [options]",
     "",
     "options:",
     "  --debug                 Build debug PRXs (default: release)",
@@ -453,7 +453,7 @@ async function main(): Promise<void> {
     return;
   }
   if (!process.stdin.isTTY) {
-    throw new Error("bun psplink requires an interactive TTY; use --dry-run for non-interactive checks.");
+    throw new Error("the PSPLINK switcher requires an interactive TTY; use --dry-run for non-interactive checks.");
   }
 
   const usbhostfs = Bun.which("usbhostfs_pc");

@@ -177,7 +177,7 @@ expects. Pixels do not travel in the JSON channel). Served at
 `tools/devtools.ts` owns the whole loop in one process: the dev server
 (panel + hub), the mailbox bridge, and — given an app — the PSP session
 itself (build the EBOOT, serve `host0:` over usbhostfs, `ldstart` via
-pspsh). An already-running `bun psplink` / `bun run hw` session is detected
+pspsh). An already-running `bun run psp:switch` / `bun run hw` session is detected
 (pgrep + ps args) and bridged into instead of fought for the cable.
 Shortcuts: `o` open panel · `r` rebuild + relaunch · `q` quit. Also exposed
 as `pocket devtools` in @pocketjs/cli.
