@@ -3,7 +3,7 @@
 // A pack is a read-only file under the app's game data root, opened at
 // runtime: chapter textures and streamed music that do not ship in the
 // program image. It is its own namespace, independent of the `ui` op table,
-// with capability id `data.pack` in contracts/spec/platform-types.ts.
+// with capability id `data.pack` in contracts/spec/capabilities.ts.
 //
 // The four parts of the boundary:
 //

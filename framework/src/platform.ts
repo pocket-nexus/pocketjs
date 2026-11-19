@@ -1,4 +1,4 @@
-import type { FeatureId } from "../../contracts/spec/platform-types.ts";
+import type { FeatureId } from "../../contracts/spec/capabilities.ts";
 import { NET_MAX_RESPONSE_BYTES } from "../../contracts/spec/net.ts";
 
 export type { FeatureId };

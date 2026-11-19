@@ -5,7 +5,7 @@
 import type { AnimationTheme } from "./animation-theme.ts";
 import { animationThemeSchema } from "./animation-theme.ts";
 import { validateSchema, type ContractDiagnostic, type JsonSchema } from "./json-schema.ts";
-import type { FeatureId } from "./platform-types.ts";
+import type { FeatureId } from "./capabilities.ts";
 import { appViewportSchema, surfacesSchema, type AppViewport, type SurfacesSpec } from "./viewport.ts";
 import { workerDeclarationSchema, type WorkerDeclarationSource } from "./worker.ts";
 

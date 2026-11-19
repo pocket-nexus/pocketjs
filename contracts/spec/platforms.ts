@@ -1,6 +1,8 @@
 export * from "./platform-types.ts";
+export * from "./capabilities.ts";
+import { POCKET_CAPABILITIES } from "./capabilities.ts";
 import {
-  POCKET_CAPABILITIES, defineTargetRegistry, definePlatformContractRegistry,
+  defineTargetRegistry, definePlatformContractRegistry,
   type TargetId,
 } from "./platform-types.ts";
 

@@ -18,7 +18,7 @@ import {
   PACK_OPEN_PENDING,
   packValidPath,
 } from "../contracts/spec/pack.ts";
-import { POCKET_CAPABILITIES } from "../contracts/spec/platform-types.ts";
+import { POCKET_CAPABILITIES } from "../contracts/spec/capabilities.ts";
 import { createPackHost } from "../platforms/web/pack.js";
 import { createSimPackHost } from "../platforms/sim/pack.ts";
 

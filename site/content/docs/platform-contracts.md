@@ -51,7 +51,7 @@ against. See [Admission](#admission).
 | Host contract       | `pocket.host.json`                 | Host program         | Display facts, cadences and implemented APIs                              |
 | Host config         | `pocket.host.config.ts`            | App or host program  | Host contract selection, the application and an optional native build recipe |
 | Build plan          | `.pocket/<target>/plan.json`       | Resolver (generated) | One build's target-specific inputs, a `ResolvedBuildPlan`                 |
-| Capability registry | `contracts/spec/platform-types.ts` | PocketJS             | Ids PocketJS defines; a host contract defines the ids it lists outside it |
+| Capability registry | `contracts/spec/capabilities.ts`   | PocketJS             | Ids PocketJS defines; a host contract defines the ids it lists outside it |
 
 ## The application
 

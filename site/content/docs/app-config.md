@@ -129,7 +129,7 @@ to the plan's table as `true`; the selected host must provide them
 ### Capability ids
 
 **A capability id is defined by PocketJS or by a host.** The registry,
-`POCKET_CAPABILITIES` in `contracts/spec/platform-types.ts`, lists the ids
+`POCKET_CAPABILITIES` in `contracts/spec/capabilities.ts`, lists the ids
 PocketJS defines: a host contract in `hosts/` provides the id, or the
 compiler, framework or engine of this repository acts on it. An id names
 behavior the application can observe; hosts with the same observable behavior
