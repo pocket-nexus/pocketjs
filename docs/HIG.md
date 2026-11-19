@@ -120,7 +120,7 @@ entry is not bound.** Errors turn the footer text red; nothing else moves.
 | `sections` | swipe between pages, or a segmented bar | |
 | `media` | tap the transport tile | |
 | scroll | pan and fling | `VirtualList` owns rubber-band and decay. |
-| scrub | drag along the rail | Previews live, commits one seek on release (`createMediaScrubber`). |
+| scrub | drag along the rail | Previews live, commits one seek on release. |
 
 ### 3.2 Targets and layout
 

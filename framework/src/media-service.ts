@@ -1,29 +1,32 @@
 import { getOps } from "./host.ts";
-import { mediaPlayer, type MediaSource, type MediaStatus } from "./media.ts";
 import { registerServicePump } from "./services.ts";
 import type { ServiceClient, ServiceMessage } from "./service-client.ts";
 
-/** Provider response: an encoded native source or a frame-indexed stream.
- * Applications carry media metadata without selecting a decoder or transport. */
+/** Provider response: a frame-indexed stream the host presents on its video
+ * plane (`videoOpen`, `videoTick`, `videoTexture`, `videoClose`). */
 export interface MediaPlaying extends ServiceMessage {
-  t: "playing"; stream: string; source?: MediaSource; fps: number; position: number;
+  t: "playing"; stream: string; fps: number; position: number;
 }
-const emptyStatus = (): MediaStatus => ({ phase: "idle", positionMs: 0, bufferedMs: 0, decodedFrames: 0,
-  presentedFrames: 0, droppedFrames: 0, receivedBytes: 0, decodeMaxUs: 0, audioUnderruns: 0, hardware: false, error: "" });
+export type MediaServicePhase = "idle" | "playing" | "paused" | "ended" | "error";
+export interface MediaServiceStatus {
+  phase: MediaServicePhase;
+  positionMs: number;
+  presentedFrames: number;
+  error: string;
+}
+const emptyStatus = (): MediaServiceStatus => ({ phase: "idle", positionMs: 0, presentedFrames: 0, error: "" });
 
-/** A single playback lifetime over native media or a companion-produced ring.
- * Native pause stays on the decoder; ring control and end polls stay here.
- * Both presentations consume the same texture, volume and status interface. */
+/** A single playback lifetime over a companion-produced ring. Ring control
+ * and end polls stay here; the host's video plane presents the frames. */
 export function createMediaService(service: ServiceClient) {
-  let native: ReturnType<typeof mediaPlayer> | undefined;
   let active: MediaPlaying | undefined, snapshot = emptyStatus(), frame = 0, generation = 0;
-  let busy = false, volume = .8;
+  let busy = false;
   const listeners = new Set<(event: ServiceMessage) => void>();
   const emit = (event: ServiceMessage) => { for (const listener of listeners) listener(event); };
   const close = () => {
     generation++; busy = false;
-    if (native) native.close(); else if (active) getOps().videoClose?.();
-    native = undefined; active = undefined; snapshot = emptyStatus();
+    if (active) getOps().videoClose?.();
+    active = undefined; snapshot = emptyStatus();
   };
   const unsubscribe = service.subscribe(event => {
     if (event.t === "offline") close();
@@ -34,7 +37,6 @@ export function createMediaService(service: ServiceClient) {
   const stopPump = registerServicePump(() => {
     if (!active) return;
     frame++;
-    if (native) { snapshot = native.status(); return; }
     const index = getOps().videoTick?.() ?? -1;
     if (index >= 0) { snapshot.positionMs = index / active.fps * 1000; snapshot.presentedFrames++; }
     if (service.transport() !== "companion" || busy || snapshot.phase === "ended" || frame % 120) return;
@@ -54,10 +56,6 @@ export function createMediaService(service: ServiceClient) {
       if (!["play", "pause", "resume", "seek", "stop"].includes(message.t)) {
         service.send(message, deliver); return;
       }
-      if ((message.t === "pause" || message.t === "resume") && native) {
-        native.pause(message.t === "pause");
-        deliver({ t: "state", id: message.id, playing: message.t === "resume", position: native.status().positionMs / 1000 }); return;
-      }
       if (message.t === "stop") close();
       const owner = message.t === "play" || message.t === "seek" ? ++generation : generation;
       if (message.t === "play" || message.t === "seek") busy = false;
@@ -68,14 +66,9 @@ export function createMediaService(service: ServiceClient) {
           if (!Number.isFinite(source.fps) || source.fps <= 0 || !Number.isFinite(source.position)) {
             deliver({ t: "error", id: message.id, message: "Invalid media response" }); return;
           }
-          if (active && !!source.source !== !!native) close();
-          active = source; snapshot = { ...emptyStatus(), phase: "opening", positionMs: source.position * 1000 };
+          active = source; snapshot = { ...emptyStatus(), phase: "playing", positionMs: source.position * 1000 };
           try {
-            let opened: boolean;
-            if (source.source) { native = mediaPlayer(); opened = native.open(source.source); native.volume(volume); }
-            else opened = service.openStream(source.stream);
-            if (!opened) throw new Error("Player unavailable. Retry playback.");
-            if (!native) snapshot.phase = "playing";
+            if (!service.openStream(source.stream)) throw new Error("Player unavailable. Retry playback.");
           } catch (error) {
             close(); snapshot.phase = "error"; snapshot.error = String(error);
             deliver({ t: "error", id: message.id, message: snapshot.error }); return;
@@ -87,9 +80,8 @@ export function createMediaService(service: ServiceClient) {
         deliver(reply);
       });
     },
-    texture: () => native ? native.texture() : getOps().videoTexture?.() ?? -1,
-    status: (): MediaStatus => ({ ...snapshot }),
-    volume(value: number) { volume = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0; native?.volume(volume); },
+    texture: () => getOps().videoTexture?.() ?? -1,
+    status: (): MediaServiceStatus => ({ ...snapshot }),
     dispose() { close(); unsubscribe(); stopPump(); listeners.clear(); },
   };
 }

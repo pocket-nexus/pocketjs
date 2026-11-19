@@ -105,6 +105,13 @@ is used. The `theme` prop is a skin; `classic` is the bezelled light look
 `framework/src/classic.ts` shares with app chrome, and the same theme
 renders both layouts.
 
+`TextField` and `Osk` accept `surface` and `keyHeight`. Keyboard width,
+overlay placement and touch hit queries use that surface. Modality blocks
+application input until the keyboard closes.
+`createWasmUi().createAuxiliarySurface(w, h)` and `renderAuxiliary()` expose
+the same separate roots and shared resources for application tests and
+visual review.
+
 `tests/osk-script.ts` mirrors these rules for journeys: a scripter walks
 the same `layoutRows`/`navigate` math, and `resume` continues from the
 layer and key another scripter left the keyboard on.

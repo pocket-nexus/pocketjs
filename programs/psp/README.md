@@ -87,5 +87,8 @@ packages against: `psp`, `psp-runtime`, or the crate's own host contract of
 platform `psp` with its own id and capabilities. The application passed to
 the build is the one the library embeds; a program that carries more bundles
 embeds them from its own build script. Switching between applications on the
-device belongs to such a crate in
-[pocket-nexus/pocket-shell](https://github.com/pocket-nexus/pocket-shell).
+device, Pocket Link over the PSPLINK share (`globalThis.link`) and companion
+media playback (`globalThis.media`) belong to such a crate in
+[pocket-nexus/pocket-shell](https://github.com/pocket-nexus/pocket-shell);
+the stock program starts no link worker and reads nothing under
+`host0:/pocket-link/`.

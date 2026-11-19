@@ -346,7 +346,6 @@ impl Runtime {
             // texture storage; the core keeps the old storage until retire.
             let mut state = self.ops.core_mut().map_err(|e| format!("{e:?}"))?;
             crate::vid::present(&mut state.ui);
-            crate::media::present(&mut state.ui);
             commit(&mut state.ui);
         }
         self.call(pocket_runtime::Runtime::present)
@@ -380,7 +379,6 @@ impl Drop for Runtime {
             crate::audio_mod::reset();
             crate::svc::reset();
             crate::pack_ops::reset();
-            crate::media::reset();
             crate::offload::reset();
             crate::offload_local::reset();
             // `handle` drops next: canonical shutdown invalidates bindings

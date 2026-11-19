@@ -37,15 +37,13 @@
       "input.buttons",
       "input.cursor",
       "io.offload",
-      "link.companion",
-      "media.playback",
       "text.glyphs.baked",
       "text.glyphs.streamed",
       "text.layout.offload"
     ],
     "tickHz": 60
   },
-  "profileHash": "sha256:215116618fb3fceaf04e9c681ed4aa9a1cb6b8c4e775aed4cd88d092d3609514",
+  "profileHash": "sha256:e13e5218bbbf966bcf03b8f1d88282a28953f1ba7fb14bd8a53839866665dbce",
   "app": {
     "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
@@ -103,5 +101,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:218f36bdfde4c6a80953f4b83eabe0459e1b2c347f082914d19470ec0ca70d70"
+  "planHash": "sha256:16abe85662672bd35b15be50cea56a5bde88ffb899ee30ec6feda9ea749f338e"
 }

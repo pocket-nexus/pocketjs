@@ -43,9 +43,6 @@ pub mod scene;
 pub mod service_bindings;
 pub use scene as ge;
 pub mod host;
-pub use pocket_psp_io::link;
-pub mod media;
-pub mod media_wire;
 mod instance;
 pub use instance::with_ui;
 /// The exported profile this EBOOT was built for (`psp`, `psp-runtime` or a

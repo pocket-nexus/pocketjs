@@ -204,8 +204,6 @@ describe("platform registry", () => {
       "input.buttons",
       "input.cursor",
       "io.offload",
-      "link.companion",
-      "media.playback",
       "text.glyphs.baked",
       "text.glyphs.streamed",
       "text.layout.offload",

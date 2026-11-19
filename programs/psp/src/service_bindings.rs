@@ -1,10 +1,10 @@
-//! PSP private audio, debugger, offload, link and media extensions. Public UI methods are
-//! generated and dispatch to the active Runtime's OpContext.
+//! PSP private audio, debugger, offload, fs and pack extensions. Public UI methods are
+//! generated and dispatch to the active Runtime's OpContext. A program crate
+//! installs its own namespaces with these helpers (`frame::Program::globals`).
 use alloc::string::String;
 use libquickjs_sys::*;
 extern "C" {
     fn JS_NewStringLen(ctx: *mut JSContext, text: *const u8, length: usize) -> JSValue;
-    fn JS_ToBool(ctx: *mut JSContext, value: JSValue) -> i32;
     fn JS_ParseJSON(
         ctx: *mut JSContext,
         buf: *const core::ffi::c_char,
@@ -509,114 +509,6 @@ pub(crate) unsafe fn buffer_mut<'a>(ctx: *mut JSContext, value: JSValue) -> Opti
     Some(core::slice::from_raw_parts_mut(pointer.add(offset), count))
 }
 
-// ---- globalThis.link over the USB share (link.rs) ---------------------------
-
-/// link.status() -> LinkStatus JSON (the Pocket Link contract's shape).
-unsafe extern "C" fn js_link_status(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    let s = crate::link::link_status();
-    JS_NewStringLen(ctx, s.as_ptr(), s.len())
-}
-
-/// link.pair / forget / remove: the USB carrier has no pairing and no
-/// installs (the cable is the trust boundary), so each refuses.
-unsafe extern "C" fn js_link_refuse(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    JS_NewBool(ctx, false)
-}
-
-/// link.catalog / install -> -1: not carried over USB.
-unsafe extern "C" fn js_link_no_request(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    JS_NewInt32(ctx, -1)
-}
-
-/// link.poll() -> no link events over USB.
-unsafe extern "C" fn js_link_poll(
-    _ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    JS_UNDEFINED
-}
-// ---- globalThis.media over the USB share's media ring (media.rs) ---------------
-
-/// media.open(host, port, token) -> bool (contracts/spec/media.ts MediaOps).
-unsafe extern "C" fn js_media_open(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    let Some((pointer, token)) = arg_bytes(ctx, argc, argv, 2) else {
-        return JS_NewBool(ctx, false);
-    };
-    let ok = crate::media::open(token);
-    JS_FreeCString(ctx, pointer);
-    JS_NewBool(ctx, ok)
-}
-
-unsafe extern "C" fn js_media_close(
-    _ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    crate::media::close();
-    JS_UNDEFINED
-}
-
-unsafe extern "C" fn js_media_paused(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    crate::media::set_paused(argc >= 1 && JS_ToBool(ctx, *argv) > 0);
-    JS_UNDEFINED
-}
-
-unsafe extern "C" fn js_media_volume(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    argc: i32,
-    argv: *mut JSValue,
-) -> JSValue {
-    crate::media::set_volume(arg_f64(ctx, argc, argv, 0) as f32);
-    JS_UNDEFINED
-}
-
-unsafe extern "C" fn js_media_texture(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    JS_NewInt32(ctx, crate::instance::with_ui(ctx, |ui| crate::media::texture(ui)).unwrap_or(-1))
-}
-
-unsafe extern "C" fn js_media_status(
-    ctx: *mut JSContext,
-    _this: JSValue,
-    _argc: i32,
-    _argv: *mut JSValue,
-) -> JSValue {
-    let s = crate::media::status();
-    JS_NewStringLen(ctx, s.as_ptr(), s.len())
-}
 /// Mount private namespaces after the generated guest has created ui;
 /// `data_name` names the guest's `fs` directory.
 pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue, data_name: &str) {
@@ -647,36 +539,8 @@ pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue, data_name: 
     add_fn(ctx, ui_obj, b"__dbgShot\0", js_dbg_shot, 0);
     JS_FreeValue(ctx, ui_obj);
     register_audio(ctx, global);
-    register_link(ctx, global);
     crate::fs_ops::register_fs(ctx, global, data_name);
     crate::pack_ops::register_pack(ctx, global);
-}
-/// Install `globalThis.link` and `globalThis.media`, both carried by the
-/// companion on the USB share (link.rs, media.rs). The link starts here,
-/// before the guest evaluates, so a status read or a media stream opened at
-/// mount finds a companion that answers.
-///
-/// # Safety
-/// QuickJS context alive, worker thread.
-pub unsafe fn register_link(ctx: *mut JSContext, global: JSValue) {
-    crate::link::start(crate::profile::ID);
-    let link = JS_NewObject(ctx);
-    add_fn(ctx, link, b"status\0", js_link_status, 0);
-    add_fn(ctx, link, b"pair\0", js_link_refuse, 1);
-    add_fn(ctx, link, b"forget\0", js_link_refuse, 1);
-    add_fn(ctx, link, b"remove\0", js_link_refuse, 1);
-    add_fn(ctx, link, b"catalog\0", js_link_no_request, 0);
-    add_fn(ctx, link, b"install\0", js_link_no_request, 1);
-    add_fn(ctx, link, b"poll\0", js_link_poll, 0);
-    JS_SetPropertyStr(ctx, global, b"link\0".as_ptr() as *const _, link);
-    let media = JS_NewObject(ctx);
-    add_fn(ctx, media, b"open\0", js_media_open, 3);
-    add_fn(ctx, media, b"close\0", js_media_close, 0);
-    add_fn(ctx, media, b"paused\0", js_media_paused, 1);
-    add_fn(ctx, media, b"volume\0", js_media_volume, 1);
-    add_fn(ctx, media, b"texture\0", js_media_texture, 0);
-    add_fn(ctx, media, b"status\0", js_media_status, 0);
-    JS_SetPropertyStr(ctx, global, b"media\0".as_ptr() as *const _, media);
 }
 /// Install `globalThis.audio` — the audio MODULE as its own namespace
 /// (capability audio.pcm = spec namespace, contracts/spec/audio.ts), the

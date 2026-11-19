@@ -155,11 +155,10 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `ui.physics` | 2D bodies stepped by the UI core: worlds, jelly bodies, colliders, zones and particle emitters (`contracts/spec/physics.ts`). |
 | `ui.compositor-surfaces` | A System UI can place installed applications into native compositor surfaces. |
 | `audio.pcm` | Credit-based s16 PCM streaming through `globalThis.audio`. |
-| `media.playback` | Native encoded-media playback with audio clock, pause, volume and texture output. |
 | `data.fs` | A per-app file tree behind `globalThis.fs`; paths are confined to the app's own root. |
 | `data.pack` | Read-only files under the game data root behind `globalThis.pack`: chapter textures and streamed PCM kept outside the program image (`docs/PACKS.md`). |
 | `host.clipboard` | Copy, cut and paste with the OS clipboard. |
-| `camera.qr`, `camera.photo`, `link.companion`, `link.channel`, `system.wifi`, `system.device`, `system.agent` | Host namespaces of Runtime products: camera, companion link, Wi-Fi, board controls and the system agent. **No host contract in this repository provides them.** The ids stay registered so the host contracts of products in [pocket-nexus/pocket-shell](https://github.com/pocket-nexus/pocket-shell) validate against this registry; their contracts and guest modules live there. |
+| `camera.qr`, `camera.photo`, `link.companion`, `link.channel`, `media.playback`, `system.wifi`, `system.device`, `system.agent` | Host namespaces of Runtime products: camera, companion link, companion media playback, Wi-Fi, board controls and the system agent. **No host contract in this repository provides them.** The ids stay registered so the host contracts of products in [pocket-nexus/pocket-shell](https://github.com/pocket-nexus/pocket-shell) validate against this registry; their contracts and guest modules live there. |
 | `system.extension` | A product extension linked into the program: it draws the primary display and publishes its own global, and the guest's interface stays on the auxiliary surface. |
 
 ### app.viewport
