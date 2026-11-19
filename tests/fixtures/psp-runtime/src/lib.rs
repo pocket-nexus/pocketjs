@@ -442,6 +442,44 @@ fn a_program_provider_answers_operations_the_library_leaves_and_names_the_data_d
         fs_ops::NAME.with(|name| assert_eq!(*name.borrow(), "fixture-data"));
     }
 }
+unsafe extern "C" fn js_program_answer(ctx: *mut JSContext, _: JSValue, _: i32, _: *mut JSValue) -> JSValue {
+    JS_NewInt32(ctx, 42)
+}
+/// What a program crate installs through `frame::Program::globals`
+/// (`Runtime::boot`): the hook runs once, after the generated bindings
+/// created `ui` and the library mounted its namespaces, and the bundle reads
+/// what it installed when it evaluates.
+#[test]
+fn a_program_installs_native_globals_the_bundle_reads_when_it_evaluates() {
+    unsafe {
+        let p = Program::unbooted();
+        assert_eq!(
+            p.call(|r| r.set_package_source(Box::new(pocket_package::source::MemorySource(package(
+                br#"if(program.answer()!==42||program.sawUi!==true||program.sawAudio!==true)throw Error('program globals');globalThis.frame=function(){};"#,
+                PLAN
+            ))))),
+            0
+        );
+        let mut calls = 0;
+        let status = p.guest.with_globals(
+            &mut |ctx, global| {
+                calls += 1;
+                let program = JS_NewObject(ctx);
+                for (name, key) in [(c"sawUi", c"ui"), (c"sawAudio", c"audio")] {
+                    let value = JS_GetPropertyStr(ctx, global, key.as_ptr());
+                    JS_SetPropertyStr(ctx, program, name.as_ptr(), JS_NewBool(ctx, JS_IsObject(value)));
+                    JS_FreeValue(ctx, value);
+                }
+                service_bindings::add_fn(ctx, program, b"answer\0", js_program_answer, 0);
+                JS_SetPropertyStr(ctx, global, c"program".as_ptr(), program);
+            },
+            || p.call(Runtime::boot_deferred),
+        );
+        assert_eq!(status, 0, "{}", p.guest.error());
+        assert_eq!(calls, 1);
+        p.assert_js("if(program.answer()!==42)throw Error('program global after boot')");
+    }
+}
 #[test]
 fn canonical_turns_preserve_input_and_wait_before_retiring() {
     unsafe {

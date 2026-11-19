@@ -174,11 +174,10 @@ fn main() {
     );
     let presentation = env::var("POCKETJS_PRESENTATION").unwrap_or_else(|_| "native".into());
     let raster_density = dimension("POCKETJS_RASTER_DENSITY", 1);
-    assert!(
-        target == "psp"
-            || (env::var_os("CARGO_FEATURE_RUNTIME").is_some() && target == "psp-runtime"),
-        "pocketjs-psp requires psp or the psp-runtime program profile"
-    );
+    // The stock psp and psp-runtime profiles, or a program crate's own
+    // profile (tools/psp.ts buildPspProgram passes its platform).
+    let platform = env::var("POCKETJS_PLATFORM").unwrap_or_else(|_| "psp".into());
+    assert_eq!(platform, "psp", "pocketjs-psp requires a psp platform profile");
     assert_eq!(logical, (480, 272), "PSP logical viewport must be 480x272");
     assert_eq!(
         physical,
@@ -247,6 +246,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_BUNDLE");
     println!("cargo:rerun-if-env-changed=POCKETJS_OUTPUT_DIR");
     println!("cargo:rerun-if-env-changed=POCKETJS_TARGET");
+    println!("cargo:rerun-if-env-changed=POCKETJS_PLATFORM");
     println!("cargo:rerun-if-env-changed=POCKETJS_HOST_ABI");
     println!("cargo:rerun-if-env-changed=POCKETJS_LOGICAL_WIDTH");
     println!("cargo:rerun-if-env-changed=POCKETJS_LOGICAL_HEIGHT");

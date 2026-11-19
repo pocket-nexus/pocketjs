@@ -4,6 +4,7 @@ use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::cell::{Cell, RefCell, RefMut};
 use libquickjs_sys::{JSContext, JSValue};
 use pocket_psp_render::{native::NativeDevice, Config, GeDisplay, GeRenderer, SharedRenderer};
+use pocketjs_core::Ui;
 use pocket_runtime::{
     abi::{self, status_code, Handle},
     CoreState, OpContext, OpProvider, RuntimeConfig, RuntimeError,
@@ -27,7 +28,6 @@ pub struct FrameTiming {
 static mut LAST_PRESENT: Option<u32> = None;
 
 /// What a program chooses for one guest.
-#[derive(Default)]
 pub struct Options {
     /// Guest frames per second the program presents at. It replaces the
     /// cadence the runtime selects from the profile when it divides the
@@ -38,6 +38,22 @@ pub struct Options {
     /// guest's `fs`. `None`: the embedded application's output name, or in
     /// the generic runtime the name of the EBOOT's directory.
     pub data_name: Option<String>,
+    /// Probe the DevTools mailbox (`pocketjs-dbg/enable` on `host0:`, then
+    /// `ms0:`) when this guest boots and no guest before it probed. Its polls
+    /// are main-thread `host0:` I/O, so a program whose own transport uses
+    /// the PSPLINK share sets false. Default true; an application with
+    /// `io.offload` skips the probe either way unless the build has the
+    /// `devtools-offload` feature.
+    pub devtools: bool,
+}
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            cadence: None,
+            data_name: None,
+            devtools: true,
+        }
+    }
 }
 
 struct PacedDevice {
@@ -275,11 +291,19 @@ impl Runtime {
     pub unsafe fn ui(&mut self) -> UiGuard<'_> {
         UiGuard(self.ops.core_mut().expect("inactive PSP Runtime"))
     }
+    /// Admit the package and boot its guest. `globals` runs once, after the
+    /// generated bindings created `ui` and the library mounted its
+    /// namespaces, before the bundle evaluates (`frame::Program::globals`).
+    ///
     /// # Safety
     /// Owning graphics thread. Boot performs no GU submission.
-    pub unsafe fn boot(&mut self) -> Result<(), String> {
+    pub unsafe fn boot(
+        &mut self,
+        globals: &mut dyn FnMut(*mut JSContext, JSValue),
+    ) -> Result<(), String> {
         let _fpu = crate::host::FpuGuard::masked();
-        self.call(pocket_runtime::Runtime::boot_deferred)?;
+        self.guest
+            .with_globals(globals, || self.call(pocket_runtime::Runtime::boot_deferred))?;
         // The guest recorded the admitted rate and the cadence it published.
         let sim_hz = self.guest.sim_hz.get();
         if sim_hz == 0 || 60 % sim_hz != 0 {
@@ -307,10 +331,14 @@ impl Runtime {
         }
         self.call(|r| r.advance_with_core_ticks(ticks))
     }
+    /// Commit the video plane's frame, then the program's textures
+    /// (`commit`, `frame::Program::commit`), then encode and kick this
+    /// frame's list.
+    ///
     /// # Safety
     /// Owning graphics thread, no core guard. The GE may still draw the
     /// previous list; this call completes it before kicking the next one.
-    pub unsafe fn present(&mut self) -> Result<(), String> {
+    pub unsafe fn present(&mut self, commit: impl FnOnce(&mut Ui)) -> Result<(), String> {
         let _fpu = crate::host::FpuGuard::masked();
         self.timing.set(FrameTiming::default());
         {
@@ -319,6 +347,7 @@ impl Runtime {
             let mut state = self.ops.core_mut().map_err(|e| format!("{e:?}"))?;
             crate::vid::present(&mut state.ui);
             crate::media::present(&mut state.ui);
+            commit(&mut state.ui);
         }
         self.call(pocket_runtime::Runtime::present)
     }

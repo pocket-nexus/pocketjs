@@ -9,14 +9,17 @@
 //!
 //! `src/main.rs` runs `run` once for the embedded application. A program
 //! crate that carries several guests runs it once per guest: its `Program`
-//! filters the buttons, registers op providers before boot and ends the guest
-//! after a presented frame; the runtime is dropped before `run` returns, so
-//! the program may draw on the GE (`host::list_ptr`) before the next guest.
+//! registers op providers before boot, installs its own globals while the
+//! guest boots, filters the buttons, commits its textures before each list is
+//! encoded and ends the guest after a presented frame; the runtime is dropped
+//! before `run` returns, so the program may draw on the GE (`host::list_ptr`)
+//! before the next guest.
 
 use alloc::boxed::Box;
 use alloc::string::String;
 use core::ffi::c_void;
 
+use libquickjs_sys::{JSContext, JSValue};
 #[cfg(feature = "capture")]
 use psp::sys::{DisplayPixelFormat, DisplaySetBufSync};
 use psp::sys::{self, IoOpenFlags};
@@ -25,6 +28,7 @@ use crate::{arena, dbg, host, Options, Runtime};
 use pocket_drivers::PackageSource;
 #[cfg(feature = "capture")]
 use pocketjs_core::spec;
+use pocketjs_core::Ui;
 
 /// Declare the PSP module, then run `$entry` on a 1 MiB QuickJS worker
 /// thread after `frame::start` set up the process (clock, graphics,
@@ -141,9 +145,29 @@ pub trait Program {
         let _ = runtime;
         Ok(())
     }
+    /// While the guest boots: after the generated bindings created `ui` and
+    /// the library mounted its namespaces, before the bundle evaluates.
+    /// Install the program's own native globals on `global` in `context`
+    /// (`service_bindings::add_fn`).
+    ///
+    /// # Safety
+    /// Worker thread; the context lives for the guest. Enter no Runtime method.
+    unsafe fn globals(&mut self, context: *mut JSContext, global: JSValue) {
+        let _ = (context, global);
+    }
     /// The controller buttons the guest receives this frame.
     fn buttons(&mut self, buttons: u32) -> u32 {
         buttons
+    }
+    /// Inside `Runtime::present`, with the core guard held, before this
+    /// frame's list is encoded: commit the texture updates this frame shows
+    /// (`Ui::update_texture_t8`). The core keeps storage a list in flight
+    /// samples until that list retires.
+    ///
+    /// # Safety
+    /// Worker thread. Enter no Runtime or JS method.
+    unsafe fn commit(&mut self, ui: &mut Ui) {
+        let _ = ui;
     }
     /// After this frame's list is kicked (and, in capture builds, dumped).
     /// `Some` ends the guest: `run` drops the runtime and returns the exit.
@@ -303,16 +327,17 @@ pub unsafe fn run<P: Program>(
     program: &mut P,
 ) -> Result<P::Exit, String> {
     trace("run: runtime create begin");
+    let devtools = options.devtools;
     let mut runtime = Runtime::new(source, options)?;
     program.configure(&mut runtime)?;
-    if !DBG_PROBED {
+    if devtools && !DBG_PROBED {
         DBG_PROBED = true;
         if (!crate::offload::enabled() || cfg!(feature = "devtools-offload")) && dbg::init() {
             trace("run: devtools mailbox active");
         }
     }
     trace("run: package admission and generated guest boot");
-    runtime.boot()?;
+    runtime.boot(&mut |context, global| program.globals(context, global))?;
     let ticks_per_virtual_frame = runtime.core_ticks();
     #[cfg(feature = "bench")]
     {
@@ -353,9 +378,10 @@ pub unsafe fn run<P: Program>(
         #[cfg(feature = "bench")]
         let bench_after_tick = bench_now_us();
         // Present syncs the previous list, paces and swaps it against the
-        // process clock, then kicks this frame's list. The GE draws it while
-        // the next guest turn runs; no core borrow survives the call.
-        if let Err(error) = runtime.present() {
+        // process clock, commits the program's textures, then kicks this
+        // frame's list. The GE draws it while the next guest turn runs; no
+        // core borrow survives the call.
+        if let Err(error) = runtime.present(|ui| program.commit(ui)) {
             trace_pair(b"[PocketJS present] ", &error);
         }
         #[cfg(feature = "bench")]

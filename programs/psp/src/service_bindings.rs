@@ -391,7 +391,7 @@ unsafe extern "C" fn js_local_submit(
 }
 /// A string argument as bytes, or None when absent/undefined. The caller
 /// frees every returned pointer with JS_FreeCString.
-unsafe fn arg_bytes(
+pub unsafe fn arg_bytes(
     ctx: *mut JSContext,
     argc: i32,
     argv: *mut JSValue,
