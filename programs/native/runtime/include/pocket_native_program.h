@@ -85,8 +85,9 @@ PocketNativeProgram *pocket_native_program_create_profile(const char *target, ui
   const uint8_t *code, size_t code_length, const uint8_t *pak, size_t pak_length,
   uint32_t width, uint32_t height, uint32_t density, uint32_t physics,
   const pocket_profile_facts *profile, const uint8_t profile_hash[32]);
-/* Catalog guests retain their original bundle bytes and plan. Identity and
- * declared viewport must match the catalog; physics is a host permission,
+/* The guest retains the original bundle bytes and plan. The bundle's identity
+ * must equal output, id and title, and its declared viewport must equal width,
+ * height and density; physics is a host permission,
  * while the bundle's plan decides whether its methods mount. Runtime performs
  * package admission against the supplied host profile before guest initialization.
  * Profile facts/hash must come from the host build, never this bundle. Initial viewport uses the

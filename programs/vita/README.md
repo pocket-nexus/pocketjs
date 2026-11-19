@@ -14,11 +14,12 @@ Normal builds do not enable benchmark captures.
 
 ## Program binaries
 
-**`src/main.rs` is the stock frame loop**: it runs the embedded bundle, or the
-embedded set with app switching, or `app0:app.pkb` in the generic runtime, and
-a guest that fails leaves its error on screen through `overlay::notice`. The
-library crate exposes the blocks that loop composes: `Runtime`, `graphics`,
-`input`, `switch`, `overlay`, `frame_timing`, `profile` and `package_file`.
+**`src/main.rs` is the stock frame loop**: it runs the embedded bundle, or
+`app0:app.pkb` in the generic runtime, and a guest that fails leaves its error
+on screen through `overlay::notice`. The library crate exposes the blocks that
+loop composes: `Runtime`, `graphics`, `input`, `embedded`, `overlay`,
+`frame_timing`, `profile` and `package_file`. `embedded::eval` boots the
+embedded bundle (`embedded::BUNDLE`) or, in the generic runtime, `app.pkb`.
 A binary crate in another repository depends on `pocketjs-vita` by path and
 writes its own loop over the same blocks; `buildVitaProgram()` in
 `tools/vita.ts` builds and packages such a crate. The library feature
@@ -29,7 +30,7 @@ program, in [pocket-nexus/pocket-devkit](https://github.com/pocket-nexus/pocket-
 The host registers [`pocket-vita-render`](../../devices/vita/pocket-vita-render/README.md)
 with the canonical Runtime through the C ABI handle. **Each guest owns its
 CoreState, package, input encoder and generated QuickJS bindings.** The Vita
-provider supplies services, video, diagnostics and launcher operations; native
+provider supplies services, video and diagnostics (ops 30 to 38); native
 extensions keep the existing Bellard QuickJS context and JSValue ABI.
 
 The renderer owns resource revisions, submission vertex memory and GPU waits.

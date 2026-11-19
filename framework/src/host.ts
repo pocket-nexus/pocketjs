@@ -253,18 +253,19 @@ export interface HostOps {
    *  "stats" message replies with data: null then. */
   debugStats?(): string;
 
-  // -- app switching (spec ops 39..41, docs/LAUNCHER.md). Optional: only
-  //    multi-app hosts implement them; a guest feature-detects each one,
-  //    and a launcher guest degrades to its empty state elsewhere. ---------
-  /** OP.appTable — JSON { apps: [{output, id, title}], current, resume }. */
+  // -- applications (spec ops 39, 40, 41 and 51). Reserved for a product
+  //    host that runs several applications and switches between them; no
+  //    host in this repository provides them. pocket-nexus/pocket-shell
+  //    implements them and defines their semantics. A guest tests for each
+  //    one before it calls it. ---------------------------------------------
+  /** OP.appTable — JSON: the host's applications and the running one. */
   appTable?(): string;
-  /** OP.appLaunch — request a whole-guest switch to `output` after the
-   *  current frame presents. → 1 scheduled, 0 unknown output. */
+  /** OP.appLaunch — request a switch to `output`. → 1 scheduled, 0 not. */
   appLaunch?(output: string): number;
-  /** OP.appShot — texture handle of the SELECT summon's frozen frame
-   *  (256×128 PSM_8888), -1 when none was captured. */
+  /** OP.appShot — texture handle of the frame the host captured from the
+   *  previous application, -1 when there is none. */
   appShot?(): number;
-  /** Native navigation: request graceful closure of a configured child app. */
+  /** OP.appClose — request that the host close `output`. → 1 requested, 0 not. */
   appClose?(output: string): number;
   /**
    * Optional host-owned acceptance sink. Applications report a completed,

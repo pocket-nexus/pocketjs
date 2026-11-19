@@ -20,7 +20,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { bundleHash, fnv1a64, launcherBundleHash } from "./bundle-hash.ts";
+import { bundleHash, fnv1a64 } from "./bundle-hash.ts";
 import { BUNDLE_SECTION, decodeBundle, decodeIdentity, findSection } from "../contracts/spec/bundle.ts";
 import { encodePNG } from "../tests/png.ts";
 
@@ -46,8 +46,8 @@ export interface BridgeOptions {
    *  the repo's dist/ next to this script). */
   dist?: string;
   /** Exact bundle used for the EBOOT, or its captured build input. No
-   *  neighboring bundles are searched. Legacy JS/pak and launcher checks
-   *  apply only when this option is absent. */
+   *  neighboring bundles are searched. The legacy JS/pak check applies only
+   *  when this option is absent. */
   bundlePath?: string;
   onEvent?: (e: BridgeEvent) => void;
 }
@@ -130,7 +130,7 @@ export function startBridge(opts: BridgeOptions): Bridge {
   const distDir = opts.dist ?? new URL("../dist", import.meta.url).pathname;
 
   /** Stale-embed tripwire: compare the device's FNV-1a64 with the explicit
-   *  bundle, or legacy dist JS/pak and launcher table. A mismatch means the running EBOOT does
+   *  bundle, or legacy dist JS/pak. A mismatch means the running EBOOT does
    *  not contain the code being edited — every on-device observation would
    *  be evidence about the wrong build. */
   function checkBundle(data: Record<string, unknown>): void {
@@ -154,35 +154,9 @@ export function startBridge(opts: BridgeOptions): Bridge {
     } catch {
       return; // no local build of this app — nothing to compare against
     }
-    // Multi-app EBOOT (docs/LAUNCHER.md): the device hash covers app 0 PLUS every
-    // registry bundle in table order. When the single-bundle hash misses and
-    // a registry is present, compare against that flavor before crying stale.
-    let launcher: string | null = null;
-    if (local !== device) {
-      try {
-        const tsv = readFileSync(join(distDir, "launcher-registry.tsv"), "utf8");
-        const outputs = [
-          app,
-          ...tsv
-            .split("\n")
-            .filter((l) => l.trim())
-            .map((l) => l.split("\t")[0]),
-        ];
-        launcher = launcherBundleHash(distDir, outputs);
-      } catch {
-        launcher = null; // no registry — plain single-app comparison stands
-      }
-    }
-    if (local === device) {
-      emit({ type: "bundle-ok", detail: `${app} @ ${device}` });
-    } else if (launcher === device) {
-      emit({ type: "bundle-ok", detail: `${app} (multi-app) @ ${device}` });
-    } else {
-      emit({
-        type: "bundle-mismatch",
-        detail: `${app}: device ${device} != dist ${local}${launcher ? ` (multi-app ${launcher})` : ""}`,
-      });
-    }
+    emit(local === device
+      ? { type: "bundle-ok", detail: `${app} @ ${device}` }
+      : { type: "bundle-mismatch", detail: `${app}: device ${device} != dist ${local}` });
   }
 
   function handleDeviceLine(line: string): void {

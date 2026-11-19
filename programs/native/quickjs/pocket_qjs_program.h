@@ -37,7 +37,7 @@ PocketQjsProgram *pocket_qjs_program_create_host(const pocket_qjs_program_host *
  * Raw form: code and pack bytes are copied; density must match the profile. */
 int pocket_qjs_program_boot(PocketQjsProgram *, const char *, size_t, const uint8_t *, size_t, int, int, uint32_t);
 /* Complete package form (pocket_native_program_create_package): the bytes are
- * copied; output, id and title name the catalog identity. */
+ * copied; output, id and title name the identity the bundle must carry. */
 int pocket_qjs_program_boot_package(PocketQjsProgram *, const uint8_t *package, size_t length,
   const char *output, const char *id, const char *title, int width, int height, uint32_t density);
 /* Host package source form (pocket_native_program_create_source): Runtime
