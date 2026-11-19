@@ -166,21 +166,15 @@ share an id, and a different guarantee gets a new id.
 | `host.clipboard` | Copy, cut and paste with the OS clipboard. |
 
 **A host contract may list ids the registry does not know; the host defines
-them.** Validation of the contract accepts them. An application resolved
-against that host lists them in `features` like registered ids: the plan
-records `true` for an id in the host's `capabilities` and `false` for an id
-its `roleCapabilities` list without its `capabilities`. Against a host that does not list the id, the same
-entry is `capability.unknown`. **PocketJS attaches no meaning to a
-host-defined id**: no dependency rule, no compile-time behavior and no engine
-bit; the host's own program and guest modules implement it. The hosts of
-[pocket-shell](https://github.com/pocket-nexus/pocket-shell) define their
-camera, companion link, media playback, Wi-Fi, board control and system agent
-ids this way.
-
-Ids have no namespace. A host-defined id keeps the spelling its product
-publishes in manifests and plans, and a future PocketJS id avoids a name a
-product already uses **by coordination with that product**; no mechanism
-reserves names.
+them.** An application resolved against that host lists them in `features`
+like registered ids: the plan records `true` for an id in the host's
+`capabilities` and `false` for an id its `roleCapabilities` list and its
+`capabilities` do not. Against a host that does not list the id, the entry
+is `capability.unknown`. PocketJS attaches no meaning to a host-defined id;
+[Host-defined capabilities](/docs/platform-contracts/#host-defined-capabilities)
+states the rules. The hosts of [pocket-shell](https://github.com/pocket-nexus/pocket-shell)
+define their camera, companion link, media playback, Wi-Fi, board control and
+system agent ids this way.
 
 ### app.viewport
 
