@@ -162,12 +162,30 @@ the runtime admits it without a second hash pass.
 `pocket_idf_package_open_source` takes a `pocket_package_source_v1` and its
 context and admits what the source holds, a bundle or the sections its
 `sections` callback states, through the path boot takes. Both fill
-`pocket_idf_package_facts`: the plan's viewport, auxiliary surface, raster
-density and feature bits, the bundle's footer and payload hashes
-(`package_hash`, `payload_hash`, zero for stated sections) and `slot`, the
-first 16 hex digits of SHA-256 of the app id. For stated sections the app id
-is the plan's `app.id`. The source form never calls `take`, so the same
-source boots the program afterwards.
+`pocket_idf_package_facts`, a record whose `struct_size` the caller sets: the
+JavaScript, pak and plan sections, the app id (`app_id`, `app_id_length`,
+UTF-8 without a terminator), the plan's viewport, auxiliary surface and raster
+density, and the bundle's footer and payload hashes (`package_hash`,
+`payload_hash`, zero for stated sections). For stated sections the app id is
+the plan's `app.id`. The source form never calls `take`, so the same source
+boots the program afterwards. A source without an `all` callback is read into
+memory the call releases; the four pointers are then `NULL` with their lengths
+set.
+
+**`pocket_idf_package_feature` reads one feature of the plan by its id
+string**, a registered id or one the host contract defines:
+
+```c
+bool files = false;
+if (pocket_idf_package_feature(&facts, "data.fs", &files) == POCKET_PACKAGE_OPEN_OK && files) {
+  /* mount the application's file tree */
+}
+```
+
+It writes `true` when the plan's `features.<name>` is `true` and `false` when
+it is `false` or absent, and returns `POCKET_PACKAGE_OPEN_BAD_ARGUMENT` for a
+record whose `plan` is `NULL`. A program that keeps per-application state
+names it from the app id; the record carries no store layout.
 
 Check creation results, then check each registration result against
 `POCKET_STATUS_OK`:

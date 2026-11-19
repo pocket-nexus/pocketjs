@@ -1091,9 +1091,11 @@ Registers an `onFrame` hook that turns held UP/DOWN and the analog stick into
 const platform: {
   readonly target: string;
   readonly pixelRatio: number;
-  readonly features: Readonly<Partial<Record<PocketCapabilityId, boolean>>>;
+  readonly features: Readonly<Partial<Record<FeatureId, boolean>>>;
 };
-function hasFeature(feature: PocketCapabilityId): boolean
+function hasFeature(feature: FeatureId): boolean
+// A registered id, which editors complete, or an id the host contract defines.
+type FeatureId = PocketCapabilityId | (string & {});
 ```
 
 For a bundle built from a build plan, `tools/build.ts` defines the

@@ -1,6 +1,8 @@
 import type { FeatureId } from "../../contracts/spec/platform-types.ts";
 import { NET_MAX_RESPONSE_BYTES } from "../../contracts/spec/net.ts";
 
+export type { FeatureId };
+
 // Replaced by tools/build.ts for bundles built from a plan. `typeof` keeps
 // legacy and test builds valid without one.
 declare const __POCKET_TARGET__: string;

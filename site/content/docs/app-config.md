@@ -98,8 +98,9 @@ function or `undefined` in it is dropped.
 
 ### app.features
 
-**`features` is compile-time selection.** Each id must be in the capability
-registry (`capability.unknown` otherwise). For the selected host, the plan
+**`features` is compile-time selection.** Each id is in the capability
+registry or in the selected host contract's `capabilities` or
+`roleCapabilities` (`capability.unknown` otherwise). For the selected host, the plan
 records `features[id]`: **`true` when the host contract provides the
 capability and `false` when it does not**. The compiled bundle reads the table
 (`__POCKET_FEATURES__`), and `hasFeature("input.touch")` is specialized at
@@ -127,9 +128,12 @@ to the plan's table as `true`; the selected host must provide them
 
 ### Capability ids
 
-The registry is `POCKET_CAPABILITIES` in `contracts/spec/platform-types.ts`.
-An id names behavior the application can observe; hosts with the same
-observable behavior share an id, and a different guarantee gets a new id.
+**A capability id is defined by PocketJS or by a host.** The registry,
+`POCKET_CAPABILITIES` in `contracts/spec/platform-types.ts`, lists the ids
+PocketJS defines: a host contract in `hosts/` provides the id, or the
+compiler, framework or engine of this repository acts on it. An id names
+behavior the application can observe; hosts with the same observable behavior
+share an id, and a different guarantee gets a new id.
 
 | Id | Meaning |
 | --- | --- |
@@ -155,11 +159,28 @@ observable behavior share an id, and a different guarantee gets a new id.
 | `ui.physics` | 2D bodies stepped by the UI core: worlds, jelly bodies, colliders, zones and particle emitters (`contracts/spec/physics.ts`). |
 | `ui.compositor-surfaces` | A System UI can place installed applications into native compositor surfaces. |
 | `audio.pcm` | Credit-based s16 PCM streaming through `globalThis.audio`. |
+| `audio.capture` | Microphone input on the same namespace (`openInput`, `readInput`, `closeInput`): the host records an input into a ring the guest drains each tick. |
+| `net.mqtt` | MQTT 3.1.1 and 5.0 sessions as a worker resource (`io.mqtt`), under the limits of `contracts/spec/mqtt.ts`. |
 | `data.fs` | A per-app file tree behind `globalThis.fs`; paths are confined to the app's own root. |
 | `data.pack` | Read-only files under the game data root behind `globalThis.pack`: chapter textures and streamed PCM kept outside the program image (`docs/PACKS.md`). |
 | `host.clipboard` | Copy, cut and paste with the OS clipboard. |
-| `camera.qr`, `camera.photo`, `link.companion`, `link.channel`, `media.playback`, `system.wifi`, `system.device`, `system.agent` | Host namespaces of Runtime products: camera, companion link, companion media playback, Wi-Fi, board controls and the system agent. **No host contract in this repository provides them.** The ids stay registered so the host contracts of products in [pocket-nexus/pocket-shell](https://github.com/pocket-nexus/pocket-shell) validate against this registry; their contracts and guest modules live there. |
-| `system.extension` | A product extension linked into the program: it draws the primary display and publishes its own global, and the guest's interface stays on the auxiliary surface. |
+
+**A host contract may list ids the registry does not know; the host defines
+them.** Validation of the contract accepts them. An application resolved
+against that host lists them in `features` like registered ids: the plan
+records `true` for an id in the host's `capabilities` and `false` for an id
+its `roleCapabilities` list without its `capabilities`. Against a host that does not list the id, the same
+entry is `capability.unknown`. **PocketJS attaches no meaning to a
+host-defined id**: no dependency rule, no compile-time behavior and no engine
+bit; the host's own program and guest modules implement it. The hosts of
+[pocket-shell](https://github.com/pocket-nexus/pocket-shell) define their
+camera, companion link, media playback, Wi-Fi, board control and system agent
+ids this way.
+
+Ids have no namespace. A host-defined id keeps the spelling its product
+publishes in manifests and plans, and a future PocketJS id avoids a name a
+product already uses **by coordination with that product**; no mechanism
+reserves names.
 
 ### app.viewport
 
@@ -416,7 +437,7 @@ under `/app`:
 | Code | Cause |
 | --- | --- |
 | `schema.*` | The section breaks its schema: a missing required field (`schema.required`), an unknown field (`schema.additionalProperty`), a value of the wrong type, pattern or range. |
-| `capability.unknown` | A feature outside the registry. |
+| `capability.unknown` | A feature that neither the registry nor the selected host contract defines. |
 | `capability.unavailable` | The host lacks the worker runtime or a node kind's capability. |
 | `capability.dependency`, `capability.offloadDependency` | A dependency from the features table is missing. |
 | `viewport.fixedRequired`, `viewport.dynamicRequired` | The host's form needs the other policy. |
