@@ -1,9 +1,6 @@
-//! SHA-256 (FIPS 180-4) over a byte slice.
-//!
-//! A generic native runtime names an application's state directory from its
-//! id with the digest product build tools use (the runtime slot: the first
-//! 16 hex digits of SHA-256(id)), so the device computes it from the
-//! bundle it boots instead of having it compiled in.
+//! SHA-256 (FIPS 180-4) over a byte slice, for programs without a platform
+//! digest: a host contract's profile hash, or a name a program derives from
+//! the app id it reads from a bundle.
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -85,23 +82,6 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     digest
 }
 
-/// Lowercase hex of the first `N / 2` digest bytes: `N` = 16 gives the
-/// runtime slot.
-pub fn sha256_hex_prefix<const N: usize>(data: &[u8]) -> [u8; N] {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let digest = sha256(data);
-    let mut out = [0u8; N];
-    for (index, slot) in out.iter_mut().enumerate() {
-        let byte = digest[index / 2];
-        *slot = HEX[if index % 2 == 0 {
-            (byte >> 4) as usize
-        } else {
-            (byte & 15) as usize
-        }];
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,12 +124,5 @@ mod tests {
             assert_eq!(hex(sha256(&data)).len(), 64);
             assert_eq!(sha256(&data), sha256(&data.clone()));
         }
-    }
-
-    #[test]
-    fn runtime_slot_prefix() {
-        // The runtime slot of "dev.pocket-nexus.studio.twenty48".
-        let slot = sha256_hex_prefix::<16>(b"dev.pocket-nexus.studio.twenty48");
-        assert_eq!(&slot, b"8963ccb622f441a1");
     }
 }

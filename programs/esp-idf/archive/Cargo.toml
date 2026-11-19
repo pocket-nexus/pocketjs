@@ -19,3 +19,5 @@ pocket-package = { workspace = true }
 [features]
 default = ["std"]
 std = ["pocket-archive/std"]
+[dev-dependencies]
+pocket-spec = { workspace = true }

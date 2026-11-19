@@ -2099,6 +2099,7 @@ dependencies = [
  "pocket-package",
  "pocket-render-esp-ppa",
  "pocket-runtime",
+ "pocket-spec",
 ]
 
 [[package]]
