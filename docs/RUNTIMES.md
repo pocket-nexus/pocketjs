@@ -81,8 +81,8 @@ data in a spec (the `contracts/spec/spec.ts` pattern):
 A surface is mounted into the guest as one named namespace (`globalThis.ui`,
 `globalThis.strike`). Specs are single-source-of-truth TypeScript data,
 code-generated into Rust, with a drift guard that byte-compares the generated
-file in CI (`tests/contract.ts`). A surface is versioned by append: codes are
-never renumbered, never reused.
+file in CI (`tests/contract.ts`). A surface is versioned by append: a code in
+use is never renumbered, and the code of a removed op is free.
 
 **Capability = surface.** A guest can affect exactly what its mounted
 surfaces express — nothing else. There is no ambient filesystem, network, or

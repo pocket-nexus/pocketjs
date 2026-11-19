@@ -262,14 +262,6 @@ fn validate_drawlist(words: &[u32]) -> [u32; 11] {
                 }
                 i += 9;
             }
-            spec::draw_op::SURFACE_QUAD => {
-                for word in i + 2..i + 6 {
-                    assert!(f32::from_bits(words[word]).is_finite());
-                }
-                rect_ok(words[i + 6], words[i + 7]);
-                assert_eq!(words[i + 8] & !1, 0, "unknown surface flags");
-                i += 9;
-            }
             spec::draw_op::SCISSOR => {
                 rect_ok(words[i + 1], words[i + 2]);
                 depth += 1;
@@ -350,10 +342,6 @@ fn tex_tri_runs(words: &[u32]) -> Vec<(u32, usize)> {
                 i += 3 + 2 * ((words[i + 1] >> 16) as usize);
             }
             spec::draw_op::TEX_QUAD => {
-                previous_was_tex_tri = false;
-                i += 9;
-            }
-            spec::draw_op::SURFACE_QUAD => {
                 previous_was_tex_tri = false;
                 i += 9;
             }
@@ -453,68 +441,10 @@ fn insert_before_dom_move_semantics() {
 }
 
 #[test]
-fn clipped_compositor_surface_keeps_full_geometry_and_shell_z_order() {
+fn create_node_rejects_unknown_node_types() {
     let mut ui = Ui::new();
-    let absolute_box = |ui: &mut Ui, node: i32, x: f64, y: f64, w: f64, h: f64, z: f64| {
-        ui.set_prop(
-            node,
-            spec::prop::POS_TYPE,
-            spec::PosType::Absolute as u32 as f64,
-        );
-        ui.set_prop(node, spec::prop::INSET_L, x);
-        ui.set_prop(node, spec::prop::INSET_T, y);
-        ui.set_prop(node, spec::prop::WIDTH, w);
-        ui.set_prop(node, spec::prop::HEIGHT, h);
-        ui.set_prop(node, spec::prop::Z_INDEX, z);
-    };
-
-    let under = ui.create_node(spec::NodeType::View as u8);
-    absolute_box(&mut ui, under, 0.0, 0.0, 200.0, 160.0, 0.0);
-    ui.set_prop(under, spec::prop::BG_COLOR, abgr(1, 2, 3, 255) as f64);
-    ui.insert_before(spec::ROOT_ID, under, 0);
-
-    let clipper = ui.create_node(spec::NodeType::View as u8);
-    absolute_box(&mut ui, clipper, 20.0, 30.0, 80.0, 60.0, 1.0);
-    ui.set_prop(
-        clipper,
-        spec::prop::OVERFLOW,
-        spec::Overflow::Hidden as u32 as f64,
-    );
-    ui.insert_before(spec::ROOT_ID, clipper, 0);
-
-    let surface = ui.create_node(spec::NodeType::Surface as u8);
-    absolute_box(&mut ui, surface, 0.0, 0.0, 100.0, 100.0, 0.0);
-    ui.set_compositor_surface(surface, 7, true);
-    ui.insert_before(clipper, surface, 0);
-
-    let over = ui.create_node(spec::NodeType::View as u8);
-    absolute_box(&mut ui, over, 0.0, 0.0, 12.0, 12.0, 2.0);
-    ui.set_prop(over, spec::prop::BG_COLOR, abgr(4, 5, 6, 255) as f64);
-    ui.insert_before(spec::ROOT_ID, over, 0);
-
-    let words = ui.draw().words.clone();
-    validate_drawlist(&words);
-    let surface_at = words
-        .iter()
-        .position(|word| *word == spec::draw_op::SURFACE_QUAD)
-        .unwrap();
-    let under_at = words
-        .windows(4)
-        .position(|op| op[0] == spec::draw_op::RECT && op[3] == abgr(1, 2, 3, 255))
-        .unwrap();
-    let over_at = words
-        .windows(4)
-        .position(|op| op[0] == spec::draw_op::RECT && op[3] == abgr(4, 5, 6, 255))
-        .unwrap();
-    assert!(under_at < surface_at && surface_at < over_at);
-
-    let frames = ui.compositor_surface_frames();
-    assert_eq!(frames.len(), 1);
-    assert_eq!(frames[0].handle, 7);
-    assert_eq!(frames[0].full, [20.0, 30.0, 100.0, 100.0]);
-    assert_eq!(frames[0].clip, [20.0, 30.0, 80.0, 60.0]);
-    assert!(frames[0].focused);
-    assert_eq!(ui.compositor_surface_bindings(), vec![(7, true)]);
+    assert_ne!(ui.create_node(spec::NodeType::Image as u8), 0);
+    assert_eq!(ui.create_node(spec::NodeType::Image as u8 + 1), 0);
 }
 
 #[test]

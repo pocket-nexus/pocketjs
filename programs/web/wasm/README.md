@@ -10,7 +10,7 @@ The existing browser scheduler runs the core at 60 Hz. A host that calls the gue
 
 **Asynchronous module evaluation retains the Runtime behind a promise gate.** Guest evaluation starts the import. Until its promise settles, the wrapper rejects frame advancement, pixel capture and lifecycle changes other than destruction. Successful completion requires an installed `frame` function and runs presentation to resolve initial layout. Failure destroys the Runtime; completion after destruction cannot reactivate it. Browser promise jobs run at the browser's task boundaries; this embedding does not claim a synchronous JavaScript job-drain API.
 
-`createWasmUiSync` without `boot` supplies the compiler and pixel tests with an instance-owned `OpContext`. Direct `tick` is rejected after boot. Full, incremental, premultiplied, auxiliary and compositor captures use the same retained core. Captures own separate buffers; they do not overwrite the Runtime display's damage history. Runtime-owned display pointers and capture pointers remain valid until their next update or instance destruction. JavaScript copies borrowed operation results before freeing argument scratch memory or making another native call.
+`createWasmUiSync` without `boot` supplies the compiler and pixel tests with an instance-owned `OpContext`. Direct `tick` is rejected after boot. Full, incremental, premultiplied and auxiliary captures use the same retained core. Captures own separate buffers; they do not overwrite the Runtime display's damage history. Runtime-owned display pointers and capture pointers remain valid until their next update or instance destruction. JavaScript copies borrowed operation results before freeing argument scratch memory or making another native call.
 
 Validation:
 

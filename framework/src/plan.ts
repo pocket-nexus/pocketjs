@@ -37,4 +37,4 @@ export {
 export type { AnimationTheme } from "../../contracts/spec/animation-theme.ts";
 export type { AppViewport, AuxiliarySurfaceSpec, SurfacesSpec } from "../../contracts/spec/viewport.ts";
 export type { ContractDiagnostic, ValidationResult } from "../../contracts/spec/json-schema.ts";
-export type { FeatureId, PackageRole, PocketCapabilityId, PresentationMode, Viewport } from "../../contracts/spec/platforms.ts";
+export type { FeatureId, PocketCapabilityId, PresentationMode, Viewport } from "../../contracts/spec/platforms.ts";

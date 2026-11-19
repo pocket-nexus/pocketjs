@@ -16,18 +16,6 @@ impl UiRenderer {
                 .expect("native wgpu renderer format"),
         }
     }
-    pub fn set_surface(
-        &mut self,
-        _gpu: &Gpu,
-        handle: u32,
-        view: &wgpu::TextureView,
-        logical: (u32, u32),
-    ) {
-        self.driver.set_surface(handle, view, logical);
-    }
-    pub fn retain_surfaces(&mut self, keep: impl FnMut(u32) -> bool) {
-        self.driver.retain_surfaces(keep);
-    }
     pub fn render(
         &mut self,
         gpu: &Gpu,

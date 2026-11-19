@@ -457,17 +457,6 @@ pub struct Ui {
     step_pending: bool,
 }
 
-/// One visible application surface in the shell DrawList. `order` is its op
-/// offset and therefore its exact position relative to shell text/chrome.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CompositorSurfaceFrame {
-    pub handle: u32,
-    pub full: [f32; 4],
-    pub clip: [f32; 4],
-    pub focused: bool,
-    pub order: usize,
-}
-
 impl Default for Ui {
     fn default() -> Self {
         Self::new()
@@ -892,7 +881,7 @@ impl Ui {
     /// Create a detached node of `node_type` (spec::NodeType value).
     /// Returns its generation-tagged id, or 0 on failure.
     pub fn create_node(&mut self, node_type: u8) -> i32 {
-        if node_type > spec::NodeType::Surface as u8 {
+        if node_type > spec::NodeType::Image as u8 {
             return 0;
         }
         self.tree.alloc(node_type)
@@ -1633,96 +1622,6 @@ impl Ui {
             node.tex = if tex < 0 { -1 } else { tex };
             node.sprite_frames = 0; // set_image reverts a sprite to a static image
         }
-    }
-
-    /// Bind a Pocket System package surface to a compositor-surface node.
-    /// Handles belong to the native compositor, not the texture table;
-    /// the core only retains the handle and emits its geometry in painter order.
-    pub fn set_compositor_surface(&mut self, id: i32, surface: i32, focused: bool) {
-        let Some(slot) = self.tree.resolve(id) else {
-            return;
-        };
-        let node = &mut self.tree.slots[slot as usize];
-        if node.node_type != spec::NodeType::Surface as u8 {
-            return;
-        }
-        node.compositor_surface = surface.max(-1);
-        node.compositor_focused = focused;
-    }
-
-    /// All live bindings, including surfaces hidden by opacity/display. The
-    /// AppSupervisor uses this lifecycle view to distinguish minimize from close.
-    pub fn compositor_surface_bindings(&self) -> Vec<(u32, bool)> {
-        self.tree
-            .slots
-            .iter()
-            .filter(|node| {
-                node.alive
-                    && node.node_type == spec::NodeType::Surface as u8
-                    && node.compositor_surface >= 0
-            })
-            .map(|node| (node.compositor_surface as u32, node.compositor_focused))
-            .collect()
-    }
-
-    /// Visible compositor instructions in exact DrawList order. Full bounds
-    /// preserve the child coordinate origin; clip bounds are the shell-visible
-    /// destination after overflow and viewport clipping.
-    pub fn compositor_surface_frames(&mut self) -> Vec<CompositorSurfaceFrame> {
-        let words = &self.draw().words;
-        let mut frames = Vec::new();
-        let mut i = 0usize;
-        while i < words.len() {
-            let Some(op) = words.get(i).copied() else {
-                break;
-            };
-            let len = match op {
-                x if x == spec::draw_op::RECT => 4,
-                x if x == spec::draw_op::GRAD_RECT => 6,
-                x if x == spec::draw_op::GLYPH_RUN => {
-                    let Some(meta) = words.get(i + 1) else { break };
-                    3 + 2 * ((*meta >> 16) as usize)
-                }
-                x if x == spec::draw_op::TEX_QUAD => 9,
-                x if x == spec::draw_op::SCISSOR => 3,
-                x if x == spec::draw_op::SCISSOR_POP => 1,
-                x if x == spec::draw_op::TRI => 7,
-                x if x == spec::draw_op::TEX_TRI => 12,
-                x if x == spec::draw_op::TEXT_RUN => {
-                    let Some(bytes) = words.get(i + 7) else { break };
-                    8 + (*bytes as usize).div_ceil(4)
-                }
-                x if x == spec::draw_op::SURFACE_QUAD => 9,
-                _ => break,
-            };
-            let Some(end) = i.checked_add(len) else { break };
-            if end > words.len() {
-                break;
-            }
-            if op == spec::draw_op::SURFACE_QUAD {
-                let xy = words[i + 6];
-                let wh = words[i + 7];
-                frames.push(CompositorSurfaceFrame {
-                    handle: words[i + 1],
-                    full: [
-                        f32::from_bits(words[i + 2]),
-                        f32::from_bits(words[i + 3]),
-                        f32::from_bits(words[i + 4]),
-                        f32::from_bits(words[i + 5]),
-                    ],
-                    clip: [
-                        (xy as u16 as i16) as f32,
-                        ((xy >> 16) as u16 as i16) as f32,
-                        (wh & 0xffff) as f32,
-                        (wh >> 16) as f32,
-                    ],
-                    focused: words[i + 8] & 1 != 0,
-                    order: i,
-                });
-            }
-            i = end;
-        }
-        frames
     }
 
     /// Bind an ANIMATED SPRITE to an image node: `atlas` is an uploaded texture

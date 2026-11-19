@@ -9,12 +9,11 @@ import profile from "./pocket.host.json" with { type: "json" };
  * glyphs on one fixed display. */
 export const LINUX_PROGRAM_CAPABILITIES: readonly string[] = ["input.buttons", "input.pointer", "input.touch", "text.glyphs.baked"];
 
-/** A profile promising other services, role capabilities or a dynamic or
- * auxiliary display fails when this config loads, before export or build. The
- * compiled program checks the display and input facts again at startup. */
+/** A profile promising other services or a dynamic or auxiliary display
+ * fails when this config loads, before export or build. The compiled program
+ * checks the display and input facts again at startup. */
 export function linuxProgramProfile<const P extends PocketProfile>(selected: P): P {
-  const absent = [...selected.capabilities.filter(capability => !LINUX_PROGRAM_CAPABILITIES.includes(capability)),
-    ...Object.values(selected.roleCapabilities ?? {}).flat()];
+  const absent = selected.capabilities.filter(capability => !LINUX_PROGRAM_CAPABILITIES.includes(capability));
   if (absent.length || selected.display.dynamicViewport || selected.display.auxiliary) {
     throw new Error(`${selected.id}: profile promises capabilities absent from this Linux program${absent.length ? `: ${absent.join(", ")}` : ""}`);
   }

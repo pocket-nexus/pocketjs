@@ -117,7 +117,6 @@ describe("host configuration", () => {
     const directory = scratch(); const file = join(directory, "pocket.host.config.ts");
     writeProfile(directory, {
       ...profile("板子??/"), form: "window", capabilities: ["input.buttons", "text.glyphs.baked", "display.viewport.live", "display.auxiliary"],
-      roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
       display: {
         logicalViewports: [[4, 2], [2, 1]], presentations: ["native", "fit"], rasterDensity: 2, animation: "repaint",
         dynamicViewport: { min: [1, 1], max: [16, 8], acceptsFixed: true },
@@ -167,7 +166,6 @@ int main(void) {
     assert(facts->dynamic_viewport->struct_size == sizeof(*facts->dynamic_viewport));
     assert(facts->dynamic_viewport->min[0] == 1 && facts->dynamic_viewport->max[1] == 8);
     assert(pocket_profile.capability_count == 4 && strcmp(pocket_profile.capabilities[0], "display.auxiliary") == 0 && strcmp(pocket_profile.capabilities[3], "text.glyphs.baked") == 0);
-    assert(pocket_profile.system_ui_capability_count == 1 && strcmp(pocket_profile.system_ui_capabilities[0], "ui.compositor-surfaces") == 0);
     fwrite(facts->id, 1, facts->id_length, stdout);
     putchar(10);
     return 0;

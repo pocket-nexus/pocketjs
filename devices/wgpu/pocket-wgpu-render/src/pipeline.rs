@@ -154,7 +154,6 @@ impl WgpuRenderer {
             sampler,
             sampler_nearest,
             white,
-            surfaces: HashMap::new(),
             targets: HashMap::new(),
             pending: HashMap::new(),
             images: TextureCache::new(limits.image_entries, limits.image_bytes),

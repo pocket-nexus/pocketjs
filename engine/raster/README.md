@@ -36,8 +36,7 @@ Provide resource views through `pocket-drivers::RenderResources`. Output size, s
 
 The `incremental` functions plan damage with a `pocket_render::damage::DamageTracker`,
 rasterize only the planned regions, and commit the tracker; keep one tracker per
-persistent framebuffer. The `compositor` module paints host-owned surface rasters
-in DrawList order between the software-rendered segments.
+persistent framebuffer.
 
 Use matching PocketJS crate releases and compiler contracts. Bundle
 format, binding generation, and DrawList version are checked at their respective

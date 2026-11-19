@@ -61,7 +61,6 @@ export interface PocketProfile<C extends string = string> {
   };
   /** Capability names; a set. */
   readonly capabilities: readonly C[];
-  readonly roleCapabilities?: { readonly systemUI?: readonly C[] };
   readonly worker?: {
     /** Worker nodes the host provides, by kind: the most nodes of that kind
      *  one package may declare. */
@@ -100,7 +99,7 @@ export const PROFILE_HASH_ALGORITHM = "sha256" as const;
 export const PROFILE_HASH_BYTES = 32;
 /** The fields the provenance hash covers. Admission does not compare it. */
 export const PROFILE_HASH_FIELDS = [
-  "id", "platform", "form", "cadences", "display", "capabilities", "roleCapabilities",
+  "id", "platform", "form", "cadences", "display", "capabilities",
 ] as const;
 
 export type ProfileHashProjection = Pick<PocketProfile, (typeof PROFILE_HASH_FIELDS)[number]>;
@@ -137,9 +136,6 @@ const display = {
 const cadences = {
   type: "array", items: { type: "integer", minimum: 1, maximum: 240 }, minItems: 1, uniqueItems: true,
 } as const satisfies JsonSchema;
-const roleCapabilities = {
-  type: "object", additionalProperties: false, properties: { systemUI: names },
-} as const satisfies JsonSchema;
 
 /** The data shape of a pocket-host/2 document. framework/src/profile.ts
  *  adds the relations between fields. */
@@ -162,7 +158,6 @@ export const pocketProfileSchema = {
       properties: { primary: viewport, auxiliary: viewport },
     },
     capabilities: names,
-    roleCapabilities,
     worker: {
       type: "object", additionalProperties: false, required: ["nodes"],
       properties: {
@@ -225,7 +220,6 @@ const byCodeUnit = (left: string, right: string) => (left < right ? -1 : left > 
 /** The hashed fields. Capability lists and cadences are sets: sorted here.
  *  Missing optional fields stay absent; viewport lists keep their order. */
 export function profileHashProjection(profile: ProfileHashProjection): ProfileHashProjection {
-  const systemUI = profile.roleCapabilities?.systemUI;
   return {
     id: profile.id,
     platform: profile.platform,
@@ -233,9 +227,6 @@ export function profileHashProjection(profile: ProfileHashProjection): ProfileHa
     cadences: [...profile.cadences].sort((left, right) => left - right),
     display: profile.display,
     capabilities: [...profile.capabilities].sort(byCodeUnit),
-    ...(profile.roleCapabilities === undefined ? {} : {
-      roleCapabilities: systemUI === undefined ? {} : { systemUI: [...systemUI].sort(byCodeUnit) },
-    }),
   };
 }
 

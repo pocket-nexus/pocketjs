@@ -21,11 +21,10 @@ import { View, Text, Image } from "@pocketjs/framework/components";
 :::
 
 `View`, `Text`, and `Image` play the roles their React Native namesakes do, and
-this page covers those three. `@pocketjs/framework/components` exports two more
-host primitives: `Sprite`, which draws an animation from a baked atlas the Rust
-core cycles per vblank, and `CompositorSurface`, which places an installed
-Pocket application into a System UI shell's layout and painter order. Both have
-their signatures in the [API reference](/docs/api/#primitives).
+this page covers those three. `@pocketjs/framework/components` exports one more
+host primitive: `Sprite`, which draws an animation from a baked atlas the Rust
+core cycles per vblank. Its signature is in the
+[API reference](/docs/api/#primitives).
 
 Solid apps import control-flow helpers (`Show`, `For`, `Index`, `Switch`,
 `Match`) from `solid-js`; Vue Vapor apps use Vue's own JSX and Composition API
@@ -34,11 +33,10 @@ keyed `array.map`. Higher-level app-shell primitives (`Screen`, `Focusable`,
 `Modal`, and friends) build on `View` and are covered on the
 [App shell](/docs/app-shell/) page.
 
-The capitalized names are the public API. Under them the renderer targets **four
-lowercase host tags — `view`, `text`, `image`, and `surface`** (`NODE_TYPE` in
-`contracts/spec/spec.ts`): `Sprite` renders on an `image` node,
-`CompositorSurface` on a `surface` node. `createElement` throws
-`unknown element <tag> - only view/text/image/surface exist` for any other
+The capitalized names are the public API. Under them the renderer targets **three
+lowercase host tags — `view`, `text`, and `image`** (`NODE_TYPE` in
+`contracts/spec/spec.ts`): `Sprite` renders on an `image` node. `createElement`
+throws `unknown element <tag> - only view/text/image exist` for any other
 tag, and the tags are not declared as JSX intrinsics, so `<view>` in app code
 fails typecheck. Use the capitalized components.
 

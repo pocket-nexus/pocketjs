@@ -56,10 +56,6 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // auxiliary UI surface rather than the primary viewport. Requires
   // display.auxiliary; it does not imply ordinary input.touch.
   "input.touch.auxiliary",
-  // A System UI can place installed Pocket applications into native
-  // compositor surfaces. This describes the UI API, not the host's internal
-  // scheduling implementation.
-  "ui.compositor-surfaces",
   // 2D bodies stepped by the UI core (ops 52..56, contracts/spec/physics.ts):
   // worlds, anchored jelly bodies, colliders, zones and particle emitters
   // that write paint-only transforms into retained nodes each tick. The wasm
@@ -115,8 +111,7 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // targets never provide this — their viewport is a platform constant.
   "display.viewport.live",
   // One fixed-size auxiliary UI output presented simultaneously with the
-  // primary viewport by the same AppInstance. This is not Pocket System
-  // application-surface composition.
+  // primary viewport by the same AppInstance.
   "display.auxiliary",
   "text.glyphs.baked",
   "text.glyphs.streamed",

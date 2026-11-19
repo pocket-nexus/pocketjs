@@ -24,7 +24,6 @@ export function targetProfile<C extends string>(profile: PocketProfile<C>): Targ
       ...(auxiliary ? { auxiliary } : {}),
     },
     capabilities: profile.capabilities,
-    ...(profile.roleCapabilities ? { roleCapabilities: profile.roleCapabilities } : {}),
     source: profile,
   };
 }
@@ -54,7 +53,6 @@ export function profileDocument<C extends string>(id: string, view: TargetProfil
     },
     panel: { primary: display.physicalViewport, ...(display.auxiliary ? { auxiliary: display.auxiliary.physicalViewport } : {}) },
     capabilities: view.capabilities,
-    ...(view.roleCapabilities ? { roleCapabilities: view.roleCapabilities } : {}),
     ...(source?.worker ? { worker: source.worker } : {}),
     ...(source?.limits ? { limits: source.limits } : {}),
     ...(source?.input ? { input: source.input } : {}),

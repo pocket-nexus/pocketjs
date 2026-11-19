@@ -13,8 +13,5 @@
   "panel": {
     "primary": [8, 6]
   },
-  "capabilities": ["input.buttons", "input.touch"],
-  "roleCapabilities": {
-    "systemUI": []
-  }
+  "capabilities": ["input.buttons", "input.touch"]
 }

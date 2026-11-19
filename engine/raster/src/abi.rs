@@ -42,7 +42,7 @@ unsafe fn draw(
     let words = unsafe { borrowed(op.words, op.word_count) }?;
     let opcode = *words.first().ok_or(AdapterError::Invalid)?;
     // Native-only operations must not appear to have software support.
-    if opcode == pocket_spec::draw_op::TEXT_RUN || opcode == pocket_spec::draw_op::SURFACE_QUAD {
+    if opcode == pocket_spec::draw_op::TEXT_RUN {
         return Err(AdapterError::Unsupported);
     }
     let clip = if op.clip.is_null() {

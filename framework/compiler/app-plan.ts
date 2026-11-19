@@ -8,7 +8,7 @@ import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { hashPocketProfile } from "../src/profile.ts";
 import { compiledProfile, profileChannels } from "../../contracts/spec/profile.ts";
 import { profileDocument } from "../../hosts/contract.ts";
-import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../contracts/spec/platforms.ts";
+import { DYNAMIC_FORMS, TARGET_FORMS } from "../../contracts/spec/platforms.ts";
 import { deriveModality } from "../../contracts/spec/modality.ts";
 import { validateAppConfig, APP_OUTPUT_PATTERN, type AppConfig } from "../../contracts/spec/app-config.ts";
 import type { AnimationTheme } from "../../contracts/spec/animation-theme.ts";
@@ -458,28 +458,6 @@ export function validatePlatformContractRegistry(
       }
       provided.add(capability);
     });
-    for (const [role, capabilities] of Object.entries(target.roleCapabilities ?? {})) {
-      const rolePath = `/targets/${targetId}/roleCapabilities/${role}`;
-      if (!PACKAGE_ROLES.includes(role as (typeof PACKAGE_ROLES)[number])) {
-        diagnostics.push({
-          code: "registry.unknownPackageRole",
-          path: rolePath,
-          message: `target declares unknown package role ${JSON.stringify(role)}`,
-        });
-      }
-      const roleProvided = new Set(provided);
-      capabilities?.forEach((capability, index) => {
-        const path = `${rolePath}/${index}`;
-        if (roleProvided.has(capability)) {
-          diagnostics.push({
-            code: "registry.duplicateCapability",
-            path,
-            message: `target provides capability ${JSON.stringify(capability)} more than once for ${role}`,
-          });
-        }
-        roleProvided.add(capability);
-      });
-    }
   }
   return diagnostics;
 }
@@ -546,11 +524,7 @@ export function resolveAppPlan(
   // known when the registry or this host defines it: a host defines the ids
   // it lists that the registry does not know.
   const provided = new Set<string>(profile.capabilities);
-  const known = new Set<string>([
-    ...registry.capabilities,
-    ...provided,
-    ...Object.values(profile.roleCapabilities ?? {}).flatMap(role => role ?? []),
-  ]);
+  const known = new Set<string>([...registry.capabilities, ...provided]);
   const features = new Set(app.features ?? []);
   const featureAvailability = new Map<string, boolean>();
   (app.features ?? []).forEach((capability, index) => {

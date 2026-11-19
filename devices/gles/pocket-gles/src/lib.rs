@@ -93,8 +93,7 @@ impl Viewport {
 }
 
 /// The viewport maps logical pixels into the device target. Window dimensions
-/// supply the GL bottom-left conversion. A native compositor can own surface
-/// quads; otherwise those records are rejected before any drawing.
+/// supply the GL bottom-left conversion.
 #[non_exhaustive]
 pub struct TargetConfig<T> {
     pub native: T,
@@ -103,7 +102,6 @@ pub struct TargetConfig<T> {
     pub viewport: Viewport,
     pub format: PixelFormat,
     pub clear: ClearMode,
-    pub external_compositor: bool,
 }
 
 impl<T> TargetConfig<T> {
@@ -115,7 +113,6 @@ impl<T> TargetConfig<T> {
             viewport,
             format,
             clear: ClearMode::OpaqueBlack,
-            external_compositor: false,
         }
     }
 }
@@ -616,7 +613,6 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
         frame: &FrameInput<'_>,
         submission: u64,
         viewport: DamageRect,
-        compositor: bool,
     ) -> Result<(), RenderError> {
         self.images.clear();
         self.fonts.clear();
@@ -632,7 +628,6 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
                         self.glyph(frame.resources, slot, glyph[1] as u16, submission)?;
                     }
                 }
-                spec::draw_op::SURFACE_QUAD if !compositor => return Err(RenderError::Unsupported),
                 spec::draw_op::TEXT_RUN => return Err(RenderError::Unsupported),
                 _ => {}
             }
@@ -795,12 +790,11 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
         {
             return Err(RenderError::InvalidFrame);
         }
-        let (window_width, window_height, viewport, clear, compositor) = (
+        let (window_width, window_height, viewport, clear) = (
             config.window_width,
             config.window_height,
             config.viewport,
             config.clear,
-            config.external_compositor,
         );
         let (width, height) = frame.resources.viewport();
         if !width.is_finite()
@@ -840,7 +834,7 @@ impl<P: Pipeline, C: ContextAccess> GlesRenderer<P, C> {
         unsafe {
             clear_errors();
         }
-        let prepared = unsafe { self.prepare(frame, id, logical, compositor) }.and_then(|()| {
+        let prepared = unsafe { self.prepare(frame, id, logical) }.and_then(|()| {
             self.trace(2);
             self.build(&frame.list.words, width, height)
         });

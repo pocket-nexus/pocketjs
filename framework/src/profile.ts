@@ -39,11 +39,6 @@ export function validatePocketProfile(input: unknown, options: { builtin?: boole
     problem("bindingGeneration", "/hostAbi", `profile was released for binding generation ${profile.hostAbi}; this framework uses ${POCKET_BINDING_GENERATION}`);
   }
   const capabilities = new Set(profile.capabilities);
-  for (const [role, values] of Object.entries(profile.roleCapabilities ?? {})) {
-    for (const [index, capability] of values.entries()) {
-      if (capabilities.has(capability)) problem("duplicateCapability", `/roleCapabilities/${role}/${index}`, "role capability is already available to applications");
-    }
-  }
   const { display, panel } = profile;
   const dynamic = display.dynamicViewport;
   const dynamicForm = DYNAMIC_FORMS.includes(profile.form);

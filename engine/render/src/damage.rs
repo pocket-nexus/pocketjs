@@ -545,7 +545,6 @@ impl<'a> DamageDecoder<'a> {
             // Native text has no glyph geometry here. Its current clip is a
             // conservative bound for damage tracking.
             spec::draw_op::TEXT_RUN => clip,
-            spec::draw_op::SURFACE_QUAD => logical_rect(words[6], words[7]).intersect(clip),
             _ => return Err(()),
         };
         Ok(Some(DecodedOp { code, words, bounds }))

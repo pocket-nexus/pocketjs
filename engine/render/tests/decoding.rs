@@ -13,7 +13,7 @@ fn wh(w: u16, h: u16) -> u32 {
 }
 
 #[test]
-fn all_ten_records_preserve_the_original_words_and_offsets() {
+fn all_nine_records_preserve_the_original_words_and_offsets() {
     let records: &[&[u32]] = &[
         &[RECT, 0, 0, 0xff00_0000],
         &[GRAD_RECT, 0, 0, 1, 2, 0],
@@ -24,7 +24,6 @@ fn all_ten_records_preserve_the_original_words_and_offsets() {
         &[TRI, 0, 0, 0, 1, 2, 3],
         &[TEX_TRI, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         &[TEXT_RUN, 0, 0, 0, 0, 0, 0, 5, 0x6463_6261, 0x65],
-        &[SURFACE_QUAD, 0, 0, 0, 0, 0, 0, 0, 0],
     ];
     let words: Vec<u32> = records
         .iter()
@@ -33,7 +32,7 @@ fn all_ten_records_preserve_the_original_words_and_offsets() {
     let decoded: Vec<_> = DrawOps::new(&words, SCREEN)
         .collect::<Result<_, _>>()
         .unwrap();
-    assert_eq!(decoded.len(), 10);
+    assert_eq!(decoded.len(), 9);
     let mut offset = 0;
     for (operation, record) in decoded.iter().zip(records) {
         assert_eq!(operation.words, *record);
@@ -124,7 +123,6 @@ fn every_short_prefix_of_a_record_is_rejected() {
         &[TRI, 0, 0, 0, 0, 0, 0],
         &[TEX_TRI, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         &[TEXT_RUN, 0, 0, 0, 0, 0, 0, 4, 0],
-        &[SURFACE_QUAD, 0, 0, 0, 0, 0, 0, 0, 0],
     ];
     for record in records {
         for cut in 0..record.len() {

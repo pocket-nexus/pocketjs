@@ -79,7 +79,7 @@ impl Renderer for RasterRenderer {
 /// Clear the acquired region to opaque black, then render the DrawList.
 /// Surface coordinates and stride are physical; DrawList geometry remains
 /// logical. Padding and all bytes outside the acquired region are preserved.
-/// Native text and compositor operations are known records and are skipped.
+/// Native text operations are known records and are skipped.
 ///
 /// A decode error can leave partial pixels in the region; the caller must
 /// discard its damage history. All writes have finished when this returns.
@@ -161,8 +161,8 @@ fn physical(rect: Rect) -> Clip {
 /// must drain earlier GPU work and make caches visible before calling it.
 ///
 /// SCISSOR/SCISSOR_POP do no drawing because `Operation::clip` already holds
-/// the decoder's current clip. TEXT_RUN/SURFACE_QUAD retain the software
-/// path's skip behavior. Records with mismatched opcode or length are rejected.
+/// the decoder's current clip. TEXT_RUN retains the software path's skip
+/// behavior. Records with mismatched opcode or length are rejected.
 pub fn render_operation(
     resources: &(impl RenderResources + ?Sized),
     operation: &Operation<'_>,
@@ -197,7 +197,7 @@ fn render_one(
 ) -> Result<(), RenderError> {
     if matches!(
         operation.opcode,
-        draw_op::SCISSOR | draw_op::SCISSOR_POP | draw_op::TEXT_RUN | draw_op::SURFACE_QUAD
+        draw_op::SCISSOR | draw_op::SCISSOR_POP | draw_op::TEXT_RUN
     ) {
         return Ok(());
     }

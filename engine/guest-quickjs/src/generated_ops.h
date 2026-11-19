@@ -50,7 +50,6 @@ static const pocket_ui_op_descriptor pocket_ui_ops[] = {
   { 41, "appShot", 0, PJS_RESULT_INTEGER, 1, { { 0, 0 } } },
   { 42, "hitTestBounds", 2, PJS_RESULT_INTEGER, 1, { { PJS_ARG_REAL, 0 }, { PJS_ARG_REAL, 0 } } },
   { 43, "wrapText", 3, PJS_RESULT_U32ARRAY, 1, { { PJS_ARG_STRING, 0 }, { PJS_ARG_U32, 0 }, { PJS_ARG_REAL, 0 } } },
-  { 44, "setCompositorSurface", 3, PJS_RESULT_NONE, 0, { { PJS_ARG_I32, 0 }, { PJS_ARG_I32, 0 }, { PJS_ARG_BOOLEAN, 0 } } },
   { 45, "hitTestAuxiliary", 2, PJS_RESULT_INTEGER, 0, { { PJS_ARG_REAL, 0 }, { PJS_ARG_REAL, 0 } } },
   { 46, "hitTestBoundsAuxiliary", 2, PJS_RESULT_INTEGER, 0, { { PJS_ARG_REAL, 0 }, { PJS_ARG_REAL, 0 } } },
   { 47, "fontStreamConfigure", 1, PJS_RESULT_BOOLEAN, 0, { { PJS_ARG_BYTES, 0 } } },

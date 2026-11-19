@@ -57,7 +57,6 @@ pub const OP_DESCRIPTORS: &[OpDescriptor] = &[
     OpDescriptor { id: 41, name: "appShot", args: &[], result: ResultKind::Integer, provider: "applications", capability: None },
     OpDescriptor { id: 42, name: "hitTestBounds", args: &[ArgDescriptor { name: "x", kind: ArgKind::Real, optional: false }, ArgDescriptor { name: "y", kind: ArgKind::Real, optional: false }], result: ResultKind::Integer, provider: "core", capability: None },
     OpDescriptor { id: 43, name: "wrapText", args: &[ArgDescriptor { name: "str", kind: ArgKind::String, optional: false }, ArgDescriptor { name: "fontSlot", kind: ArgKind::U32, optional: false }, ArgDescriptor { name: "maxW", kind: ArgKind::Real, optional: false }], result: ResultKind::U32Array, provider: "core", capability: None },
-    OpDescriptor { id: 44, name: "setCompositorSurface", args: &[ArgDescriptor { name: "id", kind: ArgKind::I32, optional: false }, ArgDescriptor { name: "handle", kind: ArgKind::I32, optional: false }, ArgDescriptor { name: "focused", kind: ArgKind::Boolean, optional: false }], result: ResultKind::None, provider: "core", capability: Some("compositor") },
     OpDescriptor { id: 45, name: "hitTestAuxiliary", args: &[ArgDescriptor { name: "x", kind: ArgKind::Real, optional: false }, ArgDescriptor { name: "y", kind: ArgKind::Real, optional: false }], result: ResultKind::Integer, provider: "core", capability: Some("auxiliary") },
     OpDescriptor { id: 46, name: "hitTestBoundsAuxiliary", args: &[ArgDescriptor { name: "x", kind: ArgKind::Real, optional: false }, ArgDescriptor { name: "y", kind: ArgKind::Real, optional: false }], result: ResultKind::Integer, provider: "core", capability: Some("auxiliary") },
     OpDescriptor { id: 47, name: "fontStreamConfigure", args: &[ArgDescriptor { name: "descriptor", kind: ArgKind::Bytes, optional: false }], result: ResultKind::Boolean, provider: "core", capability: None },
@@ -78,7 +77,7 @@ pub const OP_DESCRIPTORS: &[OpDescriptor] = &[
 ];
 pub const IDF_OPS: &[u16] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,25,26,27,28,29,39,40,41,42,43];
 pub fn descriptor(op: u16) -> Option<&'static OpDescriptor> { OP_DESCRIPTORS.iter().find(|entry| entry.id == op) }
-pub fn supports_core_op(op: u16) -> bool { matches!(op, 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24 | 25 | 26 | 27 | 28 | 29 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61) }
+pub fn supports_core_op(op: u16) -> bool { matches!(op, 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24 | 25 | 26 | 27 | 28 | 29 | 42 | 43 | 45 | 46 | 47 | 48 | 49 | 50 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61) }
 pub fn validate_args(op: u16, args: &[OpArg<'_>]) -> Result<(), RuntimeError> {
     let descriptor = descriptor(op).ok_or(RuntimeError::UnsupportedOperation)?;
     if args.len() != descriptor.args.len() { return Err(RuntimeError::InvalidArgument); }
@@ -263,13 +262,6 @@ pub fn dispatch(ui: &mut Ui, op: u16, args: &[OpArg<'_>]) -> Result<OpResult, Ru
             let a1 = integer(&args[1])? as u32;
             let a2 = real(&args[2])?;
             Ok(OpResult::Bytes(ui.wrap_text(a0, a1 as u8, a2 as f32).into_iter().flat_map(u32::to_le_bytes).collect()))
-        },
-        44 => { // setCompositorSurface
-            let a0 = integer(&args[0])? as i32;
-            let a1 = integer(&args[1])? as i32;
-            let a2 = integer(&args[2])? != 0;
-            ui.set_compositor_surface(a0, a1, a2);
-            Ok(OpResult::None)
         },
         45 => { // hitTestAuxiliary
             let a0 = real(&args[0])?;

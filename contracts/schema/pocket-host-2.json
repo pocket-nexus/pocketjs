@@ -216,20 +216,6 @@
       },
       "uniqueItems": true
     },
-    "roleCapabilities": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "systemUI": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "uniqueItems": true
-        }
-      }
-    },
     "worker": {
       "type": "object",
       "additionalProperties": false,

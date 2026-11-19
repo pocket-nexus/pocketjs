@@ -207,17 +207,13 @@ fn validates_foreign_targets_and_complete_stream_before_native_begin() {
 fn unsupported_operations_are_rejected_even_when_clipped_out() {
     let (mut r, state) = create();
     let resources = Resources::default();
-    let mut surface = texture();
-    surface[0] = pocket_spec::draw_op::SURFACE_QUAD;
-    let text = vec![pocket_spec::draw_op::TEXT_RUN, 0, 0, 0, 0, 0, 0, 0];
-    for operation in [surface, text] {
-        let mut words = vec![pocket_spec::draw_op::SCISSOR, xy(500, 300), xy(1, 1)];
-        words.extend(operation);
-        words.push(pocket_spec::draw_op::SCISSOR_POP);
-        let words = list(words);
-        let mut frame = FrameInput::new(&words, &resources, &[], Target::DeviceOwned(r.target()));
-        assert_eq!(r.render(&mut frame), Err(RenderError::Unsupported));
-    }
+    let text = [pocket_spec::draw_op::TEXT_RUN, 0, 0, 0, 0, 0, 0, 0];
+    let mut words = vec![pocket_spec::draw_op::SCISSOR, xy(500, 300), xy(1, 1)];
+    words.extend(text);
+    words.push(pocket_spec::draw_op::SCISSOR_POP);
+    let words = list(words);
+    let mut frame = FrameInput::new(&words, &resources, &[], Target::DeviceOwned(r.target()));
+    assert_eq!(r.render(&mut frame), Err(RenderError::Unsupported));
     assert_eq!(state.borrow().begins, 0);
 }
 #[test]

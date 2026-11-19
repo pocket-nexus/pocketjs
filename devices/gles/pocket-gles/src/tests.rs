@@ -436,7 +436,6 @@ fn config() -> TargetConfig<()> {
         },
         format: PixelFormat::Rgba8888,
         clear: ClearMode::OpaqueBlack,
-        external_compositor: false,
     }
 }
 struct Resources {

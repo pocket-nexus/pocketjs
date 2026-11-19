@@ -216,10 +216,6 @@ impl Runtime {
             .ops
             .add_provider(Box::new(instance::Services))
             .map_err(|e| format!("{e:?}"))?;
-        runtime
-            .ops
-            .set_compositor_enabled(true)
-            .map_err(|e| format!("{e:?}"))?;
         runtime.call(|r| r.set_package_source(source))?;
         let input = Box::new(instance::InputDriver(runtime.input.clone()));
         runtime.call(|r| r.add_input_source(input))?;

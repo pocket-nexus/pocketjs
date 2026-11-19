@@ -410,7 +410,6 @@ pub fn mount_ui<'js>(
         }
         ui.set("__textures", textures)?;
         ui.set("__sprites", sprites)?;
-        ui.set("__surfaces", Object::new(ctx.clone())?)?;
     }
     if let Some(viewport) = environment.auxiliary_viewport {
         let auxiliary = Object::new(ctx.clone())?;
@@ -758,7 +757,7 @@ mod tests {
         assert_eq!(evaluate::<u32>(&guest, "ui.__hostAbi"), BINDING_GENERATION);
         assert!(evaluate::<bool>(
             &guest,
-            "['svcOpen','videoOpen','appLaunch','physicsCreate','loadTileTexture','hitTestAuxiliary','setCompositorSurface','__textures','__sprites'].every(k=>!(k in ui))"
+            "['svcOpen','videoOpen','appLaunch','physicsCreate','loadTileTexture','hitTestAuxiliary','__textures','__sprites'].every(k=>!(k in ui))"
         ));
         assert!(evaluate::<bool>(
             &guest,

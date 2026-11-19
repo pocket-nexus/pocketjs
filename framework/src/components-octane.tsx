@@ -143,20 +143,9 @@ export interface SpriteProps {
   key?: string | number;
 }
 
-export interface CompositorSurfaceProps {
-  class?: string;
-  className?: string;
-  style?: StyleObject;
-  package: string;
-  focused?: boolean;
-  debugName?: string;
-  nodeRef?: NodeRef;
-  key?: string | number;
-}
-
 type Component<P> = (props: P) => SolidJSX.Element;
 
-function primitive<P extends object>(tag: "view" | "text" | "image" | "surface"): Component<P> {
+function primitive<P extends object>(tag: "view" | "text" | "image"): Component<P> {
   const plan = universalPlan(OCTANE_RENDERER_ID, {
     kind: "host",
     type: tag,
@@ -174,7 +163,6 @@ export const View = primitive<ViewProps>("view");
 export const Text = primitive<TextProps>("text");
 export const Image = primitive<ImageProps>("image");
 export const Sprite = primitive<SpriteProps>("image");
-export const CompositorSurface = primitive<CompositorSurfaceProps>("surface");
 
 // ---------------------------------------------------------------------------
 // Composites

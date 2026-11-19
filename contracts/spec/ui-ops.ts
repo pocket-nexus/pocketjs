@@ -11,7 +11,7 @@ export interface UiOperation {
   readonly args: readonly { readonly name: string; readonly kind: UiArgKind; readonly optional?: boolean }[];
   readonly result: UiResultKind;
   readonly provider: "core" | "package" | "service" | "filesystem" | "video" | "diagnostics" | "applications" | "private";
-  readonly capability?: "compositor" | "auxiliary" | "physics";
+  readonly capability?: "auxiliary" | "physics";
   /** Typed core expression; a0... are decoded and validated before mutation. */
   readonly core?: string;
 }
@@ -142,9 +142,6 @@ export const UI_OPS = [
   core("wrapText",
     [arg("str", "string"), arg("fontSlot", "u32"), arg("maxW", "real")],
     "u32Array", "ui.wrap_text(a0, a1 as u8, a2 as f32)"),
-  core("setCompositorSurface",
-    [arg("id", "i32"), arg("handle", "i32"), arg("focused", "boolean")],
-    "none", "ui.set_compositor_surface(a0, a1, a2)", { capability: "compositor" }),
   core("hitTestAuxiliary",
     [arg("x", "real"), arg("y", "real")],
     "integer", "ui.hit_test_auxiliary(a0 as f32, a1 as f32)", { capability: "auxiliary" }),

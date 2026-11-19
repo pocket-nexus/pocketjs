@@ -99,8 +99,8 @@ function or `undefined` in it is dropped.
 ### app.features
 
 **`features` is compile-time selection.** Each id is in the capability
-registry or in the selected host contract's `capabilities` or
-`roleCapabilities` (`capability.unknown` otherwise). For the selected host, the plan
+registry or in the selected host contract's `capabilities`
+(`capability.unknown` otherwise). For the selected host, the plan
 records `features[id]`: **`true` when the host contract provides the
 capability and `false` when it does not**. The compiled bundle reads the table
 (`__POCKET_FEATURES__`), and `hasFeature("input.touch")` is specialized at
@@ -157,7 +157,6 @@ share an id, and a different guarantee gets a new id.
 | `display.viewport.live` | The logical viewport changes at run time. The host calls `resizeViewport`, which resizes the root layers; app code reads the size with `useViewport` (Solid) or `onViewport`. Console targets never provide it. |
 | `display.auxiliary` | One fixed-size auxiliary UI output presented beside the primary viewport by the same instance. |
 | `ui.physics` | 2D bodies stepped by the UI core: worlds, jelly bodies, colliders, zones and particle emitters (`contracts/spec/physics.ts`). |
-| `ui.compositor-surfaces` | A System UI can place installed applications into native compositor surfaces. |
 | `audio.pcm` | Credit-based s16 PCM streaming through `globalThis.audio`. |
 | `audio.capture` | Microphone input on the same namespace (`openInput`, `readInput`, `closeInput`): the host records an input into a ring the guest drains each tick. |
 | `net.mqtt` | MQTT 3.1.1 and 5.0 sessions as a worker resource (`io.mqtt`), under the limits of `contracts/spec/mqtt.ts`. |
@@ -168,9 +167,8 @@ share an id, and a different guarantee gets a new id.
 **A host contract may list ids the registry does not know; the host defines
 them.** An application resolved against that host lists them in `features`
 like registered ids: the plan records `true` for an id in the host's
-`capabilities` and `false` for an id its `roleCapabilities` list and its
-`capabilities` do not. Against a host that does not list the id, the entry
-is `capability.unknown`. PocketJS attaches no meaning to a host-defined id;
+`capabilities`. Against a host that does not list the id, the entry is
+`capability.unknown`. PocketJS attaches no meaning to a host-defined id;
 [Host-defined capabilities](/docs/platform-contracts/#host-defined-capabilities)
 states the rules. The hosts of [pocket-shell](https://github.com/pocket-nexus/pocket-shell)
 define their camera, companion link, media playback, Wi-Fi, board control and

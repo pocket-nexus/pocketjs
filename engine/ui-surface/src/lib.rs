@@ -5,7 +5,7 @@
 //! the profile `pocket host export` compiled into the program; a library
 //! embedding without an export uses [`embedded_profile`]. A program
 //! registers its renderer and display before boot. [`UiSurface`] exposes the
-//! same operation context for services, compositor metadata and inspection.
+//! same operation context for services, metadata and inspection.
 //! Its standalone constructor remains available to low-level harnesses.
 //! This crate has no renderer dependency.
 

@@ -32,7 +32,7 @@ pub mod record;
 pub mod tex_cache;
 
 pub use batch::{append_batch, quad, triangle, Batch, Vertex};
-pub use build::{build, Backend, Emit, Fill, GlyphCell, Source};
+pub use build::{build, Backend, Fill, GlyphCell, Source};
 pub use pocket_spec::DRAW_LIST_VERSION;
 pub use record::{gradient_corners, record, Corners, Record};
 pub const MAX_CLIP_DEPTH: usize = 32;
@@ -66,7 +66,7 @@ pub fn word_len(words: &[u32], at: usize) -> Result<usize, DecodeError> {
             let count = (words.get(1).ok_or(DecodeError::Truncated)? >> 16) as usize;
             3 + count * 2
         }
-        draw_op::TEX_QUAD | draw_op::SURFACE_QUAD => 9,
+        draw_op::TEX_QUAD => 9,
         draw_op::SCISSOR => 3,
         draw_op::SCISSOR_POP => 1,
         draw_op::TRI => 7,

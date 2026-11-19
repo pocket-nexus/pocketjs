@@ -53,7 +53,6 @@ use pocket_drivers::TexView;
 use pocket_spec::{self as spec, draw_op};
 
 pub mod abi;
-pub mod compositor;
 pub mod incremental;
 mod surface;
 #[cfg(test)]
@@ -794,14 +793,6 @@ fn render_scaled_clipped<T: RenderTarget>(
                     return;
                 }
                 tex_quad(ui, target, width, scale, clip, &words[i + 1..i + 9]);
-                i += 9;
-            }
-            // Native compositor instruction: software surfaces have no
-            // application compositor and leave the shell fallback visible.
-            draw_op::SURFACE_QUAD => {
-                if i + 9 > words.len() {
-                    return;
-                }
                 i += 9;
             }
             draw_op::SCISSOR => {

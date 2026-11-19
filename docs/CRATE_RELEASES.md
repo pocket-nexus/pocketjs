@@ -87,12 +87,13 @@ contents, then deprecated on crates.io.
 | `pocket-draw-ops` | Forwarding | `pocket-render` crate root and its `record`, `batch`, `build` modules |
 | `pocket-glyph-pages` | Forwarding | `pocket_render::glyph_pages` |
 | `pocket-tex-cache` | Forwarding | `pocket_render::tex_cache` |
-| `pocket-present` | Forwarding | `damage` and `transaction` in `pocket_render::damage`; `compositor` and `incremental` in `pocket-raster`; `coordinator` in `pocket_runtime::coordinator`; `ink` in `pocket_drivers::ink` |
+| `pocket-present` | Forwarding | `damage` and `transaction` in `pocket_render::damage`; `incremental` in `pocket-raster`; `coordinator` in `pocket_runtime::coordinator`; `ink` in `pocket_drivers::ink` |
 
 No crate in this repository depends on a forwarding crate.
 
 `pocketjs-core` no longer exports `raster`, `damage`, or `compositor`; use
-`pocket_raster`, `pocket_render::damage`, and `pocket_raster::compositor`.
+`pocket_raster` and `pocket_render::damage`. The `compositor` module has no
+replacement (below).
 It no longer re-exports package and media support either:
 
 | Removed `pocketjs-core` modules | Use |
@@ -116,6 +117,11 @@ release ships.
 | `pocket-driver-kit` | Depends on `pocket-render` in place of `pocket-draw-ops` and `pocket-tex-cache`; its API is unchanged. Its tests use `pocket_runtime::coordinator` in place of `pocket-present`. |
 | `pocket-guest-rquickjs` | New features `std` (default), `rust-alloc` and `bindgen` forward to rquickjs. **Without `std` the crate builds for `no_std + alloc`** and the default console writes to the `log` facade in place of stderr: `warn`, `error` and `debug` at those levels, `log` and `info` at `Info`. Behavior change: a consumer that sets `default-features = false` no longer has `std` and gets the `log` console. |
 | `pocket-guest-rquickjs` | Breaking: **depends on rquickjs 0.14 (QuickJS-NG 0.16.2) in place of 0.12.** `RquickjsGuest::with`, `mount_ui`, `call_frame` and `keep_collection_below_limit` take rquickjs types (`Ctx`, `Runtime`, `Context`) or return `rquickjs::Result`, so a consumer that passes its own rquickjs values to them moves its rquickjs dependency to 0.14. In rquickjs 0.14, `as_bytes` and `as_slice` on `ArrayBuffer` and `TypedArray` are `unsafe fn`: no JavaScript may run while the returned slice is alive. Their `AsRef<[T]>` implementations are removed. The `std`, `rust-alloc` and `bindgen` features and the `no_std` `log` console are unchanged. |
+| `pocket-spec` | Breaking: **`NodeType::Surface`, `op::SET_COMPOSITOR_SURFACE` and `draw_op::SURFACE_QUAD` are removed.** Node type 3, op 44 and DrawList opcode 10 have no meaning; every other number is unchanged, `BINDING_GENERATION` stays 12 and `DRAW_LIST_VERSION` stays 1. |
+| `pocketjs-core` | Breaking: the `compositor` module, `Ui::set_compositor_surface`, `Ui::compositor_surface_bindings`, `Ui::compositor_surface_frames` and `CompositorSurfaceFrame` are removed. `Ui::create_node` returns 0 for node type 3. |
+| `pocket-present` | Breaking: the `compositor` module is removed. |
+| `pocket-runtime` | Breaking: `OpContext::set_compositor_enabled` is removed, and no context dispatches op 44. |
+| `pocket-guest-rquickjs` | Behavior change: a guest mounted with assets no longer receives `ui.__surfaces`. |
 | `pocket-runtime` | `Runtime::set_physics` installs a physics engine before boot. Behavior change: without an engine, package admission treats `ui.physics` as absent from the profile, `boot_aot_deferred` with `physics = true` returns `ProfileMismatch`, and `OpContext::set_physics_enabled(true)` returns `UnsupportedOperation`. |
 
 ## First publication

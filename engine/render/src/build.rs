@@ -17,7 +17,6 @@
 //! when the bound texture differs from the fill's texture, so a backend can
 //! keep a batch open by sampling an opaque patch of the bound image.
 
-use crate::record::SurfaceQuad;
 use crate::{append_batch, quad, triangle, Batch, DrawOps, Record, Vertex};
 use alloc::vec::Vec;
 use pocket_drivers::{DamageRect, RenderError};
@@ -62,8 +61,6 @@ pub enum Source<D> {
     Image,
     /// One glyph cell, with the data its [`GlyphCell`] carried.
     Glyph(D),
-    /// A surface quad appended by [`Backend::surface_quad`].
-    Surface,
 }
 
 /// Driver policies for the walk. Every method runs in record order.
@@ -111,21 +108,10 @@ pub trait Backend {
     fn emitted(&mut self, vertices: &mut [Self::Vertex], source: Source<Self::GlyphData>) {
         let _ = (vertices, source);
     }
-    /// A surface record under `clip`. The default appends nothing: an external
-    /// compositor owns the surface.
-    fn surface_quad(
-        &mut self,
-        emit: &mut Emit<'_, Self::Vertex, Self::Texture, Self::Clip>,
-        surface: &SurfaceQuad,
-        clip: DamageRect,
-    ) -> Result<(), RenderError> {
-        let _ = (emit, surface, clip);
-        Ok(())
-    }
 }
 
 /// The vertex stream and batches under construction.
-pub struct Emit<'a, V, T, C> {
+struct Emit<'a, V, T, C> {
     vertices: &'a mut Vec<V>,
     batches: &'a mut Vec<Batch<T, C>>,
     texture: T,
@@ -159,17 +145,6 @@ impl<V: Copy, T: Copy + PartialEq, C: Copy + PartialEq> Emit<'_, V, T, C> {
     fn push(&mut self, vertices: &[V]) -> &mut [V] {
         let at = self.vertices.len();
         self.vertices.extend_from_slice(vertices);
-        &mut self.vertices[at..]
-    }
-
-    /// Append `vertices` as their own range under `texture` and `clip`, after
-    /// the pending range. The bound texture and clip do not change.
-    pub fn detached(&mut self, texture: T, clip: C, vertices: &[V]) -> &mut [V] {
-        self.flush();
-        let at = self.vertices.len();
-        self.vertices.extend_from_slice(vertices);
-        append_batch(self.batches, texture, clip, at..self.vertices.len());
-        self.start = self.vertices.len();
         &mut self.vertices[at..]
     }
 }
@@ -287,9 +262,6 @@ pub fn build<B: Backend>(
                     let corners = triangle(positions, [[0.0; 2]; 3], solid.colors);
                     backend.emitted(emit.push(&corners), Source::Fill);
                 }
-            }
-            Record::SurfaceQuad(surface) => {
-                backend.surface_quad(&mut emit, &surface, operation.clip)?;
             }
             Record::TextRun(_) => return Err(RenderError::Unsupported),
         }

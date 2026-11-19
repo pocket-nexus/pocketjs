@@ -45,8 +45,7 @@ fn new_target(
 }
 /// Each instance registers a real wgpu renderer and display with Runtime.
 /// One UiProgram owns the registration lifetime. Clones configure that same
-/// program's targets and compositor textures; they cannot register another
-/// runtime. Dropping the registered renderer stops GPU work even when clones
+/// program's targets; they cannot register another runtime. Dropping the registered renderer stops GPU work even when clones
 /// retain this handle or completed frame leases.
 ///
 /// The output creates the renderer and owns its textures. Under the device
@@ -249,24 +248,6 @@ impl ProgramOutput {
     pub fn last(&self) -> Option<Arc<ProgramTarget>> {
         self.state.borrow().last.clone()
     }
-    pub fn set_surface(&self, handle: u32, target: &ProgramTarget, logical: (u32, u32)) {
-        let _ = self
-            .renderer
-            .with(|renderer| renderer.set_surface(handle, &target.view, logical));
-    }
-    pub fn retain_surfaces(&self, mut keep: impl FnMut(u32) -> bool) {
-        // A host filter may drop its UiProgram. Do not hold the renderer
-        // while calling it: the registration's drop must stop the GPU.
-        let handles: Vec<_> = self
-            .renderer
-            .with(|renderer| renderer.surface_handles().collect())
-            .unwrap_or_default();
-        let retained: std::collections::HashSet<_> =
-            handles.into_iter().filter(|&id| keep(id)).collect();
-        let _ = self
-            .renderer
-            .with(|renderer| renderer.retain_surfaces(|id| retained.contains(&id)));
-    }
 }
 struct RegisteredDisplay(Rc<RefCell<OutputState>>);
 impl DisplayOutput for RegisteredDisplay {
@@ -282,7 +263,6 @@ impl DisplayOutput for RegisteredDisplay {
             TargetOwnership::DeviceOwned,
         )
     }
-    // Compositor textures can change without changing the shell DrawList.
     // No retained-buffer identity: each published GPU frame redraws all layers.
     fn acquire(
         &mut self,
@@ -428,21 +408,14 @@ mod tests {
         );
     }
     #[test]
-    fn registration_has_one_owner_and_host_filters_can_drop_it() {
+    fn registration_has_one_owner_and_its_drop_stops_the_renderer() {
         let gpu = Gpu::new_headless().unwrap();
         let output = ProgramOutput::new(&gpu, (4, 4), 1.).unwrap();
         let mut owner = program();
         output.register(&mut owner).unwrap();
         assert!(output.clone().register(&mut program()).is_err());
         assert!(!output.renderer.with(|d| d.is_shutdown()).unwrap());
-        let target = output.first().unwrap();
-        output.set_surface(5, &target, (4, 4));
-        let mut owner = Some(owner);
-        output.retain_surfaces(|_| {
-            drop(owner.take());
-            false
-        });
-        assert!(owner.is_none());
+        drop(owner);
         assert!(output.renderer.with(|d| d.is_shutdown()).unwrap());
     }
 }

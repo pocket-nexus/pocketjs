@@ -39,7 +39,6 @@
 #define POCKET_DRAW_OP_TRI 7U
 #define POCKET_DRAW_OP_TEX_TRI 8U
 #define POCKET_DRAW_OP_TEXT_RUN 9U
-#define POCKET_DRAW_OP_SURFACE_QUAD 10U
 
 /* Portable operation numbers (contracts/spec/ui-ops.ts): what a program's
  * operation provider serves and pocket_runtime_op dispatches. */
@@ -86,7 +85,6 @@
 #define POCKET_OP_appShot 41U
 #define POCKET_OP_hitTestBounds 42U
 #define POCKET_OP_wrapText 43U
-#define POCKET_OP_setCompositorSurface 44U
 #define POCKET_OP_hitTestAuxiliary 45U
 #define POCKET_OP_hitTestBoundsAuxiliary 46U
 #define POCKET_OP_fontStreamConfigure 47U

@@ -580,8 +580,6 @@ impl Painter {
                 spec::draw_op::SCISSOR | spec::draw_op::SCISSOR_POP | spec::draw_op::TEXT_RUN => {
                     Some(everywhere)
                 }
-                // Painting skips application surfaces on this target.
-                spec::draw_op::SURFACE_QUAD => None,
                 _ => return false,
             };
             if let Some(rows) = rows.filter(|rows| !rows.is_empty()) {
@@ -781,9 +779,6 @@ impl Painter {
                         self.software(resources, op, clip, target, stats)
                     }
                 }
-                // No application compositor on the PPA target; the shell
-                // fallback keeps decoding later ops.
-                spec::draw_op::SURFACE_QUAD => Ok(()),
                 spec::draw_op::TEXT_RUN => self.software(resources, op, clip, target, stats),
                 _ => Err(RenderError::InvalidFrame),
             };
@@ -1313,10 +1308,7 @@ fn software_operation(
     render_operation(resources, operation, target, scale)?;
     if !matches!(
         operation.opcode,
-        spec::draw_op::SCISSOR
-            | spec::draw_op::SCISSOR_POP
-            | spec::draw_op::TEXT_RUN
-            | spec::draw_op::SURFACE_QUAD
+        spec::draw_op::SCISSOR | spec::draw_op::SCISSOR_POP | spec::draw_op::TEXT_RUN
     ) {
         stats.software_ops += 1;
         stats.software_words += operation.words.len() as u32;

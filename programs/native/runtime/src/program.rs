@@ -435,15 +435,6 @@ unsafe fn create(
             runtime.add_input_source(Box::new(Input(program.input.clone())))
         }),
     )?;
-    // The built-in outputs present the compositor namespace and own the final
-    // presentation transform, including logical-sized CPU buffers. A host
-    // that registers its own outputs keeps both off, as pocket_runtime_create does.
-    if BUILTIN_BACKEND {
-        program
-            .ops
-            .set_compositor_enabled(true)
-            .map_err(|_| POCKET_STATUS_FAILED)?;
-    }
     #[cfg(all(
         not(feature = "host-backend"),
         any(feature = "std", feature = "software-only")
@@ -989,7 +980,6 @@ mod gpu {
             } else {
                 ClearMode::OpaqueBlack
             };
-            config.external_compositor = true;
             drop(window);
             self.target
                 .replace(config)

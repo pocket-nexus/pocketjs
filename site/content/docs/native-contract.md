@@ -47,7 +47,7 @@ Three rules constrain the surface:
    a **JS mirror tree**. Parent/child/sibling and node-kind reads are plain JS
    object walks; structural writes update both mirrors.
 
-The op codes are pinned once, in `contracts/spec/spec.ts` (the `OP` table), and shared by every host and the Rust core. Codes are append-only: never renumbered, never reused. `0` is reserved as invalid/nop.
+The op codes are pinned once, in `contracts/spec/spec.ts` (the `OP` table), and shared by every host and the Rust core. Codes are append-only, and an op in use is never renumbered; the code of a removed op is free. `0` is reserved as invalid/nop.
 
 ## Driver contract migration
 
@@ -175,10 +175,10 @@ The migration keeps four compatibility rules separate:
 | Guest bindings | `hostAbi` equals `POCKET_BINDING_GENERATION`, generated from `contracts/spec/binding-generation.ts`. Every host contract uses generation 12; legacy target-specific values 1–11 are rejected. |
 
 `contracts/spec/profile.ts` defines the host contract projection that
-`profileHash` covers: `id`, `platform`, `form`, `cadences`, `display`,
-`capabilities`, and optional `roleCapabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
-newline. Keys use UTF-16 code-unit order; capabilities, cadences and role
-capabilities sort as sets; other arrays keep their order; absent optional
+`profileHash` covers: `id`, `platform`, `form`, `cadences`, `display` and
+`capabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
+newline. Keys use UTF-16 code-unit order; capabilities and cadences sort as
+sets; other arrays keep their order; absent optional
 fields stay absent. The canonicalizer rejects non-JSON data and unpaired
 surrogates. **`panel`, `worker`, `limits`, `input`, `hostExtension` and the
 `hostAbi` stamp are excluded from the hash.** The bundle header carries this
@@ -311,9 +311,9 @@ The archive's features select the outputs `create` registers:
 | `host-backend` | None: the host registers renderers and displays through `pocket_native_program_runtime()` before boot | `host-hooks`: the C host links the six `pocket_host_*` hooks |
 
 A build with a built-in output has one primary surface: `_create_package`
-rejects a plan with an auxiliary surface, and the built-in outputs enable the
-compositor namespace and embedded viewport changes. A `host-backend` build
-leaves both off, as `pocket_runtime_create` does, and admits auxiliary plans;
+rejects a plan with an auxiliary surface, and the built-in outputs enable
+embedded viewport changes. A `host-backend` build leaves them off, as
+`pocket_runtime_create` does, and admits auxiliary plans;
 boot then requires a registered auxiliary display when the profile has one.
 
 **`programs/native/quickjs` is the handle-based QuickJS facade over that
@@ -371,7 +371,6 @@ cases.
 | 38 | `debugStats` — one JSON snapshot of the device's diagnostic counters plus build identity: the app output name and the FNV-1a64 hash of the embedded js+pak | Hosts without counters omit it and the DevTools `stats` reply carries `null`. |
 | 39–41 | `appTable`, `appLaunch`, `appShot` — reserved for a product host that switches between applications | No program in this repository implements them; [pocket-shell](https://github.com/pocket-nexus/pocket-shell) does and defines their semantics. A guest tests for each operation before it calls it. |
 | 43 | `wrapText` — greedy soft-wrap break columns for one line under `maxW`, as ascending UTF-16 code-unit indices | Breaks come from the same provider that measures and paints the slot; a native-text backend may install the host wrapper and its positions win. Without the op, apps run matching greedy rules over `measureText`. |
-| 44 | `setCompositorSurface` — bind an installed package's surface to a `NODE_TYPE.surface` node; the core emits `SURFACE_QUAD` in paint order with both full and clipped bounds | `ui.compositor-surfaces`. No image or texture semantics are involved; `handle < 0` clears. |
 | 45–46 | `hitTestAuxiliary`, `hitTestBoundsAuxiliary` — the twins of 27 and 42 in the auxiliary output's logical coordinates, never searching primary | `display.auxiliary`. |
 | 47–50 | `fontStreamConfigure`, `fontStreamRequests`, `fontStreamCommit`, `fontStreamStats` — a bounded external glyph cache fed by CPU handoff | `text.glyphs.streamed`. |
 | 51 | `appClose` — reserved with 39–41 | The same product hosts. |

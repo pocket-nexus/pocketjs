@@ -51,7 +51,7 @@ describe("host contracts", () => {
   });
 
   test("the hash covers the projection; capability order and extra facts do not change it", () => {
-    expect(PROFILE_HASH_FIELDS).toEqual(["id", "platform", "form", "cadences", "display", "capabilities", "roleCapabilities"]);
+    expect(PROFILE_HASH_FIELDS).toEqual(["id", "platform", "form", "cadences", "display", "capabilities"]);
     const reordered = { ...profile, cadences: [30, 60], capabilities: [...profile.capabilities].reverse() };
     expect(canonicalProfileJson(reordered)).toBe(canonicalProfileJson(profile));
     expect(hashPocketProfile({ ...profile, panel: { primary: [960, 640] }, limits: { heapBytes: 4096 }, hostAbi: 12 } as PocketProfile)).toBe(hashPocketProfile(profile));

@@ -16,7 +16,6 @@ test("Linux program composition declares an external product profile and native 
 });
 test("Linux program config rejects profiles promising services the program does not compose", () => {
   expect(() => linuxProgramProfile({ ...profile, capabilities: [...profile.capabilities, "io.offload"] })).toThrow("capabilities absent");
-  expect(() => linuxProgramProfile({ ...profile, roleCapabilities: { systemUI: ["ui.compositor-surfaces"] } })).toThrow("capabilities absent");
   expect(() => linuxProgramProfile({ ...profile, display: { ...profile.display, dynamicViewport: { min: [240, 180], max: [1920, 1080] } } })).toThrow("capabilities absent");
 });
 test("Linux drivers and file runtime honor buffers, events, profile identity and teardown", () => {

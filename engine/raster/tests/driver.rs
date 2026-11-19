@@ -112,15 +112,6 @@ fn words() -> Vec<u32> {
         0,
         0,
         0,
-        draw_op::SURFACE_QUAD,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
     ]
 }
 
