@@ -1,6 +1,7 @@
 //! `globalThis.fs` for the PSP host (contracts/spec/fs.ts, capability data.fs) over sceIo, rooted at
-//! ms0:/PSP/SAVEDATA/POCKETJS/<guest>/, bound each time a guest mounts the module: the embedded app's
-//! output name, or on the generic runtime the name of the directory the EBOOT was loaded from. Quotas
+//! ms0:/PSP/SAVEDATA/POCKETJS/<guest>/, bound each time a guest mounts the module: the name the
+//! program gives the guest, else the embedded app's output name, or on the generic runtime the name
+//! of the directory the EBOOT was loaded from. Quotas
 //! are not enforced (usage reports quotaBytes 0). Two PSP facts bend the spec:
 //!  - sceIoRename only renames inside one directory (the target's directory part is ignored), so the
 //!    truncating write stages ".~<name>" next to the target instead of in a host temp directory, and
@@ -32,12 +33,12 @@ unsafe fn ok() -> i32 { LAST.clear(); 0 }
 unsafe fn fail(m: &str) -> i32 { LAST = String::from(m); 1 }
 unsafe fn fail_line(m: &str) -> String { LAST = String::from(m); format!("{{\"error\":{}}}", json_str(m)) }
 
-/// The directory name this guest's saves live under. Two guests never share one: a multi-app build
-/// names each app, and each generic runtime EBOOT has its own directory under PSP/GAME.
-unsafe fn guest_name() -> String {
-    let app = crate::switch::APPS.get(crate::switch::current()).map_or("", |app| app.output);
-    if !app.is_empty() {
-        return String::from(app);
+/// The directory name a guest's saves live under when its program names none (`Options::data_name`):
+/// the embedded application's output name, or in the generic runtime the name of the directory under
+/// PSP/GAME the EBOOT was loaded from.
+pub unsafe fn default_data_name() -> String {
+    if !crate::embedded::OUTPUT.is_empty() {
+        return String::from(crate::embedded::OUTPUT);
     }
     crate::pack_ops::program_dir_name().map_or_else(|| String::from("runtime"), String::from)
 }
@@ -260,9 +261,10 @@ unsafe extern "C" fn js_rename(c: *mut JSContext, _t: JSValue, n: i32, a: *mut J
 unsafe extern "C" fn js_usage(c: *mut JSContext, _t: JSValue, _n: i32, _a: *mut JSValue) -> JSValue { mkdirs(root()); ok(); ret(c, format!("{{\"usedBytes\":{},\"quotaBytes\":0}}", used(root(), 0))) }
 unsafe extern "C" fn js_last(c: *mut JSContext, _t: JSValue, _n: i32, _a: *mut JSValue) -> JSValue { ret(c, LAST.clone()) }
 
-/// Install `globalThis.fs`. # Safety: QuickJS context alive, worker thread.
-pub unsafe fn register_fs(ctx: *mut JSContext, global: JSValue) {
-    *core::ptr::addr_of_mut!(ROOT) = format!("{}{}", SAVE_ROOT, guest_name());
+/// Install `globalThis.fs`, rooted at `SAVE_ROOT/<data_name>`.
+/// # Safety: QuickJS context alive, worker thread.
+pub unsafe fn register_fs(ctx: *mut JSContext, global: JSValue, data_name: &str) {
+    *core::ptr::addr_of_mut!(ROOT) = format!("{}{}", SAVE_ROOT, data_name);
     let fs = JS_NewObject(ctx);
     add_fn(ctx, fs, b"read\0", js_read, 3);
     add_fn(ctx, fs, b"write\0", js_write, 3);

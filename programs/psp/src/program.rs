@@ -6,7 +6,7 @@ use libquickjs_sys::{JSContext, JSValue};
 use pocket_psp_render::{native::NativeDevice, Config, GeDisplay, GeRenderer, SharedRenderer};
 use pocket_runtime::{
     abi::{self, status_code, Handle},
-    CoreState, OpContext, RuntimeConfig, RuntimeError,
+    CoreState, OpContext, OpProvider, RuntimeConfig, RuntimeError,
 };
 
 /// One `present` call: the previous list's residual GE wait and its paced
@@ -22,9 +22,26 @@ pub struct FrameTiming {
     /// VBlank pacing and buffer swap of the previous list.
     pub present_us: u64,
 }
+/// The vcount of the last paced swap, process-wide: a guest booted after
+/// another paces its first frame against the previous guest's last one.
+static mut LAST_PRESENT: Option<u32> = None;
+
+/// What a program chooses for one guest.
+#[derive(Default)]
+pub struct Options {
+    /// Guest frames per second the program presents at. It replaces the
+    /// cadence the runtime selects from the profile when it divides the
+    /// package's tick rate into at most 60 core ticks per frame; `None`
+    /// keeps the runtime's choice.
+    pub cadence: Option<u32>,
+    /// The directory under ms0:/PSP/SAVEDATA/POCKETJS/ that roots the
+    /// guest's `fs`. `None`: the embedded application's output name, or in
+    /// the generic runtime the name of the EBOOT's directory.
+    pub data_name: Option<String>,
+}
+
 struct PacedDevice {
     device: NativeDevice,
-    clock: Rc<Cell<u32>>,
     /// 60 Hz vblanks per presented frame, set at boot from the cadence.
     vblanks: Rc<Cell<u32>>,
     timing: Rc<Cell<FrameTiming>>,
@@ -80,14 +97,15 @@ unsafe impl pocket_psp_render::Device for PacedDevice {
     fn present(&mut self) -> Result<(), pocket_drivers::DisplayError> {
         let start = crate::host::now_us();
         unsafe {
+            let last = LAST_PRESENT.unwrap_or(0);
             loop {
-                let elapsed = psp::sys::sceDisplayGetVcount().wrapping_sub(self.clock.get());
+                let elapsed = psp::sys::sceDisplayGetVcount().wrapping_sub(last);
                 if elapsed >= self.vblanks.get() && psp::sys::sceDisplayIsVblank() != 0 {
                     break;
                 }
                 psp::sys::sceDisplayWaitVblankStart();
             }
-            self.clock.set(psp::sys::sceDisplayGetVcount());
+            LAST_PRESENT = Some(psp::sys::sceDisplayGetVcount());
         }
         let result = self.device.present();
         let mut t = self.timing.get();
@@ -128,15 +146,22 @@ pub struct Runtime {
     vblanks: Rc<Cell<u32>>,
 }
 impl Runtime {
+    /// A guest over `source`, ready for `add_provider` and `boot`.
+    ///
     /// # Safety
     /// GU is initialized and this is the only program using host::list_ptr().
     /// Drop the prior Runtime before booting another guest or opening native lists.
     pub unsafe fn new(
         source: Box<dyn pocket_drivers::PackageSource>,
-        fixed_cadence: Option<u32>,
-        clock: Rc<Cell<u32>>,
+        options: Options,
     ) -> Result<Self, String> {
         let _fpu = crate::host::FpuGuard::masked();
+        if LAST_PRESENT.is_none() {
+            LAST_PRESENT = Some(psp::sys::sceDisplayGetVcount());
+        }
+        let data_name = options
+            .data_name
+            .unwrap_or_else(|| crate::fs_ops::default_data_name());
         let handle = Handle::new(RuntimeConfig {
             profile_hash: profile::PROFILE_HASH,
             host_abi: profile::HOST_ABI,
@@ -146,12 +171,11 @@ impl Runtime {
         })
         .map_err(|error| format!("PSP runtime profile rejected: {error:?}"))?;
         let ops = handle.op_context();
-        let guest = instance::Guest::new(ops.clone(), fixed_cadence)?;
+        let guest = instance::Guest::new(ops.clone(), options.cadence, data_name)?;
         let timing = Rc::new(Cell::new(FrameTiming::default()));
         let vblanks = Rc::new(Cell::new(1));
         let device = PacedDevice {
             device: NativeDevice::new(crate::host::list_ptr()),
-            clock,
             vblanks: vblanks.clone(),
             timing: timing.clone(),
         };
@@ -197,6 +221,13 @@ impl Runtime {
             context,
         ))?;
         Ok(runtime)
+    }
+    /// Answer the operations `provider` supports, beside this library's
+    /// services (ops 30 to 38). Call before `boot`: the guest's generated
+    /// bindings mount the operations supported at boot. An operation two
+    /// providers support is refused.
+    pub fn add_provider(&mut self, provider: Box<dyn OpProvider>) -> Result<(), String> {
+        self.call(|r| r.add_provider(provider))
     }
     /// One runtime call; a failure reads as `check` reports its status.
     fn call(

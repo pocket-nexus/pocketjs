@@ -70,7 +70,7 @@ pub unsafe fn active() -> bool {
     ROOT.is_some()
 }
 
-/// Guest teardown (docs/LAUNCHER.md switch): drop the mailbox binding so the next
+/// Guest teardown: drop the mailbox binding so the next
 /// guest's svcOpen probes fresh — offsets from one app's in.jsonl must never
 /// leak into another's.
 pub unsafe fn reset() {

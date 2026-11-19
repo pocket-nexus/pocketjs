@@ -60,18 +60,7 @@ export function nativeArguments(context: RuntimeBuildContext): string[] {
       throw new Error(`native recipe owns ${arg}; supply --bundle to the build executor`);
     }
   }
-  return context.args.map(arg => {
-    const match = /^(--launcher-(?:registry|bundles))=(.+)$/.exec(arg);
-    if (!match) {
-      if (arg === "--launcher-registry" || arg === "--launcher-bundles") throw new Error(`${arg} requires =<path>`);
-      return arg;
-    }
-    const path = resolve(match[2]!);
-    if (!existsSync(path) || (match[1] === "--launcher-registry" ? !statSync(path).isFile() : !statSync(path).isDirectory())) {
-      throw new Error(`missing native launcher input: ${path}`);
-    }
-    return `${match[1]}=${path}`;
-  });
+  return [...context.args];
 }
 
 /** Declared source roots exclude Cargo output and per-run build directories. */

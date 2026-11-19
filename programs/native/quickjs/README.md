@@ -25,7 +25,7 @@ that replaces parts of the default composition:
 
 **Three boot forms select the application.** `pocket_qjs_program_boot` copies raw
 JavaScript and PAK bytes, `pocket_qjs_program_boot_package` copies a complete
-bundle with its catalog identity, and `pocket_qjs_program_boot_source`
+bundle with the identity it must carry, and `pocket_qjs_program_boot_source`
 passes a host `pocket_package_source_v1` that Runtime reads at boot. The first
 two keep native asset loading off; the source form keeps it on, so the guest
 receives the pak's named textures and sprites. An admission failure returns

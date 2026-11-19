@@ -5,6 +5,7 @@ extern crate alloc;
 use pocket_archive as _;
 pub use pocket_vita_audio as audio;
 pub mod dbg;
+pub mod embedded;
 pub mod frame_timing;
 pub mod overlay;
 pub mod scene;
@@ -23,7 +24,6 @@ pub mod profile {
 }
 pub mod stats;
 pub mod svc;
-pub mod switch;
 pub mod vid;
 
 mod program;

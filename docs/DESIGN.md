@@ -256,7 +256,7 @@ memory and math exports. The SDK archives remain unchanged.
 `POCKETJS_EMBED_BUNDLE` names the compiled bundle the EBOOT embeds, and
 `POCKETJS_PROFILE_RS` the exported `pocket_profile.rs` that supplies the host
 contract facts to its Runtime. `tools/psp.ts <demo>` compiles the demo with `pocket compile`
-first. Embedded bundles, launcher bundles and `app.pkb` enter Runtime as
+first. Embedded bundles and `app.pkb` enter Runtime as
 their original bytes; **the EBOOT encodes no bundle at boot**. **Runtime
 performs bundle admission** before guest initialization.
 

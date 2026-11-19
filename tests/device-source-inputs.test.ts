@@ -23,27 +23,24 @@ async function fixture(directory: string, build: Omit<RuntimeBuild, "hosts">): P
 
 test("Nokia input selection matches native option precedence and the invocation directory", () => {
   const dir = scratch();
-  for (const file of ["catalog.tsv", "catalog.bin", "core.a", "navigation.json", "overridden.json"]) {
+  for (const file of ["core.a", "overridden.a"]) {
     writeFileSync(join(dir, file), file);
   }
-  const args = ["--catalog-index", "catalog.tsv", "--catalog-blob=catalog.bin", "--core-library", "core.a",
-    "--navigation", "overridden.json", "--navigation=navigation.json"];
+  const args = ["--core-library", "overridden.a", "--core-library=core.a"];
   const inputs = nokiaSourceInputs({ args, invocationDirectory: dir });
-  for (const option of ["--catalog-index", "--catalog-blob", "--core-library", "--navigation"]) {
-    expect(inputs).toContain(resolve(dir, nativeOption(args, option)!));
-  }
+  expect(inputs).toContain(resolve(dir, nativeOption(args, "--core-library")!));
   expect(inputs).not.toContain(dir);
-  expect(inputs).not.toContain(join(dir, "overridden.json"));
+  expect(inputs).not.toContain(join(dir, "overridden.a"));
   expect(nokiaSourceInputs({ args: [], invocationDirectory: dir }).some(path => path.startsWith(dir))).toBe(false);
 });
 
 test("Nokia generated siblings remain build outputs", async () => {
-  const dir = scratch(), input = join(dir, "catalog.bin"), generated = join(dir, "generated.sis");
-  writeFileSync(input, "catalog original");
+  const dir = scratch(), input = join(dir, "core.a"), generated = join(dir, "generated.sis");
+  writeFileSync(input, "core original");
   const selected = await fixture(dir, { steps: compilerOnly(), sourceInputs: nokiaSourceInputs,
     run() { writeFileSync(generated, "native output"); } });
   const result = await buildRuntime(selected, join(dir, "out"), {
-    args: [`--catalog-blob=${relative(process.cwd(), input)}`],
+    args: [`--core-library=${relative(process.cwd(), input)}`],
   });
   const receipt = JSON.parse(readFileSync(result.receipt!, "utf8"));
   expect(receipt.success).toBe(true);
@@ -54,7 +51,7 @@ test("Nokia generated siblings remain build outputs", async () => {
 test("missing Nokia file inputs fail before the native hook", async () => {
   const dir = scratch(); let called = false;
   const selected = await fixture(dir, { steps: compilerOnly(), sourceInputs: nokiaSourceInputs, run() { called = true; } });
-  await expect(buildRuntime(selected, join(dir, "out"), { args: ["--navigation", join(dir, "missing.json")] })).rejects.toThrow();
+  await expect(buildRuntime(selected, join(dir, "out"), { args: ["--core-library", join(dir, "missing.a")] })).rejects.toThrow();
   expect(called).toBe(false);
   expect(() => nokiaSourceInputs({ args: ["--core-library", dir], invocationDirectory: process.cwd() })).toThrow("regular file");
 });

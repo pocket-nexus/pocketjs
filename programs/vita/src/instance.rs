@@ -29,10 +29,9 @@ pub(crate) struct Guest {
     pub global: JSValue,
     adapter: *mut c_void,
     deadline: Box<Instant>,
-    pub ops: pocket_runtime::OpContext,
 }
 impl Guest {
-    pub unsafe fn new(ops: pocket_runtime::OpContext) -> Result<Box<Self>, String> {
+    pub unsafe fn new() -> Result<Box<Self>, String> {
         let engine = JS_NewRuntime();
         if engine.is_null() {
             return Err("JS_NewRuntime failed".into());
@@ -56,7 +55,6 @@ impl Guest {
             global,
             adapter,
             deadline: Box::new(Instant::now() + Duration::from_secs(5)),
-            ops,
         });
         // Feature `guest-deadline`: interrupt evaluation after 5 s and a frame
         // turn after 250 ms, so a looping guest returns an error to the program.
@@ -109,11 +107,6 @@ unsafe extern "C" fn initialize(
         return status;
     }
     crate::service_bindings::register_private(guest.context, guest.global);
-    if let Ok(mut state) = guest.ops.core_mut() {
-        crate::switch::upload_shot(&mut state.ui);
-    } else {
-        return -1;
-    }
     0
 }
 unsafe extern "C" fn evaluate(
@@ -179,7 +172,7 @@ impl InputSource for InputDriver {
 pub(crate) struct Services;
 impl OpProvider for Services {
     fn supports_op(&self, op: u16) -> bool {
-        matches!(op, 30..=38) || (crate::switch::multi() && matches!(op, 39..=41))
+        matches!(op, 30..=38)
     }
     fn dispatch(
         &mut self,
@@ -214,14 +207,6 @@ impl OpProvider for Services {
                     OpResult::None
                 }
                 38 => OpResult::Bytes(crate::stats::json().into_bytes()),
-                39 => OpResult::Bytes(crate::switch::table_json().into_bytes()),
-                40 => OpResult::Integer(if let Some(index) = crate::switch::find(text()?) {
-                    crate::switch::request_launch(index);
-                    1
-                } else {
-                    0
-                }),
-                41 => OpResult::Integer(crate::switch::shot_handle() as i64),
                 _ => return Err(RuntimeError::UnsupportedOperation),
             })
         }

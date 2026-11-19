@@ -45,16 +45,14 @@ test("handheld recipes fail missing package inputs before invoking an SDK or sel
   await expect(ipodNanoBuild.run!(context(nano))).rejects.toThrow("requires --aot-dir");
 });
 
-test("native launcher inputs are explicit existing paths while recipe-owned compilation inputs cannot be replaced", () => {
-  const ctx = context(psp), registry = resolve(ctx.outdir, "registry.tsv"), packages = resolve(ctx.outdir, "packages");
-  writeFileSync(registry, ""); mkdirSync(packages);
-  const args = [`--launcher-registry=${registry}`, `--launcher-bundles=${packages}`, "--capture"];
+test("native arguments pass through while recipe-owned compilation inputs cannot be replaced", () => {
+  const ctx = context(psp);
+  const args = ["--capture", "--bench"];
   expect(nativeArguments({ ...ctx, args })).toEqual(args);
   expect(() => nativeArguments({ ...ctx, args: ["--plan=/tmp/replacement"] })).toThrow("recipe owns");
   expect(() => nativeArguments({ ...ctx, args: ["--runtime"] })).toThrow("recipe owns");
   expect(() => nativeArguments({ ...ctx, args: ["--features=runtime"] })).toThrow("recipe owns");
   expect(() => nativeArguments({ ...ctx, args: ["--help"] })).toThrow("recipe owns");
-  expect(() => nativeArguments({ ...ctx, args: ["--launcher-registry=/missing"] })).toThrow("missing native launcher input");
 });
 
 test("web assembly stages admitted bytes and the complete runtime/text provider modules", async () => {

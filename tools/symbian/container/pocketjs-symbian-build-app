@@ -95,16 +95,6 @@ receipt_name=$(jq -er \
     '.receiptFile | strings | select(test("^[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\.receipt\\.json$"))' \
     "$package_json")
 receipt="/out/$receipt_name"
-catalog_index="$payload/catalog.tsv"
-catalog_blob="$payload/catalog.bin"
-catalog_enabled=false
-if test -e "$catalog_index" || test -e "$catalog_blob"; then
-    if test ! -s "$catalog_index" || test ! -s "$catalog_blob"; then
-        echo "Symbian app catalog requires non-empty catalog.tsv and catalog.bin." >&2
-        exit 1
-    fi
-    catalog_enabled=true
-fi
 data_stage="$payload/mass-storage-data"
 data_manifest="$data_stage/manifest.json"
 data_files="$data_stage/files"
@@ -174,17 +164,6 @@ actual_embedded_bytes=$(
     stat -c %s "$payload/app.js" "$payload/app.pak" |
         awk '{ total += $1 } END { print total + 0 }'
 )
-if test "$catalog_enabled" = true; then
-    actual_embedded_bytes=$(
-        {
-            printf '%s\n' "$actual_embedded_bytes"
-            stat -c %s "$catalog_index" "$catalog_blob"
-        } | awk '{ total += $1 } END { print total + 0 }'
-    )
-fi
-if test -f "$payload/navigation.tsv"; then
-    actual_embedded_bytes=$((actual_embedded_bytes + $(stat -c %s "$payload/navigation.tsv")))
-fi
 if test "$actual_embedded_bytes" != "$embedded_bytes"; then
     echo "Symbian embedded payload changed after link layout resolution." >&2
     exit 1
@@ -333,15 +312,6 @@ arm-none-symbianelf-ar cqs "$build/libquickjs.a" "$quickjs_objects"/*.o
 
 cp "$runtime_source"/* "$build/"
 cp "$payload/app.js" "$payload/app.pak" "$payload/pocket_host_profile.h" "$build/"
-if test -f "$payload/navigation.tsv"; then
-    cp "$payload/navigation.tsv" "$build/navigation.tsv"
-else
-    : > "$build/navigation.tsv"
-fi
-if test "$catalog_enabled" = true; then
-    cp "$catalog_index" "$build/catalog.tsv"
-    cp "$catalog_blob" "$build/catalog.bin"
-fi
 cd "$build"
 
 qmake \
@@ -414,12 +384,6 @@ app_js_sha256=$(sha256sum "$payload/app.js" | cut -d " " -f 1)
 app_pak_sha256=$(sha256sum "$payload/app.pak" | cut -d " " -f 1)
 plan_sha256=$(sha256sum "$payload/plan.json" | cut -d " " -f 1)
 core_sha256=$(sha256sum "$rust_library" | cut -d " " -f 1)
-catalog_index_sha256=
-catalog_blob_sha256=
-if test "$catalog_enabled" = true; then
-    catalog_index_sha256=$(sha256sum "$catalog_index" | cut -d " " -f 1)
-    catalog_blob_sha256=$(sha256sum "$catalog_blob" | cut -d " " -f 1)
-fi
 jq -n \
     --arg app "$app_output" \
     --arg appId "$(jq -r .appId "$package_json")" \
@@ -437,14 +401,11 @@ jq -n \
     --arg appPakSha256 "$app_pak_sha256" \
     --arg planSha256 "$plan_sha256" \
     --arg coreSha256 "$core_sha256" \
-    --arg catalogIndexSha256 "$catalog_index_sha256" \
-    --arg catalogBlobSha256 "$catalog_blob_sha256" \
-    --arg navigationSha256 "$(sha256sum "$build/navigation.tsv" | cut -d " " -f 1)" \
     --arg dataBase "$data_base" \
     --arg embeddedBytes "$embedded_bytes" \
     --slurpfile data "$data_receipt" \
     '{
-      schemaVersion: 3,
+      schemaVersion: 4,
       app: $app,
       appId: $appId,
       title: $title,
@@ -461,10 +422,7 @@ jq -n \
         appJs: $appJsSha256,
         appPak: $appPakSha256,
         plan: $planSha256,
-        core: $coreSha256,
-        navigation: $navigationSha256,
-        catalogIndex: (if $catalogIndexSha256 == "" then null else $catalogIndexSha256 end),
-        catalogBlob: (if $catalogBlobSha256 == "" then null else $catalogBlobSha256 end)
+        core: $coreSha256
       },
       data: $data[0]
     }' > "$candidate_receipt"

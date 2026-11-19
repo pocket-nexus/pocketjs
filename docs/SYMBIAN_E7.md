@@ -157,12 +157,12 @@ a collision-resistant executable name, its own application-menu caption, and
 output-specific SIS/receipt filenames. Multiple PocketJS apps can therefore be
 installed side by side instead of replacing one shared runtime package. The
 receipt records that identity, the package version, pinned QuickJS revision,
-and SHA-256 hashes for the JavaScript, `.pak`, resolved plan, Rust core, and
-optional launcher catalog. Receipt schema 3 also carries a `data` array of
+and SHA-256 hashes for the JavaScript, `.pak`, resolved plan and Rust core.
+Receipt schema 4 also carries a `data` array of
 `{path, bytes, sha256}` entries for custom-core mass-storage files. It also
 records the deterministic GCCE data base:
-the historical 4 MiB baseline plus the raw embedded JS/pak/catalog byte count,
-rounded to 1 MiB. This keeps large DeepZoom packs and multi-app catalogs above
+the historical 4 MiB baseline plus the raw embedded JS/pak byte count,
+rounded to 1 MiB. This keeps large DeepZoom packs above
 the read-only qrc segment without weakening the linker's overlap check. Stage
 the SIS over the same readback-verified USB/MTP path:
 
@@ -217,8 +217,8 @@ bun tools/symbian.ts build app \
   --mass-storage-data-root /path/to/native-data
 ```
 
-This option is restricted to `--core-library`; the stock core and launcher
-catalog cannot use it. The source must be a real directory containing only
+This option is restricted to `--core-library`; the stock core cannot use it.
+The source must be a real directory containing only
 regular files. Symlinks, special files, empty trees, unsafe relative paths,
 case-insensitive path collisions, and a source that overlaps the build payload
 are rejected. Portable path components use ASCII letters, digits, spaces,
@@ -246,9 +246,7 @@ host and may be borrowed only until the matching shutdown call; the generated Qu
 borrows the bundle storage until shutdown. QuickJS-NG marks it immutable;
 engines without that API can write the bundle bytes. Shutdown reports whether the owning GL context is current,
 allowing the extension to delete live resources normally or abandon stale
-handles after context loss. Application-specific cores are intentionally
-single-app only and cannot be combined with a launcher catalog because their
-process-wide provider has no per-guest opt-out. The selected
+handles after context loss. The selected
 archive is copied inside the serialized build transaction and its exact bytes
 remain covered by the receipt's `sha256.core`. The pinned QuickJS archive also
 includes its official `static-functions.c` wrappers, so Rust extensions can
@@ -259,16 +257,14 @@ Rust application cores should import the matching table, flags, and native-key
 bits from `pocket_native_program::extension`; that module is the Rust ABI
 authority paired with the public C header.
 
-**Each guest owns one canonical Runtime through `PocketNativeProgram`.**
-The generated QuickJS binding dispatches core operations against that instance;
-application operations 39–41 register through an operation provider when a
-launcher or native navigation registry exists. Qt owns the window and native
-extension callbacks. The runtime owns the bundle, input encoding, core ticks
-and presentation coordinator. **Catalog guests retain the original bundle
-bytes and plan.** The shared bundle reader validates the hashes, binding
-generation, catalog identity and declared viewport before guest initialization. A
-live window resize runs after evaluation at the plan's viewport and before
-the first frame. These C records remain a candidate ABI.
+**One SIS embeds one application and boots one canonical Runtime through
+`PocketNativeProgram`.** The program is created from the embedded `app.js`
+and `app.pak` at the window's viewport, with the build's host profile facts
+and hash. The generated QuickJS binding dispatches core operations against
+that instance; the host registers no application-switching operations. Qt
+owns the window and native extension callbacks. The runtime owns its copy of
+the script and pack, input encoding, core ticks and the presentation
+coordinator. These C records remain a candidate ABI.
 
 The experimental host has these runtime semantics:
 
@@ -286,8 +282,7 @@ The experimental host has these runtime semantics:
   `landscape`, and every other range is `auto`. A bundle compiled elsewhere
   carries no range, rotates (`auto`), and takes `--orientation
   auto|portrait|landscape` after `--` to hold an orientation. The host sets Qt's portrait or landscape lock in place of automatic
-  orientation, so opening the keyboard does not rotate the app. A navigation
-  registry entry marked `portrait` feeds the same decision. The receipt
+  orientation, so opening the keyboard does not rotate the app. The receipt
   records the choice as `runtime.orientation`. Pocket Clear and Pocket Nexus
   declare `360x640` as both minimum and maximum and stay portrait.
 - Applications targeting the E7 must declare a compatible dynamic viewport.
@@ -301,8 +296,9 @@ The experimental host has these runtime semantics:
   fixed 60 Hz clock. The requested rate is a scheduling target; frame work
   and presentation can reduce the achieved rate.
 - Arrow keys map to the four directions, the navigation center/Select key and
-  keyboard Enter to `CIRCLE`, Escape to `CROSS`, Space to `START`, Q/E to the
-  left/right triggers, and T/S to `TRIANGLE`/`SQUARE`.
+  keyboard Enter to `CIRCLE`, Escape to `CROSS`, Space to `START`, Backspace
+  and Home to `SELECT`, Q/E to the left/right triggers, and T/S to
+  `TRIANGLE`/`SQUARE`.
 - Native extensions additionally receive an independent held-key bitset:
   W/A/S/D move, arrows look, E fires, Space jumps, R reloads, and Shift walks.
   This channel does not change the portable PocketJS button mask seen by the
@@ -422,7 +418,10 @@ counts samples taken without an active window after the first startup second;
 discard such runs when measuring interactive performance.
 
 For repeatable input, a trace build reads `E:/Installs/pocketjs-perf-input.tsv`
-at startup. Each row contains an elapsed millisecond timestamp and one packed
+at startup. A nonempty `E:/Installs/pocketjs-perf-<uid>-input.tsv`, where `<uid>` is
+the package UID as eight lowercase hex digits, takes its place and selects
+`pocketjs-perf-<uid>` as the output prefix, so each installed application
+reads and writes its own trace files. Each row contains an elapsed millisecond timestamp and one packed
 touch-v2 contact, separated by a tab; zero releases the contact. Timestamps
 must stay ordered, remain within 0–30,000 ms and end with a release. The file is
 limited to 128 KiB and 4,096 points. Remove it before measuring manual input.
@@ -514,8 +513,7 @@ install-server policy.
 The toolchain now implements the GCCE-compatible Rust core, QuickJS execution
 and Promise-job draining, the base HostOps surface, embedded compiled
 JavaScript and `.pak` resources, fixed-step presentation, live native-viewport
-relayout, buttons, native touch, independent app identities, and cold
-multi-package switching. The app build and MTP readback checks make both the
+relayout, buttons, native touch, and independent app identities. The app build and MTP readback checks make both the
 native package and delivery substrate repeatable. A signed SIS is
 time-dependent and therefore is not expected to be byte-for-byte reproducible
 between builds.
@@ -547,98 +545,3 @@ application build.
 - [Qt Creator 2.4 CODA serial transport](https://code.qt.io/cgit/qt-creator/qt-creator.git/tree/src/shared/symbianutils/codadevice.cpp?h=v2.4.1)
 - [Qt Creator 2.4 macOS Symbian device discovery](https://code.qt.io/cgit/qt-creator/qt-creator.git/tree/src/shared/symbianutils/symbiandevicemanager.cpp?h=v2.4.1)
 - [libmtp `mtp-sendfile` implementation](https://github.com/libmtp/libmtp/blob/v1.1.23/examples/sendfile.c)
-
-## Installed-app navigation
-
-**`--navigation <file.json>` packages an allowlist of separate SIS apps.** Each
-app keeps its QuickJS guest, native extension and resources in its own process.
-The foreground app runs frames; background apps stop advancing the guest and
-simulation. **Background apps release GLES resources and reset their EGL
-context and surface.** A navigation handoff releases the outgoing surface
-before activating the destination, so their GPU allocations do not overlap
-during startup. Qt repaint delivery stays disabled until foreground restoration.
-Qt chrome uses the raster graphics system; app content uses GLES. The host also
-terminates its process-owned EGL connection and releases thread state: destroying
-the context alone leaves VideoCore client allocations resident. The next
-activation initializes EGL, recreates the context and uploads textures from
-retained CPU data.
-Launching an existing task brings it to the foreground. Launching
-an absent task starts its installed UID through the application server.
-This mode cannot be combined with an embedded `--catalog`.
-
-The registry has `shell` (the Shell UID) and `apps` (2–32 entries). Every entry
-contains `uid`, `id`, `output` and `title`; `orientation` accepts `auto` or
-`portrait`. **A package's own `portrait` entry folds into the build's
-orientation lock** (see the runtime semantics above): it holds an app whose
-viewport range admits both orientations in portrait, and the build rejects it
-for a landscape-only application. The packaged table carries no orientation
-column. UIDs, app ids and output keys must be unique. Build every
-participating package with the same registry, including its own UID. The build
-receipt records the encoded registry hash.
-
-```json
-{
-  "shell": "0xE7C0F0BA",
-  "apps": [
-    { "uid": "0xE7C0F0BA", "id": "dev.pocket-nexus.fluid", "output": "pocketshell-touch", "title": "Pocket Shell" },
-    { "uid": "0xE6EE02B8", "id": "dev.pocket-nexus.clear", "output": "clear-main", "title": "Pocket Clear", "orientation": "portrait" }
-  ]
-}
-```
-
-```sh
-bun tools/pocket.ts compile --config apps/clear/pocket.host.config.ts --project-root . \
-  --target symbian-e7-dev --output dist/symbian/clear.pkb
-bun tools/symbian.ts build app --bundle dist/symbian/clear.pkb -- \
-  --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
-  --frame-rate 60 --sis-version 0.3.12
-```
-
-**Child apps reserve the bottom 28 pixels for a host-owned return gesture.**
-The guest receives the remaining viewport and never receives a contact that
-starts in the return strip. A tap or upward swipe returns to Shell Home; a
-220 ms hold after lifting opens the Shell switcher. The app presentation
-shrinks with the contact. Release passes its normalized pose and last frame to
-Shell before the first resumed guest frame. Focus loss, rotation and additional
-contacts cancel the gesture. The operating system Home key is unchanged.
-
-The `appTable` operation reports `kind: "native"` and each configured entry's
-`installed` state. `appLaunch(output)` schedules activation after
-presentation. Before the first resumed frame the host calls
-`globalThis.__pocketjsNativeReturn(output, destination, shot, error, x, y, scale)`
-with the return destination, the last-frame texture, the launch error and
-the normalized pose. `appClose(output)` lets Shell request
-`EndTask` for a configured child. A successful return means the close request
-was sent, not that the process has exited. Other hosts can omit `appClose`.
-Missing packages and rejected activation leave the calling app usable. The
-guest module over these operations (`onNativeAppReturn`, `closeApp`) lives in
-pocket-nexus/pocket-shell (`runtime/src/launcher.ts`).
-
-Return metadata and screenshots live under
-`E:/Data/PocketJS/navigation/<shell-uid>/`. The host consumes a return mailbox
-once and uploads a 256×512 (portrait) or 512×256 (landscape) thumbnail. A texture
-belongs to the host and is replaced on that app's next return. Shell must bind
-the new handle before its next paint. These files contain app content; they are
-not an OS window server or a security boundary between installed apps.
-
-**Process retention lasts until the app closes or the OS terminates it.** This
-protocol does not serialize JavaScript state or implement cross-process deep
-links. Native children can return to a cold Shell. Background snapshots do not
-update until another return. Native rendering and touch controls can use the
-same host gesture without adding application-specific navigation code.
-
-For `--perf-trace` builds, a nonempty
-`E:/Installs/pocketjs-perf-<uid>-input.tsv` selects a per-app replay and output
-prefix; otherwise the host uses `pocketjs-perf`. Native replay passes through
-the Qt touch routing and return-strip ownership. Its virtual clock pauses
-with the background process. `*-navigation.tsv` records activations alongside
-the frame trace. Release builds do not read replay files.
-
-Native renderers opt into graphics suspension with the optional
-`PocketNativeGraphicsExtensionV1` / `GraphicsExtensionV1` tail. Its V1 prefix
-and provider symbol remain unchanged; `base.struct_size` covers the full table.
-`release_graphics(gl_context_current)` releases GPU handles and retains CPU
-scene/game data. The next `render` rebuilds GPU resources. A host checks the
-size before accessing the tail. Existing extensions without it retain their
-previous lifecycle; native navigation ports must add it to release background
-graphics memory.

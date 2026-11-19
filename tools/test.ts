@@ -162,7 +162,6 @@ const SUITE: readonly Stage[] = [
       "tests/repack-ipod.test.ts",
       "tests/symbian-data.test.ts",
       "tests/symbian-device.test.ts",
-      "tests/symbian-navigation.test.ts",
       "tests/symbian-package.test.ts",
       "tests/symbian-runtime.test.ts",
       "tests/symbian-toolchain.test.ts",

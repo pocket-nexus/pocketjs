@@ -52,22 +52,6 @@ mod stats {
         "{}".into()
     }
 }
-mod switch {
-    pub fn multi() -> bool {
-        false
-    }
-    pub fn upload_shot(_: &mut pocketjs_core::Ui) {}
-    pub fn table_json() -> String {
-        "{}".into()
-    }
-    pub fn find(_: &str) -> Option<usize> {
-        None
-    }
-    pub fn request_launch(_: usize) {}
-    pub fn shot_handle() -> i32 {
-        -1
-    }
-}
 use libquickjs_sys::*;
 use pocket_drivers::*;
 use pocket_drivers::abi::*;
@@ -201,7 +185,7 @@ impl Program {
             .unwrap();
         let ops = runtime.op_context();
         ops.add_provider(Box::new(instance::Services)).unwrap();
-        let guest = instance::Guest::new(ops, Some(20)).unwrap();
+        let guest = instance::Guest::new(ops, Some(20), "fixture-data".into()).unwrap();
         let input = Rc::new(RefCell::new(instance::Input {
             analog: 0x8080,
             ..Default::default()
@@ -302,7 +286,14 @@ mod audio_mod {
     }
 }
 mod fs_ops {
-    pub unsafe fn register_fs(_: *mut libquickjs_sys::JSContext, _: libquickjs_sys::JSValue) {}
+    thread_local! {pub static NAME: std::cell::RefCell<String> = std::cell::RefCell::new(String::new());}
+    pub unsafe fn register_fs(
+        _: *mut libquickjs_sys::JSContext,
+        _: libquickjs_sys::JSValue,
+        data_name: &str,
+    ) {
+        NAME.with(|name| *name.borrow_mut() = data_name.into());
+    }
 }
 mod pack_ops {
     pub unsafe fn register_pack(_: *mut libquickjs_sys::JSContext, _: libquickjs_sys::JSValue) {}
@@ -406,6 +397,49 @@ fn public_namespace_providers_and_private_extensions_share_one_runtime() {
         p.assert_js(r#"if(typeof net!=='undefined')throw Error('net namespace');if(link.status()!=='{"state":"searching"}'||link.pair('x')!==false||link.catalog()!==-1)throw Error('link');"#);
         audio_mod::PCM.with(|pcm| assert_eq!(&*pcm.borrow(), &[0x302, 0x504]));
         assert_eq!(host::MASKED.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+}
+/// What a program crate composing the library registers before boot for
+/// operations the library does not implement, as a product that switches
+/// guests answers appTable (39) and appShot (41).
+struct ProgramOps {
+    shot: Option<i32>,
+}
+impl pocket_runtime::OpProvider for ProgramOps {
+    fn supports_op(&self, op: u16) -> bool {
+        matches!(op, 39 | 41)
+    }
+    fn dispatch(
+        &mut self,
+        ui: &mut pocketjs_core::Ui,
+        op: u16,
+        _: &[pocket_runtime::OpArg<'_>],
+    ) -> Result<pocket_runtime::OpResult, RuntimeError> {
+        use pocketjs_core::spec;
+        Ok(match op {
+            39 => pocket_runtime::OpResult::Bytes(
+                br#"{"apps":[],"current":"fixture","resume":null}"#.to_vec(),
+            ),
+            _ => pocket_runtime::OpResult::Integer(i64::from(*self.shot.get_or_insert_with(|| {
+                ui.upload_texture_flags(&[255; 4 * 4 * 4], 4, 4, spec::psm::PSM_8888, spec::img::FLAG_LINEAR)
+            }))),
+        })
+    }
+}
+#[test]
+fn a_program_provider_answers_operations_the_library_leaves_and_names_the_data_directory() {
+    unsafe {
+        let p = Program::unbooted();
+        assert_eq!(p.call(|r| r.add_provider(Box::new(ProgramOps { shot: None }))), 0);
+        // An operation two providers support is refused.
+        assert_ne!(p.call(|r| r.add_provider(Box::new(instance::Services))), 0);
+        assert_eq!(
+            p.call(|r| r.set_package_source(Box::new(pocket_package::source::MemorySource(package(b"globalThis.frame=function(){};", PLAN))))),
+            0
+        );
+        assert_eq!(p.call(Runtime::boot_deferred), 0, "{}", p.guest.error());
+        p.assert_js(r#"if(JSON.parse(ui.appTable()).current!=='fixture'||typeof ui.appLaunch!=='undefined'||typeof ui.appClose!=='undefined')throw Error('program ops');const shot=ui.appShot();if(shot<0||ui.appShot()!==shot)throw Error('shot texture');"#);
+        fs_ops::NAME.with(|name| assert_eq!(*name.borrow(), "fixture-data"));
     }
 }
 #[test]

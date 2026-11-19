@@ -1,25 +1,19 @@
-//! Embeds the compiled application bundle(s) into the EBOOT at build time,
-//! and the program's exported profile (`POCKETJS_PROFILE_RS`, see
+//! Embeds the compiled application bundle into the EBOOT at build time, and
+//! the program's exported profile (`POCKETJS_PROFILE_RS`, see
 //! engine/profile-build) as `$OUT_DIR/pocket_profile.rs`.
 //!
 //! The stock backend sets `POCKETJS_APP_OUTPUT`, `POCKETJS_EMBED_APP=1` and
-//! `POCKETJS_EMBED_BUNDLE=<absolute .pkb path>`; the bundle bytes are
-//! embedded verbatim. Custom native hosts consume the same output name but
-//! leave embedding to their own primary crate, so this runtime remains a
-//! reusable dependency. `POCKETJS_APP=<name>` remains a legacy shorthand that
-//! implies embedding. Without embedding the table entry is empty and the EBOOT
-//! reports that it carries no application.
-//!
-//! Multi-app mode (docs/LAUNCHER.md): `POCKETJS_LAUNCHER_REGISTRY=<path to the
-//! launcher-registry.tsv tools/launcher.ts emits>` embeds app 0 = the
-//! selected app (the launcher) PLUS one entry per registry line. Every mode
-//! generates $OUT_DIR/apps.rs — a single-app build is simply a table of one,
-//! so main.rs has exactly one shape to consume.
+//! `POCKETJS_EMBED_BUNDLE=<absolute .pkb path>`; tools/build/embedded-bundle.rs
+//! embeds the bundle bytes verbatim as `embedded::BUNDLE` (src/embedded.rs).
+//! `POCKETJS_APP=<name>` remains a legacy shorthand that implies embedding.
+//! Without embedding `BUNDLE` is empty and the EBOOT reports that it carries
+//! no application. A program crate that composes this library and carries
+//! more bundles embeds them from its own build script.
 
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-#[path = "../../tools/build/embedded-apps.rs"]
+#[path = "../../tools/build/embedded-bundle.rs"]
 mod embed;
 
 fn dimension(name: &str, fallback: u32) -> u32 {
@@ -161,12 +155,6 @@ fn main() {
             !embed_app,
             "the runtime feature builds an EBOOT without an app: set POCKETJS_EMBED_APP=0"
         );
-        assert!(
-            env::var("POCKETJS_LAUNCHER_REGISTRY")
-                .unwrap_or_default()
-                .is_empty(),
-            "the runtime feature cannot embed a launcher registry"
-        );
     }
     let target = env::var("POCKETJS_TARGET").unwrap_or_else(|_| "psp".into());
     let host_abi = env::var("POCKETJS_HOST_ABI")
@@ -210,48 +198,20 @@ fn main() {
     let package = env::var_os("POCKETJS_EMBED_BUNDLE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    let registry = env::var_os("POCKETJS_LAUNCHER_REGISTRY")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
-    // The runtime admits compiled bundles only; a raw JS/pak pair has no
-    // plan, identity or profile hash to admit.
-    assert!(
-        !embed_app || package.is_some() || registry.is_some(),
-        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_BUNDLE: embed a compiled .pkb bundle"
-    );
-    let packages = env::var_os("POCKETJS_LAUNCHER_BUNDLES")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
     let generated = embed::generate(embed::Config {
-        identity: embed::Identity::PackageTable,
+        identity: embed::Identity::Bundle,
         output: &app,
         enabled: embed_app,
         dist: &dist,
         out: Path::new(&out_dir),
         package: package.as_deref(),
-        registry: registry.as_deref(),
-        packages: packages.as_deref(),
     })
     .unwrap_or_else(|error| panic!("PSP embed: {error}"));
     println!("cargo:rustc-env=POCKETJS_BUNDLE_HASH={}", generated.hash);
     for path in generated.inputs {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    println!("cargo:rerun-if-changed=../../tools/build/embedded-apps.rs");
-
-    // Switch-veil logo (docs/PLATFORM.md): 128×128 RGBA baked by tools/psp.ts.
-    // Empty fallback keeps custom-host builds (no backend env) linking; the
-    // veil skips the mark when the blob is not exactly 128*128*4 bytes.
-    let veil = env::var("POCKETJS_VEIL_LOGO")
-        .ok()
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            println!("cargo:rerun-if-changed={p}");
-            fs::read(&p).unwrap_or_default()
-        })
-        .unwrap_or_default();
-    fs::write(Path::new(&out_dir).join("veil.raw"), veil).unwrap();
-    println!("cargo:rerun-if-env-changed=POCKETJS_VEIL_LOGO");
+    println!("cargo:rerun-if-changed=../../tools/build/embedded-bundle.rs");
 
     // Scripted input for deterministic capture builds (tests/e2e/ppsspp.ts):
     // "frame:mask,frame:mask" baked into the EBOOT, consumed by main.rs only
@@ -285,8 +245,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=POCKETJS_APP_OUTPUT");
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_APP");
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_BUNDLE");
-    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_BUNDLES");
-    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_REGISTRY");
     println!("cargo:rerun-if-env-changed=POCKETJS_OUTPUT_DIR");
     println!("cargo:rerun-if-env-changed=POCKETJS_TARGET");
     println!("cargo:rerun-if-env-changed=POCKETJS_HOST_ABI");

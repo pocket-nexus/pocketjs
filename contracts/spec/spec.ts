@@ -211,27 +211,17 @@ export const OP = {
   //                      against local dist/ on every hello and calls out a
   //                      stale-embed loudly. Hosts without counters simply
   //                      omit the op.
-  // -- app switching (docs/LAUNCHER.md): multi-app hosts embed several bundles
-  //    and swap the whole guest between them. Hosts without app switching
-  //    omit all three ops (same rule as debugStats). ------------------------
-  appTable: 39, //        () -> string. JSON { apps: [{output, id, title}],
-  //                      current, resume }: the embedded bundle table, the
-  //                      running bundle's output name, and the app that was
-  //                      interrupted by the last SELECT summon (null after a
-  //                      cold boot or an explicit launch).
-  appLaunch: 40, //       (output: string) -> 0|1. Request a guest switch: the
-  //                      host finishes the CURRENT frame (draw + present),
-  //                      then tears the guest down and boots `output` from
-  //                      scratch. 0 = unknown output, no switch scheduled.
-  //                      Launching `current` relaunches it fresh — there is
-  //                      no suspend anywhere in this protocol.
-  appShot: 41, //         () -> handle | -1. Texture of the frozen frame the
-  //                      SELECT summon captured: the FULL current logical
-  //                      frame downscaled into 256x128 PSM_8888 (stored
-  //                      squeezed — draw it at current viewport aspect to
-  //                      undo it; consoles are 480x272).
-  //                      Valid inside the summoned launcher guest until the
-  //                      next switch; -1 otherwise.
+  // -- applications (ops 39, 40, 41 and 51): reserved for a product host that
+  //    runs several applications and switches between them. No program in
+  //    this repository implements them; pocket-nexus/pocket-shell does, and
+  //    defines their semantics. Hosts without them omit the ops (same rule
+  //    as debugStats). -------------------------------------------------------
+  appTable: 39, //        () -> string. JSON: the host's applications and the
+  //                      running one.
+  appLaunch: 40, //       (output: string) -> 0|1. Request a switch to the
+  //                      application `output`; 0 = not scheduled.
+  appShot: 41, //         () -> handle | -1. A texture of the frame the host
+  //                      captured from the previous application.
   // -- touch hit facts (input.touch capability; docs/TOUCH.md) ---------------
   hitTestBounds: 42, //   (x: f32, y: f32) -> topmost node id at that logical
   //                      point by LAYOUT BOX alone, or 0. The same paint-order
@@ -285,9 +275,8 @@ export const OP = {
   fontStreamRequests: 48, // () -> JSON of at most 32 [generation,slot,scalar] misses.
   fontStreamCommit: 49, // (PFG1 bytes) -> accepted count, at most four cells.
   fontStreamStats: 50, // () -> JSON: residency, visible misses, eviction counters.
-  appClose: 51, // (output: string) -> 0|1. Native navigation only: request
-  //                graceful closure of a configured child app. Never closes
-  //                the shell or caller. Embedded hosts omit this operation.
+  appClose: 51, // (output: string) -> 0|1. Request that the product host
+  //                close the application `output` (see appTable above).
   // -- 2D bodies (ui.physics capability; contracts/spec/physics.ts holds the
   //    kinds, parameter keys, commands, events and queries). Hosts omit all
   //    five ops without the capability. ------------------------------------

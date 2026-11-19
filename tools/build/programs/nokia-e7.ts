@@ -11,11 +11,10 @@ const profile = POCKET_PROFILES["symbian-e7-dev"];
  * payloads beside these files are outputs, so their parent is not an input. */
 export function nokiaSourceInputs(context: Pick<RuntimeSourceContext, "args" | "invocationDirectory">): string[] {
   const inputs = nativeSources("native", "programs/nokia-e7/runtime", "tools/symbian/container", "tools/symbian/Dockerfile");
-  for (const option of ["--catalog-index", "--catalog-blob", "--core-library", "--navigation"]) {
-    const value = nativeOption(context.args, option);
-    if (value === undefined) continue;
-    const path = resolve(context.invocationDirectory, value);
-    if (!lstatSync(path).isFile()) throw new Error(`Symbian ${option} input is not a regular file: ${path}`);
+  const coreLibrary = nativeOption(context.args, "--core-library");
+  if (coreLibrary !== undefined) {
+    const path = resolve(context.invocationDirectory, coreLibrary);
+    if (!lstatSync(path).isFile()) throw new Error(`Symbian --core-library input is not a regular file: ${path}`);
     inputs.push(path);
   }
   return inputs;
@@ -40,8 +39,7 @@ export const build: RuntimeBuild = {
       ...(orientation ? { orientation: orientation as "auto" | "portrait" | "landscape" } : {}),
       perfTrace: context.args.includes("--perf-trace"),
       frameRate: option("--frame-rate") === undefined ? undefined : Number(option("--frame-rate")),
-      uid: option("--uid"), navigation: option("--navigation"),
-      catalogIndex: option("--catalog-index"), catalogBlob: option("--catalog-blob"),
+      uid: option("--uid"),
       coreLibrary: option("--core-library"), massStorageDataRoot: option("--mass-storage-data-root"),
     });
     const { copyFileSync } = await import("node:fs");

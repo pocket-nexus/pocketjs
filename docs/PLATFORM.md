@@ -1,10 +1,10 @@
-# From launcher to platform — the Pocket app-runtime roadmap
+# Bundles and the app platform
 
-LAUNCHER.md specifies what ships today: a PSP EBOOT or Vita VPK that embeds
-several application bundles, with whole-guest switching behind three
-append-only surface ops. This document is the forward design: what turns that
-mechanism into a platform — a mini-app runtime, a system transition, and a DX
-that stays instant — without breaking the contracts that got us here.
+**A PocketJS program runs one application: the bundle it embeds, or the
+`app.pkb` a generic runtime reads.** This document covers what a program
+admits and how it gets there: host contracts, the bundle format, generic
+runtimes and the repack step, bytecode, memory governance and the DX
+pipeline.
 
 The one-line thesis: **Pocket is already most of a mini-app runtime, and
 its unfair advantage is determinism.** Same bundle + same inputs = same
@@ -17,45 +17,17 @@ review as a pure function, not a queue of humans.
 | layer | contents | status |
 |---|---|---|
 | L0 contract | spec.ts ISA, append-only ops, capability registry, build-plan resolution and package admission | SHIPPED |
-| L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown/switch) | switching shipped on psp + vita |
+| L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown) | SHIPPED |
 | L2 distribution | bundle (`.pkb`), host-relay push | bundle format 1 (below); on-device install belongs to a product such as pocket-shell |
-| L3 experience | launcher-as-Home, switch veil, DevTools time travel | veil shipped (below); no launcher app in this repository |
+| L3 experience | DevTools time travel | SHIPPED; Home, switching and a launcher belong to a product such as pocket-shell |
 
 Rule 5 of RUNTIMES.md stays the platform's first law: every capability a
 guest can observe is a surface op behind a capability id — never a host
-branch. App switching followed it (ops 39..41); distribution must follow it
-too.
+branch. Distribution must follow it too.
 
 This document covers the **guest execution class**: one portable bundle
 with runtime admission against the host's facts. `app.aot` admits the entry to
 AOT compilation; guest hosts reject bundles without a guest artifact.
-
-## The switch veil (system transition)
-
-A guest swap has a dead window: teardown is instant but the incoming
-bundle's `JS_Eval` blocks the worker for 0.3–0.5 s (dev-trace builds print
-boot stages there, which is the "QuickJS log stream" seen on hardware;
-production builds hold the last frame). The veil turns that window into a
-designed moment:
-
-- After the outgoing frame presents (and the summon shot is captured), the
-  HOST owns the GE. It plays a short direct-drawn animation — ~24 vblanks:
-  frozen shot (or stage black) dimmed underneath, the baked Pocket mark
-  fading in centered, a highlight sweeping across it — then starts the
-  eval. The display holds the settled last veil frame through the eval,
-  and the incoming guest's first present replaces it.
-- Everything is host-side and asset-baked (the mark rasterizes from
-  `assets/brand/` at build time into an embedded RGBA texture; the sweep
-  is vertex-alpha strips over the same texture, additive-blended — the
-  PSP-era way to mask a glow to a glyph without a second texture).
-- The guest never knows. No op, no capability, no sim/golden impact: veil
-  frames present outside the input-indexed frame loop, so the capture
-  identity (input at frame N ↔ file fN) is untouched.
-- Budget: one 128×128 RGBA texture (64 KB rodata) + ~100 lines of GE code.
-
-Two refinements stack on top later, both cheap: the launcher can play a
-200 ms card-zoom before calling `appLaunch` (pure JS, no host change), and
-qjsc bytecode (below) shrinks the hold the veil is papering over.
 
 ## Host contracts and the bundle format
 
@@ -197,18 +169,19 @@ PPSSPP. `MEMSIZE = 1` gives a PSP-2000 or 3000 started from the XMB the
 
 ## Installing applications on a device
 
-**A PocketJS program boots one bundle at a time.** The PSP, Vita and Nokia E7
-multi-app builds embed several bundles and switch among them
-([LAUNCHER.md](LAUNCHER.md)). Installing applications on a device, listing them
-and keeping several of them with a manifest in one file belong to a product
-such as pocket-shell, whose `.pocket` container and launcher do that. Such a
-product reads its container and gives the runtime the program it boots through
-a package source.
+**A PocketJS program runs one application.** Installing applications on a
+device, listing them, switching between them and keeping several of them with
+a manifest in one file belong to a product such as pocket-shell, whose
+`.pocket` container and launcher do that. Such a product reads its container
+and gives the runtime the program it boots through a package source. On the
+PSP it builds its own program crate over the `pocketjs-psp` library, which
+boots and drops a guest any number of times in one process
+([programs/psp](../programs/psp/README.md)).
 
 ## Bytecode (the eval wall)
 
-QuickJS evals ~100 KB of source in ~0.3–0.5 s at 333 MHz; that is the
-whole switch latency. Parsing also keeps every function's source text in
+QuickJS evals ~100 KB of source in ~0.3–0.5 s at 333 MHz; that is most of
+a guest's boot time. Parsing also keeps every function's source text in
 the heap for `Function.prototype.toString`. **A host contract that names
 the QuickJS build its program embeds (`bytecode.engine`, an engine ABI of
 `contracts/spec/quickjs-bytecode.ts`) gets its bundles compiled to that
@@ -238,8 +211,8 @@ objects are written with `JS_WRITE_OBJ_STRIP_SOURCE`.
 The PSP-1000's 24 MB is the floor and texture heap is the cliff (the
 reflection feature OOM'd it once — the handler parks on vblank, which in
 PPSSPPHeadless looks like a silent timeout). Platform rule: `pocket pack`
-computes a per-app memory line (js + pak + expected texture heap) and the
-launcher displays it; admission warns when a package cannot fit the
+computes a per-app memory line (js + pak + expected texture heap);
+admission warns when a package cannot fit the
 device's arena. Budgets become data, not folklore. **A program may also
 bound the decoded textures of a package it reads in place:
 `pocket_runtime_set_texture_budget` keeps that many bytes of package
@@ -254,7 +227,7 @@ of such a package are read in place throughout.
 
 ## The DX pipeline (what keeps it silky)
 
-A PSP hardware round of a launcher guest found four bugs invisible to the sim
+A PSP hardware round found four bugs invisible to the sim
 (nearest-sampling shimmer, the affine seam kink, the texture-heap OOM,
 4-bit-alpha banding) — PPSSPP's software GE caught three, real hardware the
 rest. Vita adds a native-density Vita3K leg before its real-device pass. That
@@ -273,10 +246,9 @@ TSX → see it in a second → one command to the handheld."
 
 ## Non-goals (so the platform stays honest)
 
-- No suspend/resume state for guests — resume is relaunch, the frozen
-  shot is an affordance. A KV-style `app.state` op can come later as its
-  own capability; nothing in the switch protocol presumes it.
+- No suspend/resume state for guests — a guest booted again starts fresh.
+  A KV-style `app.state` op can come later as its own capability.
 - No on-device code signing theater — the hash footer is integrity, not
   security; the PSP's threat model is a memory stick.
-- No host branches for "special" apps — a launcher is an ordinary
-  application and must stay one.
+- No host branches for "special" apps — the host has no branch on an
+  application's name.

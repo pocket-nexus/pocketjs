@@ -149,7 +149,7 @@ Device → panel:
 lastReserveErr, releaseTimeouts, pushedFrames}, vid:{presented, torn, lapped,
 epochs, hdrFails, bytes}, svc:{truncResets}}` from programs/psp/src/stats.rs, or
 null when the host lacks the op; on PSP `bundle` is the FNV-1a64 of the
-embedded bundle bytes, in table order for a launcher — the PSPLINK bridge
+embedded bundle bytes — the PSPLINK bridge
 requests it on every hello and compares it against the bundle the EBOOT
 embeds (`bun run devtools <demo>` checks the demo's `dist/<output>.pkb`,
 `--bundle` names another), reporting a stale embed) ·

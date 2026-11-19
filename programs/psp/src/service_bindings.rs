@@ -617,8 +617,9 @@ unsafe extern "C" fn js_media_status(
     let s = crate::media::status();
     JS_NewStringLen(ctx, s.as_ptr(), s.len())
 }
-/// Mount private namespaces after the generated guest has created ui.
-pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
+/// Mount private namespaces after the generated guest has created ui;
+/// `data_name` names the guest's `fs` directory.
+pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue, data_name: &str) {
     if crate::offload::enabled() {
         let io = JS_NewObject(ctx);
         add_fn(ctx, io, b"session\0", js_offload_session, 0);
@@ -647,7 +648,7 @@ pub unsafe fn register_private(ctx: *mut JSContext, global: JSValue) {
     JS_FreeValue(ctx, ui_obj);
     register_audio(ctx, global);
     register_link(ctx, global);
-    crate::fs_ops::register_fs(ctx, global);
+    crate::fs_ops::register_fs(ctx, global, data_name);
     crate::pack_ops::register_pack(ctx, global);
 }
 /// Install `globalThis.link` and `globalThis.media`, both carried by the

@@ -23,11 +23,15 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 // feature `runtime`, POCKETJS_EMBED_APP=0): no app is built or embedded, and
 // the EBOOT reads app.pkb from its own folder at boot. tools/runtime/psp.ts
 // runs this and collects the output.
+//
+// buildPspProgram() is the program build itself. It takes the program crate
+// as an argument: programs/psp here, or a binary crate in another repository
+// that composes the pocketjs-psp library.
 
 import { $ } from "bun";
 import { createHash } from "node:crypto";
-import { existsSync, statSync, unlinkSync } from "node:fs";
-import { dirname, resolve as resolvePath } from "node:path";
+import { existsSync, unlinkSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { parseFramework, type PocketFramework } from "../framework/compiler/framework-choice.ts";
 import {
   extractHostBuildInputs,
@@ -37,7 +41,7 @@ import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/compiler/pl
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import type { RuntimeApplication, RuntimeBuildContext } from "../framework/src/host-config.ts";
-import { hashPocketProfile } from "../framework/src/profile.ts";
+import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import { prepareApplication } from "./build/inputs.ts";
 import { compileDemoBundle, demoApp, demoBundlePath } from "./build/programs/handheld-common.ts";
 import type { AppConfig } from "../contracts/spec/app-config.ts";
@@ -46,8 +50,60 @@ const softwareProfile = POCKET_PROFILES["psp"];
 const runtimeProfile = POCKET_PROFILES["psp-runtime"];
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
-const nativeDir = pspUiDir + "programs/psp/";
 const pspTarget = resolvePath(pspUiDir, "tools/build/toolchains/psp/mipsel-sony-psp.json");
+
+/** A PSP program crate: a binary that composes the pocketjs-psp library. */
+export interface PspProgram {
+  /** The directory of its Cargo.toml. cargo psp runs there, so its
+   *  `.cargo/config.toml` applies, it reads `Psp.toml` there and it builds
+   *  into its `target/`. */
+  readonly directory: string;
+  /** Its Cargo package; the binary target carries the same name. Its
+   *  features `capture`, `bench` and `runtime` enable the library's. */
+  readonly package: string;
+  /** Variables its build script reads beyond the PocketJS build environment. */
+  readonly env?: Readonly<Record<string, string>>;
+  /** A Psp.toml (XMB title, ICON0, PIC1…) packaged in place of the
+   *  application's `psp/Psp.toml`. Asset paths in it are relative to its
+   *  directory. */
+  readonly xmb?: string;
+}
+
+/** programs/psp: the stock program. */
+export const STOCK_PSP_PROGRAM: PspProgram = { directory: resolvePath(pspUiDir, "programs/psp"), package: "pocketjs-psp" };
+
+export interface PspProgramBuild {
+  readonly program: PspProgram;
+  readonly profile: PocketProfile;
+  /** The admitted application the program embeds as `embedded::BUNDLE`.
+   *  Without one the program is the generic runtime (cargo feature
+   *  `runtime`). */
+  readonly application?: RuntimeApplication;
+  /** The directory the plan's entry is relative to: the entry's `psp/`
+   *  sibling holds the XMB metadata. Default: the working directory. */
+  readonly projectRoot?: string;
+  readonly capture?: boolean;
+  /** Native timing output; implies `capture`. */
+  readonly bench?: boolean;
+  /** Passed to `cargo psp`, such as `--release`. */
+  readonly cargoArgs?: readonly string[];
+  /** The generic runtime's output directory (POCKETJS_OUTPUT_DIR). */
+  readonly outputDirectory: string;
+  /** Where the profile module was exported. Default: this build exports it
+   *  under the program's target directory. */
+  readonly profileExportDirectory?: string;
+  /** Runs each tool; default: a Bun shell in the program directory. */
+  readonly run?: (command: string[], options: { cwd: string; env: Readonly<Record<string, string>> }) => Promise<void>;
+}
+
+export interface BuiltPspProgram {
+  /** target/mipsel-sony-psp/<profile>/EBOOT.PBP in the program directory. */
+  readonly eboot: string;
+  readonly prx: string;
+  /** The application's output name; empty for the generic runtime. */
+  readonly output: string;
+  readonly profileHash: string;
+}
 
 /** Production inputs retain the executor's immutable snapshot, including all sections. */
 export function pspBundleInput(bundlePath: string | undefined, outdir: string, context?: RuntimeBuildContext): RuntimeApplication | undefined {
@@ -75,15 +131,187 @@ export function pspDemoBundle(demo: string, outdir = `${pspUiDir}dist/`): Promis
   return demoBundlePath(demo, outdir);
 }
 
-export function pspLauncherBundles(registry: string, requested = ""): string {
-  if (!registry) {
-    if (requested) throw new Error("--launcher-bundles requires --launcher-registry");
-    return "";
+function outputProfile(args: readonly string[]): string {
+  const inlineProfile = args.find((arg) => arg.startsWith("--profile="));
+  if (inlineProfile) return inlineProfile.slice("--profile=".length);
+  const profileFlag = args.indexOf("--profile");
+  if (profileFlag !== -1 && args[profileFlag + 1]) return args[profileFlag + 1]!;
+  return args.includes("--release") || args.includes("-r") ? "release" : "debug";
+}
+
+/** Per-app XMB metadata: the program's `xmb`, else <entry dir>/psp/Psp.toml
+ *  (or <entry dir>/psp/<framework>/Psp.toml), written as the program
+ *  directory's Psp.toml, which cargo-psp packs into PARAM.SFO, ICON0 and
+ *  PIC1. Its art paths are rewritten absolute. Without a fragment a
+ *  previously generated file is removed, so one app's title or cover never
+ *  reaches another app's EBOOT. */
+async function writeXmbMetadata(programDir: string, fragment: string | undefined): Promise<void> {
+  const GENERATED_MARK = "# GENERATED by tools/psp.ts";
+  const label = fragment?.startsWith(pspUiDir) ? fragment.slice(pspUiDir.length) : fragment;
+  const generatedPspToml = `${programDir}Psp.toml`;
+  const generatedExisting =
+    existsSync(generatedPspToml) && (await Bun.file(generatedPspToml).text()).startsWith(GENERATED_MARK);
+  if (fragment && existsSync(fragment)) {
+    if (existsSync(generatedPspToml) && !generatedExisting) {
+      throw new Error(`PocketJS psp: ${generatedPspToml} exists but was not generated by this script — ` +
+        "per-app XMB metadata lives in <app dir>/psp/Psp.toml; move or delete the file to continue.");
+    }
+    const fragDir = resolvePath(fragment, "..") + "/";
+    const rewritten = (await Bun.file(fragment).text()).replace(
+      /^(\s*\w+_(?:png|pmf|at3))(\s*=\s*")(?!\/)([^"]+)(")/gm,
+      (_m, key, eq, rel, close) => `${key}${eq}${fragDir}${rel}${close}`,
+    );
+    // Every asset key must have resolved to an absolute path that exists —
+    // single-quoted strings, `~`, or drive paths would otherwise slip through
+    // the rewrite and cargo-psp would pack missing/stale art without a word.
+    const badAssets: string[] = [];
+    for (const m of rewritten.matchAll(/^\s*(\w+_(?:png|pmf|at3))\s*=\s*(['"])(.*)\2\s*$/gm)) {
+      if (!m[3]!.startsWith("/") || !existsSync(m[3]!)) badAssets.push(`${m[1]} = ${m[3]}`);
+    }
+    if (badAssets.length > 0) {
+      throw new Error(`PocketJS psp: XMB asset path(s) in ${label} did not resolve:\n` +
+        badAssets.map((b) => `  ${b}`).join("\n") +
+        `\n(use double-quoted paths relative to the fragment's directory)`);
+    }
+    await Bun.write(generatedPspToml, `${GENERATED_MARK} from ${label} — do not edit.\n${rewritten}`);
+    console.log(`PocketJS psp: XMB metadata from ${label}`);
+  } else if (generatedExisting) {
+    unlinkSync(generatedPspToml); // a previous app's cover must not leak into this EBOOT
+  } else if (existsSync(generatedPspToml)) {
+    console.log(`PocketJS psp: note — hand-authored ${generatedPspToml} found; cargo-psp will apply it.`);
   }
-  if (!existsSync(registry) || !statSync(registry).isFile()) throw new Error(`PSP launcher registry is missing: ${registry}`);
-  const directory = resolvePath(requested || resolvePath(dirname(registry), "packages"));
-  if (!existsSync(directory) || !statSync(directory).isDirectory()) throw new Error(`PSP launcher bundles directory is missing: ${directory}`);
-  return directory;
+}
+
+/** Build a PSP program crate around one application, or none, into an
+ *  EBOOT.PBP with the application's XMB metadata. */
+export async function buildPspProgram(build: PspProgramBuild): Promise<BuiltPspProgram> {
+  const { program, profile: selectedProfile, application } = build;
+  const programDir = resolvePath(program.directory) + "/";
+  const runtime = !application;
+  const capture = build.capture || build.bench;
+  // The installed toolchain, or a diagnostic naming `pocket target add psp`.
+  const toolchain = resolvePspBuildToolchain();
+
+  let buildPlan: ResolvedBuildPlan | undefined;
+  if (application) {
+    buildPlan = await Bun.file(application.planPath).json() as ResolvedBuildPlan;
+    if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== selectedProfile.id) {
+      throw new Error(`PocketJS psp: invalid PSP ResolvedBuildPlan at ${application.planPath}`);
+    }
+  }
+  const outputDirectory = application ? application.directory + "/" : build.outputDirectory;
+  const projectRoot = build.projectRoot ?? process.cwd();
+  const outputApp = buildPlan?.app.output ?? "";
+
+  const framework: PocketFramework = parseFramework(buildPlan?.app.framework, "ResolvedBuildPlan");
+  // A demo built through a non-default framework may ship its own cover set
+  // so the XMB tells the twins apart (<app>/psp/<framework>/); the shared
+  // fragment one level up stays the default.
+  const appFragment = buildPlan ? (() => {
+    const base = resolvePath(projectRoot, buildPlan.app.entry, "..", "psp");
+    const twin = `${base}/${framework}/Psp.toml`;
+    return existsSync(twin) ? twin : `${base}/Psp.toml`;
+  })() : `${pspUiDir}programs/psp/runtime/Psp.toml`;
+  await writeXmbMetadata(programDir, program.xmb ? resolvePath(program.xmb) : appFragment);
+
+  const rustflags = [
+    process.env.RUSTFLAGS,
+    // Benign +abicalls(newlib) vs +noabicalls(rust-psp) linker warnings are
+    // suppressed by default — set PSPJS_SHOW_LINKER_MESSAGES=1 for raw output.
+    process.env.PSPJS_SHOW_LINKER_MESSAGES === "1" ? undefined : "-A linker-messages",
+    "-A unexpected-cfgs",
+    "-A unstable-name-collisions",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  // build.rs embeds the exported profile module. The executor exports it into
+  // its outdir; another build exports the selected profile here.
+  const profileExportDirectory = build.profileExportDirectory ?? `${programDir}target/pocket-profile/${selectedProfile.id}`;
+  if (!build.profileExportDirectory) {
+    exportProfile({ profile: selectedProfile, profileHash: hashPocketProfile(selectedProfile),
+      hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, profileExportDirectory);
+  }
+  const hostEnvironment = buildPlan
+    ? hostBuildEnvironment(extractHostBuildInputs(buildPlan, { expectedTarget: selectedProfile.id }), {
+        outputDirectory,
+        embedApp: true,
+        profileExportDirectory,
+      })
+    : {
+        // The generic runtime: no application is embedded.
+        POCKETJS_PROFILE_EXPORT_DIR: profileExportDirectory,
+        POCKETJS_PROFILE_RS: `${profileExportDirectory}/pocket_profile.rs`,
+        POCKETJS_APP_OUTPUT: "",
+        POCKETJS_EMBED_APP: "0",
+        POCKETJS_OUTPUT_DIR: outputDirectory,
+        POCKETJS_TARGET: selectedProfile.id,
+        POCKETJS_HOST_ABI: String(POCKET_BINDING_GENERATION),
+        POCKETJS_LOGICAL_WIDTH: "480",
+        POCKETJS_LOGICAL_HEIGHT: "272",
+        POCKETJS_PHYSICAL_WIDTH: "480",
+        POCKETJS_PHYSICAL_HEIGHT: "272",
+        POCKETJS_PRESENTATION: "native",
+        POCKETJS_RASTER_DENSITY: "1",
+      };
+
+  const env = {
+    POCKETJS_OFFLOAD_SLOT: buildPlan?.features["io.offload"] ? createHash("sha256").update(buildPlan.app.id).digest("hex").slice(0, 16) : "",
+    ...toolchain.environment,
+    RUSTFLAGS: rustflags,
+    RUST_PSP_TARGET: pspTarget,
+    // panic-abort EBOOTs: no panic_unwind/libunwind in build-std.
+    RUST_PSP_ABORT_ONLY: "1",
+    // Keep PSP dev builds fast (opt-level 0 is unusably slow on hardware).
+    CARGO_TARGET_DIR: `${programDir}target`,
+    CARGO_PROFILE_DEV_OPT_LEVEL: process.env.CARGO_PROFILE_DEV_OPT_LEVEL ?? "3",
+    ...hostEnvironment,
+    // The build script embeds these original bytes; it has no raw-bundle path.
+    POCKETJS_EMBED_BUNDLE: application ? resolvePath(application.bundlePath) : "",
+    // Scripted capture input + per-demo capture window, baked into the EBOOT
+    // by programs/psp/build.rs (only consumed under --capture; harmless otherwise).
+    // Explicit so stale values never linger in the cargo fingerprint.
+    POCKETJS_CAPTURE_INPUT: process.env.POCKETJS_CAPTURE_INPUT ?? "",
+    POCKETJS_TRACE: process.env.POCKETJS_TRACE ?? "",
+    POCKETJS_CAP_START: process.env.POCKETJS_CAP_START ?? "",
+    POCKETJS_CAP_N: process.env.POCKETJS_CAP_N ?? "",
+    POCKETJS_ARENA_BYTES: process.env.POCKETJS_ARENA_BYTES ?? "",
+    POCKETJS_BENCH_DUMP_FRAMES: process.env.POCKETJS_BENCH_DUMP_FRAMES ?? "",
+    ...program.env,
+  };
+
+  const cargoArgs = [...(build.cargoArgs ?? [])];
+  const profile = outputProfile(cargoArgs);
+  // Trace bakes dprintln onto the DEBUG SCREEN, and from the XMB (no host0:)
+  // it exercises IO paths PSPLINK sessions never see. A release EBOOT with
+  // trace is almost always a deployment mistake: say so, loudly (this exact
+  // slip shipped once).
+  if ((process.env.POCKETJS_TRACE ?? "") !== "" && profile === "release") {
+    console.warn(
+      "\n!!  PocketJS psp: POCKETJS_TRACE is baked into a RELEASE build — debug-screen logs" +
+        "\n!!  will draw over the app. Ship traceless; trace is for PSPLINK dev loops.\n",
+    );
+  }
+  const features = [capture ? "capture" : "", build.bench ? "bench" : "", runtime ? "runtime" : ""].filter(Boolean);
+  if (features.length > 0) cargoArgs.push("--features", features.join(","));
+  cargoArgs.push("-p", program.package, "--bin", program.package);
+
+  console.log(`PocketJS psp: cargo psp (${program.package}, app=${runtime ? "none, runtime" : outputApp})`);
+  const command = [toolchain.rustup, "run", toolchain.rustToolchain, "cargo", "psp", ...cargoArgs];
+  if (build.run) await build.run(command, { cwd: programDir, env });
+  else await $`${command}`.cwd(programDir).env(env);
+
+  const targetDirectory = `${programDir}target/mipsel-sony-psp/${profile}`;
+  const prx = `${targetDirectory}/${program.package}.prx`;
+  const { verifyPspPrx } = await import("./psp-prx.ts");
+  verifyPspPrx(new Uint8Array(await Bun.file(prx).arrayBuffer()));
+  const binEboot = `${targetDirectory}/${program.package}.EBOOT.PBP`;
+  const eboot = `${targetDirectory}/EBOOT.PBP`;
+  if (existsSync(binEboot)) {
+    await Bun.write(eboot, await Bun.file(binEboot).arrayBuffer());
+  }
+  console.log(`output: ${eboot}`);
+  return { eboot, prx, output: outputApp, profileHash: hashPocketProfile(selectedProfile) };
 }
 
 // ---------------------------------------------------------------------------
@@ -100,8 +328,6 @@ let bundlePath: string | undefined;
 let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
 let skipBuild = false;
-let launcherRegistry = "";
-let launcherBundles = "";
 let runtime = false;
 const cargoArgs: string[] = [];
 for (let index = 0; index < argv.length; index++) {
@@ -121,10 +347,6 @@ for (let index = 0; index < argv.length; index++) {
     if (!value || value.startsWith("--")) throw new Error("--bundle requires a compiled bundle path");
     bundlePath = resolvePath(value);
   }
-  // Multi-app embed (docs/LAUNCHER.md): a TSV registry of guests; build.rs
-  // appends one embedded bundle per line after app 0.
-  else if (a.startsWith("--launcher-registry=")) launcherRegistry = resolvePath(a.slice("--launcher-registry=".length));
-  else if (a.startsWith("--launcher-bundles=")) launcherBundles = resolvePath(a.slice("--launcher-bundles=".length));
   else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
   else if (a.startsWith("--outdir=")) outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
   else if (a === "--skip-build") skipBuild = true;
@@ -138,13 +360,10 @@ if (bundlePath && (appArg || planPath || frameworkFlag))
 if (planPath && !context) throw new Error("PocketJS psp: --plan is the build executor's input; compile the application and pass --bundle");
 if (frameworkFlag && !appArg) throw new Error("PocketJS psp: --framework applies to a stock demo build");
 let application = pspBundleInput(bundlePath, outputDir, context);
-launcherBundles = pspLauncherBundles(launcherRegistry, launcherBundles);
 if (context && !runtime && !application) throw new Error("PSP native build requires an admitted bundle");
 const selectedProfile = context?.profile ?? (runtime ? runtimeProfile : softwareProfile);
-const features = [capture ? "capture" : "", bench ? "bench" : "", runtime ? "runtime" : ""].filter(Boolean);
-if (features.length > 0) cargoArgs.push("--features", features.join(","));
-if (runtime && (appArg || planPath || launcherRegistry)) {
-  console.error("PocketJS psp: --runtime builds an EBOOT without an app; give no app, --plan or --launcher-registry");
+if (runtime && (appArg || planPath)) {
+  console.error("PocketJS psp: --runtime builds an EBOOT without an app; give no app or --plan");
   process.exit(1);
 }
 if (!appArg && !application && !runtime) {
@@ -156,263 +375,35 @@ const demoApplication = !application && !runtime ? await demoApp(appArg) : undef
 const demoVariant = pspDemoVariant(frameworkFlag);
 
 // The installed toolchain, or a diagnostic naming `pocket target add psp`.
-let toolchain: ReturnType<typeof resolvePspBuildToolchain>;
 try {
-  toolchain = resolvePspBuildToolchain();
+  resolvePspBuildToolchain();
 } catch (error) {
   console.error(`PocketJS psp: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 }
 
-// ---------------------------------------------------------------------------
-// 1. A stock demo compiles to dist/<output>.pkb; --skip-build reuses it.
-// The EBOOT embeds that bundle exactly as it embeds a --bundle input.
-// ---------------------------------------------------------------------------
-
+// A stock demo compiles to dist/<output>.pkb; --skip-build reuses it. The
+// EBOOT embeds that bundle exactly as it embeds a --bundle input.
 if (runtime) console.log("PocketJS psp: building the generic runtime (no app; reads app.pkb)");
 if (demoApplication) {
   console.log(`PocketJS psp: compiling demo "${appArg}" (framework=${(demoVariant?.(demoApplication) ?? demoApplication).framework})`);
   application = pspBundleInput(await compileDemoBundle("psp", appArg, outputDir, { reuse: skipBuild, ...(demoVariant ? { app: demoVariant } : {}) }), outputDir);
   projectRoot = pspUiDir;
 }
-if (application) {
-  planPath = application.planPath;
-  outputDir = application.directory + "/";
-}
 
-let buildPlan: ResolvedBuildPlan | undefined;
-if (planPath) {
-  buildPlan = await Bun.file(planPath).json() as ResolvedBuildPlan;
-  if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== selectedProfile.id) {
-    throw new Error(`PocketJS psp: invalid PSP ResolvedBuildPlan at ${planPath}`);
-  }
-}
-
-const app = buildPlan ? resolvePath(projectRoot, buildPlan.app.entry) : "";
-const framework: PocketFramework = parseFramework(buildPlan?.app.framework, "ResolvedBuildPlan");
-const outputApp = buildPlan?.app.output ?? "";
-cargoArgs.push("-p", "pocketjs-psp", "--bin", "pocketjs-psp");
-
-// ---------------------------------------------------------------------------
-// 1b. Per-app XMB metadata: <app dir>/psp/Psp.toml -> programs/psp/Psp.toml.
-// cargo-psp reads Psp.toml from its CWD (programs/psp/) and packs it into
-// PARAM.SFO / ICON0 / PIC1. The fragment lives NEXT TO THE APP ENTRY —
-// <entry dir>/psp/Psp.toml, e.g. apps/<demo>/psp/Psp.toml (`app` is the
-// plan entry's absolute path). It keeps its art beside it with
-// relative paths; they are rewritten absolute here. No fragment => the
-// generated file is REMOVED, so one app's title/cover never leaks into
-// another app's EBOOT. programs/psp/Psp.toml is build output (gitignored).
-// ---------------------------------------------------------------------------
-const GENERATED_MARK = "# GENERATED by tools/psp.ts";
-const fragmentBase = buildPlan
-  ? resolvePath(projectRoot, buildPlan.app.entry, "..", "psp")
-  : `${pspUiDir}apps/${app.replace(/-main$/, "")}/psp`;
-// A demo built through a non-default framework may ship its own cover set so
-// the XMB tells the twins apart (<app>/psp/<framework>/); the shared fragment
-// one level up stays the default when there is no such cover set.
-const frameworkFragmentHome = `${fragmentBase}/${framework}`;
-const fragmentHome = existsSync(`${frameworkFragmentHome}/Psp.toml`)
-  ? frameworkFragmentHome
-  : fragmentBase;
-const xmbFragment = runtime ? `${pspUiDir}programs/psp/runtime/Psp.toml` : `${fragmentHome}/Psp.toml`;
-const xmbFragmentLabel = xmbFragment.startsWith(pspUiDir)
-  ? xmbFragment.slice(pspUiDir.length)
-  : xmbFragment;
-const generatedPspToml = `${nativeDir}Psp.toml`;
-const generatedExisting =
-  existsSync(generatedPspToml) && (await Bun.file(generatedPspToml).text()).startsWith(GENERATED_MARK);
-if (existsSync(xmbFragment)) {
-  if (existsSync(generatedPspToml) && !generatedExisting) {
-    console.error(
-      "PocketJS psp: programs/psp/Psp.toml exists but was not generated by this script — " +
-        "per-app XMB metadata lives in <app dir>/psp/Psp.toml; move or delete the file to continue.",
-    );
-    process.exit(1);
-  }
-  const fragDir = `${fragmentHome}/`;
-  const rewritten = (await Bun.file(xmbFragment).text()).replace(
-    /^(\s*\w+_(?:png|pmf|at3))(\s*=\s*")(?!\/)([^"]+)(")/gm,
-    (_m, key, eq, rel, close) => `${key}${eq}${fragDir}${rel}${close}`,
-  );
-  // Every asset key must have resolved to an absolute path that exists —
-  // single-quoted strings, `~`, or drive paths would otherwise slip through
-  // the rewrite and cargo-psp would pack missing/stale art without a word.
-  const badAssets: string[] = [];
-  for (const m of rewritten.matchAll(/^\s*(\w+_(?:png|pmf|at3))\s*=\s*(['"])(.*)\2\s*$/gm)) {
-    if (!m[3].startsWith("/") || !existsSync(m[3])) badAssets.push(`${m[1]} = ${m[3]}`);
-  }
-  if (badAssets.length > 0) {
-    console.error(
-      `PocketJS psp: XMB asset path(s) in ${xmbFragmentLabel} did not resolve:\n` +
-        badAssets.map((b) => `  ${b}`).join("\n") +
-        `\n(use double-quoted paths relative to the fragment's directory)`,
-    );
-    process.exit(1);
-  }
-  await Bun.write(
-    generatedPspToml,
-    `${GENERATED_MARK} from ${xmbFragmentLabel} — do not edit.\n${rewritten}`,
-  );
-  console.log(`PocketJS psp: XMB metadata from ${xmbFragmentLabel}`);
-} else if (generatedExisting) {
-  unlinkSync(generatedPspToml); // a previous demo's cover must not leak into this EBOOT
-} else if (existsSync(generatedPspToml)) {
-  console.log("PocketJS psp: note — hand-authored programs/psp/Psp.toml found; cargo-psp will apply it.");
-}
-
-// ---------------------------------------------------------------------------
-// 1b. Switch-veil logo (docs/PLATFORM.md): rasterize the brand mark to a 128×128
-// RGBA texture the host embeds and direct-draws during guest swaps. Baked on
-// every build (deterministic, ~10 ms); single-app EBOOTs embed it too but
-// never switch, so it stays dormant 64 KB of rodata.
-// ---------------------------------------------------------------------------
-
-const veilLogoPath = `${outputDir}veil-logo.raw`;
-{
-  // The brand PNGs carry an opaque white plate and the SVG uses stroked
-  // shapes our baker does not rasterize — so the mark is drawn here from
-  // its exact geometry (assets/brand/pocketjs-avatar-white-minimal.svg, in
-  // its 1024 viewBox): a 76-wide stroked round-rect, the face circle, two
-  // rounded bars. White with real alpha; the veil tints via vertex color.
-  const { resizeBilinear } = await import("./image-resize.ts");
-  const S = 512; // supersample grid, downscaled 4x for anti-aliasing
-  const k = S / 1024;
-  const sdRoundRect = (px: number, py: number, cx: number, cy: number, hw: number, hh: number, r: number) => {
-    const qx = Math.abs(px - cx) - (hw - r);
-    const qy = Math.abs(py - cy) - (hh - r);
-    const ax = Math.max(qx, 0);
-    const ay = Math.max(qy, 0);
-    return Math.hypot(ax, ay) + Math.min(Math.max(qx, qy), 0) - r;
-  };
-  const big = new Uint8Array(S * S * 4);
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const px = (x + 0.5) / k;
-      const py = (y + 0.5) / k;
-      // Stroked outline: |distance to the round-rect edge| <= 38.
-      const outline = Math.abs(sdRoundRect(px, py, 512, 512, 414, 246, 147)) - 38;
-      const face = Math.hypot(px - 338, py - 512) - 92;
-      const bar1 = sdRoundRect(px, py, 664, 449, 152, 35, 35);
-      const bar2 = sdRoundRect(px, py, 614, 583, 102, 35, 35);
-      const d = Math.min(outline, face, bar1, bar2);
-      // 1.5px-wide edge ramp in supersample space (~2px at 1024 scale).
-      const a = Math.round(255 * Math.min(1, Math.max(0, 0.5 - d * k / 1.5)));
-      const o = (y * S + x) * 4;
-      big[o] = 255;
-      big[o + 1] = 255;
-      big[o + 2] = 255;
-      big[o + 3] = a;
-    }
-  }
-  await Bun.write(veilLogoPath, resizeBilinear(big, S, S, 128, 128));
-}
-
-const rustflags = [
-  process.env.RUSTFLAGS,
-  // Benign +abicalls(newlib) vs +noabicalls(rust-psp) linker warnings are
-  // suppressed by default — set PSPJS_SHOW_LINKER_MESSAGES=1 for raw output.
-  process.env.PSPJS_SHOW_LINKER_MESSAGES === "1" ? undefined : "-A linker-messages",
-  "-A unexpected-cfgs",
-  "-A unstable-name-collisions",
-]
-  .filter(Boolean)
-  .join(" ");
-
-// build.rs embeds the exported profile module. The executor exports it into
-// its outdir; a command-line build exports the selected profile here.
-const profileExportDirectory = context?.outdir ?? `${nativeDir}target/pocket-profile/${selectedProfile.id}`;
-if (!context) {
-  exportProfile({ profile: selectedProfile, profileHash: hashPocketProfile(selectedProfile),
-    hostAbi: POCKET_BINDING_GENERATION, dependencies: [] }, profileExportDirectory);
-}
-const hostEnvironment = buildPlan
-  ? hostBuildEnvironment(extractHostBuildInputs(buildPlan, { expectedTarget: selectedProfile.id }), {
-      outputDirectory: outputDir,
-      embedApp: true,
-      profileExportDirectory,
-    })
-  : {
-      // The generic runtime: no application is embedded.
-      POCKETJS_PROFILE_EXPORT_DIR: profileExportDirectory,
-      POCKETJS_PROFILE_RS: `${profileExportDirectory}/pocket_profile.rs`,
-      POCKETJS_APP_OUTPUT: "",
-      POCKETJS_EMBED_APP: "0",
-      POCKETJS_OUTPUT_DIR: outputDir,
-      POCKETJS_TARGET: selectedProfile.id,
-      POCKETJS_HOST_ABI: String(POCKET_BINDING_GENERATION),
-      POCKETJS_LOGICAL_WIDTH: "480",
-      POCKETJS_LOGICAL_HEIGHT: "272",
-      POCKETJS_PHYSICAL_WIDTH: "480",
-      POCKETJS_PHYSICAL_HEIGHT: "272",
-      POCKETJS_PRESENTATION: "native",
-      POCKETJS_RASTER_DENSITY: "1",
-    };
-
-const env = {
-  POCKETJS_OFFLOAD_SLOT: buildPlan?.features["io.offload"] ? createHash("sha256").update(buildPlan.app.id).digest("hex").slice(0, 16) : "",
-  ...toolchain.environment,
-  RUSTFLAGS: rustflags,
-  RUST_PSP_TARGET: pspTarget,
-  // panic-abort EBOOTs: no panic_unwind/libunwind in build-std.
-  RUST_PSP_ABORT_ONLY: "1",
-  // Keep PSP dev builds fast (opt-level 0 is unusably slow on hardware).
-  CARGO_TARGET_DIR: `${nativeDir}target`,
-  CARGO_PROFILE_DEV_OPT_LEVEL: process.env.CARGO_PROFILE_DEV_OPT_LEVEL ?? "3",
-  ...hostEnvironment,
-  // The build script embeds these original bytes; it has no raw-bundle path.
-  POCKETJS_EMBED_BUNDLE: application ? resolvePath(application.bundlePath) : "",
-  POCKETJS_LAUNCHER_BUNDLES: launcherBundles,
-  // Scripted capture input + per-demo capture window, baked into the EBOOT
-  // by programs/psp/build.rs (only consumed under --capture; harmless otherwise).
-  // Explicit so stale values never linger in the cargo fingerprint.
-  POCKETJS_CAPTURE_INPUT: process.env.POCKETJS_CAPTURE_INPUT ?? "",
-  POCKETJS_TRACE: process.env.POCKETJS_TRACE ?? "",
-  POCKETJS_CAP_START: process.env.POCKETJS_CAP_START ?? "",
-  POCKETJS_CAP_N: process.env.POCKETJS_CAP_N ?? "",
-  POCKETJS_ARENA_BYTES: process.env.POCKETJS_ARENA_BYTES ?? "",
-  POCKETJS_BENCH_DUMP_FRAMES: process.env.POCKETJS_BENCH_DUMP_FRAMES ?? "",
-  // Multi-app embed (docs/LAUNCHER.md): empty = single-app table of one.
-  POCKETJS_LAUNCHER_REGISTRY: launcherRegistry,
-  // Switch-veil logo texture (docs/PLATFORM.md), baked above.
-  POCKETJS_VEIL_LOGO: veilLogoPath,
-};
-
-// Trace bakes dprintln onto the DEBUG SCREEN — over the switch veil it reads
-// as a log stream fighting the animation, and from the XMB (no host0:) it
-// exercises IO paths PSPLINK sessions never see. A release EBOOT with trace
-// is almost always a deployment mistake: say so, loudly (this exact slip
-// shipped once).
-if ((process.env.POCKETJS_TRACE ?? "") !== "" && outputProfile(cargoArgs) === "release") {
-  console.warn(
-    "\n!!  PocketJS psp: POCKETJS_TRACE is baked into a RELEASE build — debug-screen logs" +
-      "\n!!  will draw over the app (and the switch veil). Ship traceless; trace is for" +
-      "\n!!  PSPLINK dev loops.\n",
-  );
-}
-
-function outputProfile(args: string[]): string {
-  const inlineProfile = args.find((arg) => arg.startsWith("--profile="));
-  if (inlineProfile) return inlineProfile.slice("--profile=".length);
-  const profileFlag = args.indexOf("--profile");
-  if (profileFlag !== -1 && args[profileFlag + 1]) return args[profileFlag + 1];
-  return args.includes("--release") || args.includes("-r") ? "release" : "debug";
-}
-
-console.log(`PocketJS psp: cargo psp (app=${runtime ? "none, runtime" : outputApp})`);
-if (context) await context.run([toolchain.rustup, "run", toolchain.rustToolchain, "cargo", "psp", ...cargoArgs], { cwd: nativeDir, env });
-else await $`${toolchain.rustup} run ${toolchain.rustToolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
-
-const profile = outputProfile(cargoArgs);
-const { verifyPspPrx } = await import("./psp-prx.ts");
-verifyPspPrx(new Uint8Array(await Bun.file(`${nativeDir}target/mipsel-sony-psp/${profile}/pocketjs-psp.prx`).arrayBuffer()));
-const binEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/pocketjs-psp.EBOOT.PBP`;
-const conventionalEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/EBOOT.PBP`;
-if (existsSync(binEboot)) {
-  await Bun.write(conventionalEboot, await Bun.file(binEboot).arrayBuffer());
-}
-console.log(`output: ${conventionalEboot}`);
-
-return conventionalEboot;
+const built = await buildPspProgram({
+  program: STOCK_PSP_PROGRAM,
+  profile: selectedProfile,
+  application,
+  projectRoot,
+  capture,
+  bench,
+  cargoArgs,
+  outputDirectory: outputDir,
+  profileExportDirectory: context?.outdir,
+  run: context && ((command, options) => context.run(command, options)),
+});
+return built.eboot;
 }
 
 if (import.meta.main) await buildPsp(Bun.argv.slice(2));

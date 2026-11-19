@@ -9,13 +9,12 @@ import { repackPsp } from "../../repack/psp.ts";
 import { pspToolchain } from "../toolchains/psp.ts";
 import { requireApplication, requireProgramProfile } from "./application.ts";
 import { nativeSources, buildHosts, handheldLock, nativeArguments } from "./handheld-common.ts";
-import { launcherSourceInputs } from "../psp/launcher.ts";
 const profile = POCKET_PROFILES["psp"];
 const genericProfile = POCKET_PROFILES["psp-runtime"];
 
 export const build: RuntimeBuild = {
   deploy: deployPsp,
-  sourceInputs: context => [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/modules/media", "engine/render", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs"), ...launcherSourceInputs(context)],
+  sourceInputs: [resolve(import.meta.dir, "../embedded-bundle.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/modules/media", "engine/render", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs")],
   hosts: buildHosts, toolchain: pspToolchain, input: "bundle", steps: compilerOnly(), artifact: "{outdir}/{output}.pbp",
   async run(context) {
     requireProgramProfile(context, profile);
@@ -28,7 +27,7 @@ export const build: RuntimeBuild = {
   },
 };
 export const genericBuild: RuntimeBuild = {
-  sourceInputs: [resolve(import.meta.dir, "../embedded-apps.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/modules/media", "engine/render", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs")],
+  sourceInputs: [resolve(import.meta.dir, "../embedded-bundle.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "programs/sdk/archive", "engine/profile-build", "engine/modules/media", "engine/render", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs")],
   hosts: buildHosts, toolchain: pspToolchain, steps: compilerOnly(), artifact: "{outdir}/runtime",
   genericRuntime: { repack: repackPsp, extension: ".zip" },
   async run(context) {

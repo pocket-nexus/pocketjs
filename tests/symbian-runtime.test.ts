@@ -124,18 +124,14 @@ describe("experimental Nokia E7 runtime profile", () => {
     const clear = await appOf("apps/clear/pocket.host.config.ts");
     const nexus = await appOf("apps/nexus-touch/e7/pocket.host.config.ts");
     const hero = await appOf("apps/hero/pocket.host.config.ts");
-    const orientation = (app: AppConfig) => symbianE7Orientation(app.viewport, resolveSymbianE7BuildPlan(app));
     // Clear and Pocket Nexus lay out once for 360x640; Hero relayouts live
-    expect(orientation(clear)).toBe("portrait");
-    expect(orientation(nexus)).toBe("portrait");
-    expect(orientation(hero)).toBe("auto");
+    expect(symbianE7Orientation(clear.viewport)).toBe("portrait");
+    expect(symbianE7Orientation(nexus.viewport)).toBe("portrait");
+    expect(symbianE7Orientation(hero.viewport)).toBe("auto");
     // a package compiled elsewhere carries no viewport range and rotates
-    expect(symbianE7Orientation(undefined, resolveSymbianE7BuildPlan(clear))).toBe("auto");
-    // a navigation registry entry held in portrait folds into the same lock
-    expect(symbianE7Orientation(hero.viewport, resolveSymbianE7BuildPlan(hero), "portrait")).toBe("portrait");
+    expect(symbianE7Orientation(undefined)).toBe("auto");
     const wide = { ...hero, viewport: { dynamic: { default: [640, 360], min: [640, 360], max: [640, 360] } } } as const satisfies AppConfig;
-    expect(symbianE7Orientation(wide.viewport, resolveSymbianE7BuildPlan(wide))).toBe("landscape");
-    expect(() => symbianE7Orientation(wide.viewport, resolveSymbianE7BuildPlan(wide), "portrait")).toThrow("admits landscape only");
+    expect(symbianE7Orientation(wide.viewport)).toBe("landscape");
     expect(resolveSymbianE7BuildPlan(nexus).features["ui.physics"]).toBe(true);
     expect(resolveSymbianE7BuildPlan(clear).features["ui.physics"]).toBeUndefined();
   });

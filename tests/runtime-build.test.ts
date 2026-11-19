@@ -1,16 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { BUNDLE_SECTION, decodeBundle, encodeBundle } from "../contracts/spec/bundle.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { PORTABLE_APP } from "./app-fixtures.ts";
-import { cargo, cmake, compilerOnly, defineHostConfig, make, type RuntimeBuild } from "../framework/src/host-config.ts";
+import { cargo, cmake, compilerOnly, defineHostConfig, make, type RuntimeBuild, type RuntimeSourceContext } from "../framework/src/host-config.ts";
 import { buildRuntime } from "../tools/build/executor.ts";
 import { prepareAot, prepareApplication } from "../tools/build/inputs.ts";
 import { packRuntime } from "../tools/build/pack.ts";
-import { launcherSourceInputs } from "../tools/build/psp/launcher.ts";
 import { makeBundle } from "../tools/bundle.ts";
 import { resolveProfile, type ResolvedProfile } from "../tools/profile-resolver.ts";
 import { writeRuntimeManifest } from "../tools/runtime/manifest.ts";
@@ -134,9 +133,23 @@ test("successful native commands cannot deploy changed configuration or source i
   }
 });
 
-test("dynamic PSP launcher inputs exclude their generated-output directory", async () => {
-  const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
-  mkdirSync(packages); writeFileSync(registry, "guest\tdev.guest\tGuest\n");
+/** A program whose native inputs are chosen at build time: `--inputs=<list>`
+ *  (relative to the invocation directory) names a list file, and the list
+ *  names one regular file per line, relative to the list. */
+function listedInputs(context: Pick<RuntimeSourceContext, "args" | "invocationDirectory">): string[] {
+  const argument = context.args.find(arg => arg.startsWith("--inputs="));
+  if (!argument) return [];
+  const list = resolve(context.invocationDirectory, argument.slice("--inputs=".length));
+  return [list, ...readFileSync(list, "utf8").split("\n").filter(Boolean).map(name => {
+    const path = resolve(dirname(list), name);
+    if (!lstatSync(path).isFile()) throw new Error(`listed input is not a regular file: ${path}`);
+    return path;
+  })];
+}
+
+test("dynamic sourceInputs exclude the directory a build writes its output into", async () => {
+  const dir = scratch(), list = join(dir, "inputs.txt"), packages = join(dir, "packages");
+  mkdirSync(packages); writeFileSync(list, "packages/guest.pkb\n");
   const bundle = application(dir), guest = join(packages, "guest.pkb");
   writeFileSync(guest, readFileSync(bundle));
   const seen: string[][] = [];
@@ -145,13 +158,13 @@ test("dynamic PSP launcher inputs exclude their generated-output directory", asy
       expect("run" in ctx).toBe(false); expect("env" in ctx).toBe(false);
       expect(ctx.invocationDirectory).toBe(process.cwd());
       expect(ctx.application?.plan.app.output).toBe(ctx.output);
-      const paths = launcherSourceInputs(ctx); seen.push(paths); return paths;
+      const paths = listedInputs(ctx); seen.push(paths); return paths;
     }, run() { writeFileSync(join(packages, "generated-cover.png"), "generated output"); },
   });
-  const args = [`--launcher-registry=${relative(process.cwd(), registry)}`];
+  const args = [`--inputs=${relative(process.cwd(), list)}`];
   const first = await buildRuntime(selected, join(dir, "first"), { bundle, args });
   const before = JSON.parse(readFileSync(first.receipt!, "utf8"));
-  expect(before.sourceInputs).toEqual([registry, guest].sort());
+  expect(before.sourceInputs).toEqual([list, guest].sort());
   expect(before.dependencies[packages]).toBeUndefined();
   expect(before.dependencies[join(packages, "generated-cover.png")]).toBeUndefined();
   const decoded = decodeBundle(readFileSync(guest));
@@ -160,24 +173,24 @@ test("dynamic PSP launcher inputs exclude their generated-output directory", asy
   const second = await buildRuntime(selected, join(dir, "second"), { bundle, args });
   const after = JSON.parse(readFileSync(second.receipt!, "utf8"));
   expect(after.success).toBe(true);
-  expect(seen).toEqual(Array.from({ length: 4 }, () => [registry, guest]));
+  expect(seen).toEqual(Array.from({ length: 4 }, () => [list, guest]));
 });
 
-test("dynamic launcher content and registry changes during a build reject success and deployment", async () => {
-  for (const mutation of ["guest", "registry"] as const) {
-    const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
-    mkdirSync(packages); writeFileSync(registry, "guest\tdev.guest\tGuest\n");
+test("dynamic input content and list changes during a build reject success and deployment", async () => {
+  for (const mutation of ["listed", "list"] as const) {
+    const dir = scratch(), list = join(dir, "inputs.txt"), packages = join(dir, "packages");
+    mkdirSync(packages); writeFileSync(list, "packages/guest.pkb\n");
     const bundle = application(dir), guest = join(packages, "guest.pkb");
     const bytes = readFileSync(bundle); writeFileSync(guest, bytes); writeFileSync(join(packages, "other.pkb"), bytes);
     let deployed = false;
-    const selected = await program(dir, { input: "bundle", steps: compilerOnly(), sourceInputs: launcherSourceInputs,
+    const selected = await program(dir, { input: "bundle", steps: compilerOnly(), sourceInputs: listedInputs,
       run() {
-        if (mutation === "guest") writeFileSync(guest, "changed during build");
-        else writeFileSync(registry, "other\tdev.other\tOther\n");
+        if (mutation === "listed") writeFileSync(guest, "changed during build");
+        else writeFileSync(list, "packages/other.pkb\n");
       }, deploy() { deployed = true; },
     });
     const out = join(dir, "out");
-    await expect(buildRuntime(selected, out, { bundle, args: [`--launcher-registry=${registry}`], deploy: true }))
+    await expect(buildRuntime(selected, out, { bundle, args: [`--inputs=${list}`], deploy: true }))
       .rejects.toThrow("runtime build inputs changed");
     const receipt = JSON.parse(readFileSync(join(out, "build-receipt.json"), "utf8"));
     expect(receipt.success).toBe(false); expect(deployed).toBe(false);
@@ -212,14 +225,15 @@ test("sourceInputs functions must return synchronous nonempty string paths and a
   expect(receipt.sourceInputs).toEqual([join(dir, "file")]);
 });
 
-test("missing or traversing launcher guest paths fail before the build hook", async () => {
-  const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
-  mkdirSync(packages); const bundle = application(dir); let calls = 0;
-  const selected = await program(dir, { input: "bundle", steps: compilerOnly(), sourceInputs: launcherSourceInputs, run() { calls++; } });
-  for (const name of ["absent", "../outside", "..", "sub/guest", "sub\\guest"]) {
-    writeFileSync(registry, `${name}\tdev.guest\tGuest\n`);
-    await expect(buildRuntime(selected, join(dir, "bad"), { bundle, args: [`--launcher-registry=${registry}`] })).rejects.toThrow();
+test("a dynamic sourceInputs function that throws fails the build before its hook", async () => {
+  const dir = scratch(), list = join(dir, "inputs.txt"), packages = join(dir, "packages");
+  mkdirSync(packages); mkdirSync(join(packages, "directory")); const bundle = application(dir); let calls = 0;
+  const selected = await program(dir, { input: "bundle", steps: compilerOnly(), sourceInputs: listedInputs, run() { calls++; } });
+  for (const name of ["packages/absent.pkb", "packages/directory"]) {
+    writeFileSync(list, `${name}\n`);
+    await expect(buildRuntime(selected, join(dir, "bad"), { bundle, args: [`--inputs=${list}`] })).rejects.toThrow();
   }
+  await expect(buildRuntime(selected, join(dir, "bad"), { bundle, args: [`--inputs=${join(dir, "absent.txt")}`] })).rejects.toThrow();
   expect(calls).toBe(0);
 });
 

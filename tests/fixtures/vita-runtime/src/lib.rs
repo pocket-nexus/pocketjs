@@ -53,22 +53,6 @@ mod stats {
         "{}".into()
     }
 }
-mod switch {
-    pub fn multi() -> bool {
-        false
-    }
-    pub fn upload_shot(_: &mut pocketjs_core::Ui) {}
-    pub fn table_json() -> String {
-        "{}".into()
-    }
-    pub fn find(_: &str) -> Option<usize> {
-        None
-    }
-    pub fn request_launch(_: usize) {}
-    pub fn shot_handle() -> i32 {
-        -1
-    }
-}
 use libquickjs_sys::*;
 use pocket_drivers::*;
 use pocket_drivers::abi::*;
@@ -185,7 +169,7 @@ impl Program {
             .unwrap();
         let ops = runtime.op_context();
         ops.add_provider(Box::new(instance::Services)).unwrap();
-        let guest = instance::Guest::new(ops).unwrap();
+        let guest = instance::Guest::new().unwrap();
         let input = Rc::new(RefCell::new(instance::Input {
             analog: 0x8080,
             ..Default::default()
@@ -319,7 +303,7 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
 fn production_instance_uses_generated_ops_and_keeps_native_extensions() {
     unsafe {
         let p=Program::new(r#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='vita'||ui.__hostAbi!==EXPECTED_BINDING||ui.__tickHz!==60||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing services');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false)throw Error('native extension');"#.replace("EXPECTED_BINDING", &pocket_spec::BINDING_GENERATION.to_string()).as_bytes());
-        assert!(p.guest.ops.core().unwrap().ui.viewport().0 == 480.0);
+        assert!(p.handle().op_context().core().unwrap().ui.viewport().0 == 480.0);
         p.assert_js("if(node<=0)throw Error('core dispatch')");
     }
 }

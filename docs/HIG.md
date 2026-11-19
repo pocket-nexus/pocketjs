@@ -145,14 +145,15 @@ wash on the bottom list follows both the tap and the d-pad.
 ## 4. The system layer
 
 Only one guest runs at a time on a console, so "background" is a design,
-not a process state. The launcher (`docs/LAUNCHER.md`) switches whole
-guests behind the veil with a frozen shot of the outgoing application. The
-system layer completes that into a switcher, per modality:
+not a process state. A PocketJS program runs one application; switching
+between applications belongs to a product host such as
+pocket-nexus/pocket-shell, which boots one guest at a time. The system layer
+gives that switcher its chords, per modality:
 
 | Modality | Home / switcher | System sheet |
 | --- | --- | --- |
 | buttons | hold SELECT 400 ms | SELECT + START |
-| touch | the hardware Home button where one exists; else a two-finger swipe from the bottom edge | long-press Home; else the sheet's own control on the launcher |
+| touch | the hardware Home button where one exists; else a two-finger swipe from the bottom edge | long-press Home; else the sheet's own control |
 
 **A guest never sees a system chord.** The host samples the pad, matches
 the reserved chords, and delivers the remaining mask through
@@ -161,18 +162,10 @@ the reserved chords, and delivers the remaining mask through
 observe needs no op, and every host implements the same table (proposed for
 `contracts/spec/spec.ts` as data).
 
-**Switching is relaunch with restored state.** Two capabilities make it
-read as a background switch:
-
-1. `app.state`: a per-application key-value store the guest writes on
-   `onSuspend` and reads on mount (`docs/PLATFORM.md` reserves it), so the
-   search query, the scroll position and the playing video's position
-   survive.
-2. `frozenShot`: the outgoing frame stays on screen through the eval, and
-   the incoming guest's first frame replaces it.
-
-The launcher's deck orders cards by last use, so Home then `confirm`
-returns to the previous application: that is Recents.
+**Switching is relaunch with restored state.** `app.state`, a
+per-application key-value store the guest writes on `onSuspend` and reads on
+mount (`docs/PLATFORM.md` reserves it), keeps the search query, the scroll
+position and the playing video's position across a relaunch.
 
 ## 5. What exists and what this document asks for
 
@@ -182,7 +175,6 @@ returns to the previous application: that is Recents.
 | `glyph()` per-device button names | shipped (`@pocketjs/framework/modality`) |
 | `ClassicSelection`, `ClassicButton`, `ClassicSheet` | shipped (`@pocketjs/framework/classic`) |
 | Modality-driven keyboard with focus memory | shipped (`@pocketjs/framework/osk`) |
-| Launcher veil, frozen shot, whole-guest switch | shipped (`docs/LAUNCHER.md`) |
 | `useActions` intents and the generated legend | shipped (`@pocketjs/framework/actions`); touch tiles read `entries()` by hand |
 | `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSpinner` | shipped (`@pocketjs/framework/classic`) |
 | System sheet on hold-SELECT | a guest-side form lives in pocket-nexus/pocket-shell (`runtime/src/system.ts`); the host-owned chord table stays proposed |
