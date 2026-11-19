@@ -3,7 +3,6 @@ import { planProfileDocument } from "../framework/compiler/plan.ts";
 import type { RuntimeApplication } from "../framework/src/host-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
-import { encodeSymbianNavigation } from "./symbian-navigation.ts";
 import { createHash } from "node:crypto";
 import {
   createReadStream,
@@ -11,7 +10,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -348,9 +346,6 @@ export interface SymbianBuildAppOptions {
   orientation?: SymbianOrientation;
   outputRoot?: string;
   uid?: string;
-  navigation?: string;
-  catalogIndex?: string;
-  catalogBlob?: string;
   /**
    * Prebuilt application-specific core that implements the ordinary
    * `ui_*` ABI and may additionally export the native extension provider.
@@ -431,10 +426,7 @@ export async function buildApp(
 
   const plan = compiled.plan;
   const packageIdentity = symbianPackageIdentity(plan, options.uid);
-  const navigation = options.navigation === undefined ? undefined : encodeSymbianNavigation(
-    JSON.parse(readFileSync(resolve(options.navigation), "utf8")), packageIdentity.uid);
-  if (navigation && options.catalogIndex) throw new Error("Native navigation and an embedded catalog are separate launch modes");
-  const orientation = options.orientation ?? symbianE7Orientation(options.viewport, plan, navigation?.orientation);
+  const orientation = options.orientation ?? symbianE7Orientation(options.viewport);
 
   const outputRoot = resolve(
     options.outputRoot ?? resolve(root, "dist/symbian"),
@@ -456,31 +448,6 @@ export async function buildApp(
     options.massStorageDataRoot,
     customCoreLibrary,
   );
-  if ((options.catalogIndex === undefined) !== (options.catalogBlob === undefined)) {
-    throw new Error(
-      "Symbian app catalog requires both --catalog-index and --catalog-blob",
-    );
-  }
-  if (customCoreLibrary !== undefined && options.catalogIndex !== undefined) {
-    throw new Error(
-      "Symbian application-specific cores cannot be combined with a multi-app catalog",
-    );
-  }
-  const catalogIndex = options.catalogIndex === undefined
-    ? undefined
-    : resolve(options.catalogIndex);
-  const catalogBlob = options.catalogBlob === undefined
-    ? undefined
-    : resolve(options.catalogBlob);
-  for (const [label, path] of [
-    ["catalog index", catalogIndex],
-    ["catalog blob", catalogBlob],
-  ] as const) {
-    if (path !== undefined && (!existsSync(path) || !statSync(path).isFile() ||
-      statSync(path).size === 0)) {
-      throw new Error(`Symbian ${label} is missing or empty: ${path}`);
-    }
-  }
   const payload = resolve(outputRoot, "build", plan.app.output);
   if (massStorageDataRoot !== undefined) {
     assertSymbianMassStorageDataStageSeparation(massStorageDataRoot, payload);
@@ -505,18 +472,9 @@ export async function buildApp(
     copyFileSync(compiled.javaScript, resolve(payload, "app.js"));
     copyFileSync(compiled.pack, resolve(payload, "app.pak"));
 
-    if (catalogIndex !== undefined && catalogBlob !== undefined) {
-      copyFileSync(catalogIndex, resolve(payload, "catalog.tsv"));
-      copyFileSync(catalogBlob, resolve(payload, "catalog.bin"));
-    }
-    await Bun.write(resolve(payload, "navigation.tsv"), navigation?.table ?? "");
     const embeddedPaths = [
-      resolve(payload, "navigation.tsv"),
       resolve(payload, "app.js"),
       resolve(payload, "app.pak"),
-      ...(catalogIndex !== undefined
-        ? [resolve(payload, "catalog.tsv"), resolve(payload, "catalog.bin")]
-        : []),
     ];
     const embeddedBytes = embeddedPaths.reduce(
       (total, path) => total + statSync(path).size,
@@ -634,10 +592,9 @@ const HELP = `PocketJS Nokia E7 / Symbian toolchain
   pocket symbian build probe        build and self-sign the visible Qt probe SIS
   pocket symbian build app --bundle <application.pkb> -- [--sis-version 1.0.0]
                            [--project-root <dir>] [--outdir <dir>] [--uid 0xE.......]
-                           [--catalog-index <catalog.tsv> --catalog-blob <catalog.bin>]
                            [--core-library <application-core.a>]
                            [--mass-storage-data-root <dir>]
-                           [--frame-rate 30] [--perf-trace] [--navigation <apps.json>]
+                           [--frame-rate 30] [--perf-trace]
                                     build an independently installable PocketJS E7 SIS
   pocket symbian deploy <sis>       copy to Mass memory/Installs and verify by MTP readback
   pocket symbian coda usb           run the CODA USB ping + Locator handshake

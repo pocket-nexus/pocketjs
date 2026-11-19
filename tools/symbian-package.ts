@@ -20,7 +20,7 @@ export interface SymbianPackageIdentity {
 
 /**
  * GCCE's stock Qt mkspec puts writable data at 0x400000. Large qrc payloads
- * (DeepZoom tiles or a multi-app catalog) can extend read-only data past that
+ * (DeepZoom tiles in an application pack) can extend read-only data past that
  * address, so reserve the raw embedded byte count on top of the historical
  * 4 MiB baseline and round to a 1 MiB boundary. The linker remains the final
  * overlap check; the upper bound rejects artifacts too large for this E7 host.

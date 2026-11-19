@@ -59,22 +59,14 @@ export type SymbianOrientation = "auto" | "portrait" | "landscape";
  * landscape; any other app follows the phone's rotation with live relayout.
  * `viewport` is the `app.viewport` of the host config the package was
  * compiled from; without it (a package compiled elsewhere) the range is
- * unknown and the app rotates. A navigation registry entry marked `portrait`
- * holds a rotating app in portrait as well.
+ * unknown and the app rotates.
  */
 export function symbianE7Orientation(
   viewport: AppViewport | undefined,
-  plan: ResolvedBuildPlan,
-  navigation: "auto" | "portrait" = "auto",
 ): SymbianOrientation {
   const dynamic = viewport && !("logical" in viewport) ? viewport.dynamic : undefined;
-  const range = !dynamic?.min || !dynamic.max ? "auto"
+  return !dynamic?.min || !dynamic.max ? "auto"
     : dynamic.max[0] < dynamic.min[1] ? "portrait"
     : dynamic.max[1] < dynamic.min[0] ? "landscape"
     : "auto";
-  if (navigation === "auto") return range;
-  if (range === "landscape") {
-    throw new Error(`pocket symbian: the navigation registry holds ${plan.app.output} in portrait, but its viewport admits landscape only`);
-  }
-  return "portrait";
 }
