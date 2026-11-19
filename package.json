@@ -216,7 +216,7 @@
     "note": "bun tools/note.ts",
     "psp": "bun tools/psp.ts",
     "psp:all": "bun tools/psp-all.ts",
-    "psp:switch": "bun psplink",
+    "psp:switch": "bun tools/psplink.ts",
     "vita": "bun tools/vita.ts",
     "symbian": "bun tools/symbian.ts",
     "ios": "bun tools/ios.ts",
