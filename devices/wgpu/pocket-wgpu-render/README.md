@@ -17,8 +17,8 @@ obtain its `DeviceTarget`. Target IDs belong to one renderer instance and are
 never reused. Unknown, foreign, removed, partial-region, and format-mismatched
 targets are rejected. The driver supports RGBA8/BGRA8, UNORM or sRGB attachments,
 and preserves the previous compositor's color encoding and fractional scale.
-Native `TEXT_RUN` is unsupported; glyph atlas, image, gradient, triangle, scissor,
-and registered compositor-surface operations use the shared DrawList vocabulary.
+Native `TEXT_RUN` is unsupported; glyph atlas, image, gradient, triangle and
+scissor operations use the shared DrawList vocabulary.
 
 Each render copies borrowed resources and allocates an **independent vertex
 buffer**. Image and glyph-page versions use handle plus revision cache keys.
@@ -32,8 +32,8 @@ waits and stale/foreign tickets are rejected.
 staged uploads, waits for all earlier queue work, then releases pending frames,
 cache versions and target bindings. This covers a panic after native submission
 but before token registration. Shutdown is idempotent and closes the driver;
-`render`, `encode` and `register_target` then return `Failed`. The infallible
-surface-binding setter performs no work after closure. Drop uses the same path.
+`render`, `encode` and `register_target` then return `Failed`. Drop uses the
+same path.
 Under the device target contract (`pocket_drivers::target`), dropping the
 runtime `Registration` calls shutdown even while the composition's
 `RendererCell` retains the renderer. Unregistering a target that a pending
@@ -51,7 +51,7 @@ tracking, and `BufferTracker`'s `Arc<Buffer>` metadata. Handle Drop does not des
 those allocations. A returned error requires discarding the affected encoder.
 The old `pocket-ui-wgpu::UiRenderer` delegates through this path and retains its
 existing Ui/encoder API. Its pixel comparison tests cover scale 1 and 2, all
-image formats, gradients, triangles, glyph replacement, surfaces, and sRGB.
+image formats, gradients, triangles, glyph replacement, and sRGB.
 
 Run the independent driver tests with:
 

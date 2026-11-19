@@ -121,7 +121,6 @@ pub struct Config {
     pub image_bytes: usize,
     pub glyph_pages: usize,
     pub glyph_bytes: usize,
-    pub external_compositor: bool,
 }
 impl Config {
     pub const fn new(width: u32, height: u32, scale: u32) -> Self {
@@ -133,7 +132,6 @@ impl Config {
             image_bytes: 32 * 1024 * 1024,
             glyph_pages: 128,
             glyph_bytes: 8 * 1024 * 1024,
-            external_compositor: false,
         }
     }
 }
@@ -529,9 +527,6 @@ impl<D: Device> GxmRenderer<D> {
                     }
                 }
                 spec::draw_op::TEXT_RUN => return Err(RenderError::Unsupported),
-                spec::draw_op::SURFACE_QUAD if !self.config.external_compositor => {
-                    return Err(RenderError::Unsupported)
-                }
                 _ => {}
             }
         }

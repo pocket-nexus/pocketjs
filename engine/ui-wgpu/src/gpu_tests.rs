@@ -253,82 +253,9 @@ fn gpu_drawlist_composition_and_resource_lifecycle() {
             );
         }
 
-        // The child has its own texture namespace, and an unclipped full origin.
-        let mut child_ui = Ui::new();
-        child_ui.set_viewport(16.0, 16.0);
-        let child_handle = child_ui.upload_texture(&[255, 128, 32, 255], 1, 1, spec::psm::PSM_8888);
-        let mut child_words = image(child_handle, 0, 0, 16, 16).to_vec();
-        child_words.extend([op::RECT, packed(8, 0), packed(8, 16), 0xff804020]);
-        let child_target = target(&gpu, 16 * scale, wgpu::TextureFormat::Rgba8Unorm);
-        let mut child_renderer = UiRenderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
-        let child_pixels = draw(
-            &gpu,
-            &mut child_renderer,
-            &child_ui,
-            &child_words,
-            &child_target,
-            scale,
-        );
-        renderer.set_surface(&gpu, 7, &child_target.view, (16, 16));
-        let mut w = vec![
-            op::RECT,
-            0,
-            packed(16, 16),
-            0xff102030,
-            op::SCISSOR,
-            packed(2, 2),
-            packed(10, 10),
-        ];
-        w.extend([
-            op::SURFACE_QUAD,
-            7,
-            (-4.0f32).to_bits(),
-            0,
-            16.0f32.to_bits(),
-            16.0f32.to_bits(),
-            packed(2, 2),
-            packed(10, 10),
-            0,
-        ]);
-        w.extend([
-            op::RECT,
-            packed(0, 10),
-            packed(16, 2),
-            0xff20e040,
-            op::SCISSOR_POP,
-            op::RECT,
-            packed(0, 14),
-            packed(16, 2),
-            0xff503010,
-        ]);
-        let mut surfaces = vec![None; 8];
-        surfaces[7] = Some(pocket_raster::compositor::CompositorRaster {
-            pixels: child_pixels,
-            width: 16,
-            height: 16,
-            density: scale,
-        });
-        pocket_raster::compositor::render(&ui, &w, &mut expected, scale, &surfaces);
-        close(
-            &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
-            &expected,
-            0,
-        );
-        renderer.retain_surfaces(|_| false);
-        pocket_raster::compositor::render(&ui, &w, &mut expected, scale, &[]);
-        close(
-            &draw(&gpu, &mut renderer, &ui, &w, &out, scale),
-            &expected,
-            0,
-        );
-
         // Bad lengths must fail before encoding or resource submission.
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        for bad in [
-            &[op::SURFACE_QUAD, 1][..],
-            &[op::GLYPH_RUN, u32::MAX][..],
-            &[u32::MAX][..],
-        ] {
+        for bad in [&[op::GLYPH_RUN, u32::MAX][..], &[u32::MAX][..]] {
             assert!(
                 renderer
                     .render_words(

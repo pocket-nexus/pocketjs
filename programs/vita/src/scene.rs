@@ -36,8 +36,7 @@ pub fn init_with_pool(pool_bytes: u32) -> Result<(), &'static str> {
             return Ok(());
         }
         let device = VitaDevice::new(pool_bytes).map_err(|_| "vita2d initialization failed")?;
-        let mut config = Config::new(PHYSICAL_W as u32, PHYSICAL_H as u32, INTEGER_SCALE as u32);
-        config.external_compositor = true;
+        let config = Config::new(PHYSICAL_W as u32, PHYSICAL_H as u32, INTEGER_SCALE as u32);
         RENDERER = Some(RendererCell::new(
             GxmRenderer::new(device, config).map_err(|_| "GXM renderer registration failed")?,
         ));
@@ -203,7 +202,6 @@ fn validate_texture_residency(ui: &Ui, words: &[u32]) -> io::Result<()> {
             }
             spec::draw_op::SCISSOR => i.checked_add(3),
             spec::draw_op::SCISSOR_POP => i.checked_add(1),
-            spec::draw_op::SURFACE_QUAD => i.checked_add(9),
             op => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,

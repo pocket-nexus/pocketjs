@@ -8,16 +8,13 @@ import sys
 
 # contracts/spec/profile.ts PROFILE_HASH_FIELDS; capability lists and
 # cadences are sets, sorted before hashing.
-HASH_FIELDS = ("id", "platform", "form", "cadences", "display", "capabilities", "roleCapabilities")
+HASH_FIELDS = ("id", "platform", "form", "cadences", "display", "capabilities")
 
 
 def projection(document):
     value = {field: document[field] for field in HASH_FIELDS if field in document}
     value["cadences"] = sorted(value["cadences"])
     value["capabilities"] = sorted(value["capabilities"])
-    roles = value.get("roleCapabilities")
-    if isinstance(roles, dict) and "systemUI" in roles:
-        value["roleCapabilities"] = {"systemUI": sorted(roles["systemUI"])}
     return value
 
 

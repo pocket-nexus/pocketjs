@@ -35,7 +35,6 @@ export function createWasmUiSync(wasm, options = {}) {
   let auxiliary = options.auxiliary?.map(n => integer(n, "auxiliary dimension", 1, 4096));
   if (auxiliary && auxiliary.length !== 2) throw new RangeError("auxiliary requires two dimensions");
   let renderScale = 1;
-  const bindings = new Map();
   let providers = {};
   const copy = (p, n) => new Uint8Array(ex.memory.buffer, p, n).slice();
   const resultText = () => decoder.decode(copy(ex.web_result_ptr(handle), ex.web_result_len(handle)));
@@ -51,15 +50,9 @@ export function createWasmUiSync(wasm, options = {}) {
     try { new Uint8Array(ex.memory.buffer,p,value.length).set(value); return call(p,value.length); }
     finally { ex.web_free(p,value.length); }
   }
-  function wrapBindings(ui) {
-    const destroy = ui.destroyNode, set = ui.setCompositorSurface;
-    ui.destroyNode = id => { const result=destroy(id); bindings.delete(id); return result; };
-    if (set) ui.setCompositorSurface = (id,surface,focused) => { const result=set(id,surface,focused); if(surface<0) bindings.delete(id); else bindings.set(id,{handle:surface,focused:!!focused}); return result; };
-    return ui;
-  }
   function mount(environment, global = {}) {
     bindingGeneration(environment.hostAbi);
-    mounted?.dispose(); mounted=mountUi(transport,environment,global); ops=wrapBindings(mounted.ui); return ops;
+    mounted?.dispose(); mounted=mountUi(transport,environment,global); ops=mounted.ui; return ops;
   }
   const instance = new WebAssembly.Instance(module, { pocket_web: { guest_call(kind, nativeHandle, p, n, pak, pakLength) {
     callbackDepth++;
@@ -135,8 +128,8 @@ export function createWasmUiSync(wasm, options = {}) {
   }
   function present() {
     control();if(!booted) return capture(renderScale,1);
-    // Re-presenting is allowed: compositor uploads and guest inspection can
-    // change resources after advance without creating another guest turn.
+    // Re-presenting is allowed: guest inspection can change resources after
+    // advance without creating another guest turn.
     check(ex.web_present(handle));pending=false;
     return new Uint8Array(ex.memory.buffer,ex.web_pixels(handle),ex.web_pixels_len(handle));
   }
@@ -181,7 +174,7 @@ export function createWasmUiSync(wasm, options = {}) {
     },
     advance(facts={},ticks=1) {control();if(!booted)throw new Error("Boot the Runtime first");withBytes(encoder.encode(JSON.stringify(facts)),(p,n)=>check(ex.web_advance(handle,p,n,integer(ticks,"ticks",1,60))));pending=true;},
     present,
-    init(nextDensity=density){control();check(ex.web_reset(handle,integer(nextDensity,"density",1,255)));density=nextDensity;booted=false;pending=false;bindings.clear();mountHarness();},
+    init(nextDensity=density){control();check(ex.web_reset(handle,integer(nextDensity,"density",1,255)));density=nextDensity;booted=false;pending=false;mountHarness();},
     dispose(){if(disposed)return;control(true);check(ex.web_destroy(handle));mounted?.dispose();disposed=true;handle=0;},
     resizeViewport(w,h){control();w=integer(w,"width",1,32000);h=integer(h,"height",1,32000);check(ex.web_resize(handle,w,h));width=w;height=h;ops.__viewport.w=w;ops.__viewport.h=h;},
     createAuxiliarySurface(w,h){control();w=integer(w,"auxiliary width",1,4096);h=integer(h,"auxiliary height",1,4096);const root=ex.web_auxiliary(handle,w,h);if(!root)throw new Error("Auxiliary changes require an unbooted host");auxiliary=[w,h];const added=mountUi(transport,{host:options.host,hostAbi,tickHz:60,auxiliary:{root,w,h},viewport:{w:width,h:height}},{}).ui;Object.assign(ops, {hitTestAuxiliary:added.hitTestAuxiliary,hitTestBoundsAuxiliary:added.hitTestBoundsAuxiliary,__auxiliarySurface:added.__auxiliarySurface});return root;},
@@ -191,12 +184,8 @@ export function createWasmUiSync(wasm, options = {}) {
     layout(id){control();return withBytes(new Uint8Array(32),p=>{if(!ex.web_layout(handle,id,p))throw new Error(`Missing node ${id}`);return Array.from(new Float32Array(ex.memory.buffer,p,8));});},
     setLayoutMode(id,mode,x,y,w,h){control();ex.web_layout_mode(handle,id,mode,x,y,w,h);},
     drawHash(){control();return ex.web_draw_hash(handle,0);},drawHashAuxiliary(){control();return ex.web_draw_hash(handle,1);},
-    compositorBindings(){control();return Array.from(bindings.values(),v=>({...v}));},
-    compositorFrames(){control();check(ex.web_compositor_frames(handle));return JSON.parse(resultText());},
-    uploadCompositorSurface(id,pixels,w,h){control();return withBytes(pixels,(p,n)=>ex.web_upload_surface(handle,id,p,n,w,h));},
-    freeCompositorSurface(id){control();ex.web_free_surface(handle,id);},
     render(){return booted&&renderScale===1 ? present() : capture(1,0);},renderScaled(scale){return booted&&renderScale===scale ? present() : capture(scale,0);},renderIncremental(){return booted&&renderScale===1 ? present() : capture(1,1);},renderScaledIncremental(scale){return booted&&renderScale===scale ? present() : capture(scale,1);},
-    renderPremultiplied(scale=1){return capture(scale,2);},renderComposited(scale=1){return capture(scale,3);},renderAuxiliary(){if(!auxiliary)throw new Error("No auxiliary display");return capture(1,4);},
+    renderPremultiplied(scale=1){return capture(scale,2);},renderAuxiliary(){if(!auxiliary)throw new Error("No auxiliary display");return capture(1,4);},
   };
   return api;
 }

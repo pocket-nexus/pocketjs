@@ -74,10 +74,6 @@ struct FontTexture {
     layout: GlyphPageLayout,
     logical: (f32, f32),
 }
-struct SurfaceBind {
-    bind: wgpu::BindGroup,
-    logical: (u32, u32),
-}
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -104,7 +100,6 @@ enum TexBind {
     White,
     Image(TextureKey),
     Font(TextureKey),
-    Surface(u32),
 }
 type DrawCmd = pocket_render::Batch<TexBind, (u32, u32, u32, u32)>;
 
@@ -160,7 +155,6 @@ pub struct WgpuRenderer {
     sampler: wgpu::Sampler,
     sampler_nearest: wgpu::Sampler,
     white: wgpu::BindGroup,
-    surfaces: HashMap<u32, SurfaceBind>,
     targets: HashMap<u64, RegisteredTarget>,
     pending: HashMap<u64, Pending>,
     images: TextureCache<wgpu::BindGroup>,
@@ -276,8 +270,7 @@ impl WgpuRenderer {
     /// submission token was never recorded because rendering unwound. Wait for
     /// that checkpoint before releasing pending frames and cache versions.
     /// Repeated calls do nothing. Fallible work entry points return `Failed`
-    /// after shutdown; the infallible surface-binding setter becomes a no-op.
-    /// This does not destroy a shared wgpu device or
+    /// after shutdown. This does not destroy a shared wgpu device or
     /// invalidate resources retained by external, not-yet-submitted encoders.
     /// Ordinary frame retirement waits only its own token; it does not call this.
     pub fn shutdown(&mut self) {
@@ -291,7 +284,6 @@ impl WgpuRenderer {
         // All native reads/writes preceding the checkpoint are now terminal.
         self.images = TextureCache::new(0, 0);
         self.fonts = TextureCache::new(0, 0);
-        self.surfaces.clear();
         self.targets.clear();
     }
 
@@ -300,36 +292,6 @@ impl WgpuRenderer {
     }
     pub fn resident_fonts(&self) -> usize {
         self.fonts.len()
-    }
-
-    pub fn set_surface(&mut self, handle: u32, view: &wgpu::TextureView, logical: (u32, u32)) {
-        if self.shutdown {
-            return;
-        }
-        let bind = self
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("pocket compositor surface"),
-                layout: &self.bind_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler_nearest),
-                    },
-                ],
-            });
-        self.surfaces.insert(handle, SurfaceBind { bind, logical });
-    }
-    pub fn surface_handles(&self) -> impl Iterator<Item = u32> + '_ {
-        self.surfaces.keys().copied()
-    }
-    pub fn retain_surfaces(&mut self, mut keep: impl FnMut(u32) -> bool) {
-        self.surfaces.retain(|handle, _| keep(*handle));
     }
 
     /// Record into a host-owned encoder. Every upload copies borrowed resource
@@ -437,7 +399,6 @@ impl WgpuRenderer {
                             .ok_or(RenderError::InvalidFrame)?
                             .bind
                             .clone(),
-                        TexBind::Surface(handle) => self.surfaces[&handle].bind.clone(),
                     })
                 })
                 .collect::<Result<_, RenderError>>()?;

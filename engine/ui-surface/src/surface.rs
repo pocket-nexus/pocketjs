@@ -5,10 +5,7 @@
 //! Boot contract mirrors the PSP host (`programs/psp/src/service_bindings.rs` + `pak.rs`):
 //! styles/atlases feed the core natively BEFORE the bundle evals, pak images
 //! and sprites upload natively, and the (name → handle) tables are exposed
-//! as `ui.__textures` / `ui.__sprites`. Pocket System shells additionally get
-//! a separate `ui.__surfaces` package-id table from the native compositor; surface
-//! handles never enter the texture table.
-//! This is exactly what routes
+//! as `ui.__textures` / `ui.__sprites`. This is exactly what routes
 //! `framework/src/host.ts::detectHost` onto its PSP branch. One desktop addition:
 //! `ui.__viewport = {w, h}` tells the framework the logical UI size (the PSP
 //! host omits it and the framework defaults to 480x272).
@@ -63,8 +60,6 @@ struct Inner {
     pak: Vec<u8>,
     assets: AssetRegistry,
     asset_error: Option<RuntimeError>,
-    /// Installed Pocket System package id -> native compositor surface handle.
-    surfaces: Vec<(String, i32)>,
     /// Host service channel (spec ops 30..32): in-process JSON-line queues.
     /// On consoles the mailbox is files under a tethered share; here the
     /// widget host *is* the companion process, so lines just cross a queue.
@@ -105,7 +100,6 @@ impl UiSurface {
         let mut ui = Ui::new_with_raster_density(density);
         ui.set_viewport(viewport.0, viewport.1);
         let ops = OpContext::from_ui(ui);
-        ops.set_compositor_enabled(true).expect("fresh context");
         ops.install_assets(&[]).expect("empty asset pack");
         Self::from_context(ops)
     }
@@ -115,7 +109,6 @@ impl UiSurface {
             pak: Vec::new(),
             assets: AssetRegistry::default(),
             asset_error: None,
-            surfaces: Vec::new(),
             svc_in: VecDeque::new(),
             svc_out: VecDeque::new(),
             svc_allowlist: Vec::new(),
@@ -203,19 +196,6 @@ impl UiSurface {
         Ok(())
     }
 
-    /// Register an installed Pocket System package before [`mount`](Self::mount).
-    /// Handles live in the compositor namespace and are never valid textures.
-    pub fn register_compositor_surface(&self, package: impl Into<String>) -> Option<i32> {
-        let mut inner = self.inner.borrow_mut();
-        let package = package.into();
-        if let Some((_, handle)) = inner.surfaces.iter().find(|(known, _)| known == &package) {
-            return Some(*handle);
-        }
-        let handle = i32::try_from(inner.surfaces.len()).ok()?;
-        inner.surfaces.push((package, handle));
-        Some(handle)
-    }
-
     /// Declare how many ticks make one second of virtual time (default 60).
     /// Call before `mount`: the mount publishes the rate to the guest as
     /// `ui.__tickHz`, and bundles refuse a rate other than the one they were
@@ -295,7 +275,6 @@ impl UiSurface {
         environment: &GuestEnvironment<'_>,
         has_abi: bool,
     ) -> Result<()> {
-        let inner = self.inner.borrow();
         guest
             .with(|ctx| -> pocket_mod::qjs::Result<()> {
                 mount_ui(
@@ -308,11 +287,6 @@ impl UiSurface {
                 if !has_abi {
                     ns.remove("__hostAbi")?;
                 }
-                let surfaces = Object::new(ctx.clone())?;
-                for (package, handle) in &inner.surfaces {
-                    surfaces.set(package.as_str(), *handle)?;
-                }
-                ns.set("__surfaces", surfaces)?;
                 let mailbox = Rc::new(RefCell::new(DbgMailbox::probe()));
                 let active = mailbox.clone();
                 ns.set(
@@ -528,33 +502,23 @@ mod tests {
     }
 
     #[test]
-    fn compositor_surface_has_its_own_namespace_and_core_binding() {
+    fn mounted_namespace_has_no_compositor_surface_api() {
+        // A bundle compiled while op 44 existed binds a surface node only
+        // when `ui.setCompositorSurface` is a function; without it the
+        // framework returns early. Node type 3 no longer creates a node.
         let guest = Guest::new().unwrap();
         let surface = UiSurface::new((16.0, 16.0));
-        let handle = surface
-            .register_compositor_surface("dev.pocket-nexus.hero")
-            .unwrap();
-        assert_eq!(
-            surface.register_compositor_surface("dev.pocket-nexus.hero"),
-            Some(handle)
-        );
         surface.mount(&guest).unwrap();
         guest
             .eval(
                 "surface",
-                "globalThis.surface = ui.__surfaces['dev.pocket-nexus.hero'];\
-                 globalThis.node = ui.createNode(3);\
-                 ui.setCompositorSurface(globalThis.node, globalThis.surface, 1);",
+                "globalThis.absent = typeof ui.setCompositorSurface === 'undefined' && !('__surfaces' in ui);\
+                 globalThis.created = ui.createNode(3);",
             )
             .unwrap();
-        let published: i32 = guest.with(|ctx| ctx.globals().get("surface").unwrap());
-        assert_eq!(published, handle);
-        surface.with_ui(|ui| {
-            assert!(ui.texture(handle).is_none());
-            assert_eq!(
-                ui.compositor_surface_bindings(),
-                vec![(handle as u32, true)]
-            );
-        });
+        let absent: bool = guest.with(|ctx| ctx.globals().get("absent").unwrap());
+        let created: i32 = guest.with(|ctx| ctx.globals().get("created").unwrap());
+        assert!(absent);
+        assert_eq!(created, 0);
     }
 }

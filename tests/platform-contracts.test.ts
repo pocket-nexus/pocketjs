@@ -279,7 +279,6 @@ describe("platform registry", () => {
         "text.glyphs.runtime",
         "text.layout.offload",
       ],
-      roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
       source: POCKET_PROFILES["web-app"],
     });
   });
@@ -618,13 +617,12 @@ describe("app resolution", () => {
   });
 
   describe("a host-defined capability", () => {
-    // A product's host contract: the PSP's facts and two ids the registry
-    // does not know, one for applications and one for the System UI role.
+    // A product's host contract: the PSP's facts and an id the registry
+    // does not know.
     const product = {
       ...POCKET_PROFILES.psp,
       id: "psp-product",
       capabilities: [...POCKET_PROFILES.psp.capabilities, "vendor.camera"],
-      roleCapabilities: { systemUI: ["vendor.launcher"] },
     };
     const lister = { ...PORTABLE_APP, features: [...PORTABLE_APP.features, "vendor.camera"] };
 
@@ -639,9 +637,6 @@ describe("app resolution", () => {
       if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
       expect(result.plan.features["vendor.camera"]).toBe(true);
       expect(result.plan.profile.capabilities).toContain("vendor.camera");
-      // A role-only id is the host's too; an application does not receive it.
-      const role = resolveAppPlan({ ...PORTABLE_APP, features: [...PORTABLE_APP.features, "vendor.launcher"] }, { target: product.id }, profileRegistry(product));
-      expect(role.ok && role.plan.features["vendor.launcher"]).toBe(false);
     });
 
     test("is unknown on a host that does not define it", () => {

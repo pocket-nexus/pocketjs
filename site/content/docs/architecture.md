@@ -182,8 +182,7 @@ remain separate host responsibilities.
 source, image and glyph lookup, record acceptance, and quad diagonal.** The
 PSP, PPA, EPIC, and software renderers keep their own walks and take XY and
 WH unpacking from the same crate; the PSP and EPIC gradient paths also take
-its corner color mapping, and the software compositor decodes surface records
-through it.
+its corner color mapping.
 The core's glyph texture preparation and the RGB565 glyph mask path use
 `pocket_render::glyph_pages`. Existing host entry points remain available during the
 runtime migration.

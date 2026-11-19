@@ -92,7 +92,7 @@ threshold; otherwise it joins a CPU batch.
 | TEX_QUAD, other textures | `Blit` of a registered texture | fractional texel edges, no registration, tint or vertical mirror without the capability |
 | TEX_TRI pair | `Blit` when upright; `BlitQuad` with VG Lite; `BlitRotate` on 52x after preflight | unpaired, no registration, unsupported transform |
 | TRI pair, flat color | `Fill`/`FillAlpha` when upright, else a solid `BlitQuad` | unpaired, Gouraud colors |
-| SCISSOR, TEXT_RUN, SURFACE_QUAD | none | none |
+| SCISSOR, TEXT_RUN | none | none |
 
 **Damage clips writes without changing a scaled texture's sampling map.**
 An on-screen quad within the coordinate limit keeps its original source and

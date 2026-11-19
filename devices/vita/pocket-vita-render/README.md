@@ -45,9 +45,7 @@ vita2d reuses its vertex pool; the next presentation then retires the previous
 submission. No frame drains the display queue; `sceGxmDisplayQueueFinish` runs
 at shutdown and display teardown. A failed frame closes its scene without
 displaying partial work.
-`Config::external_compositor` permits `SURFACE_QUAD` records to be supplied by
-that native compositor; without it, such records return `Unsupported`.
-`TEXT_RUN` remains unsupported. The host adapter in `programs/vita/src/scene.rs`
+`TEXT_RUN` is unsupported. The host adapter in `programs/vita/src/scene.rs`
 registers the process GXM device; frame resource views come from the runtime's
 CoreState. Its generated guest uses the pinned Bellard QuickJS context.
 

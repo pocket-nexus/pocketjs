@@ -27,7 +27,7 @@ export const DRIVER_ABI_RULES = [
   "render and flush errors are terminal: drain or cancel all submitted work before returning an error. Both wait callbacks return only after completion or cancellation on success AND error; there is no in-progress or recoverable timeout result. Reset hung hardware before returning failure.",
   "Ordinary render borrows end on return. Deferred work must use driver-owned copies. render_zero_copy is a separate unsafe contract: the caller keeps every frame resource alive and unchanged through renderer wait, including error returns. At most one zero-copy frame is in flight before the next script mutation.",
   "Retire runs after rendering and display transfer stop accessing memory. Destroy and application replacement drain all submissions and tokens before freeing resources. A failed frame invalidates the buffer's damage history. A failed DEFERRED completion is reported by the call that completes it and invalidates only that display's history.",
-  "Software fallback requires a CPU-visible target, drained accelerator work, cache visibility, and writes restricted to the acquired region. Only the baseline eight operations have software fallback; textRun and surfaceQuad need profile-declared native support.",
+  "Software fallback requires a CPU-visible target, drained accelerator work, cache visibility, and writes restricted to the acquired region. Only the baseline eight operations have software fallback; textRun needs profile-declared native support.",
   "DrawList has a closed operation set without per-operation lengths. Headers and the runtime archive must share the DrawList version. No unknown-operation skipping or renderer fallback chain is defined.",
 ] as const;
 

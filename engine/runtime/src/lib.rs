@@ -87,7 +87,6 @@ pub struct CoreState {
     pub ui: Ui,
     pub epoch: u64,
     providers: Vec<Box<dyn OpProvider>>,
-    compositor: bool,
     physics: bool,
 }
 impl CoreState {
@@ -96,7 +95,6 @@ impl CoreState {
             ui,
             epoch: 1,
             providers: Vec::new(),
-            compositor: false,
             physics: false,
         }
     }
@@ -189,14 +187,6 @@ impl OpContext {
         *self.package.borrow_mut() = Some(PackageAssets::Embedded(shared));
         Ok(registry)
     }
-    /// Declare that the embedding supplies the compositor raster namespace.
-    pub fn set_compositor_enabled(&self, enabled: bool) -> Result<(), RuntimeError> {
-        if !self.active.get() {
-            return Err(RuntimeError::InvalidState);
-        }
-        self.core_mut()?.compositor = enabled;
-        Ok(())
-    }
     /// Enable physics operations for a low-level embedding. Full Runtime boot
     /// replaces this setting with the admitted package's feature declaration.
     /// Enabling requires a physics engine installed in the core
@@ -244,9 +234,6 @@ impl OpContext {
         }
         if op == 23 {
             return self.package.borrow().is_some();
-        }
-        if op == 44 && !state.compositor {
-            return false;
         }
         if (op == 45 || op == 46) && state.ui.auxiliary_viewport().is_none() {
             return false;

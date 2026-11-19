@@ -1,4 +1,4 @@
-// PocketJS platform types: presentation modes, target forms, package roles,
+// PocketJS platform types: presentation modes, target forms,
 // execution classes, and the views of a host contract the resolver reads.
 // Guest bundles import some of these at run time (contracts/spec/modality.ts
 // imports the target forms); the capability registry is
@@ -29,10 +29,6 @@ export type Viewport = readonly [width: number, height: number];
  */
 export const TARGET_FORMS = ["takeover", "window", "widget", "kiosk", "embedded"] as const;
 export type TargetForm = (typeof TARGET_FORMS)[number];
-
-/** Package execution role used when role-scoped host APIs are admitted. */
-export const PACKAGE_ROLES = ["application", "systemUI"] as const;
-export type PackageRole = (typeof PACKAGE_ROLES)[number];
 
 /**
  * How an application artifact executes on a device — a semantic FIELD like
@@ -113,10 +109,6 @@ export interface TargetProfile<C extends string = string> {
   readonly display: DisplayProfile;
   /** Framework APIs implemented and tested by this stock host. */
   readonly capabilities: readonly C[];
-  /** APIs exposed only when a package is resolved for a System-owned role. */
-  readonly roleCapabilities?: {
-    readonly systemUI?: readonly C[];
-  };
   /** The host contract this view was made from. A view written directly
    *  (a test registry) has none; the resolver then reads the document's
    *  facts back from the view. */

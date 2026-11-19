@@ -86,15 +86,6 @@ export interface SpriteProps {
   nodeRef?: NodeRef;
 }
 
-export interface CompositorSurfaceProps {
-  class?: string;
-  className?: string;
-  style?: StyleObject;
-  package: string;
-  focused?: boolean;
-  nodeRef?: NodeRef;
-}
-
 function valueOf<T>(value: T): T {
   return typeof value === "function" ? (value as () => T)() : value;
 }
@@ -256,7 +247,7 @@ function mountChildren(node: NodeMirror, slots: SlotBag): void {
 }
 
 function createPrimitiveNode(
-  tag: "view" | "text" | "image" | "surface",
+  tag: "view" | "text" | "image",
   rawProps: Record<string, unknown>,
   slots: SlotBag,
   opts: { omit?: string[]; onNode?: (node: NodeMirror) => void; extra?: HostProps | (() => HostProps) } = {},
@@ -280,7 +271,7 @@ function createPrimitiveNode(
   return node;
 }
 
-function primitive<P extends object = Record<string, unknown>>(tag: "view" | "text" | "image" | "surface") {
+function primitive<P extends object = Record<string, unknown>>(tag: "view" | "text" | "image") {
   return definePocketVueComponent(
     (_props: P, { attrs, slots }: VaporCtx) => createPrimitiveNode(tag, attrs, slots),
     NO_FALLTHROUGH,
@@ -292,7 +283,6 @@ export const View = primitive<MicroTsViewProps & PrimitiveExtras>("view");
 export const Text = primitive<MicroTsTextProps & PrimitiveExtras & { style?: StyleObject | (() => StyleObject) }>("text");
 export const Image = primitive<MicroTsImageProps & PrimitiveExtras & { style?: StyleObject | (() => StyleObject) }>("image");
 export const Sprite = primitive("image");
-export const CompositorSurface = primitive("surface");
 
 function resolveActive(active: unknown): boolean {
   const resolved = valueOf(active);

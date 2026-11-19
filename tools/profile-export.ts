@@ -28,7 +28,6 @@ export interface ExportedFacts {
   readonly presentations: readonly string[];
   /** Sorted: admission compares sets. */
   readonly capabilities: readonly string[];
-  readonly systemUICapabilities: readonly string[];
 }
 const sorted = (names: readonly string[]) => [...new Set(names)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
 export function exportedFacts(profile: PocketProfile): ExportedFacts {
@@ -37,7 +36,6 @@ export function exportedFacts(profile: PocketProfile): ExportedFacts {
     animation: profile.display.animation,
     presentations: [...profile.display.presentations],
     capabilities: sorted(profile.capabilities),
-    systemUICapabilities: sorted(profile.roleCapabilities?.systemUI ?? []),
   };
 }
 /** A C string literal: printable ASCII as written, other bytes escaped. */
@@ -152,22 +150,18 @@ typedef struct pocket_compiled_profile {
     size_t presentation_count;
     const char *const *capabilities;
     size_t capability_count;
-    /* Additional grants for systemUI; application capabilities still apply. */
-    const char *const *system_ui_capabilities;
-    size_t system_ui_capability_count;
 } pocket_compiled_profile;
 ${profileFactsC(profile, "pocket_profile_facts_data")}static const char pocket_profile_id_data[] = ${cBytes(profile.id)};
 static const char pocket_profile_platform_data[] = ${cBytes(profile.platform)};
 static const char pocket_profile_form_data[] = ${cBytes(profile.form)};
 static const char pocket_profile_animation_data[] = ${cText(facts.animation)};
-${strings("pocket_profile_presentation_names", facts.presentations)}${strings("pocket_profile_capability_names", facts.capabilities)}${strings("pocket_profile_system_ui_capability_names", facts.systemUICapabilities)}static const pocket_compiled_profile pocket_profile = {
+${strings("pocket_profile_presentation_names", facts.presentations)}${strings("pocket_profile_capability_names", facts.capabilities)}static const pocket_compiled_profile pocket_profile = {
     sizeof(pocket_compiled_profile), &pocket_profile_facts_data, {${hashBytes(profileHash).join(",")}},
     ${hostAbi}u, ${Math.max(...facts.cadences)}u, pocket_profile_id_data,
     pocket_profile_platform_data, pocket_profile_form_data, pocket_profile_animation_data,
     pocket_profile_facts_data_cadences, ${facts.cadences.length}u,
     pocket_profile_presentation_names, ${facts.presentations.length}u,
-    pocket_profile_capability_names, ${facts.capabilities.length}u,
-    pocket_profile_system_ui_capability_names, ${facts.systemUICapabilities.length}u
+    pocket_profile_capability_names, ${facts.capabilities.length}u
 };
 #endif
 `;

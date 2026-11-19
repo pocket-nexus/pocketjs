@@ -109,7 +109,7 @@ export function mountUi(transport, environment, global = globalThis) {
   Object.assign(ui, { __host: environment.host, __hostAbi: hostAbi, __tickHz: environment.tickHz, __viewport: { ...environment.viewport } });
   if (environment.auxiliary) ui.__auxiliarySurface = { ...environment.auxiliary };
   if (environment.textures !== undefined || environment.sprites !== undefined) {
-    ui.__textures = Object.create(null); ui.__sprites = Object.create(null); ui.__surfaces = {};
+    ui.__textures = Object.create(null); ui.__sprites = Object.create(null);
     for (const texture of environment.textures ?? []) ui.__textures[texture.name] = texture.handle;
     for (const sprite of environment.sprites ?? []) ui.__sprites[sprite.name] = { handle: sprite.handle, frames: sprite.frames, cols: sprite.columns, step: sprite.step };
   }

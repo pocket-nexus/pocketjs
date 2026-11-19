@@ -7,6 +7,6 @@
 
 pub use pocket_render::{
     append_batch, batch, build, gradient_corners, logical_rect, quad, record, triangle, validate,
-    wh, word_len, xy, Backend, Batch, Corners, DecodeError, DrawOps, Emit, Fill, GlyphCell,
-    Operation, Record, Source, Vertex, DRAW_LIST_VERSION, MAX_CLIP_DEPTH,
+    wh, word_len, xy, Backend, Batch, Corners, DecodeError, DrawOps, Fill, GlyphCell, Operation,
+    Record, Source, Vertex, DRAW_LIST_VERSION, MAX_CLIP_DEPTH,
 };

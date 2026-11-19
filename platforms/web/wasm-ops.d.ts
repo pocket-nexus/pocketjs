@@ -36,29 +36,12 @@ export interface WasmUi {
   drawHash: (() => bigint) | null;
   /** Hash the auxiliary surface's DrawList; null for an older wasm. */
   drawHashAuxiliary: (() => bigint) | null;
-  compositorBindings(): Array<{ handle: number; focused: boolean }>;
-  compositorFrames(): Array<{
-    handle: number;
-    full: [number, number, number, number];
-    clip: [number, number, number, number];
-    focused: boolean;
-    order: number;
-  }>;
-  uploadCompositorSurface(
-    handle: number,
-    pixels: Uint8Array,
-    width: number,
-    height: number,
-  ): number;
-  freeCompositorSurface(handle: number): void;
   /** Rasterize the byte-exact RGBA8 framebuffer at the logical viewport size. */
   render(): Uint8Array;
   /** Rasterize directly at an integer physical scale from 1 through 4. */
   renderScaled(scale: number): Uint8Array;
   /** Rasterize once with coverage: premultiplied RGBA8, alpha 0 where nothing is drawn; null for an older wasm. */
   renderPremultiplied: ((scale?: number) => Uint8Array) | null;
-  /** Render child surfaces at their compositor instructions. */
-  renderComposited(scale?: number): Uint8Array;
   /** Repaint only changed regions at the logical viewport size. */
   renderIncremental(): Uint8Array;
   /** Repaint only changed regions at an integer physical scale. */

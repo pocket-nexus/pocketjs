@@ -321,7 +321,7 @@ export function setStyleResolver(fn: (cls: string) => number | undefined): void 
 }
 
 /** Non-strict-host miss counters (PSP: don't crash, count). */
-export const missCounters = { unknownClass: 0, unknownTexture: 0, unknownSurface: 0 };
+export const missCounters = { unknownClass: 0, unknownTexture: 0 };
 
 const textures = new Map<string, number>();
 
@@ -460,7 +460,7 @@ export function createElement(tag: string): NodeMirror {
   const type = (NODE_TYPE as Record<string, number>)[tag];
   if (type === undefined) {
     throw new Error(
-      `PocketJS: unknown element <${tag}> - only view/text/image/surface exist`,
+      `PocketJS: unknown element <${tag}> - only view/text/image exist`,
     );
   }
   return decorateNativeNode({
@@ -663,42 +663,6 @@ function setSpriteSrc(node: NodeMirror, value: unknown): void {
   ops.setSprite(node.id, meta.handle, meta.frames, meta.cols, spriteStep(node, meta.step));
 }
 
-function setCompositorBinding(node: NodeMirror): void {
-  const ops = getOps();
-  const bind = ops.setCompositorSurface;
-  if (!bind) {
-    // A compositor surface is an enhancement on plan-less dev/sim hosts; the
-    // System UI shell keeps its fallback content visible there.
-    return;
-  }
-  if (!ops.__surfaces) {
-    // Surface handles exist only when a resolved Pocket System has been loaded.
-    // Plan-less dev/sim hosts render the shell's fallback content.
-    return;
-  }
-  const packageId = node.domAttrs?.package;
-  const focused = node.domAttrs?.focused === true ? 1 : 0;
-  if (packageId == null || packageId === "") {
-    bind(node.id, -1, focused);
-    return;
-  }
-  if (typeof packageId !== "string") {
-    throw new Error("PocketJS: compositor surface package must be a string id");
-  }
-  const handle = ops.__surfaces[packageId];
-  if (handle === undefined) {
-    if (getHost().strict) {
-      throw new Error(
-        `PocketJS: package ${JSON.stringify(packageId)} is not installed in this Pocket System`,
-      );
-    }
-    missCounters.unknownSurface++;
-    bind(node.id, -1, focused);
-    return;
-  }
-  bind(node.id, handle, focused);
-}
-
 type StyleObject = Record<string, number | string>;
 
 function setStyleObject(node: NodeMirror, value: unknown, prev: unknown): void {
@@ -759,10 +723,6 @@ export function setProp<T>(node: NodeMirror, name: string, value: T, prev?: T): 
           setSpriteSrc(node, key);
         }
       }
-      return value;
-    case "package":
-    case "focused":
-      setCompositorBinding(node);
       return value;
     case "style":
       setStyleObject(node, value, prev);

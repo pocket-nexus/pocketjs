@@ -31,7 +31,7 @@ between code that names the former path and code that names the new one.
 | Former path | Item |
 | --- | --- |
 | `pocket_present::damage`, `transaction` and the root damage types | `pocket_render::damage` |
-| `pocket_present::compositor`, `incremental` | `pocket_raster::compositor`, `pocket_raster::incremental` |
+| `pocket_present::incremental` | `pocket_raster::incremental` |
 | `pocket_present::coordinator`, `Coordinator`, `DisplayId`, `PresentError`, `RendererId` | `pocket_runtime::coordinator` |
 | `pocket_present::ink` | `pocket_drivers::ink` |
 

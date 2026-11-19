@@ -32,4 +32,4 @@ OFFSET_HOST_INPUTS_PLAN_HASH = 72
 OFFSET_BYTECODE_ENGINE_ABI = 16
 OFFSET_BYTECODE_PAYLOAD = 48
 HOST_PRESENTATIONS = ["fill","fit","integer-fit","native","stretch"]
-PROFILE_HASH_FIELDS = ["id","platform","form","cadences","display","capabilities","roleCapabilities"]
+PROFILE_HASH_FIELDS = ["id","platform","form","cadences","display","capabilities"]

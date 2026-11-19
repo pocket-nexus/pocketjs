@@ -293,9 +293,9 @@ registry does not know; **those ids are the host's**:
 
 - `validatePocketProfile` and `validatePlatformContractRegistry` accept them.
 - `resolveAppPlan` accepts an `app.features` entry when the registry or the
-  selected host contract (`capabilities` or `roleCapabilities`) has it, and
-  records it in `plan.features` like a registered id. An entry that neither
-  has is `capability.unknown`.
+  `capabilities` of the selected host contract has it, and records it in
+  `plan.features` like a registered id. An entry that neither has is
+  `capability.unknown`.
 - Admission compares feature names with the host's capability names as
   strings, so a device admits the plan without knowing the id.
 - PocketJS attaches nothing else to the id: no dependency rule, no
@@ -325,7 +325,6 @@ generation, 12.**
 | `display` | `logicalViewports`, `presentations`, `rasterDensity`, `animation`, and optional `dynamicViewport` and `auxiliary` |
 | `panel` | Physical panel sizes in pixels; the compiler reads them, admission does not |
 | `capabilities` | Capability ids, compared as a set: registered ids and ids the host defines |
-| `roleCapabilities.systemUI` | Names a package in the System UI role also receives |
 | `worker.nodes` | The most worker nodes of each kind one application may declare |
 | `worker.channels` | `recordBytes` and `capacity`: the largest worker channel one application may declare, and the size of a channel declared `"host"`. At least **1024 bytes and 8 records** (the value when absent), at most **64 KiB and 256 records** |
 | `worker.http` | `responseBytes`: the largest response body one `http` request may ask for. At least **256 KiB** (the value when absent) |
@@ -338,14 +337,7 @@ generation, 12.**
 | `vita`         | vita / takeover   | 480×272 (`integer-fit`)                  | 2       | `input.analog.left`, `input.buttons`, `input.cursor`, `input.touch`, `text.glyphs.baked` |
 | `pocketbook`   | pocketbook / takeover | 480×272 (`integer-fit`)              | 2       | `input.buttons`, `input.touch`, `text.glyphs.baked` |
 | `macos-widget` | macos / widget    | 420×560 default, 240×180…4096×4096       | 2       | `input.buttons`, `input.ime`, `input.pointer`, `input.text`, `host.clipboard`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime` |
-| `web-app`      | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime`; systemUI role adds `ui.compositor-surfaces` |
-
-`roleCapabilities.systemUI` is the one conditional column: those APIs reach a
-package only in the System UI role. `ui.compositor-surfaces` is the API a
-shell uses to place other installed packages into native compositor surfaces.
-`resolveAppPlan` resolves an ordinary application, so for it the column adds
-nothing; a launcher product such as pocket-shell resolves the System UI role
-with its own resolver.
+| `web-app`      | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime` |
 
 A product writes its own host contract:
 
@@ -369,10 +361,9 @@ A product writes its own host contract:
 ```
 
 **`profileHash` is the SHA-256 of the canonical projection of `id`,
-`platform`, `form`, `cadences`, `display`, `capabilities` and
-`roleCapabilities`.** Capabilities, cadences and role capabilities hash as
-sorted sets. The hash names the host contract a bundle was compiled against.
-Admission does not compare it.
+`platform`, `form`, `cadences`, `display` and `capabilities`.** Capabilities
+and cadences hash as sorted sets. The hash names the host contract a bundle
+was compiled against. Admission does not compare it.
 
 The host config, `pocket.host.config.ts`, names the host contract by a path
 relative to the config file, or by a built-in host id:

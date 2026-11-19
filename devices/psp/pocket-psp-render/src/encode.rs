@@ -41,10 +41,7 @@ impl Encoder {
         }
         for op in DrawOps::new(words, DamageRect::new(0, 0, 480, 272)) {
             let op = op.map_err(|_| RenderError::InvalidFrame)?;
-            if matches!(
-                op.opcode,
-                spec::draw_op::SURFACE_QUAD | spec::draw_op::TEXT_RUN
-            ) {
+            if op.opcode == spec::draw_op::TEXT_RUN {
                 return Err(RenderError::Unsupported);
             }
         }

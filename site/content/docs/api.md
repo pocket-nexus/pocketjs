@@ -9,7 +9,7 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | Import path | Exports |
 | --- | --- |
 | `@pocketjs/framework` | `mount`, `render`, host/runtime helpers, types |
-| `@pocketjs/framework/components` | `View`, `Text`, `Image`, `Sprite`, `CompositorSurface`, `Screen`, `Focusable`, `FocusScope`, `FocusGrid`, `ActionHandler`, `Portal`, `AuxiliarySurface`, `AuxiliaryPortal`, `Modal`, `ActionBar`, `Named`, `Grid`, `Lazy`, `Gallery`, `DeepZoom`, `useViewport` (Solid) |
+| `@pocketjs/framework/components` | `View`, `Text`, `Image`, `Sprite`, `Screen`, `Focusable`, `FocusScope`, `FocusGrid`, `ActionHandler`, `Portal`, `AuxiliarySurface`, `AuxiliaryPortal`, `Modal`, `ActionBar`, `Named`, `Grid`, `Lazy`, `Gallery`, `DeepZoom`, `useViewport` (Solid) |
 | `solid-js` | `createSignal`, `createEffect`, `createMemo`, `onMount`, `onCleanup`, `batch`, `untrack`, `Show`, `For`, `Index`, `Switch`, `Match` |
 | `vue` | `defineComponent`, `ref`, `computed`, `watchEffect`, `onMounted`, `onScopeDispose` |
 | `octane` | `useState`, `useEffect`, `useMemo`, `useRef`, `useLayoutEffect`, `useEffectEvent` |
@@ -148,7 +148,7 @@ Bind an image key (the `src` string) to an `uploadTexture` handle so `<Image src
 ### `missCounters`
 
 ```ts
-const missCounters: { unknownClass: number; unknownTexture: number; unknownSurface: number }
+const missCounters: { unknownClass: number; unknownTexture: number }
 ```
 
 On a non-strict native host, an unknown class or texture increments a counter
@@ -206,10 +206,9 @@ function View(props: ViewProps): JSX.Element
 function Text(props: TextProps): JSX.Element
 function Image(props: ImageProps): JSX.Element
 function Sprite(props: SpriteProps): JSX.Element
-function CompositorSurface(props: CompositorSurfaceProps): JSX.Element
 ```
 
-The host primitives, wrapped React Native-style. `View` is the flex container/box, `Text` renders baked-font text, `Image` draws an uploaded texture by `src` key, and `Sprite` draws an auto-playing animation from a baked sprite atlas by `sprite` key. `CompositorSurface` is reserved for System UI shells and places an installed package AppInstance into shell layout and painter order.
+The host primitives, wrapped React Native-style. `View` is the flex container/box, `Text` renders baked-font text, `Image` draws an uploaded texture by `src` key, and `Sprite` draws an auto-playing animation from a baked sprite atlas by `sprite` key.
 
 **`ViewProps`**
 
@@ -226,7 +225,6 @@ The host primitives, wrapped React Native-style. `View` is the flex container/bo
 **`TextProps`** — `class`, `style`, `ref`, `children`, `debugName`.
 **`ImageProps`** — `class`, `src` (`string`), `style`, `ref`, `debugName`.
 **`SpriteProps`** — `class`, `sprite` (`string` — a `ui:sprite.<name>` atlas key), `frameStep` (`number`), `style`, `ref`, `debugName`.
-**`CompositorSurfaceProps`** — `class`, `style`, `package` (installed reverse-DNS package id), `focused`, `ref`, `debugName`.
 
 `Sprite` is a native animated primitive: its atlas (a pow2 texture holding a grid of frames) is baked into the pak, and the Rust core advances the frame cell from its own tick counter — deterministic and with **zero per-frame JS**. It auto-plays from the first frame the moment it is displayed, so a sprite revealed by paging or a `Show`/`Lazy` starts animating on its own. Bake atlases by listing them in a demo's `sprites.json` (`{ "<atlas>.png": { cols, rows, frames, step } }`); `step` is core ticks per frame, so the sprite runs at `tick rate / step` fps (`step: 2` is 30 fps on a 60 Hz bundle). **`frameStep` overrides the `sprites.json` `step` at runtime** and is clamped to the core's 1–65535 tick range. See `apps/gallery` (its covers are shader-baked animated sprites).
 

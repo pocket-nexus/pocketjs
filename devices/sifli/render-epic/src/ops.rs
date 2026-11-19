@@ -54,8 +54,8 @@ impl<'a> Decoder<'a> {
                 draw_op::TEX_QUAD => logical_rect(words[2], words[3]).intersect(clip),
                 draw_op::TRI => triangle_bounds([words[1], words[2], words[3]], clip),
                 draw_op::TEX_TRI => triangle_bounds([words[2], words[5], words[8]], clip),
-                // Native text and compositor surfaces have no pixels on this
-                // target; their clip is a conservative bound.
+                // Native text has no pixels on this target; its clip is a
+                // conservative bound.
                 _ => clip,
             };
             return Ok(Some(Op {

@@ -30,8 +30,7 @@ submission references them.
 Every submission retains a separate VBO and its texture versions. `wait` calls
 `glFinish`; early retirement and destruction drain pending work before deletion.
 The driver does not support `render_zero_copy`. Known native-text operations are
-unsupported. `SurfaceQuad` is unsupported unless the target declares an external
-compositor responsible for that operation.
+unsupported.
 
 `with_limits` supplies resident texture budgets. Candidate defaults are **512
 image entries / 64 MiB** and **128 glyph pages / 4 MiB**. The cache evicts entries

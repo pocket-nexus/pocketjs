@@ -30,7 +30,6 @@ pub struct WasmHost {
     provider_ops: RefCell<Vec<u16>>,
     provider_result: RefCell<Option<OpResult>>,
     capture: RefCell<Capture>,
-    surfaces: RefCell<Vec<Option<pocket_raster::compositor::CompositorRaster>>>,
 }
 #[derive(Default)]
 struct Capture {
@@ -47,7 +46,6 @@ fn core_context(size: [u32; 2], density: u32, auxiliary: Option<[u32; 2]>) -> Op
     }
     ui.set_physics(Box::new(pocket_physics::Physics::new()));
     let ops = OpContext::from_ui(ui);
-    ops.set_compositor_enabled(true).unwrap();
     ops.set_physics_enabled(true).unwrap();
     ops
 }
@@ -125,7 +123,6 @@ pub extern "C" fn web_create(w: u32, h: u32, density: u32, aw: u32, ah: u32) -> 
         provider_ops: RefCell::new(Vec::new()),
         provider_result: RefCell::new(None),
         capture: RefCell::new(Capture::default()),
-        surfaces: RefCell::new(Vec::new()),
     }))
 }
 /// The JS owner invalidates guest references before releasing this handle.
@@ -169,7 +166,6 @@ pub unsafe extern "C" fn web_reset(h: &WasmHost, density: u32) -> i32 {
             h.density.set(density);
             *h.ops.borrow_mut() = core_context(h.logical.get(), density, h.auxiliary.get());
             *h.capture.borrow_mut() = Capture::default();
-            h.surfaces.borrow_mut().clear();
             h.snapshot.set(Snapshot::default());
             Ok(())
         })(),
@@ -401,7 +397,8 @@ impl RenderResources for Auxiliary<'_> {
         RenderResources::font_atlas(self.0, s)
     }
 }
-/// Modes: opaque full, incremental, premultiplied, compositor, auxiliary.
+/// Modes: 1 incremental, 2 premultiplied, 4 auxiliary; any other renders
+/// the opaque full frame.
 /// Captures use the same retained core as Runtime and keep their own buffers.
 #[no_mangle]
 pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 {
@@ -434,10 +431,7 @@ pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 
         }
         resize(&mut capture.opaque, len)?;
         let Capture { opaque, damage, .. } = &mut *capture;
-        if mode == 3 {
-            pocket_raster::compositor::render(&c.ui, words, opaque, scale, &h.surfaces.borrow());
-            damage.invalidate();
-        } else if mode == 1 {
+        if mode == 1 {
             if pocket_raster::incremental::render_scaled_incremental(
                 &c.ui,
                 words,
@@ -463,57 +457,5 @@ pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 
             status(h, Err(e));
             std::ptr::null()
         }
-    }
-}
-#[no_mangle]
-pub extern "C" fn web_compositor_frames(h: &WasmHost) -> i32 {
-    status(
-        h,
-        (|| {
-            let ops = h.ops.borrow();
-            let mut c = ops.core_mut()?;
-            c.draw();
-            let frames = c.compositor_surface_frames();
-            *h.result.borrow_mut()=serde_json::to_vec(&frames.iter().enumerate().map(|(order,f)|json!({"handle":f.handle,"full":f.full,"clip":f.clip,"focused":f.focused,"order":order})).collect::<Vec<_>>()).unwrap();
-            Ok(())
-        })(),
-    )
-}
-#[no_mangle]
-pub unsafe extern "C" fn web_upload_surface(
-    h: &WasmHost,
-    handle: i32,
-    p: *const u8,
-    n: usize,
-    w: u32,
-    height: u32,
-) -> i32 {
-    if checked_size([w, height], 1) != Some(n) {
-        return -1;
-    }
-    let mut surfaces = h.surfaces.borrow_mut();
-    let index = if handle < 0 {
-        surfaces.len().max(1)
-    } else {
-        handle as usize
-    };
-    if index > 65535 {
-        return -1;
-    }
-    if index >= surfaces.len() {
-        surfaces.resize_with(index + 1, || None);
-    }
-    surfaces[index] = Some(pocket_raster::compositor::CompositorRaster {
-        pixels: bytes(p, n).to_vec(),
-        width: w,
-        height,
-        density: 1,
-    });
-    index as i32
-}
-#[no_mangle]
-pub extern "C" fn web_free_surface(h: &WasmHost, handle: usize) {
-    if let Some(s) = h.surfaces.borrow_mut().get_mut(handle) {
-        *s = None
     }
 }

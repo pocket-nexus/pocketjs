@@ -326,9 +326,7 @@ pub unsafe extern "C" fn web_boot(
                     pocket_runtime::RendererId::SOFTWARE,
                 )?;
             }
-            let ops = runtime.op_context();
-            ops.set_compositor_enabled(true)?;
-            *h.ops.borrow_mut() = ops;
+            *h.ops.borrow_mut() = runtime.op_context();
             // Store before any imported guest callback. Callbacks use only the
             // separate OpContext; trying to boot/reset/destroy again returns Busy.
             *slot = Some(runtime);

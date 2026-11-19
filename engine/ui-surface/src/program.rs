@@ -140,7 +140,6 @@ impl UiProgram {
             .set_physics(Box::new(pocket_physics::Physics::new()))
             .host()?;
         runtime.allow_embedded_viewport_changes().host()?;
-        runtime.op_context().set_compositor_enabled(true).host()?;
         let surface = UiSurface::from_context(runtime.op_context());
         surface.set_identity(&owned.host, owned.host_abi);
         let input = Rc::new(RefCell::new(InputFrameBuilder::new()));
@@ -527,11 +526,10 @@ mod tests {
         let surface = program.surface();
         surface.set_svc_allowlist(["note"]);
         surface.svc_push("hello");
-        surface.register_compositor_surface("child").unwrap();
         let guest = Rc::new(Guest::new().unwrap());
         program.boot(guest.clone(),"test",&r#"
             if(ui.__host!=='native-test'||ui.__hostAbi!==EXPECTED_BINDING||ui.__viewport.w!==16||ui.__tickHz!==60) throw Error('metadata');
-            if(ui.__surfaces.child!==0||!ui.svcOpen('note')||ui.svcOpen('other')) throw Error('services');
+            if(!ui.svcOpen('note')||ui.svcOpen('other')) throw Error('services');
             for (const name of ['physicsCreate','physicsApply','physicsDestroy','physicsEvents','physicsQuery']) {
                 if(typeof ui[name]!=='function') throw Error('missing '+name);
             }

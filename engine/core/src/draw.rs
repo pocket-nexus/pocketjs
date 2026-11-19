@@ -1573,19 +1573,6 @@ impl<'a> Walker<'a> {
             );
         }
 
-        // -- installed application surface -----------------------------------
-        if node.node_type == spec::NodeType::Surface as u8 && node.compositor_surface >= 0 {
-            self.emit_compositor_surface(
-                dl,
-                &world,
-                l.w,
-                l.h,
-                node.compositor_surface as u32,
-                node.compositor_focused,
-                &clip,
-            );
-        }
-
         // -- children (overflow-hidden scissor around them; z-index stable
         //    sort within siblings) ---------------------------------------------
         let mut child_clip = clip;
@@ -3267,48 +3254,6 @@ impl<'a> Walker<'a> {
         dl.words.push(u1.to_bits());
         dl.words.push(v1.to_bits());
         dl.words.push(scale_alpha(0xffff_ffff, op));
-    }
-
-    /// Emit a native-compositor surface instruction. Unlike TEX_QUAD, full
-    /// and clipped geometry are explicit: clipping never shifts the child
-    /// realm's coordinate origin and no UV reconstruction is involved.
-    fn emit_compositor_surface(
-        &self,
-        dl: &mut DrawList,
-        world: &Affine,
-        w: f32,
-        h: f32,
-        surface: u32,
-        focused: bool,
-        clip: &Clip,
-    ) {
-        if !world.is_axis_aligned() || w <= 0.0 || h <= 0.0 {
-            return;
-        }
-        let (x0, y0) = world.apply(0.0, 0.0);
-        let (x1, y1) = world.apply(w, h);
-        let visible = Clip {
-            x0: x0.max(clip.x0),
-            y0: y0.max(clip.y0),
-            x1: x1.min(clip.x1),
-            y1: y1.min(clip.y1),
-        };
-        if visible.is_empty()
-            || roundf(visible.x1 - visible.x0) <= 0.0
-            || roundf(visible.y1 - visible.y0) <= 0.0
-        {
-            return;
-        }
-        dl.words.push(spec::draw_op::SURFACE_QUAD);
-        dl.words.push(surface);
-        dl.words.push(x0.to_bits());
-        dl.words.push(y0.to_bits());
-        dl.words.push((x1 - x0).to_bits());
-        dl.words.push((y1 - y0).to_bits());
-        dl.words.push(xy_word(visible.x0, visible.y0));
-        dl.words
-            .push(wh_word(visible.x1 - visible.x0, visible.y1 - visible.y0));
-        dl.words.push(u32::from(focused));
     }
 
     /// Emit the inline text run of a text element as one GLYPH_RUN.

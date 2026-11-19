@@ -37,8 +37,6 @@ export const NODE_TYPE = {
   view: 0,
   text: 1,
   image: 2,
-  /** A native-compositor slot for an installed Pocket application. */
-  surface: 3,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -77,7 +75,8 @@ export const SIZE_FULL = -1;
 // UI ops (the `ui.*` native contract — see docs/DESIGN.md table)
 // ---------------------------------------------------------------------------
 // Numeric codes are the programs/web/wasm/FFI ABI identity of each op. 0 is reserved
-// (invalid/nop). Codes are append-only: never renumber, never reuse.
+// (invalid/nop). Codes are append-only, and an op in use is never renumbered.
+// The code of a removed op is free; the table keeps no placeholder for it.
 //
 // Signatures (authoritative; hosts marshal them however they like):
 //   createNode(type:i32) -> id            destroyNode(id)          [subtree]
@@ -98,8 +97,6 @@ export const SIZE_FULL = -1;
 //   loadStyles(buf) / loadFontAtlas(buf)   [web/test hosts only; PSP feeds core
 //                                           natively from the pak]
 //   measureText(str, fontSlot) -> width:f32
-//   setCompositorSurface(id, handle, focusedInt) [surface nodes only; handle
-//                                                  < 0 clears]
 //   physicsCreate/Apply/Destroy/Events/Query      [ui.physics; see physics.ts]
 
 export const OP = {
@@ -256,13 +253,6 @@ export const OP = {
   //                      stays app-side — this op is the "where may it
   //                      break" half only. Hosts without it: applications
   //                      implement matching greedy rules over measureText.
-  setCompositorSurface: 44, // (id, surfaceHandle, focusedInt). Binds an
-  //                      Pocket System package surface to a NODE_TYPE.surface
-  //                      node. The core emits SURFACE_QUAD in ordinary paint
-  //                      order with BOTH full and clipped bounds; no image or
-  //                      texture semantics are involved. focusedInt is the
-  //                      shell's focus fact consumed by the native compositor
-  //                      for input and scheduling. handle < 0 clears.
   // -- additional UI outputs (display.auxiliary capability) ----------------
   hitTestAuxiliary: 45, // (x: f32, y: f32) -> topmost painted node id in the
   //                      auxiliary output's logical coordinate space, or 0.
@@ -1467,16 +1457,6 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           i16 clip guarantee: a run may start off-viewport,
 //                           and the core brackets any partially-clipped run
 //                           in SCISSOR/SCISSOR_POP.
-//   SURFACE_QUAD (9 words): op, surfaceHandle,
-//                           fullX, fullY, fullW, fullH (f32 bits; the shell
-//                           node's unclipped logical bounds), clipXY, clipWH
-//                           (the visible integer destination after every
-//                           enclosing clip), flags (bit 0 = focused).
-//                           This is a native compositor instruction. It owns
-//                           no pixels in software/fixed-function backends and
-//                           is emitted exactly where the surface node occurs
-//                           in shell painter order, so later shell ops remain
-//                           above the child surface.
 
 /** Closed DrawList operation generation; drivers and archives use matching headers. */
 export const DRAW_LIST_VERSION = 1;
@@ -1491,7 +1471,6 @@ export const DRAW_OP = {
   tri: 7,
   texTri: 8,
   textRun: 9,
-  surfaceQuad: 10,
 } as const;
 
 // ---------------------------------------------------------------------------

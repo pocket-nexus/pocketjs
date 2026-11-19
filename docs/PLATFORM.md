@@ -32,8 +32,8 @@ AOT compilation; guest hosts reject bundles without a guest artifact.
 ## Host contracts and the bundle format
 
 A host contract is a `pocket-host/2` JSON document: `id`, `platform`, `form`,
-`cadences`, `display`, `panel`, `capabilities` and optional
-`roleCapabilities`, `worker`, `limits` and `input`. Built-in host contracts live in
+`cadences`, `display`, `panel`, `capabilities` and optional `worker`, `limits`
+and `input`. Built-in host contracts live in
 `hosts/<id>/pocket.host.json` and are exported from `@pocketjs/framework/hosts`.
 `validatePocketProfile` in `@pocketjs/framework/profile` checks the schema,
 reserved names, dynamic viewports, auxiliary screens, worker kinds and contact

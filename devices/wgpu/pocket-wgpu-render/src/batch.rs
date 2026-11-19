@@ -1,8 +1,7 @@
 use crate::*;
 use pocket_drivers::DamageRect;
 use pocket_render::glyph_pages::GlyphSource;
-use pocket_render::record::SurfaceQuad;
-use pocket_render::{Backend, Emit, Fill, GlyphCell, Record, Source};
+use pocket_render::{Backend, Fill, GlyphCell, Record, Source};
 
 fn cache_error(error: pocket_render::tex_cache::CacheError<RenderError>) -> RenderError {
     match error {
@@ -293,7 +292,7 @@ impl Backend for Frame<'_> {
     fn emitted(&mut self, vertices: &mut [UiVertex], source: Source<[f32; 4]>) {
         match source {
             Source::Fill => {}
-            Source::Image | Source::Surface => {
+            Source::Image => {
                 for vertex in vertices {
                     vertex.mode = 1;
                 }
@@ -305,55 +304,5 @@ impl Backend for Frame<'_> {
                 }
             }
         }
-    }
-
-    fn surface_quad(
-        &mut self,
-        emit: &mut Emit<'_, UiVertex, TexBind, Self::Clip>,
-        surface: &SurfaceQuad,
-        clip: DamageRect,
-    ) -> Result<(), RenderError> {
-        let Some(entry) = self.renderer.surfaces.get(&surface.surface) else {
-            return Ok(());
-        };
-        let logical = entry.logical;
-        let [x, y, width, height] = [surface.x, surface.y, surface.width, surface.height];
-        finite(&[x, y, width, height])?;
-        let width = width.min(logical.0 as f32);
-        let height = height.min(logical.1 as f32);
-        if width <= 0.0 || height <= 0.0 || logical.0 == 0 || logical.1 == 0 {
-            return Ok(());
-        }
-        let (size, scale) = (self.size, self.scale);
-        let scissor = self.clip(clip);
-        let [cx, cy] = [surface.clip_x as f32, surface.clip_y as f32];
-        let [cw, ch] = [surface.clip_width as f32, surface.clip_height as f32];
-        // Surface clips use ceil at fractional physical boundaries.
-        let x0 = ((cx * scale).max(0.0).ceil() as u32)
-            .max(scissor.0)
-            .min(size.0);
-        let y0 = ((cy * scale).max(0.0).ceil() as u32)
-            .max(scissor.1)
-            .min(size.1);
-        let x1 = (((cx + cw) * scale).max(0.0).ceil() as u32)
-            .min(scissor.0 + scissor.2)
-            .min(size.0);
-        let y1 = (((cy + ch) * scale).max(0.0).ceil() as u32)
-            .min(scissor.1 + scissor.3)
-            .min(size.1);
-        let corners: [UiVertex; 6] = pocket_render::quad(
-            [x, y],
-            [x + width, y + height],
-            [0.0; 2],
-            [width / logical.0 as f32, height / logical.1 as f32],
-            [u32::MAX; 4],
-        );
-        let vertices = emit.detached(
-            TexBind::Surface(surface.surface),
-            (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)),
-            &corners,
-        );
-        self.emitted(vertices, Source::Surface);
-        Ok(())
     }
 }

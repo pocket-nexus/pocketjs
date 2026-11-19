@@ -1,7 +1,7 @@
 // One browser AppInstance. A same-origin hidden iframe loads this module so
-// every Pocket package receives an independent JavaScript Realm and wasm Ui.
-// The parent System host owns scheduling and composition through this narrow
-// object; package code never receives another realm or framebuffer.
+// every guest receives an independent JavaScript Realm and wasm Ui. The
+// parent page drives input and frames through this object and reads the
+// rendered pixels back; guest code never receives the parent's realm.
 // Runtime owns input encoding, guest turns and display presentation.
 //
 // `options.text: false` starts the instance without the text worker and its
@@ -70,7 +70,6 @@ export async function create(options) {
         glyphs = options.runtimeGlyphs === false ? null : installRuntimeGlyphs(ops, {
           rasterize: canvasRasterizer(options.glyphFamilies ? {families:options.glyphFamilies} : {}),
         });
-        if(options.surfaces) ops.__surfaces = {...options.surfaces};
       },
       beforeFrame() { textWorker.beginFrame(); },
       afterFrame() { glyphs?.flush(); },
@@ -123,9 +122,6 @@ export async function create(options) {
     renderPremultiplied(scale = 1) {
       return wasm.renderPremultiplied ? wasm.renderPremultiplied(scale) : null;
     },
-    renderComposited() {
-      return wasm.renderComposited();
-    },
     resize(width, height) {
       wasm.resizeViewport(width, height);
       viewport[0] = width;
@@ -144,18 +140,6 @@ export async function create(options) {
     /** The auxiliary surface's draw hash; null on a pocketjs.wasm that predates it. */
     drawHashAuxiliary() {
       return wasm.drawHashAuxiliary ? wasm.drawHashAuxiliary() : null;
-    },
-    bindings() {
-      return wasm.compositorBindings();
-    },
-    frames() {
-      return wasm.compositorFrames();
-    },
-    uploadSurface(handle, pixels, width, height) {
-      return wasm.uploadCompositorSurface(handle, pixels, width, height);
-    },
-    freeSurface(handle) {
-      wasm.freeCompositorSurface(handle);
     },
     sendService(line) {
       incoming.push(typeof line === "string" ? line : JSON.stringify(line));

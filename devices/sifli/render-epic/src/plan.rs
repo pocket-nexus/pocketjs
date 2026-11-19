@@ -214,8 +214,8 @@ pub(crate) fn build(
                 }
                 out.push(cpu(&op));
             }
-            // Scissors are folded into every op's clip; native text and
-            // compositor surfaces have no pixels on this target.
+            // Scissors are folded into every op's clip; native text has no
+            // pixels on this target.
             _ => {}
         }
     }

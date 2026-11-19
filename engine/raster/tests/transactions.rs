@@ -111,37 +111,6 @@ fn prepare_does_not_commit_and_targets_keep_independent_histories() {
 }
 
 #[test]
-fn generic_compositor_preserves_surface_and_following_operation_order() {
-    let surface = pocket_raster::compositor::CompositorRaster {
-        pixels: [255, 0, 0, 255].repeat(4),
-        width: 2,
-        height: 2,
-        density: 1,
-    };
-    let mut words = vec![
-        draw_op::SURFACE_QUAD,
-        0,
-        1.0f32.to_bits(),
-        0.0f32.to_bits(),
-        2.0f32.to_bits(),
-        2.0f32.to_bits(),
-        1,
-        2 | (2 << 16),
-        0xffff_ffff,
-    ];
-    words.extend_from_slice(&rectangle(2, 0xffff_0000));
-    let mut pixels = [0u8; 32];
-    pocket_raster::compositor::render(&Resources, &words, &mut pixels, 1, &[Some(surface)]);
-    let black = [0, 0, 0, 255];
-    let red = [255, 0, 0, 255];
-    let blue = [0, 0, 255, 255];
-    assert_eq!(
-        pixels.as_slice(),
-        [black, red, blue, black, black, red, red, black].concat()
-    );
-}
-
-#[test]
 fn incremental_entrypoints_work_without_a_core_ui() {
     let mut tracker = DamageTracker::<8>::new();
     let mut pixels = [0u8; 32];

@@ -209,38 +209,6 @@ impl<'a> TextRun<'a> {
     }
 }
 
-/// A native compositor surface placed in shell painter order.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SurfaceQuad {
-    pub surface: u32,
-    /// The surface node's unclipped logical bounds.
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-    /// The visible integer destination after every enclosing clip.
-    pub clip_x: i32,
-    pub clip_y: i32,
-    pub clip_width: i32,
-    pub clip_height: i32,
-    pub flags: u32,
-}
-
-impl SurfaceQuad {
-    pub fn clip(&self) -> DamageRect {
-        DamageRect::new(
-            self.clip_x,
-            self.clip_y,
-            self.clip_x + self.clip_width,
-            self.clip_y + self.clip_height,
-        )
-    }
-
-    pub fn focused(&self) -> bool {
-        self.flags & 1 != 0
-    }
-}
-
 /// The decoded fields of one record.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Record<'a> {
@@ -253,7 +221,6 @@ pub enum Record<'a> {
     Tri(Tri),
     TexTri(TexTri),
     TextRun(TextRun<'a>),
-    SurfaceQuad(SurfaceQuad),
 }
 
 fn point(word: u32) -> [i32; 2] {
@@ -339,22 +306,6 @@ pub fn record(words: &[u32]) -> Result<Record<'_>, DecodeError> {
             bytes: words[7] as usize,
             payload: &words[8..],
         }),
-        draw_op::SURFACE_QUAD => {
-            let (clip_x, clip_y) = xy(words[6]);
-            let (clip_width, clip_height) = wh(words[7]);
-            Record::SurfaceQuad(SurfaceQuad {
-                surface: words[1],
-                x: f32::from_bits(words[2]),
-                y: f32::from_bits(words[3]),
-                width: f32::from_bits(words[4]),
-                height: f32::from_bits(words[5]),
-                clip_x,
-                clip_y,
-                clip_width,
-                clip_height,
-                flags: words[8],
-            })
-        }
         _ => return Err(DecodeError::UnknownOperation),
     })
 }

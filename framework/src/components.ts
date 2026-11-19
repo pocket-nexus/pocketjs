@@ -43,12 +43,10 @@ export {
   Text,
   Image,
   Sprite,
-  CompositorSurface,
   type ViewProps,
   type TextProps,
   type ImageProps,
   type SpriteProps,
-  type CompositorSurfaceProps,
 } from "./primitives.ts";
 export {
   DeepZoom,
