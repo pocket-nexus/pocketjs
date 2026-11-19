@@ -5,8 +5,9 @@ edition = "2021"
 publish = false
 [workspace]
 [features]
-default = ["usb-debug"]
-usb-debug = []
+# Run instance.rs with its guest deadline (pocketjs-vita feature guest-deadline).
+default = ["guest-deadline"]
+guest-deadline = []
 [dependencies]
 pocket-spec = { path = "../../../engine/spec" }
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b" }

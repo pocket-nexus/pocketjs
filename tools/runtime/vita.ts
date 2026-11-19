@@ -1,7 +1,6 @@
 // tools/runtime/vita.ts [--out=<dir>] — the generic PS Vita runtime: a
-// release eboot.bin with no game in it and no USB debug driver
-// (tools/vita.ts --runtime --no-usb-debug --release, cargo feature
-// `runtime`), in dist/runtime/vita/.
+// release eboot.bin with no game in it (tools/vita.ts --runtime --release,
+// cargo feature `runtime`), in dist/runtime/vita/.
 //
 //   eboot.bin                                 the program; started without a game, it
 //                                             says on screen that app0:app.pkb is missing
@@ -34,7 +33,7 @@ export async function buildRuntimeVita(argv: readonly string[] = [], context?: R
   mkdirSync(join(repository, ".pocket-build"), { recursive: true });
   const build = mkdtempSync(join(repository, ".pocket-build/vita-runtime-"));
   try {
-    await buildVita(["--runtime", "--no-usb-debug", "--release", `--package-outdir=${build}`], context);
+    await buildVita(["--runtime", "--release", `--package-outdir=${build}`], context);
     rmSync(out, { recursive: true, force: true });
     mkdirSync(out, { recursive: true });
     copyFileSync(join(build, "pocket-runtime.self"), join(out, VITA_RUNTIME_FILE));

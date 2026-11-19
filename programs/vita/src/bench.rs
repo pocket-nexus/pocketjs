@@ -1,4 +1,4 @@
-//! Opt-in physical-device benchmark receipts, separate from USB debug captures.
+//! Opt-in physical-device benchmark receipts.
 //! Samples measure CPU frame work through swap submission, not GPU timestamps.
 use std::{fs, io::Write, time::Instant};
 

@@ -281,8 +281,6 @@ export interface VitaPackVpkInput extends ResolveVitaPackageAssetsInput {
   readonly sfo: string;
   readonly eboot: string;
   readonly output: string;
-  /** Matching USB driver built by prepareVitaUsb; stock runtime enables it by default. */
-  readonly usbDriver?: string;
 }
 
 export function vitaPackVpkArguments(input: VitaPackVpkInput): string[] {
@@ -297,7 +295,6 @@ export function vitaPackVpkArguments(input: VitaPackVpkInput): string[] {
     input.sfo,
     "-b",
     input.eboot,
-    ...(input.usbDriver ? ["--add", `${input.usbDriver}=pocket-usbhostfs.skprx`] : []),
     ...assets.flatMap((asset) => [
       "--add",
       `${asset.source}=${asset.destination}`,

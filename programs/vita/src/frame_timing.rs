@@ -1,7 +1,8 @@
-//! Where a Vita frame's CPU time goes, averaged over the last 120 frames and reported in the USB
-//! status as `frameTiming` (microseconds): `advance` is the guest turn and core tick, `gpuWait` is
-//! begin_frame waiting for the previous scene's GPU work, `render` builds and submits the DrawList,
-//! `frame` is the whole loop iteration.
+//! Where a Vita frame's CPU time goes, averaged over the last 120 frames, in microseconds.
+//! `Runtime::render_with_overlay` records segment 1 (`gpu_wait`, begin_frame waiting for the
+//! previous scene's GPU work) and segment 2 (`render`, building and submitting the DrawList). A
+//! program loop that reports timing records segment 0 (`advance`, the guest turn and core tick)
+//! around `frame_with_input` and calls `end_frame` once per loop iteration (`frame`).
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 const SEGMENTS: usize = 3;
@@ -10,6 +11,15 @@ static ACC: [AtomicU64; SEGMENTS] = [const { AtomicU64::new(0) }; SEGMENTS];
 static AVG: [AtomicU32; SEGMENTS + 1] = [const { AtomicU32::new(0) }; SEGMENTS + 1];
 static FRAMES: AtomicU32 = AtomicU32::new(0);
 static WINDOW_START: AtomicU64 = AtomicU64::new(0);
+
+/// The last completed window's averages, in microseconds.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Averages {
+    pub advance: u32,
+    pub gpu_wait: u32,
+    pub render: u32,
+    pub frame: u32,
+}
 
 pub fn now_us() -> u64 {
     unsafe { vitasdk_sys::sceKernelGetProcessTimeWide() }
@@ -38,7 +48,7 @@ pub fn end_frame() {
     FRAMES.store(0, Ordering::Relaxed);
 }
 
-pub fn json() -> serde_json::Value {
+pub fn averages() -> Averages {
     let v = |i: usize| AVG[i].load(Ordering::Relaxed);
-    serde_json::json!({ "advance": v(0), "gpuWait": v(1), "render": v(2), "frame": v(3) })
+    Averages { advance: v(0), gpu_wait: v(1), render: v(2), frame: v(3) }
 }

@@ -141,7 +141,6 @@ exclude = [
     "tests/fixtures/embassy-host",
     "tests/fixtures/embassy-link",
     "tests/fixtures/psp-runtime",
-    "tests/fixtures/vita-dev",
     "tests/fixtures/vita-runtime",
 ]
 

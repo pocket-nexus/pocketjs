@@ -5,12 +5,8 @@ extern crate alloc;
 use pocket_archive as _;
 pub use pocket_vita_audio as audio;
 pub mod dbg;
-pub mod dev;
-#[cfg(feature = "usb-debug")]
-mod dev_delivery;
-pub mod dev_protocol;
-pub mod devmenu;
 pub mod frame_timing;
+pub mod overlay;
 pub mod scene;
 pub mod service_bindings;
 pub use pocket_vita_input as input;

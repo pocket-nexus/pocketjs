@@ -49,30 +49,6 @@ fn main() {
         .flag_if_supported("-std=c11")
         .flag_if_supported("-Wno-unused-parameter")
         .compile("pocket_guest_quickjs");
-    let dev_plan = env::var("POCKETJS_VITA_PLAN").unwrap_or_default();
-    let plan_json = if dev_plan.is_empty() {
-        "null".into()
-    } else {
-        println!("cargo:rerun-if-changed={dev_plan}");
-        fs::read_to_string(&dev_plan).expect("read Vita debug build plan")
-    };
-    for key in [
-        "POCKETJS_VITA_PLAN",
-        "POCKETJS_VITA_TITLE_ID",
-        "POCKETJS_NATIVE_BUILD",
-    ] {
-        println!("cargo:rerun-if-env-changed={key}");
-    }
-    let title_id = env::var("POCKETJS_VITA_TITLE_ID").unwrap_or_default();
-    let native_build = env::var("POCKETJS_NATIVE_BUILD").unwrap_or_else(|_| "external".into());
-    fs::write(PathBuf::from(env::var("OUT_DIR").unwrap()).join("dev_identity.rs"), format!(
-        "pub const PLAN: &str = {plan_json:?};\npub const TITLE_ID: &str = {title_id:?};\npub const NATIVE_BUILD: &str = {native_build:?};\n"
-    )).unwrap();
-    println!("cargo:rustc-link-lib=SceAppMgr_stub");
-    if env::var_os("CARGO_FEATURE_USB_DEBUG").is_some() {
-        println!("cargo:rustc-link-lib=taihen_stub_weak");
-        println!("cargo:rustc-link-lib=SceVshBridge_stub");
-    }
     let legacy_app = env::var("POCKETJS_APP").unwrap_or_default();
     let app = env::var("POCKETJS_APP_OUTPUT").unwrap_or_else(|_| legacy_app.clone());
     let embed_app = match env::var("POCKETJS_EMBED_APP") {
@@ -173,8 +149,9 @@ fn main() {
         registry.is_none() || packages.is_some(),
         "POCKETJS_LAUNCHER_REGISTRY requires POCKETJS_LAUNCHER_BUNDLES"
     );
-    // The runtime admits compiled bundles only. The development identity
-    // still hashes the application's JS and pak, read from POCKETJS_OUTPUT_DIR.
+    // The runtime admits compiled bundles only. POCKETJS_BUNDLE_HASH (stats.rs,
+    // bench receipts) still hashes the application's JS and pak, read from
+    // POCKETJS_OUTPUT_DIR.
     let package = env::var_os("POCKETJS_EMBED_BUNDLE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);

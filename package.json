@@ -218,7 +218,6 @@
     "psp:all": "bun tools/psp-all.ts",
     "psp:switch": "bun psplink",
     "vita": "bun tools/vita.ts",
-    "vita:dev": "bun tools/vita-dev.ts",
     "symbian": "bun tools/symbian.ts",
     "ios": "bun tools/ios.ts",
     "ipodtouch": "bun tools/ipodtouch.ts",
