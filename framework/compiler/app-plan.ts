@@ -359,7 +359,9 @@ function resolveViewport(
     : null;
 }
 
-/** Validate framework-owned registry data before trusting it in resolution. */
+/** Validate framework-owned registry data before trusting it in resolution.
+ *  A target's capability or role capability outside the registry is one the
+ *  host defines; it is not a diagnostic. */
 export function validatePlatformContractRegistry(
   registry: PlatformContractRegistry,
 ): readonly ContractDiagnostic[] {
@@ -447,13 +449,6 @@ export function validatePlatformContractRegistry(
     const provided = new Set<string>();
     target.capabilities.forEach((capability, index) => {
       const path = `/targets/${targetId}/capabilities/${index}`;
-      if (!known.has(capability)) {
-        diagnostics.push({
-          code: "registry.unknownCapability",
-          path,
-          message: `target provides unregistered capability ${JSON.stringify(capability)}`,
-        });
-      }
       if (provided.has(capability)) {
         diagnostics.push({
           code: "registry.duplicateCapability",
@@ -475,13 +470,6 @@ export function validatePlatformContractRegistry(
       const roleProvided = new Set(provided);
       capabilities?.forEach((capability, index) => {
         const path = `${rolePath}/${index}`;
-        if (!known.has(capability)) {
-          diagnostics.push({
-            code: "registry.unknownCapability",
-            path,
-            message: `target provides unregistered capability ${JSON.stringify(capability)}`,
-          });
-        }
         if (roleProvided.has(capability)) {
           diagnostics.push({
             code: "registry.duplicateCapability",
@@ -554,14 +542,24 @@ export function resolveAppPlan(
   const resolvedViewport = resolveViewport(app.viewport, "/app/viewport", profile, diagnostics);
 
   // A feature the host provides is on; one it lacks is off. Both are
-  // compile-time facts the bundle reads (`__POCKET_FEATURES__`).
-  const known = new Set<string>(registry.capabilities);
+  // compile-time facts the bundle reads (`__POCKET_FEATURES__`). An id is
+  // known when the registry or this host defines it: a host defines the ids
+  // it lists that the registry does not know.
   const provided = new Set<string>(profile.capabilities);
+  const known = new Set<string>([
+    ...registry.capabilities,
+    ...provided,
+    ...Object.values(profile.roleCapabilities ?? {}).flatMap(role => role ?? []),
+  ]);
   const features = new Set(app.features ?? []);
   const featureAvailability = new Map<string, boolean>();
   (app.features ?? []).forEach((capability, index) => {
     if (!known.has(capability)) {
-      diagnostics.push({ code: "capability.unknown", path: `/app/features/${index}`, message: `unknown capability ${JSON.stringify(capability)}` });
+      diagnostics.push({
+        code: "capability.unknown",
+        path: `/app/features/${index}`,
+        message: `unknown capability ${JSON.stringify(capability)}: neither the registry nor host ${request.target} defines it`,
+      });
       return;
     }
     featureAvailability.set(capability, provided.has(capability));

@@ -1,10 +1,12 @@
-import type { PocketCapabilityId } from "../../contracts/spec/platform-types.ts";
+import type { FeatureId } from "../../contracts/spec/capabilities.ts";
 import { NET_MAX_RESPONSE_BYTES } from "../../contracts/spec/net.ts";
+
+export type { FeatureId };
 
 // Replaced by tools/build.ts for bundles built from a plan. `typeof` keeps
 // legacy and test builds valid without one.
 declare const __POCKET_TARGET__: string;
-declare const __POCKET_FEATURES__: Readonly<Partial<Record<PocketCapabilityId, boolean>>>;
+declare const __POCKET_FEATURES__: Readonly<Partial<Record<FeatureId, boolean>>>;
 declare const __POCKET_PIXEL_RATIO__: number;
 declare const __POCKET_HTTP_RESPONSE_BYTES__: number;
 
@@ -12,8 +14,9 @@ export interface PocketPlatform {
   readonly target: string;
   /** Target raster samples per logical pixel. Use for dynamic texture producers. */
   readonly pixelRatio: number;
-  /** Availability of the features the application lists in `app.features`. */
-  readonly features: Readonly<Partial<Record<PocketCapabilityId, boolean>>>;
+  /** Availability of the features the application lists in `app.features`:
+   *  registered ids and ids the host contract defines. */
+  readonly features: Readonly<Partial<Record<FeatureId, boolean>>>;
   /** The largest response body one worker `http` request may ask for
    *  (`maxBytes`) on the target: its profile's `worker.http.responseBytes`,
    *  256 KiB on a host that states none. */
@@ -44,6 +47,6 @@ export const platform: PocketPlatform = Object.freeze({
 
 // Literal calls are folded by the PocketJS compiler. Keeping this runtime
 // lookup supports computed feature ids and builds without a plan.
-export function hasFeature(feature: PocketCapabilityId): boolean {
+export function hasFeature(feature: FeatureId): boolean {
   return platform.features[feature] === true;
 }

@@ -22,26 +22,28 @@ async function bundlePlatform(defines: Record<string, string> = {}) {
   });
   expect(result.success).toBe(true);
   const source = await result.outputs[0]!.text();
-  return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`) as Promise<{
-    platform: { target: string; pixelRatio: number; features: Record<string, boolean>; httpResponseBytes: number };
-    hasFeature: (feature: "input.buttons") => boolean;
-  }>;
+  return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`) as Promise<
+    typeof import("../framework/src/platform.ts")
+  >;
 }
 
 describe("platform feature availability", () => {
   test("embeds the resolved feature map in manifest builds", async () => {
     const runtime = await bundlePlatform({
       __POCKET_TARGET__: JSON.stringify("psp"),
-      __POCKET_FEATURES__: JSON.stringify({ "input.buttons": true }),
+      __POCKET_FEATURES__: JSON.stringify({ "input.buttons": true, "vendor.camera": true }),
       __POCKET_PIXEL_RATIO__: "1",
     });
     expect(runtime.platform).toEqual({
       target: "psp",
       pixelRatio: 1,
-      features: { "input.buttons": true },
+      features: { "input.buttons": true, "vendor.camera": true },
       httpResponseBytes: 256 * 1024,
     });
     expect(runtime.hasFeature("input.buttons")).toBe(true);
+    // A host-defined id is a plain string to the type and to the lookup.
+    expect(runtime.hasFeature("vendor.camera")).toBe(true);
+    expect(runtime.hasFeature("vendor.radio")).toBe(false);
   });
 
   test("legacy builds have an unknown target and no feature claims", async () => {
@@ -86,6 +88,16 @@ describe.each(["solid", "vue-vapor"] as const)("%s feature specialization", (fra
     expect(available.code).toContain("true");
     expect(unavailable.code).toContain("false");
     expect(available.code).not.toBe(unavailable.code);
+  });
+
+  test("folds a literal call with a host-defined id", async () => {
+    const source = featureSource.replace("text.glyphs.baked", "vendor.camera");
+    const path = `/virtual/${framework}/feature-host.ts`;
+    const available = await transformFile(path, source, framework, { features: { "vendor.camera": true } });
+    const absent = await transformFile(path, source, framework, { features: {} });
+    expect(available.code).not.toContain("supports(");
+    expect(available.code).toContain("true");
+    expect(absent.code).toContain("false");
   });
 
   test("Bun removes the unavailable branch even without minification", async () => {

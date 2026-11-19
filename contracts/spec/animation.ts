@@ -14,5 +14,24 @@
 // differ. On a repaint target: translations of opaque regions and changes
 // inside a small area at the tick rate; scale, opacity and rotation of a
 // large subtree as a cut; no animation that runs while nothing happens.
+//
+// Guest bundles import this module at run time (framework/src/anim.ts), so it
+// imports nothing: the capability registry and the host contracts stay out
+// of every bundle.
 
-export { ANIMATION_CLASSES, type AnimationClass } from "./platform-types.ts";
+/**
+ * What a changed frame costs a target — a semantic FIELD of its display:
+ *
+ * - "composited": a GPU composes every frame from retained geometry; a prop
+ *                 change on any subtree costs the same at the tick rate.
+ * - "repaint":    a CPU repaints the pixels a change touched; a frame costs
+ *                 in proportion to that area, and the host moves the pixels
+ *                 of a translated opaque region instead of repainting them.
+ * - "still":      the display shows one change per refresh (electronic
+ *                 paper); a tween is its end value.
+ *
+ * Every profile states its class (`display.animation`); the compiler bakes
+ * it into the plan and devices admit packages compiled for their own class.
+ */
+export const ANIMATION_CLASSES = ["composited", "repaint", "still"] as const;
+export type AnimationClass = (typeof ANIMATION_CLASSES)[number];

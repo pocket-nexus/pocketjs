@@ -5,7 +5,7 @@
 // fine); only ANIMATABLE props are accepted. Colors animate per ABGR channel
 // natively — pass a packed u32 or a '#rrggbb' string.
 
-import { ANIMATION_CLASSES, type AnimationClass } from "../../contracts/spec/platform-types.ts";
+import { ANIMATION_CLASSES, type AnimationClass } from "../../contracts/spec/animation.ts";
 import {
   animBit,
   ENUMS,

@@ -5,6 +5,7 @@
 import type { AnimationTheme } from "./animation-theme.ts";
 import { animationThemeSchema } from "./animation-theme.ts";
 import { validateSchema, type ContractDiagnostic, type JsonSchema } from "./json-schema.ts";
+import type { FeatureId } from "./capabilities.ts";
 import { appViewportSchema, surfacesSchema, type AppViewport, type SurfacesSpec } from "./viewport.ts";
 import { workerDeclarationSchema, type WorkerDeclarationSource } from "./worker.ts";
 
@@ -29,9 +30,10 @@ export interface AppConfig {
   /** A square PNG, relative to the config file. `pocket compile` stores it as
    *  the bundle's icon section. */
   readonly icon?: string;
-  /** Host capabilities this build turns on. Each must be registered; the
-   *  plan's `features[name]` is true when the selected host provides it. */
-  readonly features?: readonly string[];
+  /** Host capabilities this build turns on. Each is registered or defined by
+   *  the selected host's contract; the plan's `features[name]` is true when
+   *  that host provides it. */
+  readonly features?: readonly FeatureId[];
   /** Additional UI outputs; `surfaces.auxiliary` comes with the
    *  `display.auxiliary` feature. */
   readonly surfaces?: SurfacesSpec;
@@ -56,7 +58,8 @@ export interface AppConfig {
   readonly companions?: readonly string[];
 }
 
-/** A registered capability id: dot-separated lowercase labels. */
+/** A capability id, registered or host-defined: dot-separated lowercase
+ *  labels. */
 const capabilityIdSchema = {
   type: "string",
   pattern: "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$",

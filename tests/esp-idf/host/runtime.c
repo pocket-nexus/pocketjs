@@ -1,5 +1,6 @@
 #include "pocket_profile.h"
 #include "pocket/guest_idf.h"
+#include "pocket/package_facts.h"
 #include "pocket/package_source.h"
 #include "pocketjs_bundle_host.h"
 #include "sample_io.h"
@@ -104,8 +105,33 @@ static void scenario(const char *extra, bool invalid, int32_t first,
   pocket_guest_idf_destroy(guest.guest);
   sample_display_destroy(&display);
 }
+/* The package facts of the embedded bundle: its app id and its features by
+ * id string. */
+static void facts(void) {
+  pocket_idf_package_facts out = {.struct_size = sizeof out};
+  assert(pocket_idf_package_open(pocketjs_bundle_host.data,
+                                 pocketjs_bundle_host.size, pocket_profile.facts,
+                                 pocket_profile.host_abi,
+                                 pocket_profile.profile_hash,
+                                 &out) == POCKET_PACKAGE_OPEN_OK);
+  static const char id[] = "dev.pocket-nexus.idf-smoke";
+  assert(out.app_id_length == sizeof id - 1 &&
+         memcmp(out.app_id, id, sizeof id - 1) == 0);
+  assert(out.view_width == 320 && out.view_height == 240);
+  bool enabled = false;
+  assert(pocket_idf_package_feature(&out, "input.buttons", &enabled) ==
+             POCKET_PACKAGE_OPEN_OK &&
+         enabled);
+  assert(pocket_idf_package_feature(&out, "vendor.camera", &enabled) ==
+             POCKET_PACKAGE_OPEN_OK &&
+         !enabled);
+  out.struct_size--;
+  assert(pocket_idf_package_feature(&out, "input.buttons", &enabled) ==
+         POCKET_PACKAGE_OPEN_BAD_ARGUMENT);
+}
 int main(void) {
   allocator();
+  facts();
   scenario("if(!__pak.immutable)throw Error('mutable pak');const byte=new "
            "Uint8Array(__pak)[0];new Uint8Array(__pak)[0]^=255;const copy=new "
            "Uint8Array(__pak).slice();copy[0]^=255;if(new "
@@ -119,7 +145,7 @@ int main(void) {
            false, POCKET_STATUS_FAILED, POCKET_STATUS_INVALID);
   scenario("let n=0;frame=()=>{if(n++===0)throw Error('frame failure')}", false,
            POCKET_STATUS_FAILED, POCKET_STATUS_INVALID);
-  puts("IDF canonical runtime, admission, immutable package and rejection "
-       "regressions passed");
+  puts("IDF canonical runtime, package facts, admission, immutable package "
+       "and rejection regressions passed");
   return 0;
 }

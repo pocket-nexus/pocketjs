@@ -162,6 +162,15 @@ describe("PSP repack", () => {
     expect(() => bundleFor("psp-runtime", app(["text.layout.offload"]))).toThrow("text.layout.offload");
   });
 
+  test("refuses a plan that turns on a capability the runtime's host contract does not list", async () => {
+    // The psp host contract has the generic runtime's display facts and io.offload.
+    const resolution = resolveAppPlan(app(["io.offload"]), { target: "psp" });
+    if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
+    expect(resolution.plan.features["io.offload"]).toBe(true);
+    const bundle = encodeBundle(makeBundle({ plan: resolution.plan, js: new TextEncoder().encode("globalThis.frame = () => {};"), pak: new Uint8Array([1]) }));
+    await expect(repackPsp(await input({ bundle }))).rejects.toThrow("not admitted: capability io.offload");
+  });
+
   test("names the folder from the title, then the id", async () => {
     expect(await pspFolder({ id: "dev.pocket-nexus.studio.twenty48", title: "Twenty48" })).toBe("StudioTwenty48");
     expect(await pspFolder({ id: ID, title: "snack  snake!" })).toBe("StudioSnackSnake");

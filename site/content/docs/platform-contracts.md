@@ -51,7 +51,7 @@ against. See [Admission](#admission).
 | Host contract       | `pocket.host.json`                 | Host program         | Display facts, cadences and implemented APIs                              |
 | Host config         | `pocket.host.config.ts`            | App or host program  | Host contract selection, the application and an optional native build recipe |
 | Build plan          | `.pocket/<target>/plan.json`       | Resolver (generated) | One build's target-specific inputs, a `ResolvedBuildPlan`                 |
-| Capability registry | `contracts/spec/platform-types.ts` | PocketJS             | Names of framework APIs an application can turn on                        |
+| Capability registry | `contracts/spec/capabilities.ts`   | PocketJS             | Ids PocketJS defines; a host contract defines the ids it lists outside it |
 
 ## The application
 
@@ -89,7 +89,8 @@ path to a square PNG) are the identity the device packagers stamp:
 `pocket pack` uses it when `--icon` is absent. `app.theme` is animation
 content the config imports.
 
-**`features` is compile-time selection.** Each id is a registered capability;
+**`features` is compile-time selection.** Each id is a registered capability
+or one the selected host contract defines;
 the plan records it as `true` when the selected host provides it and `false`
 when it does not, and the compiled runtime module reads the same table:
 
@@ -254,7 +255,7 @@ list is non-empty** rather than starting an app whose services answer false.
 
 ## What a capability means
 
-A capability means:
+A registered capability means:
 
 > This stock host implements and tests this PocketJS framework API.
 
@@ -283,6 +284,29 @@ pointer from the analog nub. It takes two steps: the feature in the
 application's `features` and `enableCursor()` at run time; apps that never
 call it keep the d-pad focus walk unchanged.
 
+### Host-defined capabilities
+
+**A capability id is defined by PocketJS or by a host.** The registry lists
+the ids PocketJS defines: a host contract in `hosts/` provides the id, or the
+compiler, framework or engine acts on it. A host contract may list ids the
+registry does not know; **those ids are the host's**:
+
+- `validatePocketProfile` and `validatePlatformContractRegistry` accept them.
+- `resolveAppPlan` accepts an `app.features` entry when the registry or the
+  selected host contract (`capabilities` or `roleCapabilities`) has it, and
+  records it in `plan.features` like a registered id. An entry that neither
+  has is `capability.unknown`.
+- Admission compares feature names with the host's capability names as
+  strings, so a device admits the plan without knowing the id.
+- PocketJS attaches nothing else to the id: no dependency rule, no
+  compile-time behavior, no engine bit. The host's program and guest modules
+  implement it.
+
+`hasFeature` accepts any string; registered ids complete in the editor. Ids
+have no namespace: a host-defined id keeps the spelling its product publishes
+in manifests and plans, and a future PocketJS id avoids a name a product
+already uses **by coordination with that product**.
+
 ## Host contracts
 
 Built-in host contracts live in `hosts/<id>/pocket.host.json`, and
@@ -300,7 +324,7 @@ generation, 12.**
 | `cadences` | Presented frames per second the host drives |
 | `display` | `logicalViewports`, `presentations`, `rasterDensity`, `animation`, and optional `dynamicViewport` and `auxiliary` |
 | `panel` | Physical panel sizes in pixels; the compiler reads them, admission does not |
-| `capabilities` | Capability names, compared as a set |
+| `capabilities` | Capability ids, compared as a set: registered ids and ids the host defines |
 | `roleCapabilities.systemUI` | Names a package in the System UI role also receives |
 | `worker.nodes` | The most worker nodes of each kind one application may declare |
 | `worker.channels` | `recordBytes` and `capacity`: the largest worker channel one application may declare, and the size of a channel declared `"host"`. At least **1024 bytes and 8 records** (the value when absent), at most **64 KiB and 256 records** |
@@ -399,7 +423,8 @@ for every host:
 
 1. Validate the `app` section against its schema.
 2. Find the selected host contract.
-3. Reject unregistered features and missing feature dependencies.
+3. Reject features that neither the registry nor the host contract defines,
+   and missing feature dependencies.
 4. Resolve each feature to a boolean: whether the host provides it.
 5. Validate the target raster density, logical viewport, presentation mode,
    auxiliary surface, worker and tick rate.
