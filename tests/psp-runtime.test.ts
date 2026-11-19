@@ -8,9 +8,8 @@ import { profileRegistry } from "../tools/profile-resolver.ts";
 import { encodeBundle } from "../contracts/spec/bundle.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { makeBundle } from "../tools/bundle.ts";
-import { pspBundleInput, pspDemoBundle, pspDemoVariant, pspLauncherBundles } from "../tools/psp.ts";
+import { pspBundleInput, pspDemoBundle, pspDemoVariant } from "../tools/psp.ts";
 import { demoApp } from "../tools/build/programs/handheld-common.ts";
-import { launcherSourceInputs } from "../tools/build/psp/launcher.ts";
 test("PSP production guest uses canonical runtime, providers, input and shutdown", () => {
   const result = Bun.spawnSync([process.execPath, "tools/test-psp-runtime.ts"], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
   expect(result.success, `${result.stdout.toString()}\n${result.stderr.toString()}\nsignal=${result.signalCode}`).toBe(true);
@@ -39,14 +38,14 @@ function embedDirectory() {
   mkdirSync(base, { recursive: true });
   return mkdtempSync(resolve(base, "run-"));
 }
-test("PSP writer emits real static tables with exact package bytes and explicit launcher inputs", () => {
+test("PSP and Vita embed the one compiled bundle verbatim, 16-byte aligned, with their build identities", () => {
   const directory = embedDirectory(), binary = resolve(directory, "embed-tests");
-  const build = Bun.spawnSync(["rustc", "--edition=2021", "--test", "tools/build/embedded-apps.rs", "-o", binary],
+  const build = Bun.spawnSync(["rustc", "--edition=2021", "--test", "tools/build/embedded-bundle.rs", "-o", binary],
     { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
   expect(build.success, build.stderr.toString()).toBe(true);
   const run = Bun.spawnSync([binary], { env: { ...process.env, POCKET_EMBED_TEST_DIR: directory }, stdout: "pipe", stderr: "pipe" });
   expect(run.success, run.stdout.toString() + run.stderr.toString()).toBe(true);
-  expect(run.stdout.toString()).toContain("4 passed");
+  expect(run.stdout.toString()).toContain("3 passed");
 }, 60_000);
 
 test("PSP --bundle captures admitted original bytes without requiring or compiling application sources", () => {
@@ -87,34 +86,4 @@ test("PSP CLI rejects missing or conflicting bundle inputs before invoking a too
     expect(result.stdout.toString()).not.toContain("cargo psp");
     expect(result.stderr.toString()).not.toContain("toolchain is not installed");
   }
-});
-
-test("PSP launcher bundles resolve beside the registry, independently of captured application output", () => {
-  const directory = embedDirectory(), registry = resolve(directory, "launcher-registry.tsv");
-  const packages = resolve(directory, "packages"), explicit = resolve(directory, "elsewhere");
-  writeFileSync(registry, "guest\tdev.guest\tGuest\n"); mkdirSync(packages); mkdirSync(explicit);
-  expect(pspLauncherBundles(registry)).toBe(packages);
-  expect(pspLauncherBundles(registry, explicit)).toBe(explicit);
-  expect(() => pspLauncherBundles(registry, resolve(directory, "missing"))).toThrow("directory is missing");
-  expect(() => pspLauncherBundles(resolve(directory, "absent.tsv"))).toThrow("registry is missing");
-  expect(() => pspLauncherBundles("", packages)).toThrow("requires --launcher-registry");
-  expect(pspLauncherBundles("")).toBe("");
-});
-
-test("PSP launcher source declarations match explicit registry guests and bundle directories", () => {
-  const dir = embedDirectory(), registry = resolve(dir, "registry.tsv"), packages = resolve(dir, "packages"), elsewhere = resolve(dir, "elsewhere");
-  mkdirSync(packages); mkdirSync(elsewhere);
-  writeFileSync(registry, "first\tdev.first\tFirst\r\nsecond\tdev.second\tSecond\r\n");
-  for (const base of [packages, elsewhere]) for (const name of ["first", "second"]) writeFileSync(resolve(base, name + ".pkb"), name);
-  const ctx = { invocationDirectory: dir, output: "launcher", args: ["--launcher-registry=registry.tsv"] };
-  expect(launcherSourceInputs(ctx)).toEqual([registry, resolve(packages, "first.pkb"), resolve(packages, "second.pkb")]);
-  expect(launcherSourceInputs({ ...ctx, args: [...ctx.args, "--launcher-bundles=elsewhere"] }))
-    .toEqual([registry, resolve(elsewhere, "first.pkb"), resolve(elsewhere, "second.pkb")]);
-  expect(launcherSourceInputs({ ...ctx, args: [] })).toEqual([]);
-  expect(() => launcherSourceInputs({ ...ctx, args: ["--launcher-bundles=elsewhere"] })).toThrow("requires --launcher-registry");
-  expect(() => launcherSourceInputs({ ...ctx, args: ["--launcher-registry"] })).toThrow("requires =<path>");
-  writeFileSync(registry, "launcher\tdev.launcher\tLauncher\n");
-  expect(() => launcherSourceInputs(ctx)).toThrow("duplicates output");
-  writeFileSync(registry, "\uFEFFfirst\tdev.first\tFirst\n");
-  expect(() => launcherSourceInputs(ctx)).toThrow("invalid launcher output");
 });

@@ -75,8 +75,6 @@ export interface VitaProgramBuild {
   /** Default: vitaTitleId of the application id. */
   readonly titleId?: string;
   readonly capture?: boolean;
-  readonly launcherRegistry?: string;
-  readonly launcherBundles?: string;
   /** Passed to `cargo build`, such as `--release`. */
   readonly cargoArgs?: readonly string[];
   /** The embedded application's outputs when it has no directory of its own. */
@@ -117,9 +115,6 @@ export async function buildVitaProgram(build: VitaProgramBuild): Promise<BuiltVi
   const { program, profile: selectedProfile, application } = build;
   const programDir = resolvePath(program.directory) + "/";
   const runtime = !application;
-  if (runtime && build.launcherRegistry) {
-    throw new Error("PocketJS vita: the generic runtime cannot embed a launcher registry");
-  }
   if (build.titleId !== undefined && !/^[A-Z][A-Z0-9]{8}$/.test(build.titleId)) {
     throw new Error(`PocketJS vita: --title must be nine uppercase letters and digits, got ${build.titleId}`);
   }
@@ -202,9 +197,6 @@ export async function buildVitaProgram(build: VitaProgramBuild): Promise<BuiltVi
     POCKETJS_CAPTURE_FRAMES: process.env.POCKETJS_CAPTURE_FRAMES ?? "",
     POCKETJS_CAPTURE_DIR:
       process.env.POCKETJS_CAPTURE_DIR ?? "ux0:data/pocketjs-captures",
-    // Multi-app launcher embed. Empty values preserve the single-app runtime.
-    POCKETJS_LAUNCHER_REGISTRY: build.launcherRegistry ?? "",
-    POCKETJS_LAUNCHER_BUNDLES: build.launcherBundles ?? "",
     ...program.env,
   };
 
@@ -269,8 +261,6 @@ let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
 let packageOutputDir: string | undefined;
 let skipBuild = false;
-let launcherRegistry = "";
-let launcherBundles = "";
 let runtime = false;
 let titleOverride: string | undefined;
 const cargoArgs: string[] = [];
@@ -290,10 +280,6 @@ for (const a of argv) {
     outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
   } else if (a.startsWith("--package-outdir=")) {
     packageOutputDir = resolvePath(a.slice("--package-outdir=".length));
-  } else if (a.startsWith("--launcher-registry=")) {
-    launcherRegistry = resolvePath(a.slice("--launcher-registry=".length));
-  } else if (a.startsWith("--launcher-bundles=")) {
-    launcherBundles = resolvePath(a.slice("--launcher-bundles=".length));
   } else if (a === "--skip-build") {
     skipBuild = true;
   } else if (a === "--runtime") {
@@ -312,13 +298,12 @@ let application: RuntimeApplication | undefined = context?.application;
 if (application && !existsSync(application.bundlePath)) throw new Error(`Vita captured bundle is missing: ${application.bundlePath}`);
 if (context && !runtime && !application) throw new Error("Vita native build requires an admitted bundle");
 const selectedProfile = context?.profile ?? softwareProfile;
-if (runtime && (appArg || planPath || launcherRegistry)) {
-  throw new Error("PocketJS vita: --runtime builds a program without an app; give no app, --plan or launcher registry");
+if (runtime && (appArg || planPath)) {
+  throw new Error("PocketJS vita: --runtime builds a program without an app; give no app or --plan");
 }
 if (!appArg && !application && !runtime) {
   console.error(
-    "usage: bun tools/vita.ts <demo> [--framework=<id>] [--capture] " +
-      "[--launcher-registry=<tsv> --launcher-bundles=<dir>] [cargo args…]   " +
+    "usage: bun tools/vita.ts <demo> [--framework=<id>] [--capture] [cargo args…]   " +
       "e.g. bun tools/vita.ts hero --release",
   );
   process.exit(1);
@@ -330,21 +315,6 @@ if (frameworkFlag && !appArg) throw new Error("PocketJS vita: --framework applie
 const demoApplication = !application && !runtime ? await demoApp(appArg) : undefined;
 if (demoApplication && frameworkFlag && demoApplication.framework !== parseFramework(frameworkFlag, "--framework")) {
   throw new Error(`PocketJS vita: --framework differs from the application's app.framework (${demoApplication.framework})`);
-}
-if (Boolean(launcherRegistry) !== Boolean(launcherBundles)) {
-  throw new Error(
-    "PocketJS vita: --launcher-registry and --launcher-bundles must be provided together",
-  );
-}
-if (launcherRegistry && !existsSync(launcherRegistry)) {
-  throw new Error(
-    `PocketJS vita: launcher registry not found at ${launcherRegistry}`,
-  );
-}
-if (launcherBundles && !existsSync(launcherBundles)) {
-  throw new Error(
-    `PocketJS vita: launcher bundles not found at ${launcherBundles}`,
-  );
 }
 
 vitaToolchain();
@@ -367,8 +337,6 @@ const built = await buildVitaProgram({
   projectRoot,
   titleId: titleOverride,
   capture,
-  launcherRegistry: launcherRegistry || undefined,
-  launcherBundles: launcherBundles || undefined,
   cargoArgs,
   outputDirectory: outputDir,
   packageDirectory: packageOutputDir ?? resolvePath(outputDir, "vita"),

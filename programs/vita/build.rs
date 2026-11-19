@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-#[path = "../../tools/build/embedded-apps.rs"]
+#[path = "../../tools/build/embedded-bundle.rs"]
 mod embed;
 
 fn positive_dimension(name: &str, fallback: u32) -> u32 {
@@ -70,12 +70,6 @@ fn main() {
             !embed_app,
             "the runtime feature builds an eboot without an app: set POCKETJS_EMBED_APP=0"
         );
-        assert!(
-            env::var("POCKETJS_LAUNCHER_REGISTRY")
-                .unwrap_or_default()
-                .is_empty(),
-            "the runtime feature cannot embed a launcher registry"
-        );
     }
     let target = env::var("POCKETJS_TARGET").unwrap_or_else(|_| "vita".into());
     assert_eq!(target, "vita", "Vita host requires POCKETJS_TARGET=vita");
@@ -139,35 +133,19 @@ fn main() {
     )
     .unwrap();
 
-    let registry = env::var_os("POCKETJS_LAUNCHER_REGISTRY")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
-    let packages = env::var_os("POCKETJS_LAUNCHER_BUNDLES")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
-    assert!(
-        registry.is_none() || packages.is_some(),
-        "POCKETJS_LAUNCHER_REGISTRY requires POCKETJS_LAUNCHER_BUNDLES"
-    );
     // The runtime admits compiled bundles only. POCKETJS_BUNDLE_HASH (stats.rs,
     // bench receipts) still hashes the application's JS and pak, read from
     // POCKETJS_OUTPUT_DIR.
     let package = env::var_os("POCKETJS_EMBED_BUNDLE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    assert!(
-        !embed_app || package.is_some() || registry.is_some(),
-        "POCKETJS_EMBED_APP=1 requires POCKETJS_EMBED_BUNDLE: embed a compiled .pkb bundle"
-    );
     let generated = embed::generate(embed::Config {
-        identity: embed::Identity::LegacyBundle,
+        identity: embed::Identity::Sources,
         output: &app,
         enabled: embed_app,
         dist: &dist,
         out: Path::new(&out_dir),
         package: package.as_deref(),
-        registry: registry.as_deref(),
-        packages: packages.as_deref(),
     })
     .unwrap_or_else(|error| panic!("Vita embed: {error}"));
     println!("cargo:rustc-env=POCKETJS_APP_NAME={app}");
@@ -175,7 +153,7 @@ fn main() {
     for path in generated.inputs {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    println!("cargo:rerun-if-changed=../../tools/build/embedded-apps.rs");
+    println!("cargo:rerun-if-changed=../../tools/build/embedded-bundle.rs");
 
     let capture_input = env::var("POCKETJS_CAPTURE_INPUT").unwrap_or_default();
     let capture_touch = env::var("POCKETJS_CAPTURE_TOUCH").unwrap_or_default();
@@ -194,8 +172,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=POCKETJS_APP_OUTPUT");
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_APP");
     println!("cargo:rerun-if-env-changed=POCKETJS_OUTPUT_DIR");
-    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_REGISTRY");
-    println!("cargo:rerun-if-env-changed=POCKETJS_LAUNCHER_BUNDLES");
     println!("cargo:rerun-if-env-changed=POCKETJS_EMBED_BUNDLE");
     println!("cargo:rerun-if-env-changed=POCKETJS_TARGET");
     println!("cargo:rerun-if-env-changed=POCKETJS_HOST_ABI");

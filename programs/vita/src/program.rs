@@ -1,4 +1,4 @@
-use crate::{graphics, input, instance, profile, svc, switch, vid, vita_log};
+use crate::{graphics, input, instance, profile, svc, vid, vita_log};
 use libquickjs_sys::*;
 use pocket_runtime::{
     abi::{self, status_code, Handle},
@@ -60,7 +60,7 @@ impl Runtime {
         })
         .map_err(|error| format!("Vita runtime profile rejected: {error:?}"))?;
         let ops = handle.op_context();
-        let guest = instance::Guest::new(ops.clone())?;
+        let guest = instance::Guest::new()?;
         let input = Rc::new(RefCell::new(instance::Input {
             analog: 0x8080,
             ..Default::default()
@@ -266,14 +266,6 @@ impl Runtime {
             vita_log(format_args!("{error}"));
         } else {
             graphics::mark_presented();
-        }
-    }
-    /// # Safety
-    /// Call after the outgoing frame is presented, on the render thread.
-    pub unsafe fn capture_switch_shot(&mut self) {
-        if let Ok(mut state) = self.ops.core_mut() {
-            state.ui.draw();
-            switch::capture_shot(&state.ui, &state.ui.current_draw_list().words);
         }
     }
     /// # Safety

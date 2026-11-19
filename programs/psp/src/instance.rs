@@ -35,9 +35,11 @@ pub(crate) struct Guest {
     pub global: JSValue,
     adapter: *mut c_void,
     pub ops: OpContext,
-    /// A host cadence policy that replaces the runtime's choice when it
-    /// divides the package rate (multi-app builds present at 20 Hz).
-    fixed_cadence: Option<u32>,
+    /// The program's cadence (`Options::cadence`). It replaces the runtime's
+    /// choice when it divides the package rate into at most 60 ticks.
+    cadence: Option<u32>,
+    /// The guest's `fs` directory name (`Options::data_name`).
+    data_name: String,
     /// The admitted package's rate and the cadence published as __simHz;
     /// set when the runtime initializes the guest.
     pub tick_hz: Cell<u32>,
@@ -51,7 +53,11 @@ pub(crate) struct Guest {
     pub after_jobs: Cell<u64>,
 }
 impl Guest {
-    pub unsafe fn new(ops: OpContext, fixed_cadence: Option<u32>) -> Result<Box<Self>, String> {
+    pub unsafe fn new(
+        ops: OpContext,
+        cadence: Option<u32>,
+        data_name: String,
+    ) -> Result<Box<Self>, String> {
         let engine = crate::qjs_alloc::new_runtime();
         if engine.is_null() {
             return Err("JS_NewRuntime failed".into());
@@ -77,7 +83,8 @@ impl Guest {
             global,
             adapter,
             ops,
-            fixed_cadence,
+            cadence,
+            data_name,
             tick_hz: Cell::new(0),
             sim_hz: Cell::new(0),
             code_length: Cell::new(0),
@@ -149,9 +156,9 @@ unsafe extern "C" fn initialize(
         return status;
     }
     guest.pak_length.set((*environment).pak_length);
-    crate::service_bindings::register_private(guest.context, guest.global);
+    crate::service_bindings::register_private(guest.context, guest.global, &guest.data_name);
     let tick_hz = (*environment).tick_hz;
-    let sim_hz = match guest.fixed_cadence {
+    let sim_hz = match guest.cadence {
         Some(cadence) if tick_hz % cadence == 0 && tick_hz / cadence <= 60 => cadence,
         _ => (*environment).sim_hz,
     };
@@ -166,10 +173,6 @@ unsafe extern "C" fn initialize(
     {
         return -1;
     }
-    let Ok(mut state) = guest.ops.core_mut() else {
-        return -1;
-    };
-    crate::switch::upload_shot(&mut state.ui);
     0
 }
 unsafe extern "C" fn evaluate(
@@ -247,7 +250,7 @@ impl InputSource for InputDriver {
 pub(crate) struct Services;
 impl OpProvider for Services {
     fn supports_op(&self, op: u16) -> bool {
-        matches!(op, 30..=38) || (crate::switch::multi() && matches!(op, 39..=41))
+        matches!(op, 30..=38)
     }
     fn dispatch(
         &mut self,
@@ -282,14 +285,6 @@ impl OpProvider for Services {
                     OpResult::None
                 }
                 38 => OpResult::Bytes(crate::stats::json().into_bytes()),
-                39 => OpResult::Bytes(crate::switch::table_json().into_bytes()),
-                40 => OpResult::Integer(if let Some(index) = crate::switch::find(text()?) {
-                    crate::switch::request_launch(index);
-                    1
-                } else {
-                    0
-                }),
-                41 => OpResult::Integer(crate::switch::shot_handle() as i64),
                 _ => return Err(RuntimeError::UnsupportedOperation),
             })
         }
