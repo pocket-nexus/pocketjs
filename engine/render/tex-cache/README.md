@@ -6,7 +6,7 @@ Forwarding crate for `pocket_render::tex_cache`: versioned texture storage with 
 
 ```toml
 [dependencies]
-pocket-tex-cache = "0.16.0"
+pocket-tex-cache = "0.17.0"
 ```
 
 ## Example

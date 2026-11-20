@@ -7,8 +7,8 @@ damage tracking for PocketJS renderers.
 
 ```toml
 [dependencies]
-pocket-render = "0.16.0"
-pocket-drivers = "0.16.0"
+pocket-render = "0.17.0"
+pocket-drivers = "0.17.0"
 ```
 
 ## Example
