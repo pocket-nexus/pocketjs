@@ -334,14 +334,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-drivers"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-embassy"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "embassy-time",
  "pocket-drivers",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-guest-rquickjs"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "log",
  "pocket-drivers",
@@ -376,14 +376,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-media"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-package"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-raster"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-render",
@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-render"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-runtime"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
@@ -419,11 +419,11 @@ dependencies = [
 
 [[package]]
 name = "pocket-spec"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocketjs-core"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-media",

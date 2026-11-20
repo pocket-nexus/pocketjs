@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "microts"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "heapless",
  "libm",
@@ -1568,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "note-widget"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -1985,7 +1985,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-apple"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "log",
  "pocket-drivers",
@@ -1999,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-archive"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-physics",
@@ -2011,14 +2011,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-draw-ops"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-render",
 ]
 
 [[package]]
 name = "pocket-driver-kit"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
@@ -2030,14 +2030,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-drivers"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-embassy"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "embassy-time",
  "embassy-time-driver",
@@ -2047,11 +2047,11 @@ dependencies = [
 
 [[package]]
 name = "pocket-gba-video"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocket-gles"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-render",
@@ -2060,28 +2060,28 @@ dependencies = [
 
 [[package]]
 name = "pocket-gles1"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-gles",
 ]
 
 [[package]]
 name = "pocket-gles2"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-gles",
 ]
 
 [[package]]
 name = "pocket-glyph-pages"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-render",
 ]
 
 [[package]]
 name = "pocket-guest-rquickjs"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "log",
  "pocket-drivers",
@@ -2092,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-idf-runtime"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-archive",
  "pocket-drivers",
@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-linux-alsa"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "libc",
  "pocket-spec",
@@ -2112,7 +2112,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-linux-drm"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "drm",
  "libc",
@@ -2121,7 +2121,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-linux-evdev"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "libc",
  "pocket-drivers",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-linux-fbdev"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "libc",
  "pocket-drivers",
@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-linux-hooks"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "libc",
  "pocket-drivers",
@@ -2146,7 +2146,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-linux-kms"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "libc",
  "pocket-drivers",
@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-linux-worker"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cc",
  "libc",
@@ -2177,14 +2177,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-media"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-mod"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "log",
@@ -2195,7 +2195,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-native-program"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-archive",
  "pocket-drivers",
@@ -2212,7 +2212,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-package"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -2221,14 +2221,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-physics"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocketjs-core",
 ]
 
 [[package]]
 name = "pocket-posix-svc-wire"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "log",
  "pocket-media",
@@ -2237,7 +2237,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-present"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-raster",
@@ -2247,18 +2247,18 @@ dependencies = [
 
 [[package]]
 name = "pocket-profile-build"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocket-psp-alloc"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "psp",
 ]
 
 [[package]]
 name = "pocket-psp-audio"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
  "psp",
@@ -2266,7 +2266,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-psp-display"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-psp-ge",
  "psp",
@@ -2274,18 +2274,18 @@ dependencies = [
 
 [[package]]
 name = "pocket-psp-ge"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocket-psp-input"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "psp",
 ]
 
 [[package]]
 name = "pocket-psp-io"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
@@ -2295,7 +2295,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-psp-quickjs-alloc"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=a5cac5d8631bdc068b43af93355b9f82d666949e)",
  "pocket-psp-alloc",
@@ -2303,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-psp-render"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-psp-ge",
@@ -2314,7 +2314,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-psp-system"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cc",
  "psp",
@@ -2322,7 +2322,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-raster"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-render",
@@ -2331,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-render"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-render-esp-ppa"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-raster",
@@ -2349,7 +2349,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-render-sifli-epic"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-raster",
@@ -2359,7 +2359,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-rg-ds-plus"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "drm",
  "libc",
@@ -2379,14 +2379,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-rockbox-input"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-runtime"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
@@ -2398,7 +2398,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-sifli-runtime"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-archive",
  "pocket-render-sifli-epic",
@@ -2406,22 +2406,22 @@ dependencies = [
 
 [[package]]
 name = "pocket-sim"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocket-solid-aot-lab"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "microts",
 ]
 
 [[package]]
 name = "pocket-spec"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocket-stage"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -2444,14 +2444,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-tex-cache"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-render",
 ]
 
 [[package]]
 name = "pocket-text"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "base64 0.22.1",
  "cosmic-text",
@@ -2463,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-ui-surface"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "log",
@@ -2482,7 +2482,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-ui-wgpu"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2502,14 +2502,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-vita-audio"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "vitasdk-sys",
 ]
 
 [[package]]
 name = "pocket-vita-gxm"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "vita2d-sys",
  "vitasdk-sys",
@@ -2517,21 +2517,21 @@ dependencies = [
 
 [[package]]
 name = "pocket-vita-input"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "vitasdk-sys",
 ]
 
 [[package]]
 name = "pocket-vita-io"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
 ]
 
 [[package]]
 name = "pocket-vita-net"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-media",
  "pocket-spec",
@@ -2541,7 +2541,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-vita-render"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-render",
@@ -2553,14 +2553,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-vita-system"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "vitasdk-sys",
 ]
 
 [[package]]
 name = "pocket-vrm"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "glam",
@@ -2572,14 +2572,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-vue-sfc-lab"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "microts",
 ]
 
 [[package]]
 name = "pocket-web-wgpu"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "js-sys",
  "pocket3d-packs",
@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-wgpu-render"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "bytemuck",
  "pocket-drivers",
@@ -2604,7 +2604,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-widget"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "glam",
@@ -2622,7 +2622,7 @@ dependencies = [
 
 [[package]]
 name = "pocket3d"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2641,14 +2641,14 @@ dependencies = [
 
 [[package]]
 name = "pocket3d-anim"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "glam",
 ]
 
 [[package]]
 name = "pocket3d-mesh"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "glam",
  "pocket3d-anim",
@@ -2656,18 +2656,18 @@ dependencies = [
 
 [[package]]
 name = "pocket3d-packs"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocket3d-title"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "vitasdk-sys",
 ]
 
 [[package]]
 name = "pocket3d-world"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "glam",
  "serde",
@@ -2675,7 +2675,7 @@ dependencies = [
 
 [[package]]
 name = "pocketbook-host"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -2696,7 +2696,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-core"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-media",
@@ -2709,7 +2709,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-gba"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "critical-section",
  "linked_list_allocator",
@@ -2724,7 +2724,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-gba-bake"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "microts",
  "pocket-raster",
@@ -2735,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-ipodnano"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "critical-section",
  "linked_list_allocator",
@@ -2751,7 +2751,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-ipodnano-preview"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "png 0.17.16",
  "pocketjs-ipodnano",
@@ -2759,7 +2759,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-psp"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cc",
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=a5cac5d8631bdc068b43af93355b9f82d666949e)",
@@ -2785,7 +2785,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-vita"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cc",
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b)",
@@ -2810,7 +2810,7 @@ dependencies = [
 
 [[package]]
 name = "pocketjs-wasm"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
@@ -3602,7 +3602,7 @@ dependencies = [
 
 [[package]]
 name = "uihost"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "env_logger",

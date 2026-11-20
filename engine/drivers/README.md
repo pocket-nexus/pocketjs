@@ -6,7 +6,7 @@ Device traits, borrowed render resources, input records, and package byte source
 
 ```toml
 [dependencies]
-pocket-drivers = "0.16.0"
+pocket-drivers = "0.17.0"
 ```
 
 ## Example

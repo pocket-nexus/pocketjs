@@ -6,8 +6,8 @@ Forwarding crate for `pocket_render::glyph_pages`: font coverage expansion, guar
 
 ```toml
 [dependencies]
-pocket-glyph-pages = "0.16.0"
-pocket-drivers = "0.16.0"
+pocket-glyph-pages = "0.17.0"
+pocket-drivers = "0.17.0"
 ```
 
 ## Example

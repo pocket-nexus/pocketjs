@@ -6,7 +6,7 @@ Forwarding crate for damage tracking, software composition, the presentation coo
 
 ```toml
 [dependencies]
-pocket-present = "0.16.0"
+pocket-present = "0.17.0"
 ```
 
 ## Example
