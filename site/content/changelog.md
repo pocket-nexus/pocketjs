@@ -5,6 +5,54 @@ Engine and site milestones, newest first. Versions track the
 
 ## 0.17.0 — November 20, 2026
 
+**PocketJS is UI infrastructure only: the app contract, the `.pocket` container, Pocket Link and app switching live in Pocket Shell.**
+
+This release removes what belongs to a concrete Runtime. An application is
+built from the `app` section of its `pocket.host.config.ts` into a
+one-application bundle (`.pkb`), and each program runs one application. A
+product builds its own container, catalog and device programs on the published
+library crates and tools; [Pocket Shell](https://github.com/pocket-nexus/pocket-shell)
+is that product for Pocket Applets. The Rust SDK crates are published at 0.17.0
+alongside the framework and CLI.
+
+### Breaking changes
+
+- `pocket.app.json` is gone. An application's build inputs are the `app`
+  section of `pocket.host.config.ts`; `@pocketjs/framework/plan` replaces
+  `@pocketjs/framework/manifest`, and `pocket compile --manifest` is refused.
+- The `.pocket` container is replaced by a one-application bundle (`.pkb`).
+  `--bundle` replaces `--pocket`, generic runtimes read `app.pkb`, and
+  `pocket-package` reads bundles (`Bundle::parse`, `admit_bundle`). A host
+  with its own container states its sections through the package source.
+- Pocket Link, the applet modules (`@pocketjs/framework/applet`, `/link`,
+  `/camera`), the 3DS product host and companion media playback
+  (`@pocketjs/framework/media`, `media.playback`) moved to pocket-shell.
+  Pocket Companion moved to Pocket Hub.
+- PSP, PS Vita and Nokia E7 programs run one application.
+  `--launcher-registry`, `--launcher-bundles`, `--catalog-index`,
+  `--catalog-blob` and `--navigation` are removed; ops 39 to 41 and 51 stay
+  declared for a product host. The PSP frame loop is in the `pocketjs-psp`
+  library (`frame::run`), and `buildPspProgram()` and `buildVitaProgram()`
+  build a product's own program crate.
+- The stock PSP program starts no Pocket Link worker and reads nothing under
+  `host0:/pocket-link/`.
+- The PS Vita USB development loop moved to
+  [pocket-devkit](https://github.com/pocket-nexus/pocket-devkit): `vita:dev`
+  and `--no-usb-debug` are removed, and a stock VPK carries no USB driver.
+- A host contract defines the capability ids the registry does not know.
+  `link.companion`, `link.channel`, `media.playback`, `system.wifi`,
+  `system.device`, `system.agent`, `system.extension`, `camera.qr` and
+  `camera.photo` left the registry. ESP-IDF package facts read a feature by
+  id (`pocket_idf_package_feature`); the feature bits and `slot` are removed.
+- Compositor surfaces are removed: `CompositorSurface`, op 44, the `surface`
+  node type, DrawList opcode 10, `ui.compositor-surfaces` and package roles
+  (`roleCapabilities`). The PocketJS Desktop Host and the Pocket System are
+  removed.
+- The engine crates are consolidated by contract, and retired hosts and the
+  singleton compatibility layer are removed.
+- The iOS development app is `PocketJSHost.app`, and `programs/rg-ds-plus`
+  runs `/usr/share/pocketjs/app.pkb` by default.
+
 ### Features
 
 - feat(package): let a source transfer its storage without a copy (#640) ([24b8fb1a](https://github.com/pocket-nexus/pocketjs/commit/24b8fb1a61785b1a9eed2baffa1d40f84c11c35e))
