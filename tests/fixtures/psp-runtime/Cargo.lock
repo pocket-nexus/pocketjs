@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-archive"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-render",
@@ -61,21 +61,21 @@ dependencies = [
 
 [[package]]
 name = "pocket-drivers"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-media"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-spec",
 ]
 
 [[package]]
 name = "pocket-package"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -83,14 +83,14 @@ dependencies = [
 
 [[package]]
 name = "pocket-physics"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocketjs-core",
 ]
 
 [[package]]
 name = "pocket-profile-build"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocket-psp-runtime-contract"
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-render"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-spec",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-runtime"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-package",
@@ -129,11 +129,11 @@ dependencies = [
 
 [[package]]
 name = "pocket-spec"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "pocketjs-core"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "pocket-drivers",
  "pocket-media",

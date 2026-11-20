@@ -6,8 +6,8 @@ Forwarding crate for the DrawList decoder, record fields, vertex batching and ve
 
 ```toml
 [dependencies]
-pocket-draw-ops = "0.16.0"
-pocket-drivers = "0.16.0"
+pocket-draw-ops = "0.17.0"
+pocket-drivers = "0.17.0"
 ```
 
 ## Example

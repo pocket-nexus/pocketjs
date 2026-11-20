@@ -3,6 +3,122 @@
 Engine and site milestones, newest first. Versions track the
 `@pocketjs/framework` npm package.
 
+## 0.17.0 — November 20, 2026
+
+**PocketJS is UI infrastructure only: the app contract, the `.pocket` container, Pocket Link and app switching live in Pocket Shell.**
+
+This release removes what belongs to a concrete Runtime. An application is
+built from the `app` section of its `pocket.host.config.ts` into a
+one-application bundle (`.pkb`), and each program runs one application. A
+product builds its own container, catalog and device programs on the published
+library crates and tools; [Pocket Shell](https://github.com/pocket-nexus/pocket-shell)
+is that product for Pocket Applets. The Rust SDK crates are published at 0.17.0
+alongside the framework and CLI.
+
+### Breaking changes
+
+- `pocket.app.json` is gone. An application's build inputs are the `app`
+  section of `pocket.host.config.ts`; `@pocketjs/framework/plan` replaces
+  `@pocketjs/framework/manifest`, and `pocket compile --manifest` is refused.
+- The `.pocket` container is replaced by a one-application bundle (`.pkb`).
+  `--bundle` replaces `--pocket`, generic runtimes read `app.pkb`, and
+  `pocket-package` reads bundles (`Bundle::parse`, `admit_bundle`). A host
+  with its own container states its sections through the package source.
+- Pocket Link, the applet modules (`@pocketjs/framework/applet`, `/link`,
+  `/camera`), the 3DS product host and companion media playback
+  (`@pocketjs/framework/media`, `media.playback`) moved to pocket-shell.
+  Pocket Companion moved to Pocket Hub.
+- PSP, PS Vita and Nokia E7 programs run one application.
+  `--launcher-registry`, `--launcher-bundles`, `--catalog-index`,
+  `--catalog-blob` and `--navigation` are removed; ops 39 to 41 and 51 stay
+  declared for a product host. The PSP frame loop is in the `pocketjs-psp`
+  library (`frame::run`), and `buildPspProgram()` and `buildVitaProgram()`
+  build a product's own program crate.
+- The stock PSP program starts no Pocket Link worker and reads nothing under
+  `host0:/pocket-link/`.
+- The PS Vita USB development loop moved to
+  [pocket-devkit](https://github.com/pocket-nexus/pocket-devkit): `vita:dev`
+  and `--no-usb-debug` are removed, and a stock VPK carries no USB driver.
+- A host contract defines the capability ids the registry does not know.
+  `link.companion`, `link.channel`, `media.playback`, `system.wifi`,
+  `system.device`, `system.agent`, `system.extension`, `camera.qr` and
+  `camera.photo` left the registry. ESP-IDF package facts read a feature by
+  id (`pocket_idf_package_feature`); the feature bits and `slot` are removed.
+- Compositor surfaces are removed: `CompositorSurface`, op 44, the `surface`
+  node type, DrawList opcode 10, `ui.compositor-surfaces` and package roles
+  (`roleCapabilities`). The PocketJS Desktop Host and the Pocket System are
+  removed.
+- The engine crates are consolidated by contract, and retired hosts and the
+  singleton compatibility layer are removed.
+- The iOS development app is `PocketJSHost.app`, and `programs/rg-ds-plus`
+  runs `/usr/share/pocketjs/app.pkb` by default.
+
+### Features
+
+- feat(package): let a source transfer its storage without a copy (#640) ([24b8fb1a](https://github.com/pocket-nexus/pocketjs/commit/24b8fb1a61785b1a9eed2baffa1d40f84c11c35e))
+- feat(package): ship QuickJS bytecode for the engine a host contract names (#641) ([2f99cb92](https://github.com/pocket-nexus/pocketjs/commit/2f99cb92f17cd3c5c20cf883ce8b7158c476849e))
+- feat(applet): an applet that declares net.http reads its worker's channels (#652) ([5d5f60b9](https://github.com/pocket-nexus/pocketjs/commit/5d5f60b92b1843fa26e53a391339d11d478c568e))
+- feat(worker): add an MQTT 3.1.1 and 5.0 session resource (#655) ([6c397b9f](https://github.com/pocket-nexus/pocketjs/commit/6c397b9f2c3e3b0843a09d0b2a5c80aba75b49c0))
+- feat(sifli): add native EPIC rotation and fix clipped blits (#627) ([5a3c1338](https://github.com/pocket-nexus/pocketjs/commit/5a3c13386fde4a1972cbfbeedb019a7ba4dbbdce))
+- feat(linux): the RG DS Plus program on main and a worker domain for any Linux program (#660) ([4f6263b5](https://github.com/pocket-nexus/pocketjs/commit/4f6263b506300c620f1a17748a6239ddd9d184e3))
+- feat(site): Omarchy Pocket in pocket.nexus's technology (#661) ([e82f8c43](https://github.com/pocket-nexus/pocketjs/commit/e82f8c43b443857456a5bacbd7976100a13425d0))
+- feat(worker): a host contract sizes its worker channels and http responses (#662) ([b5aff674](https://github.com/pocket-nexus/pocketjs/commit/b5aff674cad48709411419605cb26d355246cc90))
+- feat(site): Pocket Applets in pocket.nexus's technology, and a technology dock (#664) ([08613e11](https://github.com/pocket-nexus/pocketjs/commit/08613e11d747cfbaea8859cfae5354347c126597))
+- feat(quickjs): add per-instance console log hook (#667) ([252f8ee2](https://github.com/pocket-nexus/pocketjs/commit/252f8ee2173700998e5690858851c69f746171bb))
+- feat(companion): a service's owner setup at /_setup, vendor tools fetched with consent, supervised programs (#669) ([c91df659](https://github.com/pocket-nexus/pocketjs/commit/c91df659764671a398d8d112674e9f54853ba47c))
+- feat(3ds): share development keys in ~/.pocketjs/3ds/keys, and pairing adopts the console's key (#675) ([c1af3c22](https://github.com/pocket-nexus/pocketjs/commit/c1af3c22b1bc20025b950cce29715c1c565d2d14))
+- feat(wifi): system.wifi on a general operating system: disconnect, the system's settings, every saved connection, and each scanned network's signal and saved mark (#685) ([9b5f34ee](https://github.com/pocket-nexus/pocketjs/commit/9b5f34ee8391f2a78845e05691faf692905ebf4e))
+- feat(link)!: Pocket Link 2: specification, TypeScript reference, C client, and the 3DS program on it without the development connection (#678) ([db995a45](https://github.com/pocket-nexus/pocketjs/commit/db995a4517d869b8df256285e44bfd26855f6a6d))
+- feat(framework): the live viewport for app code: useViewport and onViewport (#691) ([8ed0602a](https://github.com/pocket-nexus/pocketjs/commit/8ed0602ac9376d36d2702e949162bdfc8827ac80))
+- feat(build): --font-mono swaps the face of the font-mono slots (#692) ([41b92ca2](https://github.com/pocket-nexus/pocketjs/commit/41b92ca2b9f4fa2fb1edc5c6880d96687b5fccc4))
+- feat(embassy): add no_std Embassy display and pacing adapters (#688) ([59502461](https://github.com/pocket-nexus/pocketjs/commit/59502461b8e8ac637a4ae3780b330e333c27d0a5))
+- feat(link): runtime.remove, Hub's request to delete an installed applet (#695) ([c24603c2](https://github.com/pocket-nexus/pocketjs/commit/c24603c20b55f9308ae15055517554c106701cb7))
+- feat(link): pair a device by a code it shows (#696) ([89e10438](https://github.com/pocket-nexus/pocketjs/commit/89e1043830434e07926e520d129c4fe0fccdcd48))
+- feat(runtime): a package source can state where its program's sections lie (#700) ([5bf4840d](https://github.com/pocket-nexus/pocketjs/commit/5bf4840d3a9c8bc95e7dbec76f2750dca869c3ba))
+- feat(framework): publish what a product's system layer and guest packages build on (#702) ([df8b17d6](https://github.com/pocket-nexus/pocketjs/commit/df8b17d6717cf337f7f012506d51102855fc4eae))
+
+### Fixes
+
+- fix(companion): the Mac app speaks of the Tab5 as well as the 3DS (#658) ([84a763e0](https://github.com/pocket-nexus/pocketjs/commit/84a763e0ac874b6c3c1849c65a909b28932435fc))
+- fix(companion): a service reply's net.head carries no body (#665) ([9c33b264](https://github.com/pocket-nexus/pocketjs/commit/9c33b264b0d5db97ded3dcc2a0f80e2858a8cc62))
+- fix(guest-rquickjs): collect before the heap limit when the live heap is above half of it (#671) ([343c354a](https://github.com/pocket-nexus/pocketjs/commit/343c354a245440c56cfbc9263af1c7245cc3a79a))
+- fix(guest-rquickjs): keep the collection threshold below the limit after a turn that throws, and in pocket-mod's realm; the owner setup's wire types as a contract (#673) ([2da29c19](https://github.com/pocket-nexus/pocketjs/commit/2da29c19d23e0231b193a3da9c8d497d43abf81d))
+- fix(3ds): pair a card that has never run the program, and replace a key file the console would refuse (#676) ([c6f29771](https://github.com/pocket-nexus/pocketjs/commit/c6f297718814c0ed736e38384abf41644f28c2c5))
+- fix(vita): set the vita2d clip only when it changes (#683) ([201af70c](https://github.com/pocket-nexus/pocketjs/commit/201af70c9d0c44e3e26138aa2e73f2b8c218b83e))
+- fix(vita): a runtime that started without app.pocket accepts a push, and the status reports frame timing (#684) ([fddc5f38](https://github.com/pocket-nexus/pocketjs/commit/fddc5f38696bfc835ec75f6a4d151d5dcf97783e))
+- fix(link): the reference device reads a frame that comes in the read of ready, and a channel's stream writers wake when its queue has room (#689) ([64d1160f](https://github.com/pocket-nexus/pocketjs/commit/64d1160f4136dfed6c4faa1e682b6722fe5bddfa))
+- fix(3ds): a new slot's folders, and a first boot's compile, run off the main loop with the link pumped (#690) ([48ca98b4](https://github.com/pocket-nexus/pocketjs/commit/48ca98b4fca2473a51000bc6b2ea5f347d076c74))
+- fix(esp-idf): a display whose scaler filters flushes one pixel around each change (#698) ([806ac202](https://github.com/pocket-nexus/pocketjs/commit/806ac202141ece274f47c938c2899ffe8d30921d))
+- fix(psp): read the generic runtime's XMB metadata from where the build looks (#709) ([a8f2bcdd](https://github.com/pocket-nexus/pocketjs/commit/a8f2bcdd9b8e3e88b7a2acfb800185617b1d8765))
+- fix(core): stamp a texture's last draw without an atomic (#715) ([edf7e231](https://github.com/pocket-nexus/pocketjs/commit/edf7e2310a6e404728e14252b5d51316e8b7358e))
+
+### Other changes
+
+- chore(ci): remove redundant release validation workflow (#651) ([1be5f921](https://github.com/pocket-nexus/pocketjs/commit/1be5f9211e9da5c7e2aba685e5918663144f2928))
+- perf(core): read baked font atlases from the package in place (#642) ([982ba73b](https://github.com/pocket-nexus/pocketjs/commit/982ba73b3e1600df5557ba4be3a02b19b61b87c8))
+- perf(core): decode package textures when drawn and bound them (#643) ([c00e36fb](https://github.com/pocket-nexus/pocketjs/commit/c00e36fbc4c956ed205057752f04aa628ca9a6fb))
+- perf(test): reuse native build outputs across the JavaScript suite (#654) ([a90b3cb4](https://github.com/pocket-nexus/pocketjs/commit/a90b3cb4aa4b514eeb56b96a7f5ebb92d56fa968))
+- perf(test): cache the generated AOT crates' cargo target in CI (#656) ([8e9afa02](https://github.com/pocket-nexus/pocketjs/commit/8e9afa02e1d465ed8fa74bf097b1b9f16806c6f7))
+- ci: run the suite once per pull request instead of twenty fragments (#657) ([f860d6bf](https://github.com/pocket-nexus/pocketjs/commit/f860d6bf31a351a2eaf31b80b1fa2ff541758d74))
+- refactor(runtime)!: remove retired hosts and singleton compatibility (#659) ([58442dc3](https://github.com/pocket-nexus/pocketjs/commit/58442dc3e31b2c89b40c75ecde5aca47559ff9c7))
+- docs: Pocket Shell, the applets repository, the Tab5 and Pocket Companion as they are now (#663) ([be9e6b53](https://github.com/pocket-nexus/pocketjs/commit/be9e6b53e07577b4da7e3a27dceb9d40405d9a4d))
+- refactor(link)!: move Pocket Companion out to Pocket Hub, keep the Pocket Link reference implementation (#672) ([1d4fabbc](https://github.com/pocket-nexus/pocketjs/commit/1d4fabbc8a4aa0f7b01d871f25f9bc38ae9fe2bc))
+- refactor(engine)!: consolidate the engine crates by contract (#674) ([becc0e21](https://github.com/pocket-nexus/pocketjs/commit/becc0e21b678384ec31efa2b4f8d0be3aeefad5f))
+- refactor(hosts)!: remove the PocketJS Desktop Host (#677) ([378681b2](https://github.com/pocket-nexus/pocketjs/commit/378681b23615762476348f24752e99cb8fcf300e))
+- docs(microts): page navigation and focus, Solid diagnostics, AOT applications in ESP-IDF firmware (#697) ([432ac0d2](https://github.com/pocket-nexus/pocketjs/commit/432ac0d2e828328f3e8272b4e098a3232f7c15fd))
+- docs(esp-idf): shorten the filtered scaling notes (#699) ([c53a780c](https://github.com/pocket-nexus/pocketjs/commit/c53a780c9a95c65cd6709b07284ea3b4ad8edb91))
+- build(deps): move the workspace to rquickjs 0.14 (#694) ([20727298](https://github.com/pocket-nexus/pocketjs/commit/20727298e299a329da71eac4d0c66290d4f3256d))
+- refactor(apps)!: remove the Cover Flow launcher app and its artifact chain (#701) ([1577f452](https://github.com/pocket-nexus/pocketjs/commit/1577f4529ac63552e8dce6a2b4dc519be0e5807c))
+- refactor!: remove the Runtime layer from pocketjs (#704) ([89162fb7](https://github.com/pocket-nexus/pocketjs/commit/89162fb71f718af37e0e39b3ddba2d5ee0e050f9))
+- refactor!: build each application from the app section of its host config (#705) ([8b6adcb3](https://github.com/pocket-nexus/pocketjs/commit/8b6adcb3ac3635e16502aaafe05d8930f8cb38b5))
+- refactor(package)!: replace the .pocket container with a one-application bundle (#706) ([8498e66f](https://github.com/pocket-nexus/pocketjs/commit/8498e66f2537092cf28fc8812f220a6ef5878c99))
+- refactor(vita)!: move the USB development loop out to pocket-devkit (#707) ([4d2a91fb](https://github.com/pocket-nexus/pocketjs/commit/4d2a91fb6f15fedd7e76c94ad3da1c80173e1d39))
+- refactor(programs)!: run one application per PSP, Vita and Nokia E7 program (#708) ([e95942c3](https://github.com/pocket-nexus/pocketjs/commit/e95942c339d748773c4e7ad103b8b67075320062))
+- refactor(psp)!: move the Pocket Link carrier and companion media playback out (#710) ([3730d94d](https://github.com/pocket-nexus/pocketjs/commit/3730d94dd24abf40dd685c0a8340d5a03cae3233))
+- docs!: remove product wording, a product switcher design and names that belong to other repositories (#711) ([c7c093f7](https://github.com/pocket-nexus/pocketjs/commit/c7c093f76440cebf50e24bd1fc8b70c08053702f))
+- refactor(contracts)!: let a host contract define its own capability ids (#712) ([463d0482](https://github.com/pocket-nexus/pocketjs/commit/463d04821240add53bca3559135089a404fb49aa))
+- refactor(contracts)!: remove compositor surfaces, op 44, node type 3, DrawList opcode 10 and package roles (#713) ([f4800cde](https://github.com/pocket-nexus/pocketjs/commit/f4800cde1422c51cc2fe38b36f4234e40146610e))
+
 ## 0.16.0 — November 2, 2026
 
 **Pocket Applets share companion services, IO runs in isolated workers, and 2D games run on PSP and web.**

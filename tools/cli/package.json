@@ -1,6 +1,6 @@
 {
   "name": "@pocketjs/cli",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "The PocketJS CLI — handheld and ESP-IDF builds from pocket.host.config.ts, app scaffolding, and installs of the target toolchains the framework pins. Runs on Bun.",
   "license": "MIT",
   "type": "module",
