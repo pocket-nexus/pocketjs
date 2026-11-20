@@ -86,7 +86,7 @@ pub struct Texture {
     /// The pak bytes a released texture is decoded from again.
     source: Option<TextureSource>,
     /// `Ui::frame` of the last draw that recorded this texture (`touch`).
-    used: core::sync::atomic::AtomicU32,
+    used: core::cell::Cell<u32>,
     byte_len: usize,
     pub w: u32,
     pub h: u32,
@@ -161,8 +161,7 @@ impl Texture {
     /// False when the pixels are unavailable (`decode`); the frame then
     /// records nothing for this texture and the next frame tries again.
     pub(crate) fn touch(&self, frame: u64) -> bool {
-        self.used
-            .store(frame as u32, core::sync::atomic::Ordering::Relaxed);
+        self.used.set(frame as u32);
         self.pixels().is_some()
     }
 
@@ -1208,7 +1207,7 @@ impl Ui {
         let tex = Texture {
             data: core::cell::OnceCell::from(chunks),
             source: None,
-            used: core::sync::atomic::AtomicU32::new(0),
+            used: core::cell::Cell::new(0),
             byte_len,
             w,
             h,
@@ -1279,7 +1278,7 @@ impl Ui {
                 storage,
                 stream: pixels,
             }),
-            used: core::sync::atomic::AtomicU32::new(0),
+            used: core::cell::Cell::new(0),
             byte_len,
             w,
             h,
@@ -1351,7 +1350,7 @@ impl Ui {
                 continue;
             }
             resident += tex.byte_len;
-            let used = tex.used.load(core::sync::atomic::Ordering::Relaxed);
+            let used = tex.used.get();
             if slot.fence == 0 && used != last_draw {
                 candidates.push((now.wrapping_sub(used), index));
             }
@@ -1451,7 +1450,7 @@ impl Ui {
             let replacement = Texture {
                 data: core::cell::OnceCell::from(alloc::vec![0u128; tex.byte_len.div_ceil(16)]),
                 source: None,
-                used: core::sync::atomic::AtomicU32::new(0),
+                used: core::cell::Cell::new(0),
                 palette: Some(alloc::vec![0u128; TEX_PALETTE_BYTES / 16]),
                 byte_len: tex.byte_len,
                 w: tex.w,

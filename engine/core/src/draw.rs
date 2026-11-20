@@ -588,7 +588,7 @@ pub(crate) fn glyph_page(
             crate::Texture {
                 data: core::cell::OnceCell::from(data),
                 source: None,
-                used: core::sync::atomic::AtomicU32::new(0),
+                used: core::cell::Cell::new(0),
                 byte_len,
                 w: width,
                 h: height,
@@ -688,7 +688,7 @@ fn disc_texture(
         crate::Texture {
             data: core::cell::OnceCell::from(chunks),
             source: None,
-            used: core::sync::atomic::AtomicU32::new(0),
+            used: core::cell::Cell::new(0),
             byte_len,
             w: dim,
             h: dim,
@@ -2609,7 +2609,7 @@ impl<'a> Walker<'a> {
             crate::Texture {
                 data: core::cell::OnceCell::from(data),
                 source: None,
-                used: core::sync::atomic::AtomicU32::new(0),
+                used: core::cell::Cell::new(0),
                 byte_len: (tw * th * 4) as usize,
                 w: tw,
                 h: th,
