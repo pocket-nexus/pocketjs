@@ -5,6 +5,7 @@ export { RelativeAxis, RelativeAxisUnits, feedAxisDelta, type RelativeAxisId, ty
 export { MotionLevel, MotionQuality, MotionReferenceFrame, feedMotionState, type MotionMinQualityName, type MotionPayload, type MotionState, type MotionValueName } from "./motion.ts";
 export { auxiliaryTouches, touches, type TouchContact } from "./touch.ts";
 export { hasTextInput, onTextEvent, type TextEvent, type TextEventHandler } from "./text-input.ts";
+export { onScroll, pointer, type PointerState, type ScrollEvent, type ScrollHandler } from "./pointer.ts";
 export {
   cursorX,
   cursorY,

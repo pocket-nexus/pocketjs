@@ -23,6 +23,10 @@ pub struct EncodedInput {
     pub touches: Vec<u32>,
     pub hits: Vec<i32>,
     pub surfaces: Vec<u8>,
+    /// Two entries per `touches` word, x then y: the contact's logical
+    /// position before the word's 0..=1023 integer clamp. A cancellation's
+    /// pair is zero.
+    pub positions: Vec<f32>,
 }
 impl InputEncoder {
     pub fn new() -> Self {
@@ -33,7 +37,9 @@ impl InputEncoder {
         ui: &mut Ui,
         frame: &InputFrame<'_>,
     ) -> Result<EncodedInput, RuntimeError> {
-        if frame.axes.iter().any(|axis| !axis.value.is_finite()) {
+        if frame.axes.iter().any(|axis| !axis.value.is_finite())
+            || frame.scroll.iter().any(|delta| !delta.is_finite())
+        {
             return Err(RuntimeError::InvalidInput);
         }
         let mut contacts: Vec<Contact> = frame
@@ -90,6 +96,7 @@ impl InputEncoder {
             touches: Vec::with_capacity(16),
             hits: Vec::with_capacity(16),
             surfaces: Vec::with_capacity(16),
+            positions: Vec::with_capacity(32),
         };
         let mut cancelled = Vec::new();
         for capture in &self.captures {
@@ -172,12 +179,14 @@ impl InputEncoder {
             out.touches.push(word);
             out.hits.push(capture.hit);
             out.surfaces.push(c.surface as u8);
+            out.positions.extend([c.x, c.y]);
         }
         for capture in cancelled {
             out.touches
                 .push(0x4000_0000 | ((capture.wire_id as u32) << 18));
             out.hits.push(0);
             out.surfaces.push(capture.surface as u8);
+            out.positions.extend([0.0, 0.0]);
         }
         let mut axes = [128u32; 4];
         for axis in frame.axes {

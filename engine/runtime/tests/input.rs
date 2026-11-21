@@ -64,7 +64,7 @@ fn cancellation_is_surface_scoped_and_axes_preserve_the_eight_argument_wire() {
     assert_eq!(frame.right_analog, 11 << 8 | 22);
 }
 #[test]
-fn rejects_duplicate_contacts_and_nonfinite_coordinates() {
+fn rejects_duplicate_contacts_and_nonfinite_coordinates_and_scroll() {
     let mut ui = Ui::new();
     let mut encoder = InputEncoder::new();
     let mut input = InputFrameBuilder::new();
@@ -85,6 +85,11 @@ fn rejects_duplicate_contacts_and_nonfinite_coordinates() {
     assert!(encoder.encode(&mut ui, &input.frame()).is_ok());
     input.pointer.as_mut().unwrap().surface = 2;
     assert!(encoder.encode(&mut ui, &input.frame()).is_err());
+    input.pointer.as_mut().unwrap().surface = 0;
+    input.scroll = [0., f32::INFINITY];
+    assert!(encoder.encode(&mut ui, &input.frame()).is_err());
+    input.scroll = [0., -40.];
+    assert!(encoder.encode(&mut ui, &input.frame()).is_ok());
 }
 
 #[test]
@@ -126,4 +131,29 @@ fn invalid_axis_sample_does_not_create_a_down_edge_capture() {
         encoder.encode(&mut ui, &input.frame()).unwrap().hits,
         [node]
     );
+}
+
+#[test]
+fn positions_keep_coordinates_the_wide_word_clamps() {
+    let mut ui = Ui::new();
+    ui.set_viewport(1600., 1200.);
+    let mut encoder = InputEncoder::new();
+    let mut input = InputFrameBuilder::new();
+    input.contacts.push(contact(0, 4, 1500.5, 1100.25));
+    input.pointer = Some(Pointer {
+        surface: 0,
+        x: 20.75,
+        y: -3.,
+        buttons: 1,
+    });
+    let frame = encoder.encode(&mut ui, &input.frame()).unwrap();
+    assert_eq!(frame.touches[0], 0x8000_0000 | 4 << 20 | 1023 << 10 | 1023);
+    assert_eq!(frame.touches[1] & 0x3ffff, 20);
+    assert_eq!(frame.positions, [1500.5, 1100.25, 20.75, -3.]);
+    input.contacts.clear();
+    input.pointer = None;
+    input.cancelled.push(CancelledContact { surface: 0, id: 4 });
+    let cancelled = encoder.encode(&mut ui, &input.frame()).unwrap();
+    assert_eq!(cancelled.touches, [0x4000_0000 | 4 << 18]);
+    assert_eq!(cancelled.positions, [0., 0.]);
 }

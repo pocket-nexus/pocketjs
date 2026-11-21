@@ -6,6 +6,7 @@
 // operates the app replaces that input with its own.
 
 import type { HostOps } from "./host.ts";
+import type { PointerRecord } from "./pointer.ts";
 
 export type SystemLayer = (ops: HostOps) => (() => void) | null;
 
@@ -15,13 +16,17 @@ export interface FrameInput {
   touches: readonly number[] | undefined;
   hits: readonly number[] | undefined;
   surfaces: readonly number[] | undefined;
+  /** The frame's pointer with its scroll; null for none. A layer that
+   *  replaces the touches with its own sets it to null, so the user's hover
+   *  and scrolling stay out of the app while the layer operates it. */
+  pointer: PointerRecord | null | undefined;
 }
 
 export type FrameInputFilter = (input: FrameInput) => void;
 
 const layers: SystemLayer[] = [];
 let filter: FrameInputFilter | null = null;
-const input: FrameInput = { buttons: 0, touches: undefined, hits: undefined, surfaces: undefined };
+const input: FrameInput = { buttons: 0, touches: undefined, hits: undefined, surfaces: undefined, pointer: undefined };
 
 export function registerSystemLayer(layer: SystemLayer): void {
   if (!layers.includes(layer)) layers.push(layer);
@@ -49,12 +54,14 @@ export function filterFrameInput(
   touches: readonly number[] | undefined,
   hits: readonly number[] | undefined,
   surfaces: readonly number[] | undefined,
+  pointer?: PointerRecord | null,
 ): FrameInput | null {
   if (filter === null) return null;
   input.buttons = buttons;
   input.touches = touches;
   input.hits = hits;
   input.surfaces = surfaces;
+  input.pointer = pointer;
   filter(input);
   return input;
 }

@@ -11,7 +11,7 @@
 /* Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the software rasterizer that create registers in an archive built with it (the C SDK, ESP-IDF and SiFli archives). In an archive without it no renderer has that id, and add_display with it fails. Registered renderers take ids from 1. Multiple displays may share a renderer instance. */
 /* Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest. */
 /* Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. A DEFERRED renderer's frame completes at the start of the next present, so its device work overlaps the next guest turn. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks. */
-/* The guest receives the eight frame arguments and the frame's text events through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format. A text event names an editing key as KeyboardEvent.key does (Enter, Backspace, Delete, Escape, Tab, ArrowLeft, Home), with a held modifier in front: Control+z, Alt+ArrowLeft. */
+/* The guest receives the eight frame arguments, the frame's text events, the frame's pointer with its scroll, and the exact position of each touch word through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format. A text event names an editing key as KeyboardEvent.key does (Enter, Backspace, Delete, Escape, Tab, ArrowLeft, Home), with a held modifier in front: Control+z, Alt+ArrowLeft. */
 /* Destroy completes in-flight DEFERRED frames and drains rendering and display transfers before shutting down the guest and releasing package or frame resources. */
 /* An application links exactly one PocketJS Rust archive. The six pocket_host_* functions are supplied by the program and are the archive's complete host-hook contract. */
 
@@ -577,7 +577,7 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_result, real) == POCKET_LAYOUT_POCK
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_result, bytes) == POCKET_LAYOUT_POCKET_RESULT_4_OFFSET, "pocket_result.bytes");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_result, byte_length) == POCKET_LAYOUT_POCKET_RESULT_5_OFFSET, "pocket_result.byte_length");
 
-/* Legacy frame argument packet encoded by the runtime, including hit facts. touches/hits/touch_surfaces have touch_count entries; text has text_count entries, the frame's text events in order. Borrowed until the guest frame callback returns. */
+/* Legacy frame argument packet encoded by the runtime, including hit facts. touches/hits/touch_surfaces have touch_count entries; text has text_count entries, the frame's text events in order. pointer is the frame's pointer, null when no input source reported one; its position is unclamped logical px, with or without a button down. scroll is the frame's summed wheel and trackpad scrolling in logical px of the pointer's surface, zero without a pointer. touch_positions has 2 * touch_count entries, x then y for each touches word: the contact's logical position, fractional and unclamped, that the word clamps to whole px in 0..1023; a cancellation's pair is zero. Borrowed until the guest frame callback returns. */
 struct pocket_guest_frame {
   size_t struct_size;
   uint32_t buttons;
@@ -592,6 +592,9 @@ struct pocket_guest_frame {
   const pocket_motion_state * motion;
   const pocket_text_event * text;
   size_t text_count;
+  const pocket_pointer * pointer;
+  float scroll[2];
+  const float * touch_positions;
 };
 enum {
   POCKET_LAYOUT_POCKET_GUEST_FRAME_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -620,10 +623,16 @@ enum {
   POCKET_LAYOUT_POCKET_GUEST_FRAME_11_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_FRAME_10_ALIGN, POCKET_ABI_ALIGNOF(const pocket_text_event *)),
   POCKET_LAYOUT_POCKET_GUEST_FRAME_12_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_FRAME_11_OFFSET + sizeof(const pocket_text_event *), POCKET_ABI_ALIGNOF(size_t)),
   POCKET_LAYOUT_POCKET_GUEST_FRAME_12_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_FRAME_11_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
-  POCKET_LAYOUT_POCKET_GUEST_FRAME_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_FRAME_12_OFFSET + sizeof(size_t), POCKET_LAYOUT_POCKET_GUEST_FRAME_12_ALIGN)
+  POCKET_LAYOUT_POCKET_GUEST_FRAME_13_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_FRAME_12_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const pocket_pointer *)),
+  POCKET_LAYOUT_POCKET_GUEST_FRAME_13_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_FRAME_12_ALIGN, POCKET_ABI_ALIGNOF(const pocket_pointer *)),
+  POCKET_LAYOUT_POCKET_GUEST_FRAME_14_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_FRAME_13_OFFSET + sizeof(const pocket_pointer *), POCKET_ABI_ALIGNOF(float)),
+  POCKET_LAYOUT_POCKET_GUEST_FRAME_14_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_FRAME_13_ALIGN, POCKET_ABI_ALIGNOF(float)),
+  POCKET_LAYOUT_POCKET_GUEST_FRAME_15_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_FRAME_14_OFFSET + 4 * 2, POCKET_ABI_ALIGNOF(const float *)),
+  POCKET_LAYOUT_POCKET_GUEST_FRAME_15_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_FRAME_14_ALIGN, POCKET_ABI_ALIGNOF(const float *)),
+  POCKET_LAYOUT_POCKET_GUEST_FRAME_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_FRAME_15_OFFSET + sizeof(const float *), POCKET_LAYOUT_POCKET_GUEST_FRAME_15_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_guest_frame) == POCKET_LAYOUT_POCKET_GUEST_FRAME_SIZE, "pocket_guest_frame size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_guest_frame) == POCKET_LAYOUT_POCKET_GUEST_FRAME_12_ALIGN, "pocket_guest_frame alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_guest_frame) == POCKET_LAYOUT_POCKET_GUEST_FRAME_15_ALIGN, "pocket_guest_frame alignment");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, struct_size) == POCKET_LAYOUT_POCKET_GUEST_FRAME_0_OFFSET, "pocket_guest_frame.struct_size");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, buttons) == POCKET_LAYOUT_POCKET_GUEST_FRAME_1_OFFSET, "pocket_guest_frame.buttons");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, analog) == POCKET_LAYOUT_POCKET_GUEST_FRAME_2_OFFSET, "pocket_guest_frame.analog");
@@ -637,6 +646,9 @@ POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, axis_delta_count) == P
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, motion) == POCKET_LAYOUT_POCKET_GUEST_FRAME_10_OFFSET, "pocket_guest_frame.motion");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, text) == POCKET_LAYOUT_POCKET_GUEST_FRAME_11_OFFSET, "pocket_guest_frame.text");
 POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, text_count) == POCKET_LAYOUT_POCKET_GUEST_FRAME_12_OFFSET, "pocket_guest_frame.text_count");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, pointer) == POCKET_LAYOUT_POCKET_GUEST_FRAME_13_OFFSET, "pocket_guest_frame.pointer");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, scroll) == POCKET_LAYOUT_POCKET_GUEST_FRAME_14_OFFSET, "pocket_guest_frame.scroll");
+POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(pocket_guest_frame, touch_positions) == POCKET_LAYOUT_POCKET_GUEST_FRAME_15_OFFSET, "pocket_guest_frame.touch_positions");
 
 /* Guest callbacks invoke generated bindings through pocket_runtime_op. No guest retains borrowed frame memory after frame returns. */
 struct pocket_guest_v1 {
