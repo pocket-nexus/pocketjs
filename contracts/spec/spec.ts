@@ -405,8 +405,8 @@ export const PROP = {
   arcWidth: 142, //     f32 px stroke thickness; > 0 (with sweep != 0) draws an
   //                    annular sector with ROUND CAPS instead of the bg box:
   //                    center = node center, outer radius = min(w,h)/2, color
-  //                    = bgColor. Axis-aligned worlds only (rotation belongs
-  //                    in arcStart).
+  //                    = bgColor. A rotated world turns the ring with the
+  //                    node; a mirrored world draws nothing.
   skewX: 143, //        f32 degrees of horizontal shear about the transform
   //                    origin, composed between rotate and scale (CSS
   //                    `rotate() skewX() scale()`): with it, rotate + skewX +
