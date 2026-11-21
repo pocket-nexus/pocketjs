@@ -951,6 +951,56 @@ fn scaled_flat_rounded_box_has_no_gaps_between_fast_path_pieces() {
 }
 
 #[test]
+fn arcs_draw_under_rotation() {
+    // A half ring from 12 o'clock through 3 to 6 (the right half), 6 px
+    // wide, on a 40x40 node centred at (120, 120): ring radii 14..20, mid
+    // radius 17. Turned 180 degrees it draws the left half; turned 90
+    // degrees clockwise it draws the bottom half. A rotated world used to
+    // draw no arc at all.
+    let render = |rotate: f64| {
+        let mut ui = Ui::new();
+        let n = ui.create_node(0);
+        ui.set_prop(n, spec::prop::WIDTH, 40.0);
+        ui.set_prop(n, spec::prop::HEIGHT, 40.0);
+        ui.set_prop(
+            n,
+            spec::prop::POS_TYPE,
+            spec::PosType::Absolute as u32 as f64,
+        );
+        ui.set_prop(n, spec::prop::INSET_T, 100.0);
+        ui.set_prop(n, spec::prop::INSET_L, 100.0);
+        ui.set_prop(n, spec::prop::BG_COLOR, abgr(255, 69, 58, 255) as f64);
+        ui.set_prop(n, spec::prop::ARC_START, 0.0);
+        ui.set_prop(n, spec::prop::ARC_SWEEP, 180.0);
+        ui.set_prop(n, spec::prop::ARC_WIDTH, 6.0);
+        ui.set_prop(n, spec::prop::ROTATE, rotate);
+        ui.insert_before(spec::ROOT_ID, n, 0);
+        ui.tick();
+        let words = ui.draw().words.clone();
+        let mut framebuffer =
+            alloc::vec![0u8; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
+        pocket_raster::render(&ui, &words, &mut framebuffer);
+        framebuffer
+    };
+
+    // (rotation, a ring pixel on the drawn half, a ring pixel off it)
+    let cases = [
+        (180.0, (103, 120), (137, 120)), // 9 o'clock drawn, 3 o'clock not
+        (90.0, (120, 137), (120, 103)),  // 6 o'clock drawn, 12 o'clock not
+    ];
+    for (rotate, on, off) in cases {
+        let framebuffer = render(rotate);
+        let pixel = |(x, y): (usize, usize)| {
+            let offset = (y * spec::SCREEN_W as usize + x) * 4;
+            &framebuffer[offset..offset + 3]
+        };
+        assert_eq!(pixel(on), [255, 69, 58], "{rotate} deg: {on:?} not drawn");
+        assert_eq!(pixel(off), [0, 0, 0], "{rotate} deg: {off:?} drawn");
+        assert_eq!(pixel((120, 120)), [0, 0, 0], "{rotate} deg: hole filled");
+    }
+}
+
+#[test]
 fn rounded_corner_masks_follow_raster_density_without_changing_layout() {
     let mut ui = Ui::new_with_raster_density(2);
     assert_eq!(ui.raster_density(), 2);
